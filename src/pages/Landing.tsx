@@ -5,23 +5,25 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 export function Landing() {
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-950 to-black p-10">
+      <section className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-950 to-black p-6 md:p-10">
         <p className="text-sm uppercase tracking-[0.2em] text-slate-400">FilmLab MVP</p>
-        <h1 className="mt-4 text-3xl font-semibold text-white">AI 胶片修图教练</h1>
+        <h1 className="mt-4 text-2xl font-semibold text-white md:text-3xl">
+          AI 胶片修图教练
+        </h1>
         <p className="mt-2 max-w-2xl text-sm text-slate-300">
           导入一组照片，快速完成风格统一、批量应用与单张精修。该版本为 MVP 演示，提供预设、批处理与导出闭环。
         </p>
-        <div className="mt-6 flex flex-wrap gap-3">
-          <Button asChild>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <Button className="w-full sm:w-auto" asChild>
             <Link to="/library">开始导入素材</Link>
           </Button>
-          <Button variant="secondary" asChild>
+          <Button className="w-full sm:w-auto" variant="secondary" asChild>
             <Link to="/batch">直接进入批处理</Link>
           </Button>
         </div>
       </section>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader>
             <CardTitle>导入与资产</CardTitle>

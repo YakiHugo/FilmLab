@@ -4,6 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  PageHeader,
+  PageHeaderActions,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 import { Image, Upload } from "lucide-react";
 
 export function Library() {
@@ -32,17 +40,21 @@ export function Library() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold">素材库</h2>
-          <p className="text-sm text-slate-400">导入照片并管理你的项目素材。</p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => void resetProject()}>
+      <PageHeader>
+        <PageHeaderContent>
+          <PageHeaderTitle>素材库</PageHeaderTitle>
+          <PageHeaderDescription>导入照片并管理你的项目素材。</PageHeaderDescription>
+        </PageHeaderContent>
+        <PageHeaderActions>
+          <Button
+            className="w-full sm:w-auto"
+            variant="secondary"
+            onClick={() => void resetProject()}
+          >
             清空项目
           </Button>
-          <Button>
-            <label className="flex cursor-pointer items-center gap-2">
+          <Button className="w-full sm:w-auto" asChild>
+            <Label className="flex w-full cursor-pointer items-center justify-center gap-2">
               <Upload className="h-4 w-4" />
               导入照片
               <Input
@@ -52,13 +64,13 @@ export function Library() {
                 className="hidden"
                 onChange={(event) => handleFiles(event.target.files)}
               />
-            </label>
+            </Label>
           </Button>
-        </div>
-      </div>
+        </PageHeaderActions>
+      </PageHeader>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>导入统计</CardTitle>
           <Badge>{assets.length} 张</Badge>
         </CardHeader>
@@ -90,7 +102,7 @@ export function Library() {
         <p className="text-xs text-slate-500">自动生成缩略图与元信息</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {assets.map((asset) => (
           <Card key={asset.id} className="overflow-hidden">
             <div className="aspect-[4/3] overflow-hidden bg-slate-950">

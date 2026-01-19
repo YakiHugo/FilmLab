@@ -1,8 +1,9 @@
 import { NavLink } from "react-router-dom";
 import { Film, Image, LayoutGrid, Settings, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
-const navItems = [
+export const navItems = [
   { to: "/", label: "首页", icon: Film },
   { to: "/library", label: "素材库", icon: Image },
   { to: "/batch", label: "批处理", icon: LayoutGrid },
@@ -10,9 +11,18 @@ const navItems = [
   { to: "/export", label: "导出", icon: Settings },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  className?: string;
+}
+
+export function Sidebar({ className }: SidebarProps) {
   return (
-    <aside className="flex h-full w-60 flex-col border-r border-slate-800 bg-slate-900/40 p-4">
+    <aside
+      className={cn(
+        "flex h-full w-full flex-col border-r border-slate-800 bg-slate-900/40 p-4 md:w-60",
+        className
+      )}
+    >
       <div className="mb-6">
         <p className="text-lg font-semibold text-white">FilmLab</p>
         <p className="text-xs text-slate-400">AI 胶片修图教练 · MVP</p>
@@ -21,19 +31,21 @@ export function Sidebar() {
         {navItems.map((item) => {
           const Icon = item.icon;
           return (
-            <NavLink
+            <Button
               key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-200 transition hover:bg-slate-800",
-                  isActive && "bg-slate-800 text-white"
-                )
-              }
+              asChild
+              variant="ghost"
+              size="sm"
+              className="h-auto w-full justify-start gap-2 px-3 py-2 text-sm text-slate-200"
             >
-              <Icon className="h-4 w-4" />
-              {item.label}
-            </NavLink>
+              <NavLink
+                to={item.to}
+                className={({ isActive }) => cn(isActive && "bg-slate-800 text-white")}
+              >
+                <Icon className="h-4 w-4" />
+                <span>{item.label}</span>
+              </NavLink>
+            </Button>
           );
         })}
       </nav>
