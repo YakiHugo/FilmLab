@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { Link } from "@tanstack/react-router";
 import { Film, Image, LayoutGrid, Settings, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -38,13 +38,13 @@ export function Sidebar({ className }: SidebarProps) {
               size="sm"
               className="h-auto w-full justify-start gap-2 px-3 py-2 text-sm text-slate-200"
             >
-              <NavLink
+              <Link
                 to={item.to}
-                className={({ isActive }) => cn(isActive && "bg-slate-800 text-white")}
+                activeProps={{ className: "bg-slate-800 text-white" }}
               >
                 <Icon className="h-4 w-4" />
                 <span>{item.label}</span>
-              </NavLink>
+              </Link>
             </Button>
           );
         })}
