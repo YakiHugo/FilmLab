@@ -1,5 +1,5 @@
-import { Link } from "@tanstack/react-router";
-import { Film, Image, LayoutGrid, Settings, Wand2 } from "lucide-react";
+﻿import { Link } from "@tanstack/react-router";
+import { Film, Image, LayoutGrid, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -7,7 +7,6 @@ export const navItems = [
   { to: "/", label: "首页", icon: Film },
   { to: "/library", label: "素材库", icon: Image },
   { to: "/batch", label: "批处理", icon: LayoutGrid },
-  { to: "/editor", label: "精修", icon: Wand2 },
   { to: "/export", label: "导出", icon: Settings },
 ];
 
@@ -40,7 +39,7 @@ export function Sidebar({ className }: SidebarProps) {
             >
               <Link
                 to={item.to}
-                activeProps={{ className: "bg-slate-800 text-white" }}
+                activeProps={{ className: "bg-slate-700 text-white" }}
               >
                 <Icon className="h-4 w-4" />
                 <span>{item.label}</span>

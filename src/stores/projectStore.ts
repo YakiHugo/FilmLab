@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { presets } from "@/data/presets";
+import { createDefaultAdjustments } from "@/lib/adjustments";
 import type { Asset, Project } from "@/types";
 import { loadAssets, loadProject, saveAsset, saveProject, clearAssets } from "@/lib/db";
 
@@ -49,6 +50,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       intensity: asset.intensity,
       group: asset.group ?? `分组 ${index % 4 + 1}`,
       blob: asset.blob,
+      adjustments: asset.adjustments ?? createDefaultAdjustments(),
     }));
     set({ project, assets, isLoading: false });
   },
@@ -70,6 +72,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         intensity: presets[0]?.intensity,
         group,
         blob: file,
+        adjustments: createDefaultAdjustments(),
       };
       await saveAsset({
         id,
@@ -81,6 +84,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         presetId: asset.presetId,
         intensity: asset.intensity,
         group,
+        adjustments: asset.adjustments,
       });
       newAssets.push(asset);
     }
@@ -104,6 +108,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           presetId: asset.presetId,
           intensity: asset.intensity,
           group: asset.group,
+          adjustments: asset.adjustments,
         });
       }
     });
@@ -125,6 +130,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         presetId: updatedAsset.presetId,
         intensity: updatedAsset.intensity,
         group: updatedAsset.group,
+        adjustments: updatedAsset.adjustments,
       });
     }
     set({ assets: nextAssets });

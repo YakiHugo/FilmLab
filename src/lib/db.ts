@@ -1,4 +1,5 @@
 import { openDB, type DBSchema } from "idb";
+import type { EditingAdjustments } from "@/types";
 
 interface FilmLabDB extends DBSchema {
   assets: {
@@ -13,6 +14,7 @@ interface FilmLabDB extends DBSchema {
       presetId?: string;
       intensity?: number;
       group?: string;
+      adjustments?: EditingAdjustments;
     };
   };
   project: {

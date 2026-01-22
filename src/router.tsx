@@ -31,6 +31,9 @@ const batchRoute = createRoute({
 const editorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/editor",
+  validateSearch: (search: Record<string, unknown>) => ({
+    assetId: typeof search.assetId === "string" ? search.assetId : undefined,
+  }),
   component: Editor,
 });
 
