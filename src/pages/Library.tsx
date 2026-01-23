@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useProjectStore } from "@/stores/projectStore";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,7 +13,7 @@ import {
   PageHeaderDescription,
   PageHeaderTitle,
 } from "@/components/ui/page-header";
-import { Image, Upload } from "lucide-react";
+import { Image, Upload, Wand2 } from "lucide-react";
 
 export function Library() {
   const { assets, addAssets, init, isLoading, resetProject } = useProjectStore();
@@ -75,9 +76,7 @@ export function Library() {
           <Badge>{assets.length} 张</Badge>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-4 text-sm text-slate-300">
-          <div>
-            总占用：{(totalSize / 1024 / 1024).toFixed(2)} MB
-          </div>
+          <div>总占用：{(totalSize / 1024 / 1024).toFixed(2)} MB</div>
           <div>状态：{isLoading ? "加载中" : "就绪"}</div>
         </CardContent>
       </Card>
@@ -105,18 +104,30 @@ export function Library() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {assets.map((asset) => (
           <Card key={asset.id} className="overflow-hidden">
-            <div className="aspect-[4/3] overflow-hidden bg-slate-950">
+            <Link
+              to="/editor"
+              search={{ assetId: asset.id }}
+              className="block aspect-[4/3] overflow-hidden bg-slate-950"
+            >
               <img
                 src={asset.objectUrl}
                 alt={asset.name}
                 className="h-full w-full object-cover"
                 loading="lazy"
               />
-            </div>
+            </Link>
             <CardContent className="space-y-2 text-xs text-slate-300">
-              <div className="font-medium text-slate-100 line-clamp-1">{asset.name}</div>
+              <div className="font-medium text-slate-100 line-clamp-1">
+                {asset.name}
+              </div>
               <div>分组：{asset.group}</div>
               <div>大小：{(asset.size / 1024).toFixed(1)} KB</div>
+              <Button className="w-full" size="sm" variant="secondary" asChild>
+                <Link to="/editor" search={{ assetId: asset.id }}>
+                  <Wand2 className="h-4 w-4" />
+                  进入精修
+                </Link>
+              </Button>
             </CardContent>
           </Card>
         ))}

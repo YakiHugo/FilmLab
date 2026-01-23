@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 export function MobileNav() {
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-800 bg-slate-950/90 px-2 py-2 backdrop-blur md:hidden">
-      <div className="grid grid-cols-5 gap-1">
+      <div className="grid grid-cols-4 gap-1">
         {navItems.map((item) => {
           const Icon = item.icon;
           return (

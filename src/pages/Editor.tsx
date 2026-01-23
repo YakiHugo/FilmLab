@@ -1,22 +1,188 @@
-import { useEffect, useMemo, useState } from "react";
-import { useProjectStore } from "@/stores/projectStore";
+﻿import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { presets } from "@/data/presets";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Slider } from "@/components/ui/slider";
+import { createDefaultAdjustments } from "@/lib/adjustments";
 import { cn } from "@/lib/utils";
+import { useProjectStore } from "@/stores/projectStore";
+import type { EditingAdjustments } from "@/types";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Slider } from "@/components/ui/slider";
+
+const defaultAdjustments = createDefaultAdjustments();
+const presetMap = new Map(presets.map((preset) => [preset.id, preset.name]));
+
+type ToolGroupId = "filter" | "adjust" | "color" | "effects" | "detail" | "crop";
+
+type NumericAdjustmentKey =
+  | "exposure"
+  | "contrast"
+  | "highlights"
+  | "shadows"
+  | "whites"
+  | "blacks"
+  | "temperature"
+  | "tint"
+  | "vibrance"
+  | "saturation"
+  | "clarity"
+  | "dehaze"
+  | "vignette"
+  | "grain"
+  | "sharpening"
+  | "noiseReduction"
+  | "colorNoiseReduction"
+  | "rotate"
+  | "horizontal"
+  | "vertical"
+  | "scale";
+
+interface ToolDefinition {
+  id: NumericAdjustmentKey;
+  label: string;
+  min: number;
+  max: number;
+  step?: number;
+  format?: (value: number) => string;
+}
+
+const TOOL_GROUPS: { id: ToolGroupId; label: string }[] = [
+  { id: "filter", label: "滤镜" },
+  { id: "adjust", label: "调整" },
+  { id: "color", label: "颜色" },
+  { id: "effects", label: "效果" },
+  { id: "detail", label: "细节" },
+  { id: "crop", label: "裁剪" },
+];
+
+const formatSigned = (value: number) => (value > 0 ? `+${value}` : `${value}`);
+
+const TOOL_DEFINITIONS: Record<Exclude<ToolGroupId, "filter">, ToolDefinition[]> = {
+  adjust: [
+    { id: "exposure", label: "曝光", min: -100, max: 100, format: formatSigned },
+    { id: "contrast", label: "对比度", min: -100, max: 100, format: formatSigned },
+    { id: "highlights", label: "高光", min: -100, max: 100, format: formatSigned },
+    { id: "shadows", label: "阴影", min: -100, max: 100, format: formatSigned },
+    { id: "whites", label: "白色色阶", min: -100, max: 100, format: formatSigned },
+    { id: "blacks", label: "黑色色阶", min: -100, max: 100, format: formatSigned },
+  ],
+  color: [
+    { id: "temperature", label: "色温", min: -100, max: 100, format: formatSigned },
+    { id: "tint", label: "色调", min: -100, max: 100, format: formatSigned },
+    { id: "vibrance", label: "自然饱和度", min: -100, max: 100, format: formatSigned },
+    { id: "saturation", label: "饱和度", min: -100, max: 100, format: formatSigned },
+  ],
+  effects: [
+    { id: "clarity", label: "清晰度", min: -100, max: 100, format: formatSigned },
+    { id: "dehaze", label: "去朦胧", min: -100, max: 100, format: formatSigned },
+    { id: "vignette", label: "暗角", min: -100, max: 100, format: formatSigned },
+    { id: "grain", label: "颗粒", min: 0, max: 100 },
+  ],
+  detail: [
+    { id: "sharpening", label: "锐化", min: 0, max: 100 },
+    { id: "noiseReduction", label: "降噪", min: 0, max: 100 },
+    { id: "colorNoiseReduction", label: "色彩降噪", min: 0, max: 100 },
+  ],
+  crop: [
+    {
+      id: "rotate",
+      label: "旋转",
+      min: -45,
+      max: 45,
+      format: (value) => `${formatSigned(value)}°`,
+    },
+    { id: "horizontal", label: "水平", min: -100, max: 100, format: formatSigned },
+    { id: "vertical", label: "垂直", min: -100, max: 100, format: formatSigned },
+    { id: "scale", label: "缩放", min: 80, max: 120, format: (value) => `${value}%` },
+  ],
+};
+
+const DEFAULT_TOOL_BY_GROUP: Record<Exclude<ToolGroupId, "filter">, NumericAdjustmentKey> = {
+  adjust: "exposure",
+  color: "temperature",
+  effects: "vignette",
+  detail: "sharpening",
+  crop: "rotate",
+};
+
+const ASPECT_RATIOS: {
+  value: EditingAdjustments["aspectRatio"];
+  label: string;
+  ratio: string;
+}[] = [
+  { value: "original", label: "原始", ratio: "4 / 3" },
+  { value: "1:1", label: "1:1", ratio: "1 / 1" },
+  { value: "3:2", label: "3:2", ratio: "3 / 2" },
+  { value: "4:3", label: "4:3", ratio: "4 / 3" },
+  { value: "16:9", label: "16:9", ratio: "16 / 9" },
+];
+
+const GRAIN_SVG = encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" stitchTiles="stitch"/></filter><rect width="120" height="120" filter="url(#n)" opacity="0.4"/></svg>'
+);
+const GRAIN_DATA = `url("data:image/svg+xml;utf8,${GRAIN_SVG}")`;
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
+const cloneAdjustments = (value: EditingAdjustments) => {
+  if (typeof structuredClone === "function") {
+    return structuredClone(value) as EditingAdjustments;
+  }
+  return JSON.parse(JSON.stringify(value)) as EditingAdjustments;
+};
+
+const buildPreviewFilter = (adjustments: EditingAdjustments) => {
+  const exposure = clamp(
+    1 +
+      adjustments.exposure / 100 +
+      (adjustments.highlights + adjustments.whites) / 300 -
+      (adjustments.shadows + adjustments.blacks) / 300,
+    0.2,
+    2.5
+  );
+  const contrast = clamp(
+    1 + adjustments.contrast / 100 + adjustments.clarity / 200 + adjustments.dehaze / 250,
+    0,
+    2.5
+  );
+  const saturation = clamp(
+    1 + (adjustments.saturation + adjustments.vibrance * 0.6) / 100,
+    0,
+    3
+  );
+  const hue = adjustments.temperature * 0.6 + adjustments.tint * 0.4;
+  const sepia = clamp(Math.max(0, adjustments.temperature) / 200, 0, 0.35);
+  const blur = adjustments.texture < 0 ? clamp(-adjustments.texture / 50, 0, 2) : 0;
+  return `brightness(${exposure}) contrast(${contrast}) saturate(${saturation}) hue-rotate(${hue}deg) sepia(${sepia}) blur(${blur}px)`;
+};
+
+const buildPreviewTransform = (adjustments: EditingAdjustments) => {
+  const scale = clamp(adjustments.scale / 100, 0.7, 1.3);
+  const translateX = clamp(adjustments.horizontal / 5, -20, 20);
+  const translateY = clamp(adjustments.vertical / 5, -20, 20);
+  return `translate(${translateX}%, ${translateY}%) rotate(${adjustments.rotate}deg) scale(${scale})`;
+};
 
 export function Editor() {
   const { assets, init, updateAsset } = useProjectStore();
+  const navigate = useNavigate({ from: "/editor" });
+  const { assetId } = useSearch({ from: "/editor" });
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [showOriginal, setShowOriginal] = useState(false);
+  const [activeGroup, setActiveGroup] = useState<ToolGroupId>("adjust");
+  const [toolSelection, setToolSelection] = useState<
+    Record<ToolGroupId, NumericAdjustmentKey | null>
+  >({
+    filter: null,
+    adjust: DEFAULT_TOOL_BY_GROUP.adjust,
+    color: DEFAULT_TOOL_BY_GROUP.color,
+    effects: DEFAULT_TOOL_BY_GROUP.effects,
+    detail: DEFAULT_TOOL_BY_GROUP.detail,
+    crop: DEFAULT_TOOL_BY_GROUP.crop,
+  });
+  const [copiedAdjustments, setCopiedAdjustments] =
+    useState<EditingAdjustments | null>(null);
   const fallbackPresetId = presets[0]?.id ?? "";
 
   useEffect(() => {
@@ -24,50 +190,199 @@ export function Editor() {
   }, [init]);
 
   useEffect(() => {
-    if (!selectedAssetId && assets.length > 0) {
-      setSelectedAssetId(assets[0].id);
+    if (assetId && assets.some((asset) => asset.id === assetId)) {
+      setSelectedAssetId(assetId);
     }
-  }, [assets, selectedAssetId]);
+  }, [assetId, assets]);
+
+  useEffect(() => {
+    if (!selectedAssetId && assets.length > 0) {
+      const fallbackId = assets.some((asset) => asset.id === assetId)
+        ? assetId
+        : assets[0].id;
+      setSelectedAssetId(fallbackId ?? null);
+    }
+  }, [assets, assetId, selectedAssetId]);
 
   const selectedAsset = useMemo(
     () => assets.find((asset) => asset.id === selectedAssetId) ?? null,
     [assets, selectedAssetId]
   );
 
+  const adjustments = useMemo(() => {
+    if (!selectedAsset) {
+      return null;
+    }
+    return selectedAsset.adjustments ?? createDefaultAdjustments();
+  }, [selectedAsset]);
+
+  const previewAspectRatio = useMemo(() => {
+    if (!adjustments) {
+      return "4 / 3";
+    }
+    return (
+      ASPECT_RATIOS.find((ratio) => ratio.value === adjustments.aspectRatio)?.ratio ??
+      "4 / 3"
+    );
+  }, [adjustments]);
+
+  const previewStyle = useMemo(() => {
+    if (!adjustments || showOriginal) {
+      return undefined;
+    }
+    return {
+      filter: buildPreviewFilter(adjustments),
+      transform: buildPreviewTransform(adjustments),
+    } as const;
+  }, [adjustments, showOriginal]);
+
+  const vignetteStyle = useMemo(() => {
+    if (!adjustments) {
+      return undefined;
+    }
+    const strength = adjustments.vignette / 100;
+    const opacity = clamp(Math.abs(strength) * 0.65, 0, 0.65);
+    if (opacity === 0) {
+      return undefined;
+    }
+    const color = strength >= 0 ? "0,0,0" : "255,255,255";
+    return {
+      background: `radial-gradient(circle at center, rgba(${color},0) 45%, rgba(${color},${opacity}) 100%)`,
+      mixBlendMode: strength >= 0 ? "multiply" : "screen",
+      opacity,
+    } as const;
+  }, [adjustments]);
+
+  const grainStyle = useMemo(() => {
+    if (!adjustments) {
+      return undefined;
+    }
+    const intensity = clamp(adjustments.grain / 100, 0, 1);
+    const roughness = clamp(adjustments.grainRoughness / 100, 0, 1);
+    const opacity = intensity * (0.2 + roughness * 0.25);
+    if (opacity === 0) {
+      return undefined;
+    }
+    const size = clamp(120 - adjustments.grainSize + roughness * 20, 20, 140);
+    return {
+      backgroundImage: GRAIN_DATA,
+      backgroundSize: `${size}px ${size}px`,
+      opacity,
+      mixBlendMode: "soft-light",
+    } as const;
+  }, [adjustments]);
+
+  const activeTool = useMemo(() => {
+    if (activeGroup === "filter") {
+      return null;
+    }
+    const tools = TOOL_DEFINITIONS[activeGroup];
+    const current = toolSelection[activeGroup];
+    return tools.find((tool) => tool.id === current) ?? tools[0];
+  }, [activeGroup, toolSelection]);
+
+  const activeToolValue = useMemo(() => {
+    if (!adjustments || !activeTool) {
+      return 0;
+    }
+    return adjustments[activeTool.id];
+  }, [activeTool, adjustments]);
+
+  const handleSelectAsset = (nextId: string) => {
+    setSelectedAssetId(nextId);
+    void navigate({ search: (prev) => ({ ...prev, assetId: nextId }) });
+  };
+
+  const updateAdjustments = (partial: Partial<EditingAdjustments>) => {
+    if (!selectedAsset || !adjustments) {
+      return;
+    }
+    updateAsset(selectedAsset.id, {
+      adjustments: {
+        ...adjustments,
+        ...partial,
+      },
+    });
+  };
+
+  const updateAdjustmentValue = (key: NumericAdjustmentKey, value: number) => {
+    updateAdjustments({ [key]: value } as Partial<EditingAdjustments>);
+  };
+
+  const handleResetAll = () => {
+    if (!selectedAsset) {
+      return;
+    }
+    updateAsset(selectedAsset.id, { adjustments: createDefaultAdjustments() });
+  };
+
+  const handleResetTool = () => {
+    if (!activeTool) {
+      return;
+    }
+    updateAdjustments({
+      [activeTool.id]: defaultAdjustments[activeTool.id],
+    } as Partial<EditingAdjustments>);
+  };
+
+  const handleCopy = () => {
+    if (!adjustments) {
+      return;
+    }
+    setCopiedAdjustments(cloneAdjustments(adjustments));
+  };
+
+  const handlePaste = () => {
+    if (!selectedAsset || !copiedAdjustments) {
+      return;
+    }
+    updateAsset(selectedAsset.id, { adjustments: cloneAdjustments(copiedAdjustments) });
+  };
+
   return (
     <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
       <Card className="md:h-full">
-        <CardHeader>
-          <CardTitle>照片列表</CardTitle>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>照片</CardTitle>
+          <span className="text-xs text-slate-400">{assets.length} 张</span>
         </CardHeader>
         <CardContent className="space-y-3">
           {assets.length === 0 && (
             <p className="text-sm text-slate-400">暂无素材，请先导入照片。</p>
           )}
-          {assets.map((asset) => (
-            <Button
-              key={asset.id}
-              variant="ghost"
-              size="sm"
-              onClick={() => setSelectedAssetId(asset.id)}
-              className={cn(
-                "h-auto w-full justify-start gap-3 rounded-lg border p-2 text-left",
-                asset.id === selectedAssetId
-                  ? "border-slate-200 bg-slate-800"
-                  : "border-slate-800 bg-slate-950 hover:bg-slate-900"
-              )}
-            >
-              <img
-                src={asset.objectUrl}
-                alt={asset.name}
-                className="h-12 w-12 rounded-md object-cover"
-              />
-              <div className="text-xs text-slate-300">
-                <p className="font-medium text-slate-100 line-clamp-1">{asset.name}</p>
-                <p>Preset：{asset.presetId ?? "未设置"}</p>
-              </div>
-            </Button>
-          ))}
+          <div className="flex gap-3 overflow-x-auto pb-2 md:flex-col md:overflow-visible">
+            {assets.map((asset) => (
+              <Button
+                key={asset.id}
+                variant="ghost"
+                size="sm"
+                onClick={() => handleSelectAsset(asset.id)}
+                className={cn(
+                  "h-auto shrink-0 flex-col items-start gap-2 rounded-lg border p-2 text-left md:w-full md:flex-row md:items-center md:gap-3",
+                  asset.id === selectedAssetId
+                    ? "border-slate-200 bg-slate-800"
+                    : "border-slate-800 bg-slate-950 hover:bg-slate-900"
+                )}
+              >
+                <img
+                  src={asset.objectUrl}
+                  alt={asset.name}
+                  className="h-16 w-20 rounded-md object-cover md:h-12 md:w-12"
+                />
+                <div className="text-xs text-slate-300">
+                  <p className="font-medium text-slate-100 line-clamp-1">
+                    {asset.name}
+                  </p>
+                  <p className="text-slate-400 md:hidden">
+                    {presetMap.get(asset.presetId ?? "") ?? "未设置"}
+                  </p>
+                  <div className="hidden text-slate-400 md:block">
+                    Preset：{presetMap.get(asset.presetId ?? "") ?? "未设置"}
+                  </div>
+                </div>
+              </Button>
+            ))}
+          </div>
         </CardContent>
       </Card>
 
@@ -79,15 +394,56 @@ export function Editor() {
           <CardContent>
             {selectedAsset ? (
               <div className="space-y-4">
-                <div className="aspect-[4/3] w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+                <div
+                  className="relative w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950"
+                  style={{ aspectRatio: previewAspectRatio }}
+                >
                   <img
                     src={selectedAsset.objectUrl}
                     alt={selectedAsset.name}
-                    className="h-full w-full object-cover"
+                    className="h-full w-full object-cover transition duration-300 ease-out"
+                    style={previewStyle}
                   />
+                  {!showOriginal && vignetteStyle && (
+                    <div
+                      className="pointer-events-none absolute inset-0"
+                      style={vignetteStyle}
+                    />
+                  )}
+                  {!showOriginal && grainStyle && (
+                    <div
+                      className="pointer-events-none absolute inset-0"
+                      style={grainStyle}
+                    />
+                  )}
+                  {showOriginal && (
+                    <span className="absolute left-3 top-3 rounded-full bg-slate-950/80 px-3 py-1 text-xs text-slate-200">
+                      原图
+                    </span>
+                  )}
                 </div>
-                <div className="text-xs text-slate-400">
-                  当前预览为原图占位，实际滤镜渲染将在下一阶段接入。
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant={showOriginal ? "default" : "secondary"}
+                    onClick={() => setShowOriginal((prev) => !prev)}
+                  >
+                    对比原图
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={handleResetAll}>
+                    重置全部
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={handleCopy}>
+                    复制设置
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={handlePaste}
+                    disabled={!copiedAdjustments}
+                  >
+                    粘贴设置
+                  </Button>
                 </div>
               </div>
             ) : (
@@ -98,56 +454,142 @@ export function Editor() {
 
         <Card>
           <CardHeader>
-            <CardTitle>编辑参数</CardTitle>
+            <CardTitle>编辑工具</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {selectedAsset && (
+            {selectedAsset && adjustments ? (
               <>
-                <div className="space-y-2">
-                  <Label>Preset</Label>
-                  <Select
-                    value={selectedAsset.presetId ?? fallbackPresetId}
-                    onValueChange={(value) =>
-                      updateAsset(selectedAsset.id, { presetId: value })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="选择 preset" />
-                    </SelectTrigger>
-                    <SelectContent>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {TOOL_GROUPS.map((group) => (
+                    <Button
+                      key={group.id}
+                      size="sm"
+                      variant={activeGroup === group.id ? "default" : "secondary"}
+                      className="shrink-0"
+                      onClick={() => setActiveGroup(group.id)}
+                    >
+                      {group.label}
+                    </Button>
+                  ))}
+                </div>
+
+                {activeGroup === "filter" ? (
+                  <div className="space-y-3">
+                    <div className="flex gap-2 overflow-x-auto pb-1">
                       {presets.map((preset) => (
-                        <SelectItem key={preset.id} value={preset.id}>
+                        <Button
+                          key={preset.id}
+                          size="sm"
+                          variant={
+                            (selectedAsset.presetId ?? fallbackPresetId) === preset.id
+                              ? "default"
+                              : "secondary"
+                          }
+                          className="shrink-0"
+                          onClick={() =>
+                            updateAsset(selectedAsset.id, { presetId: preset.id })
+                          }
+                        >
                           {preset.name}
-                        </SelectItem>
+                        </Button>
                       ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>强度</Label>
-                  <Slider
-                    value={[selectedAsset.intensity ?? 0]}
-                    min={0}
-                    max={100}
-                    step={1}
-                    onValueChange={(value) =>
-                      updateAsset(selectedAsset.id, { intensity: value[0] ?? 0 })
-                    }
-                  />
-                  <p className="text-xs text-slate-400">
-                    当前：{selectedAsset.intensity ?? 0}
-                  </p>
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Button className="w-full sm:w-auto">创建快照</Button>
-                  <Button className="w-full sm:w-auto" variant="secondary">
-                    撤销
-                  </Button>
-                  <Button className="w-full sm:w-auto" variant="secondary">
-                    重做
-                  </Button>
-                </div>
+                    </div>
+                    <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                      <div className="flex items-center justify-between text-xs text-slate-400">
+                        <span className="text-slate-300">强度</span>
+                        <span>{selectedAsset.intensity ?? 0}</span>
+                      </div>
+                      <Slider
+                        value={[selectedAsset.intensity ?? 0]}
+                        min={0}
+                        max={100}
+                        step={1}
+                        onValueChange={(value) =>
+                          updateAsset(selectedAsset.id, { intensity: value[0] ?? 0 })
+                        }
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {TOOL_DEFINITIONS[activeGroup].map((tool) => (
+                        <Button
+                          key={tool.id}
+                          size="sm"
+                          variant={activeTool?.id === tool.id ? "default" : "secondary"}
+                          className="shrink-0"
+                          onClick={() =>
+                            setToolSelection((prev) => ({
+                              ...prev,
+                              [activeGroup]: tool.id,
+                            }))
+                          }
+                        >
+                          {tool.label}
+                        </Button>
+                      ))}
+                    </div>
+
+                    {activeGroup === "crop" && (
+                      <div className="flex gap-2 overflow-x-auto pb-1">
+                        {ASPECT_RATIOS.map((ratio) => (
+                          <Button
+                            key={ratio.value}
+                            size="sm"
+                            variant={
+                              adjustments.aspectRatio === ratio.value
+                                ? "default"
+                                : "secondary"
+                            }
+                            className="shrink-0"
+                            onClick={() =>
+                              updateAdjustments({ aspectRatio: ratio.value })
+                            }
+                          >
+                            {ratio.label}
+                          </Button>
+                        ))}
+                      </div>
+                    )}
+
+                    {activeTool && (
+                      <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                        <div className="flex items-center justify-between text-xs text-slate-400">
+                          <span className="text-slate-300">{activeTool.label}</span>
+                          <span>
+                            {activeTool.format
+                              ? activeTool.format(activeToolValue)
+                              : activeToolValue}
+                          </span>
+                        </div>
+                        <Slider
+                          value={[activeToolValue]}
+                          min={activeTool.min}
+                          max={activeTool.max}
+                          step={activeTool.step ?? 1}
+                          onValueChange={(value) =>
+                            updateAdjustmentValue(activeTool.id, value[0] ?? 0)
+                          }
+                        />
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={handleResetTool}
+                        disabled={!activeTool}
+                      >
+                        重置当前
+                      </Button>
+                    </div>
+                  </>
+                )}
               </>
+            ) : (
+              <p className="text-sm text-slate-400">请选择一张照片以查看参数。</p>
             )}
           </CardContent>
         </Card>
