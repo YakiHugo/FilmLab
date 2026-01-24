@@ -1,8 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useSearch } from "@tanstack/react-router";
 import { presets } from "@/data/presets";
 import { createDefaultAdjustments } from "@/lib/adjustments";
-import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/stores/projectStore";
 import type { EditingAdjustments } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -166,7 +165,6 @@ const buildPreviewTransform = (adjustments: EditingAdjustments) => {
 
 export function Editor() {
   const { assets, init, updateAsset } = useProjectStore();
-  const navigate = useNavigate({ from: "/editor" });
   const { assetId } = useSearch({ from: "/editor" });
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [showOriginal, setShowOriginal] = useState(false);
@@ -288,11 +286,6 @@ export function Editor() {
     return adjustments[activeTool.id];
   }, [activeTool, adjustments]);
 
-  const handleSelectAsset = (nextId: string) => {
-    setSelectedAssetId(nextId);
-    void navigate({ search: (prev) => ({ ...prev, assetId: nextId }) });
-  };
-
   const updateAdjustments = (partial: Partial<EditingAdjustments>) => {
     if (!selectedAsset || !adjustments) {
       return;
@@ -340,58 +333,25 @@ export function Editor() {
   };
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[320px_1fr]">
-      <Card className="md:h-full">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>照片</CardTitle>
-          <span className="text-xs text-slate-400">{assets.length} 张</span>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {assets.length === 0 && (
-            <p className="text-sm text-slate-400">暂无素材，请先导入照片。</p>
-          )}
-          <div className="flex gap-3 overflow-x-auto pb-2 md:flex-col md:overflow-visible">
-            {assets.map((asset) => (
-              <Button
-                key={asset.id}
-                variant="ghost"
-                size="sm"
-                onClick={() => handleSelectAsset(asset.id)}
-                className={cn(
-                  "h-auto shrink-0 flex-col items-start gap-2 rounded-lg border p-2 text-left md:w-full md:flex-row md:items-center md:gap-3",
-                  asset.id === selectedAssetId
-                    ? "border-slate-200 bg-slate-800"
-                    : "border-slate-800 bg-slate-950 hover:bg-slate-900"
-                )}
-              >
-                <img
-                  src={asset.objectUrl}
-                  alt={asset.name}
-                  className="h-16 w-20 rounded-md object-cover md:h-12 md:w-12"
-                />
-                <div className="text-xs text-slate-300">
-                  <p className="font-medium text-slate-100 line-clamp-1">
-                    {asset.name}
-                  </p>
-                  <p className="text-slate-400 md:hidden">
-                    {presetMap.get(asset.presetId ?? "") ?? "未设置"}
-                  </p>
-                  <div className="hidden text-slate-400 md:block">
-                    Preset：{presetMap.get(asset.presetId ?? "") ?? "未设置"}
-                  </div>
-                </div>
-              </Button>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>预览</CardTitle>
+    <div className="flex min-w-0 flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] lg:items-start">
+      <div className="min-w-0 space-y-6">
+        <Card className="min-w-0">
+          <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <CardTitle>预览</CardTitle>
+              {selectedAsset && (
+                <p className="text-xs text-slate-400 line-clamp-1">
+                  {selectedAsset.name}
+                </p>
+              )}
+            </div>
+            {selectedAsset && (
+              <span className="text-xs text-slate-400">
+                预设：{presetMap.get(selectedAsset.presetId ?? "") ?? "未设置"}
+              </span>
+            )}
           </CardHeader>
-          <CardContent>
+          <CardContent className="min-w-0">
             {selectedAsset ? (
               <div className="space-y-4">
                 <div
@@ -451,15 +411,17 @@ export function Editor() {
             )}
           </CardContent>
         </Card>
+      </div>
 
-        <Card>
+      <div className="min-w-0 space-y-6">
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>编辑工具</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="min-w-0 space-y-4">
             {selectedAsset && adjustments ? (
               <>
-                <div className="flex gap-2 overflow-x-auto pb-1">
+                <div className="flex w-full min-w-0 gap-2 overflow-x-auto pb-2 md:pb-1">
                   {TOOL_GROUPS.map((group) => (
                     <Button
                       key={group.id}
@@ -475,7 +437,7 @@ export function Editor() {
 
                 {activeGroup === "filter" ? (
                   <div className="space-y-3">
-                    <div className="flex gap-2 overflow-x-auto pb-1">
+                    <div className="flex w-full min-w-0 gap-2 overflow-x-auto pb-2 md:pb-1">
                       {presets.map((preset) => (
                         <Button
                           key={preset.id}
@@ -512,7 +474,7 @@ export function Editor() {
                   </div>
                 ) : (
                   <>
-                    <div className="flex gap-2 overflow-x-auto pb-1">
+                    <div className="flex w-full min-w-0 gap-2 overflow-x-auto pb-2 md:pb-1">
                       {TOOL_DEFINITIONS[activeGroup].map((tool) => (
                         <Button
                           key={tool.id}
@@ -532,7 +494,7 @@ export function Editor() {
                     </div>
 
                     {activeGroup === "crop" && (
-                      <div className="flex gap-2 overflow-x-auto pb-1">
+                      <div className="flex w-full min-w-0 gap-2 overflow-x-auto pb-2 md:pb-1">
                         {ASPECT_RATIOS.map((ratio) => (
                           <Button
                             key={ratio.value}

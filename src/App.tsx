@@ -7,9 +7,9 @@ function App() {
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-950 text-slate-100 md:h-screen md:flex-row">
       <Sidebar className="hidden md:flex" />
-      <div className="flex min-h-screen flex-1 flex-col md:h-screen">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col md:h-screen">
         <TopBar />
-        <main className="flex-1 overflow-y-auto px-4 pb-24 pt-4 md:px-6 md:py-6 md:pb-6">
+        <main className="min-w-0 flex-1 overflow-y-auto px-4 pb-24 pt-4 md:px-6 md:py-6 md:pb-6">
           <Outlet />
         </main>
       </div>
