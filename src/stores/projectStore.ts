@@ -37,6 +37,14 @@ const defaultProject = (): Project => {
   };
 };
 
+const revokeAssetUrls = (assets: Asset[]) => {
+  assets.forEach((asset) => {
+    if (asset.objectUrl) {
+      URL.revokeObjectURL(asset.objectUrl);
+    }
+  });
+};
+
 export const useProjectStore = create<ProjectState>((set, get) => ({
   project: null,
   assets: [],
@@ -67,6 +75,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const nextSelection = get().selectedAssetIds.filter((id) =>
       assets.some((asset) => asset.id === id)
     );
+    revokeAssetUrls(get().assets);
     set({ project, assets, isLoading: false, selectedAssetIds: nextSelection });
   },
   addAssets: async (files: File[]) => {
@@ -112,7 +121,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       asset.group === group ? { ...asset, presetId, intensity } : asset
     );
     nextAssets.forEach((asset) => {
-      if (asset.blob) {
+      if (asset.blob && asset.group === group) {
         void saveAsset({
           id: asset.id,
           name: asset.name,
@@ -200,6 +209,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ selectedAssetIds: [] });
   },
   resetProject: async () => {
+    revokeAssetUrls(get().assets);
     await clearAssets();
     const project = defaultProject();
     await saveProject(project);

@@ -1,6 +1,10 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { Upload, Wand2 } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 import { useProjectStore } from "@/stores/projectStore";
+import { UploadButton } from "@/components/UploadButton";
+import { PageShell } from "@/components/layout/PageShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,20 +17,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  PageHeader,
-  PageHeaderActions,
-  PageHeaderContent,
-  PageHeaderDescription,
-  PageHeaderTitle,
-} from "@/components/ui/page-header";
-import { Image, Upload, Wand2 } from "lucide-react";
 
 export function Library() {
   const {
     assets,
     addAssets,
-    init,
     isLoading,
     resetProject,
     selectedAssetIds,
@@ -35,16 +30,26 @@ export function Library() {
     toggleAssetSelection,
     removeFromSelection,
     clearAssetSelection,
-  } = useProjectStore();
+  } = useProjectStore(
+    useShallow((state) => ({
+      assets: state.assets,
+      addAssets: state.addAssets,
+      isLoading: state.isLoading,
+      resetProject: state.resetProject,
+      selectedAssetIds: state.selectedAssetIds,
+      setSelectedAssetIds: state.setSelectedAssetIds,
+      addToSelection: state.addToSelection,
+      toggleAssetSelection: state.toggleAssetSelection,
+      removeFromSelection: state.removeFromSelection,
+      clearAssetSelection: state.clearAssetSelection,
+    }))
+  );
+
   const [isDragging, setIsDragging] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [selectedGroup, setSelectedGroup] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(12);
-
-  useEffect(() => {
-    void init();
-  }, [init]);
 
   const handleFiles = useCallback(
     (files: FileList | null) => {
@@ -52,6 +57,7 @@ export function Library() {
       const filtered = Array.from(files).filter((file) =>
         ["image/jpeg", "image/png"].includes(file.type)
       );
+      if (filtered.length === 0) return;
       void addAssets(filtered);
     },
     [addAssets]
@@ -105,14 +111,32 @@ export function Library() {
   );
   const selectedCount = selectedAssets.length;
 
+  const stats = [
+    {
+      label: "素材总量",
+      value: `${assets.length} 张`,
+      hint: isLoading ? "同步中" : "就绪",
+    },
+    {
+      label: "已选素材",
+      value: `${selectedCount} 张`,
+      hint: selectedCount > 0 ? "可进入批处理" : "暂无选择",
+    },
+    {
+      label: "本地占用",
+      value: `${(totalSize / 1024 / 1024).toFixed(1)} MB`,
+      hint: "IndexedDB 缓存",
+    },
+  ];
+
   return (
-    <div className="space-y-6">
-      <PageHeader>
-        <PageHeaderContent>
-          <PageHeaderTitle>素材库</PageHeaderTitle>
-          <PageHeaderDescription>导入照片并管理你的项目素材。</PageHeaderDescription>
-        </PageHeaderContent>
-        <PageHeaderActions>
+    <PageShell
+      title="素材库"
+      kicker="Library"
+      description="移动端优先浏览素材，拖拽导入并快速筛选。"
+      actions={
+        <>
+          <UploadButton className="w-full sm:w-auto" label="导入素材" />
           <Button
             className="w-full sm:w-auto"
             variant="secondary"
@@ -120,228 +144,248 @@ export function Library() {
           >
             清空项目
           </Button>
-          <Button className="w-full sm:w-auto" asChild>
-            <Label className="flex w-full cursor-pointer items-center justify-center gap-2">
-              <Upload className="h-4 w-4" />
-              导入照片
-              <Input
-                type="file"
-                multiple
-                accept="image/png,image/jpeg"
-                className="hidden"
-                onChange={(event) => handleFiles(event.target.files)}
-              />
-            </Label>
-          </Button>
-        </PageHeaderActions>
-      </PageHeader>
+        </>
+      }
+      stats={stats}
+    >
+      <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <div className="space-y-4">
+          <Card className="animate-fade-up">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>筛选与选择</CardTitle>
+              <Badge className="border-white/10 bg-white/5 text-slate-200">
+                {filteredAssets.length} 张
+              </Badge>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="library-search" className="text-xs text-slate-400">
+                  搜索素材
+                </Label>
+                <Input
+                  id="library-search"
+                  value={searchText}
+                  onChange={(event) => setSearchText(event.target.value)}
+                  placeholder="输入文件名关键词"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs text-slate-400">按分组筛选</Label>
+                <Select value={selectedGroup} onValueChange={setSelectedGroup}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="全部分组" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部分组</SelectItem>
+                    {groupOptions.map((group) => (
+                      <SelectItem key={group} value={group}>
+                        {group}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => addToSelection(pageAssets.map((asset) => asset.id))}
+                  disabled={pageAssets.length === 0}
+                >
+                  选择本页
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => removeFromSelection(pageAssets.map((asset) => asset.id))}
+                  disabled={pageAssets.length === 0}
+                >
+                  取消本页
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => setSelectedAssetIds(filteredAssets.map((asset) => asset.id))}
+                  disabled={filteredAssets.length === 0}
+                >
+                  用筛选结果选择
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={clearAssetSelection}
+                  disabled={selectedCount === 0}
+                >
+                  清空选择
+                </Button>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-3 text-xs text-slate-300">
+                <div className="flex items-center justify-between">
+                  <span>当前已选</span>
+                  <span className="text-white">{selectedCount} 张</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between">
+                  <span>筛选结果</span>
+                  <span>{filteredAssets.length} 张</span>
+                </div>
+                {selectedCount > 0 ? (
+                  <Button size="sm" className="mt-3 w-full" asChild>
+                    <Link to="/batch">进入批处理</Link>
+                  </Button>
+                ) : (
+                  <Button size="sm" className="mt-3 w-full" variant="secondary" disabled>
+                    进入批处理
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-      <Card>
-        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>导入统计</CardTitle>
-          <Badge>{assets.length} 张</Badge>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-4 text-sm text-slate-300">
-          <div>总占用：{(totalSize / 1024 / 1024).toFixed(2)} MB</div>
-          <div>状态：{isLoading ? "加载中" : "就绪"}</div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>筛选与选择</CardTitle>
-          <Badge>{selectedCount} 已选</Badge>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
-            <div className="space-y-2">
-              <Label htmlFor="library-search" className="text-xs text-slate-400">
-                搜索素材
-              </Label>
-              <Input
-                id="library-search"
-                value={searchText}
-                onChange={(event) => setSearchText(event.target.value)}
-                placeholder="输入文件名关键词"
-              />
+        <div className="space-y-4">
+          <div
+            className={`flex min-h-[160px] flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed p-6 text-center transition animate-fade-up ${
+              isDragging
+                ? "border-amber-200/50 bg-amber-300/10"
+                : "border-white/10 bg-slate-950/40"
+            }`}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={(event) => {
+              event.preventDefault();
+              setIsDragging(false);
+              handleFiles(event.dataTransfer.files);
+            }}
+          >
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-amber-200">
+              <Upload className="h-6 w-6" />
             </div>
-            <div className="space-y-2">
-              <Label className="text-xs text-slate-400">按分组筛选</Label>
-              <Select value={selectedGroup} onValueChange={setSelectedGroup}>
-                <SelectTrigger>
-                  <SelectValue placeholder="全部分组" />
+            <div>
+              <p className="text-sm text-slate-200">拖拽 JPG/PNG 到此处导入</p>
+              <p className="text-xs text-slate-500">自动生成缩略图与元信息</p>
+            </div>
+            <UploadButton size="sm" variant="secondary" label="点此导入" />
+          </div>
+
+          {pageAssets.length === 0 ? (
+            <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-6 text-center text-sm text-slate-400">
+              <p>还没有素材，拖拽或点击导入开始。</p>
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {pageAssets.map((asset, index) => {
+                const isSelected = selectedSet.has(asset.id);
+                return (
+                  <Card
+                    key={asset.id}
+                    className={`overflow-hidden content-auto ${
+                      isSelected ? "ring-2 ring-amber-200/40" : ""
+                    }`}
+                    style={{ animationDelay: `${index * 40}ms` }}
+                  >
+                    <div className="relative">
+                      <Link
+                        to="/editor"
+                        search={{ assetId: asset.id }}
+                        className="block aspect-[4/3] overflow-hidden bg-slate-950"
+                      >
+                        <img
+                          src={asset.objectUrl}
+                          alt={asset.name}
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                        />
+                      </Link>
+                      <label
+                        className="absolute right-2 top-2 flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/80 px-2 py-1 text-xs text-slate-100"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleAssetSelection(asset.id)}
+                          className="h-3 w-3 accent-amber-300"
+                          aria-label={`选择 ${asset.name}`}
+                        />
+                        选中
+                      </label>
+                    </div>
+                    <CardContent className="space-y-2 text-xs text-slate-300">
+                      <div className="font-medium text-slate-100 line-clamp-1">
+                        {asset.name}
+                      </div>
+                      <div>分组：{asset.group ?? "未分组"}</div>
+                      <div>大小：{(asset.size / 1024).toFixed(1)} KB</div>
+                      <Button className="w-full" size="sm" variant="secondary" asChild>
+                        <Link to="/editor" search={{ assetId: asset.id }}>
+                          <Wand2 className="h-4 w-4" />
+                          进入精修
+                        </Link>
+                      </Button>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+            <div>
+              显示 {filteredAssets.length === 0 ? 0 : (page - 1) * pageSize + 1}-
+              {Math.min(page * pageSize, filteredAssets.length)} / {filteredAssets.length}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                disabled={page <= 1}
+              >
+                上一页
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setPage((prev) => Math.min(pageCount, prev + 1))}
+                disabled={page >= pageCount}
+              >
+                下一页
+              </Button>
+              <Select
+                value={String(pageSize)}
+                onValueChange={(value) => setPageSize(Number(value))}
+              >
+                <SelectTrigger className="h-8 w-[120px] text-xs">
+                  <SelectValue placeholder="每页数量" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">全部分组</SelectItem>
-                  {groupOptions.map((group) => (
-                    <SelectItem key={group} value={group}>
-                      {group}
+                  {[8, 12, 24].map((size) => (
+                    <SelectItem key={size} value={String(size)}>
+                      每页 {size}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => addToSelection(pageAssets.map((asset) => asset.id))}
-              disabled={pageAssets.length === 0}
-            >
-              选择本页
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => removeFromSelection(pageAssets.map((asset) => asset.id))}
-              disabled={pageAssets.length === 0}
-            >
-              取消本页
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => setSelectedAssetIds(filteredAssets.map((asset) => asset.id))}
-              disabled={filteredAssets.length === 0}
-            >
-              用筛选结果创建选择
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={clearAssetSelection}
-              disabled={selectedCount === 0}
-            >
-              清空选择
-            </Button>
-            {selectedCount > 0 ? (
-              <Button size="sm" asChild>
-                <Link to="/batch">进入批处理（{selectedCount}）</Link>
-              </Button>
-            ) : (
-              <Button size="sm" variant="secondary" disabled>
-                进入批处理
-              </Button>
-            )}
-          </div>
-          <div className="text-xs text-slate-400">
-            当前筛选 {filteredAssets.length} 张，分页 {page}/{pageCount}
-          </div>
-        </CardContent>
-      </Card>
-
-      <div
-        className={`flex min-h-[160px] flex-col items-center justify-center rounded-2xl border-2 border-dashed p-6 text-center transition ${
-          isDragging ? "border-slate-200 bg-slate-900/80" : "border-slate-700"
-        }`}
-        onDragOver={(event) => {
-          event.preventDefault();
-          setIsDragging(true);
-        }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={(event) => {
-          event.preventDefault();
-          setIsDragging(false);
-          handleFiles(event.dataTransfer.files);
-        }}
-      >
-        <Image className="mb-3 h-8 w-8 text-slate-400" />
-        <p className="text-sm text-slate-300">拖拽 JPG/PNG 到此处导入</p>
-        <p className="text-xs text-slate-500">自动生成缩略图与元信息</p>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {pageAssets.map((asset) => {
-          const isSelected = selectedSet.has(asset.id);
-          return (
-            <Card
-              key={asset.id}
-              className={`overflow-hidden ${isSelected ? "ring-2 ring-slate-300" : ""}`}
-            >
-              <div className="relative">
-                <Link
-                  to="/editor"
-                  search={{ assetId: asset.id }}
-                  className="block aspect-[4/3] overflow-hidden bg-slate-950"
-                >
-                  <img
-                    src={asset.objectUrl}
-                    alt={asset.name}
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                  />
-                </Link>
-                <label
-                  className="absolute right-2 top-2 flex items-center gap-2 rounded-full bg-slate-950/80 px-2 py-1 text-xs text-slate-100"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => toggleAssetSelection(asset.id)}
-                    className="h-3 w-3 accent-slate-200"
-                    aria-label={`选择 ${asset.name}`}
-                  />
-                  选中
-                </label>
-              </div>
-              <CardContent className="space-y-2 text-xs text-slate-300">
-                <div className="font-medium text-slate-100 line-clamp-1">
-                  {asset.name}
-                </div>
-                <div>分组：{asset.group ?? "未分组"}</div>
-                <div>大小：{(asset.size / 1024).toFixed(1)} KB</div>
-                <Button className="w-full" size="sm" variant="secondary" asChild>
-                  <Link to="/editor" search={{ assetId: asset.id }}>
-                    <Wand2 className="h-4 w-4" />
-                    进入精修
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
-        <div>
-          显示 {filteredAssets.length === 0 ? 0 : (page - 1) * pageSize + 1}-
-          {Math.min(page * pageSize, filteredAssets.length)} / {filteredAssets.length}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-            disabled={page <= 1}
-          >
-            上一页
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => setPage((prev) => Math.min(pageCount, prev + 1))}
-            disabled={page >= pageCount}
-          >
-            下一页
-          </Button>
-          <Select
-            value={String(pageSize)}
-            onValueChange={(value) => setPageSize(Number(value))}
-          >
-            <SelectTrigger className="h-8 w-[120px] text-xs">
-              <SelectValue placeholder="每页数量" />
-            </SelectTrigger>
-            <SelectContent>
-              {[8, 12, 24].map((size) => (
-                <SelectItem key={size} value={String(size)}>
-                  每页 {size}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
       </div>
-    </div>
+
+      {selectedCount > 0 && (
+        <div className="fixed inset-x-4 bottom-20 z-40 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/90 px-4 py-3 text-sm text-slate-100 shadow-glow backdrop-blur md:hidden">
+          <span>已选 {selectedCount} 张</span>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="secondary" onClick={clearAssetSelection}>
+              清空
+            </Button>
+            <Button size="sm" asChild>
+              <Link to="/batch">批处理</Link>
+            </Button>
+          </div>
+        </div>
+      )}
+    </PageShell>
   );
 }

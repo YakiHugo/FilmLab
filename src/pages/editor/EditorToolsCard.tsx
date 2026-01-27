@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+ï»¿import { useMemo, useState } from "react";
 import type { Asset, EditingAdjustments } from "@/types";
 import { presets } from "@/data/presets";
 import { Button } from "@/components/ui/button";
@@ -70,7 +70,7 @@ export function EditorToolsCard({
   return (
     <Card className="min-w-0">
       <CardHeader>
-        <CardTitle>±à¼­¹¤¾ß</CardTitle>
+        <CardTitle>ç¼–è¾‘å·¥å…·</CardTitle>
       </CardHeader>
       <CardContent className="min-w-0 space-y-4">
         {selectedAsset && adjustments ? (
@@ -108,9 +108,9 @@ export function EditorToolsCard({
                     </Button>
                   ))}
                 </div>
-                <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
                   <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span className="text-slate-300">Ç¿¶È</span>
+                    <span className="text-slate-300">å¼ºåº¦</span>
                     <span>{selectedAsset.intensity ?? 0}</span>
                   </div>
                   <Slider
@@ -157,7 +157,7 @@ export function EditorToolsCard({
                 )}
 
                 {activeTool && (
-                  <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
                     <div className="flex items-center justify-between text-xs text-slate-400">
                       <span className="text-slate-300">{activeTool.label}</span>
                       <span>
@@ -185,14 +185,14 @@ export function EditorToolsCard({
                     onClick={() => onResetTool(activeTool?.id ?? null)}
                     disabled={!activeTool}
                   >
-                    ÖØÖÃµ±Ç°
+                    é‡ç½®å½“å‰
                   </Button>
                 </div>
               </>
             )}
           </>
         ) : (
-          <p className="text-sm text-slate-400">ÇëÑ¡ÔñÒ»ÕÅÕÕÆ¬ÒÔ²é¿´²ÎÊı¡£</p>
+          <p className="text-sm text-slate-400">è¯·é€‰æ‹©ä¸€å¼ ç…§ç‰‡ä»¥æŸ¥çœ‹å‚æ•°ã€‚</p>
         )}
       </CardContent>
     </Card>

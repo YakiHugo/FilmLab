@@ -1,4 +1,4 @@
-import { presets } from "@/data/presets";
+ï»¿import { presets } from "@/data/presets";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import type { EditingAdjustments } from "@/types";
 import type { NumericAdjustmentKey, ToolDefinition, ToolGroupId } from "./types";
@@ -8,51 +8,57 @@ const formatSigned = (value: number) => (value > 0 ? `+${value}` : `${value}`);
 export const PRESET_MAP = new Map(presets.map((preset) => [preset.id, preset.name]));
 
 export const TOOL_GROUPS: { id: ToolGroupId; label: string }[] = [
-  { id: "filter", label: "ÂË¾µ" },
-  { id: "adjust", label: "µ÷Õû" },
-  { id: "color", label: "ÑÕÉ«" },
-  { id: "effects", label: "Ğ§¹û" },
-  { id: "detail", label: "Ï¸½Ú" },
-  { id: "crop", label: "²Ã¼ô" },
+  { id: "filter", label: "æ»¤é•œ" },
+  { id: "adjust", label: "åŸºç¡€" },
+  { id: "color", label: "é¢œè‰²" },
+  { id: "effects", label: "æ•ˆæœ" },
+  { id: "detail", label: "ç»†èŠ‚" },
+  { id: "crop", label: "è£åˆ‡" },
 ];
 
 export const TOOL_DEFINITIONS: Record<Exclude<ToolGroupId, "filter">, ToolDefinition[]> = {
   adjust: [
-    { id: "exposure", label: "ÆØ¹â", min: -100, max: 100, format: formatSigned },
-    { id: "contrast", label: "¶Ô±È¶È", min: -100, max: 100, format: formatSigned },
-    { id: "highlights", label: "¸ß¹â", min: -100, max: 100, format: formatSigned },
-    { id: "shadows", label: "ÒõÓ°", min: -100, max: 100, format: formatSigned },
-    { id: "whites", label: "°×É«É«½×", min: -100, max: 100, format: formatSigned },
-    { id: "blacks", label: "ºÚÉ«É«½×", min: -100, max: 100, format: formatSigned },
+    { id: "exposure", label: "æ›å…‰", min: -100, max: 100, format: formatSigned },
+    { id: "contrast", label: "å¯¹æ¯”åº¦", min: -100, max: 100, format: formatSigned },
+    { id: "highlights", label: "é«˜å…‰", min: -100, max: 100, format: formatSigned },
+    { id: "shadows", label: "é˜´å½±", min: -100, max: 100, format: formatSigned },
+    { id: "whites", label: "ç™½è‰²è‰²é˜¶", min: -100, max: 100, format: formatSigned },
+    { id: "blacks", label: "é»‘è‰²è‰²é˜¶", min: -100, max: 100, format: formatSigned },
   ],
   color: [
-    { id: "temperature", label: "É«ÎÂ", min: -100, max: 100, format: formatSigned },
-    { id: "tint", label: "É«µ÷", min: -100, max: 100, format: formatSigned },
-    { id: "vibrance", label: "×ÔÈ»±¥ºÍ¶È", min: -100, max: 100, format: formatSigned },
-    { id: "saturation", label: "±¥ºÍ¶È", min: -100, max: 100, format: formatSigned },
+    { id: "temperature", label: "è‰²æ¸©", min: -100, max: 100, format: formatSigned },
+    { id: "tint", label: "è‰²è°ƒ", min: -100, max: 100, format: formatSigned },
+    {
+      id: "vibrance",
+      label: "è‡ªç„¶é¥±å’Œåº¦",
+      min: -100,
+      max: 100,
+      format: formatSigned,
+    },
+    { id: "saturation", label: "é¥±å’Œåº¦", min: -100, max: 100, format: formatSigned },
   ],
   effects: [
-    { id: "clarity", label: "ÇåÎú¶È", min: -100, max: 100, format: formatSigned },
-    { id: "dehaze", label: "È¥ëüëÊ", min: -100, max: 100, format: formatSigned },
-    { id: "vignette", label: "°µ½Ç", min: -100, max: 100, format: formatSigned },
-    { id: "grain", label: "¿ÅÁ£", min: 0, max: 100 },
+    { id: "clarity", label: "æ¸…æ™°åº¦", min: -100, max: 100, format: formatSigned },
+    { id: "dehaze", label: "å»æœ¦èƒ§", min: -100, max: 100, format: formatSigned },
+    { id: "vignette", label: "æš—è§’", min: -100, max: 100, format: formatSigned },
+    { id: "grain", label: "é¢—ç²’", min: 0, max: 100 },
   ],
   detail: [
-    { id: "sharpening", label: "Èñ»¯", min: 0, max: 100 },
-    { id: "noiseReduction", label: "½µÔë", min: 0, max: 100 },
-    { id: "colorNoiseReduction", label: "É«²Ê½µÔë", min: 0, max: 100 },
+    { id: "sharpening", label: "é”åŒ–", min: 0, max: 100 },
+    { id: "noiseReduction", label: "é™å™ª", min: 0, max: 100 },
+    { id: "colorNoiseReduction", label: "è‰²å½©é™å™ª", min: 0, max: 100 },
   ],
   crop: [
     {
       id: "rotate",
-      label: "Ğı×ª",
+      label: "æ—‹è½¬",
       min: -45,
       max: 45,
-      format: (value) => `${formatSigned(value)}¡ã`,
+      format: (value) => `${formatSigned(value)}Â°`,
     },
-    { id: "horizontal", label: "Ë®Æ½", min: -100, max: 100, format: formatSigned },
-    { id: "vertical", label: "´¹Ö±", min: -100, max: 100, format: formatSigned },
-    { id: "scale", label: "Ëõ·Å", min: 80, max: 120, format: (value) => `${value}%` },
+    { id: "horizontal", label: "æ°´å¹³", min: -100, max: 100, format: formatSigned },
+    { id: "vertical", label: "å‚ç›´", min: -100, max: 100, format: formatSigned },
+    { id: "scale", label: "ç¼©æ”¾", min: 80, max: 120, format: (value) => `${value}%` },
   ],
 };
 
@@ -69,7 +75,7 @@ export const ASPECT_RATIOS: {
   label: string;
   ratio: string;
 }[] = [
-  { value: "original", label: "Ô­Ê¼", ratio: "4 / 3" },
+  { value: "original", label: "åŸå§‹", ratio: "4 / 3" },
   { value: "1:1", label: "1:1", ratio: "1 / 1" },
   { value: "3:2", label: "3:2", ratio: "3 / 2" },
   { value: "4:3", label: "4:3", ratio: "4 / 3" },

@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { useShallow } from "zustand/react/shallow";
 import { useProjectStore } from "@/stores/projectStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -13,31 +15,29 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import {
-  PageHeader,
-  PageHeaderActions,
-  PageHeaderContent,
-  PageHeaderDescription,
-  PageHeaderTitle,
-} from "@/components/ui/page-header";
+import { PageShell } from "@/components/layout/PageShell";
 import { presets } from "@/data/presets";
 
 export function BatchStudio() {
   const {
     assets,
-    init,
     applyPresetToGroup,
     applyPresetToSelection,
     selectedAssetIds,
     clearAssetSelection,
-  } = useProjectStore();
+  } = useProjectStore(
+    useShallow((state) => ({
+      assets: state.assets,
+      applyPresetToGroup: state.applyPresetToGroup,
+      applyPresetToSelection: state.applyPresetToSelection,
+      selectedAssetIds: state.selectedAssetIds,
+      clearAssetSelection: state.clearAssetSelection,
+    }))
+  );
+
   const [mode, setMode] = useState<"一致性优先" | "最适配优先">("一致性优先");
   const [selectedPreset, setSelectedPreset] = useState(presets[0]?.id ?? "");
   const [intensity, setIntensity] = useState(60);
-
-  useEffect(() => {
-    void init();
-  }, [init]);
 
   const { data: recommendation } = useQuery({
     queryKey: ["ai-recommendation", assets.length],
@@ -64,188 +64,230 @@ export function BatchStudio() {
     [assets, selectedSet]
   );
 
+  const stats = [
+    { label: "素材总量", value: `${assets.length} 张`, hint: "可批处理" },
+    { label: "已选素材", value: `${selectedAssets.length} 张`, hint: "用于预设" },
+    { label: "分组数量", value: `${groups.length} 组`, hint: "按分组处理" },
+  ];
+
   return (
-    <div className="space-y-6">
-      <PageHeader>
-        <PageHeaderContent>
-          <PageHeaderTitle>AI 批处理面板</PageHeaderTitle>
-          <PageHeaderDescription>
-            基于分组快速统一风格，支持一键应用与强度调整。
-          </PageHeaderDescription>
-        </PageHeaderContent>
-        <PageHeaderActions>
-          <Button
-            className="w-full sm:w-auto"
-            variant={mode === "一致性优先" ? "default" : "secondary"}
-            onClick={() => setMode("一致性优先")}
-          >
-            一致性优先
+    <PageShell
+      title="批处理面板"
+      kicker="Batch Studio"
+      description="移动端优先处理分组风格，一键应用到选中素材。"
+      actions={
+        <>
+          <Button className="w-full sm:w-auto" variant="secondary" asChild>
+            <Link to="/library">返回素材库</Link>
           </Button>
-          <Button
-            className="w-full sm:w-auto"
-            variant={mode === "最适配优先" ? "default" : "secondary"}
-            onClick={() => setMode("最适配优先")}
-          >
-            最适配优先
+          <Button className="w-full sm:w-auto" variant="ghost" asChild>
+            <Link to="/export">查看导出</Link>
           </Button>
-        </PageHeaderActions>
-      </PageHeader>
-
-      <Card>
-        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>临时选择</CardTitle>
-          <Badge>{selectedAssets.length} 张</Badge>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm text-slate-300">
-          {selectedAssets.length === 0 ? (
-            <div className="space-y-2">
-              <p>尚未选择素材，请先在素材库中筛选并勾选。</p>
-              <Button size="sm" variant="secondary" asChild>
-                <Link to="/library">返回素材库</Link>
-              </Button>
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                <Button
-                  className="w-full sm:w-auto"
-                  onClick={() =>
-                    applyPresetToSelection(selectedAssetIds, selectedPreset, intensity)
-                  }
-                >
-                  应用到已选素材
-                </Button>
-                <Button
-                  className="w-full sm:w-auto"
-                  variant="secondary"
-                  onClick={clearAssetSelection}
-                >
-                  清空临时选择
-                </Button>
-                <Button className="w-full sm:w-auto" variant="secondary" asChild>
-                  <Link to="/library">继续选择</Link>
-                </Button>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {selectedAssets.slice(0, 6).map((asset) => (
-                  <div
-                    key={asset.id}
-                    className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-950 p-3"
-                  >
-                    <img
-                      src={asset.objectUrl}
-                      alt={asset.name}
-                      className="h-12 w-12 rounded-md object-cover"
-                    />
-                    <div className="text-xs text-slate-300">
-                      <p className="font-medium text-slate-100 line-clamp-1">
-                        {asset.name}
-                      </p>
-                      <p>分组：{asset.group ?? "未分组"}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {selectedAssets.length > 6 && (
-                <p className="text-xs text-slate-400">
-                  还有 {selectedAssets.length - 6} 张素材已选中。
-                </p>
-              )}
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>当前推荐占位</CardTitle>
-          <Badge>AI 推荐 V1 占位</Badge>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm text-slate-300">
-          <p>{recommendation?.reason ?? "推荐逻辑尚未接入，本次演示使用手动选择 preset 与强度。"}</p>
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-            <Select value={selectedPreset} onValueChange={setSelectedPreset}>
-              <SelectTrigger className="w-full sm:w-[240px]">
-                <SelectValue placeholder="选择 preset" />
-              </SelectTrigger>
-              <SelectContent>
-                {presets.map((preset) => (
-                  <SelectItem key={preset.id} value={preset.id}>
-                    {preset.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div className="flex w-full flex-col gap-2 sm:w-auto">
-              <span className="text-xs text-slate-400">强度 {intensity}</span>
-              <Slider
-                value={[intensity]}
-                min={0}
-                max={100}
-                step={1}
-                onValueChange={(value) => setIntensity(value[0] ?? 0)}
-                className="sm:w-[200px]"
-              />
-            </div>
-          </div>
-          {recommendation && (
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-              <span>Top3：</span>
-              {recommendation.topPresets.map((preset) => (
-                <Badge
-                  key={preset.id}
-                  className="border-slate-800 bg-slate-950 text-slate-200"
-                >
-                  {preset.name}
-                </Badge>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4">
-        {groups.map(([groupName, groupAssets]) => (
-          <Card key={groupName}>
-            <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <CardTitle>{groupName}</CardTitle>
-              <Badge>{groupAssets.length} 张</Badge>
+        </>
+      }
+      stats={stats}
+    >
+      <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="space-y-4">
+          <Card className="animate-fade-up">
+            <CardHeader>
+              <CardTitle>批处理控制</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Button
                   className="w-full sm:w-auto"
-                  onClick={() => applyPresetToGroup(groupName, selectedPreset, intensity)}
+                  variant={mode === "一致性优先" ? "default" : "secondary"}
+                  onClick={() => setMode("一致性优先")}
                 >
-                  应用到本组
+                  一致性优先
                 </Button>
-                <Button className="w-full sm:w-auto" variant="secondary">
-                  替换本组 preset
-                </Button>
-                <Button className="w-full sm:w-auto" variant="secondary">
-                  强度统一调整
+                <Button
+                  className="w-full sm:w-auto"
+                  variant={mode === "最适配优先" ? "default" : "secondary"}
+                  onClick={() => setMode("最适配优先")}
+                >
+                  最适配优先
                 </Button>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {groupAssets.map((asset) => (
-                  <div key={asset.id} className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
-                    <img
-                      src={asset.objectUrl}
-                      alt={asset.name}
-                      className="h-16 w-16 rounded-md object-cover"
-                    />
-                    <div className="text-xs text-slate-300">
-                      <p className="font-medium text-slate-100 line-clamp-1">{asset.name}</p>
-                      <p>Preset：{asset.presetId ?? "未设置"}</p>
-                      <p>强度：{asset.intensity ?? 0}</p>
-                    </div>
-                  </div>
-                ))}
+              <div className="space-y-2">
+                <Label className="text-xs text-slate-400">选择预设</Label>
+                <Select value={selectedPreset} onValueChange={setSelectedPreset}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="选择 preset" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {presets.map((preset) => (
+                      <SelectItem key={preset.id} value={preset.id}>
+                        {preset.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-3">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span className="text-slate-300">强度</span>
+                  <span>{intensity}</span>
+                </div>
+                <Slider
+                  value={[intensity]}
+                  min={0}
+                  max={100}
+                  step={1}
+                  onValueChange={(value) => setIntensity(value[0] ?? 0)}
+                />
               </div>
             </CardContent>
           </Card>
-        ))}
+
+          <Card className="animate-fade-up" style={{ animationDelay: "80ms" }}>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>AI 推荐占位</CardTitle>
+              <Badge>V1 占位</Badge>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-slate-300">
+              <p>
+                {recommendation?.reason ??
+                  "推荐逻辑尚未接入，本次演示使用手动选择预设与强度。"}
+              </p>
+              {recommendation && (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                  <span>Top3：</span>
+                  {recommendation.topPresets.map((preset) => (
+                    <Badge
+                      key={preset.id}
+                      className="border-white/10 bg-slate-950/60 text-slate-200"
+                    >
+                      {preset.name}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="animate-fade-up" style={{ animationDelay: "160ms" }}>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>临时选择</CardTitle>
+              <Badge>{selectedAssets.length} 张</Badge>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-slate-300">
+              {selectedAssets.length === 0 ? (
+                <div className="space-y-2">
+                  <p>尚未选择素材，请先在素材库中筛选并勾选。</p>
+                  <Button size="sm" variant="secondary" asChild>
+                    <Link to="/library">返回素材库</Link>
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-col gap-2">
+                    <Button
+                      className="w-full"
+                      onClick={() =>
+                        applyPresetToSelection(
+                          selectedAssetIds,
+                          selectedPreset,
+                          intensity
+                        )
+                      }
+                    >
+                      应用到已选素材
+                    </Button>
+                    <Button
+                      className="w-full"
+                      variant="secondary"
+                      onClick={clearAssetSelection}
+                    >
+                      清空临时选择
+                    </Button>
+                  </div>
+                  <div className="flex gap-3 overflow-x-auto pb-2">
+                    {selectedAssets.slice(0, 10).map((asset) => (
+                      <div
+                        key={asset.id}
+                        className="flex min-w-[160px] items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/60 p-3"
+                      >
+                        <img
+                          src={asset.objectUrl}
+                          alt={asset.name}
+                          className="h-12 w-12 rounded-xl object-cover"
+                        />
+                        <div className="text-xs text-slate-300">
+                          <p className="font-medium text-slate-100 line-clamp-1">
+                            {asset.name}
+                          </p>
+                          <p>分组：{asset.group ?? "未分组"}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {selectedAssets.length > 10 && (
+                    <p className="text-xs text-slate-400">
+                      还有 {selectedAssets.length - 10} 张素材已选中。
+                    </p>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="space-y-4">
+          {groups.map(([groupName, groupAssets], index) => (
+            <Card
+              key={groupName}
+              className="animate-fade-up"
+              style={{ animationDelay: `${80 + index * 60}ms` }}
+            >
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>{groupName}</CardTitle>
+                <Badge>{groupAssets.length} 张</Badge>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                  <Button
+                    className="w-full sm:w-auto"
+                    onClick={() =>
+                      applyPresetToGroup(groupName, selectedPreset, intensity)
+                    }
+                  >
+                    应用到本组
+                  </Button>
+                  <Button className="w-full sm:w-auto" variant="secondary">
+                    替换本组预设
+                  </Button>
+                  <Button className="w-full sm:w-auto" variant="secondary">
+                    强度统一调整
+                  </Button>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {groupAssets.map((asset) => (
+                    <div
+                      key={asset.id}
+                      className="flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/60 p-3 content-auto"
+                    >
+                      <img
+                        src={asset.objectUrl}
+                        alt={asset.name}
+                        className="h-14 w-14 rounded-xl object-cover"
+                      />
+                      <div className="text-xs text-slate-300">
+                        <p className="font-medium text-slate-100 line-clamp-1">
+                          {asset.name}
+                        </p>
+                        <p>Preset：{asset.presetId ?? "未设置"}</p>
+                        <p>强度：{asset.intensity ?? 0}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
-    </div>
+    </PageShell>
   );
 }

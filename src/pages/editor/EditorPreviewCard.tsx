@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+ï»¿import { useMemo } from "react";
 import type { EditingAdjustments, Asset } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,7 +45,7 @@ export function EditorPreviewCard({
     if (!selectedAsset) {
       return "";
     }
-    return PRESET_MAP.get(selectedAsset.presetId ?? "") ?? "Î´ÉèÖÃ";
+    return PRESET_MAP.get(selectedAsset.presetId ?? "") ?? "æœªè®¾ç½®";
   }, [selectedAsset]);
 
   const previewStyle = useMemo(() => {
@@ -76,7 +76,7 @@ export function EditorPreviewCard({
     <Card className="min-w-0">
       <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
-          <CardTitle>Ô¤ÀÀ</CardTitle>
+          <CardTitle>é¢„è§ˆ</CardTitle>
           {selectedAsset && (
             <p className="text-xs text-slate-400 line-clamp-1">
               {selectedAsset.name}
@@ -84,14 +84,14 @@ export function EditorPreviewCard({
           )}
         </div>
         {selectedAsset && (
-          <span className="text-xs text-slate-400">Ô¤Éè£º{presetLabel}</span>
+          <span className="text-xs text-slate-400">é¢„è®¾ï¼š{presetLabel}</span>
         )}
       </CardHeader>
       <CardContent className="min-w-0">
         {selectedAsset ? (
           <div className="space-y-4">
             <div
-              className="relative w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950"
+              className="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-slate-950/60"
               style={{ aspectRatio: previewAspectRatio }}
             >
               <img
@@ -113,8 +113,8 @@ export function EditorPreviewCard({
                 />
               )}
               {showOriginal && (
-                <span className="absolute left-3 top-3 rounded-full bg-slate-950/80 px-3 py-1 text-xs text-slate-200">
-                  Ô­Í¼
+                <span className="absolute left-3 top-3 rounded-full border border-white/10 bg-slate-950/80 px-3 py-1 text-xs text-slate-200">
+                  åŸå›¾
                 </span>
               )}
             </div>
@@ -124,13 +124,13 @@ export function EditorPreviewCard({
                 variant={showOriginal ? "default" : "secondary"}
                 onClick={onToggleOriginal}
               >
-                ¶Ô±ÈÔ­Í¼
+                å¯¹æ¯”åŸå›¾
               </Button>
               <Button size="sm" variant="secondary" onClick={onResetAll}>
-                ÖØÖÃÈ«²¿
+                é‡ç½®å…¨éƒ¨
               </Button>
               <Button size="sm" variant="secondary" onClick={onCopy}>
-                ¸´ÖÆÉèÖÃ
+                å¤åˆ¶è®¾ç½®
               </Button>
               <Button
                 size="sm"
@@ -138,12 +138,12 @@ export function EditorPreviewCard({
                 onClick={onPaste}
                 disabled={!canPaste}
               >
-                Õ³ÌùÉèÖÃ
+                ç²˜è´´è®¾ç½®
               </Button>
             </div>
           </div>
         ) : (
-          <p className="text-sm text-slate-400">ÇëÑ¡ÔñÒ»ÕÅÕÕÆ¬½øĞĞ±à¼­¡£</p>
+          <p className="text-sm text-slate-400">è¯·é€‰æ‹©ä¸€å¼ ç…§ç‰‡è¿›è¡Œç¼–è¾‘ã€‚</p>
         )}
       </CardContent>
     </Card>
