@@ -9,10 +9,21 @@ interface ProjectState {
   assets: Asset[];
   presets: typeof presets;
   isLoading: boolean;
+  selectedAssetIds: string[];
   init: () => Promise<void>;
   addAssets: (files: File[]) => Promise<void>;
   applyPresetToGroup: (group: string, presetId: string, intensity: number) => void;
+  applyPresetToSelection: (
+    assetIds: string[],
+    presetId: string,
+    intensity: number
+  ) => void;
   updateAsset: (assetId: string, update: Partial<Asset>) => void;
+  setSelectedAssetIds: (assetIds: string[]) => void;
+  addToSelection: (assetIds: string[]) => void;
+  toggleAssetSelection: (assetId: string) => void;
+  removeFromSelection: (assetIds: string[]) => void;
+  clearAssetSelection: () => void;
   resetProject: () => Promise<void>;
 }
 
@@ -31,6 +42,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   assets: [],
   presets,
   isLoading: true,
+  selectedAssetIds: [],
   init: async () => {
     set({ isLoading: true });
     const storedProject = await loadProject();
@@ -52,7 +64,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       blob: asset.blob,
       adjustments: asset.adjustments ?? createDefaultAdjustments(),
     }));
-    set({ project, assets, isLoading: false });
+    const nextSelection = get().selectedAssetIds.filter((id) =>
+      assets.some((asset) => asset.id === id)
+    );
+    set({ project, assets, isLoading: false, selectedAssetIds: nextSelection });
   },
   addAssets: async (files: File[]) => {
     const { assets, project } = get();
@@ -114,6 +129,29 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     });
     set({ assets: nextAssets });
   },
+  applyPresetToSelection: (assetIds, presetId, intensity) => {
+    const selectedSet = new Set(assetIds);
+    const nextAssets = get().assets.map((asset) =>
+      selectedSet.has(asset.id) ? { ...asset, presetId, intensity } : asset
+    );
+    nextAssets.forEach((asset) => {
+      if (asset.blob && selectedSet.has(asset.id)) {
+        void saveAsset({
+          id: asset.id,
+          name: asset.name,
+          type: asset.type,
+          size: asset.size,
+          createdAt: asset.createdAt,
+          blob: asset.blob,
+          presetId: asset.presetId,
+          intensity: asset.intensity,
+          group: asset.group,
+          adjustments: asset.adjustments,
+        });
+      }
+    });
+    set({ assets: nextAssets });
+  },
   updateAsset: (assetId, update) => {
     const nextAssets = get().assets.map((asset) =>
       asset.id === assetId ? { ...asset, ...update } : asset
@@ -135,10 +173,36 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
     set({ assets: nextAssets });
   },
+  setSelectedAssetIds: (assetIds) => {
+    const unique = Array.from(new Set(assetIds));
+    set({ selectedAssetIds: unique });
+  },
+  addToSelection: (assetIds) => {
+    const unique = new Set(get().selectedAssetIds);
+    assetIds.forEach((id) => unique.add(id));
+    set({ selectedAssetIds: Array.from(unique) });
+  },
+  toggleAssetSelection: (assetId) => {
+    const current = new Set(get().selectedAssetIds);
+    if (current.has(assetId)) {
+      current.delete(assetId);
+    } else {
+      current.add(assetId);
+    }
+    set({ selectedAssetIds: Array.from(current) });
+  },
+  removeFromSelection: (assetIds) => {
+    const current = new Set(get().selectedAssetIds);
+    assetIds.forEach((id) => current.delete(id));
+    set({ selectedAssetIds: Array.from(current) });
+  },
+  clearAssetSelection: () => {
+    set({ selectedAssetIds: [] });
+  },
   resetProject: async () => {
     await clearAssets();
     const project = defaultProject();
     await saveProject(project);
-    set({ project, assets: [] });
+    set({ project, assets: [], selectedAssetIds: [] });
   },
 }));
