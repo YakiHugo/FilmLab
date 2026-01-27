@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useProjectStore } from "@/stores/projectStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,7 +23,14 @@ import {
 import { presets } from "@/data/presets";
 
 export function BatchStudio() {
-  const { assets, init, applyPresetToGroup } = useProjectStore();
+  const {
+    assets,
+    init,
+    applyPresetToGroup,
+    applyPresetToSelection,
+    selectedAssetIds,
+    clearAssetSelection,
+  } = useProjectStore();
   const [mode, setMode] = useState<"一致性优先" | "最适配优先">("一致性优先");
   const [selectedPreset, setSelectedPreset] = useState(presets[0]?.id ?? "");
   const [intensity, setIntensity] = useState(60);
@@ -50,6 +58,12 @@ export function BatchStudio() {
     return Array.from(map.entries());
   }, [assets]);
 
+  const selectedSet = useMemo(() => new Set(selectedAssetIds), [selectedAssetIds]);
+  const selectedAssets = useMemo(
+    () => assets.filter((asset) => selectedSet.has(asset.id)),
+    [assets, selectedSet]
+  );
+
   return (
     <div className="space-y-6">
       <PageHeader>
@@ -76,6 +90,71 @@ export function BatchStudio() {
           </Button>
         </PageHeaderActions>
       </PageHeader>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <CardTitle>临时选择</CardTitle>
+          <Badge>{selectedAssets.length} 张</Badge>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-slate-300">
+          {selectedAssets.length === 0 ? (
+            <div className="space-y-2">
+              <p>尚未选择素材，请先在素材库中筛选并勾选。</p>
+              <Button size="sm" variant="secondary" asChild>
+                <Link to="/library">返回素材库</Link>
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <Button
+                  className="w-full sm:w-auto"
+                  onClick={() =>
+                    applyPresetToSelection(selectedAssetIds, selectedPreset, intensity)
+                  }
+                >
+                  应用到已选素材
+                </Button>
+                <Button
+                  className="w-full sm:w-auto"
+                  variant="secondary"
+                  onClick={clearAssetSelection}
+                >
+                  清空临时选择
+                </Button>
+                <Button className="w-full sm:w-auto" variant="secondary" asChild>
+                  <Link to="/library">继续选择</Link>
+                </Button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {selectedAssets.slice(0, 6).map((asset) => (
+                  <div
+                    key={asset.id}
+                    className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-950 p-3"
+                  >
+                    <img
+                      src={asset.objectUrl}
+                      alt={asset.name}
+                      className="h-12 w-12 rounded-md object-cover"
+                    />
+                    <div className="text-xs text-slate-300">
+                      <p className="font-medium text-slate-100 line-clamp-1">
+                        {asset.name}
+                      </p>
+                      <p>分组：{asset.group ?? "未分组"}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {selectedAssets.length > 6 && (
+                <p className="text-xs text-slate-400">
+                  还有 {selectedAssets.length - 6} 张素材已选中。
+                </p>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
