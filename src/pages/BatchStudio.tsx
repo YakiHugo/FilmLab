@@ -22,6 +22,8 @@ export function BatchStudio() {
   const {
     assets,
     applyPresetToGroup,
+    updatePresetForGroup,
+    updateIntensityForGroup,
     applyPresetToSelection,
     selectedAssetIds,
     clearAssetSelection,
@@ -29,6 +31,8 @@ export function BatchStudio() {
     useShallow((state) => ({
       assets: state.assets,
       applyPresetToGroup: state.applyPresetToGroup,
+      updatePresetForGroup: state.updatePresetForGroup,
+      updateIntensityForGroup: state.updateIntensityForGroup,
       applyPresetToSelection: state.applyPresetToSelection,
       selectedAssetIds: state.selectedAssetIds,
       clearAssetSelection: state.clearAssetSelection,
@@ -210,7 +214,7 @@ export function BatchStudio() {
                         className="flex min-w-[160px] items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/60 p-3"
                       >
                         <img
-                          src={asset.objectUrl}
+                          src={asset.thumbnailUrl ?? asset.objectUrl}
                           alt={asset.name}
                           className="h-12 w-12 rounded-xl object-cover"
                         />
@@ -255,10 +259,18 @@ export function BatchStudio() {
                   >
                     应用到本组
                   </Button>
-                  <Button className="w-full sm:w-auto" variant="secondary">
+                  <Button
+                    className="w-full sm:w-auto"
+                    variant="secondary"
+                    onClick={() => updatePresetForGroup(groupName, selectedPreset)}
+                  >
                     替换本组预设
                   </Button>
-                  <Button className="w-full sm:w-auto" variant="secondary">
+                  <Button
+                    className="w-full sm:w-auto"
+                    variant="secondary"
+                    onClick={() => updateIntensityForGroup(groupName, intensity)}
+                  >
                     强度统一调整
                   </Button>
                 </div>
@@ -269,7 +281,7 @@ export function BatchStudio() {
                       className="flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/60 p-3 content-auto"
                     >
                       <img
-                        src={asset.objectUrl}
+                        src={asset.thumbnailUrl ?? asset.objectUrl}
                         alt={asset.name}
                         className="h-14 w-14 rounded-xl object-cover"
                       />

@@ -1,4 +1,10 @@
-import type { EditingAdjustments, HslAdjustments } from "@/types";
+import { presets } from "@/data/presets";
+import type {
+  EditingAdjustments,
+  HslAdjustments,
+  PresetAdjustments,
+  PresetAdjustmentKey,
+} from "@/types";
 
 const defaultHsl: HslAdjustments = {
   red: { hue: 0, saturation: 0, luminance: 0 },
@@ -57,3 +63,59 @@ export function createDefaultAdjustments(): EditingAdjustments {
     opticsCA: false,
   };
 }
+
+const PRESET_LIMITS: Record<PresetAdjustmentKey, { min: number; max: number }> = {
+  exposure: { min: -100, max: 100 },
+  contrast: { min: -100, max: 100 },
+  highlights: { min: -100, max: 100 },
+  shadows: { min: -100, max: 100 },
+  whites: { min: -100, max: 100 },
+  blacks: { min: -100, max: 100 },
+  temperature: { min: -100, max: 100 },
+  tint: { min: -100, max: 100 },
+  vibrance: { min: -100, max: 100 },
+  saturation: { min: -100, max: 100 },
+  clarity: { min: -100, max: 100 },
+  dehaze: { min: -100, max: 100 },
+  vignette: { min: -100, max: 100 },
+  grain: { min: 0, max: 100 },
+};
+
+const clampValue = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
+export const applyPresetAdjustments = (
+  base: EditingAdjustments,
+  presetAdjustments: PresetAdjustments,
+  intensity = 100
+) => {
+  const scale = clampValue(intensity, 0, 100) / 100;
+  const next = { ...base };
+  (Object.keys(presetAdjustments) as PresetAdjustmentKey[]).forEach((key) => {
+    const adjustment = presetAdjustments[key];
+    if (typeof adjustment !== "number") {
+      return;
+    }
+    const limit = PRESET_LIMITS[key];
+    const updated = base[key] + adjustment * scale;
+    next[key] = clampValue(updated, limit.min, limit.max);
+  });
+  return next;
+};
+
+export const resolveAdjustmentsWithPreset = (
+  adjustments: EditingAdjustments | undefined,
+  presetId?: string,
+  intensity?: number
+) => {
+  const base = adjustments ?? createDefaultAdjustments();
+  if (!presetId) {
+    return base;
+  }
+  const preset = presets.find((item) => item.id === presetId);
+  if (!preset) {
+    return base;
+  }
+  const resolvedIntensity = typeof intensity === "number" ? intensity : preset.intensity;
+  return applyPresetAdjustments(base, preset.adjustments, resolvedIntensity);
+};

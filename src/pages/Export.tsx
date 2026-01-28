@@ -5,8 +5,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageShell } from "@/components/layout/PageShell";
-import { createDefaultAdjustments } from "@/lib/adjustments";
+import { resolveAdjustmentsWithPreset } from "@/lib/adjustments";
 import { renderImageToBlob } from "@/lib/imageProcessing";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface ExportTask {
   id: string;
@@ -21,6 +30,28 @@ export function ExportPage() {
     }))
   );
   const [tasks, setTasks] = useState<ExportTask[]>([]);
+  const [format, setFormat] = useState<"original" | "jpeg" | "png">("original");
+  const [quality, setQuality] = useState(92);
+  const [maxDimension, setMaxDimension] = useState(0);
+
+  const resolveOutputType = (assetType: string) => {
+    if (format === "png") {
+      return "image/png";
+    }
+    if (format === "jpeg") {
+      return "image/jpeg";
+    }
+    return assetType === "image/png" ? "image/png" : "image/jpeg";
+  };
+
+  const buildDownloadName = (name: string, type: string) => {
+    const base = name.replace(/\.[^/.]+$/, "");
+    const extension = type === "image/png" ? ".png" : ".jpg";
+    if (format === "original") {
+      return name;
+    }
+    return `${base}${extension}`;
+  };
 
   const handleExportAll = async () => {
     const newTasks = assets.map((asset) => ({
@@ -40,17 +71,21 @@ export function ExportPage() {
         if (!asset?.blob) {
           throw new Error("缺少原图数据");
         }
-        const adjustments = asset.adjustments ?? createDefaultAdjustments();
-        const outputType =
-          asset.type === "image/png" ? "image/png" : "image/jpeg";
+        const adjustments = resolveAdjustmentsWithPreset(
+          asset.adjustments,
+          asset.presetId,
+          asset.intensity
+        );
+        const outputType = resolveOutputType(asset.type);
         const blob = await renderImageToBlob(asset.blob, adjustments, {
           type: outputType,
-          quality: 0.92,
+          quality: quality / 100,
+          maxDimension: maxDimension > 0 ? maxDimension : undefined,
         });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = asset.name;
+        link.download = buildDownloadName(asset.name, outputType);
         link.click();
         URL.revokeObjectURL(url);
         setTasks((prev) =>
@@ -90,6 +125,13 @@ export function ExportPage() {
     },
   ];
 
+  const formatLabel =
+    format === "original"
+      ? "跟随原文件"
+      : format === "png"
+        ? "PNG"
+        : "JPG";
+
   return (
     <PageShell
       title="导出队列"
@@ -111,23 +153,65 @@ export function ExportPage() {
           <CardHeader>
             <CardTitle>导出设置</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 text-sm text-slate-300">
-            <div className="flex items-center justify-between">
-              <span>格式</span>
-              <span>JPG / PNG</span>
+          <CardContent className="space-y-4 text-sm text-slate-300">
+            <div className="space-y-2">
+              <Label className="text-xs text-slate-400">格式</Label>
+              <Select value={format} onValueChange={(value) => setFormat(value as typeof format)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="选择导出格式" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="original">跟随原文件</SelectItem>
+                  <SelectItem value="jpeg">JPG</SelectItem>
+                  <SelectItem value="png">PNG</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <div className="flex items-center justify-between">
-              <span>质量</span>
-              <span>默认（92%）</span>
+            <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span className="text-slate-300">质量</span>
+                <span>{quality}%</span>
+              </div>
+              <Slider
+                value={[quality]}
+                min={70}
+                max={100}
+                step={1}
+                onValueChange={(value) => setQuality(value[0] ?? 92)}
+              />
+              <p className="mt-2 text-[11px] text-slate-500">
+                PNG 忽略质量参数，JPG 建议 85% 以上。
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-slate-400">最长边尺寸</Label>
+              <Select
+                value={String(maxDimension)}
+                onValueChange={(value) => setMaxDimension(Number(value))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="选择尺寸" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0">不缩放</SelectItem>
+                  <SelectItem value="2048">2048 px</SelectItem>
+                  <SelectItem value="3072">3072 px</SelectItem>
+                  <SelectItem value="4096">4096 px</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex items-center justify-between">
               <span>EXIF</span>
-              <span>保留</span>
+              <span>不保留</span>
             </div>
             <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
-              <p className="text-xs uppercase tracking-[0.24em] text-slate-400">说明</p>
+              <p className="text-xs uppercase tracking-[0.24em] text-slate-400">
+                当前配置
+              </p>
               <p className="mt-2 text-xs text-slate-300">
-                当前导出会应用编辑参数，离屏队列与压缩策略后续补充。
+                格式 {formatLabel} · 质量 {quality}% ·{maxDimension > 0
+                  ? ` 最长边 ${maxDimension}px`
+                  : " 原始尺寸"}
               </p>
             </div>
           </CardContent>

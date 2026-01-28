@@ -3,7 +3,7 @@ import { Link, useSearch } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "@/components/ui/button";
 import { PageShell } from "@/components/layout/PageShell";
-import { createDefaultAdjustments } from "@/lib/adjustments";
+import { createDefaultAdjustments, resolveAdjustmentsWithPreset } from "@/lib/adjustments";
 import { useProjectStore } from "@/stores/projectStore";
 import type { EditingAdjustments } from "@/types";
 import { presets } from "@/data/presets";
@@ -13,6 +13,7 @@ import { EditorToolsCard } from "./editor/EditorToolsCard";
 import { DEFAULT_ADJUSTMENTS } from "./editor/constants";
 import { cloneAdjustments } from "./editor/utils";
 import type { NumericAdjustmentKey } from "./editor/types";
+import { AssetMetaCard } from "@/components/AssetMetaCard";
 
 export function Editor() {
   const { assets, updateAsset } = useProjectStore(
@@ -53,6 +54,17 @@ export function Editor() {
     }
     return selectedAsset.adjustments ?? createDefaultAdjustments();
   }, [selectedAsset]);
+
+  const previewAdjustments = useMemo(() => {
+    if (!selectedAsset || !adjustments) {
+      return null;
+    }
+    return resolveAdjustmentsWithPreset(
+      adjustments,
+      selectedAsset.presetId,
+      selectedAsset.intensity
+    );
+  }, [adjustments, selectedAsset]);
 
   const presetLabel = useMemo(() => {
     if (!selectedAsset?.presetId) return "未设置";
@@ -161,7 +173,7 @@ export function Editor() {
                     onClick={() => setSelectedAssetId(asset.id)}
                   >
                     <img
-                      src={asset.objectUrl}
+                      src={asset.thumbnailUrl ?? asset.objectUrl}
                       alt={asset.name}
                       className="h-12 w-12 rounded-xl object-cover"
                     />
@@ -179,7 +191,7 @@ export function Editor() {
           <div className="animate-fade-up">
             <EditorPreviewCard
               selectedAsset={selectedAsset}
-              adjustments={adjustments}
+              adjustments={previewAdjustments}
               showOriginal={showOriginal}
               onToggleOriginal={() => setShowOriginal((prev) => !prev)}
               onResetAll={handleResetAll}
@@ -201,6 +213,9 @@ export function Editor() {
               onSetIntensity={handleSetIntensity}
               onResetTool={handleResetTool}
             />
+          </div>
+          <div className="animate-fade-up" style={{ animationDelay: "160ms" }}>
+            <AssetMetaCard asset={selectedAsset} />
           </div>
         </div>
       </div>

@@ -4,13 +4,12 @@
 
 ## 当前状态
 - 已完成 Vite + React + TypeScript 前端原型与基础路由
-- Library：JPG/PNG 导入、筛选、分页、选择集
+- Library：JPG/PNG 导入、筛选、分页、选择集、缩略图/EXIF
 - Batch Studio：按分组/选择应用 preset 与强度（AI 推荐为占位）
-- Editor：基础调整项预览（CSS filter）、原图对比、复制/粘贴设置
-- Export：原图导出占位（未接入离屏渲染）
+- Editor：Canvas 预览渲染、原图对比、复制/粘贴设置
+- Export：Canvas 渲染导出（格式/质量/尺寸配置）
 - 本地持久化：IndexedDB 保存项目与素材
 
-> 部分页面中文文案存在编码乱码，待统一 UTF-8 清理。
 
 ## 技术栈
 - Vite + React 18 + TypeScript

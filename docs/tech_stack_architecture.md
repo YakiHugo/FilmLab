@@ -17,19 +17,19 @@
 
 ## 3. 数据模型（核心）
 - Project：`id / name / createdAt / updatedAt`
-- Asset：`id / name / type / size / createdAt / blob / objectUrl / presetId / intensity / group / adjustments`
+- Asset：`id / name / type / size / createdAt / blob / objectUrl / thumbnailBlob / metadata / presetId / intensity / group / adjustments`
 - EditingAdjustments：亮度、对比度、饱和度、色温、暗角、颗粒等基础参数
-- Preset：`id / name / intensity / params`
+- Preset：`id / name / intensity / adjustments`
 
 ## 4. 数据流（当前）
 1. 导入素材 → IndexedDB 持久化 → 生成 objectUrl 展示
 2. Library 选择集/分组 → Batch Studio 应用 preset 与强度
-3. Editor 修改调整项 → Zustand 更新 → 预览使用 CSS filter
-4. Export 点击导出 → 原图下载占位
+3. Editor 修改调整项 → Zustand 更新 → Canvas 渲染预览（叠加预设）
+4. Export 点击导出 → Canvas 渲染导出（格式/质量/尺寸配置）
 
 ## 5. 已实现能力与占位能力
-- 已实现：基础页面、导入/选择/分组、预设应用、基础编辑 UI、本地持久化
-- 占位：AI 推荐、缩略图/EXIF、离屏渲染导出、真实图像处理管线
+- 已实现：基础页面、导入/选择/分组、预设应用、缩略图/EXIF、Canvas 预览与导出、本地持久化
+- 占位：AI 推荐、离屏渲染导出
 
 ## 6. 未来扩展建议
 - 引入 Canvas/WebGL 管线用于高质量预览与导出

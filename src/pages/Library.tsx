@@ -17,6 +17,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  formatCameraLabel,
+  formatDimensions,
+  formatExposureSummary,
+} from "@/lib/assetMetadata";
 
 export function Library() {
   const {
@@ -292,7 +297,7 @@ export function Library() {
                         className="block aspect-[4/3] overflow-hidden bg-slate-950"
                       >
                         <img
-                          src={asset.objectUrl}
+                          src={asset.thumbnailUrl ?? asset.objectUrl}
                           alt={asset.name}
                           className="h-full w-full object-cover"
                           loading="lazy"
@@ -318,6 +323,13 @@ export function Library() {
                       </div>
                       <div>分组：{asset.group ?? "未分组"}</div>
                       <div>大小：{(asset.size / 1024).toFixed(1)} KB</div>
+                      <div className="text-[11px] text-slate-400 line-clamp-1">
+                        {formatCameraLabel(asset.metadata)}
+                      </div>
+                      <div className="text-[11px] text-slate-500 line-clamp-1">
+                        {formatDimensions(asset.metadata)} ·{" "}
+                        {formatExposureSummary(asset.metadata)}
+                      </div>
                       <Button className="w-full" size="sm" variant="secondary" asChild>
                         <Link to="/editor" search={{ assetId: asset.id }}>
                           <Wand2 className="h-4 w-4" />

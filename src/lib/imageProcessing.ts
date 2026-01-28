@@ -128,7 +128,17 @@ const applyGrain = (
   context.restore();
 };
 
-const loadImageSource = async (source: Blob | string, signal?: AbortSignal) => {
+interface LoadedImageSource {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  cleanup?: () => void;
+}
+
+const loadImageSource = async (
+  source: Blob | string,
+  signal?: AbortSignal
+): Promise<LoadedImageSource> => {
   if (source instanceof Blob) {
     if (typeof createImageBitmap === "function") {
       const bitmap = await createImageBitmap(source, { imageOrientation: "from-image" });
