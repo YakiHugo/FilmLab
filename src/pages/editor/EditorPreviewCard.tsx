@@ -1,14 +1,9 @@
-﻿import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { EditingAdjustments, Asset } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ASPECT_RATIOS, PRESET_MAP } from "./constants";
-import {
-  buildPreviewFilter,
-  buildPreviewTransform,
-  getGrainStyle,
-  getVignetteStyle,
-} from "./utils";
+import { renderImageToCanvas } from "@/lib/imageProcessing";
 
 interface EditorPreviewCardProps {
   selectedAsset: Asset | null;
@@ -31,6 +26,10 @@ export function EditorPreviewCard({
   onPaste,
   canPaste,
 }: EditorPreviewCardProps) {
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
+
   const previewAspectRatio = useMemo(() => {
     if (!adjustments) {
       return "4 / 3";
@@ -48,29 +47,48 @@ export function EditorPreviewCard({
     return PRESET_MAP.get(selectedAsset.presetId ?? "") ?? "未设置";
   }, [selectedAsset]);
 
-  const previewStyle = useMemo(() => {
-    if (!adjustments || showOriginal) {
+  useEffect(() => {
+    if (!frameRef.current) {
       return undefined;
     }
-    return {
-      filter: buildPreviewFilter(adjustments),
-      transform: buildPreviewTransform(adjustments),
-    } as const;
-  }, [adjustments, showOriginal]);
+    const element = frameRef.current;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) {
+        return;
+      }
+      const { width, height } = entry.contentRect;
+      setFrameSize({
+        width: Math.max(1, Math.floor(width)),
+        height: Math.max(1, Math.floor(height)),
+      });
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
-  const vignetteStyle = useMemo(() => {
-    if (!adjustments) {
+  useEffect(() => {
+    if (!selectedAsset || !adjustments || showOriginal) {
       return undefined;
     }
-    return getVignetteStyle(adjustments);
-  }, [adjustments]);
-
-  const grainStyle = useMemo(() => {
-    if (!adjustments) {
+    const canvas = canvasRef.current;
+    if (!canvas || frameSize.width === 0 || frameSize.height === 0) {
       return undefined;
     }
-    return getGrainStyle(adjustments);
-  }, [adjustments]);
+    const controller = new AbortController();
+    const dpr = window.devicePixelRatio || 1;
+    void renderImageToCanvas({
+      canvas,
+      source: selectedAsset.blob ?? selectedAsset.objectUrl,
+      adjustments,
+      targetSize: {
+        width: Math.round(frameSize.width * dpr),
+        height: Math.round(frameSize.height * dpr),
+      },
+      signal: controller.signal,
+    }).catch(() => undefined);
+    return () => controller.abort();
+  }, [adjustments, frameSize.height, frameSize.width, selectedAsset, showOriginal]);
 
   return (
     <Card className="min-w-0">
@@ -91,25 +109,22 @@ export function EditorPreviewCard({
         {selectedAsset ? (
           <div className="space-y-4">
             <div
+              ref={frameRef}
               className="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-slate-950/60"
               style={{ aspectRatio: previewAspectRatio }}
             >
-              <img
-                src={selectedAsset.objectUrl}
-                alt={selectedAsset.name}
-                className="h-full w-full object-cover transition duration-300 ease-out"
-                style={previewStyle}
-              />
-              {!showOriginal && vignetteStyle && (
-                <div
-                  className="pointer-events-none absolute inset-0"
-                  style={vignetteStyle}
+              {showOriginal || !adjustments ? (
+                <img
+                  src={selectedAsset.objectUrl}
+                  alt={selectedAsset.name}
+                  className="h-full w-full object-cover"
                 />
-              )}
-              {!showOriginal && grainStyle && (
-                <div
-                  className="pointer-events-none absolute inset-0"
-                  style={grainStyle}
+              ) : (
+                <canvas
+                  ref={canvasRef}
+                  role="img"
+                  aria-label={`${selectedAsset.name} 预览`}
+                  className="block h-full w-full"
                 />
               )}
               {showOriginal && (

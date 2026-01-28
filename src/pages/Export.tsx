@@ -1,15 +1,17 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useProjectStore } from "@/stores/projectStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageShell } from "@/components/layout/PageShell";
+import { createDefaultAdjustments } from "@/lib/adjustments";
+import { renderImageToBlob } from "@/lib/imageProcessing";
 
 interface ExportTask {
   id: string;
   name: string;
-  status: "等待" | "完成";
+  status: "等待" | "处理中" | "完成" | "失败";
 }
 
 export function ExportPage() {
@@ -20,7 +22,7 @@ export function ExportPage() {
   );
   const [tasks, setTasks] = useState<ExportTask[]>([]);
 
-  const handleExportAll = () => {
+  const handleExportAll = async () => {
     const newTasks = assets.map((asset) => ({
       id: asset.id,
       name: asset.name,
@@ -28,21 +30,42 @@ export function ExportPage() {
     }));
     setTasks(newTasks);
 
-    newTasks.forEach((task, index) => {
-      const asset = assets[index];
-      if (!asset?.blob) return;
-      const url = URL.createObjectURL(asset.blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = asset.name;
-      link.click();
-      URL.revokeObjectURL(url);
+    for (const asset of assets) {
       setTasks((prev) =>
         prev.map((item) =>
-          item.id === task.id ? { ...item, status: "完成" } : item
+          item.id === asset.id ? { ...item, status: "处理中" } : item
         )
       );
-    });
+      try {
+        if (!asset?.blob) {
+          throw new Error("缺少原图数据");
+        }
+        const adjustments = asset.adjustments ?? createDefaultAdjustments();
+        const outputType =
+          asset.type === "image/png" ? "image/png" : "image/jpeg";
+        const blob = await renderImageToBlob(asset.blob, adjustments, {
+          type: outputType,
+          quality: 0.92,
+        });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = asset.name;
+        link.click();
+        URL.revokeObjectURL(url);
+        setTasks((prev) =>
+          prev.map((item) =>
+            item.id === asset.id ? { ...item, status: "完成" } : item
+          )
+        );
+      } catch (error) {
+        setTasks((prev) =>
+          prev.map((item) =>
+            item.id === asset.id ? { ...item, status: "失败" } : item
+          )
+        );
+      }
+    }
   };
 
   const totalSize = useMemo(
@@ -51,6 +74,7 @@ export function ExportPage() {
   );
   const completedCount = tasks.filter((task) => task.status === "完成").length;
   const progress = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
+  const isExporting = tasks.some((task) => task.status === "处理中");
 
   const stats = [
     { label: "可导出素材", value: `${assets.length} 张`, hint: "当前项目" },
@@ -62,7 +86,7 @@ export function ExportPage() {
     {
       label: "估算体积",
       value: `${(totalSize / 1024 / 1024).toFixed(1)} MB`,
-      hint: "原图占位",
+      hint: "原图体积",
     },
   ];
 
@@ -70,14 +94,14 @@ export function ExportPage() {
     <PageShell
       title="导出队列"
       kicker="Delivery"
-      description="导出将以原图占位进行，本期重点验证交付流程。"
+      description="导出将应用当前调色参数，并生成可下载文件。"
       actions={
         <Button
           className="w-full sm:w-auto"
           onClick={handleExportAll}
-          disabled={assets.length === 0}
+          disabled={assets.length === 0 || isExporting}
         >
-          导出全部
+          {isExporting ? "导出中" : "导出全部"}
         </Button>
       }
       stats={stats}
@@ -94,7 +118,7 @@ export function ExportPage() {
             </div>
             <div className="flex items-center justify-between">
               <span>质量</span>
-              <span>默认</span>
+              <span>默认（92%）</span>
             </div>
             <div className="flex items-center justify-between">
               <span>EXIF</span>
@@ -103,7 +127,7 @@ export function ExportPage() {
             <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
               <p className="text-xs uppercase tracking-[0.24em] text-slate-400">说明</p>
               <p className="mt-2 text-xs text-slate-300">
-                后续将接入离屏渲染队列与压缩策略。
+                当前导出会应用编辑参数，离屏队列与压缩策略后续补充。
               </p>
             </div>
           </CardContent>
@@ -152,7 +176,11 @@ export function ExportPage() {
                 className={
                   task.status === "完成"
                     ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-200"
-                    : "border-amber-300/30 bg-amber-300/10 text-amber-200"
+                    : task.status === "失败"
+                      ? "border-rose-300/30 bg-rose-300/10 text-rose-200"
+                      : task.status === "处理中"
+                        ? "border-sky-300/30 bg-sky-300/10 text-sky-200"
+                        : "border-amber-300/30 bg-amber-300/10 text-amber-200"
                 }
               >
                 {task.status}
