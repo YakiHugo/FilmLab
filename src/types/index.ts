@@ -1,11 +1,30 @@
 export type PresetTag = "人像" | "风景" | "夜景" | "黑白";
 
+export type PresetAdjustmentKey =
+  | "exposure"
+  | "contrast"
+  | "highlights"
+  | "shadows"
+  | "whites"
+  | "blacks"
+  | "temperature"
+  | "tint"
+  | "vibrance"
+  | "saturation"
+  | "clarity"
+  | "dehaze"
+  | "vignette"
+  | "grain";
+
+export type PresetAdjustments = Partial<Record<PresetAdjustmentKey, number>>;
+
 export interface Preset {
   id: string;
   name: string;
   tags: PresetTag[];
   intensity: number;
   description: string;
+  adjustments: PresetAdjustments;
 }
 
 export type HslColorKey =
@@ -69,11 +88,27 @@ export interface Asset {
   size: number;
   createdAt: string;
   objectUrl: string;
+  thumbnailUrl?: string;
   presetId?: string;
   intensity?: number;
   group?: string;
   blob?: Blob;
+  thumbnailBlob?: Blob;
+  metadata?: AssetMetadata;
   adjustments?: EditingAdjustments;
+}
+
+export interface AssetMetadata {
+  width?: number;
+  height?: number;
+  cameraMake?: string;
+  cameraModel?: string;
+  lensModel?: string;
+  focalLength?: number;
+  aperture?: number;
+  shutterSpeed?: string;
+  iso?: number;
+  capturedAt?: string;
 }
 
 export interface Project {
