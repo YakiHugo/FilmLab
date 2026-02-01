@@ -168,7 +168,7 @@ export function Editor() {
                     type="button"
                     className={cn(
                       "flex min-w-[180px] items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/60 p-3 text-left transition",
-                      isActive && "border-amber-200/40 bg-amber-300/10"
+                      isActive && "border-sky-200/40 bg-sky-300/10"
                     )}
                     onClick={() => setSelectedAssetId(asset.id)}
                   >
@@ -222,3 +222,4 @@ export function Editor() {
     </PageShell>
   );
 }
+

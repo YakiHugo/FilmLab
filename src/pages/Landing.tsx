@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+﻿import { useMemo } from "react";
 import { Link } from "@tanstack/react-router";
 import { Layers, Sparkles, Wand2 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
@@ -82,7 +82,7 @@ export function Landing() {
                   className="flex items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/50 p-3 animate-fade-up"
                   style={{ animationDelay: `${index * 80}ms` }}
                 >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-200/30 bg-amber-300/10 text-amber-200">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-200/30 bg-sky-300/10 text-sky-200">
                     <Icon className="h-5 w-5" />
                   </div>
                   <div>
@@ -159,3 +159,4 @@ export function Landing() {
     </PageShell>
   );
 }
+

@@ -23,7 +23,7 @@ export function MobileNav() {
               <span
                 className={cn(
                   "flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-200",
-                  isActive && "border-amber-200/30 bg-amber-300/20 text-amber-200"
+                  isActive && "border-sky-200/30 bg-sky-300/20 text-sky-200"
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -36,3 +36,4 @@ export function MobileNav() {
     </nav>
   );
 }
+

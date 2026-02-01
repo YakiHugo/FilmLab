@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useProjectStore } from "@/stores/projectStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -232,7 +232,7 @@ export function ExportPage() {
             </div>
             <div className="rounded-full border border-white/10 bg-slate-950/60">
               <div
-                className="h-2 rounded-full bg-amber-300 transition-all"
+                className="h-2 rounded-full bg-sky-300 transition-all"
                 style={{ width: `${progress}%` }}
               />
             </div>
@@ -264,7 +264,7 @@ export function ExportPage() {
                       ? "border-rose-300/30 bg-rose-300/10 text-rose-200"
                       : task.status === "处理中"
                         ? "border-sky-300/30 bg-sky-300/10 text-sky-200"
-                        : "border-amber-300/30 bg-amber-300/10 text-amber-200"
+                        : "border-sky-300/30 bg-sky-300/10 text-sky-200"
                 }
               >
                 {task.status}
@@ -276,3 +276,4 @@ export function ExportPage() {
     </PageShell>
   );
 }
+

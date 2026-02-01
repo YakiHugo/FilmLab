@@ -1,10 +1,6 @@
 import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 import App from "@/App";
-import { Landing } from "@/pages/Landing";
-import { Library } from "@/pages/Library";
-import { BatchStudio } from "@/pages/BatchStudio";
-import { Editor } from "@/pages/Editor";
-import { ExportPage } from "@/pages/Export";
+import { Workspace } from "@/pages/Workspace";
 
 const rootRoute = createRootRoute({
   component: App,
@@ -13,43 +9,16 @@ const rootRoute = createRootRoute({
 const landingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: Landing,
-});
-
-const libraryRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/library",
-  component: Library,
-});
-
-const batchRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/batch",
-  component: BatchStudio,
-});
-
-const editorRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/editor",
   validateSearch: (search: Record<string, unknown>) => ({
-    assetId: typeof search.assetId === "string" ? search.assetId : undefined,
+    step:
+      search.step === "style" || search.step === "export"
+        ? search.step
+        : "library",
   }),
-  component: Editor,
+  component: Workspace,
 });
 
-const exportRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/export",
-  component: ExportPage,
-});
-
-const routeTree = rootRoute.addChildren([
-  landingRoute,
-  libraryRoute,
-  batchRoute,
-  editorRoute,
-  exportRoute,
-]);
+const routeTree = rootRoute.addChildren([landingRoute]);
 
 export const router = createRouter({ routeTree });
 
