@@ -76,7 +76,9 @@ export interface EditingAdjustments {
   vertical: number;
   horizontal: number;
   scale: number;
-  aspectRatio: "original" | "1:1" | "3:2" | "4:3" | "16:9";
+  flipHorizontal: boolean;
+  flipVertical: boolean;
+  aspectRatio: "original" | "1:1" | "3:2" | "4:3" | "4:5" | "16:9";
   opticsProfile: boolean;
   opticsCA: boolean;
 }

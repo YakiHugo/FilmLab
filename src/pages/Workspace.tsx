@@ -424,6 +424,13 @@ export function Workspace() {
     void navigate({ search: { step: nextStep } });
   };
 
+  const openFineTunePage = () => {
+    if (!activeAssetId) {
+      return;
+    }
+    void navigate({ to: "/editor", search: { assetId: activeAssetId } });
+  };
+
   const targetSelection =
     selectedAssetIds.length > 0 ? selectedAssetIds : assets.map((asset) => asset.id);
 
@@ -1223,17 +1230,29 @@ export function Workspace() {
           <SlidersHorizontal className="h-4 w-4" />
           默认强度 {intensity} · 已选 {selectedAssetIds.length} 张
         </div>
-        {currentStep === "library" && assets.length === 0 ? (
-          <UploadButton className="w-full md:w-auto" label={primaryAction.label} />
-        ) : (
-          <Button
-            className="w-full md:w-auto"
-            onClick={primaryAction.action}
-            disabled={primaryAction.disabled}
-          >
-            {primaryAction.label}
-          </Button>
-        )}
+        <div className="flex w-full flex-1 flex-col gap-2 md:w-auto md:flex-row md:justify-end">
+          {currentStep === "style" && (
+            <Button
+              className="w-full md:w-auto"
+              variant="secondary"
+              onClick={openFineTunePage}
+              disabled={!activeAssetId}
+            >
+              进入精修
+            </Button>
+          )}
+          {currentStep === "library" && assets.length === 0 ? (
+            <UploadButton className="w-full md:w-auto" label={primaryAction.label} />
+          ) : (
+            <Button
+              className="w-full md:w-auto"
+              onClick={primaryAction.action}
+              disabled={primaryAction.disabled}
+            >
+              {primaryAction.label}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

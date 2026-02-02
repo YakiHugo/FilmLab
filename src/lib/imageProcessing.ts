@@ -46,11 +46,15 @@ const resolveTransform = (adjustments: EditingAdjustments, width: number, height
   const scale = clamp(adjustments.scale / 100, 0.7, 1.3);
   const translateX = clamp(adjustments.horizontal / 5, -20, 20);
   const translateY = clamp(adjustments.vertical / 5, -20, 20);
+  const flipHorizontal = adjustments.flipHorizontal ? -1 : 1;
+  const flipVertical = adjustments.flipVertical ? -1 : 1;
   return {
     scale,
     rotate: (adjustments.rotate * Math.PI) / 180,
     translateX: (translateX / 100) * width,
     translateY: (translateY / 100) * height,
+    flipHorizontal,
+    flipVertical,
   };
 };
 
@@ -257,7 +261,10 @@ export const renderImageToCanvas = async ({
   context.save();
   context.translate(canvas.width / 2 + transform.translateX, canvas.height / 2 + transform.translateY);
   context.rotate(transform.rotate);
-  context.scale(transform.scale, transform.scale);
+  context.scale(
+    transform.scale * transform.flipHorizontal,
+    transform.scale * transform.flipVertical
+  );
   context.drawImage(
     loaded.source,
     cropX,

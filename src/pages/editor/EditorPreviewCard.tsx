@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import type { EditingAdjustments, Asset } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ASPECT_RATIOS, PRESET_MAP } from "./constants";
+import { ASPECT_RATIOS } from "./constants";
 import { renderImageToCanvas } from "@/lib/imageProcessing";
 
 interface EditorPreviewCardProps {
   selectedAsset: Asset | null;
   adjustments: EditingAdjustments | null;
+  presetLabel?: string;
   showOriginal: boolean;
   onToggleOriginal: () => void;
   onResetAll: () => void;
@@ -19,6 +20,7 @@ interface EditorPreviewCardProps {
 export function EditorPreviewCard({
   selectedAsset,
   adjustments,
+  presetLabel,
   showOriginal,
   onToggleOriginal,
   onResetAll,
@@ -34,18 +36,17 @@ export function EditorPreviewCard({
     if (!adjustments) {
       return "4 / 3";
     }
+    if (adjustments.aspectRatio === "original") {
+      if (selectedAsset?.metadata?.width && selectedAsset?.metadata?.height) {
+        return `${selectedAsset.metadata.width} / ${selectedAsset.metadata.height}`;
+      }
+      return "4 / 3";
+    }
     return (
       ASPECT_RATIOS.find((ratio) => ratio.value === adjustments.aspectRatio)?.ratio ??
       "4 / 3"
     );
-  }, [adjustments]);
-
-  const presetLabel = useMemo(() => {
-    if (!selectedAsset) {
-      return "";
-    }
-    return PRESET_MAP.get(selectedAsset.presetId ?? "") ?? "未设置";
-  }, [selectedAsset]);
+  }, [adjustments, selectedAsset?.metadata?.height, selectedAsset?.metadata?.width]);
 
   useEffect(() => {
     if (!frameRef.current) {
@@ -96,13 +97,11 @@ export function EditorPreviewCard({
         <div className="space-y-1">
           <CardTitle>预览</CardTitle>
           {selectedAsset && (
-            <p className="text-xs text-slate-400 line-clamp-1">
-              {selectedAsset.name}
-            </p>
+            <p className="text-xs text-slate-400 line-clamp-1">{selectedAsset.name}</p>
           )}
         </div>
         {selectedAsset && (
-          <span className="text-xs text-slate-400">预设：{presetLabel}</span>
+          <span className="text-xs text-slate-400">预设：{presetLabel ?? "未设置"}</span>
         )}
       </CardHeader>
       <CardContent className="min-w-0">

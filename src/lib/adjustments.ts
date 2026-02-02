@@ -58,6 +58,8 @@ export function createDefaultAdjustments(): EditingAdjustments {
     vertical: 0,
     horizontal: 0,
     scale: 100,
+    flipHorizontal: false,
+    flipVertical: false,
     aspectRatio: "original",
     opticsProfile: false,
     opticsCA: false,

@@ -77,6 +77,7 @@ export const ASPECT_RATIOS: {
 }[] = [
   { value: "original", label: "原始", ratio: "4 / 3" },
   { value: "1:1", label: "1:1", ratio: "1 / 1" },
+  { value: "4:5", label: "4:5", ratio: "4 / 5" },
   { value: "3:2", label: "3:2", ratio: "3 / 2" },
   { value: "4:3", label: "4:3", ratio: "4 / 3" },
   { value: "16:9", label: "16:9", ratio: "16 / 9" },
