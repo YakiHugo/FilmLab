@@ -446,34 +446,8 @@ export function Editor() {
     </div>
   );
   return (
-    <div className="app-bg min-h-screen bg-slate-950 text-slate-100">
-      <div className="flex min-h-screen flex-col">
-        <header className="glass-panel px-6 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
-                Lightroom 对齐
-              </p>
-              <h1 className="text-xl font-semibold text-white">单张精修</h1>
-              <p className="text-xs text-slate-400">
-                风格应用后进入精修页面，布局对齐 Lightroom，覆盖基础、颜色、曲线、细节与裁切。
-              </p>
-            </div>
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-              <Button className="w-full sm:w-auto" variant="secondary" asChild>
-                <Link to="/" search={{ step: "style" }}>
-                  返回风格
-                </Link>
-              </Button>
-              <Button className="w-full sm:w-auto" variant="ghost" asChild>
-                <Link to="/" search={{ step: "export" }}>
-                  前往导出
-                </Link>
-              </Button>
-            </div>
-          </div>
-        </header>
-
+    <div className="app-bg h-screen overflow-hidden bg-slate-950 text-slate-100">
+      <div className="flex h-full flex-col">
         {assets.length === 0 ? (
           <div className="flex flex-1 items-center justify-center p-6">
             <Card className="w-full max-w-lg animate-fade-up">
