@@ -3,7 +3,13 @@ import { presets } from "@/data/presets";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import { prepareAssetPayload } from "@/lib/assetMetadata";
 import type { Asset, Project } from "@/types";
-import { loadAssets, loadProject, saveAsset, saveProject, clearAssets } from "@/lib/db";
+import {
+  loadAssets,
+  loadProject,
+  saveAsset,
+  saveProject,
+  clearAssets,
+} from "@/lib/db";
 
 interface ProjectState {
   project: Project | null;
@@ -13,15 +19,19 @@ interface ProjectState {
   selectedAssetIds: string[];
   init: () => Promise<void>;
   addAssets: (files: File[]) => Promise<void>;
-  applyPresetToGroup: (group: string, presetId: string, intensity: number) => void;
+  applyPresetToGroup: (
+    group: string,
+    presetId: string,
+  ) => void;
   updatePresetForGroup: (group: string, presetId: string) => void;
   updateIntensityForGroup: (group: string, intensity: number) => void;
   applyPresetToSelection: (
     assetIds: string[],
     presetId: string,
-    intensity: number
+    intensity: number,
   ) => void;
   updateAsset: (assetId: string, update: Partial<Asset>) => void;
+  updateAssetOnly: (assetId: string, update: Partial<Asset>) => void;
   setSelectedAssetIds: (assetIds: string[]) => void;
   addToSelection: (assetIds: string[]) => void;
   toggleAssetSelection: (assetId: string) => void;
@@ -80,7 +90,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         thumbnailUrl,
         presetId: asset.presetId,
         intensity: asset.intensity,
-        group: asset.group ?? `分组 ${index % 4 + 1}`,
+        group: asset.group ?? `分组 ${(index % 4) + 1}`,
         blob: asset.blob,
         thumbnailBlob: asset.thumbnailBlob,
         metadata: asset.metadata,
@@ -88,7 +98,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       };
     });
     const nextSelection = get().selectedAssetIds.filter((id) =>
-      assets.some((asset) => asset.id === id)
+      assets.some((asset) => asset.id === id),
     );
     revokeAssetUrls(get().assets);
     set({ project, assets, isLoading: false, selectedAssetIds: nextSelection });
@@ -99,10 +109,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const newAssets: Asset[] = [];
     for (const file of files) {
       const id = `${file.name}-${file.lastModified}-${Math.random().toString(16).slice(2)}`;
-      const group = `分组 ${newAssets.length % 4 + 1}`;
+      const group = `分组 ${(newAssets.length % 4) + 1}`;
       const { metadata, thumbnailBlob } = await prepareAssetPayload(file);
       const objectUrl = URL.createObjectURL(file);
-      const thumbnailUrl = thumbnailBlob ? URL.createObjectURL(thumbnailBlob) : objectUrl;
+      const thumbnailUrl = thumbnailBlob
+        ? URL.createObjectURL(thumbnailBlob)
+        : objectUrl;
       const asset: Asset = {
         id,
         name: file.name,
@@ -135,13 +147,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       });
       newAssets.push(asset);
     }
-    const updatedProject = project ? { ...project, updatedAt: timestamp } : defaultProject();
+    const updatedProject = project
+      ? { ...project, updatedAt: timestamp }
+      : defaultProject();
     await saveProject(updatedProject);
     set({ project: updatedProject, assets: [...assets, ...newAssets] });
   },
   applyPresetToGroup: (group, presetId, intensity) => {
     const nextAssets = get().assets.map((asset) =>
-      asset.group === group ? { ...asset, presetId, intensity } : asset
+      asset.group === group ? { ...asset, presetId, intensity } : asset,
     );
     nextAssets.forEach((asset) => {
       if (asset.blob && asset.group === group) {
@@ -165,7 +179,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
   updatePresetForGroup: (group, presetId) => {
     const nextAssets = get().assets.map((asset) =>
-      asset.group === group ? { ...asset, presetId } : asset
+      asset.group === group ? { ...asset, presetId } : asset,
     );
     nextAssets.forEach((asset) => {
       if (asset.blob && asset.group === group) {
@@ -189,7 +203,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
   updateIntensityForGroup: (group, intensity) => {
     const nextAssets = get().assets.map((asset) =>
-      asset.group === group ? { ...asset, intensity } : asset
+      asset.group === group ? { ...asset, intensity } : asset,
     );
     nextAssets.forEach((asset) => {
       if (asset.blob && asset.group === group) {
@@ -214,7 +228,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   applyPresetToSelection: (assetIds, presetId, intensity) => {
     const selectedSet = new Set(assetIds);
     const nextAssets = get().assets.map((asset) =>
-      selectedSet.has(asset.id) ? { ...asset, presetId, intensity } : asset
+      selectedSet.has(asset.id) ? { ...asset, presetId, intensity } : asset,
     );
     nextAssets.forEach((asset) => {
       if (asset.blob && selectedSet.has(asset.id)) {
@@ -238,17 +252,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
   updateAsset: (assetId, update) => {
     const nextAssets = get().assets.map((asset) =>
-      asset.id === assetId ? { ...asset, ...update } : asset
+      asset.id === assetId ? { ...asset, ...update } : asset,
     );
     const updatedAsset = nextAssets.find((asset) => asset.id === assetId);
     if (updatedAsset?.blob) {
       void saveAsset({
-        id: updatedAsset.id,
-        name: updatedAsset.name,
-        type: updatedAsset.type,
-        size: updatedAsset.size,
-        createdAt: updatedAsset.createdAt,
-        blob: updatedAsset.blob,
         presetId: updatedAsset.presetId,
         intensity: updatedAsset.intensity,
         group: updatedAsset.group,
@@ -257,6 +265,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         adjustments: updatedAsset.adjustments,
       });
     }
+    set({ assets: nextAssets });
+  },
+  updateAssetOnly: (assetId, update) => {
+    const nextAssets = get().assets.map((asset) =>
+      asset.id === assetId ? { ...asset, ...update } : asset,
+    );
     set({ assets: nextAssets });
   },
   setSelectedAssetIds: (assetIds) => {

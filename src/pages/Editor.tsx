@@ -126,6 +126,75 @@ const isPresetLike = (value: unknown): value is Preset => {
     typeof record.adjustments === "object"
   );
 };
+
+const SliderRow = ({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  format,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  format?: (value: number) => string;
+  onChange: (value: number) => void;
+}) => (
+  <div className="space-y-2">
+    <div className="flex items-center justify-between text-xs text-slate-400">
+      <span className="text-slate-300">{label}</span>
+      <span>{format ? format(value) : value}</span>
+    </div>
+    <Slider
+      value={[value]}
+      min={min}
+      max={max}
+      step={step}
+      onValueChange={(next) => onChange(next[0] ?? 0)}
+    />
+  </div>
+);
+
+const Section = ({
+  id,
+  title,
+  hint,
+  isOpen,
+  onToggle,
+  children,
+}: {
+  id: SectionId;
+  title: string;
+  hint?: string;
+  isOpen: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) => (
+  <div className="rounded-2xl border border-white/10 bg-slate-950/60">
+    <button
+      type="button"
+      className="flex w-full items-center justify-between gap-2 px-3 py-3 text-left"
+      onClick={onToggle}
+    >
+      <div>
+        <p className="text-sm font-medium text-slate-100">{title}</p>
+        {hint && <p className="text-[11px] text-slate-500">{hint}</p>}
+      </div>
+      <ChevronDown
+        className={cn(
+          "h-4 w-4 text-slate-400 transition",
+          isOpen && "rotate-180"
+        )}
+      />
+    </button>
+    {isOpen && <div className="space-y-4 px-3 pb-4">{children}</div>}
+  </div>
+);
+
 export function Editor() {
   const { assets, updateAsset } = useProjectStore(
     useShallow((state) => ({
@@ -382,69 +451,6 @@ export function Editor() {
     }));
   };
 
-  const Section = ({
-    id,
-    title,
-    hint,
-    children,
-  }: {
-    id: SectionId;
-    title: string;
-    hint?: string;
-    children: ReactNode;
-  }) => (
-    <div className="rounded-2xl border border-white/10 bg-slate-950/60">
-      <button
-        type="button"
-        className="flex w-full items-center justify-between gap-2 px-3 py-3 text-left"
-        onClick={() => toggleSection(id)}
-      >
-        <div>
-          <p className="text-sm font-medium text-slate-100">{title}</p>
-          {hint && <p className="text-[11px] text-slate-500">{hint}</p>}
-        </div>
-        <ChevronDown
-          className={cn(
-            "h-4 w-4 text-slate-400 transition",
-            openSections[id] && "rotate-180"
-          )}
-        />
-      </button>
-      {openSections[id] && <div className="space-y-4 px-3 pb-4">{children}</div>}
-    </div>
-  );
-
-  const SliderRow = ({
-    label,
-    value,
-    min,
-    max,
-    step = 1,
-    format,
-    onChange,
-  }: {
-    label: string;
-    value: number;
-    min: number;
-    max: number;
-    step?: number;
-    format?: (value: number) => string;
-    onChange: (value: number) => void;
-  }) => (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between text-xs text-slate-400">
-        <span className="text-slate-300">{label}</span>
-        <span>{format ? format(value) : value}</span>
-      </div>
-      <Slider
-        value={[value]}
-        min={min}
-        max={max}
-        step={step}
-        onValueChange={(next) => onChange(next[0] ?? 0)}
-      />
-    </div>
-  );
   return (
     <div className="app-bg h-screen overflow-hidden bg-slate-950 text-slate-100">
       <div className="flex h-full flex-col">
@@ -683,7 +689,7 @@ export function Editor() {
                   </Card>
                 ) : (
                   <div className="space-y-3">
-                    <Section id="basic" title="基础调整" hint="光线 / 曝光 / 颜色">
+                    <Section id="basic" title="基础调整" hint="光线 / 曝光 / 颜色" isOpen={openSections.basic} onToggle={() => toggleSection("basic")}>
                       <div className="space-y-3">
                         <p className="text-xs uppercase tracking-[0.24em] text-slate-500">
                           光线
@@ -778,6 +784,8 @@ export function Editor() {
                       id="hsl"
                       title="HSL 颜色精细控制"
                       hint="Hue / Saturation / Luminance"
+                      isOpen={openSections.hsl}
+                      onToggle={() => toggleSection("hsl")}
                     >
                       <div className="flex flex-wrap gap-2">
                         {HSL_COLORS.map((color) => (
@@ -826,7 +834,7 @@ export function Editor() {
                       </p>
                     </Section>
 
-                    <Section id="curve" title="曲线" hint="RGB 总曲线 / 单通道">
+                    <Section id="curve" title="曲线" hint="RGB 总曲线 / 单通道" isOpen={openSections.curve} onToggle={() => toggleSection("curve")}>
                       <div className="flex flex-wrap gap-2">
                         {([
                           { id: "rgb", label: "RGB" },
@@ -882,7 +890,7 @@ export function Editor() {
                       </p>
                     </Section>
 
-                    <Section id="effects" title="清晰度与质感" hint="Clarity / Texture / Dehaze">
+                    <Section id="effects" title="清晰度与质感" hint="Clarity / Texture / Dehaze" isOpen={openSections.effects} onToggle={() => toggleSection("effects")}>
                       <SliderRow
                         label="清晰度"
                         value={adjustments.clarity}
@@ -938,7 +946,7 @@ export function Editor() {
                       />
                     </Section>
 
-                    <Section id="detail" title="细节与降噪" hint="锐化 / 降噪">
+                    <Section id="detail" title="细节与降噪" hint="锐化 / 降噪" isOpen={openSections.detail} onToggle={() => toggleSection("detail")}>
                       <SliderRow
                         label="锐化"
                         value={adjustments.sharpening}
@@ -974,7 +982,7 @@ export function Editor() {
                       </p>
                     </Section>
 
-                    <Section id="crop" title="裁切与构图" hint="比例 / 旋转 / 翻转">
+                    <Section id="crop" title="裁切与构图" hint="比例 / 旋转 / 翻转" isOpen={openSections.crop} onToggle={() => toggleSection("crop")}>
                       <div className="flex flex-wrap gap-2">
                         {ASPECT_RATIOS.map((ratio) => (
                           <Button
@@ -1041,13 +1049,13 @@ export function Editor() {
                       />
                     </Section>
 
-                    <Section id="local" title="局部调整" hint="渐变 / 径向 / 画笔">
+                    <Section id="local" title="局部调整" hint="渐变 / 径向 / 画笔" isOpen={openSections.local} onToggle={() => toggleSection("local")}>
                       <div className="rounded-2xl border border-white/10 bg-slate-950/80 p-3 text-xs text-slate-300">
                         渐变滤镜、径向滤镜、画笔、局部曝光/对比/色温（规划中）。
                       </div>
                     </Section>
 
-                    <Section id="ai" title="AI / 智能功能" hint="Web 端亮点">
+                    <Section id="ai" title="AI / 智能功能" hint="Web 端亮点" isOpen={openSections.ai} onToggle={() => toggleSection("ai")}>
                       <div className="flex flex-wrap gap-2">
                         {[
                           "自动曝光/自动白平衡",
@@ -1068,7 +1076,7 @@ export function Editor() {
                       </p>
                     </Section>
 
-                    <Section id="export" title="导出与格式" hint="尺寸 / 质量 / 色彩">
+                    <Section id="export" title="导出与格式" hint="尺寸 / 质量 / 色彩" isOpen={openSections.export} onToggle={() => toggleSection("export")}>
                       <div className="space-y-2 text-xs text-slate-300">
                         <p>导出尺寸：原图 / 指定长边。</p>
                         <p>导出质量：JPEG 质量可调。</p>
