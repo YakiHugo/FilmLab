@@ -124,6 +124,22 @@ export interface FilmModuleOverride {
 
 export type FilmProfileOverrides = Partial<Record<FilmModuleId, FilmModuleOverride>>;
 
+export interface AiPresetRecommendation {
+  presetId: string;
+  reason: string;
+  confidence: number;
+}
+
+export interface AssetAiRecommendation {
+  version: 1;
+  model: string;
+  matchedAt: string;
+  attempts: number;
+  topPresets: AiPresetRecommendation[];
+  autoAppliedPresetId?: string;
+  status: "succeeded" | "failed";
+}
+
 export type HslColorKey =
   | "red"
   | "orange"
@@ -198,6 +214,7 @@ export interface Asset {
   thumbnailBlob?: Blob;
   metadata?: AssetMetadata;
   adjustments?: EditingAdjustments;
+  aiRecommendation?: AssetAiRecommendation;
 }
 
 export interface AssetMetadata {
