@@ -235,6 +235,7 @@ export function EditorPreviewCard() {
           height: Math.round(frameSize.height * dpr),
         },
         seedKey: selectedAsset.id,
+        seedSalt: selectedAsset.seedSalt ?? 0,
         signal: controller.signal,
       });
       if (!controller.signal.aborted) {

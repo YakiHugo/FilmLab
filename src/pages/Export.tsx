@@ -1,4 +1,5 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import JSZip from "jszip";
 import { useShallow } from "zustand/react/shallow";
 import { useProjectStore } from "@/stores/projectStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageShell } from "@/components/layout/PageShell";
 import { resolveAdjustmentsWithPreset } from "@/lib/adjustments";
+import { featureFlags } from "@/lib/features";
+import { isWorkerExportSupported, renderExportInWorker } from "@/lib/export";
 import { resolveFilmProfile as resolveRuntimeFilmProfile } from "@/lib/film";
 import { renderImageToBlob } from "@/lib/imageProcessing";
 import { Label } from "@/components/ui/label";
@@ -21,8 +24,62 @@ import {
 interface ExportTask {
   id: string;
   name: string;
-  status: "等待" | "处理中" | "完成" | "失败";
+  status: "等待" | "处理中" | "重试中" | "完成" | "失败";
+  progress: number;
+  attempts: number;
+  errorMessage?: string;
 }
+
+type ExportDeliveryMode = "folder" | "zip";
+
+const supportsDirectoryExport =
+  typeof window !== "undefined" && "showDirectoryPicker" in window;
+
+const toUniqueFileName = (fileName: string, usedNames: Set<string>) => {
+  if (!usedNames.has(fileName)) {
+    usedNames.add(fileName);
+    return fileName;
+  }
+  const dotIndex = fileName.lastIndexOf(".");
+  const base = dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName;
+  const extension = dotIndex > 0 ? fileName.slice(dotIndex) : "";
+  let counter = 2;
+  while (true) {
+    const candidate = `${base} (${counter})${extension}`;
+    if (!usedNames.has(candidate)) {
+      usedNames.add(candidate);
+      return candidate;
+    }
+    counter += 1;
+  }
+};
+
+const downloadBlob = (blob: Blob, fileName: string) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
+const buildZipName = () => {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `filmlab-export-${stamp}.zip`;
+};
+
+const writeFileToDirectory = async (
+  directory: FileSystemDirectoryHandle,
+  fileName: string,
+  blob: Blob
+) => {
+  const fileHandle = await directory.getFileHandle(fileName, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+};
 
 export function ExportPage() {
   const { assets } = useProjectStore(
@@ -34,6 +91,9 @@ export function ExportPage() {
   const [format, setFormat] = useState<"original" | "jpeg" | "png">("original");
   const [quality, setQuality] = useState(92);
   const [maxDimension, setMaxDimension] = useState(0);
+  const [deliveryMode, setDeliveryMode] = useState<ExportDeliveryMode>(
+    supportsDirectoryExport ? "folder" : "zip"
+  );
 
   const resolveOutputType = (assetType: string) => {
     if (format === "png") {
@@ -54,63 +114,176 @@ export function ExportPage() {
     return `${base}${extension}`;
   };
 
+  const updateTask = (taskId: string, updater: (task: ExportTask) => ExportTask) => {
+    setTasks((prev) => prev.map((task) => (task.id === taskId ? updater(task) : task)));
+  };
+
   const handleExportAll = async () => {
+    const resolvedDeliveryMode: ExportDeliveryMode =
+      deliveryMode === "folder" && supportsDirectoryExport ? "folder" : "zip";
+    let directoryHandle: FileSystemDirectoryHandle | null = null;
+    const zipArchive = resolvedDeliveryMode === "zip" ? new JSZip() : null;
+    if (resolvedDeliveryMode === "folder") {
+      try {
+        const picker = (
+          window as Window & {
+            showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
+          }
+        ).showDirectoryPicker;
+        if (!picker) {
+          throw new Error("当前浏览器不支持目录导出。");
+        }
+        directoryHandle = await picker();
+      } catch {
+        return;
+      }
+    }
+
     const newTasks = assets.map((asset) => ({
       id: asset.id,
       name: asset.name,
       status: "等待" as const,
+      progress: 0,
+      attempts: 0,
+      errorMessage: undefined,
     }));
     setTasks(newTasks);
+    const usedNames = new Set<string>();
+    let successCount = 0;
 
+    const workerSupported = isWorkerExportSupported();
     for (const asset of assets) {
-      setTasks((prev) =>
-        prev.map((item) =>
-          item.id === asset.id ? { ...item, status: "处理中" } : item
-        )
+      if (!asset?.blob) {
+        updateTask(asset.id, (task) => ({
+          ...task,
+          status: "失败",
+          progress: 0,
+          attempts: 1,
+          errorMessage: "缺少原图数据",
+        }));
+        continue;
+      }
+
+      const adjustments = resolveAdjustmentsWithPreset(
+        asset.adjustments,
+        asset.presetId,
+        asset.intensity
+      );
+      const filmProfile = resolveRuntimeFilmProfile({
+        adjustments,
+        presetId: asset.presetId,
+        filmProfileId: asset.filmProfileId,
+        filmProfile: asset.filmProfile,
+        intensity: asset.intensity,
+        overrides: asset.filmOverrides,
+      });
+      const outputType = resolveOutputType(asset.type);
+      const attempts = featureFlags.enableWorkerExport
+        ? workerSupported
+          ? [
+              { runner: "worker" as const, renderer: "cpu" as const },
+              { runner: "main" as const, renderer: "cpu" as const },
+            ]
+          : [
+              { runner: "main" as const, renderer: "webgl2" as const },
+              { runner: "main" as const, renderer: "cpu" as const },
+            ]
+        : [{ runner: "main" as const, renderer: "auto" as const }];
+
+      let exportedBlob: Blob | null = null;
+      let finalError = "";
+      for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
+        const attempt = attempts[attemptIndex];
+        updateTask(asset.id, (task) => ({
+          ...task,
+          status: attemptIndex === 0 ? "处理中" : "重试中",
+          attempts: attemptIndex + 1,
+          progress: attemptIndex === 0 ? 5 : 10,
+          errorMessage: undefined,
+        }));
+
+        try {
+          if (attempt.runner === "worker") {
+            exportedBlob = await renderExportInWorker(
+              {
+                taskId: asset.id,
+                source: asset.blob,
+                outputType,
+                quality: quality / 100,
+                maxDimension: maxDimension > 0 ? maxDimension : undefined,
+                adjustments,
+                filmProfile,
+                seedKey: asset.id,
+                seedSalt: asset.seedSalt ?? 0,
+                exportSeed: Date.now(),
+                renderer: attempt.renderer,
+              },
+              (progressValue) => {
+                updateTask(asset.id, (task) => ({
+                  ...task,
+                  progress: Math.max(task.progress, progressValue),
+                }));
+              }
+            );
+          } else {
+            updateTask(asset.id, (task) => ({ ...task, progress: 25 }));
+            exportedBlob = await renderImageToBlob(asset.blob, adjustments, {
+              type: outputType,
+              quality: quality / 100,
+              maxDimension: maxDimension > 0 ? maxDimension : undefined,
+              filmProfile,
+              seedKey: asset.id,
+              seedSalt: asset.seedSalt ?? 0,
+              renderer: attempt.renderer,
+              exportSeed: Date.now(),
+            });
+            updateTask(asset.id, (task) => ({ ...task, progress: 90 }));
+          }
+          break;
+        } catch (error) {
+          finalError = error instanceof Error ? error.message : "导出失败";
+          if (attemptIndex === attempts.length - 1) {
+            updateTask(asset.id, (task) => ({
+              ...task,
+              status: "失败",
+              progress: task.progress,
+              errorMessage: finalError,
+            }));
+          }
+        }
+      }
+
+      if (!exportedBlob) {
+        continue;
+      }
+      const outputName = toUniqueFileName(
+        buildDownloadName(asset.name, outputType),
+        usedNames
       );
       try {
-        if (!asset?.blob) {
-          throw new Error("缺少原图数据");
+        if (resolvedDeliveryMode === "folder" && directoryHandle) {
+          await writeFileToDirectory(directoryHandle, outputName, exportedBlob);
+        } else if (zipArchive) {
+          zipArchive.file(outputName, exportedBlob);
         }
-        const adjustments = resolveAdjustmentsWithPreset(
-          asset.adjustments,
-          asset.presetId,
-          asset.intensity
-        );
-        const filmProfile = resolveRuntimeFilmProfile({
-          adjustments,
-          presetId: asset.presetId,
-          filmProfileId: asset.filmProfileId,
-          filmProfile: asset.filmProfile,
-          intensity: asset.intensity,
-          overrides: asset.filmOverrides,
-        });
-        const outputType = resolveOutputType(asset.type);
-        const blob = await renderImageToBlob(asset.blob, adjustments, {
-          type: outputType,
-          quality: quality / 100,
-          maxDimension: maxDimension > 0 ? maxDimension : undefined,
-          filmProfile,
-          seedKey: asset.id,
-        });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = buildDownloadName(asset.name, outputType);
-        link.click();
-        URL.revokeObjectURL(url);
-        setTasks((prev) =>
-          prev.map((item) =>
-            item.id === asset.id ? { ...item, status: "完成" } : item
-          )
-        );
+        successCount += 1;
+        updateTask(asset.id, (task) => ({
+          ...task,
+          status: "完成",
+          progress: 100,
+        }));
       } catch (error) {
-        setTasks((prev) =>
-          prev.map((item) =>
-            item.id === asset.id ? { ...item, status: "失败" } : item
-          )
-        );
+        updateTask(asset.id, (task) => ({
+          ...task,
+          status: "失败",
+          errorMessage: error instanceof Error ? error.message : "写入文件失败",
+        }));
       }
+    }
+
+    if (zipArchive && successCount > 0) {
+      const zipBlob = await zipArchive.generateAsync({ type: "blob" });
+      downloadBlob(zipBlob, buildZipName());
     }
   };
 
@@ -120,7 +293,9 @@ export function ExportPage() {
   );
   const completedCount = tasks.filter((task) => task.status === "完成").length;
   const progress = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
-  const isExporting = tasks.some((task) => task.status === "处理中");
+  const isExporting = tasks.some(
+    (task) => task.status === "处理中" || task.status === "重试中"
+  );
 
   const stats = [
     { label: "可导出素材", value: `${assets.length} 张`, hint: "当前项目" },
@@ -142,6 +317,7 @@ export function ExportPage() {
       : format === "png"
         ? "PNG"
         : "JPG";
+  const deliveryLabel = deliveryMode === "folder" ? "单次选目录" : "ZIP 单文件";
 
   return (
     <PageShell
@@ -211,6 +387,28 @@ export function ExportPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-slate-400">保存方式</Label>
+              <Select
+                value={deliveryMode}
+                onValueChange={(value) => setDeliveryMode(value as ExportDeliveryMode)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="选择保存方式" />
+                </SelectTrigger>
+                <SelectContent>
+                  {supportsDirectoryExport && (
+                    <SelectItem value="folder">单次选目录（推荐）</SelectItem>
+                  )}
+                  <SelectItem value="zip">ZIP 单文件下载</SelectItem>
+                </SelectContent>
+              </Select>
+              {!supportsDirectoryExport && (
+                <p className="text-[11px] text-slate-500">
+                  当前浏览器不支持目录写入，已自动使用 ZIP 下载。
+                </p>
+              )}
+            </div>
             <div className="flex items-center justify-between">
               <span>EXIF</span>
               <span>不保留</span>
@@ -222,7 +420,7 @@ export function ExportPage() {
               <p className="mt-2 text-xs text-slate-300">
                 格式 {formatLabel} · 质量 {quality}% ·{maxDimension > 0
                   ? ` 最长边 ${maxDimension}px`
-                  : " 原始尺寸"}
+                  : " 原始尺寸"} · 保存方式 {deliveryLabel}
               </p>
             </div>
           </CardContent>
@@ -266,13 +464,21 @@ export function ExportPage() {
               key={task.id}
               className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-slate-950/60 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
             >
-              <span className="line-clamp-1 text-slate-100">{task.name}</span>
+              <div className="min-w-0">
+                <span className="line-clamp-1 text-slate-100">{task.name}</span>
+                <p className="text-[11px] text-slate-500">
+                  进度 {task.progress}% · 尝试 {task.attempts}
+                  {task.errorMessage ? ` · ${task.errorMessage}` : ""}
+                </p>
+              </div>
               <Badge
                 className={
                   task.status === "完成"
                     ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-200"
                     : task.status === "失败"
                       ? "border-rose-300/30 bg-rose-300/10 text-rose-200"
+                      : task.status === "重试中"
+                        ? "border-amber-300/30 bg-amber-300/10 text-amber-200"
                       : task.status === "处理中"
                         ? "border-sky-300/30 bg-sky-300/10 text-sky-200"
                         : "border-sky-300/30 bg-sky-300/10 text-sky-200"

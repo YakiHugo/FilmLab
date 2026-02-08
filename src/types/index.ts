@@ -40,6 +40,7 @@ export type FilmSeedMode = "perAsset" | "perRender" | "perExport" | "locked";
 
 export interface ColorScienceParams {
   lutStrength: number;
+  lutAssetId?: string;
   rgbMix: [number, number, number];
   temperatureShift: number;
   tintShift: number;
@@ -119,6 +120,8 @@ export interface FilmProfile {
 export interface FilmModuleOverride {
   enabled?: boolean;
   amount?: number;
+  seedMode?: FilmSeedMode;
+  seed?: number;
   params?: Record<string, unknown>;
 }
 
@@ -193,11 +196,22 @@ export interface Asset {
   filmProfileId?: string;
   filmOverrides?: FilmProfileOverrides;
   filmProfile?: FilmProfile;
+  seedSalt?: number;
   group?: string;
   blob?: Blob;
   thumbnailBlob?: Blob;
   metadata?: AssetMetadata;
   adjustments?: EditingAdjustments;
+}
+
+export interface LutAsset {
+  id: string;
+  name: string;
+  format: "cube";
+  size: number;
+  data: Float32Array;
+  source: "builtIn" | "imported";
+  createdAt: string;
 }
 
 export interface AssetMetadata {

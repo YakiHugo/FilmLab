@@ -4,6 +4,8 @@ import {
   ensureFilmProfile,
   renderFilmProfileWebGL2,
 } from "@/lib/film";
+import { featureFlags } from "@/lib/features";
+import { resolveLutAsset } from "@/lib/lut";
 import type { EditingAdjustments, FilmProfile } from "@/types";
 
 const clamp = (value: number, min: number, max: number) =>
@@ -106,10 +108,11 @@ interface RenderImageOptions {
   source: Blob | string;
   adjustments: EditingAdjustments;
   filmProfile?: FilmProfile;
-  preferWebGL2?: boolean;
+  renderer?: "auto" | "webgl2" | "cpu";
   targetSize?: RenderTargetSize;
   maxDimension?: number;
   seedKey?: string;
+  seedSalt?: number;
   renderSeed?: number;
   exportSeed?: number;
   signal?: AbortSignal;
@@ -130,10 +133,11 @@ export const renderImageToCanvas = async ({
   source,
   adjustments,
   filmProfile,
-  preferWebGL2 = true,
+  renderer = "auto",
   targetSize,
   maxDimension,
   seedKey,
+  seedSalt,
   renderSeed,
   exportSeed,
   signal,
@@ -207,13 +211,26 @@ export const renderImageToCanvas = async ({
   context.restore();
 
   const resolvedProfile = resolveProfile(adjustments, filmProfile);
+  const colorModule = resolvedProfile.modules.find((module) => module.id === "colorScience");
+  const lutAsset = featureFlags.enableCubeLut
+    ? await resolveLutAsset(colorModule?.params.lutAssetId)
+    : null;
+  const effectiveRenderSeed = renderSeed ?? Date.now();
+  const allowWebGL = renderer !== "cpu";
   const renderedByWebGL =
-    preferWebGL2 &&
+    allowWebGL &&
     renderFilmProfileWebGL2(canvas, resolvedProfile, {
       seedKey,
-      renderSeed: renderSeed ?? Date.now(),
+      seedSalt,
+      renderSeed: effectiveRenderSeed,
       exportSeed,
+      lutAsset,
     });
+
+  if (renderer === "webgl2" && !renderedByWebGL) {
+    loaded.cleanup?.();
+    throw new Error("WebGL2 renderer is unavailable.");
+  }
 
   if (renderedByWebGL) {
     context.clearRect(0, 0, canvas.width, canvas.height);
@@ -222,8 +239,10 @@ export const renderImageToCanvas = async ({
     const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
     applyFilmPipeline(imageData, resolvedProfile, {
       seedKey,
-      renderSeed: renderSeed ?? Date.now(),
+      seedSalt,
+      renderSeed: effectiveRenderSeed,
       exportSeed,
+      lutAsset,
     });
     context.putImageData(imageData, 0, 0);
   }
@@ -236,8 +255,9 @@ interface RenderBlobOptions {
   quality?: number;
   maxDimension?: number;
   filmProfile?: FilmProfile;
-  preferWebGL2?: boolean;
+  renderer?: "auto" | "webgl2" | "cpu";
   seedKey?: string;
+  seedSalt?: number;
   exportSeed?: number;
 }
 
@@ -252,9 +272,10 @@ export const renderImageToBlob = async (
     source,
     adjustments,
     filmProfile: options?.filmProfile,
-    preferWebGL2: options?.preferWebGL2,
+    renderer: options?.renderer,
     maxDimension: options?.maxDimension,
     seedKey: options?.seedKey,
+    seedSalt: options?.seedSalt,
     exportSeed: options?.exportSeed ?? Date.now(),
   });
   const outputType = options?.type ?? "image/jpeg";

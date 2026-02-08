@@ -1,14 +1,17 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { presets as basePresets } from "@/data/presets";
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import { featureFlags } from "@/lib/features";
 import { listBuiltInFilmProfiles, normalizeFilmProfile } from "@/lib/film";
+import { importCubeLut, listLutAssets } from "@/lib/lut";
 import { useEditorStore } from "@/stores/editorStore";
 import { useProjectStore } from "@/stores/projectStore";
 import type {
   Asset,
   EditingAdjustments,
   FilmModuleId,
+  FilmSeedMode,
   HslColorKey,
   Preset,
 } from "@/types";
@@ -50,6 +53,8 @@ export function useEditorState() {
     toggleOriginal,
     toggleSection,
     setPreviewHistogram,
+    lutAssets,
+    setLutAssets,
   } = useEditorStore(
     useShallow((state) => ({
       selectedAssetId: state.selectedAssetId,
@@ -70,8 +75,37 @@ export function useEditorState() {
       toggleOriginal: state.toggleOriginal,
       toggleSection: state.toggleSection,
       setPreviewHistogram: state.setPreviewHistogram,
+      lutAssets: state.lutAssets,
+      setLutAssets: state.setLutAssets,
     }))
   );
+
+  useEffect(() => {
+    if (!featureFlags.enableCubeLut) {
+      return;
+    }
+    let cancelled = false;
+    void listLutAssets()
+      .then((loadedAssets) => {
+        if (cancelled) {
+          return;
+        }
+        setLutAssets(
+          loadedAssets.map((asset) => ({
+            id: asset.id,
+            name: asset.name,
+            size: asset.size,
+            source: asset.source,
+          }))
+        );
+      })
+      .catch(() => {
+        return;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [setLutAssets]);
 
   const selectedAsset = useMemo(
     () => assets.find((asset) => asset.id === selectedAssetId) ?? null,
@@ -285,6 +319,105 @@ export function useEditorState() {
     [previewFilmProfile, updateFilmOverrides]
   );
 
+  const handleSetFilmModuleSeedMode = useCallback(
+    (moduleId: FilmModuleId, seedMode: FilmSeedMode) => {
+      updateFilmOverrides((prev) => {
+        const existingSeed = prev[moduleId]?.seed;
+        return {
+          ...prev,
+          [moduleId]: {
+            ...(prev[moduleId] ?? {}),
+            seedMode,
+            seed:
+              seedMode === "locked"
+                ? typeof existingSeed === "number"
+                  ? existingSeed
+                  : (Date.now() >>> 0)
+                : undefined,
+          },
+        };
+      });
+    },
+    [updateFilmOverrides]
+  );
+
+  const handleSetFilmModuleSeed = useCallback(
+    (moduleId: FilmModuleId, seed: number) => {
+      updateFilmOverrides((prev) => ({
+        ...prev,
+        [moduleId]: {
+          ...(prev[moduleId] ?? {}),
+          seedMode: "locked",
+          seed: seed >>> 0,
+        },
+      }));
+    },
+    [updateFilmOverrides]
+  );
+
+  const handleRefreshFilmSeed = useCallback(
+    (moduleId: FilmModuleId) => {
+      if (!selectedAsset || !previewFilmProfile) {
+        return;
+      }
+      const module = previewFilmProfile.modules.find((item) => item.id === moduleId);
+      if (!module) {
+        return;
+      }
+      if (module.seedMode === "locked") {
+        handleSetFilmModuleSeed(moduleId, Date.now() >>> 0);
+        return;
+      }
+      updateAsset(selectedAsset.id, {
+        seedSalt: ((selectedAsset.seedSalt ?? 0) + 1) >>> 0,
+      });
+    },
+    [handleSetFilmModuleSeed, previewFilmProfile, selectedAsset, updateAsset]
+  );
+
+  const handleSetFilmModuleLutAsset = useCallback(
+    (moduleId: FilmModuleId, lutAssetId: string | undefined) => {
+      if (moduleId !== "colorScience") {
+        return;
+      }
+      updateFilmOverrides((prev) => ({
+        ...prev,
+        [moduleId]: {
+          ...(prev[moduleId] ?? {}),
+          params: {
+            ...((prev[moduleId]?.params as Record<string, unknown>) ?? {}),
+            lutAssetId,
+          },
+        },
+      }));
+    },
+    [updateFilmOverrides]
+  );
+
+  const handleImportLutAsset = useCallback(
+    async (file: File | null) => {
+      if (!file || !featureFlags.enableCubeLut) {
+        return;
+      }
+      try {
+        const imported = await importCubeLut(file);
+        const loadedAssets = await listLutAssets();
+        setLutAssets(
+          loadedAssets.map((asset) => ({
+            id: asset.id,
+            name: asset.name,
+            size: asset.size,
+            source: asset.source,
+          }))
+        );
+        handleSetFilmModuleLutAsset("colorScience", imported.id);
+      } catch {
+        return;
+      }
+    },
+    [handleSetFilmModuleLutAsset, setLutAssets]
+  );
+
   const handleResetFilmOverrides = useCallback(() => {
     if (!selectedAsset) {
       return;
@@ -489,6 +622,8 @@ export function useEditorState() {
     customPresetName,
     customPresets,
     builtInFilmProfiles,
+    lutAssets,
+    seedSalt: selectedAsset?.seedSalt ?? 0,
     activeHslColor,
     curveChannel,
     openSections,
@@ -507,6 +642,11 @@ export function useEditorState() {
     handleToggleFilmModule,
     handleSetFilmModuleParam,
     handleSetFilmModuleRgbMix,
+    handleSetFilmModuleSeedMode,
+    handleSetFilmModuleSeed,
+    handleRefreshFilmSeed,
+    handleSetFilmModuleLutAsset,
+    handleImportLutAsset,
     handleResetFilmOverrides,
     handleResetAll,
     handleCopy,

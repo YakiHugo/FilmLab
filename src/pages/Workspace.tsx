@@ -1,4 +1,5 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import JSZip from "jszip";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Download, Layers, SlidersHorizontal, Sparkles, Upload } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
@@ -147,6 +148,41 @@ const resolveFilmProfile = (
     presets,
     overrides,
   });
+};
+
+const toUniqueFileName = (fileName: string, usedNames: Set<string>) => {
+  if (!usedNames.has(fileName)) {
+    usedNames.add(fileName);
+    return fileName;
+  }
+  const dotIndex = fileName.lastIndexOf(".");
+  const base = dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName;
+  const extension = dotIndex > 0 ? fileName.slice(dotIndex) : "";
+  let counter = 2;
+  while (true) {
+    const candidate = `${base} (${counter})${extension}`;
+    if (!usedNames.has(candidate)) {
+      usedNames.add(candidate);
+      return candidate;
+    }
+    counter += 1;
+  }
+};
+
+const buildZipName = () => {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `filmlab-export-${stamp}.zip`;
+};
+
+const downloadBlob = (blob: Blob, fileName: string) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
 };
 
 interface ExportTask {
@@ -406,6 +442,9 @@ export function Workspace() {
     if (assets.length === 0) {
       return;
     }
+    const zipArchive = new JSZip();
+    const usedNames = new Set<string>();
+    let successCount = 0;
     const newTasks = assets.map((asset) => ({
       id: asset.id,
       name: asset.name,
@@ -445,13 +484,14 @@ export function Workspace() {
           maxDimension: maxDimension > 0 ? maxDimension : undefined,
           filmProfile: filmProfile ?? undefined,
           seedKey: asset.id,
+          seedSalt: asset.seedSalt ?? 0,
         });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = buildDownloadName(asset.name, outputType);
-        link.click();
-        URL.revokeObjectURL(url);
+        const outputName = toUniqueFileName(
+          buildDownloadName(asset.name, outputType),
+          usedNames
+        );
+        zipArchive.file(outputName, blob);
+        successCount += 1;
         setTasks((prev) =>
           prev.map((item) =>
             item.id === asset.id ? { ...item, status: "完成" } : item
@@ -464,6 +504,11 @@ export function Workspace() {
           )
         );
       }
+    }
+
+    if (successCount > 0) {
+      const zipBlob = await zipArchive.generateAsync({ type: "blob" });
+      downloadBlob(zipBlob, buildZipName());
     }
   };
 
@@ -733,6 +778,7 @@ export function Workspace() {
           height: Math.round(frameSize.height * dpr),
         },
         seedKey: activeAsset.id,
+        seedSalt: activeAsset.seedSalt ?? 0,
         signal: controller.signal,
       }).catch(() => undefined);
       return () => controller.abort();
@@ -1194,6 +1240,9 @@ export function Workspace() {
           <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3 text-xs text-slate-300">
             当前配置：格式 {formatLabel} · 质量 {quality}% ·
             {maxDimension > 0 ? ` 最长边 ${maxDimension}px` : " 原始尺寸"}
+            <p className="mt-2 text-[11px] text-slate-500">
+              批量导出将打包为一个 ZIP 文件，避免逐张保存弹窗。
+            </p>
           </div>
         </CardContent>
       </Card>

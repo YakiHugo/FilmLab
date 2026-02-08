@@ -6,9 +6,10 @@ import {
 } from "@/pages/editor/editorPanelConfig";
 import type { HistogramData } from "@/pages/editor/histogram";
 import { loadCustomPresets, saveCustomPresets } from "@/pages/editor/presetUtils";
-import type { EditingAdjustments, HslColorKey, Preset } from "@/types";
+import type { EditingAdjustments, HslColorKey, LutAsset, Preset } from "@/types";
 
 type PresetUpdater = Preset[] | ((current: Preset[]) => Preset[]);
+type LutAssetSummary = Pick<LutAsset, "id" | "name" | "size" | "source">;
 
 interface EditorState {
   selectedAssetId: string | null;
@@ -20,6 +21,7 @@ interface EditorState {
   curveChannel: CurveChannel;
   openSections: Record<SectionId, boolean>;
   previewHistogram: HistogramData | null;
+  lutAssets: LutAssetSummary[];
   setSelectedAssetId: (assetId: string | null) => void;
   setShowOriginal: (showOriginal: boolean) => void;
   setCopiedAdjustments: (adjustments: EditingAdjustments | null) => void;
@@ -30,6 +32,7 @@ interface EditorState {
   toggleOriginal: () => void;
   toggleSection: (id: SectionId) => void;
   setPreviewHistogram: (histogram: HistogramData | null) => void;
+  setLutAssets: (assets: LutAssetSummary[]) => void;
 }
 
 export const useEditorStore = create<EditorState>((set) => ({
@@ -42,6 +45,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   curveChannel: "rgb",
   openSections: { ...DEFAULT_OPEN_SECTIONS },
   previewHistogram: null,
+  lutAssets: [],
   setSelectedAssetId: (selectedAssetId) => set({ selectedAssetId }),
   setShowOriginal: (showOriginal) => set({ showOriginal }),
   setCopiedAdjustments: (copiedAdjustments) => set({ copiedAdjustments }),
@@ -64,4 +68,5 @@ export const useEditorStore = create<EditorState>((set) => ({
       },
     })),
   setPreviewHistogram: (previewHistogram) => set({ previewHistogram }),
+  setLutAssets: (lutAssets) => set({ lutAssets }),
 }));

@@ -1,12 +1,21 @@
-﻿import { memo } from "react";
+import { memo, useRef, type ChangeEventHandler } from "react";
 import { Link } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { featureFlags } from "@/lib/features";
 import { cn } from "@/lib/utils";
 import type {
   EditingAdjustments,
   FilmModuleId,
+  FilmSeedMode,
 } from "@/types";
 import { ASPECT_RATIOS } from "./constants";
 import { EditorSection } from "./EditorSection";
@@ -40,6 +49,13 @@ const FILM_MODULE_LABELS: Record<FilmModuleId, string> = {
   scan: "冲扫",
   grain: "颗粒",
   defects: "瑕疵",
+};
+
+const FILM_SEED_MODE_LABELS: Record<FilmSeedMode, string> = {
+  perAsset: "跟随素材",
+  perRender: "每次渲染",
+  perExport: "每次导出",
+  locked: "锁定",
 };
 
 const FILM_PARAM_DEFINITIONS: Record<FilmModuleId, FilmParamDefinition[]> = {
@@ -112,6 +128,8 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
   const {
     adjustments,
     previewFilmProfile: filmProfile,
+    lutAssets,
+    seedSalt,
     activeHslColor,
     curveChannel,
     openSections,
@@ -126,8 +144,19 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
     handleToggleFilmModule,
     handleSetFilmModuleParam,
     handleSetFilmModuleRgbMix,
+    handleSetFilmModuleSeedMode,
+    handleSetFilmModuleSeed,
+    handleRefreshFilmSeed,
+    handleSetFilmModuleLutAsset,
+    handleImportLutAsset,
     handleResetFilmOverrides,
   } = useEditorState();
+  const lutImportRef = useRef<HTMLInputElement | null>(null);
+  const handleImportLutFile: ChangeEventHandler<HTMLInputElement> = (event) => {
+    const file = event.currentTarget.files?.[0] ?? null;
+    void handleImportLutAsset(file);
+    event.currentTarget.value = "";
+  };
 
   return (
     <>
@@ -165,6 +194,9 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                     重置模块覆盖
                   </Button>
                 </div>
+                {featureFlags.enableSeedUi && (
+                  <p className="text-[11px] text-slate-500">当前素材 seed salt：{seedSalt}</p>
+                )}
                 {filmProfile.modules.map((module) => (
                   <div
                     key={module.id}
@@ -196,6 +228,50 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                       step={1}
                       onChange={(value) => handleSetFilmModuleAmount(module.id, value)}
                     />
+                    {featureFlags.enableSeedUi && (
+                      <div className="space-y-2 rounded-xl border border-white/10 bg-black/20 p-2">
+                        <p className="text-[11px] text-slate-400">随机种子</p>
+                        <Select
+                          value={module.seedMode ?? "perAsset"}
+                          onValueChange={(value) =>
+                            handleSetFilmModuleSeedMode(module.id, value as FilmSeedMode)
+                          }
+                        >
+                          <SelectTrigger className="h-8">
+                            <SelectValue placeholder="选择 seed 策略" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Object.entries(FILM_SEED_MODE_LABELS).map(([mode, label]) => (
+                              <SelectItem key={mode} value={mode}>
+                                {label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => handleRefreshFilmSeed(module.id)}
+                          >
+                            刷新 seed
+                          </Button>
+                          {module.seedMode === "locked" && (
+                            <input
+                              type="number"
+                              value={module.seed ?? 0}
+                              onChange={(event) =>
+                                handleSetFilmModuleSeed(
+                                  module.id,
+                                  Number(event.target.value) || 0
+                                )
+                              }
+                              className="h-8 w-full rounded-md border border-white/20 bg-slate-950 px-2 text-xs text-slate-100"
+                            />
+                          )}
+                        </div>
+                      </div>
+                    )}
 
                     {FILM_PARAM_DEFINITIONS[module.id].map((param) => {
                       const rawValue = (module.params as unknown as Record<string, unknown>)[
@@ -223,6 +299,48 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                       Array.isArray(module.params.rgbMix) &&
                       module.params.rgbMix.length === 3 && (
                         <>
+                          {featureFlags.enableCubeLut && (
+                            <div className="space-y-2 rounded-xl border border-white/10 bg-black/20 p-2">
+                              <p className="text-[11px] text-slate-400">3D LUT</p>
+                              <Select
+                                value={module.params.lutAssetId ?? "__none__"}
+                                onValueChange={(value) =>
+                                  handleSetFilmModuleLutAsset(
+                                    module.id,
+                                    value === "__none__" ? undefined : value
+                                  )
+                                }
+                              >
+                                <SelectTrigger className="h-8">
+                                  <SelectValue placeholder="选择 LUT 资产" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__none__">不使用 LUT（回退旧算法）</SelectItem>
+                                  {lutAssets.map((asset) => (
+                                    <SelectItem key={asset.id} value={asset.id}>
+                                      {asset.name} ({asset.size}³)
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => lutImportRef.current?.click()}
+                                >
+                                  导入 .cube
+                                </Button>
+                                <input
+                                  ref={lutImportRef}
+                                  type="file"
+                                  accept=".cube,text/plain"
+                                  className="hidden"
+                                  onChange={handleImportLutFile}
+                                />
+                              </div>
+                            </div>
+                          )}
                           <EditorSliderRow
                             label="R 通道混合"
                             value={module.params.rgbMix[0]}

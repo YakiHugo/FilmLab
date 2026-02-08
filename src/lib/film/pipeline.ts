@@ -1,40 +1,57 @@
 import type {
   ColorScienceModule,
   DefectsModule,
-  FilmModuleConfig,
   FilmProfile,
   GrainModule,
+  LutAsset,
   ScanModule,
   ToneModule,
 } from "@/types";
+import { featureFlags } from "@/lib/features";
+import { sampleCubeLut } from "@/lib/lut/sample";
 import { normalizeFilmProfile } from "./profile";
-import { clamp, createRng, hashNoise2d, hashString, lerp, smoothstep, toByte, toUnit } from "./utils";
+import { resolveModuleSeed } from "./seed";
+import { clamp, createRng, hashNoise2d, lerp, smoothstep, toByte, toUnit } from "./utils";
 
 export interface FilmPipelineContext {
   width: number;
   height: number;
   seedKey?: string;
+  seedSalt?: number;
   renderSeed?: number;
   exportSeed?: number;
+  lutAsset?: Pick<LutAsset, "size" | "data"> | null;
 }
 
-const resolveSeed = (module: FilmModuleConfig, context: FilmPipelineContext) => {
-  if (module.seedMode === "locked" && typeof module.seed === "number") {
-    return module.seed | 0;
-  }
-  if (module.seedMode === "perExport") {
-    return (context.exportSeed ?? context.renderSeed ?? 1337) | 0;
-  }
-  if (module.seedMode === "perRender") {
-    return (context.renderSeed ?? Date.now()) | 0;
-  }
-  const key = context.seedKey ?? "filmlab-default-seed";
-  return hashString(`${module.id}:${key}`);
+const applyLegacyColorScience = (
+  red: number,
+  green: number,
+  blue: number,
+  lutStrength: number
+) => {
+  const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+  const crossStrength = lutStrength * 0.08;
+
+  let nextRed = red + (green - blue) * crossStrength;
+  let nextGreen = green + (blue - red) * crossStrength * 0.65;
+  let nextBlue = blue + (red - green) * crossStrength;
+
+  nextRed = smoothstep(-lutStrength * 0.2, 1 + lutStrength * 0.16, nextRed);
+  nextGreen = smoothstep(-lutStrength * 0.2, 1 + lutStrength * 0.16, nextGreen);
+  nextBlue = smoothstep(-lutStrength * 0.2, 1 + lutStrength * 0.16, nextBlue);
+
+  const saturationLift = 1 + lutStrength * 0.12;
+  return {
+    red: lerp(luminance, nextRed, saturationLift),
+    green: lerp(luminance, nextGreen, saturationLift),
+    blue: lerp(luminance, nextBlue, saturationLift),
+  };
 };
 
 const applyColorScienceModule = (
   data: Uint8ClampedArray,
-  module: ColorScienceModule
+  module: ColorScienceModule,
+  lutAsset?: Pick<LutAsset, "size" | "data"> | null
 ) => {
   const amount = module.amount / 100;
   const lutStrength = module.params.lutStrength * amount;
@@ -57,21 +74,17 @@ const applyColorScienceModule = (
     green *= greenMix;
     blue *= blueMix;
 
-    const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
-    const crossStrength = lutStrength * 0.08;
-
-    red += (green - blue) * crossStrength;
-    green += (blue - red) * crossStrength * 0.65;
-    blue += (red - green) * crossStrength;
-
-    red = smoothstep(-lutStrength * 0.2, 1 + lutStrength * 0.16, red);
-    green = smoothstep(-lutStrength * 0.2, 1 + lutStrength * 0.16, green);
-    blue = smoothstep(-lutStrength * 0.2, 1 + lutStrength * 0.16, blue);
-
-    const saturationLift = 1 + lutStrength * 0.12;
-    red = lerp(luminance, red, saturationLift);
-    green = lerp(luminance, green, saturationLift);
-    blue = lerp(luminance, blue, saturationLift);
+    if (featureFlags.enableCubeLut && lutAsset && module.params.lutAssetId && lutStrength > 0) {
+      const sampled = sampleCubeLut(lutAsset, red, green, blue);
+      red = lerp(red, sampled[0], lutStrength);
+      green = lerp(green, sampled[1], lutStrength);
+      blue = lerp(blue, sampled[2], lutStrength);
+    } else {
+      const legacy = applyLegacyColorScience(red, green, blue, lutStrength);
+      red = legacy.red;
+      green = legacy.green;
+      blue = legacy.blue;
+    }
 
     data[index] = toByte(red * 255);
     data[index + 1] = toByte(green * 255);
@@ -479,10 +492,10 @@ export const applyFilmPipeline = (
     if (!module.enabled || module.amount <= 0) {
       return;
     }
-    const seed = resolveSeed(module, pipelineContext);
+    const seed = resolveModuleSeed(module, pipelineContext);
     switch (module.id) {
       case "colorScience":
-        applyColorScienceModule(imageData.data, module);
+        applyColorScienceModule(imageData.data, module, pipelineContext.lutAsset);
         break;
       case "tone":
         applyToneModule(imageData.data, module);

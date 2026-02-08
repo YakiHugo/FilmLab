@@ -69,6 +69,8 @@ const applyFilmProfileOverrides = (
       enabled:
         typeof override.enabled === "boolean" ? override.enabled : module.enabled,
       amount: typeof override.amount === "number" ? override.amount : module.amount,
+      seedMode: override.seedMode ?? module.seedMode,
+      seed: typeof override.seed === "number" ? override.seed : module.seed,
       params: {
         ...module.params,
         ...(override.params ?? {}),

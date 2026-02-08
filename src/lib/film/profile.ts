@@ -28,6 +28,7 @@ const createDefaultColorScienceModule = (): ColorScienceModule => ({
   seedMode: "perAsset",
   params: {
     lutStrength: 0.35,
+    lutAssetId: undefined,
     rgbMix: [1, 1, 1],
     temperatureShift: 0,
     tintShift: 0,
@@ -163,6 +164,10 @@ const normalizeModule = (module: FilmModuleConfig): FilmModuleConfig => {
           ...fallback.params,
           ...module.params,
           lutStrength: clamp(module.params.lutStrength, 0, 1),
+          lutAssetId:
+            typeof module.params.lutAssetId === "string"
+              ? module.params.lutAssetId
+              : undefined,
           rgbMix: [
             clamp(module.params.rgbMix[0], 0.5, 1.5),
             clamp(module.params.rgbMix[1], 0.5, 1.5),
@@ -343,6 +348,7 @@ export const createFilmProfileFromAdjustments = (
             0,
             1
           ),
+          lutAssetId: undefined,
           rgbMix: [
             clamp(1 + warmFactor * 0.1 + redSat * 0.08 + hslAverage * 0.06, 0.7, 1.35),
             clamp(1 - Math.abs(tintFactor) * 0.06 + hslAverage * 0.04, 0.7, 1.35),
