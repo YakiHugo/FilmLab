@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { createDefaultAdjustments } from "@/lib/adjustments";
 import { cn } from "@/lib/utils";
 import type {
   EditingAdjustments,
@@ -33,6 +34,8 @@ interface FilmParamDefinition {
   max: number;
   step: number;
 }
+
+const DEFAULT_ADJUSTMENTS = createDefaultAdjustments();
 
 const FILM_MODULE_LABELS: Record<FilmModuleId, string> = {
   colorScience: "色彩科学",
@@ -93,11 +96,15 @@ const renderSliderRows = (
       key={slider.key}
       label={slider.label}
       value={adjustments[slider.key] as number}
+      defaultValue={DEFAULT_ADJUSTMENTS[slider.key] as number}
       min={slider.min}
       max={slider.max}
       step={slider.step}
       format={slider.format}
       onChange={(value) => onUpdateAdjustmentValue(slider.key, value)}
+      onReset={() =>
+        onUpdateAdjustmentValue(slider.key, DEFAULT_ADJUSTMENTS[slider.key] as number)
+      }
     />
   ));
 
@@ -161,7 +168,19 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
             ) : (
               <div className="space-y-3">
                 <div className="flex justify-end">
-                  <Button size="sm" variant="secondary" onClick={handleResetFilmOverrides}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          "确认重置所有胶片模块覆盖参数吗？此操作会恢复到预设默认值。"
+                        )
+                      ) {
+                        handleResetFilmOverrides();
+                      }
+                    }}
+                  >
                     重置模块覆盖
                   </Button>
                 </div>
@@ -175,7 +194,10 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                         <p className="text-xs font-medium text-slate-100">
                           {FILM_MODULE_LABELS[module.id]}
                         </p>
-                        <Badge className="border-white/10 bg-white/5 text-[10px] text-slate-300">
+                        <Badge
+                          size="control"
+                          className="border-white/10 bg-white/5 text-xs text-slate-300"
+                        >
                           {module.enabled ? "开启" : "关闭"}
                         </Badge>
                       </div>
@@ -194,6 +216,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                       min={0}
                       max={100}
                       step={1}
+                      disabled={!module.enabled}
                       onChange={(value) => handleSetFilmModuleAmount(module.id, value)}
                     />
 
@@ -212,6 +235,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                           min={param.min}
                           max={param.max}
                           step={param.step}
+                          disabled={!module.enabled}
                           format={(value) => formatFilmValue(value, param.step)}
                           onChange={(value) =>
                             handleSetFilmModuleParam(module.id, param.key, value)
@@ -229,6 +253,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                             min={0.5}
                             max={1.5}
                             step={0.01}
+                            disabled={!module.enabled}
                             format={(value) => value.toFixed(2)}
                             onChange={(value) =>
                               handleSetFilmModuleRgbMix(module.id, 0, value)
@@ -240,6 +265,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                             min={0.5}
                             max={1.5}
                             step={0.01}
+                            disabled={!module.enabled}
                             format={(value) => value.toFixed(2)}
                             onChange={(value) =>
                               handleSetFilmModuleRgbMix(module.id, 1, value)
@@ -251,6 +277,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                             min={0.5}
                             max={1.5}
                             step={0.01}
+                            disabled={!module.enabled}
                             format={(value) => value.toFixed(2)}
                             onChange={(value) =>
                               handleSetFilmModuleRgbMix(module.id, 2, value)
@@ -290,6 +317,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                   key={color.id}
                   type="button"
                   onClick={() => setActiveHslColor(color.id)}
+                  aria-pressed={activeHslColor === color.id}
                   className={cn(
                     "flex items-center gap-2 rounded-full border border-white/10 px-3 py-1 text-xs",
                     activeHslColor === color.id ? "bg-white/10 text-white" : "text-slate-300"
@@ -303,26 +331,32 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
             <EditorSliderRow
               label="色相"
               value={adjustments.hsl[activeHslColor].hue}
+              defaultValue={0}
               min={-100}
               max={100}
               format={(value) => (value > 0 ? `+${value}` : `${value}`)}
               onChange={(value) => updateHslValue(activeHslColor, "hue", value)}
+              onReset={() => updateHslValue(activeHslColor, "hue", 0)}
             />
             <EditorSliderRow
               label="饱和"
               value={adjustments.hsl[activeHslColor].saturation}
+              defaultValue={0}
               min={-100}
               max={100}
               format={(value) => (value > 0 ? `+${value}` : `${value}`)}
               onChange={(value) => updateHslValue(activeHslColor, "saturation", value)}
+              onReset={() => updateHslValue(activeHslColor, "saturation", 0)}
             />
             <EditorSliderRow
               label="明度"
               value={adjustments.hsl[activeHslColor].luminance}
+              defaultValue={0}
               min={-100}
               max={100}
               format={(value) => (value > 0 ? `+${value}` : `${value}`)}
               onChange={(value) => updateHslValue(activeHslColor, "luminance", value)}
+              onReset={() => updateHslValue(activeHslColor, "luminance", 0)}
             />
           </EditorSection>
 
@@ -340,6 +374,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                   variant={curveChannel === item.id ? "default" : "secondary"}
                   onClick={() => setCurveChannel(item.id)}
                   disabled={!item.enabled}
+                  aria-pressed={curveChannel === item.id}
                 >
                   {item.label}
                 </Button>
@@ -379,6 +414,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                   size="sm"
                   variant={adjustments.aspectRatio === ratio.value ? "default" : "secondary"}
                   onClick={() => updateAdjustments({ aspectRatio: ratio.value })}
+                  aria-pressed={adjustments.aspectRatio === ratio.value}
                 >
                   {ratio.label}
                 </Button>
@@ -389,6 +425,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                 size="sm"
                 variant={adjustments.flipHorizontal ? "default" : "secondary"}
                 onClick={() => toggleFlip("flipHorizontal")}
+                aria-pressed={adjustments.flipHorizontal}
               >
                 水平翻转
               </Button>
@@ -396,6 +433,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                 size="sm"
                 variant={adjustments.flipVertical ? "default" : "secondary"}
                 onClick={() => toggleFlip("flipVertical")}
+                aria-pressed={adjustments.flipVertical}
               >
                 垂直翻转
               </Button>

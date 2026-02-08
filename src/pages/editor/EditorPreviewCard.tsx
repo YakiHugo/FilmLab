@@ -19,6 +19,18 @@ import { useEditorState } from "./useEditorState";
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
+const isEditableElement = (target: EventTarget | null) => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  const tagName = target.tagName.toLowerCase();
+  return (
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
+    target.isContentEditable
+  );
+};
 
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 3;
@@ -33,6 +45,7 @@ export function EditorPreviewCard() {
     showOriginal,
     copiedAdjustments,
     toggleOriginal,
+    setShowOriginal,
     handleResetAll,
     handleCopy,
     handlePaste,
@@ -43,6 +56,7 @@ export function EditorPreviewCard() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const imageAreaRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const holdComparePreviousRef = useRef<boolean | null>(null);
   const panStartRef = useRef<{
     x: number;
     y: number;
@@ -57,6 +71,10 @@ export function EditorPreviewCard() {
   const [viewScale, setViewScale] = useState(1);
   const [viewOffset, setViewOffset] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
+  const [actionMessage, setActionMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
 
   const imageAspectRatio = useMemo(() => {
     if (imageNaturalSize) {
@@ -166,6 +184,16 @@ export function EditorPreviewCard() {
   }, [clampOffset, viewScale]);
 
   useEffect(() => {
+    if (!actionMessage) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      setActionMessage(null);
+    }, 2200);
+    return () => window.clearTimeout(timer);
+  }, [actionMessage]);
+
+  useEffect(() => {
     if (!selectedAsset) {
       handlePreviewHistogramChange(null);
       return undefined;
@@ -263,6 +291,24 @@ export function EditorPreviewCard() {
     setViewScale(clamp(nextScale, ZOOM_MIN, ZOOM_MAX));
   };
 
+  const startHoldCompare = useCallback(() => {
+    if (!selectedAsset || holdComparePreviousRef.current !== null) {
+      return;
+    }
+    holdComparePreviousRef.current = showOriginal;
+    setShowOriginal(true);
+  }, [selectedAsset, setShowOriginal, showOriginal]);
+
+  const endHoldCompare = useCallback(() => {
+    if (holdComparePreviousRef.current === null) {
+      return;
+    }
+    setShowOriginal(holdComparePreviousRef.current);
+    holdComparePreviousRef.current = null;
+  }, [setShowOriginal]);
+
+  useEffect(() => () => endHoldCompare(), [endHoldCompare]);
+
   const handleWheel = useCallback(
     (event: WheelEvent) => {
       if (!selectedAsset) {
@@ -286,6 +332,54 @@ export function EditorPreviewCard() {
       element.removeEventListener("wheel", handleWheel);
     };
   }, [handleWheel]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isEditableElement(event.target)) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      const withCommand = event.metaKey || event.ctrlKey;
+
+      if (!selectedAsset || withCommand || event.altKey) {
+        return;
+      }
+      if (key === "o") {
+        event.preventDefault();
+        toggleOriginal();
+        setActionMessage({
+          type: "success",
+          text: !showOriginal ? "已切换为原图对比。" : "已切换回调整后预览。",
+        });
+        return;
+      }
+      if (key === "0") {
+        event.preventDefault();
+        resetView();
+        return;
+      }
+      if (key === "=" || key === "+") {
+        event.preventDefault();
+        handleZoom(viewScale + ZOOM_STEP);
+        return;
+      }
+      if (key === "-" || key === "_") {
+        event.preventDefault();
+        handleZoom(viewScale - ZOOM_STEP);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [
+    resetView,
+    selectedAsset,
+    showOriginal,
+    toggleOriginal,
+    viewScale,
+  ]);
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || viewScale <= 1) {
@@ -347,13 +441,48 @@ export function EditorPreviewCard() {
             variant={showOriginal ? "default" : "secondary"}
             onClick={toggleOriginal}
             disabled={!selectedAsset}
+            aria-pressed={showOriginal}
           >
             对比原图
           </Button>
           <Button
             size="sm"
             variant="secondary"
-            onClick={handleResetAll}
+            onPointerDown={startHoldCompare}
+            onPointerUp={endHoldCompare}
+            onPointerCancel={endHoldCompare}
+            onPointerLeave={endHoldCompare}
+            onBlur={endHoldCompare}
+            onKeyDown={(event) => {
+              if (event.key === " " || event.key === "Enter") {
+                event.preventDefault();
+                startHoldCompare();
+              }
+            }}
+            onKeyUp={(event) => {
+              if (event.key === " " || event.key === "Enter") {
+                event.preventDefault();
+                endHoldCompare();
+              }
+            }}
+            disabled={!selectedAsset}
+          >
+            按住对比
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              if (!window.confirm("确认重置当前照片的全部调整参数吗？")) {
+                return;
+              }
+              const reset = handleResetAll();
+              setActionMessage(
+                reset
+                  ? { type: "success", text: "已重置当前照片全部参数。" }
+                  : { type: "error", text: "重置失败，请先选择素材。" }
+              );
+            }}
             disabled={!selectedAsset}
           >
             重置全部
@@ -361,7 +490,14 @@ export function EditorPreviewCard() {
           <Button
             size="sm"
             variant="secondary"
-            onClick={handleCopy}
+            onClick={() => {
+              const copied = handleCopy();
+              setActionMessage(
+                copied
+                  ? { type: "success", text: "当前设置已复制。" }
+                  : { type: "error", text: "复制失败，请先选择素材。" }
+              );
+            }}
             disabled={!selectedAsset}
           >
             复制设置
@@ -369,7 +505,17 @@ export function EditorPreviewCard() {
           <Button
             size="sm"
             variant="secondary"
-            onClick={handlePaste}
+            onClick={() => {
+              if (!window.confirm("粘贴将覆盖当前照片的调节参数，确认继续吗？")) {
+                return;
+              }
+              const pasted = handlePaste();
+              setActionMessage(
+                pasted
+                  ? { type: "success", text: "已粘贴设置到当前素材。" }
+                  : { type: "error", text: "粘贴失败，剪贴板为空或未选择素材。" }
+              );
+            }}
             disabled={!canPaste || !selectedAsset}
           >
             粘贴设置
@@ -447,6 +593,7 @@ export function EditorPreviewCard() {
             className="h-8 w-8 px-0"
             onClick={() => handleZoom(viewScale - ZOOM_STEP)}
             disabled={!selectedAsset}
+            aria-label="缩小预览"
           >
             <ZoomOut className="h-4 w-4" />
           </Button>
@@ -458,6 +605,7 @@ export function EditorPreviewCard() {
               step={ZOOM_STEP}
               onValueChange={(value) => handleZoom(value[0] ?? ZOOM_MIN)}
               disabled={!selectedAsset}
+              aria-label="预览缩放"
             />
           </div>
           <Button
@@ -466,6 +614,7 @@ export function EditorPreviewCard() {
             className="h-8 w-8 px-0"
             onClick={() => handleZoom(viewScale + ZOOM_STEP)}
             disabled={!selectedAsset}
+            aria-label="放大预览"
           >
             <ZoomIn className="h-4 w-4" />
           </Button>
@@ -479,7 +628,27 @@ export function EditorPreviewCard() {
           >
             适配
           </Button>
+          <span className="hidden text-[11px] text-slate-400 lg:inline">
+            滚轮缩放，双击适配，拖拽平移
+          </span>
+          <span className="hidden text-[11px] text-slate-500 xl:inline">
+            快捷键: O 对比, +/- 缩放, 0 适配
+          </span>
         </div>
+        {actionMessage && (
+          <p
+            role="status"
+            aria-live="polite"
+            className={cn(
+              "absolute bottom-4 right-4 rounded-full border px-3 py-1 text-xs shadow-lg",
+              actionMessage.type === "success"
+                ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-200"
+                : "border-rose-300/30 bg-rose-300/10 text-rose-200"
+            )}
+          >
+            {actionMessage.text}
+          </p>
+        )}
       </div>
     </div>
   );

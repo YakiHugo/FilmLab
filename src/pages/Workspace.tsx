@@ -1,8 +1,14 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Download, Layers, SlidersHorizontal, Sparkles, Upload } from "lucide-react";
+import {
+  Download,
+  Layers,
+  SlidersHorizontal,
+  Sparkles,
+  Upload,
+} from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { useProjectStore } from "@/stores/projectStore";
+import { useProjectStore, type AddAssetsResult } from "@/stores/projectStore";
 import { UploadButton } from "@/components/UploadButton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -94,6 +100,22 @@ const presetAdjustmentKeys: PresetAdjustmentKey[] = [
   "vignette",
   "grain",
 ];
+const SUPPORTED_IMPORT_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+const SUPPORTED_IMPORT_EXTENSIONS = /\.(jpe?g|png|webp)$/i;
+
+const isSupportedImportFile = (file: File) => {
+  if (SUPPORTED_IMPORT_TYPES.has(file.type)) {
+    return true;
+  }
+  if (file.type.startsWith("image/")) {
+    return true;
+  }
+  return SUPPORTED_IMPORT_EXTENSIONS.test(file.name);
+};
 
 const loadCustomPresets = () => {
   if (typeof window === "undefined") {
@@ -126,7 +148,7 @@ const resolveAdjustments = (
   adjustments: EditingAdjustments | undefined,
   presetId: string | undefined,
   intensity: number | undefined,
-  presets: Preset[]
+  presets: Preset[],
 ) => {
   const base = adjustments ?? createDefaultAdjustments();
   if (!presetId) {
@@ -136,7 +158,8 @@ const resolveAdjustments = (
   if (!preset) {
     return base;
   }
-  const resolvedIntensity = typeof intensity === "number" ? intensity : preset.intensity;
+  const resolvedIntensity =
+    typeof intensity === "number" ? intensity : preset.intensity;
   return applyPresetAdjustments(base, preset.adjustments, resolvedIntensity);
 };
 
@@ -147,7 +170,7 @@ const resolveFilmProfile = (
   filmProfile: FilmProfile | undefined,
   intensity: number | undefined,
   presets: Preset[],
-  overrides?: FilmProfileOverrides
+  overrides?: FilmProfileOverrides,
 ): FilmProfile | null => {
   if (!adjustments) {
     return null;
@@ -184,6 +207,7 @@ export function Workspace() {
     project,
     assets,
     addAssets,
+    isImporting,
     selectedAssetIds,
     setSelectedAssetIds,
     clearAssetSelection,
@@ -195,13 +219,14 @@ export function Workspace() {
       project: state.project,
       assets: state.assets,
       addAssets: state.addAssets,
+      isImporting: state.isImporting,
       selectedAssetIds: state.selectedAssetIds,
       setSelectedAssetIds: state.setSelectedAssetIds,
       clearAssetSelection: state.clearAssetSelection,
       applyPresetToGroup: state.applyPresetToGroup,
       applyPresetToSelection: state.applyPresetToSelection,
       updateAsset: state.updateAsset,
-    }))
+    })),
   );
 
   const [isDragging, setIsDragging] = useState(false);
@@ -209,17 +234,21 @@ export function Workspace() {
   const [searchText, setSearchText] = useState("");
   const [selectedGroup, setSelectedGroup] = useState("all");
   const [activeAssetId, setActiveAssetId] = useState<string | null>(null);
-  const [selectedPresetId, setSelectedPresetId] = useState(basePresets[0]?.id ?? "");
+  const [selectedPresetId, setSelectedPresetId] = useState(
+    basePresets[0]?.id ?? "",
+  );
   const [intensity, setIntensity] = useState(basePresets[0]?.intensity ?? 60);
   const [showOriginal, setShowOriginal] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [customPresetName, setCustomPresetName] = useState("");
-  const [customPresets, setCustomPresets] = useState<Preset[]>(loadCustomPresets);
+  const [customPresets, setCustomPresets] =
+    useState<Preset[]>(loadCustomPresets);
   const [tasks, setTasks] = useState<ExportTask[]>([]);
   const [format, setFormat] = useState<"original" | "jpeg" | "png">("original");
   const [quality, setQuality] = useState(92);
   const [maxDimension, setMaxDimension] = useState(0);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
+  const [importNotice, setImportNotice] = useState<string | null>(null);
   const [aiProgress, setAiProgress] = useState<AiMatchingProgress>({
     running: false,
     total: 0,
@@ -230,16 +259,26 @@ export function Workspace() {
   const didAutoSelect = useRef(false);
   const aiRunInFlightRef = useRef(false);
 
+  useEffect(() => {
+    if (!importNotice) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      setImportNotice(null);
+    }, 2800);
+    return () => window.clearTimeout(timer);
+  }, [importNotice]);
+
   const allPresets = useMemo(() => {
     return [...basePresets, ...customPresets];
   }, [customPresets]);
   const customPresetIdSet = useMemo(
     () => new Set(customPresets.map((preset) => preset.id)),
-    [customPresets]
+    [customPresets],
   );
   const presetById = useMemo(
     () => new Map(allPresets.map((preset) => [preset.id, preset])),
-    [allPresets]
+    [allPresets],
   );
   const aiPresetCandidates = useMemo<RecommendFilmPresetCandidate[]>(
     () =>
@@ -251,14 +290,17 @@ export function Workspace() {
         intensity: preset.intensity,
         isCustom: customPresetIdSet.has(preset.id),
       })),
-    [allPresets, customPresetIdSet]
+    [allPresets, customPresetIdSet],
   );
 
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
-    window.localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(customPresets));
+    window.localStorage.setItem(
+      CUSTOM_PRESETS_KEY,
+      JSON.stringify(customPresets),
+    );
   }, [customPresets]);
 
   useEffect(() => {
@@ -279,7 +321,7 @@ export function Workspace() {
     if (assets.length > 0 && selectedAssetIds.length === 0) {
       const limitedSelection = applySelectionLimit(
         assets.map((asset) => asset.id),
-        MAX_STYLE_SELECTION
+        MAX_STYLE_SELECTION,
       );
       setSelectedAssetIds(limitedSelection.ids);
       if (limitedSelection.limited) {
@@ -301,17 +343,20 @@ export function Workspace() {
     }
   }, [activeAssetId, assets]);
 
-  const selectedSet = useMemo(() => new Set(selectedAssetIds), [selectedAssetIds]);
+  const selectedSet = useMemo(
+    () => new Set(selectedAssetIds),
+    [selectedAssetIds],
+  );
   const selectedAssets = useMemo(
     () => assets.filter((asset) => selectedSet.has(asset.id)),
-    [assets, selectedSet]
+    [assets, selectedSet],
   );
   const failedAiAssets = useMemo(
     () =>
       selectedAssets.filter(
-        (asset) => asset.aiRecommendation?.status === "failed"
+        (asset) => asset.aiRecommendation?.status === "failed",
       ),
-    [selectedAssets]
+    [selectedAssets],
   );
 
   const groupOptions = useMemo(() => {
@@ -327,7 +372,10 @@ export function Workspace() {
       if (selectedGroup !== "all" && group !== selectedGroup) {
         return false;
       }
-      if (normalizedSearch && !asset.name.toLowerCase().includes(normalizedSearch)) {
+      if (
+        normalizedSearch &&
+        !asset.name.toLowerCase().includes(normalizedSearch)
+      ) {
         return false;
       }
       return true;
@@ -336,7 +384,7 @@ export function Workspace() {
 
   const activeAsset = useMemo(
     () => assets.find((asset) => asset.id === activeAssetId) ?? null,
-    [assets, activeAssetId]
+    [assets, activeAssetId],
   );
   const activeRecommendedTopPresets = useMemo(() => {
     if (!activeAsset?.aiRecommendation) {
@@ -357,8 +405,10 @@ export function Workspace() {
         };
       })
       .filter(
-        (item): item is { preset: Preset; recommendation: AiPresetRecommendation } =>
-          item !== null
+        (
+          item,
+        ): item is { preset: Preset; recommendation: AiPresetRecommendation } =>
+          item !== null,
       );
   }, [activeAsset?.aiRecommendation, presetById]);
 
@@ -377,7 +427,7 @@ export function Workspace() {
       activeAdjustments ?? undefined,
       activeAsset.presetId,
       activeAsset.intensity,
-      allPresets
+      allPresets,
     );
   }, [activeAdjustments, activeAsset, allPresets]);
 
@@ -392,7 +442,7 @@ export function Workspace() {
       activeAsset.filmProfile,
       activeAsset.intensity,
       allPresets,
-      activeAsset.filmOverrides
+      activeAsset.filmOverrides,
     );
   }, [activeAsset, allPresets, previewAdjustments]);
 
@@ -401,10 +451,10 @@ export function Workspace() {
       const limited = applySelectionLimit(assetIds, MAX_STYLE_SELECTION);
       setSelectedAssetIds(limited.ids);
       setSelectionNotice(
-        limited.limited ? `最多可选择 ${MAX_STYLE_SELECTION} 张素材。` : null
+        limited.limited ? `最多可选择 ${MAX_STYLE_SELECTION} 张素材。` : null,
       );
     },
-    [setSelectedAssetIds]
+    [setSelectedAssetIds],
   );
 
   const handleToggleAssetSelection = useCallback(
@@ -412,14 +462,14 @@ export function Workspace() {
       const next = toggleSelectionWithLimit(
         selectedAssetIds,
         assetId,
-        MAX_STYLE_SELECTION
+        MAX_STYLE_SELECTION,
       );
       setSelectedAssetIds(next.ids);
       setSelectionNotice(
-        next.limited ? `最多可选择 ${MAX_STYLE_SELECTION} 张素材。` : null
+        next.limited ? `最多可选择 ${MAX_STYLE_SELECTION} 张素材。` : null,
       );
     },
-    [selectedAssetIds, setSelectedAssetIds]
+    [selectedAssetIds, setSelectedAssetIds],
   );
 
   const handleSelectFilteredAssets = useCallback(() => {
@@ -457,13 +507,13 @@ export function Workspace() {
               candidates: aiPresetCandidates,
               topK: DEFAULT_TOP_K,
             },
-            { maxRetries: MAX_RECOMMENDATION_RETRIES }
+            { maxRetries: MAX_RECOMMENDATION_RETRIES },
           );
 
           const topPresets = sanitizeTopPresetRecommendations(
             result.topPresets,
             candidateIds,
-            DEFAULT_TOP_K
+            DEFAULT_TOP_K,
           );
           const autoPreset = findAutoApplyPreset(allPresets, topPresets);
 
@@ -518,7 +568,7 @@ export function Workspace() {
       }));
       aiRunInFlightRef.current = false;
     },
-    [aiPresetCandidates, allPresets, updateAsset]
+    [aiPresetCandidates, allPresets, updateAsset],
   );
 
   const handleRetryFailedRecommendations = useCallback(() => {
@@ -528,16 +578,50 @@ export function Workspace() {
     void runAiMatchingForAssets(failedAiAssets);
   }, [failedAiAssets, runAiMatchingForAssets]);
 
+  const handleImportResult = useCallback(
+    (result: AddAssetsResult) => {
+      if (result.added > 0) {
+        setActiveAssetId(result.addedAssetIds[0] ?? null);
+        setSelectionWithLimit([...selectedAssetIds, ...result.addedAssetIds]);
+      }
+      if (result.added > 0 && result.failed === 0) {
+        setImportNotice(`已导入 ${result.added} 张素材。`);
+        return;
+      }
+      if (result.added > 0 && result.failed > 0) {
+        setImportNotice(
+          `已导入 ${result.added} 张，失败 ${result.failed} 张。`,
+        );
+        return;
+      }
+      setImportNotice("导入失败，请重试或更换文件。");
+    },
+    [selectedAssetIds, setSelectionWithLimit],
+  );
+
   const handleFiles = useCallback(
     (files: FileList | null) => {
+      if (isImporting) {
+        setImportNotice("正在导入，请稍候。");
+        return;
+      }
       if (!files || files.length === 0) return;
       const filtered = Array.from(files).filter((file) =>
-        ["image/jpeg", "image/png"].includes(file.type)
+        isSupportedImportFile(file),
       );
-      if (filtered.length === 0) return;
-      void addAssets(filtered);
+      if (filtered.length === 0) {
+        setImportNotice("仅支持导入 JPG / PNG / WebP 图片。");
+        return;
+      }
+      setSearchText("");
+      setSelectedGroup("all");
+      void addAssets(filtered)
+        .then((result) => handleImportResult(result))
+        .catch(() => {
+          setImportNotice("导入失败，请重试或更换文件。");
+        });
     },
-    [addAssets]
+    [addAssets, handleImportResult, isImporting],
   );
 
   const applyPreset = (presetId: string) => {
@@ -563,7 +647,10 @@ export function Workspace() {
     updateAsset(activeAsset.id, { intensity: value });
   };
 
-  const updateAdjustmentValue = (key: keyof EditingAdjustments, value: number) => {
+  const updateAdjustmentValue = (
+    key: keyof EditingAdjustments,
+    value: number,
+  ) => {
     if (!activeAsset || !activeAdjustments) {
       return;
     }
@@ -639,8 +726,8 @@ export function Workspace() {
     for (const asset of assets) {
       setTasks((prev) =>
         prev.map((item) =>
-          item.id === asset.id ? { ...item, status: "处理中" } : item
-        )
+          item.id === asset.id ? { ...item, status: "处理中" } : item,
+        ),
       );
       try {
         if (!asset?.blob) {
@@ -650,7 +737,7 @@ export function Workspace() {
           asset.adjustments,
           asset.presetId,
           asset.intensity,
-          allPresets
+          allPresets,
         );
         const filmProfile = resolveFilmProfile(
           adjustments,
@@ -659,7 +746,7 @@ export function Workspace() {
           asset.filmProfile,
           asset.intensity,
           allPresets,
-          asset.filmOverrides
+          asset.filmOverrides,
         );
         const outputType = resolveOutputType(asset.type);
         const blob = await renderImageToBlob(asset.blob, adjustments, {
@@ -677,34 +764,31 @@ export function Workspace() {
         URL.revokeObjectURL(url);
         setTasks((prev) =>
           prev.map((item) =>
-            item.id === asset.id ? { ...item, status: "完成" } : item
-          )
+            item.id === asset.id ? { ...item, status: "完成" } : item,
+          ),
         );
       } catch (error) {
         setTasks((prev) =>
           prev.map((item) =>
-            item.id === asset.id ? { ...item, status: "失败" } : item
-          )
+            item.id === asset.id ? { ...item, status: "失败" } : item,
+          ),
         );
       }
     }
   };
 
   const completedCount = tasks.filter((task) => task.status === "完成").length;
-  const progress = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
+  const progress =
+    tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
   const isExporting = tasks.some((task) => task.status === "处理中");
 
   const totalSize = useMemo(
     () => assets.reduce((sum, asset) => sum + asset.size, 0),
-    [assets]
+    [assets],
   );
 
   const formatLabel =
-    format === "original"
-      ? "跟随原文件"
-      : format === "png"
-        ? "PNG"
-        : "JPG";
+    format === "original" ? "跟随原文件" : format === "png" ? "PNG" : "JPG";
 
   const currentStep = (step ?? "library") as WorkspaceStep;
   const stepIndex = steps.findIndex((item) => item.id === currentStep);
@@ -738,7 +822,7 @@ export function Workspace() {
       ? selectedAssetIds
       : applySelectionLimit(
           assets.map((asset) => asset.id),
-          MAX_STYLE_SELECTION
+          MAX_STYLE_SELECTION,
         ).ids;
 
   const primaryAction = (() => {
@@ -781,21 +865,33 @@ export function Workspace() {
             type="button"
             onClick={() => setStep(item.id)}
             className={cn(
-              "flex flex-col items-center gap-1 rounded-2xl px-2 py-2 text-xs transition",
-              isActive ? "bg-white/10 text-white" : "text-slate-400 hover:bg-white/5"
+              "flex min-h-[104px] flex-col items-center gap-1.5 rounded-2xl px-3 py-2.5 text-xs transition",
+              isActive
+                ? "bg-white/10 text-white"
+                : "text-slate-400 hover:bg-white/5",
             )}
           >
             <span
               className={cn(
                 "flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-200",
-                isActive && "border-sky-200/30 bg-sky-300/20 text-sky-200"
+                isActive && "border-sky-200/30 bg-sky-300/20 text-sky-200",
               )}
             >
               <Icon className="h-4 w-4" />
             </span>
             <span className="font-medium">{item.label}</span>
-            <span className="text-[11px] text-slate-500">{item.description}</span>
-            {isComplete && <span className="text-[10px] text-emerald-300">已完成</span>}
+            <span className="text-[11px] text-slate-500">
+              {item.description}
+            </span>
+            <span
+              className={cn(
+                "min-h-[12px] text-[10px]",
+                isComplete ? "text-emerald-300" : "text-transparent",
+              )}
+              aria-hidden={!isComplete}
+            >
+              已完成
+            </span>
           </button>
         );
       })}
@@ -806,7 +902,9 @@ export function Workspace() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-500">素材库</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
+            素材库
+          </p>
           <p className="text-sm text-white">{project?.name ?? "未命名项目"}</p>
         </div>
         <Badge className="border-white/10 bg-white/5 text-slate-200">
@@ -866,15 +964,24 @@ export function Workspace() {
           <span>本地占用</span>
           <span>{(totalSize / 1024 / 1024).toFixed(1)} MB</span>
         </div>
-        {selectionNotice && (
-          <p className="text-amber-300">{selectionNotice}</p>
-        )}
+        <p
+          className={cn(
+            "min-h-[16px] text-amber-300",
+            !selectionNotice && "opacity-0",
+          )}
+          role="status"
+          aria-live="polite"
+        >
+          {selectionNotice ?? "占位"}
+        </p>
       </div>
 
       <div
         className={cn(
           "space-y-2",
-          compact ? "max-h-[45vh] overflow-y-auto" : "max-h-[50vh] overflow-y-auto"
+          compact
+            ? "max-h-[45vh] overflow-y-auto"
+            : "max-h-[50vh] overflow-y-auto",
         )}
       >
         {filteredAssets.length === 0 && (
@@ -892,7 +999,7 @@ export function Workspace() {
               onClick={() => setActiveAssetId(asset.id)}
               className={cn(
                 "flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/60 p-2 text-left transition",
-                isActive && "border-sky-200/40 bg-sky-300/10"
+                isActive && "border-sky-200/40 bg-sky-300/10",
               )}
             >
               <img
@@ -902,7 +1009,9 @@ export function Workspace() {
                 loading="lazy"
               />
               <div className="min-w-0 flex-1 text-xs text-slate-300">
-                <p className="font-medium text-slate-100 line-clamp-1">{asset.name}</p>
+                <p className="font-medium text-slate-100 line-clamp-1">
+                  {asset.name}
+                </p>
                 <p>分组：{asset.group ?? "未分组"}</p>
               </div>
               <label
@@ -1056,7 +1165,7 @@ export function Workspace() {
               "flex min-h-[160px] flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed p-6 text-center transition",
               isDragging
                 ? "border-sky-200/50 bg-sky-300/10"
-                : "border-white/10 bg-slate-950/40"
+                : "border-white/10 bg-slate-950/40",
             )}
             onDragOver={(event) => {
               event.preventDefault();
@@ -1073,10 +1182,31 @@ export function Workspace() {
               <Upload className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm text-slate-200">拖拽 JPG/PNG 到此处导入</p>
-              <p className="text-xs text-slate-500">自动生成缩略图与元信息</p>
+              <p className="text-sm text-slate-200">
+                拖拽 JPG/PNG/WebP 到此处导入
+              </p>
+              <p className="text-xs text-slate-500">
+                {isImporting
+                  ? "正在导入与生成缩略图..."
+                  : "自动生成缩略图与元信息"}
+              </p>
             </div>
-            <UploadButton size="sm" variant="secondary" label="点此导入" />
+            <UploadButton
+              size="sm"
+              variant="secondary"
+              label="点此导入"
+              onImportResult={handleImportResult}
+            />
+            <p
+              className={cn(
+                "min-h-[16px] text-xs text-sky-200",
+                !importNotice && "opacity-0",
+              )}
+              role="status"
+              aria-live="polite"
+            >
+              {importNotice ?? "占位"}
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -1102,7 +1232,7 @@ export function Workspace() {
                     key={asset.id}
                     className={cn(
                       "overflow-hidden rounded-2xl border border-white/10 bg-slate-950/60",
-                      isSelected && "ring-2 ring-sky-200/40"
+                      isSelected && "ring-2 ring-sky-200/40",
                     )}
                   >
                     <button
@@ -1126,7 +1256,9 @@ export function Workspace() {
                           <input
                             type="checkbox"
                             checked={isSelected}
-                            onChange={() => handleToggleAssetSelection(asset.id)}
+                            onChange={() =>
+                              handleToggleAssetSelection(asset.id)
+                            }
                             className="h-3 w-3 accent-sky-300"
                           />
                           选中
@@ -1159,8 +1291,9 @@ export function Workspace() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-slate-300">
           <p>
-            已处理 {aiProgress.processed}/{aiProgress.total || selectedAssets.length} 张，
-            成功 {aiProgress.succeeded} 张，失败 {aiProgress.failed} 张。
+            已处理 {aiProgress.processed}/
+            {aiProgress.total || selectedAssets.length} 张， 成功{" "}
+            {aiProgress.succeeded} 张，失败 {aiProgress.failed} 张。
           </p>
           <div className="rounded-full border border-white/10 bg-slate-950/60">
             <div
@@ -1206,30 +1339,34 @@ export function Workspace() {
                 AI 推荐（当前图片）
               </p>
               <div className="flex gap-3 overflow-x-auto pb-2">
-                {activeRecommendedTopPresets.map(({ preset, recommendation }, index) => {
-                  const isActive = preset.id === selectedPresetId;
-                  return (
-                    <button
-                      key={`${preset.id}-${index}`}
-                      type="button"
-                      onClick={() => applyPreset(preset.id)}
-                      className={cn(
-                        "min-w-[220px] rounded-2xl border border-white/10 bg-slate-950/60 p-3 text-left transition",
-                        isActive && "border-sky-200/40 bg-sky-300/10"
-                      )}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="font-medium text-slate-100">{preset.name}</p>
-                        <Badge className="border-sky-200/30 bg-sky-300/20 text-sky-100">
-                          Top {index + 1}
-                        </Badge>
-                      </div>
-                      <p className="mt-2 text-xs text-slate-400 line-clamp-2">
-                        {recommendation.reason}
-                      </p>
-                    </button>
-                  );
-                })}
+                {activeRecommendedTopPresets.map(
+                  ({ preset, recommendation }, index) => {
+                    const isActive = preset.id === selectedPresetId;
+                    return (
+                      <button
+                        key={`${preset.id}-${index}`}
+                        type="button"
+                        onClick={() => applyPreset(preset.id)}
+                        className={cn(
+                          "min-w-[220px] rounded-2xl border border-white/10 bg-slate-950/60 p-3 text-left transition",
+                          isActive && "border-sky-200/40 bg-sky-300/10",
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-medium text-slate-100">
+                            {preset.name}
+                          </p>
+                          <Badge className="border-sky-200/30 bg-sky-300/20 text-sky-100">
+                            Top {index + 1}
+                          </Badge>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-400 line-clamp-2">
+                          {recommendation.reason}
+                        </p>
+                      </button>
+                    );
+                  },
+                )}
               </div>
             </div>
           )}
@@ -1244,7 +1381,7 @@ export function Workspace() {
                   onClick={() => applyPreset(preset.id)}
                   className={cn(
                     "min-w-[180px] rounded-2xl border border-white/10 bg-slate-950/60 p-3 text-left transition",
-                    isActive && "border-sky-200/40 bg-sky-300/10"
+                    isActive && "border-sky-200/40 bg-sky-300/10",
                   )}
                 >
                   <div className="flex items-center justify-between">
@@ -1265,7 +1402,9 @@ export function Workspace() {
 
           {customPresets.length > 0 && (
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-slate-500">自定义风格</p>
+              <p className="text-xs uppercase tracking-[0.24em] text-slate-500">
+                自定义风格
+              </p>
               <div className="mt-2 flex gap-3 overflow-x-auto pb-2">
                 {customPresets.map((preset) => {
                   const isActive = preset.id === selectedPresetId;
@@ -1276,10 +1415,12 @@ export function Workspace() {
                       onClick={() => applyPreset(preset.id)}
                       className={cn(
                         "min-w-[180px] rounded-2xl border border-white/10 bg-slate-950/60 p-3 text-left transition",
-                        isActive && "border-emerald-200/40 bg-emerald-300/10"
+                        isActive && "border-emerald-200/40 bg-emerald-300/10",
                       )}
                     >
-                      <p className="font-medium text-slate-100">{preset.name}</p>
+                      <p className="font-medium text-slate-100">
+                        {preset.name}
+                      </p>
                       <p className="mt-2 text-xs text-slate-400 line-clamp-2">
                         {preset.description}
                       </p>
@@ -1309,7 +1450,13 @@ export function Workspace() {
 
           <div className="flex flex-wrap items-center gap-2">
             <Button
-              onClick={() => applyPresetToSelection(targetSelection, selectedPresetId, intensity)}
+              onClick={() =>
+                applyPresetToSelection(
+                  targetSelection,
+                  selectedPresetId,
+                  intensity,
+                )
+              }
               disabled={assets.length === 0}
             >
               应用到已选
@@ -1318,7 +1465,11 @@ export function Workspace() {
               variant="secondary"
               onClick={() =>
                 selectedGroup !== "all"
-                  ? applyPresetToGroup(selectedGroup, selectedPresetId, intensity)
+                  ? applyPresetToGroup(
+                      selectedGroup,
+                      selectedPresetId,
+                      intensity,
+                    )
                   : undefined
               }
               disabled={selectedGroup === "all"}
@@ -1409,7 +1560,9 @@ export function Workspace() {
                     min={0}
                     max={40}
                     step={1}
-                    onValueChange={(value) => updateAdjustmentValue("grain", value[0] ?? 0)}
+                    onValueChange={(value) =>
+                      updateAdjustmentValue("grain", value[0] ?? 0)
+                    }
                   />
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
@@ -1428,10 +1581,14 @@ export function Workspace() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-xs text-slate-400">保存为自定义风格</Label>
+                  <Label className="text-xs text-slate-400">
+                    保存为自定义风格
+                  </Label>
                   <Input
                     value={customPresetName}
-                    onChange={(event) => setCustomPresetName(event.target.value)}
+                    onChange={(event) =>
+                      setCustomPresetName(event.target.value)
+                    }
                     placeholder="输入风格名称"
                   />
                   <Button
@@ -1460,13 +1617,17 @@ export function Workspace() {
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>导出设置</CardTitle>
           <div className="text-xs text-slate-400">
-            可导出 {assets.length} 张 · 占用 {(totalSize / 1024 / 1024).toFixed(1)} MB
+            可导出 {assets.length} 张 · 占用{" "}
+            {(totalSize / 1024 / 1024).toFixed(1)} MB
           </div>
         </CardHeader>
         <CardContent className="space-y-4 text-sm text-slate-300">
           <div className="space-y-2">
             <Label className="text-xs text-slate-400">格式</Label>
-            <Select value={format} onValueChange={(value) => setFormat(value as typeof format)}>
+            <Select
+              value={format}
+              onValueChange={(value) => setFormat(value as typeof format)}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="选择导出格式" />
               </SelectTrigger>
@@ -1543,7 +1704,11 @@ export function Workspace() {
             </p>
           )}
           {progress === 100 && tasks.length > 0 && (
-            <Button size="sm" variant="secondary" onClick={() => setStep("library")}>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setStep("library")}
+            >
               回到素材库
             </Button>
           )}
@@ -1557,7 +1722,9 @@ export function Workspace() {
       <section className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">FilmLab 工作台</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
+              FilmLab 工作台
+            </p>
             <h2 className="font-display text-2xl text-white sm:text-3xl">
               {currentStep === "library" && "导入素材"}
               {currentStep === "style" && "选择风格"}
@@ -1610,7 +1777,11 @@ export function Workspace() {
         <div className="fixed inset-x-0 bottom-20 z-40 rounded-t-3xl border border-white/10 bg-slate-950/95 p-4 backdrop-blur md:hidden">
           <div className="mb-3 flex items-center justify-between">
             <p className="text-sm font-medium text-white">素材库</p>
-            <Button size="sm" variant="ghost" onClick={() => setIsLibraryOpen(false)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setIsLibraryOpen(false)}
+            >
               关闭
             </Button>
           </div>
@@ -1635,7 +1806,11 @@ export function Workspace() {
             </Button>
           )}
           {currentStep === "library" && assets.length === 0 ? (
-            <UploadButton className="w-full md:w-auto" label={primaryAction.label} />
+            <UploadButton
+              className="w-full md:w-auto"
+              label={primaryAction.label}
+              onImportResult={handleImportResult}
+            />
           ) : (
             <Button
               className="w-full md:w-auto"
@@ -1650,5 +1825,3 @@ export function Workspace() {
     </div>
   );
 }
-
-

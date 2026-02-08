@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useRef } from "react";
 import { useEditorStore } from "@/stores/editorStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { cn } from "@/lib/utils";
@@ -7,6 +7,16 @@ export const EditorAssetFilmstrip = memo(function EditorAssetFilmstrip() {
   const assets = useProjectStore((state) => state.assets);
   const selectedAssetId = useEditorStore((state) => state.selectedAssetId);
   const setSelectedAssetId = useEditorStore((state) => state.setSelectedAssetId);
+  const itemRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  const focusAssetByIndex = (index: number) => {
+    const next = assets[index];
+    if (!next) {
+      return;
+    }
+    setSelectedAssetId(next.id);
+    itemRefs.current[next.id]?.focus();
+  };
 
   return (
     <div className="shrink-0 border-t border-white/10 bg-slate-950/80 px-6 py-4">
@@ -21,11 +31,41 @@ export const EditorAssetFilmstrip = memo(function EditorAssetFilmstrip() {
             <button
               key={asset.id}
               type="button"
+              aria-pressed={isActive}
+              aria-current={isActive ? "true" : undefined}
+              ref={(node) => {
+                itemRefs.current[asset.id] = node;
+              }}
               className={cn(
                 "flex min-w-[160px] items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/60 p-3 text-left transition",
                 isActive && "border-sky-200/40 bg-sky-300/10"
               )}
               onClick={() => setSelectedAssetId(asset.id)}
+              onKeyDown={(event) => {
+                const currentIndex = assets.findIndex((item) => item.id === asset.id);
+                if (currentIndex < 0) {
+                  return;
+                }
+                if (event.key === "ArrowRight") {
+                  event.preventDefault();
+                  focusAssetByIndex(Math.min(assets.length - 1, currentIndex + 1));
+                  return;
+                }
+                if (event.key === "ArrowLeft") {
+                  event.preventDefault();
+                  focusAssetByIndex(Math.max(0, currentIndex - 1));
+                  return;
+                }
+                if (event.key === "Home") {
+                  event.preventDefault();
+                  focusAssetByIndex(0);
+                  return;
+                }
+                if (event.key === "End") {
+                  event.preventDefault();
+                  focusAssetByIndex(assets.length - 1);
+                }
+              }}
             >
               <img
                 src={asset.thumbnailUrl ?? asset.objectUrl}

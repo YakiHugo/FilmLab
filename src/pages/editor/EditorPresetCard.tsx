@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { presets as basePresets } from "@/data/presets";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +34,10 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
 
   const importRef = useRef<HTMLInputElement | null>(null);
   const filmImportRef = useRef<HTMLInputElement | null>(null);
+  const [feedback, setFeedback] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
   const selectedPresetId = selectedAsset?.presetId;
   const fallbackPresetId = basePresets[0]?.id;
   const canSaveCustomPreset = Boolean(previewAdjustments);
@@ -68,15 +72,47 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
       .filter((item): item is { id: string; name: string; reason: string } => item !== null);
   }, [presetById, selectedAsset?.aiRecommendation]);
 
+  useEffect(() => {
+    if (!feedback) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      setFeedback(null);
+    }, 2600);
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
+
   const handleImportFile: React.ChangeEventHandler<HTMLInputElement> = (event) => {
     const file = event.currentTarget.files?.[0] ?? null;
-    void handleImportPresets(file);
+    if (!file) {
+      event.currentTarget.value = "";
+      return;
+    }
+    void (async () => {
+      const importedCount = await handleImportPresets(file);
+      if (importedCount > 0) {
+        setFeedback({ type: "success", text: `已导入 ${importedCount} 个预设。` });
+      } else {
+        setFeedback({ type: "error", text: "导入失败或未识别到有效预设。" });
+      }
+    })();
     event.currentTarget.value = "";
   };
 
   const handleImportFilmFile: React.ChangeEventHandler<HTMLInputElement> = (event) => {
     const file = event.currentTarget.files?.[0] ?? null;
-    void handleImportFilmProfile(file);
+    if (!file) {
+      event.currentTarget.value = "";
+      return;
+    }
+    void (async () => {
+      const imported = await handleImportFilmProfile(file);
+      setFeedback(
+        imported
+          ? { type: "success", text: "胶片档案导入成功。" }
+          : { type: "error", text: "胶片档案导入失败，请检查 JSON 内容。" }
+      );
+    })();
     event.currentTarget.value = "";
   };
 
@@ -98,6 +134,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
                   size="sm"
                   variant={selectedPresetId === preset.id ? "default" : "secondary"}
                   onClick={() => handleSelectPreset(preset.id)}
+                  aria-pressed={selectedPresetId === preset.id}
                   disabled={!selectedAsset}
                   className="justify-between gap-2"
                   title={preset.reason}
@@ -146,6 +183,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
                     : "secondary"
                 }
                 onClick={() => handleSelectPreset(preset.id)}
+                aria-pressed={(selectedPresetId ?? fallbackPresetId) === preset.id}
                 disabled={!selectedAsset}
                 className="justify-start"
               >
@@ -165,6 +203,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
                   size="sm"
                   variant={selectedPresetId === preset.id ? "default" : "secondary"}
                   onClick={() => handleSelectPreset(preset.id)}
+                  aria-pressed={selectedPresetId === preset.id}
                   disabled={!selectedAsset}
                   className="justify-start"
                 >
@@ -187,6 +226,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
             step={1}
             onValueChange={(value) => handleSetIntensity(value[0] ?? 0)}
             disabled={!selectedAsset}
+            aria-label="预设强度"
           />
         </div>
 
@@ -199,7 +239,14 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
           />
           <Button
             className="w-full"
-            onClick={handleSaveCustomPreset}
+            onClick={() => {
+              const saved = handleSaveCustomPreset();
+              setFeedback(
+                saved
+                  ? { type: "success", text: "自定义预设已保存。" }
+                  : { type: "error", text: "保存失败，请填写名称并确保有可保存的调整参数。" }
+              );
+            }}
             disabled={!customPresetName.trim() || !canSaveCustomPreset}
           >
             保存预设
@@ -210,7 +257,14 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
           <Button
             size="sm"
             variant="secondary"
-            onClick={handleExportPresets}
+            onClick={() => {
+              const exported = handleExportPresets();
+              setFeedback(
+                exported
+                  ? { type: "success", text: "预设 JSON 已导出。" }
+                  : { type: "error", text: "当前没有可导出的自定义预设。" }
+              );
+            }}
             disabled={customPresets.length === 0}
           >
             导出 JSON
@@ -235,7 +289,14 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
           <Button
             size="sm"
             variant="secondary"
-            onClick={handleExportFilmProfile}
+            onClick={() => {
+              const exported = handleExportFilmProfile();
+              setFeedback(
+                exported
+                  ? { type: "success", text: "胶片档案已导出。" }
+                  : { type: "error", text: "当前无可导出的胶片档案。" }
+              );
+            }}
             disabled={!selectedAsset}
           >
             导出胶片档案
@@ -256,6 +317,17 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
             onChange={handleImportFilmFile}
           />
         </div>
+        {feedback && (
+          <p
+            role="status"
+            aria-live="polite"
+            className={
+              feedback.type === "success" ? "text-xs text-emerald-300" : "text-xs text-rose-300"
+            }
+          >
+            {feedback.text}
+          </p>
+        )}
       </CardContent>
     </Card>
   );

@@ -42,6 +42,7 @@ export function useEditorState() {
     openSections,
     previewHistogram,
     setSelectedAssetId,
+    setShowOriginal,
     setCopiedAdjustments,
     setCustomPresetName,
     setCustomPresets,
@@ -62,6 +63,7 @@ export function useEditorState() {
       openSections: state.openSections,
       previewHistogram: state.previewHistogram,
       setSelectedAssetId: state.setSelectedAssetId,
+      setShowOriginal: state.setShowOriginal,
       setCopiedAdjustments: state.setCopiedAdjustments,
       setCustomPresetName: state.setCustomPresetName,
       setCustomPresets: state.setCustomPresets,
@@ -117,11 +119,11 @@ export function useEditorState() {
 
   const presetLabel = useMemo(() => {
     if (!selectedAsset?.presetId) {
-      return "Unassigned";
+      return "未指定";
     }
     return (
       allPresets.find((preset) => preset.id === selectedAsset.presetId)?.name ??
-      "Unassigned"
+      "未指定"
     );
   }, [allPresets, selectedAsset?.presetId]);
 
@@ -132,7 +134,7 @@ export function useEditorState() {
     if (selectedAsset?.filmProfileId) {
       return selectedAsset.filmProfileId;
     }
-    return "Auto";
+    return "自动";
   }, [previewFilmProfile, selectedAsset?.filmProfileId]);
 
   const updateAdjustments = useCallback(
@@ -296,26 +298,29 @@ export function useEditorState() {
 
   const handleResetAll = useCallback(() => {
     if (!selectedAsset) {
-      return;
+      return false;
     }
     updateAsset(selectedAsset.id, {
       adjustments: createDefaultAdjustments(),
       filmOverrides: undefined,
     });
+    return true;
   }, [selectedAsset, updateAsset]);
 
   const handleCopy = useCallback(() => {
     if (!adjustments) {
-      return;
+      return false;
     }
     setCopiedAdjustments(cloneAdjustments(adjustments));
+    return true;
   }, [adjustments, setCopiedAdjustments]);
 
   const handlePaste = useCallback(() => {
     if (!selectedAsset || !copiedAdjustments) {
-      return;
+      return false;
     }
     updateAsset(selectedAsset.id, { adjustments: cloneAdjustments(copiedAdjustments) });
+    return true;
   }, [copiedAdjustments, selectedAsset, updateAsset]);
 
   const handleSelectPreset = useCallback(
@@ -359,11 +364,11 @@ export function useEditorState() {
 
   const handleSaveCustomPreset = useCallback(() => {
     if (!previewAdjustments) {
-      return;
+      return false;
     }
     const name = customPresetName.trim();
     if (!name) {
-      return;
+      return false;
     }
     const custom: Preset = {
       id: `custom-${Date.now()}`,
@@ -385,6 +390,7 @@ export function useEditorState() {
         filmOverrides: undefined,
       });
     }
+    return true;
   }, [
     customPresetName,
     previewAdjustments,
@@ -397,7 +403,7 @@ export function useEditorState() {
 
   const handleExportPresets = useCallback(() => {
     if (customPresets.length === 0) {
-      return;
+      return false;
     }
     const blob = new Blob([JSON.stringify(customPresets, null, 2)], {
       type: "application/json",
@@ -408,11 +414,12 @@ export function useEditorState() {
     link.download = "filmlab-presets.json";
     link.click();
     URL.revokeObjectURL(url);
+    return true;
   }, [customPresets]);
 
   const handleExportFilmProfile = useCallback(() => {
     if (!previewFilmProfile) {
-      return;
+      return false;
     }
     const blob = new Blob([JSON.stringify(previewFilmProfile, null, 2)], {
       type: "application/json",
@@ -423,18 +430,19 @@ export function useEditorState() {
     link.download = `${previewFilmProfile.id || "film-profile"}.json`;
     link.click();
     URL.revokeObjectURL(url);
+    return true;
   }, [previewFilmProfile]);
 
   const handleImportFilmProfile = useCallback(
     async (file: File | null) => {
       if (!file || !selectedAsset) {
-        return;
+        return false;
       }
       try {
         const text = await file.text();
         const parsed = JSON.parse(text) as unknown;
         if (!parsed || typeof parsed !== "object") {
-          return;
+          return false;
         }
         const normalized = normalizeFilmProfile(parsed as NonNullable<Asset["filmProfile"]>);
         updateAsset(selectedAsset.id, {
@@ -442,8 +450,9 @@ export function useEditorState() {
           filmProfileId: undefined,
           filmOverrides: undefined,
         });
+        return true;
       } catch {
-        return;
+        return false;
       }
     },
     [selectedAsset, updateAsset]
@@ -452,7 +461,7 @@ export function useEditorState() {
   const handleImportPresets = useCallback(
     async (file: File | null) => {
       if (!file) {
-        return;
+        return 0;
       }
       try {
         const text = await file.text();
@@ -461,8 +470,9 @@ export function useEditorState() {
         if (normalized.length > 0) {
           setCustomPresets((prev) => mergePresetsById(prev, normalized));
         }
+        return normalized.length;
       } catch {
-        return;
+        return 0;
       }
     },
     [setCustomPresets]
@@ -493,6 +503,7 @@ export function useEditorState() {
     curveChannel,
     openSections,
     setSelectedAssetId,
+    setShowOriginal,
     setCustomPresetName,
     setActiveHslColor,
     setCurveChannel,

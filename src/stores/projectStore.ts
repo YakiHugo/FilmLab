@@ -12,14 +12,21 @@ import {
   type StoredAsset,
 } from "@/lib/db";
 
+export interface AddAssetsResult {
+  added: number;
+  failed: number;
+  addedAssetIds: string[];
+}
+
 interface ProjectState {
   project: Project | null;
   assets: Asset[];
   presets: typeof presets;
   isLoading: boolean;
+  isImporting: boolean;
   selectedAssetIds: string[];
   init: () => Promise<void>;
-  addAssets: (files: File[]) => Promise<void>;
+  addAssets: (files: File[]) => Promise<AddAssetsResult>;
   applyPresetToGroup: (
     group: string,
     presetId: string,
@@ -100,6 +107,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   assets: [],
   presets,
   isLoading: true,
+  isImporting: false,
   selectedAssetIds: [],
   init: async () => {
     set({ isLoading: true });
@@ -152,50 +160,87 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     });
   },
   addAssets: async (files: File[]) => {
-    const { assets, project } = get();
-    const timestamp = new Date().toISOString();
-    const newAssets: Asset[] = [];
-
-    for (const file of files) {
-      const id = `${file.name}-${file.lastModified}-${Math.random().toString(16).slice(2)}`;
-      const group = `Group ${(newAssets.length % 4) + 1}`;
-      const { metadata, thumbnailBlob } = await prepareAssetPayload(file);
-      const objectUrl = URL.createObjectURL(file);
-      const thumbnailUrl = thumbnailBlob
-        ? URL.createObjectURL(thumbnailBlob)
-        : objectUrl;
-
-      const asset: Asset = {
-        id,
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        createdAt: timestamp,
-        objectUrl,
-        thumbnailUrl,
-        presetId: presets[0]?.id,
-        intensity: presets[0]?.intensity,
-        filmProfileId: presets[0]?.filmProfileId,
-        filmProfile: presets[0]?.filmProfile,
-        group,
-        blob: file,
-        thumbnailBlob,
-        metadata,
-        adjustments: createDefaultAdjustments(),
+    if (files.length === 0) {
+      return {
+        added: 0,
+        failed: 0,
+        addedAssetIds: [],
       };
-
-      const payload = toStoredAsset(asset);
-      if (payload) {
-        await saveAsset(payload);
-      }
-      newAssets.push(asset);
     }
+    set({ isImporting: true });
+    try {
+      const { assets, project } = get();
+      const timestamp = new Date().toISOString();
+      const newAssets: Asset[] = [];
+      let failedCount = 0;
 
-    const updatedProject = project
-      ? { ...project, updatedAt: timestamp }
-      : defaultProject();
-    await saveProject(updatedProject);
-    set({ project: updatedProject, assets: [...assets, ...newAssets] });
+      for (const file of files) {
+        try {
+          const id = `${file.name}-${file.lastModified}-${Math.random().toString(16).slice(2)}`;
+          const group = `Group ${((assets.length + newAssets.length) % 4) + 1}`;
+          const { metadata, thumbnailBlob } = await prepareAssetPayload(file);
+          const objectUrl = URL.createObjectURL(file);
+          const thumbnailUrl = thumbnailBlob
+            ? URL.createObjectURL(thumbnailBlob)
+            : objectUrl;
+
+          const asset: Asset = {
+            id,
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            createdAt: timestamp,
+            objectUrl,
+            thumbnailUrl,
+            presetId: presets[0]?.id,
+            intensity: presets[0]?.intensity,
+            filmProfileId: presets[0]?.filmProfileId,
+            filmProfile: presets[0]?.filmProfile,
+            group,
+            blob: file,
+            thumbnailBlob,
+            metadata,
+            adjustments: createDefaultAdjustments(),
+          };
+
+          const payload = toStoredAsset(asset);
+          if (payload) {
+            void saveAsset(payload).catch((error) => {
+              console.warn("Failed to persist imported asset", error);
+            });
+          }
+          newAssets.push(asset);
+        } catch (error) {
+          console.warn("Failed to import asset", file.name, error);
+          failedCount += 1;
+        }
+      }
+      if (newAssets.length === 0) {
+        return {
+          added: 0,
+          failed: failedCount || files.length,
+          addedAssetIds: [],
+        };
+      }
+
+      const updatedProject = project
+        ? { ...project, updatedAt: timestamp }
+        : defaultProject();
+      void saveProject(updatedProject).catch((error) => {
+        console.warn("Failed to persist project after import", error);
+      });
+      set({
+        project: updatedProject,
+        assets: [...assets, ...newAssets],
+      });
+      return {
+        added: newAssets.length,
+        failed: failedCount,
+        addedAssetIds: newAssets.map((asset) => asset.id),
+      };
+    } finally {
+      set({ isImporting: false });
+    }
   },
   applyPresetToGroup: (group, presetId, intensity) => {
     const selectedPreset = presets.find((preset) => preset.id === presetId);

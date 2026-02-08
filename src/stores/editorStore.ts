@@ -9,6 +9,40 @@ import { loadCustomPresets, saveCustomPresets } from "@/pages/editor/presetUtils
 import type { EditingAdjustments, HslColorKey, Preset } from "@/types";
 
 type PresetUpdater = Preset[] | ((current: Preset[]) => Preset[]);
+const OPEN_SECTIONS_STORAGE_KEY = "filmlab.editor.openSections";
+
+const loadOpenSections = (): Record<SectionId, boolean> => {
+  if (typeof window === "undefined") {
+    return { ...DEFAULT_OPEN_SECTIONS };
+  }
+  const raw = window.localStorage.getItem(OPEN_SECTIONS_STORAGE_KEY);
+  if (!raw) {
+    return { ...DEFAULT_OPEN_SECTIONS };
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") {
+      return { ...DEFAULT_OPEN_SECTIONS };
+    }
+    const merged = { ...DEFAULT_OPEN_SECTIONS };
+    (Object.keys(DEFAULT_OPEN_SECTIONS) as SectionId[]).forEach((id) => {
+      const value = (parsed as Record<string, unknown>)[id];
+      if (typeof value === "boolean") {
+        merged[id] = value;
+      }
+    });
+    return merged;
+  } catch {
+    return { ...DEFAULT_OPEN_SECTIONS };
+  }
+};
+
+const saveOpenSections = (sections: Record<SectionId, boolean>) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(OPEN_SECTIONS_STORAGE_KEY, JSON.stringify(sections));
+};
 
 interface EditorState {
   selectedAssetId: string | null;
@@ -40,7 +74,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   customPresets: loadCustomPresets(),
   activeHslColor: "red",
   curveChannel: "rgb",
-  openSections: { ...DEFAULT_OPEN_SECTIONS },
+  openSections: loadOpenSections(),
   previewHistogram: null,
   setSelectedAssetId: (selectedAssetId) => set({ selectedAssetId }),
   setShowOriginal: (showOriginal) => set({ showOriginal }),
@@ -57,11 +91,15 @@ export const useEditorStore = create<EditorState>((set) => ({
   setCurveChannel: (curveChannel) => set({ curveChannel }),
   toggleOriginal: () => set((state) => ({ showOriginal: !state.showOriginal })),
   toggleSection: (id) =>
-    set((state) => ({
-      openSections: {
+    set((state) => {
+      const nextSections = {
         ...state.openSections,
         [id]: !state.openSections[id],
-      },
-    })),
+      };
+      saveOpenSections(nextSections);
+      return {
+        openSections: nextSections,
+      };
+    }),
   setPreviewHistogram: (previewHistogram) => set({ previewHistogram }),
 }));
