@@ -1,5 +1,10 @@
 import { openDB, type DBSchema } from "idb";
-import type { AssetMetadata, EditingAdjustments } from "@/types";
+import type {
+  AssetMetadata,
+  EditingAdjustments,
+  FilmProfile,
+  FilmProfileOverrides,
+} from "@/types";
 
 interface FilmLabDB extends DBSchema {
   assets: {
@@ -13,10 +18,13 @@ interface FilmLabDB extends DBSchema {
       blob: Blob;
       presetId?: string;
       intensity?: number;
+      filmProfileId?: string;
+      filmOverrides?: FilmProfileOverrides;
       group?: string;
       thumbnailBlob?: Blob;
       metadata?: AssetMetadata;
       adjustments?: EditingAdjustments;
+      filmProfile?: FilmProfile;
     };
   };
   project: {
@@ -59,6 +67,8 @@ export async function saveAsset(asset: FilmLabDB["assets"]["value"]) {
   const db = await dbPromise;
   await db.put("assets", asset);
 }
+
+export type StoredAsset = FilmLabDB["assets"]["value"];
 
 export async function loadAssets() {
   const db = await dbPromise;

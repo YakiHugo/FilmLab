@@ -234,7 +234,9 @@ export function Library() {
                 </div>
                 {selectedCount > 0 ? (
                   <Button size="sm" className="mt-3 w-full" asChild>
-                    <Link to="/batch">进入批处理</Link>
+                    <Link to="/" search={{ step: "style" }}>
+                      进入批处理
+                    </Link>
                   </Button>
                 ) : (
                   <Button size="sm" className="mt-3 w-full" variant="secondary" disabled>
@@ -250,7 +252,7 @@ export function Library() {
           <div
             className={`flex min-h-[160px] flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed p-6 text-center transition animate-fade-up ${
               isDragging
-                ? "border-amber-200/50 bg-amber-300/10"
+                ? "border-sky-200/50 bg-sky-300/10"
                 : "border-white/10 bg-slate-950/40"
             }`}
             onDragOver={(event) => {
@@ -264,7 +266,7 @@ export function Library() {
               handleFiles(event.dataTransfer.files);
             }}
           >
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-amber-200">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-sky-200">
               <Upload className="h-6 w-6" />
             </div>
             <div>
@@ -286,7 +288,7 @@ export function Library() {
                   <Card
                     key={asset.id}
                     className={`overflow-hidden content-auto ${
-                      isSelected ? "ring-2 ring-amber-200/40" : ""
+                      isSelected ? "ring-2 ring-sky-200/40" : ""
                     }`}
                     style={{ animationDelay: `${index * 40}ms` }}
                   >
@@ -311,7 +313,7 @@ export function Library() {
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => toggleAssetSelection(asset.id)}
-                          className="h-3 w-3 accent-amber-300"
+                          className="h-3 w-3 accent-sky-300"
                           aria-label={`选择 ${asset.name}`}
                         />
                         选中
@@ -393,7 +395,9 @@ export function Library() {
               清空
             </Button>
             <Button size="sm" asChild>
-              <Link to="/batch">批处理</Link>
+              <Link to="/" search={{ step: "style" }}>
+                批处理
+              </Link>
             </Button>
           </div>
         </div>
@@ -401,3 +405,4 @@ export function Library() {
     </PageShell>
   );
 }
+

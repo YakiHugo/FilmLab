@@ -77,15 +77,19 @@ export function BatchStudio() {
   return (
     <PageShell
       title="批处理面板"
-      kicker="Batch Studio"
+      kicker="批处理工作区"
       description="移动端优先处理分组风格，一键应用到选中素材。"
       actions={
         <>
           <Button className="w-full sm:w-auto" variant="secondary" asChild>
-            <Link to="/library">返回素材库</Link>
+            <Link to="/" search={{ step: "library" }}>
+              返回素材库
+            </Link>
           </Button>
           <Button className="w-full sm:w-auto" variant="ghost" asChild>
-            <Link to="/export">查看导出</Link>
+            <Link to="/" search={{ step: "export" }}>
+              查看导出
+            </Link>
           </Button>
         </>
       }
@@ -118,7 +122,7 @@ export function BatchStudio() {
                 <Label className="text-xs text-slate-400">选择预设</Label>
                 <Select value={selectedPreset} onValueChange={setSelectedPreset}>
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="选择 preset" />
+                    <SelectValue placeholder="选择预设" />
                   </SelectTrigger>
                   <SelectContent>
                     {presets.map((preset) => (
@@ -157,7 +161,7 @@ export function BatchStudio() {
               </p>
               {recommendation && (
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                  <span>Top3：</span>
+                  <span>推荐前三：</span>
                   {recommendation.topPresets.map((preset) => (
                     <Badge
                       key={preset.id}
@@ -181,7 +185,9 @@ export function BatchStudio() {
                 <div className="space-y-2">
                   <p>尚未选择素材，请先在素材库中筛选并勾选。</p>
                   <Button size="sm" variant="secondary" asChild>
-                    <Link to="/library">返回素材库</Link>
+                    <Link to="/" search={{ step: "library" }}>
+                      返回素材库
+                    </Link>
                   </Button>
                 </div>
               ) : (
@@ -289,7 +295,7 @@ export function BatchStudio() {
                         <p className="font-medium text-slate-100 line-clamp-1">
                           {asset.name}
                         </p>
-                        <p>Preset：{asset.presetId ?? "未设置"}</p>
+                        <p>预设：{asset.presetId ?? "未设置"}</p>
                         <p>强度：{asset.intensity ?? 0}</p>
                       </div>
                     </div>
@@ -303,3 +309,4 @@ export function BatchStudio() {
     </PageShell>
   );
 }
+

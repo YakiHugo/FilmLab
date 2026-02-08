@@ -27,7 +27,7 @@ export function DesktopNav({ className }: DesktopNavProps) {
     >
       <div className="space-y-2">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-amber-300/30 bg-amber-300/10 text-amber-200">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-sky-300/30 bg-sky-300/10 text-sky-200">
             FL
           </div>
           <div>
@@ -58,7 +58,7 @@ export function DesktopNav({ className }: DesktopNavProps) {
               <span
                 className={cn(
                   "flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-200",
-                  isActive && "border-amber-200/30 bg-amber-300/15 text-amber-200"
+                  isActive && "border-sky-200/30 bg-sky-300/15 text-sky-200"
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -95,3 +95,4 @@ export function DesktopNav({ className }: DesktopNavProps) {
     </aside>
   );
 }
+

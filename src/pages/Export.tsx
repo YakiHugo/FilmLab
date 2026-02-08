@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useProjectStore } from "@/stores/projectStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageShell } from "@/components/layout/PageShell";
 import { resolveAdjustmentsWithPreset } from "@/lib/adjustments";
+import { resolveFilmProfile as resolveRuntimeFilmProfile } from "@/lib/film";
 import { renderImageToBlob } from "@/lib/imageProcessing";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
@@ -76,11 +77,21 @@ export function ExportPage() {
           asset.presetId,
           asset.intensity
         );
+        const filmProfile = resolveRuntimeFilmProfile({
+          adjustments,
+          presetId: asset.presetId,
+          filmProfileId: asset.filmProfileId,
+          filmProfile: asset.filmProfile,
+          intensity: asset.intensity,
+          overrides: asset.filmOverrides,
+        });
         const outputType = resolveOutputType(asset.type);
         const blob = await renderImageToBlob(asset.blob, adjustments, {
           type: outputType,
           quality: quality / 100,
           maxDimension: maxDimension > 0 ? maxDimension : undefined,
+          filmProfile,
+          seedKey: asset.id,
         });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
@@ -135,7 +146,7 @@ export function ExportPage() {
   return (
     <PageShell
       title="导出队列"
-      kicker="Delivery"
+      kicker="导出交付"
       description="导出将应用当前调色参数，并生成可下载文件。"
       actions={
         <Button
@@ -232,7 +243,7 @@ export function ExportPage() {
             </div>
             <div className="rounded-full border border-white/10 bg-slate-950/60">
               <div
-                className="h-2 rounded-full bg-amber-300 transition-all"
+                className="h-2 rounded-full bg-sky-300 transition-all"
                 style={{ width: `${progress}%` }}
               />
             </div>
@@ -264,7 +275,7 @@ export function ExportPage() {
                       ? "border-rose-300/30 bg-rose-300/10 text-rose-200"
                       : task.status === "处理中"
                         ? "border-sky-300/30 bg-sky-300/10 text-sky-200"
-                        : "border-amber-300/30 bg-amber-300/10 text-amber-200"
+                        : "border-sky-300/30 bg-sky-300/10 text-sky-200"
                 }
               >
                 {task.status}
@@ -276,3 +287,4 @@ export function ExportPage() {
     </PageShell>
   );
 }
+

@@ -1,27 +1,12 @@
+import type { EditingAdjustments } from "@/types";
+
 export type ToolGroupId = "filter" | "adjust" | "color" | "effects" | "detail" | "crop";
 
-export type NumericAdjustmentKey =
-  | "exposure"
-  | "contrast"
-  | "highlights"
-  | "shadows"
-  | "whites"
-  | "blacks"
-  | "temperature"
-  | "tint"
-  | "vibrance"
-  | "saturation"
-  | "clarity"
-  | "dehaze"
-  | "vignette"
-  | "grain"
-  | "sharpening"
-  | "noiseReduction"
-  | "colorNoiseReduction"
-  | "rotate"
-  | "horizontal"
-  | "vertical"
-  | "scale";
+type NumericKeyOf<T> = {
+  [K in keyof T]-?: T[K] extends number ? K : never;
+}[keyof T];
+
+export type NumericAdjustmentKey = NumericKeyOf<EditingAdjustments>;
 
 export interface ToolDefinition {
   id: NumericAdjustmentKey;
