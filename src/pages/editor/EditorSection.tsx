@@ -1,4 +1,4 @@
-import { memo, type ReactNode } from "react";
+import { memo, useId, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -17,12 +17,16 @@ export const EditorSection = memo(function EditorSection({
   onToggle,
   children,
 }: EditorSectionProps) {
+  const contentId = useId();
+
   return (
     <div className="rounded-2xl border border-white/10 bg-slate-950/60">
       <button
         type="button"
         className="flex w-full items-center justify-between gap-2 px-3 py-3 text-left"
         onClick={onToggle}
+        aria-expanded={isOpen}
+        aria-controls={contentId}
       >
         <div>
           <p className="text-sm font-medium text-slate-100">{title}</p>
@@ -35,7 +39,11 @@ export const EditorSection = memo(function EditorSection({
           )}
         />
       </button>
-      {isOpen && <div className="space-y-4 px-3 pb-4">{children}</div>}
+      {isOpen && (
+        <div id={contentId} className="space-y-4 px-3 pb-4">
+          {children}
+        </div>
+      )}
     </div>
   );
 });

@@ -46,7 +46,7 @@ export function EditorHistogram({ histogram }: { histogram: HistogramData | null
   if (!paths) {
     return (
       <div className="flex h-28 w-full items-center justify-center text-xs text-slate-500">
-        直方图生成中
+        暂无直方图
       </div>
     );
   }

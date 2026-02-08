@@ -36,10 +36,10 @@ export function AppHeader() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Badge className="border-white/10 bg-white/5 text-slate-200">
+          <Badge size="control" className="min-w-[88px] border-white/10 bg-white/5 text-slate-200">
             Assets {assets.length}
           </Badge>
-          <Badge className="border-white/10 bg-white/5 text-slate-200">
+          <Badge size="control" className="min-w-[96px] border-white/10 bg-white/5 text-slate-200">
             Selected {selectedAssetIds.length}
           </Badge>
           <UploadButton

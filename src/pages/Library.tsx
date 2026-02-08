@@ -2,7 +2,7 @@
 import { Link } from "@tanstack/react-router";
 import { Upload, Wand2 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
-import { useProjectStore } from "@/stores/projectStore";
+import { useProjectStore, type AddAssetsResult } from "@/stores/projectStore";
 import { UploadButton } from "@/components/UploadButton";
 import { PageShell } from "@/components/layout/PageShell";
 import { Button } from "@/components/ui/button";
@@ -23,11 +23,25 @@ import {
   formatExposureSummary,
 } from "@/lib/assetMetadata";
 
+const SUPPORTED_IMPORT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const SUPPORTED_IMPORT_EXTENSIONS = /\.(jpe?g|png|webp)$/i;
+
+const isSupportedImportFile = (file: File) => {
+  if (SUPPORTED_IMPORT_TYPES.has(file.type)) {
+    return true;
+  }
+  if (file.type.startsWith("image/")) {
+    return true;
+  }
+  return SUPPORTED_IMPORT_EXTENSIONS.test(file.name);
+};
+
 export function Library() {
   const {
     assets,
     addAssets,
     isLoading,
+    isImporting,
     resetProject,
     selectedAssetIds,
     setSelectedAssetIds,
@@ -40,6 +54,7 @@ export function Library() {
       assets: state.assets,
       addAssets: state.addAssets,
       isLoading: state.isLoading,
+      isImporting: state.isImporting,
       resetProject: state.resetProject,
       selectedAssetIds: state.selectedAssetIds,
       setSelectedAssetIds: state.setSelectedAssetIds,
@@ -55,17 +70,35 @@ export function Library() {
   const [selectedGroup, setSelectedGroup] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(12);
+  const [importNotice, setImportNotice] = useState<string | null>(null);
+
+  const handleImportResult = useCallback((result: AddAssetsResult) => {
+    if (result.added > 0 && result.failed === 0) {
+      setImportNotice(`已导入 ${result.added} 张素材。`);
+      return;
+    }
+    if (result.added > 0 && result.failed > 0) {
+      setImportNotice(`已导入 ${result.added} 张，失败 ${result.failed} 张。`);
+      return;
+    }
+    setImportNotice("导入失败，请重试或更换文件。");
+  }, []);
 
   const handleFiles = useCallback(
     (files: FileList | null) => {
+      if (isImporting) {
+        setImportNotice("正在导入，请稍候。");
+        return;
+      }
       if (!files || files.length === 0) return;
-      const filtered = Array.from(files).filter((file) =>
-        ["image/jpeg", "image/png"].includes(file.type)
-      );
-      if (filtered.length === 0) return;
-      void addAssets(filtered);
+      const filtered = Array.from(files).filter((file) => isSupportedImportFile(file));
+      if (filtered.length === 0) {
+        setImportNotice("仅支持导入 JPG / PNG / WebP 图片。");
+        return;
+      }
+      void addAssets(filtered).then((result) => handleImportResult(result));
     },
-    [addAssets]
+    [addAssets, handleImportResult, isImporting]
   );
 
   const totalSize = useMemo(
@@ -110,6 +143,16 @@ export function Library() {
     }
   }, [page, pageCount]);
 
+  useEffect(() => {
+    if (!importNotice) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      setImportNotice(null);
+    }, 2800);
+    return () => window.clearTimeout(timer);
+  }, [importNotice]);
+
   const selectedAssets = useMemo(
     () => assets.filter((asset) => selectedSet.has(asset.id)),
     [assets, selectedSet]
@@ -120,7 +163,7 @@ export function Library() {
     {
       label: "素材总量",
       value: `${assets.length} 张`,
-      hint: isLoading ? "同步中" : "就绪",
+      hint: isLoading ? "同步中" : isImporting ? "导入中" : "就绪",
     },
     {
       label: "已选素材",
@@ -141,7 +184,11 @@ export function Library() {
       description="移动端优先浏览素材，拖拽导入并快速筛选。"
       actions={
         <>
-          <UploadButton className="w-full sm:w-auto" label="导入素材" />
+          <UploadButton
+            className="w-full sm:w-auto"
+            label="导入素材"
+            onImportResult={handleImportResult}
+          />
           <Button
             className="w-full sm:w-auto"
             variant="secondary"
@@ -270,10 +317,24 @@ export function Library() {
               <Upload className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm text-slate-200">拖拽 JPG/PNG 到此处导入</p>
-              <p className="text-xs text-slate-500">自动生成缩略图与元信息</p>
+              <p className="text-sm text-slate-200">拖拽 JPG/PNG/WebP 到此处导入</p>
+              <p className="text-xs text-slate-500">
+                {isImporting ? "正在导入与生成缩略图..." : "自动生成缩略图与元信息"}
+              </p>
             </div>
-            <UploadButton size="sm" variant="secondary" label="点此导入" />
+            <UploadButton
+              size="sm"
+              variant="secondary"
+              label="点此导入"
+              onImportResult={handleImportResult}
+            />
+            <p
+              className={`min-h-[16px] text-xs text-sky-200 ${importNotice ? "" : "opacity-0"}`}
+              role="status"
+              aria-live="polite"
+            >
+              {importNotice ?? "占位"}
+            </p>
           </div>
 
           {pageAssets.length === 0 ? (

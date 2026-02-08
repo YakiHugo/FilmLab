@@ -1,11 +1,13 @@
 import { memo } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useEditorStore } from "@/stores/editorStore";
 import { EditorHistogram } from "./EditorHistogram";
 import { useEditorState } from "./useEditorState";
 
 export const EditorSidebarHeader = memo(function EditorSidebarHeader() {
-  const { selectedAsset, presetLabel, filmProfileLabel } = useEditorState();
+  const { selectedAsset, presetLabel, filmProfileLabel, showOriginal, toggleOriginal } =
+    useEditorState();
   const histogram = useEditorStore((state) => state.previewHistogram);
 
   return (
@@ -21,11 +23,20 @@ export const EditorSidebarHeader = memo(function EditorSidebarHeader() {
       <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/70 p-3">
         <EditorHistogram histogram={histogram} />
       </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Badge variant="secondary">自动</Badge>
-        <Badge variant="secondary">胶片</Badge>
-        <Badge variant="secondary">原图</Badge>
-        <Badge variant="outline">亮度</Badge>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Badge size="control" variant={showOriginal ? "default" : "secondary"}>
+          {showOriginal ? "当前：原图" : "当前：调整后"}
+        </Badge>
+        <Badge size="control" variant="secondary">直方图：RGB</Badge>
+        <Button
+          size="sm"
+          variant={showOriginal ? "default" : "secondary"}
+          aria-pressed={showOriginal}
+          disabled={!selectedAsset}
+          onClick={toggleOriginal}
+        >
+          对比原图
+        </Button>
       </div>
       {selectedAsset && (
         <div className="mt-3 space-y-2 rounded-2xl border border-white/10 bg-slate-950/60 p-3 text-xs text-slate-300">
