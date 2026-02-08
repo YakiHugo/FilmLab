@@ -1,6 +1,17 @@
 import { presets as basePresets } from "@/data/presets";
 import { applyPresetAdjustments, createDefaultAdjustments } from "@/lib/adjustments";
-import type { EditingAdjustments, Preset, PresetAdjustmentKey, PresetAdjustments } from "@/types";
+import {
+  normalizeFilmProfile,
+  resolveFilmProfile as resolveRuntimeFilmProfile,
+} from "@/lib/film";
+import type {
+  EditingAdjustments,
+  FilmProfile,
+  FilmProfileOverrides,
+  Preset,
+  PresetAdjustmentKey,
+  PresetAdjustments,
+} from "@/types";
 
 export const CUSTOM_PRESETS_KEY = "filmlab.customPresets";
 
@@ -89,6 +100,29 @@ export const resolveAdjustments = (
   return applyPresetAdjustments(base, preset.adjustments, resolvedIntensity);
 };
 
+export const resolveFilmProfile = (
+  adjustments: EditingAdjustments | undefined,
+  presetId: string | undefined,
+  filmProfileId: string | undefined,
+  filmProfile: FilmProfile | undefined,
+  intensity: number | undefined,
+  presets: Preset[],
+  overrides?: FilmProfileOverrides
+): FilmProfile | null => {
+  if (!adjustments) {
+    return null;
+  }
+  return resolveRuntimeFilmProfile({
+    adjustments,
+    presetId,
+    filmProfileId,
+    filmProfile,
+    intensity,
+    presets,
+    overrides,
+  });
+};
+
 export const mergePresetsById = (current: Preset[], incoming: Preset[]) => {
   if (incoming.length === 0) {
     return current;
@@ -111,7 +145,7 @@ export const normalizeImportedPresets = (parsed: unknown): Preset[] => {
 
   const defaultTags = basePresets[0]?.tags ?? ([] as Preset["tags"]);
   const fallbackIntensity = basePresets[0]?.intensity ?? 100;
-  const fallbackDescription = basePresets[0]?.description ?? "导入预设";
+  const fallbackDescription = basePresets[0]?.description ?? "Imported preset";
   const timestamp = Date.now();
 
   return incoming
@@ -121,9 +155,20 @@ export const normalizeImportedPresets = (parsed: unknown): Preset[] => {
         ? preset.tags.filter((tag): tag is string => typeof tag === "string")
         : [];
 
+      const normalizedFilmProfile = (() => {
+        if (!preset.filmProfile || typeof preset.filmProfile !== "object") {
+          return undefined;
+        }
+        try {
+          return normalizeFilmProfile(preset.filmProfile as FilmProfile);
+        } catch {
+          return undefined;
+        }
+      })();
+
       return {
         id: (preset.id as string) || `imported-${timestamp}-${index}`,
-        name: (preset.name as string) || `导入预设 ${index + 1}`,
+        name: (preset.name as string) || `Imported preset ${index + 1}`,
         tags: (rawTags.length > 0
           ? rawTags
           : defaultTags) as Preset["tags"],
@@ -136,6 +181,11 @@ export const normalizeImportedPresets = (parsed: unknown): Preset[] => {
             ? preset.description
             : fallbackDescription,
         adjustments: (preset.adjustments as Preset["adjustments"]) ?? {},
+        filmProfileId:
+          typeof preset.filmProfileId === "string"
+            ? preset.filmProfileId
+            : undefined,
+        filmProfile: normalizedFilmProfile,
       };
     });
 };

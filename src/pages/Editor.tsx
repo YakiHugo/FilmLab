@@ -1,4 +1,4 @@
-import { useSearch } from "@tanstack/react-router";
+﻿import { useSearch } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
 import { Card, CardContent } from "@/components/ui/card";
 import { useProjectStore } from "@/stores/projectStore";
@@ -31,8 +31,7 @@ export function Editor() {
           <div className="flex flex-1 items-center justify-center p-6">
             <Card className="w-full max-w-lg animate-fade-up">
               <CardContent className="p-6 text-center text-sm text-slate-400">
-                还没有素材，请先在工作台导入照片。
-              </CardContent>
+                还没有素材，请先在工作台导入照片。</CardContent>
             </Card>
           </div>
         ) : (
@@ -42,6 +41,7 @@ export function Editor() {
                 <EditorPreviewCard
                   selectedAsset={editor.selectedAsset}
                   adjustments={editor.previewAdjustments}
+                  filmProfile={editor.previewFilmProfile}
                   presetLabel={editor.presetLabel}
                   showOriginal={editor.showOriginal}
                   onToggleOriginal={editor.toggleOriginal}
@@ -62,24 +62,30 @@ export function Editor() {
               <EditorSidebarHeader
                 selectedAsset={editor.selectedAsset}
                 presetLabel={editor.presetLabel}
+                filmProfileLabel={editor.filmProfileLabel}
               />
 
               <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
                 <EditorPresetCard
                   selectedAsset={editor.selectedAsset}
                   customPresets={editor.customPresets}
+                  builtInFilmProfiles={editor.builtInFilmProfiles}
                   customPresetName={editor.customPresetName}
                   canSaveCustomPreset={Boolean(editor.previewAdjustments)}
                   onPresetNameChange={editor.setCustomPresetName}
                   onSelectPreset={editor.handleSelectPreset}
+                  onSelectFilmProfile={editor.handleSelectFilmProfile}
                   onSetIntensity={editor.handleSetIntensity}
                   onSaveCustomPreset={editor.handleSaveCustomPreset}
                   onExportPresets={editor.handleExportPresets}
                   onImportPresets={editor.handleImportPresets}
+                  onExportFilmProfile={editor.handleExportFilmProfile}
+                  onImportFilmProfile={editor.handleImportFilmProfile}
                 />
 
                 <EditorAdjustmentPanel
                   adjustments={editor.adjustments}
+                  filmProfile={editor.previewFilmProfile}
                   activeHslColor={editor.activeHslColor}
                   curveChannel={editor.curveChannel}
                   openSections={editor.openSections}
@@ -90,6 +96,11 @@ export function Editor() {
                   onUpdateAdjustmentValue={editor.updateAdjustmentValue}
                   onUpdateHslValue={editor.updateHslValue}
                   onToggleFlip={editor.toggleFlip}
+                  onSetFilmModuleAmount={editor.handleSetFilmModuleAmount}
+                  onToggleFilmModule={editor.handleToggleFilmModule}
+                  onSetFilmModuleParam={editor.handleSetFilmModuleParam}
+                  onSetFilmModuleRgbMix={editor.handleSetFilmModuleRgbMix}
+                  onResetFilmOverrides={editor.handleResetFilmOverrides}
                 />
               </div>
             </aside>

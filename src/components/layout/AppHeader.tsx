@@ -20,6 +20,7 @@ export function AppHeader() {
         <div className="flex items-center gap-3">
           <Link
             to="/"
+            search={{ step: "library" }}
             className="flex h-10 w-10 items-center justify-center rounded-2xl border border-sky-300/30 bg-sky-300/10 text-sky-200 shadow-glow"
           >
             <Film className="h-5 w-5" />
@@ -29,17 +30,17 @@ export function AppHeader() {
               FilmLab Workspace
             </p>
             <h1 className="font-display text-lg text-white">
-              {project?.name ?? "未命名项目"}
+              {project?.name ?? "Untitled Project"}
             </h1>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <Badge className="border-white/10 bg-white/5 text-slate-200">
-            素材 {assets.length}
+            Assets {assets.length}
           </Badge>
           <Badge className="border-white/10 bg-white/5 text-slate-200">
-            已选 {selectedAssetIds.length}
+            Selected {selectedAssetIds.length}
           </Badge>
           <UploadButton
             size="sm"

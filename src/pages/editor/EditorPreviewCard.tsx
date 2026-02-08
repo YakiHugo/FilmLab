@@ -1,4 +1,4 @@
-import {
+﻿import {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { ZoomIn, ZoomOut } from "lucide-react";
-import type { Asset, EditingAdjustments } from "@/types";
+import type { Asset, EditingAdjustments, FilmProfile } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
@@ -23,6 +23,7 @@ const ZOOM_STEP = 0.05;
 interface EditorPreviewCardProps {
   selectedAsset: Asset | null;
   adjustments: EditingAdjustments | null;
+  filmProfile: FilmProfile | null;
   presetLabel?: string;
   showOriginal: boolean;
   onToggleOriginal: () => void;
@@ -35,6 +36,7 @@ interface EditorPreviewCardProps {
 export function EditorPreviewCard({
   selectedAsset,
   adjustments,
+  filmProfile,
   presetLabel,
   showOriginal,
   onToggleOriginal,
@@ -187,15 +189,18 @@ export function EditorPreviewCard({
       canvas,
       source: selectedAsset.blob ?? selectedAsset.objectUrl,
       adjustments,
+      filmProfile: filmProfile ?? undefined,
       targetSize: {
         width: Math.round(frameSize.width * dpr),
         height: Math.round(frameSize.height * dpr),
       },
+      seedKey: selectedAsset.id,
       signal: controller.signal,
     }).catch(() => undefined);
     return () => controller.abort();
   }, [
     adjustments,
+    filmProfile,
     frameSize.height,
     frameSize.width,
     selectedAsset,
@@ -278,7 +283,7 @@ export function EditorPreviewCard({
             编辑预览
           </p>
           <p className="text-sm text-slate-300">
-            {selectedAsset ? selectedAsset.name : "请选择一张照片进行编辑。"}
+            {selectedAsset ? selectedAsset.name : "请选择一张照片开始编辑。"}
           </p>
           {selectedAsset && (
             <p className="text-xs text-slate-500">
@@ -368,8 +373,7 @@ export function EditorPreviewCard({
                   )
                 ) : (
                   <div className="flex h-full w-full items-center justify-center text-sm text-slate-500">
-                    请先选择一张照片。
-                  </div>
+                    请先选择一张照片。</div>
                 )}
               </div>
               {showOriginal && selectedAsset && (

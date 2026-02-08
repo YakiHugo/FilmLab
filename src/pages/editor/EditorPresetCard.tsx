@@ -1,38 +1,54 @@
-import { memo, useRef } from "react";
+﻿import { memo, useRef } from "react";
 import { presets as basePresets } from "@/data/presets";
-import type { Asset, Preset } from "@/types";
+import type { Asset, FilmProfile, Preset } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 
 interface EditorPresetCardProps {
   selectedAsset: Asset | null;
   customPresets: Preset[];
+  builtInFilmProfiles: FilmProfile[];
   customPresetName: string;
   canSaveCustomPreset: boolean;
   onPresetNameChange: (name: string) => void;
   onSelectPreset: (presetId: string) => void;
+  onSelectFilmProfile: (filmProfileId: string | undefined) => void;
   onSetIntensity: (value: number) => void;
   onSaveCustomPreset: () => void;
   onExportPresets: () => void;
   onImportPresets: (file: File | null) => Promise<void>;
+  onExportFilmProfile: () => void;
+  onImportFilmProfile: (file: File | null) => Promise<void>;
 }
 
 export const EditorPresetCard = memo(function EditorPresetCard({
   selectedAsset,
   customPresets,
+  builtInFilmProfiles,
   customPresetName,
   canSaveCustomPreset,
   onPresetNameChange,
   onSelectPreset,
+  onSelectFilmProfile,
   onSetIntensity,
   onSaveCustomPreset,
   onExportPresets,
   onImportPresets,
+  onExportFilmProfile,
+  onImportFilmProfile,
 }: EditorPresetCardProps) {
   const importRef = useRef<HTMLInputElement | null>(null);
+  const filmImportRef = useRef<HTMLInputElement | null>(null);
   const selectedPresetId = selectedAsset?.presetId;
   const fallbackPresetId = basePresets[0]?.id;
 
@@ -42,12 +58,41 @@ export const EditorPresetCard = memo(function EditorPresetCard({
     event.currentTarget.value = "";
   };
 
+  const handleImportFilmFile: React.ChangeEventHandler<HTMLInputElement> = (event) => {
+    const file = event.currentTarget.files?.[0] ?? null;
+    void onImportFilmProfile(file);
+    event.currentTarget.value = "";
+  };
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>预设系统</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label className="text-xs text-slate-400">胶片档案</Label>
+          <Select
+            value={selectedAsset?.filmProfileId ?? "__auto__"}
+            onValueChange={(value) =>
+              onSelectFilmProfile(value === "__auto__" ? undefined : value)
+            }
+            disabled={!selectedAsset}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="选择胶片档案" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__auto__">自动（跟随预设/运行时）</SelectItem>
+              {builtInFilmProfiles.map((profile) => (
+                <SelectItem key={profile.id} value={profile.id}>
+                  {profile.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="space-y-2">
           <p className="text-xs uppercase tracking-[0.24em] text-slate-500">内置预设</p>
           <div className="grid gap-2">
@@ -110,7 +155,7 @@ export const EditorPresetCard = memo(function EditorPresetCard({
           <Input
             value={customPresetName}
             onChange={(event) => onPresetNameChange(event.target.value)}
-            placeholder="输入预设名称"
+            placeholder="请输入预设名称"
           />
           <Button
             className="w-full"
@@ -145,7 +190,34 @@ export const EditorPresetCard = memo(function EditorPresetCard({
             onChange={handleImportFile}
           />
         </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={onExportFilmProfile}
+            disabled={!selectedAsset}
+          >
+            导出胶片档案
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => filmImportRef.current?.click()}
+            disabled={!selectedAsset}
+          >
+            导入胶片档案
+          </Button>
+          <input
+            ref={filmImportRef}
+            type="file"
+            accept="application/json"
+            className="hidden"
+            onChange={handleImportFilmFile}
+          />
+        </div>
       </CardContent>
     </Card>
   );
 });
+

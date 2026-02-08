@@ -2,6 +2,7 @@ import type { HslColorKey } from "@/types";
 import type { NumericAdjustmentKey } from "./types";
 
 export type SectionId =
+  | "film"
   | "basic"
   | "hsl"
   | "curve"
@@ -26,6 +27,7 @@ export interface SliderDefinition {
 const formatSigned = (value: number) => (value > 0 ? `+${value}` : `${value}`);
 
 export const DEFAULT_OPEN_SECTIONS: Record<SectionId, boolean> = {
+  film: true,
   basic: true,
   hsl: false,
   curve: false,

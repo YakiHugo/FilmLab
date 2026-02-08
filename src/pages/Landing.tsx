@@ -62,7 +62,9 @@ export function Landing() {
         <>
           <UploadButton className="w-full sm:w-auto" label="导入素材" />
           <Button className="w-full sm:w-auto" variant="secondary" asChild>
-            <Link to="/batch">进入批处理</Link>
+            <Link to="/" search={{ step: "style" }}>
+              进入批处理
+            </Link>
           </Button>
         </>
       }
@@ -118,7 +120,7 @@ export function Landing() {
               </p>
             </div>
             <Button variant="ghost" className="w-full justify-between" asChild>
-              <Link to="/library">
+              <Link to="/" search={{ step: "library" }}>
                 进入素材库准备导入
                 <span className="text-xs text-slate-400">→</span>
               </Link>

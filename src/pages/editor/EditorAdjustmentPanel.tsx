@@ -1,9 +1,15 @@
-import { memo } from "react";
+﻿import { memo } from "react";
 import { Link } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import type {
+  EditingAdjustments,
+  FilmModuleId,
+  FilmProfile,
+  HslColorKey,
+} from "@/types";
 import { ASPECT_RATIOS } from "./constants";
 import { EditorSection } from "./EditorSection";
 import { EditorSliderRow } from "./EditorSliderRow";
@@ -22,10 +28,67 @@ import {
   type SliderDefinition,
 } from "./editorPanelConfig";
 import type { NumericAdjustmentKey } from "./types";
-import type { EditingAdjustments, HslColorKey } from "@/types";
+
+interface FilmParamDefinition {
+  key: string;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+}
+
+const FILM_MODULE_LABELS: Record<FilmModuleId, string> = {
+  colorScience: "色彩科学",
+  tone: "影调",
+  scan: "冲扫",
+  grain: "颗粒",
+  defects: "瑕疵",
+};
+
+const FILM_PARAM_DEFINITIONS: Record<FilmModuleId, FilmParamDefinition[]> = {
+  colorScience: [
+    { key: "lutStrength", label: "LUT 强度", min: 0, max: 1, step: 0.01 },
+    { key: "temperatureShift", label: "色温偏移", min: -100, max: 100, step: 1 },
+    { key: "tintShift", label: "色调偏移", min: -100, max: 100, step: 1 },
+  ],
+  tone: [
+    { key: "exposure", label: "曝光", min: -100, max: 100, step: 1 },
+    { key: "contrast", label: "对比度", min: -100, max: 100, step: 1 },
+    { key: "highlights", label: "高光", min: -100, max: 100, step: 1 },
+    { key: "shadows", label: "阴影", min: -100, max: 100, step: 1 },
+    { key: "whites", label: "白场", min: -100, max: 100, step: 1 },
+    { key: "blacks", label: "黑场", min: -100, max: 100, step: 1 },
+    { key: "curveLights", label: "中高曲线", min: -100, max: 100, step: 1 },
+    { key: "curveDarks", label: "中低曲线", min: -100, max: 100, step: 1 },
+    { key: "curveHighlights", label: "高光曲线", min: -100, max: 100, step: 1 },
+    { key: "curveShadows", label: "阴影曲线", min: -100, max: 100, step: 1 },
+  ],
+  scan: [
+    { key: "halationThreshold", label: "光晕阈值", min: 0.5, max: 1, step: 0.01 },
+    { key: "halationAmount", label: "光晕强度", min: 0, max: 1, step: 0.01 },
+    { key: "bloomThreshold", label: "泛光阈值", min: 0.4, max: 1, step: 0.01 },
+    { key: "bloomAmount", label: "泛光强度", min: 0, max: 1, step: 0.01 },
+    { key: "vignetteAmount", label: "暗角", min: -1, max: 1, step: 0.01 },
+    { key: "scanWarmth", label: "冲扫暖色", min: -100, max: 100, step: 1 },
+  ],
+  grain: [
+    { key: "amount", label: "强度", min: 0, max: 1, step: 0.01 },
+    { key: "size", label: "大小", min: 0, max: 1, step: 0.01 },
+    { key: "roughness", label: "粗糙度", min: 0, max: 1, step: 0.01 },
+    { key: "color", label: "彩色噪点", min: 0, max: 1, step: 0.01 },
+    { key: "shadowBoost", label: "暗部增强", min: 0, max: 1, step: 0.01 },
+  ],
+  defects: [
+    { key: "leakProbability", label: "漏光概率", min: 0, max: 1, step: 0.01 },
+    { key: "leakStrength", label: "漏光强度", min: 0, max: 1, step: 0.01 },
+    { key: "dustAmount", label: "灰尘", min: 0, max: 1, step: 0.01 },
+    { key: "scratchAmount", label: "划痕", min: 0, max: 1, step: 0.01 },
+  ],
+};
 
 interface EditorAdjustmentPanelProps {
   adjustments: EditingAdjustments | null;
+  filmProfile: FilmProfile | null;
   activeHslColor: HslColorKey;
   curveChannel: CurveChannel;
   openSections: Record<SectionId, boolean>;
@@ -40,6 +103,15 @@ interface EditorAdjustmentPanelProps {
     value: number
   ) => void;
   onToggleFlip: (axis: "flipHorizontal" | "flipVertical") => void;
+  onSetFilmModuleAmount: (moduleId: FilmModuleId, value: number) => void;
+  onToggleFilmModule: (moduleId: FilmModuleId) => void;
+  onSetFilmModuleParam: (moduleId: FilmModuleId, key: string, value: number) => void;
+  onSetFilmModuleRgbMix: (
+    moduleId: FilmModuleId,
+    channel: 0 | 1 | 2,
+    value: number
+  ) => void;
+  onResetFilmOverrides: () => void;
 }
 
 const renderSliderRows = (
@@ -60,8 +132,16 @@ const renderSliderRows = (
     />
   ));
 
+const formatFilmValue = (value: number, step: number) => {
+  if (step < 1) {
+    return value.toFixed(2);
+  }
+  return `${Math.round(value)}`;
+};
+
 export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
   adjustments,
+  filmProfile,
   activeHslColor,
   curveChannel,
   openSections,
@@ -72,46 +152,164 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
   onUpdateAdjustmentValue,
   onUpdateHslValue,
   onToggleFlip,
+  onSetFilmModuleAmount,
+  onToggleFilmModule,
+  onSetFilmModuleParam,
+  onSetFilmModuleRgbMix,
+  onResetFilmOverrides,
 }: EditorAdjustmentPanelProps) {
   return (
     <>
       <Card>
         <CardHeader>
-          <CardTitle>操作体验</CardTitle>
+          <CardTitle>编辑说明</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-xs text-slate-300">
-          <p>实时预览：滑杆即刻生效。</p>
-          <p>原图/编辑对比：支持一键切换。</p>
-          <p>批量处理：回到工作台可同步参数。</p>
-          <p className="text-slate-500">双指缩放、Undo/Redo、历史记录规划中。</p>
+          <p>预览会实时更新。</p>
+          <p>胶片模块与基础调节参数解耦。</p>
+          <p>建议先调模块强度，再微调细节滑杆。</p>
         </CardContent>
       </Card>
 
       {!adjustments ? (
         <Card>
           <CardContent className="p-4 text-sm text-slate-400">
-            请选择一张照片以查看精修工具。
+            请先选择一张素材开始编辑。
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
           <EditorSection
-            title="基础调整"
-            hint="光线 / 曝光 / 颜色"
+            title="胶片模块"
+            hint="色彩科学 / 影调 / 冲扫 / 颗粒 / 瑕疵"
+            isOpen={openSections.film}
+            onToggle={() => onToggleSection("film")}
+          >
+            {!filmProfile ? (
+              <p className="text-xs text-slate-500">当前无可用胶片档案。</p>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex justify-end">
+                  <Button size="sm" variant="secondary" onClick={onResetFilmOverrides}>
+                    重置模块覆盖
+                  </Button>
+                </div>
+                {filmProfile.modules.map((module) => (
+                  <div
+                    key={module.id}
+                    className="rounded-2xl border border-white/10 bg-slate-950/60 p-3"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-medium text-slate-100">
+                          {FILM_MODULE_LABELS[module.id]}
+                        </p>
+                        <Badge className="border-white/10 bg-white/5 text-[10px] text-slate-300">
+                          {module.enabled ? "开启" : "关闭"}
+                        </Badge>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={module.enabled ? "default" : "secondary"}
+                        onClick={() => onToggleFilmModule(module.id)}
+                      >
+                        {module.enabled ? "关闭" : "启用"}
+                      </Button>
+                    </div>
+
+                    <EditorSliderRow
+                      label="模块强度"
+                      value={module.amount}
+                      min={0}
+                      max={100}
+                      step={1}
+                      onChange={(value) => onSetFilmModuleAmount(module.id, value)}
+                    />
+
+                    {FILM_PARAM_DEFINITIONS[module.id].map((param) => {
+                      const rawValue = (module.params as unknown as Record<string, unknown>)[
+                        param.key
+                      ];
+                      if (typeof rawValue !== "number") {
+                        return null;
+                      }
+                      return (
+                        <EditorSliderRow
+                          key={`${module.id}-${param.key}`}
+                          label={param.label}
+                          value={rawValue}
+                          min={param.min}
+                          max={param.max}
+                          step={param.step}
+                          format={(value) => formatFilmValue(value, param.step)}
+                          onChange={(value) =>
+                            onSetFilmModuleParam(module.id, param.key, value)
+                          }
+                        />
+                      );
+                    })}
+                    {module.id === "colorScience" &&
+                      Array.isArray(module.params.rgbMix) &&
+                      module.params.rgbMix.length === 3 && (
+                        <>
+                          <EditorSliderRow
+                            label="R 通道混合"
+                            value={module.params.rgbMix[0]}
+                            min={0.5}
+                            max={1.5}
+                            step={0.01}
+                            format={(value) => value.toFixed(2)}
+                            onChange={(value) =>
+                              onSetFilmModuleRgbMix(module.id, 0, value)
+                            }
+                          />
+                          <EditorSliderRow
+                            label="G 通道混合"
+                            value={module.params.rgbMix[1]}
+                            min={0.5}
+                            max={1.5}
+                            step={0.01}
+                            format={(value) => value.toFixed(2)}
+                            onChange={(value) =>
+                              onSetFilmModuleRgbMix(module.id, 1, value)
+                            }
+                          />
+                          <EditorSliderRow
+                            label="B 通道混合"
+                            value={module.params.rgbMix[2]}
+                            min={0.5}
+                            max={1.5}
+                            step={0.01}
+                            format={(value) => value.toFixed(2)}
+                            onChange={(value) =>
+                              onSetFilmModuleRgbMix(module.id, 2, value)
+                            }
+                          />
+                        </>
+                      )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </EditorSection>
+
+          <EditorSection
+            title="基础调节"
+            hint="光线与色彩"
             isOpen={openSections.basic}
             onToggle={() => onToggleSection("basic")}
           >
             <div className="space-y-3">
               <p className="text-xs uppercase tracking-[0.24em] text-slate-500">光线</p>
               {renderSliderRows(adjustments, BASIC_LIGHT_SLIDERS, onUpdateAdjustmentValue)}
-              <p className="mt-3 text-xs uppercase tracking-[0.24em] text-slate-500">颜色</p>
+              <p className="mt-3 text-xs uppercase tracking-[0.24em] text-slate-500">色彩</p>
               {renderSliderRows(adjustments, BASIC_COLOR_SLIDERS, onUpdateAdjustmentValue)}
             </div>
           </EditorSection>
 
           <EditorSection
-            title="HSL 颜色精细控制"
-            hint="Hue / Saturation / Luminance"
+            title="HSL"
+            hint="色相 / 饱和 / 明度"
             isOpen={openSections.hsl}
             onToggle={() => onToggleSection("hsl")}
           >
@@ -132,7 +330,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
               ))}
             </div>
             <EditorSliderRow
-              label="色相 (H)"
+              label="色相"
               value={adjustments.hsl[activeHslColor].hue}
               min={-100}
               max={100}
@@ -140,7 +338,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
               onChange={(value) => onUpdateHslValue(activeHslColor, "hue", value)}
             />
             <EditorSliderRow
-              label="饱和度 (S)"
+              label="饱和"
               value={adjustments.hsl[activeHslColor].saturation}
               min={-100}
               max={100}
@@ -148,21 +346,18 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
               onChange={(value) => onUpdateHslValue(activeHslColor, "saturation", value)}
             />
             <EditorSliderRow
-              label="明亮度 (L)"
+              label="明度"
               value={adjustments.hsl[activeHslColor].luminance}
               min={-100}
               max={100}
               format={(value) => (value > 0 ? `+${value}` : `${value}`)}
               onChange={(value) => onUpdateHslValue(activeHslColor, "luminance", value)}
             />
-            <p className="text-[11px] text-slate-500">
-              已覆盖红/橙/黄/绿/青/蓝/紫/洋红（渲染适配中）。
-            </p>
           </EditorSection>
 
           <EditorSection
             title="曲线"
-            hint="RGB 总曲线 / 单通道"
+            hint="RGB 总曲线"
             isOpen={openSections.curve}
             onToggle={() => onToggleSection("curve")}
           >
@@ -180,12 +375,11 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
               ))}
             </div>
             {renderSliderRows(adjustments, CURVE_SLIDERS, onUpdateAdjustmentValue)}
-            <p className="text-[11px] text-slate-500">点曲线与单通道曲线编辑规划中。</p>
           </EditorSection>
 
           <EditorSection
-            title="清晰度与质感"
-            hint="Clarity / Texture / Dehaze"
+            title="效果"
+            hint="清晰度 / 纹理 / 去雾"
             isOpen={openSections.effects}
             onToggle={() => onToggleSection("effects")}
           >
@@ -193,17 +387,16 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
           </EditorSection>
 
           <EditorSection
-            title="细节与降噪"
+            title="细节"
             hint="锐化 / 降噪"
             isOpen={openSections.detail}
             onToggle={() => onToggleSection("detail")}
           >
             {renderSliderRows(adjustments, DETAIL_SLIDERS, onUpdateAdjustmentValue)}
-            <p className="text-[11px] text-slate-500">细节算法将逐步接入渲染管线。</p>
           </EditorSection>
 
           <EditorSection
-            title="裁切与构图"
+            title="裁切"
             hint="比例 / 旋转 / 翻转"
             isOpen={openSections.crop}
             onToggle={() => onToggleSection("crop")}
@@ -240,19 +433,19 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
           </EditorSection>
 
           <EditorSection
-            title="局部调整"
+            title="局部"
             hint="渐变 / 径向 / 画笔"
             isOpen={openSections.local}
             onToggle={() => onToggleSection("local")}
           >
             <div className="rounded-2xl border border-white/10 bg-slate-950/80 p-3 text-xs text-slate-300">
-              渐变滤镜、径向滤镜、画笔、局部曝光/对比/色温（规划中）。
+              局部蒙版将在后续版本上线。
             </div>
           </EditorSection>
 
           <EditorSection
-            title="AI / 智能功能"
-            hint="Web 端亮点"
+            title="AI"
+            hint="智能增强"
             isOpen={openSections.ai}
             onToggle={() => onToggleSection("ai")}
           >
@@ -263,21 +456,19 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
                 </Badge>
               ))}
             </div>
-            <p className="text-[11px] text-slate-500">AI 功能作为 Web 端优势，逐步开放。</p>
           </EditorSection>
 
           <EditorSection
-            title="导出与格式"
+            title="导出"
             hint="尺寸 / 质量 / 色彩"
             isOpen={openSections.export}
             onToggle={() => onToggleSection("export")}
           >
             <div className="space-y-2 text-xs text-slate-300">
-              <p>导出尺寸：原图 / 指定长边。</p>
-              <p>导出质量：JPEG 质量可调。</p>
-              <p>格式：PNG / JPEG / WebP。</p>
+              <p>输出尺寸：原图或指定长边。</p>
+              <p>输出质量：可调 JPEG 质量。</p>
+              <p>格式：PNG / JPEG / WebP（规划中）。</p>
               <p>色彩空间：默认 sRGB。</p>
-              <p>EXIF：可保留或移除。</p>
             </div>
             <Button size="sm" variant="secondary" asChild>
               <Link to="/" search={{ step: "export" }}>
@@ -290,3 +481,4 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
     </>
   );
 });
+

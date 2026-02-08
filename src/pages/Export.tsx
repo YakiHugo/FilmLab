@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageShell } from "@/components/layout/PageShell";
 import { resolveAdjustmentsWithPreset } from "@/lib/adjustments";
+import { resolveFilmProfile as resolveRuntimeFilmProfile } from "@/lib/film";
 import { renderImageToBlob } from "@/lib/imageProcessing";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
@@ -76,11 +77,21 @@ export function ExportPage() {
           asset.presetId,
           asset.intensity
         );
+        const filmProfile = resolveRuntimeFilmProfile({
+          adjustments,
+          presetId: asset.presetId,
+          filmProfileId: asset.filmProfileId,
+          filmProfile: asset.filmProfile,
+          intensity: asset.intensity,
+          overrides: asset.filmOverrides,
+        });
         const outputType = resolveOutputType(asset.type);
         const blob = await renderImageToBlob(asset.blob, adjustments, {
           type: outputType,
           quality: quality / 100,
           maxDimension: maxDimension > 0 ? maxDimension : undefined,
+          filmProfile,
+          seedKey: asset.id,
         });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
@@ -135,7 +146,7 @@ export function ExportPage() {
   return (
     <PageShell
       title="导出队列"
-      kicker="Delivery"
+      kicker="导出交付"
       description="导出将应用当前调色参数，并生成可下载文件。"
       actions={
         <Button

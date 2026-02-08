@@ -1,4 +1,10 @@
-import type { EditingAdjustments } from "@/types";
+import {
+  applyFilmPipeline,
+  createFilmProfileFromAdjustments,
+  ensureFilmProfile,
+  renderFilmProfileWebGL2,
+} from "@/lib/film";
+import type { EditingAdjustments, FilmProfile } from "@/types";
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
@@ -17,31 +23,6 @@ const parseAspectRatio = (
   return w / h;
 };
 
-export const buildPreviewFilter = (adjustments: EditingAdjustments) => {
-  const exposure = clamp(
-    1 +
-      adjustments.exposure / 100 +
-      (adjustments.highlights + adjustments.whites) / 300 -
-      (adjustments.shadows + adjustments.blacks) / 300,
-    0.2,
-    2.5
-  );
-  const contrast = clamp(
-    1 + adjustments.contrast / 100 + adjustments.clarity / 200 + adjustments.dehaze / 250,
-    0,
-    2.5
-  );
-  const saturation = clamp(
-    1 + (adjustments.saturation + adjustments.vibrance * 0.6) / 100,
-    0,
-    3
-  );
-  const hue = adjustments.temperature * 0.6 + adjustments.tint * 0.4;
-  const sepia = clamp(Math.max(0, adjustments.temperature) / 200, 0, 0.35);
-  const blur = adjustments.texture < 0 ? clamp(-adjustments.texture / 50, 0, 2) : 0;
-  return `brightness(${exposure}) contrast(${contrast}) saturate(${saturation}) hue-rotate(${hue}deg) sepia(${sepia}) blur(${blur}px)`;
-};
-
 const resolveTransform = (adjustments: EditingAdjustments, width: number, height: number) => {
   const scale = clamp(adjustments.scale / 100, 0.7, 1.3);
   const translateX = clamp(adjustments.horizontal / 5, -20, 20);
@@ -56,80 +37,6 @@ const resolveTransform = (adjustments: EditingAdjustments, width: number, height
     flipHorizontal,
     flipVertical,
   };
-};
-
-const applyVignette = (
-  context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  adjustments: EditingAdjustments
-) => {
-  const strength = adjustments.vignette / 100;
-  const opacity = clamp(Math.abs(strength) * 0.65, 0, 0.65);
-  if (opacity === 0) {
-    return;
-  }
-  const color = strength >= 0 ? "0,0,0" : "255,255,255";
-  const gradient = context.createRadialGradient(
-    width / 2,
-    height / 2,
-    Math.min(width, height) * 0.2,
-    width / 2,
-    height / 2,
-    Math.max(width, height) * 0.75
-  );
-  gradient.addColorStop(0, `rgba(${color},0)`);
-  gradient.addColorStop(0.45, `rgba(${color},0)`);
-  gradient.addColorStop(1, `rgba(${color},${opacity})`);
-  context.save();
-  context.globalCompositeOperation = strength >= 0 ? "multiply" : "screen";
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, width, height);
-  context.restore();
-};
-
-const applyGrain = (
-  context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  adjustments: EditingAdjustments
-) => {
-  const intensity = clamp(adjustments.grain / 100, 0, 1);
-  const roughness = clamp(adjustments.grainRoughness / 100, 0, 1);
-  const opacity = intensity * (0.2 + roughness * 0.25);
-  if (opacity <= 0) {
-    return;
-  }
-  const size = Math.round(
-    clamp(120 - adjustments.grainSize + roughness * 20, 20, 140)
-  );
-  const grainCanvas = document.createElement("canvas");
-  grainCanvas.width = size;
-  grainCanvas.height = size;
-  const grainContext = grainCanvas.getContext("2d");
-  if (!grainContext) {
-    return;
-  }
-  const imageData = grainContext.createImageData(size, size);
-  const data = imageData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    const value = Math.floor(Math.random() * 255);
-    data[i] = value;
-    data[i + 1] = value;
-    data[i + 2] = value;
-    data[i + 3] = 255;
-  }
-  grainContext.putImageData(imageData, 0, 0);
-  const pattern = context.createPattern(grainCanvas, "repeat");
-  if (!pattern) {
-    return;
-  }
-  context.save();
-  context.globalAlpha = opacity;
-  context.globalCompositeOperation = "soft-light";
-  context.fillStyle = pattern;
-  context.fillRect(0, 0, width, height);
-  context.restore();
 };
 
 interface LoadedImageSource {
@@ -198,17 +105,37 @@ interface RenderImageOptions {
   canvas: HTMLCanvasElement;
   source: Blob | string;
   adjustments: EditingAdjustments;
+  filmProfile?: FilmProfile;
+  preferWebGL2?: boolean;
   targetSize?: RenderTargetSize;
   maxDimension?: number;
+  seedKey?: string;
+  renderSeed?: number;
+  exportSeed?: number;
   signal?: AbortSignal;
 }
+
+const resolveProfile = (
+  adjustments: EditingAdjustments,
+  providedProfile?: FilmProfile
+) => {
+  if (providedProfile) {
+    return ensureFilmProfile(providedProfile);
+  }
+  return createFilmProfileFromAdjustments(adjustments);
+};
 
 export const renderImageToCanvas = async ({
   canvas,
   source,
   adjustments,
+  filmProfile,
+  preferWebGL2 = true,
   targetSize,
   maxDimension,
+  seedKey,
+  renderSeed,
+  exportSeed,
   signal,
 }: RenderImageOptions) => {
   const loaded = await loadImageSource(source, signal);
@@ -247,7 +174,9 @@ export const renderImageToCanvas = async ({
 
   canvas.width = Math.max(1, Math.round(outputWidth));
   canvas.height = Math.max(1, Math.round(outputHeight));
-  const context = canvas.getContext("2d");
+  const context = canvas.getContext("2d", {
+    willReadFrequently: true,
+  });
   if (!context) {
     loaded.cleanup?.();
     return;
@@ -255,7 +184,6 @@ export const renderImageToCanvas = async ({
 
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.imageSmoothingQuality = "high";
-  context.filter = buildPreviewFilter(adjustments);
 
   const transform = resolveTransform(adjustments, canvas.width, canvas.height);
   context.save();
@@ -277,10 +205,28 @@ export const renderImageToCanvas = async ({
     canvas.height
   );
   context.restore();
-  context.filter = "none";
 
-  applyVignette(context, canvas.width, canvas.height, adjustments);
-  applyGrain(context, canvas.width, canvas.height, adjustments);
+  const resolvedProfile = resolveProfile(adjustments, filmProfile);
+  const renderedByWebGL =
+    preferWebGL2 &&
+    renderFilmProfileWebGL2(canvas, resolvedProfile, {
+      seedKey,
+      renderSeed: renderSeed ?? Date.now(),
+      exportSeed,
+    });
+
+  if (renderedByWebGL) {
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(renderedByWebGL, 0, 0, canvas.width, canvas.height);
+  } else {
+    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+    applyFilmPipeline(imageData, resolvedProfile, {
+      seedKey,
+      renderSeed: renderSeed ?? Date.now(),
+      exportSeed,
+    });
+    context.putImageData(imageData, 0, 0);
+  }
 
   loaded.cleanup?.();
 };
@@ -289,6 +235,10 @@ interface RenderBlobOptions {
   type?: string;
   quality?: number;
   maxDimension?: number;
+  filmProfile?: FilmProfile;
+  preferWebGL2?: boolean;
+  seedKey?: string;
+  exportSeed?: number;
 }
 
 export const renderImageToBlob = async (
@@ -301,7 +251,11 @@ export const renderImageToBlob = async (
     canvas,
     source,
     adjustments,
+    filmProfile: options?.filmProfile,
+    preferWebGL2: options?.preferWebGL2,
     maxDimension: options?.maxDimension,
+    seedKey: options?.seedKey,
+    exportSeed: options?.exportSeed ?? Date.now(),
   });
   const outputType = options?.type ?? "image/jpeg";
   const quality = options?.quality ?? 0.92;

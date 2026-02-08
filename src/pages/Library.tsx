@@ -234,7 +234,9 @@ export function Library() {
                 </div>
                 {selectedCount > 0 ? (
                   <Button size="sm" className="mt-3 w-full" asChild>
-                    <Link to="/batch">进入批处理</Link>
+                    <Link to="/" search={{ step: "style" }}>
+                      进入批处理
+                    </Link>
                   </Button>
                 ) : (
                   <Button size="sm" className="mt-3 w-full" variant="secondary" disabled>
@@ -393,7 +395,9 @@ export function Library() {
               清空
             </Button>
             <Button size="sm" asChild>
-              <Link to="/batch">批处理</Link>
+              <Link to="/" search={{ step: "style" }}>
+                批处理
+              </Link>
             </Button>
           </div>
         </div>

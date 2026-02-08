@@ -1,15 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { presets as basePresets } from "@/data/presets";
 import { createDefaultAdjustments } from "@/lib/adjustments";
-import type { Asset, EditingAdjustments, HslColorKey, Preset } from "@/types";
+import { listBuiltInFilmProfiles, normalizeFilmProfile } from "@/lib/film";
+import type {
+  Asset,
+  EditingAdjustments,
+  FilmModuleId,
+  HslColorKey,
+  Preset,
+} from "@/types";
 import { cloneAdjustments } from "./utils";
-import { DEFAULT_OPEN_SECTIONS, type CurveChannel, type SectionId } from "./editorPanelConfig";
+import {
+  DEFAULT_OPEN_SECTIONS,
+  type CurveChannel,
+  type SectionId,
+} from "./editorPanelConfig";
 import {
   buildCustomAdjustments,
   loadCustomPresets,
   mergePresetsById,
   normalizeImportedPresets,
   resolveAdjustments,
+  resolveFilmProfile,
   saveCustomPresets,
 } from "./presetUtils";
 import type { NumericAdjustmentKey } from "./types";
@@ -66,6 +78,7 @@ export function useEditorState({ assets, assetId, updateAsset }: UseEditorStateP
   }, [selectedAsset]);
 
   const allPresets = useMemo(() => [...basePresets, ...customPresets], [customPresets]);
+  const builtInFilmProfiles = useMemo(() => listBuiltInFilmProfiles(), []);
 
   const previewAdjustments = useMemo(() => {
     if (!selectedAsset || !adjustments) {
@@ -79,15 +92,40 @@ export function useEditorState({ assets, assetId, updateAsset }: UseEditorStateP
     );
   }, [adjustments, allPresets, selectedAsset]);
 
+  const previewFilmProfile = useMemo(() => {
+    if (!selectedAsset || !previewAdjustments) {
+      return null;
+    }
+    return resolveFilmProfile(
+      previewAdjustments,
+      selectedAsset.presetId,
+      selectedAsset.filmProfileId,
+      selectedAsset.filmProfile,
+      selectedAsset.intensity,
+      allPresets,
+      selectedAsset.filmOverrides
+    );
+  }, [allPresets, previewAdjustments, selectedAsset]);
+
   const presetLabel = useMemo(() => {
     if (!selectedAsset?.presetId) {
-      return "未设置";
+      return "Unassigned";
     }
     return (
       allPresets.find((preset) => preset.id === selectedAsset.presetId)?.name ??
-      "未设置"
+      "Unassigned"
     );
   }, [allPresets, selectedAsset?.presetId]);
+
+  const filmProfileLabel = useMemo(() => {
+    if (previewFilmProfile) {
+      return previewFilmProfile.name;
+    }
+    if (selectedAsset?.filmProfileId) {
+      return selectedAsset.filmProfileId;
+    }
+    return "Auto";
+  }, [previewFilmProfile, selectedAsset?.filmProfileId]);
 
   const updateAdjustments = useCallback(
     (partial: Partial<EditingAdjustments>) => {
@@ -102,6 +140,24 @@ export function useEditorState({ assets, assetId, updateAsset }: UseEditorStateP
       });
     },
     [adjustments, selectedAsset, updateAsset]
+  );
+
+  const updateFilmOverrides = useCallback(
+    (
+      updater: (
+        prev: NonNullable<Asset["filmOverrides"]>
+      ) => NonNullable<Asset["filmOverrides"]>
+    ) => {
+      if (!selectedAsset) {
+        return;
+      }
+      const current = selectedAsset.filmOverrides ?? {};
+      const next = updater(current);
+      updateAsset(selectedAsset.id, {
+        filmOverrides: next,
+      });
+    },
+    [selectedAsset, updateAsset]
   );
 
   const updateAdjustmentValue = useCallback(
@@ -143,11 +199,101 @@ export function useEditorState({ assets, assetId, updateAsset }: UseEditorStateP
     [adjustments, updateAdjustments]
   );
 
+  const handleSetFilmModuleAmount = useCallback(
+    (moduleId: FilmModuleId, value: number) => {
+      updateFilmOverrides((prev) => ({
+        ...prev,
+        [moduleId]: {
+          ...(prev[moduleId] ?? {}),
+          amount: value,
+        },
+      }));
+    },
+    [updateFilmOverrides]
+  );
+
+  const handleToggleFilmModule = useCallback(
+    (moduleId: FilmModuleId) => {
+      if (!previewFilmProfile) {
+        return;
+      }
+      const current = previewFilmProfile.modules.find((module) => module.id === moduleId);
+      if (!current) {
+        return;
+      }
+      updateFilmOverrides((prev) => ({
+        ...prev,
+        [moduleId]: {
+          ...(prev[moduleId] ?? {}),
+          enabled: !current.enabled,
+        },
+      }));
+    },
+    [previewFilmProfile, updateFilmOverrides]
+  );
+
+  const handleSetFilmModuleParam = useCallback(
+    (moduleId: FilmModuleId, key: string, value: number) => {
+      updateFilmOverrides((prev) => ({
+        ...prev,
+        [moduleId]: {
+          ...(prev[moduleId] ?? {}),
+          params: {
+            ...((prev[moduleId]?.params as Record<string, number>) ?? {}),
+            [key]: value,
+          },
+        },
+      }));
+    },
+    [updateFilmOverrides]
+  );
+
+  const handleSetFilmModuleRgbMix = useCallback(
+    (moduleId: FilmModuleId, channel: 0 | 1 | 2, value: number) => {
+      if (!previewFilmProfile || moduleId !== "colorScience") {
+        return;
+      }
+      const module = previewFilmProfile.modules.find((item) => item.id === moduleId);
+      if (!module || module.id !== "colorScience") {
+        return;
+      }
+      const nextMix: [number, number, number] = [...module.params.rgbMix] as [
+        number,
+        number,
+        number,
+      ];
+      nextMix[channel] = value;
+      updateFilmOverrides((prev) => ({
+        ...prev,
+        [moduleId]: {
+          ...(prev[moduleId] ?? {}),
+          params: {
+            ...((prev[moduleId]?.params as Record<string, unknown>) ?? {}),
+            rgbMix: nextMix,
+          },
+        },
+      }));
+    },
+    [previewFilmProfile, updateFilmOverrides]
+  );
+
+  const handleResetFilmOverrides = useCallback(() => {
+    if (!selectedAsset) {
+      return;
+    }
+    updateAsset(selectedAsset.id, {
+      filmOverrides: undefined,
+    });
+  }, [selectedAsset, updateAsset]);
+
   const handleResetAll = useCallback(() => {
     if (!selectedAsset) {
       return;
     }
-    updateAsset(selectedAsset.id, { adjustments: createDefaultAdjustments() });
+    updateAsset(selectedAsset.id, {
+      adjustments: createDefaultAdjustments(),
+      filmOverrides: undefined,
+    });
   }, [selectedAsset, updateAsset]);
 
   const handleCopy = useCallback(() => {
@@ -169,9 +315,15 @@ export function useEditorState({ assets, assetId, updateAsset }: UseEditorStateP
       if (!selectedAsset) {
         return;
       }
-      updateAsset(selectedAsset.id, { presetId });
+      const preset = allPresets.find((item) => item.id === presetId);
+      updateAsset(selectedAsset.id, {
+        presetId,
+        filmProfileId: preset?.filmProfileId,
+        filmProfile: preset?.filmProfile,
+        filmOverrides: undefined,
+      });
     },
-    [selectedAsset, updateAsset]
+    [allPresets, selectedAsset, updateAsset]
   );
 
   const handleSetIntensity = useCallback(
@@ -180,6 +332,19 @@ export function useEditorState({ assets, assetId, updateAsset }: UseEditorStateP
         return;
       }
       updateAsset(selectedAsset.id, { intensity: value });
+    },
+    [selectedAsset, updateAsset]
+  );
+
+  const handleSelectFilmProfile = useCallback(
+    (filmProfileId: string | undefined) => {
+      if (!selectedAsset) {
+        return;
+      }
+      updateAsset(selectedAsset.id, {
+        filmProfileId,
+        filmProfile: undefined,
+      });
     },
     [selectedAsset, updateAsset]
   );
@@ -197,15 +362,28 @@ export function useEditorState({ assets, assetId, updateAsset }: UseEditorStateP
       name,
       tags: (basePresets[0]?.tags ?? []) as Preset["tags"],
       intensity: 100,
-      description: "自定义风格",
+      description: "Custom film profile",
       adjustments: buildCustomAdjustments(previewAdjustments),
+      filmProfile: previewFilmProfile ?? undefined,
     };
     setCustomPresets((prev) => [custom, ...prev]);
     setCustomPresetName("");
     if (selectedAsset) {
-      updateAsset(selectedAsset.id, { presetId: custom.id, intensity: 100 });
+      updateAsset(selectedAsset.id, {
+        presetId: custom.id,
+        intensity: 100,
+        filmProfile: custom.filmProfile,
+        filmProfileId: undefined,
+        filmOverrides: undefined,
+      });
     }
-  }, [customPresetName, previewAdjustments, selectedAsset, updateAsset]);
+  }, [
+    customPresetName,
+    previewAdjustments,
+    previewFilmProfile,
+    selectedAsset,
+    updateAsset,
+  ]);
 
   const handleExportPresets = useCallback(() => {
     if (customPresets.length === 0) {
@@ -221,6 +399,45 @@ export function useEditorState({ assets, assetId, updateAsset }: UseEditorStateP
     link.click();
     URL.revokeObjectURL(url);
   }, [customPresets]);
+
+  const handleExportFilmProfile = useCallback(() => {
+    if (!previewFilmProfile) {
+      return;
+    }
+    const blob = new Blob([JSON.stringify(previewFilmProfile, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${previewFilmProfile.id || "film-profile"}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [previewFilmProfile]);
+
+  const handleImportFilmProfile = useCallback(
+    async (file: File | null) => {
+      if (!file || !selectedAsset) {
+        return;
+      }
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text) as unknown;
+        if (!parsed || typeof parsed !== "object") {
+          return;
+        }
+        const normalized = normalizeFilmProfile(parsed as NonNullable<Asset["filmProfile"]>);
+        updateAsset(selectedAsset.id, {
+          filmProfile: normalized,
+          filmProfileId: undefined,
+          filmOverrides: undefined,
+        });
+      } catch {
+        return;
+      }
+    },
+    [selectedAsset, updateAsset]
+  );
 
   const handleImportPresets = useCallback(async (file: File | null) => {
     if (!file) {
@@ -254,11 +471,14 @@ export function useEditorState({ assets, assetId, updateAsset }: UseEditorStateP
     selectedAsset,
     adjustments,
     previewAdjustments,
+    previewFilmProfile,
     presetLabel,
+    filmProfileLabel,
     showOriginal,
     copiedAdjustments,
     customPresetName,
     customPresets,
+    builtInFilmProfiles,
     activeHslColor,
     curveChannel,
     openSections,
@@ -272,13 +492,21 @@ export function useEditorState({ assets, assetId, updateAsset }: UseEditorStateP
     updateHslValue,
     toggleFlip,
     toggleSection,
+    handleSetFilmModuleAmount,
+    handleToggleFilmModule,
+    handleSetFilmModuleParam,
+    handleSetFilmModuleRgbMix,
+    handleResetFilmOverrides,
     handleResetAll,
     handleCopy,
     handlePaste,
     handleSelectPreset,
     handleSetIntensity,
+    handleSelectFilmProfile,
     handleSaveCustomPreset,
     handleExportPresets,
     handleImportPresets,
+    handleExportFilmProfile,
+    handleImportFilmProfile,
   };
 }

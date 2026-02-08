@@ -1,4 +1,4 @@
-export type PresetTag = "人像" | "风景" | "夜景" | "黑白";
+export type PresetTag = "portrait" | "landscape" | "night" | "bw";
 
 export type PresetAdjustmentKey =
   | "exposure"
@@ -25,7 +25,104 @@ export interface Preset {
   intensity: number;
   description: string;
   adjustments: PresetAdjustments;
+  filmProfileId?: string;
+  filmProfile?: FilmProfile;
 }
+
+export type FilmModuleId =
+  | "colorScience"
+  | "tone"
+  | "grain"
+  | "defects"
+  | "scan";
+
+export type FilmSeedMode = "perAsset" | "perRender" | "perExport" | "locked";
+
+export interface ColorScienceParams {
+  lutStrength: number;
+  rgbMix: [number, number, number];
+  temperatureShift: number;
+  tintShift: number;
+}
+
+export interface ToneParams {
+  exposure: number;
+  contrast: number;
+  highlights: number;
+  shadows: number;
+  whites: number;
+  blacks: number;
+  curveHighlights: number;
+  curveLights: number;
+  curveDarks: number;
+  curveShadows: number;
+}
+
+export interface GrainParams {
+  amount: number;
+  size: number;
+  roughness: number;
+  color: number;
+  shadowBoost: number;
+}
+
+export interface DefectsParams {
+  leakProbability: number;
+  leakStrength: number;
+  dustAmount: number;
+  scratchAmount: number;
+}
+
+export interface ScanParams {
+  halationThreshold: number;
+  halationAmount: number;
+  bloomThreshold: number;
+  bloomAmount: number;
+  vignetteAmount: number;
+  scanWarmth: number;
+}
+
+export interface FilmModuleBase<TId extends FilmModuleId, TParams> {
+  id: TId;
+  enabled: boolean;
+  amount: number;
+  seedMode?: FilmSeedMode;
+  seed?: number;
+  params: TParams;
+}
+
+export type ColorScienceModule = FilmModuleBase<
+  "colorScience",
+  ColorScienceParams
+>;
+export type ToneModule = FilmModuleBase<"tone", ToneParams>;
+export type GrainModule = FilmModuleBase<"grain", GrainParams>;
+export type DefectsModule = FilmModuleBase<"defects", DefectsParams>;
+export type ScanModule = FilmModuleBase<"scan", ScanParams>;
+
+export type FilmModuleConfig =
+  | ColorScienceModule
+  | ToneModule
+  | GrainModule
+  | DefectsModule
+  | ScanModule;
+
+export interface FilmProfile {
+  id: string;
+  version: 1;
+  name: string;
+  description?: string;
+  tags?: string[];
+  modules: FilmModuleConfig[];
+}
+
+export interface FilmModuleOverride {
+  enabled?: boolean;
+  amount?: number;
+  params?: Record<string, unknown>;
+}
+
+export type FilmProfileOverrides = Partial<Record<FilmModuleId, FilmModuleOverride>>;
 
 export type HslColorKey =
   | "red"
@@ -93,6 +190,9 @@ export interface Asset {
   thumbnailUrl?: string;
   presetId?: string;
   intensity?: number;
+  filmProfileId?: string;
+  filmOverrides?: FilmProfileOverrides;
+  filmProfile?: FilmProfile;
   group?: string;
   blob?: Blob;
   thumbnailBlob?: Blob;

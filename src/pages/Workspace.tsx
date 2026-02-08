@@ -22,10 +22,13 @@ import {
   applyPresetAdjustments,
   createDefaultAdjustments,
 } from "@/lib/adjustments";
+import { resolveFilmProfile as resolveRuntimeFilmProfile } from "@/lib/film";
 import { renderImageToBlob, renderImageToCanvas } from "@/lib/imageProcessing";
 import { cn } from "@/lib/utils";
 import type {
   EditingAdjustments,
+  FilmProfileOverrides,
+  FilmProfile,
   Preset,
   PresetAdjustmentKey,
   PresetAdjustments,
@@ -121,6 +124,29 @@ const resolveAdjustments = (
   }
   const resolvedIntensity = typeof intensity === "number" ? intensity : preset.intensity;
   return applyPresetAdjustments(base, preset.adjustments, resolvedIntensity);
+};
+
+const resolveFilmProfile = (
+  adjustments: EditingAdjustments | undefined,
+  presetId: string | undefined,
+  filmProfileId: string | undefined,
+  filmProfile: FilmProfile | undefined,
+  intensity: number | undefined,
+  presets: Preset[],
+  overrides?: FilmProfileOverrides
+): FilmProfile | null => {
+  if (!adjustments) {
+    return null;
+  }
+  return resolveRuntimeFilmProfile({
+    adjustments,
+    presetId,
+    filmProfileId,
+    filmProfile,
+    intensity,
+    presets,
+    overrides,
+  });
 };
 
 interface ExportTask {
@@ -264,6 +290,21 @@ export function Workspace() {
     );
   }, [activeAdjustments, activeAsset, allPresets]);
 
+  const previewFilmProfile = useMemo(() => {
+    if (!activeAsset || !previewAdjustments) {
+      return null;
+    }
+    return resolveFilmProfile(
+      previewAdjustments,
+      activeAsset.presetId,
+      activeAsset.filmProfileId,
+      activeAsset.filmProfile,
+      activeAsset.intensity,
+      allPresets,
+      activeAsset.filmOverrides
+    );
+  }, [activeAsset, allPresets, previewAdjustments]);
+
   const handleFiles = useCallback(
     (files: FileList | null) => {
       if (!files || files.length === 0) return;
@@ -280,8 +321,15 @@ export function Workspace() {
     if (!activeAsset) {
       return;
     }
+    const preset = allPresets.find((item) => item.id === presetId);
     setSelectedPresetId(presetId);
-    updateAsset(activeAsset.id, { presetId, intensity });
+    updateAsset(activeAsset.id, {
+      presetId,
+      intensity,
+      filmProfileId: preset?.filmProfileId,
+      filmProfile: preset?.filmProfile,
+      filmOverrides: undefined,
+    });
   };
 
   const handleIntensityChange = (value: number) => {
@@ -315,16 +363,23 @@ export function Workspace() {
     const custom: Preset = {
       id: `custom-${Date.now()}`,
       name,
-      tags: ["人像"],
+      tags: ["portrait"],
       intensity: 100,
       description: "自定义风格",
       adjustments: buildCustomAdjustments(previewAdjustments),
+      filmProfile: previewFilmProfile ?? undefined,
     };
     setCustomPresets((prev) => [custom, ...prev]);
     setCustomPresetName("");
     setSelectedPresetId(custom.id);
     if (activeAsset) {
-      updateAsset(activeAsset.id, { presetId: custom.id, intensity: 100 });
+      updateAsset(activeAsset.id, {
+        presetId: custom.id,
+        intensity: 100,
+        filmProfile: custom.filmProfile,
+        filmProfileId: undefined,
+        filmOverrides: undefined,
+      });
     }
   };
 
@@ -374,11 +429,22 @@ export function Workspace() {
           asset.intensity,
           allPresets
         );
+        const filmProfile = resolveFilmProfile(
+          adjustments,
+          asset.presetId,
+          asset.filmProfileId,
+          asset.filmProfile,
+          asset.intensity,
+          allPresets,
+          asset.filmOverrides
+        );
         const outputType = resolveOutputType(asset.type);
         const blob = await renderImageToBlob(asset.blob, adjustments, {
           type: outputType,
           quality: quality / 100,
           maxDimension: maxDimension > 0 ? maxDimension : undefined,
+          filmProfile: filmProfile ?? undefined,
+          seedKey: asset.id,
         });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
@@ -661,14 +727,23 @@ export function Workspace() {
         canvas,
         source: activeAsset.blob ?? activeAsset.objectUrl,
         adjustments: previewAdjustments,
+        filmProfile: previewFilmProfile ?? undefined,
         targetSize: {
           width: Math.round(frameSize.width * dpr),
           height: Math.round(frameSize.height * dpr),
         },
+        seedKey: activeAsset.id,
         signal: controller.signal,
       }).catch(() => undefined);
       return () => controller.abort();
-    }, [activeAsset, frameSize.height, frameSize.width, previewAdjustments, showOriginal]);
+    }, [
+      activeAsset,
+      frameSize.height,
+      frameSize.width,
+      previewAdjustments,
+      previewFilmProfile,
+      showOriginal,
+    ]);
 
     return (
       <Card className="min-w-0">
@@ -946,31 +1021,30 @@ export function Workspace() {
                 { key: "exposure", label: "曝光", min: -50, max: 50 },
                 { key: "contrast", label: "对比", min: -50, max: 50 },
                 { key: "saturation", label: "饱和", min: -50, max: 50 },
-              ].map((tool) => (
-                <div
-                  key={tool.key}
-                  className="rounded-2xl border border-white/10 bg-slate-950/60 p-3"
-                >
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span className="text-slate-300">{tool.label}</span>
-                    <span>{activeAdjustments[tool.key as keyof EditingAdjustments]}</span>
+              ].map((tool) => {
+                const key = tool.key as "exposure" | "contrast" | "saturation";
+                const currentValue = activeAdjustments[key];
+                return (
+                  <div
+                    key={tool.key}
+                    className="rounded-2xl border border-white/10 bg-slate-950/60 p-3"
+                  >
+                    <div className="flex items-center justify-between text-xs text-slate-400">
+                      <span className="text-slate-300">{tool.label}</span>
+                      <span>{currentValue}</span>
+                    </div>
+                    <Slider
+                      value={[currentValue]}
+                      min={tool.min}
+                      max={tool.max}
+                      step={1}
+                      onValueChange={(value) =>
+                        updateAdjustmentValue(key, value[0] ?? 0)
+                      }
+                    />
                   </div>
-                  <Slider
-                    value={[
-                      activeAdjustments[tool.key as keyof EditingAdjustments] as number,
-                    ]}
-                    min={tool.min}
-                    max={tool.max}
-                    step={1}
-                    onValueChange={(value) =>
-                      updateAdjustmentValue(
-                        tool.key as keyof EditingAdjustments,
-                        value[0] ?? 0
-                      )
-                    }
-                  />
-                </div>
-              ))
+                );
+              })
             ) : (
               <p className="text-sm text-slate-400">请选择素材后再微调。</p>
             )}
@@ -1164,7 +1238,7 @@ export function Workspace() {
       <section className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">FilmLab Workspace</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">FilmLab 工作台</p>
             <h2 className="font-display text-2xl text-white sm:text-3xl">
               {currentStep === "library" && "导入素材"}
               {currentStep === "style" && "选择风格"}

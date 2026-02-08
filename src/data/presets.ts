@@ -3,10 +3,11 @@ import type { Preset } from "@/types";
 export const presets: Preset[] = [
   {
     id: "portrait-01",
-    name: "柔和人像",
-    tags: ["人像"],
+    filmProfileId: "film-portrait-soft-v1",
+    name: "Portrait Soft",
+    tags: ["portrait"],
     intensity: 60,
-    description: "肤色保留，轻微柔化高光",
+    description: "Soft skin tone and gentle highlight roll-off.",
     adjustments: {
       exposure: 6,
       contrast: -8,
@@ -20,10 +21,11 @@ export const presets: Preset[] = [
   },
   {
     id: "portrait-02",
-    name: "低饱和人像",
-    tags: ["人像"],
+    filmProfileId: "film-portrait-fade-v1",
+    name: "Portrait Muted",
+    tags: ["portrait"],
     intensity: 55,
-    description: "适合阴天与逆光",
+    description: "Lower saturation for cloudy and backlit scenes.",
     adjustments: {
       exposure: 4,
       contrast: -6,
@@ -36,10 +38,11 @@ export const presets: Preset[] = [
   },
   {
     id: "portrait-03",
-    name: "复古暖色",
-    tags: ["人像"],
+    filmProfileId: "film-portrait-fade-v1",
+    name: "Vintage Warm",
+    tags: ["portrait"],
     intensity: 65,
-    description: "偏暖，轻颗粒",
+    description: "Warm cast with subtle grain.",
     adjustments: {
       temperature: 14,
       tint: 4,
@@ -52,10 +55,11 @@ export const presets: Preset[] = [
   },
   {
     id: "landscape-01",
-    name: "清透风景",
-    tags: ["风景"],
+    filmProfileId: "film-landscape-cool-v1",
+    name: "Landscape Clear",
+    tags: ["landscape"],
     intensity: 70,
-    description: "提亮阴影，增强通透感",
+    description: "Crisp and transparent look with boosted depth.",
     adjustments: {
       exposure: 6,
       contrast: 12,
@@ -68,10 +72,11 @@ export const presets: Preset[] = [
   },
   {
     id: "landscape-02",
-    name: "青绿调",
-    tags: ["风景"],
+    filmProfileId: "film-landscape-cool-v1",
+    name: "Landscape Cool",
+    tags: ["landscape"],
     intensity: 60,
-    description: "冷调风景，保留天空层次",
+    description: "Cool tones with sky separation.",
     adjustments: {
       temperature: -12,
       tint: -6,
@@ -83,10 +88,11 @@ export const presets: Preset[] = [
   },
   {
     id: "landscape-03",
-    name: "暖调日落",
-    tags: ["风景"],
+    filmProfileId: "film-landscape-golden-v1",
+    name: "Landscape Sunset",
+    tags: ["landscape"],
     intensity: 75,
-    description: "增加金色氛围",
+    description: "Golden-hour glow for dramatic scenes.",
     adjustments: {
       temperature: 18,
       tint: 6,
@@ -99,10 +105,11 @@ export const presets: Preset[] = [
   },
   {
     id: "night-01",
-    name: "霓虹夜色",
-    tags: ["夜景"],
+    filmProfileId: "film-night-neon-v1",
+    name: "Night Neon",
+    tags: ["night"],
     intensity: 70,
-    description: "压高光，增强霓虹",
+    description: "Compress highlights and lift neon color.",
     adjustments: {
       exposure: -4,
       contrast: 16,
@@ -115,10 +122,11 @@ export const presets: Preset[] = [
   },
   {
     id: "night-02",
-    name: "暗部细节",
-    tags: ["夜景"],
+    filmProfileId: "film-night-neon-v1",
+    name: "Night Detail",
+    tags: ["night"],
     intensity: 55,
-    description: "抬暗部，降低噪点风险",
+    description: "Recover dark details with moderate contrast.",
     adjustments: {
       exposure: 6,
       shadows: 18,
@@ -130,10 +138,11 @@ export const presets: Preset[] = [
   },
   {
     id: "night-03",
-    name: "蓝调城市",
-    tags: ["夜景"],
+    filmProfileId: "film-night-neon-v1",
+    name: "Night Blue City",
+    tags: ["night"],
     intensity: 65,
-    description: "冷色夜景风格",
+    description: "Cool city-night style.",
     adjustments: {
       temperature: -16,
       tint: -6,
@@ -144,10 +153,11 @@ export const presets: Preset[] = [
   },
   {
     id: "bw-01",
-    name: "经典黑白",
-    tags: ["黑白"],
+    filmProfileId: "film-bw-soft-v1",
+    name: "BW Classic",
+    tags: ["bw"],
     intensity: 60,
-    description: "中等对比",
+    description: "Balanced black-and-white contrast.",
     adjustments: {
       saturation: -80,
       contrast: 10,
@@ -157,10 +167,11 @@ export const presets: Preset[] = [
   },
   {
     id: "bw-02",
-    name: "高反差黑白",
-    tags: ["黑白"],
+    filmProfileId: "film-bw-contrast-v1",
+    name: "BW Hard",
+    tags: ["bw"],
     intensity: 70,
-    description: "强调结构",
+    description: "Strong structure and high contrast.",
     adjustments: {
       saturation: -90,
       contrast: 24,
@@ -173,10 +184,11 @@ export const presets: Preset[] = [
   },
   {
     id: "bw-03",
-    name: "柔调黑白",
-    tags: ["黑白"],
+    filmProfileId: "film-bw-soft-v1",
+    name: "BW Soft",
+    tags: ["bw"],
     intensity: 50,
-    description: "柔和细节",
+    description: "Gentle monochrome with retained details.",
     adjustments: {
       saturation: -70,
       contrast: -6,
