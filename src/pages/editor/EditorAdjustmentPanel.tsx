@@ -7,8 +7,6 @@ import { cn } from "@/lib/utils";
 import type {
   EditingAdjustments,
   FilmModuleId,
-  FilmProfile,
-  HslColorKey,
 } from "@/types";
 import { ASPECT_RATIOS } from "./constants";
 import { EditorSection } from "./EditorSection";
@@ -23,11 +21,10 @@ import {
   DETAIL_SLIDERS,
   EFFECTS_SLIDERS,
   HSL_COLORS,
-  type CurveChannel,
-  type SectionId,
   type SliderDefinition,
 } from "./editorPanelConfig";
 import type { NumericAdjustmentKey } from "./types";
+import { useEditorState } from "./useEditorState";
 
 interface FilmParamDefinition {
   key: string;
@@ -86,34 +83,6 @@ const FILM_PARAM_DEFINITIONS: Record<FilmModuleId, FilmParamDefinition[]> = {
   ],
 };
 
-interface EditorAdjustmentPanelProps {
-  adjustments: EditingAdjustments | null;
-  filmProfile: FilmProfile | null;
-  activeHslColor: HslColorKey;
-  curveChannel: CurveChannel;
-  openSections: Record<SectionId, boolean>;
-  onSelectHslColor: (color: HslColorKey) => void;
-  onSetCurveChannel: (channel: CurveChannel) => void;
-  onToggleSection: (sectionId: SectionId) => void;
-  onUpdateAdjustments: (partial: Partial<EditingAdjustments>) => void;
-  onUpdateAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
-  onUpdateHslValue: (
-    color: HslColorKey,
-    channel: "hue" | "saturation" | "luminance",
-    value: number
-  ) => void;
-  onToggleFlip: (axis: "flipHorizontal" | "flipVertical") => void;
-  onSetFilmModuleAmount: (moduleId: FilmModuleId, value: number) => void;
-  onToggleFilmModule: (moduleId: FilmModuleId) => void;
-  onSetFilmModuleParam: (moduleId: FilmModuleId, key: string, value: number) => void;
-  onSetFilmModuleRgbMix: (
-    moduleId: FilmModuleId,
-    channel: 0 | 1 | 2,
-    value: number
-  ) => void;
-  onResetFilmOverrides: () => void;
-}
-
 const renderSliderRows = (
   adjustments: EditingAdjustments,
   sliders: SliderDefinition[],
@@ -139,25 +108,27 @@ const formatFilmValue = (value: number, step: number) => {
   return `${Math.round(value)}`;
 };
 
-export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
-  adjustments,
-  filmProfile,
-  activeHslColor,
-  curveChannel,
-  openSections,
-  onSelectHslColor,
-  onSetCurveChannel,
-  onToggleSection,
-  onUpdateAdjustments,
-  onUpdateAdjustmentValue,
-  onUpdateHslValue,
-  onToggleFlip,
-  onSetFilmModuleAmount,
-  onToggleFilmModule,
-  onSetFilmModuleParam,
-  onSetFilmModuleRgbMix,
-  onResetFilmOverrides,
-}: EditorAdjustmentPanelProps) {
+export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
+  const {
+    adjustments,
+    previewFilmProfile: filmProfile,
+    activeHslColor,
+    curveChannel,
+    openSections,
+    setActiveHslColor,
+    setCurveChannel,
+    toggleSection,
+    updateAdjustments,
+    updateAdjustmentValue,
+    updateHslValue,
+    toggleFlip,
+    handleSetFilmModuleAmount,
+    handleToggleFilmModule,
+    handleSetFilmModuleParam,
+    handleSetFilmModuleRgbMix,
+    handleResetFilmOverrides,
+  } = useEditorState();
+
   return (
     <>
       <Card>
@@ -183,14 +154,14 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
             title="胶片模块"
             hint="色彩科学 / 影调 / 冲扫 / 颗粒 / 瑕疵"
             isOpen={openSections.film}
-            onToggle={() => onToggleSection("film")}
+            onToggle={() => toggleSection("film")}
           >
             {!filmProfile ? (
               <p className="text-xs text-slate-500">当前无可用胶片档案。</p>
             ) : (
               <div className="space-y-3">
                 <div className="flex justify-end">
-                  <Button size="sm" variant="secondary" onClick={onResetFilmOverrides}>
+                  <Button size="sm" variant="secondary" onClick={handleResetFilmOverrides}>
                     重置模块覆盖
                   </Button>
                 </div>
@@ -211,7 +182,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
                       <Button
                         size="sm"
                         variant={module.enabled ? "default" : "secondary"}
-                        onClick={() => onToggleFilmModule(module.id)}
+                        onClick={() => handleToggleFilmModule(module.id)}
                       >
                         {module.enabled ? "关闭" : "启用"}
                       </Button>
@@ -223,7 +194,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
                       min={0}
                       max={100}
                       step={1}
-                      onChange={(value) => onSetFilmModuleAmount(module.id, value)}
+                      onChange={(value) => handleSetFilmModuleAmount(module.id, value)}
                     />
 
                     {FILM_PARAM_DEFINITIONS[module.id].map((param) => {
@@ -243,7 +214,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
                           step={param.step}
                           format={(value) => formatFilmValue(value, param.step)}
                           onChange={(value) =>
-                            onSetFilmModuleParam(module.id, param.key, value)
+                            handleSetFilmModuleParam(module.id, param.key, value)
                           }
                         />
                       );
@@ -260,7 +231,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
                             step={0.01}
                             format={(value) => value.toFixed(2)}
                             onChange={(value) =>
-                              onSetFilmModuleRgbMix(module.id, 0, value)
+                              handleSetFilmModuleRgbMix(module.id, 0, value)
                             }
                           />
                           <EditorSliderRow
@@ -271,7 +242,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
                             step={0.01}
                             format={(value) => value.toFixed(2)}
                             onChange={(value) =>
-                              onSetFilmModuleRgbMix(module.id, 1, value)
+                              handleSetFilmModuleRgbMix(module.id, 1, value)
                             }
                           />
                           <EditorSliderRow
@@ -282,7 +253,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
                             step={0.01}
                             format={(value) => value.toFixed(2)}
                             onChange={(value) =>
-                              onSetFilmModuleRgbMix(module.id, 2, value)
+                              handleSetFilmModuleRgbMix(module.id, 2, value)
                             }
                           />
                         </>
@@ -297,13 +268,13 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
             title="基础调节"
             hint="光线与色彩"
             isOpen={openSections.basic}
-            onToggle={() => onToggleSection("basic")}
+            onToggle={() => toggleSection("basic")}
           >
             <div className="space-y-3">
               <p className="text-xs uppercase tracking-[0.24em] text-slate-500">光线</p>
-              {renderSliderRows(adjustments, BASIC_LIGHT_SLIDERS, onUpdateAdjustmentValue)}
+              {renderSliderRows(adjustments, BASIC_LIGHT_SLIDERS, updateAdjustmentValue)}
               <p className="mt-3 text-xs uppercase tracking-[0.24em] text-slate-500">色彩</p>
-              {renderSliderRows(adjustments, BASIC_COLOR_SLIDERS, onUpdateAdjustmentValue)}
+              {renderSliderRows(adjustments, BASIC_COLOR_SLIDERS, updateAdjustmentValue)}
             </div>
           </EditorSection>
 
@@ -311,14 +282,14 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
             title="HSL"
             hint="色相 / 饱和 / 明度"
             isOpen={openSections.hsl}
-            onToggle={() => onToggleSection("hsl")}
+            onToggle={() => toggleSection("hsl")}
           >
             <div className="flex flex-wrap gap-2">
               {HSL_COLORS.map((color) => (
                 <button
                   key={color.id}
                   type="button"
-                  onClick={() => onSelectHslColor(color.id)}
+                  onClick={() => setActiveHslColor(color.id)}
                   className={cn(
                     "flex items-center gap-2 rounded-full border border-white/10 px-3 py-1 text-xs",
                     activeHslColor === color.id ? "bg-white/10 text-white" : "text-slate-300"
@@ -335,7 +306,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
               min={-100}
               max={100}
               format={(value) => (value > 0 ? `+${value}` : `${value}`)}
-              onChange={(value) => onUpdateHslValue(activeHslColor, "hue", value)}
+              onChange={(value) => updateHslValue(activeHslColor, "hue", value)}
             />
             <EditorSliderRow
               label="饱和"
@@ -343,7 +314,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
               min={-100}
               max={100}
               format={(value) => (value > 0 ? `+${value}` : `${value}`)}
-              onChange={(value) => onUpdateHslValue(activeHslColor, "saturation", value)}
+              onChange={(value) => updateHslValue(activeHslColor, "saturation", value)}
             />
             <EditorSliderRow
               label="明度"
@@ -351,7 +322,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
               min={-100}
               max={100}
               format={(value) => (value > 0 ? `+${value}` : `${value}`)}
-              onChange={(value) => onUpdateHslValue(activeHslColor, "luminance", value)}
+              onChange={(value) => updateHslValue(activeHslColor, "luminance", value)}
             />
           </EditorSection>
 
@@ -359,7 +330,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
             title="曲线"
             hint="RGB 总曲线"
             isOpen={openSections.curve}
-            onToggle={() => onToggleSection("curve")}
+            onToggle={() => toggleSection("curve")}
           >
             <div className="flex flex-wrap gap-2">
               {CURVE_CHANNELS.map((item) => (
@@ -367,39 +338,39 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
                   key={item.id}
                   size="sm"
                   variant={curveChannel === item.id ? "default" : "secondary"}
-                  onClick={() => onSetCurveChannel(item.id)}
+                  onClick={() => setCurveChannel(item.id)}
                   disabled={!item.enabled}
                 >
                   {item.label}
                 </Button>
               ))}
             </div>
-            {renderSliderRows(adjustments, CURVE_SLIDERS, onUpdateAdjustmentValue)}
+            {renderSliderRows(adjustments, CURVE_SLIDERS, updateAdjustmentValue)}
           </EditorSection>
 
           <EditorSection
             title="效果"
             hint="清晰度 / 纹理 / 去雾"
             isOpen={openSections.effects}
-            onToggle={() => onToggleSection("effects")}
+            onToggle={() => toggleSection("effects")}
           >
-            {renderSliderRows(adjustments, EFFECTS_SLIDERS, onUpdateAdjustmentValue)}
+            {renderSliderRows(adjustments, EFFECTS_SLIDERS, updateAdjustmentValue)}
           </EditorSection>
 
           <EditorSection
             title="细节"
             hint="锐化 / 降噪"
             isOpen={openSections.detail}
-            onToggle={() => onToggleSection("detail")}
+            onToggle={() => toggleSection("detail")}
           >
-            {renderSliderRows(adjustments, DETAIL_SLIDERS, onUpdateAdjustmentValue)}
+            {renderSliderRows(adjustments, DETAIL_SLIDERS, updateAdjustmentValue)}
           </EditorSection>
 
           <EditorSection
             title="裁切"
             hint="比例 / 旋转 / 翻转"
             isOpen={openSections.crop}
-            onToggle={() => onToggleSection("crop")}
+            onToggle={() => toggleSection("crop")}
           >
             <div className="flex flex-wrap gap-2">
               {ASPECT_RATIOS.map((ratio) => (
@@ -407,7 +378,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
                   key={ratio.value}
                   size="sm"
                   variant={adjustments.aspectRatio === ratio.value ? "default" : "secondary"}
-                  onClick={() => onUpdateAdjustments({ aspectRatio: ratio.value })}
+                  onClick={() => updateAdjustments({ aspectRatio: ratio.value })}
                 >
                   {ratio.label}
                 </Button>
@@ -417,26 +388,26 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
               <Button
                 size="sm"
                 variant={adjustments.flipHorizontal ? "default" : "secondary"}
-                onClick={() => onToggleFlip("flipHorizontal")}
+                onClick={() => toggleFlip("flipHorizontal")}
               >
                 水平翻转
               </Button>
               <Button
                 size="sm"
                 variant={adjustments.flipVertical ? "default" : "secondary"}
-                onClick={() => onToggleFlip("flipVertical")}
+                onClick={() => toggleFlip("flipVertical")}
               >
                 垂直翻转
               </Button>
             </div>
-            {renderSliderRows(adjustments, CROP_SLIDERS, onUpdateAdjustmentValue)}
+            {renderSliderRows(adjustments, CROP_SLIDERS, updateAdjustmentValue)}
           </EditorSection>
 
           <EditorSection
             title="局部"
             hint="渐变 / 径向 / 画笔"
             isOpen={openSections.local}
-            onToggle={() => onToggleSection("local")}
+            onToggle={() => toggleSection("local")}
           >
             <div className="rounded-2xl border border-white/10 bg-slate-950/80 p-3 text-xs text-slate-300">
               局部蒙版将在后续版本上线。
@@ -447,7 +418,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
             title="AI"
             hint="智能增强"
             isOpen={openSections.ai}
-            onToggle={() => onToggleSection("ai")}
+            onToggle={() => toggleSection("ai")}
           >
             <div className="flex flex-wrap gap-2">
               {AI_FEATURES.map((label) => (
@@ -462,7 +433,7 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel({
             title="导出"
             hint="尺寸 / 质量 / 色彩"
             isOpen={openSections.export}
-            onToggle={() => onToggleSection("export")}
+            onToggle={() => toggleSection("export")}
           >
             <div className="space-y-2 text-xs text-slate-300">
               <p>输出尺寸：原图或指定长边。</p>

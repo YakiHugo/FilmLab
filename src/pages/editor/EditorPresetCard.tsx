@@ -1,6 +1,5 @@
-﻿import { memo, useRef } from "react";
+import { memo, useRef } from "react";
 import { presets as basePresets } from "@/data/presets";
-import type { Asset, FilmProfile, Preset } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,54 +12,41 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { useEditorState } from "./useEditorState";
 
-interface EditorPresetCardProps {
-  selectedAsset: Asset | null;
-  customPresets: Preset[];
-  builtInFilmProfiles: FilmProfile[];
-  customPresetName: string;
-  canSaveCustomPreset: boolean;
-  onPresetNameChange: (name: string) => void;
-  onSelectPreset: (presetId: string) => void;
-  onSelectFilmProfile: (filmProfileId: string | undefined) => void;
-  onSetIntensity: (value: number) => void;
-  onSaveCustomPreset: () => void;
-  onExportPresets: () => void;
-  onImportPresets: (file: File | null) => Promise<void>;
-  onExportFilmProfile: () => void;
-  onImportFilmProfile: (file: File | null) => Promise<void>;
-}
+export const EditorPresetCard = memo(function EditorPresetCard() {
+  const {
+    selectedAsset,
+    customPresets,
+    builtInFilmProfiles,
+    customPresetName,
+    previewAdjustments,
+    setCustomPresetName,
+    handleSelectPreset,
+    handleSelectFilmProfile,
+    handleSetIntensity,
+    handleSaveCustomPreset,
+    handleExportPresets,
+    handleImportPresets,
+    handleExportFilmProfile,
+    handleImportFilmProfile,
+  } = useEditorState();
 
-export const EditorPresetCard = memo(function EditorPresetCard({
-  selectedAsset,
-  customPresets,
-  builtInFilmProfiles,
-  customPresetName,
-  canSaveCustomPreset,
-  onPresetNameChange,
-  onSelectPreset,
-  onSelectFilmProfile,
-  onSetIntensity,
-  onSaveCustomPreset,
-  onExportPresets,
-  onImportPresets,
-  onExportFilmProfile,
-  onImportFilmProfile,
-}: EditorPresetCardProps) {
   const importRef = useRef<HTMLInputElement | null>(null);
   const filmImportRef = useRef<HTMLInputElement | null>(null);
   const selectedPresetId = selectedAsset?.presetId;
   const fallbackPresetId = basePresets[0]?.id;
+  const canSaveCustomPreset = Boolean(previewAdjustments);
 
   const handleImportFile: React.ChangeEventHandler<HTMLInputElement> = (event) => {
     const file = event.currentTarget.files?.[0] ?? null;
-    void onImportPresets(file);
+    void handleImportPresets(file);
     event.currentTarget.value = "";
   };
 
   const handleImportFilmFile: React.ChangeEventHandler<HTMLInputElement> = (event) => {
     const file = event.currentTarget.files?.[0] ?? null;
-    void onImportFilmProfile(file);
+    void handleImportFilmProfile(file);
     event.currentTarget.value = "";
   };
 
@@ -75,7 +61,7 @@ export const EditorPresetCard = memo(function EditorPresetCard({
           <Select
             value={selectedAsset?.filmProfileId ?? "__auto__"}
             onValueChange={(value) =>
-              onSelectFilmProfile(value === "__auto__" ? undefined : value)
+              handleSelectFilmProfile(value === "__auto__" ? undefined : value)
             }
             disabled={!selectedAsset}
           >
@@ -105,7 +91,7 @@ export const EditorPresetCard = memo(function EditorPresetCard({
                     ? "default"
                     : "secondary"
                 }
-                onClick={() => onSelectPreset(preset.id)}
+                onClick={() => handleSelectPreset(preset.id)}
                 disabled={!selectedAsset}
                 className="justify-start"
               >
@@ -124,7 +110,7 @@ export const EditorPresetCard = memo(function EditorPresetCard({
                   key={preset.id}
                   size="sm"
                   variant={selectedPresetId === preset.id ? "default" : "secondary"}
-                  onClick={() => onSelectPreset(preset.id)}
+                  onClick={() => handleSelectPreset(preset.id)}
                   disabled={!selectedAsset}
                   className="justify-start"
                 >
@@ -145,7 +131,7 @@ export const EditorPresetCard = memo(function EditorPresetCard({
             min={0}
             max={100}
             step={1}
-            onValueChange={(value) => onSetIntensity(value[0] ?? 0)}
+            onValueChange={(value) => handleSetIntensity(value[0] ?? 0)}
             disabled={!selectedAsset}
           />
         </div>
@@ -154,12 +140,12 @@ export const EditorPresetCard = memo(function EditorPresetCard({
           <Label className="text-xs text-slate-400">保存为自定义预设</Label>
           <Input
             value={customPresetName}
-            onChange={(event) => onPresetNameChange(event.target.value)}
+            onChange={(event) => setCustomPresetName(event.target.value)}
             placeholder="请输入预设名称"
           />
           <Button
             className="w-full"
-            onClick={onSaveCustomPreset}
+            onClick={handleSaveCustomPreset}
             disabled={!customPresetName.trim() || !canSaveCustomPreset}
           >
             保存预设
@@ -170,7 +156,7 @@ export const EditorPresetCard = memo(function EditorPresetCard({
           <Button
             size="sm"
             variant="secondary"
-            onClick={onExportPresets}
+            onClick={handleExportPresets}
             disabled={customPresets.length === 0}
           >
             导出 JSON
@@ -195,7 +181,7 @@ export const EditorPresetCard = memo(function EditorPresetCard({
           <Button
             size="sm"
             variant="secondary"
-            onClick={onExportFilmProfile}
+            onClick={handleExportFilmProfile}
             disabled={!selectedAsset}
           >
             导出胶片档案
@@ -220,4 +206,3 @@ export const EditorPresetCard = memo(function EditorPresetCard({
     </Card>
   );
 });
-

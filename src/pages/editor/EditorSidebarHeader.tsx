@@ -1,19 +1,13 @@
-﻿import { memo } from "react";
+import { memo } from "react";
 import { Badge } from "@/components/ui/badge";
-import type { Asset } from "@/types";
+import { useEditorStore } from "@/stores/editorStore";
 import { EditorHistogram } from "./EditorHistogram";
+import { useEditorState } from "./useEditorState";
 
-interface EditorSidebarHeaderProps {
-  selectedAsset: Asset | null;
-  presetLabel: string;
-  filmProfileLabel: string;
-}
+export const EditorSidebarHeader = memo(function EditorSidebarHeader() {
+  const { selectedAsset, presetLabel, filmProfileLabel } = useEditorState();
+  const histogram = useEditorStore((state) => state.previewHistogram);
 
-export const EditorSidebarHeader = memo(function EditorSidebarHeader({
-  selectedAsset,
-  presetLabel,
-  filmProfileLabel,
-}: EditorSidebarHeaderProps) {
   return (
     <div className="shrink-0 border-b border-white/10 p-4">
       <div className="flex items-center justify-between text-xs text-slate-400">
@@ -25,7 +19,7 @@ export const EditorSidebarHeader = memo(function EditorSidebarHeader({
         )}
       </div>
       <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/70 p-3">
-        <EditorHistogram asset={selectedAsset} />
+        <EditorHistogram histogram={histogram} />
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         <Badge variant="secondary">自动</Badge>
@@ -56,4 +50,3 @@ export const EditorSidebarHeader = memo(function EditorSidebarHeader({
     </div>
   );
 });
-

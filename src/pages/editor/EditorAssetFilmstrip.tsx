@@ -1,18 +1,13 @@
 import { memo } from "react";
+import { useEditorStore } from "@/stores/editorStore";
+import { useProjectStore } from "@/stores/projectStore";
 import { cn } from "@/lib/utils";
-import type { Asset } from "@/types";
 
-interface EditorAssetFilmstripProps {
-  assets: Asset[];
-  selectedAssetId: string | null;
-  onSelectAsset: (assetId: string) => void;
-}
+export const EditorAssetFilmstrip = memo(function EditorAssetFilmstrip() {
+  const assets = useProjectStore((state) => state.assets);
+  const selectedAssetId = useEditorStore((state) => state.selectedAssetId);
+  const setSelectedAssetId = useEditorStore((state) => state.setSelectedAssetId);
 
-export const EditorAssetFilmstrip = memo(function EditorAssetFilmstrip({
-  assets,
-  selectedAssetId,
-  onSelectAsset,
-}: EditorAssetFilmstripProps) {
   return (
     <div className="shrink-0 border-t border-white/10 bg-slate-950/80 px-6 py-4">
       <div className="flex items-center justify-between text-xs text-slate-400">
@@ -30,7 +25,7 @@ export const EditorAssetFilmstrip = memo(function EditorAssetFilmstrip({
                 "flex min-w-[160px] items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/60 p-3 text-left transition",
                 isActive && "border-sky-200/40 bg-sky-300/10"
               )}
-              onClick={() => onSelectAsset(asset.id)}
+              onClick={() => setSelectedAssetId(asset.id)}
             >
               <img
                 src={asset.thumbnailUrl ?? asset.objectUrl}

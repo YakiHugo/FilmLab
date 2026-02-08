@@ -1,28 +1,39 @@
-﻿import { useSearch } from "@tanstack/react-router";
-import { useShallow } from "zustand/react/shallow";
+import { useEffect } from "react";
+import { useSearch } from "@tanstack/react-router";
 import { Card, CardContent } from "@/components/ui/card";
+import { useEditorStore } from "@/stores/editorStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { EditorAdjustmentPanel } from "./editor/EditorAdjustmentPanel";
 import { EditorAssetFilmstrip } from "./editor/EditorAssetFilmstrip";
 import { EditorPresetCard } from "./editor/EditorPresetCard";
 import { EditorPreviewCard } from "./editor/EditorPreviewCard";
 import { EditorSidebarHeader } from "./editor/EditorSidebarHeader";
-import { useEditorState } from "./editor/useEditorState";
 
 export function Editor() {
-  const { assets, updateAsset } = useProjectStore(
-    useShallow((state) => ({
-      assets: state.assets,
-      updateAsset: state.updateAsset,
-    }))
-  );
+  const assets = useProjectStore((state) => state.assets);
+  const selectedAssetId = useEditorStore((state) => state.selectedAssetId);
+  const setSelectedAssetId = useEditorStore((state) => state.setSelectedAssetId);
   const { assetId } = useSearch({ from: "/editor" });
 
-  const editor = useEditorState({
-    assets,
-    assetId,
-    updateAsset,
-  });
+  useEffect(() => {
+    if (assetId && assets.some((asset) => asset.id === assetId)) {
+      setSelectedAssetId(assetId);
+    }
+  }, [assetId, assets, setSelectedAssetId]);
+
+  useEffect(() => {
+    if (selectedAssetId && assets.some((asset) => asset.id === selectedAssetId)) {
+      return;
+    }
+    if (assets.length === 0) {
+      setSelectedAssetId(null);
+      return;
+    }
+    const fallbackId = assets.some((asset) => asset.id === assetId)
+      ? assetId
+      : assets[0].id;
+    setSelectedAssetId(fallbackId ?? null);
+  }, [assetId, assets, selectedAssetId, setSelectedAssetId]);
 
   return (
     <div className="app-bg h-screen overflow-hidden bg-slate-950 text-slate-100">
@@ -31,77 +42,25 @@ export function Editor() {
           <div className="flex flex-1 items-center justify-center p-6">
             <Card className="w-full max-w-lg animate-fade-up">
               <CardContent className="p-6 text-center text-sm text-slate-400">
-                还没有素材，请先在工作台导入照片。</CardContent>
+                还没有素材，请先在工作台导入照片。
+              </CardContent>
             </Card>
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
             <section className="flex min-w-0 flex-1 flex-col">
               <div className="flex min-h-0 flex-1 flex-col gap-4 p-6">
-                <EditorPreviewCard
-                  selectedAsset={editor.selectedAsset}
-                  adjustments={editor.previewAdjustments}
-                  filmProfile={editor.previewFilmProfile}
-                  presetLabel={editor.presetLabel}
-                  showOriginal={editor.showOriginal}
-                  onToggleOriginal={editor.toggleOriginal}
-                  onResetAll={editor.handleResetAll}
-                  onCopy={editor.handleCopy}
-                  onPaste={editor.handlePaste}
-                  canPaste={Boolean(editor.copiedAdjustments)}
-                />
+                <EditorPreviewCard />
               </div>
-              <EditorAssetFilmstrip
-                assets={assets}
-                selectedAssetId={editor.selectedAssetId}
-                onSelectAsset={editor.setSelectedAssetId}
-              />
+              <EditorAssetFilmstrip />
             </section>
 
             <aside className="flex min-h-0 w-full flex-col border-t border-white/10 bg-slate-950/90 lg:w-[360px] lg:border-l lg:border-t-0">
-              <EditorSidebarHeader
-                selectedAsset={editor.selectedAsset}
-                presetLabel={editor.presetLabel}
-                filmProfileLabel={editor.filmProfileLabel}
-              />
+              <EditorSidebarHeader />
 
               <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-                <EditorPresetCard
-                  selectedAsset={editor.selectedAsset}
-                  customPresets={editor.customPresets}
-                  builtInFilmProfiles={editor.builtInFilmProfiles}
-                  customPresetName={editor.customPresetName}
-                  canSaveCustomPreset={Boolean(editor.previewAdjustments)}
-                  onPresetNameChange={editor.setCustomPresetName}
-                  onSelectPreset={editor.handleSelectPreset}
-                  onSelectFilmProfile={editor.handleSelectFilmProfile}
-                  onSetIntensity={editor.handleSetIntensity}
-                  onSaveCustomPreset={editor.handleSaveCustomPreset}
-                  onExportPresets={editor.handleExportPresets}
-                  onImportPresets={editor.handleImportPresets}
-                  onExportFilmProfile={editor.handleExportFilmProfile}
-                  onImportFilmProfile={editor.handleImportFilmProfile}
-                />
-
-                <EditorAdjustmentPanel
-                  adjustments={editor.adjustments}
-                  filmProfile={editor.previewFilmProfile}
-                  activeHslColor={editor.activeHslColor}
-                  curveChannel={editor.curveChannel}
-                  openSections={editor.openSections}
-                  onSelectHslColor={editor.setActiveHslColor}
-                  onSetCurveChannel={editor.setCurveChannel}
-                  onToggleSection={editor.toggleSection}
-                  onUpdateAdjustments={editor.updateAdjustments}
-                  onUpdateAdjustmentValue={editor.updateAdjustmentValue}
-                  onUpdateHslValue={editor.updateHslValue}
-                  onToggleFlip={editor.toggleFlip}
-                  onSetFilmModuleAmount={editor.handleSetFilmModuleAmount}
-                  onToggleFilmModule={editor.handleToggleFilmModule}
-                  onSetFilmModuleParam={editor.handleSetFilmModuleParam}
-                  onSetFilmModuleRgbMix={editor.handleSetFilmModuleRgbMix}
-                  onResetFilmOverrides={editor.handleResetFilmOverrides}
-                />
+                <EditorPresetCard />
+                <EditorAdjustmentPanel />
               </div>
             </aside>
           </div>

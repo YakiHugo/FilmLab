@@ -1,4 +1,4 @@
-﻿import {
+import {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -7,11 +7,15 @@
   useState,
 } from "react";
 import { ZoomIn, ZoomOut } from "lucide-react";
-import type { Asset, EditingAdjustments, FilmProfile } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import { renderImageToCanvas } from "@/lib/imageProcessing";
+import {
+  buildHistogramFromCanvas,
+  buildHistogramFromDrawable,
+} from "./histogram";
+import { useEditorState } from "./useEditorState";
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
@@ -20,31 +24,22 @@ const ZOOM_MIN = 1;
 const ZOOM_MAX = 3;
 const ZOOM_STEP = 0.05;
 
-interface EditorPreviewCardProps {
-  selectedAsset: Asset | null;
-  adjustments: EditingAdjustments | null;
-  filmProfile: FilmProfile | null;
-  presetLabel?: string;
-  showOriginal: boolean;
-  onToggleOriginal: () => void;
-  onResetAll: () => void;
-  onCopy: () => void;
-  onPaste: () => void;
-  canPaste: boolean;
-}
+export function EditorPreviewCard() {
+  const {
+    selectedAsset,
+    previewAdjustments: adjustments,
+    previewFilmProfile: filmProfile,
+    presetLabel,
+    showOriginal,
+    copiedAdjustments,
+    toggleOriginal,
+    handleResetAll,
+    handleCopy,
+    handlePaste,
+    handlePreviewHistogramChange,
+  } = useEditorState();
 
-export function EditorPreviewCard({
-  selectedAsset,
-  adjustments,
-  filmProfile,
-  presetLabel,
-  showOriginal,
-  onToggleOriginal,
-  onResetAll,
-  onCopy,
-  onPaste,
-  canPaste,
-}: EditorPreviewCardProps) {
+  const canPaste = Boolean(copiedAdjustments);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const imageAreaRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -63,7 +58,6 @@ export function EditorPreviewCard({
   const [viewOffset, setViewOffset] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
 
-  // Get the actual image aspect ratio from loaded image or metadata
   const imageAspectRatio = useMemo(() => {
     if (imageNaturalSize) {
       return imageNaturalSize.width / imageNaturalSize.height;
@@ -78,7 +72,6 @@ export function EditorPreviewCard({
     selectedAsset?.metadata?.height,
   ]);
 
-  // Calculate frame size to fit the image within the container (contain behavior)
   const frameSize = useMemo(() => {
     if (!containerSize.width || !containerSize.height) {
       return { width: 0, height: 0 };
@@ -110,7 +103,7 @@ export function EditorPreviewCard({
       x: clamp(offset.x, -maxOffset.x, maxOffset.x),
       y: clamp(offset.y, -maxOffset.y, maxOffset.y),
     }),
-    [maxOffset.x, maxOffset.y],
+    [maxOffset.x, maxOffset.y]
   );
 
   const resetView = useCallback(() => {
@@ -118,7 +111,6 @@ export function EditorPreviewCard({
     setViewOffset({ x: 0, y: 0 });
   }, []);
 
-  // Load image natural size when asset changes
   useEffect(() => {
     if (!selectedAsset?.objectUrl) {
       setImageNaturalSize(null);
@@ -134,13 +126,11 @@ export function EditorPreviewCard({
     img.src = selectedAsset.objectUrl;
   }, [selectedAsset?.objectUrl]);
 
-  // Use layoutEffect for immediate container size measurement
   useLayoutEffect(() => {
     if (!containerRef.current) {
       return undefined;
     }
     const element = containerRef.current;
-    // Get initial size immediately
     const rect = element.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
       setContainerSize({
@@ -176,33 +166,95 @@ export function EditorPreviewCard({
   }, [clampOffset, viewScale]);
 
   useEffect(() => {
+    if (!selectedAsset) {
+      handlePreviewHistogramChange(null);
+      return undefined;
+    }
+    if (!showOriginal) {
+      return undefined;
+    }
+    let isCancelled = false;
+    const image = new Image();
+    image.decoding = "async";
+    image.src = selectedAsset.objectUrl;
+
+    const compute = async () => {
+      try {
+        await image.decode();
+      } catch {
+        await new Promise<void>((resolve, reject) => {
+          image.onload = () => resolve();
+          image.onerror = () => reject(new Error("Failed to load preview image"));
+        });
+      }
+      if (isCancelled) {
+        return;
+      }
+      handlePreviewHistogramChange(
+        buildHistogramFromDrawable(
+          image as CanvasImageSource,
+          image.naturalWidth,
+          image.naturalHeight
+        )
+      );
+    };
+
+    void compute().catch(() => {
+      if (!isCancelled) {
+        handlePreviewHistogramChange(null);
+      }
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [handlePreviewHistogramChange, selectedAsset, showOriginal]);
+
+  useEffect(() => {
     if (!selectedAsset || !adjustments || showOriginal) {
+      if (!selectedAsset || !adjustments) {
+        handlePreviewHistogramChange(null);
+      }
       return undefined;
     }
     const canvas = canvasRef.current;
     if (!canvas || frameSize.width === 0 || frameSize.height === 0) {
+      handlePreviewHistogramChange(null);
       return undefined;
     }
     const controller = new AbortController();
     const dpr = window.devicePixelRatio || 1;
-    void renderImageToCanvas({
-      canvas,
-      source: selectedAsset.blob ?? selectedAsset.objectUrl,
-      adjustments,
-      filmProfile: filmProfile ?? undefined,
-      targetSize: {
-        width: Math.round(frameSize.width * dpr),
-        height: Math.round(frameSize.height * dpr),
-      },
-      seedKey: selectedAsset.id,
-      signal: controller.signal,
-    }).catch(() => undefined);
+    const renderPreview = async () => {
+      await renderImageToCanvas({
+        canvas,
+        source: selectedAsset.blob ?? selectedAsset.objectUrl,
+        adjustments,
+        filmProfile: filmProfile ?? undefined,
+        targetSize: {
+          width: Math.round(frameSize.width * dpr),
+          height: Math.round(frameSize.height * dpr),
+        },
+        seedKey: selectedAsset.id,
+        signal: controller.signal,
+      });
+      if (!controller.signal.aborted) {
+        handlePreviewHistogramChange(buildHistogramFromCanvas(canvas));
+      }
+    };
+
+    void renderPreview().catch(() => {
+      if (!controller.signal.aborted) {
+        handlePreviewHistogramChange(null);
+      }
+    });
+
     return () => controller.abort();
   }, [
     adjustments,
     filmProfile,
     frameSize.height,
     frameSize.width,
+    handlePreviewHistogramChange,
     selectedAsset,
     showOriginal,
   ]);
@@ -221,14 +273,14 @@ export function EditorPreviewCard({
       const delta = -event.deltaY;
       handleZoom(viewScale + delta * 0.002);
     },
-    [selectedAsset, viewScale],
+    [selectedAsset, viewScale]
   );
 
-  // Native wheel event listener to prevent page scroll
   useEffect(() => {
     const element = imageAreaRef.current;
-    if (!element) return;
-
+    if (!element) {
+      return;
+    }
     element.addEventListener("wheel", handleWheel, { passive: false });
     return () => {
       element.removeEventListener("wheel", handleWheel);
@@ -260,7 +312,7 @@ export function EditorPreviewCard({
       clampOffset({
         x: panStartRef.current.offsetX + dx,
         y: panStartRef.current.offsetY + dy,
-      }),
+      })
     );
   };
 
@@ -286,16 +338,14 @@ export function EditorPreviewCard({
             {selectedAsset ? selectedAsset.name : "请选择一张照片开始编辑。"}
           </p>
           {selectedAsset && (
-            <p className="text-xs text-slate-500">
-              预设：{presetLabel ?? "未设置"}
-            </p>
+            <p className="text-xs text-slate-500">预设：{presetLabel ?? "未设置"}</p>
           )}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
             size="sm"
             variant={showOriginal ? "default" : "secondary"}
-            onClick={onToggleOriginal}
+            onClick={toggleOriginal}
             disabled={!selectedAsset}
           >
             对比原图
@@ -303,7 +353,7 @@ export function EditorPreviewCard({
           <Button
             size="sm"
             variant="secondary"
-            onClick={onResetAll}
+            onClick={handleResetAll}
             disabled={!selectedAsset}
           >
             重置全部
@@ -311,7 +361,7 @@ export function EditorPreviewCard({
           <Button
             size="sm"
             variant="secondary"
-            onClick={onCopy}
+            onClick={handleCopy}
             disabled={!selectedAsset}
           >
             复制设置
@@ -319,7 +369,7 @@ export function EditorPreviewCard({
           <Button
             size="sm"
             variant="secondary"
-            onClick={onPaste}
+            onClick={handlePaste}
             disabled={!canPaste || !selectedAsset}
           >
             粘贴设置
@@ -333,7 +383,7 @@ export function EditorPreviewCard({
           className={cn(
             "relative flex h-full w-full items-center justify-center rounded-[28px] border border-white/10 bg-black/40 touch-none",
             viewScale > 1 && "cursor-grab",
-            isPanning && "cursor-grabbing",
+            isPanning && "cursor-grabbing"
           )}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
@@ -373,7 +423,8 @@ export function EditorPreviewCard({
                   )
                 ) : (
                   <div className="flex h-full w-full items-center justify-center text-sm text-slate-500">
-                    请先选择一张照片。</div>
+                    请先选择一张照片。
+                  </div>
                 )}
               </div>
               {showOriginal && selectedAsset && (

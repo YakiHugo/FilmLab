@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { presets as basePresets } from "@/data/presets";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import { listBuiltInFilmProfiles, normalizeFilmProfile } from "@/lib/film";
+import { useEditorStore } from "@/stores/editorStore";
+import { useProjectStore } from "@/stores/projectStore";
 import type {
   Asset,
   EditingAdjustments,
@@ -9,61 +12,66 @@ import type {
   HslColorKey,
   Preset,
 } from "@/types";
-import { cloneAdjustments } from "./utils";
-import {
-  DEFAULT_OPEN_SECTIONS,
-  type CurveChannel,
-  type SectionId,
-} from "./editorPanelConfig";
+import type { HistogramData } from "./histogram";
 import {
   buildCustomAdjustments,
-  loadCustomPresets,
   mergePresetsById,
   normalizeImportedPresets,
   resolveAdjustments,
   resolveFilmProfile,
-  saveCustomPresets,
 } from "./presetUtils";
 import type { NumericAdjustmentKey } from "./types";
+import { cloneAdjustments } from "./utils";
 
-interface UseEditorStateParams {
-  assets: Asset[];
-  assetId: string | undefined;
-  updateAsset: (assetId: string, update: Partial<Asset>) => void;
-}
+export function useEditorState() {
+  const { assets, updateAsset } = useProjectStore(
+    useShallow((state) => ({
+      assets: state.assets,
+      updateAsset: state.updateAsset,
+    }))
+  );
 
-export function useEditorState({ assets, assetId, updateAsset }: UseEditorStateParams) {
-  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
-  const [showOriginal, setShowOriginal] = useState(false);
-  const [copiedAdjustments, setCopiedAdjustments] =
-    useState<EditingAdjustments | null>(null);
-  const [customPresetName, setCustomPresetName] = useState("");
-  const [customPresets, setCustomPresets] = useState<Preset[]>(() => loadCustomPresets());
-  const [activeHslColor, setActiveHslColor] = useState<HslColorKey>("red");
-  const [curveChannel, setCurveChannel] = useState<CurveChannel>("rgb");
-  const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>(() => ({
-    ...DEFAULT_OPEN_SECTIONS,
-  }));
-
-  useEffect(() => {
-    saveCustomPresets(customPresets);
-  }, [customPresets]);
-
-  useEffect(() => {
-    if (assetId && assets.some((asset) => asset.id === assetId)) {
-      setSelectedAssetId(assetId);
-    }
-  }, [assetId, assets]);
-
-  useEffect(() => {
-    if (selectedAssetId || assets.length === 0) {
-      return;
-    }
-    const fallbackId = assets.some((asset) => asset.id === assetId)
-      ? assetId
-      : assets[0].id;
-    setSelectedAssetId(fallbackId ?? null);
-  }, [assetId, assets, selectedAssetId]);
+  const {
+    selectedAssetId,
+    showOriginal,
+    copiedAdjustments,
+    customPresetName,
+    customPresets,
+    activeHslColor,
+    curveChannel,
+    openSections,
+    previewHistogram,
+    setSelectedAssetId,
+    setCopiedAdjustments,
+    setCustomPresetName,
+    setCustomPresets,
+    setActiveHslColor,
+    setCurveChannel,
+    toggleOriginal,
+    toggleSection,
+    setPreviewHistogram,
+  } = useEditorStore(
+    useShallow((state) => ({
+      selectedAssetId: state.selectedAssetId,
+      showOriginal: state.showOriginal,
+      copiedAdjustments: state.copiedAdjustments,
+      customPresetName: state.customPresetName,
+      customPresets: state.customPresets,
+      activeHslColor: state.activeHslColor,
+      curveChannel: state.curveChannel,
+      openSections: state.openSections,
+      previewHistogram: state.previewHistogram,
+      setSelectedAssetId: state.setSelectedAssetId,
+      setCopiedAdjustments: state.setCopiedAdjustments,
+      setCustomPresetName: state.setCustomPresetName,
+      setCustomPresets: state.setCustomPresets,
+      setActiveHslColor: state.setActiveHslColor,
+      setCurveChannel: state.setCurveChannel,
+      toggleOriginal: state.toggleOriginal,
+      toggleSection: state.toggleSection,
+      setPreviewHistogram: state.setPreviewHistogram,
+    }))
+  );
 
   const selectedAsset = useMemo(
     () => assets.find((asset) => asset.id === selectedAssetId) ?? null,
@@ -301,7 +309,7 @@ export function useEditorState({ assets, assetId, updateAsset }: UseEditorStateP
       return;
     }
     setCopiedAdjustments(cloneAdjustments(adjustments));
-  }, [adjustments]);
+  }, [adjustments, setCopiedAdjustments]);
 
   const handlePaste = useCallback(() => {
     if (!selectedAsset || !copiedAdjustments) {
@@ -382,6 +390,8 @@ export function useEditorState({ assets, assetId, updateAsset }: UseEditorStateP
     previewAdjustments,
     previewFilmProfile,
     selectedAsset,
+    setCustomPresetName,
+    setCustomPresets,
     updateAsset,
   ]);
 
@@ -439,32 +449,31 @@ export function useEditorState({ assets, assetId, updateAsset }: UseEditorStateP
     [selectedAsset, updateAsset]
   );
 
-  const handleImportPresets = useCallback(async (file: File | null) => {
-    if (!file) {
-      return;
-    }
-    try {
-      const text = await file.text();
-      const parsed = JSON.parse(text) as unknown;
-      const normalized = normalizeImportedPresets(parsed);
-      if (normalized.length > 0) {
-        setCustomPresets((prev) => mergePresetsById(prev, normalized));
+  const handleImportPresets = useCallback(
+    async (file: File | null) => {
+      if (!file) {
+        return;
       }
-    } catch {
-      return;
-    }
-  }, []);
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text) as unknown;
+        const normalized = normalizeImportedPresets(parsed);
+        if (normalized.length > 0) {
+          setCustomPresets((prev) => mergePresetsById(prev, normalized));
+        }
+      } catch {
+        return;
+      }
+    },
+    [setCustomPresets]
+  );
 
-  const toggleSection = useCallback((id: SectionId) => {
-    setOpenSections((prev) => ({
-      ...prev,
-      [id]: !prev[id],
-    }));
-  }, []);
-
-  const toggleOriginal = useCallback(() => {
-    setShowOriginal((prev) => !prev);
-  }, []);
+  const handlePreviewHistogramChange = useCallback(
+    (histogram: HistogramData | null) => {
+      setPreviewHistogram(histogram);
+    },
+    [setPreviewHistogram]
+  );
 
   return {
     selectedAssetId,
@@ -472,6 +481,7 @@ export function useEditorState({ assets, assetId, updateAsset }: UseEditorStateP
     adjustments,
     previewAdjustments,
     previewFilmProfile,
+    previewHistogram,
     presetLabel,
     filmProfileLabel,
     showOriginal,
@@ -492,6 +502,7 @@ export function useEditorState({ assets, assetId, updateAsset }: UseEditorStateP
     updateHslValue,
     toggleFlip,
     toggleSection,
+    handlePreviewHistogramChange,
     handleSetFilmModuleAmount,
     handleToggleFilmModule,
     handleSetFilmModuleParam,
