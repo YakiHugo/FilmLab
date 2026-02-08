@@ -22,10 +22,24 @@ import {
   applyPresetAdjustments,
   createDefaultAdjustments,
 } from "@/lib/adjustments";
+import type { RecommendFilmPresetCandidate } from "@/lib/ai/client";
+import { requestFilmRecommendationWithRetry } from "@/lib/ai/client";
+import { toRecommendationImageDataUrl } from "@/lib/ai/image";
+import {
+  DEFAULT_TOP_K,
+  MAX_RECOMMENDATION_RETRIES,
+  MAX_STYLE_SELECTION,
+  applySelectionLimit,
+  findAutoApplyPreset,
+  sanitizeTopPresetRecommendations,
+  toggleSelectionWithLimit,
+} from "@/lib/ai/recommendationUtils";
 import { resolveFilmProfile as resolveRuntimeFilmProfile } from "@/lib/film";
 import { renderImageToBlob, renderImageToCanvas } from "@/lib/imageProcessing";
 import { cn } from "@/lib/utils";
 import type {
+  Asset,
+  AiPresetRecommendation,
   EditingAdjustments,
   FilmProfileOverrides,
   FilmProfile,
@@ -155,6 +169,14 @@ interface ExportTask {
   status: "等待" | "处理中" | "完成" | "失败";
 }
 
+interface AiMatchingProgress {
+  running: boolean;
+  total: number;
+  processed: number;
+  succeeded: number;
+  failed: number;
+}
+
 export function Workspace() {
   const navigate = useNavigate({ from: "/" });
   const { step } = useSearch({ from: "/" });
@@ -164,7 +186,6 @@ export function Workspace() {
     addAssets,
     selectedAssetIds,
     setSelectedAssetIds,
-    toggleAssetSelection,
     clearAssetSelection,
     applyPresetToGroup,
     applyPresetToSelection,
@@ -176,7 +197,6 @@ export function Workspace() {
       addAssets: state.addAssets,
       selectedAssetIds: state.selectedAssetIds,
       setSelectedAssetIds: state.setSelectedAssetIds,
-      toggleAssetSelection: state.toggleAssetSelection,
       clearAssetSelection: state.clearAssetSelection,
       applyPresetToGroup: state.applyPresetToGroup,
       applyPresetToSelection: state.applyPresetToSelection,
@@ -199,11 +219,40 @@ export function Workspace() {
   const [format, setFormat] = useState<"original" | "jpeg" | "png">("original");
   const [quality, setQuality] = useState(92);
   const [maxDimension, setMaxDimension] = useState(0);
+  const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
+  const [aiProgress, setAiProgress] = useState<AiMatchingProgress>({
+    running: false,
+    total: 0,
+    processed: 0,
+    succeeded: 0,
+    failed: 0,
+  });
   const didAutoSelect = useRef(false);
+  const aiRunInFlightRef = useRef(false);
 
   const allPresets = useMemo(() => {
     return [...basePresets, ...customPresets];
   }, [customPresets]);
+  const customPresetIdSet = useMemo(
+    () => new Set(customPresets.map((preset) => preset.id)),
+    [customPresets]
+  );
+  const presetById = useMemo(
+    () => new Map(allPresets.map((preset) => [preset.id, preset])),
+    [allPresets]
+  );
+  const aiPresetCandidates = useMemo<RecommendFilmPresetCandidate[]>(
+    () =>
+      allPresets.map((preset) => ({
+        id: preset.id,
+        name: preset.name,
+        description: preset.description,
+        tags: preset.tags,
+        intensity: preset.intensity,
+        isCustom: customPresetIdSet.has(preset.id),
+      })),
+    [allPresets, customPresetIdSet]
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -228,7 +277,14 @@ export function Workspace() {
       return;
     }
     if (assets.length > 0 && selectedAssetIds.length === 0) {
-      setSelectedAssetIds(assets.map((asset) => asset.id));
+      const limitedSelection = applySelectionLimit(
+        assets.map((asset) => asset.id),
+        MAX_STYLE_SELECTION
+      );
+      setSelectedAssetIds(limitedSelection.ids);
+      if (limitedSelection.limited) {
+        setSelectionNotice(`最多可选择 ${MAX_STYLE_SELECTION} 张素材。`);
+      }
       didAutoSelect.current = true;
     }
   }, [assets, selectedAssetIds.length, setSelectedAssetIds]);
@@ -246,6 +302,18 @@ export function Workspace() {
   }, [activeAssetId, assets]);
 
   const selectedSet = useMemo(() => new Set(selectedAssetIds), [selectedAssetIds]);
+  const selectedAssets = useMemo(
+    () => assets.filter((asset) => selectedSet.has(asset.id)),
+    [assets, selectedSet]
+  );
+  const failedAiAssets = useMemo(
+    () =>
+      selectedAssets.filter(
+        (asset) => asset.aiRecommendation?.status === "failed"
+      ),
+    [selectedAssets]
+  );
+
   const groupOptions = useMemo(() => {
     const groups = new Set<string>();
     assets.forEach((asset) => groups.add(asset.group ?? "未分组"));
@@ -270,6 +338,29 @@ export function Workspace() {
     () => assets.find((asset) => asset.id === activeAssetId) ?? null,
     [assets, activeAssetId]
   );
+  const activeRecommendedTopPresets = useMemo(() => {
+    if (!activeAsset?.aiRecommendation) {
+      return [] as Array<{
+        preset: Preset;
+        recommendation: AiPresetRecommendation;
+      }>;
+    }
+    return activeAsset.aiRecommendation.topPresets
+      .map((item) => {
+        const preset = presetById.get(item.presetId);
+        if (!preset) {
+          return null;
+        }
+        return {
+          preset,
+          recommendation: item,
+        };
+      })
+      .filter(
+        (item): item is { preset: Preset; recommendation: AiPresetRecommendation } =>
+          item !== null
+      );
+  }, [activeAsset?.aiRecommendation, presetById]);
 
   const activeAdjustments = useMemo(() => {
     if (!activeAsset) {
@@ -304,6 +395,138 @@ export function Workspace() {
       activeAsset.filmOverrides
     );
   }, [activeAsset, allPresets, previewAdjustments]);
+
+  const setSelectionWithLimit = useCallback(
+    (assetIds: string[]) => {
+      const limited = applySelectionLimit(assetIds, MAX_STYLE_SELECTION);
+      setSelectedAssetIds(limited.ids);
+      setSelectionNotice(
+        limited.limited ? `最多可选择 ${MAX_STYLE_SELECTION} 张素材。` : null
+      );
+    },
+    [setSelectedAssetIds]
+  );
+
+  const handleToggleAssetSelection = useCallback(
+    (assetId: string) => {
+      const next = toggleSelectionWithLimit(
+        selectedAssetIds,
+        assetId,
+        MAX_STYLE_SELECTION
+      );
+      setSelectedAssetIds(next.ids);
+      setSelectionNotice(
+        next.limited ? `最多可选择 ${MAX_STYLE_SELECTION} 张素材。` : null
+      );
+    },
+    [selectedAssetIds, setSelectedAssetIds]
+  );
+
+  const handleSelectFilteredAssets = useCallback(() => {
+    setSelectionWithLimit(filteredAssets.map((asset) => asset.id));
+  }, [filteredAssets, setSelectionWithLimit]);
+
+  const runAiMatchingForAssets = useCallback(
+    async (targetAssets: Asset[]) => {
+      if (targetAssets.length === 0 || aiPresetCandidates.length === 0) {
+        return;
+      }
+
+      const candidateIds = aiPresetCandidates.map((item) => item.id);
+      let processed = 0;
+      let succeeded = 0;
+      let failed = 0;
+
+      aiRunInFlightRef.current = true;
+      setAiProgress({
+        running: true,
+        total: targetAssets.length,
+        processed: 0,
+        succeeded: 0,
+        failed: 0,
+      });
+
+      for (const asset of targetAssets) {
+        try {
+          const imageDataUrl = await toRecommendationImageDataUrl(asset);
+          const result = await requestFilmRecommendationWithRetry(
+            {
+              assetId: asset.id,
+              imageDataUrl,
+              metadata: asset.metadata,
+              candidates: aiPresetCandidates,
+              topK: DEFAULT_TOP_K,
+            },
+            { maxRetries: MAX_RECOMMENDATION_RETRIES }
+          );
+
+          const topPresets = sanitizeTopPresetRecommendations(
+            result.topPresets,
+            candidateIds,
+            DEFAULT_TOP_K
+          );
+          const autoPreset = findAutoApplyPreset(allPresets, topPresets);
+
+          updateAsset(asset.id, {
+            aiRecommendation: {
+              version: 1,
+              model: result.model,
+              matchedAt: new Date().toISOString(),
+              attempts: result.attempts,
+              topPresets,
+              autoAppliedPresetId: autoPreset?.id,
+              status: "succeeded",
+            },
+            ...(autoPreset
+              ? {
+                  presetId: autoPreset.id,
+                  intensity: autoPreset.intensity,
+                  filmProfileId: autoPreset.filmProfileId,
+                  filmProfile: autoPreset.filmProfile,
+                  filmOverrides: undefined,
+                }
+              : {}),
+          });
+          succeeded += 1;
+        } catch {
+          updateAsset(asset.id, {
+            aiRecommendation: {
+              version: 1,
+              model: "gpt-4.1-mini",
+              matchedAt: new Date().toISOString(),
+              attempts: MAX_RECOMMENDATION_RETRIES,
+              topPresets: [],
+              status: "failed",
+            },
+          });
+          failed += 1;
+        } finally {
+          processed += 1;
+          setAiProgress({
+            running: true,
+            total: targetAssets.length,
+            processed,
+            succeeded,
+            failed,
+          });
+        }
+      }
+
+      setAiProgress((current) => ({
+        ...current,
+        running: false,
+      }));
+      aiRunInFlightRef.current = false;
+    },
+    [aiPresetCandidates, allPresets, updateAsset]
+  );
+
+  const handleRetryFailedRecommendations = useCallback(() => {
+    if (aiRunInFlightRef.current || failedAiAssets.length === 0) {
+      return;
+    }
+    void runAiMatchingForAssets(failedAiAssets);
+  }, [failedAiAssets, runAiMatchingForAssets]);
 
   const handleFiles = useCallback(
     (files: FileList | null) => {
@@ -486,6 +709,19 @@ export function Workspace() {
   const currentStep = (step ?? "library") as WorkspaceStep;
   const stepIndex = steps.findIndex((item) => item.id === currentStep);
 
+  useEffect(() => {
+    if (currentStep !== "style" || aiRunInFlightRef.current) {
+      return;
+    }
+    const pendingAssets = selectedAssets
+      .filter((asset) => !asset.aiRecommendation)
+      .slice(0, MAX_STYLE_SELECTION);
+    if (pendingAssets.length === 0) {
+      return;
+    }
+    void runAiMatchingForAssets(pendingAssets);
+  }, [currentStep, runAiMatchingForAssets, selectedAssets]);
+
   const setStep = (nextStep: WorkspaceStep) => {
     void navigate({ search: { step: nextStep } });
   };
@@ -498,7 +734,12 @@ export function Workspace() {
   };
 
   const targetSelection =
-    selectedAssetIds.length > 0 ? selectedAssetIds : assets.map((asset) => asset.id);
+    selectedAssetIds.length > 0
+      ? selectedAssetIds
+      : applySelectionLimit(
+          assets.map((asset) => asset.id),
+          MAX_STYLE_SELECTION
+        ).ids;
 
   const primaryAction = (() => {
     if (currentStep === "library") {
@@ -602,7 +843,7 @@ export function Workspace() {
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
-          onClick={() => setSelectedAssetIds(filteredAssets.map((asset) => asset.id))}
+          onClick={handleSelectFilteredAssets}
           disabled={filteredAssets.length === 0}
         >
           选择筛选结果
@@ -625,6 +866,9 @@ export function Workspace() {
           <span>本地占用</span>
           <span>{(totalSize / 1024 / 1024).toFixed(1)} MB</span>
         </div>
+        {selectionNotice && (
+          <p className="text-amber-300">{selectionNotice}</p>
+        )}
       </div>
 
       <div
@@ -668,7 +912,7 @@ export function Workspace() {
                 <input
                   type="checkbox"
                   checked={isSelected}
-                  onChange={() => toggleAssetSelection(asset.id)}
+                  onChange={() => handleToggleAssetSelection(asset.id)}
                   className="h-3 w-3 accent-sky-300"
                   aria-label={`选择 ${asset.name}`}
                 />
@@ -882,7 +1126,7 @@ export function Workspace() {
                           <input
                             type="checkbox"
                             checked={isSelected}
-                            onChange={() => toggleAssetSelection(asset.id)}
+                            onChange={() => handleToggleAssetSelection(asset.id)}
                             className="h-3 w-3 accent-sky-300"
                           />
                           选中
@@ -906,6 +1150,47 @@ export function Workspace() {
     <div className="space-y-6">
       <PreviewPanel />
 
+      <Card className="animate-fade-up">
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <CardTitle>AI 滤镜匹配</CardTitle>
+          <Badge className="border-white/10 bg-white/5 text-slate-200">
+            {aiProgress.running ? "识别中" : "已就绪"}
+          </Badge>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-slate-300">
+          <p>
+            已处理 {aiProgress.processed}/{aiProgress.total || selectedAssets.length} 张，
+            成功 {aiProgress.succeeded} 张，失败 {aiProgress.failed} 张。
+          </p>
+          <div className="rounded-full border border-white/10 bg-slate-950/60">
+            <div
+              className="h-2 rounded-full bg-sky-300 transition-all"
+              style={{
+                width:
+                  aiProgress.total > 0
+                    ? `${Math.round((aiProgress.processed / aiProgress.total) * 100)}%`
+                    : "0%",
+              }}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleRetryFailedRecommendations}
+              disabled={aiProgress.running || failedAiAssets.length === 0}
+            >
+              重试失败项
+            </Button>
+            {failedAiAssets.length > 0 && (
+              <span className="text-xs text-amber-300">
+                当前有 {failedAiAssets.length} 张失败，重试前不会改动原设置。
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       <Card className="animate-fade-up" style={{ animationDelay: "80ms" }}>
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>风格包</CardTitle>
@@ -915,6 +1200,40 @@ export function Workspace() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {activeRecommendedTopPresets.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs uppercase tracking-[0.24em] text-sky-200/80">
+                AI 推荐（当前图片）
+              </p>
+              <div className="flex gap-3 overflow-x-auto pb-2">
+                {activeRecommendedTopPresets.map(({ preset, recommendation }, index) => {
+                  const isActive = preset.id === selectedPresetId;
+                  return (
+                    <button
+                      key={`${preset.id}-${index}`}
+                      type="button"
+                      onClick={() => applyPreset(preset.id)}
+                      className={cn(
+                        "min-w-[220px] rounded-2xl border border-white/10 bg-slate-950/60 p-3 text-left transition",
+                        isActive && "border-sky-200/40 bg-sky-300/10"
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-medium text-slate-100">{preset.name}</p>
+                        <Badge className="border-sky-200/30 bg-sky-300/20 text-sky-100">
+                          Top {index + 1}
+                        </Badge>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-400 line-clamp-2">
+                        {recommendation.reason}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-3 overflow-x-auto pb-2">
             {basePresets.map((preset, index) => {
               const isActive = preset.id === selectedPresetId;

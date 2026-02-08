@@ -33,6 +33,12 @@
 - `pnpm build`
 - `pnpm preview`
 
+## AI 推荐配置
+- 模型：`gpt-4.1-mini`（通过 Vercel AI SDK 调用）
+- 本地开发：在项目根目录创建 `.env.local`，填写 `OPENAI_API_KEY=...`
+- Vercel 部署：在 Project Settings -> Environment Variables 添加 `OPENAI_API_KEY`
+- 服务端接口：`POST /api/recommend-film`（Key 仅在服务端使用，不暴露到前端）
+
 ## 文档
 - `docs/prd.md`：当前产品范围摘要
 - `docs/mvp_plan.md`：MVP 里程碑与进度

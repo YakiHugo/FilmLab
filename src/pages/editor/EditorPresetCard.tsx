@@ -1,4 +1,4 @@
-import { memo, useRef } from "react";
+import { memo, useMemo, useRef } from "react";
 import { presets as basePresets } from "@/data/presets";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +37,36 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
   const selectedPresetId = selectedAsset?.presetId;
   const fallbackPresetId = basePresets[0]?.id;
   const canSaveCustomPreset = Boolean(previewAdjustments);
+  const allPresets = useMemo(
+    () => [...basePresets, ...customPresets],
+    [customPresets]
+  );
+  const presetById = useMemo(
+    () => new Map(allPresets.map((preset) => [preset.id, preset])),
+    [allPresets]
+  );
+  const recommendedPresets = useMemo(() => {
+    if (!selectedAsset?.aiRecommendation) {
+      return [] as Array<{
+        id: string;
+        name: string;
+        reason: string;
+      }>;
+    }
+    return selectedAsset.aiRecommendation.topPresets
+      .map((item) => {
+        const preset = presetById.get(item.presetId);
+        if (!preset) {
+          return null;
+        }
+        return {
+          id: preset.id,
+          name: preset.name,
+          reason: item.reason,
+        };
+      })
+      .filter((item): item is { id: string; name: string; reason: string } => item !== null);
+  }, [presetById, selectedAsset?.aiRecommendation]);
 
   const handleImportFile: React.ChangeEventHandler<HTMLInputElement> = (event) => {
     const file = event.currentTarget.files?.[0] ?? null;
@@ -56,6 +86,30 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
         <CardTitle>预设系统</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {recommendedPresets.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs uppercase tracking-[0.24em] text-sky-200/80">
+              AI 推荐（当前图片）
+            </p>
+            <div className="grid gap-2">
+              {recommendedPresets.map((preset, index) => (
+                <Button
+                  key={`${preset.id}-${index}`}
+                  size="sm"
+                  variant={selectedPresetId === preset.id ? "default" : "secondary"}
+                  onClick={() => handleSelectPreset(preset.id)}
+                  disabled={!selectedAsset}
+                  className="justify-between gap-2"
+                  title={preset.reason}
+                >
+                  <span className="line-clamp-1">{preset.name}</span>
+                  <span className="text-[10px] text-slate-300">Top {index + 1}</span>
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="space-y-2">
           <Label className="text-xs text-slate-400">胶片档案</Label>
           <Select

@@ -1,5 +1,6 @@
 import { openDB, type DBSchema } from "idb";
 import type {
+  AssetAiRecommendation,
   AssetMetadata,
   EditingAdjustments,
   FilmProfile,
@@ -25,6 +26,7 @@ interface FilmLabDB extends DBSchema {
       metadata?: AssetMetadata;
       adjustments?: EditingAdjustments;
       filmProfile?: FilmProfile;
+      aiRecommendation?: AssetAiRecommendation;
     };
   };
   project: {

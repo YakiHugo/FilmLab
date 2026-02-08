@@ -83,6 +83,7 @@ const toStoredAsset = (asset: Asset): StoredAsset | null => {
     thumbnailBlob: asset.thumbnailBlob,
     metadata: asset.metadata,
     adjustments: asset.adjustments,
+    aiRecommendation: asset.aiRecommendation,
   };
 };
 
@@ -134,6 +135,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         thumbnailBlob: asset.thumbnailBlob,
         metadata: asset.metadata,
         adjustments: asset.adjustments ?? createDefaultAdjustments(),
+        aiRecommendation: asset.aiRecommendation,
       };
     });
 
