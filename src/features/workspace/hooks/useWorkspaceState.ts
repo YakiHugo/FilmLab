@@ -22,12 +22,74 @@ import {
   resolveFilmProfile,
 } from "../utils";
 
+const WORKSPACE_CONTEXT_KEY = "filmlab.workspace.context";
+
+interface PersistedWorkspaceContext {
+  step: WorkspaceStep;
+  selectedAssetIds: string[];
+  activeAssetId: string | null;
+  selectedPresetId: string;
+  intensity: number;
+}
+
+interface ExportFeedback {
+  kind: "success" | "mixed" | "error";
+  title: string;
+  detail: string;
+}
+
+const clampIntensity = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+
+const loadWorkspaceContext = (): PersistedWorkspaceContext | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(WORKSPACE_CONTEXT_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Partial<PersistedWorkspaceContext>;
+    const step = parsed.step;
+    if (step !== "library" && step !== "style" && step !== "export") {
+      return null;
+    }
+    return {
+      step,
+      selectedAssetIds: Array.isArray(parsed.selectedAssetIds)
+        ? parsed.selectedAssetIds.filter((id): id is string => typeof id === "string")
+        : [],
+      activeAssetId: typeof parsed.activeAssetId === "string" ? parsed.activeAssetId : null,
+      selectedPresetId:
+        typeof parsed.selectedPresetId === "string" ? parsed.selectedPresetId : "",
+      intensity:
+        typeof parsed.intensity === "number" ? clampIntensity(parsed.intensity) : 60,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const persistWorkspaceContext = (context: PersistedWorkspaceContext) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(WORKSPACE_CONTEXT_KEY, JSON.stringify(context));
+  } catch {
+    // no-op
+  }
+};
+
 export const useWorkspaceState = () => {
   const navigate = useNavigate({ from: "/" });
   const { step } = useSearch({ from: "/" });
+  const currentStep: WorkspaceStep =
+    step === "style" || step === "export" ? step : "library";
   const {
     project,
     assets,
+    isLoading,
     addAssets,
     isImporting,
     selectedAssetIds,
@@ -40,6 +102,7 @@ export const useWorkspaceState = () => {
     useShallow((state) => ({
       project: state.project,
       assets: state.assets,
+      isLoading: state.isLoading,
       addAssets: state.addAssets,
       isImporting: state.isImporting,
       selectedAssetIds: state.selectedAssetIds,
@@ -68,8 +131,13 @@ export const useWorkspaceState = () => {
   const [maxDimension, setMaxDimension] = useState(0);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
   const [importNotice, setImportNotice] = useState<string | null>(null);
+  const [exportFeedback, setExportFeedback] = useState<ExportFeedback | null>(null);
 
   const didAutoSelect = useRef(false);
+  const didRestoreContext = useRef(false);
+  const persistedContext = useRef<PersistedWorkspaceContext | null>(
+    loadWorkspaceContext(),
+  );
   const selectedAssetIdsRef = useRef<string[]>(selectedAssetIds);
 
   useEffect(() => {
@@ -113,6 +181,61 @@ export const useWorkspaceState = () => {
   }, [customPresets]);
 
   useEffect(() => {
+    if (isLoading || didRestoreContext.current) {
+      return;
+    }
+
+    didRestoreContext.current = true;
+    const context = persistedContext.current;
+    if (!context) {
+      return;
+    }
+
+    const hasExplicitStep = new URLSearchParams(window.location.search).has("step");
+    const canRestoreStep = context.step === "library" || assets.length > 0;
+    if (!hasExplicitStep && canRestoreStep && context.step !== currentStep) {
+      void navigate({ search: { step: context.step } });
+    }
+
+    if (!assets.length) {
+      return;
+    }
+
+    const assetIdSet = new Set(assets.map((asset) => asset.id));
+    if (context.selectedAssetIds.length > 0) {
+      const restoredSelection = applySelectionLimit(
+        context.selectedAssetIds.filter((id) => assetIdSet.has(id)),
+        MAX_STYLE_SELECTION,
+      );
+      if (restoredSelection.ids.length > 0) {
+        selectedAssetIdsRef.current = restoredSelection.ids;
+        setSelectedAssetIds(restoredSelection.ids);
+        didAutoSelect.current = true;
+        if (restoredSelection.limited) {
+          setSelectionNotice(`Selection limited to ${MAX_STYLE_SELECTION} assets.`);
+        }
+      }
+    }
+
+    if (context.activeAssetId && assetIdSet.has(context.activeAssetId)) {
+      setActiveAssetId(context.activeAssetId);
+    }
+
+    if (context.selectedPresetId && presetById.has(context.selectedPresetId)) {
+      setSelectedPresetId(context.selectedPresetId);
+    }
+
+    setIntensity(clampIntensity(context.intensity));
+  }, [
+    assets,
+    currentStep,
+    isLoading,
+    navigate,
+    presetById,
+    setSelectedAssetIds,
+  ]);
+
+  useEffect(() => {
     if (!assets.length) {
       setActiveAssetId(null);
       return;
@@ -124,7 +247,7 @@ export const useWorkspaceState = () => {
   }, [assets, activeAssetId]);
 
   useEffect(() => {
-    if (didAutoSelect.current) {
+    if (!didRestoreContext.current || didAutoSelect.current) {
       return;
     }
     if (assets.length > 0 && selectedAssetIds.length === 0) {
@@ -317,6 +440,10 @@ export const useWorkspaceState = () => {
         setImportNotice(`已导入 ${result.added} 张，失败 ${result.failed} 张。`);
         return;
       }
+      if (result.errors && result.errors.length > 0) {
+        setImportNotice(`导入失败：${result.errors[0]}`);
+        return;
+      }
       setImportNotice("导入失败，请重试或更换文件。");
     },
     [setSelectionWithLimit],
@@ -436,12 +563,15 @@ export const useWorkspaceState = () => {
     if (assets.length === 0) {
       return;
     }
+    setExportFeedback(null);
     const newTasks = assets.map((asset) => ({
       id: asset.id,
       name: asset.name,
       status: "等待" as const,
     }));
     setTasks(newTasks);
+    let successCount = 0;
+    let failedCount = 0;
 
     for (const asset of assets) {
       setTasks((prev) =>
@@ -482,12 +612,14 @@ export const useWorkspaceState = () => {
         link.download = buildDownloadName(asset.name, outputType);
         link.click();
         URL.revokeObjectURL(url);
+        successCount += 1;
         setTasks((prev) =>
           prev.map((item) =>
             item.id === asset.id ? { ...item, status: "完成" } : item,
           ),
         );
       } catch {
+        failedCount += 1;
         setTasks((prev) =>
           prev.map((item) =>
             item.id === asset.id ? { ...item, status: "失败" } : item,
@@ -495,6 +627,30 @@ export const useWorkspaceState = () => {
         );
       }
     }
+
+    if (failedCount === 0) {
+      setExportFeedback({
+        kind: "success",
+        title: "导出完成",
+        detail: `已成功导出 ${successCount} 张图片。`,
+      });
+      return;
+    }
+
+    if (successCount === 0) {
+      setExportFeedback({
+        kind: "error",
+        title: "导出失败",
+        detail: "所有图片导出失败，请调整参数后重试。",
+      });
+      return;
+    }
+
+    setExportFeedback({
+      kind: "mixed",
+      title: "导出已完成（部分失败）",
+      detail: `成功 ${successCount} 张，失败 ${failedCount} 张。`,
+    });
   };
 
   const completedCount = tasks.filter((task) => task.status === "完成").length;
@@ -508,8 +664,27 @@ export const useWorkspaceState = () => {
   const formatLabel =
     format === "original" ? "跟随原文件" : format === "png" ? "PNG" : "JPG";
 
-  const currentStep = (step ?? "library") as WorkspaceStep;
   const stepIndex = WORKSPACE_STEPS.findIndex((item) => item.id === currentStep);
+
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+    persistWorkspaceContext({
+      step: currentStep,
+      selectedAssetIds,
+      activeAssetId,
+      selectedPresetId,
+      intensity: clampIntensity(intensity),
+    });
+  }, [
+    activeAssetId,
+    currentStep,
+    intensity,
+    isLoading,
+    selectedAssetIds,
+    selectedPresetId,
+  ]);
 
   const setStep = (nextStep: WorkspaceStep) => {
     void navigate({ search: { step: nextStep } });
@@ -558,6 +733,10 @@ export const useWorkspaceState = () => {
     };
   })();
 
+  const dismissExportFeedback = () => {
+    setExportFeedback(null);
+  };
+
   return {
     WORKSPACE_STEPS,
     project,
@@ -597,6 +776,7 @@ export const useWorkspaceState = () => {
     setMaxDimension,
     selectionNotice,
     importNotice,
+    exportFeedback,
     allPresets,
     aiPresetCandidates,
     selectedSet,
@@ -628,5 +808,6 @@ export const useWorkspaceState = () => {
     primaryAction,
     completedCount,
     progress,
+    dismissExportFeedback,
   };
 };

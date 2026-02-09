@@ -61,6 +61,7 @@ export function Workspace() {
     setMaxDimension,
     selectionNotice,
     importNotice,
+    exportFeedback,
     allPresets,
     aiPresetCandidates,
     selectedSet,
@@ -92,6 +93,7 @@ export function Workspace() {
     primaryAction,
     completedCount,
     progress,
+    dismissExportFeedback,
   } = useWorkspaceState();
   const StepIndicator = () => (
     <div className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-slate-950/60 p-2">
@@ -846,6 +848,54 @@ export function Workspace() {
             onSetActiveAssetId={setActiveAssetId}
             onToggleAssetSelection={handleToggleAssetSelection}
           />
+        </div>
+      )}
+
+      {exportFeedback && (
+        <div
+          className={cn(
+            "fixed right-4 top-20 z-50 w-[min(92vw,420px)] rounded-2xl border bg-slate-950/95 p-4 shadow-glow backdrop-blur",
+            exportFeedback.kind === "success" && "border-emerald-200/40",
+            exportFeedback.kind === "mixed" && "border-amber-200/40",
+            exportFeedback.kind === "error" && "border-rose-200/40",
+          )}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-white">{exportFeedback.title}</p>
+              <p className="mt-1 text-xs text-slate-300">{exportFeedback.detail}</p>
+            </div>
+            <button
+              type="button"
+              className="text-xs text-slate-400 transition hover:text-slate-200"
+              onClick={dismissExportFeedback}
+            >
+              关闭
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => {
+                setStep("export");
+                dismissExportFeedback();
+              }}
+            >
+              查看结果
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                setStep("library");
+                dismissExportFeedback();
+              }}
+            >
+              返回素材库
+            </Button>
+          </div>
         </div>
       )}
 
