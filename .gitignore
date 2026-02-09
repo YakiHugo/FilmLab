@@ -69,6 +69,10 @@ Thumbs.db
 vite.config.js
 vite.config.d.ts
 
+# Test assets (downloaded images & local env)
+test-assets/images/
+test-assets/.env
+
 # Misc
 *.pid
 *.seed
