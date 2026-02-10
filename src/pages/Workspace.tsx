@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { AiMatchingCard } from "@/features/workspace/components/AiMatchingCard";
 import { LibraryOverviewCard } from "@/features/workspace/components/LibraryOverviewCard";
 import { LibraryPanel } from "@/features/workspace/components/LibraryPanel";
+import { PreviewPanel as WorkspacePreviewPanel } from "@/features/workspace/components/PreviewPanel";
 import { WORKSPACE_STEPS } from "@/features/workspace/constants";
 import { useWorkspaceState } from "@/features/workspace/hooks/useWorkspaceState";
 
@@ -95,6 +96,7 @@ export function Workspace() {
     progress,
     dismissExportFeedback,
   } = useWorkspaceState();
+
   const StepIndicator = () => (
     <div className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-slate-950/60 p-2">
       {WORKSPACE_STEPS.map((item, index) => {
@@ -196,7 +198,9 @@ export function Workspace() {
       }).catch(() => undefined);
       return () => controller.abort();
     }, [
-      activeAsset,
+      activeAsset?.blob,
+      activeAsset?.id,
+      activeAsset?.objectUrl,
       frameSize.height,
       frameSize.width,
       previewAdjustments,
@@ -338,7 +342,13 @@ export function Workspace() {
 
   const renderStyleStep = () => (
     <div className="space-y-6">
-      <PreviewPanel />
+      <WorkspacePreviewPanel
+        activeAsset={activeAsset}
+        previewAdjustments={previewAdjustments}
+        previewFilmProfile={previewFilmProfile}
+        showOriginal={showOriginal}
+        setShowOriginal={setShowOriginal}
+      />
 
       <AiMatchingCard
         selectedAssets={selectedAssets}
@@ -347,7 +357,10 @@ export function Workspace() {
         updateAsset={updateAsset}
       />
 
-      <Card className="animate-fade-up" style={{ animationDelay: "80ms" }}>
+      <Card
+        className="animate-fade-up"
+        style={{ animationDelay: "80ms" }}
+      >
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>风格包</CardTitle>
           <div className="flex items-center gap-2 text-xs text-slate-400">
@@ -876,15 +889,6 @@ export function Workspace() {
             </button>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              onClick={() => {
-                setStep("export");
-                dismissExportFeedback();
-              }}
-            >
-              查看结果
-            </Button>
             <Button
               size="sm"
               variant="secondary"

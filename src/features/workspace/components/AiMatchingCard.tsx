@@ -22,6 +22,13 @@ interface AiMatchingProgress {
   failed: number;
 }
 
+interface AiMatchingSummary {
+  total: number;
+  processed: number;
+  succeeded: number;
+  failed: number;
+}
+
 const createInitialAiProgress = (): AiMatchingProgress => ({
   running: false,
   total: 0,
@@ -29,6 +36,35 @@ const createInitialAiProgress = (): AiMatchingProgress => ({
   succeeded: 0,
   failed: 0,
 });
+
+const summarizeAiMatching = (
+  assets: Asset[],
+  excludedAssetIds?: Set<string>,
+): AiMatchingSummary => {
+  let succeeded = 0;
+  let failed = 0;
+
+  assets.forEach((asset) => {
+    if (excludedAssetIds?.has(asset.id)) {
+      return;
+    }
+    const status = asset.aiRecommendation?.status;
+    if (status === "succeeded") {
+      succeeded += 1;
+      return;
+    }
+    if (status === "failed") {
+      failed += 1;
+    }
+  });
+
+  return {
+    total: assets.length,
+    processed: succeeded + failed,
+    succeeded,
+    failed,
+  };
+};
 
 interface AiMatchingCardProps {
   selectedAssets: Asset[];
@@ -76,10 +112,16 @@ export const AiMatchingCard = memo(
           .filter((asset): asset is Asset => Boolean(asset)),
       [mergedFailedIds, selectedAssetById],
     );
-    const displayedTotal = progress.total || selectedAssets.length;
+    const selectionSummary = useMemo(
+      () => summarizeAiMatching(selectedAssets),
+      [selectedAssets],
+    );
+    const displayedProgress = progress.running
+      ? progress
+      : { ...selectionSummary, running: false };
     const progressPercent =
-      progress.total > 0
-        ? Math.round((progress.processed / progress.total) * 100)
+      displayedProgress.total > 0
+        ? Math.round((displayedProgress.processed / displayedProgress.total) * 100)
         : 0;
 
     useEffect(() => {
@@ -110,17 +152,19 @@ export const AiMatchingCard = memo(
         }
 
         const candidateIds = aiPresetCandidates.map((item) => item.id);
-        let processed = 0;
-        let succeeded = 0;
-        let failed = 0;
+        const targetAssetIds = new Set(targetAssets.map((asset) => asset.id));
+        const baseSummary = summarizeAiMatching(selectedAssets, targetAssetIds);
+        let processed = baseSummary.processed;
+        let succeeded = baseSummary.succeeded;
+        let failed = baseSummary.failed;
 
         aiRunInFlightRef.current = true;
         setProgress({
           running: true,
-          total: targetAssets.length,
-          processed: 0,
-          succeeded: 0,
-          failed: 0,
+          total: baseSummary.total,
+          processed,
+          succeeded,
+          failed,
         });
 
         for (const asset of targetAssets) {
@@ -169,6 +213,16 @@ export const AiMatchingCard = memo(
             );
             succeeded += 1;
           } catch {
+            updateAsset(asset.id, {
+              aiRecommendation: {
+                version: 1,
+                model: "gpt-4.1-mini",
+                matchedAt: new Date().toISOString(),
+                attempts: MAX_RECOMMENDATION_RETRIES,
+                topPresets: [],
+                status: "failed",
+              },
+            });
             setFailedAssetIds((prev) =>
               prev.includes(asset.id) ? prev : [...prev, asset.id],
             );
@@ -178,7 +232,7 @@ export const AiMatchingCard = memo(
             processed += 1;
             setProgress({
               running: true,
-              total: targetAssets.length,
+              total: baseSummary.total,
               processed,
               succeeded,
               failed,
@@ -192,7 +246,7 @@ export const AiMatchingCard = memo(
           running: false,
         }));
       },
-      [aiPresetCandidates, allPresets, updateAsset],
+      [aiPresetCandidates, allPresets, selectedAssets, updateAsset],
     );
 
     useEffect(() => {
@@ -206,10 +260,21 @@ export const AiMatchingCard = memo(
             !attemptedAssetIdsRef.current.has(asset.id),
         )
         .slice(0, MAX_STYLE_SELECTION);
-      if (pendingAssets.length === 0) {
+      const shouldRetryFailedOnEntry = attemptedAssetIdsRef.current.size === 0;
+      const failedAssetsForReentry = shouldRetryFailedOnEntry
+        ? selectedAssets.filter(
+            (asset) => asset.aiRecommendation?.status === "failed",
+          )
+        : [];
+      const pendingIds = new Set(pendingAssets.map((asset) => asset.id));
+      const targetAssets = [
+        ...pendingAssets,
+        ...failedAssetsForReentry.filter((asset) => !pendingIds.has(asset.id)),
+      ].slice(0, MAX_STYLE_SELECTION);
+      if (targetAssets.length === 0) {
         return;
       }
-      void runAiMatchingForAssets(pendingAssets);
+      void runAiMatchingForAssets(targetAssets);
     }, [runAiMatchingForAssets, selectedAssets]);
 
     const handleRetryFailedRecommendations = useCallback(() => {
@@ -224,13 +289,13 @@ export const AiMatchingCard = memo(
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>AI 滤镜匹配</CardTitle>
           <Badge className="border-white/10 bg-white/5 text-slate-200">
-            {progress.running ? "识别中" : "已就绪"}
+            {displayedProgress.running ? "识别中" : "已就绪"}
           </Badge>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-slate-300">
           <p>
-            已处理 {progress.processed}/{displayedTotal} 张， 成功{" "}
-            {progress.succeeded} 张，失败 {progress.failed} 张。
+            已处理 {displayedProgress.processed}/{displayedProgress.total} 张，成功{" "}
+            {displayedProgress.succeeded} 张，失败 {displayedProgress.failed} 张。
           </p>
           <div className="rounded-full border border-white/10 bg-slate-950/60">
             <div
@@ -243,7 +308,7 @@ export const AiMatchingCard = memo(
               size="sm"
               variant="secondary"
               onClick={handleRetryFailedRecommendations}
-              disabled={progress.running || failedAssets.length === 0}
+              disabled={displayedProgress.running || failedAssets.length === 0}
             >
               重试失败项
             </Button>

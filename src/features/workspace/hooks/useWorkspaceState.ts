@@ -38,6 +38,32 @@ interface ExportFeedback {
   detail: string;
 }
 
+interface FileWritableLike {
+  write: (data: Blob) => Promise<void>;
+  close: () => Promise<void>;
+}
+
+interface FileHandleLike {
+  createWritable: () => Promise<FileWritableLike>;
+}
+
+interface DirectoryHandleLike {
+  getFileHandle: (
+    name: string,
+    options: { create: boolean },
+  ) => Promise<FileHandleLike>;
+}
+
+type DirectoryPickerWindow = Window & {
+  showDirectoryPicker?: (options?: {
+    id?: string;
+    mode?: "read" | "readwrite";
+    startIn?: "downloads" | "documents" | "desktop" | "pictures";
+  }) => Promise<DirectoryHandleLike>;
+};
+
+const EXPORT_DIRECTORY_PICKER_ID = "filmlab-export-directory";
+
 const clampIntensity = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
 
 const loadWorkspaceContext = (): PersistedWorkspaceContext | null => {
@@ -79,6 +105,82 @@ const persistWorkspaceContext = (context: PersistedWorkspaceContext) => {
   } catch {
     // no-op
   }
+};
+
+const isAbortError = (error: unknown) =>
+  error instanceof DOMException && error.name === "AbortError";
+
+const supportsDirectoryExport = () => {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  const pickerWindow = window as DirectoryPickerWindow;
+  return typeof pickerWindow.showDirectoryPicker === "function";
+};
+
+const sanitizeFileName = (name: string) => {
+  const sanitized = name
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "_")
+    .replace(/[. ]+$/g, "")
+    .trim();
+  return sanitized.length > 0 ? sanitized : "exported-image.jpg";
+};
+
+const toUniqueFileName = (name: string, usedNames: Set<string>) => {
+  const safeName = sanitizeFileName(name);
+  const dotIndex = safeName.lastIndexOf(".");
+  const baseName = dotIndex > 0 ? safeName.slice(0, dotIndex) : safeName;
+  const extension = dotIndex > 0 ? safeName.slice(dotIndex) : "";
+  let candidate = safeName;
+  let suffix = 2;
+  while (usedNames.has(candidate)) {
+    candidate = `${baseName} (${suffix})${extension}`;
+    suffix += 1;
+  }
+  usedNames.add(candidate);
+  return candidate;
+};
+
+const openExportDirectory = async (): Promise<DirectoryHandleLike | null> => {
+  if (!supportsDirectoryExport()) {
+    return null;
+  }
+  const pickerWindow = window as DirectoryPickerWindow;
+  if (!pickerWindow.showDirectoryPicker) {
+    return null;
+  }
+  try {
+    return await pickerWindow.showDirectoryPicker({
+      id: EXPORT_DIRECTORY_PICKER_ID,
+      mode: "readwrite",
+      startIn: "downloads",
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      return null;
+    }
+    throw error;
+  }
+};
+
+const downloadBlob = (blob: Blob, fileName: string) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
+const writeBlobToDirectory = async (
+  directoryHandle: DirectoryHandleLike,
+  fileName: string,
+  blob: Blob,
+) => {
+  const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(blob);
+  await writable.close();
 };
 
 export const useWorkspaceState = () => {
@@ -564,6 +666,23 @@ export const useWorkspaceState = () => {
       return;
     }
     setExportFeedback(null);
+    const canPickDirectory = supportsDirectoryExport();
+    let directoryHandle: DirectoryHandleLike | null = null;
+    if (canPickDirectory) {
+      try {
+        directoryHandle = await openExportDirectory();
+      } catch {
+        setExportFeedback({
+          kind: "error",
+          title: "Export failed",
+          detail: "Could not access the selected folder. Please retry.",
+        });
+        return;
+      }
+      if (!directoryHandle) {
+        return;
+      }
+    }
     const newTasks = assets.map((asset) => ({
       id: asset.id,
       name: asset.name,
@@ -572,6 +691,7 @@ export const useWorkspaceState = () => {
     setTasks(newTasks);
     let successCount = 0;
     let failedCount = 0;
+    const usedFileNames = new Set<string>();
 
     for (const asset of assets) {
       setTasks((prev) =>
@@ -606,12 +726,15 @@ export const useWorkspaceState = () => {
           filmProfile: filmProfile ?? undefined,
           seedKey: asset.id,
         });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = buildDownloadName(asset.name, outputType);
-        link.click();
-        URL.revokeObjectURL(url);
+        const outputFileName = toUniqueFileName(
+          buildDownloadName(asset.name, outputType),
+          usedFileNames,
+        );
+        if (directoryHandle) {
+          await writeBlobToDirectory(directoryHandle, outputFileName, blob);
+        } else {
+          downloadBlob(blob, outputFileName);
+        }
         successCount += 1;
         setTasks((prev) =>
           prev.map((item) =>
