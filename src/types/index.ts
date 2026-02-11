@@ -7,6 +7,10 @@ export type PresetAdjustmentKey =
   | "shadows"
   | "whites"
   | "blacks"
+  | "curveHighlights"
+  | "curveLights"
+  | "curveDarks"
+  | "curveShadows"
   | "temperature"
   | "tint"
   | "vibrance"
@@ -14,7 +18,13 @@ export type PresetAdjustmentKey =
   | "clarity"
   | "dehaze"
   | "vignette"
-  | "grain";
+  | "grain"
+  | "grainSize"
+  | "grainRoughness"
+  | "sharpening"
+  | "masking"
+  | "noiseReduction"
+  | "colorNoiseReduction";
 
 export type PresetAdjustments = Partial<Record<PresetAdjustmentKey, number>>;
 
@@ -106,6 +116,17 @@ export type FilmModuleConfig =
   | GrainModule
   | DefectsModule
   | ScanModule;
+
+export type FilmNumericParamKeyMap = {
+  colorScience: Exclude<keyof ColorScienceParams, "rgbMix">;
+  tone: keyof ToneParams;
+  grain: keyof GrainParams;
+  defects: keyof DefectsParams;
+  scan: keyof ScanParams;
+};
+
+export type FilmNumericParamKey<TId extends FilmModuleId = FilmModuleId> =
+  FilmNumericParamKeyMap[TId];
 
 export interface FilmProfile {
   id: string;

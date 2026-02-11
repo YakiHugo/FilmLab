@@ -73,6 +73,10 @@ const PRESET_LIMITS: Record<PresetAdjustmentKey, { min: number; max: number }> =
   shadows: { min: -100, max: 100 },
   whites: { min: -100, max: 100 },
   blacks: { min: -100, max: 100 },
+  curveHighlights: { min: -100, max: 100 },
+  curveLights: { min: -100, max: 100 },
+  curveDarks: { min: -100, max: 100 },
+  curveShadows: { min: -100, max: 100 },
   temperature: { min: -100, max: 100 },
   tint: { min: -100, max: 100 },
   vibrance: { min: -100, max: 100 },
@@ -81,6 +85,12 @@ const PRESET_LIMITS: Record<PresetAdjustmentKey, { min: number; max: number }> =
   dehaze: { min: -100, max: 100 },
   vignette: { min: -100, max: 100 },
   grain: { min: 0, max: 100 },
+  grainSize: { min: 0, max: 100 },
+  grainRoughness: { min: 0, max: 100 },
+  sharpening: { min: 0, max: 100 },
+  masking: { min: 0, max: 100 },
+  noiseReduction: { min: 0, max: 100 },
+  colorNoiseReduction: { min: 0, max: 100 },
 };
 
 const clampValue = (value: number, min: number, max: number) =>

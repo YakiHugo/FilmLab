@@ -1,4 +1,4 @@
-import { presets as basePresets } from "@/data/presets";
+﻿import { presets as basePresets } from "@/data/presets";
 import { applyPresetAdjustments, createDefaultAdjustments } from "@/lib/adjustments";
 import {
   normalizeFilmProfile,
@@ -22,6 +22,10 @@ const presetAdjustmentKeys: PresetAdjustmentKey[] = [
   "shadows",
   "whites",
   "blacks",
+  "curveHighlights",
+  "curveLights",
+  "curveDarks",
+  "curveShadows",
   "temperature",
   "tint",
   "vibrance",
@@ -30,6 +34,12 @@ const presetAdjustmentKeys: PresetAdjustmentKey[] = [
   "dehaze",
   "vignette",
   "grain",
+  "grainSize",
+  "grainRoughness",
+  "sharpening",
+  "masking",
+  "noiseReduction",
+  "colorNoiseReduction",
 ];
 
 const isPresetLike = (value: unknown): value is Record<string, unknown> => {
@@ -189,3 +199,4 @@ export const normalizeImportedPresets = (parsed: unknown): Preset[] => {
       };
     });
 };
+

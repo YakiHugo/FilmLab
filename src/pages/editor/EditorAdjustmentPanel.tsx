@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import type {
   EditingAdjustments,
   FilmModuleId,
+  FilmNumericParamKey,
 } from "@/types";
 import { ASPECT_RATIOS } from "./constants";
 import { EditorSection } from "./EditorSection";
@@ -27,13 +28,17 @@ import {
 import type { NumericAdjustmentKey } from "./types";
 import { useEditorState } from "./useEditorState";
 
-interface FilmParamDefinition {
-  key: string;
+interface FilmParamDefinition<TId extends FilmModuleId> {
+  key: FilmNumericParamKey<TId>;
   label: string;
   min: number;
   max: number;
   step: number;
 }
+
+type FilmParamDefinitions = {
+  [TId in FilmModuleId]: FilmParamDefinition<TId>[];
+};
 
 const DEFAULT_ADJUSTMENTS = createDefaultAdjustments();
 
@@ -45,7 +50,7 @@ const FILM_MODULE_LABELS: Record<FilmModuleId, string> = {
   defects: "瑕疵",
 };
 
-const FILM_PARAM_DEFINITIONS: Record<FilmModuleId, FilmParamDefinition[]> = {
+const FILM_PARAM_DEFINITIONS: FilmParamDefinitions = {
   colorScience: [
     { key: "lutStrength", label: "LUT 强度", min: 0, max: 1, step: 0.01 },
     { key: "temperatureShift", label: "色温偏移", min: -100, max: 100, step: 1 },
@@ -490,4 +495,6 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
     </>
   );
 });
+
+
 

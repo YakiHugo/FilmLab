@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+﻿import { useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { presets as basePresets } from "@/data/presets";
 import { createDefaultAdjustments } from "@/lib/adjustments";
@@ -9,6 +9,7 @@ import type {
   Asset,
   EditingAdjustments,
   FilmModuleId,
+  FilmNumericParamKey,
   HslColorKey,
   Preset,
 } from "@/types";
@@ -134,7 +135,7 @@ export function useEditorState() {
     if (selectedAsset?.filmProfileId) {
       return selectedAsset.filmProfileId;
     }
-    return "自动";
+    return "鑷姩";
   }, [previewFilmProfile, selectedAsset?.filmProfileId]);
 
   const updateAdjustments = useCallback(
@@ -243,7 +244,7 @@ export function useEditorState() {
   );
 
   const handleSetFilmModuleParam = useCallback(
-    (moduleId: FilmModuleId, key: string, value: number) => {
+    <TId extends FilmModuleId>(moduleId: TId, key: FilmNumericParamKey<TId>, value: number) => {
       updateFilmOverrides((prev) => ({
         ...prev,
         [moduleId]: {
@@ -532,3 +533,6 @@ export function useEditorState() {
     handleImportFilmProfile,
   };
 }
+
+
+
