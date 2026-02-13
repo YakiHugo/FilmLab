@@ -125,6 +125,95 @@ const resolveProfile = (
   return createFilmProfileFromAdjustments(adjustments);
 };
 
+/**
+ * Enable the new PixiJS multi-pass renderer (Master + Film pipeline).
+ *
+ * The PixiJS renderer is implemented in `src/lib/renderer/` and provides:
+ * - OKLab + LMS color science (Master pass)
+ * - 3D LUT via HaldCLUT (Film pass)
+ * - Film grain and vignette
+ *
+ * Set to `true` to activate the new pipeline. When `false` (default),
+ * the legacy WebGL2 single-pass renderer is used.
+ *
+ * Usage (from browser console for testing):
+ *   (window as any).__FILMLAB_USE_PIXI = true;
+ */
+const isPixiRendererEnabled = (): boolean =>
+  typeof window !== "undefined" &&
+  (window as any).__FILMLAB_USE_PIXI === true;
+
+/**
+ * Lazy-load and invoke the PixiJS renderer.
+ * Only loaded when explicitly enabled via the feature flag above.
+ */
+const tryPixiRender = async (
+  sourceCanvas: HTMLCanvasElement,
+  adjustments: EditingAdjustments,
+  filmProfile: FilmProfile | undefined,
+  options: { seedKey?: string; renderSeed?: number; exportSeed?: number }
+): Promise<HTMLCanvasElement | null> => {
+  if (!isPixiRendererEnabled()) return null;
+
+  try {
+    // Dynamic import to avoid loading PixiJS when not needed
+    const { PixiRenderer } = await import("@/lib/renderer/PixiRenderer");
+    const { resolveFromAdjustments, resolveFilmUniforms } = await import(
+      "@/lib/renderer/uniformResolvers"
+    );
+
+    // Lazily create the renderer singleton
+    if (!pixiRendererInstance) {
+      const offscreen = document.createElement("canvas");
+      pixiRendererInstance = new PixiRenderer(offscreen, sourceCanvas.width, sourceCanvas.height);
+
+      if (!pixiRendererInstance.isWebGL2) {
+        pixiRendererInstance.dispose();
+        pixiRendererInstance = null;
+        return null;
+      }
+    }
+
+    const renderer = pixiRendererInstance;
+
+    // Upload the geometry-transformed canvas as the source texture
+    renderer.updateSource(
+      sourceCanvas,
+      sourceCanvas.width,
+      sourceCanvas.height
+    );
+
+    // Resolve Master uniforms from EditingAdjustments
+    const masterUniforms = resolveFromAdjustments(adjustments);
+
+    // Resolve Film uniforms from FilmProfile (if provided)
+    const resolvedProfile = filmProfile
+      ? resolveProfile(adjustments, filmProfile)
+      : resolveProfile(adjustments);
+    const filmUniforms = resolveFilmUniforms(resolvedProfile, {
+      grainSeed: options.renderSeed ?? Date.now(),
+    });
+
+    // Render with both passes
+    renderer.render(masterUniforms, filmUniforms);
+
+    return renderer.canvas;
+  } catch (e) {
+    console.warn("PixiJS render failed, falling back to legacy renderer:", e);
+    // Dispose the broken renderer so we don't try again
+    if (pixiRendererInstance) {
+      pixiRendererInstance.dispose();
+      pixiRendererInstance = null;
+    }
+    return null;
+  }
+};
+
+// Module-level PixiJS renderer singleton (only created when feature-flagged on)
+let pixiRendererInstance: InstanceType<
+  typeof import("@/lib/renderer/PixiRenderer").PixiRenderer
+> | null = null;
+
 export const renderImageToCanvas = async ({
   canvas,
   source,
@@ -206,25 +295,43 @@ export const renderImageToCanvas = async ({
   );
   context.restore();
 
+  // -- Render pipeline: try PixiJS -> legacy WebGL2 -> CPU fallback --
+
+  const renderOptions = {
+    seedKey,
+    renderSeed: renderSeed ?? Date.now(),
+    exportSeed,
+  };
+
+  // 1. Try PixiJS multi-pass pipeline (Master + Film) — feature-flagged
+  if (preferWebGL2 && isPixiRendererEnabled()) {
+    const pixiResult = await tryPixiRender(
+      canvas,
+      adjustments,
+      filmProfile,
+      renderOptions
+    );
+    if (pixiResult) {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(pixiResult, 0, 0, canvas.width, canvas.height);
+      loaded.cleanup?.();
+      return;
+    }
+  }
+
+  // 2. Legacy single-pass WebGL2 renderer (default path)
   const resolvedProfile = resolveProfile(adjustments, filmProfile);
   const renderedByWebGL =
     preferWebGL2 &&
-    renderFilmProfileWebGL2(canvas, resolvedProfile, {
-      seedKey,
-      renderSeed: renderSeed ?? Date.now(),
-      exportSeed,
-    });
+    renderFilmProfileWebGL2(canvas, resolvedProfile, renderOptions);
 
   if (renderedByWebGL) {
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.drawImage(renderedByWebGL, 0, 0, canvas.width, canvas.height);
   } else {
+    // 3. CPU fallback pipeline
     const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-    applyFilmPipeline(imageData, resolvedProfile, {
-      seedKey,
-      renderSeed: renderSeed ?? Date.now(),
-      exportSeed,
-    });
+    applyFilmPipeline(imageData, resolvedProfile, renderOptions);
     context.putImageData(imageData, 0, 0);
   }
 

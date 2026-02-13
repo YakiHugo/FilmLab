@@ -1,4 +1,4 @@
-# FilmLab 项目现状与待办汇总（2026-02-09）
+# FilmLab 项目现状与待办汇总（2026-02-14）
 
 本文件作为 `docs/` 的统一状态文档，用于替代早期拆分的中间产物文档。
 
@@ -34,6 +34,12 @@
 - 编辑器支持基础参数、曲线/HSL、胶片模块参数覆盖等调节。
 - 已实现 `FilmProfile` 模块化渲染链路（color/tone/scan/grain/defects）。
 - 渲染策略为 WebGL2 优先、CPU pipeline 回退。
+- **（新）PixiJS 双 Pass 渲染引擎已实现**（feature-flagged，默认关闭）：
+  - `MasterAdjustmentFilter`：OKLab HSL + LMS 白平衡 + 科学色彩调整。
+  - `FilmSimulationFilter`：特性曲线 + 3D LUT（HaldCLUT）+ Grain + Vignette。
+  - `LUTLoader` / `LUTCache`：HaldCLUT 解析 → WebGL 3D Texture + LRU 缓存。
+  - `PixiRenderer` 封装 + `uniformResolvers` 兼容层（v1 数据 → 新 Uniform）。
+  - 通过 `window.__FILMLAB_USE_PIXI = true` 开启，动态加载 PixiJS 不影响默认包体积。
 
 ### 2.5 导出
 
@@ -70,6 +76,8 @@
 
 1. 导出队列改造为 Worker/OffscreenCanvas（避免主线程阻塞）。
 2. 大图渲染与移动端内存策略优化（分辨率降级/分段处理）。
+3. PixiJS 渲染引擎浏览器验证与正式启用（Phase 0 验证 → 去掉 feature flag）。
+4. 首批 HaldCLUT 胶片 LUT 资源制作与集成。
 
 ## 5. 非目标（当前阶段不做）
 
@@ -81,4 +89,5 @@
 
 - 该文件是产品进度与待办的唯一汇总入口。
 - 胶片渲染底层细节继续维护在 `docs/film_pipeline.md`。
+- 编辑器重构技术方案详见 `docs/editor.md`。
 - 版本迭代后仅更新本文件，不再新增重复的计划拆分文档。
