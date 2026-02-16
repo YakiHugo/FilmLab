@@ -4,8 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "generate:shaders": "tsx scripts/generate-shaders.ts",
+    "dev": "npm run generate:shaders && vite",
+    "build": "npm run generate:shaders && tsc -b && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -37,6 +38,7 @@
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.41",
     "tailwindcss": "^3.4.10",
+    "tsx": "^4.21.0",
     "typescript": "^5.5.4",
     "vite": "^5.4.2",
     "vitest": "^4.0.18"

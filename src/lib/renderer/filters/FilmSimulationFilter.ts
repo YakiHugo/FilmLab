@@ -4,7 +4,7 @@ import { LUTCache } from "../LUTCache";
 import type { FilmUniforms } from "../types";
 
 import vertexSrc from "../shaders/default.vert?raw";
-import fragmentSrc from "../shaders/FilmSimulation.frag?raw";
+import fragmentSrc from "../shaders/generated/FilmSimulation.frag?raw";
 
 /**
  * PixiJS Filter that applies Film Simulation effects:
@@ -44,6 +44,11 @@ export class FilmSimulationFilter extends Filter {
       // Layer 3: LUT
       u_lutEnabled: false,
       u_lutIntensity: 0.0,
+      // Layer 4: Color Cast
+      u_colorCastEnabled: false,
+      u_colorCastShadows: new Float32Array([0, 0, 0]),
+      u_colorCastMidtones: new Float32Array([0, 0, 0]),
+      u_colorCastHighlights: new Float32Array([0, 0, 0]),
       // Layer 6: Grain
       u_grainEnabled: false,
       u_grainAmount: 0.0,
@@ -152,6 +157,17 @@ export class FilmSimulationFilter extends Filter {
 
     this.uniforms.u_lutEnabled = u.u_lutEnabled;
     this.uniforms.u_lutIntensity = u.u_lutIntensity;
+
+    this.uniforms.u_colorCastEnabled = u.u_colorCastEnabled;
+    this.uniforms.u_colorCastShadows[0] = u.u_colorCastShadows[0];
+    this.uniforms.u_colorCastShadows[1] = u.u_colorCastShadows[1];
+    this.uniforms.u_colorCastShadows[2] = u.u_colorCastShadows[2];
+    this.uniforms.u_colorCastMidtones[0] = u.u_colorCastMidtones[0];
+    this.uniforms.u_colorCastMidtones[1] = u.u_colorCastMidtones[1];
+    this.uniforms.u_colorCastMidtones[2] = u.u_colorCastMidtones[2];
+    this.uniforms.u_colorCastHighlights[0] = u.u_colorCastHighlights[0];
+    this.uniforms.u_colorCastHighlights[1] = u.u_colorCastHighlights[1];
+    this.uniforms.u_colorCastHighlights[2] = u.u_colorCastHighlights[2];
 
     this.uniforms.u_grainEnabled = u.u_grainEnabled;
     this.uniforms.u_grainAmount = u.u_grainAmount;

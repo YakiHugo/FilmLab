@@ -2,7 +2,7 @@ import { Filter } from "pixi.js";
 import type { MasterUniforms } from "../types";
 
 import vertexSrc from "../shaders/default.vert?raw";
-import fragmentSrc from "../shaders/MasterAdjustment.frag?raw";
+import fragmentSrc from "../shaders/generated/MasterAdjustment.frag?raw";
 
 /**
  * PixiJS Filter that applies Master-level image adjustments:
