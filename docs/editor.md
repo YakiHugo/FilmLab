@@ -1727,7 +1727,7 @@ export function applyCPUFallbackPipeline(
 | **V1** (Phase 2 完成) | Halation/Bloom + 分区色偏 + 10 款胶片 | 效果媲美 VSCO/RNI Films 入门级 |
 | **V2** (Phase 3 完成) | 完整六层模型 + 参数提取工具 | 可从 HaldCLUT 自动提取完整 FilmProfile |
 
-### 11.4 实施进度（2026-02-14 更新）
+### 11.4 实施进度（2026-02-16 更新）
 
 | 阶段 | 状态 | 说明 |
 |---|---|---|
@@ -1735,30 +1735,61 @@ export function applyCPUFallbackPipeline(
 | **Phase 1b — Master Shader** | ✅ 已完成 | OKLab HSL + LMS 白平衡 + 全部 17 项 Master 调整参数 |
 | **Phase 1c — Film Shader MVP** | ✅ 已完成 | 特性曲线 + 3D LUT（HaldCLUT）+ Grain + Vignette |
 | **Phase 1d — 集成与兼容** | ✅ 已完成 | `imageProcessing.ts` 集成、v1 数据兼容适配层、CPU 回退、feature flag 隔离 |
+| **Shader Code Generator** | ✅ 已完成 | Compile-Time 生成架构、10 个模板片段、tsx 脚本、config-driven 功能切换 |
 | **Phase 0 — 技术验证** | ⏳ 待验证 | 代码已就绪，需在浏览器中完成 shader 编译与渲染正确性验证 |
 | **Phase 2 — 专业效果** | 🔲 未开始 | Halation/Bloom、分区色偏、10 款胶片 |
 | **Phase 3 — 完整模型** | 🔲 未开始 | 色彩矩阵层、参数提取工具 |
 
-**已交付的代码文件：**
+**已交付的代码文件（更新到 2026-02-16）：**
 
 ```
 src/glsl.d.ts                                  # GLSL 模块声明（?raw 导入）
 src/lib/renderer/
+├── shader.config.ts                            # 【新】功能配置（MasterConfig + FilmConfig）
 ├── types.ts                                    # MasterUniforms / FilmUniforms 接口
 ├── PixiRenderer.ts                             # PixiJS Application 封装 + 渲染入口
 ├── uniformResolvers.ts                         # EditingAdjustments / FilmProfile → Uniforms 转换
 ├── LUTLoader.ts                                # HaldCLUT PNG → WebGL 3D Texture
 ├── LUTCache.ts                                 # LRU 缓存管理（≤5 个 3D Texture）
+├── shaders/
+│   ├── default.vert                            # 共享顶点着色器（GLSL 300 es）
+│   ├── MasterAdjustment.frag                   # 主调整片段着色器（17 项参数，生成源）
+│   ├── FilmSimulation.frag                     # 胶片模拟片段着色器（生成源）
+│   ├── templates/                              # 【新】GLSL 模板片段（9 个文件）
+│   │   ├── srgb.glsl
+│   │   ├── oklab.glsl
+│   │   ├── lms.glsl
+│   │   ├── luminance.glsl
+│   │   ├── hash.glsl
+│   │   ├── toneResponse.glsl
+│   │   ├── lut3d.glsl
+│   │   ├── colorCast.glsl
+│   │   ├── grain.glsl
+│   │   └── vignette.glsl
+│   └── generated/                              # 【新】构建时输出（gitignore）
+│       ├── MasterAdjustment.frag
+│       ├── FilmSimulation.frag
+│       └── default.vert
 ├── filters/
 │   ├── MasterAdjustmentFilter.ts               # PixiJS Filter — 科学色彩调整 Pass
-│   └── FilmSimulationFilter.ts                 # PixiJS Filter — 胶片模拟 Pass（含手动 sampler3D 绑定）
-└── shaders/
-    ├── default.vert                            # 共享顶点着色器（GLSL 300 es）
-    ├── MasterAdjustment.frag                   # 主调整片段着色器（17 项参数）
-    └── FilmSimulation.frag                     # 胶片模拟片段着色器（LUT + Grain + Vignette）
+│   └── FilmSimulationFilter.ts                 # PixiJS Filter — 胶片模拟 Pass
+└── HalationBloomFilter.ts                      # 【新】PixiJS Filter — 光学效果 Pass（4-pass）
+scripts/
+└── generate-shaders.ts                         # 【新】Compile-Time Shader Code Generator
 ```
 
 **集成方式：** 新渲染器通过 `window.__FILMLAB_USE_PIXI = true` feature flag 启用，默认关闭。`imageProcessing.ts` 中采用动态 `import()` 加载 PixiJS 模块，不影响默认包体积（PixiJS 独立 chunk ~488KB）。
+
+**Shader Code Generator 详情：**
+- 配置文件：`src/lib/renderer/shader.config.ts`（定义启用的功能）
+- 模板目录：`src/lib/renderer/shaders/templates/`（10 个 GLSL 片段）
+- 生成器：`scripts/generate-shaders.ts`（~250 行 tsx 脚本）
+- 输出目录：`src/lib/renderer/shaders/generated/`（gitignore）
+- 构建集成：`package.json` scripts — `pnpm generate:shaders` 在 dev/build 前执行
+- 关键特性：
+  - 自动死代码消除（未启用功能的代码不出现在生成的 shader 中）
+  - 生成的 shader 与手写版本字节级别一致（已验证）
+  - 支持功能切换：修改 config 即可启用/禁用特性
 
 **已知限制：**
 - PixiJS v7 `mapType` 不识别 `sampler3D`，需在 `FilmSimulationFilter.apply()` 中手动绑定 3D Texture 到指定纹理单元。

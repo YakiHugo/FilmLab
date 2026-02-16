@@ -158,7 +158,7 @@ const tryPixiRender = async (
   try {
     // Dynamic import to avoid loading PixiJS when not needed
     const { PixiRenderer } = await import("@/lib/renderer/PixiRenderer");
-    const { resolveFromAdjustments, resolveFilmUniforms } = await import(
+    const { resolveFromAdjustments, resolveFilmUniforms, resolveHalationBloomUniforms } = await import(
       "@/lib/renderer/uniformResolvers"
     );
 
@@ -194,8 +194,11 @@ const tryPixiRender = async (
       grainSeed: options.renderSeed ?? Date.now(),
     });
 
-    // Render with both passes
-    renderer.render(masterUniforms, filmUniforms);
+    // Resolve Halation/Bloom uniforms from the scan module
+    const halationBloomUniforms = resolveHalationBloomUniforms(resolvedProfile);
+
+    // Render with all passes (Master + Film + Halation/Bloom)
+    renderer.render(masterUniforms, filmUniforms, undefined, halationBloomUniforms);
 
     return renderer.canvas;
   } catch (e) {
