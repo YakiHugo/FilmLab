@@ -1,25 +1,82 @@
-# Repository Guidelines
+# FilmLab Repository Guidelines
 
-## Project Structure & Module Organization
-The app lives in `src/`, with feature areas split into `components/`, `pages/`, `stores/`, `lib/`, `types/`, and `data/`. Entry points are `src/main.tsx` and `src/App.tsx`; global styles live in `src/index.css`. Routing is configured in `src/router.tsx` (TanStack Router). Page-level screens live in `src/pages/` (e.g., `Workspace.tsx`, `Editor.tsx`) with feature subfolders such as `src/pages/editor/`. Shared UI is in `src/components/ui/`, layout primitives in `src/components/layout/`. Static assets belong in `public/`. Build and tooling config is in `vite.config.ts`, `tailwind.config.js`, and `tsconfig*.json`.
+> Last updated: 2026-02-16  
+> This file is the quick collaboration guide.  
+> Detailed architecture: `AGENT.md` and `docs/editor.md`.
 
-## Build, Test, and Development Commands
-- `pnpm install`: install dependencies (repo uses `pnpm-lock.yaml`).
-- `pnpm dev`: start the Vite dev server with hot reload.
-- `pnpm build`: type-check and create a production build (`tsc -b` + `vite build`).
-- `pnpm preview`: serve the production build locally.
+## 1. Current Snapshot
 
-## Coding Style & Naming Conventions
-Use TypeScript + React. Match existing style: 2-space indentation, semicolons, and double quotes. Components use PascalCase filenames (e.g., `ExportPanel.tsx`), hooks are camelCase with a `use` prefix, and shared UI belongs in `src/components`. Use Tailwind utility classes directly in JSX and prefer the `@/` alias for `src/` imports. Keep TanStack Router route definitions colocated in `src/router.tsx`, and Zustand stores in `src/stores/`.
+- Tech stack: Vite + React 18 + TypeScript + Tailwind + Zustand + TanStack Router/Query
+- Main routes: `/` (`Workspace`) and `/editor` (`Editor`)
+- Rendering path:
+  - Preferred experimental path: PixiJS multi-pass (`src/lib/renderer/`) behind feature flag
+  - Default path: legacy WebGL2 single pass (`src/lib/film/webgl2.ts`)
+  - Final fallback: CPU pipeline (`src/lib/film/pipeline.ts`)
+- Persistence: IndexedDB via `idb` (`src/lib/db.ts`)
+- AI recommendation API: `POST /api/recommend-film` (`api/recommend-film.ts`)
 
-## Data, State, and Persistence
-Local presets live in `src/data/`. Client-side persistence uses IndexedDB via helpers in `src/lib/` (see `idb` usage). State management is handled with Zustand in `src/stores/`.
+## 2. Project Structure
 
-## Testing Guidelines
-No test framework is configured yet and there are no coverage requirements. If you add tests, keep them close to features using `*.test.tsx` or `src/__tests__/`, and wire a runner such as Vitest + React Testing Library.
+- `src/main.tsx`: app bootstrap (`QueryClientProvider` + router)
+- `src/router.tsx`: TanStack Router definitions
+- `src/pages/Workspace.tsx`: import/style/export workflow page
+- `src/pages/Editor.tsx`: fine-tune editor page
+- `src/features/workspace/`: workspace feature components and hooks
+- `src/pages/editor/`: editor subcomponents and helpers
+- `src/lib/imageProcessing.ts`: render entry (geometry + pipeline selection)
+- `src/lib/film/`: v1 film profile and legacy WebGL2/CPU pipeline
+- `src/lib/renderer/`: PixiJS renderer, filters, LUT loader/cache, shader config
+- `src/stores/`: Zustand stores (`projectStore.ts`, `editorStore.ts`)
+- `src/data/`: presets and built-in film profiles
+- `docs/`: project docs (`editor.md`, `film_pipeline.md`, `project_status.md`)
 
-## Docs
-Product and architecture notes live in `docs/` (see `docs/prd.md`, `docs/mvp_plan.md`, and `docs/tech_stack_architecture.md`).
+## 3. Commands
 
-## Commit & Pull Request Guidelines
-Git history mixes imperative messages and Conventional Commits (e.g., `feat: scaffold FilmLab MVP demo`). Prefer Conventional Commit prefixes going forward (`feat:`, `fix:`, `docs:`, `chore:`). For PRs, include a concise summary, link relevant issues, and attach screenshots or short GIFs for UI changes.
+- `pnpm install`: install dependencies
+- `pnpm dev`: generate shaders then run Vite dev server
+- `pnpm build`: generate shaders + type check + production build
+- `pnpm preview`: preview production build
+- `pnpm generate:shaders`: regenerate shader outputs manually
+- `pnpm vitest`: run tests (currently mainly `src/lib/ai/*.test.ts`)
+
+## 4. Coding Conventions
+
+- TypeScript + React function components
+- 2-space indentation, semicolons, double quotes
+- Use `@/` alias for `src/`
+- Component files: PascalCase
+- Hooks/utils: camelCase
+- Keep route config in `src/router.tsx`
+- Keep client state in Zustand stores under `src/stores/`
+
+## 5. Rendering-Related Changes Checklist
+
+When touching render features, update all of these together:
+
+1. Types (`src/types/index.ts`, optional `src/types/film.ts`)
+2. Uniform types (`src/lib/renderer/types.ts`)
+3. Uniform mapping (`src/lib/renderer/uniformResolvers.ts`)
+4. Shader config/templates (`src/lib/renderer/shader.config.ts`, `src/lib/renderer/shaders/templates/`)
+5. Regenerated shaders (`pnpm generate:shaders`)
+6. UI controls (`src/pages/editor/*` or `src/features/workspace/*`)
+
+## 6. Data and Persistence
+
+- Assets/project are persisted in IndexedDB (`src/lib/db.ts`)
+- Imported assets include metadata + thumbnails (`src/lib/assetMetadata.ts`)
+- Editor UI state (open sections/custom presets) partially uses localStorage
+
+## 7. Documentation Rules
+
+- Keep `AGENT.md` as the main engineering guide
+- Keep `docs/editor.md` focused on editor/render implementation
+- If behavior changes, update docs in the same PR
+
+## 8. Commit/PR Guidance
+
+- Prefer Conventional Commits: `feat:`, `fix:`, `docs:`, `chore:`
+- PR should include:
+  - clear scope
+  - user-visible impact
+  - testing steps
+  - screenshots/GIF for UI changes
