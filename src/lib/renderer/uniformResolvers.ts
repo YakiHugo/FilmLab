@@ -1,5 +1,6 @@
 import type { EditingAdjustments, FilmProfile } from "@/types";
-import type { MasterUniforms, FilmUniforms } from "./types";
+import type { FilmProfileV2 } from "@/types/film";
+import type { MasterUniforms, FilmUniforms, HalationBloomUniforms } from "./types";
 import { getFilmModule, normalizeFilmProfile } from "@/lib/film/profile";
 
 /**
@@ -63,6 +64,11 @@ export function resolveFilmUniforms(
   const grainAmount = grain?.enabled ? (grain.amount / 100) : 0;
   const scanAmount = scan?.enabled ? (scan.amount / 100) : 0;
 
+  // Derive color cast from scanWarmth
+  const warmth = (scan?.params.scanWarmth ?? 0) / 100;
+  const warmthScale = warmth * 0.12 * scanAmount;
+  const hasColorCast = Math.abs(warmthScale) > 0.001;
+
   return {
     // Layer 1: Tone Response
     // Map from legacy tone module -- derive S-curve params from tone settings
@@ -74,6 +80,12 @@ export function resolveFilmUniforms(
     // Layer 3: LUT (not available in v1 profiles, disabled by default)
     u_lutEnabled: false,
     u_lutIntensity: 0.0,
+
+    // Layer 4: Color Cast (derived from scanWarmth)
+    u_colorCastEnabled: hasColorCast,
+    u_colorCastShadows: [warmthScale * 0.5, 0, -warmthScale * 0.5],
+    u_colorCastMidtones: [warmthScale * 0.3, 0, -warmthScale * 0.3],
+    u_colorCastHighlights: [warmthScale * 0.1, 0, -warmthScale * 0.1],
 
     // Layer 6: Grain
     u_grainEnabled: grainAmount > 0 && (grain?.params.amount ?? 0) > 0,
@@ -89,5 +101,104 @@ export function resolveFilmUniforms(
     u_vignetteAmount: (scan?.params.vignetteAmount ?? 0) * scanAmount,
     u_vignetteMidpoint: 0.5,
     u_vignetteRoundness: 0.5,
+  };
+}
+
+/**
+ * Resolve Halation/Bloom uniforms from a v1 FilmProfile.
+ *
+ * Maps the legacy scan module's halation/bloom parameters into the
+ * new multi-pass HalationBloomFilter uniform format.
+ */
+export function resolveHalationBloomUniforms(
+  profile: FilmProfile
+): HalationBloomUniforms {
+  const normalized = normalizeFilmProfile(profile);
+  const scan = getFilmModule(normalized, "scan");
+  const scanAmount = scan?.enabled ? scan.amount / 100 : 0;
+
+  const halIntensity = (scan?.params.halationAmount ?? 0) * scanAmount;
+  const bloomIntensity = (scan?.params.bloomAmount ?? 0) * scanAmount;
+
+  return {
+    halationEnabled: halIntensity > 0.001,
+    halationThreshold: scan?.params.halationThreshold ?? 0.9,
+    halationIntensity: halIntensity,
+    halationColor: [1.0, 0.3, 0.1], // Classic warm film halation
+    halationRadius: Math.max(1, halIntensity * 8),
+
+    bloomEnabled: bloomIntensity > 0.001,
+    bloomThreshold: scan?.params.bloomThreshold ?? 0.85,
+    bloomIntensity: bloomIntensity,
+    bloomRadius: Math.max(1, bloomIntensity * 10),
+  };
+}
+
+/**
+ * Resolve Film uniforms from a V2 FilmProfile.
+ *
+ * Directly maps the structured V2 profile layers to shader uniforms.
+ */
+export function resolveFilmUniformsV2(
+  profile: FilmProfileV2,
+  options?: { grainSeed?: number }
+): FilmUniforms {
+  const cc = profile.colorCast;
+
+  return {
+    // Layer 1: Tone Response
+    u_toneEnabled: profile.toneResponse.enabled,
+    u_shoulder: profile.toneResponse.shoulder,
+    u_toe: profile.toneResponse.toe,
+    u_gamma: profile.toneResponse.gamma,
+
+    // Layer 3: LUT
+    u_lutEnabled: profile.lut.enabled && profile.lut.intensity > 0,
+    u_lutIntensity: profile.lut.intensity,
+
+    // Layer 4: Color Cast
+    u_colorCastEnabled: cc?.enabled ?? false,
+    u_colorCastShadows: cc?.shadows ?? [0, 0, 0],
+    u_colorCastMidtones: cc?.midtones ?? [0, 0, 0],
+    u_colorCastHighlights: cc?.highlights ?? [0, 0, 0],
+
+    // Layer 6: Grain
+    u_grainEnabled: profile.grain.enabled && profile.grain.amount > 0,
+    u_grainAmount: profile.grain.amount,
+    u_grainSize: profile.grain.size,
+    u_grainRoughness: profile.grain.roughness,
+    u_grainShadowBias: profile.grain.shadowBias,
+    u_grainSeed: options?.grainSeed ?? Date.now(),
+    u_grainIsColor: profile.grain.colorGrain,
+
+    // Layer 6: Vignette
+    u_vignetteEnabled:
+      profile.vignette.enabled && Math.abs(profile.vignette.amount) > 0.001,
+    u_vignetteAmount: profile.vignette.amount,
+    u_vignetteMidpoint: profile.vignette.midpoint,
+    u_vignetteRoundness: profile.vignette.roundness,
+  };
+}
+
+/**
+ * Resolve Halation/Bloom uniforms from a V2 FilmProfile.
+ */
+export function resolveHalationBloomUniformsV2(
+  profile: FilmProfileV2
+): HalationBloomUniforms {
+  const hal = profile.halation;
+  const bloom = profile.bloom;
+
+  return {
+    halationEnabled: hal?.enabled ?? false,
+    halationThreshold: hal?.threshold ?? 0.9,
+    halationIntensity: hal?.intensity ?? 0,
+    halationColor: hal?.color ?? [1.0, 0.3, 0.1],
+    halationRadius: hal?.radius,
+
+    bloomEnabled: bloom?.enabled ?? false,
+    bloomThreshold: bloom?.threshold ?? 0.85,
+    bloomIntensity: bloom?.intensity ?? 0,
+    bloomRadius: bloom?.radius,
   };
 }

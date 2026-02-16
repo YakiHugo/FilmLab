@@ -40,6 +40,12 @@ export interface FilmUniforms {
   u_lutEnabled: boolean;
   u_lutIntensity: number; // [0, 1]
 
+  // Layer 4: Color Cast (per-zone tinting)
+  u_colorCastEnabled: boolean;
+  u_colorCastShadows: [number, number, number]; // RGB offset
+  u_colorCastMidtones: [number, number, number]; // RGB offset
+  u_colorCastHighlights: [number, number, number]; // RGB offset
+
   // Layer 6: Grain
   u_grainEnabled: boolean;
   u_grainAmount: number; // [0, 1]
@@ -54,4 +60,20 @@ export interface FilmUniforms {
   u_vignetteAmount: number; // [-1, 1]
   u_vignetteMidpoint: number; // [0, 1]
   u_vignetteRoundness: number; // [0, 1]
+}
+
+/** Uniforms for the Halation/Bloom multi-pass filter. */
+export interface HalationBloomUniforms {
+  // Halation (warm glow from bright areas)
+  halationEnabled: boolean;
+  halationThreshold: number; // [0.5, 1.0]
+  halationIntensity: number; // [0, 1]
+  halationColor?: [number, number, number]; // RGB tint (default warm red)
+  halationRadius?: number; // blur radius override
+
+  // Bloom (neutral glow from bright areas)
+  bloomEnabled: boolean;
+  bloomThreshold: number; // [0.5, 1.0]
+  bloomIntensity: number; // [0, 1]
+  bloomRadius?: number; // blur radius override
 }

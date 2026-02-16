@@ -18,6 +18,12 @@ uniform float u_gamma;          // [0.5, 2.0]
 uniform bool  u_lutEnabled;
 uniform float u_lutIntensity;   // [0, 1]
 
+// Layer 4: Color Cast (per-zone tinting)
+uniform bool  u_colorCastEnabled;
+uniform vec3  u_colorCastShadows;    // RGB offset for shadows
+uniform vec3  u_colorCastMidtones;   // RGB offset for midtones
+uniform vec3  u_colorCastHighlights; // RGB offset for highlights
+
 // Layer 6: Grain
 uniform bool  u_grainEnabled;
 uniform float u_grainAmount;
@@ -70,6 +76,24 @@ vec3 applyLUT(vec3 color) {
   if (!u_lutEnabled || u_lutIntensity <= 0.0) return color;
   vec3 lutColor = texture(u_lut, clamp(color, 0.0, 1.0)).rgb;
   return mix(color, lutColor, u_lutIntensity);
+}
+
+// ---- Layer 4: Color Cast ----
+
+vec3 applyColorCast(vec3 color) {
+  if (!u_colorCastEnabled) return color;
+
+  float lum = luminance(color);
+  // Smooth masks for shadow / midtone / highlight regions
+  float shMask = 1.0 - smoothstep(0.0, 0.4, lum);
+  float hiMask = smoothstep(0.6, 1.0, lum);
+  float midMask = 1.0 - shMask - hiMask;
+
+  color += u_colorCastShadows * shMask
+         + u_colorCastMidtones * midMask
+         + u_colorCastHighlights * hiMask;
+
+  return clamp(color, 0.0, 1.0);
 }
 
 // ---- Layer 6: Grain ----
@@ -131,6 +155,7 @@ void main() {
 
   color = applyToneResponse(color);
   color = applyLUT(color);
+  color = applyColorCast(color);
   color = applyGrain(color);
   color = applyVignette(color);
 

@@ -1,10 +1,12 @@
 import * as PIXI from "pixi.js";
 import { MasterAdjustmentFilter } from "./filters/MasterAdjustmentFilter";
 import { FilmSimulationFilter } from "./filters/FilmSimulationFilter";
-import type { MasterUniforms, FilmUniforms } from "./types";
+import { HalationBloomFilter } from "./filters/HalationBloomFilter";
+import type { MasterUniforms, FilmUniforms, HalationBloomUniforms } from "./types";
 
 export interface PixiRenderOptions {
   skipFilm?: boolean;
+  skipHalationBloom?: boolean;
 }
 
 /**
@@ -14,7 +16,8 @@ export interface PixiRenderOptions {
  * Application that manages:
  * - A Sprite with the source image texture
  * - A MasterAdjustmentFilter (Pass 1: color science adjustments)
- * - A FilmSimulationFilter (Pass 2: film emulation with 3D LUT)
+ * - A FilmSimulationFilter (Pass 2: film emulation with 3D LUT + color cast)
+ * - A HalationBloomFilter (Pass 3: multi-pass halation/bloom optical effects)
  *
  * PixiJS FilterSystem automatically manages FBO creation/recycling,
  * texture binding, and viewport setup for the multi-pass pipeline.
@@ -24,6 +27,7 @@ export class PixiRenderer {
   private sprite: PIXI.Sprite;
   private masterFilter: MasterAdjustmentFilter;
   private filmFilter: FilmSimulationFilter;
+  private halationBloomFilter: HalationBloomFilter;
   private destroyed = false;
 
   constructor(canvas: HTMLCanvasElement, width: number, height: number) {
@@ -42,6 +46,7 @@ export class PixiRenderer {
 
     this.masterFilter = new MasterAdjustmentFilter();
     this.filmFilter = new FilmSimulationFilter();
+    this.halationBloomFilter = new HalationBloomFilter();
   }
 
   /**
@@ -104,23 +109,32 @@ export class PixiRenderer {
    * @param masterUniforms - Parameters for the Master adjustment pass
    * @param filmUniforms - Parameters for the Film simulation pass (null to skip)
    * @param options - Render options
+   * @param halationBloomUniforms - Parameters for the Halation/Bloom pass (null to skip)
    */
   render(
     masterUniforms: MasterUniforms,
     filmUniforms: FilmUniforms | null,
-    options?: PixiRenderOptions
+    options?: PixiRenderOptions,
+    halationBloomUniforms?: HalationBloomUniforms | null
   ): void {
     if (this.destroyed) return;
 
     this.masterFilter.updateUniforms(masterUniforms);
 
+    // Build the filter chain dynamically based on what's enabled
+    const filters: PIXI.Filter[] = [this.masterFilter];
+
     if (filmUniforms && !options?.skipFilm) {
       this.filmFilter.updateUniforms(filmUniforms);
-      this.sprite.filters = [this.masterFilter, this.filmFilter];
-    } else {
-      this.sprite.filters = [this.masterFilter];
+      filters.push(this.filmFilter);
     }
 
+    if (halationBloomUniforms && !options?.skipHalationBloom) {
+      this.halationBloomFilter.updateUniforms(halationBloomUniforms);
+      filters.push(this.halationBloomFilter);
+    }
+
+    this.sprite.filters = filters;
     this.app.render();
   }
 
@@ -172,6 +186,7 @@ export class PixiRenderer {
     // Destroy filters
     this.masterFilter.destroy();
     this.filmFilter.destroy();
+    this.halationBloomFilter.destroy();
 
     // Destroy PixiJS app (but not the canvas element, which is owned by React)
     this.app.destroy(false, { children: true });
