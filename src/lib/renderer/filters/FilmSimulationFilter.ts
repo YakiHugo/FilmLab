@@ -9,7 +9,9 @@ import fragmentSrc from "../shaders/generated/FilmSimulation.frag?raw";
 /**
  * PixiJS Filter that applies Film Simulation effects:
  * - Layer 1: Tone Response (S-curve with shoulder/toe/gamma)
+ * - Layer 2: Color Matrix (3x3 cross-channel color mixing)
  * - Layer 3: 3D LUT via HaldCLUT (trilinear-interpolated sampler3D)
+ * - Layer 4: Color Cast (per-zone tinting)
  * - Layer 6: Film Grain (hash-based, color/mono, shadow-biased)
  * - Layer 6: Vignette (elliptical, bidirectional)
  *
@@ -41,6 +43,9 @@ export class FilmSimulationFilter extends Filter {
       u_shoulder: 0.8,
       u_toe: 0.3,
       u_gamma: 1.0,
+      // Layer 2: Color Matrix
+      u_colorMatrixEnabled: false,
+      u_colorMatrix: new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]),
       // Layer 3: LUT
       u_lutEnabled: false,
       u_lutIntensity: 0.0,
@@ -154,6 +159,10 @@ export class FilmSimulationFilter extends Filter {
     this.uniforms.u_shoulder = u.u_shoulder;
     this.uniforms.u_toe = u.u_toe;
     this.uniforms.u_gamma = u.u_gamma;
+
+    this.uniforms.u_colorMatrixEnabled = u.u_colorMatrixEnabled;
+    const cm = this.uniforms.u_colorMatrix;
+    for (let i = 0; i < 9; i++) cm[i] = u.u_colorMatrix[i];
 
     this.uniforms.u_lutEnabled = u.u_lutEnabled;
     this.uniforms.u_lutIntensity = u.u_lutIntensity;

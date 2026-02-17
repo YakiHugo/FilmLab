@@ -3,6 +3,13 @@ import type { FilmProfileV2 } from "@/types/film";
 import type { MasterUniforms, FilmUniforms, HalationBloomUniforms } from "./types";
 import { getFilmModule, normalizeFilmProfile } from "@/lib/film/profile";
 
+const IDENTITY_3X3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+
+/** Transpose 3x3 row-major → column-major for WebGL. */
+function transpose3x3(m: number[]): number[] {
+  return [m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]];
+}
+
 /**
  * Map EditingAdjustments to MasterUniforms for the Master shader pass.
  *
@@ -59,6 +66,7 @@ export function resolveFilmUniforms(
   const tone = getFilmModule(normalized, "tone");
   const grain = getFilmModule(normalized, "grain");
   const scan = getFilmModule(normalized, "scan");
+  const colorScience = getFilmModule(normalized, "colorScience");
 
   const toneAmount = tone?.enabled ? (tone.amount / 100) : 0;
   const grainAmount = grain?.enabled ? (grain.amount / 100) : 0;
@@ -76,6 +84,20 @@ export function resolveFilmUniforms(
     u_shoulder: 0.8, // Default shoulder (could derive from highlights/whites)
     u_toe: 0.3, // Default toe (could derive from shadows/blacks)
     u_gamma: 1.0,
+
+    // Layer 2: Color Matrix (derived from colorScience.rgbMix as diagonal)
+    u_colorMatrixEnabled: colorScience?.enabled
+      ? (colorScience.params.rgbMix[0] !== 1 ||
+         colorScience.params.rgbMix[1] !== 1 ||
+         colorScience.params.rgbMix[2] !== 1)
+      : false,
+    u_colorMatrix: colorScience?.enabled
+      ? [
+          colorScience.params.rgbMix[0], 0, 0,
+          0, colorScience.params.rgbMix[1], 0,
+          0, 0, colorScience.params.rgbMix[2],
+        ]
+      : IDENTITY_3X3,
 
     // Layer 3: LUT (not available in v1 profiles, disabled by default)
     u_lutEnabled: false,
@@ -151,6 +173,10 @@ export function resolveFilmUniformsV2(
     u_shoulder: profile.toneResponse.shoulder,
     u_toe: profile.toneResponse.toe,
     u_gamma: profile.toneResponse.gamma,
+
+    // Layer 2: Color Matrix
+    u_colorMatrixEnabled: profile.colorMatrix?.enabled ?? false,
+    u_colorMatrix: transpose3x3(profile.colorMatrix?.matrix ?? IDENTITY_3X3),
 
     // Layer 3: LUT
     u_lutEnabled: profile.lut.enabled && profile.lut.intensity > 0,

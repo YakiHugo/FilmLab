@@ -36,6 +36,10 @@ export interface FilmUniforms {
   u_toe: number; // [0, 1]
   u_gamma: number; // [0.5, 2.0]
 
+  // Layer 2: Color Matrix
+  u_colorMatrixEnabled: boolean;
+  u_colorMatrix: number[]; // 9 elements, column-major for WebGL
+
   // Layer 3: LUT
   u_lutEnabled: boolean;
   u_lutIntensity: number; // [0, 1]

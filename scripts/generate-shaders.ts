@@ -60,6 +60,10 @@ const FILM_UNIFORMS: Record<string, string[]> = {
     "uniform bool  u_lutEnabled;",
     "uniform float u_lutIntensity;   // [0, 1]",
   ],
+  colorMatrix: [
+    "uniform bool u_colorMatrixEnabled;",
+    "uniform mat3 u_colorMatrix;",
+  ],
   colorCast: [
     "uniform bool  u_colorCastEnabled;",
     "uniform vec3  u_colorCastShadows;    // RGB offset for shadows",
@@ -408,6 +412,12 @@ function generateFilmShader(): string {
     parts.push(...FILM_UNIFORMS.lut);
   }
 
+  if (cfg.colorMatrix.enabled) {
+    parts.push("");
+    parts.push("// Layer 2: Color Matrix");
+    parts.push(...FILM_UNIFORMS.colorMatrix);
+  }
+
   if (cfg.colorCast.enabled) {
     parts.push("");
     parts.push("// Layer 4: Color Cast (per-zone tinting)");
@@ -449,6 +459,11 @@ function generateFilmShader(): string {
     parts.push(loadTemplate("lut3d.glsl"));
   }
 
+  if (cfg.colorMatrix.enabled) {
+    parts.push("");
+    parts.push(loadTemplate("colorMatrix.glsl"));
+  }
+
   if (cfg.colorCast.enabled) {
     parts.push("");
     parts.push(loadTemplate("colorCast.glsl"));
@@ -474,6 +489,9 @@ function generateFilmShader(): string {
   if (cfg.toneResponse.enabled) {
     parts.push("");
     parts.push("  color = applyToneResponse(color);");
+  }
+  if (cfg.colorMatrix.enabled) {
+    parts.push("  color = applyColorMatrix(color);");
   }
   if (cfg.lut.enabled) {
     parts.push("  color = applyLUT(color);");

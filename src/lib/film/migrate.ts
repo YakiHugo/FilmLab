@@ -46,6 +46,22 @@ export function migrateFilmProfileV1ToV2(v1: FilmProfile): FilmProfileV2 {
       gamma: 1.0,
     },
 
+    // Layer 2: Color Matrix — derived from colorScience.rgbMix as diagonal
+    colorMatrix:
+      colorScience?.enabled &&
+      (colorScience.params.rgbMix[0] !== 1 ||
+       colorScience.params.rgbMix[1] !== 1 ||
+       colorScience.params.rgbMix[2] !== 1)
+        ? {
+            enabled: true,
+            matrix: [
+              colorScience.params.rgbMix[0], 0, 0,
+              0, colorScience.params.rgbMix[1], 0,
+              0, 0, colorScience.params.rgbMix[2],
+            ],
+          }
+        : undefined,
+
     // Layer 3: LUT — V1 has no real LUT support, disabled
     lut: {
       enabled: false,

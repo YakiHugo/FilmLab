@@ -47,7 +47,7 @@ export const masterConfig: MasterConfig = {
 export const filmConfig: FilmConfig = {
   toneResponse: { enabled: true },
   lut: { enabled: true, size: 8 },
-  colorMatrix: { enabled: false }, // Phase 3: not yet implemented
+  colorMatrix: { enabled: true },
   colorCast: { enabled: true },
   grain: { enabled: true },
   vignette: { enabled: true },
