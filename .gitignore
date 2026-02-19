@@ -54,6 +54,7 @@ src/lib/renderer/shaders/generated/
 *.bak
 *.tmp
 *.temp
+.agents/*
 
 # OS specific
 Thumbs.db

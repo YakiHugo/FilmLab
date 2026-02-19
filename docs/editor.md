@@ -100,6 +100,8 @@ The function first applies geometry transforms (crop/scale/rotate/flip), then ch
 2. Legacy WebGL2 backend (fallback)
 3. CPU fallback backend
 
+When PixiJS returns an invalid frame (for example near-transparent or near-black output while source content is visible), runtime will automatically fall back to legacy WebGL2/CPU for that render.
+
 Debug escape hatch to force legacy renderer:
 
 ```js

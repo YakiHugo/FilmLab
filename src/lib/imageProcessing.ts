@@ -125,27 +125,105 @@ const resolveProfile = (
   return createFilmProfileFromAdjustments(adjustments);
 };
 
-/**
- * Enable the new PixiJS multi-pass renderer (Master + Film pipeline).
- *
- * The PixiJS renderer is implemented in `src/lib/renderer/` and provides:
- * - OKLab + LMS color science (Master pass)
- * - 3D LUT via HaldCLUT (Film pass)
- * - Film grain and vignette
- *
- * Set to `true` to activate the new pipeline. When `false` (default),
- * the legacy WebGL2 single-pass renderer is used.
- *
- * Usage (from browser console for testing):
- *   (window as any).__FILMLAB_USE_PIXI = true;
- */
-const isPixiRendererEnabled = (): boolean =>
+interface CanvasStats {
+  meanLuma: number;
+  minLuma: number;
+  maxLuma: number;
+  varianceLuma: number;
+  meanAlpha: number;
+  maxAlpha: number;
+}
+
+const SAMPLE_SIZE = 24;
+
+const buildCanvasStats = (canvas: HTMLCanvasElement): CanvasStats | null => {
+  const probe = document.createElement("canvas");
+  probe.width = SAMPLE_SIZE;
+  probe.height = SAMPLE_SIZE;
+  const context = probe.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    return null;
+  }
+
+  context.clearRect(0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+  context.drawImage(canvas, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+
+  const data = context.getImageData(0, 0, SAMPLE_SIZE, SAMPLE_SIZE).data;
+  const pixelCount = SAMPLE_SIZE * SAMPLE_SIZE;
+
+  let minLuma = 1;
+  let maxLuma = 0;
+  let maxAlpha = 0;
+  let sumLuma = 0;
+  let sumLumaSquared = 0;
+  let sumAlpha = 0;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const red = (data[i] ?? 0) / 255;
+    const green = (data[i + 1] ?? 0) / 255;
+    const blue = (data[i + 2] ?? 0) / 255;
+    const alpha = (data[i + 3] ?? 0) / 255;
+    const luma = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+
+    minLuma = Math.min(minLuma, luma);
+    maxLuma = Math.max(maxLuma, luma);
+    maxAlpha = Math.max(maxAlpha, alpha);
+    sumLuma += luma;
+    sumLumaSquared += luma * luma;
+    sumAlpha += alpha;
+  }
+
+  const meanLuma = sumLuma / pixelCount;
+  const varianceLuma = Math.max(0, sumLumaSquared / pixelCount - meanLuma * meanLuma);
+
+  return {
+    meanLuma,
+    minLuma,
+    maxLuma,
+    varianceLuma,
+    meanAlpha: sumAlpha / pixelCount,
+    maxAlpha,
+  };
+};
+
+const isPixiOutputValid = (
+  sourceCanvas: HTMLCanvasElement,
+  resultCanvas: HTMLCanvasElement
+) => {
+  const sourceStats = buildCanvasStats(sourceCanvas);
+  const resultStats = buildCanvasStats(resultCanvas);
+
+  if (!sourceStats || !resultStats) {
+    return true;
+  }
+
+  const sourceHasVisibleContent =
+    sourceStats.maxLuma > 0.08 || sourceStats.varianceLuma > 0.0008;
+
+  if (sourceHasVisibleContent && resultStats.maxAlpha < 0.02) {
+    return false;
+  }
+
+  const outputNearBlack =
+    resultStats.maxLuma < 0.02 &&
+    resultStats.meanLuma < 0.01 &&
+    resultStats.varianceLuma < 0.0002;
+
+  if (sourceHasVisibleContent && outputNearBlack) {
+    return false;
+  }
+
+  return true;
+};
+
+/** Debug escape hatch: force legacy WebGL2 renderer via console. */
+const isLegacyRendererForced = (): boolean =>
   typeof window !== "undefined" &&
-  (window as any).__FILMLAB_USE_PIXI === true;
+  (window as any).__FILMLAB_USE_LEGACY === true;
 
 /**
- * Lazy-load and invoke the PixiJS renderer.
- * Only loaded when explicitly enabled via the feature flag above.
+ * Lazy-load and invoke the PixiJS multi-pass renderer (default GPU path).
+ * Dynamically imports PixiJS on first call to avoid bloating the initial bundle.
  */
 const tryPixiRender = async (
   sourceCanvas: HTMLCanvasElement,
@@ -153,8 +231,6 @@ const tryPixiRender = async (
   filmProfile: FilmProfile | undefined,
   options: { seedKey?: string; renderSeed?: number; exportSeed?: number }
 ): Promise<HTMLCanvasElement | null> => {
-  if (!isPixiRendererEnabled()) return null;
-
   try {
     // Dynamic import to avoid loading PixiJS when not needed
     const { PixiRenderer } = await import("@/lib/renderer/PixiRenderer");
@@ -199,6 +275,10 @@ const tryPixiRender = async (
 
     // Render with all passes (Master + Film + Halation/Bloom)
     renderer.render(masterUniforms, filmUniforms, undefined, halationBloomUniforms);
+    if (!isPixiOutputValid(sourceCanvas, renderer.canvas)) {
+      console.warn("PixiJS render produced an invalid frame, falling back.");
+      return null;
+    }
 
     return renderer.canvas;
   } catch (e) {
@@ -212,7 +292,7 @@ const tryPixiRender = async (
   }
 };
 
-// Module-level PixiJS renderer singleton (only created when feature-flagged on)
+// Module-level PixiJS renderer singleton (created on first render)
 let pixiRendererInstance: InstanceType<
   typeof import("@/lib/renderer/PixiRenderer").PixiRenderer
 > | null = null;
@@ -306,8 +386,8 @@ export const renderImageToCanvas = async ({
     exportSeed,
   };
 
-  // 1. Try PixiJS multi-pass pipeline (Master + Film) — feature-flagged
-  if (preferWebGL2 && isPixiRendererEnabled()) {
+  // 1. Try PixiJS multi-pass pipeline (Master + Film) — default GPU path
+  if (preferWebGL2 && !isLegacyRendererForced()) {
     const pixiResult = await tryPixiRender(
       canvas,
       adjustments,
@@ -322,7 +402,7 @@ export const renderImageToCanvas = async ({
     }
   }
 
-  // 2. Legacy single-pass WebGL2 renderer (default path)
+  // 2. Legacy single-pass WebGL2 renderer (fallback)
   const resolvedProfile = resolveProfile(adjustments, filmProfile);
   const renderedByWebGL =
     preferWebGL2 &&

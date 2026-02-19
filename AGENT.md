@@ -11,9 +11,10 @@ FilmLab is a web photo-editing app focused on film look workflows:
 - Fine-tune workflow in `Editor` (`/editor`)
 - Asset persistence with IndexedDB
 - AI film preset recommendation via OpenAI endpoint
-- Dual render architecture:
-  - default legacy WebGL2 + CPU fallback
-  - feature-flagged PixiJS multi-pass renderer
+- Render architecture:
+  - default PixiJS multi-pass renderer (Master + Film + Halation/Bloom)
+  - legacy WebGL2 fallback (via `window.__FILMLAB_USE_LEGACY = true`)
+  - CPU pipeline final fallback
 
 ## 2. Runtime Entry Points
 
@@ -54,8 +55,8 @@ docs/
 
 `src/lib/imageProcessing.ts` chooses pipeline in this order:
 
-1. PixiJS pipeline if `window.__FILMLAB_USE_PIXI === true`
-2. Legacy WebGL2 pipeline (`renderFilmProfileWebGL2`)
+1. PixiJS multi-pass pipeline (default)
+2. Legacy WebGL2 pipeline (`renderFilmProfileWebGL2`) — used when `window.__FILMLAB_USE_LEGACY === true`
 3. CPU pipeline (`applyFilmPipeline`)
 
 ### 4.2 PixiJS pipeline (`src/lib/renderer/`)
@@ -173,7 +174,7 @@ Notes:
 
 ### 9.3 Debug render mismatch
 
-1. Check feature flag (`window.__FILMLAB_USE_PIXI`)
+1. Check if legacy mode is forced (`window.__FILMLAB_USE_LEGACY`)
 2. Compare Pixi output vs legacy path
 3. Inspect generated shaders in `src/lib/renderer/shaders/generated/`
 4. Verify uniform mapping in `uniformResolvers.ts`
@@ -181,7 +182,7 @@ Notes:
 
 ## 10. Known Gaps and Risks
 
-- PixiJS path is feature-flagged, not default route yet
+- PixiJS is the default GPU path; legacy WebGL2 available via `window.__FILMLAB_USE_LEGACY = true`
 - `sampler3D` in PixiJS v7 requires manual texture binding workaround
 - Some Chinese UI strings appear with mojibake in source files and need unified UTF-8 cleanup
 - Test coverage exists but is limited (mostly AI utilities)
@@ -192,7 +193,7 @@ Notes:
 - New params are mapped end-to-end (UI -> type -> uniform -> shader)
 - IndexedDB schema compatibility preserved
 - GPU resources are released (`dispose`/texture cleanup)
-- Feature-flag fallback paths still work
+- Both default (PixiJS) and legacy escape-hatch paths still work
 
 ## 12. Document Index
 
