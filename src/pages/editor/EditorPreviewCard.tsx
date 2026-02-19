@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ZoomIn, ZoomOut } from "lucide-react";
+import { Redo2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
@@ -44,15 +44,21 @@ export function EditorPreviewCard() {
     presetLabel,
     showOriginal,
     copiedAdjustments,
+    canUndo,
+    canRedo,
     toggleOriginal,
     setShowOriginal,
     handleResetAll,
     handleCopy,
     handlePaste,
+    handleUndo,
+    handleRedo,
     handlePreviewHistogramChange,
   } = useEditorState();
 
   const canPaste = Boolean(copiedAdjustments);
+  const canUndoAction = Boolean(selectedAsset && canUndo);
+  const canRedoAction = Boolean(selectedAsset && canRedo);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const imageAreaRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -75,6 +81,26 @@ export function EditorPreviewCard() {
     type: "success" | "error";
     text: string;
   } | null>(null);
+
+  const triggerUndo = useCallback(() => {
+    const undone = handleUndo();
+    setActionMessage(
+      undone
+        ? { type: "success", text: "已撤销上一步。" }
+        : { type: "error", text: "没有可撤销的操作。" }
+    );
+    return undone;
+  }, [handleUndo]);
+
+  const triggerRedo = useCallback(() => {
+    const redone = handleRedo();
+    setActionMessage(
+      redone
+        ? { type: "success", text: "已重做上一步。" }
+        : { type: "error", text: "没有可重做的操作。" }
+    );
+    return redone;
+  }, [handleRedo]);
 
   const imageAspectRatio = useMemo(() => {
     if (imageNaturalSize) {
@@ -340,6 +366,22 @@ export function EditorPreviewCard() {
       }
       const key = event.key.toLowerCase();
       const withCommand = event.metaKey || event.ctrlKey;
+      const isUndoShortcut = withCommand && !event.shiftKey && key === "z";
+      const isRedoShortcut =
+        withCommand &&
+        ((event.shiftKey && key === "z") ||
+          (event.ctrlKey && !event.metaKey && key === "y"));
+
+      if (!event.altKey && selectedAsset && isUndoShortcut) {
+        event.preventDefault();
+        triggerUndo();
+        return;
+      }
+      if (!event.altKey && selectedAsset && isRedoShortcut) {
+        event.preventDefault();
+        triggerRedo();
+        return;
+      }
 
       if (!selectedAsset || withCommand || event.altKey) {
         return;
@@ -377,6 +419,8 @@ export function EditorPreviewCard() {
     resetView,
     selectedAsset,
     showOriginal,
+    triggerRedo,
+    triggerUndo,
     toggleOriginal,
     viewScale,
   ]);
@@ -436,6 +480,30 @@ export function EditorPreviewCard() {
           )}
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={triggerUndo}
+            disabled={!canUndoAction}
+            aria-label="Undo (Ctrl/Cmd + Z)"
+            title="Undo (Ctrl/Cmd + Z)"
+            className="gap-1"
+          >
+            <Undo2 className="h-4 w-4" />
+            Undo
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={triggerRedo}
+            disabled={!canRedoAction}
+            aria-label="Redo (Ctrl/Cmd + Shift + Z, Ctrl + Y)"
+            title="Redo (Ctrl/Cmd + Shift + Z, Ctrl + Y)"
+            className="gap-1"
+          >
+            <Redo2 className="h-4 w-4" />
+            Redo
+          </Button>
           <Button
             size="sm"
             variant={showOriginal ? "default" : "secondary"}

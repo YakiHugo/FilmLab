@@ -93,7 +93,8 @@ const FILM_PARAM_DEFINITIONS: FilmParamDefinitions = {
 const renderSliderRows = (
   adjustments: EditingAdjustments,
   sliders: SliderDefinition[],
-  onUpdateAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void
+  onPreviewAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void,
+  onCommitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void
 ) =>
   sliders.map((slider) => (
     <EditorSliderRow
@@ -105,9 +106,10 @@ const renderSliderRows = (
       max={slider.max}
       step={slider.step}
       format={slider.format}
-      onChange={(value) => onUpdateAdjustmentValue(slider.key, value)}
+      onChange={(value) => onPreviewAdjustmentValue(slider.key, value)}
+      onCommit={(value) => onCommitAdjustmentValue(slider.key, value)}
       onReset={() =>
-        onUpdateAdjustmentValue(slider.key, DEFAULT_ADJUSTMENTS[slider.key] as number)
+        onCommitAdjustmentValue(slider.key, DEFAULT_ADJUSTMENTS[slider.key] as number)
       }
     />
   ));
@@ -130,7 +132,9 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
     setCurveChannel,
     toggleSection,
     updateAdjustments,
+    previewAdjustmentValue,
     updateAdjustmentValue,
+    previewHslValue,
     updateHslValue,
     toggleFlip,
     handleSetFilmModuleAmount,
@@ -221,7 +225,12 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                       max={100}
                       step={1}
                       disabled={!module.enabled}
-                      onChange={(value) => handleSetFilmModuleAmount(module.id, value)}
+                      onChange={(value) =>
+                        handleSetFilmModuleAmount(module.id, value, "live")
+                      }
+                      onCommit={(value) =>
+                        handleSetFilmModuleAmount(module.id, value, "commit")
+                      }
                     />
 
                     {FILM_PARAM_DEFINITIONS[module.id].map((param) => {
@@ -242,7 +251,10 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                           disabled={!module.enabled}
                           format={(value) => formatFilmValue(value, param.step)}
                           onChange={(value) =>
-                            handleSetFilmModuleParam(module.id, param.key, value)
+                            handleSetFilmModuleParam(module.id, param.key, value, "live")
+                          }
+                          onCommit={(value) =>
+                            handleSetFilmModuleParam(module.id, param.key, value, "commit")
                           }
                         />
                       );
@@ -260,7 +272,10 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                             disabled={!module.enabled}
                             format={(value) => value.toFixed(2)}
                             onChange={(value) =>
-                              handleSetFilmModuleRgbMix(module.id, 0, value)
+                              handleSetFilmModuleRgbMix(module.id, 0, value, "live")
+                            }
+                            onCommit={(value) =>
+                              handleSetFilmModuleRgbMix(module.id, 0, value, "commit")
                             }
                           />
                           <EditorSliderRow
@@ -272,7 +287,10 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                             disabled={!module.enabled}
                             format={(value) => value.toFixed(2)}
                             onChange={(value) =>
-                              handleSetFilmModuleRgbMix(module.id, 1, value)
+                              handleSetFilmModuleRgbMix(module.id, 1, value, "live")
+                            }
+                            onCommit={(value) =>
+                              handleSetFilmModuleRgbMix(module.id, 1, value, "commit")
                             }
                           />
                           <EditorSliderRow
@@ -284,7 +302,10 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                             disabled={!module.enabled}
                             format={(value) => value.toFixed(2)}
                             onChange={(value) =>
-                              handleSetFilmModuleRgbMix(module.id, 2, value)
+                              handleSetFilmModuleRgbMix(module.id, 2, value, "live")
+                            }
+                            onCommit={(value) =>
+                              handleSetFilmModuleRgbMix(module.id, 2, value, "commit")
                             }
                           />
                         </>
@@ -303,9 +324,19 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
           >
             <div className="space-y-3">
               <p className="text-xs uppercase tracking-[0.24em] text-slate-500">光线</p>
-              {renderSliderRows(adjustments, BASIC_LIGHT_SLIDERS, updateAdjustmentValue)}
+              {renderSliderRows(
+                adjustments,
+                BASIC_LIGHT_SLIDERS,
+                previewAdjustmentValue,
+                updateAdjustmentValue
+              )}
               <p className="mt-3 text-xs uppercase tracking-[0.24em] text-slate-500">色彩</p>
-              {renderSliderRows(adjustments, BASIC_COLOR_SLIDERS, updateAdjustmentValue)}
+              {renderSliderRows(
+                adjustments,
+                BASIC_COLOR_SLIDERS,
+                previewAdjustmentValue,
+                updateAdjustmentValue
+              )}
             </div>
           </EditorSection>
 
@@ -339,7 +370,8 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
               min={-100}
               max={100}
               format={(value) => (value > 0 ? `+${value}` : `${value}`)}
-              onChange={(value) => updateHslValue(activeHslColor, "hue", value)}
+              onChange={(value) => previewHslValue(activeHslColor, "hue", value)}
+              onCommit={(value) => updateHslValue(activeHslColor, "hue", value)}
               onReset={() => updateHslValue(activeHslColor, "hue", 0)}
             />
             <EditorSliderRow
@@ -349,7 +381,8 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
               min={-100}
               max={100}
               format={(value) => (value > 0 ? `+${value}` : `${value}`)}
-              onChange={(value) => updateHslValue(activeHslColor, "saturation", value)}
+              onChange={(value) => previewHslValue(activeHslColor, "saturation", value)}
+              onCommit={(value) => updateHslValue(activeHslColor, "saturation", value)}
               onReset={() => updateHslValue(activeHslColor, "saturation", 0)}
             />
             <EditorSliderRow
@@ -359,7 +392,8 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
               min={-100}
               max={100}
               format={(value) => (value > 0 ? `+${value}` : `${value}`)}
-              onChange={(value) => updateHslValue(activeHslColor, "luminance", value)}
+              onChange={(value) => previewHslValue(activeHslColor, "luminance", value)}
+              onCommit={(value) => updateHslValue(activeHslColor, "luminance", value)}
               onReset={() => updateHslValue(activeHslColor, "luminance", 0)}
             />
           </EditorSection>
@@ -384,7 +418,12 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                 </Button>
               ))}
             </div>
-            {renderSliderRows(adjustments, CURVE_SLIDERS, updateAdjustmentValue)}
+            {renderSliderRows(
+              adjustments,
+              CURVE_SLIDERS,
+              previewAdjustmentValue,
+              updateAdjustmentValue
+            )}
           </EditorSection>
 
           <EditorSection
@@ -393,7 +432,12 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
             isOpen={openSections.effects}
             onToggle={() => toggleSection("effects")}
           >
-            {renderSliderRows(adjustments, EFFECTS_SLIDERS, updateAdjustmentValue)}
+            {renderSliderRows(
+              adjustments,
+              EFFECTS_SLIDERS,
+              previewAdjustmentValue,
+              updateAdjustmentValue
+            )}
           </EditorSection>
 
           <EditorSection
@@ -402,7 +446,12 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
             isOpen={openSections.detail}
             onToggle={() => toggleSection("detail")}
           >
-            {renderSliderRows(adjustments, DETAIL_SLIDERS, updateAdjustmentValue)}
+            {renderSliderRows(
+              adjustments,
+              DETAIL_SLIDERS,
+              previewAdjustmentValue,
+              updateAdjustmentValue
+            )}
           </EditorSection>
 
           <EditorSection
@@ -442,7 +491,12 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                 垂直翻转
               </Button>
             </div>
-            {renderSliderRows(adjustments, CROP_SLIDERS, updateAdjustmentValue)}
+            {renderSliderRows(
+              adjustments,
+              CROP_SLIDERS,
+              previewAdjustmentValue,
+              updateAdjustmentValue
+            )}
           </EditorSection>
 
           <EditorSection

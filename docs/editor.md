@@ -48,9 +48,16 @@ with view-only `exportPreviewItems` derived from assets + export task status.
 - filmstrip
 - preset card
 - adjustment panel
+- per-asset undo/redo controls
 
 Editor uses a single return entry (`返回工作台`) that routes back to `/?step=<returnStep>`.
 Direct in-panel jump-to-export is intentionally removed to keep a single exit path.
+
+Undo/redo shortcuts in preview:
+
+- `Cmd/Ctrl + Z`: undo
+- `Cmd/Ctrl + Shift + Z`: redo
+- `Ctrl + Y`: redo
 
 ## 3. State and Persistence
 
@@ -64,6 +71,7 @@ Direct in-panel jump-to-export is intentionally removed to keep a single exit pa
   - editor UI state
   - section expand/collapse
   - custom preset and preview state
+  - per-asset in-memory history stacks for undo/redo
 
 ## 3.2 Persistence model
 
@@ -216,6 +224,7 @@ Existing tests are mainly under:
 - `src/lib/ai/client.test.ts`
 - `src/lib/ai/recommendationUtils.test.ts`
 - `src/features/workspace/navigation.test.ts`
+- `src/stores/editorStore.history.test.ts`
 
 Rendering and shader paths currently rely more on manual/in-browser verification.
 
@@ -242,5 +251,6 @@ When modifying editor/render behavior, verify:
 
 - `AGENTS.md`: quick repo contribution rules
 - `AGENT.md`: agent-oriented engineering baseline
+- `docs/editor-change-history-undo-redo.md`: product + technical plan for editor undo/redo and change history
 - `docs/film_pipeline.md`: legacy film pipeline notes
 - `docs/project_status.md`: project-level status tracking

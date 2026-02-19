@@ -224,7 +224,8 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
             min={0}
             max={100}
             step={1}
-            onValueChange={(value) => handleSetIntensity(value[0] ?? 0)}
+            onValueChange={(value) => handleSetIntensity(value[0] ?? 0, "live")}
+            onValueCommit={(value) => handleSetIntensity(value[0] ?? 0, "commit")}
             disabled={!selectedAsset}
             aria-label="预设强度"
           />

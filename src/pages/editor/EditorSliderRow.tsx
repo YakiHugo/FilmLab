@@ -11,6 +11,7 @@ interface EditorSliderRowProps {
   defaultValue?: number;
   format?: (value: number) => string;
   onChange: (value: number) => void;
+  onCommit?: (value: number) => void;
   onReset?: () => void;
 }
 
@@ -24,6 +25,7 @@ export const EditorSliderRow = memo(function EditorSliderRow({
   defaultValue,
   format,
   onChange,
+  onCommit,
   onReset,
 }: EditorSliderRowProps) {
   const hasDefault = typeof defaultValue === "number";
@@ -57,6 +59,7 @@ export const EditorSliderRow = memo(function EditorSliderRow({
         disabled={disabled}
         aria-label={label}
         onValueChange={(next) => onChange(next[0] ?? 0)}
+        onValueCommit={(next) => onCommit?.(next[0] ?? 0)}
       />
     </div>
   );
