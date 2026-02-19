@@ -9,6 +9,10 @@ export const EditorSidebarHeader = memo(function EditorSidebarHeader() {
   const { selectedAsset, presetLabel, filmProfileLabel, showOriginal, toggleOriginal } =
     useEditorState();
   const histogram = useEditorStore((state) => state.previewHistogram);
+  const histogramModeLabel =
+    histogram?.mode === "rgb-monochrome-overlap"
+      ? "直方图：RGB（灰度重叠）"
+      : "直方图：RGB";
 
   return (
     <div className="shrink-0 border-b border-white/10 p-4">
@@ -27,7 +31,7 @@ export const EditorSidebarHeader = memo(function EditorSidebarHeader() {
         <Badge size="control" variant={showOriginal ? "default" : "secondary"}>
           {showOriginal ? "当前：原图" : "当前：调整后"}
         </Badge>
-        <Badge size="control" variant="secondary">直方图：RGB</Badge>
+        <Badge size="control" variant="secondary">{histogramModeLabel}</Badge>
         <Button
           size="sm"
           variant={showOriginal ? "default" : "secondary"}

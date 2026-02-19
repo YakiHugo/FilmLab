@@ -14,6 +14,7 @@ import { renderImageToCanvas } from "@/lib/imageProcessing";
 import {
   buildHistogramFromCanvas,
   buildHistogramFromDrawable,
+  forceMonochromeHistogramMode,
 } from "./histogram";
 import { useEditorState } from "./useEditorState";
 
@@ -77,6 +78,7 @@ export function EditorPreviewCard() {
   const [viewScale, setViewScale] = useState(1);
   const [viewOffset, setViewOffset] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
+  const [isSourceMonochrome, setIsSourceMonochrome] = useState(false);
   const [actionMessage, setActionMessage] = useState<{
     type: "success" | "error";
     text: string;
@@ -170,6 +172,47 @@ export function EditorPreviewCard() {
     img.src = selectedAsset.objectUrl;
   }, [selectedAsset?.objectUrl]);
 
+  useEffect(() => {
+    if (!selectedAsset?.objectUrl) {
+      setIsSourceMonochrome(false);
+      return undefined;
+    }
+    let isCancelled = false;
+    const image = new Image();
+    image.decoding = "async";
+    image.src = selectedAsset.objectUrl;
+
+    const detect = async () => {
+      try {
+        await image.decode();
+      } catch {
+        await new Promise<void>((resolve, reject) => {
+          image.onload = () => resolve();
+          image.onerror = () => reject(new Error("Failed to load source image"));
+        });
+      }
+      if (isCancelled) {
+        return;
+      }
+      const sourceHistogram = buildHistogramFromDrawable(
+        image as CanvasImageSource,
+        image.naturalWidth,
+        image.naturalHeight
+      );
+      setIsSourceMonochrome(Boolean(sourceHistogram?.analysis.isMonochrome));
+    };
+
+    void detect().catch(() => {
+      if (!isCancelled) {
+        setIsSourceMonochrome(false);
+      }
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [selectedAsset?.id, selectedAsset?.objectUrl]);
+
   useLayoutEffect(() => {
     if (!containerRef.current) {
       return undefined;
@@ -244,17 +287,23 @@ export function EditorPreviewCard() {
       if (isCancelled) {
         return;
       }
+      const sourceHistogram = buildHistogramFromDrawable(
+        image as CanvasImageSource,
+        image.naturalWidth,
+        image.naturalHeight
+      );
+      const sourceMonochrome = Boolean(sourceHistogram?.analysis.isMonochrome);
+      setIsSourceMonochrome(sourceMonochrome);
       handlePreviewHistogramChange(
-        buildHistogramFromDrawable(
-          image as CanvasImageSource,
-          image.naturalWidth,
-          image.naturalHeight
-        )
+        sourceMonochrome
+          ? forceMonochromeHistogramMode(sourceHistogram)
+          : sourceHistogram
       );
     };
 
     void compute().catch(() => {
       if (!isCancelled) {
+        setIsSourceMonochrome(false);
         handlePreviewHistogramChange(null);
       }
     });
@@ -292,7 +341,12 @@ export function EditorPreviewCard() {
         signal: controller.signal,
       });
       if (!controller.signal.aborted) {
-        handlePreviewHistogramChange(buildHistogramFromCanvas(canvas));
+        const previewHistogram = buildHistogramFromCanvas(canvas);
+        handlePreviewHistogramChange(
+          isSourceMonochrome
+            ? forceMonochromeHistogramMode(previewHistogram)
+            : previewHistogram
+        );
       }
     };
 
@@ -309,6 +363,7 @@ export function EditorPreviewCard() {
     frameSize.height,
     frameSize.width,
     handlePreviewHistogramChange,
+    isSourceMonochrome,
     selectedAsset,
     showOriginal,
   ]);

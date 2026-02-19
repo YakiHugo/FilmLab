@@ -59,6 +59,25 @@ Undo/redo shortcuts in preview:
 - `Cmd/Ctrl + Shift + Z`: redo
 - `Ctrl + Y`: redo
 
+## 2.4 Histogram mode behavior
+
+Editor histogram stays RGB-oriented, but adds automatic monochrome overlap rendering:
+
+- Histogram data is sampled from the current preview source (original image when compare/original mode is on, rendered canvas otherwise).
+- Runtime model includes `r/g/b` plus `luma`, with `mode` in `rgb | rgb-monochrome-overlap`.
+- Monochrome detection is pixel-content based (not preset or film `bw` tags):
+  - Ignore near-transparent pixels (`alpha <= 8`).
+  - Compute channel delta per sample: `max(r,g,b) - min(r,g,b)`.
+  - Mark as monochrome when:
+    - strict rule: `p95ChannelDelta <= 8` and `meanChannelDelta <= 5`, or
+    - fallback overlap rule: normalized RGB histogram overlap stays tight (`maxAbsBinDelta <= 0.04` and `maxL1BinDelta <= 0.75`).
+- UI behavior:
+  - `rgb`: render the existing RGB three-channel histogram.
+  - `rgb-monochrome-overlap`: render neutral gray overlap using `luma`, with label `直方图：RGB（灰度重叠）`.
+- Source-aware override for BW photos:
+  - Editor first detects whether the original source image is monochrome.
+  - If source is monochrome, histogram display mode is forced to `rgb-monochrome-overlap` for both original and adjusted preview, matching Lightroom-style BW presentation.
+
 ## 3. State and Persistence
 
 ## 3.1 Global stores
@@ -252,5 +271,6 @@ When modifying editor/render behavior, verify:
 - `AGENTS.md`: quick repo contribution rules
 - `AGENT.md`: agent-oriented engineering baseline
 - `docs/editor-change-history-undo-redo.md`: product + technical plan for editor undo/redo and change history
+- `docs/editor-histogram.md`: histogram module behavior, data contract, and iteration guide
 - `docs/film_pipeline.md`: legacy film pipeline notes
 - `docs/project_status.md`: project-level status tracking
