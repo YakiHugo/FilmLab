@@ -1,4 +1,4 @@
-# FilmLab 项目现状与待办汇总（2026-02-14）
+# FilmLab 项目现状与待办汇总（2026-02-19）
 
 本文件作为 `docs/` 的统一状态文档，用于替代早期拆分的中间产物文档。
 
@@ -34,12 +34,13 @@
 - 编辑器支持基础参数、曲线/HSL、胶片模块参数覆盖等调节。
 - 已实现 `FilmProfile` 模块化渲染链路（color/tone/scan/grain/defects）。
 - 渲染策略为 WebGL2 优先、CPU pipeline 回退。
-- **（新）PixiJS 双 Pass 渲染引擎已实现**（feature-flagged，默认关闭）：
+- **（新）PixiJS 多 Pass 渲染引擎已作为默认 GPU 路径**：
   - `MasterAdjustmentFilter`：OKLab HSL + LMS 白平衡 + 科学色彩调整。
   - `FilmSimulationFilter`：特性曲线 + 3D LUT（HaldCLUT）+ Grain + Vignette。
+  - `HalationBloomFilter`：光晕与泛光效果。
   - `LUTLoader` / `LUTCache`：HaldCLUT 解析 → WebGL 3D Texture + LRU 缓存。
   - `PixiRenderer` 封装 + `uniformResolvers` 兼容层（v1 数据 → 新 Uniform）。
-  - 通过 `window.__FILMLAB_USE_PIXI = true` 开启，动态加载 PixiJS 不影响默认包体积。
+  - 动态加载 PixiJS 不影响默认包体积；可通过 `window.__FILMLAB_USE_LEGACY = true` 回退到旧管线。
 
 ### 2.5 导出
 
@@ -69,14 +70,18 @@
 ### P1（体验增强）
 
 1. 风格卡片加入前后对比缩略能力。
-2. 导出步骤补齐小图预览区。
-3. 梳理“进阶入口与返回主线”的单一出口体验（从编辑器返回工作台步骤）。
+2. ✅ 导出步骤补齐小图预览区（已完成）：
+   - 已新增导出预览网格（缩略图 + 状态角标）。
+   - 状态与导出任务一致（未开始/等待/处理中/完成/失败）。
+3. ✅ 梳理“进阶入口与返回主线”的单一出口体验（已完成）：
+   - `/editor` 新增 `returnStep`，统一回流到 `/?step=<returnStep>`。
+   - 编辑器内移除直跳导出的第二出口，保留顶部单一返回入口。
 
 ### P2（性能与架构）
 
 1. 导出队列改造为 Worker/OffscreenCanvas（避免主线程阻塞）。
 2. 大图渲染与移动端内存策略优化（分辨率降级/分段处理）。
-3. PixiJS 渲染引擎浏览器验证与正式启用（Phase 0 验证 → 去掉 feature flag）。
+3. ✅ PixiJS 渲染引擎已正式启用为默认 GPU 路径（feature flag 已移除）。
 4. 首批 HaldCLUT 胶片 LUT 资源制作与集成。
 
 ## 5. 非目标（当前阶段不做）

@@ -23,6 +23,7 @@ export const PreviewPanel = memo(
     const frameRef = useRef<HTMLDivElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
+    const [renderFailed, setRenderFailed] = useState(false);
 
     const previewRatio = useMemo(() => {
       if (!activeAsset?.metadata?.width || !activeAsset?.metadata?.height) {
@@ -52,6 +53,10 @@ export const PreviewPanel = memo(
     }, []);
 
     useEffect(() => {
+      setRenderFailed(false);
+    }, [activeAsset?.id, previewAdjustments, previewFilmProfile]);
+
+    useEffect(() => {
       if (!activeAsset || !previewAdjustments || showOriginal) {
         return undefined;
       }
@@ -72,7 +77,17 @@ export const PreviewPanel = memo(
         },
         seedKey: activeAsset.id,
         signal: controller.signal,
-      }).catch(() => undefined);
+      })
+        .then(() => {
+          if (!controller.signal.aborted) {
+            setRenderFailed(false);
+          }
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setRenderFailed(true);
+          }
+        });
       return () => controller.abort();
     }, [
       activeAsset?.blob,
@@ -84,6 +99,13 @@ export const PreviewPanel = memo(
       previewFilmProfile,
       showOriginal,
     ]);
+
+    const shouldShowProcessedPreview =
+      !showOriginal &&
+      Boolean(previewAdjustments) &&
+      !renderFailed &&
+      frameSize.width > 0 &&
+      frameSize.height > 0;
 
     return (
       <Card className="min-w-0">
@@ -110,23 +132,27 @@ export const PreviewPanel = memo(
               className="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-slate-950/60"
               style={{ aspectRatio: previewRatio }}
             >
-              {showOriginal || !previewAdjustments ? (
-                <img
-                  src={activeAsset.objectUrl}
-                  alt={activeAsset.name}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
+              <img
+                src={activeAsset.objectUrl}
+                alt={activeAsset.name}
+                className="h-full w-full object-cover"
+              />
+              {shouldShowProcessedPreview && (
                 <canvas
                   ref={canvasRef}
                   role="img"
                   aria-label={`${activeAsset.name} 预览`}
-                  className="block h-full w-full"
+                  className="absolute inset-0 block h-full w-full"
                 />
               )}
               {showOriginal && (
                 <span className="absolute left-3 top-3 rounded-full border border-white/10 bg-slate-950/80 px-3 py-1 text-xs text-slate-200">
                   原图
+                </span>
+              )}
+              {renderFailed && !showOriginal && (
+                <span className="absolute left-3 top-3 rounded-full border border-amber-200/30 bg-amber-300/15 px-3 py-1 text-xs text-amber-100">
+                  渲染失败，显示原图
                 </span>
               )}
             </div>

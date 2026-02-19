@@ -1,6 +1,6 @@
 # FilmLab Editor Architecture (Current)
 
-> Version: v2026.02.16  
+> Version: v2026.02.19  
 > Scope: implementation-aligned documentation for the current repository
 
 ## 1. Goals and Scope
@@ -25,7 +25,7 @@ It avoids long-term speculative design and focuses on current behavior.
 Router is defined in `src/router.tsx` with search params:
 
 - `/`: `step` in `library | style | export`
-- `/editor`: optional `assetId`
+- `/editor`: optional `assetId`, optional `returnStep` in `library | style | export` (fallback: `style`)
 
 ## 2.2 Workspace
 
@@ -37,6 +37,9 @@ Router is defined in `src/router.tsx` with search params:
 
 Business logic is delegated to `src/features/workspace/hooks/useWorkspaceState.ts`.
 
+Export step includes `ExportPreviewGrid` (`src/features/workspace/components/ExportPreviewGrid.tsx`),
+with view-only `exportPreviewItems` derived from assets + export task status.
+
 ## 2.3 Editor
 
 `src/pages/Editor.tsx` is a focused fine-tune page composed from `src/pages/editor/*` modules:
@@ -45,6 +48,9 @@ Business logic is delegated to `src/features/workspace/hooks/useWorkspaceState.t
 - filmstrip
 - preset card
 - adjustment panel
+
+Editor uses a single return entry (`返回工作台`) that routes back to `/?step=<returnStep>`.
+Direct in-panel jump-to-export is intentionally removed to keep a single exit path.
 
 ## 3. State and Persistence
 
@@ -90,14 +96,14 @@ The function first applies geometry transforms (crop/scale/rotate/flip), then ch
 
 ## 4.2 Backend selection order
 
-1. PixiJS multi-pass backend (feature-flagged)
-2. Legacy WebGL2 backend
+1. PixiJS multi-pass backend (default)
+2. Legacy WebGL2 backend (fallback)
 3. CPU fallback backend
 
-Feature flag:
+Debug escape hatch to force legacy renderer:
 
 ```js
-window.__FILMLAB_USE_PIXI = true;
+window.__FILMLAB_USE_LEGACY = true;
 ```
 
 ## 4.3 Legacy backend (`src/lib/film/`)
@@ -207,12 +213,13 @@ Existing tests are mainly under:
 
 - `src/lib/ai/client.test.ts`
 - `src/lib/ai/recommendationUtils.test.ts`
+- `src/features/workspace/navigation.test.ts`
 
 Rendering and shader paths currently rely more on manual/in-browser verification.
 
 ## 9. Known Issues and Constraints
 
-- PixiJS path is not default yet; enabled through feature flag
+- PixiJS is the default GPU path; legacy WebGL2 available via `window.__FILMLAB_USE_LEGACY = true`
 - PixiJS v7 does not natively handle `sampler3D`, so `FilmSimulationFilter` does manual texture unit binding
 - Repository still has mojibake Chinese strings in some UI/source files and docs; UTF-8 cleanup is still needed
 - Multi-backend behavior must stay consistent across PixiJS, legacy WebGL2, and CPU fallback
@@ -225,7 +232,7 @@ When modifying editor/render behavior, verify:
 2. Uniform mapping is updated in `uniformResolvers.ts`
 3. Shader config/templates remain consistent
 4. `pnpm generate:shaders` output compiles and runs
-5. Both feature-flag on/off paths still render
+5. Both PixiJS default and legacy escape-hatch paths still render
 6. Export path (`renderImageToBlob`) remains correct
 7. IndexedDB payload compatibility is preserved
 

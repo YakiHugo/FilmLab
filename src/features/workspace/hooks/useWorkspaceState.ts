@@ -12,7 +12,11 @@ import { renderImageToBlob } from "@/lib/imageProcessing";
 import { useProjectStore, type AddAssetsResult } from "@/stores/projectStore";
 import { useShallow } from "zustand/react/shallow";
 import type { AiPresetRecommendation, EditingAdjustments, Preset } from "@/types";
-import type { ExportTask, WorkspaceStep } from "../types";
+import type {
+  ExportPreviewItem,
+  ExportTask,
+  WorkspaceStep,
+} from "../types";
 import { WORKSPACE_STEPS, isSupportedImportFile } from "../constants";
 import {
   buildCustomAdjustments,
@@ -779,6 +783,21 @@ export const useWorkspaceState = () => {
   const completedCount = tasks.filter((task) => task.status === "完成").length;
   const progress = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
   const isExporting = tasks.some((task) => task.status === "处理中");
+  const taskStatusById = useMemo(
+    () => new Map(tasks.map((task) => [task.id, task.status])),
+    [tasks],
+  );
+  const exportPreviewItems = useMemo<ExportPreviewItem[]>(
+    () =>
+      assets.map((asset) => ({
+        assetId: asset.id,
+        name: asset.name,
+        thumbnailUrl: asset.thumbnailUrl ?? asset.objectUrl,
+        status: taskStatusById.get(asset.id) ?? "未开始",
+        isActive: asset.id === activeAssetId,
+      })),
+    [activeAssetId, assets, taskStatusById],
+  );
 
   const totalSize = useMemo(
     () => assets.reduce((sum, asset) => sum + asset.size, 0),
@@ -817,7 +836,10 @@ export const useWorkspaceState = () => {
     if (!activeAssetId) {
       return;
     }
-    void navigate({ to: "/editor", search: { assetId: activeAssetId } });
+    void navigate({
+      to: "/editor",
+      search: { assetId: activeAssetId, returnStep: currentStep },
+    });
   };
 
   const targetSelection =
@@ -891,6 +913,7 @@ export const useWorkspaceState = () => {
     customPresets,
     tasks,
     setTasks,
+    exportPreviewItems,
     format,
     setFormat,
     quality,

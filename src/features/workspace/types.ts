@@ -14,3 +14,13 @@ export interface ExportTask {
   name: string;
   status: "等待" | "处理中" | "完成" | "失败";
 }
+
+export type ExportPreviewStatus = ExportTask["status"] | "未开始";
+
+export interface ExportPreviewItem {
+  assetId: string;
+  name: string;
+  thumbnailUrl?: string;
+  status: ExportPreviewStatus;
+  isActive: boolean;
+}

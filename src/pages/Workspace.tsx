@@ -18,6 +18,7 @@ import { presets as basePresets } from "@/data/presets";
 import { renderImageToCanvas } from "@/lib/imageProcessing";
 import { cn } from "@/lib/utils";
 import { AiMatchingCard } from "@/features/workspace/components/AiMatchingCard";
+import { ExportPreviewGrid } from "@/features/workspace/components/ExportPreviewGrid";
 import { LibraryOverviewCard } from "@/features/workspace/components/LibraryOverviewCard";
 import { LibraryPanel } from "@/features/workspace/components/LibraryPanel";
 import { PreviewPanel as WorkspacePreviewPanel } from "@/features/workspace/components/PreviewPanel";
@@ -54,6 +55,7 @@ export function Workspace() {
     setCustomPresetName,
     customPresets,
     tasks,
+    exportPreviewItems,
     format,
     setFormat,
     quality,
@@ -649,6 +651,8 @@ export function Workspace() {
 
   const renderExportStep = () => (
     <div className="space-y-6">
+      <ExportPreviewGrid items={exportPreviewItems} />
+
       <Card className="animate-fade-up">
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>导出设置</CardTitle>

@@ -1,5 +1,4 @@
 ﻿import { memo } from "react";
-import { Link } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -483,12 +482,10 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
               <p>输出质量：可调 JPEG 质量。</p>
               <p>格式：PNG / JPEG / WebP（规划中）。</p>
               <p>色彩空间：默认 sRGB。</p>
+              <p className="text-slate-400">
+                导出流程请使用页面顶部“返回工作台”后进入对应步骤。
+              </p>
             </div>
-            <Button size="sm" variant="secondary" asChild>
-              <Link to="/" search={{ step: "export" }}>
-                前往导出设置
-              </Link>
-            </Button>
           </EditorSection>
         </div>
       )}

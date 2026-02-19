@@ -22,9 +22,19 @@ const landingRoute = createRoute({
 const editorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/editor",
-  validateSearch: (search: Record<string, unknown>) => ({
-    assetId: typeof search.assetId === "string" ? search.assetId : undefined,
-  }),
+  validateSearch: (search: Record<string, unknown>) => {
+    const returnStep =
+      search.returnStep === "library" ||
+      search.returnStep === "style" ||
+      search.returnStep === "export"
+        ? search.returnStep
+        : undefined;
+
+    return {
+      assetId: typeof search.assetId === "string" ? search.assetId : undefined,
+      ...(returnStep ? { returnStep } : {}),
+    };
+  },
   component: Editor,
 });
 

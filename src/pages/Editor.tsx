@@ -1,6 +1,8 @@
 import { useEffect } from "react";
-import { useSearch } from "@tanstack/react-router";
+import { Link, useSearch } from "@tanstack/react-router";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { resolveEditorReturnStep } from "@/features/workspace/navigation";
 import { useEditorStore } from "@/stores/editorStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { EditorAdjustmentPanel } from "./editor/EditorAdjustmentPanel";
@@ -13,7 +15,8 @@ export function Editor() {
   const assets = useProjectStore((state) => state.assets);
   const selectedAssetId = useEditorStore((state) => state.selectedAssetId);
   const setSelectedAssetId = useEditorStore((state) => state.setSelectedAssetId);
-  const { assetId } = useSearch({ from: "/editor" });
+  const { assetId, returnStep } = useSearch({ from: "/editor" });
+  const resolvedReturnStep = resolveEditorReturnStep(returnStep);
 
   useEffect(() => {
     if (assetId && assets.some((asset) => asset.id === assetId)) {
@@ -38,6 +41,13 @@ export function Editor() {
   return (
     <div className="app-bg h-screen overflow-hidden bg-slate-950 text-slate-100">
       <div className="flex h-full flex-col">
+        <div className="shrink-0 border-b border-white/10 px-6 py-3">
+          <Button size="sm" variant="secondary" asChild>
+            <Link to="/" search={{ step: resolvedReturnStep }}>
+              返回工作台
+            </Link>
+          </Button>
+        </div>
         {assets.length === 0 ? (
           <div className="flex flex-1 items-center justify-center p-6">
             <Card className="w-full max-w-lg animate-fade-up">
