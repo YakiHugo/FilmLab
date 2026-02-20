@@ -24,6 +24,15 @@ interface AssetHistoryState {
 
 type HistoryByAssetId = Record<string, AssetHistoryState>;
 
+export interface PointColorSample {
+  red: number;
+  green: number;
+  blue: number;
+  hex: string;
+  hue: number;
+  mappedColor: HslColorKey;
+}
+
 const loadOpenSections = (): Record<SectionId, boolean> => {
   if (typeof window === "undefined") {
     return { ...DEFAULT_OPEN_SECTIONS };
@@ -67,6 +76,8 @@ interface EditorState {
   curveChannel: CurveChannel;
   openSections: Record<SectionId, boolean>;
   previewHistogram: HistogramData | null;
+  pointColorPicking: boolean;
+  lastPointColorSample: PointColorSample | null;
   historyByAssetId: HistoryByAssetId;
   setSelectedAssetId: (assetId: string | null) => void;
   setShowOriginal: (showOriginal: boolean) => void;
@@ -75,6 +86,8 @@ interface EditorState {
   setCustomPresets: (updater: PresetUpdater) => void;
   setActiveHslColor: (color: HslColorKey) => void;
   setCurveChannel: (channel: CurveChannel) => void;
+  setPointColorPicking: (picking: boolean) => void;
+  setLastPointColorSample: (sample: PointColorSample | null) => void;
   toggleOriginal: () => void;
   toggleSection: (id: SectionId) => void;
   setPreviewHistogram: (histogram: HistogramData | null) => void;
@@ -103,6 +116,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   curveChannel: "rgb",
   openSections: loadOpenSections(),
   previewHistogram: null,
+  pointColorPicking: false,
+  lastPointColorSample: null,
   historyByAssetId: {},
   setSelectedAssetId: (selectedAssetId) => set({ selectedAssetId }),
   setShowOriginal: (showOriginal) => set({ showOriginal }),
@@ -117,6 +132,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }),
   setActiveHslColor: (activeHslColor) => set({ activeHslColor }),
   setCurveChannel: (curveChannel) => set({ curveChannel }),
+  setPointColorPicking: (pointColorPicking) => set({ pointColorPicking }),
+  setLastPointColorSample: (lastPointColorSample) => set({ lastPointColorSample }),
   toggleOriginal: () => set((state) => ({ showOriginal: !state.showOriginal })),
   toggleSection: (id) =>
     set((state) => {

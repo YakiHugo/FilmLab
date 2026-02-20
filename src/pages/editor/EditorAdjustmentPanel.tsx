@@ -2,6 +2,13 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import { cn } from "@/lib/utils";
 import type {
@@ -10,6 +17,8 @@ import type {
   FilmNumericParamKey,
 } from "@/types";
 import { ASPECT_RATIOS } from "./constants";
+import { EditorColorGradingPanel } from "./EditorColorGradingPanel";
+import { EditorPointCurve } from "./EditorPointCurve";
 import { EditorSection } from "./EditorSection";
 import { EditorSliderRow } from "./EditorSliderRow";
 import {
@@ -22,6 +31,7 @@ import {
   DETAIL_SLIDERS,
   EFFECTS_SLIDERS,
   HSL_COLORS,
+  WHITE_BALANCE_PRESETS,
   type SliderDefinition,
 } from "./editorPanelConfig";
 import type { NumericAdjustmentKey } from "./types";
@@ -121,11 +131,22 @@ const formatFilmValue = (value: number, step: number) => {
   return `${Math.round(value)}`;
 };
 
+const WHITE_BALANCE_CUSTOM_KEY = "__custom__";
+
+const resolveWhiteBalancePresetId = (temperature: number, tint: number) => {
+  const preset = WHITE_BALANCE_PRESETS.find(
+    (item) => item.temperature === temperature && item.tint === tint
+  );
+  return preset?.id ?? WHITE_BALANCE_CUSTOM_KEY;
+};
+
 export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
   const {
     adjustments,
     previewFilmProfile: filmProfile,
     activeHslColor,
+    pointColorPicking,
+    lastPointColorSample,
     curveChannel,
     openSections,
     setActiveHslColor,
@@ -136,6 +157,13 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
     updateAdjustmentValue,
     previewHslValue,
     updateHslValue,
+    previewColorGradingZone,
+    updateColorGradingZone,
+    previewColorGradingValue,
+    updateColorGradingValue,
+    resetColorGrading,
+    startPointColorPick,
+    cancelPointColorPick,
     toggleFlip,
     handleSetFilmModuleAmount,
     handleToggleFilmModule,
@@ -143,6 +171,23 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
     handleSetFilmModuleRgbMix,
     handleResetFilmOverrides,
   } = useEditorState();
+  const whiteBalancePresetId = adjustments
+    ? resolveWhiteBalancePresetId(adjustments.temperature, adjustments.tint)
+    : WHITE_BALANCE_CUSTOM_KEY;
+
+  const handleWhiteBalancePresetChange = (presetId: string) => {
+    if (presetId === WHITE_BALANCE_CUSTOM_KEY) {
+      return;
+    }
+    const preset = WHITE_BALANCE_PRESETS.find((item) => item.id === presetId);
+    if (!preset) {
+      return;
+    }
+    updateAdjustments({
+      temperature: preset.temperature,
+      tint: preset.tint,
+    });
+  };
 
   return (
     <>
@@ -331,6 +376,27 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                 updateAdjustmentValue
               )}
               <p className="mt-3 text-xs uppercase tracking-[0.24em] text-slate-500">色彩</p>
+              <div className="space-y-2">
+                <p className="text-xs text-slate-300">白平衡预设</p>
+                <Select
+                  value={whiteBalancePresetId}
+                  onValueChange={handleWhiteBalancePresetChange}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="选择白平衡" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {WHITE_BALANCE_PRESETS.map((preset) => (
+                      <SelectItem key={preset.id} value={preset.id}>
+                        {preset.label}
+                      </SelectItem>
+                    ))}
+                    {whiteBalancePresetId === WHITE_BALANCE_CUSTOM_KEY && (
+                      <SelectItem value={WHITE_BALANCE_CUSTOM_KEY}>自定义</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
               {renderSliderRows(
                 adjustments,
                 BASIC_COLOR_SLIDERS,
@@ -346,6 +412,39 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
             isOpen={openSections.hsl}
             onToggle={() => toggleSection("hsl")}
           >
+            <div className="rounded-xl border border-white/10 bg-slate-950/70 p-3 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-slate-200">点颜色</p>
+                  <p className="text-[11px] text-slate-500">
+                    {pointColorPicking ? "请在预览图中点击目标颜色" : "从照片中取色并定位到对应通道"}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant={pointColorPicking ? "default" : "secondary"}
+                  onClick={() => {
+                    if (pointColorPicking) {
+                      cancelPointColorPick();
+                      return;
+                    }
+                    startPointColorPick();
+                  }}
+                >
+                  {pointColorPicking ? "取消取色" : "选择照片中的颜色"}
+                </Button>
+              </div>
+              {lastPointColorSample && (
+                <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
+                  <span
+                    className="h-4 w-4 rounded-full border border-white/20"
+                    style={{ backgroundColor: lastPointColorSample.hex }}
+                  />
+                  <span>{lastPointColorSample.hex.toUpperCase()}</span>
+                  <span>→ {lastPointColorSample.mappedColor}</span>
+                </div>
+              )}
+            </div>
             <div className="flex flex-wrap gap-2">
               {HSL_COLORS.map((color) => (
                 <button
@@ -399,6 +498,22 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
           </EditorSection>
 
           <EditorSection
+            title="颜色分级"
+            hint="阴影 / 中间调 / 高光"
+            isOpen={openSections.grading}
+            onToggle={() => toggleSection("grading")}
+          >
+            <EditorColorGradingPanel
+              colorGrading={adjustments.colorGrading}
+              onPreviewZone={previewColorGradingZone}
+              onCommitZone={updateColorGradingZone}
+              onPreviewValue={previewColorGradingValue}
+              onCommitValue={updateColorGradingValue}
+              onReset={resetColorGrading}
+            />
+          </EditorSection>
+
+          <EditorSection
             title="曲线"
             hint="RGB 总曲线"
             isOpen={openSections.curve}
@@ -418,6 +533,16 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                 </Button>
               ))}
             </div>
+            <EditorPointCurve
+              values={{
+                curveHighlights: adjustments.curveHighlights,
+                curveLights: adjustments.curveLights,
+                curveDarks: adjustments.curveDarks,
+                curveShadows: adjustments.curveShadows,
+              }}
+              onPreview={(key, value) => previewAdjustmentValue(key, value)}
+              onCommit={(key, value) => updateAdjustmentValue(key, value)}
+            />
             {renderSliderRows(
               adjustments,
               CURVE_SLIDERS,
@@ -452,6 +577,44 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
               previewAdjustmentValue,
               updateAdjustmentValue
             )}
+          </EditorSection>
+
+          <EditorSection
+            title="光学"
+            hint="镜头与色差校正"
+            isOpen={openSections.optics}
+            onToggle={() => toggleSection("optics")}
+          >
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-xs text-slate-200">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-white/20 bg-slate-950 accent-sky-400"
+                checked={adjustments.opticsCA}
+                onChange={(event) =>
+                  updateAdjustments({ opticsCA: event.currentTarget.checked })
+                }
+              />
+              <span className="space-y-0.5">
+                <span className="block">删除色差</span>
+                <span className="block text-[11px] text-slate-500">减少边缘紫边和绿边。</span>
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-xs text-slate-200">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-white/20 bg-slate-950 accent-sky-400"
+                checked={adjustments.opticsProfile}
+                onChange={(event) =>
+                  updateAdjustments({ opticsProfile: event.currentTarget.checked })
+                }
+              />
+              <span className="space-y-0.5">
+                <span className="block">启用镜头校正</span>
+                <span className="block text-[11px] text-slate-500">
+                  记录镜头修正开关，便于后续渲染对齐。
+                </span>
+              </span>
+            </label>
           </EditorSection>
 
           <EditorSection

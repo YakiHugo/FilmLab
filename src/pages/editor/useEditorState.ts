@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { presets as basePresets } from "@/data/presets";
-import { createDefaultAdjustments } from "@/lib/adjustments";
+import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import { listBuiltInFilmProfiles, normalizeFilmProfile } from "@/lib/film";
 import {
   createEditorAssetSnapshot,
@@ -36,6 +36,60 @@ type PendingHistoryByKey = Record<string, EditorAssetSnapshot>;
 
 const createHistorySessionKey = (assetId: string, key: string) => `${assetId}:${key}`;
 
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
+const rgbToHue = (red: number, green: number, blue: number) => {
+  const r = red / 255;
+  const g = green / 255;
+  const b = blue / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  if (delta === 0) {
+    return 0;
+  }
+  let hue = 0;
+  if (max === r) {
+    hue = ((g - b) / delta) % 6;
+  } else if (max === g) {
+    hue = (b - r) / delta + 2;
+  } else {
+    hue = (r - g) / delta + 4;
+  }
+  return (hue * 60 + 360) % 360;
+};
+
+const mapHueToHslColor = (hue: number): HslColorKey => {
+  if (hue < 15 || hue >= 345) {
+    return "red";
+  }
+  if (hue < 40) {
+    return "orange";
+  }
+  if (hue < 70) {
+    return "yellow";
+  }
+  if (hue < 170) {
+    return "green";
+  }
+  if (hue < 200) {
+    return "aqua";
+  }
+  if (hue < 255) {
+    return "blue";
+  }
+  if (hue < 300) {
+    return "purple";
+  }
+  return "magenta";
+};
+
+const toHex = (value: number) => {
+  const clamped = clamp(Math.round(value), 0, 255);
+  return clamped.toString(16).padStart(2, "0");
+};
+
 export function useEditorState() {
   const { assets, updateAsset, updateAssetOnly } = useProjectStore(
     useShallow((state) => ({
@@ -55,6 +109,8 @@ export function useEditorState() {
     curveChannel,
     openSections,
     previewHistogram,
+    pointColorPicking,
+    lastPointColorSample,
     historyByAssetId,
     setSelectedAssetId,
     setShowOriginal,
@@ -63,6 +119,8 @@ export function useEditorState() {
     setCustomPresets,
     setActiveHslColor,
     setCurveChannel,
+    setPointColorPicking,
+    setLastPointColorSample,
     toggleOriginal,
     toggleSection,
     setPreviewHistogram,
@@ -80,6 +138,8 @@ export function useEditorState() {
       curveChannel: state.curveChannel,
       openSections: state.openSections,
       previewHistogram: state.previewHistogram,
+      pointColorPicking: state.pointColorPicking,
+      lastPointColorSample: state.lastPointColorSample,
       historyByAssetId: state.historyByAssetId,
       setSelectedAssetId: state.setSelectedAssetId,
       setShowOriginal: state.setShowOriginal,
@@ -88,6 +148,8 @@ export function useEditorState() {
       setCustomPresets: state.setCustomPresets,
       setActiveHslColor: state.setActiveHslColor,
       setCurveChannel: state.setCurveChannel,
+      setPointColorPicking: state.setPointColorPicking,
+      setLastPointColorSample: state.setLastPointColorSample,
       toggleOriginal: state.toggleOriginal,
       toggleSection: state.toggleSection,
       setPreviewHistogram: state.setPreviewHistogram,
@@ -106,7 +168,7 @@ export function useEditorState() {
     if (!selectedAsset) {
       return null;
     }
-    return selectedAsset.adjustments ?? createDefaultAdjustments();
+    return normalizeAdjustments(selectedAsset.adjustments);
   }, [selectedAsset]);
 
   const allPresets = useMemo(() => [...basePresets, ...customPresets], [customPresets]);
@@ -156,7 +218,7 @@ export function useEditorState() {
     if (selectedAsset?.filmProfileId) {
       return selectedAsset.filmProfileId;
     }
-    return "自动";
+    return "鑷姩";
   }, [previewFilmProfile, selectedAsset?.filmProfileId]);
 
   const pendingHistoryRef = useRef<PendingHistoryByKey>({});
@@ -254,7 +316,7 @@ export function useEditorState() {
         return;
       }
       const nextAdjustments = {
-        ...(selectedAsset.adjustments ?? createDefaultAdjustments()),
+        ...(normalizeAdjustments(selectedAsset.adjustments)),
         ...partial,
       };
       void applyEditorPatch({
@@ -270,7 +332,7 @@ export function useEditorState() {
         return;
       }
       const nextAdjustments = {
-        ...(selectedAsset.adjustments ?? createDefaultAdjustments()),
+        ...(normalizeAdjustments(selectedAsset.adjustments)),
         [key]: value,
       };
       stageEditorPatch(`adjustment:${key}`, {
@@ -286,7 +348,7 @@ export function useEditorState() {
         return;
       }
       const nextAdjustments = {
-        ...(selectedAsset.adjustments ?? createDefaultAdjustments()),
+        ...(normalizeAdjustments(selectedAsset.adjustments)),
         [key]: value,
       };
       void commitEditorPatch(`adjustment:${key}`, {
@@ -306,7 +368,7 @@ export function useEditorState() {
         return;
       }
       const currentAdjustments =
-        selectedAsset.adjustments ?? createDefaultAdjustments();
+        normalizeAdjustments(selectedAsset.adjustments);
       stageEditorPatch(`hsl:${color}:${channel}`, {
         adjustments: {
           ...currentAdjustments,
@@ -333,7 +395,7 @@ export function useEditorState() {
         return;
       }
       const currentAdjustments =
-        selectedAsset.adjustments ?? createDefaultAdjustments();
+        normalizeAdjustments(selectedAsset.adjustments);
       void commitEditorPatch(`hsl:${color}:${channel}`, {
         adjustments: {
           ...currentAdjustments,
@@ -350,13 +412,148 @@ export function useEditorState() {
     [commitEditorPatch, selectedAsset]
   );
 
+  const previewColorGradingZone = useCallback(
+    (
+      zone: "shadows" | "midtones" | "highlights",
+      value: EditingAdjustments["colorGrading"]["shadows"]
+    ) => {
+      if (!selectedAsset) {
+        return;
+      }
+      const currentAdjustments =
+        normalizeAdjustments(selectedAsset.adjustments);
+      stageEditorPatch(`grading:${zone}`, {
+        adjustments: {
+          ...currentAdjustments,
+          colorGrading: {
+            ...currentAdjustments.colorGrading,
+            [zone]: value,
+          },
+        },
+      });
+    },
+    [selectedAsset, stageEditorPatch]
+  );
+
+  const updateColorGradingZone = useCallback(
+    (
+      zone: "shadows" | "midtones" | "highlights",
+      value: EditingAdjustments["colorGrading"]["shadows"]
+    ) => {
+      if (!selectedAsset) {
+        return;
+      }
+      const currentAdjustments =
+        normalizeAdjustments(selectedAsset.adjustments);
+      void commitEditorPatch(`grading:${zone}`, {
+        adjustments: {
+          ...currentAdjustments,
+          colorGrading: {
+            ...currentAdjustments.colorGrading,
+            [zone]: value,
+          },
+        },
+      });
+    },
+    [commitEditorPatch, selectedAsset]
+  );
+
+  const previewColorGradingValue = useCallback(
+    (key: "blend" | "balance", value: number) => {
+      if (!selectedAsset) {
+        return;
+      }
+      const currentAdjustments =
+        normalizeAdjustments(selectedAsset.adjustments);
+      stageEditorPatch(`grading:${key}`, {
+        adjustments: {
+          ...currentAdjustments,
+          colorGrading: {
+            ...currentAdjustments.colorGrading,
+            [key]: value,
+          },
+        },
+      });
+    },
+    [selectedAsset, stageEditorPatch]
+  );
+
+  const updateColorGradingValue = useCallback(
+    (key: "blend" | "balance", value: number) => {
+      if (!selectedAsset) {
+        return;
+      }
+      const currentAdjustments =
+        normalizeAdjustments(selectedAsset.adjustments);
+      void commitEditorPatch(`grading:${key}`, {
+        adjustments: {
+          ...currentAdjustments,
+          colorGrading: {
+            ...currentAdjustments.colorGrading,
+            [key]: value,
+          },
+        },
+      });
+    },
+    [commitEditorPatch, selectedAsset]
+  );
+
+  const resetColorGrading = useCallback(() => {
+    if (!selectedAsset) {
+      return false;
+    }
+    const currentAdjustments =
+      normalizeAdjustments(selectedAsset.adjustments);
+    const defaults = createDefaultAdjustments().colorGrading;
+    return applyEditorPatch({
+      adjustments: {
+        ...currentAdjustments,
+        colorGrading: {
+          shadows: { ...defaults.shadows },
+          midtones: { ...defaults.midtones },
+          highlights: { ...defaults.highlights },
+          blend: defaults.blend,
+          balance: defaults.balance,
+        },
+      },
+    });
+  }, [applyEditorPatch, selectedAsset]);
+
+  const startPointColorPick = useCallback(() => {
+    setPointColorPicking(true);
+  }, [setPointColorPicking]);
+
+  const cancelPointColorPick = useCallback(() => {
+    setPointColorPicking(false);
+  }, [setPointColorPicking]);
+
+  const commitPointColorSample = useCallback(
+    (sample: { red: number; green: number; blue: number }) => {
+      const hue = rgbToHue(sample.red, sample.green, sample.blue);
+      const mappedColor = mapHueToHslColor(hue);
+      const hex = `#${toHex(sample.red)}${toHex(sample.green)}${toHex(sample.blue)}`;
+      setActiveHslColor(mappedColor);
+      setLastPointColorSample({
+        red: sample.red,
+        green: sample.green,
+        blue: sample.blue,
+        hue,
+        hex,
+        mappedColor,
+      });
+      setPointColorPicking(false);
+      return mappedColor;
+    },
+    [setActiveHslColor, setLastPointColorSample, setPointColorPicking]
+  );
+
   const toggleFlip = useCallback(
     (axis: "flipHorizontal" | "flipVertical") => {
       if (!selectedAsset) {
         return;
       }
       const currentAdjustments =
-        selectedAsset.adjustments ?? createDefaultAdjustments();
+        normalizeAdjustments(selectedAsset.adjustments);
       void applyEditorPatch({
         adjustments: {
           ...currentAdjustments,
@@ -743,6 +940,8 @@ export function useEditorState() {
     customPresets,
     builtInFilmProfiles,
     activeHslColor,
+    pointColorPicking,
+    lastPointColorSample,
     curveChannel,
     openSections,
     canUndo,
@@ -759,6 +958,14 @@ export function useEditorState() {
     updateAdjustmentValue,
     previewHslValue,
     updateHslValue,
+    previewColorGradingZone,
+    updateColorGradingZone,
+    previewColorGradingValue,
+    updateColorGradingValue,
+    resetColorGrading,
+    startPointColorPick,
+    cancelPointColorPick,
+    commitPointColorSample,
     toggleFlip,
     handlePreviewHistogramChange,
     handleSetFilmModuleAmount,
@@ -781,3 +988,4 @@ export function useEditorState() {
     handleImportFilmProfile,
   };
 }
+

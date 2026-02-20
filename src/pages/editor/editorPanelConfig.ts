@@ -5,9 +5,11 @@ export type SectionId =
   | "film"
   | "basic"
   | "hsl"
+  | "grading"
   | "curve"
   | "effects"
   | "detail"
+  | "optics"
   | "crop"
   | "local"
   | "ai"
@@ -24,15 +26,24 @@ export interface SliderDefinition {
   format?: (value: number) => string;
 }
 
+export interface WhiteBalancePreset {
+  id: string;
+  label: string;
+  temperature: number;
+  tint: number;
+}
+
 const formatSigned = (value: number) => (value > 0 ? `+${value}` : `${value}`);
 
 export const DEFAULT_OPEN_SECTIONS: Record<SectionId, boolean> = {
   film: true,
   basic: true,
   hsl: false,
+  grading: false,
   curve: false,
   effects: true,
   detail: false,
+  optics: false,
   crop: true,
   local: false,
   ai: false,
@@ -62,8 +73,8 @@ export const BASIC_LIGHT_SLIDERS: SliderDefinition[] = [
   { key: "contrast", label: "对比度", min: -100, max: 100, format: formatSigned },
   { key: "highlights", label: "高光", min: -100, max: 100, format: formatSigned },
   { key: "shadows", label: "阴影", min: -100, max: 100, format: formatSigned },
-  { key: "whites", label: "白色色阶", min: -100, max: 100, format: formatSigned },
-  { key: "blacks", label: "黑色色阶", min: -100, max: 100, format: formatSigned },
+  { key: "whites", label: "白色", min: -100, max: 100, format: formatSigned },
+  { key: "blacks", label: "黑色", min: -100, max: 100, format: formatSigned },
 ];
 
 export const BASIC_COLOR_SLIDERS: SliderDefinition[] = [
@@ -71,6 +82,16 @@ export const BASIC_COLOR_SLIDERS: SliderDefinition[] = [
   { key: "tint", label: "色调", min: -100, max: 100, format: formatSigned },
   { key: "saturation", label: "饱和度", min: -100, max: 100, format: formatSigned },
   { key: "vibrance", label: "自然饱和度", min: -100, max: 100, format: formatSigned },
+];
+
+export const WHITE_BALANCE_PRESETS: WhiteBalancePreset[] = [
+  { id: "asShot", label: "原始设置", temperature: 0, tint: 0 },
+  { id: "auto", label: "自动", temperature: 6, tint: 2 },
+  { id: "daylight", label: "日光", temperature: 18, tint: 4 },
+  { id: "cloudy", label: "多云", temperature: 30, tint: 6 },
+  { id: "shade", label: "阴影", temperature: 42, tint: 8 },
+  { id: "tungsten", label: "钨丝灯", temperature: -38, tint: 5 },
+  { id: "fluorescent", label: "荧光灯", temperature: -20, tint: 12 },
 ];
 
 export const CURVE_SLIDERS: SliderDefinition[] = [

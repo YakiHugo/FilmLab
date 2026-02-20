@@ -4,10 +4,121 @@ import {
   ensureFilmProfile,
   renderFilmProfileWebGL2,
 } from "@/lib/film";
+import { normalizeAdjustments } from "@/lib/adjustments";
 import type { EditingAdjustments, FilmProfile } from "@/types";
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
+
+const luminance = (red: number, green: number, blue: number) =>
+  red * 0.2126 + green * 0.7152 + blue * 0.0722;
+
+const hsvToRgb = (hue: number, saturation: number, value: number) => {
+  const normalizedHue = ((hue % 360) + 360) % 360;
+  const chroma = value * saturation;
+  const section = normalizedHue / 60;
+  const x = chroma * (1 - Math.abs((section % 2) - 1));
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+  if (section < 1) {
+    red = chroma;
+    green = x;
+  } else if (section < 2) {
+    red = x;
+    green = chroma;
+  } else if (section < 3) {
+    green = chroma;
+    blue = x;
+  } else if (section < 4) {
+    green = x;
+    blue = chroma;
+  } else if (section < 5) {
+    red = x;
+    blue = chroma;
+  } else {
+    red = chroma;
+    blue = x;
+  }
+  const match = value - chroma;
+  return {
+    red: red + match,
+    green: green + match,
+    blue: blue + match,
+  };
+};
+
+const applyColorGradingToImageData = (
+  imageData: ImageData,
+  grading: EditingAdjustments["colorGrading"]
+) => {
+  const blend = clamp(grading.blend / 100, 0, 1);
+  if (blend <= 0.0001) {
+    return;
+  }
+
+  const balance = clamp(grading.balance / 100, -1, 1);
+  const shadowEdge = clamp(0.45 + balance * 0.2, 0.2, 0.7);
+  const highlightEdge = clamp(0.55 + balance * 0.2, 0.3, 0.8);
+  const data = imageData.data;
+
+  const shadowColor = hsvToRgb(grading.shadows.hue, clamp(grading.shadows.saturation / 100, 0, 1), 1);
+  const midtoneColor = hsvToRgb(grading.midtones.hue, clamp(grading.midtones.saturation / 100, 0, 1), 1);
+  const highlightColor = hsvToRgb(
+    grading.highlights.hue,
+    clamp(grading.highlights.saturation / 100, 0, 1),
+    1
+  );
+  const shadowLum = clamp(grading.shadows.luminance / 100, -1, 1);
+  const midtoneLum = clamp(grading.midtones.luminance / 100, -1, 1);
+  const highlightLum = clamp(grading.highlights.luminance / 100, -1, 1);
+
+  for (let index = 0; index < data.length; index += 4) {
+    const red = (data[index] ?? 0) / 255;
+    const green = (data[index + 1] ?? 0) / 255;
+    const blue = (data[index + 2] ?? 0) / 255;
+
+    const lum = luminance(red, green, blue);
+    const wShadows = 1 - clamp((lum - 0.05) / Math.max(shadowEdge - 0.05, 0.001), 0, 1);
+    const wHighlights = clamp((lum - highlightEdge) / Math.max(0.95 - highlightEdge, 0.001), 0, 1);
+    const wMidtones = clamp(1 - wShadows - wHighlights, 0, 1);
+
+    let nextRed =
+      red +
+      ((shadowColor.red - 0.5) * wShadows +
+        (midtoneColor.red - 0.5) * wMidtones +
+        (highlightColor.red - 0.5) * wHighlights) *
+        blend *
+        0.45;
+    let nextGreen =
+      green +
+      ((shadowColor.green - 0.5) * wShadows +
+        (midtoneColor.green - 0.5) * wMidtones +
+        (highlightColor.green - 0.5) * wHighlights) *
+        blend *
+        0.45;
+    let nextBlue =
+      blue +
+      ((shadowColor.blue - 0.5) * wShadows +
+        (midtoneColor.blue - 0.5) * wMidtones +
+        (highlightColor.blue - 0.5) * wHighlights) *
+        blend *
+        0.45;
+
+    const luminanceShift =
+      (shadowLum * wShadows + midtoneLum * wMidtones + highlightLum * wHighlights) *
+      blend *
+      0.25;
+    const luminanceScale = 1 + luminanceShift;
+    nextRed = clamp(nextRed * luminanceScale, 0, 1);
+    nextGreen = clamp(nextGreen * luminanceScale, 0, 1);
+    nextBlue = clamp(nextBlue * luminanceScale, 0, 1);
+
+    data[index] = Math.round(nextRed * 255);
+    data[index + 1] = Math.round(nextGreen * 255);
+    data[index + 2] = Math.round(nextBlue * 255);
+  }
+};
 
 const parseAspectRatio = (
   value: EditingAdjustments["aspectRatio"],
@@ -122,7 +233,7 @@ const resolveProfile = (
   if (providedProfile) {
     return ensureFilmProfile(providedProfile);
   }
-  return createFilmProfileFromAdjustments(adjustments);
+  return createFilmProfileFromAdjustments(normalizeAdjustments(adjustments));
 };
 
 interface CanvasStats {
@@ -310,6 +421,7 @@ export const renderImageToCanvas = async ({
   exportSeed,
   signal,
 }: RenderImageOptions) => {
+  const normalizedAdjustments = normalizeAdjustments(adjustments);
   const loaded = await loadImageSource(source, signal);
   if (signal?.aborted) {
     loaded.cleanup?.();
@@ -319,7 +431,7 @@ export const renderImageToCanvas = async ({
   const fallbackRatio = targetSize
     ? targetSize.width / Math.max(1, targetSize.height)
     : loaded.width / Math.max(1, loaded.height);
-  const targetRatio = parseAspectRatio(adjustments.aspectRatio, fallbackRatio);
+  const targetRatio = parseAspectRatio(normalizedAdjustments.aspectRatio, fallbackRatio);
   const sourceRatio = loaded.width / Math.max(1, loaded.height);
   let cropWidth = loaded.width;
   let cropHeight = loaded.height;
@@ -357,7 +469,7 @@ export const renderImageToCanvas = async ({
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.imageSmoothingQuality = "high";
 
-  const transform = resolveTransform(adjustments, canvas.width, canvas.height);
+  const transform = resolveTransform(normalizedAdjustments, canvas.width, canvas.height);
   context.save();
   context.translate(canvas.width / 2 + transform.translateX, canvas.height / 2 + transform.translateY);
   context.rotate(transform.rotate);
@@ -390,7 +502,7 @@ export const renderImageToCanvas = async ({
   if (preferWebGL2 && !isLegacyRendererForced()) {
     const pixiResult = await tryPixiRender(
       canvas,
-      adjustments,
+      normalizedAdjustments,
       filmProfile,
       renderOptions
     );
@@ -403,7 +515,7 @@ export const renderImageToCanvas = async ({
   }
 
   // 2. Legacy single-pass WebGL2 renderer (fallback)
-  const resolvedProfile = resolveProfile(adjustments, filmProfile);
+  const resolvedProfile = resolveProfile(normalizedAdjustments, filmProfile);
   const renderedByWebGL =
     preferWebGL2 &&
     renderFilmProfileWebGL2(canvas, resolvedProfile, renderOptions);
@@ -417,6 +529,11 @@ export const renderImageToCanvas = async ({
     applyFilmPipeline(imageData, resolvedProfile, renderOptions);
     context.putImageData(imageData, 0, 0);
   }
+
+  // Keep color grading behavior consistent on legacy/CPU fallback paths.
+  const fallbackImageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  applyColorGradingToImageData(fallbackImageData, normalizedAdjustments.colorGrading);
+  context.putImageData(fallbackImageData, 0, 0);
 
   loaded.cleanup?.();
 };

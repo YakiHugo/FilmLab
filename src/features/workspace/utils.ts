@@ -1,4 +1,8 @@
-import { applyPresetAdjustments, createDefaultAdjustments } from "@/lib/adjustments";
+import {
+  applyPresetAdjustments,
+  createDefaultAdjustments,
+  normalizeAdjustments,
+} from "@/lib/adjustments";
 import { resolveFilmProfile as resolveRuntimeFilmProfile } from "@/lib/film";
 import type {
   EditingAdjustments,
@@ -49,7 +53,7 @@ export const resolveAdjustments = (
   intensity: number | undefined,
   presets: Preset[],
 ) => {
-  const base = adjustments ?? createDefaultAdjustments();
+  const base = normalizeAdjustments(adjustments ?? createDefaultAdjustments());
   if (!presetId) {
     return base;
   }

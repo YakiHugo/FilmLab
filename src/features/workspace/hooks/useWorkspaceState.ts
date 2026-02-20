@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { presets as basePresets } from "@/data/presets";
-import { createDefaultAdjustments } from "@/lib/adjustments";
+import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import type { RecommendFilmPresetCandidate } from "@/lib/ai/client";
 import {
   MAX_STYLE_SELECTION,
@@ -450,7 +450,7 @@ export const useWorkspaceState = () => {
     if (!activeAsset) {
       return null;
     }
-    return activeAsset.adjustments ?? createDefaultAdjustments();
+    return normalizeAdjustments(activeAsset.adjustments ?? createDefaultAdjustments());
   }, [activeAsset]);
 
   const previewAdjustments = useMemo(() => {

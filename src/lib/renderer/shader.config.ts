@@ -18,6 +18,7 @@ export interface MasterConfig {
   tonalRange: { enabled: boolean };
   hsl: { enabled: boolean; space: "OKLab" | "HSV" };
   curve: { enabled: boolean };
+  colorGrading: { enabled: boolean };
   dehaze: { enabled: boolean };
 }
 
@@ -41,6 +42,7 @@ export const masterConfig: MasterConfig = {
   tonalRange: { enabled: true },
   hsl: { enabled: true, space: "OKLab" },
   curve: { enabled: true },
+  colorGrading: { enabled: true },
   dehaze: { enabled: true },
 };
 

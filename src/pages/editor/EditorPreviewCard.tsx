@@ -47,8 +47,11 @@ export function EditorPreviewCard() {
     copiedAdjustments,
     canUndo,
     canRedo,
+    pointColorPicking,
     toggleOriginal,
     setShowOriginal,
+    cancelPointColorPick,
+    commitPointColorSample,
     handleResetAll,
     handleCopy,
     handlePaste,
@@ -63,6 +66,8 @@ export function EditorPreviewCard() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const imageAreaRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const originalImageRef = useRef<HTMLImageElement | null>(null);
+  const sampleBufferRef = useRef<HTMLCanvasElement | null>(null);
   const holdComparePreviousRef = useRef<boolean | null>(null);
   const panStartRef = useRef<{
     x: number;
@@ -368,6 +373,70 @@ export function EditorPreviewCard() {
     showOriginal,
   ]);
 
+  useEffect(() => {
+    if (pointColorPicking) {
+      resetView();
+      setIsPanning(false);
+    }
+  }, [pointColorPicking, resetView]);
+
+  useEffect(() => {
+    if (!selectedAsset && pointColorPicking) {
+      cancelPointColorPick();
+    }
+  }, [cancelPointColorPick, pointColorPicking, selectedAsset]);
+
+  const samplePixelColor = useCallback(
+    (normalizedX: number, normalizedY: number) => {
+      const x = clamp(normalizedX, 0, 1);
+      const y = clamp(normalizedY, 0, 1);
+
+      if (showOriginal || !adjustments) {
+        const image = originalImageRef.current;
+        if (!image || image.naturalWidth <= 0 || image.naturalHeight <= 0) {
+          return null;
+        }
+        const canvas =
+          sampleBufferRef.current ?? document.createElement("canvas");
+        sampleBufferRef.current = canvas;
+        canvas.width = 1;
+        canvas.height = 1;
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        if (!context) {
+          return null;
+        }
+        const sx = clamp(Math.floor(x * image.naturalWidth), 0, image.naturalWidth - 1);
+        const sy = clamp(Math.floor(y * image.naturalHeight), 0, image.naturalHeight - 1);
+        context.clearRect(0, 0, 1, 1);
+        context.drawImage(image, sx, sy, 1, 1, 0, 0, 1, 1);
+        const pixel = context.getImageData(0, 0, 1, 1).data;
+        return {
+          red: pixel[0] ?? 0,
+          green: pixel[1] ?? 0,
+          blue: pixel[2] ?? 0,
+        };
+      }
+
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        return null;
+      }
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) {
+        return null;
+      }
+      const sx = clamp(Math.floor(x * canvas.width), 0, canvas.width - 1);
+      const sy = clamp(Math.floor(y * canvas.height), 0, canvas.height - 1);
+      const pixel = context.getImageData(sx, sy, 1, 1).data;
+      return {
+        red: pixel[0] ?? 0,
+        green: pixel[1] ?? 0,
+        blue: pixel[2] ?? 0,
+      };
+    },
+    [adjustments, showOriginal]
+  );
+
   const handleZoom = (nextScale: number) => {
     setViewScale(clamp(nextScale, ZOOM_MIN, ZOOM_MAX));
   };
@@ -481,7 +550,7 @@ export function EditorPreviewCard() {
   ]);
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || viewScale <= 1) {
+    if (pointColorPicking || event.button !== 0 || viewScale <= 1) {
       return;
     }
     event.preventDefault();
@@ -651,8 +720,10 @@ export function EditorPreviewCard() {
           ref={imageAreaRef}
           className={cn(
             "relative flex h-full w-full items-center justify-center rounded-[28px] border border-white/10 bg-black/40 touch-none",
-            viewScale > 1 && "cursor-grab",
-            isPanning && "cursor-grabbing"
+            pointColorPicking
+              ? "cursor-crosshair"
+              : viewScale > 1 && "cursor-grab",
+            !pointColorPicking && isPanning && "cursor-grabbing"
           )}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
@@ -667,6 +738,32 @@ export function EditorPreviewCard() {
                 width: frameSize.width,
                 height: frameSize.height,
               }}
+              onClick={(event) => {
+                if (!pointColorPicking || !selectedAsset) {
+                  return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                const rect = event.currentTarget.getBoundingClientRect();
+                if (rect.width <= 0 || rect.height <= 0) {
+                  return;
+                }
+                const normalizedX = (event.clientX - rect.left) / rect.width;
+                const normalizedY = (event.clientY - rect.top) / rect.height;
+                const sampled = samplePixelColor(normalizedX, normalizedY);
+                if (!sampled) {
+                  setActionMessage({
+                    type: "error",
+                    text: "取色失败，请稍后重试。",
+                  });
+                  return;
+                }
+                const mappedColor = commitPointColorSample(sampled);
+                setActionMessage({
+                  type: "success",
+                  text: `已取样并定位到 ${mappedColor} 通道。`,
+                });
+              }}
             >
               <div
                 className="h-full w-full"
@@ -678,6 +775,7 @@ export function EditorPreviewCard() {
                 {selectedAsset ? (
                   showOriginal || !adjustments ? (
                     <img
+                      ref={originalImageRef}
                       src={selectedAsset.objectUrl}
                       alt={selectedAsset.name}
                       className="h-full w-full object-contain"
@@ -696,6 +794,11 @@ export function EditorPreviewCard() {
                   </div>
                 )}
               </div>
+              {pointColorPicking && (
+                <span className="absolute right-3 top-3 rounded-full border border-sky-300/40 bg-sky-300/10 px-3 py-1 text-xs text-sky-100">
+                  点击图像取色
+                </span>
+              )}
               {showOriginal && selectedAsset && (
                 <span className="absolute left-3 top-3 rounded-full border border-white/10 bg-slate-950/80 px-3 py-1 text-xs text-slate-200">
                   原图

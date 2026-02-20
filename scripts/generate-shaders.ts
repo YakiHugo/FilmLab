@@ -46,6 +46,13 @@ const MASTER_UNIFORMS: Record<string, string[]> = {
     "uniform float u_vibrance;",
     "uniform float u_luminance;",
   ],
+  colorGrading: [
+    "uniform vec3  u_colorGradeShadows;    // (hueDeg, sat, luminance)",
+    "uniform vec3  u_colorGradeMidtones;   // (hueDeg, sat, luminance)",
+    "uniform vec3  u_colorGradeHighlights; // (hueDeg, sat, luminance)",
+    "uniform float u_colorGradeBlend;      // [0, 1]",
+    "uniform float u_colorGradeBalance;    // [-1, 1]",
+  ],
   dehaze: ["uniform float u_dehaze;"],
 };
 
@@ -211,6 +218,12 @@ function generateMasterShader(): string {
     parts.push(...MASTER_UNIFORMS.hsl);
   }
 
+  if (cfg.colorGrading.enabled) {
+    parts.push("");
+    parts.push("// -- Color Grading --");
+    parts.push(...MASTER_UNIFORMS.colorGrading);
+  }
+
   if (cfg.dehaze.enabled) {
     parts.push("");
     parts.push("// -- Detail --");
@@ -231,10 +244,56 @@ function generateMasterShader(): string {
     parts.push(loadTemplate("lms.glsl"));
   }
 
-  const needsLuminance = cfg.tonalRange.enabled || cfg.curve.enabled;
+  const needsLuminance =
+    cfg.tonalRange.enabled || cfg.curve.enabled || cfg.colorGrading.enabled;
   if (needsLuminance) {
     parts.push("");
     parts.push(loadTemplate("luminance.glsl"));
+  }
+
+  if (cfg.colorGrading.enabled) {
+    parts.push("");
+    parts.push("// ---- 3-way color grading ----");
+    parts.push("vec3 hsv2rgbFast(vec3 c) {");
+    parts.push(
+      "  vec3 p = abs(fract(c.xxx + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);"
+    );
+    parts.push("  vec3 rgb = clamp(p - 1.0, 0.0, 1.0);");
+    parts.push("  return c.z * mix(vec3(1.0), rgb, c.y);");
+    parts.push("}");
+    parts.push("");
+    parts.push("vec3 gradeTint(vec3 grade) {");
+    parts.push("  float hue = fract((grade.x + 180.0) / 360.0);");
+    parts.push("  float sat = clamp(grade.y, 0.0, 1.0);");
+    parts.push("  vec3 rgb = hsv2rgbFast(vec3(hue, sat, 1.0));");
+    parts.push("  return rgb - vec3(0.5);");
+    parts.push("}");
+    parts.push("");
+    parts.push("vec3 applyColorGrading(vec3 color, float lum) {");
+    parts.push("  float blend = clamp(u_colorGradeBlend, 0.0, 1.0);");
+    parts.push("  if (blend < 0.0001) {");
+    parts.push("    return color;");
+    parts.push("  }");
+    parts.push("");
+    parts.push("  float balance = clamp(u_colorGradeBalance, -1.0, 1.0);");
+    parts.push("  float shadowEdge = clamp(0.45 + balance * 0.2, 0.2, 0.7);");
+    parts.push("  float highlightEdge = clamp(0.55 + balance * 0.2, 0.3, 0.8);");
+    parts.push("  float wShadows = 1.0 - smoothstep(0.05, shadowEdge, lum);");
+    parts.push("  float wHighlights = smoothstep(highlightEdge, 0.95, lum);");
+    parts.push("  float wMidtones = clamp(1.0 - wShadows - wHighlights, 0.0, 1.0);");
+    parts.push("");
+    parts.push(
+      "  vec3 tint = gradeTint(u_colorGradeShadows) * wShadows + gradeTint(u_colorGradeMidtones) * wMidtones + gradeTint(u_colorGradeHighlights) * wHighlights;"
+    );
+    parts.push("  color += tint * blend * 0.45;");
+    parts.push("");
+    parts.push(
+      "  float luminanceShift = (u_colorGradeShadows.z * wShadows + u_colorGradeMidtones.z * wMidtones + u_colorGradeHighlights.z * wHighlights) * blend * 0.25;"
+    );
+    parts.push("  color *= (1.0 + luminanceShift);");
+    parts.push("");
+    parts.push("  return clamp(color, 0.0, 1.0);");
+    parts.push("}");
   }
 
   // main() body — inline code matching the original shader exactly
@@ -351,10 +410,23 @@ function generateMasterShader(): string {
     parts.push("  color = oklab2rgb(lab);");
   }
 
-  // Step 8: Dehaze
+  // Step 8: 3-way Color Grading
+  if (cfg.colorGrading.enabled) {
+    parts.push("");
+    parts.push("  // Step 8: 3-way color grading");
+    if (lumDeclared) {
+      parts.push("  lum = luminance(color);");
+    } else {
+      parts.push("  float lum = luminance(color);");
+      lumDeclared = true;
+    }
+    parts.push("  color = applyColorGrading(color, lum);");
+  }
+
+  // Step 9: Dehaze
   if (cfg.dehaze.enabled) {
     parts.push("");
-    parts.push("  // Step 8: Dehaze");
+    parts.push("  // Step 9: Dehaze");
     parts.push("  if (abs(u_dehaze) > 0.001) {");
     parts.push("    float haze = u_dehaze * 0.01;");
     parts.push(
@@ -363,9 +435,9 @@ function generateMasterShader(): string {
     parts.push("  }");
   }
 
-  // Step 9: Linear -> sRGB (always)
+  // Step 10: Linear -> sRGB (always)
   parts.push("");
-  parts.push("  // Step 9: Linear -> sRGB");
+  parts.push("  // Step 10: Linear -> sRGB");
   parts.push("  color = linear2srgb(clamp(color, 0.0, 1.0));");
   parts.push("");
   parts.push("  outColor = vec4(color, 1.0);");

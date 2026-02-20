@@ -24,6 +24,13 @@ export interface MasterUniforms {
   curveDarks: number; // [-100, 100]
   curveShadows: number; // [-100, 100]
 
+  // Color grading (3-way)
+  colorGradeShadows: [number, number, number]; // (hueDeg, sat[0..1], luminance[-1..1])
+  colorGradeMidtones: [number, number, number]; // (hueDeg, sat[0..1], luminance[-1..1])
+  colorGradeHighlights: [number, number, number]; // (hueDeg, sat[0..1], luminance[-1..1])
+  colorGradeBlend: number; // [0, 1]
+  colorGradeBalance: number; // [-1, 1]
+
   // Detail
   dehaze: number; // [-100, 100]
 }

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { presets } from "@/data/presets";
-import { createDefaultAdjustments } from "@/lib/adjustments";
+import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import { prepareAssetPayload } from "@/lib/assetMetadata";
 import type { Asset, Project } from "@/types";
 import {
@@ -95,8 +95,20 @@ const toStoredAsset = (asset: Asset): StoredAsset | null => {
     group: asset.group,
     thumbnailBlob: asset.thumbnailBlob,
     metadata: asset.metadata,
-    adjustments: asset.adjustments,
+    adjustments: asset.adjustments
+      ? normalizeAdjustments(asset.adjustments)
+      : undefined,
     aiRecommendation: asset.aiRecommendation,
+  };
+};
+
+const normalizeAssetUpdate = (update: Partial<Asset>): Partial<Asset> => {
+  if (!update.adjustments) {
+    return update;
+  }
+  return {
+    ...update,
+    adjustments: normalizeAdjustments(update.adjustments),
   };
 };
 
@@ -150,7 +162,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         blob: asset.blob,
         thumbnailBlob: asset.thumbnailBlob,
         metadata: asset.metadata,
-        adjustments: asset.adjustments ?? createDefaultAdjustments(),
+        adjustments: normalizeAdjustments(asset.adjustments ?? createDefaultAdjustments()),
         aiRecommendation: asset.aiRecommendation,
       };
     });
@@ -323,8 +335,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ assets: nextAssets });
   },
   updateAsset: (assetId, update) => {
+    const normalizedUpdate = normalizeAssetUpdate(update);
     const nextAssets = get().assets.map((asset) =>
-      asset.id === assetId ? { ...asset, ...update } : asset,
+      asset.id === assetId ? { ...asset, ...normalizedUpdate } : asset,
     );
     const updatedAsset = nextAssets.find((asset) => asset.id === assetId);
     if (updatedAsset) {
@@ -333,8 +346,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ assets: nextAssets });
   },
   updateAssetOnly: (assetId, update) => {
+    const normalizedUpdate = normalizeAssetUpdate(update);
     const nextAssets = get().assets.map((asset) =>
-      asset.id === assetId ? { ...asset, ...update } : asset,
+      asset.id === assetId ? { ...asset, ...normalizedUpdate } : asset,
     );
     set({ assets: nextAssets });
   },

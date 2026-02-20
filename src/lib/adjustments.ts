@@ -1,6 +1,8 @@
 import { presets } from "@/data/presets";
 import type {
+  ColorGradingAdjustments,
   EditingAdjustments,
+  HslColorKey,
   HslAdjustments,
   PresetAdjustments,
   PresetAdjustmentKey,
@@ -15,6 +17,90 @@ const defaultHsl: HslAdjustments = {
   blue: { hue: 0, saturation: 0, luminance: 0 },
   purple: { hue: 0, saturation: 0, luminance: 0 },
   magenta: { hue: 0, saturation: 0, luminance: 0 },
+};
+
+const defaultColorGrading: ColorGradingAdjustments = {
+  shadows: { hue: 0, saturation: 0, luminance: 0 },
+  midtones: { hue: 0, saturation: 0, luminance: 0 },
+  highlights: { hue: 0, saturation: 0, luminance: 0 },
+  blend: 50,
+  balance: 0,
+};
+
+const HSL_KEYS: HslColorKey[] = [
+  "red",
+  "orange",
+  "yellow",
+  "green",
+  "aqua",
+  "blue",
+  "purple",
+  "magenta",
+];
+
+type NormalizableAdjustments = Partial<EditingAdjustments> & {
+  hsl?: Partial<Record<HslColorKey, Partial<HslAdjustments[HslColorKey]>>>;
+  colorGrading?: Partial<EditingAdjustments["colorGrading"]> & {
+    shadows?: Partial<EditingAdjustments["colorGrading"]["shadows"]>;
+    midtones?: Partial<EditingAdjustments["colorGrading"]["midtones"]>;
+    highlights?: Partial<EditingAdjustments["colorGrading"]["highlights"]>;
+  };
+};
+
+export const normalizeAdjustments = (
+  adjustments: NormalizableAdjustments | null | undefined
+): EditingAdjustments => {
+  const defaults = createDefaultAdjustments();
+  if (!adjustments) {
+    return defaults;
+  }
+
+  const merged: EditingAdjustments = {
+    ...defaults,
+    ...adjustments,
+    hsl: {
+      ...defaults.hsl,
+    },
+    colorGrading: {
+      ...defaults.colorGrading,
+      shadows: { ...defaults.colorGrading.shadows },
+      midtones: { ...defaults.colorGrading.midtones },
+      highlights: { ...defaults.colorGrading.highlights },
+      blend: defaults.colorGrading.blend,
+      balance: defaults.colorGrading.balance,
+    },
+  };
+
+  HSL_KEYS.forEach((key) => {
+    merged.hsl[key] = {
+      ...defaults.hsl[key],
+      ...(adjustments.hsl?.[key] ?? {}),
+    };
+  });
+
+  const grading = adjustments.colorGrading;
+  merged.colorGrading.shadows = {
+    ...defaults.colorGrading.shadows,
+    ...(grading?.shadows ?? {}),
+  };
+  merged.colorGrading.midtones = {
+    ...defaults.colorGrading.midtones,
+    ...(grading?.midtones ?? {}),
+  };
+  merged.colorGrading.highlights = {
+    ...defaults.colorGrading.highlights,
+    ...(grading?.highlights ?? {}),
+  };
+  merged.colorGrading.blend =
+    typeof grading?.blend === "number"
+      ? grading.blend
+      : defaults.colorGrading.blend;
+  merged.colorGrading.balance =
+    typeof grading?.balance === "number"
+      ? grading.balance
+      : defaults.colorGrading.balance;
+
+  return merged;
 };
 
 export function createDefaultAdjustments(): EditingAdjustments {
@@ -45,6 +131,13 @@ export function createDefaultAdjustments(): EditingAdjustments {
       blue: { ...defaultHsl.blue },
       purple: { ...defaultHsl.purple },
       magenta: { ...defaultHsl.magenta },
+    },
+    colorGrading: {
+      shadows: { ...defaultColorGrading.shadows },
+      midtones: { ...defaultColorGrading.midtones },
+      highlights: { ...defaultColorGrading.highlights },
+      blend: defaultColorGrading.blend,
+      balance: defaultColorGrading.balance,
     },
     sharpening: 0,
     masking: 0,
@@ -101,15 +194,16 @@ export const applyPresetAdjustments = (
   presetAdjustments: PresetAdjustments,
   intensity = 100
 ) => {
+  const resolvedBase = normalizeAdjustments(base);
   const scale = clampValue(intensity, 0, 100) / 100;
-  const next = { ...base };
+  const next = { ...resolvedBase };
   (Object.keys(presetAdjustments) as PresetAdjustmentKey[]).forEach((key) => {
     const adjustment = presetAdjustments[key];
     if (typeof adjustment !== "number") {
       return;
     }
     const limit = PRESET_LIMITS[key];
-    const updated = base[key] + adjustment * scale;
+    const updated = resolvedBase[key] + adjustment * scale;
     next[key] = clampValue(updated, limit.min, limit.max);
   });
   return next;
@@ -120,7 +214,7 @@ export const resolveAdjustmentsWithPreset = (
   presetId?: string,
   intensity?: number
 ) => {
-  const base = adjustments ?? createDefaultAdjustments();
+  const base = normalizeAdjustments(adjustments);
   if (!presetId) {
     return base;
   }

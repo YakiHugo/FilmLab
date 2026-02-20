@@ -58,6 +58,12 @@ Undo/redo shortcuts in preview:
 - `Cmd/Ctrl + Z`: undo
 - `Cmd/Ctrl + Shift + Z`: redo
 - `Ctrl + Y`: redo
+- In `EditorSliderRow` controls, clicking the numeric value enters inline input mode; press `Enter` or blur to commit, `Esc` to cancel.
+- Basic color controls include a white-balance preset selector (maps to temperature/tint values).
+- Editor includes an `Optics` section with `opticsCA` and `opticsProfile` toggles.
+- Curve section includes a point-curve control for shadows/darks/lights/highlights.
+- HSL section includes point color picking from the preview (maps sample hue to a target HSL channel).
+- Editor includes a `Color Grading` section (shadows/midtones/highlights wheels plus blend/balance).
 
 ## 2.4 Histogram mode behavior
 

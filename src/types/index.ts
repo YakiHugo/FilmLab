@@ -179,6 +179,20 @@ export interface HslChannel {
 
 export type HslAdjustments = Record<HslColorKey, HslChannel>;
 
+export interface ColorGradingZone {
+  hue: number;
+  saturation: number;
+  luminance: number;
+}
+
+export interface ColorGradingAdjustments {
+  shadows: ColorGradingZone;
+  midtones: ColorGradingZone;
+  highlights: ColorGradingZone;
+  blend: number;
+  balance: number;
+}
+
 export interface EditingAdjustments {
   exposure: number;
   contrast: number;
@@ -198,6 +212,7 @@ export interface EditingAdjustments {
   curveDarks: number;
   curveShadows: number;
   hsl: HslAdjustments;
+  colorGrading: ColorGradingAdjustments;
   sharpening: number;
   masking: number;
   noiseReduction: number;

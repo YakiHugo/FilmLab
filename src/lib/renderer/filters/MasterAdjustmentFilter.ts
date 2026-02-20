@@ -29,6 +29,11 @@ export class MasterAdjustmentFilter extends Filter {
       u_saturation: 0.0,
       u_vibrance: 0.0,
       u_luminance: 0.0,
+      u_colorGradeShadows: new Float32Array([0, 0, 0]),
+      u_colorGradeMidtones: new Float32Array([0, 0, 0]),
+      u_colorGradeHighlights: new Float32Array([0, 0, 0]),
+      u_colorGradeBlend: 0.5,
+      u_colorGradeBalance: 0.0,
       u_dehaze: 0.0,
     });
   }
@@ -56,6 +61,17 @@ export class MasterAdjustmentFilter extends Filter {
     this.uniforms.u_saturation = u.saturation;
     this.uniforms.u_vibrance = u.vibrance;
     this.uniforms.u_luminance = u.luminance;
+    this.uniforms.u_colorGradeShadows[0] = u.colorGradeShadows[0];
+    this.uniforms.u_colorGradeShadows[1] = u.colorGradeShadows[1];
+    this.uniforms.u_colorGradeShadows[2] = u.colorGradeShadows[2];
+    this.uniforms.u_colorGradeMidtones[0] = u.colorGradeMidtones[0];
+    this.uniforms.u_colorGradeMidtones[1] = u.colorGradeMidtones[1];
+    this.uniforms.u_colorGradeMidtones[2] = u.colorGradeMidtones[2];
+    this.uniforms.u_colorGradeHighlights[0] = u.colorGradeHighlights[0];
+    this.uniforms.u_colorGradeHighlights[1] = u.colorGradeHighlights[1];
+    this.uniforms.u_colorGradeHighlights[2] = u.colorGradeHighlights[2];
+    this.uniforms.u_colorGradeBlend = u.colorGradeBlend;
+    this.uniforms.u_colorGradeBalance = u.colorGradeBalance;
     this.uniforms.u_dehaze = u.dehaze;
   }
 }

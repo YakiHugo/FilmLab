@@ -2,6 +2,7 @@ import type { EditingAdjustments, FilmProfile } from "@/types";
 import type { FilmProfileV2 } from "@/types/film";
 import type { MasterUniforms, FilmUniforms, HalationBloomUniforms } from "./types";
 import { getFilmModule, normalizeFilmProfile } from "@/lib/film/profile";
+import { normalizeAdjustments } from "@/lib/adjustments";
 
 const IDENTITY_3X3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
@@ -20,35 +21,56 @@ function transpose3x3(m: number[]): number[] {
 export function resolveFromAdjustments(
   adj: EditingAdjustments
 ): MasterUniforms {
+  const normalized = normalizeAdjustments(adj);
+  const grading = normalized.colorGrading;
   return {
     // Exposure: map from [-100, 100] UI range to [-5, 5] EV
-    exposure: (adj.exposure / 100) * 5,
+    exposure: (normalized.exposure / 100) * 5,
 
     // These pass through directly (shader normalizes by /100)
-    contrast: adj.contrast,
-    highlights: adj.highlights,
-    shadows: adj.shadows,
-    whites: adj.whites,
-    blacks: adj.blacks,
+    contrast: normalized.contrast,
+    highlights: normalized.highlights,
+    shadows: normalized.shadows,
+    whites: normalized.whites,
+    blacks: normalized.blacks,
 
     // White balance
-    temperature: adj.temperature,
-    tint: adj.tint,
+    temperature: normalized.temperature,
+    tint: normalized.tint,
 
     // OKLab HSL: hueShift is new (not in v1 UI), default to 0
     hueShift: 0,
-    saturation: adj.saturation,
-    vibrance: adj.vibrance,
+    saturation: normalized.saturation,
+    vibrance: normalized.vibrance,
     luminance: 0, // Not exposed in current UI
 
     // Curves
-    curveHighlights: adj.curveHighlights,
-    curveLights: adj.curveLights,
-    curveDarks: adj.curveDarks,
-    curveShadows: adj.curveShadows,
+    curveHighlights: normalized.curveHighlights,
+    curveLights: normalized.curveLights,
+    curveDarks: normalized.curveDarks,
+    curveShadows: normalized.curveShadows,
+
+    // 3-way color grading
+    colorGradeShadows: [
+      grading.shadows.hue,
+      grading.shadows.saturation / 100,
+      grading.shadows.luminance / 100,
+    ],
+    colorGradeMidtones: [
+      grading.midtones.hue,
+      grading.midtones.saturation / 100,
+      grading.midtones.luminance / 100,
+    ],
+    colorGradeHighlights: [
+      grading.highlights.hue,
+      grading.highlights.saturation / 100,
+      grading.highlights.luminance / 100,
+    ],
+    colorGradeBlend: grading.blend / 100,
+    colorGradeBalance: grading.balance / 100,
 
     // Detail
-    dehaze: adj.dehaze,
+    dehaze: normalized.dehaze,
   };
 }
 
