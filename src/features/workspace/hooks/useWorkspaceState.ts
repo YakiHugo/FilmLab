@@ -318,7 +318,7 @@ export const useWorkspaceState = () => {
         setSelectedAssetIds(restoredSelection.ids);
         didAutoSelect.current = true;
         if (restoredSelection.limited) {
-          setSelectionNotice(`Selection limited to ${MAX_STYLE_SELECTION} assets.`);
+          setSelectionNotice(`最多可选择 ${MAX_STYLE_SELECTION} 张素材。`);
         }
       }
     }
@@ -678,8 +678,8 @@ export const useWorkspaceState = () => {
       } catch {
         setExportFeedback({
           kind: "error",
-          title: "Export failed",
-          detail: "Could not access the selected folder. Please retry.",
+          title: "导出失败",
+          detail: "无法访问所选文件夹，请重试。",
         });
         return;
       }

@@ -788,7 +788,7 @@ export function useEditorState() {
       name,
       tags: (basePresets[0]?.tags ?? []) as Preset["tags"],
       intensity: 100,
-      description: "Custom film profile",
+      description: "自定义胶片档案",
       adjustments: buildCustomAdjustments(previewAdjustments),
       filmProfile: previewFilmProfile ?? undefined,
     };

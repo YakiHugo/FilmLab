@@ -140,7 +140,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
                   title={preset.reason}
                 >
                   <span className="line-clamp-1">{preset.name}</span>
-                  <span className="text-[10px] text-slate-300">Top {index + 1}</span>
+                  <span className="text-[10px] text-slate-300">推荐 {index + 1}</span>
                 </Button>
               ))}
             </div>

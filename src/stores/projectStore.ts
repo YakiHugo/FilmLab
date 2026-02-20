@@ -54,7 +54,7 @@ const defaultProject = (): Project => {
   const now = new Date().toISOString();
   return {
     id: "default-project",
-    name: "FilmLab Project",
+    name: "FilmLab 项目",
     createdAt: now,
     updatedAt: now,
   };

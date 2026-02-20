@@ -5,7 +5,7 @@ export const filmProfiles: FilmProfile[] = [
     id: "film-neutral-v1",
     version: 1,
     name: "Neutral Film",
-    description: "Balanced baseline profile for editing.",
+    description: "适用于编辑的均衡基线档案。",
     tags: ["neutral"],
     modules: [
       {

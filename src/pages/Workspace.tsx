@@ -395,7 +395,7 @@ export function Workspace() {
                             {preset.name}
                           </p>
                           <Badge className="border-sky-200/30 bg-sky-300/20 text-sky-100">
-                            Top {index + 1}
+                            推荐 {index + 1}
                           </Badge>
                         </div>
                         <p className="mt-2 text-xs text-slate-400 line-clamp-2">

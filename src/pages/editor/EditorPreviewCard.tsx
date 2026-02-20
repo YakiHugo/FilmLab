@@ -609,24 +609,24 @@ export function EditorPreviewCard() {
             variant="secondary"
             onClick={triggerUndo}
             disabled={!canUndoAction}
-            aria-label="Undo (Ctrl/Cmd + Z)"
-            title="Undo (Ctrl/Cmd + Z)"
+            aria-label="撤销 (Ctrl/Cmd + Z)"
+            title="撤销 (Ctrl/Cmd + Z)"
             className="gap-1"
           >
             <Undo2 className="h-4 w-4" />
-            Undo
+            撤销
           </Button>
           <Button
             size="sm"
             variant="secondary"
             onClick={triggerRedo}
             disabled={!canRedoAction}
-            aria-label="Redo (Ctrl/Cmd + Shift + Z, Ctrl + Y)"
-            title="Redo (Ctrl/Cmd + Shift + Z, Ctrl + Y)"
+            aria-label="重做 (Ctrl/Cmd + Shift + Z, Ctrl + Y)"
+            title="重做 (Ctrl/Cmd + Shift + Z, Ctrl + Y)"
             className="gap-1"
           >
             <Redo2 className="h-4 w-4" />
-            Redo
+            重做
           </Button>
           <Button
             size="sm"

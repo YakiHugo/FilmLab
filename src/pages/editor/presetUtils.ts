@@ -159,7 +159,7 @@ export const normalizeImportedPresets = (parsed: unknown): Preset[] => {
 
   const defaultTags = basePresets[0]?.tags ?? ([] as Preset["tags"]);
   const fallbackIntensity = basePresets[0]?.intensity ?? 100;
-  const fallbackDescription = basePresets[0]?.description ?? "Imported preset";
+  const fallbackDescription = basePresets[0]?.description ?? "导入预设";
   const timestamp = Date.now();
 
   return incoming
@@ -182,7 +182,7 @@ export const normalizeImportedPresets = (parsed: unknown): Preset[] => {
 
       return {
         id: (preset.id as string) || `imported-${timestamp}-${index}`,
-        name: (preset.name as string) || `Imported preset ${index + 1}`,
+        name: (preset.name as string) || `导入预设 ${index + 1}`,
         tags: (rawTags.length > 0
           ? rawTags
           : defaultTags) as Preset["tags"],

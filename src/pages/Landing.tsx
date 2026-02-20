@@ -56,7 +56,7 @@ export function Landing() {
           FilmLab <span className="text-gradient">胶片修图</span> 工作台
         </>
       }
-      kicker="Mobile-first Workspace"
+      kicker="移动优先工作台"
       description="从素材导入、分组批处理到单张精修与导出交付，移动端优先排布流程，桌面端保留控制面板。"
       actions={
         <>

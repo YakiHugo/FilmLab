@@ -38,20 +38,20 @@ export function AppHeader() {
           </Link>
           <div className="space-y-1">
             <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">
-              FilmLab Workspace
+              FilmLab 工作台
             </p>
             <h1 className="font-display text-lg text-white">
-              {project?.name ?? "Untitled Project"}
+              {project?.name ?? "未命名项目"}
             </h1>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <Badge size="control" className="min-w-[88px] border-white/10 bg-white/5 text-slate-200">
-            Assets {assets.length}
+            素材 {assets.length}
           </Badge>
           <Badge size="control" className="min-w-[96px] border-white/10 bg-white/5 text-slate-200">
-            Selected {selectedAssetIds.length}
+            已选 {selectedAssetIds.length}
           </Badge>
           <UploadButton
             size="sm"
