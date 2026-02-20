@@ -160,7 +160,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
               <SelectValue placeholder="选择胶片档案" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="__auto__">自动（跟随预设/运行时）</SelectItem>
+              <SelectItem value="__auto__">自动（跟随预设运行时）</SelectItem>
               {builtInFilmProfiles.map((profile) => (
                 <SelectItem key={profile.id} value={profile.id}>
                   {profile.name}
@@ -245,7 +245,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
               setFeedback(
                 saved
                   ? { type: "success", text: "自定义预设已保存。" }
-                  : { type: "error", text: "保存失败，请填写名称并确保有可保存的调整参数。" }
+                  : { type: "error", text: "保存失败，请填写名称并确认有可保存的参数。" }
               );
             }}
             disabled={!customPresetName.trim() || !canSaveCustomPreset}

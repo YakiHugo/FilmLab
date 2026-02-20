@@ -17,6 +17,26 @@ export type SectionId =
 
 export type CurveChannel = "rgb" | "red" | "green" | "blue";
 
+export type EditorToolPanelId =
+  | "preset"
+  | "light"
+  | "color"
+  | "effects"
+  | "detail"
+  | "geometry"
+  | "local"
+  | "ai"
+  | "export";
+
+export type EditorPanelSectionId = SectionId | "preset";
+
+export interface EditorToolPanelDefinition {
+  id: EditorToolPanelId;
+  label: string;
+  description: string;
+  disabled?: boolean;
+}
+
 export interface SliderDefinition {
   key: NumericAdjustmentKey;
   label: string;
@@ -50,6 +70,72 @@ export const DEFAULT_OPEN_SECTIONS: Record<SectionId, boolean> = {
   export: false,
 };
 
+export const DEFAULT_EDITOR_TOOL_PANEL_ID: EditorToolPanelId = "light";
+
+export const EDITOR_TOOL_PANELS: EditorToolPanelDefinition[] = [
+  {
+    id: "preset",
+    label: "预设",
+    description: "管理预设、强度与胶片档案",
+  },
+  {
+    id: "light",
+    label: "光线",
+    description: "胶片模块、基础光线与曲线",
+  },
+  {
+    id: "color",
+    label: "颜色",
+    description: "HSL 与颜色分级",
+  },
+  {
+    id: "effects",
+    label: "效果",
+    description: "清晰度、纹理、去雾与颗粒",
+  },
+  {
+    id: "detail",
+    label: "细节",
+    description: "锐化、降噪与光学校正",
+  },
+  {
+    id: "geometry",
+    label: "几何",
+    description: "比例、旋转与翻转",
+  },
+  {
+    id: "local",
+    label: "局部",
+    description: "蒙版与局部调整（即将上线）",
+    disabled: true,
+  },
+  {
+    id: "ai",
+    label: "AI",
+    description: "智能增强能力",
+  },
+  {
+    id: "export",
+    label: "导出",
+    description: "输出参数说明",
+  },
+];
+
+export const EDITOR_PANEL_SECTION_MAP: Record<
+  EditorToolPanelId,
+  EditorPanelSectionId[]
+> = {
+  preset: ["preset"],
+  light: ["film", "basic", "curve"],
+  color: ["hsl", "grading"],
+  effects: ["effects"],
+  detail: ["detail", "optics"],
+  geometry: ["crop"],
+  local: ["local"],
+  ai: ["ai"],
+  export: ["export"],
+};
+
 export const HSL_COLORS: Array<{ id: HslColorKey; label: string; swatch: string }> = [
   { id: "red", label: "红", swatch: "bg-red-400" },
   { id: "orange", label: "橙", swatch: "bg-orange-400" },
@@ -73,8 +159,8 @@ export const BASIC_LIGHT_SLIDERS: SliderDefinition[] = [
   { key: "contrast", label: "对比度", min: -100, max: 100, format: formatSigned },
   { key: "highlights", label: "高光", min: -100, max: 100, format: formatSigned },
   { key: "shadows", label: "阴影", min: -100, max: 100, format: formatSigned },
-  { key: "whites", label: "白色", min: -100, max: 100, format: formatSigned },
-  { key: "blacks", label: "黑色", min: -100, max: 100, format: formatSigned },
+  { key: "whites", label: "白色色阶", min: -100, max: 100, format: formatSigned },
+  { key: "blacks", label: "黑色色阶", min: -100, max: 100, format: formatSigned },
 ];
 
 export const BASIC_COLOR_SLIDERS: SliderDefinition[] = [

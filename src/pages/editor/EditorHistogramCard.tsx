@@ -1,13 +1,11 @@
 import { memo } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { useEditorStore } from "@/stores/editorStore";
 import { EditorHistogram } from "./EditorHistogram";
 import { useEditorState } from "./useEditorState";
 
-export const EditorSidebarHeader = memo(function EditorSidebarHeader() {
-  const { selectedAsset, presetLabel, filmProfileLabel, showOriginal, toggleOriginal } =
-    useEditorState();
+export const EditorHistogramCard = memo(function EditorHistogramCard() {
+  const { selectedAsset, presetLabel, filmProfileLabel, showOriginal } = useEditorState();
   const histogram = useEditorStore((state) => state.previewHistogram);
   const histogramModeLabel =
     histogram?.mode === "rgb-monochrome-overlap"
@@ -16,12 +14,12 @@ export const EditorSidebarHeader = memo(function EditorSidebarHeader() {
 
   return (
     <div className="shrink-0 border-b border-white/10 p-4">
-      <div className="flex items-center justify-between text-xs text-slate-400">
-        <span className="uppercase tracking-[0.24em] text-slate-500">直方图</span>
+      <div className="flex items-center justify-between gap-3 text-xs text-slate-400">
+        <span className="uppercase tracking-[0.24em] text-slate-500">Histogram</span>
         {selectedAsset ? (
           <span className="line-clamp-1 text-slate-300">{selectedAsset.name}</span>
         ) : (
-          <span className="text-slate-500">未选择</span>
+          <span className="text-slate-500">未选择素材</span>
         )}
       </div>
       <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/70 p-3">
@@ -29,18 +27,11 @@ export const EditorSidebarHeader = memo(function EditorSidebarHeader() {
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Badge size="control" variant={showOriginal ? "default" : "secondary"}>
-          {showOriginal ? "当前：原图" : "当前：调整后"}
+          {showOriginal ? "当前：原图" : "当前：调后"}
         </Badge>
-        <Badge size="control" variant="secondary">{histogramModeLabel}</Badge>
-        <Button
-          size="sm"
-          variant={showOriginal ? "default" : "secondary"}
-          aria-pressed={showOriginal}
-          disabled={!selectedAsset}
-          onClick={toggleOriginal}
-        >
-          对比原图
-        </Button>
+        <Badge size="control" variant="secondary">
+          {histogramModeLabel}
+        </Badge>
       </div>
       {selectedAsset && (
         <div className="mt-3 space-y-2 rounded-2xl border border-white/10 bg-slate-950/60 p-3 text-xs text-slate-300">

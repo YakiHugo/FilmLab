@@ -92,7 +92,7 @@ export function EditorHistogram({ histogram }: { histogram: HistogramData | null
         className="h-full w-full"
         preserveAspectRatio="none"
         role="img"
-        aria-label="直方图"
+        aria-label="亮度直方图"
       >
         {paths.mode === "rgb-monochrome-overlap" ? (
           <>

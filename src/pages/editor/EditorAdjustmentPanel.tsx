@@ -1,7 +1,7 @@
-﻿import { memo } from "react";
+import { memo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -19,6 +19,7 @@ import type {
 import { ASPECT_RATIOS } from "./constants";
 import { EditorColorGradingPanel } from "./EditorColorGradingPanel";
 import { EditorPointCurve } from "./EditorPointCurve";
+import { EditorPresetCard } from "./EditorPresetCard";
 import { EditorSection } from "./EditorSection";
 import { EditorSliderRow } from "./EditorSliderRow";
 import {
@@ -32,6 +33,9 @@ import {
   EFFECTS_SLIDERS,
   HSL_COLORS,
   WHITE_BALANCE_PRESETS,
+  EDITOR_PANEL_SECTION_MAP,
+  type EditorToolPanelId,
+  type SectionId,
   type SliderDefinition,
 } from "./editorPanelConfig";
 import type { NumericAdjustmentKey } from "./types";
@@ -140,7 +144,13 @@ const resolveWhiteBalancePresetId = (temperature: number, tint: number) => {
   return preset?.id ?? WHITE_BALANCE_CUSTOM_KEY;
 };
 
-export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
+interface EditorInspectorContentProps {
+  panelId: EditorToolPanelId;
+}
+
+export const EditorInspectorContent = memo(function EditorInspectorContent({
+  panelId,
+}: EditorInspectorContentProps) {
   const {
     adjustments,
     previewFilmProfile: filmProfile,
@@ -171,9 +181,16 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
     handleSetFilmModuleRgbMix,
     handleResetFilmOverrides,
   } = useEditorState();
+
   const whiteBalancePresetId = adjustments
     ? resolveWhiteBalancePresetId(adjustments.temperature, adjustments.tint)
     : WHITE_BALANCE_CUSTOM_KEY;
+
+  const sections = EDITOR_PANEL_SECTION_MAP[panelId] ?? [];
+  const shouldRenderPreset = sections.includes("preset");
+  const requiresAdjustments = sections.some(
+    (section) => section !== "preset" && section !== "ai" && section !== "export" && section !== "local"
+  );
 
   const handleWhiteBalancePresetChange = (presetId: string) => {
     if (presetId === WHITE_BALANCE_CUSTOM_KEY) {
@@ -189,27 +206,72 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
     });
   };
 
-  return (
-    <>
-      <Card>
-        <CardHeader>
-          <CardTitle>编辑说明</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-xs text-slate-300">
-          <p>预览会实时更新。</p>
-          <p>胶片模块与基础调节参数解耦。</p>
-          <p>建议先调模块强度，再微调细节滑杆。</p>
-        </CardContent>
-      </Card>
+  const renderMissingAssetState = () => (
+    <Card>
+      <CardContent className="p-4 text-sm text-slate-400">
+        请先在工作台选择一张素材后再进入精修页面。
+      </CardContent>
+    </Card>
+  );
 
-      {!adjustments ? (
-        <Card>
-          <CardContent className="p-4 text-sm text-slate-400">
-            请先选择一张素材开始编辑。
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
+  const renderSection = (sectionId: SectionId) => {
+    if (!adjustments) {
+      if (sectionId === "local") {
+        return (
+          <EditorSection
+            title="局部"
+            hint="渐变 / 径向 / 画笔"
+            isOpen={openSections.local}
+            onToggle={() => toggleSection("local")}
+          >
+            <div className="rounded-2xl border border-white/10 bg-slate-950/80 p-3 text-xs text-slate-300">
+              局部蒙版即将上线。
+            </div>
+          </EditorSection>
+        );
+      }
+      if (sectionId === "ai") {
+        return (
+          <EditorSection
+            title="AI"
+            hint="智能增强"
+            isOpen={openSections.ai}
+            onToggle={() => toggleSection("ai")}
+          >
+            <div className="flex flex-wrap gap-2">
+              {AI_FEATURES.map((label) => (
+                <Badge key={label} className="border-white/10 bg-white/5 text-slate-200">
+                  {label}
+                </Badge>
+              ))}
+            </div>
+          </EditorSection>
+        );
+      }
+      if (sectionId === "export") {
+        return (
+          <EditorSection
+            title="导出"
+            hint="尺寸 / 质量 / 色彩"
+            isOpen={openSections.export}
+            onToggle={() => toggleSection("export")}
+          >
+            <div className="space-y-2 text-xs text-slate-300">
+              <p>输出尺寸：原图或指定长边。</p>
+              <p>输出质量：可调 JPEG 质量。</p>
+              <p>格式：PNG / JPEG / WebP（规划中）。</p>
+              <p>色彩空间：默认 sRGB。</p>
+              <p className="text-slate-400">导出流程请返回工作台后进入导出步骤。</p>
+            </div>
+          </EditorSection>
+        );
+      }
+      return null;
+    }
+
+    switch (sectionId) {
+      case "film":
+        return (
           <EditorSection
             title="胶片模块"
             hint="色彩科学 / 影调 / 冲扫 / 颗粒 / 瑕疵"
@@ -360,7 +422,9 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
               </div>
             )}
           </EditorSection>
-
+        );
+      case "basic":
+        return (
           <EditorSection
             title="基础调节"
             hint="光线与色彩"
@@ -405,7 +469,9 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
               )}
             </div>
           </EditorSection>
-
+        );
+      case "hsl":
+        return (
           <EditorSection
             title="HSL"
             hint="色相 / 饱和 / 明度"
@@ -417,7 +483,9 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
                 <div>
                   <p className="text-slate-200">点颜色</p>
                   <p className="text-[11px] text-slate-500">
-                    {pointColorPicking ? "请在预览图中点击目标颜色" : "从照片中取色并定位到对应通道"}
+                    {pointColorPicking
+                      ? "请在预览图中点击目标颜色"
+                      : "从照片中取色并定位到对应通道"}
                   </p>
                 </div>
                 <Button
@@ -496,7 +564,9 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
               onReset={() => updateHslValue(activeHslColor, "luminance", 0)}
             />
           </EditorSection>
-
+        );
+      case "grading":
+        return (
           <EditorSection
             title="颜色分级"
             hint="阴影 / 中间调 / 高光"
@@ -512,7 +582,9 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
               onReset={resetColorGrading}
             />
           </EditorSection>
-
+        );
+      case "curve":
+        return (
           <EditorSection
             title="曲线"
             hint="RGB 总曲线"
@@ -550,7 +622,9 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
               updateAdjustmentValue
             )}
           </EditorSection>
-
+        );
+      case "effects":
+        return (
           <EditorSection
             title="效果"
             hint="清晰度 / 纹理 / 去雾"
@@ -564,7 +638,9 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
               updateAdjustmentValue
             )}
           </EditorSection>
-
+        );
+      case "detail":
+        return (
           <EditorSection
             title="细节"
             hint="锐化 / 降噪"
@@ -578,7 +654,9 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
               updateAdjustmentValue
             )}
           </EditorSection>
-
+        );
+      case "optics":
+        return (
           <EditorSection
             title="光学"
             hint="镜头与色差校正"
@@ -616,7 +694,9 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
               </span>
             </label>
           </EditorSection>
-
+        );
+      case "crop":
+        return (
           <EditorSection
             title="裁切"
             hint="比例 / 旋转 / 翻转"
@@ -661,7 +741,9 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
               updateAdjustmentValue
             )}
           </EditorSection>
-
+        );
+      case "local":
+        return (
           <EditorSection
             title="局部"
             hint="渐变 / 径向 / 画笔"
@@ -669,10 +751,12 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
             onToggle={() => toggleSection("local")}
           >
             <div className="rounded-2xl border border-white/10 bg-slate-950/80 p-3 text-xs text-slate-300">
-              局部蒙版将在后续版本上线。
+              局部蒙版即将上线。
             </div>
           </EditorSection>
-
+        );
+      case "ai":
+        return (
           <EditorSection
             title="AI"
             hint="智能增强"
@@ -687,7 +771,9 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
               ))}
             </div>
           </EditorSection>
-
+        );
+      case "export":
+        return (
           <EditorSection
             title="导出"
             hint="尺寸 / 质量 / 色彩"
@@ -699,16 +785,38 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
               <p>输出质量：可调 JPEG 质量。</p>
               <p>格式：PNG / JPEG / WebP（规划中）。</p>
               <p>色彩空间：默认 sRGB。</p>
-              <p className="text-slate-400">
-                导出流程请使用页面顶部“返回工作台”后进入对应步骤。
-              </p>
+              <p className="text-slate-400">导出流程请返回工作台后进入导出步骤。</p>
             </div>
           </EditorSection>
-        </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      {!adjustments && requiresAdjustments && (
+        <>
+          {shouldRenderPreset && <EditorPresetCard />}
+          {renderMissingAssetState()}
+        </>
       )}
-    </>
+      {adjustments || !requiresAdjustments ? (
+        <>
+          {shouldRenderPreset && <EditorPresetCard />}
+          {sections
+            .filter((section) => section !== "preset")
+            .map((section) => (
+              <div key={section}>{renderSection(section)}</div>
+            ))}
+        </>
+      ) : null}
+    </div>
   );
 });
 
-
-
+export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
+  const { activeToolPanelId } = useEditorState();
+  return <EditorInspectorContent panelId={activeToolPanelId} />;
+});

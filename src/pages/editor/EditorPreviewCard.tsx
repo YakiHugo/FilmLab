@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Redo2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import { ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
@@ -20,6 +20,7 @@ import { useEditorState } from "./useEditorState";
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
+
 const isEditableElement = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -42,39 +43,27 @@ export function EditorPreviewCard() {
     selectedAsset,
     previewAdjustments: adjustments,
     previewFilmProfile: filmProfile,
-    presetLabel,
     showOriginal,
-    copiedAdjustments,
-    canUndo,
-    canRedo,
     pointColorPicking,
     toggleOriginal,
-    setShowOriginal,
     cancelPointColorPick,
     commitPointColorSample,
-    handleResetAll,
-    handleCopy,
-    handlePaste,
     handleUndo,
     handleRedo,
     handlePreviewHistogramChange,
   } = useEditorState();
 
-  const canPaste = Boolean(copiedAdjustments);
-  const canUndoAction = Boolean(selectedAsset && canUndo);
-  const canRedoAction = Boolean(selectedAsset && canRedo);
-  const containerRef = useRef<HTMLDivElement | null>(null);
   const imageAreaRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const originalImageRef = useRef<HTMLImageElement | null>(null);
   const sampleBufferRef = useRef<HTMLCanvasElement | null>(null);
-  const holdComparePreviousRef = useRef<boolean | null>(null);
   const panStartRef = useRef<{
     x: number;
     y: number;
     offsetX: number;
     offsetY: number;
   } | null>(null);
+
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [imageNaturalSize, setImageNaturalSize] = useState<{
     width: number;
@@ -108,6 +97,18 @@ export function EditorPreviewCard() {
     );
     return redone;
   }, [handleRedo]);
+
+  const previewRenderSeed = useMemo(() => {
+    if (!selectedAsset?.id) {
+      return 0;
+    }
+    let hash = 2166136261;
+    for (let i = 0; i < selectedAsset.id.length; i += 1) {
+      hash ^= selectedAsset.id.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }, [selectedAsset?.id]);
 
   const imageAspectRatio = useMemo(() => {
     if (imageNaturalSize) {
@@ -204,7 +205,15 @@ export function EditorPreviewCard() {
         image.naturalWidth,
         image.naturalHeight
       );
-      setIsSourceMonochrome(Boolean(sourceHistogram?.analysis.isMonochrome));
+      const sourceMonochrome = Boolean(sourceHistogram?.analysis.isMonochrome);
+      setIsSourceMonochrome(sourceMonochrome);
+      if (!showOriginal) {
+        handlePreviewHistogramChange(
+          sourceMonochrome
+            ? forceMonochromeHistogramMode(sourceHistogram)
+            : sourceHistogram
+        );
+      }
     };
 
     void detect().catch(() => {
@@ -216,19 +225,36 @@ export function EditorPreviewCard() {
     return () => {
       isCancelled = true;
     };
-  }, [selectedAsset?.id, selectedAsset?.objectUrl]);
+  }, [
+    handlePreviewHistogramChange,
+    selectedAsset?.id,
+    selectedAsset?.objectUrl,
+    showOriginal,
+  ]);
 
   useLayoutEffect(() => {
-    if (!containerRef.current) {
+    if (!imageAreaRef.current) {
       return undefined;
     }
-    const element = containerRef.current;
-    const rect = element.getBoundingClientRect();
-    if (rect.width > 0 && rect.height > 0) {
-      setContainerSize({
-        width: Math.max(1, Math.floor(rect.width)),
-        height: Math.max(1, Math.floor(rect.height)),
+    const updateContainerSize = (width: number, height: number) => {
+      const nextWidth = Math.max(1, Math.floor(width));
+      const nextHeight = Math.max(1, Math.floor(height));
+      setContainerSize((prev) => {
+        if (prev.width === nextWidth && prev.height === nextHeight) {
+          return prev;
+        }
+        return {
+          width: nextWidth,
+          height: nextHeight,
+        };
       });
+    };
+
+    const element = imageAreaRef.current;
+    const initialWidth = element.clientWidth;
+    const initialHeight = element.clientHeight;
+    if (initialWidth > 0 && initialHeight > 0) {
+      updateContainerSize(initialWidth, initialHeight);
     }
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
@@ -236,10 +262,7 @@ export function EditorPreviewCard() {
         return;
       }
       const { width, height } = entry.contentRect;
-      setContainerSize({
-        width: Math.max(1, Math.floor(width)),
-        height: Math.max(1, Math.floor(height)),
-      });
+      updateContainerSize(width, height);
     });
     observer.observe(element);
     return () => observer.disconnect();
@@ -327,24 +350,43 @@ export function EditorPreviewCard() {
     }
     const canvas = canvasRef.current;
     if (!canvas || frameSize.width === 0 || frameSize.height === 0) {
-      handlePreviewHistogramChange(null);
       return undefined;
     }
     const controller = new AbortController();
     const dpr = window.devicePixelRatio || 1;
     const renderPreview = async () => {
+      const workingCanvas = document.createElement("canvas");
       await renderImageToCanvas({
-        canvas,
+        canvas: workingCanvas,
         source: selectedAsset.blob ?? selectedAsset.objectUrl,
         adjustments,
         filmProfile: filmProfile ?? undefined,
+        preferPixi: false,
         targetSize: {
           width: Math.round(frameSize.width * dpr),
           height: Math.round(frameSize.height * dpr),
         },
         seedKey: selectedAsset.id,
+        renderSeed: previewRenderSeed,
         signal: controller.signal,
       });
+      if (controller.signal.aborted) {
+        return;
+      }
+      const outputContext = canvas.getContext("2d", { willReadFrequently: true });
+      if (!outputContext) {
+        return;
+      }
+      if (
+        canvas.width !== workingCanvas.width ||
+        canvas.height !== workingCanvas.height
+      ) {
+        canvas.width = workingCanvas.width;
+        canvas.height = workingCanvas.height;
+      }
+      outputContext.clearRect(0, 0, canvas.width, canvas.height);
+      outputContext.drawImage(workingCanvas, 0, 0, canvas.width, canvas.height);
+
       if (!controller.signal.aborted) {
         const previewHistogram = buildHistogramFromCanvas(canvas);
         handlePreviewHistogramChange(
@@ -355,11 +397,7 @@ export function EditorPreviewCard() {
       }
     };
 
-    void renderPreview().catch(() => {
-      if (!controller.signal.aborted) {
-        handlePreviewHistogramChange(null);
-      }
-    });
+    void renderPreview().catch(() => undefined);
 
     return () => controller.abort();
   }, [
@@ -369,6 +407,7 @@ export function EditorPreviewCard() {
     frameSize.width,
     handlePreviewHistogramChange,
     isSourceMonochrome,
+    previewRenderSeed,
     selectedAsset,
     showOriginal,
   ]);
@@ -396,8 +435,7 @@ export function EditorPreviewCard() {
         if (!image || image.naturalWidth <= 0 || image.naturalHeight <= 0) {
           return null;
         }
-        const canvas =
-          sampleBufferRef.current ?? document.createElement("canvas");
+        const canvas = sampleBufferRef.current ?? document.createElement("canvas");
         sampleBufferRef.current = canvas;
         canvas.width = 1;
         canvas.height = 1;
@@ -441,47 +479,22 @@ export function EditorPreviewCard() {
     setViewScale(clamp(nextScale, ZOOM_MIN, ZOOM_MAX));
   };
 
-  const startHoldCompare = useCallback(() => {
-    if (!selectedAsset || holdComparePreviousRef.current !== null) {
-      return;
-    }
-    holdComparePreviousRef.current = showOriginal;
-    setShowOriginal(true);
-  }, [selectedAsset, setShowOriginal, showOriginal]);
-
-  const endHoldCompare = useCallback(() => {
-    if (holdComparePreviousRef.current === null) {
-      return;
-    }
-    setShowOriginal(holdComparePreviousRef.current);
-    holdComparePreviousRef.current = null;
-  }, [setShowOriginal]);
-
-  useEffect(() => () => endHoldCompare(), [endHoldCompare]);
-
-  const handleWheel = useCallback(
-    (event: WheelEvent) => {
-      if (!selectedAsset) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      const delta = -event.deltaY;
-      handleZoom(viewScale + delta * 0.002);
-    },
-    [selectedAsset, viewScale]
-  );
-
   useEffect(() => {
     const element = imageAreaRef.current;
     if (!element) {
-      return;
+      return undefined;
     }
-    element.addEventListener("wheel", handleWheel, { passive: false });
-    return () => {
-      element.removeEventListener("wheel", handleWheel);
+    const preventBrowserZoom = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
     };
-  }, [handleWheel]);
+    element.addEventListener("wheel", preventBrowserZoom, { passive: false });
+    return () => {
+      element.removeEventListener("wheel", preventBrowserZoom);
+    };
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -510,25 +523,29 @@ export function EditorPreviewCard() {
       if (!selectedAsset || withCommand || event.altKey) {
         return;
       }
+
       if (key === "o") {
         event.preventDefault();
         toggleOriginal();
         setActionMessage({
           type: "success",
-          text: !showOriginal ? "已切换为原图对比。" : "已切换回调整后预览。",
+          text: !showOriginal ? "已切换到原图对比。" : "已切换回调后预览。",
         });
         return;
       }
+
       if (key === "0") {
         event.preventDefault();
         resetView();
         return;
       }
+
       if (key === "=" || key === "+") {
         event.preventDefault();
         handleZoom(viewScale + ZOOM_STEP);
         return;
       }
+
       if (key === "-" || key === "_") {
         event.preventDefault();
         handleZoom(viewScale - ZOOM_STEP);
@@ -543,9 +560,9 @@ export function EditorPreviewCard() {
     resetView,
     selectedAsset,
     showOriginal,
+    toggleOriginal,
     triggerRedo,
     triggerUndo,
-    toggleOriginal,
     viewScale,
   ]);
 
@@ -590,292 +607,165 @@ export function EditorPreviewCard() {
   const zoomLabel = `${Math.round(viewScale * 100)}%`;
 
   return (
-    <div className="flex h-full w-full min-h-0 flex-col gap-4">
-      <div className="shrink-0 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">
-            编辑预览
-          </p>
-          <p className="text-sm text-slate-300">
-            {selectedAsset ? selectedAsset.name : "请选择一张照片开始编辑。"}
-          </p>
-          {selectedAsset && (
-            <p className="text-xs text-slate-500">预设：{presetLabel ?? "未设置"}</p>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={triggerUndo}
-            disabled={!canUndoAction}
-            aria-label="撤销 (Ctrl/Cmd + Z)"
-            title="撤销 (Ctrl/Cmd + Z)"
-            className="gap-1"
-          >
-            <Undo2 className="h-4 w-4" />
-            撤销
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={triggerRedo}
-            disabled={!canRedoAction}
-            aria-label="重做 (Ctrl/Cmd + Shift + Z, Ctrl + Y)"
-            title="重做 (Ctrl/Cmd + Shift + Z, Ctrl + Y)"
-            className="gap-1"
-          >
-            <Redo2 className="h-4 w-4" />
-            重做
-          </Button>
-          <Button
-            size="sm"
-            variant={showOriginal ? "default" : "secondary"}
-            onClick={toggleOriginal}
-            disabled={!selectedAsset}
-            aria-pressed={showOriginal}
-          >
-            对比原图
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            onPointerDown={startHoldCompare}
-            onPointerUp={endHoldCompare}
-            onPointerCancel={endHoldCompare}
-            onPointerLeave={endHoldCompare}
-            onBlur={endHoldCompare}
-            onKeyDown={(event) => {
-              if (event.key === " " || event.key === "Enter") {
-                event.preventDefault();
-                startHoldCompare();
-              }
+    <div className="relative h-full min-h-[300px] w-full">
+      <div
+        ref={imageAreaRef}
+        className={cn(
+          "relative flex h-full w-full items-center justify-center rounded-[24px] border border-white/10 bg-black/50 touch-none",
+          pointColorPicking ? "cursor-crosshair" : viewScale > 1 && "cursor-grab",
+          !pointColorPicking && isPanning && "cursor-grabbing"
+        )}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onDoubleClick={resetView}
+      >
+        {frameSize.width > 0 && frameSize.height > 0 && (
+          <div
+            className="relative overflow-hidden bg-black/40 shadow-[0_20px_60px_rgba(0,0,0,0.55)]"
+            style={{
+              width: frameSize.width,
+              height: frameSize.height,
             }}
-            onKeyUp={(event) => {
-              if (event.key === " " || event.key === "Enter") {
-                event.preventDefault();
-                endHoldCompare();
-              }
-            }}
-            disabled={!selectedAsset}
-          >
-            按住对比
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => {
-              if (!window.confirm("确认重置当前照片的全部调整参数吗？")) {
+            onClick={(event) => {
+              if (!pointColorPicking || !selectedAsset) {
                 return;
               }
-              const reset = handleResetAll();
-              setActionMessage(
-                reset
-                  ? { type: "success", text: "已重置当前照片全部参数。" }
-                  : { type: "error", text: "重置失败，请先选择素材。" }
-              );
-            }}
-            disabled={!selectedAsset}
-          >
-            重置全部
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => {
-              const copied = handleCopy();
-              setActionMessage(
-                copied
-                  ? { type: "success", text: "当前设置已复制。" }
-                  : { type: "error", text: "复制失败，请先选择素材。" }
-              );
-            }}
-            disabled={!selectedAsset}
-          >
-            复制设置
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => {
-              if (!window.confirm("粘贴将覆盖当前照片的调节参数，确认继续吗？")) {
+              event.preventDefault();
+              event.stopPropagation();
+              const rect = event.currentTarget.getBoundingClientRect();
+              if (rect.width <= 0 || rect.height <= 0) {
                 return;
               }
-              const pasted = handlePaste();
-              setActionMessage(
-                pasted
-                  ? { type: "success", text: "已粘贴设置到当前素材。" }
-                  : { type: "error", text: "粘贴失败，剪贴板为空或未选择素材。" }
-              );
-            }}
-            disabled={!canPaste || !selectedAsset}
-          >
-            粘贴设置
-          </Button>
-        </div>
-      </div>
-
-      <div ref={containerRef} className="relative flex-1 min-h-0">
-        <div
-          ref={imageAreaRef}
-          className={cn(
-            "relative flex h-full w-full items-center justify-center rounded-[28px] border border-white/10 bg-black/40 touch-none",
-            pointColorPicking
-              ? "cursor-crosshair"
-              : viewScale > 1 && "cursor-grab",
-            !pointColorPicking && isPanning && "cursor-grabbing"
-          )}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          onDoubleClick={resetView}
-        >
-          {frameSize.width > 0 && frameSize.height > 0 && (
-            <div
-              className="relative overflow-hidden bg-black/40 shadow-[0_20px_60px_rgba(0,0,0,0.55)]"
-              style={{
-                width: frameSize.width,
-                height: frameSize.height,
-              }}
-              onClick={(event) => {
-                if (!pointColorPicking || !selectedAsset) {
-                  return;
-                }
-                event.preventDefault();
-                event.stopPropagation();
-                const rect = event.currentTarget.getBoundingClientRect();
-                if (rect.width <= 0 || rect.height <= 0) {
-                  return;
-                }
-                const normalizedX = (event.clientX - rect.left) / rect.width;
-                const normalizedY = (event.clientY - rect.top) / rect.height;
-                const sampled = samplePixelColor(normalizedX, normalizedY);
-                if (!sampled) {
-                  setActionMessage({
-                    type: "error",
-                    text: "取色失败，请稍后重试。",
-                  });
-                  return;
-                }
-                const mappedColor = commitPointColorSample(sampled);
+              const normalizedX = (event.clientX - rect.left) / rect.width;
+              const normalizedY = (event.clientY - rect.top) / rect.height;
+              const sampled = samplePixelColor(normalizedX, normalizedY);
+              if (!sampled) {
                 setActionMessage({
-                  type: "success",
-                  text: `已取样并定位到 ${mappedColor} 通道。`,
+                  type: "error",
+                  text: "取色失败，请稍后重试。",
                 });
+                return;
+              }
+              const mappedColor = commitPointColorSample(sampled);
+              setActionMessage({
+                type: "success",
+                text: `已取样并定位到 ${mappedColor} 通道。`,
+              });
+            }}
+          >
+            <div
+              className="h-full w-full"
+              style={{
+                transform: `translate3d(${viewOffset.x}px, ${viewOffset.y}px, 0) scale(${0.9 * viewScale})`,
+                transformOrigin: "center",
               }}
             >
-              <div
-                className="h-full w-full"
-                style={{
-                  transform: `translate3d(${viewOffset.x}px, ${viewOffset.y}px, 0) scale(${0.9 * viewScale})`,
-                  transformOrigin: "center",
-                }}
-              >
-                {selectedAsset ? (
-                  showOriginal || !adjustments ? (
-                    <img
-                      ref={originalImageRef}
-                      src={selectedAsset.objectUrl}
-                      alt={selectedAsset.name}
-                      className="h-full w-full object-contain"
-                    />
-                  ) : (
-                    <canvas
-                      ref={canvasRef}
-                      role="img"
-                      aria-label={`${selectedAsset.name} 预览`}
-                      className="block h-full w-full"
-                    />
-                  )
+              {selectedAsset ? (
+                showOriginal || !adjustments ? (
+                  <img
+                    ref={originalImageRef}
+                    src={selectedAsset.objectUrl}
+                    alt={selectedAsset.name}
+                    className="h-full w-full object-contain"
+                  />
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center text-sm text-slate-500">
-                    请先选择一张照片。
-                  </div>
-                )}
-              </div>
-              {pointColorPicking && (
-                <span className="absolute right-3 top-3 rounded-full border border-sky-300/40 bg-sky-300/10 px-3 py-1 text-xs text-sky-100">
-                  点击图像取色
-                </span>
-              )}
-              {showOriginal && selectedAsset && (
-                <span className="absolute left-3 top-3 rounded-full border border-white/10 bg-slate-950/80 px-3 py-1 text-xs text-slate-200">
-                  原图
-                </span>
+                  <canvas
+                    ref={canvasRef}
+                    role="img"
+                    aria-label={`${selectedAsset.name} 预览`}
+                    className="block h-full w-full"
+                  />
+                )
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-sm text-slate-500">
+                  请先选择一张照片。
+                </div>
               )}
             </div>
-          )}
-        </div>
-
-        <div
-          className="absolute bottom-4 left-4 flex items-center gap-3 rounded-full border border-white/10 bg-slate-950/80 px-3 py-2 text-xs text-slate-200 shadow-lg"
-          onPointerDown={(event) => event.stopPropagation()}
-          onWheel={(event) => event.stopPropagation()}
-        >
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-8 w-8 px-0"
-            onClick={() => handleZoom(viewScale - ZOOM_STEP)}
-            disabled={!selectedAsset}
-            aria-label="缩小预览"
-          >
-            <ZoomOut className="h-4 w-4" />
-          </Button>
-          <div className="w-28">
-            <Slider
-              value={[viewScale]}
-              min={ZOOM_MIN}
-              max={ZOOM_MAX}
-              step={ZOOM_STEP}
-              onValueChange={(value) => handleZoom(value[0] ?? ZOOM_MIN)}
-              disabled={!selectedAsset}
-              aria-label="预览缩放"
-            />
-          </div>
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-8 w-8 px-0"
-            onClick={() => handleZoom(viewScale + ZOOM_STEP)}
-            disabled={!selectedAsset}
-            aria-label="放大预览"
-          >
-            <ZoomIn className="h-4 w-4" />
-          </Button>
-          <span className="w-12 text-right">{zoomLabel}</span>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 px-2"
-            onClick={resetView}
-            disabled={!selectedAsset}
-          >
-            适配
-          </Button>
-          <span className="hidden text-[11px] text-slate-400 lg:inline">
-            滚轮缩放，双击适配，拖拽平移
-          </span>
-          <span className="hidden text-[11px] text-slate-500 xl:inline">
-            快捷键: O 对比, +/- 缩放, 0 适配
-          </span>
-        </div>
-        {actionMessage && (
-          <p
-            role="status"
-            aria-live="polite"
-            className={cn(
-              "absolute bottom-4 right-4 rounded-full border px-3 py-1 text-xs shadow-lg",
-              actionMessage.type === "success"
-                ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-200"
-                : "border-rose-300/30 bg-rose-300/10 text-rose-200"
+            {pointColorPicking && (
+              <span className="absolute right-3 top-3 rounded-full border border-sky-300/40 bg-sky-300/10 px-3 py-1 text-xs text-sky-100">
+                点击图像取色
+              </span>
             )}
-          >
-            {actionMessage.text}
-          </p>
+            {showOriginal && selectedAsset && (
+              <span className="absolute left-3 top-3 rounded-full border border-white/10 bg-slate-950/80 px-3 py-1 text-xs text-slate-200">
+                原图
+              </span>
+            )}
+          </div>
         )}
       </div>
+
+      <div
+        className="absolute bottom-4 left-4 flex items-center gap-3 rounded-full border border-white/10 bg-slate-950/80 px-3 py-2 text-xs text-slate-200 shadow-lg"
+        onPointerDown={(event) => event.stopPropagation()}
+        onWheel={(event) => event.stopPropagation()}
+      >
+        <Button
+          size="sm"
+          variant="secondary"
+          className="h-8 w-8 px-0"
+          onClick={() => handleZoom(viewScale - ZOOM_STEP)}
+          disabled={!selectedAsset}
+          aria-label="缩小预览"
+        >
+          <ZoomOut className="h-4 w-4" />
+        </Button>
+        <div className="w-28">
+          <Slider
+            value={[viewScale]}
+            min={ZOOM_MIN}
+            max={ZOOM_MAX}
+            step={ZOOM_STEP}
+            onValueChange={(value) => handleZoom(value[0] ?? ZOOM_MIN)}
+            disabled={!selectedAsset}
+            aria-label="预览缩放"
+          />
+        </div>
+        <Button
+          size="sm"
+          variant="secondary"
+          className="h-8 w-8 px-0"
+          onClick={() => handleZoom(viewScale + ZOOM_STEP)}
+          disabled={!selectedAsset}
+          aria-label="放大预览"
+        >
+          <ZoomIn className="h-4 w-4" />
+        </Button>
+        <span className="w-12 text-right">{zoomLabel}</span>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8 px-2"
+          onClick={resetView}
+          disabled={!selectedAsset}
+        >
+          适配
+        </Button>
+        <span className="hidden text-[11px] text-slate-400 lg:inline">
+          双击适配，拖拽平移
+        </span>
+        <span className="hidden text-[11px] text-slate-500 xl:inline">
+          快捷键：O 对比，+/- 缩放，0 适配
+        </span>
+      </div>
+
+      {actionMessage && (
+        <p
+          role="status"
+          aria-live="polite"
+          className={cn(
+            "absolute bottom-4 right-4 rounded-full border px-3 py-1 text-xs shadow-lg",
+            actionMessage.type === "success"
+              ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-200"
+              : "border-rose-300/30 bg-rose-300/10 text-rose-200"
+          )}
+        >
+          {actionMessage.text}
+        </p>
+      )}
     </div>
   );
 }

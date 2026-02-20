@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import {
+  DEFAULT_EDITOR_TOOL_PANEL_ID,
   DEFAULT_OPEN_SECTIONS,
+  type EditorToolPanelId,
   type CurveChannel,
   type SectionId,
 } from "@/pages/editor/editorPanelConfig";
@@ -69,6 +71,8 @@ const saveOpenSections = (sections: Record<SectionId, boolean>) => {
 interface EditorState {
   selectedAssetId: string | null;
   showOriginal: boolean;
+  activeToolPanelId: EditorToolPanelId;
+  mobilePanelExpanded: boolean;
   copiedAdjustments: EditingAdjustments | null;
   customPresetName: string;
   customPresets: Preset[];
@@ -81,6 +85,8 @@ interface EditorState {
   historyByAssetId: HistoryByAssetId;
   setSelectedAssetId: (assetId: string | null) => void;
   setShowOriginal: (showOriginal: boolean) => void;
+  setActiveToolPanelId: (panelId: EditorToolPanelId) => void;
+  setMobilePanelExpanded: (expanded: boolean) => void;
   setCopiedAdjustments: (adjustments: EditingAdjustments | null) => void;
   setCustomPresetName: (name: string) => void;
   setCustomPresets: (updater: PresetUpdater) => void;
@@ -109,6 +115,8 @@ interface EditorState {
 export const useEditorStore = create<EditorState>((set, get) => ({
   selectedAssetId: null,
   showOriginal: false,
+  activeToolPanelId: DEFAULT_EDITOR_TOOL_PANEL_ID,
+  mobilePanelExpanded: true,
   copiedAdjustments: null,
   customPresetName: "",
   customPresets: loadCustomPresets(),
@@ -121,6 +129,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   historyByAssetId: {},
   setSelectedAssetId: (selectedAssetId) => set({ selectedAssetId }),
   setShowOriginal: (showOriginal) => set({ showOriginal }),
+  setActiveToolPanelId: (activeToolPanelId) => set({ activeToolPanelId }),
+  setMobilePanelExpanded: (mobilePanelExpanded) => set({ mobilePanelExpanded }),
   setCopiedAdjustments: (copiedAdjustments) => set({ copiedAdjustments }),
   setCustomPresetName: (customPresetName) => set({ customPresetName }),
   setCustomPresets: (updater) =>

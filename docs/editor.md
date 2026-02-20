@@ -1,6 +1,6 @@
-# FilmLab Editor Architecture (Current)
+﻿# FilmLab Editor Architecture (Current)
 
-> Version: v2026.02.19  
+> Version: v2026.02.20  
 > Scope: implementation-aligned documentation for the current repository
 
 ## 1. Goals and Scope
@@ -42,29 +42,40 @@ with view-only `exportPreviewItems` derived from assets + export task status.
 
 ## 2.3 Editor
 
-`src/pages/Editor.tsx` is a focused fine-tune page composed from `src/pages/editor/*` modules:
+`/editor` now runs in an independent full-screen shell (without global app header/max-width container)
+and uses a Lightroom-style working layout:
 
-- preview card
-- filmstrip
-- preset card
-- adjustment panel
-- per-asset undo/redo controls
+- top action bar: return, asset info, undo/redo, compare, copy/paste settings, reset
+- center preview canvas: zoom/pan/pick-color/keyboard shortcuts
+- tool rail: `preset | light | color | effects | detail | geometry | local(disabled) | ai | export`
+- right inspector: fixed histogram card + panel-mapped section content
 
-Editor uses a single return entry (`返回工作台`) that routes back to `/?step=<returnStep>`.
-Direct in-panel jump-to-export is intentionally removed to keep a single exit path.
+Editor keeps a single return entry (`返回工作台`) and routes back to `/?step=<returnStep>`.
+Direct in-panel jump-to-export remains intentionally removed to keep one clear exit path.
+
+Current composition modules:
+
+- `src/pages/editor/layout/EditorTopBar.tsx`
+- `src/pages/editor/layout/EditorToolRail.tsx`
+- `src/pages/editor/layout/EditorInspectorPanel.tsx`
+- `src/pages/editor/EditorPreviewCard.tsx`
+- `src/pages/editor/EditorHistogramCard.tsx`
+- `src/pages/editor/EditorAdjustmentPanel.tsx` (`EditorInspectorContent`)
 
 Undo/redo shortcuts in preview:
 
 - `Cmd/Ctrl + Z`: undo
 - `Cmd/Ctrl + Shift + Z`: redo
 - `Ctrl + Y`: redo
+- `O`: toggle original/adjusted compare
+- `+/-`: zoom in/out
+- `0`: fit to viewport
 - In `EditorSliderRow` controls, clicking the numeric value enters inline input mode; press `Enter` or blur to commit, `Esc` to cancel.
 - Basic color controls include a white-balance preset selector (maps to temperature/tint values).
 - Editor includes an `Optics` section with `opticsCA` and `opticsProfile` toggles.
 - Curve section includes a point-curve control for shadows/darks/lights/highlights.
 - HSL section includes point color picking from the preview (maps sample hue to a target HSL channel).
 - Editor includes a `Color Grading` section (shadows/midtones/highlights wheels plus blend/balance).
-
 ## 2.4 Histogram mode behavior
 
 Editor histogram stays RGB-oriented, but adds automatic monochrome overlap rendering:
@@ -95,6 +106,7 @@ Editor histogram stays RGB-oriented, but adds automatic monochrome overlap rende
 - `src/stores/editorStore.ts`
   - editor UI state
   - section expand/collapse
+  - active tool panel + mobile inspector expand/collapse
   - custom preset and preview state
   - per-asset in-memory history stacks for undo/redo
 
@@ -280,3 +292,4 @@ When modifying editor/render behavior, verify:
 - `docs/editor-histogram.md`: histogram module behavior, data contract, and iteration guide
 - `docs/film_pipeline.md`: legacy film pipeline notes
 - `docs/project_status.md`: project-level status tracking
+

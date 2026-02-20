@@ -218,6 +218,7 @@ interface RenderImageOptions {
   adjustments: EditingAdjustments;
   filmProfile?: FilmProfile;
   preferWebGL2?: boolean;
+  preferPixi?: boolean;
   targetSize?: RenderTargetSize;
   maxDimension?: number;
   seedKey?: string;
@@ -225,6 +226,15 @@ interface RenderImageOptions {
   exportSeed?: number;
   signal?: AbortSignal;
 }
+
+const hashSeedKey = (seedKey: string) => {
+  let hash = 2166136261;
+  for (let i = 0; i < seedKey.length; i += 1) {
+    hash ^= seedKey.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+};
 
 const resolveProfile = (
   adjustments: EditingAdjustments,
@@ -407,6 +417,7 @@ const tryPixiRender = async (
 let pixiRendererInstance: InstanceType<
   typeof import("@/lib/renderer/PixiRenderer").PixiRenderer
 > | null = null;
+const pixiFallbackSeedKeys = new Set<string>();
 
 export const renderImageToCanvas = async ({
   canvas,
@@ -414,6 +425,7 @@ export const renderImageToCanvas = async ({
   adjustments,
   filmProfile,
   preferWebGL2 = true,
+  preferPixi = true,
   targetSize,
   maxDimension,
   seedKey,
@@ -494,12 +506,20 @@ export const renderImageToCanvas = async ({
 
   const renderOptions = {
     seedKey,
-    renderSeed: renderSeed ?? Date.now(),
+    renderSeed:
+      renderSeed ??
+      (seedKey ? hashSeedKey(seedKey) : Date.now()),
     exportSeed,
   };
 
   // 1. Try PixiJS multi-pass pipeline (Master + Film) — default GPU path
-  if (preferWebGL2 && !isLegacyRendererForced()) {
+  const canTryPixi =
+    preferWebGL2 &&
+    preferPixi &&
+    !isLegacyRendererForced() &&
+    !(seedKey && pixiFallbackSeedKeys.has(seedKey));
+
+  if (canTryPixi) {
     const pixiResult = await tryPixiRender(
       canvas,
       normalizedAdjustments,
@@ -507,10 +527,16 @@ export const renderImageToCanvas = async ({
       renderOptions
     );
     if (pixiResult) {
+      if (seedKey) {
+        pixiFallbackSeedKeys.delete(seedKey);
+      }
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.drawImage(pixiResult, 0, 0, canvas.width, canvas.height);
       loaded.cleanup?.();
       return;
+    }
+    if (seedKey) {
+      pixiFallbackSeedKeys.add(seedKey);
     }
   }
 
