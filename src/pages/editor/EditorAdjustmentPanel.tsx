@@ -159,19 +159,19 @@ interface CropRatioOption {
 }
 
 const CROP_RATIO_OPTIONS: CropRatioOption[] = [
-  { id: "original", label: "Original", aspectRatio: "original" },
-  { id: "free", label: "Custom", aspectRatio: "free" },
-  { id: "1:1", label: "1 x 1", aspectRatio: "1:1", customRatio: 1 },
-  { id: "2:1", label: "2 x 1", customRatio: 2 },
-  { id: "3:2", label: "3 x 2", aspectRatio: "3:2", customRatio: 1.5 },
-  { id: "4:3", label: "4 x 3", customRatio: 4 / 3 },
-  { id: "5:4", label: "5 x 4", aspectRatio: "5:4", customRatio: 5 / 4 },
-  { id: "7:5", label: "7 x 5", customRatio: 7 / 5 },
-  { id: "11:8.5", label: "11 x 8.5", customRatio: 11 / 8.5 },
-  { id: "16:9", label: "16 x 9", aspectRatio: "16:9", customRatio: 16 / 9 },
-  { id: "16:10", label: "16 x 10", customRatio: 16 / 10 },
-  { id: "4:5", label: "4 x 5", aspectRatio: "4:5", customRatio: 4 / 5 },
-  { id: "9:16", label: "9 x 16", aspectRatio: "9:16", customRatio: 9 / 16 },
+  { id: "original", label: "原始比例", aspectRatio: "original" },
+  { id: "free", label: "自由比例", aspectRatio: "free" },
+  { id: "1:1", label: "1:1", aspectRatio: "1:1", customRatio: 1 },
+  { id: "2:1", label: "2:1", customRatio: 2 },
+  { id: "3:2", label: "3:2", aspectRatio: "3:2", customRatio: 1.5 },
+  { id: "4:3", label: "4:3", customRatio: 4 / 3 },
+  { id: "5:4", label: "5:4", aspectRatio: "5:4", customRatio: 5 / 4 },
+  { id: "7:5", label: "7:5", customRatio: 7 / 5 },
+  { id: "11:8.5", label: "11:8.5", customRatio: 11 / 8.5 },
+  { id: "16:9", label: "16:9", aspectRatio: "16:9", customRatio: 16 / 9 },
+  { id: "16:10", label: "16:10", customRatio: 16 / 10 },
+  { id: "4:5", label: "4:5", aspectRatio: "4:5", customRatio: 4 / 5 },
+  { id: "9:16", label: "9:16", aspectRatio: "9:16", customRatio: 9 / 16 },
 ];
 
 const TIMESTAMP_POSITION_OPTIONS: Array<{
@@ -186,6 +186,13 @@ const TIMESTAMP_POSITION_OPTIONS: Array<{
 
 const isCloseRatio = (left: number, right: number) => Math.abs(left - right) <= 0.02;
 const clampCropRatio = (value: number) => Math.min(2.5, Math.max(0.5, value));
+const normalizeRotateAngle = (value: number) => {
+  const wrapped = ((((value + 180) % 360) + 360) % 360) - 180;
+  if (Math.abs(wrapped) < 0.0001) {
+    return 0;
+  }
+  return Number(wrapped.toFixed(2));
+};
 
 const resolveCropRatioOptionId = (adjustments: EditingAdjustments) => {
   if (adjustments.aspectRatio === "original") {
@@ -929,40 +936,33 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
           });
         };
 
-        const nudgeRotate = (delta: number) => {
-          if (!rotateSlider) {
-            return;
-          }
-          const nextValue = Math.min(
-            rotateSlider.max,
-            Math.max(rotateSlider.min, adjustments.rotate + delta)
-          );
-          updateAdjustmentValue("rotate", nextValue);
+        const rotateByRightAngle = (delta: number) => {
+          updateAdjustmentValue("rotate", normalizeRotateAngle(adjustments.rotate + delta));
         };
 
         return (
           <EditorSection
-            title="Crop"
-            hint="Aspect / Straighten / Rotate"
+            title="裁剪"
+            hint="比例 / 拉直 / 旋转"
             isOpen={openSections.crop}
             onToggle={() => toggleSection("crop")}
           >
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <p className="text-xs text-slate-300">Aspect Ratio</p>
+                <p className="text-xs text-slate-300">画幅比例</p>
                 <Button
                   size="sm"
                   variant="ghost"
                   className="h-7 px-2 text-xs"
                   onClick={resetCropSection}
                 >
-                  Reset
+                  重置
                 </Button>
               </div>
               <div className="flex items-center gap-2">
                 <Select value={ratioOptionId} onValueChange={applyCropRatioOption}>
                   <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder="Select ratio" />
+                    <SelectValue placeholder="选择比例" />
                   </SelectTrigger>
                   <SelectContent>
                     {CROP_RATIO_OPTIONS.map((option) => (
@@ -977,7 +977,7 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
                   variant="secondary"
                   className="h-8 w-8 px-0"
                   onClick={swapCropRatioOrientation}
-                  title="Swap orientation"
+                  title="切换横竖方向"
                 >
                   <RotateCw className="h-4 w-4" />
                 </Button>
@@ -986,7 +986,7 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
                   variant={ratioLocked ? "default" : "secondary"}
                   className="h-8 w-8 px-0"
                   onClick={toggleCropRatioLock}
-                  title={ratioLocked ? "Locked ratio" : "Free ratio"}
+                  title={ratioLocked ? "锁定比例" : "自由比例"}
                 >
                   {ratioLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
                 </Button>
@@ -995,7 +995,7 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
 
             {rotateSlider && (
               <EditorSliderRow
-                label="Straighten"
+                label={rotateSlider.label}
                 value={adjustments.rotate}
                 defaultValue={DEFAULT_ADJUSTMENTS.rotate}
                 min={rotateSlider.min}
@@ -1009,14 +1009,14 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
             )}
 
             <div className="space-y-2">
-              <p className="text-xs text-slate-300">Rotate &amp; Flip</p>
+              <p className="text-xs text-slate-300">旋转与翻转</p>
               <div className="grid grid-cols-4 gap-2">
                 <Button
                   size="sm"
                   variant="secondary"
                   className="h-8 w-full px-0"
-                  onClick={() => nudgeRotate(-0.5)}
-                  title="Nudge counter-clockwise"
+                  onClick={() => rotateByRightAngle(-90)}
+                  title="逆时针旋转 90°"
                 >
                   <RotateCcw className="h-4 w-4" />
                 </Button>
@@ -1024,8 +1024,8 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
                   size="sm"
                   variant="secondary"
                   className="h-8 w-full px-0"
-                  onClick={() => nudgeRotate(0.5)}
-                  title="Nudge clockwise"
+                  onClick={() => rotateByRightAngle(90)}
+                  title="顺时针旋转 90°"
                 >
                   <RotateCw className="h-4 w-4" />
                 </Button>
@@ -1035,7 +1035,7 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
                   className="h-8 w-full px-0"
                   onClick={() => toggleFlip("flipHorizontal")}
                   aria-pressed={adjustments.flipHorizontal}
-                  title="Flip horizontal"
+                  title="水平翻转"
                 >
                   <FlipHorizontal2 className="h-4 w-4" />
                 </Button>
@@ -1045,7 +1045,7 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
                   className="h-8 w-full px-0"
                   onClick={() => toggleFlip("flipVertical")}
                   aria-pressed={adjustments.flipVertical}
-                  title="Flip vertical"
+                  title="垂直翻转"
                 >
                   <FlipVertical2 className="h-4 w-4" />
                 </Button>
@@ -1053,7 +1053,7 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
             </div>
 
             <div className="space-y-2">
-              <p className="text-xs text-slate-300">Geometry</p>
+              <p className="text-xs text-slate-300">构图调整</p>
               {renderSliderRows(
                 adjustments,
                 geometrySliders,

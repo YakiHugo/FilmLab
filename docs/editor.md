@@ -76,6 +76,8 @@ Undo/redo shortcuts in preview:
 - Timestamp stamping supports `enable + position + size + opacity`, with EXIF capture time preferred and import time fallback.
 - `Advanced` keeps point-curve, HSL picking, color grading, optics toggles, and film module overrides.
 - `Crop` panel supports fixed-ratio/free-ratio crop overlay with draggable frame + corner handles.
+- Crop rotate icon actions are discrete `90°` steps per click (clockwise/counter-clockwise), while the straighten slider remains continuous.
+- Preview frame ratio follows current crop ratio in adjusted mode, preventing non-uniform stretching when changing aspect ratio.
 ## 2.4 Histogram mode behavior
 
 Editor histogram stays RGB-oriented, but adds automatic monochrome overlap rendering:

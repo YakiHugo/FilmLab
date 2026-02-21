@@ -139,7 +139,7 @@ export function EditorPreviewCard() {
     return hash >>> 0;
   }, [selectedAsset?.id]);
 
-  const imageAspectRatio = useMemo(() => {
+  const sourceAspectRatio = useMemo(() => {
     if (imageNaturalSize) {
       return imageNaturalSize.width / imageNaturalSize.height;
     }
@@ -153,21 +153,36 @@ export function EditorPreviewCard() {
     selectedAsset?.metadata?.height,
   ]);
 
+  const previewAspectRatio = useMemo(() => {
+    if (showOriginal || !adjustments) {
+      return sourceAspectRatio;
+    }
+    return resolveAspectRatio(
+      adjustments.aspectRatio,
+      adjustments.customAspectRatio,
+      sourceAspectRatio
+    );
+  }, [
+    adjustments,
+    showOriginal,
+    sourceAspectRatio,
+  ]);
+
   const frameSize = useMemo(() => {
     if (!containerSize.width || !containerSize.height) {
       return { width: 0, height: 0 };
     }
     let width = containerSize.width;
-    let height = width / imageAspectRatio;
+    let height = width / previewAspectRatio;
     if (height > containerSize.height) {
       height = containerSize.height;
-      width = height * imageAspectRatio;
+      width = height * previewAspectRatio;
     }
     return {
       width: Math.max(1, Math.floor(width)),
       height: Math.max(1, Math.floor(height)),
     };
-  }, [containerSize.height, containerSize.width, imageAspectRatio]);
+  }, [containerSize.height, containerSize.width, previewAspectRatio]);
 
   const isCropMode =
     activeToolPanelId === "crop" &&
@@ -185,15 +200,15 @@ export function EditorPreviewCard() {
   );
 
   const cropTargetRatio = useMemo(() => {
-    if (!adjustments || frameSize.width <= 0 || frameSize.height <= 0) {
-      return 1;
+    if (!adjustments) {
+      return sourceAspectRatio;
     }
     return resolveAspectRatio(
       adjustments.aspectRatio,
       adjustments.customAspectRatio,
-      frameSize.width / frameSize.height
+      sourceAspectRatio
     );
-  }, [adjustments, frameSize.height, frameSize.width]);
+  }, [adjustments, sourceAspectRatio]);
 
   const maxOffset = useMemo(() => {
     if (viewScale <= 1 || frameSize.width === 0 || frameSize.height === 0) {

@@ -90,8 +90,8 @@ export const EDITOR_TOOL_PANELS: EditorToolPanelDefinition[] = [
   },
   {
     id: "crop",
-    label: "Crop",
-    description: "Aspect ratio, straighten, rotate and geometry",
+    label: "裁剪",
+    description: "比例、拉直、旋转与构图",
   },
   {
     id: "mask",
@@ -195,15 +195,15 @@ export const DETAIL_SLIDERS: SliderDefinition[] = [
 export const CROP_SLIDERS: SliderDefinition[] = [
   {
     key: "rotate",
-    label: "Straighten",
-    min: -45,
-    max: 45,
+    label: "拉直",
+    min: -180,
+    max: 180,
     step: 0.01,
     format: (value) => value.toFixed(2),
   },
-  { key: "horizontal", label: "Horizontal", min: -100, max: 100, format: formatSigned },
-  { key: "vertical", label: "Vertical", min: -100, max: 100, format: formatSigned },
-  { key: "scale", label: "Scale", min: 80, max: 120, format: (value) => `${value}%` },
+  { key: "horizontal", label: "水平位移", min: -100, max: 100, format: formatSigned },
+  { key: "vertical", label: "垂直位移", min: -100, max: 100, format: formatSigned },
+  { key: "scale", label: "缩放", min: 80, max: 120, format: (value) => `${value}%` },
 ];
 
 export const AI_FEATURES = [
