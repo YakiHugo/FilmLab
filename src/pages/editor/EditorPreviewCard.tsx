@@ -22,6 +22,13 @@ import { useEditorState } from "./useEditorState";
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
+const clampRange = (value: number, min: number, max: number) => {
+  if (max < min) {
+    return max;
+  }
+  return clamp(value, min, max);
+};
+
 const isEditableElement = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -47,7 +54,55 @@ type CropRect = {
   height: number;
 };
 
-type CropDragMode = "move" | "nw" | "ne" | "sw" | "se";
+type CropDragMode = "move" | "nw" | "ne" | "sw" | "se" | "n" | "e" | "s" | "w";
+
+const CROP_CORNER_HANDLES = ["nw", "ne", "sw", "se"] as const;
+const CROP_EDGE_HANDLES = ["n", "e", "s", "w"] as const;
+type CropCornerHandle = (typeof CROP_CORNER_HANDLES)[number];
+type CropEdgeHandle = (typeof CROP_EDGE_HANDLES)[number];
+
+const isCropCornerHandle = (mode: CropDragMode): mode is CropCornerHandle =>
+  CROP_CORNER_HANDLES.includes(mode as CropCornerHandle);
+
+const isCropEdgeHandle = (mode: CropDragMode): mode is CropEdgeHandle =>
+  CROP_EDGE_HANDLES.includes(mode as CropEdgeHandle);
+
+const CROP_CORNER_EDGE_MAP: Record<
+  CropCornerHandle,
+  readonly [CropEdgeHandle, CropEdgeHandle]
+> = {
+  nw: ["n", "w"],
+  ne: ["n", "e"],
+  sw: ["s", "w"],
+  se: ["s", "e"],
+};
+
+const getCropHandlePoint = (rect: CropRect, mode: CropDragMode) => {
+  const right = rect.x + rect.width;
+  const bottom = rect.y + rect.height;
+  const centerX = rect.x + rect.width / 2;
+  const centerY = rect.y + rect.height / 2;
+  switch (mode) {
+    case "nw":
+      return { x: rect.x, y: rect.y };
+    case "ne":
+      return { x: right, y: rect.y };
+    case "sw":
+      return { x: rect.x, y: bottom };
+    case "se":
+      return { x: right, y: bottom };
+    case "n":
+      return { x: centerX, y: rect.y };
+    case "e":
+      return { x: right, y: centerY };
+    case "s":
+      return { x: centerX, y: bottom };
+    case "w":
+      return { x: rect.x, y: centerY };
+    default:
+      return { x: centerX, y: centerY };
+  }
+};
 
 export function EditorPreviewCard() {
   const {
@@ -82,6 +137,12 @@ export function EditorPreviewCard() {
     startX: number;
     startY: number;
     startRect: CropRect;
+    startHorizontal: number;
+    startVertical: number;
+    startScale: number;
+    startCustomAspectRatio: number;
+    startTime: number;
+    moveArmed: boolean;
   } | null>(null);
   const cropLastPatchRef = useRef<
     Partial<
@@ -106,13 +167,15 @@ export function EditorPreviewCard() {
     text: string;
   } | null>(null);
   const [cropRect, setCropRect] = useState<CropRect | null>(null);
+  const [activeCropDragMode, setActiveCropDragMode] =
+    useState<CropDragMode | null>(null);
 
   const triggerUndo = useCallback(() => {
     const undone = handleUndo();
     setActionMessage(
       undone
-        ? { type: "success", text: "已撤销上一步。" }
-        : { type: "error", text: "没有可撤销的操作。" }
+        ? { type: "success", text: "Undo applied." }
+        : { type: "error", text: "Nothing to undo." }
     );
     return undone;
   }, [handleUndo]);
@@ -121,8 +184,8 @@ export function EditorPreviewCard() {
     const redone = handleRedo();
     setActionMessage(
       redone
-        ? { type: "success", text: "已重做上一步。" }
-        : { type: "error", text: "没有可重做的操作。" }
+        ? { type: "success", text: "Redo applied." }
+        : { type: "error", text: "Nothing to redo." }
     );
     return redone;
   }, [handleRedo]);
@@ -153,8 +216,14 @@ export function EditorPreviewCard() {
     selectedAsset?.metadata?.height,
   ]);
 
+  const isCropMode =
+    activeToolPanelId === "crop" &&
+    Boolean(adjustments) &&
+    !showOriginal &&
+    !pointColorPicking;
+
   const previewAspectRatio = useMemo(() => {
-    if (showOriginal || !adjustments) {
+    if (showOriginal || !adjustments || isCropMode) {
       return sourceAspectRatio;
     }
     return resolveAspectRatio(
@@ -164,6 +233,7 @@ export function EditorPreviewCard() {
     );
   }, [
     adjustments,
+    isCropMode,
     showOriginal,
     sourceAspectRatio,
   ]);
@@ -183,12 +253,6 @@ export function EditorPreviewCard() {
       height: Math.max(1, Math.floor(height)),
     };
   }, [containerSize.height, containerSize.width, previewAspectRatio]);
-
-  const isCropMode =
-    activeToolPanelId === "crop" &&
-    Boolean(adjustments) &&
-    !showOriginal &&
-    !pointColorPicking;
 
   const timestampText = useMemo(
     () =>
@@ -250,14 +314,8 @@ export function EditorPreviewCard() {
       const width = clamp(fitWidth / scaleFactor, CROP_RECT_MIN_SIZE, frameWidth);
       const height = clamp(fitHeight / scaleFactor, CROP_RECT_MIN_SIZE, frameHeight);
 
-      const offsetX = (nextAdjustments.horizontal / 500) * frameWidth;
-      const offsetY = (nextAdjustments.vertical / 500) * frameHeight;
-      const centerX = clamp(frameWidth / 2 + offsetX, width / 2, frameWidth - width / 2);
-      const centerY = clamp(
-        frameHeight / 2 + offsetY,
-        height / 2,
-        frameHeight - height / 2
-      );
+      const centerX = frameWidth / 2;
+      const centerY = frameHeight / 2;
 
       return {
         x: centerX - width / 2,
@@ -275,18 +333,8 @@ export function EditorPreviewCard() {
         return {};
       }
 
-      const centerX = rect.x + rect.width / 2;
-      const centerY = rect.y + rect.height / 2;
-      const horizontal = clamp(
-        ((centerX - frameSize.width / 2) / frameSize.width) * 500,
-        -100,
-        100
-      );
-      const vertical = clamp(
-        ((centerY - frameSize.height / 2) / frameSize.height) * 500,
-        -100,
-        100
-      );
+      const horizontal = adjustments.horizontal;
+      const vertical = adjustments.vertical;
 
       const ratio =
         adjustments.aspectRatio === "free"
@@ -475,8 +523,12 @@ export function EditorPreviewCard() {
       }
       return nextRect;
     });
+    // Only recompute cropRect when scale, aspectRatio, or customAspectRatio changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    adjustments,
+    adjustments?.scale,
+    adjustments?.aspectRatio,
+    adjustments?.customAspectRatio,
     buildRectFromAdjustments,
     frameSize.height,
     frameSize.width,
@@ -549,10 +601,18 @@ export function EditorPreviewCard() {
     const dpr = window.devicePixelRatio || 1;
     const renderPreview = async () => {
       const workingCanvas = document.createElement("canvas");
+      const renderAdjustments = isCropMode
+        ? {
+            ...adjustments,
+            aspectRatio: "original" as const,
+            customAspectRatio: sourceAspectRatio,
+            scale: 100,
+          }
+        : adjustments;
       await renderImageToCanvas({
         canvas: workingCanvas,
         source: selectedAsset.blob ?? selectedAsset.objectUrl,
-        adjustments,
+        adjustments: renderAdjustments,
         filmProfile: filmProfile ?? undefined,
         timestampText,
         preferPixi: false,
@@ -600,10 +660,12 @@ export function EditorPreviewCard() {
     frameSize.height,
     frameSize.width,
     handlePreviewHistogramChange,
+    isCropMode,
     isSourceMonochrome,
     previewRenderSeed,
     selectedAsset,
     showOriginal,
+    sourceAspectRatio,
     timestampText,
   ]);
 
@@ -620,6 +682,7 @@ export function EditorPreviewCard() {
     }
     cropDragRef.current = null;
     cropLastPatchRef.current = {};
+    setActiveCropDragMode(null);
   }, [isCropMode]);
 
   useEffect(() => {
@@ -732,7 +795,7 @@ export function EditorPreviewCard() {
         toggleOriginal();
         setActionMessage({
           type: "success",
-          text: !showOriginal ? "已切换到原图对比。" : "已切换回调后预览。",
+          text: !showOriginal ? "Switched to original preview." : "Switched back to edited preview.",
         });
         return;
       }
@@ -827,13 +890,22 @@ export function EditorPreviewCard() {
     }
     event.preventDefault();
     event.stopPropagation();
+    const startPatch = toCropPatch(cropRect);
     cropDragRef.current = {
       mode,
       startX: event.clientX,
       startY: event.clientY,
       startRect: cropRect,
+      startHorizontal: adjustments.horizontal,
+      startVertical: adjustments.vertical,
+      startScale: startPatch.scale ?? adjustments.scale,
+      startCustomAspectRatio:
+        startPatch.customAspectRatio ?? adjustments.customAspectRatio,
+      startTime: performance.now(),
+      moveArmed: mode !== "move",
     };
     cropLastPatchRef.current = {};
+    setActiveCropDragMode(mode === "move" ? null : mode);
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -847,84 +919,109 @@ export function EditorPreviewCard() {
     const dy = event.clientY - drag.startY;
     const frameWidth = frameSize.width;
     const frameHeight = frameSize.height;
+    if (frameWidth <= 0 || frameHeight <= 0) {
+      return;
+    }
     const startRect = drag.startRect;
+    const mode = drag.mode;
     let nextRect: CropRect = { ...startRect };
 
-    if (drag.mode === "move") {
-      nextRect = {
-        ...startRect,
-        x: clamp(startRect.x + dx, 0, frameWidth - startRect.width),
-        y: clamp(startRect.y + dy, 0, frameHeight - startRect.height),
+    if (mode === "move") {
+      if (!drag.moveArmed) {
+        const elapsed = performance.now() - drag.startTime;
+        if (elapsed < 140) {
+          return;
+        }
+        drag.moveArmed = true;
+        drag.startX = event.clientX;
+        drag.startY = event.clientY;
+        drag.startHorizontal = adjustments.horizontal;
+        drag.startVertical = adjustments.vertical;
+        return;
+      }
+      const moveDx = event.clientX - drag.startX;
+      const moveDy = event.clientY - drag.startY;
+      const patch: Partial<
+        Pick<
+          NonNullable<typeof adjustments>,
+          "horizontal" | "vertical" | "scale" | "customAspectRatio"
+        >
+      > = {
+        horizontal: clamp(
+          drag.startHorizontal + (moveDx / Math.max(frameWidth, 1)) * 500,
+          -100,
+          100
+        ),
+        vertical: clamp(
+          drag.startVertical + (moveDy / Math.max(frameHeight, 1)) * 500,
+          -100,
+          100
+        ),
+        scale: drag.startScale,
+        customAspectRatio: drag.startCustomAspectRatio,
       };
-    } else {
-      const anchorX =
-        drag.mode === "nw" || drag.mode === "sw"
-          ? startRect.x + startRect.width
-          : startRect.x;
-      const anchorY =
-        drag.mode === "nw" || drag.mode === "ne"
-          ? startRect.y + startRect.height
-          : startRect.y;
+      cropLastPatchRef.current = patch;
+      previewCropAdjustments(patch);
+      return;
+    }
 
-      const movingX =
-        drag.mode === "nw" || drag.mode === "sw"
-          ? startRect.x + dx
-          : startRect.x + startRect.width + dx;
-      const movingY =
-        drag.mode === "nw" || drag.mode === "ne"
-          ? startRect.y + dy
-          : startRect.y + startRect.height + dy;
+    const startHandle = getCropHandlePoint(startRect, mode);
+    const pointerX = startHandle.x + dx;
+    const pointerY = startHandle.y + dy;
+    const isCorner =
+      mode === "nw" || mode === "ne" || mode === "sw" || mode === "se";
+    const isVerticalEdge = mode === "n" || mode === "s";
+    const isHorizontalEdge = mode === "w" || mode === "e";
+    const lockAspect = adjustments.aspectRatio !== "free";
+    const centerX = frameWidth / 2;
+    const centerY = frameHeight / 2;
+    const maxHalfWidth = frameWidth / 2;
+    const maxHalfHeight = frameHeight / 2;
+    const minHalfWidth = Math.min(CROP_RECT_MIN_SIZE / 2, maxHalfWidth);
+    const minHalfHeight = Math.min(CROP_RECT_MIN_SIZE / 2, maxHalfHeight);
 
-      const maxWidth =
-        drag.mode === "nw" || drag.mode === "sw"
-          ? anchorX
-          : frameWidth - anchorX;
-      const maxHeight =
-        drag.mode === "nw" || drag.mode === "ne"
-          ? anchorY
-          : frameHeight - anchorY;
+    let halfWidth = startRect.width / 2;
+    let halfHeight = startRect.height / 2;
 
-      const minWidth = Math.min(CROP_RECT_MIN_SIZE, maxWidth);
-      const minHeight = Math.min(CROP_RECT_MIN_SIZE, maxHeight);
-      let width = clamp(Math.abs(anchorX - movingX), minWidth, maxWidth);
-      let height = clamp(Math.abs(anchorY - movingY), minHeight, maxHeight);
+    if (lockAspect) {
+      const ratio = Math.max(0.001, cropTargetRatio);
+      const minHalfWidthByRatio = Math.max(minHalfWidth, minHalfHeight * ratio);
+      const maxHalfWidthByRatio = Math.min(maxHalfWidth, maxHalfHeight * ratio);
+      const widthRangeMin = Math.min(minHalfWidthByRatio, maxHalfWidthByRatio);
+      const widthRangeMax = Math.max(minHalfWidthByRatio, maxHalfWidthByRatio);
 
-      if (adjustments.aspectRatio !== "free") {
-        const ratio = cropTargetRatio;
-        const useWidth = Math.abs(dx) >= Math.abs(dy);
-        if (useWidth) {
-          height = width / ratio;
-        } else {
-          width = height * ratio;
-        }
-        if (width > maxWidth) {
-          width = maxWidth;
-          height = width / ratio;
-        }
-        if (height > maxHeight) {
-          height = maxHeight;
-          width = height * ratio;
-        }
-        width = clamp(width, minWidth, maxWidth);
-        height = clamp(height, minHeight, maxHeight);
+      let halfWidthCandidate = halfWidth;
+      if (isVerticalEdge) {
+        halfWidthCandidate = Math.abs(pointerY - centerY) * ratio;
+      } else if (isHorizontalEdge) {
+        halfWidthCandidate = Math.abs(pointerX - centerX);
+      } else if (isCorner) {
+        const widthFromX = Math.abs(pointerX - centerX);
+        const widthFromY = Math.abs(pointerY - centerY) * ratio;
+        halfWidthCandidate = Math.abs(dx) >= Math.abs(dy) ? widthFromX : widthFromY;
       }
 
-      const x =
-        drag.mode === "nw" || drag.mode === "sw" ? anchorX - width : anchorX;
-      const y =
-        drag.mode === "nw" || drag.mode === "ne" ? anchorY - height : anchorY;
-      nextRect = {
-        x: clamp(x, 0, frameWidth - width),
-        y: clamp(y, 0, frameHeight - height),
-        width,
-        height,
-      };
+      halfWidth = clampRange(halfWidthCandidate, widthRangeMin, widthRangeMax);
+      halfHeight = halfWidth / ratio;
+    } else {
+      if (isCorner || isHorizontalEdge) {
+        halfWidth = clamp(Math.abs(pointerX - centerX), minHalfWidth, maxHalfWidth);
+      }
+      if (isCorner || isVerticalEdge) {
+        halfHeight = clamp(Math.abs(pointerY - centerY), minHalfHeight, maxHalfHeight);
+      }
     }
+
+    nextRect = {
+      x: centerX - halfWidth,
+      y: centerY - halfHeight,
+      width: halfWidth * 2,
+      height: halfHeight * 2,
+    };
 
     const patch = toCropPatch(nextRect);
     cropLastPatchRef.current = patch;
     setCropRect(nextRect);
-    previewCropAdjustments(patch);
   };
 
   const handleCropPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -935,12 +1032,38 @@ export function EditorPreviewCard() {
     event.stopPropagation();
     const patch = cropLastPatchRef.current;
     if (patch && Object.keys(patch).length > 0) {
+      previewCropAdjustments(patch);
       void commitCropAdjustments(patch);
     }
     cropDragRef.current = null;
     cropLastPatchRef.current = {};
+    setActiveCropDragMode(null);
     event.currentTarget.releasePointerCapture(event.pointerId);
   };
+
+  const highlightedCropEdges = useMemo(() => {
+    const highlighted = new Set<CropEdgeHandle>();
+    if (!activeCropDragMode || activeCropDragMode === "move") {
+      return highlighted;
+    }
+    if (isCropEdgeHandle(activeCropDragMode)) {
+      highlighted.add(activeCropDragMode);
+      return highlighted;
+    }
+    if (isCropCornerHandle(activeCropDragMode)) {
+      const [edgeA, edgeB] = CROP_CORNER_EDGE_MAP[activeCropDragMode];
+      highlighted.add(edgeA);
+      highlighted.add(edgeB);
+    }
+    return highlighted;
+  }, [activeCropDragMode]);
+
+  const highlightedCropCorner = useMemo<CropCornerHandle | null>(() => {
+    if (!activeCropDragMode || activeCropDragMode === "move") {
+      return null;
+    }
+    return isCropCornerHandle(activeCropDragMode) ? activeCropDragMode : null;
+  }, [activeCropDragMode]);
 
   const zoomLabel = `${Math.round(viewScale * 100)}%`;
   const previewScale = isCropMode ? 1 : 0.9 * viewScale;
@@ -983,14 +1106,14 @@ export function EditorPreviewCard() {
               if (!sampled) {
                 setActionMessage({
                   type: "error",
-                  text: "取色失败，请稍后重试。",
+                  text: "Color sampling failed. Please try again.",
                 });
                 return;
               }
               const mappedColor = commitPointColorSample(sampled);
               setActionMessage({
                 type: "success",
-                text: `已取样并定位到 ${mappedColor} 通道。`,
+                text: `Sampled and mapped to ${mappedColor} channel.`,
               });
             }}
           >
@@ -1013,13 +1136,13 @@ export function EditorPreviewCard() {
                   <canvas
                     ref={canvasRef}
                     role="img"
-                    aria-label={`${selectedAsset.name} 预览`}
+                    aria-label={`${selectedAsset.name} preview`}
                     className="block h-full w-full"
                   />
                 )
               ) : (
                 <div className="flex h-full w-full items-center justify-center text-sm text-slate-500">
-                  请先选择一张照片。
+                  Select an image to start editing.
                 </div>
               )}
             </div>
@@ -1033,7 +1156,7 @@ export function EditorPreviewCard() {
               >
                 <div
                   data-crop-body
-                  className="absolute border border-white/80 bg-transparent"
+                  className="absolute cursor-move border border-white/80 bg-transparent"
                   style={{
                     left: cropRect.x,
                     top: cropRect.y,
@@ -1046,16 +1169,61 @@ export function EditorPreviewCard() {
                   <div className="pointer-events-none absolute left-2/3 top-0 h-full w-px bg-white/30" />
                   <div className="pointer-events-none absolute left-0 top-1/3 h-px w-full bg-white/30" />
                   <div className="pointer-events-none absolute left-0 top-2/3 h-px w-full bg-white/30" />
-                  {(["nw", "ne", "sw", "se"] as const).map((handle) => (
+                  {CROP_EDGE_HANDLES.map((handle) => (
+                    <span
+                      key={`${handle}-line`}
+                      className={cn(
+                        "pointer-events-none absolute z-[6] transition-colors duration-75",
+                        handle === "n" && "left-0 right-0 top-0 h-[2px]",
+                        handle === "s" && "bottom-0 left-0 right-0 h-[2px]",
+                        handle === "w" && "bottom-0 left-0 top-0 w-[2px]",
+                        handle === "e" && "bottom-0 right-0 top-0 w-[2px]",
+                        highlightedCropEdges.has(handle) ? "bg-sky-300" : "bg-white/65"
+                      )}
+                    />
+                  ))}
+                  {CROP_EDGE_HANDLES.map((handle) => (
+                    <span
+                      key={`${handle}-hit`}
+                      data-crop-handle={handle}
+                      className={cn(
+                        "absolute z-[5] bg-transparent",
+                        handle === "n" && "left-2 right-2 -top-2 h-4 cursor-ns-resize",
+                        handle === "s" && "left-2 right-2 -bottom-2 h-4 cursor-ns-resize",
+                        handle === "w" && "-left-2 bottom-2 top-2 w-4 cursor-ew-resize",
+                        handle === "e" && "-right-2 bottom-2 top-2 w-4 cursor-ew-resize"
+                      )}
+                    />
+                  ))}
+                  {CROP_CORNER_HANDLES.map((handle) => (
                     <span
                       key={handle}
                       data-crop-handle={handle}
                       className={cn(
-                        "absolute h-3 w-3 rounded-full border border-white/90 bg-slate-100",
+                        "absolute z-10 h-3 w-3 rounded-full border",
+                        highlightedCropCorner === handle
+                          ? "border-sky-300 bg-sky-200 shadow-[0_0_0_2px_rgba(125,211,252,0.35)]"
+                          : "border-white/90 bg-slate-100",
                         handle === "nw" && "-left-1.5 -top-1.5 cursor-nwse-resize",
                         handle === "ne" && "-right-1.5 -top-1.5 cursor-nesw-resize",
                         handle === "sw" && "-bottom-1.5 -left-1.5 cursor-nesw-resize",
                         handle === "se" && "-bottom-1.5 -right-1.5 cursor-nwse-resize"
+                      )}
+                    />
+                  ))}
+                  {CROP_EDGE_HANDLES.map((handle) => (
+                    <span
+                      key={handle}
+                      data-crop-handle={handle}
+                      className={cn(
+                        "absolute z-10 rounded-full",
+                        highlightedCropEdges.has(handle)
+                          ? "bg-sky-300 shadow-[0_0_0_1px_rgba(125,211,252,0.7)]"
+                          : "bg-white/95 shadow-[0_0_0_1px_rgba(255,255,255,0.45)]",
+                        handle === "n" && "left-1/2 -top-0.5 h-1 w-14 -translate-x-1/2 cursor-ns-resize",
+                        handle === "s" && "bottom-[-2px] left-1/2 h-1 w-14 -translate-x-1/2 cursor-ns-resize",
+                        handle === "w" && "top-1/2 -left-0.5 h-14 w-1 -translate-y-1/2 cursor-ew-resize",
+                        handle === "e" && "right-[-2px] top-1/2 h-14 w-1 -translate-y-1/2 cursor-ew-resize"
                       )}
                     />
                   ))}
@@ -1064,17 +1232,17 @@ export function EditorPreviewCard() {
             )}
             {pointColorPicking && (
               <span className="absolute right-3 top-3 rounded-full border border-sky-300/40 bg-sky-300/10 px-3 py-1 text-xs text-sky-100">
-                点击图像取色
+                Click image to sample color
               </span>
             )}
             {isCropMode && (
               <span className="absolute left-3 top-3 z-30 rounded-full border border-white/15 bg-slate-950/85 px-3 py-1 text-xs text-slate-200">
-                拖动框体移动，拖动角点裁切。
+                Drag handles to resize (center locked); long-press inside to pan image.
               </span>
             )}
             {showOriginal && selectedAsset && (
               <span className="absolute left-3 top-3 rounded-full border border-white/10 bg-slate-950/80 px-3 py-1 text-xs text-slate-200">
-                原图
+                Original
               </span>
             )}
           </div>
@@ -1092,7 +1260,7 @@ export function EditorPreviewCard() {
           className="h-8 w-8 px-0"
           onClick={() => handleZoom(viewScale - ZOOM_STEP)}
           disabled={!selectedAsset || isCropMode}
-          aria-label="缩小预览"
+          aria-label="Zoom out"
         >
           <ZoomOut className="h-4 w-4" />
         </Button>
@@ -1104,7 +1272,7 @@ export function EditorPreviewCard() {
             step={ZOOM_STEP}
             onValueChange={(value) => handleZoom(value[0] ?? ZOOM_MIN)}
             disabled={!selectedAsset || isCropMode}
-            aria-label="预览缩放"
+            aria-label="Preview zoom"
           />
         </div>
         <Button
@@ -1113,7 +1281,7 @@ export function EditorPreviewCard() {
           className="h-8 w-8 px-0"
           onClick={() => handleZoom(viewScale + ZOOM_STEP)}
           disabled={!selectedAsset || isCropMode}
-          aria-label="放大预览"
+          aria-label="Zoom in"
         >
           <ZoomIn className="h-4 w-4" />
         </Button>
@@ -1125,13 +1293,13 @@ export function EditorPreviewCard() {
           onClick={resetView}
           disabled={!selectedAsset || isCropMode}
         >
-          适配
+          Reset
         </Button>
         <span className="hidden text-[11px] text-slate-400 lg:inline">
-          双击适配，拖拽平移
+          Press 0 to reset zoom.
         </span>
         <span className="hidden text-[11px] text-slate-500 xl:inline">
-          快捷键：O 对比，+/- 缩放，0 适配
+          Shortcuts: +/- to zoom, 0 to reset.
         </span>
       </div>
 

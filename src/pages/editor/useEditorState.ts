@@ -398,11 +398,19 @@ export function useEditorState() {
         >
       >
     ) => {
-      if (!selectedAsset) {
+      const assetId = selectedAsset?.id;
+      if (!assetId) {
+        return;
+      }
+      const liveAsset =
+        useProjectStore
+          .getState()
+          .assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+      if (!liveAsset) {
         return;
       }
       const nextAdjustments = {
-        ...(normalizeAdjustments(selectedAsset.adjustments)),
+        ...(normalizeAdjustments(liveAsset.adjustments)),
         ...partial,
       };
       stageEditorPatch("crop:interaction", {
@@ -421,11 +429,19 @@ export function useEditorState() {
         >
       >
     ) => {
-      if (!selectedAsset) {
+      const assetId = selectedAsset?.id;
+      if (!assetId) {
+        return false;
+      }
+      const liveAsset =
+        useProjectStore
+          .getState()
+          .assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+      if (!liveAsset) {
         return false;
       }
       const nextAdjustments = {
-        ...(normalizeAdjustments(selectedAsset.adjustments)),
+        ...(normalizeAdjustments(liveAsset.adjustments)),
         ...partial,
       };
       return commitEditorPatch("crop:interaction", {

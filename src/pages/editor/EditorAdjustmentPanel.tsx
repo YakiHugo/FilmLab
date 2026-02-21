@@ -859,7 +859,6 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
         const ratioOptionId = resolveCropRatioOptionId(adjustments);
         const ratioLocked = adjustments.aspectRatio !== "free";
         const rotateSlider = CROP_SLIDERS.find((slider) => slider.key === "rotate");
-        const geometrySliders = CROP_SLIDERS.filter((slider) => slider.key !== "rotate");
 
         const applyCropRatioOption = (nextId: string) => {
           const option = CROP_RATIO_OPTIONS.find((item) => item.id === nextId);
@@ -1050,16 +1049,6 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
                   <FlipVertical2 className="h-4 w-4" />
                 </Button>
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs text-slate-300">构图调整</p>
-              {renderSliderRows(
-                adjustments,
-                geometrySliders,
-                previewAdjustmentValue,
-                updateAdjustmentValue
-              )}
             </div>
           </EditorSection>
         );

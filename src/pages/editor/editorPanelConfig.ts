@@ -201,9 +201,6 @@ export const CROP_SLIDERS: SliderDefinition[] = [
     step: 0.01,
     format: (value) => value.toFixed(2),
   },
-  { key: "horizontal", label: "水平位移", min: -100, max: 100, format: formatSigned },
-  { key: "vertical", label: "垂直位移", min: -100, max: 100, format: formatSigned },
-  { key: "scale", label: "缩放", min: 80, max: 120, format: (value) => `${value}%` },
 ];
 
 export const AI_FEATURES = [
