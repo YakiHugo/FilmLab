@@ -141,6 +141,22 @@ export const resolveAspectRatio = (
   return w / h;
 };
 
+const resolveRightAngleQuarterTurns = (rightAngleRotation: number) => {
+  const quarterTurns = Math.round(rightAngleRotation / 90);
+  return ((quarterTurns % 4) + 4) % 4;
+};
+
+export const resolveOrientedAspectRatio = (
+  aspectRatio: number,
+  rightAngleRotation: number
+) => {
+  const safeAspectRatio =
+    Number.isFinite(aspectRatio) && aspectRatio > 0 ? aspectRatio : 1;
+  return resolveRightAngleQuarterTurns(rightAngleRotation) % 2 === 1
+    ? 1 / safeAspectRatio
+    : safeAspectRatio;
+};
+
 const applyTimestampOverlay = (
   canvas: HTMLCanvasElement,
   adjustments: EditingAdjustments,
@@ -300,6 +316,50 @@ const loadImageSource = async (
     source: image as CanvasImageSource,
     width: image.naturalWidth,
     height: image.naturalHeight,
+  };
+};
+
+const createOrientedSource = (
+  loaded: LoadedImageSource,
+  rightAngleRotation: number
+): LoadedImageSource => {
+  const quarterTurns = resolveRightAngleQuarterTurns(rightAngleRotation);
+  if (quarterTurns === 0) {
+    return loaded;
+  }
+
+  const orientedCanvas = document.createElement("canvas");
+  if (quarterTurns % 2 === 0) {
+    orientedCanvas.width = loaded.width;
+    orientedCanvas.height = loaded.height;
+  } else {
+    orientedCanvas.width = loaded.height;
+    orientedCanvas.height = loaded.width;
+  }
+
+  const orientedContext = orientedCanvas.getContext("2d");
+  if (!orientedContext) {
+    return loaded;
+  }
+
+  orientedContext.save();
+  if (quarterTurns === 1) {
+    orientedContext.translate(orientedCanvas.width, 0);
+    orientedContext.rotate(Math.PI / 2);
+  } else if (quarterTurns === 2) {
+    orientedContext.translate(orientedCanvas.width, orientedCanvas.height);
+    orientedContext.rotate(Math.PI);
+  } else {
+    orientedContext.translate(0, orientedCanvas.height);
+    orientedContext.rotate(-Math.PI / 2);
+  }
+  orientedContext.drawImage(loaded.source, 0, 0, loaded.width, loaded.height);
+  orientedContext.restore();
+
+  return {
+    source: orientedCanvas as CanvasImageSource,
+    width: orientedCanvas.width,
+    height: orientedCanvas.height,
   };
 };
 
@@ -538,26 +598,31 @@ export const renderImageToCanvas = async ({
     return;
   }
 
+  const orientedSource = createOrientedSource(
+    loaded,
+    normalizedAdjustments.rightAngleRotation
+  );
+
   const fallbackRatio = targetSize
     ? targetSize.width / Math.max(1, targetSize.height)
-    : loaded.width / Math.max(1, loaded.height);
+    : orientedSource.width / Math.max(1, orientedSource.height);
   const targetRatio = resolveAspectRatio(
     normalizedAdjustments.aspectRatio,
     normalizedAdjustments.customAspectRatio,
     fallbackRatio
   );
-  const sourceRatio = loaded.width / Math.max(1, loaded.height);
-  let cropWidth = loaded.width;
-  let cropHeight = loaded.height;
+  const sourceRatio = orientedSource.width / Math.max(1, orientedSource.height);
+  let cropWidth = orientedSource.width;
+  let cropHeight = orientedSource.height;
   if (Math.abs(sourceRatio - targetRatio) > 0.001) {
     if (sourceRatio > targetRatio) {
-      cropWidth = loaded.height * targetRatio;
+      cropWidth = orientedSource.height * targetRatio;
     } else {
-      cropHeight = loaded.width / targetRatio;
+      cropHeight = orientedSource.width / targetRatio;
     }
   }
-  const cropX = (loaded.width - cropWidth) / 2;
-  const cropY = (loaded.height - cropHeight) / 2;
+  const cropX = (orientedSource.width - cropWidth) / 2;
+  const cropY = (orientedSource.height - cropHeight) / 2;
 
   let outputWidth = cropWidth;
   let outputHeight = cropHeight;
@@ -592,7 +657,7 @@ export const renderImageToCanvas = async ({
     transform.scale * transform.flipVertical
   );
   context.drawImage(
-    loaded.source,
+    orientedSource.source,
     cropX,
     cropY,
     cropWidth,

@@ -1,4 +1,4 @@
-﻿import type { HslColorKey } from "@/types";
+import type { HslColorKey } from "@/types";
 import type { NumericAdjustmentKey } from "./types";
 
 export type SectionId =
@@ -196,8 +196,8 @@ export const CROP_SLIDERS: SliderDefinition[] = [
   {
     key: "rotate",
     label: "拉直",
-    min: -180,
-    max: 180,
+    min: -45,
+    max: 45,
     step: 0.01,
     format: (value) => value.toFixed(2),
   },

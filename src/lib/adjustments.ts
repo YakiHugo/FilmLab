@@ -42,12 +42,29 @@ const VALID_ASPECT_RATIOS: EditingAdjustments["aspectRatio"][] = [
   "free",
   "original",
   "1:1",
+  "2:1",
+  "1:2",
+  "4:3",
+  "3:4",
+  "7:5",
+  "5:7",
+  "11:8.5",
+  "8.5:11",
+  "16:10",
+  "10:16",
   "4:5",
   "5:4",
   "3:2",
+  "2:3",
   "16:9",
   "9:16",
 ];
+
+const normalizeRightAngleRotation = (value: number) => {
+  const quarterTurns = Math.round(value / 90);
+  const normalizedTurns = ((quarterTurns % 4) + 4) % 4;
+  return normalizedTurns * 90;
+};
 
 type NormalizableAdjustments = Partial<EditingAdjustments> & {
   hsl?: Partial<Record<HslColorKey, Partial<HslAdjustments[HslColorKey]>>>;
@@ -118,6 +135,16 @@ export const normalizeAdjustments = (
     typeof merged.customAspectRatio === "number" && merged.customAspectRatio > 0
       ? merged.customAspectRatio
       : defaults.customAspectRatio;
+  merged.rotate = clampValue(
+    Number.isFinite(merged.rotate) ? merged.rotate : defaults.rotate,
+    -45,
+    45
+  );
+  merged.rightAngleRotation = normalizeRightAngleRotation(
+    Number.isFinite(merged.rightAngleRotation)
+      ? merged.rightAngleRotation
+      : defaults.rightAngleRotation
+  );
   merged.timestampEnabled = Boolean(merged.timestampEnabled);
   merged.timestampPosition =
     merged.timestampPosition === "bottom-right" ||
@@ -187,6 +214,7 @@ export function createDefaultAdjustments(): EditingAdjustments {
     grainSize: 50,
     grainRoughness: 50,
     rotate: 0,
+    rightAngleRotation: 0,
     vertical: 0,
     horizontal: 0,
     scale: 100,

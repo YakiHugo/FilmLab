@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveAspectRatio } from "./imageProcessing";
+import { resolveAspectRatio, resolveOrientedAspectRatio } from "./imageProcessing";
 
 describe("resolveAspectRatio", () => {
   it("uses custom ratio for free mode", () => {
@@ -18,5 +18,14 @@ describe("resolveAspectRatio", () => {
   it("uses fallback for original", () => {
     expect(resolveAspectRatio("original", 1, 3 / 2)).toBe(3 / 2);
   });
-});
 
+  it("swaps source ratio for right-angle rotations", () => {
+    expect(resolveOrientedAspectRatio(4 / 3, 90)).toBeCloseTo(3 / 4);
+    expect(resolveOrientedAspectRatio(4 / 3, 270)).toBeCloseTo(3 / 4);
+  });
+
+  it("keeps source ratio for 0 and 180-degree orientations", () => {
+    expect(resolveOrientedAspectRatio(4 / 3, 0)).toBeCloseTo(4 / 3);
+    expect(resolveOrientedAspectRatio(4 / 3, 180)).toBeCloseTo(4 / 3);
+  });
+});

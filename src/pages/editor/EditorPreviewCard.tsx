@@ -9,7 +9,11 @@ import {
 import { ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
-import { resolveAspectRatio, renderImageToCanvas } from "@/lib/imageProcessing";
+import {
+  resolveAspectRatio,
+  resolveOrientedAspectRatio,
+  renderImageToCanvas,
+} from "@/lib/imageProcessing";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
 import { cn } from "@/lib/utils";
 import {
@@ -52,6 +56,11 @@ type CropRect = {
   y: number;
   width: number;
   height: number;
+};
+
+type Point = {
+  x: number;
+  y: number;
 };
 
 type CropDragMode = "move" | "nw" | "ne" | "sw" | "se" | "n" | "e" | "s" | "w";
@@ -102,6 +111,147 @@ const getCropHandlePoint = (rect: CropRect, mode: CropDragMode) => {
     default:
       return { x: centerX, y: centerY };
   }
+};
+
+const toCenteredRect = (
+  centerX: number,
+  centerY: number,
+  halfWidth: number,
+  halfHeight: number
+): CropRect => ({
+  x: centerX - halfWidth,
+  y: centerY - halfHeight,
+  width: halfWidth * 2,
+  height: halfHeight * 2,
+});
+
+const buildCropImagePolygon = (
+  frameWidth: number,
+  frameHeight: number,
+  rotate: number,
+  horizontal: number,
+  vertical: number
+): Point[] => {
+  const normalizedHorizontal = clamp(horizontal / 5, -20, 20);
+  const normalizedVertical = clamp(vertical / 5, -20, 20);
+  const translateX = (normalizedHorizontal / 100) * frameWidth;
+  const translateY = (normalizedVertical / 100) * frameHeight;
+  const centerX = frameWidth / 2 + translateX;
+  const centerY = frameHeight / 2 + translateY;
+  const angle = (rotate * Math.PI) / 180;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const halfWidth = frameWidth / 2;
+  const halfHeight = frameHeight / 2;
+  const localCorners: Point[] = [
+    { x: -halfWidth, y: -halfHeight },
+    { x: halfWidth, y: -halfHeight },
+    { x: halfWidth, y: halfHeight },
+    { x: -halfWidth, y: halfHeight },
+  ];
+  return localCorners.map((corner) => ({
+    x: centerX + corner.x * cos - corner.y * sin,
+    y: centerY + corner.x * sin + corner.y * cos,
+  }));
+};
+
+const isPointInsideConvexPolygon = (point: Point, polygon: Point[]) => {
+  let hasPositive = false;
+  let hasNegative = false;
+  for (let i = 0; i < polygon.length; i += 1) {
+    const current = polygon[i];
+    const next = polygon[(i + 1) % polygon.length];
+    if (!current || !next) {
+      continue;
+    }
+    const cross =
+      (next.x - current.x) * (point.y - current.y) -
+      (next.y - current.y) * (point.x - current.x);
+    if (Math.abs(cross) <= 0.0001) {
+      continue;
+    }
+    if (cross > 0) {
+      hasPositive = true;
+    } else {
+      hasNegative = true;
+    }
+    if (hasPositive && hasNegative) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const isCropRectInsidePolygon = (rect: CropRect, polygon: Point[]) => {
+  const corners: Point[] = [
+    { x: rect.x, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y + rect.height },
+    { x: rect.x, y: rect.y + rect.height },
+  ];
+  return corners.every((corner) => isPointInsideConvexPolygon(corner, polygon));
+};
+
+const fitCenteredRectToPolygon = (
+  centerX: number,
+  centerY: number,
+  startHalfWidth: number,
+  startHalfHeight: number,
+  targetHalfWidth: number,
+  targetHalfHeight: number,
+  polygon: Point[]
+) => {
+  const targetRect = toCenteredRect(
+    centerX,
+    centerY,
+    targetHalfWidth,
+    targetHalfHeight
+  );
+  if (isCropRectInsidePolygon(targetRect, polygon)) {
+    return { halfWidth: targetHalfWidth, halfHeight: targetHalfHeight };
+  }
+
+  const startRect = toCenteredRect(
+    centerX,
+    centerY,
+    startHalfWidth,
+    startHalfHeight
+  );
+  const hasValidStart = isCropRectInsidePolygon(startRect, polygon);
+  let anchorHalfWidth = hasValidStart ? startHalfWidth : 0;
+  let anchorHalfHeight = hasValidStart ? startHalfHeight : 0;
+  if (!hasValidStart) {
+    const centerRect = toCenteredRect(centerX, centerY, 0, 0);
+    if (!isCropRectInsidePolygon(centerRect, polygon)) {
+      return { halfWidth: startHalfWidth, halfHeight: startHalfHeight };
+    }
+  }
+
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 18; i += 1) {
+    const mid = (lo + hi) / 2;
+    const testHalfWidth =
+      anchorHalfWidth + (targetHalfWidth - anchorHalfWidth) * mid;
+    const testHalfHeight =
+      anchorHalfHeight + (targetHalfHeight - anchorHalfHeight) * mid;
+    const testRect = toCenteredRect(
+      centerX,
+      centerY,
+      testHalfWidth,
+      testHalfHeight
+    );
+    if (isCropRectInsidePolygon(testRect, polygon)) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+
+  return {
+    halfWidth: anchorHalfWidth + (targetHalfWidth - anchorHalfWidth) * lo,
+    halfHeight: anchorHalfHeight + (targetHalfHeight - anchorHalfHeight) * lo,
+  };
 };
 
 export function EditorPreviewCard() {
@@ -216,6 +366,11 @@ export function EditorPreviewCard() {
     selectedAsset?.metadata?.height,
   ]);
 
+  const orientedSourceAspectRatio = useMemo(() => {
+    const rightAngleRotation = adjustments?.rightAngleRotation ?? 0;
+    return resolveOrientedAspectRatio(sourceAspectRatio, rightAngleRotation);
+  }, [adjustments?.rightAngleRotation, sourceAspectRatio]);
+
   const isCropMode =
     activeToolPanelId === "crop" &&
     Boolean(adjustments) &&
@@ -223,17 +378,21 @@ export function EditorPreviewCard() {
     !pointColorPicking;
 
   const previewAspectRatio = useMemo(() => {
-    if (showOriginal || !adjustments || isCropMode) {
+    if (showOriginal || !adjustments) {
       return sourceAspectRatio;
+    }
+    if (isCropMode) {
+      return orientedSourceAspectRatio;
     }
     return resolveAspectRatio(
       adjustments.aspectRatio,
       adjustments.customAspectRatio,
-      sourceAspectRatio
+      orientedSourceAspectRatio
     );
   }, [
     adjustments,
     isCropMode,
+    orientedSourceAspectRatio,
     showOriginal,
     sourceAspectRatio,
   ]);
@@ -270,9 +429,9 @@ export function EditorPreviewCard() {
     return resolveAspectRatio(
       adjustments.aspectRatio,
       adjustments.customAspectRatio,
-      sourceAspectRatio
+      orientedSourceAspectRatio
     );
-  }, [adjustments, sourceAspectRatio]);
+  }, [adjustments, orientedSourceAspectRatio]);
 
   const maxOffset = useMemo(() => {
     if (viewScale <= 1 || frameSize.width === 0 || frameSize.height === 0) {
@@ -316,12 +475,28 @@ export function EditorPreviewCard() {
 
       const centerX = frameWidth / 2;
       const centerY = frameHeight / 2;
+      const imagePolygon = buildCropImagePolygon(
+        frameWidth,
+        frameHeight,
+        nextAdjustments.rotate,
+        nextAdjustments.horizontal,
+        nextAdjustments.vertical
+      );
+      const fittedHalf = fitCenteredRectToPolygon(
+        centerX,
+        centerY,
+        0,
+        0,
+        width / 2,
+        height / 2,
+        imagePolygon
+      );
 
       return {
-        x: centerX - width / 2,
-        y: centerY - height / 2,
-        width,
-        height,
+        x: centerX - fittedHalf.halfWidth,
+        y: centerY - fittedHalf.halfHeight,
+        width: fittedHalf.halfWidth * 2,
+        height: fittedHalf.halfHeight * 2,
       };
     },
     [frameSize.height, frameSize.width]
@@ -523,12 +698,13 @@ export function EditorPreviewCard() {
       }
       return nextRect;
     });
-    // Only recompute cropRect when scale, aspectRatio, or customAspectRatio changes
+    // Recompute on scale/ratio/straighten changes. Keep pan excluded so move-drag remains stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     adjustments?.scale,
     adjustments?.aspectRatio,
     adjustments?.customAspectRatio,
+    adjustments?.rotate,
     buildRectFromAdjustments,
     frameSize.height,
     frameSize.width,
@@ -605,7 +781,7 @@ export function EditorPreviewCard() {
         ? {
             ...adjustments,
             aspectRatio: "original" as const,
-            customAspectRatio: sourceAspectRatio,
+            customAspectRatio: orientedSourceAspectRatio,
             scale: 100,
           }
         : adjustments;
@@ -665,7 +841,7 @@ export function EditorPreviewCard() {
     previewRenderSeed,
     selectedAsset,
     showOriginal,
-    sourceAspectRatio,
+    orientedSourceAspectRatio,
     timestampText,
   ]);
 
@@ -941,22 +1117,56 @@ export function EditorPreviewCard() {
       }
       const moveDx = event.clientX - drag.startX;
       const moveDy = event.clientY - drag.startY;
+      const targetHorizontal = clamp(
+        drag.startHorizontal + (moveDx / Math.max(frameWidth, 1)) * 500,
+        -100,
+        100
+      );
+      const targetVertical = clamp(
+        drag.startVertical + (moveDy / Math.max(frameHeight, 1)) * 500,
+        -100,
+        100
+      );
+      let nextHorizontal = targetHorizontal;
+      let nextVertical = targetVertical;
+      const canContainCropRect = (horizontal: number, vertical: number) => {
+        const imagePolygon = buildCropImagePolygon(
+          frameWidth,
+          frameHeight,
+          adjustments.rotate,
+          horizontal,
+          vertical
+        );
+        return isCropRectInsidePolygon(startRect, imagePolygon);
+      };
+      if (!canContainCropRect(nextHorizontal, nextVertical)) {
+        let lo = 0;
+        let hi = 1;
+        for (let i = 0; i < 18; i += 1) {
+          const mid = (lo + hi) / 2;
+          const testHorizontal =
+            drag.startHorizontal + (targetHorizontal - drag.startHorizontal) * mid;
+          const testVertical =
+            drag.startVertical + (targetVertical - drag.startVertical) * mid;
+          if (canContainCropRect(testHorizontal, testVertical)) {
+            lo = mid;
+          } else {
+            hi = mid;
+          }
+        }
+        nextHorizontal =
+          drag.startHorizontal + (targetHorizontal - drag.startHorizontal) * lo;
+        nextVertical =
+          drag.startVertical + (targetVertical - drag.startVertical) * lo;
+      }
       const patch: Partial<
         Pick<
           NonNullable<typeof adjustments>,
           "horizontal" | "vertical" | "scale" | "customAspectRatio"
         >
       > = {
-        horizontal: clamp(
-          drag.startHorizontal + (moveDx / Math.max(frameWidth, 1)) * 500,
-          -100,
-          100
-        ),
-        vertical: clamp(
-          drag.startVertical + (moveDy / Math.max(frameHeight, 1)) * 500,
-          -100,
-          100
-        ),
+        horizontal: nextHorizontal,
+        vertical: nextVertical,
         scale: drag.startScale,
         customAspectRatio: drag.startCustomAspectRatio,
       };
@@ -1018,6 +1228,32 @@ export function EditorPreviewCard() {
       width: halfWidth * 2,
       height: halfHeight * 2,
     };
+    const currentImagePolygon = buildCropImagePolygon(
+      frameWidth,
+      frameHeight,
+      adjustments.rotate,
+      adjustments.horizontal,
+      adjustments.vertical
+    );
+    if (!isCropRectInsidePolygon(nextRect, currentImagePolygon)) {
+      const fittedHalf = fitCenteredRectToPolygon(
+        centerX,
+        centerY,
+        startRect.width / 2,
+        startRect.height / 2,
+        halfWidth,
+        halfHeight,
+        currentImagePolygon
+      );
+      halfWidth = fittedHalf.halfWidth;
+      halfHeight = fittedHalf.halfHeight;
+      nextRect = {
+        x: centerX - halfWidth,
+        y: centerY - halfHeight,
+        width: halfWidth * 2,
+        height: halfHeight * 2,
+      };
+    }
 
     const patch = toCropPatch(nextRect);
     cropLastPatchRef.current = patch;

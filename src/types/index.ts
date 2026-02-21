@@ -222,6 +222,7 @@ export interface EditingAdjustments {
   grainSize: number;
   grainRoughness: number;
   rotate: number;
+  rightAngleRotation: number;
   vertical: number;
   horizontal: number;
   scale: number;
@@ -231,9 +232,20 @@ export interface EditingAdjustments {
     | "free"
     | "original"
     | "1:1"
+    | "2:1"
+    | "1:2"
+    | "4:3"
+    | "3:4"
+    | "7:5"
+    | "5:7"
+    | "11:8.5"
+    | "8.5:11"
+    | "16:10"
+    | "10:16"
     | "4:5"
     | "5:4"
     | "3:2"
+    | "2:3"
     | "16:9"
     | "9:16";
   customAspectRatio: number;
