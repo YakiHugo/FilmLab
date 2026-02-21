@@ -29,6 +29,7 @@ export function EditorTopBar({ returnStep }: EditorTopBarProps) {
     handleRedo,
     handleResetAll,
   } = useEditorState();
+
   const [message, setMessage] = useState<TopBarMessage | null>(null);
   const canPaste = Boolean(copiedAdjustments);
 
@@ -43,10 +44,10 @@ export function EditorTopBar({ returnStep }: EditorTopBarProps) {
   }, [message]);
 
   return (
-    <header className="shrink-0 border-b border-white/10 bg-slate-950/80 px-3 py-2 backdrop-blur-sm lg:px-4">
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
+    <header className="shrink-0 border-b border-white/10 bg-slate-950/85 px-3 py-2 backdrop-blur-sm lg:px-4 lg:py-2.5">
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2.5">
             <Button size="sm" variant="secondary" asChild className="gap-1.5">
               <Link to="/" search={{ step: returnStep }}>
                 <ChevronLeft className="h-4 w-4" />
@@ -62,7 +63,8 @@ export function EditorTopBar({ returnStep }: EditorTopBarProps) {
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+
+          <div className="flex flex-wrap items-center gap-1.5">
             <Button
               size="sm"
               variant="secondary"
@@ -82,6 +84,7 @@ export function EditorTopBar({ returnStep }: EditorTopBarProps) {
               <Undo2 className="h-4 w-4" />
               撤销
             </Button>
+
             <Button
               size="sm"
               variant="secondary"
@@ -101,6 +104,7 @@ export function EditorTopBar({ returnStep }: EditorTopBarProps) {
               <Redo2 className="h-4 w-4" />
               重做
             </Button>
+
             <Button
               size="sm"
               variant={showOriginal ? "default" : "secondary"}
@@ -109,6 +113,7 @@ export function EditorTopBar({ returnStep }: EditorTopBarProps) {
             >
               {showOriginal ? "查看调后" : "对比原图"}
             </Button>
+
             <Button
               size="sm"
               variant="secondary"
@@ -126,13 +131,12 @@ export function EditorTopBar({ returnStep }: EditorTopBarProps) {
               <Copy className="h-4 w-4" />
               复制设置
             </Button>
+
             <Button
               size="sm"
               variant="secondary"
               onClick={() => {
-                if (
-                  !window.confirm("粘贴将覆盖当前照片参数，确认继续吗？")
-                ) {
+                if (!window.confirm("粘贴将覆盖当前照片参数，确认继续吗？")) {
                   return;
                 }
                 const pasted = handlePaste();
@@ -146,6 +150,7 @@ export function EditorTopBar({ returnStep }: EditorTopBarProps) {
             >
               粘贴设置
             </Button>
+
             <Button
               size="sm"
               variant="secondary"
@@ -168,6 +173,7 @@ export function EditorTopBar({ returnStep }: EditorTopBarProps) {
             </Button>
           </div>
         </div>
+
         {message && (
           <p
             role="status"

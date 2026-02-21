@@ -49,14 +49,14 @@ export function Editor() {
           </Card>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:grid lg:h-full lg:grid-cols-[minmax(0,1fr)_400px_56px] lg:grid-rows-[minmax(0,1fr)]">
-          <section className="order-1 h-[54vh] min-h-[320px] overflow-hidden p-3 lg:order-1 lg:h-full lg:min-h-0 lg:p-6">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:grid lg:h-full lg:grid-cols-[minmax(0,1fr)_360px_62px] lg:grid-rows-[minmax(0,1fr)]">
+          <section className="order-1 h-[52vh] min-h-[300px] overflow-hidden p-2.5 sm:p-3 lg:order-1 lg:h-full lg:min-h-0 lg:p-4">
             <EditorPreviewCard />
           </section>
 
           <EditorToolRail className="order-2 lg:order-3" />
 
-          <EditorInspectorPanel className="order-3 max-h-[58vh] lg:order-2 lg:max-h-none" />
+          <EditorInspectorPanel className="order-3 max-h-[48vh] lg:order-2 lg:max-h-none" />
         </div>
       )}
     </div>

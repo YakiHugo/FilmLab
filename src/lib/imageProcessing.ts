@@ -120,11 +120,18 @@ const applyColorGradingToImageData = (
   }
 };
 
-const parseAspectRatio = (
+export const resolveAspectRatio = (
   value: EditingAdjustments["aspectRatio"],
+  customAspectRatio: number,
   fallback?: number
 ) => {
   if (value === "original") {
+    return fallback ?? 1;
+  }
+  if (value === "free") {
+    if (Number.isFinite(customAspectRatio) && customAspectRatio > 0) {
+      return customAspectRatio;
+    }
     return fallback ?? 1;
   }
   const [w, h] = value.split(":").map(Number);
@@ -132,6 +139,95 @@ const parseAspectRatio = (
     return fallback ?? 1;
   }
   return w / h;
+};
+
+const applyTimestampOverlay = (
+  canvas: HTMLCanvasElement,
+  adjustments: EditingAdjustments,
+  timestampText?: string | null
+) => {
+  if (!adjustments.timestampEnabled || !timestampText) {
+    return;
+  }
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return;
+  }
+
+  const alpha = clamp(adjustments.timestampOpacity / 100, 0, 1);
+  if (alpha <= 0.001) {
+    return;
+  }
+
+  const fontSize = clamp(adjustments.timestampSize, 12, 48);
+  const margin = Math.max(12, Math.round(Math.min(canvas.width, canvas.height) * 0.04));
+  const text = timestampText.trim();
+  if (!text) {
+    return;
+  }
+
+  context.save();
+  context.globalAlpha = alpha;
+  context.font = `${Math.round(fontSize)}px "Space Grotesk", "Work Sans", sans-serif`;
+  context.textBaseline = "bottom";
+  context.textAlign = "left";
+  const textMetrics = context.measureText(text);
+  const textWidth = textMetrics.width;
+  const textHeight = Math.max(fontSize, fontSize * 1.1);
+
+  let x = margin;
+  let y = canvas.height - margin;
+  switch (adjustments.timestampPosition) {
+    case "bottom-left":
+      x = margin;
+      y = canvas.height - margin;
+      context.textAlign = "left";
+      context.textBaseline = "bottom";
+      break;
+    case "bottom-right":
+      x = canvas.width - margin;
+      y = canvas.height - margin;
+      context.textAlign = "right";
+      context.textBaseline = "bottom";
+      break;
+    case "top-left":
+      x = margin;
+      y = margin;
+      context.textAlign = "left";
+      context.textBaseline = "top";
+      break;
+    case "top-right":
+      x = canvas.width - margin;
+      y = margin;
+      context.textAlign = "right";
+      context.textBaseline = "top";
+      break;
+    default:
+      break;
+  }
+
+  const bgPaddingX = fontSize * 0.5;
+  const bgPaddingY = fontSize * 0.35;
+  const rectWidth = textWidth + bgPaddingX * 2;
+  const rectHeight = textHeight + bgPaddingY * 2;
+
+  let rectLeft = x - bgPaddingX;
+  if (context.textAlign === "right") {
+    rectLeft = x - rectWidth + bgPaddingX;
+  }
+  let rectTop = y - rectHeight + bgPaddingY;
+  if (context.textBaseline === "top") {
+    rectTop = y - bgPaddingY;
+  }
+  rectLeft = clamp(rectLeft, 0, Math.max(0, canvas.width - rectWidth));
+  rectTop = clamp(rectTop, 0, Math.max(0, canvas.height - rectHeight));
+
+  context.fillStyle = "rgba(0, 0, 0, 0.34)";
+  context.fillRect(rectLeft, rectTop, rectWidth, rectHeight);
+  context.fillStyle = "rgba(255, 250, 242, 0.95)";
+  context.fillText(text, x, y);
+  context.restore();
 };
 
 const resolveTransform = (adjustments: EditingAdjustments, width: number, height: number) => {
@@ -217,6 +313,7 @@ interface RenderImageOptions {
   source: Blob | string;
   adjustments: EditingAdjustments;
   filmProfile?: FilmProfile;
+  timestampText?: string | null;
   preferWebGL2?: boolean;
   preferPixi?: boolean;
   targetSize?: RenderTargetSize;
@@ -424,6 +521,7 @@ export const renderImageToCanvas = async ({
   source,
   adjustments,
   filmProfile,
+  timestampText,
   preferWebGL2 = true,
   preferPixi = true,
   targetSize,
@@ -443,7 +541,11 @@ export const renderImageToCanvas = async ({
   const fallbackRatio = targetSize
     ? targetSize.width / Math.max(1, targetSize.height)
     : loaded.width / Math.max(1, loaded.height);
-  const targetRatio = parseAspectRatio(normalizedAdjustments.aspectRatio, fallbackRatio);
+  const targetRatio = resolveAspectRatio(
+    normalizedAdjustments.aspectRatio,
+    normalizedAdjustments.customAspectRatio,
+    fallbackRatio
+  );
   const sourceRatio = loaded.width / Math.max(1, loaded.height);
   let cropWidth = loaded.width;
   let cropHeight = loaded.height;
@@ -512,13 +614,14 @@ export const renderImageToCanvas = async ({
     exportSeed,
   };
 
-  // 1. Try PixiJS multi-pass pipeline (Master + Film) — default GPU path
+  // 1. Try PixiJS multi-pass pipeline (Master + Film) 鈥?default GPU path
   const canTryPixi =
     preferWebGL2 &&
     preferPixi &&
     !isLegacyRendererForced() &&
     !(seedKey && pixiFallbackSeedKeys.has(seedKey));
 
+  let renderedWithPixi = false;
   if (canTryPixi) {
     const pixiResult = await tryPixiRender(
       canvas,
@@ -532,34 +635,37 @@ export const renderImageToCanvas = async ({
       }
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.drawImage(pixiResult, 0, 0, canvas.width, canvas.height);
-      loaded.cleanup?.();
-      return;
+      renderedWithPixi = true;
     }
-    if (seedKey) {
+    if (!renderedWithPixi && seedKey) {
       pixiFallbackSeedKeys.add(seedKey);
     }
   }
 
-  // 2. Legacy single-pass WebGL2 renderer (fallback)
-  const resolvedProfile = resolveProfile(normalizedAdjustments, filmProfile);
-  const renderedByWebGL =
-    preferWebGL2 &&
-    renderFilmProfileWebGL2(canvas, resolvedProfile, renderOptions);
+  if (!renderedWithPixi) {
+    // 2. Legacy single-pass WebGL2 renderer (fallback)
+    const resolvedProfile = resolveProfile(normalizedAdjustments, filmProfile);
+    const renderedByWebGL =
+      preferWebGL2 &&
+      renderFilmProfileWebGL2(canvas, resolvedProfile, renderOptions);
 
-  if (renderedByWebGL) {
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(renderedByWebGL, 0, 0, canvas.width, canvas.height);
-  } else {
-    // 3. CPU fallback pipeline
-    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-    applyFilmPipeline(imageData, resolvedProfile, renderOptions);
-    context.putImageData(imageData, 0, 0);
+    if (renderedByWebGL) {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(renderedByWebGL, 0, 0, canvas.width, canvas.height);
+    } else {
+      // 3. CPU fallback pipeline
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      applyFilmPipeline(imageData, resolvedProfile, renderOptions);
+      context.putImageData(imageData, 0, 0);
+    }
+
+    // Keep color grading behavior consistent on legacy/CPU fallback paths.
+    const fallbackImageData = context.getImageData(0, 0, canvas.width, canvas.height);
+    applyColorGradingToImageData(fallbackImageData, normalizedAdjustments.colorGrading);
+    context.putImageData(fallbackImageData, 0, 0);
   }
 
-  // Keep color grading behavior consistent on legacy/CPU fallback paths.
-  const fallbackImageData = context.getImageData(0, 0, canvas.width, canvas.height);
-  applyColorGradingToImageData(fallbackImageData, normalizedAdjustments.colorGrading);
-  context.putImageData(fallbackImageData, 0, 0);
+  applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
 
   loaded.cleanup?.();
 };
@@ -569,6 +675,7 @@ interface RenderBlobOptions {
   quality?: number;
   maxDimension?: number;
   filmProfile?: FilmProfile;
+  timestampText?: string | null;
   preferWebGL2?: boolean;
   seedKey?: string;
   exportSeed?: number;
@@ -585,6 +692,7 @@ export const renderImageToBlob = async (
     source,
     adjustments,
     filmProfile: options?.filmProfile,
+    timestampText: options?.timestampText,
     preferWebGL2: options?.preferWebGL2,
     maxDimension: options?.maxDimension,
     seedKey: options?.seedKey,

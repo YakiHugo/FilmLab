@@ -9,8 +9,9 @@ import {
 import { ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { resolveAspectRatio, renderImageToCanvas } from "@/lib/imageProcessing";
+import { resolveAssetTimestampText } from "@/lib/timestamp";
 import { cn } from "@/lib/utils";
-import { renderImageToCanvas } from "@/lib/imageProcessing";
 import {
   buildHistogramFromCanvas,
   buildHistogramFromDrawable,
@@ -37,12 +38,23 @@ const isEditableElement = (target: EventTarget | null) => {
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 3;
 const ZOOM_STEP = 0.05;
+const CROP_RECT_MIN_SIZE = 72;
+
+type CropRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type CropDragMode = "move" | "nw" | "ne" | "sw" | "se";
 
 export function EditorPreviewCard() {
   const {
     selectedAsset,
     previewAdjustments: adjustments,
     previewFilmProfile: filmProfile,
+    activeToolPanelId,
     showOriginal,
     pointColorPicking,
     toggleOriginal,
@@ -51,6 +63,8 @@ export function EditorPreviewCard() {
     handleUndo,
     handleRedo,
     handlePreviewHistogramChange,
+    previewCropAdjustments,
+    commitCropAdjustments,
   } = useEditorState();
 
   const imageAreaRef = useRef<HTMLDivElement | null>(null);
@@ -63,6 +77,20 @@ export function EditorPreviewCard() {
     offsetX: number;
     offsetY: number;
   } | null>(null);
+  const cropDragRef = useRef<{
+    mode: CropDragMode;
+    startX: number;
+    startY: number;
+    startRect: CropRect;
+  } | null>(null);
+  const cropLastPatchRef = useRef<
+    Partial<
+      Pick<
+        NonNullable<typeof adjustments>,
+        "horizontal" | "vertical" | "scale" | "customAspectRatio"
+      >
+    >
+  >({});
 
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [imageNaturalSize, setImageNaturalSize] = useState<{
@@ -77,6 +105,7 @@ export function EditorPreviewCard() {
     type: "success" | "error";
     text: string;
   } | null>(null);
+  const [cropRect, setCropRect] = useState<CropRect | null>(null);
 
   const triggerUndo = useCallback(() => {
     const undone = handleUndo();
@@ -140,6 +169,32 @@ export function EditorPreviewCard() {
     };
   }, [containerSize.height, containerSize.width, imageAspectRatio]);
 
+  const isCropMode =
+    activeToolPanelId === "crop" &&
+    Boolean(adjustments) &&
+    !showOriginal &&
+    !pointColorPicking;
+
+  const timestampText = useMemo(
+    () =>
+      resolveAssetTimestampText(
+        selectedAsset?.metadata,
+        selectedAsset?.createdAt
+      ),
+    [selectedAsset?.createdAt, selectedAsset?.metadata]
+  );
+
+  const cropTargetRatio = useMemo(() => {
+    if (!adjustments || frameSize.width <= 0 || frameSize.height <= 0) {
+      return 1;
+    }
+    return resolveAspectRatio(
+      adjustments.aspectRatio,
+      adjustments.customAspectRatio,
+      frameSize.width / frameSize.height
+    );
+  }, [adjustments, frameSize.height, frameSize.width]);
+
   const maxOffset = useMemo(() => {
     if (viewScale <= 1 || frameSize.width === 0 || frameSize.height === 0) {
       return { x: 0, y: 0 };
@@ -156,6 +211,100 @@ export function EditorPreviewCard() {
       y: clamp(offset.y, -maxOffset.y, maxOffset.y),
     }),
     [maxOffset.x, maxOffset.y]
+  );
+
+  const buildRectFromAdjustments = useCallback(
+    (nextAdjustments: NonNullable<typeof adjustments>): CropRect => {
+      const frameWidth = frameSize.width;
+      const frameHeight = frameSize.height;
+      const frameRatio = frameWidth / frameHeight;
+      const targetRatio = resolveAspectRatio(
+        nextAdjustments.aspectRatio,
+        nextAdjustments.customAspectRatio,
+        frameRatio
+      );
+
+      let fitWidth = frameWidth;
+      let fitHeight = fitWidth / targetRatio;
+      if (fitHeight > frameHeight) {
+        fitHeight = frameHeight;
+        fitWidth = fitHeight * targetRatio;
+      }
+
+      const scaleFactor = clamp(nextAdjustments.scale / 100, 0.7, 1.3);
+      const width = clamp(fitWidth / scaleFactor, CROP_RECT_MIN_SIZE, frameWidth);
+      const height = clamp(fitHeight / scaleFactor, CROP_RECT_MIN_SIZE, frameHeight);
+
+      const offsetX = (nextAdjustments.horizontal / 500) * frameWidth;
+      const offsetY = (nextAdjustments.vertical / 500) * frameHeight;
+      const centerX = clamp(frameWidth / 2 + offsetX, width / 2, frameWidth - width / 2);
+      const centerY = clamp(
+        frameHeight / 2 + offsetY,
+        height / 2,
+        frameHeight - height / 2
+      );
+
+      return {
+        x: centerX - width / 2,
+        y: centerY - height / 2,
+        width,
+        height,
+      };
+    },
+    [frameSize.height, frameSize.width]
+  );
+
+  const toCropPatch = useCallback(
+    (rect: CropRect) => {
+      if (!adjustments || frameSize.width <= 0 || frameSize.height <= 0) {
+        return {};
+      }
+
+      const centerX = rect.x + rect.width / 2;
+      const centerY = rect.y + rect.height / 2;
+      const horizontal = clamp(
+        ((centerX - frameSize.width / 2) / frameSize.width) * 500,
+        -100,
+        100
+      );
+      const vertical = clamp(
+        ((centerY - frameSize.height / 2) / frameSize.height) * 500,
+        -100,
+        100
+      );
+
+      const ratio =
+        adjustments.aspectRatio === "free"
+          ? clamp(rect.width / Math.max(1, rect.height), 0.5, 2.5)
+          : cropTargetRatio;
+      let fitWidth = frameSize.width;
+      let fitHeight = fitWidth / ratio;
+      if (fitHeight > frameSize.height) {
+        fitHeight = frameSize.height;
+        fitWidth = fitHeight * ratio;
+      }
+      const scale = clamp((fitWidth / Math.max(rect.width, 1)) * 100, 80, 120);
+
+      const patch: Partial<
+        Pick<
+          NonNullable<typeof adjustments>,
+          "horizontal" | "vertical" | "scale" | "customAspectRatio"
+        >
+      > = {
+        horizontal,
+        vertical,
+        scale,
+      };
+
+      if (adjustments.aspectRatio === "free") {
+        patch.customAspectRatio = clamp(ratio, 0.5, 2.5);
+      } else {
+        patch.customAspectRatio = adjustments.customAspectRatio;
+      }
+
+      return patch;
+    },
+    [adjustments, cropTargetRatio, frameSize.height, frameSize.width]
   );
 
   const resetView = useCallback(() => {
@@ -291,6 +440,35 @@ export function EditorPreviewCard() {
   }, [actionMessage]);
 
   useEffect(() => {
+    if (!isCropMode || !adjustments || frameSize.width <= 0 || frameSize.height <= 0) {
+      setCropRect(null);
+      return;
+    }
+    if (cropDragRef.current) {
+      return;
+    }
+    const nextRect = buildRectFromAdjustments(adjustments);
+    setCropRect((prev) => {
+      if (
+        prev &&
+        Math.abs(prev.x - nextRect.x) < 0.5 &&
+        Math.abs(prev.y - nextRect.y) < 0.5 &&
+        Math.abs(prev.width - nextRect.width) < 0.5 &&
+        Math.abs(prev.height - nextRect.height) < 0.5
+      ) {
+        return prev;
+      }
+      return nextRect;
+    });
+  }, [
+    adjustments,
+    buildRectFromAdjustments,
+    frameSize.height,
+    frameSize.width,
+    isCropMode,
+  ]);
+
+  useEffect(() => {
     if (!selectedAsset) {
       handlePreviewHistogramChange(null);
       return undefined;
@@ -361,6 +539,7 @@ export function EditorPreviewCard() {
         source: selectedAsset.blob ?? selectedAsset.objectUrl,
         adjustments,
         filmProfile: filmProfile ?? undefined,
+        timestampText,
         preferPixi: false,
         targetSize: {
           width: Math.round(frameSize.width * dpr),
@@ -410,6 +589,7 @@ export function EditorPreviewCard() {
     previewRenderSeed,
     selectedAsset,
     showOriginal,
+    timestampText,
   ]);
 
   useEffect(() => {
@@ -418,6 +598,14 @@ export function EditorPreviewCard() {
       setIsPanning(false);
     }
   }, [pointColorPicking, resetView]);
+
+  useEffect(() => {
+    if (isCropMode) {
+      return;
+    }
+    cropDragRef.current = null;
+    cropLastPatchRef.current = {};
+  }, [isCropMode]);
 
   useEffect(() => {
     if (!selectedAsset && pointColorPicking) {
@@ -534,6 +722,10 @@ export function EditorPreviewCard() {
         return;
       }
 
+      if (isCropMode) {
+        return;
+      }
+
       if (key === "0") {
         event.preventDefault();
         resetView();
@@ -560,6 +752,7 @@ export function EditorPreviewCard() {
     resetView,
     selectedAsset,
     showOriginal,
+    isCropMode,
     toggleOriginal,
     triggerRedo,
     triggerUndo,
@@ -567,7 +760,7 @@ export function EditorPreviewCard() {
   ]);
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (pointColorPicking || event.button !== 0 || viewScale <= 1) {
+    if (isCropMode || pointColorPicking || event.button !== 0 || viewScale <= 1) {
       return;
     }
     event.preventDefault();
@@ -604,7 +797,138 @@ export function EditorPreviewCard() {
     event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
+  const handleCropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isCropMode || !cropRect || !adjustments) {
+      return;
+    }
+    const target = event.target as HTMLElement;
+    const handle = target
+      .closest("[data-crop-handle]")
+      ?.getAttribute("data-crop-handle") as CropDragMode | null;
+    const isBody = Boolean(target.closest("[data-crop-body]"));
+    const mode: CropDragMode | null = handle ?? (isBody ? "move" : null);
+    if (!mode) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    cropDragRef.current = {
+      mode,
+      startX: event.clientX,
+      startY: event.clientY,
+      startRect: cropRect,
+    };
+    cropLastPatchRef.current = {};
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleCropPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isCropMode || !cropDragRef.current || !adjustments) {
+      return;
+    }
+
+    const drag = cropDragRef.current;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    const frameWidth = frameSize.width;
+    const frameHeight = frameSize.height;
+    const startRect = drag.startRect;
+    let nextRect: CropRect = { ...startRect };
+
+    if (drag.mode === "move") {
+      nextRect = {
+        ...startRect,
+        x: clamp(startRect.x + dx, 0, frameWidth - startRect.width),
+        y: clamp(startRect.y + dy, 0, frameHeight - startRect.height),
+      };
+    } else {
+      const anchorX =
+        drag.mode === "nw" || drag.mode === "sw"
+          ? startRect.x + startRect.width
+          : startRect.x;
+      const anchorY =
+        drag.mode === "nw" || drag.mode === "ne"
+          ? startRect.y + startRect.height
+          : startRect.y;
+
+      const movingX =
+        drag.mode === "nw" || drag.mode === "sw"
+          ? startRect.x + dx
+          : startRect.x + startRect.width + dx;
+      const movingY =
+        drag.mode === "nw" || drag.mode === "ne"
+          ? startRect.y + dy
+          : startRect.y + startRect.height + dy;
+
+      const maxWidth =
+        drag.mode === "nw" || drag.mode === "sw"
+          ? anchorX
+          : frameWidth - anchorX;
+      const maxHeight =
+        drag.mode === "nw" || drag.mode === "ne"
+          ? anchorY
+          : frameHeight - anchorY;
+
+      const minWidth = Math.min(CROP_RECT_MIN_SIZE, maxWidth);
+      const minHeight = Math.min(CROP_RECT_MIN_SIZE, maxHeight);
+      let width = clamp(Math.abs(anchorX - movingX), minWidth, maxWidth);
+      let height = clamp(Math.abs(anchorY - movingY), minHeight, maxHeight);
+
+      if (adjustments.aspectRatio !== "free") {
+        const ratio = cropTargetRatio;
+        const useWidth = Math.abs(dx) >= Math.abs(dy);
+        if (useWidth) {
+          height = width / ratio;
+        } else {
+          width = height * ratio;
+        }
+        if (width > maxWidth) {
+          width = maxWidth;
+          height = width / ratio;
+        }
+        if (height > maxHeight) {
+          height = maxHeight;
+          width = height * ratio;
+        }
+        width = clamp(width, minWidth, maxWidth);
+        height = clamp(height, minHeight, maxHeight);
+      }
+
+      const x =
+        drag.mode === "nw" || drag.mode === "sw" ? anchorX - width : anchorX;
+      const y =
+        drag.mode === "nw" || drag.mode === "ne" ? anchorY - height : anchorY;
+      nextRect = {
+        x: clamp(x, 0, frameWidth - width),
+        y: clamp(y, 0, frameHeight - height),
+        width,
+        height,
+      };
+    }
+
+    const patch = toCropPatch(nextRect);
+    cropLastPatchRef.current = patch;
+    setCropRect(nextRect);
+    previewCropAdjustments(patch);
+  };
+
+  const handleCropPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isCropMode || !cropDragRef.current) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const patch = cropLastPatchRef.current;
+    if (patch && Object.keys(patch).length > 0) {
+      void commitCropAdjustments(patch);
+    }
+    cropDragRef.current = null;
+    cropLastPatchRef.current = {};
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
   const zoomLabel = `${Math.round(viewScale * 100)}%`;
+  const previewScale = isCropMode ? 1 : 0.9 * viewScale;
 
   return (
     <div className="relative h-full min-h-[300px] w-full">
@@ -658,7 +982,7 @@ export function EditorPreviewCard() {
             <div
               className="h-full w-full"
               style={{
-                transform: `translate3d(${viewOffset.x}px, ${viewOffset.y}px, 0) scale(${0.9 * viewScale})`,
+                transform: `translate3d(${viewOffset.x}px, ${viewOffset.y}px, 0) scale(${previewScale})`,
                 transformOrigin: "center",
               }}
             >
@@ -684,9 +1008,53 @@ export function EditorPreviewCard() {
                 </div>
               )}
             </div>
+            {isCropMode && cropRect && (
+              <div
+                className="absolute inset-0 z-20 touch-none"
+                onPointerDown={handleCropPointerDown}
+                onPointerMove={handleCropPointerMove}
+                onPointerUp={handleCropPointerUp}
+                onPointerCancel={handleCropPointerUp}
+              >
+                <div
+                  data-crop-body
+                  className="absolute border border-white/80 bg-transparent"
+                  style={{
+                    left: cropRect.x,
+                    top: cropRect.y,
+                    width: cropRect.width,
+                    height: cropRect.height,
+                    boxShadow: "0 0 0 9999px rgba(2, 6, 23, 0.45)",
+                  }}
+                >
+                  <div className="pointer-events-none absolute left-1/3 top-0 h-full w-px bg-white/30" />
+                  <div className="pointer-events-none absolute left-2/3 top-0 h-full w-px bg-white/30" />
+                  <div className="pointer-events-none absolute left-0 top-1/3 h-px w-full bg-white/30" />
+                  <div className="pointer-events-none absolute left-0 top-2/3 h-px w-full bg-white/30" />
+                  {(["nw", "ne", "sw", "se"] as const).map((handle) => (
+                    <span
+                      key={handle}
+                      data-crop-handle={handle}
+                      className={cn(
+                        "absolute h-3 w-3 rounded-full border border-white/90 bg-slate-100",
+                        handle === "nw" && "-left-1.5 -top-1.5 cursor-nwse-resize",
+                        handle === "ne" && "-right-1.5 -top-1.5 cursor-nesw-resize",
+                        handle === "sw" && "-bottom-1.5 -left-1.5 cursor-nesw-resize",
+                        handle === "se" && "-bottom-1.5 -right-1.5 cursor-nwse-resize"
+                      )}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
             {pointColorPicking && (
               <span className="absolute right-3 top-3 rounded-full border border-sky-300/40 bg-sky-300/10 px-3 py-1 text-xs text-sky-100">
                 点击图像取色
+              </span>
+            )}
+            {isCropMode && (
+              <span className="absolute left-3 top-3 z-30 rounded-full border border-white/15 bg-slate-950/85 px-3 py-1 text-xs text-slate-200">
+                拖动框体移动，拖动角点裁切。
               </span>
             )}
             {showOriginal && selectedAsset && (
@@ -708,7 +1076,7 @@ export function EditorPreviewCard() {
           variant="secondary"
           className="h-8 w-8 px-0"
           onClick={() => handleZoom(viewScale - ZOOM_STEP)}
-          disabled={!selectedAsset}
+          disabled={!selectedAsset || isCropMode}
           aria-label="缩小预览"
         >
           <ZoomOut className="h-4 w-4" />
@@ -720,7 +1088,7 @@ export function EditorPreviewCard() {
             max={ZOOM_MAX}
             step={ZOOM_STEP}
             onValueChange={(value) => handleZoom(value[0] ?? ZOOM_MIN)}
-            disabled={!selectedAsset}
+            disabled={!selectedAsset || isCropMode}
             aria-label="预览缩放"
           />
         </div>
@@ -729,7 +1097,7 @@ export function EditorPreviewCard() {
           variant="secondary"
           className="h-8 w-8 px-0"
           onClick={() => handleZoom(viewScale + ZOOM_STEP)}
-          disabled={!selectedAsset}
+          disabled={!selectedAsset || isCropMode}
           aria-label="放大预览"
         >
           <ZoomIn className="h-4 w-4" />
@@ -740,7 +1108,7 @@ export function EditorPreviewCard() {
           variant="ghost"
           className="h-8 px-2"
           onClick={resetView}
-          disabled={!selectedAsset}
+          disabled={!selectedAsset || isCropMode}
         >
           适配
         </Button>

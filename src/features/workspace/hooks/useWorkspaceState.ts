@@ -9,6 +9,7 @@ import {
   toggleSelectionWithLimit,
 } from "@/lib/ai/recommendationUtils";
 import { renderImageToBlob } from "@/lib/imageProcessing";
+import { resolveAssetTimestampText } from "@/lib/timestamp";
 import { useProjectStore, type AddAssetsResult } from "@/stores/projectStore";
 import { useShallow } from "zustand/react/shallow";
 import type { AiPresetRecommendation, EditingAdjustments, Preset } from "@/types";
@@ -728,6 +729,7 @@ export const useWorkspaceState = () => {
           quality: quality / 100,
           maxDimension: maxDimension > 0 ? maxDimension : undefined,
           filmProfile: filmProfile ?? undefined,
+          timestampText: resolveAssetTimestampText(asset.metadata, asset.createdAt),
           seedKey: asset.id,
         });
         const outputFileName = toUniqueFileName(

@@ -1,13 +1,10 @@
 import type { ComponentType } from "react";
 import {
-  Aperture,
   Bot,
   Crop,
-  Download,
-  Droplets,
+  Eraser,
   Layers,
-  Sparkles,
-  SunMedium,
+  SlidersHorizontal,
   Wand2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -19,14 +16,11 @@ import { useEditorState } from "../useEditorState";
 
 const ICON_BY_PANEL: Record<EditorToolPanelId, ComponentType<{ className?: string }>> = {
   preset: Layers,
-  light: SunMedium,
-  color: Droplets,
-  effects: Sparkles,
-  detail: Aperture,
-  geometry: Crop,
-  local: Wand2,
+  edit: SlidersHorizontal,
+  crop: Crop,
+  mask: Wand2,
+  remove: Eraser,
   ai: Bot,
-  export: Download,
 };
 
 interface EditorToolRailProps {
@@ -42,7 +36,7 @@ export function EditorToolRail({ className }: EditorToolRailProps) {
 
   return (
     <nav
-      aria-label="编辑工具面板"
+      aria-label="Editor tool panels"
       className={cn(
         "shrink-0 border-y border-white/10 bg-slate-950/80 px-2 py-2 backdrop-blur-sm lg:h-full lg:border-l lg:border-y-0 lg:px-1 lg:py-3",
         className
@@ -66,7 +60,7 @@ export function EditorToolRail({ className }: EditorToolRailProps) {
                 isActive && "border-sky-300/50 bg-sky-300/15 text-sky-100",
                 disabled && "cursor-not-allowed border-white/5 text-slate-500"
               )}
-              title={disabled ? `${panel.label}（即将上线）` : panel.description}
+              title={disabled ? `${panel.label} (Coming soon)` : panel.description}
               onClick={() => {
                 if (disabled) {
                   return;
@@ -84,7 +78,7 @@ export function EditorToolRail({ className }: EditorToolRailProps) {
               />
               <span className="whitespace-nowrap">{panel.label}</span>
               {disabled && (
-                <span className="text-[10px] text-slate-500 lg:hidden">即将上线</span>
+                <span className="text-[10px] text-slate-500 lg:hidden">Coming soon</span>
               )}
             </button>
           );

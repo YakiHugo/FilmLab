@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { presets as basePresets } from "@/data/presets";
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
@@ -167,10 +167,33 @@ export function useEditorState() {
     }))
   );
 
-  const selectedAsset = useMemo(
-    () => assets.find((asset) => asset.id === selectedAssetId) ?? null,
-    [assets, selectedAssetId]
-  );
+  const selectedAsset = useMemo(() => {
+    if (assets.length === 0) {
+      return null;
+    }
+    return assets.find((asset) => asset.id === selectedAssetId) ?? assets[0] ?? null;
+  }, [assets, selectedAssetId]);
+
+  useEffect(() => {
+    if (assets.length === 0) {
+      if (selectedAssetId !== null) {
+        setSelectedAssetId(null);
+      }
+      return;
+    }
+
+    const hasValidSelection =
+      typeof selectedAssetId === "string" &&
+      assets.some((asset) => asset.id === selectedAssetId);
+    if (hasValidSelection) {
+      return;
+    }
+
+    const fallbackId = assets[0]?.id ?? null;
+    if (fallbackId && fallbackId !== selectedAssetId) {
+      setSelectedAssetId(fallbackId);
+    }
+  }, [assets, selectedAssetId, setSelectedAssetId]);
 
   const adjustments = useMemo(() => {
     if (!selectedAsset) {
@@ -226,7 +249,7 @@ export function useEditorState() {
     if (selectedAsset?.filmProfileId) {
       return selectedAsset.filmProfileId;
     }
-    return "鑷姩";
+    return "自动";
   }, [previewFilmProfile, selectedAsset?.filmProfileId]);
 
   const pendingHistoryRef = useRef<PendingHistoryByKey>({});
@@ -360,6 +383,52 @@ export function useEditorState() {
         [key]: value,
       };
       void commitEditorPatch(`adjustment:${key}`, {
+        adjustments: nextAdjustments,
+      });
+    },
+    [commitEditorPatch, selectedAsset]
+  );
+
+  const previewCropAdjustments = useCallback(
+    (
+      partial: Partial<
+        Pick<
+          EditingAdjustments,
+          "horizontal" | "vertical" | "scale" | "customAspectRatio"
+        >
+      >
+    ) => {
+      if (!selectedAsset) {
+        return;
+      }
+      const nextAdjustments = {
+        ...(normalizeAdjustments(selectedAsset.adjustments)),
+        ...partial,
+      };
+      stageEditorPatch("crop:interaction", {
+        adjustments: nextAdjustments,
+      });
+    },
+    [selectedAsset, stageEditorPatch]
+  );
+
+  const commitCropAdjustments = useCallback(
+    (
+      partial: Partial<
+        Pick<
+          EditingAdjustments,
+          "horizontal" | "vertical" | "scale" | "customAspectRatio"
+        >
+      >
+    ) => {
+      if (!selectedAsset) {
+        return false;
+      }
+      const nextAdjustments = {
+        ...(normalizeAdjustments(selectedAsset.adjustments)),
+        ...partial,
+      };
+      return commitEditorPatch("crop:interaction", {
         adjustments: nextAdjustments,
       });
     },
@@ -968,6 +1037,8 @@ export function useEditorState() {
     updateAdjustments,
     previewAdjustmentValue,
     updateAdjustmentValue,
+    previewCropAdjustments,
+    commitCropAdjustments,
     previewHslValue,
     updateHslValue,
     previewColorGradingZone,

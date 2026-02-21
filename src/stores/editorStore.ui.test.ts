@@ -17,8 +17,8 @@ describe("editorStore ui state", () => {
 
   it("updates active tool panel id", () => {
     const store = useEditorStore.getState();
-    store.setActiveToolPanelId("color");
-    expect(useEditorStore.getState().activeToolPanelId).toBe("color");
+    store.setActiveToolPanelId("crop");
+    expect(useEditorStore.getState().activeToolPanelId).toBe("crop");
   });
 
   it("updates mobile panel expanded state", () => {

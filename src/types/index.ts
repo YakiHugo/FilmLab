@@ -227,7 +227,20 @@ export interface EditingAdjustments {
   scale: number;
   flipHorizontal: boolean;
   flipVertical: boolean;
-  aspectRatio: "original" | "1:1" | "3:2" | "4:3" | "4:5" | "16:9";
+  aspectRatio:
+    | "free"
+    | "original"
+    | "1:1"
+    | "4:5"
+    | "5:4"
+    | "3:2"
+    | "16:9"
+    | "9:16";
+  customAspectRatio: number;
+  timestampEnabled: boolean;
+  timestampPosition: "bottom-right" | "bottom-left" | "top-right" | "top-left";
+  timestampSize: number;
+  timestampOpacity: number;
   opticsProfile: boolean;
   opticsCA: boolean;
 }

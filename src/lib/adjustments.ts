@@ -38,6 +38,17 @@ const HSL_KEYS: HslColorKey[] = [
   "magenta",
 ];
 
+const VALID_ASPECT_RATIOS: EditingAdjustments["aspectRatio"][] = [
+  "free",
+  "original",
+  "1:1",
+  "4:5",
+  "5:4",
+  "3:2",
+  "16:9",
+  "9:16",
+];
+
 type NormalizableAdjustments = Partial<EditingAdjustments> & {
   hsl?: Partial<Record<HslColorKey, Partial<HslAdjustments[HslColorKey]>>>;
   colorGrading?: Partial<EditingAdjustments["colorGrading"]> & {
@@ -100,6 +111,34 @@ export const normalizeAdjustments = (
       ? grading.balance
       : defaults.colorGrading.balance;
 
+  merged.aspectRatio = VALID_ASPECT_RATIOS.includes(merged.aspectRatio)
+    ? merged.aspectRatio
+    : defaults.aspectRatio;
+  merged.customAspectRatio =
+    typeof merged.customAspectRatio === "number" && merged.customAspectRatio > 0
+      ? merged.customAspectRatio
+      : defaults.customAspectRatio;
+  merged.timestampEnabled = Boolean(merged.timestampEnabled);
+  merged.timestampPosition =
+    merged.timestampPosition === "bottom-right" ||
+    merged.timestampPosition === "bottom-left" ||
+    merged.timestampPosition === "top-right" ||
+    merged.timestampPosition === "top-left"
+      ? merged.timestampPosition
+      : defaults.timestampPosition;
+  merged.timestampSize = clampValue(
+    Number.isFinite(merged.timestampSize) ? merged.timestampSize : defaults.timestampSize,
+    12,
+    48
+  );
+  merged.timestampOpacity = clampValue(
+    Number.isFinite(merged.timestampOpacity)
+      ? merged.timestampOpacity
+      : defaults.timestampOpacity,
+    0,
+    100
+  );
+
   return merged;
 };
 
@@ -153,7 +192,12 @@ export function createDefaultAdjustments(): EditingAdjustments {
     scale: 100,
     flipHorizontal: false,
     flipVertical: false,
+    customAspectRatio: 4 / 3,
     aspectRatio: "original",
+    timestampEnabled: false,
+    timestampPosition: "bottom-right",
+    timestampSize: 22,
+    timestampOpacity: 72,
     opticsProfile: false,
     opticsCA: false,
   };

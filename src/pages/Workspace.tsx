@@ -16,6 +16,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { presets as basePresets } from "@/data/presets";
 import { renderImageToCanvas } from "@/lib/imageProcessing";
+import { resolveAssetTimestampText } from "@/lib/timestamp";
 import { cn } from "@/lib/utils";
 import { AiMatchingCard } from "@/features/workspace/components/AiMatchingCard";
 import { ExportPreviewGrid } from "@/features/workspace/components/ExportPreviewGrid";
@@ -191,6 +192,10 @@ export function Workspace() {
         source: activeAsset.blob ?? activeAsset.objectUrl,
         adjustments: previewAdjustments,
         filmProfile: previewFilmProfile ?? undefined,
+        timestampText: resolveAssetTimestampText(
+          activeAsset.metadata,
+          activeAsset.createdAt
+        ),
         targetSize: {
           width: Math.round(frameSize.width * dpr),
           height: Math.round(frameSize.height * dpr),

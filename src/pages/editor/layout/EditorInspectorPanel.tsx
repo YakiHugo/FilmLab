@@ -9,17 +9,18 @@ interface EditorInspectorPanelProps {
 
 export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
   const { activeToolPanelId } = useEditorState();
+  const showHistogram = activeToolPanelId === "edit";
 
   return (
     <aside
       className={cn(
-        "flex min-h-0 flex-col border-t border-white/10 bg-slate-950/90 lg:border-l lg:border-t-0",
+        "flex min-h-0 flex-col border-t border-white/10 bg-slate-950/92 lg:border-l lg:border-t-0",
         className
       )}
     >
-      <EditorHistogramCard />
+      {showHistogram ? <EditorHistogramCard /> : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
         <EditorInspectorContent panelId={activeToolPanelId} />
       </div>
     </aside>

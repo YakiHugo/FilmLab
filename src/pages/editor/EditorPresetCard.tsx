@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { buildPresetDisplayLists } from "./presetListUtils";
 import { useEditorState } from "./useEditorState";
 
 export const EditorPresetCard = memo(function EditorPresetCard() {
@@ -38,39 +39,14 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
     type: "success" | "error";
     text: string;
   } | null>(null);
+
   const selectedPresetId = selectedAsset?.presetId;
-  const fallbackPresetId = basePresets[0]?.id;
   const canSaveCustomPreset = Boolean(previewAdjustments);
-  const allPresets = useMemo(
-    () => [...basePresets, ...customPresets],
-    [customPresets]
+  const allPresets = useMemo(() => [...basePresets, ...customPresets], [customPresets]);
+  const { aiRecommendations, sortedPresets } = useMemo(
+    () => buildPresetDisplayLists(allPresets, selectedAsset?.aiRecommendation),
+    [allPresets, selectedAsset?.aiRecommendation]
   );
-  const presetById = useMemo(
-    () => new Map(allPresets.map((preset) => [preset.id, preset])),
-    [allPresets]
-  );
-  const recommendedPresets = useMemo(() => {
-    if (!selectedAsset?.aiRecommendation) {
-      return [] as Array<{
-        id: string;
-        name: string;
-        reason: string;
-      }>;
-    }
-    return selectedAsset.aiRecommendation.topPresets
-      .map((item) => {
-        const preset = presetById.get(item.presetId);
-        if (!preset) {
-          return null;
-        }
-        return {
-          id: preset.id,
-          name: preset.name,
-          reason: item.reason,
-        };
-      })
-      .filter((item): item is { id: string; name: string; reason: string } => item !== null);
-  }, [presetById, selectedAsset?.aiRecommendation]);
 
   useEffect(() => {
     if (!feedback) {
@@ -119,16 +95,16 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>预设系统</CardTitle>
+        <CardTitle>预设</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {recommendedPresets.length > 0 && (
+        {aiRecommendations.length > 0 && (
           <div className="space-y-2">
             <p className="text-xs uppercase tracking-[0.24em] text-sky-200/80">
               AI 推荐（当前图片）
             </p>
             <div className="grid gap-2">
-              {recommendedPresets.map((preset, index) => (
+              {aiRecommendations.map((preset, index) => (
                 <Button
                   key={`${preset.id}-${index}`}
                   size="sm"
@@ -146,6 +122,25 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
             </div>
           </div>
         )}
+
+        <div className="space-y-2">
+          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">全部预设</p>
+          <div className="grid max-h-72 gap-2 overflow-y-auto pr-1">
+            {sortedPresets.map((preset) => (
+              <Button
+                key={preset.id}
+                size="sm"
+                variant={selectedPresetId === preset.id ? "default" : "secondary"}
+                onClick={() => handleSelectPreset(preset.id)}
+                aria-pressed={selectedPresetId === preset.id}
+                disabled={!selectedAsset}
+                className="justify-start"
+              >
+                {preset.name}
+              </Button>
+            ))}
+          </div>
+        </div>
 
         <div className="space-y-2">
           <Label className="text-xs text-slate-400">胶片档案</Label>
@@ -170,50 +165,6 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
           </Select>
         </div>
 
-        <div className="space-y-2">
-          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">内置预设</p>
-          <div className="grid gap-2">
-            {basePresets.map((preset) => (
-              <Button
-                key={preset.id}
-                size="sm"
-                variant={
-                  (selectedPresetId ?? fallbackPresetId) === preset.id
-                    ? "default"
-                    : "secondary"
-                }
-                onClick={() => handleSelectPreset(preset.id)}
-                aria-pressed={(selectedPresetId ?? fallbackPresetId) === preset.id}
-                disabled={!selectedAsset}
-                className="justify-start"
-              >
-                {preset.name}
-              </Button>
-            ))}
-          </div>
-        </div>
-
-        {customPresets.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-[0.24em] text-slate-500">自定义预设</p>
-            <div className="grid gap-2">
-              {customPresets.map((preset) => (
-                <Button
-                  key={preset.id}
-                  size="sm"
-                  variant={selectedPresetId === preset.id ? "default" : "secondary"}
-                  onClick={() => handleSelectPreset(preset.id)}
-                  aria-pressed={selectedPresetId === preset.id}
-                  disabled={!selectedAsset}
-                  className="justify-start"
-                >
-                  {preset.name}
-                </Button>
-              ))}
-            </div>
-          </div>
-        )}
-
         <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span className="text-slate-300">预设强度</span>
@@ -231,93 +182,100 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
           />
         </div>
 
-        <div className="space-y-2">
-          <Label className="text-xs text-slate-400">保存为自定义预设</Label>
-          <Input
-            value={customPresetName}
-            onChange={(event) => setCustomPresetName(event.target.value)}
-            placeholder="请输入预设名称"
-          />
-          <Button
-            className="w-full"
-            onClick={() => {
-              const saved = handleSaveCustomPreset();
-              setFeedback(
-                saved
-                  ? { type: "success", text: "自定义预设已保存。" }
-                  : { type: "error", text: "保存失败，请填写名称并确认有可保存的参数。" }
-              );
-            }}
-            disabled={!customPresetName.trim() || !canSaveCustomPreset}
-          >
-            保存预设
-          </Button>
-        </div>
+        <details className="rounded-2xl border border-white/10 bg-slate-950/50 p-3">
+          <summary className="cursor-pointer text-xs font-medium text-slate-300">
+            预设管理
+          </summary>
+          <div className="mt-3 space-y-3">
+            <div className="space-y-2">
+              <Label className="text-xs text-slate-400">保存为自定义预设</Label>
+              <Input
+                value={customPresetName}
+                onChange={(event) => setCustomPresetName(event.target.value)}
+                placeholder="请输入预设名称"
+              />
+              <Button
+                className="w-full"
+                onClick={() => {
+                  const saved = handleSaveCustomPreset();
+                  setFeedback(
+                    saved
+                      ? { type: "success", text: "自定义预设已保存。" }
+                      : {
+                          type: "error",
+                          text: "保存失败，请填写名称并确认有可保存的参数。",
+                        }
+                  );
+                }}
+                disabled={!customPresetName.trim() || !canSaveCustomPreset}
+              >
+                保存预设
+              </Button>
+            </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => {
-              const exported = handleExportPresets();
-              setFeedback(
-                exported
-                  ? { type: "success", text: "预设 JSON 已导出。" }
-                  : { type: "error", text: "当前没有可导出的自定义预设。" }
-              );
-            }}
-            disabled={customPresets.length === 0}
-          >
-            导出 JSON
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => importRef.current?.click()}
-          >
-            导入 JSON
-          </Button>
-          <input
-            ref={importRef}
-            type="file"
-            accept="application/json"
-            className="hidden"
-            onChange={handleImportFile}
-          />
-        </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  const exported = handleExportPresets();
+                  setFeedback(
+                    exported
+                      ? { type: "success", text: "预设 JSON 已导出。" }
+                      : { type: "error", text: "当前没有可导出的自定义预设。" }
+                  );
+                }}
+                disabled={customPresets.length === 0}
+              >
+                导出 JSON
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => importRef.current?.click()}>
+                导入 JSON
+              </Button>
+              <input
+                ref={importRef}
+                type="file"
+                accept="application/json"
+                className="hidden"
+                onChange={handleImportFile}
+              />
+            </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => {
-              const exported = handleExportFilmProfile();
-              setFeedback(
-                exported
-                  ? { type: "success", text: "胶片档案已导出。" }
-                  : { type: "error", text: "当前无可导出的胶片档案。" }
-              );
-            }}
-            disabled={!selectedAsset}
-          >
-            导出胶片档案
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => filmImportRef.current?.click()}
-            disabled={!selectedAsset}
-          >
-            导入胶片档案
-          </Button>
-          <input
-            ref={filmImportRef}
-            type="file"
-            accept="application/json"
-            className="hidden"
-            onChange={handleImportFilmFile}
-          />
-        </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  const exported = handleExportFilmProfile();
+                  setFeedback(
+                    exported
+                      ? { type: "success", text: "胶片档案已导出。" }
+                      : { type: "error", text: "当前无可导出的胶片档案。" }
+                  );
+                }}
+                disabled={!selectedAsset}
+              >
+                导出胶片档案
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => filmImportRef.current?.click()}
+                disabled={!selectedAsset}
+              >
+                导入胶片档案
+              </Button>
+              <input
+                ref={filmImportRef}
+                type="file"
+                accept="application/json"
+                className="hidden"
+                onChange={handleImportFilmFile}
+              />
+            </div>
+          </div>
+        </details>
+
         {feedback && (
           <p
             role="status"
