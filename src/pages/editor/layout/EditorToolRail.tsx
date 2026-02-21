@@ -44,7 +44,7 @@ export function EditorToolRail({ className }: EditorToolRailProps) {
     <nav
       aria-label="编辑工具面板"
       className={cn(
-        "shrink-0 border-y border-white/10 bg-slate-950/80 px-2 py-2 backdrop-blur-sm lg:h-full lg:border-r lg:border-y-0 lg:px-1 lg:py-3",
+        "shrink-0 border-y border-white/10 bg-slate-950/80 px-2 py-2 backdrop-blur-sm lg:h-full lg:border-l lg:border-y-0 lg:px-1 lg:py-3",
         className
       )}
     >
