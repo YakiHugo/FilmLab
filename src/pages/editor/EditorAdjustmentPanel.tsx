@@ -29,6 +29,7 @@ import { EditorPointCurve } from "./EditorPointCurve";
 import { EditorPresetCard } from "./EditorPresetCard";
 import { EditorSection } from "./EditorSection";
 import { EditorSliderRow } from "./EditorSliderRow";
+import { AiEditPanel } from "./ai/AiEditPanel";
 import {
   AI_FEATURES,
   BASIC_COLOR_SLIDERS,
@@ -325,6 +326,8 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
     handleSetFilmModuleParam,
     handleSetFilmModuleRgbMix,
     handleResetFilmOverrides,
+    selectedAsset,
+    handleSelectFilmProfile,
   } = useEditorState();
 
   const whiteBalancePresetId = adjustments
@@ -1168,25 +1171,12 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
 
       case "ai":
         return (
-          <EditorSection
-            title="AI"
-            hint="Placeholder"
-            isOpen={openSections.ai}
-            onToggle={() => toggleSection("ai")}
-          >
-            <div className="space-y-3">
-              <div className="flex flex-wrap gap-2">
-                {AI_FEATURES.map((label) => (
-                  <Badge key={label} className="border-white/10 bg-white/5 text-slate-200">
-                    {label}
-                  </Badge>
-                ))}
-              </div>
-              <p className="text-xs text-slate-400">
-                AI Agent image adjustments are coming soon.
-              </p>
-            </div>
-          </EditorSection>
+          <AiEditPanel
+            selectedAsset={selectedAsset ?? null}
+            adjustments={adjustments ?? null}
+            onUpdateAdjustments={updateAdjustments}
+            onSelectFilmProfile={handleSelectFilmProfile}
+          />
         );
 
       default:

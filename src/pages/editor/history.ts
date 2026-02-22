@@ -162,8 +162,8 @@ const filmModuleEqual = (a: FilmModuleConfig, b: FilmModuleConfig): boolean => {
       a.seedMode !== b.seedMode || a.seed !== b.seed) {
     return false;
   }
-  const pa = a.params as Record<string, unknown>;
-  const pb = b.params as Record<string, unknown>;
+  const pa = a.params as unknown as Record<string, unknown>;
+  const pb = b.params as unknown as Record<string, unknown>;
   const keys = Object.keys(pa);
   if (keys.length !== Object.keys(pb).length) return false;
   for (const k of keys) {
