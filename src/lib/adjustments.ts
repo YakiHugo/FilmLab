@@ -75,7 +75,25 @@ type NormalizableAdjustments = Partial<EditingAdjustments> & {
   };
 };
 
+// Single-entry memoization cache for normalizeAdjustments.
+// During slider drags the same adjustments reference is passed many times,
+// so this avoids redundant object spreading on every call.
+let _lastNormalizeInput: NormalizableAdjustments | null | undefined;
+let _lastNormalizeOutput: EditingAdjustments | undefined;
+
 export const normalizeAdjustments = (
+  adjustments: NormalizableAdjustments | null | undefined
+): EditingAdjustments => {
+  if (adjustments === _lastNormalizeInput && _lastNormalizeOutput) {
+    return _lastNormalizeOutput;
+  }
+  const result = normalizeAdjustmentsUncached(adjustments);
+  _lastNormalizeInput = adjustments;
+  _lastNormalizeOutput = result;
+  return result;
+};
+
+const normalizeAdjustmentsUncached = (
   adjustments: NormalizableAdjustments | null | undefined
 ): EditingAdjustments => {
   const defaults = createDefaultAdjustments();

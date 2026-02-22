@@ -5,6 +5,7 @@ import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustment
 import { listBuiltInFilmProfiles, normalizeFilmProfile } from "@/lib/film";
 import {
   createEditorAssetSnapshot,
+  createEditorAssetSnapshotRef,
   editorSnapshotToAssetPatch,
   isEditorAssetSnapshotEqual,
   type EditorAssetSnapshot,
@@ -253,10 +254,23 @@ export function useEditorState() {
   }, [previewFilmProfile, selectedAsset?.filmProfileId]);
 
   const pendingHistoryRef = useRef<PendingHistoryByKey>({});
+  const pendingAdjustmentPreviewRef = useRef<{
+    key: NumericAdjustmentKey;
+    value: number;
+  } | null>(null);
+  const adjustmentPreviewFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     pendingHistoryRef.current = {};
   }, [selectedAssetId]);
+
+  useEffect(() => {
+    return () => {
+      if (adjustmentPreviewFrameRef.current !== null) {
+        cancelAnimationFrame(adjustmentPreviewFrameRef.current);
+      }
+    };
+  }, []);
 
   const clearPendingHistoryForAsset = useCallback((assetId: string) => {
     const prefix = `${assetId}:`;
@@ -302,7 +316,8 @@ export function useEditorState() {
         pendingHistoryRef.current[sessionKey] = createEditorAssetSnapshot(selectedAsset);
       }
       const before = pendingHistoryRef.current[sessionKey];
-      const after = createEditorAssetSnapshot({
+      // Use lightweight ref snapshot (no cloning) — safe because it's only used for comparison
+      const after = createEditorAssetSnapshotRef({
         ...selectedAsset,
         ...patch,
       } as Asset);
@@ -357,20 +372,33 @@ export function useEditorState() {
     [applyEditorPatch, selectedAsset]
   );
 
+  const flushAdjustmentPreview = useCallback(() => {
+    adjustmentPreviewFrameRef.current = null;
+    const pending = pendingAdjustmentPreviewRef.current;
+    pendingAdjustmentPreviewRef.current = null;
+    if (!pending || !selectedAsset) {
+      return;
+    }
+    const nextAdjustments = {
+      ...(normalizeAdjustments(selectedAsset.adjustments)),
+      [pending.key]: pending.value,
+    };
+    stageEditorPatch(`adjustment:${pending.key}`, {
+      adjustments: nextAdjustments,
+    });
+  }, [selectedAsset, stageEditorPatch]);
+
   const previewAdjustmentValue = useCallback(
     (key: NumericAdjustmentKey, value: number) => {
       if (!selectedAsset) {
         return;
       }
-      const nextAdjustments = {
-        ...(normalizeAdjustments(selectedAsset.adjustments)),
-        [key]: value,
-      };
-      stageEditorPatch(`adjustment:${key}`, {
-        adjustments: nextAdjustments,
-      });
+      pendingAdjustmentPreviewRef.current = { key, value };
+      if (adjustmentPreviewFrameRef.current === null) {
+        adjustmentPreviewFrameRef.current = requestAnimationFrame(flushAdjustmentPreview);
+      }
     },
-    [selectedAsset, stageEditorPatch]
+    [selectedAsset, flushAdjustmentPreview]
   );
 
   const updateAdjustmentValue = useCallback(
@@ -378,6 +406,12 @@ export function useEditorState() {
       if (!selectedAsset) {
         return;
       }
+      // Cancel pending preview RAF to avoid stale stage after commit
+      if (adjustmentPreviewFrameRef.current !== null) {
+        cancelAnimationFrame(adjustmentPreviewFrameRef.current);
+        adjustmentPreviewFrameRef.current = null;
+      }
+      pendingAdjustmentPreviewRef.current = null;
       const nextAdjustments = {
         ...(normalizeAdjustments(selectedAsset.adjustments)),
         [key]: value,

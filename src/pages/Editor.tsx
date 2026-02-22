@@ -50,7 +50,7 @@ export function Editor() {
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:grid lg:h-full lg:grid-cols-[minmax(0,1fr)_360px_62px] lg:grid-rows-[minmax(0,1fr)]">
-          <section className="order-1 h-[52vh] min-h-[300px] overflow-hidden p-2.5 sm:p-3 lg:order-1 lg:h-full lg:min-h-0 lg:p-4">
+          <section className="order-1 min-h-[300px] overflow-hidden lg:order-1 lg:h-full lg:min-h-0">
             <EditorPreviewCard />
           </section>
 

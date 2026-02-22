@@ -6,9 +6,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { ZoomIn, ZoomOut } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
 import {
   resolveAspectRatio,
   resolveOrientedAspectRatio,
@@ -141,6 +138,8 @@ const buildCropImagePolygon = (
   const angle = (rotate * Math.PI) / 180;
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
+  // No cover-scale: the image is rendered at its original size in crop mode,
+  // so the polygon matches the frame exactly (before rotation).
   const halfWidth = frameWidth / 2;
   const halfHeight = frameHeight / 2;
   const localCorners: Point[] = [
@@ -248,10 +247,19 @@ const fitCenteredRectToPolygon = (
     }
   }
 
-  return {
-    halfWidth: anchorHalfWidth + (targetHalfWidth - anchorHalfWidth) * lo,
-    halfHeight: anchorHalfHeight + (targetHalfHeight - anchorHalfHeight) * lo,
-  };
+  const finalHalfWidth =
+    anchorHalfWidth + (targetHalfWidth - anchorHalfWidth) * lo;
+  const finalHalfHeight =
+    anchorHalfHeight + (targetHalfHeight - anchorHalfHeight) * lo;
+
+  // Shrink by 0.5px safety margin to avoid floating-point boundary touching
+  const safeHalfWidth = Math.max(0, finalHalfWidth - 0.5);
+  const safeHalfHeight = Math.max(0, finalHalfHeight - 0.5);
+  const safeRect = toCenteredRect(centerX, centerY, safeHalfWidth, safeHalfHeight);
+  if (isCropRectInsidePolygon(safeRect, polygon)) {
+    return { halfWidth: safeHalfWidth, halfHeight: safeHalfHeight };
+  }
+  return { halfWidth: finalHalfWidth, halfHeight: finalHalfHeight };
 };
 
 export function EditorPreviewCard() {
@@ -302,6 +310,18 @@ export function EditorPreviewCard() {
       >
     >
   >({});
+  const cropMovePreviewFrameRef = useRef<number | null>(null);
+  const cropResizeFrameRef = useRef<number | null>(null);
+  const cropResizePendingRectRef = useRef<CropRect | null>(null);
+  const latestAdjustmentsRef = useRef(adjustments);
+  latestAdjustmentsRef.current = adjustments;
+  const isCropModeRef = useRef(false);
+  const histogramDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track the rotation angle that was last rendered to the canvas.
+  // The crop rect effect uses this instead of adjustments.rotate so the
+  // crop overlay stays in sync with what the canvas actually shows.
+  const [renderedRotate, setRenderedRotate] = useState(adjustments?.rotate ?? 0);
+  const prevRightAngleRef = useRef(adjustments?.rightAngleRotation ?? 0);
 
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [imageNaturalSize, setImageNaturalSize] = useState<{
@@ -376,12 +396,15 @@ export function EditorPreviewCard() {
     Boolean(adjustments) &&
     !showOriginal &&
     !pointColorPicking;
+  isCropModeRef.current = isCropMode;
 
   const previewAspectRatio = useMemo(() => {
     if (showOriginal || !adjustments) {
       return sourceAspectRatio;
     }
     if (isCropMode) {
+      // Use the oriented source aspect ratio so the frame swaps width/height
+      // together with 90° rotations.
       return orientedSourceAspectRatio;
     }
     return resolveAspectRatio(
@@ -401,17 +424,52 @@ export function EditorPreviewCard() {
     if (!containerSize.width || !containerSize.height) {
       return { width: 0, height: 0 };
     }
-    let width = containerSize.width;
+    const pad = 32;
+    const availWidth = Math.max(1, containerSize.width - pad * 2);
+    const availHeight = Math.max(1, containerSize.height - pad * 2);
+
+    if (isCropMode) {
+      // In crop mode, compute the frame from the unrotated source ratio
+      // first, then swap width/height for 90° rotations.  This keeps the
+      // image area (long-edge × short-edge) identical before and after
+      // rotation so the preview doesn't jump in size.
+      const baseRatio = sourceAspectRatio;
+      let w = availWidth;
+      let h = w / baseRatio;
+      if (h > availHeight) {
+        h = availHeight;
+        w = h * baseRatio;
+      }
+      const rightAngle = adjustments?.rightAngleRotation ?? 0;
+      const isSwapped = rightAngle === 90 || rightAngle === 270;
+      const fw = isSwapped ? h : w;
+      const fh = isSwapped ? w : h;
+      // Clamp in case the swapped dimension exceeds the available space.
+      const scale = Math.min(1, availWidth / fw, availHeight / fh);
+      return {
+        width: Math.max(1, Math.floor(fw * scale)),
+        height: Math.max(1, Math.floor(fh * scale)),
+      };
+    }
+
+    let width = availWidth;
     let height = width / previewAspectRatio;
-    if (height > containerSize.height) {
-      height = containerSize.height;
+    if (height > availHeight) {
+      height = availHeight;
       width = height * previewAspectRatio;
     }
     return {
       width: Math.max(1, Math.floor(width)),
       height: Math.max(1, Math.floor(height)),
     };
-  }, [containerSize.height, containerSize.width, previewAspectRatio]);
+  }, [
+    adjustments?.rightAngleRotation,
+    containerSize.height,
+    containerSize.width,
+    isCropMode,
+    previewAspectRatio,
+    sourceAspectRatio,
+  ]);
 
   const timestampText = useMemo(
     () =>
@@ -475,6 +533,15 @@ export function EditorPreviewCard() {
 
       const centerX = frameWidth / 2;
       const centerY = frameHeight / 2;
+
+      const rect: CropRect = {
+        x: centerX - width / 2,
+        y: centerY - height / 2,
+        width,
+        height,
+      };
+
+      // Clamp to rotated image polygon so crop box never exceeds image bounds
       const imagePolygon = buildCropImagePolygon(
         frameWidth,
         frameHeight,
@@ -482,22 +549,20 @@ export function EditorPreviewCard() {
         nextAdjustments.horizontal,
         nextAdjustments.vertical
       );
-      const fittedHalf = fitCenteredRectToPolygon(
-        centerX,
-        centerY,
-        0,
-        0,
-        width / 2,
-        height / 2,
-        imagePolygon
-      );
+      if (!isCropRectInsidePolygon(rect, imagePolygon)) {
+        const fitted = fitCenteredRectToPolygon(
+          centerX,
+          centerY,
+          0,
+          0,
+          width / 2,
+          height / 2,
+          imagePolygon
+        );
+        return toCenteredRect(centerX, centerY, fitted.halfWidth, fitted.halfHeight);
+      }
 
-      return {
-        x: centerX - fittedHalf.halfWidth,
-        y: centerY - fittedHalf.halfHeight,
-        width: fittedHalf.halfWidth * 2,
-        height: fittedHalf.halfHeight * 2,
-      };
+      return rect;
     },
     [frameSize.height, frameSize.width]
   );
@@ -685,26 +750,72 @@ export function EditorPreviewCard() {
     if (cropDragRef.current) {
       return;
     }
-    const nextRect = buildRectFromAdjustments(adjustments);
+    // Read from ref to ensure we use the absolute latest values, but
+    // override rotate with the value that was actually rendered to the
+    // canvas so the crop overlay stays visually in sync.
+    const currentAdj = latestAdjustmentsRef.current;
+    if (!currentAdj) return;
+    const syncedAdj = { ...currentAdj, rotate: renderedRotate };
+    const fw = frameSize.width;
+    const fh = frameSize.height;
+    const centerX = fw / 2;
+    const centerY = fh / 2;
+
+    const imagePolygon = buildCropImagePolygon(
+      fw,
+      fh,
+      renderedRotate,
+      syncedAdj.horizontal,
+      syncedAdj.vertical
+    );
+
+    const currentRightAngle = adjustments.rightAngleRotation;
+    const rightAngleChanged = currentRightAngle !== prevRightAngleRef.current;
+    prevRightAngleRef.current = currentRightAngle;
+
     setCropRect((prev) => {
-      if (
-        prev &&
-        Math.abs(prev.x - nextRect.x) < 0.5 &&
-        Math.abs(prev.y - nextRect.y) < 0.5 &&
-        Math.abs(prev.width - nextRect.width) < 0.5 &&
-        Math.abs(prev.height - nextRect.height) < 0.5
-      ) {
-        return prev;
+      // After a 90° rotation the frame swaps width/height, so the old
+      // crop rect is no longer meaningful — always recompute.
+      if (rightAngleChanged) {
+        return buildRectFromAdjustments(syncedAdj);
       }
-      return nextRect;
+
+      // If we already have a crop rect, try to preserve it.
+      // Only shrink if it now exceeds the rotated image polygon.
+      if (prev) {
+        if (isCropRectInsidePolygon(prev, imagePolygon)) {
+          return prev; // Still valid, keep it
+        }
+        // Shrink existing rect to fit inside the polygon
+        const fitted = fitCenteredRectToPolygon(
+          centerX,
+          centerY,
+          0,
+          0,
+          prev.width / 2,
+          prev.height / 2,
+          imagePolygon
+        );
+        const shrunk = toCenteredRect(centerX, centerY, fitted.halfWidth, fitted.halfHeight);
+        if (shrunk.width >= CROP_RECT_MIN_SIZE && shrunk.height >= CROP_RECT_MIN_SIZE) {
+          return shrunk;
+        }
+        // Too small after shrink — fall through to full recompute
+      }
+
+      // No previous rect or shrunk too small — compute fresh (already polygon-clamped)
+      return buildRectFromAdjustments(syncedAdj);
     });
-    // Recompute on scale/ratio/straighten changes. Keep pan excluded so move-drag remains stable.
+    // Recompute on scale/ratio/straighten changes. Use renderedRotate
+    // instead of adjustments.rotate so the crop rect waits for the canvas.
+    // Keep pan excluded so move-drag remains stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     adjustments?.scale,
     adjustments?.aspectRatio,
     adjustments?.customAspectRatio,
-    adjustments?.rotate,
+    adjustments?.rightAngleRotation,
+    renderedRotate,
     buildRectFromAdjustments,
     frameSize.height,
     frameSize.width,
@@ -791,7 +902,7 @@ export function EditorPreviewCard() {
         adjustments: renderAdjustments,
         filmProfile: filmProfile ?? undefined,
         timestampText,
-        preferPixi: false,
+        preferPixi: true,
         targetSize: {
           width: Math.round(frameSize.width * dpr),
           height: Math.round(frameSize.height * dpr),
@@ -817,19 +928,39 @@ export function EditorPreviewCard() {
       outputContext.clearRect(0, 0, canvas.width, canvas.height);
       outputContext.drawImage(workingCanvas, 0, 0, canvas.width, canvas.height);
 
+      // Mark the rotation that is now visible on the canvas so the crop
+      // rect effect can stay in sync with the rendered image.
+      const justRenderedRotate = renderAdjustments.rotate;
+      setRenderedRotate(justRenderedRotate);
+
       if (!controller.signal.aborted) {
-        const previewHistogram = buildHistogramFromCanvas(canvas);
-        handlePreviewHistogramChange(
-          isSourceMonochrome
-            ? forceMonochromeHistogramMode(previewHistogram)
-            : previewHistogram
-        );
+        if (histogramDebounceRef.current !== null) {
+          clearTimeout(histogramDebounceRef.current);
+        }
+        histogramDebounceRef.current = setTimeout(() => {
+          histogramDebounceRef.current = null;
+          if (controller.signal.aborted) {
+            return;
+          }
+          const previewHistogram = buildHistogramFromCanvas(canvas);
+          handlePreviewHistogramChange(
+            isSourceMonochrome
+              ? forceMonochromeHistogramMode(previewHistogram)
+              : previewHistogram
+          );
+        }, 150);
       }
     };
 
     void renderPreview().catch(() => undefined);
 
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (histogramDebounceRef.current !== null) {
+        clearTimeout(histogramDebounceRef.current);
+        histogramDebounceRef.current = null;
+      }
+    };
   }, [
     adjustments,
     filmProfile,
@@ -854,10 +985,22 @@ export function EditorPreviewCard() {
 
   useEffect(() => {
     if (isCropMode) {
+      // Reset zoom when entering crop mode — crop is independent of zoom
+      setViewScale(1);
+      setViewOffset({ x: 0, y: 0 });
       return;
     }
     cropDragRef.current = null;
     cropLastPatchRef.current = {};
+    if (cropMovePreviewFrameRef.current !== null) {
+      cancelAnimationFrame(cropMovePreviewFrameRef.current);
+      cropMovePreviewFrameRef.current = null;
+    }
+    if (cropResizeFrameRef.current !== null) {
+      cancelAnimationFrame(cropResizeFrameRef.current);
+      cropResizeFrameRef.current = null;
+    }
+    cropResizePendingRectRef.current = null;
     setActiveCropDragMode(null);
   }, [isCropMode]);
 
@@ -927,7 +1070,7 @@ export function EditorPreviewCard() {
       return undefined;
     }
     const preventBrowserZoom = (event: WheelEvent) => {
-      if (event.ctrlKey || event.metaKey) {
+      if (isCropModeRef.current || event.ctrlKey || event.metaKey) {
         event.preventDefault();
         event.stopPropagation();
       }
@@ -1171,7 +1314,15 @@ export function EditorPreviewCard() {
         customAspectRatio: drag.startCustomAspectRatio,
       };
       cropLastPatchRef.current = patch;
-      previewCropAdjustments(patch);
+      if (cropMovePreviewFrameRef.current === null) {
+        cropMovePreviewFrameRef.current = requestAnimationFrame(() => {
+          cropMovePreviewFrameRef.current = null;
+          const latestPatch = cropLastPatchRef.current;
+          if (latestPatch && Object.keys(latestPatch).length > 0) {
+            previewCropAdjustments(latestPatch);
+          }
+        });
+      }
       return;
     }
 
@@ -1257,7 +1408,17 @@ export function EditorPreviewCard() {
 
     const patch = toCropPatch(nextRect);
     cropLastPatchRef.current = patch;
-    setCropRect(nextRect);
+    cropResizePendingRectRef.current = nextRect;
+    if (cropResizeFrameRef.current === null) {
+      cropResizeFrameRef.current = requestAnimationFrame(() => {
+        cropResizeFrameRef.current = null;
+        const pending = cropResizePendingRectRef.current;
+        if (pending) {
+          setCropRect(pending);
+          cropResizePendingRectRef.current = null;
+        }
+      });
+    }
   };
 
   const handleCropPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -1266,6 +1427,18 @@ export function EditorPreviewCard() {
     }
     event.preventDefault();
     event.stopPropagation();
+    if (cropMovePreviewFrameRef.current !== null) {
+      cancelAnimationFrame(cropMovePreviewFrameRef.current);
+      cropMovePreviewFrameRef.current = null;
+    }
+    if (cropResizeFrameRef.current !== null) {
+      cancelAnimationFrame(cropResizeFrameRef.current);
+      cropResizeFrameRef.current = null;
+    }
+    if (cropResizePendingRectRef.current) {
+      setCropRect(cropResizePendingRectRef.current);
+      cropResizePendingRectRef.current = null;
+    }
     const patch = cropLastPatchRef.current;
     if (patch && Object.keys(patch).length > 0) {
       previewCropAdjustments(patch);
@@ -1301,15 +1474,14 @@ export function EditorPreviewCard() {
     return isCropCornerHandle(activeCropDragMode) ? activeCropDragMode : null;
   }, [activeCropDragMode]);
 
-  const zoomLabel = `${Math.round(viewScale * 100)}%`;
-  const previewScale = isCropMode ? 1 : 0.9 * viewScale;
+  const previewScale = isCropMode ? 1 : viewScale;
 
   return (
     <div className="relative h-full min-h-[300px] w-full">
       <div
         ref={imageAreaRef}
         className={cn(
-          "relative flex h-full w-full items-center justify-center rounded-[24px] border border-white/10 bg-black/50 touch-none",
+          "relative flex h-full w-full items-center justify-center bg-black touch-none",
           pointColorPicking ? "cursor-crosshair" : viewScale > 1 && "cursor-grab",
           !pointColorPicking && isPanning && "cursor-grabbing"
         )}
@@ -1321,7 +1493,7 @@ export function EditorPreviewCard() {
       >
         {frameSize.width > 0 && frameSize.height > 0 && (
           <div
-            className="relative overflow-hidden bg-black/40 shadow-[0_20px_60px_rgba(0,0,0,0.55)]"
+            className="relative"
             style={{
               width: frameSize.width,
               height: frameSize.height,
@@ -1376,11 +1548,7 @@ export function EditorPreviewCard() {
                     className="block h-full w-full"
                   />
                 )
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-sm text-slate-500">
-                  Select an image to start editing.
-                </div>
-              )}
+              ) : null}
             </div>
             {isCropMode && cropRect && (
               <div
@@ -1390,6 +1558,31 @@ export function EditorPreviewCard() {
                 onPointerUp={handleCropPointerUp}
                 onPointerCancel={handleCropPointerUp}
               >
+                {/* Crop darkening: four rectangles around the crop rect */}
+                <div
+                  className="pointer-events-none absolute left-0 right-0 top-0 bg-slate-950/45"
+                  style={{ height: Math.max(0, cropRect.y) }}
+                />
+                <div
+                  className="pointer-events-none absolute bottom-0 left-0 right-0 bg-slate-950/45"
+                  style={{ height: Math.max(0, frameSize.height - cropRect.y - cropRect.height) }}
+                />
+                <div
+                  className="pointer-events-none absolute left-0 bg-slate-950/45"
+                  style={{
+                    top: cropRect.y,
+                    height: cropRect.height,
+                    width: Math.max(0, cropRect.x),
+                  }}
+                />
+                <div
+                  className="pointer-events-none absolute right-0 bg-slate-950/45"
+                  style={{
+                    top: cropRect.y,
+                    height: cropRect.height,
+                    width: Math.max(0, frameSize.width - cropRect.x - cropRect.width),
+                  }}
+                />
                 <div
                   data-crop-body
                   className="absolute cursor-move border border-white/80 bg-transparent"
@@ -1398,7 +1591,6 @@ export function EditorPreviewCard() {
                     top: cropRect.y,
                     width: cropRect.width,
                     height: cropRect.height,
-                    boxShadow: "0 0 0 9999px rgba(2, 6, 23, 0.45)",
                   }}
                 >
                   <div className="pointer-events-none absolute left-1/3 top-0 h-full w-px bg-white/30" />
@@ -1466,78 +1658,10 @@ export function EditorPreviewCard() {
                 </div>
               </div>
             )}
-            {pointColorPicking && (
-              <span className="absolute right-3 top-3 rounded-full border border-sky-300/40 bg-sky-300/10 px-3 py-1 text-xs text-sky-100">
-                Click image to sample color
-              </span>
-            )}
-            {isCropMode && (
-              <span className="absolute left-3 top-3 z-30 rounded-full border border-white/15 bg-slate-950/85 px-3 py-1 text-xs text-slate-200">
-                Drag handles to resize (center locked); long-press inside to pan image.
-              </span>
-            )}
-            {showOriginal && selectedAsset && (
-              <span className="absolute left-3 top-3 rounded-full border border-white/10 bg-slate-950/80 px-3 py-1 text-xs text-slate-200">
-                Original
-              </span>
-            )}
           </div>
         )}
       </div>
 
-      <div
-        className="absolute bottom-4 left-4 flex items-center gap-3 rounded-full border border-white/10 bg-slate-950/80 px-3 py-2 text-xs text-slate-200 shadow-lg"
-        onPointerDown={(event) => event.stopPropagation()}
-        onWheel={(event) => event.stopPropagation()}
-      >
-        <Button
-          size="sm"
-          variant="secondary"
-          className="h-8 w-8 px-0"
-          onClick={() => handleZoom(viewScale - ZOOM_STEP)}
-          disabled={!selectedAsset || isCropMode}
-          aria-label="Zoom out"
-        >
-          <ZoomOut className="h-4 w-4" />
-        </Button>
-        <div className="w-28">
-          <Slider
-            value={[viewScale]}
-            min={ZOOM_MIN}
-            max={ZOOM_MAX}
-            step={ZOOM_STEP}
-            onValueChange={(value) => handleZoom(value[0] ?? ZOOM_MIN)}
-            disabled={!selectedAsset || isCropMode}
-            aria-label="Preview zoom"
-          />
-        </div>
-        <Button
-          size="sm"
-          variant="secondary"
-          className="h-8 w-8 px-0"
-          onClick={() => handleZoom(viewScale + ZOOM_STEP)}
-          disabled={!selectedAsset || isCropMode}
-          aria-label="Zoom in"
-        >
-          <ZoomIn className="h-4 w-4" />
-        </Button>
-        <span className="w-12 text-right">{zoomLabel}</span>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-8 px-2"
-          onClick={resetView}
-          disabled={!selectedAsset || isCropMode}
-        >
-          Reset
-        </Button>
-        <span className="hidden text-[11px] text-slate-400 lg:inline">
-          Press 0 to reset zoom.
-        </span>
-        <span className="hidden text-[11px] text-slate-500 xl:inline">
-          Shortcuts: +/- to zoom, 0 to reset.
-        </span>
-      </div>
 
       {actionMessage && (
         <p

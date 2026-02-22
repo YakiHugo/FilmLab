@@ -247,7 +247,7 @@ const applyTimestampOverlay = (
 };
 
 const resolveTransform = (adjustments: EditingAdjustments, width: number, height: number) => {
-  const scale = clamp(adjustments.scale / 100, 0.7, 1.3);
+  const scale = clamp(adjustments.scale / 100, 0.5, 2.0);
   const translateX = clamp(adjustments.horizontal / 5, -20, 20);
   const translateY = clamp(adjustments.vertical / 5, -20, 20);
   const flipHorizontal = adjustments.flipHorizontal ? -1 : 1;

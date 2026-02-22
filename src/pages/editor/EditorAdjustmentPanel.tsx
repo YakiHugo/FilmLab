@@ -1098,7 +1098,7 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
                   size="sm"
                   variant="secondary"
                   className="h-8 w-full px-0"
-                  onClick={() => rotateByRightAngle(-90)}
+                  onClick={() => rotateByRightAngle(90)}
                   title="逆时针旋转 90°"
                 >
                   <RotateCcw className="h-4 w-4" />
@@ -1107,7 +1107,7 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
                   size="sm"
                   variant="secondary"
                   className="h-8 w-full px-0"
-                  onClick={() => rotateByRightAngle(90)}
+                  onClick={() => rotateByRightAngle(-90)}
                   title="顺时针旋转 90°"
                 >
                   <RotateCw className="h-4 w-4" />
