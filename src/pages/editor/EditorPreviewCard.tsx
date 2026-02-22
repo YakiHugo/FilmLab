@@ -284,6 +284,7 @@ export function EditorPreviewCard() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const originalImageRef = useRef<HTMLImageElement | null>(null);
   const sampleBufferRef = useRef<HTMLCanvasElement | null>(null);
+  const workingCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const panStartRef = useRef<{
     x: number;
     y: number;
@@ -887,7 +888,11 @@ export function EditorPreviewCard() {
     const controller = new AbortController();
     const dpr = window.devicePixelRatio || 1;
     const renderPreview = async () => {
-      const workingCanvas = document.createElement("canvas");
+      // Reuse a single offscreen canvas across renders to avoid DOM allocation
+      if (!workingCanvasRef.current) {
+        workingCanvasRef.current = document.createElement("canvas");
+      }
+      const workingCanvas = workingCanvasRef.current;
       const renderAdjustments = isCropMode
         ? {
             ...adjustments,

@@ -414,11 +414,18 @@ interface CanvasStats {
 
 const SAMPLE_SIZE = 24;
 
+// Reuse a single probe canvas for buildCanvasStats to avoid DOM allocation per call
+let _probeCanvas: HTMLCanvasElement | null = null;
+let _probeContext: CanvasRenderingContext2D | null = null;
+
 const buildCanvasStats = (canvas: HTMLCanvasElement): CanvasStats | null => {
-  const probe = document.createElement("canvas");
-  probe.width = SAMPLE_SIZE;
-  probe.height = SAMPLE_SIZE;
-  const context = probe.getContext("2d", { willReadFrequently: true });
+  if (!_probeCanvas) {
+    _probeCanvas = document.createElement("canvas");
+    _probeCanvas.width = SAMPLE_SIZE;
+    _probeCanvas.height = SAMPLE_SIZE;
+    _probeContext = _probeCanvas.getContext("2d", { willReadFrequently: true });
+  }
+  const context = _probeContext;
   if (!context) {
     return null;
   }
@@ -510,13 +517,27 @@ const tryPixiRender = async (
   options: { seedKey?: string; renderSeed?: number; exportSeed?: number }
 ): Promise<HTMLCanvasElement | null> => {
   try {
-    // Dynamic import to avoid loading PixiJS when not needed
-    const { PixiRenderer } = await import("@/lib/renderer/PixiRenderer");
-    const { resolveFromAdjustments, resolveFilmUniforms, resolveHalationBloomUniforms } = await import(
-      "@/lib/renderer/uniformResolvers"
-    );
+    // Use cached modules or resolve on first call
+    if (!_pixiModuleCache) {
+      const [rendererMod, uniformsMod] = await Promise.all([
+        import("@/lib/renderer/PixiRenderer"),
+        import("@/lib/renderer/uniformResolvers"),
+      ]);
+      _pixiModuleCache = {
+        PixiRenderer: rendererMod.PixiRenderer,
+        resolveFromAdjustments: uniformsMod.resolveFromAdjustments,
+        resolveFilmUniforms: uniformsMod.resolveFilmUniforms,
+        resolveHalationBloomUniforms: uniformsMod.resolveHalationBloomUniforms,
+      };
+    }
+    const { PixiRenderer, resolveFromAdjustments, resolveFilmUniforms, resolveHalationBloomUniforms } = _pixiModuleCache;
 
-    // Lazily create the renderer singleton
+    // Lazily create the renderer singleton, or recreate after context loss
+    if (pixiRendererInstance?.isContextLost) {
+      pixiRendererInstance.dispose();
+      pixiRendererInstance = null;
+    }
+
     if (!pixiRendererInstance) {
       const offscreen = document.createElement("canvas");
       pixiRendererInstance = new PixiRenderer(offscreen, sourceCanvas.width, sourceCanvas.height);
@@ -575,6 +596,24 @@ let pixiRendererInstance: InstanceType<
   typeof import("@/lib/renderer/PixiRenderer").PixiRenderer
 > | null = null;
 const pixiFallbackSeedKeys = new Set<string>();
+
+// Cache resolved dynamic imports so subsequent tryPixiRender calls skip await overhead
+let _pixiModuleCache: {
+  PixiRenderer: typeof import("@/lib/renderer/PixiRenderer").PixiRenderer;
+  resolveFromAdjustments: typeof import("@/lib/renderer/uniformResolvers").resolveFromAdjustments;
+  resolveFilmUniforms: typeof import("@/lib/renderer/uniformResolvers").resolveFilmUniforms;
+  resolveHalationBloomUniforms: typeof import("@/lib/renderer/uniformResolvers").resolveHalationBloomUniforms;
+} | null = null;
+
+// Clean up GPU resources on page unload to prevent leaks
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", () => {
+    if (pixiRendererInstance) {
+      pixiRendererInstance.dispose();
+      pixiRendererInstance = null;
+    }
+  });
+}
 
 export const renderImageToCanvas = async ({
   canvas,
