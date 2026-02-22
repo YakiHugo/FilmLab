@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useProjectStore } from "@/stores/projectStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import { PageShell } from "@/components/layout/PageShell";
 import { resolveAdjustmentsWithPreset } from "@/lib/adjustments";
 import { resolveFilmProfile as resolveRuntimeFilmProfile } from "@/lib/film";
 import { renderImageToBlob } from "@/lib/imageProcessing";
+import { resolveAssetTimestampText } from "@/lib/timestamp";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -91,6 +92,7 @@ export function ExportPage() {
           quality: quality / 100,
           maxDimension: maxDimension > 0 ? maxDimension : undefined,
           filmProfile,
+          timestampText: resolveAssetTimestampText(asset.metadata, asset.createdAt),
           seedKey: asset.id,
         });
         const url = URL.createObjectURL(blob);

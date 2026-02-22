@@ -7,6 +7,10 @@ export type PresetAdjustmentKey =
   | "shadows"
   | "whites"
   | "blacks"
+  | "curveHighlights"
+  | "curveLights"
+  | "curveDarks"
+  | "curveShadows"
   | "temperature"
   | "tint"
   | "vibrance"
@@ -14,7 +18,13 @@ export type PresetAdjustmentKey =
   | "clarity"
   | "dehaze"
   | "vignette"
-  | "grain";
+  | "grain"
+  | "grainSize"
+  | "grainRoughness"
+  | "sharpening"
+  | "masking"
+  | "noiseReduction"
+  | "colorNoiseReduction";
 
 export type PresetAdjustments = Partial<Record<PresetAdjustmentKey, number>>;
 
@@ -107,6 +117,17 @@ export type FilmModuleConfig =
   | DefectsModule
   | ScanModule;
 
+export type FilmNumericParamKeyMap = {
+  colorScience: Exclude<keyof ColorScienceParams, "rgbMix">;
+  tone: keyof ToneParams;
+  grain: keyof GrainParams;
+  defects: keyof DefectsParams;
+  scan: keyof ScanParams;
+};
+
+export type FilmNumericParamKey<TId extends FilmModuleId = FilmModuleId> =
+  FilmNumericParamKeyMap[TId];
+
 export interface FilmProfile {
   id: string;
   version: 1;
@@ -158,6 +179,20 @@ export interface HslChannel {
 
 export type HslAdjustments = Record<HslColorKey, HslChannel>;
 
+export interface ColorGradingZone {
+  hue: number;
+  saturation: number;
+  luminance: number;
+}
+
+export interface ColorGradingAdjustments {
+  shadows: ColorGradingZone;
+  midtones: ColorGradingZone;
+  highlights: ColorGradingZone;
+  blend: number;
+  balance: number;
+}
+
 export interface EditingAdjustments {
   exposure: number;
   contrast: number;
@@ -177,6 +212,7 @@ export interface EditingAdjustments {
   curveDarks: number;
   curveShadows: number;
   hsl: HslAdjustments;
+  colorGrading: ColorGradingAdjustments;
   sharpening: number;
   masking: number;
   noiseReduction: number;
@@ -186,12 +222,37 @@ export interface EditingAdjustments {
   grainSize: number;
   grainRoughness: number;
   rotate: number;
+  rightAngleRotation: number;
   vertical: number;
   horizontal: number;
   scale: number;
   flipHorizontal: boolean;
   flipVertical: boolean;
-  aspectRatio: "original" | "1:1" | "3:2" | "4:3" | "4:5" | "16:9";
+  aspectRatio:
+    | "free"
+    | "original"
+    | "1:1"
+    | "2:1"
+    | "1:2"
+    | "4:3"
+    | "3:4"
+    | "7:5"
+    | "5:7"
+    | "11:8.5"
+    | "8.5:11"
+    | "16:10"
+    | "10:16"
+    | "4:5"
+    | "5:4"
+    | "3:2"
+    | "2:3"
+    | "16:9"
+    | "9:16";
+  customAspectRatio: number;
+  timestampEnabled: boolean;
+  timestampPosition: "bottom-right" | "bottom-left" | "top-right" | "top-left";
+  timestampSize: number;
+  timestampOpacity: number;
   opticsProfile: boolean;
   opticsCA: boolean;
 }

@@ -40,9 +40,8 @@
 - 服务端接口：`POST /api/recommend-film`（Key 仅在服务端使用，不暴露到前端）
 
 ## 文档
-- `docs/prd.md`：当前产品范围摘要
-- `docs/mvp_plan.md`：MVP 里程碑与进度
-- `docs/tech_stack_architecture.md`：技术栈与架构说明
+- `docs/project_status.md`：项目现状、待办与优先级汇总
+- `docs/film_pipeline.md`：FilmProfile 渲染管线说明
 
 ## 下一步建议
 - 统一文案编码为 UTF-8（修复乱码）

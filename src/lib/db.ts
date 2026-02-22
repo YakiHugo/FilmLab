@@ -41,7 +41,7 @@ interface FilmLabDB extends DBSchema {
 }
 
 const DB_NAME = "filmlab-mvp";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export const dbPromise = openDB<FilmLabDB>(DB_NAME, DB_VERSION, {
   upgrade(db) {

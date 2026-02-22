@@ -1,4 +1,4 @@
-﻿import { presets } from "@/data/presets";
+import { presets } from "@/data/presets";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import type { EditingAdjustments } from "@/types";
 import type { NumericAdjustmentKey, ToolDefinition, ToolGroupId } from "./types";
@@ -75,12 +75,14 @@ export const ASPECT_RATIOS: {
   label: string;
   ratio: string;
 }[] = [
-  { value: "original", label: "原始", ratio: "4 / 3" },
+  { value: "free", label: "自由", ratio: "auto" },
+  { value: "original", label: "原始", ratio: "auto" },
   { value: "1:1", label: "1:1", ratio: "1 / 1" },
   { value: "4:5", label: "4:5", ratio: "4 / 5" },
+  { value: "5:4", label: "5:4", ratio: "5 / 4" },
   { value: "3:2", label: "3:2", ratio: "3 / 2" },
-  { value: "4:3", label: "4:3", ratio: "4 / 3" },
   { value: "16:9", label: "16:9", ratio: "16 / 9" },
+  { value: "9:16", label: "9:16", ratio: "9 / 16" },
 ];
 
 export const DEFAULT_ADJUSTMENTS = createDefaultAdjustments();

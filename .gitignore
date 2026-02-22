@@ -41,6 +41,9 @@ build
 .next
 out
 
+# Generated shaders (build output)
+src/lib/renderer/shaders/generated/
+
 # AI and IDE specific
 .trae
 .cursor
@@ -51,6 +54,7 @@ out
 *.bak
 *.tmp
 *.temp
+.agents/*
 
 # OS specific
 Thumbs.db
@@ -68,6 +72,10 @@ Thumbs.db
 # Vite config build outputs
 vite.config.js
 vite.config.d.ts
+
+# Test assets (downloaded images & local env)
+test-assets/images/
+test-assets/.env
 
 # Misc
 *.pid

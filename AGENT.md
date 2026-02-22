@@ -1,0 +1,204 @@
+# FilmLab Agent Guide
+
+> Last updated: 2026-02-16  
+> Scope: current codebase status (not historical proposal)
+
+## 1. Project Summary
+
+FilmLab is a web photo-editing app focused on film look workflows:
+
+- Batch workflow in `Workspace` (`/`)
+- Fine-tune workflow in `Editor` (`/editor`)
+- Asset persistence with IndexedDB
+- AI film preset recommendation via OpenAI endpoint
+- Render architecture:
+  - default PixiJS multi-pass renderer (Master + Film + Halation/Bloom)
+  - legacy WebGL2 fallback (via `window.__FILMLAB_USE_LEGACY = true`)
+  - CPU pipeline final fallback
+
+## 2. Runtime Entry Points
+
+- `src/main.tsx`: app bootstrap
+- `src/App.tsx`: layout shell + project initialization
+- `src/router.tsx`:
+  - `/` -> `Workspace`
+  - `/editor` -> `Editor`
+
+## 3. Main Folders
+
+```text
+src/
+  components/                # shared components + ui primitives
+  features/workspace/        # workspace feature modules
+  pages/                     # route pages + editor subcomponents
+  stores/                    # zustand stores
+  lib/
+    imageProcessing.ts       # render entry and pipeline selection
+    film/                    # legacy v1 film pipeline
+    renderer/                # PixiJS multi-pass pipeline (new)
+    db.ts                    # IndexedDB adapter
+    assetMetadata.ts         # EXIF + thumbnail pipeline
+    ai/                      # client-side recommendation requester
+  data/                      # built-in presets/profiles
+  types/                     # business types (+ v2 film type)
+api/
+  recommend-film.ts          # AI recommendation endpoint
+scripts/
+  generate-shaders.ts        # compile-time shader generator
+docs/
+  editor.md                  # editor/render architecture doc
+```
+
+## 4. Rendering Architecture
+
+### 4.1 `renderImageToCanvas` selection flow
+
+`src/lib/imageProcessing.ts` chooses pipeline in this order:
+
+1. PixiJS multi-pass pipeline (default)
+2. Legacy WebGL2 pipeline (`renderFilmProfileWebGL2`) — used when `window.__FILMLAB_USE_LEGACY === true`
+3. CPU pipeline (`applyFilmPipeline`)
+
+### 4.2 PixiJS pipeline (`src/lib/renderer/`)
+
+- `PixiRenderer.ts`
+  - Pass 1: `MasterAdjustmentFilter`
+  - Pass 2: `FilmSimulationFilter`
+  - Pass 3: `HalationBloomFilter`
+- `uniformResolvers.ts`
+  - `EditingAdjustments -> MasterUniforms`
+  - `FilmProfile(v1/v2) -> FilmUniforms/HalationBloomUniforms`
+- `LUTLoader.ts` + `LUTCache.ts`
+  - HaldCLUT image -> WebGL 3D texture
+- Shader generation
+  - config: `shader.config.ts`
+  - templates: `shaders/templates/*.glsl`
+  - output: `shaders/generated/*` (gitignored)
+
+### 4.3 Legacy pipeline (`src/lib/film/`)
+
+- `webgl2.ts`: single-pass legacy renderer
+- `pipeline.ts`: CPU fallback
+- `profile.ts`: v1 `FilmProfile` defaults/normalization/mapping
+- `migrate.ts`: v1 -> v2 migration helper
+
+## 5. Data and State
+
+### 5.1 Persistence
+
+- IndexedDB name: `filmlab-mvp`
+- Stores:
+  - `project`
+  - `assets`
+- Adapter: `src/lib/db.ts`
+
+### 5.2 State stores
+
+- `src/stores/projectStore.ts`
+  - project/assets lifecycle
+  - import/preset apply/persistence
+- `src/stores/editorStore.ts`
+  - editor UI state
+  - section toggles/custom presets/local UI helpers
+
+### 5.3 Asset ingestion
+
+`src/lib/assetMetadata.ts`:
+
+- reads EXIF via `exifr`
+- generates thumbnail blob
+- normalizes metadata for UI/store
+
+## 6. Type System Notes
+
+### 6.1 Production baseline
+
+- Main runtime profile type is still `FilmProfile` v1 in `src/types/index.ts`
+- `FilmProfileV2` exists in `src/types/film.ts` for new renderer mapping
+- V2 currently coexists with V1 and is resolved at runtime in mapping layer
+
+### 6.2 Editing inputs
+
+`EditingAdjustments` includes:
+
+- basic tone controls
+- HSL per-color channels
+- detail/noise controls
+- geometry transforms
+- grain/vignette and optics toggles
+
+## 7. AI Recommendation Flow
+
+- Client request: `src/lib/ai/client.ts`
+- API route: `api/recommend-film.ts`
+- Model: `gpt-4.1-mini`
+- Input:
+  - image data URL
+  - metadata
+  - candidate presets
+- Output:
+  - ranked `topPresets[]` with reason/confidence
+- Includes retry/backoff and response sanitization
+
+## 8. Commands
+
+- `pnpm install`
+- `pnpm dev`
+- `pnpm build`
+- `pnpm preview`
+- `pnpm generate:shaders`
+- `pnpm vitest`
+
+Notes:
+
+- `dev`/`build` scripts call shader generation before Vite/typecheck.
+- generated shaders are not committed (`src/lib/renderer/shaders/generated/` is ignored).
+
+## 9. Common Engineering Tasks
+
+### 9.1 Add a new adjustment param
+
+1. Update `src/types/index.ts` (`EditingAdjustments`)
+2. Update mapping in `src/lib/film/profile.ts` (if legacy path needs it)
+3. Update `src/lib/renderer/types.ts` and `uniformResolvers.ts`
+4. Update shader templates/config if Pixi path needs it
+5. Run `pnpm generate:shaders`
+6. Add UI control in editor/workspace panels
+
+### 9.2 Add a LUT-based film profile
+
+1. Put LUT asset under `public/luts/`
+2. Define profile mapping (v1 and/or v2 use path)
+3. Ensure `FilmSimulationFilter.loadLUT()` is triggered by the profile
+4. Validate dimensions/level in `LUTLoader.ts`
+
+### 9.3 Debug render mismatch
+
+1. Check if legacy mode is forced (`window.__FILMLAB_USE_LEGACY`)
+2. Compare Pixi output vs legacy path
+3. Inspect generated shaders in `src/lib/renderer/shaders/generated/`
+4. Verify uniform mapping in `uniformResolvers.ts`
+5. Check console for WebGL compile/bind errors
+
+## 10. Known Gaps and Risks
+
+- PixiJS is the default GPU path; legacy WebGL2 available via `window.__FILMLAB_USE_LEGACY = true`
+- `sampler3D` in PixiJS v7 requires manual texture binding workaround
+- Some Chinese UI strings appear with mojibake in source files and need unified UTF-8 cleanup
+- Test coverage exists but is limited (mostly AI utilities)
+
+## 11. Review Checklist (for PRs touching render/data path)
+
+- Pipeline choice in `imageProcessing.ts` still behaves as expected
+- New params are mapped end-to-end (UI -> type -> uniform -> shader)
+- IndexedDB schema compatibility preserved
+- GPU resources are released (`dispose`/texture cleanup)
+- Both default (PixiJS) and legacy escape-hatch paths still work
+
+## 12. Document Index
+
+- Quick repo guide: `AGENTS.md`
+- This file (engineering baseline): `AGENT.md`
+- Editor/render deep dive: `docs/editor.md`
+- Legacy film module doc: `docs/film_pipeline.md`
+- Project status notes: `docs/project_status.md`

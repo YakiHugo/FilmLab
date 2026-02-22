@@ -1,5 +1,9 @@
-import { presets as basePresets } from "@/data/presets";
-import { applyPresetAdjustments, createDefaultAdjustments } from "@/lib/adjustments";
+﻿import { presets as basePresets } from "@/data/presets";
+import {
+  applyPresetAdjustments,
+  createDefaultAdjustments,
+  normalizeAdjustments,
+} from "@/lib/adjustments";
 import {
   normalizeFilmProfile,
   resolveFilmProfile as resolveRuntimeFilmProfile,
@@ -22,6 +26,10 @@ const presetAdjustmentKeys: PresetAdjustmentKey[] = [
   "shadows",
   "whites",
   "blacks",
+  "curveHighlights",
+  "curveLights",
+  "curveDarks",
+  "curveShadows",
   "temperature",
   "tint",
   "vibrance",
@@ -30,6 +38,12 @@ const presetAdjustmentKeys: PresetAdjustmentKey[] = [
   "dehaze",
   "vignette",
   "grain",
+  "grainSize",
+  "grainRoughness",
+  "sharpening",
+  "masking",
+  "noiseReduction",
+  "colorNoiseReduction",
 ];
 
 const isPresetLike = (value: unknown): value is Record<string, unknown> => {
@@ -87,7 +101,7 @@ export const resolveAdjustments = (
   intensity: number | undefined,
   presets: Preset[]
 ) => {
-  const base = adjustments ?? createDefaultAdjustments();
+  const base = normalizeAdjustments(adjustments ?? createDefaultAdjustments());
   if (!presetId) {
     return base;
   }
@@ -145,7 +159,7 @@ export const normalizeImportedPresets = (parsed: unknown): Preset[] => {
 
   const defaultTags = basePresets[0]?.tags ?? ([] as Preset["tags"]);
   const fallbackIntensity = basePresets[0]?.intensity ?? 100;
-  const fallbackDescription = basePresets[0]?.description ?? "Imported preset";
+  const fallbackDescription = basePresets[0]?.description ?? "导入预设";
   const timestamp = Date.now();
 
   return incoming
@@ -168,7 +182,7 @@ export const normalizeImportedPresets = (parsed: unknown): Preset[] => {
 
       return {
         id: (preset.id as string) || `imported-${timestamp}-${index}`,
-        name: (preset.name as string) || `Imported preset ${index + 1}`,
+        name: (preset.name as string) || `导入预设 ${index + 1}`,
         tags: (rawTags.length > 0
           ? rawTags
           : defaultTags) as Preset["tags"],
@@ -189,3 +203,4 @@ export const normalizeImportedPresets = (parsed: unknown): Preset[] => {
       };
     });
 };
+

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { presets } from "@/data/presets";
-import { createDefaultAdjustments } from "@/lib/adjustments";
+import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import { prepareAssetPayload } from "@/lib/assetMetadata";
 import type { Asset, Project } from "@/types";
 import {
@@ -16,6 +16,7 @@ export interface AddAssetsResult {
   added: number;
   failed: number;
   addedAssetIds: string[];
+  errors?: string[];
 }
 
 interface ProjectState {
@@ -53,7 +54,7 @@ const defaultProject = (): Project => {
   const now = new Date().toISOString();
   return {
     id: "default-project",
-    name: "FilmLab Project",
+    name: "FilmLab 项目",
     createdAt: now,
     updatedAt: now,
   };
@@ -74,13 +75,18 @@ const toStoredAsset = (asset: Asset): StoredAsset | null => {
   if (!asset.blob) {
     return null;
   }
+  const blob =
+    asset.blob instanceof File
+      ? asset.blob.slice(0, asset.blob.size, asset.blob.type)
+      : asset.blob;
+
   return {
     id: asset.id,
     name: asset.name,
     type: asset.type,
     size: asset.size,
     createdAt: asset.createdAt,
-    blob: asset.blob,
+    blob,
     presetId: asset.presetId,
     intensity: asset.intensity,
     filmProfileId: asset.filmProfileId,
@@ -89,8 +95,20 @@ const toStoredAsset = (asset: Asset): StoredAsset | null => {
     group: asset.group,
     thumbnailBlob: asset.thumbnailBlob,
     metadata: asset.metadata,
-    adjustments: asset.adjustments,
+    adjustments: asset.adjustments
+      ? normalizeAdjustments(asset.adjustments)
+      : undefined,
     aiRecommendation: asset.aiRecommendation,
+  };
+};
+
+const normalizeAssetUpdate = (update: Partial<Asset>): Partial<Asset> => {
+  if (!update.adjustments) {
+    return update;
+  }
+  return {
+    ...update,
+    adjustments: normalizeAdjustments(update.adjustments),
   };
 };
 
@@ -99,7 +117,9 @@ const persistAsset = (asset: Asset) => {
   if (!payload) {
     return;
   }
-  void saveAsset(payload);
+  void saveAsset(payload).catch((error) => {
+    console.warn("Failed to persist asset", asset.id, error);
+  });
 };
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -142,7 +162,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         blob: asset.blob,
         thumbnailBlob: asset.thumbnailBlob,
         metadata: asset.metadata,
-        adjustments: asset.adjustments ?? createDefaultAdjustments(),
+        adjustments: normalizeAdjustments(asset.adjustments ?? createDefaultAdjustments()),
         aiRecommendation: asset.aiRecommendation,
       };
     });
@@ -173,13 +193,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const timestamp = new Date().toISOString();
       const newAssets: Asset[] = [];
       let failedCount = 0;
+      const errors: string[] = [];
 
       for (const file of files) {
         try {
           const id = `${file.name}-${file.lastModified}-${Math.random().toString(16).slice(2)}`;
           const group = `Group ${((assets.length + newAssets.length) % 4) + 1}`;
-          const { metadata, thumbnailBlob } = await prepareAssetPayload(file);
-          const objectUrl = URL.createObjectURL(file);
+          const fileBlob = file.slice(0, file.size, file.type);
+          const { metadata, thumbnailBlob } = await prepareAssetPayload(fileBlob);
+          const objectUrl = URL.createObjectURL(fileBlob);
           const thumbnailUrl = thumbnailBlob
             ? URL.createObjectURL(thumbnailBlob)
             : objectUrl;
@@ -197,7 +219,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             filmProfileId: presets[0]?.filmProfileId,
             filmProfile: presets[0]?.filmProfile,
             group,
-            blob: file,
+            blob: fileBlob,
             thumbnailBlob,
             metadata,
             adjustments: createDefaultAdjustments(),
@@ -205,14 +227,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
           const payload = toStoredAsset(asset);
           if (payload) {
-            void saveAsset(payload).catch((error) => {
-              console.warn("Failed to persist imported asset", error);
-            });
+            await saveAsset(payload);
           }
           newAssets.push(asset);
         } catch (error) {
           console.warn("Failed to import asset", file.name, error);
           failedCount += 1;
+          const detail = error instanceof Error ? error.message : "Unknown error";
+          errors.push(`${file.name}: ${detail}`);
         }
       }
       if (newAssets.length === 0) {
@@ -220,15 +242,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           added: 0,
           failed: failedCount || files.length,
           addedAssetIds: [],
+          errors,
         };
       }
 
       const updatedProject = project
         ? { ...project, updatedAt: timestamp }
         : defaultProject();
-      void saveProject(updatedProject).catch((error) => {
+      try {
+        await saveProject(updatedProject);
+      } catch (error) {
         console.warn("Failed to persist project after import", error);
-      });
+      }
       set({
         project: updatedProject,
         assets: [...assets, ...newAssets],
@@ -237,6 +262,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         added: newAssets.length,
         failed: failedCount,
         addedAssetIds: newAssets.map((asset) => asset.id),
+        errors,
       };
     } finally {
       set({ isImporting: false });
@@ -309,8 +335,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ assets: nextAssets });
   },
   updateAsset: (assetId, update) => {
+    const normalizedUpdate = normalizeAssetUpdate(update);
     const nextAssets = get().assets.map((asset) =>
-      asset.id === assetId ? { ...asset, ...update } : asset,
+      asset.id === assetId ? { ...asset, ...normalizedUpdate } : asset,
     );
     const updatedAsset = nextAssets.find((asset) => asset.id === assetId);
     if (updatedAsset) {
@@ -319,8 +346,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ assets: nextAssets });
   },
   updateAssetOnly: (assetId, update) => {
+    const normalizedUpdate = normalizeAssetUpdate(update);
     const nextAssets = get().assets.map((asset) =>
-      asset.id === assetId ? { ...asset, ...update } : asset,
+      asset.id === assetId ? { ...asset, ...normalizedUpdate } : asset,
     );
     set({ assets: nextAssets });
   },

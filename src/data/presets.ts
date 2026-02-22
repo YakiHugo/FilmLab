@@ -7,7 +7,7 @@ export const presets: Preset[] = [
     name: "Portrait Soft",
     tags: ["portrait"],
     intensity: 60,
-    description: "Soft skin tone and gentle highlight roll-off.",
+    description: "柔和肤色与自然高光过渡。",
     adjustments: {
       exposure: 6,
       contrast: -8,
@@ -25,7 +25,7 @@ export const presets: Preset[] = [
     name: "Portrait Muted",
     tags: ["portrait"],
     intensity: 55,
-    description: "Lower saturation for cloudy and backlit scenes.",
+    description: "降低饱和度，适合阴天与逆光场景。",
     adjustments: {
       exposure: 4,
       contrast: -6,
@@ -42,7 +42,7 @@ export const presets: Preset[] = [
     name: "Vintage Warm",
     tags: ["portrait"],
     intensity: 65,
-    description: "Warm cast with subtle grain.",
+    description: "暖色调搭配轻微颗粒感。",
     adjustments: {
       temperature: 14,
       tint: 4,
@@ -59,7 +59,7 @@ export const presets: Preset[] = [
     name: "Landscape Clear",
     tags: ["landscape"],
     intensity: 70,
-    description: "Crisp and transparent look with boosted depth.",
+    description: "清透锐利，并增强画面纵深感。",
     adjustments: {
       exposure: 6,
       contrast: 12,
@@ -76,7 +76,7 @@ export const presets: Preset[] = [
     name: "Landscape Cool",
     tags: ["landscape"],
     intensity: 60,
-    description: "Cool tones with sky separation.",
+    description: "冷色倾向，强化天空层次分离。",
     adjustments: {
       temperature: -12,
       tint: -6,
@@ -92,7 +92,7 @@ export const presets: Preset[] = [
     name: "Landscape Sunset",
     tags: ["landscape"],
     intensity: 75,
-    description: "Golden-hour glow for dramatic scenes.",
+    description: "金色时刻光感，适合戏剧化场景。",
     adjustments: {
       temperature: 18,
       tint: 6,
@@ -109,7 +109,7 @@ export const presets: Preset[] = [
     name: "Night Neon",
     tags: ["night"],
     intensity: 70,
-    description: "Compress highlights and lift neon color.",
+    description: "压缩高光并提亮霓虹色彩。",
     adjustments: {
       exposure: -4,
       contrast: 16,
@@ -126,7 +126,7 @@ export const presets: Preset[] = [
     name: "Night Detail",
     tags: ["night"],
     intensity: 55,
-    description: "Recover dark details with moderate contrast.",
+    description: "在适中对比下恢复暗部细节。",
     adjustments: {
       exposure: 6,
       shadows: 18,
@@ -142,7 +142,7 @@ export const presets: Preset[] = [
     name: "Night Blue City",
     tags: ["night"],
     intensity: 65,
-    description: "Cool city-night style.",
+    description: "冷调城市夜景风格。",
     adjustments: {
       temperature: -16,
       tint: -6,
@@ -157,7 +157,7 @@ export const presets: Preset[] = [
     name: "BW Classic",
     tags: ["bw"],
     intensity: 60,
-    description: "Balanced black-and-white contrast.",
+    description: "均衡的黑白对比表现。",
     adjustments: {
       saturation: -80,
       contrast: 10,
@@ -171,7 +171,7 @@ export const presets: Preset[] = [
     name: "BW Hard",
     tags: ["bw"],
     intensity: 70,
-    description: "Strong structure and high contrast.",
+    description: "强结构感与高对比风格。",
     adjustments: {
       saturation: -90,
       contrast: 24,
@@ -188,7 +188,7 @@ export const presets: Preset[] = [
     name: "BW Soft",
     tags: ["bw"],
     intensity: 50,
-    description: "Gentle monochrome with retained details.",
+    description: "柔和单色表现并保留细节。",
     adjustments: {
       saturation: -70,
       contrast: -6,

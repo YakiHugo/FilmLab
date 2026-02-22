@@ -1,14 +1,22 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { presets as basePresets } from "@/data/presets";
-import { createDefaultAdjustments } from "@/lib/adjustments";
+import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import { listBuiltInFilmProfiles, normalizeFilmProfile } from "@/lib/film";
+import {
+  createEditorAssetSnapshot,
+  createEditorAssetSnapshotRef,
+  editorSnapshotToAssetPatch,
+  isEditorAssetSnapshotEqual,
+  type EditorAssetSnapshot,
+} from "@/pages/editor/history";
 import { useEditorStore } from "@/stores/editorStore";
 import { useProjectStore } from "@/stores/projectStore";
 import type {
   Asset,
   EditingAdjustments,
   FilmModuleId,
+  FilmNumericParamKey,
   HslColorKey,
   Preset,
 } from "@/types";
@@ -23,17 +31,80 @@ import {
 import type { NumericAdjustmentKey } from "./types";
 import { cloneAdjustments } from "./utils";
 
+type UpdateMode = "live" | "commit";
+type FilmOverridesState = NonNullable<Asset["filmOverrides"]>;
+type PendingHistoryByKey = Record<string, EditorAssetSnapshot>;
+
+const createHistorySessionKey = (assetId: string, key: string) => `${assetId}:${key}`;
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
+const rgbToHue = (red: number, green: number, blue: number) => {
+  const r = red / 255;
+  const g = green / 255;
+  const b = blue / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  if (delta === 0) {
+    return 0;
+  }
+  let hue = 0;
+  if (max === r) {
+    hue = ((g - b) / delta) % 6;
+  } else if (max === g) {
+    hue = (b - r) / delta + 2;
+  } else {
+    hue = (r - g) / delta + 4;
+  }
+  return (hue * 60 + 360) % 360;
+};
+
+const mapHueToHslColor = (hue: number): HslColorKey => {
+  if (hue < 15 || hue >= 345) {
+    return "red";
+  }
+  if (hue < 40) {
+    return "orange";
+  }
+  if (hue < 70) {
+    return "yellow";
+  }
+  if (hue < 170) {
+    return "green";
+  }
+  if (hue < 200) {
+    return "aqua";
+  }
+  if (hue < 255) {
+    return "blue";
+  }
+  if (hue < 300) {
+    return "purple";
+  }
+  return "magenta";
+};
+
+const toHex = (value: number) => {
+  const clamped = clamp(Math.round(value), 0, 255);
+  return clamped.toString(16).padStart(2, "0");
+};
+
 export function useEditorState() {
-  const { assets, updateAsset } = useProjectStore(
+  const { assets, updateAsset, updateAssetOnly } = useProjectStore(
     useShallow((state) => ({
       assets: state.assets,
       updateAsset: state.updateAsset,
+      updateAssetOnly: state.updateAssetOnly,
     }))
   );
 
   const {
     selectedAssetId,
     showOriginal,
+    activeToolPanelId,
+    mobilePanelExpanded,
     copiedAdjustments,
     customPresetName,
     customPresets,
@@ -41,20 +112,32 @@ export function useEditorState() {
     curveChannel,
     openSections,
     previewHistogram,
+    pointColorPicking,
+    lastPointColorSample,
+    historyByAssetId,
     setSelectedAssetId,
     setShowOriginal,
+    setActiveToolPanelId,
+    setMobilePanelExpanded,
     setCopiedAdjustments,
     setCustomPresetName,
     setCustomPresets,
     setActiveHslColor,
     setCurveChannel,
+    setPointColorPicking,
+    setLastPointColorSample,
     toggleOriginal,
     toggleSection,
     setPreviewHistogram,
+    pushHistory,
+    undoSnapshot,
+    redoSnapshot,
   } = useEditorStore(
     useShallow((state) => ({
       selectedAssetId: state.selectedAssetId,
       showOriginal: state.showOriginal,
+      activeToolPanelId: state.activeToolPanelId,
+      mobilePanelExpanded: state.mobilePanelExpanded,
       copiedAdjustments: state.copiedAdjustments,
       customPresetName: state.customPresetName,
       customPresets: state.customPresets,
@@ -62,29 +145,62 @@ export function useEditorState() {
       curveChannel: state.curveChannel,
       openSections: state.openSections,
       previewHistogram: state.previewHistogram,
+      pointColorPicking: state.pointColorPicking,
+      lastPointColorSample: state.lastPointColorSample,
+      historyByAssetId: state.historyByAssetId,
       setSelectedAssetId: state.setSelectedAssetId,
       setShowOriginal: state.setShowOriginal,
+      setActiveToolPanelId: state.setActiveToolPanelId,
+      setMobilePanelExpanded: state.setMobilePanelExpanded,
       setCopiedAdjustments: state.setCopiedAdjustments,
       setCustomPresetName: state.setCustomPresetName,
       setCustomPresets: state.setCustomPresets,
       setActiveHslColor: state.setActiveHslColor,
       setCurveChannel: state.setCurveChannel,
+      setPointColorPicking: state.setPointColorPicking,
+      setLastPointColorSample: state.setLastPointColorSample,
       toggleOriginal: state.toggleOriginal,
       toggleSection: state.toggleSection,
       setPreviewHistogram: state.setPreviewHistogram,
+      pushHistory: state.pushHistory,
+      undoSnapshot: state.undoSnapshot,
+      redoSnapshot: state.redoSnapshot,
     }))
   );
 
-  const selectedAsset = useMemo(
-    () => assets.find((asset) => asset.id === selectedAssetId) ?? null,
-    [assets, selectedAssetId]
-  );
+  const selectedAsset = useMemo(() => {
+    if (assets.length === 0) {
+      return null;
+    }
+    return assets.find((asset) => asset.id === selectedAssetId) ?? assets[0] ?? null;
+  }, [assets, selectedAssetId]);
+
+  useEffect(() => {
+    if (assets.length === 0) {
+      if (selectedAssetId !== null) {
+        setSelectedAssetId(null);
+      }
+      return;
+    }
+
+    const hasValidSelection =
+      typeof selectedAssetId === "string" &&
+      assets.some((asset) => asset.id === selectedAssetId);
+    if (hasValidSelection) {
+      return;
+    }
+
+    const fallbackId = assets[0]?.id ?? null;
+    if (fallbackId && fallbackId !== selectedAssetId) {
+      setSelectedAssetId(fallbackId);
+    }
+  }, [assets, selectedAssetId, setSelectedAssetId]);
 
   const adjustments = useMemo(() => {
     if (!selectedAsset) {
       return null;
     }
-    return selectedAsset.adjustments ?? createDefaultAdjustments();
+    return normalizeAdjustments(selectedAsset.adjustments);
   }, [selectedAsset]);
 
   const allPresets = useMemo(() => [...basePresets, ...customPresets], [customPresets]);
@@ -137,44 +253,263 @@ export function useEditorState() {
     return "自动";
   }, [previewFilmProfile, selectedAsset?.filmProfileId]);
 
-  const updateAdjustments = useCallback(
-    (partial: Partial<EditingAdjustments>) => {
-      if (!selectedAsset || !adjustments) {
-        return;
+  const pendingHistoryRef = useRef<PendingHistoryByKey>({});
+  const pendingAdjustmentPreviewRef = useRef<{
+    key: NumericAdjustmentKey;
+    value: number;
+  } | null>(null);
+  const adjustmentPreviewFrameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    pendingHistoryRef.current = {};
+  }, [selectedAssetId]);
+
+  useEffect(() => {
+    return () => {
+      if (adjustmentPreviewFrameRef.current !== null) {
+        cancelAnimationFrame(adjustmentPreviewFrameRef.current);
       }
-      updateAsset(selectedAsset.id, {
-        adjustments: {
-          ...adjustments,
-          ...partial,
-        },
-      });
+    };
+  }, []);
+
+  const clearPendingHistoryForAsset = useCallback((assetId: string) => {
+    const prefix = `${assetId}:`;
+    Object.keys(pendingHistoryRef.current).forEach((key) => {
+      if (key.startsWith(prefix)) {
+        delete pendingHistoryRef.current[key];
+      }
+    });
+  }, []);
+
+  const applyEditorPatch = useCallback(
+    (
+      patch: Partial<Asset>,
+      options?: {
+        before?: EditorAssetSnapshot;
+      }
+    ) => {
+      if (!selectedAsset) {
+        return false;
+      }
+      const before = options?.before ?? createEditorAssetSnapshot(selectedAsset);
+      const after = createEditorAssetSnapshot({
+        ...selectedAsset,
+        ...patch,
+      } as Asset);
+      if (isEditorAssetSnapshotEqual(before, after)) {
+        return false;
+      }
+      pushHistory(selectedAsset.id, before);
+      updateAsset(selectedAsset.id, patch);
+      return true;
     },
-    [adjustments, selectedAsset, updateAsset]
+    [pushHistory, selectedAsset, updateAsset]
   );
 
-  const updateFilmOverrides = useCallback(
-    (
-      updater: (
-        prev: NonNullable<Asset["filmOverrides"]>
-      ) => NonNullable<Asset["filmOverrides"]>
-    ) => {
+  const stageEditorPatch = useCallback(
+    (historyKey: string, patch: Partial<Asset>) => {
       if (!selectedAsset) {
         return;
       }
-      const current = selectedAsset.filmOverrides ?? {};
-      const next = updater(current);
-      updateAsset(selectedAsset.id, {
-        filmOverrides: next,
+      const sessionKey = createHistorySessionKey(selectedAsset.id, historyKey);
+      if (!pendingHistoryRef.current[sessionKey]) {
+        pendingHistoryRef.current[sessionKey] = createEditorAssetSnapshot(selectedAsset);
+      }
+      const before = pendingHistoryRef.current[sessionKey];
+      // Use lightweight ref snapshot (no cloning) — safe because it's only used for comparison
+      const after = createEditorAssetSnapshotRef({
+        ...selectedAsset,
+        ...patch,
+      } as Asset);
+      if (isEditorAssetSnapshotEqual(before, after)) {
+        return;
+      }
+      updateAssetOnly(selectedAsset.id, patch);
+    },
+    [selectedAsset, updateAssetOnly]
+  );
+
+  const commitEditorPatch = useCallback(
+    (historyKey: string, patch: Partial<Asset>) => {
+      if (!selectedAsset) {
+        return false;
+      }
+      const sessionKey = createHistorySessionKey(selectedAsset.id, historyKey);
+      const before =
+        pendingHistoryRef.current[sessionKey] ??
+        createEditorAssetSnapshot(selectedAsset);
+      delete pendingHistoryRef.current[sessionKey];
+      return applyEditorPatch(patch, { before });
+    },
+    [applyEditorPatch, selectedAsset]
+  );
+
+  const canUndo = Boolean(
+    selectedAssetId &&
+      historyByAssetId[selectedAssetId] &&
+      historyByAssetId[selectedAssetId].past.length > 0
+  );
+
+  const canRedo = Boolean(
+    selectedAssetId &&
+      historyByAssetId[selectedAssetId] &&
+      historyByAssetId[selectedAssetId].future.length > 0
+  );
+
+  const updateAdjustments = useCallback(
+    (partial: Partial<EditingAdjustments>) => {
+      if (!selectedAsset) {
+        return;
+      }
+      const nextAdjustments = {
+        ...(normalizeAdjustments(selectedAsset.adjustments)),
+        ...partial,
+      };
+      void applyEditorPatch({
+        adjustments: nextAdjustments,
       });
     },
-    [selectedAsset, updateAsset]
+    [applyEditorPatch, selectedAsset]
+  );
+
+  const flushAdjustmentPreview = useCallback(() => {
+    adjustmentPreviewFrameRef.current = null;
+    const pending = pendingAdjustmentPreviewRef.current;
+    pendingAdjustmentPreviewRef.current = null;
+    if (!pending || !selectedAsset) {
+      return;
+    }
+    const nextAdjustments = {
+      ...(normalizeAdjustments(selectedAsset.adjustments)),
+      [pending.key]: pending.value,
+    };
+    stageEditorPatch(`adjustment:${pending.key}`, {
+      adjustments: nextAdjustments,
+    });
+  }, [selectedAsset, stageEditorPatch]);
+
+  const previewAdjustmentValue = useCallback(
+    (key: NumericAdjustmentKey, value: number) => {
+      if (!selectedAsset) {
+        return;
+      }
+      pendingAdjustmentPreviewRef.current = { key, value };
+      if (adjustmentPreviewFrameRef.current === null) {
+        adjustmentPreviewFrameRef.current = requestAnimationFrame(flushAdjustmentPreview);
+      }
+    },
+    [selectedAsset, flushAdjustmentPreview]
   );
 
   const updateAdjustmentValue = useCallback(
     (key: NumericAdjustmentKey, value: number) => {
-      updateAdjustments({ [key]: value } as Partial<EditingAdjustments>);
+      if (!selectedAsset) {
+        return;
+      }
+      // Cancel pending preview RAF to avoid stale stage after commit
+      if (adjustmentPreviewFrameRef.current !== null) {
+        cancelAnimationFrame(adjustmentPreviewFrameRef.current);
+        adjustmentPreviewFrameRef.current = null;
+      }
+      pendingAdjustmentPreviewRef.current = null;
+      const nextAdjustments = {
+        ...(normalizeAdjustments(selectedAsset.adjustments)),
+        [key]: value,
+      };
+      void commitEditorPatch(`adjustment:${key}`, {
+        adjustments: nextAdjustments,
+      });
     },
-    [updateAdjustments]
+    [commitEditorPatch, selectedAsset]
+  );
+
+  const previewCropAdjustments = useCallback(
+    (
+      partial: Partial<
+        Pick<
+          EditingAdjustments,
+          "horizontal" | "vertical" | "scale" | "customAspectRatio"
+        >
+      >
+    ) => {
+      const assetId = selectedAsset?.id;
+      if (!assetId) {
+        return;
+      }
+      const liveAsset =
+        useProjectStore
+          .getState()
+          .assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+      if (!liveAsset) {
+        return;
+      }
+      const nextAdjustments = {
+        ...(normalizeAdjustments(liveAsset.adjustments)),
+        ...partial,
+      };
+      stageEditorPatch("crop:interaction", {
+        adjustments: nextAdjustments,
+      });
+    },
+    [selectedAsset, stageEditorPatch]
+  );
+
+  const commitCropAdjustments = useCallback(
+    (
+      partial: Partial<
+        Pick<
+          EditingAdjustments,
+          "horizontal" | "vertical" | "scale" | "customAspectRatio"
+        >
+      >
+    ) => {
+      const assetId = selectedAsset?.id;
+      if (!assetId) {
+        return false;
+      }
+      const liveAsset =
+        useProjectStore
+          .getState()
+          .assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+      if (!liveAsset) {
+        return false;
+      }
+      const nextAdjustments = {
+        ...(normalizeAdjustments(liveAsset.adjustments)),
+        ...partial,
+      };
+      return commitEditorPatch("crop:interaction", {
+        adjustments: nextAdjustments,
+      });
+    },
+    [commitEditorPatch, selectedAsset]
+  );
+
+  const previewHslValue = useCallback(
+    (
+      color: HslColorKey,
+      channel: "hue" | "saturation" | "luminance",
+      value: number
+    ) => {
+      if (!selectedAsset) {
+        return;
+      }
+      const currentAdjustments =
+        normalizeAdjustments(selectedAsset.adjustments);
+      stageEditorPatch(`hsl:${color}:${channel}`, {
+        adjustments: {
+          ...currentAdjustments,
+          hsl: {
+            ...currentAdjustments.hsl,
+            [color]: {
+              ...currentAdjustments.hsl[color],
+              [channel]: value,
+            },
+          },
+        },
+      });
+    },
+    [selectedAsset, stageEditorPatch]
   );
 
   const updateHslValue = useCallback(
@@ -183,43 +518,223 @@ export function useEditorState() {
       channel: "hue" | "saturation" | "luminance",
       value: number
     ) => {
-      if (!adjustments) {
+      if (!selectedAsset) {
         return;
       }
-      updateAdjustments({
-        hsl: {
-          ...adjustments.hsl,
-          [color]: {
-            ...adjustments.hsl[color],
-            [channel]: value,
+      const currentAdjustments =
+        normalizeAdjustments(selectedAsset.adjustments);
+      void commitEditorPatch(`hsl:${color}:${channel}`, {
+        adjustments: {
+          ...currentAdjustments,
+          hsl: {
+            ...currentAdjustments.hsl,
+            [color]: {
+              ...currentAdjustments.hsl[color],
+              [channel]: value,
+            },
           },
         },
       });
     },
-    [adjustments, updateAdjustments]
+    [commitEditorPatch, selectedAsset]
+  );
+
+  const previewColorGradingZone = useCallback(
+    (
+      zone: "shadows" | "midtones" | "highlights",
+      value: EditingAdjustments["colorGrading"]["shadows"]
+    ) => {
+      if (!selectedAsset) {
+        return;
+      }
+      const currentAdjustments =
+        normalizeAdjustments(selectedAsset.adjustments);
+      stageEditorPatch(`grading:${zone}`, {
+        adjustments: {
+          ...currentAdjustments,
+          colorGrading: {
+            ...currentAdjustments.colorGrading,
+            [zone]: value,
+          },
+        },
+      });
+    },
+    [selectedAsset, stageEditorPatch]
+  );
+
+  const updateColorGradingZone = useCallback(
+    (
+      zone: "shadows" | "midtones" | "highlights",
+      value: EditingAdjustments["colorGrading"]["shadows"]
+    ) => {
+      if (!selectedAsset) {
+        return;
+      }
+      const currentAdjustments =
+        normalizeAdjustments(selectedAsset.adjustments);
+      void commitEditorPatch(`grading:${zone}`, {
+        adjustments: {
+          ...currentAdjustments,
+          colorGrading: {
+            ...currentAdjustments.colorGrading,
+            [zone]: value,
+          },
+        },
+      });
+    },
+    [commitEditorPatch, selectedAsset]
+  );
+
+  const previewColorGradingValue = useCallback(
+    (key: "blend" | "balance", value: number) => {
+      if (!selectedAsset) {
+        return;
+      }
+      const currentAdjustments =
+        normalizeAdjustments(selectedAsset.adjustments);
+      stageEditorPatch(`grading:${key}`, {
+        adjustments: {
+          ...currentAdjustments,
+          colorGrading: {
+            ...currentAdjustments.colorGrading,
+            [key]: value,
+          },
+        },
+      });
+    },
+    [selectedAsset, stageEditorPatch]
+  );
+
+  const updateColorGradingValue = useCallback(
+    (key: "blend" | "balance", value: number) => {
+      if (!selectedAsset) {
+        return;
+      }
+      const currentAdjustments =
+        normalizeAdjustments(selectedAsset.adjustments);
+      void commitEditorPatch(`grading:${key}`, {
+        adjustments: {
+          ...currentAdjustments,
+          colorGrading: {
+            ...currentAdjustments.colorGrading,
+            [key]: value,
+          },
+        },
+      });
+    },
+    [commitEditorPatch, selectedAsset]
+  );
+
+  const resetColorGrading = useCallback(() => {
+    if (!selectedAsset) {
+      return false;
+    }
+    const currentAdjustments =
+      normalizeAdjustments(selectedAsset.adjustments);
+    const defaults = createDefaultAdjustments().colorGrading;
+    return applyEditorPatch({
+      adjustments: {
+        ...currentAdjustments,
+        colorGrading: {
+          shadows: { ...defaults.shadows },
+          midtones: { ...defaults.midtones },
+          highlights: { ...defaults.highlights },
+          blend: defaults.blend,
+          balance: defaults.balance,
+        },
+      },
+    });
+  }, [applyEditorPatch, selectedAsset]);
+
+  const startPointColorPick = useCallback(() => {
+    setPointColorPicking(true);
+  }, [setPointColorPicking]);
+
+  const cancelPointColorPick = useCallback(() => {
+    setPointColorPicking(false);
+  }, [setPointColorPicking]);
+
+  const commitPointColorSample = useCallback(
+    (sample: { red: number; green: number; blue: number }) => {
+      const hue = rgbToHue(sample.red, sample.green, sample.blue);
+      const mappedColor = mapHueToHslColor(hue);
+      const hex = `#${toHex(sample.red)}${toHex(sample.green)}${toHex(sample.blue)}`;
+      setActiveHslColor(mappedColor);
+      setLastPointColorSample({
+        red: sample.red,
+        green: sample.green,
+        blue: sample.blue,
+        hue,
+        hex,
+        mappedColor,
+      });
+      setPointColorPicking(false);
+      return mappedColor;
+    },
+    [setActiveHslColor, setLastPointColorSample, setPointColorPicking]
   );
 
   const toggleFlip = useCallback(
     (axis: "flipHorizontal" | "flipVertical") => {
-      if (!adjustments) {
+      if (!selectedAsset) {
         return;
       }
-      updateAdjustments({ [axis]: !adjustments[axis] } as Partial<EditingAdjustments>);
+      const currentAdjustments =
+        normalizeAdjustments(selectedAsset.adjustments);
+      void applyEditorPatch({
+        adjustments: {
+          ...currentAdjustments,
+          [axis]: !currentAdjustments[axis],
+        },
+      });
     },
-    [adjustments, updateAdjustments]
+    [applyEditorPatch, selectedAsset]
+  );
+
+  const applyFilmOverrides = useCallback(
+    (
+      updater: (prev: FilmOverridesState) => FilmOverridesState,
+      options?: {
+        mode?: UpdateMode;
+        historyKey?: string;
+      }
+    ) => {
+      if (!selectedAsset) {
+        return false;
+      }
+      const current = (selectedAsset.filmOverrides ?? {}) as FilmOverridesState;
+      const next = updater(current);
+      const patch: Partial<Asset> = {
+        filmOverrides: next,
+      };
+      if (options?.mode === "live" && options.historyKey) {
+        stageEditorPatch(options.historyKey, patch);
+        return true;
+      }
+      if (options?.historyKey) {
+        return commitEditorPatch(options.historyKey, patch);
+      }
+      return applyEditorPatch(patch);
+    },
+    [applyEditorPatch, commitEditorPatch, selectedAsset, stageEditorPatch]
   );
 
   const handleSetFilmModuleAmount = useCallback(
-    (moduleId: FilmModuleId, value: number) => {
-      updateFilmOverrides((prev) => ({
-        ...prev,
-        [moduleId]: {
-          ...(prev[moduleId] ?? {}),
-          amount: value,
-        },
-      }));
+    (moduleId: FilmModuleId, value: number, mode: UpdateMode = "commit") => {
+      void applyFilmOverrides(
+        (prev) => ({
+          ...prev,
+          [moduleId]: {
+            ...(prev[moduleId] ?? {}),
+            amount: value,
+          },
+        }),
+        mode === "live"
+          ? { mode, historyKey: `film:${moduleId}:amount` }
+          : { historyKey: `film:${moduleId}:amount` }
+      );
     },
-    [updateFilmOverrides]
+    [applyFilmOverrides]
   );
 
   const handleToggleFilmModule = useCallback(
@@ -231,7 +746,7 @@ export function useEditorState() {
       if (!current) {
         return;
       }
-      updateFilmOverrides((prev) => ({
+      void applyFilmOverrides((prev) => ({
         ...prev,
         [moduleId]: {
           ...(prev[moduleId] ?? {}),
@@ -239,27 +754,42 @@ export function useEditorState() {
         },
       }));
     },
-    [previewFilmProfile, updateFilmOverrides]
+    [applyFilmOverrides, previewFilmProfile]
   );
 
   const handleSetFilmModuleParam = useCallback(
-    (moduleId: FilmModuleId, key: string, value: number) => {
-      updateFilmOverrides((prev) => ({
-        ...prev,
-        [moduleId]: {
-          ...(prev[moduleId] ?? {}),
-          params: {
-            ...((prev[moduleId]?.params as Record<string, number>) ?? {}),
-            [key]: value,
+    <TId extends FilmModuleId>(
+      moduleId: TId,
+      key: FilmNumericParamKey<TId>,
+      value: number,
+      mode: UpdateMode = "commit"
+    ) => {
+      void applyFilmOverrides(
+        (prev) => ({
+          ...prev,
+          [moduleId]: {
+            ...(prev[moduleId] ?? {}),
+            params: {
+              ...((prev[moduleId]?.params as Record<string, number>) ?? {}),
+              [key]: value,
+            },
           },
-        },
-      }));
+        }),
+        mode === "live"
+          ? { mode, historyKey: `film:${moduleId}:param:${String(key)}` }
+          : { historyKey: `film:${moduleId}:param:${String(key)}` }
+      );
     },
-    [updateFilmOverrides]
+    [applyFilmOverrides]
   );
 
   const handleSetFilmModuleRgbMix = useCallback(
-    (moduleId: FilmModuleId, channel: 0 | 1 | 2, value: number) => {
+    (
+      moduleId: FilmModuleId,
+      channel: 0 | 1 | 2,
+      value: number,
+      mode: UpdateMode = "commit"
+    ) => {
       if (!previewFilmProfile || moduleId !== "colorScience") {
         return;
       }
@@ -273,39 +803,43 @@ export function useEditorState() {
         number,
       ];
       nextMix[channel] = value;
-      updateFilmOverrides((prev) => ({
-        ...prev,
-        [moduleId]: {
-          ...(prev[moduleId] ?? {}),
-          params: {
-            ...((prev[moduleId]?.params as Record<string, unknown>) ?? {}),
-            rgbMix: nextMix,
+      void applyFilmOverrides(
+        (prev) => ({
+          ...prev,
+          [moduleId]: {
+            ...(prev[moduleId] ?? {}),
+            params: {
+              ...((prev[moduleId]?.params as Record<string, unknown>) ?? {}),
+              rgbMix: nextMix,
+            },
           },
-        },
-      }));
+        }),
+        mode === "live"
+          ? { mode, historyKey: `film:${moduleId}:rgbMix:${channel}` }
+          : { historyKey: `film:${moduleId}:rgbMix:${channel}` }
+      );
     },
-    [previewFilmProfile, updateFilmOverrides]
+    [applyFilmOverrides, previewFilmProfile]
   );
 
   const handleResetFilmOverrides = useCallback(() => {
     if (!selectedAsset) {
-      return;
+      return false;
     }
-    updateAsset(selectedAsset.id, {
+    return applyEditorPatch({
       filmOverrides: undefined,
     });
-  }, [selectedAsset, updateAsset]);
+  }, [applyEditorPatch, selectedAsset]);
 
   const handleResetAll = useCallback(() => {
     if (!selectedAsset) {
       return false;
     }
-    updateAsset(selectedAsset.id, {
+    return applyEditorPatch({
       adjustments: createDefaultAdjustments(),
       filmOverrides: undefined,
     });
-    return true;
-  }, [selectedAsset, updateAsset]);
+  }, [applyEditorPatch, selectedAsset]);
 
   const handleCopy = useCallback(() => {
     if (!adjustments) {
@@ -319,47 +853,53 @@ export function useEditorState() {
     if (!selectedAsset || !copiedAdjustments) {
       return false;
     }
-    updateAsset(selectedAsset.id, { adjustments: cloneAdjustments(copiedAdjustments) });
-    return true;
-  }, [copiedAdjustments, selectedAsset, updateAsset]);
+    return applyEditorPatch({
+      adjustments: cloneAdjustments(copiedAdjustments),
+    });
+  }, [applyEditorPatch, copiedAdjustments, selectedAsset]);
 
   const handleSelectPreset = useCallback(
     (presetId: string) => {
       if (!selectedAsset) {
-        return;
+        return false;
       }
       const preset = allPresets.find((item) => item.id === presetId);
-      updateAsset(selectedAsset.id, {
+      return applyEditorPatch({
         presetId,
         filmProfileId: preset?.filmProfileId,
         filmProfile: preset?.filmProfile,
         filmOverrides: undefined,
       });
     },
-    [allPresets, selectedAsset, updateAsset]
+    [allPresets, applyEditorPatch, selectedAsset]
   );
 
   const handleSetIntensity = useCallback(
-    (value: number) => {
+    (value: number, mode: UpdateMode = "commit") => {
       if (!selectedAsset) {
         return;
       }
-      updateAsset(selectedAsset.id, { intensity: value });
+      const patch: Partial<Asset> = { intensity: value };
+      if (mode === "live") {
+        stageEditorPatch("intensity", patch);
+        return;
+      }
+      void commitEditorPatch("intensity", patch);
     },
-    [selectedAsset, updateAsset]
+    [commitEditorPatch, selectedAsset, stageEditorPatch]
   );
 
   const handleSelectFilmProfile = useCallback(
     (filmProfileId: string | undefined) => {
       if (!selectedAsset) {
-        return;
+        return false;
       }
-      updateAsset(selectedAsset.id, {
+      return applyEditorPatch({
         filmProfileId,
         filmProfile: undefined,
       });
     },
-    [selectedAsset, updateAsset]
+    [applyEditorPatch, selectedAsset]
   );
 
   const handleSaveCustomPreset = useCallback(() => {
@@ -375,14 +915,14 @@ export function useEditorState() {
       name,
       tags: (basePresets[0]?.tags ?? []) as Preset["tags"],
       intensity: 100,
-      description: "Custom film profile",
+      description: "自定义胶片档案",
       adjustments: buildCustomAdjustments(previewAdjustments),
       filmProfile: previewFilmProfile ?? undefined,
     };
     setCustomPresets((prev) => [custom, ...prev]);
     setCustomPresetName("");
     if (selectedAsset) {
-      updateAsset(selectedAsset.id, {
+      void applyEditorPatch({
         presetId: custom.id,
         intensity: 100,
         filmProfile: custom.filmProfile,
@@ -392,13 +932,13 @@ export function useEditorState() {
     }
     return true;
   }, [
+    applyEditorPatch,
     customPresetName,
     previewAdjustments,
     previewFilmProfile,
     selectedAsset,
     setCustomPresetName,
     setCustomPresets,
-    updateAsset,
   ]);
 
   const handleExportPresets = useCallback(() => {
@@ -445,17 +985,16 @@ export function useEditorState() {
           return false;
         }
         const normalized = normalizeFilmProfile(parsed as NonNullable<Asset["filmProfile"]>);
-        updateAsset(selectedAsset.id, {
+        return applyEditorPatch({
           filmProfile: normalized,
           filmProfileId: undefined,
           filmOverrides: undefined,
         });
-        return true;
       } catch {
         return false;
       }
     },
-    [selectedAsset, updateAsset]
+    [applyEditorPatch, selectedAsset]
   );
 
   const handleImportPresets = useCallback(
@@ -478,6 +1017,34 @@ export function useEditorState() {
     [setCustomPresets]
   );
 
+  const handleUndo = useCallback(() => {
+    if (!selectedAsset) {
+      return false;
+    }
+    clearPendingHistoryForAsset(selectedAsset.id);
+    const current = createEditorAssetSnapshot(selectedAsset);
+    const previous = undoSnapshot(selectedAsset.id, current);
+    if (!previous) {
+      return false;
+    }
+    updateAsset(selectedAsset.id, editorSnapshotToAssetPatch(previous));
+    return true;
+  }, [clearPendingHistoryForAsset, selectedAsset, undoSnapshot, updateAsset]);
+
+  const handleRedo = useCallback(() => {
+    if (!selectedAsset) {
+      return false;
+    }
+    clearPendingHistoryForAsset(selectedAsset.id);
+    const current = createEditorAssetSnapshot(selectedAsset);
+    const next = redoSnapshot(selectedAsset.id, current);
+    if (!next) {
+      return false;
+    }
+    updateAsset(selectedAsset.id, editorSnapshotToAssetPatch(next));
+    return true;
+  }, [clearPendingHistoryForAsset, redoSnapshot, selectedAsset, updateAsset]);
+
   const handlePreviewHistogramChange = useCallback(
     (histogram: HistogramData | null) => {
       setPreviewHistogram(histogram);
@@ -495,24 +1062,44 @@ export function useEditorState() {
     presetLabel,
     filmProfileLabel,
     showOriginal,
+    activeToolPanelId,
+    mobilePanelExpanded,
     copiedAdjustments,
     customPresetName,
     customPresets,
     builtInFilmProfiles,
     activeHslColor,
+    pointColorPicking,
+    lastPointColorSample,
     curveChannel,
     openSections,
+    canUndo,
+    canRedo,
     setSelectedAssetId,
     setShowOriginal,
+    setActiveToolPanelId,
+    setMobilePanelExpanded,
     setCustomPresetName,
     setActiveHslColor,
     setCurveChannel,
     toggleOriginal,
-    updateAdjustments,
-    updateAdjustmentValue,
-    updateHslValue,
-    toggleFlip,
     toggleSection,
+    updateAdjustments,
+    previewAdjustmentValue,
+    updateAdjustmentValue,
+    previewCropAdjustments,
+    commitCropAdjustments,
+    previewHslValue,
+    updateHslValue,
+    previewColorGradingZone,
+    updateColorGradingZone,
+    previewColorGradingValue,
+    updateColorGradingValue,
+    resetColorGrading,
+    startPointColorPick,
+    cancelPointColorPick,
+    commitPointColorSample,
+    toggleFlip,
     handlePreviewHistogramChange,
     handleSetFilmModuleAmount,
     handleToggleFilmModule,
@@ -522,6 +1109,8 @@ export function useEditorState() {
     handleResetAll,
     handleCopy,
     handlePaste,
+    handleUndo,
+    handleRedo,
     handleSelectPreset,
     handleSetIntensity,
     handleSelectFilmProfile,
@@ -532,3 +1121,4 @@ export function useEditorState() {
     handleImportFilmProfile,
   };
 }
+

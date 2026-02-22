@@ -1,21 +1,11 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearch } from "@tanstack/react-router";
-import {
-  Download,
-  Layers,
-  SlidersHorizontal,
-  Sparkles,
-  Upload,
-} from "lucide-react";
-import { useShallow } from "zustand/react/shallow";
-import { useProjectStore, type AddAssetsResult } from "@/stores/projectStore";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Layers, SlidersHorizontal, Upload } from "lucide-react";
 import { UploadButton } from "@/components/UploadButton";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
 import {
   Select,
   SelectContent,
@@ -23,839 +13,96 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
 import { presets as basePresets } from "@/data/presets";
-import {
-  applyPresetAdjustments,
-  createDefaultAdjustments,
-} from "@/lib/adjustments";
-import type { RecommendFilmPresetCandidate } from "@/lib/ai/client";
-import { requestFilmRecommendationWithRetry } from "@/lib/ai/client";
-import { toRecommendationImageDataUrl } from "@/lib/ai/image";
-import {
-  DEFAULT_TOP_K,
-  MAX_RECOMMENDATION_RETRIES,
-  MAX_STYLE_SELECTION,
-  applySelectionLimit,
-  findAutoApplyPreset,
-  sanitizeTopPresetRecommendations,
-  toggleSelectionWithLimit,
-} from "@/lib/ai/recommendationUtils";
-import { resolveFilmProfile as resolveRuntimeFilmProfile } from "@/lib/film";
-import { renderImageToBlob, renderImageToCanvas } from "@/lib/imageProcessing";
+import { renderImageToCanvas } from "@/lib/imageProcessing";
+import { resolveAssetTimestampText } from "@/lib/timestamp";
 import { cn } from "@/lib/utils";
-import type {
-  Asset,
-  AiPresetRecommendation,
-  EditingAdjustments,
-  FilmProfileOverrides,
-  FilmProfile,
-  Preset,
-  PresetAdjustmentKey,
-  PresetAdjustments,
-} from "@/types";
-
-const CUSTOM_PRESETS_KEY = "filmlab.customPresets";
-
-type WorkspaceStep = "library" | "style" | "export";
-
-const steps: Array<{
-  id: WorkspaceStep;
-  label: string;
-  description: string;
-  icon: typeof Upload;
-}> = [
-  {
-    id: "library",
-    label: "素材",
-    description: "导入与选择",
-    icon: Upload,
-  },
-  {
-    id: "style",
-    label: "风格",
-    description: "一键统一",
-    icon: Sparkles,
-  },
-  {
-    id: "export",
-    label: "导出",
-    description: "交付输出",
-    icon: Download,
-  },
-];
-
-const presetAdjustmentKeys: PresetAdjustmentKey[] = [
-  "exposure",
-  "contrast",
-  "highlights",
-  "shadows",
-  "whites",
-  "blacks",
-  "temperature",
-  "tint",
-  "vibrance",
-  "saturation",
-  "clarity",
-  "dehaze",
-  "vignette",
-  "grain",
-];
-const SUPPORTED_IMPORT_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-]);
-const SUPPORTED_IMPORT_EXTENSIONS = /\.(jpe?g|png|webp)$/i;
-
-const isSupportedImportFile = (file: File) => {
-  if (SUPPORTED_IMPORT_TYPES.has(file.type)) {
-    return true;
-  }
-  if (file.type.startsWith("image/")) {
-    return true;
-  }
-  return SUPPORTED_IMPORT_EXTENSIONS.test(file.name);
-};
-
-const loadCustomPresets = () => {
-  if (typeof window === "undefined") {
-    return [] as Preset[];
-  }
-  const stored = window.localStorage.getItem(CUSTOM_PRESETS_KEY);
-  if (!stored) {
-    return [] as Preset[];
-  }
-  try {
-    const parsed = JSON.parse(stored) as Preset[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [] as Preset[];
-  }
-};
-
-const buildCustomAdjustments = (adjustments: EditingAdjustments) => {
-  const base = createDefaultAdjustments();
-  return presetAdjustmentKeys.reduce<PresetAdjustments>((result, key) => {
-    const delta = adjustments[key] - base[key];
-    if (Math.abs(delta) >= 1) {
-      result[key] = delta;
-    }
-    return result;
-  }, {});
-};
-
-const resolveAdjustments = (
-  adjustments: EditingAdjustments | undefined,
-  presetId: string | undefined,
-  intensity: number | undefined,
-  presets: Preset[],
-) => {
-  const base = adjustments ?? createDefaultAdjustments();
-  if (!presetId) {
-    return base;
-  }
-  const preset = presets.find((item) => item.id === presetId);
-  if (!preset) {
-    return base;
-  }
-  const resolvedIntensity =
-    typeof intensity === "number" ? intensity : preset.intensity;
-  return applyPresetAdjustments(base, preset.adjustments, resolvedIntensity);
-};
-
-const resolveFilmProfile = (
-  adjustments: EditingAdjustments | undefined,
-  presetId: string | undefined,
-  filmProfileId: string | undefined,
-  filmProfile: FilmProfile | undefined,
-  intensity: number | undefined,
-  presets: Preset[],
-  overrides?: FilmProfileOverrides,
-): FilmProfile | null => {
-  if (!adjustments) {
-    return null;
-  }
-  return resolveRuntimeFilmProfile({
-    adjustments,
-    presetId,
-    filmProfileId,
-    filmProfile,
-    intensity,
-    presets,
-    overrides,
-  });
-};
-
-interface ExportTask {
-  id: string;
-  name: string;
-  status: "等待" | "处理中" | "完成" | "失败";
-}
-
-interface AiMatchingProgress {
-  running: boolean;
-  total: number;
-  processed: number;
-  succeeded: number;
-  failed: number;
-}
+import { AiMatchingCard } from "@/features/workspace/components/AiMatchingCard";
+import { ExportPreviewGrid } from "@/features/workspace/components/ExportPreviewGrid";
+import { LibraryOverviewCard } from "@/features/workspace/components/LibraryOverviewCard";
+import { LibraryPanel } from "@/features/workspace/components/LibraryPanel";
+import { PreviewPanel as WorkspacePreviewPanel } from "@/features/workspace/components/PreviewPanel";
+import { WORKSPACE_STEPS } from "@/features/workspace/constants";
+import { useWorkspaceState } from "@/features/workspace/hooks/useWorkspaceState";
 
 export function Workspace() {
-  const navigate = useNavigate({ from: "/" });
-  const { step } = useSearch({ from: "/" });
   const {
     project,
     assets,
-    addAssets,
     isImporting,
     selectedAssetIds,
-    setSelectedAssetIds,
     clearAssetSelection,
     applyPresetToGroup,
     applyPresetToSelection,
     updateAsset,
-  } = useProjectStore(
-    useShallow((state) => ({
-      project: state.project,
-      assets: state.assets,
-      addAssets: state.addAssets,
-      isImporting: state.isImporting,
-      selectedAssetIds: state.selectedAssetIds,
-      setSelectedAssetIds: state.setSelectedAssetIds,
-      clearAssetSelection: state.clearAssetSelection,
-      applyPresetToGroup: state.applyPresetToGroup,
-      applyPresetToSelection: state.applyPresetToSelection,
-      updateAsset: state.updateAsset,
-    })),
-  );
-
-  const [isDragging, setIsDragging] = useState(false);
-  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
-  const [searchText, setSearchText] = useState("");
-  const [selectedGroup, setSelectedGroup] = useState("all");
-  const [activeAssetId, setActiveAssetId] = useState<string | null>(null);
-  const [selectedPresetId, setSelectedPresetId] = useState(
-    basePresets[0]?.id ?? "",
-  );
-  const [intensity, setIntensity] = useState(basePresets[0]?.intensity ?? 60);
-  const [showOriginal, setShowOriginal] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [customPresetName, setCustomPresetName] = useState("");
-  const [customPresets, setCustomPresets] =
-    useState<Preset[]>(loadCustomPresets);
-  const [tasks, setTasks] = useState<ExportTask[]>([]);
-  const [format, setFormat] = useState<"original" | "jpeg" | "png">("original");
-  const [quality, setQuality] = useState(92);
-  const [maxDimension, setMaxDimension] = useState(0);
-  const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
-  const [importNotice, setImportNotice] = useState<string | null>(null);
-  const [aiProgress, setAiProgress] = useState<AiMatchingProgress>({
-    running: false,
-    total: 0,
-    processed: 0,
-    succeeded: 0,
-    failed: 0,
-  });
-  const didAutoSelect = useRef(false);
-  const aiRunInFlightRef = useRef(false);
-
-  useEffect(() => {
-    if (!importNotice) {
-      return undefined;
-    }
-    const timer = window.setTimeout(() => {
-      setImportNotice(null);
-    }, 2800);
-    return () => window.clearTimeout(timer);
-  }, [importNotice]);
-
-  const allPresets = useMemo(() => {
-    return [...basePresets, ...customPresets];
-  }, [customPresets]);
-  const customPresetIdSet = useMemo(
-    () => new Set(customPresets.map((preset) => preset.id)),
-    [customPresets],
-  );
-  const presetById = useMemo(
-    () => new Map(allPresets.map((preset) => [preset.id, preset])),
-    [allPresets],
-  );
-  const aiPresetCandidates = useMemo<RecommendFilmPresetCandidate[]>(
-    () =>
-      allPresets.map((preset) => ({
-        id: preset.id,
-        name: preset.name,
-        description: preset.description,
-        tags: preset.tags,
-        intensity: preset.intensity,
-        isCustom: customPresetIdSet.has(preset.id),
-      })),
-    [allPresets, customPresetIdSet],
-  );
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    window.localStorage.setItem(
-      CUSTOM_PRESETS_KEY,
-      JSON.stringify(customPresets),
-    );
-  }, [customPresets]);
-
-  useEffect(() => {
-    if (!assets.length) {
-      setActiveAssetId(null);
-      return;
-    }
-    const exists = assets.some((asset) => asset.id === activeAssetId);
-    if (!exists) {
-      setActiveAssetId(assets[0]?.id ?? null);
-    }
-  }, [assets, activeAssetId]);
-
-  useEffect(() => {
-    if (didAutoSelect.current) {
-      return;
-    }
-    if (assets.length > 0 && selectedAssetIds.length === 0) {
-      const limitedSelection = applySelectionLimit(
-        assets.map((asset) => asset.id),
-        MAX_STYLE_SELECTION,
-      );
-      setSelectedAssetIds(limitedSelection.ids);
-      if (limitedSelection.limited) {
-        setSelectionNotice(`最多可选择 ${MAX_STYLE_SELECTION} 张素材。`);
-      }
-      didAutoSelect.current = true;
-    }
-  }, [assets, selectedAssetIds.length, setSelectedAssetIds]);
-
-  useEffect(() => {
-    const asset = assets.find((item) => item.id === activeAssetId);
-    if (!asset) {
-      return;
-    }
-    const fallbackPresetId = asset.presetId ?? basePresets[0]?.id ?? "";
-    setSelectedPresetId(fallbackPresetId);
-    if (typeof asset.intensity === "number") {
-      setIntensity(asset.intensity);
-    }
-  }, [activeAssetId, assets]);
-
-  const selectedSet = useMemo(
-    () => new Set(selectedAssetIds),
-    [selectedAssetIds],
-  );
-  const selectedAssets = useMemo(
-    () => assets.filter((asset) => selectedSet.has(asset.id)),
-    [assets, selectedSet],
-  );
-  const failedAiAssets = useMemo(
-    () =>
-      selectedAssets.filter(
-        (asset) => asset.aiRecommendation?.status === "failed",
-      ),
-    [selectedAssets],
-  );
-
-  const groupOptions = useMemo(() => {
-    const groups = new Set<string>();
-    assets.forEach((asset) => groups.add(asset.group ?? "未分组"));
-    return Array.from(groups);
-  }, [assets]);
-
-  const normalizedSearch = searchText.trim().toLowerCase();
-  const filteredAssets = useMemo(() => {
-    return assets.filter((asset) => {
-      const group = asset.group ?? "未分组";
-      if (selectedGroup !== "all" && group !== selectedGroup) {
-        return false;
-      }
-      if (
-        normalizedSearch &&
-        !asset.name.toLowerCase().includes(normalizedSearch)
-      ) {
-        return false;
-      }
-      return true;
-    });
-  }, [assets, normalizedSearch, selectedGroup]);
-
-  const activeAsset = useMemo(
-    () => assets.find((asset) => asset.id === activeAssetId) ?? null,
-    [assets, activeAssetId],
-  );
-  const activeRecommendedTopPresets = useMemo(() => {
-    if (!activeAsset?.aiRecommendation) {
-      return [] as Array<{
-        preset: Preset;
-        recommendation: AiPresetRecommendation;
-      }>;
-    }
-    return activeAsset.aiRecommendation.topPresets
-      .map((item) => {
-        const preset = presetById.get(item.presetId);
-        if (!preset) {
-          return null;
-        }
-        return {
-          preset,
-          recommendation: item,
-        };
-      })
-      .filter(
-        (
-          item,
-        ): item is { preset: Preset; recommendation: AiPresetRecommendation } =>
-          item !== null,
-      );
-  }, [activeAsset?.aiRecommendation, presetById]);
-
-  const activeAdjustments = useMemo(() => {
-    if (!activeAsset) {
-      return null;
-    }
-    return activeAsset.adjustments ?? createDefaultAdjustments();
-  }, [activeAsset]);
-
-  const previewAdjustments = useMemo(() => {
-    if (!activeAsset) {
-      return null;
-    }
-    return resolveAdjustments(
-      activeAdjustments ?? undefined,
-      activeAsset.presetId,
-      activeAsset.intensity,
-      allPresets,
-    );
-  }, [activeAdjustments, activeAsset, allPresets]);
-
-  const previewFilmProfile = useMemo(() => {
-    if (!activeAsset || !previewAdjustments) {
-      return null;
-    }
-    return resolveFilmProfile(
-      previewAdjustments,
-      activeAsset.presetId,
-      activeAsset.filmProfileId,
-      activeAsset.filmProfile,
-      activeAsset.intensity,
-      allPresets,
-      activeAsset.filmOverrides,
-    );
-  }, [activeAsset, allPresets, previewAdjustments]);
-
-  const setSelectionWithLimit = useCallback(
-    (assetIds: string[]) => {
-      const limited = applySelectionLimit(assetIds, MAX_STYLE_SELECTION);
-      setSelectedAssetIds(limited.ids);
-      setSelectionNotice(
-        limited.limited ? `最多可选择 ${MAX_STYLE_SELECTION} 张素材。` : null,
-      );
-    },
-    [setSelectedAssetIds],
-  );
-
-  const handleToggleAssetSelection = useCallback(
-    (assetId: string) => {
-      const next = toggleSelectionWithLimit(
-        selectedAssetIds,
-        assetId,
-        MAX_STYLE_SELECTION,
-      );
-      setSelectedAssetIds(next.ids);
-      setSelectionNotice(
-        next.limited ? `最多可选择 ${MAX_STYLE_SELECTION} 张素材。` : null,
-      );
-    },
-    [selectedAssetIds, setSelectedAssetIds],
-  );
-
-  const handleSelectFilteredAssets = useCallback(() => {
-    setSelectionWithLimit(filteredAssets.map((asset) => asset.id));
-  }, [filteredAssets, setSelectionWithLimit]);
-
-  const runAiMatchingForAssets = useCallback(
-    async (targetAssets: Asset[]) => {
-      if (targetAssets.length === 0 || aiPresetCandidates.length === 0) {
-        return;
-      }
-
-      const candidateIds = aiPresetCandidates.map((item) => item.id);
-      let processed = 0;
-      let succeeded = 0;
-      let failed = 0;
-
-      aiRunInFlightRef.current = true;
-      setAiProgress({
-        running: true,
-        total: targetAssets.length,
-        processed: 0,
-        succeeded: 0,
-        failed: 0,
-      });
-
-      for (const asset of targetAssets) {
-        try {
-          const imageDataUrl = await toRecommendationImageDataUrl(asset);
-          const result = await requestFilmRecommendationWithRetry(
-            {
-              assetId: asset.id,
-              imageDataUrl,
-              metadata: asset.metadata,
-              candidates: aiPresetCandidates,
-              topK: DEFAULT_TOP_K,
-            },
-            { maxRetries: MAX_RECOMMENDATION_RETRIES },
-          );
-
-          const topPresets = sanitizeTopPresetRecommendations(
-            result.topPresets,
-            candidateIds,
-            DEFAULT_TOP_K,
-          );
-          const autoPreset = findAutoApplyPreset(allPresets, topPresets);
-
-          updateAsset(asset.id, {
-            aiRecommendation: {
-              version: 1,
-              model: result.model,
-              matchedAt: new Date().toISOString(),
-              attempts: result.attempts,
-              topPresets,
-              autoAppliedPresetId: autoPreset?.id,
-              status: "succeeded",
-            },
-            ...(autoPreset
-              ? {
-                  presetId: autoPreset.id,
-                  intensity: autoPreset.intensity,
-                  filmProfileId: autoPreset.filmProfileId,
-                  filmProfile: autoPreset.filmProfile,
-                  filmOverrides: undefined,
-                }
-              : {}),
-          });
-          succeeded += 1;
-        } catch {
-          updateAsset(asset.id, {
-            aiRecommendation: {
-              version: 1,
-              model: "gpt-4.1-mini",
-              matchedAt: new Date().toISOString(),
-              attempts: MAX_RECOMMENDATION_RETRIES,
-              topPresets: [],
-              status: "failed",
-            },
-          });
-          failed += 1;
-        } finally {
-          processed += 1;
-          setAiProgress({
-            running: true,
-            total: targetAssets.length,
-            processed,
-            succeeded,
-            failed,
-          });
-        }
-      }
-
-      setAiProgress((current) => ({
-        ...current,
-        running: false,
-      }));
-      aiRunInFlightRef.current = false;
-    },
-    [aiPresetCandidates, allPresets, updateAsset],
-  );
-
-  const handleRetryFailedRecommendations = useCallback(() => {
-    if (aiRunInFlightRef.current || failedAiAssets.length === 0) {
-      return;
-    }
-    void runAiMatchingForAssets(failedAiAssets);
-  }, [failedAiAssets, runAiMatchingForAssets]);
-
-  const handleImportResult = useCallback(
-    (result: AddAssetsResult) => {
-      if (result.added > 0) {
-        setActiveAssetId(result.addedAssetIds[0] ?? null);
-        setSelectionWithLimit([...selectedAssetIds, ...result.addedAssetIds]);
-      }
-      if (result.added > 0 && result.failed === 0) {
-        setImportNotice(`已导入 ${result.added} 张素材。`);
-        return;
-      }
-      if (result.added > 0 && result.failed > 0) {
-        setImportNotice(
-          `已导入 ${result.added} 张，失败 ${result.failed} 张。`,
-        );
-        return;
-      }
-      setImportNotice("导入失败，请重试或更换文件。");
-    },
-    [selectedAssetIds, setSelectionWithLimit],
-  );
-
-  const handleFiles = useCallback(
-    (files: FileList | null) => {
-      if (isImporting) {
-        setImportNotice("正在导入，请稍候。");
-        return;
-      }
-      if (!files || files.length === 0) return;
-      const filtered = Array.from(files).filter((file) =>
-        isSupportedImportFile(file),
-      );
-      if (filtered.length === 0) {
-        setImportNotice("仅支持导入 JPG / PNG / WebP 图片。");
-        return;
-      }
-      setSearchText("");
-      setSelectedGroup("all");
-      void addAssets(filtered)
-        .then((result) => handleImportResult(result))
-        .catch(() => {
-          setImportNotice("导入失败，请重试或更换文件。");
-        });
-    },
-    [addAssets, handleImportResult, isImporting],
-  );
-
-  const applyPreset = (presetId: string) => {
-    if (!activeAsset) {
-      return;
-    }
-    const preset = allPresets.find((item) => item.id === presetId);
-    setSelectedPresetId(presetId);
-    updateAsset(activeAsset.id, {
-      presetId,
-      intensity,
-      filmProfileId: preset?.filmProfileId,
-      filmProfile: preset?.filmProfile,
-      filmOverrides: undefined,
-    });
-  };
-
-  const handleIntensityChange = (value: number) => {
-    setIntensity(value);
-    if (!activeAsset) {
-      return;
-    }
-    updateAsset(activeAsset.id, { intensity: value });
-  };
-
-  const updateAdjustmentValue = (
-    key: keyof EditingAdjustments,
-    value: number,
-  ) => {
-    if (!activeAsset || !activeAdjustments) {
-      return;
-    }
-    updateAsset(activeAsset.id, {
-      adjustments: {
-        ...activeAdjustments,
-        [key]: value,
-      },
-    });
-  };
-
-  const handleSaveCustomPreset = () => {
-    if (!previewAdjustments) {
-      return;
-    }
-    const name = customPresetName.trim();
-    if (!name) {
-      return;
-    }
-    const custom: Preset = {
-      id: `custom-${Date.now()}`,
-      name,
-      tags: ["portrait"],
-      intensity: 100,
-      description: "自定义风格",
-      adjustments: buildCustomAdjustments(previewAdjustments),
-      filmProfile: previewFilmProfile ?? undefined,
-    };
-    setCustomPresets((prev) => [custom, ...prev]);
-    setCustomPresetName("");
-    setSelectedPresetId(custom.id);
-    if (activeAsset) {
-      updateAsset(activeAsset.id, {
-        presetId: custom.id,
-        intensity: 100,
-        filmProfile: custom.filmProfile,
-        filmProfileId: undefined,
-        filmOverrides: undefined,
-      });
-    }
-  };
-
-  const resolveOutputType = (assetType: string) => {
-    if (format === "png") {
-      return "image/png";
-    }
-    if (format === "jpeg") {
-      return "image/jpeg";
-    }
-    return assetType === "image/png" ? "image/png" : "image/jpeg";
-  };
-
-  const buildDownloadName = (name: string, type: string) => {
-    const base = name.replace(/\.[^/.]+$/, "");
-    const extension = type === "image/png" ? ".png" : ".jpg";
-    if (format === "original") {
-      return name;
-    }
-    return `${base}${extension}`;
-  };
-
-  const handleExportAll = async () => {
-    if (assets.length === 0) {
-      return;
-    }
-    const newTasks = assets.map((asset) => ({
-      id: asset.id,
-      name: asset.name,
-      status: "等待" as const,
-    }));
-    setTasks(newTasks);
-
-    for (const asset of assets) {
-      setTasks((prev) =>
-        prev.map((item) =>
-          item.id === asset.id ? { ...item, status: "处理中" } : item,
-        ),
-      );
-      try {
-        if (!asset?.blob) {
-          throw new Error("缺少原图数据");
-        }
-        const adjustments = resolveAdjustments(
-          asset.adjustments,
-          asset.presetId,
-          asset.intensity,
-          allPresets,
-        );
-        const filmProfile = resolveFilmProfile(
-          adjustments,
-          asset.presetId,
-          asset.filmProfileId,
-          asset.filmProfile,
-          asset.intensity,
-          allPresets,
-          asset.filmOverrides,
-        );
-        const outputType = resolveOutputType(asset.type);
-        const blob = await renderImageToBlob(asset.blob, adjustments, {
-          type: outputType,
-          quality: quality / 100,
-          maxDimension: maxDimension > 0 ? maxDimension : undefined,
-          filmProfile: filmProfile ?? undefined,
-          seedKey: asset.id,
-        });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = buildDownloadName(asset.name, outputType);
-        link.click();
-        URL.revokeObjectURL(url);
-        setTasks((prev) =>
-          prev.map((item) =>
-            item.id === asset.id ? { ...item, status: "完成" } : item,
-          ),
-        );
-      } catch (error) {
-        setTasks((prev) =>
-          prev.map((item) =>
-            item.id === asset.id ? { ...item, status: "失败" } : item,
-          ),
-        );
-      }
-    }
-  };
-
-  const completedCount = tasks.filter((task) => task.status === "完成").length;
-  const progress =
-    tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
-  const isExporting = tasks.some((task) => task.status === "处理中");
-
-  const totalSize = useMemo(
-    () => assets.reduce((sum, asset) => sum + asset.size, 0),
-    [assets],
-  );
-
-  const formatLabel =
-    format === "original" ? "跟随原文件" : format === "png" ? "PNG" : "JPG";
-
-  const currentStep = (step ?? "library") as WorkspaceStep;
-  const stepIndex = steps.findIndex((item) => item.id === currentStep);
-
-  useEffect(() => {
-    if (currentStep !== "style" || aiRunInFlightRef.current) {
-      return;
-    }
-    const pendingAssets = selectedAssets
-      .filter((asset) => !asset.aiRecommendation)
-      .slice(0, MAX_STYLE_SELECTION);
-    if (pendingAssets.length === 0) {
-      return;
-    }
-    void runAiMatchingForAssets(pendingAssets);
-  }, [currentStep, runAiMatchingForAssets, selectedAssets]);
-
-  const setStep = (nextStep: WorkspaceStep) => {
-    void navigate({ search: { step: nextStep } });
-  };
-
-  const openFineTunePage = () => {
-    if (!activeAssetId) {
-      return;
-    }
-    void navigate({ to: "/editor", search: { assetId: activeAssetId } });
-  };
-
-  const targetSelection =
-    selectedAssetIds.length > 0
-      ? selectedAssetIds
-      : applySelectionLimit(
-          assets.map((asset) => asset.id),
-          MAX_STYLE_SELECTION,
-        ).ids;
-
-  const primaryAction = (() => {
-    if (currentStep === "library") {
-      return {
-        label: assets.length > 0 ? "下一步：选风格" : "导入素材",
-        action: () => {
-          if (assets.length > 0) {
-            setStep("style");
-          } else {
-            setIsLibraryOpen(true);
-          }
-        },
-        disabled: false,
-      };
-    }
-    if (currentStep === "style") {
-      return {
-        label: "下一步：导出",
-        action: () => setStep("export"),
-        disabled: assets.length === 0,
-      };
-    }
-    return {
-      label: isExporting ? "导出中" : "开始导出",
-      action: handleExportAll,
-      disabled: assets.length === 0 || isExporting,
-    };
-  })();
+    isDragging,
+    setIsDragging,
+    isLibraryOpen,
+    setIsLibraryOpen,
+    searchText,
+    setSearchText,
+    selectedGroup,
+    setSelectedGroup,
+    activeAssetId,
+    setActiveAssetId,
+    selectedPresetId,
+    intensity,
+    showOriginal,
+    setShowOriginal,
+    advancedOpen,
+    setAdvancedOpen,
+    customPresetName,
+    setCustomPresetName,
+    customPresets,
+    tasks,
+    exportPreviewItems,
+    format,
+    setFormat,
+    quality,
+    setQuality,
+    maxDimension,
+    setMaxDimension,
+    selectionNotice,
+    importNotice,
+    exportFeedback,
+    allPresets,
+    aiPresetCandidates,
+    selectedSet,
+    selectedAssets,
+    groupOptions,
+    filteredAssets,
+    filteredSelectedCount,
+    allFilteredSelected,
+    activeAsset,
+    activeRecommendedTopPresets,
+    activeAdjustments,
+    previewAdjustments,
+    previewFilmProfile,
+    handleToggleAssetSelection,
+    handleToggleAllFilteredAssets,
+    handleImportResult,
+    handleFiles,
+    applyPreset,
+    handleIntensityChange,
+    updateAdjustmentValue,
+    handleSaveCustomPreset,
+    totalSize,
+    formatLabel,
+    currentStep,
+    stepIndex,
+    setStep,
+    openFineTunePage,
+    targetSelection,
+    primaryAction,
+    completedCount,
+    progress,
+    dismissExportFeedback,
+  } = useWorkspaceState();
 
   const StepIndicator = () => (
     <div className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-slate-950/60 p-2">
-      {steps.map((item, index) => {
+      {WORKSPACE_STEPS.map((item, index) => {
         const Icon = item.icon;
         const isActive = item.id === currentStep;
         const isComplete = index < stepIndex;
@@ -895,142 +142,6 @@ export function Workspace() {
           </button>
         );
       })}
-    </div>
-  );
-
-  const LibraryPanel = ({ compact }: { compact?: boolean }) => (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
-            素材库
-          </p>
-          <p className="text-sm text-white">{project?.name ?? "未命名项目"}</p>
-        </div>
-        <Badge className="border-white/10 bg-white/5 text-slate-200">
-          {filteredAssets.length}
-        </Badge>
-      </div>
-      <div className="space-y-2">
-        <Label className="text-xs text-slate-400" htmlFor="library-search">
-          搜索素材
-        </Label>
-        <Input
-          id="library-search"
-          value={searchText}
-          onChange={(event) => setSearchText(event.target.value)}
-          placeholder="输入文件名关键词"
-        />
-      </div>
-      <div className="space-y-2">
-        <Label className="text-xs text-slate-400">按分组筛选</Label>
-        <Select value={selectedGroup} onValueChange={setSelectedGroup}>
-          <SelectTrigger>
-            <SelectValue placeholder="全部分组" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">全部分组</SelectItem>
-            {groupOptions.map((group) => (
-              <SelectItem key={group} value={group}>
-                {group}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          size="sm"
-          onClick={handleSelectFilteredAssets}
-          disabled={filteredAssets.length === 0}
-        >
-          选择筛选结果
-        </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={clearAssetSelection}
-          disabled={selectedAssetIds.length === 0}
-        >
-          清空选择
-        </Button>
-      </div>
-      <div className="space-y-2 text-xs text-slate-400">
-        <div className="flex items-center justify-between">
-          <span>已选素材</span>
-          <span className="text-white">{selectedAssetIds.length} 张</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span>本地占用</span>
-          <span>{(totalSize / 1024 / 1024).toFixed(1)} MB</span>
-        </div>
-        <p
-          className={cn(
-            "min-h-[16px] text-amber-300",
-            !selectionNotice && "opacity-0",
-          )}
-          role="status"
-          aria-live="polite"
-        >
-          {selectionNotice ?? "占位"}
-        </p>
-      </div>
-
-      <div
-        className={cn(
-          "space-y-2",
-          compact
-            ? "max-h-[45vh] overflow-y-auto"
-            : "max-h-[50vh] overflow-y-auto",
-        )}
-      >
-        {filteredAssets.length === 0 && (
-          <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-center text-xs text-slate-400">
-            还没有素材，导入后显示在这里。
-          </div>
-        )}
-        {filteredAssets.map((asset) => {
-          const isSelected = selectedSet.has(asset.id);
-          const isActive = asset.id === activeAssetId;
-          return (
-            <button
-              key={asset.id}
-              type="button"
-              onClick={() => setActiveAssetId(asset.id)}
-              className={cn(
-                "flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/60 p-2 text-left transition",
-                isActive && "border-sky-200/40 bg-sky-300/10",
-              )}
-            >
-              <img
-                src={asset.thumbnailUrl ?? asset.objectUrl}
-                alt={asset.name}
-                className="h-12 w-12 rounded-xl object-cover"
-                loading="lazy"
-              />
-              <div className="min-w-0 flex-1 text-xs text-slate-300">
-                <p className="font-medium text-slate-100 line-clamp-1">
-                  {asset.name}
-                </p>
-                <p>分组：{asset.group ?? "未分组"}</p>
-              </div>
-              <label
-                className="flex items-center gap-1 rounded-full border border-white/10 bg-slate-950/80 px-2 py-1 text-[10px] text-slate-200"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <input
-                  type="checkbox"
-                  checked={isSelected}
-                  onChange={() => handleToggleAssetSelection(asset.id)}
-                  className="h-3 w-3 accent-sky-300"
-                  aria-label={`选择 ${asset.name}`}
-                />
-                选中
-              </label>
-            </button>
-          );
-        })}
-      </div>
     </div>
   );
 
@@ -1081,6 +192,10 @@ export function Workspace() {
         source: activeAsset.blob ?? activeAsset.objectUrl,
         adjustments: previewAdjustments,
         filmProfile: previewFilmProfile ?? undefined,
+        timestampText: resolveAssetTimestampText(
+          activeAsset.metadata,
+          activeAsset.createdAt
+        ),
         targetSize: {
           width: Math.round(frameSize.width * dpr),
           height: Math.round(frameSize.height * dpr),
@@ -1090,7 +205,9 @@ export function Workspace() {
       }).catch(() => undefined);
       return () => controller.abort();
     }, [
-      activeAsset,
+      activeAsset?.blob,
+      activeAsset?.id,
+      activeAsset?.objectUrl,
       frameSize.height,
       frameSize.width,
       previewAdjustments,
@@ -1211,120 +328,46 @@ export function Workspace() {
         </CardContent>
       </Card>
 
-      <Card className="animate-fade-up" style={{ animationDelay: "80ms" }}>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>素材一览</CardTitle>
-          <Badge className="border-white/10 bg-white/5 text-slate-200">
-            {filteredAssets.length} 张
-          </Badge>
-        </CardHeader>
-        <CardContent>
-          {filteredAssets.length === 0 ? (
-            <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-6 text-center text-sm text-slate-400">
-              还没有素材，导入后显示在这里。
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {filteredAssets.slice(0, 9).map((asset) => {
-                const isSelected = selectedSet.has(asset.id);
-                return (
-                  <div
-                    key={asset.id}
-                    className={cn(
-                      "overflow-hidden rounded-2xl border border-white/10 bg-slate-950/60",
-                      isSelected && "ring-2 ring-sky-200/40",
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setActiveAssetId(asset.id)}
-                      className="block w-full text-left"
-                    >
-                      <img
-                        src={asset.thumbnailUrl ?? asset.objectUrl}
-                        alt={asset.name}
-                        className="h-40 w-full object-cover"
-                        loading="lazy"
-                      />
-                    </button>
-                    <div className="space-y-2 p-3 text-xs text-slate-300">
-                      <p className="font-medium text-slate-100 line-clamp-1">
-                        {asset.name}
-                      </p>
-                      <div className="flex items-center justify-between">
-                        <label className="flex items-center gap-2 text-[11px] text-slate-300">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() =>
-                              handleToggleAssetSelection(asset.id)
-                            }
-                            className="h-3 w-3 accent-sky-300"
-                          />
-                          选中
-                        </label>
-                        <Badge className="border-white/10 bg-white/5 text-slate-200">
-                          {asset.group ?? "未分组"}
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <LibraryOverviewCard
+        filteredAssets={filteredAssets}
+        selectedSet={selectedSet}
+        activeAssetId={activeAssetId}
+        filteredSelectedCount={filteredSelectedCount}
+        allFilteredSelected={allFilteredSelected}
+        searchText={searchText}
+        selectedGroup={selectedGroup}
+        groupOptions={groupOptions}
+        onSearchTextChange={setSearchText}
+        onSelectedGroupChange={setSelectedGroup}
+        onToggleAllFilteredAssets={handleToggleAllFilteredAssets}
+        onClearAssetSelection={clearAssetSelection}
+        onSetActiveAssetId={setActiveAssetId}
+        onToggleAssetSelection={handleToggleAssetSelection}
+      />
     </div>
   );
 
   const renderStyleStep = () => (
     <div className="space-y-6">
-      <PreviewPanel />
+      <WorkspacePreviewPanel
+        activeAsset={activeAsset}
+        previewAdjustments={previewAdjustments}
+        previewFilmProfile={previewFilmProfile}
+        showOriginal={showOriginal}
+        setShowOriginal={setShowOriginal}
+      />
 
-      <Card className="animate-fade-up">
-        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>AI 滤镜匹配</CardTitle>
-          <Badge className="border-white/10 bg-white/5 text-slate-200">
-            {aiProgress.running ? "识别中" : "已就绪"}
-          </Badge>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm text-slate-300">
-          <p>
-            已处理 {aiProgress.processed}/
-            {aiProgress.total || selectedAssets.length} 张， 成功{" "}
-            {aiProgress.succeeded} 张，失败 {aiProgress.failed} 张。
-          </p>
-          <div className="rounded-full border border-white/10 bg-slate-950/60">
-            <div
-              className="h-2 rounded-full bg-sky-300 transition-all"
-              style={{
-                width:
-                  aiProgress.total > 0
-                    ? `${Math.round((aiProgress.processed / aiProgress.total) * 100)}%`
-                    : "0%",
-              }}
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={handleRetryFailedRecommendations}
-              disabled={aiProgress.running || failedAiAssets.length === 0}
-            >
-              重试失败项
-            </Button>
-            {failedAiAssets.length > 0 && (
-              <span className="text-xs text-amber-300">
-                当前有 {failedAiAssets.length} 张失败，重试前不会改动原设置。
-              </span>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      <AiMatchingCard
+        selectedAssets={selectedAssets}
+        allPresets={allPresets}
+        aiPresetCandidates={aiPresetCandidates}
+        updateAsset={updateAsset}
+      />
 
-      <Card className="animate-fade-up" style={{ animationDelay: "80ms" }}>
+      <Card
+        className="animate-fade-up"
+        style={{ animationDelay: "80ms" }}
+      >
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>风格包</CardTitle>
           <div className="flex items-center gap-2 text-xs text-slate-400">
@@ -1357,7 +400,7 @@ export function Workspace() {
                             {preset.name}
                           </p>
                           <Badge className="border-sky-200/30 bg-sky-300/20 text-sky-100">
-                            Top {index + 1}
+                            推荐 {index + 1}
                           </Badge>
                         </div>
                         <p className="mt-2 text-xs text-slate-400 line-clamp-2">
@@ -1613,6 +656,8 @@ export function Workspace() {
 
   const renderExportStep = () => (
     <div className="space-y-6">
+      <ExportPreviewGrid items={exportPreviewItems} />
+
       <Card className="animate-fade-up">
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>导出设置</CardTitle>
@@ -1762,7 +807,26 @@ export function Workspace() {
         <aside className="hidden lg:block">
           <Card className="sticky top-24">
             <CardContent className="p-4">
-              <LibraryPanel />
+              <LibraryPanel
+                projectName={project?.name ?? "未命名项目"}
+                filteredAssets={filteredAssets}
+                selectedSet={selectedSet}
+                activeAssetId={activeAssetId}
+                selectedAssetCount={selectedAssetIds.length}
+                filteredSelectedCount={filteredSelectedCount}
+                allFilteredSelected={allFilteredSelected}
+                totalSize={totalSize}
+                selectionNotice={selectionNotice}
+                searchText={searchText}
+                selectedGroup={selectedGroup}
+                groupOptions={groupOptions}
+                onSearchTextChange={setSearchText}
+                onSelectedGroupChange={setSelectedGroup}
+                onToggleAllFilteredAssets={handleToggleAllFilteredAssets}
+                onClearAssetSelection={clearAssetSelection}
+                onSetActiveAssetId={setActiveAssetId}
+                onToggleAssetSelection={handleToggleAssetSelection}
+              />
             </CardContent>
           </Card>
         </aside>
@@ -1785,7 +849,66 @@ export function Workspace() {
               关闭
             </Button>
           </div>
-          <LibraryPanel compact />
+          <LibraryPanel
+            compact
+            projectName={project?.name ?? "未命名项目"}
+            filteredAssets={filteredAssets}
+            selectedSet={selectedSet}
+            activeAssetId={activeAssetId}
+            selectedAssetCount={selectedAssetIds.length}
+            filteredSelectedCount={filteredSelectedCount}
+            allFilteredSelected={allFilteredSelected}
+            totalSize={totalSize}
+            selectionNotice={selectionNotice}
+            searchText={searchText}
+            selectedGroup={selectedGroup}
+            groupOptions={groupOptions}
+            onSearchTextChange={setSearchText}
+            onSelectedGroupChange={setSelectedGroup}
+            onToggleAllFilteredAssets={handleToggleAllFilteredAssets}
+            onClearAssetSelection={clearAssetSelection}
+            onSetActiveAssetId={setActiveAssetId}
+            onToggleAssetSelection={handleToggleAssetSelection}
+          />
+        </div>
+      )}
+
+      {exportFeedback && (
+        <div
+          className={cn(
+            "fixed right-4 top-20 z-50 w-[min(92vw,420px)] rounded-2xl border bg-slate-950/95 p-4 shadow-glow backdrop-blur",
+            exportFeedback.kind === "success" && "border-emerald-200/40",
+            exportFeedback.kind === "mixed" && "border-amber-200/40",
+            exportFeedback.kind === "error" && "border-rose-200/40",
+          )}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-white">{exportFeedback.title}</p>
+              <p className="mt-1 text-xs text-slate-300">{exportFeedback.detail}</p>
+            </div>
+            <button
+              type="button"
+              className="text-xs text-slate-400 transition hover:text-slate-200"
+              onClick={dismissExportFeedback}
+            >
+              关闭
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                setStep("library");
+                dismissExportFeedback();
+              }}
+            >
+              返回素材库
+            </Button>
+          </div>
         </div>
       )}
 

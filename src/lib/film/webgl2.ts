@@ -23,9 +23,8 @@ out vec4 outColor;
 
 uniform sampler2D u_texture;
 uniform vec2 u_texel;
-uniform float u_seed;
-
-uniform float u_colorStrength;
+uniform float u_colorAmount;
+uniform float u_lutStrength;
 uniform vec3 u_rgbMix;
 uniform float u_tempShift;
 uniform float u_tintShift;
@@ -42,17 +41,19 @@ uniform vec2 u_scanExtra;
 uniform float u_grainStrength;
 uniform vec4 u_grain;
 uniform float u_shadowBoost;
+uniform float u_grainSeed;
 
 uniform float u_defectsStrength;
 uniform vec4 u_defects;
+uniform float u_defectsSeed;
 
 float luma(vec3 color) {
   return dot(color, vec3(0.2126, 0.7152, 0.0722));
 }
 
-float hash12(vec2 p) {
+float hash12(vec2 p, float seed) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-  p3 += dot(p3, p3.yzx + 33.33 + u_seed * 0.000001);
+  p3 += dot(p3, p3.yzx + 33.33 + seed * 0.000001);
   return fract((p3.x + p3.y) * p3.z);
 }
 
@@ -63,19 +64,19 @@ float softBand(float x, float start, float end) {
 }
 
 vec3 applyColorScience(vec3 color) {
-  if (u_colorStrength <= 0.0) {
+  if (u_colorAmount <= 0.0) {
     return color;
   }
 
-  float lutStrength = u_colorStrength;
-  float temp = (u_tempShift / 100.0) * 0.14 * lutStrength;
-  float tint = (u_tintShift / 100.0) * 0.12 * lutStrength;
+  float lutStrength = u_lutStrength;
+  float temp = (u_tempShift / 100.0) * 0.14 * u_colorAmount;
+  float tint = (u_tintShift / 100.0) * 0.12 * u_colorAmount;
 
   color.r += temp + tint * 0.2;
   color.g += tint * 0.6;
   color.b -= temp + tint * 0.2;
 
-  vec3 mixTarget = mix(vec3(1.0), u_rgbMix, lutStrength);
+  vec3 mixTarget = mix(vec3(1.0), u_rgbMix, u_colorAmount);
   color *= mixTarget;
 
   float lum = luma(color);
@@ -161,10 +162,14 @@ vec3 applyScan(vec3 color) {
   float bloomAccum = 0.0;
   for (int i = 0; i < 8; i++) {
     vec3 sampleColor = texture(u_texture, v_uv + offsets[i] * u_texel * halRadius).rgb;
+    sampleColor = applyColorScience(sampleColor);
+    sampleColor = applyTone(sampleColor);
     float sampleLum = luma(sampleColor);
     halAccum += clamp((sampleLum - halThres) / max(0.001, 1.0 - halThres), 0.0, 1.0);
 
     vec3 bloomSample = texture(u_texture, v_uv + offsets[i] * u_texel * bloomRadius).rgb;
+    bloomSample = applyColorScience(bloomSample);
+    bloomSample = applyTone(bloomSample);
     float bloomLum = luma(bloomSample);
     bloomAccum += clamp((bloomLum - bloomThres) / max(0.001, 1.0 - bloomThres), 0.0, 1.0);
   }
@@ -212,14 +217,14 @@ vec3 applyGrain(vec3 color) {
   float shadowWeight = 1.0 + (1.0 - lum) * u_shadowBoost;
 
   vec2 grainCoord = floor(v_uv * vec2(1800.0) * grainScale);
-  float coarse = hash12(grainCoord) - 0.5;
-  float fine = hash12(v_uv * vec2(3600.0) + vec2(17.0, 31.0)) - 0.5;
+  float coarse = hash12(grainCoord, u_grainSeed) - 0.5;
+  float fine = hash12(v_uv * vec2(3600.0) + vec2(17.0, 31.0), u_grainSeed) - 0.5;
   float mixed = mix(coarse, fine, roughness);
   float noiseStrength = mixed * amount * 0.55 * shadowWeight;
 
-  float cR = (hash12(v_uv * vec2(2100.0) + vec2(13.0, 1.0)) - 0.5) * chroma;
-  float cG = (hash12(v_uv * vec2(2200.0) + vec2(5.0, 19.0)) - 0.5) * chroma;
-  float cB = (hash12(v_uv * vec2(2300.0) + vec2(37.0, 11.0)) - 0.5) * chroma;
+  float cR = (hash12(v_uv * vec2(2100.0) + vec2(13.0, 1.0), u_grainSeed) - 0.5) * chroma;
+  float cG = (hash12(v_uv * vec2(2200.0) + vec2(5.0, 19.0), u_grainSeed) - 0.5) * chroma;
+  float cB = (hash12(v_uv * vec2(2300.0) + vec2(37.0, 11.0), u_grainSeed) - 0.5) * chroma;
 
   color.r += noiseStrength * (1.0 + cR);
   color.g += noiseStrength * (1.0 + cG);
@@ -238,10 +243,10 @@ vec3 applyDefects(vec3 color) {
   float dustAmount = u_defects.z * u_defectsStrength;
   float scratchAmount = u_defects.w * u_defectsStrength;
 
-  float leakGate = step(hash12(vec2(13.0, 17.0)), leakProb);
+  float leakGate = step(hash12(vec2(13.0, 17.0), u_defectsSeed), leakProb);
   vec2 leakCenter = vec2(
-    mix(-0.2, 1.2, hash12(vec2(7.0, 11.0))),
-    mix(-0.2, 1.2, hash12(vec2(19.0, 23.0)))
+    mix(-0.2, 1.2, hash12(vec2(7.0, 11.0), u_defectsSeed)),
+    mix(-0.2, 1.2, hash12(vec2(19.0, 23.0), u_defectsSeed))
   );
   float leak = clamp(1.0 - distance(v_uv, leakCenter) * 1.2, 0.0, 1.0) * leakGate;
 
@@ -249,14 +254,14 @@ vec3 applyDefects(vec3 color) {
   color.g += leak * leakStrength * 0.16;
   color.b += leak * leakStrength * 0.05;
 
-  float dustNoise = hash12(floor(v_uv * vec2(1200.0)));
+  float dustNoise = hash12(floor(v_uv * vec2(1200.0)), u_defectsSeed);
   float dustMask = step(1.0 - dustAmount * 0.08, dustNoise);
-  float dustSign = step(0.5, hash12(floor(v_uv * vec2(1400.0)) + vec2(3.0, 9.0))) * 2.0 - 1.0;
+  float dustSign = step(0.5, hash12(floor(v_uv * vec2(1400.0)) + vec2(3.0, 9.0), u_defectsSeed)) * 2.0 - 1.0;
   color += vec3(dustMask * dustSign * 0.12 * dustAmount);
 
-  float scratchGate = step(1.0 - scratchAmount * 0.06, hash12(vec2(floor(v_uv.x * 420.0), 29.0)));
-  float scratchLine = smoothstep(0.02, 0.0, abs(fract(v_uv.x * 160.0 + hash12(vec2(43.0, 53.0)) * 0.7) - 0.5));
-  float scratchSign = step(0.5, hash12(vec2(floor(v_uv.y * 360.0), 61.0))) * 2.0 - 1.0;
+  float scratchGate = step(1.0 - scratchAmount * 0.06, hash12(vec2(floor(v_uv.x * 420.0), 29.0), u_defectsSeed));
+  float scratchLine = smoothstep(0.02, 0.0, abs(fract(v_uv.x * 160.0 + hash12(vec2(43.0, 53.0), u_defectsSeed) * 0.7) - 0.5));
+  float scratchSign = step(0.5, hash12(vec2(floor(v_uv.y * 360.0), 61.0), u_defectsSeed)) * 2.0 - 1.0;
   color += vec3(scratchGate * scratchLine * scratchSign * 0.09 * scratchAmount);
 
   return clamp(color, 0.0, 1.0);
@@ -276,8 +281,8 @@ void main() {
 type UniformLocationMap = Record<string, WebGLUniformLocation | null>;
 
 interface FilmUniforms {
-  seed: number;
-  colorStrength: number;
+  colorAmount: number;
+  lutStrength: number;
   rgbMix: [number, number, number];
   temperatureShift: number;
   tintShift: number;
@@ -289,9 +294,11 @@ interface FilmUniforms {
   scanMain: [number, number, number, number];
   scanExtra: [number, number];
   grainStrength: number;
+  grainSeed: number;
   grain: [number, number, number, number];
   shadowBoost: number;
   defectsStrength: number;
+  defectsSeed: number;
   defects: [number, number, number, number];
 }
 
@@ -301,11 +308,26 @@ interface RenderFilmWebGL2Options {
   exportSeed?: number;
 }
 
-const resolveSeed = (options: RenderFilmWebGL2Options) => {
+const resolveModuleSeed = (
+  moduleId: "grain" | "defects",
+  module:
+    | ReturnType<typeof getFilmModule<"grain">>
+    | ReturnType<typeof getFilmModule<"defects">>
+    | undefined,
+  options: RenderFilmWebGL2Options
+) => {
+  if (module?.seedMode === "locked" && typeof module.seed === "number") {
+    return module.seed | 0;
+  }
   const renderSeed = options.renderSeed ?? Date.now();
-  const exportSeed = options.exportSeed ?? renderSeed;
-  const seedKey = options.seedKey ?? "filmlab";
-  return hashString(`${seedKey}:${renderSeed}:${exportSeed}`) >>> 0;
+  if (module?.seedMode === "perExport") {
+    return (options.exportSeed ?? renderSeed) | 0;
+  }
+  if (module?.seedMode === "perRender") {
+    return renderSeed | 0;
+  }
+  const seedKey = options.seedKey ?? "filmlab-default-seed";
+  return hashString(`${moduleId}:${seedKey}`) | 0;
 };
 
 const resolveFilmUniforms = (
@@ -319,8 +341,9 @@ const resolveFilmUniforms = (
   const grain = getFilmModule(normalized, "grain");
   const defects = getFilmModule(normalized, "defects");
 
-  const colorStrength =
-    color && color.enabled ? clamp(color.amount / 100, 0, 1) * color.params.lutStrength : 0;
+  const colorAmount = color && color.enabled ? clamp(color.amount / 100, 0, 1) : 0;
+  const lutStrength =
+    color && color.enabled ? clamp(color.params.lutStrength * colorAmount, 0, 1) : 0;
   const toneStrength = tone && tone.enabled ? clamp(tone.amount / 100, 0, 1) : 0;
   const scanStrength = scan && scan.enabled ? clamp(scan.amount / 100, 0, 1) : 0;
   const grainStrength = grain && grain.enabled ? clamp(grain.amount / 100, 0, 1) : 0;
@@ -328,8 +351,8 @@ const resolveFilmUniforms = (
     defects && defects.enabled ? clamp(defects.amount / 100, 0, 1) : 0;
 
   return {
-    seed: resolveSeed(options),
-    colorStrength,
+    colorAmount,
+    lutStrength,
     rgbMix: color?.params.rgbMix ?? [1, 1, 1],
     temperatureShift: color?.params.temperatureShift ?? 0,
     tintShift: color?.params.tintShift ?? 0,
@@ -356,6 +379,7 @@ const resolveFilmUniforms = (
     ],
     scanExtra: [scan?.params.vignetteAmount ?? 0, scan?.params.scanWarmth ?? 0],
     grainStrength,
+    grainSeed: resolveModuleSeed("grain", grain, options),
     grain: [
       grain?.params.amount ?? 0,
       grain?.params.size ?? 0.5,
@@ -364,6 +388,7 @@ const resolveFilmUniforms = (
     ],
     shadowBoost: grain?.params.shadowBoost ?? 0.45,
     defectsStrength,
+    defectsSeed: resolveModuleSeed("defects", defects, options),
     defects: [
       defects?.params.leakProbability ?? 0,
       defects?.params.leakStrength ?? 0,
@@ -431,8 +456,8 @@ class WebGLFilmRenderer {
     this.uniforms = {
       u_texture: gl.getUniformLocation(this.program, "u_texture"),
       u_texel: gl.getUniformLocation(this.program, "u_texel"),
-      u_seed: gl.getUniformLocation(this.program, "u_seed"),
-      u_colorStrength: gl.getUniformLocation(this.program, "u_colorStrength"),
+      u_colorAmount: gl.getUniformLocation(this.program, "u_colorAmount"),
+      u_lutStrength: gl.getUniformLocation(this.program, "u_lutStrength"),
       u_rgbMix: gl.getUniformLocation(this.program, "u_rgbMix"),
       u_tempShift: gl.getUniformLocation(this.program, "u_tempShift"),
       u_tintShift: gl.getUniformLocation(this.program, "u_tintShift"),
@@ -444,9 +469,11 @@ class WebGLFilmRenderer {
       u_scanMain: gl.getUniformLocation(this.program, "u_scanMain"),
       u_scanExtra: gl.getUniformLocation(this.program, "u_scanExtra"),
       u_grainStrength: gl.getUniformLocation(this.program, "u_grainStrength"),
+      u_grainSeed: gl.getUniformLocation(this.program, "u_grainSeed"),
       u_grain: gl.getUniformLocation(this.program, "u_grain"),
       u_shadowBoost: gl.getUniformLocation(this.program, "u_shadowBoost"),
       u_defectsStrength: gl.getUniformLocation(this.program, "u_defectsStrength"),
+      u_defectsSeed: gl.getUniformLocation(this.program, "u_defectsSeed"),
       u_defects: gl.getUniformLocation(this.program, "u_defects"),
     };
 
@@ -493,8 +520,8 @@ class WebGLFilmRenderer {
 
   private setUniforms(uniforms: FilmUniforms) {
     const gl = this.gl;
-    gl.uniform1f(this.uniforms.u_seed, uniforms.seed);
-    gl.uniform1f(this.uniforms.u_colorStrength, uniforms.colorStrength);
+    gl.uniform1f(this.uniforms.u_colorAmount, uniforms.colorAmount);
+    gl.uniform1f(this.uniforms.u_lutStrength, uniforms.lutStrength);
     gl.uniform3f(this.uniforms.u_rgbMix, ...uniforms.rgbMix);
     gl.uniform1f(this.uniforms.u_tempShift, uniforms.temperatureShift);
     gl.uniform1f(this.uniforms.u_tintShift, uniforms.tintShift);
@@ -509,10 +536,12 @@ class WebGLFilmRenderer {
     gl.uniform2f(this.uniforms.u_scanExtra, ...uniforms.scanExtra);
 
     gl.uniform1f(this.uniforms.u_grainStrength, uniforms.grainStrength);
+    gl.uniform1f(this.uniforms.u_grainSeed, uniforms.grainSeed);
     gl.uniform4f(this.uniforms.u_grain, ...uniforms.grain);
     gl.uniform1f(this.uniforms.u_shadowBoost, uniforms.shadowBoost);
 
     gl.uniform1f(this.uniforms.u_defectsStrength, uniforms.defectsStrength);
+    gl.uniform1f(this.uniforms.u_defectsSeed, uniforms.defectsSeed);
     gl.uniform4f(this.uniforms.u_defects, ...uniforms.defects);
   }
 

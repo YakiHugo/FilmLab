@@ -1,6 +1,8 @@
 import { presets } from "@/data/presets";
 import type {
+  ColorGradingAdjustments,
   EditingAdjustments,
+  HslColorKey,
   HslAdjustments,
   PresetAdjustments,
   PresetAdjustmentKey,
@@ -15,6 +17,174 @@ const defaultHsl: HslAdjustments = {
   blue: { hue: 0, saturation: 0, luminance: 0 },
   purple: { hue: 0, saturation: 0, luminance: 0 },
   magenta: { hue: 0, saturation: 0, luminance: 0 },
+};
+
+const defaultColorGrading: ColorGradingAdjustments = {
+  shadows: { hue: 0, saturation: 0, luminance: 0 },
+  midtones: { hue: 0, saturation: 0, luminance: 0 },
+  highlights: { hue: 0, saturation: 0, luminance: 0 },
+  blend: 50,
+  balance: 0,
+};
+
+const HSL_KEYS: HslColorKey[] = [
+  "red",
+  "orange",
+  "yellow",
+  "green",
+  "aqua",
+  "blue",
+  "purple",
+  "magenta",
+];
+
+const VALID_ASPECT_RATIOS: EditingAdjustments["aspectRatio"][] = [
+  "free",
+  "original",
+  "1:1",
+  "2:1",
+  "1:2",
+  "4:3",
+  "3:4",
+  "7:5",
+  "5:7",
+  "11:8.5",
+  "8.5:11",
+  "16:10",
+  "10:16",
+  "4:5",
+  "5:4",
+  "3:2",
+  "2:3",
+  "16:9",
+  "9:16",
+];
+
+const normalizeRightAngleRotation = (value: number) => {
+  const quarterTurns = Math.round(value / 90);
+  const normalizedTurns = ((quarterTurns % 4) + 4) % 4;
+  return normalizedTurns * 90;
+};
+
+type NormalizableAdjustments = Partial<EditingAdjustments> & {
+  hsl?: Partial<Record<HslColorKey, Partial<HslAdjustments[HslColorKey]>>>;
+  colorGrading?: Partial<EditingAdjustments["colorGrading"]> & {
+    shadows?: Partial<EditingAdjustments["colorGrading"]["shadows"]>;
+    midtones?: Partial<EditingAdjustments["colorGrading"]["midtones"]>;
+    highlights?: Partial<EditingAdjustments["colorGrading"]["highlights"]>;
+  };
+};
+
+// Single-entry memoization cache for normalizeAdjustments.
+// During slider drags the same adjustments reference is passed many times,
+// so this avoids redundant object spreading on every call.
+let _lastNormalizeInput: NormalizableAdjustments | null | undefined;
+let _lastNormalizeOutput: EditingAdjustments | undefined;
+
+export const normalizeAdjustments = (
+  adjustments: NormalizableAdjustments | null | undefined
+): EditingAdjustments => {
+  if (adjustments === _lastNormalizeInput && _lastNormalizeOutput) {
+    return _lastNormalizeOutput;
+  }
+  const result = normalizeAdjustmentsUncached(adjustments);
+  _lastNormalizeInput = adjustments;
+  _lastNormalizeOutput = result;
+  return result;
+};
+
+const normalizeAdjustmentsUncached = (
+  adjustments: NormalizableAdjustments | null | undefined
+): EditingAdjustments => {
+  const defaults = createDefaultAdjustments();
+  if (!adjustments) {
+    return defaults;
+  }
+
+  const merged: EditingAdjustments = {
+    ...defaults,
+    ...adjustments,
+    hsl: {
+      ...defaults.hsl,
+    },
+    colorGrading: {
+      ...defaults.colorGrading,
+      shadows: { ...defaults.colorGrading.shadows },
+      midtones: { ...defaults.colorGrading.midtones },
+      highlights: { ...defaults.colorGrading.highlights },
+      blend: defaults.colorGrading.blend,
+      balance: defaults.colorGrading.balance,
+    },
+  };
+
+  HSL_KEYS.forEach((key) => {
+    merged.hsl[key] = {
+      ...defaults.hsl[key],
+      ...(adjustments.hsl?.[key] ?? {}),
+    };
+  });
+
+  const grading = adjustments.colorGrading;
+  merged.colorGrading.shadows = {
+    ...defaults.colorGrading.shadows,
+    ...(grading?.shadows ?? {}),
+  };
+  merged.colorGrading.midtones = {
+    ...defaults.colorGrading.midtones,
+    ...(grading?.midtones ?? {}),
+  };
+  merged.colorGrading.highlights = {
+    ...defaults.colorGrading.highlights,
+    ...(grading?.highlights ?? {}),
+  };
+  merged.colorGrading.blend =
+    typeof grading?.blend === "number"
+      ? grading.blend
+      : defaults.colorGrading.blend;
+  merged.colorGrading.balance =
+    typeof grading?.balance === "number"
+      ? grading.balance
+      : defaults.colorGrading.balance;
+
+  merged.aspectRatio = VALID_ASPECT_RATIOS.includes(merged.aspectRatio)
+    ? merged.aspectRatio
+    : defaults.aspectRatio;
+  merged.customAspectRatio =
+    typeof merged.customAspectRatio === "number" && merged.customAspectRatio > 0
+      ? merged.customAspectRatio
+      : defaults.customAspectRatio;
+  merged.rotate = clampValue(
+    Number.isFinite(merged.rotate) ? merged.rotate : defaults.rotate,
+    -45,
+    45
+  );
+  merged.rightAngleRotation = normalizeRightAngleRotation(
+    Number.isFinite(merged.rightAngleRotation)
+      ? merged.rightAngleRotation
+      : defaults.rightAngleRotation
+  );
+  merged.timestampEnabled = Boolean(merged.timestampEnabled);
+  merged.timestampPosition =
+    merged.timestampPosition === "bottom-right" ||
+    merged.timestampPosition === "bottom-left" ||
+    merged.timestampPosition === "top-right" ||
+    merged.timestampPosition === "top-left"
+      ? merged.timestampPosition
+      : defaults.timestampPosition;
+  merged.timestampSize = clampValue(
+    Number.isFinite(merged.timestampSize) ? merged.timestampSize : defaults.timestampSize,
+    12,
+    48
+  );
+  merged.timestampOpacity = clampValue(
+    Number.isFinite(merged.timestampOpacity)
+      ? merged.timestampOpacity
+      : defaults.timestampOpacity,
+    0,
+    100
+  );
+
+  return merged;
 };
 
 export function createDefaultAdjustments(): EditingAdjustments {
@@ -46,6 +216,13 @@ export function createDefaultAdjustments(): EditingAdjustments {
       purple: { ...defaultHsl.purple },
       magenta: { ...defaultHsl.magenta },
     },
+    colorGrading: {
+      shadows: { ...defaultColorGrading.shadows },
+      midtones: { ...defaultColorGrading.midtones },
+      highlights: { ...defaultColorGrading.highlights },
+      blend: defaultColorGrading.blend,
+      balance: defaultColorGrading.balance,
+    },
     sharpening: 0,
     masking: 0,
     noiseReduction: 0,
@@ -55,12 +232,18 @@ export function createDefaultAdjustments(): EditingAdjustments {
     grainSize: 50,
     grainRoughness: 50,
     rotate: 0,
+    rightAngleRotation: 0,
     vertical: 0,
     horizontal: 0,
     scale: 100,
     flipHorizontal: false,
     flipVertical: false,
+    customAspectRatio: 4 / 3,
     aspectRatio: "original",
+    timestampEnabled: false,
+    timestampPosition: "bottom-right",
+    timestampSize: 22,
+    timestampOpacity: 72,
     opticsProfile: false,
     opticsCA: false,
   };
@@ -73,6 +256,10 @@ const PRESET_LIMITS: Record<PresetAdjustmentKey, { min: number; max: number }> =
   shadows: { min: -100, max: 100 },
   whites: { min: -100, max: 100 },
   blacks: { min: -100, max: 100 },
+  curveHighlights: { min: -100, max: 100 },
+  curveLights: { min: -100, max: 100 },
+  curveDarks: { min: -100, max: 100 },
+  curveShadows: { min: -100, max: 100 },
   temperature: { min: -100, max: 100 },
   tint: { min: -100, max: 100 },
   vibrance: { min: -100, max: 100 },
@@ -81,6 +268,12 @@ const PRESET_LIMITS: Record<PresetAdjustmentKey, { min: number; max: number }> =
   dehaze: { min: -100, max: 100 },
   vignette: { min: -100, max: 100 },
   grain: { min: 0, max: 100 },
+  grainSize: { min: 0, max: 100 },
+  grainRoughness: { min: 0, max: 100 },
+  sharpening: { min: 0, max: 100 },
+  masking: { min: 0, max: 100 },
+  noiseReduction: { min: 0, max: 100 },
+  colorNoiseReduction: { min: 0, max: 100 },
 };
 
 const clampValue = (value: number, min: number, max: number) =>
@@ -91,15 +284,16 @@ export const applyPresetAdjustments = (
   presetAdjustments: PresetAdjustments,
   intensity = 100
 ) => {
+  const resolvedBase = normalizeAdjustments(base);
   const scale = clampValue(intensity, 0, 100) / 100;
-  const next = { ...base };
+  const next = { ...resolvedBase };
   (Object.keys(presetAdjustments) as PresetAdjustmentKey[]).forEach((key) => {
     const adjustment = presetAdjustments[key];
     if (typeof adjustment !== "number") {
       return;
     }
     const limit = PRESET_LIMITS[key];
-    const updated = base[key] + adjustment * scale;
+    const updated = resolvedBase[key] + adjustment * scale;
     next[key] = clampValue(updated, limit.min, limit.max);
   });
   return next;
@@ -110,7 +304,7 @@ export const resolveAdjustmentsWithPreset = (
   presetId?: string,
   intensity?: number
 ) => {
-  const base = adjustments ?? createDefaultAdjustments();
+  const base = normalizeAdjustments(adjustments);
   if (!presetId) {
     return base;
   }
