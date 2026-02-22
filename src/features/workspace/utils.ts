@@ -29,11 +29,19 @@ export const loadCustomPresets = () => {
   }
 };
 
+let _persistPresetsTimer: ReturnType<typeof setTimeout> | null = null;
+
 export const persistCustomPresets = (customPresets: Preset[]) => {
   if (typeof window === "undefined") {
     return;
   }
-  window.localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(customPresets));
+  if (_persistPresetsTimer) {
+    clearTimeout(_persistPresetsTimer);
+  }
+  _persistPresetsTimer = setTimeout(() => {
+    _persistPresetsTimer = null;
+    window.localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(customPresets));
+  }, 300);
 };
 
 export const buildCustomAdjustments = (adjustments: EditingAdjustments) => {

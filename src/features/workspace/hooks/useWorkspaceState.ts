@@ -101,15 +101,23 @@ const loadWorkspaceContext = (): PersistedWorkspaceContext | null => {
   }
 };
 
+let _persistContextTimer: ReturnType<typeof setTimeout> | null = null;
+
 const persistWorkspaceContext = (context: PersistedWorkspaceContext) => {
   if (typeof window === "undefined") {
     return;
   }
-  try {
-    window.localStorage.setItem(WORKSPACE_CONTEXT_KEY, JSON.stringify(context));
-  } catch {
-    // no-op
+  if (_persistContextTimer) {
+    clearTimeout(_persistContextTimer);
   }
+  _persistContextTimer = setTimeout(() => {
+    _persistContextTimer = null;
+    try {
+      window.localStorage.setItem(WORKSPACE_CONTEXT_KEY, JSON.stringify(context));
+    } catch {
+      // no-op
+    }
+  }, 300);
 };
 
 const isAbortError = (error: unknown) =>
