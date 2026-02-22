@@ -29,6 +29,12 @@ export class PixiRenderer {
   private filmFilter: FilmSimulationFilter;
   private halationBloomFilter: HalationBloomFilter;
   private destroyed = false;
+  private contextLost = false;
+  private onContextLost: (() => void) | null = null;
+
+  // Cached filter chain state to avoid reassigning sprite.filters every frame
+  private lastFilterKey = "";
+
 
   constructor(canvas: HTMLCanvasElement, width: number, height: number) {
     this.app = new PIXI.Application({
@@ -47,6 +53,16 @@ export class PixiRenderer {
     this.masterFilter = new MasterAdjustmentFilter();
     this.filmFilter = new FilmSimulationFilter();
     this.halationBloomFilter = new HalationBloomFilter();
+
+    // Handle WebGL context loss — mark as unusable so the caller can recreate
+    const view = this.app.view as HTMLCanvasElement;
+    const handleContextLost = (event: Event) => {
+      event.preventDefault();
+      this.contextLost = true;
+      console.warn("WebGL context lost in PixiRenderer");
+    };
+    view.addEventListener("webglcontextlost", handleContextLost);
+    this.onContextLost = () => view.removeEventListener("webglcontextlost", handleContextLost);
   }
 
   /**
@@ -55,6 +71,14 @@ export class PixiRenderer {
   get isWebGL2(): boolean {
     const gl = (this.app.renderer as PIXI.Renderer).gl;
     return gl instanceof WebGL2RenderingContext;
+  }
+
+  /**
+   * Returns true if the WebGL context was lost and this renderer is unusable.
+   * The caller should dispose and recreate.
+   */
+  get isContextLost(): boolean {
+    return this.contextLost;
   }
 
   /**
@@ -121,20 +145,28 @@ export class PixiRenderer {
 
     this.masterFilter.updateUniforms(masterUniforms);
 
-    // Build the filter chain dynamically based on what's enabled
-    const filters: PIXI.Filter[] = [this.masterFilter];
+    // Determine which filters are active this frame
+    const useFilm = !!(filmUniforms && !options?.skipFilm);
+    const useHalation = !!(halationBloomUniforms && !options?.skipHalationBloom);
 
-    if (filmUniforms && !options?.skipFilm) {
+    if (useFilm) {
       this.filmFilter.updateUniforms(filmUniforms);
-      filters.push(this.filmFilter);
     }
-
-    if (halationBloomUniforms && !options?.skipHalationBloom) {
+    if (useHalation) {
       this.halationBloomFilter.updateUniforms(halationBloomUniforms);
-      filters.push(this.halationBloomFilter);
     }
 
-    this.sprite.filters = filters;
+    // Only reassign sprite.filters when the active combination changes,
+    // avoiding PixiJS filter chain rebinding on every frame.
+    const filterKey = `${useFilm ? "F" : ""}${useHalation ? "H" : ""}`;
+    if (filterKey !== this.lastFilterKey) {
+      const filters: PIXI.Filter[] = [this.masterFilter];
+      if (useFilm) filters.push(this.filmFilter);
+      if (useHalation) filters.push(this.halationBloomFilter);
+      this.sprite.filters = filters;
+      this.lastFilterKey = filterKey;
+    }
+
     this.app.render();
   }
 
@@ -170,6 +202,12 @@ export class PixiRenderer {
   dispose(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+
+    // Remove context loss listener
+    if (this.onContextLost) {
+      this.onContextLost();
+      this.onContextLost = null;
+    }
 
     // Clean up LUT cache
     const gl = this.getGL();

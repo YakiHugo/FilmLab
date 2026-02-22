@@ -112,14 +112,29 @@ const normalizeAssetUpdate = (update: Partial<Asset>): Partial<Asset> => {
   };
 };
 
+const PERSIST_DEBOUNCE_MS = 300;
+const pendingPersists = new Map<string, ReturnType<typeof setTimeout>>();
+
 const persistAsset = (asset: Asset) => {
   const payload = toStoredAsset(asset);
   if (!payload) {
     return;
   }
-  void saveAsset(payload).catch((error) => {
-    console.warn("Failed to persist asset", asset.id, error);
-  });
+
+  // Cancel any pending write for this asset so only the latest state is persisted
+  const existing = pendingPersists.get(asset.id);
+  if (existing) {
+    clearTimeout(existing);
+  }
+
+  const timer = setTimeout(() => {
+    pendingPersists.delete(asset.id);
+    void saveAsset(payload).catch((error) => {
+      console.warn("Failed to persist asset", asset.id, error);
+    });
+  }, PERSIST_DEBOUNCE_MS);
+
+  pendingPersists.set(asset.id, timer);
 };
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -270,68 +285,70 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
   applyPresetToGroup: (group, presetId, intensity) => {
     const selectedPreset = presets.find((preset) => preset.id === presetId);
-    const nextAssets = get().assets.map((asset) =>
-      asset.group === group
-        ? {
-            ...asset,
-            presetId,
-            intensity,
-            filmProfileId: selectedPreset?.filmProfileId,
-            filmOverrides: undefined,
-            filmProfile: selectedPreset?.filmProfile,
-          }
-        : asset,
-    );
-    nextAssets
-      .filter((asset) => asset.group === group)
-      .forEach((asset) => persistAsset(asset));
+    const changed: Asset[] = [];
+    const nextAssets = get().assets.map((asset) => {
+      if (asset.group !== group) return asset;
+      const updated = {
+        ...asset,
+        presetId,
+        intensity,
+        filmProfileId: selectedPreset?.filmProfileId,
+        filmOverrides: undefined,
+        filmProfile: selectedPreset?.filmProfile,
+      };
+      changed.push(updated);
+      return updated;
+    });
+    changed.forEach(persistAsset);
     set({ assets: nextAssets });
   },
   updatePresetForGroup: (group, presetId) => {
     const selectedPreset = presets.find((preset) => preset.id === presetId);
-    const nextAssets = get().assets.map((asset) =>
-      asset.group === group
-        ? {
-            ...asset,
-            presetId,
-            filmProfileId: selectedPreset?.filmProfileId,
-            filmOverrides: undefined,
-            filmProfile: selectedPreset?.filmProfile,
-          }
-        : asset,
-    );
-    nextAssets
-      .filter((asset) => asset.group === group)
-      .forEach((asset) => persistAsset(asset));
+    const changed: Asset[] = [];
+    const nextAssets = get().assets.map((asset) => {
+      if (asset.group !== group) return asset;
+      const updated = {
+        ...asset,
+        presetId,
+        filmProfileId: selectedPreset?.filmProfileId,
+        filmOverrides: undefined,
+        filmProfile: selectedPreset?.filmProfile,
+      };
+      changed.push(updated);
+      return updated;
+    });
+    changed.forEach(persistAsset);
     set({ assets: nextAssets });
   },
   updateIntensityForGroup: (group, intensity) => {
-    const nextAssets = get().assets.map((asset) =>
-      asset.group === group ? { ...asset, intensity } : asset,
-    );
-    nextAssets
-      .filter((asset) => asset.group === group)
-      .forEach((asset) => persistAsset(asset));
+    const changed: Asset[] = [];
+    const nextAssets = get().assets.map((asset) => {
+      if (asset.group !== group) return asset;
+      const updated = { ...asset, intensity };
+      changed.push(updated);
+      return updated;
+    });
+    changed.forEach(persistAsset);
     set({ assets: nextAssets });
   },
   applyPresetToSelection: (assetIds, presetId, intensity) => {
     const selectedSet = new Set(assetIds);
     const selectedPreset = presets.find((preset) => preset.id === presetId);
-    const nextAssets = get().assets.map((asset) =>
-      selectedSet.has(asset.id)
-        ? {
-            ...asset,
-            presetId,
-            intensity,
-            filmProfileId: selectedPreset?.filmProfileId,
-            filmOverrides: undefined,
-            filmProfile: selectedPreset?.filmProfile,
-          }
-        : asset,
-    );
-    nextAssets
-      .filter((asset) => selectedSet.has(asset.id))
-      .forEach((asset) => persistAsset(asset));
+    const changed: Asset[] = [];
+    const nextAssets = get().assets.map((asset) => {
+      if (!selectedSet.has(asset.id)) return asset;
+      const updated = {
+        ...asset,
+        presetId,
+        intensity,
+        filmProfileId: selectedPreset?.filmProfileId,
+        filmOverrides: undefined,
+        filmProfile: selectedPreset?.filmProfile,
+      };
+      changed.push(updated);
+      return updated;
+    });
+    changed.forEach(persistAsset);
     set({ assets: nextAssets });
   },
   updateAsset: (assetId, update) => {
@@ -384,5 +401,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const project = defaultProject();
     await saveProject(project);
     set({ project, assets: [], selectedAssetIds: [] });
+
+    // Clear orphaned editor history for all assets
+    const { useEditorStore } = await import("@/stores/editorStore");
+    useEditorStore.getState().clearAllHistory();
   },
 }));
