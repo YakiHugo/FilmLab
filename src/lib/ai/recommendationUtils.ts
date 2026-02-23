@@ -1,11 +1,9 @@
+import { clamp } from "@/lib/math";
 import type { AssetAiRecommendation, AiPresetRecommendation, Preset } from "@/types";
 
 export const MAX_STYLE_SELECTION = 36;
 export const MAX_RECOMMENDATION_RETRIES = 3;
 export const DEFAULT_TOP_K = 5;
-
-const clamp = (value: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, value));
 
 const toSafeReason = (value: string | undefined) => {
   const trimmed = value?.trim();
@@ -68,9 +66,7 @@ export const sanitizeTopPresetRecommendations = (
       used.add(presetId);
       output.push({
         presetId,
-        reason: toSafeReason(
-          typeof item.reason === "string" ? item.reason : undefined
-        ),
+        reason: toSafeReason(typeof item.reason === "string" ? item.reason : undefined),
         confidence: toSafeConfidence(
           typeof item.confidence === "number" ? item.confidence : undefined
         ),
@@ -138,9 +134,7 @@ export const prioritizePresetsByRecommendation = (
   });
 };
 
-export const getRecommendedPresetIds = (
-  recommendation: AssetAiRecommendation | undefined
-) => {
+export const getRecommendedPresetIds = (recommendation: AssetAiRecommendation | undefined) => {
   if (!recommendation) {
     return [] as string[];
   }

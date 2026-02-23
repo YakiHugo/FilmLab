@@ -22,10 +22,7 @@ const parseDate = (value: string | undefined) => {
   return parsed;
 };
 
-export const resolveAssetTimestampText = (
-  metadata?: AssetMetadata,
-  createdAt?: string
-) => {
+export const resolveAssetTimestampText = (metadata?: AssetMetadata, createdAt?: string) => {
   const captured = parseDate(metadata?.capturedAt);
   if (captured) {
     return formatTimestamp(captured);
@@ -36,4 +33,3 @@ export const resolveAssetTimestampText = (
   }
   return null;
 };
-

@@ -31,10 +31,14 @@ export class PixiRenderer {
   private destroyed = false;
   private contextLost = false;
   private onContextLost: (() => void) | null = null;
+  private onContextRestored: (() => void) | null = null;
 
   // Cached filter chain state to avoid reassigning sprite.filters every frame
   private lastFilterKey = "";
 
+  // Cached source dimensions to avoid destroying/recreating texture every frame
+  private lastSourceWidth = 0;
+  private lastSourceHeight = 0;
 
   constructor(canvas: HTMLCanvasElement, width: number, height: number) {
     this.app = new PIXI.Application({
@@ -61,8 +65,18 @@ export class PixiRenderer {
       this.contextLost = true;
       console.warn("WebGL context lost in PixiRenderer");
     };
+    const handleContextRestored = () => {
+      this.contextLost = false;
+      // Reset cached state so filters/textures are re-applied on next render
+      this.lastFilterKey = "";
+      this.lastSourceWidth = 0;
+      this.lastSourceHeight = 0;
+      console.info("WebGL context restored in PixiRenderer");
+    };
     view.addEventListener("webglcontextlost", handleContextLost);
+    view.addEventListener("webglcontextrestored", handleContextRestored);
     this.onContextLost = () => view.removeEventListener("webglcontextlost", handleContextLost);
+    this.onContextRestored = () => view.removeEventListener("webglcontextrestored", handleContextRestored);
   }
 
   /**
@@ -93,25 +107,42 @@ export class PixiRenderer {
    * Update the source image texture from an ImageBitmap, Image, or Canvas.
    * Destroys the previous texture to avoid GPU memory leaks.
    */
-  updateSource(
-    source: TexImageSource,
-    width: number,
-    height: number
-  ): void {
+  updateSource(source: TexImageSource, width: number, height: number): void {
     if (this.destroyed) return;
 
-    // Destroy previous texture
-    if (this.sprite.texture && this.sprite.texture !== PIXI.Texture.EMPTY) {
-      this.sprite.texture.destroy(true);
-    }
+    const sizeChanged = width !== this.lastSourceWidth || height !== this.lastSourceHeight;
 
-    const baseTexture = PIXI.BaseTexture.from(source as any, {
-      scaleMode: PIXI.SCALE_MODES.LINEAR,
-    });
-    this.sprite.texture = new PIXI.Texture(baseTexture);
-    this.sprite.width = width;
-    this.sprite.height = height;
-    this.app.renderer.resize(width, height);
+    if (sizeChanged) {
+      // Dimensions changed — destroy old texture and create a new one
+      if (this.sprite.texture && this.sprite.texture !== PIXI.Texture.EMPTY) {
+        this.sprite.texture.destroy(true);
+      }
+
+      const baseTexture = PIXI.BaseTexture.from(source as any, {
+        scaleMode: PIXI.SCALE_MODES.LINEAR,
+      });
+      this.sprite.texture = new PIXI.Texture(baseTexture);
+      this.sprite.width = width;
+      this.sprite.height = height;
+      this.app.renderer.resize(width, height);
+      this.lastSourceWidth = width;
+      this.lastSourceHeight = height;
+    } else {
+      // Same dimensions — update the existing texture resource in-place
+      const baseTexture = this.sprite.texture.baseTexture;
+      const resource = baseTexture.resource as any;
+      if (resource && typeof resource.update === "function") {
+        resource.source = source;
+        resource.update();
+      } else {
+        // Fallback: replace texture if resource doesn't support in-place update
+        this.sprite.texture.destroy(true);
+        const newBase = PIXI.BaseTexture.from(source as any, {
+          scaleMode: PIXI.SCALE_MODES.LINEAR,
+        });
+        this.sprite.texture = new PIXI.Texture(newBase);
+      }
+    }
   }
 
   /**
@@ -120,11 +151,7 @@ export class PixiRenderer {
    */
   async loadLUT(url: string, level: 8 | 16 = 8): Promise<void> {
     if (this.destroyed) return;
-    await this.filmFilter.loadLUT(
-      this.app.renderer as PIXI.Renderer,
-      url,
-      level
-    );
+    await this.filmFilter.loadLUT(this.app.renderer as PIXI.Renderer, url, level);
   }
 
   /**
@@ -175,7 +202,7 @@ export class PixiRenderer {
    * Returns RGBA pixel data of the current render output.
    */
   extractPixels(): Uint8Array | Uint8ClampedArray {
-    if (this.destroyed) {
+    if (this.destroyed || this.contextLost) {
       return new Uint8Array(0);
     }
     return this.app.renderer.extract.pixels(this.sprite);
@@ -185,6 +212,9 @@ export class PixiRenderer {
    * Extract rendered output as a canvas (for compositing).
    */
   extractCanvas(): HTMLCanvasElement {
+    if (this.destroyed || this.contextLost) {
+      return document.createElement("canvas");
+    }
     return this.app.renderer.extract.canvas(this.sprite) as HTMLCanvasElement;
   }
 
@@ -203,10 +233,14 @@ export class PixiRenderer {
     if (this.destroyed) return;
     this.destroyed = true;
 
-    // Remove context loss listener
+    // Remove context loss/restored listeners
     if (this.onContextLost) {
       this.onContextLost();
       this.onContextLost = null;
+    }
+    if (this.onContextRestored) {
+      this.onContextRestored();
+      this.onContextRestored = null;
     }
 
     // Clean up LUT cache
@@ -215,18 +249,21 @@ export class PixiRenderer {
       this.filmFilter.disposeLUTCache(gl);
     }
 
-    // Destroy sprite and its texture
-    if (this.sprite.texture && this.sprite.texture !== PIXI.Texture.EMPTY) {
-      this.sprite.texture.destroy(true);
+    // Destroy sprite texture (guard against EMPTY to avoid double-destroy)
+    const tex = this.sprite.texture;
+    if (tex && tex !== PIXI.Texture.EMPTY && tex.baseTexture && !tex.baseTexture.destroyed) {
+      tex.destroy(true);
     }
-    this.sprite.destroy();
+    // Destroy sprite without re-destroying children textures
+    this.sprite.destroy({ children: false, texture: false, baseTexture: false });
 
     // Destroy filters
     this.masterFilter.destroy();
     this.filmFilter.destroy();
     this.halationBloomFilter.destroy();
 
-    // Destroy PixiJS app (but not the canvas element, which is owned by React)
-    this.app.destroy(false, { children: true });
+    // Destroy PixiJS app (not the canvas element, which is owned by React;
+    // children: false because we already destroyed the sprite above)
+    this.app.destroy(false, { children: false });
   }
 }

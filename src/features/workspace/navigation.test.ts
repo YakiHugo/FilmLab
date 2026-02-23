@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  DEFAULT_EDITOR_RETURN_STEP,
-  isWorkspaceStep,
-  resolveEditorReturnStep,
-} from "./navigation";
+import { DEFAULT_EDITOR_RETURN_STEP, isWorkspaceStep, resolveEditorReturnStep } from "./navigation";
 
 describe("isWorkspaceStep", () => {
   it("returns true for supported steps", () => {

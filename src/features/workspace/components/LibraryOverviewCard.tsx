@@ -113,7 +113,7 @@ export const LibraryOverviewCard = memo(
                   className={cn(
                     "overflow-hidden rounded-2xl border border-white/10 bg-slate-950/60",
                     isSelected && "ring-2 ring-sky-200/40",
-                    isActive && "border-sky-200/40",
+                    isActive && "border-sky-200/40"
                   )}
                 >
                   <button
@@ -129,9 +129,7 @@ export const LibraryOverviewCard = memo(
                     />
                   </button>
                   <div className="space-y-2 p-3 text-xs text-slate-300">
-                    <p className="font-medium text-slate-100 line-clamp-1">
-                      {asset.name}
-                    </p>
+                    <p className="font-medium text-slate-100 line-clamp-1">{asset.name}</p>
                     <div className="flex items-center justify-between">
                       <label className="flex items-center gap-2 text-[11px] text-slate-300">
                         <input
@@ -154,7 +152,7 @@ export const LibraryOverviewCard = memo(
         )}
       </CardContent>
     </Card>
-  ),
+  )
 );
 
 LibraryOverviewCard.displayName = "LibraryOverviewCard";

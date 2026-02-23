@@ -8,16 +8,10 @@ import {
   applySelectionLimit,
   toggleSelectionWithLimit,
 } from "@/lib/ai/recommendationUtils";
-import { renderImageToBlob } from "@/lib/imageProcessing";
-import { resolveAssetTimestampText } from "@/lib/timestamp";
 import { useProjectStore, type AddAssetsResult } from "@/stores/projectStore";
 import { useShallow } from "zustand/react/shallow";
 import type { AiPresetRecommendation, EditingAdjustments, Preset } from "@/types";
-import type {
-  ExportPreviewItem,
-  ExportTask,
-  WorkspaceStep,
-} from "../types";
+import type { WorkspaceStep } from "../types";
 import { WORKSPACE_STEPS, isSupportedImportFile } from "../constants";
 import {
   buildCustomAdjustments,
@@ -26,181 +20,18 @@ import {
   resolveAdjustments,
   resolveFilmProfile,
 } from "../utils";
-
-const WORKSPACE_CONTEXT_KEY = "filmlab.workspace.context";
-
-interface PersistedWorkspaceContext {
-  step: WorkspaceStep;
-  selectedAssetIds: string[];
-  activeAssetId: string | null;
-  selectedPresetId: string;
-  intensity: number;
-}
-
-interface ExportFeedback {
-  kind: "success" | "mixed" | "error";
-  title: string;
-  detail: string;
-}
-
-interface FileWritableLike {
-  write: (data: Blob) => Promise<void>;
-  close: () => Promise<void>;
-}
-
-interface FileHandleLike {
-  createWritable: () => Promise<FileWritableLike>;
-}
-
-interface DirectoryHandleLike {
-  getFileHandle: (
-    name: string,
-    options: { create: boolean },
-  ) => Promise<FileHandleLike>;
-}
-
-type DirectoryPickerWindow = Window & {
-  showDirectoryPicker?: (options?: {
-    id?: string;
-    mode?: "read" | "readwrite";
-    startIn?: "downloads" | "documents" | "desktop" | "pictures";
-  }) => Promise<DirectoryHandleLike>;
-};
-
-const EXPORT_DIRECTORY_PICKER_ID = "filmlab-export-directory";
-
-const clampIntensity = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
-
-const loadWorkspaceContext = (): PersistedWorkspaceContext | null => {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  try {
-    const raw = window.localStorage.getItem(WORKSPACE_CONTEXT_KEY);
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw) as Partial<PersistedWorkspaceContext>;
-    const step = parsed.step;
-    if (step !== "library" && step !== "style" && step !== "export") {
-      return null;
-    }
-    return {
-      step,
-      selectedAssetIds: Array.isArray(parsed.selectedAssetIds)
-        ? parsed.selectedAssetIds.filter((id): id is string => typeof id === "string")
-        : [],
-      activeAssetId: typeof parsed.activeAssetId === "string" ? parsed.activeAssetId : null,
-      selectedPresetId:
-        typeof parsed.selectedPresetId === "string" ? parsed.selectedPresetId : "",
-      intensity:
-        typeof parsed.intensity === "number" ? clampIntensity(parsed.intensity) : 60,
-    };
-  } catch {
-    return null;
-  }
-};
-
-let _persistContextTimer: ReturnType<typeof setTimeout> | null = null;
-
-const persistWorkspaceContext = (context: PersistedWorkspaceContext) => {
-  if (typeof window === "undefined") {
-    return;
-  }
-  if (_persistContextTimer) {
-    clearTimeout(_persistContextTimer);
-  }
-  _persistContextTimer = setTimeout(() => {
-    _persistContextTimer = null;
-    try {
-      window.localStorage.setItem(WORKSPACE_CONTEXT_KEY, JSON.stringify(context));
-    } catch {
-      // no-op
-    }
-  }, 300);
-};
-
-const isAbortError = (error: unknown) =>
-  error instanceof DOMException && error.name === "AbortError";
-
-const supportsDirectoryExport = () => {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  const pickerWindow = window as DirectoryPickerWindow;
-  return typeof pickerWindow.showDirectoryPicker === "function";
-};
-
-const sanitizeFileName = (name: string) => {
-  const sanitized = name
-    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "_")
-    .replace(/[. ]+$/g, "")
-    .trim();
-  return sanitized.length > 0 ? sanitized : "exported-image.jpg";
-};
-
-const toUniqueFileName = (name: string, usedNames: Set<string>) => {
-  const safeName = sanitizeFileName(name);
-  const dotIndex = safeName.lastIndexOf(".");
-  const baseName = dotIndex > 0 ? safeName.slice(0, dotIndex) : safeName;
-  const extension = dotIndex > 0 ? safeName.slice(dotIndex) : "";
-  let candidate = safeName;
-  let suffix = 2;
-  while (usedNames.has(candidate)) {
-    candidate = `${baseName} (${suffix})${extension}`;
-    suffix += 1;
-  }
-  usedNames.add(candidate);
-  return candidate;
-};
-
-const openExportDirectory = async (): Promise<DirectoryHandleLike | null> => {
-  if (!supportsDirectoryExport()) {
-    return null;
-  }
-  const pickerWindow = window as DirectoryPickerWindow;
-  if (!pickerWindow.showDirectoryPicker) {
-    return null;
-  }
-  try {
-    return await pickerWindow.showDirectoryPicker({
-      id: EXPORT_DIRECTORY_PICKER_ID,
-      mode: "readwrite",
-      startIn: "downloads",
-    });
-  } catch (error) {
-    if (isAbortError(error)) {
-      return null;
-    }
-    throw error;
-  }
-};
-
-const downloadBlob = (blob: Blob, fileName: string) => {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  link.click();
-  URL.revokeObjectURL(url);
-};
-
-const writeBlobToDirectory = async (
-  directoryHandle: DirectoryHandleLike,
-  fileName: string,
-  blob: Blob,
-) => {
-  const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
-  const writable = await fileHandle.createWritable();
-  await writable.write(blob);
-  await writable.close();
-};
+import {
+  clampIntensity,
+  loadWorkspaceContext,
+  persistWorkspaceContext,
+  type PersistedWorkspaceContext,
+} from "./exportHelpers";
+import { useExport } from "./useExport";
 
 export const useWorkspaceState = () => {
   const navigate = useNavigate({ from: "/" });
   const { step } = useSearch({ from: "/" });
-  const currentStep: WorkspaceStep =
-    step === "style" || step === "export" ? step : "library";
+  const currentStep: WorkspaceStep = step === "style" || step === "export" ? step : "library";
   const {
     project,
     assets,
@@ -226,7 +57,7 @@ export const useWorkspaceState = () => {
       applyPresetToGroup: state.applyPresetToGroup,
       applyPresetToSelection: state.applyPresetToSelection,
       updateAsset: state.updateAsset,
-    })),
+    }))
   );
 
   const [isDragging, setIsDragging] = useState(false);
@@ -240,19 +71,15 @@ export const useWorkspaceState = () => {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [customPresetName, setCustomPresetName] = useState("");
   const [customPresets, setCustomPresets] = useState<Preset[]>(loadCustomPresets);
-  const [tasks, setTasks] = useState<ExportTask[]>([]);
   const [format, setFormat] = useState<"original" | "jpeg" | "png">("original");
   const [quality, setQuality] = useState(92);
   const [maxDimension, setMaxDimension] = useState(0);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
   const [importNotice, setImportNotice] = useState<string | null>(null);
-  const [exportFeedback, setExportFeedback] = useState<ExportFeedback | null>(null);
 
   const didAutoSelect = useRef(false);
   const didRestoreContext = useRef(false);
-  const persistedContext = useRef<PersistedWorkspaceContext | null>(
-    loadWorkspaceContext(),
-  );
+  const persistedContext = useRef<PersistedWorkspaceContext | null>(loadWorkspaceContext());
   const selectedAssetIdsRef = useRef<string[]>(selectedAssetIds);
 
   useEffect(() => {
@@ -272,11 +99,11 @@ export const useWorkspaceState = () => {
   const allPresets = useMemo(() => [...basePresets, ...customPresets], [customPresets]);
   const customPresetIdSet = useMemo(
     () => new Set(customPresets.map((preset) => preset.id)),
-    [customPresets],
+    [customPresets]
   );
   const presetById = useMemo(
     () => new Map(allPresets.map((preset) => [preset.id, preset])),
-    [allPresets],
+    [allPresets]
   );
   const aiPresetCandidates = useMemo<RecommendFilmPresetCandidate[]>(
     () =>
@@ -288,7 +115,7 @@ export const useWorkspaceState = () => {
         intensity: preset.intensity,
         isCustom: customPresetIdSet.has(preset.id),
       })),
-    [allPresets, customPresetIdSet],
+    [allPresets, customPresetIdSet]
   );
 
   useEffect(() => {
@@ -320,7 +147,7 @@ export const useWorkspaceState = () => {
     if (context.selectedAssetIds.length > 0) {
       const restoredSelection = applySelectionLimit(
         context.selectedAssetIds.filter((id) => assetIdSet.has(id)),
-        MAX_STYLE_SELECTION,
+        MAX_STYLE_SELECTION
       );
       if (restoredSelection.ids.length > 0) {
         selectedAssetIdsRef.current = restoredSelection.ids;
@@ -341,14 +168,7 @@ export const useWorkspaceState = () => {
     }
 
     setIntensity(clampIntensity(context.intensity));
-  }, [
-    assets,
-    currentStep,
-    isLoading,
-    navigate,
-    presetById,
-    setSelectedAssetIds,
-  ]);
+  }, [assets, currentStep, isLoading, navigate, presetById, setSelectedAssetIds]);
 
   useEffect(() => {
     if (!assets.length) {
@@ -368,7 +188,7 @@ export const useWorkspaceState = () => {
     if (assets.length > 0 && selectedAssetIds.length === 0) {
       const limitedSelection = applySelectionLimit(
         assets.map((asset) => asset.id),
-        MAX_STYLE_SELECTION,
+        MAX_STYLE_SELECTION
       );
       setSelectedAssetIds(limitedSelection.ids);
       if (limitedSelection.limited) {
@@ -393,7 +213,7 @@ export const useWorkspaceState = () => {
   const selectedSet = useMemo(() => new Set(selectedAssetIds), [selectedAssetIds]);
   const selectedAssets = useMemo(
     () => assets.filter((asset) => selectedSet.has(asset.id)),
-    [assets, selectedSet],
+    [assets, selectedSet]
   );
 
   const groupOptions = useMemo(() => {
@@ -415,22 +235,19 @@ export const useWorkspaceState = () => {
         }
         return true;
       }),
-    [assets, normalizedSearch, selectedGroup],
+    [assets, normalizedSearch, selectedGroup]
   );
-  const filteredAssetIds = useMemo(
-    () => filteredAssets.map((asset) => asset.id),
-    [filteredAssets],
-  );
+  const filteredAssetIds = useMemo(() => filteredAssets.map((asset) => asset.id), [filteredAssets]);
   const filteredSelectedCount = useMemo(
     () => filteredAssetIds.filter((assetId) => selectedSet.has(assetId)).length,
-    [filteredAssetIds, selectedSet],
+    [filteredAssetIds, selectedSet]
   );
   const allFilteredSelected =
     filteredAssets.length > 0 && filteredSelectedCount === filteredAssets.length;
 
   const activeAsset = useMemo(
     () => assets.find((asset) => asset.id === activeAssetId) ?? null,
-    [assets, activeAssetId],
+    [assets, activeAssetId]
   );
   const activeRecommendedTopPresets = useMemo(() => {
     if (!activeAsset?.aiRecommendation) {
@@ -448,10 +265,7 @@ export const useWorkspaceState = () => {
         return { preset, recommendation: item };
       })
       .filter(
-        (
-          item,
-        ): item is { preset: Preset; recommendation: AiPresetRecommendation } =>
-          item !== null,
+        (item): item is { preset: Preset; recommendation: AiPresetRecommendation } => item !== null
       );
   }, [activeAsset?.aiRecommendation, presetById]);
 
@@ -470,7 +284,7 @@ export const useWorkspaceState = () => {
       activeAdjustments ?? undefined,
       activeAsset.presetId,
       activeAsset.intensity,
-      allPresets,
+      allPresets
     );
   }, [activeAdjustments, activeAsset, allPresets]);
 
@@ -485,7 +299,7 @@ export const useWorkspaceState = () => {
       activeAsset.filmProfile,
       activeAsset.intensity,
       allPresets,
-      activeAsset.filmOverrides,
+      activeAsset.filmOverrides
     );
   }, [activeAsset, allPresets, previewAdjustments]);
 
@@ -494,11 +308,9 @@ export const useWorkspaceState = () => {
       const limited = applySelectionLimit(assetIds, MAX_STYLE_SELECTION);
       selectedAssetIdsRef.current = limited.ids;
       setSelectedAssetIds(limited.ids);
-      setSelectionNotice(
-        limited.limited ? `最多可选择 ${MAX_STYLE_SELECTION} 张素材。` : null,
-      );
+      setSelectionNotice(limited.limited ? `最多可选择 ${MAX_STYLE_SELECTION} 张素材。` : null);
     },
-    [setSelectedAssetIds],
+    [setSelectedAssetIds]
   );
 
   const handleToggleAssetSelection = useCallback(
@@ -506,13 +318,13 @@ export const useWorkspaceState = () => {
       const next = toggleSelectionWithLimit(
         selectedAssetIdsRef.current,
         assetId,
-        MAX_STYLE_SELECTION,
+        MAX_STYLE_SELECTION
       );
       selectedAssetIdsRef.current = next.ids;
       setSelectedAssetIds(next.ids);
       setSelectionNotice(next.limited ? `最多可选择 ${MAX_STYLE_SELECTION} 张素材。` : null);
     },
-    [setSelectedAssetIds],
+    [setSelectedAssetIds]
   );
 
   const handleSelectFilteredAssets = useCallback(() => {
@@ -542,10 +354,7 @@ export const useWorkspaceState = () => {
     (result: AddAssetsResult) => {
       if (result.added > 0) {
         setActiveAssetId(result.addedAssetIds[0] ?? null);
-        setSelectionWithLimit([
-          ...selectedAssetIdsRef.current,
-          ...result.addedAssetIds,
-        ]);
+        setSelectionWithLimit([...selectedAssetIdsRef.current, ...result.addedAssetIds]);
       }
       if (result.added > 0 && result.failed === 0) {
         setImportNotice(`已导入 ${result.added} 张素材。`);
@@ -561,7 +370,7 @@ export const useWorkspaceState = () => {
       }
       setImportNotice("导入失败，请重试或更换文件。");
     },
-    [setSelectionWithLimit],
+    [setSelectionWithLimit]
   );
 
   const handleFiles = useCallback(
@@ -586,7 +395,7 @@ export const useWorkspaceState = () => {
           setImportNotice("导入失败，请重试或更换文件。");
         });
     },
-    [addAssets, handleImportResult, isImporting],
+    [addAssets, handleImportResult, isImporting]
   );
 
   const applyPreset = (presetId: string) => {
@@ -655,166 +464,27 @@ export const useWorkspaceState = () => {
     }
   };
 
-  const resolveOutputType = (assetType: string) => {
-    if (format === "png") {
-      return "image/png";
-    }
-    if (format === "jpeg") {
-      return "image/jpeg";
-    }
-    return assetType === "image/png" ? "image/png" : "image/jpeg";
-  };
+  const {
+    tasks,
+    setTasks,
+    exportPreviewItems,
+    exportFeedback,
+    handleExportAll,
+    completedCount,
+    progress,
+    isExporting,
+    dismissExportFeedback,
+  } = useExport({
+    assets,
+    allPresets,
+    activeAssetId,
+    format,
+    quality,
+    maxDimension,
+  });
 
-  const buildDownloadName = (name: string, type: string) => {
-    const base = name.replace(/\.[^/.]+$/, "");
-    const extension = type === "image/png" ? ".png" : ".jpg";
-    if (format === "original") {
-      return name;
-    }
-    return `${base}${extension}`;
-  };
-
-  const handleExportAll = async () => {
-    if (assets.length === 0) {
-      return;
-    }
-    setExportFeedback(null);
-    const canPickDirectory = supportsDirectoryExport();
-    let directoryHandle: DirectoryHandleLike | null = null;
-    if (canPickDirectory) {
-      try {
-        directoryHandle = await openExportDirectory();
-      } catch {
-        setExportFeedback({
-          kind: "error",
-          title: "导出失败",
-          detail: "无法访问所选文件夹，请重试。",
-        });
-        return;
-      }
-      if (!directoryHandle) {
-        return;
-      }
-    }
-    const newTasks = assets.map((asset) => ({
-      id: asset.id,
-      name: asset.name,
-      status: "等待" as const,
-    }));
-    setTasks(newTasks);
-    let successCount = 0;
-    let failedCount = 0;
-    const usedFileNames = new Set<string>();
-
-    for (const asset of assets) {
-      setTasks((prev) =>
-        prev.map((item) =>
-          item.id === asset.id ? { ...item, status: "处理中" } : item,
-        ),
-      );
-      try {
-        if (!asset?.blob) {
-          throw new Error("缺少原图数据");
-        }
-        const adjustments = resolveAdjustments(
-          asset.adjustments,
-          asset.presetId,
-          asset.intensity,
-          allPresets,
-        );
-        const filmProfile = resolveFilmProfile(
-          adjustments,
-          asset.presetId,
-          asset.filmProfileId,
-          asset.filmProfile,
-          asset.intensity,
-          allPresets,
-          asset.filmOverrides,
-        );
-        const outputType = resolveOutputType(asset.type);
-        const blob = await renderImageToBlob(asset.blob, adjustments, {
-          type: outputType,
-          quality: quality / 100,
-          maxDimension: maxDimension > 0 ? maxDimension : undefined,
-          filmProfile: filmProfile ?? undefined,
-          timestampText: resolveAssetTimestampText(asset.metadata, asset.createdAt),
-          seedKey: asset.id,
-        });
-        const outputFileName = toUniqueFileName(
-          buildDownloadName(asset.name, outputType),
-          usedFileNames,
-        );
-        if (directoryHandle) {
-          await writeBlobToDirectory(directoryHandle, outputFileName, blob);
-        } else {
-          downloadBlob(blob, outputFileName);
-        }
-        successCount += 1;
-        setTasks((prev) =>
-          prev.map((item) =>
-            item.id === asset.id ? { ...item, status: "完成" } : item,
-          ),
-        );
-      } catch {
-        failedCount += 1;
-        setTasks((prev) =>
-          prev.map((item) =>
-            item.id === asset.id ? { ...item, status: "失败" } : item,
-          ),
-        );
-      }
-    }
-
-    if (failedCount === 0) {
-      setExportFeedback({
-        kind: "success",
-        title: "导出完成",
-        detail: `已成功导出 ${successCount} 张图片。`,
-      });
-      return;
-    }
-
-    if (successCount === 0) {
-      setExportFeedback({
-        kind: "error",
-        title: "导出失败",
-        detail: "所有图片导出失败，请调整参数后重试。",
-      });
-      return;
-    }
-
-    setExportFeedback({
-      kind: "mixed",
-      title: "导出已完成（部分失败）",
-      detail: `成功 ${successCount} 张，失败 ${failedCount} 张。`,
-    });
-  };
-
-  const completedCount = tasks.filter((task) => task.status === "完成").length;
-  const progress = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
-  const isExporting = tasks.some((task) => task.status === "处理中");
-  const taskStatusById = useMemo(
-    () => new Map(tasks.map((task) => [task.id, task.status])),
-    [tasks],
-  );
-  const exportPreviewItems = useMemo<ExportPreviewItem[]>(
-    () =>
-      assets.map((asset) => ({
-        assetId: asset.id,
-        name: asset.name,
-        thumbnailUrl: asset.thumbnailUrl ?? asset.objectUrl,
-        status: taskStatusById.get(asset.id) ?? "未开始",
-        isActive: asset.id === activeAssetId,
-      })),
-    [activeAssetId, assets, taskStatusById],
-  );
-
-  const totalSize = useMemo(
-    () => assets.reduce((sum, asset) => sum + asset.size, 0),
-    [assets],
-  );
-  const formatLabel =
-    format === "original" ? "跟随原文件" : format === "png" ? "PNG" : "JPG";
+  const totalSize = useMemo(() => assets.reduce((sum, asset) => sum + asset.size, 0), [assets]);
+  const formatLabel = format === "original" ? "跟随原文件" : format === "png" ? "PNG" : "JPG";
 
   const stepIndex = WORKSPACE_STEPS.findIndex((item) => item.id === currentStep);
 
@@ -829,14 +499,7 @@ export const useWorkspaceState = () => {
       selectedPresetId,
       intensity: clampIntensity(intensity),
     });
-  }, [
-    activeAssetId,
-    currentStep,
-    intensity,
-    isLoading,
-    selectedAssetIds,
-    selectedPresetId,
-  ]);
+  }, [activeAssetId, currentStep, intensity, isLoading, selectedAssetIds, selectedPresetId]);
 
   const setStep = (nextStep: WorkspaceStep) => {
     void navigate({ search: { step: nextStep } });
@@ -857,7 +520,7 @@ export const useWorkspaceState = () => {
       ? selectedAssetIds
       : applySelectionLimit(
           assets.map((asset) => asset.id),
-          MAX_STYLE_SELECTION,
+          MAX_STYLE_SELECTION
         ).ids;
 
   const primaryAction = (() => {
@@ -887,10 +550,6 @@ export const useWorkspaceState = () => {
       disabled: assets.length === 0 || isExporting,
     };
   })();
-
-  const dismissExportFeedback = () => {
-    setExportFeedback(null);
-  };
 
   return {
     WORKSPACE_STEPS,

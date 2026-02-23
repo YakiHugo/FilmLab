@@ -63,9 +63,7 @@ export const retryWithBackoff = async <T>(
     }
   }
 
-  throw lastError instanceof Error
-    ? lastError
-    : new Error("Recommendation request failed.");
+  throw lastError instanceof Error ? lastError : new Error("Recommendation request failed.");
 };
 
 export const requestFilmRecommendationWithRetry = async (
@@ -91,11 +89,7 @@ export const requestFilmRecommendationWithRetry = async (
         throw new Error(`Recommendation request failed: ${response.status} ${text}`);
       }
       const parsed = (await response.json()) as Partial<RecommendFilmResponsePayload>;
-      if (
-        !parsed ||
-        typeof parsed.model !== "string" ||
-        !Array.isArray(parsed.topPresets)
-      ) {
+      if (!parsed || typeof parsed.model !== "string" || !Array.isArray(parsed.topPresets)) {
         throw new Error("Invalid recommendation response payload.");
       }
       return {

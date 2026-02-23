@@ -21,13 +21,10 @@ const builtInProfileMap = new Map(
 );
 
 const EPSILON = 1e-6;
-const neutralAdjustmentProfile = createFilmProfileFromAdjustments(
-  createDefaultAdjustments(),
-  {
-    id: "runtime-neutral-adjustments",
-    name: "Runtime Neutral Adjustments",
-  }
-);
+const neutralAdjustmentProfile = createFilmProfileFromAdjustments(createDefaultAdjustments(), {
+  id: "runtime-neutral-adjustments",
+  name: "Runtime Neutral Adjustments",
+});
 
 export const listBuiltInFilmProfiles = () =>
   Array.from(builtInProfileMap.values()).map((profile) => cloneFilmProfile(profile));
@@ -62,10 +59,7 @@ interface ResolveFilmProfileOptions {
   overrides?: FilmProfileOverrides;
 }
 
-const applyFilmProfileOverrides = (
-  profile: FilmProfile,
-  overrides?: FilmProfileOverrides
-) => {
+const applyFilmProfileOverrides = (profile: FilmProfile, overrides?: FilmProfileOverrides) => {
   if (!overrides || Object.keys(overrides).length === 0) {
     return profile;
   }
@@ -76,8 +70,7 @@ const applyFilmProfileOverrides = (
     }
     const nextModule: FilmModuleConfig = {
       ...module,
-      enabled:
-        typeof override.enabled === "boolean" ? override.enabled : module.enabled,
+      enabled: typeof override.enabled === "boolean" ? override.enabled : module.enabled,
       amount: typeof override.amount === "number" ? override.amount : module.amount,
       params: {
         ...module.params,
@@ -128,10 +121,7 @@ const extractParamDeltas = (
   return deltas;
 };
 
-const applyParamDeltas = (
-  baseParams: Record<string, unknown>,
-  deltas: Record<string, unknown>
-) => {
+const applyParamDeltas = (baseParams: Record<string, unknown>, deltas: Record<string, unknown>) => {
   const nextParams: Record<string, unknown> = {
     ...baseParams,
   };
@@ -191,14 +181,9 @@ const mergeAdjustmentProfileIntoBaseProfile = (
       neutralModule.params as unknown as Record<string, unknown>
     );
     const hasParamDelta = Object.keys(paramsDelta).length > 0;
-    const toggledByAdjustment =
-      adjustmentModule.enabled !== neutralModule.enabled;
+    const toggledByAdjustment = adjustmentModule.enabled !== neutralModule.enabled;
 
-    if (
-      Math.abs(amountDelta) <= EPSILON &&
-      !hasParamDelta &&
-      !toggledByAdjustment
-    ) {
+    if (Math.abs(amountDelta) <= EPSILON && !hasParamDelta && !toggledByAdjustment) {
       return module;
     }
 
@@ -239,14 +224,8 @@ export const resolveFilmProfile = ({
     const resolvedIntensity =
       typeof intensity === "number" ? intensity : (preset?.intensity ?? 100);
     const scaledBaseProfile = scaleFilmProfileAmount(baseProfile, resolvedIntensity);
-    const mergedProfile = mergeAdjustmentProfileIntoBaseProfile(
-      scaledBaseProfile,
-      adjustments
-    );
-    return applyFilmProfileOverrides(
-      mergedProfile,
-      overrides
-    );
+    const mergedProfile = mergeAdjustmentProfileIntoBaseProfile(scaledBaseProfile, adjustments);
+    return applyFilmProfileOverrides(mergedProfile, overrides);
   }
 
   return applyFilmProfileOverrides(
@@ -269,5 +248,3 @@ export const resolveFilmModule = <TId extends FilmModuleConfig["id"]>(
   profile: FilmProfile,
   moduleId: TId
 ) => getFilmModule(profile, moduleId);
-
-

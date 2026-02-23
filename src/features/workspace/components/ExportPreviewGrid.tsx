@@ -59,9 +59,7 @@ export const ExportPreviewGrid = memo(function ExportPreviewGrid({
     <Card className="animate-fade-up">
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>导出预览</CardTitle>
-        <Badge className="border-white/10 bg-white/5 text-slate-200">
-          {items.length} 张
-        </Badge>
+        <Badge className="border-white/10 bg-white/5 text-slate-200">{items.length} 张</Badge>
       </CardHeader>
       <CardContent>
         {items.length === 0 ? (
@@ -75,18 +73,15 @@ export const ExportPreviewGrid = memo(function ExportPreviewGrid({
                 key={item.assetId}
                 className={cn(
                   "relative w-28 shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/60 md:w-auto",
-                  item.isActive && "border-sky-200/40 ring-1 ring-sky-300/20",
+                  item.isActive && "border-sky-200/40 ring-1 ring-sky-300/20"
                 )}
               >
                 <div className="relative h-20 w-full overflow-hidden bg-slate-900/60 md:h-24">
-                  <Thumbnail
-                    name={item.name}
-                    thumbnailUrl={item.thumbnailUrl}
-                  />
+                  <Thumbnail name={item.name} thumbnailUrl={item.thumbnailUrl} />
                   <span
                     className={cn(
                       "absolute left-2 top-2 rounded-full border px-2 py-0.5 text-[10px] font-medium",
-                      STATUS_CLASSES[item.status],
+                      STATUS_CLASSES[item.status]
                     )}
                   >
                     {STATUS_LABELS[item.status]}

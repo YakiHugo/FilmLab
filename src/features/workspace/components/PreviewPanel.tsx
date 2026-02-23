@@ -1,4 +1,12 @@
-import { memo, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { renderImageToCanvas } from "@/lib/imageProcessing";
@@ -72,10 +80,7 @@ export const PreviewPanel = memo(
         source: activeAsset.blob ?? activeAsset.objectUrl,
         adjustments: previewAdjustments,
         filmProfile: previewFilmProfile ?? undefined,
-        timestampText: resolveAssetTimestampText(
-          activeAsset.metadata,
-          activeAsset.createdAt
-        ),
+        timestampText: resolveAssetTimestampText(activeAsset.metadata, activeAsset.createdAt),
         targetSize: {
           width: Math.round(frameSize.width * dpr),
           height: Math.round(frameSize.height * dpr),
@@ -116,9 +121,9 @@ export const PreviewPanel = memo(
       <Card className="min-w-0">
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <CardTitle>棰勮</CardTitle>
+            <CardTitle>预览</CardTitle>
             <p className="text-xs text-slate-400 line-clamp-1">
-              {activeAsset?.name ?? "灏氭湭閫夋嫨绱犳潗"}
+              {activeAsset?.name ?? "尚未选择素材"}
             </p>
           </div>
           <Button
@@ -127,7 +132,7 @@ export const PreviewPanel = memo(
             onClick={() => setShowOriginal((prev) => !prev)}
             disabled={!activeAsset}
           >
-            瀵规瘮鍘熷浘
+            对比原图
           </Button>
         </CardHeader>
         <CardContent>
@@ -146,28 +151,30 @@ export const PreviewPanel = memo(
                 <canvas
                   ref={canvasRef}
                   role="img"
-                  aria-label={`${activeAsset.name} 棰勮`}
+                  aria-label={`${activeAsset.name} 预览`}
                   className="absolute inset-0 block h-full w-full"
                 />
               )}
               {showOriginal && (
                 <span className="absolute left-3 top-3 rounded-full border border-white/10 bg-slate-950/80 px-3 py-1 text-xs text-slate-200">
-                  鍘熷浘
+                  原图
                 </span>
               )}
               {renderFailed && !showOriginal && (
                 <span className="absolute left-3 top-3 rounded-full border border-amber-200/30 bg-amber-300/15 px-3 py-1 text-xs text-amber-100">
-                  娓叉煋澶辫触锛屾樉绀哄師鍥?                </span>
+                  渲染失败，显示原图
+                </span>
               )}
             </div>
           ) : (
             <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-6 text-center text-sm text-slate-400">
-              杩樻病鏈夌礌鏉愶紝瀵煎叆鍚庡嵆鍙瑙堛€?            </div>
+              还没有素材，导入后即可预览。
+            </div>
           )}
         </CardContent>
       </Card>
     );
-  },
+  }
 );
 
 PreviewPanel.displayName = "PreviewPanel";

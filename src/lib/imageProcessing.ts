@@ -1,124 +1,15 @@
 import {
   applyFilmPipeline,
   createFilmProfileFromAdjustments,
+  disposeWebGL2Renderer,
   ensureFilmProfile,
   renderFilmProfileWebGL2,
 } from "@/lib/film";
 import { normalizeAdjustments } from "@/lib/adjustments";
+import { applyColorGradingToImageData } from "@/lib/colorGrading";
+import { applyTimestampOverlay } from "@/lib/timestampOverlay";
+import { clamp } from "@/lib/math";
 import type { EditingAdjustments, FilmProfile } from "@/types";
-
-const clamp = (value: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, value));
-
-const luminance = (red: number, green: number, blue: number) =>
-  red * 0.2126 + green * 0.7152 + blue * 0.0722;
-
-const hsvToRgb = (hue: number, saturation: number, value: number) => {
-  const normalizedHue = ((hue % 360) + 360) % 360;
-  const chroma = value * saturation;
-  const section = normalizedHue / 60;
-  const x = chroma * (1 - Math.abs((section % 2) - 1));
-  let red = 0;
-  let green = 0;
-  let blue = 0;
-  if (section < 1) {
-    red = chroma;
-    green = x;
-  } else if (section < 2) {
-    red = x;
-    green = chroma;
-  } else if (section < 3) {
-    green = chroma;
-    blue = x;
-  } else if (section < 4) {
-    green = x;
-    blue = chroma;
-  } else if (section < 5) {
-    red = x;
-    blue = chroma;
-  } else {
-    red = chroma;
-    blue = x;
-  }
-  const match = value - chroma;
-  return {
-    red: red + match,
-    green: green + match,
-    blue: blue + match,
-  };
-};
-
-const applyColorGradingToImageData = (
-  imageData: ImageData,
-  grading: EditingAdjustments["colorGrading"]
-) => {
-  const blend = clamp(grading.blend / 100, 0, 1);
-  if (blend <= 0.0001) {
-    return;
-  }
-
-  const balance = clamp(grading.balance / 100, -1, 1);
-  const shadowEdge = clamp(0.45 + balance * 0.2, 0.2, 0.7);
-  const highlightEdge = clamp(0.55 + balance * 0.2, 0.3, 0.8);
-  const data = imageData.data;
-
-  const shadowColor = hsvToRgb(grading.shadows.hue, clamp(grading.shadows.saturation / 100, 0, 1), 1);
-  const midtoneColor = hsvToRgb(grading.midtones.hue, clamp(grading.midtones.saturation / 100, 0, 1), 1);
-  const highlightColor = hsvToRgb(
-    grading.highlights.hue,
-    clamp(grading.highlights.saturation / 100, 0, 1),
-    1
-  );
-  const shadowLum = clamp(grading.shadows.luminance / 100, -1, 1);
-  const midtoneLum = clamp(grading.midtones.luminance / 100, -1, 1);
-  const highlightLum = clamp(grading.highlights.luminance / 100, -1, 1);
-
-  for (let index = 0; index < data.length; index += 4) {
-    const red = (data[index] ?? 0) / 255;
-    const green = (data[index + 1] ?? 0) / 255;
-    const blue = (data[index + 2] ?? 0) / 255;
-
-    const lum = luminance(red, green, blue);
-    const wShadows = 1 - clamp((lum - 0.05) / Math.max(shadowEdge - 0.05, 0.001), 0, 1);
-    const wHighlights = clamp((lum - highlightEdge) / Math.max(0.95 - highlightEdge, 0.001), 0, 1);
-    const wMidtones = clamp(1 - wShadows - wHighlights, 0, 1);
-
-    let nextRed =
-      red +
-      ((shadowColor.red - 0.5) * wShadows +
-        (midtoneColor.red - 0.5) * wMidtones +
-        (highlightColor.red - 0.5) * wHighlights) *
-        blend *
-        0.45;
-    let nextGreen =
-      green +
-      ((shadowColor.green - 0.5) * wShadows +
-        (midtoneColor.green - 0.5) * wMidtones +
-        (highlightColor.green - 0.5) * wHighlights) *
-        blend *
-        0.45;
-    let nextBlue =
-      blue +
-      ((shadowColor.blue - 0.5) * wShadows +
-        (midtoneColor.blue - 0.5) * wMidtones +
-        (highlightColor.blue - 0.5) * wHighlights) *
-        blend *
-        0.45;
-
-    const luminanceShift =
-      (shadowLum * wShadows + midtoneLum * wMidtones + highlightLum * wHighlights) *
-      blend *
-      0.25;
-    const luminanceScale = 1 + luminanceShift;
-    nextRed = clamp(nextRed * luminanceScale, 0, 1);
-    nextGreen = clamp(nextGreen * luminanceScale, 0, 1);
-    nextBlue = clamp(nextBlue * luminanceScale, 0, 1);
-
-    data[index] = Math.round(nextRed * 255);
-    data[index + 1] = Math.round(nextGreen * 255);
-    data[index + 2] = Math.round(nextBlue * 255);
-  }
-};
 
 export const resolveAspectRatio = (
   value: EditingAdjustments["aspectRatio"],
@@ -146,104 +37,11 @@ const resolveRightAngleQuarterTurns = (rightAngleRotation: number) => {
   return ((quarterTurns % 4) + 4) % 4;
 };
 
-export const resolveOrientedAspectRatio = (
-  aspectRatio: number,
-  rightAngleRotation: number
-) => {
-  const safeAspectRatio =
-    Number.isFinite(aspectRatio) && aspectRatio > 0 ? aspectRatio : 1;
+export const resolveOrientedAspectRatio = (aspectRatio: number, rightAngleRotation: number) => {
+  const safeAspectRatio = Number.isFinite(aspectRatio) && aspectRatio > 0 ? aspectRatio : 1;
   return resolveRightAngleQuarterTurns(rightAngleRotation) % 2 === 1
     ? 1 / safeAspectRatio
     : safeAspectRatio;
-};
-
-const applyTimestampOverlay = (
-  canvas: HTMLCanvasElement,
-  adjustments: EditingAdjustments,
-  timestampText?: string | null
-) => {
-  if (!adjustments.timestampEnabled || !timestampText) {
-    return;
-  }
-
-  const context = canvas.getContext("2d");
-  if (!context) {
-    return;
-  }
-
-  const alpha = clamp(adjustments.timestampOpacity / 100, 0, 1);
-  if (alpha <= 0.001) {
-    return;
-  }
-
-  const fontSize = clamp(adjustments.timestampSize, 12, 48);
-  const margin = Math.max(12, Math.round(Math.min(canvas.width, canvas.height) * 0.04));
-  const text = timestampText.trim();
-  if (!text) {
-    return;
-  }
-
-  context.save();
-  context.globalAlpha = alpha;
-  context.font = `${Math.round(fontSize)}px "Space Grotesk", "Work Sans", sans-serif`;
-  context.textBaseline = "bottom";
-  context.textAlign = "left";
-  const textMetrics = context.measureText(text);
-  const textWidth = textMetrics.width;
-  const textHeight = Math.max(fontSize, fontSize * 1.1);
-
-  let x = margin;
-  let y = canvas.height - margin;
-  switch (adjustments.timestampPosition) {
-    case "bottom-left":
-      x = margin;
-      y = canvas.height - margin;
-      context.textAlign = "left";
-      context.textBaseline = "bottom";
-      break;
-    case "bottom-right":
-      x = canvas.width - margin;
-      y = canvas.height - margin;
-      context.textAlign = "right";
-      context.textBaseline = "bottom";
-      break;
-    case "top-left":
-      x = margin;
-      y = margin;
-      context.textAlign = "left";
-      context.textBaseline = "top";
-      break;
-    case "top-right":
-      x = canvas.width - margin;
-      y = margin;
-      context.textAlign = "right";
-      context.textBaseline = "top";
-      break;
-    default:
-      break;
-  }
-
-  const bgPaddingX = fontSize * 0.5;
-  const bgPaddingY = fontSize * 0.35;
-  const rectWidth = textWidth + bgPaddingX * 2;
-  const rectHeight = textHeight + bgPaddingY * 2;
-
-  let rectLeft = x - bgPaddingX;
-  if (context.textAlign === "right") {
-    rectLeft = x - rectWidth + bgPaddingX;
-  }
-  let rectTop = y - rectHeight + bgPaddingY;
-  if (context.textBaseline === "top") {
-    rectTop = y - bgPaddingY;
-  }
-  rectLeft = clamp(rectLeft, 0, Math.max(0, canvas.width - rectWidth));
-  rectTop = clamp(rectTop, 0, Math.max(0, canvas.height - rectHeight));
-
-  context.fillStyle = "rgba(0, 0, 0, 0.34)";
-  context.fillRect(rectLeft, rectTop, rectWidth, rectHeight);
-  context.fillStyle = "rgba(255, 250, 242, 0.95)";
-  context.fillText(text, x, y);
-  context.restore();
 };
 
 const resolveTransform = (adjustments: EditingAdjustments, width: number, height: number) => {
@@ -360,6 +158,10 @@ const createOrientedSource = (
     source: orientedCanvas as CanvasImageSource,
     width: orientedCanvas.width,
     height: orientedCanvas.height,
+    cleanup: () => {
+      orientedCanvas.width = 0;
+      orientedCanvas.height = 0;
+    },
   };
 };
 
@@ -393,10 +195,7 @@ const hashSeedKey = (seedKey: string) => {
   return hash >>> 0;
 };
 
-const resolveProfile = (
-  adjustments: EditingAdjustments,
-  providedProfile?: FilmProfile
-) => {
+const resolveProfile = (adjustments: EditingAdjustments, providedProfile?: FilmProfile) => {
   if (providedProfile) {
     return ensureFilmProfile(providedProfile);
   }
@@ -471,10 +270,7 @@ const buildCanvasStats = (canvas: HTMLCanvasElement): CanvasStats | null => {
   };
 };
 
-const isPixiOutputValid = (
-  sourceCanvas: HTMLCanvasElement,
-  resultCanvas: HTMLCanvasElement
-) => {
+const isPixiOutputValid = (sourceCanvas: HTMLCanvasElement, resultCanvas: HTMLCanvasElement) => {
   const sourceStats = buildCanvasStats(sourceCanvas);
   const resultStats = buildCanvasStats(resultCanvas);
 
@@ -482,17 +278,14 @@ const isPixiOutputValid = (
     return true;
   }
 
-  const sourceHasVisibleContent =
-    sourceStats.maxLuma > 0.08 || sourceStats.varianceLuma > 0.0008;
+  const sourceHasVisibleContent = sourceStats.maxLuma > 0.08 || sourceStats.varianceLuma > 0.0008;
 
   if (sourceHasVisibleContent && resultStats.maxAlpha < 0.02) {
     return false;
   }
 
   const outputNearBlack =
-    resultStats.maxLuma < 0.02 &&
-    resultStats.meanLuma < 0.01 &&
-    resultStats.varianceLuma < 0.0002;
+    resultStats.maxLuma < 0.02 && resultStats.meanLuma < 0.01 && resultStats.varianceLuma < 0.0002;
 
   if (sourceHasVisibleContent && outputNearBlack) {
     return false;
@@ -503,8 +296,7 @@ const isPixiOutputValid = (
 
 /** Debug escape hatch: force legacy WebGL2 renderer via console. */
 const isLegacyRendererForced = (): boolean =>
-  typeof window !== "undefined" &&
-  (window as any).__FILMLAB_USE_LEGACY === true;
+  typeof window !== "undefined" && (window as any).__FILMLAB_USE_LEGACY === true;
 
 /**
  * Lazy-load and invoke the PixiJS multi-pass renderer (default GPU path).
@@ -530,7 +322,12 @@ const tryPixiRender = async (
         resolveHalationBloomUniforms: uniformsMod.resolveHalationBloomUniforms,
       };
     }
-    const { PixiRenderer, resolveFromAdjustments, resolveFilmUniforms, resolveHalationBloomUniforms } = _pixiModuleCache;
+    const {
+      PixiRenderer,
+      resolveFromAdjustments,
+      resolveFilmUniforms,
+      resolveHalationBloomUniforms,
+    } = _pixiModuleCache;
 
     // Lazily create the renderer singleton, or recreate after context loss
     if (pixiRendererInstance?.isContextLost) {
@@ -552,11 +349,7 @@ const tryPixiRender = async (
     const renderer = pixiRendererInstance;
 
     // Upload the geometry-transformed canvas as the source texture
-    renderer.updateSource(
-      sourceCanvas,
-      sourceCanvas.width,
-      sourceCanvas.height
-    );
+    renderer.updateSource(sourceCanvas, sourceCanvas.width, sourceCanvas.height);
 
     // Resolve Master uniforms from EditingAdjustments
     const masterUniforms = resolveFromAdjustments(adjustments);
@@ -596,6 +389,20 @@ let pixiRendererInstance: InstanceType<
   typeof import("@/lib/renderer/PixiRenderer").PixiRenderer
 > | null = null;
 const pixiFallbackSeedKeys = new Set<string>();
+/** Periodically allow retrying PixiJS for previously-failed seed keys. */
+const PIXI_FALLBACK_RETRY_MS = 30_000;
+let _pixiFallbackClearTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Render mutex: serialize access to the singleton PixiJS renderer
+let _renderMutexPromise: Promise<void> = Promise.resolve();
+const acquireRenderMutex = (): Promise<() => void> => {
+  let release: () => void;
+  const prev = _renderMutexPromise;
+  _renderMutexPromise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return prev.then(() => release!);
+};
 
 // Cache resolved dynamic imports so subsequent tryPixiRender calls skip await overhead
 let _pixiModuleCache: {
@@ -611,6 +418,31 @@ if (typeof window !== "undefined") {
     if (pixiRendererInstance) {
       pixiRendererInstance.dispose();
       pixiRendererInstance = null;
+    }
+    disposeWebGL2Renderer();
+    if (_probeCanvas) {
+      _probeCanvas.width = 0;
+      _probeCanvas.height = 0;
+      _probeCanvas = null;
+      _probeContext = null;
+    }
+  });
+}
+
+// Clean up GPU resources on Vite HMR to prevent WebGL context leaks in development
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    if (pixiRendererInstance) {
+      pixiRendererInstance.dispose();
+      pixiRendererInstance = null;
+    }
+    _pixiModuleCache = null;
+    disposeWebGL2Renderer();
+    if (_probeCanvas) {
+      _probeCanvas.width = 0;
+      _probeCanvas.height = 0;
+      _probeCanvas = null;
+      _probeContext = null;
     }
   });
 }
@@ -637,10 +469,7 @@ export const renderImageToCanvas = async ({
     return;
   }
 
-  const orientedSource = createOrientedSource(
-    loaded,
-    normalizedAdjustments.rightAngleRotation
-  );
+  const orientedSource = createOrientedSource(loaded, normalizedAdjustments.rightAngleRotation);
 
   const fallbackRatio = targetSize
     ? targetSize.width / Math.max(1, targetSize.height)
@@ -689,7 +518,10 @@ export const renderImageToCanvas = async ({
 
   const transform = resolveTransform(normalizedAdjustments, canvas.width, canvas.height);
   context.save();
-  context.translate(canvas.width / 2 + transform.translateX, canvas.height / 2 + transform.translateY);
+  context.translate(
+    canvas.width / 2 + transform.translateX,
+    canvas.height / 2 + transform.translateY
+  );
   context.rotate(transform.rotate);
   context.scale(
     transform.scale * transform.flipHorizontal,
@@ -712,9 +544,7 @@ export const renderImageToCanvas = async ({
 
   const renderOptions = {
     seedKey,
-    renderSeed:
-      renderSeed ??
-      (seedKey ? hashSeedKey(seedKey) : Date.now()),
+    renderSeed: renderSeed ?? (seedKey ? hashSeedKey(seedKey) : Date.now()),
     exportSeed,
   };
 
@@ -727,22 +557,34 @@ export const renderImageToCanvas = async ({
 
   let renderedWithPixi = false;
   if (canTryPixi) {
-    const pixiResult = await tryPixiRender(
-      canvas,
-      normalizedAdjustments,
-      filmProfile,
-      renderOptions
-    );
-    if (pixiResult) {
-      if (seedKey) {
-        pixiFallbackSeedKeys.delete(seedKey);
+    const releaseMutex = await acquireRenderMutex();
+    try {
+      const pixiResult = await tryPixiRender(
+        canvas,
+        normalizedAdjustments,
+        filmProfile,
+        renderOptions
+      );
+      if (pixiResult) {
+        if (seedKey) {
+          pixiFallbackSeedKeys.delete(seedKey);
+        }
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(pixiResult, 0, 0, canvas.width, canvas.height);
+        renderedWithPixi = true;
       }
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(pixiResult, 0, 0, canvas.width, canvas.height);
-      renderedWithPixi = true;
+    } finally {
+      releaseMutex();
     }
     if (!renderedWithPixi && seedKey) {
       pixiFallbackSeedKeys.add(seedKey);
+      // Schedule a retry: clear the fallback set after a timeout so PixiJS gets another chance
+      if (!_pixiFallbackClearTimer) {
+        _pixiFallbackClearTimer = setTimeout(() => {
+          pixiFallbackSeedKeys.clear();
+          _pixiFallbackClearTimer = null;
+        }, PIXI_FALLBACK_RETRY_MS);
+      }
     }
   }
 
@@ -750,8 +592,7 @@ export const renderImageToCanvas = async ({
     // 2. Legacy single-pass WebGL2 renderer (fallback)
     const resolvedProfile = resolveProfile(normalizedAdjustments, filmProfile);
     const renderedByWebGL =
-      preferWebGL2 &&
-      renderFilmProfileWebGL2(canvas, resolvedProfile, renderOptions);
+      preferWebGL2 && renderFilmProfileWebGL2(canvas, resolvedProfile, renderOptions);
 
     if (renderedByWebGL) {
       context.clearRect(0, 0, canvas.width, canvas.height);
@@ -771,6 +612,7 @@ export const renderImageToCanvas = async ({
 
   applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
 
+  orientedSource.cleanup?.();
   loaded.cleanup?.();
 };
 
@@ -807,6 +649,9 @@ export const renderImageToBlob = async (
   const blob = await new Promise<Blob | null>((resolve) => {
     canvas.toBlob(resolve, outputType, quality);
   });
+  // Release canvas backing store after blob is created
+  canvas.width = 0;
+  canvas.height = 0;
   if (!blob) {
     throw new Error("Failed to render image blob.");
   }

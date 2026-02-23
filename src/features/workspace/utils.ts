@@ -59,7 +59,7 @@ export const resolveAdjustments = (
   adjustments: EditingAdjustments | undefined,
   presetId: string | undefined,
   intensity: number | undefined,
-  presets: Preset[],
+  presets: Preset[]
 ) => {
   const base = normalizeAdjustments(adjustments ?? createDefaultAdjustments());
   if (!presetId) {
@@ -69,8 +69,7 @@ export const resolveAdjustments = (
   if (!preset) {
     return base;
   }
-  const resolvedIntensity =
-    typeof intensity === "number" ? intensity : preset.intensity;
+  const resolvedIntensity = typeof intensity === "number" ? intensity : preset.intensity;
   return applyPresetAdjustments(base, preset.adjustments, resolvedIntensity);
 };
 
@@ -81,7 +80,7 @@ export const resolveFilmProfile = (
   filmProfile: FilmProfile | undefined,
   intensity: number | undefined,
   presets: Preset[],
-  overrides?: FilmProfileOverrides,
+  overrides?: FilmProfileOverrides
 ): FilmProfile | null => {
   if (!adjustments) {
     return null;

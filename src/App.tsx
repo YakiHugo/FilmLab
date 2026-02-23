@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Outlet, useLocation } from "@tanstack/react-router";
 import { useProjectStore } from "@/stores/projectStore";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 function App() {
   const init = useProjectStore((state) => state.init);
@@ -24,7 +25,9 @@ function App() {
               : "mx-auto flex min-w-0 w-full max-w-7xl flex-1 flex-col px-4 pb-28 pt-6 md:px-8 md:pb-10"
           }
         >
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

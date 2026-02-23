@@ -2,7 +2,6 @@ import type { EditingAdjustments, FilmProfile } from "@/types";
 import type { FilmProfileV2 } from "@/types/film";
 import type { MasterUniforms, FilmUniforms, HalationBloomUniforms } from "./types";
 import { getFilmModule, normalizeFilmProfile } from "@/lib/film/profile";
-import { normalizeAdjustments } from "@/lib/adjustments";
 
 const IDENTITY_3X3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
@@ -18,37 +17,36 @@ function transpose3x3(m: number[]): number[] {
  * (OKLab HSL, LMS white balance) instead of the RGB approximations in the
  * legacy shader. Parameter ranges are preserved for UI compatibility.
  */
-export function resolveFromAdjustments(
-  adj: EditingAdjustments
-): MasterUniforms {
-  const normalized = normalizeAdjustments(adj);
-  const grading = normalized.colorGrading;
+export function resolveFromAdjustments(adj: EditingAdjustments): MasterUniforms {
+  // Callers are expected to pass already-normalized adjustments.
+  // Avoid double-normalizing which wastes CPU and can mask bugs.
+  const grading = adj.colorGrading;
   return {
     // Exposure: map from [-100, 100] UI range to [-5, 5] EV
-    exposure: (normalized.exposure / 100) * 5,
+    exposure: (adj.exposure / 100) * 5,
 
     // These pass through directly (shader normalizes by /100)
-    contrast: normalized.contrast,
-    highlights: normalized.highlights,
-    shadows: normalized.shadows,
-    whites: normalized.whites,
-    blacks: normalized.blacks,
+    contrast: adj.contrast,
+    highlights: adj.highlights,
+    shadows: adj.shadows,
+    whites: adj.whites,
+    blacks: adj.blacks,
 
     // White balance
-    temperature: normalized.temperature,
-    tint: normalized.tint,
+    temperature: adj.temperature,
+    tint: adj.tint,
 
     // OKLab HSL: hueShift is new (not in v1 UI), default to 0
     hueShift: 0,
-    saturation: normalized.saturation,
-    vibrance: normalized.vibrance,
+    saturation: adj.saturation,
+    vibrance: adj.vibrance,
     luminance: 0, // Not exposed in current UI
 
     // Curves
-    curveHighlights: normalized.curveHighlights,
-    curveLights: normalized.curveLights,
-    curveDarks: normalized.curveDarks,
-    curveShadows: normalized.curveShadows,
+    curveHighlights: adj.curveHighlights,
+    curveLights: adj.curveLights,
+    curveDarks: adj.curveDarks,
+    curveShadows: adj.curveShadows,
 
     // 3-way color grading
     colorGradeShadows: [
@@ -70,7 +68,7 @@ export function resolveFromAdjustments(
     colorGradeBalance: grading.balance / 100,
 
     // Detail
-    dehaze: normalized.dehaze,
+    dehaze: adj.dehaze,
   };
 }
 
@@ -90,9 +88,9 @@ export function resolveFilmUniforms(
   const scan = getFilmModule(normalized, "scan");
   const colorScience = getFilmModule(normalized, "colorScience");
 
-  const toneAmount = tone?.enabled ? (tone.amount / 100) : 0;
-  const grainAmount = grain?.enabled ? (grain.amount / 100) : 0;
-  const scanAmount = scan?.enabled ? (scan.amount / 100) : 0;
+  const toneAmount = tone?.enabled ? tone.amount / 100 : 0;
+  const grainAmount = grain?.enabled ? grain.amount / 100 : 0;
+  const scanAmount = scan?.enabled ? scan.amount / 100 : 0;
 
   // Derive color cast from scanWarmth
   const warmth = (scan?.params.scanWarmth ?? 0) / 100;
@@ -108,17 +106,24 @@ export function resolveFilmUniforms(
     u_gamma: 1.0,
 
     // Layer 2: Color Matrix (derived from colorScience.rgbMix as diagonal)
+    // Transpose to column-major for WebGL, consistent with V2 path.
     u_colorMatrixEnabled: colorScience?.enabled
-      ? (colorScience.params.rgbMix[0] !== 1 ||
-         colorScience.params.rgbMix[1] !== 1 ||
-         colorScience.params.rgbMix[2] !== 1)
+      ? colorScience.params.rgbMix[0] !== 1 ||
+        colorScience.params.rgbMix[1] !== 1 ||
+        colorScience.params.rgbMix[2] !== 1
       : false,
     u_colorMatrix: colorScience?.enabled
-      ? [
-          colorScience.params.rgbMix[0], 0, 0,
-          0, colorScience.params.rgbMix[1], 0,
-          0, 0, colorScience.params.rgbMix[2],
-        ]
+      ? transpose3x3([
+          colorScience.params.rgbMix[0],
+          0,
+          0,
+          0,
+          colorScience.params.rgbMix[1],
+          0,
+          0,
+          0,
+          colorScience.params.rgbMix[2],
+        ])
       : IDENTITY_3X3,
 
     // Layer 3: LUT (not available in v1 profiles, disabled by default)
@@ -154,9 +159,7 @@ export function resolveFilmUniforms(
  * Maps the legacy scan module's halation/bloom parameters into the
  * new multi-pass HalationBloomFilter uniform format.
  */
-export function resolveHalationBloomUniforms(
-  profile: FilmProfile
-): HalationBloomUniforms {
+export function resolveHalationBloomUniforms(profile: FilmProfile): HalationBloomUniforms {
   const normalized = normalizeFilmProfile(profile);
   const scan = getFilmModule(normalized, "scan");
   const scanAmount = scan?.enabled ? scan.amount / 100 : 0;
@@ -220,8 +223,7 @@ export function resolveFilmUniformsV2(
     u_grainIsColor: profile.grain.colorGrain,
 
     // Layer 6: Vignette
-    u_vignetteEnabled:
-      profile.vignette.enabled && Math.abs(profile.vignette.amount) > 0.001,
+    u_vignetteEnabled: profile.vignette.enabled && Math.abs(profile.vignette.amount) > 0.001,
     u_vignetteAmount: profile.vignette.amount,
     u_vignetteMidpoint: profile.vignette.midpoint,
     u_vignetteRoundness: profile.vignette.roundness,
@@ -231,9 +233,7 @@ export function resolveFilmUniformsV2(
 /**
  * Resolve Halation/Bloom uniforms from a V2 FilmProfile.
  */
-export function resolveHalationBloomUniformsV2(
-  profile: FilmProfileV2
-): HalationBloomUniforms {
+export function resolveHalationBloomUniformsV2(profile: FilmProfileV2): HalationBloomUniforms {
   const hal = profile.halation;
   const bloom = profile.bloom;
 

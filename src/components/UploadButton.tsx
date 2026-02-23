@@ -13,9 +13,7 @@ const isSupportedImageFile = (file: File) => {
   if (ACCEPTED_TYPES.has(file.type)) {
     return true;
   }
-  if (file.type.startsWith("image/")) {
-    return true;
-  }
+  // Fall back to extension check when MIME type is missing or generic
   return ACCEPTED_EXTENSIONS.test(file.name);
 };
 
@@ -62,12 +60,7 @@ export function UploadButton({
     >
       <Label className="flex cursor-pointer items-center gap-2" aria-busy={isImporting}>
         <Upload className="h-4 w-4" />
-        <span
-          className={cn(
-            compact ? "sr-only sm:not-sr-only" : "",
-            labelClassName
-          )}
-        >
+        <span className={cn(compact ? "sr-only sm:not-sr-only" : "", labelClassName)}>
           {isImporting ? "导入中..." : label}
         </span>
         <Input

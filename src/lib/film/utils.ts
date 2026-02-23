@@ -14,7 +14,7 @@ export const smoothstep = (edge0: number, edge1: number, x: number) => {
 
 const hash32 = (value: number) => {
   let x = value | 0;
-  x = (x ^ 61) ^ (x >>> 16);
+  x = x ^ 61 ^ (x >>> 16);
   x = x + (x << 3);
   x = x ^ (x >>> 4);
   x = Math.imul(x, 0x27d4eb2d);
@@ -33,9 +33,7 @@ export const hashString = (value: string) => {
 
 export const hashNoise2d = (x: number, y: number, seed: number) => {
   const mixed =
-    Math.imul(x | 0, 374761393) ^
-    Math.imul(y | 0, 668265263) ^
-    Math.imul(seed | 0, 2246822519);
+    Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(seed | 0, 2246822519);
   return hash32(mixed) / 4294967295;
 };
 

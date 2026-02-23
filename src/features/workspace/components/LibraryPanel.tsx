@@ -62,9 +62,7 @@ export const LibraryPanel = memo(
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">
-              素材库
-            </p>
+            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">素材库</p>
             <p className="text-sm text-white">{projectName}</p>
           </div>
           <Badge className="border-white/10 bg-white/5 text-slate-200">
@@ -131,10 +129,7 @@ export const LibraryPanel = memo(
             <span>{(totalSize / 1024 / 1024).toFixed(1)} MB</span>
           </div>
           <p
-            className={cn(
-              "min-h-[16px] text-amber-300",
-              !selectionNotice && "opacity-0",
-            )}
+            className={cn("min-h-[16px] text-amber-300", !selectionNotice && "opacity-0")}
             role="status"
             aria-live="polite"
           >
@@ -145,9 +140,7 @@ export const LibraryPanel = memo(
         <div
           className={cn(
             "space-y-2",
-            compact
-              ? "max-h-[45vh] overflow-y-auto"
-              : "max-h-[50vh] overflow-y-auto",
+            compact ? "max-h-[45vh] overflow-y-auto" : "max-h-[50vh] overflow-y-auto"
           )}
         >
           {filteredAssets.length === 0 && (
@@ -165,7 +158,7 @@ export const LibraryPanel = memo(
                 onClick={() => onSetActiveAssetId(asset.id)}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/60 p-2 text-left transition",
-                  isActive && "border-sky-200/40 bg-sky-300/10",
+                  isActive && "border-sky-200/40 bg-sky-300/10"
                 )}
               >
                 <img
@@ -175,9 +168,7 @@ export const LibraryPanel = memo(
                   loading="lazy"
                 />
                 <div className="min-w-0 flex-1 text-xs text-slate-300">
-                  <p className="font-medium text-slate-100 line-clamp-1">
-                    {asset.name}
-                  </p>
+                  <p className="font-medium text-slate-100 line-clamp-1">{asset.name}</p>
                   <p>分组：{asset.group ?? "未分组"}</p>
                 </div>
                 <label
@@ -199,7 +190,7 @@ export const LibraryPanel = memo(
         </div>
       </div>
     );
-  },
+  }
 );
 
 LibraryPanel.displayName = "LibraryPanel";

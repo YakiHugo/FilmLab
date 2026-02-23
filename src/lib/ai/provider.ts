@@ -17,8 +17,9 @@ export const AVAILABLE_MODELS: ModelOption[] = [
 
 export const DEFAULT_MODEL: ModelOption = AVAILABLE_MODELS[0];
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function resolveModel(provider: string, modelId: string): any {
+import type { LanguageModelV1 } from "ai";
+
+export function resolveModel(provider: string, modelId: string): LanguageModelV1 {
   switch (provider) {
     case "anthropic":
       return anthropic(modelId);

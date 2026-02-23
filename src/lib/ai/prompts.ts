@@ -151,7 +151,9 @@ export function buildSystemPrompt(context: PromptContext): string {
     parts.push(COLOR_MATCH_ADDITION);
     context.referenceImages.forEach((ref, i) => {
       if (ref.histogramSummary) {
-        parts.push(`Reference image ${i + 1} analysis: ${formatHistogramSummary(ref.histogramSummary)}`);
+        parts.push(
+          `Reference image ${i + 1} analysis: ${formatHistogramSummary(ref.histogramSummary)}`
+        );
       }
     });
   }
@@ -168,10 +170,26 @@ export function buildSystemPrompt(context: PromptContext): string {
     const adj = context.currentAdjustments;
     const nonDefault: string[] = [];
     const numericKeys = [
-      "exposure", "contrast", "highlights", "shadows", "whites", "blacks",
-      "temperature", "tint", "vibrance", "saturation", "clarity", "dehaze",
-      "curveHighlights", "curveLights", "curveDarks", "curveShadows",
-      "grain", "vignette", "sharpening", "noiseReduction",
+      "exposure",
+      "contrast",
+      "highlights",
+      "shadows",
+      "whites",
+      "blacks",
+      "temperature",
+      "tint",
+      "vibrance",
+      "saturation",
+      "clarity",
+      "dehaze",
+      "curveHighlights",
+      "curveLights",
+      "curveDarks",
+      "curveShadows",
+      "grain",
+      "vignette",
+      "sharpening",
+      "noiseReduction",
     ] as const;
     for (const key of numericKeys) {
       const val = adj[key];

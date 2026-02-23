@@ -8,7 +8,16 @@ import type {
   ToneModule,
 } from "@/types";
 import { normalizeFilmProfile } from "./profile";
-import { clamp, createRng, hashNoise2d, hashString, lerp, smoothstep, toByte, toUnit } from "./utils";
+import {
+  clamp,
+  createRng,
+  hashNoise2d,
+  hashString,
+  lerp,
+  smoothstep,
+  toByte,
+  toUnit,
+} from "./utils";
 
 export interface FilmPipelineContext {
   width: number;
@@ -32,10 +41,7 @@ const resolveSeed = (module: FilmModuleConfig, context: FilmPipelineContext) => 
   return hashString(`${module.id}:${key}`);
 };
 
-const applyColorScienceModule = (
-  data: Uint8ClampedArray,
-  module: ColorScienceModule
-) => {
+const applyColorScienceModule = (data: Uint8ClampedArray, module: ColorScienceModule) => {
   const amount = module.amount / 100;
   const lutStrength = module.params.lutStrength * amount;
   const tempShift = (module.params.temperatureShift / 100) * 0.14 * amount;
@@ -146,41 +152,55 @@ const applyToneModule = (data: Uint8ClampedArray, module: ToneModule) => {
   }
 };
 
-const blurFloatMap = (
-  source: Float32Array,
-  width: number,
-  height: number,
-  radius: number
-) => {
+/**
+ * Separable box blur using a sliding-window running sum.
+ *
+ * Complexity: O(width × height) regardless of radius (was O(w × h × r)).
+ * Uses clamped-edge sampling to match the original behavior.
+ */
+const blurFloatMap = (source: Float32Array, width: number, height: number, radius: number) => {
   if (radius <= 0) {
     return source.slice();
   }
 
-  const horizontal = new Float32Array(source.length);
+  const len = source.length;
+  const horizontal = new Float32Array(len);
+
+  // --- Horizontal pass (sliding window per row) ---
   for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      let sum = 0;
-      let count = 0;
-      for (let offset = -radius; offset <= radius; offset += 1) {
-        const sampleX = clamp(x + offset, 0, width - 1);
-        sum += source[y * width + sampleX];
-        count += 1;
-      }
-      horizontal[y * width + x] = sum / count;
+    const rowOffset = y * width;
+    // Seed the running sum for x = 0: sum of source[clamp(0+offset)] for offset in [-r, r]
+    let sum = 0;
+    for (let offset = -radius; offset <= radius; offset += 1) {
+      sum += source[rowOffset + clamp(offset, 0, width - 1)];
+    }
+    const diameter = radius * 2 + 1;
+    horizontal[rowOffset] = sum / diameter;
+
+    for (let x = 1; x < width; x += 1) {
+      // Add the new right sample, remove the old left sample
+      const addX = clamp(x + radius, 0, width - 1);
+      const removeX = clamp(x - radius - 1, 0, width - 1);
+      sum += source[rowOffset + addX] - source[rowOffset + removeX];
+      horizontal[rowOffset + x] = sum / diameter;
     }
   }
 
-  const output = new Float32Array(source.length);
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      let sum = 0;
-      let count = 0;
-      for (let offset = -radius; offset <= radius; offset += 1) {
-        const sampleY = clamp(y + offset, 0, height - 1);
-        sum += horizontal[sampleY * width + x];
-        count += 1;
-      }
-      output[y * width + x] = sum / count;
+  // --- Vertical pass (sliding window per column) ---
+  const output = new Float32Array(len);
+  for (let x = 0; x < width; x += 1) {
+    let sum = 0;
+    for (let offset = -radius; offset <= radius; offset += 1) {
+      sum += horizontal[clamp(offset, 0, height - 1) * width + x];
+    }
+    const diameter = radius * 2 + 1;
+    output[x] = sum / diameter;
+
+    for (let y = 1; y < height; y += 1) {
+      const addY = clamp(y + radius, 0, height - 1);
+      const removeY = clamp(y - radius - 1, 0, height - 1);
+      sum += horizontal[addY * width + x] - horizontal[removeY * width + x];
+      output[y * width + x] = sum / diameter;
     }
   }
 
@@ -331,7 +351,7 @@ const paintLightLeak = (
       const nx = x / Math.max(1, context.width - 1);
       const ny = y / Math.max(1, context.height - 1);
 
-      let axisDistance = 0;
+      let axisDistance: number;
       switch (edgeSelector) {
         case 0:
           axisDistance = Math.abs(nx - pivot);

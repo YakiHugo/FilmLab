@@ -1,11 +1,12 @@
 import { presets } from "@/data/presets";
-import type {
-  ColorGradingAdjustments,
-  EditingAdjustments,
-  HslColorKey,
-  HslAdjustments,
-  PresetAdjustments,
-  PresetAdjustmentKey,
+import {
+  ASPECT_RATIOS,
+  type ColorGradingAdjustments,
+  type EditingAdjustments,
+  type HslColorKey,
+  type HslAdjustments,
+  type PresetAdjustments,
+  type PresetAdjustmentKey,
 } from "@/types";
 
 const defaultHsl: HslAdjustments = {
@@ -36,28 +37,6 @@ const HSL_KEYS: HslColorKey[] = [
   "blue",
   "purple",
   "magenta",
-];
-
-const VALID_ASPECT_RATIOS: EditingAdjustments["aspectRatio"][] = [
-  "free",
-  "original",
-  "1:1",
-  "2:1",
-  "1:2",
-  "4:3",
-  "3:4",
-  "7:5",
-  "5:7",
-  "11:8.5",
-  "8.5:11",
-  "16:10",
-  "10:16",
-  "4:5",
-  "5:4",
-  "3:2",
-  "2:3",
-  "16:9",
-  "9:16",
 ];
 
 const normalizeRightAngleRotation = (value: number) => {
@@ -138,15 +117,11 @@ const normalizeAdjustmentsUncached = (
     ...(grading?.highlights ?? {}),
   };
   merged.colorGrading.blend =
-    typeof grading?.blend === "number"
-      ? grading.blend
-      : defaults.colorGrading.blend;
+    typeof grading?.blend === "number" ? grading.blend : defaults.colorGrading.blend;
   merged.colorGrading.balance =
-    typeof grading?.balance === "number"
-      ? grading.balance
-      : defaults.colorGrading.balance;
+    typeof grading?.balance === "number" ? grading.balance : defaults.colorGrading.balance;
 
-  merged.aspectRatio = VALID_ASPECT_RATIOS.includes(merged.aspectRatio)
+  merged.aspectRatio = (ASPECT_RATIOS as readonly string[]).includes(merged.aspectRatio)
     ? merged.aspectRatio
     : defaults.aspectRatio;
   merged.customAspectRatio =
@@ -177,9 +152,7 @@ const normalizeAdjustmentsUncached = (
     48
   );
   merged.timestampOpacity = clampValue(
-    Number.isFinite(merged.timestampOpacity)
-      ? merged.timestampOpacity
-      : defaults.timestampOpacity,
+    Number.isFinite(merged.timestampOpacity) ? merged.timestampOpacity : defaults.timestampOpacity,
     0,
     100
   );
@@ -276,8 +249,7 @@ const PRESET_LIMITS: Record<PresetAdjustmentKey, { min: number; max: number }> =
   colorNoiseReduction: { min: 0, max: 100 },
 };
 
-const clampValue = (value: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, value));
+const clampValue = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 export const applyPresetAdjustments = (
   base: EditingAdjustments,

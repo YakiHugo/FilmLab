@@ -17,7 +17,8 @@ function loadImage(src: string | Blob): Promise<HTMLImageElement> {
     img.crossOrigin = "anonymous";
 
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`Failed to load LUT image: ${typeof src === "string" ? src : "Blob"}`));
+    img.onerror = () =>
+      reject(new Error(`Failed to load LUT image: ${typeof src === "string" ? src : "Blob"}`));
 
     if (src instanceof Blob) {
       const url = URL.createObjectURL(src);
@@ -46,10 +47,7 @@ function loadImage(src: string | Blob): Promise<HTMLImageElement> {
  * We read the 2D image data and remap it into a flat 3D array ordered as
  * [R][G][B] with R varying fastest, suitable for `gl.texImage3D`.
  */
-function parseHaldCLUT(
-  imageData: ImageData,
-  level: number
-): Uint8Array {
+function parseHaldCLUT(imageData: ImageData, level: number): Uint8Array {
   const size = level * level; // 64 for level 8, 256 for level 16
   const data = new Uint8Array(size * size * size * 4);
 
@@ -77,29 +75,14 @@ function parseHaldCLUT(
 /**
  * Upload parsed 3D LUT data as a WebGL 3D texture.
  */
-function upload3DTexture(
-  gl: WebGL2RenderingContext,
-  data: Uint8Array,
-  size: number
-): WebGLTexture {
+function upload3DTexture(gl: WebGL2RenderingContext, data: Uint8Array, size: number): WebGLTexture {
   const texture = gl.createTexture();
   if (!texture) {
     throw new Error("Failed to create WebGL 3D texture for LUT");
   }
 
   gl.bindTexture(gl.TEXTURE_3D, texture);
-  gl.texImage3D(
-    gl.TEXTURE_3D,
-    0,
-    gl.RGBA8,
-    size,
-    size,
-    size,
-    0,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    data
-  );
+  gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGBA8, size, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
   gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -112,10 +95,7 @@ function upload3DTexture(
 /**
  * Validate a HaldCLUT image dimensions match the expected level.
  */
-function validateHaldCLUT(
-  image: HTMLImageElement,
-  level: number
-): void {
+function validateHaldCLUT(image: HTMLImageElement, level: number): void {
   const size = level * level;
   const expectedPixels = size * size * size;
   const expectedWidth = size * level; // e.g., 64 * 8 = 512
@@ -123,7 +103,7 @@ function validateHaldCLUT(
   if (image.width !== expectedWidth || image.height !== expectedWidth) {
     throw new Error(
       `Invalid HaldCLUT dimensions: expected ${expectedWidth}x${expectedWidth}, ` +
-      `got ${image.width}x${image.height} for level ${level}`
+        `got ${image.width}x${image.height} for level ${level}`
     );
   }
 
@@ -133,6 +113,31 @@ function validateHaldCLUT(
       `HaldCLUT has insufficient pixels: need ${expectedPixels}, got ${actualPixels}`
     );
   }
+}
+
+/**
+ * Read pixel data from an image, releasing the temporary canvas ASAP.
+ *
+ * For level-16 HaldCLUT (4096x4096) the canvas alone holds ~67MB.
+ * We zero-size it immediately after `getImageData` so the browser can
+ * reclaim that memory before we allocate the 3D texture buffer.
+ */
+function readPixels(image: HTMLImageElement): ImageData {
+  const canvas = document.createElement("canvas");
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    canvas.width = 0;
+    canvas.height = 0;
+    throw new Error("Failed to create 2D context for HaldCLUT parsing");
+  }
+  ctx.drawImage(image, 0, 0);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  // Release canvas backing store immediately
+  canvas.width = 0;
+  canvas.height = 0;
+  return imageData;
 }
 
 /**
@@ -154,20 +159,13 @@ export async function loadHaldCLUT(
   // 2. Validate dimensions
   validateHaldCLUT(image, level);
 
-  // 3. Read pixels via Canvas 2D
-  const canvas = document.createElement("canvas");
-  canvas.width = image.width;
-  canvas.height = image.height;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    throw new Error("Failed to create 2D context for HaldCLUT parsing");
-  }
-  ctx.drawImage(image, 0, 0);
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  // 3. Read pixels and release the canvas immediately
+  const imageData = readPixels(image);
 
-  // 4. Remap 2D pixels into 3D texture data
+  // 4. Remap 2D pixels into 3D texture data, then drop imageData reference
   const size = level * level;
   const data = parseHaldCLUT(imageData, level);
+  // imageData is now unreferenced and eligible for GC
 
   // 5. Upload as WebGL 3D Texture
   return upload3DTexture(gl, data, size);

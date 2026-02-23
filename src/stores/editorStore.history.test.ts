@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
-import {
-  MAX_HISTORY_PER_ASSET,
-  type EditorAssetSnapshot,
-} from "@/pages/editor/history";
+import { MAX_HISTORY_PER_ASSET, type EditorAssetSnapshot } from "@/features/editor/history";
 import { useEditorStore } from "./editorStore";
 
 const ASSET_ID = "asset-1";
@@ -49,19 +46,12 @@ describe("editorStore history", () => {
 
     const undoSnapshot = store.undoSnapshot(ASSET_ID, createSnapshot(3));
     expect(undoSnapshot?.presetId).toBe("preset-2");
-    expect(getAssetHistory()?.past.map((item) => item.presetId)).toEqual([
-      "preset-1",
-    ]);
-    expect(getAssetHistory()?.future.map((item) => item.presetId)).toEqual([
-      "preset-3",
-    ]);
+    expect(getAssetHistory()?.past.map((item) => item.presetId)).toEqual(["preset-1"]);
+    expect(getAssetHistory()?.future.map((item) => item.presetId)).toEqual(["preset-3"]);
 
     const redoSnapshot = store.redoSnapshot(ASSET_ID, createSnapshot(2));
     expect(redoSnapshot?.presetId).toBe("preset-3");
-    expect(getAssetHistory()?.past.map((item) => item.presetId)).toEqual([
-      "preset-1",
-      "preset-2",
-    ]);
+    expect(getAssetHistory()?.past.map((item) => item.presetId)).toEqual(["preset-1", "preset-2"]);
     expect(getAssetHistory()?.future).toHaveLength(0);
   });
 
@@ -73,10 +63,7 @@ describe("editorStore history", () => {
 
     store.pushHistory(ASSET_ID, createSnapshot(2));
 
-    expect(getAssetHistory()?.past.map((item) => item.presetId)).toEqual([
-      "preset-1",
-      "preset-2",
-    ]);
+    expect(getAssetHistory()?.past.map((item) => item.presetId)).toEqual(["preset-1", "preset-2"]);
     expect(getAssetHistory()?.future).toHaveLength(0);
   });
 

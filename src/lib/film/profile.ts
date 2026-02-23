@@ -13,13 +13,7 @@ import { clamp } from "./utils";
 
 const FILM_PROFILE_VERSION = 1 as const;
 
-const MODULE_ORDER: FilmModuleId[] = [
-  "colorScience",
-  "tone",
-  "scan",
-  "grain",
-  "defects",
-];
+const MODULE_ORDER: FilmModuleId[] = ["colorScience", "tone", "scan", "grain", "defects"];
 
 const createDefaultColorScienceModule = (): ColorScienceModule => ({
   id: "colorScience",
@@ -450,7 +444,7 @@ export const createFilmProfileFromAdjustments = (
   return normalizeFilmProfile(profile);
 };
 
-export const getFilmModule = <TId extends FilmModuleId>(
-  profile: FilmProfile,
-  moduleId: TId
-) => profile.modules.find((module) => module.id === moduleId) as Extract<FilmModuleConfig, { id: TId }> | undefined;
+export const getFilmModule = <TId extends FilmModuleId>(profile: FilmProfile, moduleId: TId) =>
+  profile.modules.find((module) => module.id === moduleId) as
+    | Extract<FilmModuleConfig, { id: TId }>
+    | undefined;

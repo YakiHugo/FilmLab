@@ -11,10 +11,7 @@ const landingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   validateSearch: (search: Record<string, unknown>) => ({
-    step:
-      search.step === "style" || search.step === "export"
-        ? search.step
-        : "library",
+    step: search.step === "style" || search.step === "export" ? search.step : "library",
   }),
   component: Workspace,
 });
