@@ -33,14 +33,13 @@
 
 - 编辑器支持基础参数、曲线/HSL、胶片模块参数覆盖等调节。
 - 已实现 `FilmProfile` 模块化渲染链路（color/tone/scan/grain/defects）。
-- 渲染策略为 WebGL2 优先、CPU pipeline 回退。
-- **（新）PixiJS 多 Pass 渲染引擎已作为默认 GPU 路径**：
+- **PixiJS 多 Pass 渲染引擎为唯一 GPU 渲染路径**：
   - `MasterAdjustmentFilter`：OKLab HSL + LMS 白平衡 + 科学色彩调整。
   - `FilmSimulationFilter`：特性曲线 + 3D LUT（HaldCLUT）+ Grain + Vignette。
   - `HalationBloomFilter`：光晕与泛光效果。
   - `LUTLoader` / `LUTCache`：HaldCLUT 解析 → WebGL 3D Texture + LRU 缓存。
   - `PixiRenderer` 封装 + `uniformResolvers` 兼容层（v1 数据 → 新 Uniform）。
-  - 动态加载 PixiJS 不影响默认包体积；可通过 `window.__FILMLAB_USE_LEGACY = true` 回退到旧管线。
+  - 动态加载 PixiJS 不影响默认包体积；WebGL2 不可用时抛出 `RenderError` 提示用户。
 
 ### 2.5 导出
 

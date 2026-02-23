@@ -141,27 +141,11 @@ Stored asset payload includes blob, metadata, adjustments, film profile info, an
 
 The function first applies geometry transforms (crop/scale/rotate/flip), then chooses a render backend.
 
-## 4.2 Backend selection order
+## 4.2 Backend
 
-1. PixiJS multi-pass backend (default)
-2. Legacy WebGL2 backend (fallback)
-3. CPU fallback backend
+PixiJS multi-pass pipeline is the sole rendering backend. When WebGL2 is unavailable or produces an invalid frame, a `RenderError` is thrown and surfaced to the user.
 
-When PixiJS returns an invalid frame (for example near-transparent or near-black output while source content is visible), runtime will automatically fall back to legacy WebGL2/CPU for that render.
-
-Debug escape hatch to force legacy renderer:
-
-```js
-window.__FILMLAB_USE_LEGACY = true;
-```
-
-## 4.3 Legacy backend (`src/lib/film/`)
-
-- `webgl2.ts`: legacy single-pass GPU pipeline
-- `pipeline.ts`: CPU pixel pipeline fallback
-- `profile.ts`: v1 module-based profile normalization/mapping
-
-## 4.4 PixiJS backend (`src/lib/renderer/`)
+## 4.3 PixiJS backend (`src/lib/renderer/`)
 
 `PixiRenderer.ts` composes 3 passes:
 
@@ -182,7 +166,7 @@ window.__FILMLAB_USE_LEGACY = true;
   - threshold -> blur H/V -> composite
   - uses filter texture pool to avoid leaks
 
-## 4.5 Uniform mapping
+## 4.4 Uniform mapping
 
 `src/lib/renderer/uniformResolvers.ts` contains all mapping entry points:
 
@@ -269,10 +253,9 @@ Rendering and shader paths currently rely more on manual/in-browser verification
 
 ## 9. Known Issues and Constraints
 
-- PixiJS is the default GPU path; legacy WebGL2 available via `window.__FILMLAB_USE_LEGACY = true`
+- PixiJS is the sole GPU rendering path; `RenderError` is thrown when WebGL2 is unavailable
 - PixiJS v7 does not natively handle `sampler3D`, so `FilmSimulationFilter` does manual texture unit binding
 - Repository still has mojibake Chinese strings in some UI/source files and docs; UTF-8 cleanup is still needed
-- Multi-backend behavior must stay consistent across PixiJS, legacy WebGL2, and CPU fallback
 
 ## 10. Change Checklist (Editor/Render PR)
 
@@ -282,7 +265,7 @@ When modifying editor/render behavior, verify:
 2. Uniform mapping is updated in `uniformResolvers.ts`
 3. Shader config/templates remain consistent
 4. `pnpm generate:shaders` output compiles and runs
-5. Both PixiJS default and legacy escape-hatch paths still render
+5. PixiJS rendering path works correctly
 6. Export path (`renderImageToBlob`) remains correct
 7. IndexedDB payload compatibility is preserved
 
@@ -292,6 +275,6 @@ When modifying editor/render behavior, verify:
 - `AGENT.md`: agent-oriented engineering baseline
 - `docs/editor-change-history-undo-redo.md`: product + technical plan for editor undo/redo and change history
 - `docs/editor-histogram.md`: histogram module behavior, data contract, and iteration guide
-- `docs/film_pipeline.md`: legacy film pipeline notes
+- `docs/film_pipeline.md`: film profile data model notes
 - `docs/project_status.md`: project-level status tracking
 

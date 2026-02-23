@@ -22,8 +22,18 @@ uniform float u_saturation;
 uniform float u_vibrance;
 uniform float u_luminance;
 
+// -- Color Grading --
+uniform vec3  u_colorGradeShadows;    // (hueDeg, sat, luminance)
+uniform vec3  u_colorGradeMidtones;   // (hueDeg, sat, luminance)
+uniform vec3  u_colorGradeHighlights; // (hueDeg, sat, luminance)
+uniform float u_colorGradeBlend;      // [0, 1]
+uniform float u_colorGradeBalance;    // [-1, 1]
+
 // -- Detail --
 uniform float u_dehaze;
+
+// -- Output --
+uniform bool u_outputSRGB;  // true when Film pass is skipped
 
 // ---- sRGB <-> Linear ----
 
@@ -110,6 +120,42 @@ float luminance(vec3 c) {
   return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
 
+// ---- 3-way color grading ----
+vec3 hsv2rgbFast(vec3 c) {
+  vec3 p = abs(fract(c.xxx + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+  vec3 rgb = clamp(p - 1.0, 0.0, 1.0);
+  return c.z * mix(vec3(1.0), rgb, c.y);
+}
+
+vec3 gradeTint(vec3 grade) {
+  float hue = fract((grade.x + 180.0) / 360.0);
+  float sat = clamp(grade.y, 0.0, 1.0);
+  vec3 rgb = hsv2rgbFast(vec3(hue, 1.0, 1.0));
+  return (rgb - vec3(0.5)) * sat;
+}
+
+vec3 applyColorGrading(vec3 color, float lum) {
+  float blend = clamp(u_colorGradeBlend, 0.0, 1.0);
+  if (blend < 0.0001) {
+    return color;
+  }
+
+  float balance = clamp(u_colorGradeBalance, -1.0, 1.0);
+  float shadowEdge = clamp(0.45 + balance * 0.2, 0.2, 0.7);
+  float highlightEdge = clamp(0.55 + balance * 0.2, 0.3, 0.8);
+  float wShadows = 1.0 - smoothstep(0.05, shadowEdge, lum);
+  float wHighlights = smoothstep(highlightEdge, 0.95, lum);
+  float wMidtones = clamp(1.0 - wShadows - wHighlights, 0.0, 1.0);
+
+  vec3 tint = gradeTint(u_colorGradeShadows) * wShadows + gradeTint(u_colorGradeMidtones) * wMidtones + gradeTint(u_colorGradeHighlights) * wHighlights;
+  color += tint * blend * 0.45;
+
+  float luminanceShift = (u_colorGradeShadows.z * wShadows + u_colorGradeMidtones.z * wMidtones + u_colorGradeHighlights.z * wHighlights) * blend * 0.25;
+  color *= (1.0 + luminanceShift);
+
+  return clamp(color, 0.0, 1.0);
+}
+
 // ---- Main ----
 
 void main() {
@@ -164,15 +210,24 @@ void main() {
   // Luminance
   lab.x *= (1.0 + u_luminance * 0.01);
   color = oklab2rgb(lab);
+  color = max(color, vec3(0.0));  // gamut clamp after OKLab round-trip
 
-  // Step 8: Dehaze
+  // Step 8: 3-way color grading
+  lum = luminance(color);
+  color = applyColorGrading(color, lum);
+
+  // Step 9: Dehaze
   if (abs(u_dehaze) > 0.001) {
     float haze = u_dehaze * 0.01;
     color = (color - haze * 0.1) / max(1.0 - haze * 0.3, 0.1);
+    color = max(color, vec3(0.0));
   }
 
-  // Step 9: Linear -> sRGB
-  color = linear2srgb(clamp(color, 0.0, 1.0));
+  // Step 10: Output (linear if Film follows, sRGB if final)
+  color = clamp(color, 0.0, 1.0);
+  if (u_outputSRGB) {
+    color = linear2srgb(color);
+  }
 
   outColor = vec4(color, 1.0);
 }

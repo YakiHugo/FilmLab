@@ -25,9 +25,8 @@ Each module has:
 - `src/data/filmProfiles.ts` - built-in film profile assets
 - `src/lib/film/profile.ts` - defaults, normalization, adjustment -> profile mapping
 - `src/lib/film/registry.ts` - preset/profile resolution and intensity scaling
-- `src/lib/film/pipeline.ts` - pixel pipeline execution
-- `src/lib/film/webgl2.ts` - WebGL2 renderer backend
-- `src/lib/imageProcessing.ts` - crop/transform + film pipeline integration
+- `src/lib/renderer/` - PixiJS multi-pass rendering pipeline
+- `src/lib/imageProcessing.ts` - crop/transform + rendering integration
 
 ## Seed behavior
 
@@ -42,8 +41,8 @@ Use `seedKey` for stable asset-level results in preview/export.
 
 ## Renderer strategy
 
-`imageProcessing` will try WebGL2 first via `renderFilmProfileWebGL2`, then fallback to
-CPU `applyFilmPipeline` when WebGL2 is unavailable or fails.
+`imageProcessing` uses the PixiJS multi-pass pipeline as the sole rendering backend.
+Film profile data is mapped to shader uniforms via `src/lib/renderer/uniformResolvers.ts`.
 
 ## Module overrides
 

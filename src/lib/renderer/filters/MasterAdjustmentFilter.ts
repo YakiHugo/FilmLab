@@ -35,6 +35,7 @@ export class MasterAdjustmentFilter extends Filter {
       u_colorGradeBlend: 0.5,
       u_colorGradeBalance: 0.0,
       u_dehaze: 0.0,
+      u_outputSRGB: true,
     });
   }
 

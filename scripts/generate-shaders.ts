@@ -85,12 +85,14 @@ const FILM_UNIFORMS: Record<string, string[]> = {
     "uniform float u_grainShadowBias;",
     "uniform float u_grainSeed;",
     "uniform bool  u_grainIsColor;",
+    "uniform vec2  u_textureSize;",
   ],
   vignette: [
     "uniform bool  u_vignetteEnabled;",
     "uniform float u_vignetteAmount;",
     "uniform float u_vignetteMidpoint;",
     "uniform float u_vignetteRoundness;",
+    "uniform float u_aspectRatio;",
   ],
 };
 
@@ -141,15 +143,23 @@ function removeFunctionBlock(source: string, funcName: string): string {
   const defMatch = defPattern.exec(source);
   if (!defMatch) return source;
 
-  // Find start — include preceding comment lines
+  // Find start — include preceding comment lines, but stop at blank lines
+  // that separate this block from unrelated code (e.g. uniform declarations).
   let start = defMatch.index;
   const lines = source.substring(0, start).split("\n");
+  // Walk backwards over comment lines only
   while (
     lines.length > 0 &&
-    (lines[lines.length - 1].trim().startsWith("//") ||
-      lines[lines.length - 1].trim() === "")
+    lines[lines.length - 1].trim().startsWith("//")
   ) {
     start -= lines.pop()!.length + 1; // +1 for newline
+  }
+  // Remove at most one preceding blank line
+  if (
+    lines.length > 0 &&
+    lines[lines.length - 1].trim() === ""
+  ) {
+    start -= lines.pop()!.length + 1;
   }
   start = Math.max(0, start);
 
@@ -230,6 +240,11 @@ function generateMasterShader(): string {
     parts.push(...MASTER_UNIFORMS.dehaze);
   }
 
+  // Output mode — when Film pass is skipped, Master must encode sRGB itself
+  parts.push("");
+  parts.push("// -- Output --");
+  parts.push("uniform bool u_outputSRGB;  // true when Film pass is skipped");
+
   // Function definitions — in dependency order
   parts.push("");
   parts.push(loadTemplate("srgb.glsl"));
@@ -265,8 +280,8 @@ function generateMasterShader(): string {
     parts.push("vec3 gradeTint(vec3 grade) {");
     parts.push("  float hue = fract((grade.x + 180.0) / 360.0);");
     parts.push("  float sat = clamp(grade.y, 0.0, 1.0);");
-    parts.push("  vec3 rgb = hsv2rgbFast(vec3(hue, sat, 1.0));");
-    parts.push("  return rgb - vec3(0.5);");
+    parts.push("  vec3 rgb = hsv2rgbFast(vec3(hue, 1.0, 1.0));");
+    parts.push("  return (rgb - vec3(0.5)) * sat;");
     parts.push("}");
     parts.push("");
     parts.push("vec3 applyColorGrading(vec3 color, float lum) {");
@@ -408,6 +423,7 @@ function generateMasterShader(): string {
     parts.push("  // Luminance");
     parts.push("  lab.x *= (1.0 + u_luminance * 0.01);");
     parts.push("  color = oklab2rgb(lab);");
+    parts.push("  color = max(color, vec3(0.0));  // gamut clamp after OKLab round-trip");
   }
 
   // Step 8: 3-way Color Grading
@@ -432,13 +448,17 @@ function generateMasterShader(): string {
     parts.push(
       "    color = (color - haze * 0.1) / max(1.0 - haze * 0.3, 0.1);"
     );
+    parts.push("    color = max(color, vec3(0.0));");
     parts.push("  }");
   }
 
-  // Step 10: Linear -> sRGB (always)
+  // Step 10: Clamp and conditionally encode sRGB
   parts.push("");
-  parts.push("  // Step 10: Linear -> sRGB");
-  parts.push("  color = linear2srgb(clamp(color, 0.0, 1.0));");
+  parts.push("  // Step 10: Output (linear if Film follows, sRGB if final)");
+  parts.push("  color = clamp(color, 0.0, 1.0);");
+  parts.push("  if (u_outputSRGB) {");
+  parts.push("    color = linear2srgb(color);");
+  parts.push("  }");
   parts.push("");
   parts.push("  outColor = vec4(color, 1.0);");
   parts.push("}");
@@ -498,7 +518,7 @@ function generateFilmShader(): string {
 
   if (cfg.grain.enabled) {
     parts.push("");
-    parts.push("// Layer 6: Grain");
+    parts.push("// Layer 5: Grain");
     parts.push(...FILM_UNIFORMS.grain);
   }
 
@@ -509,7 +529,11 @@ function generateFilmShader(): string {
   }
 
   // Function definitions — ordered to match original shader layout:
-  // luminance → hash12 → toneResponse → lut3d → colorCast → grain → vignette
+  // srgb → luminance → hash12 → toneResponse → lut3d → colorCast → grain → vignette
+  // sRGB conversion is always needed (Film pass does final linear→sRGB)
+  parts.push("");
+  parts.push(loadTemplate("srgb.glsl"));
+
   const needsLuminance = cfg.colorCast.enabled || cfg.grain.enabled;
   if (needsLuminance) {
     parts.push("");
@@ -578,6 +602,9 @@ function generateFilmShader(): string {
     parts.push("  color = applyVignette(color);");
   }
 
+  parts.push("");
+  parts.push("  // Final: Linear -> sRGB output");
+  parts.push("  color = linear2srgb(clamp(color, 0.0, 1.0));");
   parts.push("");
   parts.push("  outColor = vec4(color, 1.0);");
   parts.push("}");

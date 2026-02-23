@@ -57,7 +57,7 @@ export interface FilmUniforms {
   u_colorCastMidtones: [number, number, number]; // RGB offset
   u_colorCastHighlights: [number, number, number]; // RGB offset
 
-  // Layer 6: Grain
+  // Layer 5: Grain
   u_grainEnabled: boolean;
   u_grainAmount: number; // [0, 1]
   u_grainSize: number; // [0.5, 2.0]

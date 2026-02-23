@@ -101,8 +101,8 @@ export function resolveFilmUniforms(
     // Layer 1: Tone Response
     // Map from legacy tone module -- derive S-curve params from tone settings
     u_toneEnabled: toneAmount > 0,
-    u_shoulder: 0.8, // Default shoulder (could derive from highlights/whites)
-    u_toe: 0.3, // Default toe (could derive from shadows/blacks)
+    u_shoulder: 0, // Identity for v1 profiles; v2 profiles specify explicit values
+    u_toe: 0, // Identity for v1 profiles; v2 profiles specify explicit values
     u_gamma: 1.0,
 
     // Layer 2: Color Matrix (derived from colorScience.rgbMix as diagonal)
@@ -136,7 +136,7 @@ export function resolveFilmUniforms(
     u_colorCastMidtones: [warmthScale * 0.3, 0, -warmthScale * 0.3],
     u_colorCastHighlights: [warmthScale * 0.1, 0, -warmthScale * 0.1],
 
-    // Layer 6: Grain
+    // Layer 5: Grain
     u_grainEnabled: grainAmount > 0 && (grain?.params.amount ?? 0) > 0,
     u_grainAmount: (grain?.params.amount ?? 0) * grainAmount,
     u_grainSize: grain?.params.size ?? 0.5,
@@ -213,7 +213,7 @@ export function resolveFilmUniformsV2(
     u_colorCastMidtones: cc?.midtones ?? [0, 0, 0],
     u_colorCastHighlights: cc?.highlights ?? [0, 0, 0],
 
-    // Layer 6: Grain
+    // Layer 5: Grain
     u_grainEnabled: profile.grain.enabled && profile.grain.amount > 0,
     u_grainAmount: profile.grain.amount,
     u_grainSize: profile.grain.size,

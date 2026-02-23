@@ -1,15 +1,18 @@
 import {
-  applyFilmPipeline,
   createFilmProfileFromAdjustments,
-  disposeWebGL2Renderer,
   ensureFilmProfile,
-  renderFilmProfileWebGL2,
 } from "@/lib/film";
 import { normalizeAdjustments } from "@/lib/adjustments";
-import { applyColorGradingToImageData } from "@/lib/colorGrading";
 import { applyTimestampOverlay } from "@/lib/timestampOverlay";
 import { clamp } from "@/lib/math";
 import type { EditingAdjustments, FilmProfile } from "@/types";
+
+export class RenderError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "RenderError";
+  }
+}
 
 export const resolveAspectRatio = (
   value: EditingAdjustments["aspectRatio"],
@@ -176,13 +179,12 @@ interface RenderImageOptions {
   adjustments: EditingAdjustments;
   filmProfile?: FilmProfile;
   timestampText?: string | null;
-  preferWebGL2?: boolean;
-  preferPixi?: boolean;
   targetSize?: RenderTargetSize;
   maxDimension?: number;
   seedKey?: string;
   renderSeed?: number;
   exportSeed?: number;
+  skipHalationBloom?: boolean;
   signal?: AbortSignal;
 }
 
@@ -202,112 +204,17 @@ const resolveProfile = (adjustments: EditingAdjustments, providedProfile?: FilmP
   return createFilmProfileFromAdjustments(normalizeAdjustments(adjustments));
 };
 
-interface CanvasStats {
-  meanLuma: number;
-  minLuma: number;
-  maxLuma: number;
-  varianceLuma: number;
-  meanAlpha: number;
-  maxAlpha: number;
-}
-
-const SAMPLE_SIZE = 24;
-
-// Reuse a single probe canvas for buildCanvasStats to avoid DOM allocation per call
-let _probeCanvas: HTMLCanvasElement | null = null;
-let _probeContext: CanvasRenderingContext2D | null = null;
-
-const buildCanvasStats = (canvas: HTMLCanvasElement): CanvasStats | null => {
-  if (!_probeCanvas) {
-    _probeCanvas = document.createElement("canvas");
-    _probeCanvas.width = SAMPLE_SIZE;
-    _probeCanvas.height = SAMPLE_SIZE;
-    _probeContext = _probeCanvas.getContext("2d", { willReadFrequently: true });
-  }
-  const context = _probeContext;
-  if (!context) {
-    return null;
-  }
-
-  context.clearRect(0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
-  context.drawImage(canvas, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
-
-  const data = context.getImageData(0, 0, SAMPLE_SIZE, SAMPLE_SIZE).data;
-  const pixelCount = SAMPLE_SIZE * SAMPLE_SIZE;
-
-  let minLuma = 1;
-  let maxLuma = 0;
-  let maxAlpha = 0;
-  let sumLuma = 0;
-  let sumLumaSquared = 0;
-  let sumAlpha = 0;
-
-  for (let i = 0; i < data.length; i += 4) {
-    const red = (data[i] ?? 0) / 255;
-    const green = (data[i + 1] ?? 0) / 255;
-    const blue = (data[i + 2] ?? 0) / 255;
-    const alpha = (data[i + 3] ?? 0) / 255;
-    const luma = red * 0.2126 + green * 0.7152 + blue * 0.0722;
-
-    minLuma = Math.min(minLuma, luma);
-    maxLuma = Math.max(maxLuma, luma);
-    maxAlpha = Math.max(maxAlpha, alpha);
-    sumLuma += luma;
-    sumLumaSquared += luma * luma;
-    sumAlpha += alpha;
-  }
-
-  const meanLuma = sumLuma / pixelCount;
-  const varianceLuma = Math.max(0, sumLumaSquared / pixelCount - meanLuma * meanLuma);
-
-  return {
-    meanLuma,
-    minLuma,
-    maxLuma,
-    varianceLuma,
-    meanAlpha: sumAlpha / pixelCount,
-    maxAlpha,
-  };
-};
-
-const isPixiOutputValid = (sourceCanvas: HTMLCanvasElement, resultCanvas: HTMLCanvasElement) => {
-  const sourceStats = buildCanvasStats(sourceCanvas);
-  const resultStats = buildCanvasStats(resultCanvas);
-
-  if (!sourceStats || !resultStats) {
-    return true;
-  }
-
-  const sourceHasVisibleContent = sourceStats.maxLuma > 0.08 || sourceStats.varianceLuma > 0.0008;
-
-  if (sourceHasVisibleContent && resultStats.maxAlpha < 0.02) {
-    return false;
-  }
-
-  const outputNearBlack =
-    resultStats.maxLuma < 0.02 && resultStats.meanLuma < 0.01 && resultStats.varianceLuma < 0.0002;
-
-  if (sourceHasVisibleContent && outputNearBlack) {
-    return false;
-  }
-
-  return true;
-};
-
-/** Debug escape hatch: force legacy WebGL2 renderer via console. */
-const isLegacyRendererForced = (): boolean =>
-  typeof window !== "undefined" && (window as any).__FILMLAB_USE_LEGACY === true;
-
 /**
- * Lazy-load and invoke the PixiJS multi-pass renderer (default GPU path).
+ * Lazy-load and invoke the PixiJS multi-pass renderer.
  * Dynamically imports PixiJS on first call to avoid bloating the initial bundle.
+ * This is the sole GPU rendering path — throws RenderError on failure.
  */
-const tryPixiRender = async (
+const renderWithPixi = async (
   sourceCanvas: HTMLCanvasElement,
   adjustments: EditingAdjustments,
   filmProfile: FilmProfile | undefined,
-  options: { seedKey?: string; renderSeed?: number; exportSeed?: number }
-): Promise<HTMLCanvasElement | null> => {
+  options: { seedKey?: string; renderSeed?: number; exportSeed?: number; skipHalationBloom?: boolean }
+): Promise<HTMLCanvasElement> => {
   try {
     // Use cached modules or resolve on first call
     if (!_pixiModuleCache) {
@@ -342,7 +249,9 @@ const tryPixiRender = async (
       if (!pixiRendererInstance.isWebGL2) {
         pixiRendererInstance.dispose();
         pixiRendererInstance = null;
-        return null;
+        throw new RenderError(
+          "WebGL2 is not available. FilmLab requires a browser with WebGL2 support for rendering."
+        );
       }
     }
 
@@ -359,28 +268,31 @@ const tryPixiRender = async (
       ? resolveProfile(adjustments, filmProfile)
       : resolveProfile(adjustments);
     const filmUniforms = resolveFilmUniforms(resolvedProfile, {
-      grainSeed: options.renderSeed ?? Date.now(),
+      grainSeed: options.exportSeed ?? options.renderSeed ?? Date.now(),
     });
 
     // Resolve Halation/Bloom uniforms from the scan module
     const halationBloomUniforms = resolveHalationBloomUniforms(resolvedProfile);
 
     // Render with all passes (Master + Film + Halation/Bloom)
-    renderer.render(masterUniforms, filmUniforms, undefined, halationBloomUniforms);
-    if (!isPixiOutputValid(sourceCanvas, renderer.canvas)) {
-      console.warn("PixiJS render produced an invalid frame, falling back.");
-      return null;
-    }
+    renderer.render(
+      masterUniforms,
+      filmUniforms,
+      options.skipHalationBloom ? { skipHalationBloom: true } : undefined,
+      halationBloomUniforms
+    );
 
     return renderer.canvas;
   } catch (e) {
-    console.warn("PixiJS render failed, falling back to legacy renderer:", e);
-    // Dispose the broken renderer so we don't try again
-    if (pixiRendererInstance) {
+    // Dispose the broken renderer so next call creates a fresh one
+    if (pixiRendererInstance && !(e instanceof RenderError && e.message.startsWith("WebGL2 is not"))) {
       pixiRendererInstance.dispose();
       pixiRendererInstance = null;
     }
-    return null;
+    if (e instanceof RenderError) {
+      throw e;
+    }
+    throw new RenderError("PixiJS render failed", { cause: e });
   }
 };
 
@@ -388,10 +300,6 @@ const tryPixiRender = async (
 let pixiRendererInstance: InstanceType<
   typeof import("@/lib/renderer/PixiRenderer").PixiRenderer
 > | null = null;
-const pixiFallbackSeedKeys = new Set<string>();
-/** Periodically allow retrying PixiJS for previously-failed seed keys. */
-const PIXI_FALLBACK_RETRY_MS = 30_000;
-let _pixiFallbackClearTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Render mutex: serialize access to the singleton PixiJS renderer
 let _renderMutexPromise: Promise<void> = Promise.resolve();
@@ -404,7 +312,7 @@ const acquireRenderMutex = (): Promise<() => void> => {
   return prev.then(() => release!);
 };
 
-// Cache resolved dynamic imports so subsequent tryPixiRender calls skip await overhead
+// Cache resolved dynamic imports so subsequent renderWithPixi calls skip await overhead
 let _pixiModuleCache: {
   PixiRenderer: typeof import("@/lib/renderer/PixiRenderer").PixiRenderer;
   resolveFromAdjustments: typeof import("@/lib/renderer/uniformResolvers").resolveFromAdjustments;
@@ -419,13 +327,6 @@ if (typeof window !== "undefined") {
       pixiRendererInstance.dispose();
       pixiRendererInstance = null;
     }
-    disposeWebGL2Renderer();
-    if (_probeCanvas) {
-      _probeCanvas.width = 0;
-      _probeCanvas.height = 0;
-      _probeCanvas = null;
-      _probeContext = null;
-    }
   });
 }
 
@@ -437,14 +338,15 @@ if (import.meta.hot) {
       pixiRendererInstance = null;
     }
     _pixiModuleCache = null;
-    disposeWebGL2Renderer();
-    if (_probeCanvas) {
-      _probeCanvas.width = 0;
-      _probeCanvas.height = 0;
-      _probeCanvas = null;
-      _probeContext = null;
-    }
   });
+
+  // Invalidate module cache when renderer dependencies change
+  import.meta.hot.accept(
+    ["@/lib/renderer/PixiRenderer", "@/lib/renderer/uniformResolvers"],
+    () => {
+      _pixiModuleCache = null;
+    }
+  );
 }
 
 export const renderImageToCanvas = async ({
@@ -453,13 +355,12 @@ export const renderImageToCanvas = async ({
   adjustments,
   filmProfile,
   timestampText,
-  preferWebGL2 = true,
-  preferPixi = true,
   targetSize,
   maxDimension,
   seedKey,
   renderSeed,
   exportSeed,
+  skipHalationBloom,
   signal,
 }: RenderImageOptions) => {
   const normalizedAdjustments = normalizeAdjustments(adjustments);
@@ -540,74 +441,40 @@ export const renderImageToCanvas = async ({
   );
   context.restore();
 
-  // -- Render pipeline: try PixiJS -> legacy WebGL2 -> CPU fallback --
+  // -- Render pipeline: PixiJS multi-pass (Master + Film + Halation/Bloom) --
 
   const renderOptions = {
     seedKey,
     renderSeed: renderSeed ?? (seedKey ? hashSeedKey(seedKey) : Date.now()),
     exportSeed,
+    skipHalationBloom,
   };
 
-  // 1. Try PixiJS multi-pass pipeline (Master + Film) 鈥?default GPU path
-  const canTryPixi =
-    preferWebGL2 &&
-    preferPixi &&
-    !isLegacyRendererForced() &&
-    !(seedKey && pixiFallbackSeedKeys.has(seedKey));
-
-  let renderedWithPixi = false;
-  if (canTryPixi) {
-    const releaseMutex = await acquireRenderMutex();
-    try {
-      const pixiResult = await tryPixiRender(
-        canvas,
-        normalizedAdjustments,
-        filmProfile,
-        renderOptions
-      );
-      if (pixiResult) {
-        if (seedKey) {
-          pixiFallbackSeedKeys.delete(seedKey);
-        }
-        context.clearRect(0, 0, canvas.width, canvas.height);
-        context.drawImage(pixiResult, 0, 0, canvas.width, canvas.height);
-        renderedWithPixi = true;
-      }
-    } finally {
-      releaseMutex();
-    }
-    if (!renderedWithPixi && seedKey) {
-      pixiFallbackSeedKeys.add(seedKey);
-      // Schedule a retry: clear the fallback set after a timeout so PixiJS gets another chance
-      if (!_pixiFallbackClearTimer) {
-        _pixiFallbackClearTimer = setTimeout(() => {
-          pixiFallbackSeedKeys.clear();
-          _pixiFallbackClearTimer = null;
-        }, PIXI_FALLBACK_RETRY_MS);
-      }
-    }
-  }
-
-  if (!renderedWithPixi) {
-    // 2. Legacy single-pass WebGL2 renderer (fallback)
-    const resolvedProfile = resolveProfile(normalizedAdjustments, filmProfile);
-    const renderedByWebGL =
-      preferWebGL2 && renderFilmProfileWebGL2(canvas, resolvedProfile, renderOptions);
-
-    if (renderedByWebGL) {
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(renderedByWebGL, 0, 0, canvas.width, canvas.height);
-    } else {
-      // 3. CPU fallback pipeline
-      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-      applyFilmPipeline(imageData, resolvedProfile, renderOptions);
-      context.putImageData(imageData, 0, 0);
+  const releaseMutex = await acquireRenderMutex();
+  try {
+    // Check abort after acquiring mutex — another render may have been queued
+    if (signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
     }
 
-    // Keep color grading behavior consistent on legacy/CPU fallback paths.
-    const fallbackImageData = context.getImageData(0, 0, canvas.width, canvas.height);
-    applyColorGradingToImageData(fallbackImageData, normalizedAdjustments.colorGrading);
-    context.putImageData(fallbackImageData, 0, 0);
+    const pixiResult = await renderWithPixi(
+      canvas,
+      normalizedAdjustments,
+      filmProfile,
+      renderOptions
+    );
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(pixiResult, 0, 0, canvas.width, canvas.height);
+  } catch (e) {
+    // Abort errors must propagate — the caller needs to know the render was cancelled
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw e;
+    }
+    // On failure, keep the geometry-transformed source already on canvas.
+    // Log for diagnostics but don't propagate — a raw preview is better than nothing.
+    console.warn("[FilmLab] PixiJS render failed, showing unprocessed preview:", e);
+  } finally {
+    releaseMutex();
   }
 
   applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
@@ -622,7 +489,6 @@ interface RenderBlobOptions {
   maxDimension?: number;
   filmProfile?: FilmProfile;
   timestampText?: string | null;
-  preferWebGL2?: boolean;
   seedKey?: string;
   exportSeed?: number;
 }
@@ -639,10 +505,9 @@ export const renderImageToBlob = async (
     adjustments,
     filmProfile: options?.filmProfile,
     timestampText: options?.timestampText,
-    preferWebGL2: options?.preferWebGL2,
     maxDimension: options?.maxDimension,
     seedKey: options?.seedKey,
-    exportSeed: options?.exportSeed ?? Date.now(),
+    exportSeed: options?.exportSeed,
   });
   const outputType = options?.type ?? "image/jpeg";
   const quality = options?.quality ?? 0.92;

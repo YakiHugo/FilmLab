@@ -2,6 +2,14 @@ import type { Preset } from "@/types";
 
 export const presets: Preset[] = [
   {
+    id: "original",
+    name: "Original",
+    tags: [],
+    intensity: 0,
+    description: "不做任何处理，保持原始图像。",
+    adjustments: {},
+  },
+  {
     id: "portrait-01",
     filmProfileId: "film-portrait-soft-v1",
     name: "Portrait Soft",

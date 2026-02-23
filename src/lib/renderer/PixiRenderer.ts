@@ -127,6 +127,7 @@ export class PixiRenderer {
       this.app.renderer.resize(width, height);
       this.lastSourceWidth = width;
       this.lastSourceHeight = height;
+      this.filmFilter.updateImageDimensions(width, height);
     } else {
       // Same dimensions — update the existing texture resource in-place
       const baseTexture = this.sprite.texture.baseTexture;
@@ -175,6 +176,9 @@ export class PixiRenderer {
     // Determine which filters are active this frame
     const useFilm = !!(filmUniforms && !options?.skipFilm);
     const useHalation = !!(halationBloomUniforms && !options?.skipHalationBloom);
+
+    // When Film pass follows, Master outputs linear; otherwise Master encodes sRGB
+    this.masterFilter.uniforms.u_outputSRGB = !useFilm;
 
     if (useFilm) {
       this.filmFilter.updateUniforms(filmUniforms);

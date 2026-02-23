@@ -12,7 +12,7 @@ import fragmentSrc from "../shaders/generated/FilmSimulation.frag?raw";
  * - Layer 2: Color Matrix (3x3 cross-channel color mixing)
  * - Layer 3: 3D LUT via HaldCLUT (trilinear-interpolated sampler3D)
  * - Layer 4: Color Cast (per-zone tinting)
- * - Layer 6: Film Grain (hash-based, color/mono, shadow-biased)
+ * - Layer 5: Film Grain (hash-based, color/mono, shadow-biased)
  * - Layer 6: Vignette (elliptical, bidirectional)
  *
  * ## 3D Texture Handling
@@ -30,12 +30,17 @@ export class FilmSimulationFilter extends Filter {
   private lutTexture: WebGLTexture | null = null;
   private lutCache: LUTCache;
   private currentLutPath: string | null = null;
-  private loadingLutUrl: string | null = null;
+  private loadGeneration = 0;
   /** Cached GL context for cleanup in destroy(). Set on first loadLUT call. */
   private gl: WebGL2RenderingContext | null = null;
 
+  /** Cached WebGL uniform location for u_lut (resolved once per GL program) */
+  private lutUniformLocation: WebGLUniformLocation | null = null;
+  /** GL program whose u_lut location we cached (invalidate on recompile) */
+  private lutLocationProgram: WebGLProgram | null = null;
+
   /** Fixed texture unit for the 3D LUT (avoids PixiJS internal units) */
-  private static readonly LUT_TEXTURE_UNIT = 2;
+  private static readonly LUT_TEXTURE_UNIT = 4;
 
   constructor() {
     // NOTE: u_lut is intentionally NOT included here because PixiJS v7
@@ -57,7 +62,7 @@ export class FilmSimulationFilter extends Filter {
       u_colorCastShadows: new Float32Array([0, 0, 0]),
       u_colorCastMidtones: new Float32Array([0, 0, 0]),
       u_colorCastHighlights: new Float32Array([0, 0, 0]),
-      // Layer 6: Grain
+      // Layer 5: Grain
       u_grainEnabled: false,
       u_grainAmount: 0.0,
       u_grainSize: 0.5,
@@ -65,14 +70,16 @@ export class FilmSimulationFilter extends Filter {
       u_grainShadowBias: 0.45,
       u_grainSeed: 0.0,
       u_grainIsColor: true,
+      u_textureSize: new Float32Array([1800, 1800]),
       // Layer 6: Vignette
       u_vignetteEnabled: false,
       u_vignetteAmount: 0.0,
       u_vignetteMidpoint: 0.5,
       u_vignetteRoundness: 0.5,
+      u_aspectRatio: 1.0,
     });
 
-    this.lutCache = new LUTCache(5);
+    this.lutCache = new LUTCache(12);
   }
 
   /**
@@ -91,13 +98,13 @@ export class FilmSimulationFilter extends Filter {
     }
     this.gl = gl;
 
-    // Guard against concurrent loads: mark the URL we want, then check after await
-    this.loadingLutUrl = url;
+    // Guard against concurrent loads: use a monotonic counter to detect superseded calls
+    const thisGeneration = ++this.loadGeneration;
     try {
       const texture = await this.lutCache.get(gl, url, level);
 
       // A newer loadLUT call may have superseded us — only apply if still current
-      if (this.loadingLutUrl !== url) {
+      if (this.loadGeneration !== thisGeneration) {
         return;
       }
 
@@ -106,14 +113,10 @@ export class FilmSimulationFilter extends Filter {
     } catch (e) {
       console.warn("LUT load failed:", e);
       // Reset to safe state — disable LUT for this filter
-      if (this.loadingLutUrl === url) {
+      if (this.loadGeneration === thisGeneration) {
         this.lutTexture = null;
         this.currentLutPath = null;
         this.uniforms.u_lutEnabled = false;
-      }
-    } finally {
-      if (this.loadingLutUrl === url) {
-        this.loadingLutUrl = null;
       }
     }
   }
@@ -121,10 +124,15 @@ export class FilmSimulationFilter extends Filter {
   /**
    * Override PixiJS Filter.apply() to handle sampler3D binding.
    *
-   * We replicate the logic of FilterSystem.applyFilter() but insert
-   * manual 3D texture binding between shader bind and the draw call.
-   * This is necessary because PixiJS v7 does not support sampler3D
-   * in its uniform sync system.
+   * We ALWAYS use the manual rendering path (never delegate to
+   * filterManager.applyFilter) because the shader declares
+   * `uniform sampler3D u_lut` which PixiJS v7 doesn't understand.
+   * If we let PixiJS handle the draw, `u_lut` defaults to texture unit 0
+   * (same as `uSampler` / sampler2D), causing a WebGL type conflict error:
+   *   "Two textures of different types use the same sampler location"
+   *
+   * By always manually binding the shader and setting `u_lut` to a
+   * dedicated texture unit, we avoid this conflict in all cases.
    */
   apply(
     filterManager: FilterSystem,
@@ -132,14 +140,6 @@ export class FilmSimulationFilter extends Filter {
     output: RenderTexture,
     clearMode?: CLEAR_MODES
   ): void {
-    if (!this.lutTexture || !this.uniforms.u_lutEnabled) {
-      // No LUT active -- delegate to standard PixiJS apply
-      filterManager.applyFilter(this, input, output, clearMode);
-      return;
-    }
-
-    // --- Replicate FilterSystem.applyFilter() with 3D texture injection ---
-
     const renderer = filterManager.renderer;
     const gl = renderer.gl as WebGL2RenderingContext;
 
@@ -156,28 +156,51 @@ export class FilmSimulationFilter extends Filter {
     // 4. Bind shader (this syncs all non-sampler3D uniforms)
     renderer.shader.bind(this);
 
-    // 5. Bind 3D LUT texture to our reserved unit
+    // 5. Resolve the u_lut uniform location (cached per GL program).
+    //    PixiJS v7 doesn't recognize sampler3D, so we query WebGL directly.
     const lutUnit = FilmSimulationFilter.LUT_TEXTURE_UNIT;
-    gl.activeTexture(gl.TEXTURE0 + lutUnit);
-    gl.bindTexture(gl.TEXTURE_3D, this.lutTexture);
-
-    // 6. Manually set the sampler3D uniform location
     const contextUid = (renderer as any).CONTEXT_UID;
     const glProgram = this.program.glPrograms[contextUid];
-    const lutUniformData = glProgram?.uniformData?.u_lut;
-    if (lutUniformData && lutUniformData.location != null) {
-      gl.uniform1i(lutUniformData.location, lutUnit);
+    const nativeProgram = glProgram?.program;
+    if (nativeProgram) {
+      if (this.lutLocationProgram !== nativeProgram) {
+        this.lutUniformLocation = gl.getUniformLocation(nativeProgram, "u_lut");
+        this.lutLocationProgram = nativeProgram;
+      }
+    }
+
+    // 6. Bind 3D LUT texture (or null) to our reserved unit and point u_lut there.
+    //    This MUST happen regardless of whether LUT is enabled, because the shader
+    //    always declares `uniform sampler3D u_lut`. If we leave u_lut pointing at
+    //    unit 0 (the default), WebGL will see sampler2D and sampler3D on the same
+    //    unit and refuse to draw.
+    gl.activeTexture(gl.TEXTURE0 + lutUnit);
+    if (this.lutTexture && this.uniforms.u_lutEnabled) {
+      gl.bindTexture(gl.TEXTURE_3D, this.lutTexture);
     } else {
-      console.warn(
-        "FilmSimulationFilter: u_lut uniform location not found — " +
-          "LUT will not be applied. Check shader compilation."
-      );
+      gl.bindTexture(gl.TEXTURE_3D, null);
+    }
+    if (this.lutUniformLocation) {
+      gl.uniform1i(this.lutUniformLocation, lutUnit);
     }
 
     // 7. Draw the filter quad
     const quad = (filterManager as any).quad;
     renderer.geometry.bind(quad);
     renderer.geometry.draw(DRAW_MODES.TRIANGLE_STRIP);
+
+    // 8. Unbind the 3D texture so subsequent filters (e.g. HalationBloomFilter)
+    //    can safely use this unit for sampler2D without a type conflict.
+    //    Also reset PixiJS's internal texture tracking for this unit.
+    gl.activeTexture(gl.TEXTURE0 + lutUnit);
+    gl.bindTexture(gl.TEXTURE_3D, null);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    const boundTextures = (renderer.texture as any).boundTextures;
+    if (boundTextures && boundTextures[lutUnit] !== undefined) {
+      boundTextures[lutUnit] = null;
+    }
+    // Restore active texture to unit 0 (PixiJS default)
+    gl.activeTexture(gl.TEXTURE0);
   }
 
   /**
@@ -219,6 +242,16 @@ export class FilmSimulationFilter extends Filter {
     this.uniforms.u_vignetteAmount = u.u_vignetteAmount;
     this.uniforms.u_vignetteMidpoint = u.u_vignetteMidpoint;
     this.uniforms.u_vignetteRoundness = u.u_vignetteRoundness;
+  }
+
+  /**
+   * Update image-dependent uniforms (aspect ratio for vignette, texture size for grain).
+   * Call this whenever the source image dimensions change.
+   */
+  updateImageDimensions(width: number, height: number): void {
+    this.uniforms.u_aspectRatio = width / Math.max(height, 1);
+    this.uniforms.u_textureSize[0] = width;
+    this.uniforms.u_textureSize[1] = height;
   }
 
   /**

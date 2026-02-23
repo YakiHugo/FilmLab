@@ -80,6 +80,7 @@ export function EditorPreviewCard() {
   const showOriginalRef = useRef(showOriginal);
   showOriginalRef.current = showOriginal;
   const histogramDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastAbortTimeRef = useRef(0);
   // Track the rotation angle that was last rendered to the canvas.
   // The crop rect effect uses this instead of adjustments.rotate so the
   // crop overlay stays in sync with what the canvas actually shows.
@@ -606,6 +607,10 @@ export function EditorPreviewCard() {
     }
     const controller = new AbortController();
     const dpr = window.devicePixelRatio || 1;
+    // If the previous render was aborted very recently, the user is likely
+    // dragging a slider — skip the expensive halation/bloom pass for snappier
+    // feedback.  The final render after they release will include it.
+    const isRapidUpdate = performance.now() - lastAbortTimeRef.current < 100;
     const renderPreview = async () => {
       // Reuse a single offscreen canvas across renders to avoid DOM allocation
       if (!workingCanvasRef.current) {
@@ -626,13 +631,13 @@ export function EditorPreviewCard() {
         adjustments: renderAdjustments,
         filmProfile: filmProfile ?? undefined,
         timestampText,
-        preferPixi: true,
         targetSize: {
           width: Math.round(frameSize.width * dpr),
           height: Math.round(frameSize.height * dpr),
         },
         seedKey: selectedAsset.id,
         renderSeed: previewRenderSeed,
+        skipHalationBloom: isRapidUpdate,
         signal: controller.signal,
       });
       if (controller.signal.aborted) {
@@ -675,6 +680,7 @@ export function EditorPreviewCard() {
 
     return () => {
       controller.abort();
+      lastAbortTimeRef.current = performance.now();
       if (histogramDebounceRef.current !== null) {
         clearTimeout(histogramDebounceRef.current);
         histogramDebounceRef.current = null;

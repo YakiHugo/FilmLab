@@ -24,7 +24,7 @@ uniform vec3  u_colorCastShadows;    // RGB offset for shadows
 uniform vec3  u_colorCastMidtones;   // RGB offset for midtones
 uniform vec3  u_colorCastHighlights; // RGB offset for highlights
 
-// Layer 6: Grain
+// Layer 5: Grain
 uniform bool  u_grainEnabled;
 uniform float u_grainAmount;
 uniform float u_grainSize;
@@ -32,12 +32,32 @@ uniform float u_grainRoughness;
 uniform float u_grainShadowBias;
 uniform float u_grainSeed;
 uniform bool  u_grainIsColor;
+uniform vec2  u_textureSize;
 
 // Layer 6: Vignette
 uniform bool  u_vignetteEnabled;
 uniform float u_vignetteAmount;
 uniform float u_vignetteMidpoint;
 uniform float u_vignetteRoundness;
+uniform float u_aspectRatio;
+
+// ---- sRGB <-> Linear ----
+
+vec3 srgb2linear(vec3 c) {
+  return mix(
+    c / 12.92,
+    pow((c + 0.055) / 1.055, vec3(2.4)),
+    step(0.04045, c)
+  );
+}
+
+vec3 linear2srgb(vec3 c) {
+  return mix(
+    c * 12.92,
+    1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055,
+    step(0.0031308, c)
+  );
+}
 
 // ---- Utility ----
 
@@ -53,21 +73,31 @@ float hash12(vec2 p, float seed) {
 
 // ---- Layer 1: Film tone response curve ----
 
+float toneChannel(float x, float shoulder, float toe, float gamma) {
+  // Gamma pivot — adjusts midtone density
+  x = pow(max(x, 0.0), gamma);
+
+  // Shoulder: Reinhard-style highlight compression
+  float k = shoulder * 2.0;
+  float compressed = x * (1.0 + k) / (x + k + 0.0001);
+  x = mix(x, compressed, shoulder);
+
+  // Toe: shadow lift via power curve
+  float toeGamma = 1.0 / (1.0 + toe);
+  float lifted = pow(max(x, 0.0), toeGamma);
+  x = mix(x, lifted, toe);
+
+  return clamp(x, 0.0, 1.0);
+}
+
 vec3 applyToneResponse(vec3 color) {
   if (!u_toneEnabled) return color;
 
-  // Filmic S-curve: shoulder controls highlight compression, toe controls shadow lift
-  color = pow(max(color, vec3(0.0)), vec3(u_gamma));
+  color.r = toneChannel(color.r, u_shoulder, u_toe, u_gamma);
+  color.g = toneChannel(color.g, u_shoulder, u_toe, u_gamma);
+  color.b = toneChannel(color.b, u_shoulder, u_toe, u_gamma);
 
-  // Shoulder: soft-clip highlights
-  vec3 shoulderCurve = 1.0 - exp(-color / max(u_shoulder, 0.01));
-  color = mix(color, shoulderCurve, u_shoulder);
-
-  // Toe: lift shadows
-  vec3 toeCurve = pow(max(color, vec3(0.0)), vec3(1.0 - u_toe * 0.5));
-  color = mix(color, toeCurve, u_toe);
-
-  return clamp(color, 0.0, 1.0);
+  return color;
 }
 
 // ---- Layer 3: 3D LUT sampling ----
@@ -96,16 +126,16 @@ vec3 applyColorCast(vec3 color) {
   return clamp(color, 0.0, 1.0);
 }
 
-// ---- Layer 6: Grain ----
+// ---- Layer 5: Grain ----
 
 vec3 applyGrain(vec3 color) {
   if (!u_grainEnabled || u_grainAmount <= 0.0) return color;
 
   float grainScale = mix(2.8, 0.45, u_grainSize);
-  vec2 grainCoord = floor(vTextureCoord * vec2(1800.0) * grainScale);
+  vec2 grainCoord = floor(vTextureCoord * u_textureSize * grainScale);
 
   float coarse = hash12(grainCoord, u_grainSeed) - 0.5;
-  float fine = hash12(vTextureCoord * vec2(3600.0), u_grainSeed + 1.0) - 0.5;
+  float fine = hash12(vTextureCoord * u_textureSize * 2.0, u_grainSeed + 1.0) - 0.5;
   float mixed = mix(coarse, fine, u_grainRoughness);
 
   float lum = luminance(color);
@@ -113,9 +143,9 @@ vec3 applyGrain(vec3 color) {
   float noiseStrength = mixed * u_grainAmount * 0.55 * shadowWeight;
 
   if (u_grainIsColor) {
-    float cR = (hash12(vTextureCoord * vec2(2100.0), u_grainSeed + 2.0) - 0.5) * 0.15;
-    float cG = (hash12(vTextureCoord * vec2(2200.0), u_grainSeed + 3.0) - 0.5) * 0.15;
-    float cB = (hash12(vTextureCoord * vec2(2300.0), u_grainSeed + 4.0) - 0.5) * 0.15;
+    float cR = (hash12(vTextureCoord * u_textureSize * 1.17, u_grainSeed + 2.0) - 0.5) * 0.15;
+    float cG = (hash12(vTextureCoord * u_textureSize * 1.22, u_grainSeed + 3.0) - 0.5) * 0.15;
+    float cB = (hash12(vTextureCoord * u_textureSize * 1.28, u_grainSeed + 4.0) - 0.5) * 0.15;
     color.r += noiseStrength * (1.0 + cR);
     color.g += noiseStrength * (1.0 + cG);
     color.b += noiseStrength * (1.0 + cB);
@@ -132,9 +162,8 @@ vec3 applyVignette(vec3 color) {
   if (!u_vignetteEnabled || abs(u_vignetteAmount) < 0.001) return color;
 
   vec2 center = vTextureCoord - 0.5;
-  // roundness controls ellipse shape
-  float aspect = 1.0; // TODO: pass actual aspect ratio via uniform
-  center.x *= mix(1.0, aspect, u_vignetteRoundness);
+  // roundness controls ellipse shape; aspect ratio from uniform
+  center.x *= mix(1.0, u_aspectRatio, u_vignetteRoundness);
 
   float dist = length(center) * 2.0;
   float edge = smoothstep(u_vignetteMidpoint, 1.0, dist);
@@ -158,6 +187,9 @@ void main() {
   color = applyColorCast(color);
   color = applyGrain(color);
   color = applyVignette(color);
+
+  // Final: Linear -> sRGB output
+  color = linear2srgb(clamp(color, 0.0, 1.0));
 
   outColor = vec4(color, 1.0);
 }

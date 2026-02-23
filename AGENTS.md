@@ -9,9 +9,7 @@
 - Tech stack: Vite + React 18 + TypeScript + Tailwind + Zustand + TanStack Router/Query
 - Main routes: `/` (`Workspace`) and `/editor` (`Editor`)
 - Rendering path:
-  - Default path: PixiJS multi-pass (`src/lib/renderer/`)
-  - Legacy fallback: WebGL2 single pass (`src/lib/film/webgl2.ts`) — via `window.__FILMLAB_USE_LEGACY = true`
-  - Final fallback: CPU pipeline (`src/lib/film/pipeline.ts`)
+  - PixiJS multi-pass (`src/lib/renderer/`) — sole GPU rendering path
 - Persistence: IndexedDB via `idb` (`src/lib/db.ts`)
 - AI recommendation API: `POST /api/recommend-film` (`api/recommend-film.ts`)
 
@@ -24,7 +22,7 @@
 - `src/features/workspace/`: workspace feature components and hooks
 - `src/pages/editor/`: editor subcomponents and helpers
 - `src/lib/imageProcessing.ts`: render entry (geometry + pipeline selection)
-- `src/lib/film/`: v1 film profile and legacy WebGL2/CPU pipeline
+- `src/lib/film/`: v1 film profile data model and resolution
 - `src/lib/renderer/`: PixiJS renderer, filters, LUT loader/cache, shader config
 - `src/stores/`: Zustand stores (`projectStore.ts`, `editorStore.ts`)
 - `src/data/`: presets and built-in film profiles
