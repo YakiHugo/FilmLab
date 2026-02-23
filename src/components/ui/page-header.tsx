@@ -15,12 +15,11 @@ const PageHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDiv
 );
 PageHeader.displayName = "PageHeader";
 
-const PageHeaderContent = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div ref={ref} className={cn("space-y-1", className)} {...props} />
-));
+const PageHeaderContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => (
+    <div ref={ref} className={cn("space-y-1", className)} {...props} />
+  )
+);
 PageHeaderContent.displayName = "PageHeaderContent";
 
 const PageHeaderTitle = React.forwardRef<
@@ -39,22 +38,15 @@ const PageHeaderDescription = React.forwardRef<
 ));
 PageHeaderDescription.displayName = "PageHeaderDescription";
 
-const PageHeaderActions = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div
-    ref={ref}
-    className={cn("flex w-full flex-col gap-2 sm:w-auto sm:flex-row", className)}
-    {...props}
-  />
-));
+const PageHeaderActions = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => (
+    <div
+      ref={ref}
+      className={cn("flex w-full flex-col gap-2 sm:w-auto sm:flex-row", className)}
+      {...props}
+    />
+  )
+);
 PageHeaderActions.displayName = "PageHeaderActions";
 
-export {
-  PageHeader,
-  PageHeaderContent,
-  PageHeaderTitle,
-  PageHeaderDescription,
-  PageHeaderActions,
-};
+export { PageHeader, PageHeaderContent, PageHeaderTitle, PageHeaderDescription, PageHeaderActions };

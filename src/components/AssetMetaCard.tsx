@@ -18,9 +18,7 @@ export function AssetMetaCard({ asset }: AssetMetaCardProps) {
         <CardHeader>
           <CardTitle>素材信息</CardTitle>
         </CardHeader>
-        <CardContent className="text-sm text-slate-400">
-          请选择素材查看拍摄信息。
-        </CardContent>
+        <CardContent className="text-sm text-slate-400">请选择素材查看拍摄信息。</CardContent>
       </Card>
     );
   }

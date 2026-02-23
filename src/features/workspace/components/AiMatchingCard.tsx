@@ -12,7 +12,7 @@ import {
   findAutoApplyPreset,
   sanitizeTopPresetRecommendations,
 } from "@/lib/ai/recommendationUtils";
-import type { Asset, Preset } from "@/types";
+import type { Asset, AssetUpdate, Preset } from "@/types";
 
 interface AiMatchingProgress {
   running: boolean;
@@ -39,7 +39,7 @@ const createInitialAiProgress = (): AiMatchingProgress => ({
 
 const summarizeAiMatching = (
   assets: Asset[],
-  excludedAssetIds?: Set<string>,
+  excludedAssetIds?: Set<string>
 ): AiMatchingSummary => {
   let succeeded = 0;
   let failed = 0;
@@ -70,55 +70,43 @@ interface AiMatchingCardProps {
   selectedAssets: Asset[];
   allPresets: Preset[];
   aiPresetCandidates: RecommendFilmPresetCandidate[];
-  updateAsset: (assetId: string, update: Partial<Asset>) => void;
+  updateAsset: (assetId: string, update: AssetUpdate) => void;
 }
 
 export const AiMatchingCard = memo(
-  ({
-    selectedAssets,
-    allPresets,
-    aiPresetCandidates,
-    updateAsset,
-  }: AiMatchingCardProps) => {
-    const [progress, setProgress] = useState<AiMatchingProgress>(
-      createInitialAiProgress,
-    );
+  ({ selectedAssets, allPresets, aiPresetCandidates, updateAsset }: AiMatchingCardProps) => {
+    const [progress, setProgress] = useState<AiMatchingProgress>(createInitialAiProgress);
     const [failedAssetIds, setFailedAssetIds] = useState<string[]>([]);
     const attemptedAssetIdsRef = useRef<Set<string>>(new Set());
     const aiRunInFlightRef = useRef(false);
 
     const selectedAssetById = useMemo(
       () => new Map(selectedAssets.map((asset) => [asset.id, asset])),
-      [selectedAssets],
+      [selectedAssets]
     );
     const persistedFailedIds = useMemo(
       () =>
         selectedAssets
           .filter((asset) => asset.aiRecommendation?.status === "failed")
           .map((asset) => asset.id),
-      [selectedAssets],
+      [selectedAssets]
     );
     const mergedFailedIds = useMemo(
       () =>
-        Array.from(new Set([...persistedFailedIds, ...failedAssetIds])).filter(
-          (id) => selectedAssetById.has(id),
+        Array.from(new Set([...persistedFailedIds, ...failedAssetIds])).filter((id) =>
+          selectedAssetById.has(id)
         ),
-      [failedAssetIds, persistedFailedIds, selectedAssetById],
+      [failedAssetIds, persistedFailedIds, selectedAssetById]
     );
     const failedAssets = useMemo(
       () =>
         mergedFailedIds
           .map((assetId) => selectedAssetById.get(assetId))
           .filter((asset): asset is Asset => Boolean(asset)),
-      [mergedFailedIds, selectedAssetById],
+      [mergedFailedIds, selectedAssetById]
     );
-    const selectionSummary = useMemo(
-      () => summarizeAiMatching(selectedAssets),
-      [selectedAssets],
-    );
-    const displayedProgress = progress.running
-      ? progress
-      : { ...selectionSummary, running: false };
+    const selectionSummary = useMemo(() => summarizeAiMatching(selectedAssets), [selectedAssets]);
+    const displayedProgress = progress.running ? progress : { ...selectionSummary, running: false };
     const progressPercent =
       displayedProgress.total > 0
         ? Math.round((displayedProgress.processed / displayedProgress.total) * 100)
@@ -140,9 +128,7 @@ export const AiMatchingCard = memo(
           attemptedAssetIdsRef.current.delete(assetId);
         }
       });
-      setFailedAssetIds((prev) =>
-        prev.filter((assetId) => visibleIds.has(assetId)),
-      );
+      setFailedAssetIds((prev) => prev.filter((assetId) => visibleIds.has(assetId)));
     }, [selectedAssets]);
 
     const runAiMatchingForAssets = useCallback(
@@ -178,13 +164,13 @@ export const AiMatchingCard = memo(
                 candidates: aiPresetCandidates,
                 topK: DEFAULT_TOP_K,
               },
-              { maxRetries: MAX_RECOMMENDATION_RETRIES },
+              { maxRetries: MAX_RECOMMENDATION_RETRIES }
             );
 
             const topPresets = sanitizeTopPresetRecommendations(
               result.topPresets,
               candidateIds,
-              DEFAULT_TOP_K,
+              DEFAULT_TOP_K
             );
             const autoPreset = findAutoApplyPreset(allPresets, topPresets);
 
@@ -208,9 +194,7 @@ export const AiMatchingCard = memo(
                   }
                 : {}),
             });
-            setFailedAssetIds((prev) =>
-              prev.filter((assetId) => assetId !== asset.id),
-            );
+            setFailedAssetIds((prev) => prev.filter((assetId) => assetId !== asset.id));
             succeeded += 1;
           } catch {
             updateAsset(asset.id, {
@@ -223,9 +207,7 @@ export const AiMatchingCard = memo(
                 status: "failed",
               },
             });
-            setFailedAssetIds((prev) =>
-              prev.includes(asset.id) ? prev : [...prev, asset.id],
-            );
+            setFailedAssetIds((prev) => (prev.includes(asset.id) ? prev : [...prev, asset.id]));
             failed += 1;
           } finally {
             attemptedAssetIdsRef.current.add(asset.id);
@@ -246,7 +228,7 @@ export const AiMatchingCard = memo(
           running: false,
         }));
       },
-      [aiPresetCandidates, allPresets, selectedAssets, updateAsset],
+      [aiPresetCandidates, allPresets, selectedAssets, updateAsset]
     );
 
     useEffect(() => {
@@ -254,17 +236,11 @@ export const AiMatchingCard = memo(
         return;
       }
       const pendingAssets = selectedAssets
-        .filter(
-          (asset) =>
-            !asset.aiRecommendation &&
-            !attemptedAssetIdsRef.current.has(asset.id),
-        )
+        .filter((asset) => !asset.aiRecommendation && !attemptedAssetIdsRef.current.has(asset.id))
         .slice(0, MAX_STYLE_SELECTION);
       const shouldRetryFailedOnEntry = attemptedAssetIdsRef.current.size === 0;
       const failedAssetsForReentry = shouldRetryFailedOnEntry
-        ? selectedAssets.filter(
-            (asset) => asset.aiRecommendation?.status === "failed",
-          )
+        ? selectedAssets.filter((asset) => asset.aiRecommendation?.status === "failed")
         : [];
       const pendingIds = new Set(pendingAssets.map((asset) => asset.id));
       const targetAssets = [
@@ -321,7 +297,7 @@ export const AiMatchingCard = memo(
         </CardContent>
       </Card>
     );
-  },
+  }
 );
 
 AiMatchingCard.displayName = "AiMatchingCard";

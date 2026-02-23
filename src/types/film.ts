@@ -5,6 +5,8 @@
  * to V2 at runtime via `ensureFilmProfileV2()`.
  */
 
+import type { FilmProfile } from "./index";
+
 /** Film Profile V2 with explicit layer configuration. */
 export interface FilmProfileV2 {
   id: string;
@@ -25,7 +27,8 @@ export interface FilmProfileV2 {
   /** Layer 2: Color Matrix (Phase 3 — optional) */
   colorMatrix?: {
     enabled: boolean;
-    matrix: number[]; // 3x3 = 9 elements, row-major
+    /** 3x3 row-major color matrix */
+    matrix: [number, number, number, number, number, number, number, number, number];
   };
 
   /** Layer 3: 3D LUT via HaldCLUT */
@@ -81,4 +84,16 @@ export interface FilmProfileV2 {
     midpoint: number; // [0, 1] gradient start
     roundness: number; // [0, 1] ellipse shape
   };
+
+  /** Film defects — light leaks, dust, scratches (migrated from V1) */
+  defects?: {
+    enabled: boolean;
+    leakProbability: number; // [0, 1]
+    leakStrength: number; // [0, 1]
+    dustAmount: number; // [0, 1]
+    scratchAmount: number; // [0, 1]
+  };
 }
+
+/** Discriminated union of all film profile versions. Use `version` to narrow. */
+export type FilmProfileAny = FilmProfile | FilmProfileV2;

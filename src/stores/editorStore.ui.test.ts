@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_EDITOR_TOOL_PANEL_ID } from "@/pages/editor/editorPanelConfig";
+import { DEFAULT_EDITOR_TOOL_PANEL_ID } from "@/features/editor/editorPanelConfig";
 import { useEditorStore } from "./editorStore";
 
 describe("editorStore ui state", () => {

@@ -102,8 +102,7 @@ export class HalationBloomFilter extends Filter {
       this.compositeFilter.uniforms.u_halationColor[2] = u.halationColor[2];
     }
 
-    this.compositeFilter.uniforms.u_bloomEnabled =
-      u.bloomEnabled && u.bloomIntensity > 0.001;
+    this.compositeFilter.uniforms.u_bloomEnabled = u.bloomEnabled && u.bloomIntensity > 0.001;
     this.compositeFilter.uniforms.u_bloomIntensity = u.bloomIntensity;
 
     // Global enable: skip all passes if neither effect is active
@@ -129,82 +128,53 @@ export class HalationBloomFilter extends Filter {
       return;
     }
 
-    // Get input dimensions for blur direction vectors
-    const inputWidth = input.width;
-    const inputHeight = input.height;
-
     // Use half-resolution for blur passes (performance optimization)
     const blurResolution = 0.5;
 
     // --- Allocate temporary textures from the FilterSystem pool ---
     const thresholdTex = filterManager.getFilterTexture(input, blurResolution);
-    let pingTex = filterManager.getFilterTexture(input, blurResolution);
-    let pongTex = filterManager.getFilterTexture(input, blurResolution);
+    const pingTex = filterManager.getFilterTexture(input, blurResolution);
+    const pongTex = filterManager.getFilterTexture(input, blurResolution);
 
-    // --- Pass 1: Threshold extraction ---
-    filterManager.applyFilter(
-      this.thresholdFilter,
-      input,
-      thresholdTex,
-      CLEAR_MODES_ENUM.CLEAR
-    );
+    try {
+      // --- Pass 1: Threshold extraction ---
+      filterManager.applyFilter(this.thresholdFilter, input, thresholdTex, CLEAR_MODES_ENUM.CLEAR);
 
-    // --- Pass 2 & 3: Separable Gaussian blur (multi-pass for quality) ---
-    // Set blur directions based on the half-res texture dimensions
-    const blurWidth = thresholdTex.width;
-    const blurHeight = thresholdTex.height;
+      // --- Pass 2 & 3: Separable Gaussian blur (multi-pass for quality) ---
+      // Set blur directions based on the half-res texture dimensions
+      const blurWidth = thresholdTex.width;
+      const blurHeight = thresholdTex.height;
 
-    this.blurHFilter.uniforms.u_blurDirection[0] = 1.0 / blurWidth;
-    this.blurHFilter.uniforms.u_blurDirection[1] = 0.0;
-    this.blurVFilter.uniforms.u_blurDirection[0] = 0.0;
-    this.blurVFilter.uniforms.u_blurDirection[1] = 1.0 / blurHeight;
+      this.blurHFilter.uniforms.u_blurDirection[0] = 1.0 / blurWidth;
+      this.blurHFilter.uniforms.u_blurDirection[1] = 0.0;
+      this.blurVFilter.uniforms.u_blurDirection[0] = 0.0;
+      this.blurVFilter.uniforms.u_blurDirection[1] = 1.0 / blurHeight;
 
-    // First H+V pass: threshold → ping → pong
-    filterManager.applyFilter(
-      this.blurHFilter,
-      thresholdTex,
-      pingTex,
-      CLEAR_MODES_ENUM.CLEAR
-    );
-    filterManager.applyFilter(
-      this.blurVFilter,
-      pingTex,
-      pongTex,
-      CLEAR_MODES_ENUM.CLEAR
-    );
+      // First H+V pass: threshold → ping → pong
+      filterManager.applyFilter(this.blurHFilter, thresholdTex, pingTex, CLEAR_MODES_ENUM.CLEAR);
+      filterManager.applyFilter(this.blurVFilter, pingTex, pongTex, CLEAR_MODES_ENUM.CLEAR);
 
-    // Additional blur passes for smoother, wider blur
-    for (let i = 1; i < this.blurPasses; i++) {
-      filterManager.applyFilter(
-        this.blurHFilter,
-        pongTex,
-        pingTex,
-        CLEAR_MODES_ENUM.CLEAR
-      );
-      filterManager.applyFilter(
-        this.blurVFilter,
-        pingTex,
-        pongTex,
-        CLEAR_MODES_ENUM.CLEAR
-      );
+      // Additional blur passes for smoother, wider blur
+      for (let i = 1; i < this.blurPasses; i++) {
+        filterManager.applyFilter(this.blurHFilter, pongTex, pingTex, CLEAR_MODES_ENUM.CLEAR);
+        filterManager.applyFilter(this.blurVFilter, pingTex, pongTex, CLEAR_MODES_ENUM.CLEAR);
+      }
+
+      // --- Pass 4: Composite blurred mask with original ---
+      // The composite shader reads both the original (uSampler) and the
+      // blurred mask (u_blurredMask). We set u_blurredMask as a uniform
+      // texture. PixiJS handles sampler2D uniforms automatically.
+      this.compositeFilter.uniforms.u_blurredMask = pongTex;
+      filterManager.applyFilter(this.compositeFilter, input, output, clearMode);
+    } finally {
+      // Null out the texture reference before returning to pool to avoid
+      // the composite filter holding a stale reference to a recycled texture.
+      this.compositeFilter.uniforms.u_blurredMask = null;
+      // --- Return temporary textures to the pool ---
+      filterManager.returnFilterTexture(thresholdTex);
+      filterManager.returnFilterTexture(pingTex);
+      filterManager.returnFilterTexture(pongTex);
     }
-
-    // --- Pass 4: Composite blurred mask with original ---
-    // The composite shader reads both the original (uSampler) and the
-    // blurred mask (u_blurredMask). We set u_blurredMask as a uniform
-    // texture. PixiJS handles sampler2D uniforms automatically.
-    this.compositeFilter.uniforms.u_blurredMask = pongTex;
-    filterManager.applyFilter(
-      this.compositeFilter,
-      input,
-      output,
-      clearMode
-    );
-
-    // --- Return temporary textures to the pool ---
-    filterManager.returnFilterTexture(thresholdTex);
-    filterManager.returnFilterTexture(pingTex);
-    filterManager.returnFilterTexture(pongTex);
   }
 
   /**

@@ -30,6 +30,9 @@ export class FilmSimulationFilter extends Filter {
   private lutTexture: WebGLTexture | null = null;
   private lutCache: LUTCache;
   private currentLutPath: string | null = null;
+  private loadingLutUrl: string | null = null;
+  /** Cached GL context for cleanup in destroy(). Set on first loadLUT call. */
+  private gl: WebGL2RenderingContext | null = null;
 
   /** Fixed texture unit for the 3D LUT (avoids PixiJS internal units) */
   private static readonly LUT_TEXTURE_UNIT = 2;
@@ -76,11 +79,7 @@ export class FilmSimulationFilter extends Filter {
    * Load a HaldCLUT image and cache the resulting 3D texture.
    * Skips loading if the same LUT path is already active.
    */
-  async loadLUT(
-    renderer: Renderer,
-    url: string,
-    level: 8 | 16 = 8
-  ): Promise<void> {
+  async loadLUT(renderer: Renderer, url: string, level: 8 | 16 = 8): Promise<void> {
     if (this.currentLutPath === url && this.lutTexture) {
       return; // Already loaded
     }
@@ -90,9 +89,33 @@ export class FilmSimulationFilter extends Filter {
       console.warn("WebGL2 3D textures not supported, skipping LUT load");
       return;
     }
+    this.gl = gl;
 
-    this.lutTexture = await this.lutCache.get(gl, url, level);
-    this.currentLutPath = url;
+    // Guard against concurrent loads: mark the URL we want, then check after await
+    this.loadingLutUrl = url;
+    try {
+      const texture = await this.lutCache.get(gl, url, level);
+
+      // A newer loadLUT call may have superseded us — only apply if still current
+      if (this.loadingLutUrl !== url) {
+        return;
+      }
+
+      this.lutTexture = texture;
+      this.currentLutPath = url;
+    } catch (e) {
+      console.warn("LUT load failed:", e);
+      // Reset to safe state — disable LUT for this filter
+      if (this.loadingLutUrl === url) {
+        this.lutTexture = null;
+        this.currentLutPath = null;
+        this.uniforms.u_lutEnabled = false;
+      }
+    } finally {
+      if (this.loadingLutUrl === url) {
+        this.loadingLutUrl = null;
+      }
+    }
   }
 
   /**
@@ -141,8 +164,14 @@ export class FilmSimulationFilter extends Filter {
     // 6. Manually set the sampler3D uniform location
     const contextUid = (renderer as any).CONTEXT_UID;
     const glProgram = this.program.glPrograms[contextUid];
-    if (glProgram?.uniformData?.u_lut) {
-      gl.uniform1i(glProgram.uniformData.u_lut.location, lutUnit);
+    const lutUniformData = glProgram?.uniformData?.u_lut;
+    if (lutUniformData && lutUniformData.location != null) {
+      gl.uniform1i(lutUniformData.location, lutUnit);
+    } else {
+      console.warn(
+        "FilmSimulationFilter: u_lut uniform location not found — " +
+          "LUT will not be applied. Check shader compilation."
+      );
     }
 
     // 7. Draw the filter quad
@@ -193,12 +222,15 @@ export class FilmSimulationFilter extends Filter {
   }
 
   /**
-   * Release GPU resources.
+   * Release GPU resources including the LUT cache.
    */
   destroy(): void {
-    // LUT textures are managed by the cache; we just clear our reference.
+    if (this.gl) {
+      this.lutCache.dispose(this.gl);
+    }
     this.lutTexture = null;
     this.currentLutPath = null;
+    this.gl = null;
     super.destroy();
   }
 

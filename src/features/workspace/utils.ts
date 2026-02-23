@@ -29,11 +29,19 @@ export const loadCustomPresets = () => {
   }
 };
 
+let _persistPresetsTimer: ReturnType<typeof setTimeout> | null = null;
+
 export const persistCustomPresets = (customPresets: Preset[]) => {
   if (typeof window === "undefined") {
     return;
   }
-  window.localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(customPresets));
+  if (_persistPresetsTimer) {
+    clearTimeout(_persistPresetsTimer);
+  }
+  _persistPresetsTimer = setTimeout(() => {
+    _persistPresetsTimer = null;
+    window.localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(customPresets));
+  }, 300);
 };
 
 export const buildCustomAdjustments = (adjustments: EditingAdjustments) => {
@@ -51,7 +59,7 @@ export const resolveAdjustments = (
   adjustments: EditingAdjustments | undefined,
   presetId: string | undefined,
   intensity: number | undefined,
-  presets: Preset[],
+  presets: Preset[]
 ) => {
   const base = normalizeAdjustments(adjustments ?? createDefaultAdjustments());
   if (!presetId) {
@@ -61,8 +69,7 @@ export const resolveAdjustments = (
   if (!preset) {
     return base;
   }
-  const resolvedIntensity =
-    typeof intensity === "number" ? intensity : preset.intensity;
+  const resolvedIntensity = typeof intensity === "number" ? intensity : preset.intensity;
   return applyPresetAdjustments(base, preset.adjustments, resolvedIntensity);
 };
 
@@ -73,7 +80,7 @@ export const resolveFilmProfile = (
   filmProfile: FilmProfile | undefined,
   intensity: number | undefined,
   presets: Preset[],
-  overrides?: FilmProfileOverrides,
+  overrides?: FilmProfileOverrides
 ): FilmProfile | null => {
   if (!adjustments) {
     return null;

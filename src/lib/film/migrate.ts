@@ -1,5 +1,5 @@
 import type { FilmProfile } from "@/types";
-import type { FilmProfileV2 } from "@/types/film";
+import type { FilmProfileAny, FilmProfileV2 } from "@/types/film";
 import { getFilmModule, normalizeFilmProfile } from "./profile";
 
 /**
@@ -16,9 +16,11 @@ export function migrateFilmProfileV1ToV2(v1: FilmProfile): FilmProfileV2 {
   const scan = getFilmModule(normalized, "scan");
   const grain = getFilmModule(normalized, "grain");
   const colorScience = getFilmModule(normalized, "colorScience");
+  const defects = getFilmModule(normalized, "defects");
 
   const scanAmount = scan?.enabled ? scan.amount / 100 : 0;
   const grainAmount = grain?.enabled ? grain.amount / 100 : 0;
+  const defectsAmount = defects?.enabled ? defects.amount / 100 : 0;
 
   // Derive type from tags (best-effort; V1 didn't have an explicit type)
   let filmType: FilmProfileV2["type"] = "negative";
@@ -50,14 +52,20 @@ export function migrateFilmProfileV1ToV2(v1: FilmProfile): FilmProfileV2 {
     colorMatrix:
       colorScience?.enabled &&
       (colorScience.params.rgbMix[0] !== 1 ||
-       colorScience.params.rgbMix[1] !== 1 ||
-       colorScience.params.rgbMix[2] !== 1)
+        colorScience.params.rgbMix[1] !== 1 ||
+        colorScience.params.rgbMix[2] !== 1)
         ? {
             enabled: true,
             matrix: [
-              colorScience.params.rgbMix[0], 0, 0,
-              0, colorScience.params.rgbMix[1], 0,
-              0, 0, colorScience.params.rgbMix[2],
+              colorScience.params.rgbMix[0],
+              0,
+              0,
+              0,
+              colorScience.params.rgbMix[1],
+              0,
+              0,
+              0,
+              colorScience.params.rgbMix[2],
             ],
           }
         : undefined,
@@ -110,14 +118,28 @@ export function migrateFilmProfileV1ToV2(v1: FilmProfile): FilmProfileV2 {
 
     // Layer 6: Vignette
     vignette: {
-      enabled:
-        scanAmount > 0 &&
-        Math.abs(scan?.params.vignetteAmount ?? 0) > 0.001,
+      enabled: scanAmount > 0 && Math.abs(scan?.params.vignetteAmount ?? 0) > 0.001,
       amount: (scan?.params.vignetteAmount ?? 0) * scanAmount,
       midpoint: 0.5,
       roundness: 0.5,
     },
+
+    // Defects — preserve V1 defects data so migration is lossless
+    defects: defects
+      ? {
+            enabled: defects.enabled && defectsAmount > 0,
+            leakProbability: (defects.params.leakProbability ?? 0) * (defectsAmount || 1),
+            leakStrength: (defects.params.leakStrength ?? 0) * (defectsAmount || 1),
+            dustAmount: (defects.params.dustAmount ?? 0) * (defectsAmount || 1),
+            scratchAmount: (defects.params.scratchAmount ?? 0) * (defectsAmount || 1),
+          }
+      : undefined,
   };
+}
+
+/** Type guard: returns true when the profile is already V2 format. */
+function isFilmProfileV2(profile: FilmProfileAny): profile is FilmProfileV2 {
+  return profile.version === 2;
 }
 
 /**
@@ -126,11 +148,9 @@ export function migrateFilmProfileV1ToV2(v1: FilmProfile): FilmProfileV2 {
  * - V2 profiles pass through unchanged.
  * - V1 profiles are migrated via `migrateFilmProfileV1ToV2`.
  */
-export function ensureFilmProfileV2(
-  profile: FilmProfile | FilmProfileV2
-): FilmProfileV2 {
-  if ((profile as FilmProfileV2).version === 2) {
-    return profile as FilmProfileV2;
+export function ensureFilmProfileV2(profile: FilmProfileAny): FilmProfileV2 {
+  if (isFilmProfileV2(profile)) {
+    return profile;
   }
-  return migrateFilmProfileV1ToV2(profile as FilmProfile);
+  return migrateFilmProfileV1ToV2(profile);
 }

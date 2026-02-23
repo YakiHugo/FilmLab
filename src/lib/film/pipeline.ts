@@ -8,7 +8,16 @@ import type {
   ToneModule,
 } from "@/types";
 import { normalizeFilmProfile } from "./profile";
-import { clamp, createRng, hashNoise2d, hashString, lerp, smoothstep, toByte, toUnit } from "./utils";
+import {
+  clamp,
+  createRng,
+  hashNoise2d,
+  hashString,
+  lerp,
+  smoothstep,
+  toByte,
+  toUnit,
+} from "./utils";
 
 export interface FilmPipelineContext {
   width: number;
@@ -32,10 +41,7 @@ const resolveSeed = (module: FilmModuleConfig, context: FilmPipelineContext) => 
   return hashString(`${module.id}:${key}`);
 };
 
-const applyColorScienceModule = (
-  data: Uint8ClampedArray,
-  module: ColorScienceModule
-) => {
+const applyColorScienceModule = (data: Uint8ClampedArray, module: ColorScienceModule) => {
   const amount = module.amount / 100;
   const lutStrength = module.params.lutStrength * amount;
   const tempShift = (module.params.temperatureShift / 100) * 0.14 * amount;
@@ -146,45 +152,74 @@ const applyToneModule = (data: Uint8ClampedArray, module: ToneModule) => {
   }
 };
 
+/**
+ * Separable box blur using a sliding-window running sum.
+ *
+ * Complexity: O(width × height) regardless of radius (was O(w × h × r)).
+ * Uses clamped-edge sampling to match the original behavior.
+ */
+/**
+ * Two-pass box blur (horizontal then vertical) using a sliding window.
+ * Accepts optional pre-allocated `temp` and `output` buffers to avoid
+ * allocating new Float32Arrays on every call — important for 4K images
+ * where each buffer is ~33 MB.
+ */
 const blurFloatMap = (
   source: Float32Array,
   width: number,
   height: number,
-  radius: number
+  radius: number,
+  temp?: Float32Array,
+  output?: Float32Array
 ) => {
   if (radius <= 0) {
+    if (output) {
+      output.set(source);
+      return output;
+    }
     return source.slice();
   }
 
-  const horizontal = new Float32Array(source.length);
+  const len = source.length;
+  const horizontal = temp && temp.length >= len ? temp : new Float32Array(len);
+
+  // --- Horizontal pass (sliding window per row) ---
   for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      let sum = 0;
-      let count = 0;
-      for (let offset = -radius; offset <= radius; offset += 1) {
-        const sampleX = clamp(x + offset, 0, width - 1);
-        sum += source[y * width + sampleX];
-        count += 1;
-      }
-      horizontal[y * width + x] = sum / count;
+    const rowOffset = y * width;
+    let sum = 0;
+    for (let offset = -radius; offset <= radius; offset += 1) {
+      sum += source[rowOffset + clamp(offset, 0, width - 1)];
+    }
+    const diameter = radius * 2 + 1;
+    horizontal[rowOffset] = sum / diameter;
+
+    for (let x = 1; x < width; x += 1) {
+      const addX = clamp(x + radius, 0, width - 1);
+      const removeX = clamp(x - radius - 1, 0, width - 1);
+      sum += source[rowOffset + addX] - source[rowOffset + removeX];
+      horizontal[rowOffset + x] = sum / diameter;
     }
   }
 
-  const output = new Float32Array(source.length);
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      let sum = 0;
-      let count = 0;
-      for (let offset = -radius; offset <= radius; offset += 1) {
-        const sampleY = clamp(y + offset, 0, height - 1);
-        sum += horizontal[sampleY * width + x];
-        count += 1;
-      }
-      output[y * width + x] = sum / count;
+  // --- Vertical pass (sliding window per column) ---
+  const out = output && output.length >= len ? output : new Float32Array(len);
+  for (let x = 0; x < width; x += 1) {
+    let sum = 0;
+    for (let offset = -radius; offset <= radius; offset += 1) {
+      sum += horizontal[clamp(offset, 0, height - 1) * width + x];
+    }
+    const diameter = radius * 2 + 1;
+    out[x] = sum / diameter;
+
+    for (let y = 1; y < height; y += 1) {
+      const addY = clamp(y + radius, 0, height - 1);
+      const removeY = clamp(y - radius - 1, 0, height - 1);
+      sum += horizontal[addY * width + x] - horizontal[removeY * width + x];
+      out[y * width + x] = sum / diameter;
     }
   }
 
-  return output;
+  return out;
 };
 
 const applyScanModule = (
@@ -196,34 +231,40 @@ const applyScanModule = (
   const { width, height } = context;
   const pixelCount = width * height;
 
-  const halationMap = new Float32Array(pixelCount);
-  const bloomMap = new Float32Array(pixelCount);
+  // Reuse two buffers for both halation and bloom passes instead of
+  // allocating four separate Float32Arrays (~132 MB at 4K).
+  const mapBuffer = new Float32Array(pixelCount);
+  const blurTemp = new Float32Array(pixelCount);
 
+  // --- Pass 1: Compute & blur halation map ---
+  const halationThreshold = module.params.halationThreshold;
+  const halationDivisor = Math.max(0.001, 1 - halationThreshold);
   for (let index = 0; index < pixelCount; index += 1) {
     const rgbaIndex = index * 4;
-    const red = toUnit(data[rgbaIndex]);
-    const green = toUnit(data[rgbaIndex + 1]);
-    const blue = toUnit(data[rgbaIndex + 2]);
-    const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
-
-    const halationThreshold = module.params.halationThreshold;
-    const bloomThreshold = module.params.bloomThreshold;
-    halationMap[index] = clamp(
-      (luminance - halationThreshold) / Math.max(0.001, 1 - halationThreshold),
-      0,
-      1
-    );
-    bloomMap[index] = clamp(
-      (luminance - bloomThreshold) / Math.max(0.001, 1 - bloomThreshold),
-      0,
-      1
-    );
+    const luminance =
+      toUnit(data[rgbaIndex]) * 0.2126 +
+      toUnit(data[rgbaIndex + 1]) * 0.7152 +
+      toUnit(data[rgbaIndex + 2]) * 0.0722;
+    mapBuffer[index] = clamp((luminance - halationThreshold) / halationDivisor, 0, 1);
   }
-
   const halationRadius = Math.round(clamp(module.params.halationAmount * 8, 1, 8));
+  // Blur halation in-place: mapBuffer → blurredHalation (stored in blurTemp)
+  const blurredHalation = blurFloatMap(mapBuffer, width, height, halationRadius, undefined, blurTemp);
+
+  // --- Pass 2: Compute & blur bloom map (reuse mapBuffer) ---
+  const bloomThreshold = module.params.bloomThreshold;
+  const bloomDivisor = Math.max(0.001, 1 - bloomThreshold);
+  for (let index = 0; index < pixelCount; index += 1) {
+    const rgbaIndex = index * 4;
+    const luminance =
+      toUnit(data[rgbaIndex]) * 0.2126 +
+      toUnit(data[rgbaIndex + 1]) * 0.7152 +
+      toUnit(data[rgbaIndex + 2]) * 0.0722;
+    mapBuffer[index] = clamp((luminance - bloomThreshold) / bloomDivisor, 0, 1);
+  }
   const bloomRadius = Math.round(clamp(module.params.bloomAmount * 10, 1, 10));
-  const blurredHalation = blurFloatMap(halationMap, width, height, halationRadius);
-  const blurredBloom = blurFloatMap(bloomMap, width, height, bloomRadius);
+  // Blur bloom: mapBuffer → blurredBloom (allocates inside blurFloatMap since blurTemp holds halation)
+  const blurredBloom = blurFloatMap(mapBuffer, width, height, bloomRadius);
 
   const vignetteStrength = module.params.vignetteAmount * amount;
   const warmthStrength = (module.params.scanWarmth / 100) * 0.12 * amount;
@@ -331,7 +372,7 @@ const paintLightLeak = (
       const nx = x / Math.max(1, context.width - 1);
       const ny = y / Math.max(1, context.height - 1);
 
-      let axisDistance = 0;
+      let axisDistance: number;
       switch (edgeSelector) {
         case 0:
           axisDistance = Math.abs(nx - pivot);

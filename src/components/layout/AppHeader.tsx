@@ -37,12 +37,8 @@ export function AppHeader() {
             <Film className="h-5 w-5" />
           </Link>
           <div className="space-y-1">
-            <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">
-              FilmLab 工作台
-            </p>
-            <h1 className="font-display text-lg text-white">
-              {project?.name ?? "未命名项目"}
-            </h1>
+            <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">FilmLab 工作台</p>
+            <h1 className="font-display text-lg text-white">{project?.name ?? "未命名项目"}</h1>
           </div>
         </div>
 
@@ -53,12 +49,7 @@ export function AppHeader() {
           <Badge size="control" className="min-w-[96px] border-white/10 bg-white/5 text-slate-200">
             已选 {selectedAssetIds.length}
           </Badge>
-          <UploadButton
-            size="sm"
-            variant="secondary"
-            compact
-            className="hidden sm:inline-flex"
-          />
+          <UploadButton size="sm" variant="secondary" compact className="hidden sm:inline-flex" />
         </div>
       </div>
     </header>

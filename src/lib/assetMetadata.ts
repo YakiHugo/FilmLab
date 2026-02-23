@@ -47,11 +47,7 @@ const toNumber = (value: unknown) => {
   if (value && typeof value === "object") {
     const numerator = (value as { numerator?: number }).numerator;
     const denominator = (value as { denominator?: number }).denominator;
-    if (
-      typeof numerator === "number" &&
-      typeof denominator === "number" &&
-      denominator !== 0
-    ) {
+    if (typeof numerator === "number" && typeof denominator === "number" && denominator !== 0) {
       return numerator / denominator;
     }
   }
@@ -133,6 +129,8 @@ export const createThumbnailBlob = async (
   const context = canvas.getContext("2d");
   if (!context) {
     loaded.cleanup?.();
+    canvas.width = 0;
+    canvas.height = 0;
     throw new Error("Failed to create thumbnail canvas");
   }
   context.imageSmoothingEnabled = true;
@@ -142,6 +140,9 @@ export const createThumbnailBlob = async (
   const blob = await new Promise<Blob | null>((resolve) => {
     canvas.toBlob(resolve, type ?? DEFAULT_THUMBNAIL_TYPE, quality ?? DEFAULT_THUMBNAIL_QUALITY);
   });
+  // Release canvas backing store immediately after encoding
+  canvas.width = 0;
+  canvas.height = 0;
   if (!blob) {
     throw new Error("Failed to create thumbnail blob");
   }
@@ -190,7 +191,7 @@ export const extractExifMetadata = async (source: Blob): Promise<Partial<AssetMe
       width,
       height,
     };
-  } catch (error) {
+  } catch {
     return {};
   }
 };
@@ -217,10 +218,7 @@ export const formatCameraLabel = (metadata?: AssetMetadata) => {
   if (!metadata) {
     return "未知机身";
   }
-  const camera = [metadata.cameraMake, metadata.cameraModel]
-    .filter(Boolean)
-    .join(" ")
-    .trim();
+  const camera = [metadata.cameraMake, metadata.cameraModel].filter(Boolean).join(" ").trim();
   return camera.length > 0 ? camera : "未知机身";
 };
 

@@ -1,13 +1,14 @@
 import { useEffect } from "react";
 import { useSearch } from "@tanstack/react-router";
 import { Card, CardContent } from "@/components/ui/card";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { resolveEditorReturnStep } from "@/features/workspace/navigation";
 import { useEditorStore } from "@/stores/editorStore";
 import { useProjectStore } from "@/stores/projectStore";
-import { EditorPreviewCard } from "./editor/EditorPreviewCard";
-import { EditorInspectorPanel } from "./editor/layout/EditorInspectorPanel";
-import { EditorToolRail } from "./editor/layout/EditorToolRail";
-import { EditorTopBar } from "./editor/layout/EditorTopBar";
+import { EditorPreviewCard } from "@/features/editor/EditorPreviewCard";
+import { EditorInspectorPanel } from "@/features/editor/layout/EditorInspectorPanel";
+import { EditorToolRail } from "@/features/editor/layout/EditorToolRail";
+import { EditorTopBar } from "@/features/editor/layout/EditorTopBar";
 
 export function Editor() {
   const assets = useProjectStore((state) => state.assets);
@@ -30,9 +31,7 @@ export function Editor() {
       setSelectedAssetId(null);
       return;
     }
-    const fallbackId = assets.some((asset) => asset.id === assetId)
-      ? assetId
-      : assets[0].id;
+    const fallbackId = assets.some((asset) => asset.id === assetId) ? assetId : assets[0].id;
     setSelectedAssetId(fallbackId ?? null);
   }, [assetId, assets, selectedAssetId, setSelectedAssetId]);
 
@@ -49,15 +48,17 @@ export function Editor() {
           </Card>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:grid lg:h-full lg:grid-cols-[minmax(0,1fr)_360px_62px] lg:grid-rows-[minmax(0,1fr)]">
-          <section className="order-1 min-h-[300px] overflow-hidden lg:order-1 lg:h-full lg:min-h-0">
-            <EditorPreviewCard />
-          </section>
+        <ErrorBoundary>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:grid lg:h-full lg:grid-cols-[minmax(0,1fr)_360px_62px] lg:grid-rows-[minmax(0,1fr)]">
+            <section className="order-1 min-h-[300px] overflow-hidden lg:order-1 lg:h-full lg:min-h-0">
+              <EditorPreviewCard />
+            </section>
 
-          <EditorToolRail className="order-2 lg:order-3" />
+            <EditorToolRail className="order-2 lg:order-3" />
 
-          <EditorInspectorPanel className="order-3 max-h-[48vh] lg:order-2 lg:max-h-none" />
-        </div>
+            <EditorInspectorPanel className="order-3 max-h-[48vh] lg:order-2 lg:max-h-none" />
+          </div>
+        </ErrorBoundary>
       )}
     </div>
   );

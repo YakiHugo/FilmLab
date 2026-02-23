@@ -1,9 +1,7 @@
+import { clamp } from "@/lib/math";
 import type { FilmProfile } from "@/types";
 import { getFilmModule, normalizeFilmProfile } from "./profile";
 import { hashString } from "./utils";
-
-const clamp = (value: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, value));
 
 const vertexShaderSource = `#version 300 es
 in vec2 a_position;
@@ -158,19 +156,17 @@ vec3 applyScan(vec3 color) {
   offsets[6] = vec2(1.0, -1.0);
   offsets[7] = vec2(-1.0, -1.0);
 
+  // Sample neighbor luminance directly from the raw texture.
+  // Previous code ran applyColorScience + applyTone on every sample
+  // (16 calls per pixel) — now we use raw luma which is sufficient
+  // for threshold-based halation/bloom detection.
   float halAccum = 0.0;
   float bloomAccum = 0.0;
   for (int i = 0; i < 8; i++) {
-    vec3 sampleColor = texture(u_texture, v_uv + offsets[i] * u_texel * halRadius).rgb;
-    sampleColor = applyColorScience(sampleColor);
-    sampleColor = applyTone(sampleColor);
-    float sampleLum = luma(sampleColor);
-    halAccum += clamp((sampleLum - halThres) / max(0.001, 1.0 - halThres), 0.0, 1.0);
+    float halLum = luma(texture(u_texture, v_uv + offsets[i] * u_texel * halRadius).rgb);
+    halAccum += clamp((halLum - halThres) / max(0.001, 1.0 - halThres), 0.0, 1.0);
 
-    vec3 bloomSample = texture(u_texture, v_uv + offsets[i] * u_texel * bloomRadius).rgb;
-    bloomSample = applyColorScience(bloomSample);
-    bloomSample = applyTone(bloomSample);
-    float bloomLum = luma(bloomSample);
+    float bloomLum = luma(texture(u_texture, v_uv + offsets[i] * u_texel * bloomRadius).rgb);
     bloomAccum += clamp((bloomLum - bloomThres) / max(0.001, 1.0 - bloomThres), 0.0, 1.0);
   }
 
@@ -347,8 +343,7 @@ const resolveFilmUniforms = (
   const toneStrength = tone && tone.enabled ? clamp(tone.amount / 100, 0, 1) : 0;
   const scanStrength = scan && scan.enabled ? clamp(scan.amount / 100, 0, 1) : 0;
   const grainStrength = grain && grain.enabled ? clamp(grain.amount / 100, 0, 1) : 0;
-  const defectsStrength =
-    defects && defects.enabled ? clamp(defects.amount / 100, 0, 1) : 0;
+  const defectsStrength = defects && defects.enabled ? clamp(defects.amount / 100, 0, 1) : 0;
 
   return {
     colorAmount,
@@ -403,6 +398,9 @@ class WebGLFilmRenderer {
   private gl: WebGL2RenderingContext;
   private program: WebGLProgram;
   private texture: WebGLTexture;
+  private vertexShader: WebGLShader;
+  private fragmentShader: WebGLShader;
+  private positionBuffer: WebGLBuffer;
   private attribPosition: number;
   private uniforms: UniformLocationMap;
 
@@ -423,18 +421,17 @@ class WebGLFilmRenderer {
 
     const vertexShader = this.createShader(gl.VERTEX_SHADER, vertexShaderSource);
     const fragmentShader = this.createShader(gl.FRAGMENT_SHADER, fragmentShaderSource);
+    this.vertexShader = vertexShader;
+    this.fragmentShader = fragmentShader;
     this.program = this.createProgram(vertexShader, fragmentShader);
 
     const positionBuffer = gl.createBuffer();
     if (!positionBuffer) {
       throw new Error("Failed to create position buffer.");
     }
+    this.positionBuffer = positionBuffer;
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-    gl.bufferData(
-      gl.ARRAY_BUFFER,
-      new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]),
-      gl.STATIC_DRAW
-    );
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 
     this.attribPosition = gl.getAttribLocation(this.program, "a_position");
     gl.useProgram(this.program);
@@ -562,8 +559,11 @@ class WebGLFilmRenderer {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source as TexImageSource);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
+    try {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source as TexImageSource);
+    } finally {
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
+    }
 
     gl.uniform2f(this.uniforms.u_texel, 1 / width, 1 / height);
     this.setUniforms(uniforms);
@@ -571,10 +571,30 @@ class WebGLFilmRenderer {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     return this.canvas;
   }
+
+  dispose() {
+    const gl = this.gl;
+    gl.deleteTexture(this.texture);
+    gl.deleteBuffer(this.positionBuffer);
+    gl.deleteShader(this.vertexShader);
+    gl.deleteShader(this.fragmentShader);
+    gl.deleteProgram(this.program);
+    const ext = gl.getExtension("WEBGL_lose_context");
+    ext?.loseContext();
+    this.canvas.width = 0;
+    this.canvas.height = 0;
+  }
 }
 
 let renderer: WebGLFilmRenderer | null = null;
 let unavailable = false;
+
+export const disposeWebGL2Renderer = () => {
+  if (renderer) {
+    renderer.dispose();
+    renderer = null;
+  }
+};
 
 export const isWebGL2FilmAvailable = () => {
   if (unavailable || typeof document === "undefined") {
@@ -587,8 +607,15 @@ export const isWebGL2FilmAvailable = () => {
   const gl = probe.getContext("webgl2");
   if (!gl) {
     unavailable = true;
+    probe.width = 0;
+    probe.height = 0;
     return false;
   }
+  // Release the probe context to avoid consuming a WebGL context slot
+  const loseExt = gl.getExtension("WEBGL_lose_context");
+  loseExt?.loseContext();
+  probe.width = 0;
+  probe.height = 0;
   return true;
 };
 

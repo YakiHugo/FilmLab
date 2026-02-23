@@ -1,30 +1,37 @@
 export type PresetTag = "portrait" | "landscape" | "night" | "bw";
 
-export type PresetAdjustmentKey =
-  | "exposure"
-  | "contrast"
-  | "highlights"
-  | "shadows"
-  | "whites"
-  | "blacks"
-  | "curveHighlights"
-  | "curveLights"
-  | "curveDarks"
-  | "curveShadows"
-  | "temperature"
-  | "tint"
-  | "vibrance"
-  | "saturation"
-  | "clarity"
-  | "dehaze"
-  | "vignette"
-  | "grain"
-  | "grainSize"
-  | "grainRoughness"
-  | "sharpening"
-  | "masking"
-  | "noiseReduction"
-  | "colorNoiseReduction";
+/**
+ * Single source of truth for preset-adjustable numeric keys.
+ * `PresetAdjustmentKey` is derived from this array.
+ */
+export const PRESET_ADJUSTMENT_KEYS = [
+  "exposure",
+  "contrast",
+  "highlights",
+  "shadows",
+  "whites",
+  "blacks",
+  "curveHighlights",
+  "curveLights",
+  "curveDarks",
+  "curveShadows",
+  "temperature",
+  "tint",
+  "vibrance",
+  "saturation",
+  "clarity",
+  "dehaze",
+  "vignette",
+  "grain",
+  "grainSize",
+  "grainRoughness",
+  "sharpening",
+  "masking",
+  "noiseReduction",
+  "colorNoiseReduction",
+] as const;
+
+export type PresetAdjustmentKey = (typeof PRESET_ADJUSTMENT_KEYS)[number];
 
 export type PresetAdjustments = Partial<Record<PresetAdjustmentKey, number>>;
 
@@ -39,12 +46,7 @@ export interface Preset {
   filmProfile?: FilmProfile;
 }
 
-export type FilmModuleId =
-  | "colorScience"
-  | "tone"
-  | "grain"
-  | "defects"
-  | "scan";
+export type FilmModuleId = "colorScience" | "tone" | "grain" | "defects" | "scan";
 
 export type FilmSeedMode = "perAsset" | "perRender" | "perExport" | "locked";
 
@@ -101,10 +103,7 @@ export interface FilmModuleBase<TId extends FilmModuleId, TParams> {
   params: TParams;
 }
 
-export type ColorScienceModule = FilmModuleBase<
-  "colorScience",
-  ColorScienceParams
->;
+export type ColorScienceModule = FilmModuleBase<"colorScience", ColorScienceParams>;
 export type ToneModule = FilmModuleBase<"tone", ToneParams>;
 export type GrainModule = FilmModuleBase<"grain", GrainParams>;
 export type DefectsModule = FilmModuleBase<"defects", DefectsParams>;
@@ -137,13 +136,24 @@ export interface FilmProfile {
   modules: FilmModuleConfig[];
 }
 
-export interface FilmModuleOverride {
+/** Maps each module id to its typed params for type-safe overrides. */
+export type FilmModuleParamsMap = {
+  colorScience: ColorScienceParams;
+  tone: ToneParams;
+  grain: GrainParams;
+  defects: DefectsParams;
+  scan: ScanParams;
+};
+
+export type FilmModuleOverride<TId extends FilmModuleId = FilmModuleId> = {
   enabled?: boolean;
   amount?: number;
-  params?: Record<string, unknown>;
-}
+  params?: Partial<FilmModuleParamsMap[TId]>;
+};
 
-export type FilmProfileOverrides = Partial<Record<FilmModuleId, FilmModuleOverride>>;
+export type FilmProfileOverrides = {
+  [K in FilmModuleId]?: FilmModuleOverride<K>;
+};
 
 export interface AiPresetRecommendation {
   presetId: string;
@@ -193,6 +203,34 @@ export interface ColorGradingAdjustments {
   balance: number;
 }
 
+/**
+ * Single source of truth for valid aspect ratio values.
+ * `AspectRatio` type is derived from this array.
+ */
+export const ASPECT_RATIOS = [
+  "free",
+  "original",
+  "1:1",
+  "2:1",
+  "1:2",
+  "4:3",
+  "3:4",
+  "7:5",
+  "5:7",
+  "11:8.5",
+  "8.5:11",
+  "16:10",
+  "10:16",
+  "4:5",
+  "5:4",
+  "3:2",
+  "2:3",
+  "16:9",
+  "9:16",
+] as const;
+
+export type AspectRatio = (typeof ASPECT_RATIOS)[number];
+
 export interface EditingAdjustments {
   exposure: number;
   contrast: number;
@@ -228,26 +266,7 @@ export interface EditingAdjustments {
   scale: number;
   flipHorizontal: boolean;
   flipVertical: boolean;
-  aspectRatio:
-    | "free"
-    | "original"
-    | "1:1"
-    | "2:1"
-    | "1:2"
-    | "4:3"
-    | "3:4"
-    | "7:5"
-    | "5:7"
-    | "11:8.5"
-    | "8.5:11"
-    | "16:10"
-    | "10:16"
-    | "4:5"
-    | "5:4"
-    | "3:2"
-    | "2:3"
-    | "16:9"
-    | "9:16";
+  aspectRatio: AspectRatio;
   customAspectRatio: number;
   timestampEnabled: boolean;
   timestampPosition: "bottom-right" | "bottom-left" | "top-right" | "top-left";
@@ -257,10 +276,18 @@ export interface EditingAdjustments {
   opticsCA: boolean;
 }
 
+/** MIME types accepted for asset import. */
+export type AssetMimeType =
+  | "image/jpeg"
+  | "image/png"
+  | "image/tiff"
+  | "image/webp"
+  | "image/avif";
+
 export interface Asset {
   id: string;
   name: string;
-  type: string;
+  type: AssetMimeType | (string & {});
   size: number;
   createdAt: string;
   objectUrl: string;
@@ -277,6 +304,27 @@ export interface Asset {
   adjustments?: EditingAdjustments;
   aiRecommendation?: AssetAiRecommendation;
 }
+
+/** Fields that consumers may update on an existing asset. */
+export type AssetUpdate = Partial<
+  Pick<
+    Asset,
+    | "presetId"
+    | "intensity"
+    | "filmProfileId"
+    | "filmProfile"
+    | "filmOverrides"
+    | "group"
+    | "metadata"
+    | "adjustments"
+    | "aiRecommendation"
+    | "thumbnailUrl"
+    | "thumbnailBlob"
+  >
+>;
+
+/** An asset that is guaranteed to have its image blob loaded. */
+export type RenderableAsset = Asset & { blob: Blob };
 
 export interface AssetMetadata {
   width?: number;
