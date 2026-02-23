@@ -125,16 +125,15 @@ export function migrateFilmProfileV1ToV2(v1: FilmProfile): FilmProfileV2 {
     },
 
     // Defects — preserve V1 defects data so migration is lossless
-    defects:
-      defectsAmount > 0
-        ? {
-            enabled: true,
-            leakProbability: (defects?.params.leakProbability ?? 0) * defectsAmount,
-            leakStrength: (defects?.params.leakStrength ?? 0) * defectsAmount,
-            dustAmount: (defects?.params.dustAmount ?? 0) * defectsAmount,
-            scratchAmount: (defects?.params.scratchAmount ?? 0) * defectsAmount,
+    defects: defects
+      ? {
+            enabled: defects.enabled && defectsAmount > 0,
+            leakProbability: (defects.params.leakProbability ?? 0) * (defectsAmount || 1),
+            leakStrength: (defects.params.leakStrength ?? 0) * (defectsAmount || 1),
+            dustAmount: (defects.params.dustAmount ?? 0) * (defectsAmount || 1),
+            scratchAmount: (defects.params.scratchAmount ?? 0) * (defectsAmount || 1),
           }
-        : undefined,
+      : undefined,
   };
 }
 

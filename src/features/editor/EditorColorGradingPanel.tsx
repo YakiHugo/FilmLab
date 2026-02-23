@@ -131,6 +131,10 @@ const ColorWheel = memo(function ColorWheel({
       </div>
       <div
         ref={wheelRef}
+        role="slider"
+        aria-label={`${label}色相/饱和度`}
+        aria-valuetext={`色相 ${Math.round(value.hue)}°, 饱和度 ${Math.round(value.saturation)}%`}
+        tabIndex={0}
         className="relative mx-auto h-[108px] w-[108px] rounded-full border border-white/20"
         style={{
           background:

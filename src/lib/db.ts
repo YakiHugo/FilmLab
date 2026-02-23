@@ -71,6 +71,12 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
           dbInstance = null;
           dbInitPromise = null;
         },
+        terminated() {
+          // Browser forcibly closed the connection (e.g. memory pressure, crash recovery).
+          console.warn("IndexedDB connection terminated by browser.");
+          dbInstance = null;
+          dbInitPromise = null;
+        },
       });
       dbFailed = false;
       dbInstance = db;

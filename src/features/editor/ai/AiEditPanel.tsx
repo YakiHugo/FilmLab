@@ -61,6 +61,7 @@ export const AiEditPanel = memo(function AiEditPanel({
             onClick={() => session.clearChat()}
             className="rounded-md p-1 text-slate-500 transition-colors hover:bg-white/5 hover:text-slate-300"
             title="清空对话"
+            aria-label="清空对话"
           >
             <RotateCcw className="h-3.5 w-3.5" />
           </button>
@@ -71,6 +72,8 @@ export const AiEditPanel = memo(function AiEditPanel({
               showSettings ? "text-blue-400" : "text-slate-500 hover:text-slate-300"
             }`}
             title="设置"
+            aria-label="设置"
+            aria-expanded={showSettings}
           >
             <Settings2 className="h-3.5 w-3.5" />
           </button>

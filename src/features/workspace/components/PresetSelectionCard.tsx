@@ -105,6 +105,8 @@ export const PresetSelectionCard = memo(function PresetSelectionCard({
                       key={`${preset.id}-${index}`}
                       type="button"
                       onClick={() => onApplyPreset(preset.id)}
+                      aria-label={`AI 推荐 ${index + 1}：${preset.name}`}
+                      aria-pressed={isActive}
                       className={cn(
                         "min-w-[220px] rounded-2xl border border-white/10 bg-slate-950/60 p-3 text-left transition",
                         isActive && "border-sky-200/40 bg-sky-300/10"
@@ -134,6 +136,8 @@ export const PresetSelectionCard = memo(function PresetSelectionCard({
                   key={preset.id}
                   type="button"
                   onClick={() => onApplyPreset(preset.id)}
+                  aria-label={`风格包：${preset.name}`}
+                  aria-pressed={isActive}
                   className={cn(
                     "min-w-[180px] rounded-2xl border border-white/10 bg-slate-950/60 p-3 text-left transition",
                     isActive && "border-sky-200/40 bg-sky-300/10"
@@ -162,6 +166,8 @@ export const PresetSelectionCard = memo(function PresetSelectionCard({
                       key={preset.id}
                       type="button"
                       onClick={() => onApplyPreset(preset.id)}
+                      aria-label={`自定义风格：${preset.name}`}
+                      aria-pressed={isActive}
                       className={cn(
                         "min-w-[180px] rounded-2xl border border-white/10 bg-slate-950/60 p-3 text-left transition",
                         isActive && "border-emerald-200/40 bg-emerald-300/10"

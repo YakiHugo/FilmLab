@@ -15,7 +15,7 @@ export const StepIndicator = memo(function StepIndicator({
   onStepChange,
 }: StepIndicatorProps) {
   return (
-    <div className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-slate-950/60 p-2">
+    <nav aria-label="工作流步骤" className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-slate-950/60 p-2">
       {WORKSPACE_STEPS.map((item, index) => {
         const Icon = item.icon;
         const isActive = item.id === currentStep;
@@ -25,6 +25,8 @@ export const StepIndicator = memo(function StepIndicator({
             key={item.id}
             type="button"
             onClick={() => onStepChange(item.id)}
+            aria-label={`${item.label}：${item.description}`}
+            aria-current={isActive ? "step" : undefined}
             className={cn(
               "flex min-h-[104px] flex-col items-center gap-1.5 rounded-2xl px-3 py-2.5 text-xs transition",
               isActive ? "bg-white/10 text-white" : "text-slate-400 hover:bg-white/5"
@@ -52,6 +54,6 @@ export const StepIndicator = memo(function StepIndicator({
           </button>
         );
       })}
-    </div>
+    </nav>
   );
 });

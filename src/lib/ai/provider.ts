@@ -17,9 +17,9 @@ export const AVAILABLE_MODELS: ModelOption[] = [
 
 export const DEFAULT_MODEL: ModelOption = AVAILABLE_MODELS[0];
 
-import type { LanguageModelV1 } from "ai";
+import type { LanguageModel } from "ai";
 
-export function resolveModel(provider: string, modelId: string): LanguageModelV1 {
+export function resolveModel(provider: string, modelId: string): LanguageModel {
   switch (provider) {
     case "anthropic":
       return anthropic(modelId);

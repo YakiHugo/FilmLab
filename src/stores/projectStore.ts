@@ -352,45 +352,59 @@ export const useProjectStore = create<ProjectState>()(
         }
       },
       applyPresetToGroup: (group, presetId, intensity) => {
-        const { nextAssets, changed } = applyPresetToAssets(
-          get().assets,
-          (a) => a.group === group,
-          presetId,
-          intensity
-        );
+        let changed: Asset[] = [];
+        set((state) => {
+          const result = applyPresetToAssets(
+            state.assets,
+            (a) => a.group === group,
+            presetId,
+            intensity
+          );
+          changed = result.changed;
+          return { assets: result.nextAssets };
+        });
         changed.forEach(persistAsset);
-        set({ assets: nextAssets });
       },
       updatePresetForGroup: (group, presetId) => {
-        const { nextAssets, changed } = applyPresetToAssets(
-          get().assets,
-          (a) => a.group === group,
-          presetId
-        );
+        let changed: Asset[] = [];
+        set((state) => {
+          const result = applyPresetToAssets(
+            state.assets,
+            (a) => a.group === group,
+            presetId
+          );
+          changed = result.changed;
+          return { assets: result.nextAssets };
+        });
         changed.forEach(persistAsset);
-        set({ assets: nextAssets });
       },
       updateIntensityForGroup: (group, intensity) => {
         const changed: Asset[] = [];
-        const nextAssets = get().assets.map((asset) => {
-          if (asset.group !== group) return asset;
-          const updated = { ...asset, intensity };
-          changed.push(updated);
-          return updated;
+        set((state) => {
+          const nextAssets = state.assets.map((asset) => {
+            if (asset.group !== group) return asset;
+            const updated = { ...asset, intensity };
+            changed.push(updated);
+            return updated;
+          });
+          return { assets: nextAssets };
         });
         changed.forEach(persistAsset);
-        set({ assets: nextAssets });
       },
       applyPresetToSelection: (assetIds, presetId, intensity) => {
         const selectedSet = new Set(assetIds);
-        const { nextAssets, changed } = applyPresetToAssets(
-          get().assets,
-          (a) => selectedSet.has(a.id),
-          presetId,
-          intensity
-        );
+        let changed: Asset[] = [];
+        set((state) => {
+          const result = applyPresetToAssets(
+            state.assets,
+            (a) => selectedSet.has(a.id),
+            presetId,
+            intensity
+          );
+          changed = result.changed;
+          return { assets: result.nextAssets };
+        });
         changed.forEach(persistAsset);
-        set({ assets: nextAssets });
       },
       updateAsset: (assetId, update) => {
         const normalizedUpdate = normalizeAssetUpdate(update);
