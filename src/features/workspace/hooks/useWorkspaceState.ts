@@ -54,6 +54,8 @@ export const useWorkspaceState = () => {
 
   // --- Sub-hooks ---
   const selection = useWorkspaceSelection();
+  const isImporting = useProjectStore((state) => state.isImporting);
+  const importProgress = useProjectStore((state) => state.importProgress);
   const filtering = useWorkspaceFiltering(assets);
   const activeAsset = useMemo(
     () => assets.find((asset) => asset.id === activeAssetId) ?? null,
@@ -181,7 +183,11 @@ export const useWorkspaceState = () => {
 
   const handleFiles = useCallback(
     (files: FileList | null) => {
-      selection.handleFiles(files, filtering.resetFilters);
+      selection.handleFiles(files, filtering.resetFilters, (result) => {
+        if (result.added > 0) {
+          setActiveAssetId(result.addedAssetIds[0] ?? null);
+        }
+      });
     },
     [selection.handleFiles, filtering.resetFilters]
   );
@@ -297,7 +303,8 @@ export const useWorkspaceState = () => {
     WORKSPACE_STEPS,
     project,
     assets,
-    isImporting: selection.isImporting,
+    isImporting,
+    importProgress,
     selectedAssetIds: selection.selectedAssetIds,
     clearAssetSelection: selection.clearAssetSelection,
     applyPresetToGroup,

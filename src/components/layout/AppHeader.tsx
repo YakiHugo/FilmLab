@@ -49,7 +49,15 @@ export function AppHeader() {
           <Badge size="control" className="min-w-[96px] border-white/10 bg-white/5 text-slate-200">
             已选 {selectedAssetIds.length}
           </Badge>
-          <UploadButton size="sm" variant="secondary" compact className="hidden sm:inline-flex" />
+          <UploadButton
+            size="sm"
+            variant="secondary"
+            compact
+            className="hidden sm:inline-flex"
+            onFiles={(files) => {
+              void useProjectStore.getState().addAssets(Array.from(files));
+            }}
+          />
         </div>
       </div>
     </header>

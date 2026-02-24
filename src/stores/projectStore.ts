@@ -66,6 +66,7 @@ interface ProjectState {
   presets: typeof presets;
   isLoading: boolean;
   isImporting: boolean;
+  importProgress: { current: number; total: number } | null;
   selectedAssetIds: string[];
   init: () => Promise<void>;
   addAssets: (files: File[]) => Promise<AddAssetsResult>;
@@ -199,6 +200,7 @@ export const useProjectStore = create<ProjectState>()(
       presets,
       isLoading: true,
       isImporting: false,
+      importProgress: null,
       selectedAssetIds: [],
       init: async () => {
         set({ isLoading: true });
@@ -261,12 +263,13 @@ export const useProjectStore = create<ProjectState>()(
             addedAssetIds: [],
           };
         }
-        set({ isImporting: true });
+        set({ isImporting: true, importProgress: { current: 0, total: files.length } });
         try {
           const { assets, project } = get();
           const timestamp = new Date().toISOString();
           const newAssets: Asset[] = [];
           let failedCount = 0;
+          let processedCount = 0;
           const errors: string[] = [];
 
           // Process files with limited concurrency to avoid overwhelming the browser
@@ -315,6 +318,8 @@ export const useProjectStore = create<ProjectState>()(
                 const detail = error instanceof Error ? error.message : "Unknown error";
                 errors.push(`${file.name}: ${detail}`);
               }
+              processedCount += 1;
+              set({ importProgress: { current: processedCount, total: files.length } });
             }
           };
 
@@ -348,7 +353,7 @@ export const useProjectStore = create<ProjectState>()(
             errors,
           };
         } finally {
-          set({ isImporting: false });
+          set({ isImporting: false, importProgress: null });
         }
       },
       applyPresetToGroup: (group, presetId, intensity) => {

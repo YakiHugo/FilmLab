@@ -18,6 +18,7 @@ export function Workspace() {
     project,
     assets,
     isImporting,
+    importProgress,
     selectedAssetIds,
     clearAssetSelection,
     applyPresetToGroup,
@@ -68,7 +69,6 @@ export function Workspace() {
     previewFilmProfile,
     handleToggleAssetSelection,
     handleToggleAllFilteredAssets,
-    handleImportResult,
     handleFiles,
     applyPreset,
     handleIntensityChange,
@@ -116,14 +116,18 @@ export function Workspace() {
             <div>
               <p className="text-sm text-slate-200">拖拽 JPG/PNG/WebP 到此处导入</p>
               <p className="text-xs text-slate-500">
-                {isImporting ? "正在导入与生成缩略图..." : "自动生成缩略图与元信息"}
+                {isImporting
+                  ? importProgress
+                    ? `正在导入 (${importProgress.current}/${importProgress.total})...`
+                    : "正在导入与生成缩略图..."
+                  : "自动生成缩略图与元信息"}
               </p>
             </div>
             <UploadButton
               size="sm"
               variant="secondary"
               label="点此导入"
-              onImportResult={handleImportResult}
+              onFiles={handleFiles}
             />
             <p
               className={cn("min-h-[16px] text-xs text-sky-200", !importNotice && "opacity-0")}
@@ -380,7 +384,7 @@ export function Workspace() {
             <UploadButton
               className="w-full md:w-auto"
               label={primaryAction.label}
-              onImportResult={handleImportResult}
+              onFiles={handleFiles}
             />
           ) : (
             <Button
