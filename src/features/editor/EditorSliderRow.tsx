@@ -122,38 +122,41 @@ export const EditorSliderRow = memo(function EditorSliderRow({
       <div className="flex items-center justify-between text-xs text-slate-400">
         <span className="text-slate-300">{label}</span>
         <div className="flex items-center gap-2">
-          {isEditingValue ? (
-            <input
-              ref={valueInputRef}
-              type="text"
-              inputMode={step < 1 ? "decimal" : "numeric"}
-              value={inputValue}
-              onChange={(event) => setInputValue(event.target.value)}
-              onBlur={handleCommitEditingValue}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  handleCommitEditingValue();
-                  return;
-                }
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  handleCancelEditingValue();
-                }
-              }}
-              aria-label={`${label} 数值输入`}
-              className="h-6 w-16 rounded-md border border-sky-300/40 bg-slate-950 px-2 text-right text-xs text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/40"
-            />
-          ) : (
+          <div className="relative h-6 w-16">
+            {isEditingValue && (
+              <input
+                ref={valueInputRef}
+                type="text"
+                inputMode={step < 1 ? "decimal" : "numeric"}
+                value={inputValue}
+                onChange={(event) => setInputValue(event.target.value)}
+                onBlur={handleCommitEditingValue}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleCommitEditingValue();
+                    return;
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    handleCancelEditingValue();
+                  }
+                }}
+                aria-label={`${label} 数值输入`}
+                className="absolute inset-0 border-b border-sky-400/80 bg-transparent px-1 text-right text-xs text-slate-100 outline-none"
+              />
+            )}
             <button
               type="button"
               disabled={disabled}
               onClick={handleStartEditingValue}
-              className="min-w-[3.5rem] rounded-md bg-white/5 px-2 py-0.5 text-right font-medium text-slate-100 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/40 disabled:cursor-not-allowed disabled:opacity-60"
+              aria-hidden={isEditingValue}
+              tabIndex={isEditingValue ? -1 : 0}
+              className={`h-full w-full border-b border-sky-400/25 px-1 text-right text-xs font-medium text-slate-100 transition hover:border-sky-400/50 focus-visible:outline-none focus-visible:border-sky-400/80 disabled:cursor-not-allowed disabled:opacity-60 ${isEditingValue ? "invisible" : ""}`}
             >
               {format ? format(value) : value}
             </button>
-          )}
+          </div>
           {canReset && (
             <button
               type="button"
