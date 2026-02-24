@@ -95,3 +95,12 @@
 - 胶片渲染底层细节继续维护在 `docs/film_pipeline.md`。
 - 编辑器重构技术方案详见 `docs/editor.md`。
 - 版本迭代后仅更新本文件，不再新增重复的计划拆分文档。
+
+## 2026-02 Pipeline Upgrade Snapshot
+
+- Render graph is now incremental with dirty keys: `source -> geometry -> master -> hsl -> curve -> detail -> film -> optics -> output`.
+- Runtime profile resolution is canonicalized by `resolveRenderProfile` (`ResolvedRenderProfile`) for v1/v2 compatibility.
+- Export now uses slot-based renderer pooling with configurable concurrency (`filmlab:exportConcurrency`, default `2`, max `3`).
+- Preview failures are non-strict: keep last successful frame when possible, then geometry fallback.
+- Runtime rollback and gray switches are centralized in `src/lib/renderer/config.ts` (`filmlab:feature:*`).
+- Film grain switched to blue-noise sampling (`public/noise/blue-noise-64.png`).

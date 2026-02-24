@@ -10,6 +10,8 @@ import type {
   HslAdjustments,
   HslChannel,
   HslColorKey,
+  PointCurveAdjustments,
+  PointCurvePoint,
 } from "@/types";
 
 export const MAX_HISTORY_PER_ASSET = 50;
@@ -109,6 +111,26 @@ const colorGradingEqual = (
   );
 };
 
+const pointCurvePointEqual = (a: PointCurvePoint, b: PointCurvePoint): boolean =>
+  a.x === b.x && a.y === b.y;
+
+const pointCurveChannelEqual = (a: PointCurvePoint[], b: PointCurvePoint[]): boolean =>
+  a.length === b.length && a.every((point, index) => pointCurvePointEqual(point, b[index]!));
+
+const pointCurveEqual = (
+  a: PointCurveAdjustments | undefined,
+  b: PointCurveAdjustments | undefined
+): boolean => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    pointCurveChannelEqual(a.rgb, b.rgb) &&
+    pointCurveChannelEqual(a.red, b.red) &&
+    pointCurveChannelEqual(a.green, b.green) &&
+    pointCurveChannelEqual(a.blue, b.blue)
+  );
+};
+
 const adjustmentsEqual = (
   a: EditingAdjustments | undefined,
   b: EditingAdjustments | undefined
@@ -134,6 +156,8 @@ const adjustmentsEqual = (
     a.curveDarks === b.curveDarks &&
     a.curveShadows === b.curveShadows &&
     a.sharpening === b.sharpening &&
+    a.sharpenRadius === b.sharpenRadius &&
+    a.sharpenDetail === b.sharpenDetail &&
     a.masking === b.masking &&
     a.noiseReduction === b.noiseReduction &&
     a.colorNoiseReduction === b.colorNoiseReduction &&
@@ -156,6 +180,7 @@ const adjustmentsEqual = (
     a.timestampOpacity === b.timestampOpacity &&
     a.opticsProfile === b.opticsProfile &&
     a.opticsCA === b.opticsCA &&
+    pointCurveEqual(a.pointCurve, b.pointCurve) &&
     hslEqual(a.hsl, b.hsl) &&
     colorGradingEqual(a.colorGrading, b.colorGrading)
   );

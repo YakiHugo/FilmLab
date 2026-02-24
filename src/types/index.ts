@@ -26,6 +26,8 @@ export const PRESET_ADJUSTMENT_KEYS = [
   "grainSize",
   "grainRoughness",
   "sharpening",
+  "sharpenRadius",
+  "sharpenDetail",
   "masking",
   "noiseReduction",
   "colorNoiseReduction",
@@ -189,6 +191,18 @@ export interface HslChannel {
 
 export type HslAdjustments = Record<HslColorKey, HslChannel>;
 
+export interface PointCurvePoint {
+  x: number;
+  y: number;
+}
+
+export interface PointCurveAdjustments {
+  rgb: PointCurvePoint[];
+  red: PointCurvePoint[];
+  green: PointCurvePoint[];
+  blue: PointCurvePoint[];
+}
+
 export interface ColorGradingZone {
   hue: number;
   saturation: number;
@@ -249,9 +263,12 @@ export interface EditingAdjustments {
   curveLights: number;
   curveDarks: number;
   curveShadows: number;
+  pointCurve: PointCurveAdjustments;
   hsl: HslAdjustments;
   colorGrading: ColorGradingAdjustments;
   sharpening: number;
+  sharpenRadius: number;
+  sharpenDetail: number;
   masking: number;
   noiseReduction: number;
   colorNoiseReduction: number;

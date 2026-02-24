@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "generate:shaders": "tsx scripts/generate-shaders.ts",
+    "baseline:render": "tsx scripts/render-baseline.ts",
     "dev": "pnpm run generate:shaders && vite",
     "build": "pnpm run generate:shaders && tsc -b && vite build",
     "preview": "vite preview",

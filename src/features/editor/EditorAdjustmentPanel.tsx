@@ -169,6 +169,8 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
     updateAdjustments,
     previewAdjustmentValue,
     updateAdjustmentValue,
+    previewPointCurve,
+    commitPointCurve,
     previewHslValue,
     updateHslValue,
     previewColorGradingZone,
@@ -371,14 +373,9 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
             ))}
           </div>
           <EditorPointCurve
-            values={{
-              curveHighlights: adjustments.curveHighlights,
-              curveLights: adjustments.curveLights,
-              curveDarks: adjustments.curveDarks,
-              curveShadows: adjustments.curveShadows,
-            }}
-            onPreview={(key, value) => previewAdjustmentValue(key, value)}
-            onCommit={(key, value) => updateAdjustmentValue(key, value)}
+            points={adjustments.pointCurve.rgb}
+            onPreview={previewPointCurve}
+            onCommit={commitPointCurve}
           />
           {renderSliderRows(
             adjustments,

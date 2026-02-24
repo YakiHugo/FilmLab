@@ -159,6 +159,64 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
     [applyEditorPatch, selectedAsset]
   );
 
+  const previewPointCurve = useCallback(
+    (points: EditingAdjustments["pointCurve"]["rgb"]) => {
+      const assetId = selectedAsset?.id;
+      if (!assetId) {
+        return;
+      }
+      const liveAsset =
+        useProjectStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+      if (!liveAsset) {
+        return;
+      }
+      const currentAdjustments = normalizeAdjustments(liveAsset.adjustments);
+      const nextAdjustments = {
+        ...currentAdjustments,
+        pointCurve: {
+          ...currentAdjustments.pointCurve,
+          rgb: points.map((point) => ({
+            x: point.x,
+            y: point.y,
+          })),
+        },
+      };
+      stageEditorPatch("curve:point", {
+        adjustments: nextAdjustments,
+      });
+    },
+    [selectedAsset, stageEditorPatch]
+  );
+
+  const commitPointCurve = useCallback(
+    (points: EditingAdjustments["pointCurve"]["rgb"]) => {
+      const assetId = selectedAsset?.id;
+      if (!assetId) {
+        return false;
+      }
+      const liveAsset =
+        useProjectStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+      if (!liveAsset) {
+        return false;
+      }
+      const currentAdjustments = normalizeAdjustments(liveAsset.adjustments);
+      const nextAdjustments = {
+        ...currentAdjustments,
+        pointCurve: {
+          ...currentAdjustments.pointCurve,
+          rgb: points.map((point) => ({
+            x: point.x,
+            y: point.y,
+          })),
+        },
+      };
+      return commitEditorPatch("curve:point", {
+        adjustments: nextAdjustments,
+      });
+    },
+    [commitEditorPatch, selectedAsset]
+  );
+
   return {
     updateAdjustments,
     previewAdjustmentValue,
@@ -166,5 +224,7 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
     previewCropAdjustments,
     commitCropAdjustments,
     toggleFlip,
+    previewPointCurve,
+    commitPointCurve,
   };
 }

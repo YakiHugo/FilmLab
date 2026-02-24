@@ -1,3 +1,4 @@
+import * as PIXI from "pixi.js";
 import { Filter, DRAW_MODES } from "pixi.js";
 import type { FilterSystem, RenderTexture, CLEAR_MODES, Renderer } from "pixi.js";
 import { LUTCache } from "../LUTCache";
@@ -12,7 +13,7 @@ import fragmentSrc from "../shaders/generated/FilmSimulation.frag?raw";
  * - Layer 2: Color Matrix (3x3 cross-channel color mixing)
  * - Layer 3: 3D LUT via HaldCLUT (trilinear-interpolated sampler3D)
  * - Layer 4: Color Cast (per-zone tinting)
- * - Layer 5: Film Grain (hash-based, color/mono, shadow-biased)
+ * - Layer 5: Film Grain (blue-noise texture based, color/mono, shadow-biased)
  * - Layer 6: Vignette (elliptical, bidirectional)
  *
  * ## 3D Texture Handling
@@ -29,7 +30,8 @@ import fragmentSrc from "../shaders/generated/FilmSimulation.frag?raw";
 export class FilmSimulationFilter extends Filter {
   private lutTexture: WebGLTexture | null = null;
   private lutCache: LUTCache;
-  private currentLutPath: string | null = null;
+  private currentLutKey: string | null = null;
+  private blueNoiseTexture: PIXI.Texture;
   private loadGeneration = 0;
   /** Cached GL context for cleanup in destroy(). Set on first loadLUT call. */
   private gl: WebGL2RenderingContext | null = null;
@@ -41,6 +43,7 @@ export class FilmSimulationFilter extends Filter {
 
   /** Fixed texture unit for the 3D LUT (avoids PixiJS internal units) */
   private static readonly LUT_TEXTURE_UNIT = 4;
+  private static readonly BLUE_NOISE_URL = "/noise/blue-noise-64.png";
 
   constructor() {
     // NOTE: u_lut is intentionally NOT included here because PixiJS v7
@@ -71,6 +74,7 @@ export class FilmSimulationFilter extends Filter {
       u_grainSeed: 0.0,
       u_grainIsColor: true,
       u_textureSize: new Float32Array([1800, 1800]),
+      u_blueNoise: PIXI.Texture.WHITE,
       // Layer 6: Vignette
       u_vignetteEnabled: false,
       u_vignetteAmount: 0.0,
@@ -80,6 +84,15 @@ export class FilmSimulationFilter extends Filter {
     });
 
     this.lutCache = new LUTCache(12);
+
+    const blueNoiseBaseTexture = PIXI.BaseTexture.from(FilmSimulationFilter.BLUE_NOISE_URL, {
+      scaleMode: PIXI.SCALE_MODES.NEAREST,
+      wrapMode: PIXI.WRAP_MODES.REPEAT,
+    });
+    blueNoiseBaseTexture.scaleMode = PIXI.SCALE_MODES.NEAREST;
+    blueNoiseBaseTexture.wrapMode = PIXI.WRAP_MODES.REPEAT;
+    this.blueNoiseTexture = new PIXI.Texture(blueNoiseBaseTexture);
+    this.uniforms.u_blueNoise = this.blueNoiseTexture;
   }
 
   /**
@@ -87,7 +100,8 @@ export class FilmSimulationFilter extends Filter {
    * Skips loading if the same LUT path is already active.
    */
   async loadLUT(renderer: Renderer, url: string, level: 8 | 16 = 8): Promise<void> {
-    if (this.currentLutPath === url && this.lutTexture) {
+    const lutKey = `${url}|${level}`;
+    if (this.currentLutKey === lutKey && this.lutTexture) {
       return; // Already loaded
     }
 
@@ -109,13 +123,13 @@ export class FilmSimulationFilter extends Filter {
       }
 
       this.lutTexture = texture;
-      this.currentLutPath = url;
+      this.currentLutKey = lutKey;
     } catch (e) {
       console.warn("LUT load failed:", e);
       // Reset to safe state — disable LUT for this filter
       if (this.loadGeneration === thisGeneration) {
         this.lutTexture = null;
-        this.currentLutPath = null;
+        this.currentLutKey = null;
         this.uniforms.u_lutEnabled = false;
       }
     }
@@ -261,8 +275,9 @@ export class FilmSimulationFilter extends Filter {
     if (this.gl) {
       this.lutCache.dispose(this.gl);
     }
+    this.blueNoiseTexture.destroy(false);
     this.lutTexture = null;
-    this.currentLutPath = null;
+    this.currentLutKey = null;
     this.gl = null;
     super.destroy();
   }
@@ -273,6 +288,6 @@ export class FilmSimulationFilter extends Filter {
   disposeLUTCache(gl: WebGL2RenderingContext): void {
     this.lutCache.dispose(gl);
     this.lutTexture = null;
-    this.currentLutPath = null;
+    this.currentLutKey = null;
   }
 }

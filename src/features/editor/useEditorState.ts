@@ -91,6 +91,8 @@ export function useEditorState() {
     previewCropAdjustments,
     commitCropAdjustments,
     toggleFlip,
+    previewPointCurve,
+    commitPointCurve,
   } = useEditorAdjustments(selectedAsset, history);
 
   const {
@@ -183,6 +185,8 @@ export function useEditorState() {
     updateAdjustmentValue,
     previewCropAdjustments,
     commitCropAdjustments,
+    previewPointCurve,
+    commitPointCurve,
     previewHslValue,
     updateHslValue,
     previewColorGradingZone,

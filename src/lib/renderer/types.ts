@@ -1,3 +1,22 @@
+import type { PointCurvePoint } from "@/types";
+
+/** Uniforms for the Geometry shader pass. */
+export interface GeometryUniforms {
+  enabled: boolean;
+  // Crop rectangle in source UV space: (x, y, w, h)
+  cropRect: [number, number, number, number];
+  // Output canvas size in pixels
+  outputSize: [number, number];
+  // Translation in output pixel space
+  translatePx: [number, number];
+  // Rotation in radians
+  rotate: number;
+  // Scale factor [0.5, 2.0]
+  scale: number;
+  // Flip multipliers (-1 or 1)
+  flip: [number, number];
+}
+
 /** Uniforms for the Master Adjustment shader pass. */
 export interface MasterUniforms {
   // Basic adjustments
@@ -33,6 +52,37 @@ export interface MasterUniforms {
 
   // Detail
   dehaze: number; // [-100, 100]
+}
+
+/** Uniforms for the 8-channel HSL selective color pass. */
+export interface HSLUniforms {
+  enabled: boolean;
+  // Per channel values in UI range: hue[-100,100], saturation[-100,100], luminance[-100,100]
+  hue: [number, number, number, number, number, number, number, number];
+  saturation: [number, number, number, number, number, number, number, number];
+  luminance: [number, number, number, number, number, number, number, number];
+}
+
+/** Uniforms for point-curve pass. Curve points are in [0, 255] space. */
+export interface CurveUniforms {
+  enabled: boolean;
+  rgb: PointCurvePoint[];
+  red: PointCurvePoint[];
+  green: PointCurvePoint[];
+  blue: PointCurvePoint[];
+}
+
+/** Uniforms for detail pass (clarity/texture/sharpen/NR). */
+export interface DetailUniforms {
+  enabled: boolean;
+  texture: number; // [-100, 100]
+  clarity: number; // [-100, 100]
+  sharpening: number; // [0, 100]
+  sharpenRadius: number; // [0, 100]
+  sharpenDetail: number; // [0, 100]
+  masking: number; // [0, 100]
+  noiseReduction: number; // [0, 100]
+  colorNoiseReduction: number; // [0, 100]
 }
 
 /** Uniforms for the Film Simulation shader pass. */

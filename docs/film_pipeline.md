@@ -43,6 +43,24 @@ Use `seedKey` for stable asset-level results in preview/export.
 
 `imageProcessing` uses the PixiJS multi-pass pipeline as the sole rendering backend.
 Film profile data is mapped to shader uniforms via `src/lib/renderer/uniformResolvers.ts`.
+Render execution is incremental by dirty-key (`source -> geometry -> master -> hsl -> curve -> detail -> film -> optics -> output`)
+with per-mode frame state in `RenderManager`, so preview slider updates can skip CPU geometry and
+GPU source re-upload when only non-geometry uniforms change.
+Geometry transform is now a dedicated GPU pass (`GeometryFilter`) in front of master/film/optics,
+while CPU geometry draw is retained as rollback path (and error fallback).
+Export rendering supports slot-based parallelism (default 2 workers in workspace export), with
+each slot owning independent renderer/frame-state/mutex to avoid preview blocking.
+Film grain now uses blue-noise texture sampling (`public/noise/blue-noise-64.png`) instead of
+per-pixel hash noise to reduce large-area pattern artifacts.
+Preview render failures are handled in non-strict mode by keeping the last successful frame when possible,
+then falling back to geometry-only output.
+
+For render-time profile resolution, `src/lib/film/renderProfile.ts` now builds a
+canonical payload that supports both legacy v1 behavior and v2 profile features
+(including LUT path/size/intensity handoff).
+
+Runtime gray/rollback flags are centralized in `src/lib/renderer/config.ts`
+(`filmlab:feature:*`, `filmlab:exportConcurrency`, timing diagnostics keys).
 
 ## Module overrides
 

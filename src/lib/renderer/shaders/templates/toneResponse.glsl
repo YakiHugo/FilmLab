@@ -1,6 +1,6 @@
 // ---- Layer 1: Film tone response curve ----
 
-// Attempt to model a filmic S-curve with independent shoulder/toe control.
+// Apply the filmic curve on luminance and re-scale RGB to preserve hue.
 // Shoulder compresses highlights via a Reinhard-style rational curve.
 // Toe lifts shadows via a complementary power curve.
 // Gamma adjusts the midpoint pivot (overall density).
@@ -31,9 +31,13 @@ float toneChannel(float x, float shoulder, float toe, float gamma) {
 vec3 applyToneResponse(vec3 color) {
   if (!u_toneEnabled) return color;
 
-  color.r = toneChannel(color.r, u_shoulder, u_toe, u_gamma);
-  color.g = toneChannel(color.g, u_shoulder, u_toe, u_gamma);
-  color.b = toneChannel(color.b, u_shoulder, u_toe, u_gamma);
+  float lum = luminance(color);
+  float mappedLum = toneChannel(lum, u_shoulder, u_toe, u_gamma);
+  if (lum <= 1e-5) {
+    return vec3(mappedLum);
+  }
 
-  return color;
+  float ratio = mappedLum / lum;
+  color *= ratio;
+  return clamp(color, 0.0, 1.0);
 }

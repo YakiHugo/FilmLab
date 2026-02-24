@@ -5,6 +5,8 @@ import {
   type EditingAdjustments,
   type HslColorKey,
   type HslAdjustments,
+  type PointCurveAdjustments,
+  type PointCurvePoint,
   type PresetAdjustments,
   type PresetAdjustmentKey,
 } from "@/types";
@@ -28,6 +30,28 @@ const defaultColorGrading: ColorGradingAdjustments = {
   balance: 0,
 };
 
+const defaultPointCurve: PointCurveAdjustments = {
+  rgb: [
+    { x: 0, y: 0 },
+    { x: 64, y: 64 },
+    { x: 128, y: 128 },
+    { x: 192, y: 192 },
+    { x: 255, y: 255 },
+  ],
+  red: [
+    { x: 0, y: 0 },
+    { x: 255, y: 255 },
+  ],
+  green: [
+    { x: 0, y: 0 },
+    { x: 255, y: 255 },
+  ],
+  blue: [
+    { x: 0, y: 0 },
+    { x: 255, y: 255 },
+  ],
+};
+
 const HSL_KEYS: HslColorKey[] = [
   "red",
   "orange",
@@ -39,6 +63,64 @@ const HSL_KEYS: HslColorKey[] = [
   "magenta",
 ];
 
+const POINT_CURVE_CHANNELS: Array<keyof PointCurveAdjustments> = ["rgb", "red", "green", "blue"];
+
+const clonePointCurvePoints = (points: PointCurvePoint[]) =>
+  points.map((point) => ({
+    x: point.x,
+    y: point.y,
+  }));
+
+const normalizePointCurvePoints = (
+  points: unknown,
+  fallback: PointCurvePoint[]
+): PointCurvePoint[] => {
+  if (!Array.isArray(points)) {
+    return clonePointCurvePoints(fallback);
+  }
+
+  const normalized = points
+    .map((point) => {
+      if (!point || typeof point !== "object") {
+        return null;
+      }
+      const x = Number((point as { x?: unknown }).x);
+      const y = Number((point as { y?: unknown }).y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        return null;
+      }
+      return {
+        x: Math.min(255, Math.max(0, Math.round(x))),
+        y: Math.min(255, Math.max(0, Math.round(y))),
+      };
+    })
+    .filter((point): point is PointCurvePoint => Boolean(point))
+    .sort((a, b) => a.x - b.x);
+
+  if (normalized.length < 2) {
+    return clonePointCurvePoints(fallback);
+  }
+
+  const deduped: PointCurvePoint[] = [];
+  for (const point of normalized) {
+    const last = deduped[deduped.length - 1];
+    if (last && last.x === point.x) {
+      last.y = point.y;
+      continue;
+    }
+    deduped.push(point);
+  }
+
+  if (deduped.length < 2) {
+    return clonePointCurvePoints(fallback);
+  }
+
+  deduped[0] = { x: 0, y: deduped[0]?.y ?? 0 };
+  const lastIndex = deduped.length - 1;
+  deduped[lastIndex] = { x: 255, y: deduped[lastIndex]?.y ?? 255 };
+  return deduped;
+};
+
 const normalizeRightAngleRotation = (value: number) => {
   const quarterTurns = Math.round(value / 90);
   const normalizedTurns = ((quarterTurns % 4) + 4) % 4;
@@ -47,6 +129,7 @@ const normalizeRightAngleRotation = (value: number) => {
 
 type NormalizableAdjustments = Partial<EditingAdjustments> & {
   hsl?: Partial<Record<HslColorKey, Partial<HslAdjustments[HslColorKey]>>>;
+  pointCurve?: Partial<Record<keyof PointCurveAdjustments, PointCurvePoint[]>>;
   colorGrading?: Partial<EditingAdjustments["colorGrading"]> & {
     shadows?: Partial<EditingAdjustments["colorGrading"]["shadows"]>;
     midtones?: Partial<EditingAdjustments["colorGrading"]["midtones"]>;
@@ -86,6 +169,12 @@ const normalizeAdjustmentsUncached = (
     hsl: {
       ...defaults.hsl,
     },
+    pointCurve: {
+      rgb: clonePointCurvePoints(defaults.pointCurve.rgb),
+      red: clonePointCurvePoints(defaults.pointCurve.red),
+      green: clonePointCurvePoints(defaults.pointCurve.green),
+      blue: clonePointCurvePoints(defaults.pointCurve.blue),
+    },
     colorGrading: {
       ...defaults.colorGrading,
       shadows: { ...defaults.colorGrading.shadows },
@@ -101,6 +190,13 @@ const normalizeAdjustmentsUncached = (
       ...defaults.hsl[key],
       ...(adjustments.hsl?.[key] ?? {}),
     };
+  });
+
+  POINT_CURVE_CHANNELS.forEach((channel) => {
+    merged.pointCurve[channel] = normalizePointCurvePoints(
+      adjustments.pointCurve?.[channel],
+      defaults.pointCurve[channel]
+    );
   });
 
   const grading = adjustments.colorGrading;
@@ -179,6 +275,12 @@ export function createDefaultAdjustments(): EditingAdjustments {
     curveLights: 0,
     curveDarks: 0,
     curveShadows: 0,
+    pointCurve: {
+      rgb: clonePointCurvePoints(defaultPointCurve.rgb),
+      red: clonePointCurvePoints(defaultPointCurve.red),
+      green: clonePointCurvePoints(defaultPointCurve.green),
+      blue: clonePointCurvePoints(defaultPointCurve.blue),
+    },
     hsl: {
       red: { ...defaultHsl.red },
       orange: { ...defaultHsl.orange },
@@ -197,6 +299,8 @@ export function createDefaultAdjustments(): EditingAdjustments {
       balance: defaultColorGrading.balance,
     },
     sharpening: 0,
+    sharpenRadius: 40,
+    sharpenDetail: 25,
     masking: 0,
     noiseReduction: 0,
     colorNoiseReduction: 0,
@@ -244,6 +348,8 @@ const PRESET_LIMITS: Record<PresetAdjustmentKey, { min: number; max: number }> =
   grainSize: { min: 0, max: 100 },
   grainRoughness: { min: 0, max: 100 },
   sharpening: { min: 0, max: 100 },
+  sharpenRadius: { min: 0, max: 100 },
+  sharpenDetail: { min: 0, max: 100 },
   masking: { min: 0, max: 100 },
   noiseReduction: { min: 0, max: 100 },
   colorNoiseReduction: { min: 0, max: 100 },

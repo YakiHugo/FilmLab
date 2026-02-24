@@ -20,14 +20,14 @@ const SHADERS_DIR = path.join(ROOT, "src/lib/renderer/shaders");
 const TEMPLATES_DIR = path.join(SHADERS_DIR, "templates");
 const GENERATED_DIR = path.join(SHADERS_DIR, "generated");
 
-// Import config — use file:// URL for Windows compatibility
+// Import config 鈥?use file:// URL for Windows compatibility
 const configPath = path.join(ROOT, "src/lib/renderer/shader.config.ts");
 const { masterConfig, filmConfig } = await import(
   pathToFileURL(configPath).href
 );
 
 // ---------------------------------------------------------------------------
-// Uniform registries — maps feature name to GLSL uniform declarations
+// Uniform registries 鈥?maps feature name to GLSL uniform declarations
 // ---------------------------------------------------------------------------
 
 const MASTER_UNIFORMS: Record<string, string[]> = {
@@ -86,6 +86,7 @@ const FILM_UNIFORMS: Record<string, string[]> = {
     "uniform float u_grainSeed;",
     "uniform bool  u_grainIsColor;",
     "uniform vec2  u_textureSize;",
+    "uniform sampler2D u_blueNoise;",
   ],
   vignette: [
     "uniform bool  u_vignetteEnabled;",
@@ -105,7 +106,7 @@ function loadTemplate(name: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Dead code elimination — remove function definitions never called
+// Dead code elimination 鈥?remove function definitions never called
 // ---------------------------------------------------------------------------
 
 function eliminateUnusedFunctions(source: string): string {
@@ -126,7 +127,7 @@ function eliminateUnusedFunctions(source: string): string {
     const refPattern = new RegExp(`\\b${name}\\b`, "g");
     const refs = result.match(refPattern);
     if (!refs || refs.length <= 1) {
-      // Only the definition exists — remove the entire function block
+      // Only the definition exists 鈥?remove the entire function block
       result = removeFunctionBlock(result, name);
     }
   }
@@ -143,7 +144,7 @@ function removeFunctionBlock(source: string, funcName: string): string {
   const defMatch = defPattern.exec(source);
   if (!defMatch) return source;
 
-  // Find start — include preceding comment lines, but stop at blank lines
+  // Find start 鈥?include preceding comment lines, but stop at blank lines
   // that separate this block from unrelated code (e.g. uniform declarations).
   let start = defMatch.index;
   const lines = source.substring(0, start).split("\n");
@@ -163,7 +164,7 @@ function removeFunctionBlock(source: string, funcName: string): string {
   }
   start = Math.max(0, start);
 
-  // Find end — count braces to find matching close
+  // Find end 鈥?count braces to find matching close
   let braceCount = 0;
   let end = defMatch.index;
   for (let i = defMatch.index; i < source.length; i++) {
@@ -200,7 +201,7 @@ function generateMasterShader(): string {
   parts.push("");
   parts.push("uniform sampler2D uSampler;");
 
-  // Uniforms — grouped to match the original shader's layout
+  // Uniforms 鈥?grouped to match the original shader's layout
   parts.push("");
   parts.push("// -- Basic --");
   if (cfg.exposure.enabled) {
@@ -240,7 +241,7 @@ function generateMasterShader(): string {
     parts.push(...MASTER_UNIFORMS.dehaze);
   }
 
-  // Output mode — when Film pass is skipped, Master must encode sRGB itself
+  // Output mode 鈥?when Film pass is skipped, Master must encode sRGB itself
   parts.push("");
   parts.push("// -- Output --");
   parts.push("uniform bool u_outputSRGB;  // true when Film pass is skipped");
@@ -311,7 +312,7 @@ function generateMasterShader(): string {
     parts.push("}");
   }
 
-  // main() body — inline code matching the original shader exactly
+  // main() body 鈥?inline code matching the original shader exactly
   parts.push("");
   parts.push("// ---- Main ----");
   parts.push("");
@@ -491,7 +492,7 @@ function generateFilmShader(): string {
     parts.push("uniform sampler3D u_lut;        // 3D LUT texture");
   }
 
-  // Uniforms — grouped by layer
+  // Uniforms 鈥?grouped by layer
   if (cfg.toneResponse.enabled) {
     parts.push("");
     parts.push("// Layer 1: Tone Response");
@@ -528,9 +529,9 @@ function generateFilmShader(): string {
     parts.push(...FILM_UNIFORMS.vignette);
   }
 
-  // Function definitions — ordered to match original shader layout:
-  // srgb → luminance → hash12 → toneResponse → lut3d → colorCast → grain → vignette
-  // sRGB conversion is always needed (Film pass does final linear→sRGB)
+  // Function definitions - ordered to match original shader layout:
+  // srgb -> luminance -> toneResponse -> lut3d -> colorCast -> grain -> vignette
+  // sRGB conversion is always needed (Film pass does final linear->sRGB)
   parts.push("");
   parts.push(loadTemplate("srgb.glsl"));
 
@@ -538,11 +539,6 @@ function generateFilmShader(): string {
   if (needsLuminance) {
     parts.push("");
     parts.push(loadTemplate("luminance.glsl"));
-  }
-
-  if (cfg.grain.enabled) {
-    parts.push("");
-    parts.push(loadTemplate("hash.glsl"));
   }
 
   if (cfg.toneResponse.enabled) {
@@ -649,3 +645,4 @@ console.log(`  MasterAdjustment.frag  ${masterLines} lines`);
 console.log(`  FilmSimulation.frag    ${filmLines} lines`);
 console.log(`  default.vert           (copied)`);
 console.log(`  Output: ${GENERATED_DIR}`);
+

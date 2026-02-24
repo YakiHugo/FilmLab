@@ -139,7 +139,21 @@ Stored asset payload includes blob, metadata, adjustments, film profile info, an
 - `renderImageToCanvas(...)`
 - `renderImageToBlob(...)`
 
-The function first applies geometry transforms (crop/scale/rotate/flip), then chooses a render backend.
+The function resolves runtime render config (`src/lib/renderer/config.ts`), then builds the render graph.
+Preview and export now run with explicit render modes:
+
+- `mode: "preview"`: non-strict GPU failure handling (keeps last successful frame first, geometry fallback as last resort)
+- `mode: "export"`: strict GPU failure handling (throws and fails export)
+
+`imageProcessing` now runs as an incremental pipeline with per-mode frame state:
+
+- `source/geometry/master/hsl/curve/detail/film/optics/output` dirty keys
+- cached geometry canvas per mode (`RenderManager` frame state)
+- Pixi source upload skipped when geometry key is unchanged
+- output compositing skipped when Pixi output key and timestamp output key are unchanged
+- optional timing diagnostics via `localStorage["filmlab:renderTiming"] = "1"`
+- verbose per-pass CPU timing via `localStorage["filmlab:renderTimingVerbose"] = "1"`
+- runtime feature flags / rollback switches via `filmlab:feature:*` keys
 
 ## 4.2 Backend
 
@@ -147,22 +161,51 @@ PixiJS multi-pass pipeline is the sole rendering backend. When WebGL2 is unavail
 
 ## 4.3 PixiJS backend (`src/lib/renderer/`)
 
-`PixiRenderer.ts` composes 3 passes:
+`PixiRenderer.ts` composes 7 passes:
 
-1. `MasterAdjustmentFilter`
-2. `FilmSimulationFilter`
-3. `HalationBloomFilter`
+1. `GeometryFilter`
+2. `MasterAdjustmentFilter`
+3. `HSLFilter`
+4. `CurveFilter`
+5. `DetailFilter`
+6. `FilmSimulationFilter`
+7. `HalationBloomFilter`
+
+Renderer lifecycle is now managed by `RenderManager.ts`:
+
+- Dedicated preview slot renderer (`preserveDrawingBuffer: false`)
+- Export renderer pool by slot (`preserveDrawingBuffer: true`, default parallelism 2 in workspace export)
+- Per-slot renderer reuse and context-loss recreation
+- Per-slot `FrameState` for dirty tracking, geometry-cache ownership, and last render error state
+
+`src/lib/renderer/config.ts` supports runtime rollback/gray switches through localStorage:
+
+- `filmlab:feature:incremental` (`1/0`): incremental dirty re-render on/off
+- `filmlab:feature:gpuGeometry` (`1/0`): GPU geometry pass on/off (off -> CPU geometry upload path)
+- `filmlab:feature:hsl|curve|detail|film|optics` (`1/0`): per-pass gating
+- `filmlab:feature:keepLastPreviewFrameOnError` (`1/0`): keep previous preview frame when render fails
+- `filmlab:exportConcurrency` (`1..3`): export worker pool size (default `2`)
 
 ### Pass details
 
-- Pass 1 (`MasterAdjustmentFilter`)
+- Pass 1 (`GeometryFilter`)
+  - crop/rotate/scale/flip/translate in GPU
+  - source upload and geometry uniforms are decoupled so transform-only updates avoid re-upload
+- Pass 2 (`MasterAdjustmentFilter`)
   - master color/tone adjustments
   - linear-space operations with LMS/OKLab helpers in generated shader
-- Pass 2 (`FilmSimulationFilter`)
+- Pass 3 (`HSLFilter`)
+  - per-hue selective hue/saturation/luminance adjustments (8 color bands)
+- Pass 4 (`CurveFilter`)
+  - point-curve LUT pass (RGB + R/G/B channels)
+  - legacy 4-slider tone curve is bridged into this pass for compatibility
+- Pass 5 (`DetailFilter`)
+  - texture/clarity/sharpen/noise reduction
+- Pass 6 (`FilmSimulationFilter`)
   - tone response
   - optional LUT contribution
-  - color cast, grain, vignette
-- Pass 3 (`HalationBloomFilter`)
+  - color cast, blue-noise grain, vignette
+- Pass 7 (`HalationBloomFilter`)
   - threshold -> blur H/V -> composite
   - uses filter texture pool to avoid leaks
 
@@ -176,6 +219,11 @@ PixiJS multi-pass pipeline is the sole rendering backend. When WebGL2 is unavail
 - `resolveHalationBloomUniforms(...)` / `...V2(...)`
 
 This file is the canonical bridge between UI/business data and shader inputs.
+
+`src/lib/film/renderProfile.ts` now provides a canonical render-profile resolver:
+
+- keeps legacy v1 behavior for runtime/generated profiles
+- enables v2-specific mapping and LUT loading when a v2 profile is supplied
 
 ## 5. Shader Generation
 
@@ -195,6 +243,7 @@ The generator enables/disables shader sections based on config and writes:
 Commands:
 
 - `pnpm generate:shaders`
+- `pnpm baseline:render` (refreshes `docs/render_baseline.md` asset manifest + benchmark procedure)
 - `pnpm dev` and `pnpm build` already invoke generation before start/build
 
 ## 6. Film Profile Model (v1 and v2)
@@ -277,4 +326,3 @@ When modifying editor/render behavior, verify:
 - `docs/editor-histogram.md`: histogram module behavior, data contract, and iteration guide
 - `docs/film_pipeline.md`: film profile data model notes
 - `docs/project_status.md`: project-level status tracking
-

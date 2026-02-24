@@ -97,3 +97,22 @@ export interface FilmProfileV2 {
 
 /** Discriminated union of all film profile versions. Use `version` to narrow. */
 export type FilmProfileAny = FilmProfile | FilmProfileV2;
+
+/**
+ * Canonical render profile payload used by the renderer bridge.
+ * - `legacy-v1`: preserves current v1 rendering behavior.
+ * - `v2`: uses the V2 mapping and optional LUT loading.
+ */
+export interface ResolvedRenderProfile {
+  mode: "legacy-v1" | "v2";
+  source: FilmProfileAny;
+  legacyV1?: FilmProfile;
+  v2: FilmProfileV2;
+  lut:
+    | {
+        path: string;
+        size: 8 | 16;
+        intensity: number;
+      }
+    | null;
+}
