@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 import type { EditingAdjustments, FilmModuleId, FilmNumericParamKey } from "@/types";
 import { EditorColorGradingPanel } from "./EditorColorGradingPanel";
@@ -190,6 +191,8 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
     handleSelectFilmProfile,
   } = useEditorState();
 
+  const [filmResetOpen, setFilmResetOpen] = useState(false);
+
   const whiteBalancePresetId = adjustments
     ? resolveWhiteBalancePresetId(adjustments.temperature, adjustments.tint)
     : WHITE_BALANCE_CUSTOM_KEY;
@@ -239,11 +242,7 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
           <Button
             size="sm"
             variant="secondary"
-            onClick={() => {
-              if (window.confirm("确定重置所有胶片模块覆盖？这将恢复预设默认值。")) {
-                handleResetFilmOverrides();
-              }
-            }}
+            onClick={() => setFilmResetOpen(true)}
           >
             重置胶片覆盖
           </Button>
@@ -824,6 +823,14 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
             ))}
         </>
       ) : null}
+
+      <ConfirmDialog
+        open={filmResetOpen}
+        onOpenChange={setFilmResetOpen}
+        title="重置胶片覆盖"
+        description="确定重置所有胶片模块覆盖？这将恢复预设默认值。"
+        onConfirm={handleResetFilmOverrides}
+      />
     </div>
   );
 });
