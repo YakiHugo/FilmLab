@@ -1,8 +1,11 @@
 import { streamText } from "ai";
 import { z } from "zod";
+import { type ApiRequest, type ApiResponse, readJsonBody, sendError } from "./_utils";
 import { resolveModel } from "../src/lib/ai/provider";
 import { aiControllableAdjustmentsSchema } from "../src/lib/ai/editSchema";
 import { buildSystemPrompt } from "../src/lib/ai/prompts";
+
+const providerSchema = z.enum(["openai", "anthropic", "google"]);
 
 const histogramSummarySchema = z.object({
   meanBrightness: z.number(),
@@ -21,7 +24,7 @@ const messageSchema = z.object({
 
 const requestSchema = z.object({
   messages: z.array(messageSchema).min(1),
-  provider: z.string().default("openai"),
+  provider: providerSchema.default("openai"),
   model: z.string().default("gpt-4.1-mini"),
   imageDataUrl: z.string().optional(),
   histogramSummary: histogramSummarySchema,
@@ -33,38 +36,15 @@ const requestSchema = z.object({
   })).max(3).optional(),
 });
 
-const readJsonBody = async (request: any) => {
-  if (typeof request.body === "string") {
-    return JSON.parse(request.body) as unknown;
-  }
-  if (request.body && typeof request.body === "object") {
-    return request.body as unknown;
-  }
-  if (typeof request.on !== "function") {
-    return {};
-  }
-  const chunks: Buffer[] = [];
-  await new Promise<void>((resolve, reject) => {
-    request.on?.("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
-    request.on?.("end", () => resolve());
-    request.on?.("error", (error: unknown) =>
-      reject(error instanceof Error ? error : new Error("Request stream failed."))
-    );
-  });
-  const raw = Buffer.concat(chunks).toString("utf8");
-  if (!raw) return {};
-  return JSON.parse(raw) as unknown;
-};
-
-export default async function handler(request: any, response: any) {
+export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (request.method !== "POST") {
-    response.status(405).json({ error: "Method not allowed" });
+    sendError(response, 405, "Method not allowed");
     return;
   }
 
   // Check for at least one API key
   if (!process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY && !process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-    response.status(500).json({ error: "No AI API key is configured." });
+    sendError(response, 500, "No AI API key is configured.");
     return;
   }
 
@@ -73,7 +53,7 @@ export default async function handler(request: any, response: any) {
     const body = await readJsonBody(request);
     payload = requestSchema.parse(body);
   } catch (error) {
-    response.status(400).json({ error: "Invalid request payload." });
+    sendError(response, 400, "Invalid request payload.");
     return;
   }
 
@@ -127,8 +107,6 @@ export default async function handler(request: any, response: any) {
 
     result.pipeUIMessageStreamToResponse(response);
   } catch (error) {
-    response.status(500).json({
-      error: error instanceof Error ? error.message : "AI edit request failed.",
-    });
+    sendError(response, 500, error instanceof Error ? error.message : "AI edit request failed.");
   }
 }

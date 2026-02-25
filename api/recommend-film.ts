@@ -1,6 +1,10 @@
 import { generateObject } from "ai";
-import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
+import { type ApiRequest, type ApiResponse, readJsonBody, sendError } from "./_utils";
+import { resolveModel } from "../src/lib/ai/provider";
+import { sanitizeTopPresetRecommendations } from "../src/lib/ai/recommendationUtils";
+
+const providerSchema = z.enum(["openai", "anthropic", "google"]);
 
 const candidateSchema = z.object({
   id: z.string().min(1),
@@ -31,6 +35,8 @@ const requestSchema = z.object({
     .optional(),
   candidates: z.array(candidateSchema).min(1),
   topK: z.number().int().min(1).max(8).default(5),
+  provider: providerSchema.default("openai"),
+  model: z.string().min(1).default("gpt-4.1-mini"),
 });
 
 const resultSchema = z.object({
@@ -43,87 +49,11 @@ const resultSchema = z.object({
   ),
 });
 
-const MODEL_ID = "gpt-4.1-mini";
-
-const clamp = (value: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, value));
-
-const sanitizeTopPresetRecommendations = (
-  incoming: Array<{ presetId: string; reason: string; confidence: number }>,
-  candidatePresetIds: string[],
-  topK: number
-) => {
-  const candidates = Array.from(new Set(candidatePresetIds));
-  const candidateSet = new Set(candidates);
-  const used = new Set<string>();
-  const output: Array<{ presetId: string; reason: string; confidence: number }> = [];
-
-  for (const item of incoming) {
-    if (!item || typeof item.presetId !== "string") {
-      continue;
-    }
-    if (!candidateSet.has(item.presetId) || used.has(item.presetId)) {
-      continue;
-    }
-    used.add(item.presetId);
-    output.push({
-      presetId: item.presetId,
-      reason:
-        typeof item.reason === "string" && item.reason.trim().length > 0
-          ? item.reason.trim()
-          : "Matched by visual style.",
-      confidence:
-        typeof item.confidence === "number" && Number.isFinite(item.confidence)
-          ? clamp(item.confidence, 0, 1)
-          : 0.5,
-    });
-    if (output.length >= topK) {
-      break;
-    }
-  }
-
-  for (const presetId of candidates) {
-    if (output.length >= topK) {
-      break;
-    }
-    if (used.has(presetId)) {
-      continue;
-    }
-    output.push({
-      presetId,
-      reason: "Fallback recommendation.",
-      confidence: 0.4,
-    });
-  }
-
-  return output;
-};
-
-const readJsonBody = async (request: any) => {
-  if (typeof request.body === "string") {
-    return JSON.parse(request.body) as unknown;
-  }
-  if (request.body && typeof request.body === "object") {
-    return request.body as unknown;
-  }
-  if (typeof request.on !== "function") {
-    return {};
-  }
-
-  const chunks: Buffer[] = [];
-  await new Promise<void>((resolve, reject) => {
-    request.on?.("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
-    request.on?.("end", () => resolve());
-    request.on?.("error", (error: unknown) =>
-      reject(error instanceof Error ? error : new Error("Request stream failed."))
-    );
-  });
-  const raw = Buffer.concat(chunks).toString("utf8");
-  if (!raw) {
-    return {};
-  }
-  return JSON.parse(raw) as unknown;
-};
+const API_KEY_BY_PROVIDER = {
+  openai: "OPENAI_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  google: "GOOGLE_GENERATIVE_AI_API_KEY",
+} as const;
 
 const buildPrompt = (
   payload: z.infer<typeof requestSchema>,
@@ -143,14 +73,9 @@ const buildPrompt = (
   ].join("\n");
 };
 
-export default async function handler(request: any, response: any) {
+export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (request.method !== "POST") {
-    response.status(405).json({ error: "Method not allowed" });
-    return;
-  }
-
-  if (!process.env.OPENAI_API_KEY) {
-    response.status(500).json({ error: "OPENAI_API_KEY is not configured." });
+    sendError(response, 405, "Method not allowed");
     return;
   }
 
@@ -159,7 +84,13 @@ export default async function handler(request: any, response: any) {
     const body = await readJsonBody(request);
     payload = requestSchema.parse(body);
   } catch (error) {
-    response.status(400).json({ error: "Invalid request payload." });
+    sendError(response, 400, "Invalid request payload.");
+    return;
+  }
+
+  const providerApiKeyEnv = API_KEY_BY_PROVIDER[payload.provider];
+  if (!process.env[providerApiKeyEnv]) {
+    sendError(response, 500, `${providerApiKeyEnv} is not configured.`);
     return;
   }
 
@@ -167,7 +98,7 @@ export default async function handler(request: any, response: any) {
 
   try {
     const aiResult = await generateObject({
-      model: openai(MODEL_ID),
+      model: resolveModel(payload.provider, payload.model),
       schema: resultSchema,
       temperature: 0.15,
       messages: [
@@ -199,12 +130,10 @@ export default async function handler(request: any, response: any) {
     );
 
     response.status(200).json({
-      model: MODEL_ID,
+      model: payload.model,
       topPresets,
     });
   } catch (error) {
-    response.status(500).json({
-      error: error instanceof Error ? error.message : "Recommendation failed.",
-    });
+    sendError(response, 500, error instanceof Error ? error.message : "Recommendation failed.");
   }
 }

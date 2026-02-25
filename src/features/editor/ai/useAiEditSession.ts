@@ -1,12 +1,17 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { EditingAdjustments, Asset } from "@/types";
 import { normalizeAdjustments } from "@/lib/adjustments";
-import { sanitizeAiAdjustments, sanitizeFilmProfileId } from "@/lib/ai/sanitize";
+import {
+  buildPatchFromAiResult,
+  sanitizeAiAdjustments,
+  sanitizeFilmProfileId,
+} from "@/lib/ai/sanitize";
 import type { AiControllableAdjustments } from "@/lib/ai/editSchema";
 import type { HistogramSummary } from "@/lib/ai/colorAnalysis";
 import { DEFAULT_MODEL, type ModelOption } from "@/lib/ai/provider";
+import { toRecommendationImageDataUrl } from "@/lib/ai/image";
 
 export interface AiPendingResult {
   adjustments: AiControllableAdjustments;
@@ -47,10 +52,30 @@ export function useAiEditSession(options: UseAiEditSessionOptions) {
 
   const [selectedModel, setSelectedModelState] = useState<ModelOption>(loadSavedModel);
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([]);
+  const [imageDataUrl, setImageDataUrl] = useState<string | undefined>(undefined);
   const [pendingResult, setPendingResult] = useState<AiPendingResult | null>(null);
   const [isPreviewActive, setIsPreviewActive] = useState(false);
   const [input, setInput] = useState("");
   const preApplyAdjustmentsRef = useRef<EditingAdjustments | null>(null);
+  const adjustmentsRef = useRef(adjustments);
+  const histogramSummaryRef = useRef(histogramSummary);
+  const selectedAssetRef = useRef(selectedAsset);
+  const referenceImagesRef = useRef(referenceImages);
+  const imageDataUrlRef = useRef(imageDataUrl);
+  const selectedModelRef = useRef(selectedModel);
+  const pendingResultRef = useRef(pendingResult);
+  const isPreviewActiveRef = useRef(isPreviewActive);
+  const onApplyRef = useRef(onApply);
+
+  adjustmentsRef.current = adjustments;
+  histogramSummaryRef.current = histogramSummary;
+  selectedAssetRef.current = selectedAsset;
+  referenceImagesRef.current = referenceImages;
+  imageDataUrlRef.current = imageDataUrl;
+  selectedModelRef.current = selectedModel;
+  pendingResultRef.current = pendingResult;
+  isPreviewActiveRef.current = isPreviewActive;
+  onApplyRef.current = onApply;
 
   const setSelectedModel = useCallback((model: ModelOption) => {
     setSelectedModelState(model);
@@ -61,39 +86,41 @@ export function useAiEditSession(options: UseAiEditSessionOptions) {
     }
   }, []);
 
-  const imageDataUrl = useMemo(() => {
-    // Will be set externally when the asset thumbnail is ready
-    return undefined as string | undefined;
-  }, []);
+  useEffect(() => {
+    if (!selectedAsset) {
+      setImageDataUrl(undefined);
+      return;
+    }
 
-  const chatBody = useMemo(
+    let cancelled = false;
+    void toRecommendationImageDataUrl(selectedAsset)
+      .then((url) => {
+        if (!cancelled) {
+          setImageDataUrl(url);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setImageDataUrl(undefined);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAsset?.id]);
+
+  const stableChatBody = useMemo(
     () => ({
       provider: selectedModel.provider,
       model: selectedModel.id,
-      imageDataUrl,
-      histogramSummary: histogramSummary ?? undefined,
-      currentAdjustments: adjustments
-        ? (adjustments as unknown as Record<string, unknown>)
-        : undefined,
-      currentFilmProfileId: selectedAsset?.filmProfileId ?? undefined,
-      referenceImages: referenceImages.map((ref) => ({
-        imageDataUrl: ref.dataUrl,
-        histogramSummary: ref.histogramSummary,
-      })),
     }),
-    [
-      selectedModel,
-      imageDataUrl,
-      histogramSummary,
-      adjustments,
-      selectedAsset?.filmProfileId,
-      referenceImages,
-    ]
+    [selectedModel.id, selectedModel.provider]
   );
 
   const transport = useMemo(
-    () => new DefaultChatTransport({ api: "/api/ai-edit", body: chatBody }),
-    [chatBody]
+    () => new DefaultChatTransport({ api: "/api/ai-edit", body: stableChatBody }),
+    [stableChatBody]
   );
 
   const {
@@ -120,45 +147,9 @@ export function useAiEditSession(options: UseAiEditSessionOptions) {
 
   const isLoading = status === "submitted" || status === "streaming";
 
-  const buildAdjustmentsPatch = useCallback(
-    (result: AiPendingResult): Partial<EditingAdjustments> => {
-      const current = adjustments
-        ? normalizeAdjustments(adjustments)
-        : normalizeAdjustments(undefined);
-      return {
-        ...current,
-        exposure: result.adjustments.exposure,
-        contrast: result.adjustments.contrast,
-        highlights: result.adjustments.highlights,
-        shadows: result.adjustments.shadows,
-        whites: result.adjustments.whites,
-        blacks: result.adjustments.blacks,
-        temperature: result.adjustments.temperature,
-        tint: result.adjustments.tint,
-        vibrance: result.adjustments.vibrance,
-        saturation: result.adjustments.saturation,
-        clarity: result.adjustments.clarity,
-        dehaze: result.adjustments.dehaze,
-        curveHighlights: result.adjustments.curveHighlights,
-        curveLights: result.adjustments.curveLights,
-        curveDarks: result.adjustments.curveDarks,
-        curveShadows: result.adjustments.curveShadows,
-        grain: result.adjustments.grain,
-        grainSize: result.adjustments.grainSize,
-        grainRoughness: result.adjustments.grainRoughness,
-        vignette: result.adjustments.vignette,
-        sharpening: result.adjustments.sharpening,
-        noiseReduction: result.adjustments.noiseReduction,
-        hsl: result.adjustments.hsl,
-        colorGrading: result.adjustments.colorGrading,
-      };
-    },
-    [adjustments]
-  );
-
   const applyResult = useCallback(() => {
     if (!pendingResult) return;
-    const patch = buildAdjustmentsPatch(pendingResult);
+    const patch = buildPatchFromAiResult(adjustments, pendingResult.adjustments);
     onApply(patch);
     if (pendingResult.filmProfileId) {
       onApplyFilmProfile(pendingResult.filmProfileId);
@@ -166,14 +157,14 @@ export function useAiEditSession(options: UseAiEditSessionOptions) {
     setIsPreviewActive(false);
     preApplyAdjustmentsRef.current = null;
     setPendingResult(null);
-  }, [pendingResult, buildAdjustmentsPatch, onApply, onApplyFilmProfile]);
+  }, [adjustments, pendingResult, onApply, onApplyFilmProfile]);
 
   const previewResult = useCallback(() => {
     if (!pendingResult || !adjustments) return;
     if (!isPreviewActive) {
       preApplyAdjustmentsRef.current = { ...normalizeAdjustments(adjustments) };
     }
-    const patch = buildAdjustmentsPatch(pendingResult);
+    const patch = buildPatchFromAiResult(adjustments, pendingResult.adjustments);
     onApply(patch);
     if (pendingResult.filmProfileId) {
       onApplyFilmProfile(pendingResult.filmProfileId);
@@ -183,7 +174,6 @@ export function useAiEditSession(options: UseAiEditSessionOptions) {
     pendingResult,
     adjustments,
     isPreviewActive,
-    buildAdjustmentsPatch,
     onApply,
     onApplyFilmProfile,
   ]);
@@ -205,7 +195,25 @@ export function useAiEditSession(options: UseAiEditSessionOptions) {
   const sendMessage = useCallback(
     (text: string) => {
       if (!text.trim()) return;
-      void chatSendMessage({ text });
+      void chatSendMessage(
+        { text },
+        {
+          body: {
+            provider: selectedModelRef.current.provider,
+            model: selectedModelRef.current.id,
+            imageDataUrl: imageDataUrlRef.current,
+            histogramSummary: histogramSummaryRef.current ?? undefined,
+            currentAdjustments: adjustmentsRef.current
+              ? (adjustmentsRef.current as unknown as Record<string, unknown>)
+              : undefined,
+            currentFilmProfileId: selectedAssetRef.current?.filmProfileId ?? undefined,
+            referenceImages: referenceImagesRef.current.map((ref) => ({
+              imageDataUrl: ref.dataUrl,
+              histogramSummary: ref.histogramSummary,
+            })),
+          },
+        }
+      );
       setInput("");
     },
     [chatSendMessage]
@@ -232,6 +240,30 @@ export function useAiEditSession(options: UseAiEditSessionOptions) {
 
   const clearReferenceImages = useCallback(() => {
     setReferenceImages([]);
+  }, []);
+
+  const stopRef = useRef(stop);
+  const clearChatRef = useRef(clearChat);
+  stopRef.current = stop;
+  clearChatRef.current = clearChat;
+
+  useEffect(() => {
+    void stopRef.current();
+    clearChatRef.current();
+  }, [selectedAsset?.id]);
+
+  useEffect(() => {
+    return () => {
+      void stopRef.current();
+      if (
+        isPreviewActiveRef.current &&
+        pendingResultRef.current &&
+        preApplyAdjustmentsRef.current
+      ) {
+        onApplyRef.current(preApplyAdjustmentsRef.current);
+        preApplyAdjustmentsRef.current = null;
+      }
+    };
   }, []);
 
   return {

@@ -15,6 +15,8 @@ export interface RecommendFilmRequestPayload {
   metadata?: Partial<AssetMetadata>;
   candidates: RecommendFilmPresetCandidate[];
   topK: number;
+  provider?: string;
+  model?: string;
 }
 
 export interface RecommendFilmResponsePayload {
@@ -32,9 +34,41 @@ interface RecommendFilmOptions extends RetryOptions {
   fetchImpl?: typeof fetch;
 }
 
-export const sleep = (durationMs: number) =>
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, durationMs);
+const createAbortError = () => {
+  if (typeof DOMException === "function") {
+    return new DOMException("The operation was aborted.", "AbortError");
+  }
+  const error = new Error("The operation was aborted.");
+  error.name = "AbortError";
+  return error;
+};
+
+const isAbortError = (error: unknown) =>
+  error instanceof Error && error.name === "AbortError";
+
+export const sleep = (durationMs: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(createAbortError());
+      return;
+    }
+
+    const handleAbort = () => {
+      clearTimeout(timeoutId);
+      if (signal) {
+        signal.removeEventListener("abort", handleAbort);
+      }
+      reject(createAbortError());
+    };
+
+    const timeoutId = setTimeout(() => {
+      if (signal) {
+        signal.removeEventListener("abort", handleAbort);
+      }
+      resolve();
+    }, durationMs);
+
+    signal?.addEventListener("abort", handleAbort, { once: true });
   });
 
 export const retryWithBackoff = async <T>(
@@ -49,17 +83,20 @@ export const retryWithBackoff = async <T>(
   while (attempt < maxRetries) {
     attempt += 1;
     if (options?.signal?.aborted) {
-      throw new DOMException("The operation was aborted.", "AbortError");
+      throw createAbortError();
     }
     try {
       return await operation(attempt);
     } catch (error) {
+      if (options?.signal?.aborted || isAbortError(error)) {
+        throw createAbortError();
+      }
       lastError = error;
       if (attempt >= maxRetries) {
         break;
       }
       const delayMs = baseDelayMs * 2 ** (attempt - 1);
-      await sleep(delayMs);
+      await sleep(delayMs, options?.signal);
     }
   }
 

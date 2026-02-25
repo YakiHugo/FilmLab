@@ -1,4 +1,4 @@
-import { clamp } from "@/lib/math";
+import { clamp } from "../math";
 import type { AssetAiRecommendation, AiPresetRecommendation, Preset } from "@/types";
 
 export const MAX_STYLE_SELECTION = 36;
