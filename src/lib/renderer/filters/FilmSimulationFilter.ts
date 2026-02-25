@@ -1,11 +1,13 @@
 import * as PIXI from "pixi.js";
-import { Filter, DRAW_MODES } from "pixi.js";
+import { Filter, CLEAR_MODES as CLEAR_MODES_ENUM } from "pixi.js";
 import type { FilterSystem, RenderTexture, CLEAR_MODES, Renderer } from "pixi.js";
 import { LUTCache } from "../LUTCache";
 import type { FilmUniforms } from "../types";
+import { applyManualFilter, clearTextureUnitBinding } from "./ManualFilterApply";
 
 import vertexSrc from "../shaders/default.vert?raw";
-import fragmentSrc from "../shaders/generated/FilmSimulation.frag?raw";
+import passthroughFragSrc from "../shaders/Passthrough.frag?raw";
+import modernFragmentSrc from "../shaders/generated/FilmSimulation.frag?raw";
 
 /**
  * PixiJS Filter that applies Film Simulation effects:
@@ -22,16 +24,20 @@ import fragmentSrc from "../shaders/generated/FilmSimulation.frag?raw";
  * this by:
  * 1. Omitting `u_lut` from the Filter uniform object (prevents PixiJS from
  *    trying to sync it and crashing on unknown type)
- * 2. Overriding `apply()` to replicate `FilterSystem.applyFilter()` logic,
- *    inserting manual 3D texture binding between shader bind and draw call
- * 3. Using a fixed texture unit (2) for the 3D LUT to avoid conflicts with
+ * 2. Overriding `apply()` and using a shared manual apply helper
+ *    (`ManualFilterApply`) to inject 3D texture binding
+ * 3. Using a fixed texture unit (4) for the 3D LUT to avoid conflicts with
  *    PixiJS's auto-assigned units (0 for uSampler, 1 for globalUniforms)
  */
 export class FilmSimulationFilter extends Filter {
   private lutTexture: WebGLTexture | null = null;
   private lutCache: LUTCache;
   private currentLutKey: string | null = null;
+  private failedLutKey: string | null = null;
+  private failedLutRetryAfter = 0;
+  private lastLutErrorKey: string | null = null;
   private blueNoiseTexture: PIXI.Texture;
+  private passthroughFilter: Filter;
   private loadGeneration = 0;
   /** Cached GL context for cleanup in destroy(). Set on first loadLUT call. */
   private gl: WebGL2RenderingContext | null = null;
@@ -48,7 +54,7 @@ export class FilmSimulationFilter extends Filter {
   constructor() {
     // NOTE: u_lut is intentionally NOT included here because PixiJS v7
     // cannot handle sampler3D uniforms. We bind it manually in apply().
-    super(vertexSrc, fragmentSrc, {
+    super(vertexSrc, modernFragmentSrc, {
       // Layer 1: Tone Response
       u_toneEnabled: false,
       u_shoulder: 0.8,
@@ -93,6 +99,7 @@ export class FilmSimulationFilter extends Filter {
     blueNoiseBaseTexture.wrapMode = PIXI.WRAP_MODES.REPEAT;
     this.blueNoiseTexture = new PIXI.Texture(blueNoiseBaseTexture);
     this.uniforms.u_blueNoise = this.blueNoiseTexture;
+    this.passthroughFilter = new Filter(vertexSrc, passthroughFragSrc);
   }
 
   /**
@@ -103,6 +110,9 @@ export class FilmSimulationFilter extends Filter {
     const lutKey = `${url}|${level}`;
     if (this.currentLutKey === lutKey && this.lutTexture) {
       return; // Already loaded
+    }
+    if (this.failedLutKey === lutKey && Date.now() < this.failedLutRetryAfter) {
+      return;
     }
 
     const gl = renderer.gl as WebGL2RenderingContext;
@@ -124,12 +134,22 @@ export class FilmSimulationFilter extends Filter {
 
       this.lutTexture = texture;
       this.currentLutKey = lutKey;
+      this.failedLutKey = null;
+      this.failedLutRetryAfter = 0;
+      this.lastLutErrorKey = null;
     } catch (e) {
-      console.warn("LUT load failed:", e);
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      const errorKey = `${lutKey}:${errorMessage}`;
+      if (this.lastLutErrorKey !== errorKey) {
+        console.warn("LUT load failed:", e);
+        this.lastLutErrorKey = errorKey;
+      }
       // Reset to safe state — disable LUT for this filter
       if (this.loadGeneration === thisGeneration) {
         this.lutTexture = null;
         this.currentLutKey = null;
+        this.failedLutKey = lutKey;
+        this.failedLutRetryAfter = Date.now() + 30_000;
         this.uniforms.u_lutEnabled = false;
       }
     }
@@ -154,67 +174,67 @@ export class FilmSimulationFilter extends Filter {
     output: RenderTexture,
     clearMode?: CLEAR_MODES
   ): void {
-    const renderer = filterManager.renderer;
-    const gl = renderer.gl as WebGL2RenderingContext;
-
-    // 1. Set filter state (blend mode, etc.)
-    renderer.state.set(this.state);
-
-    // 2. Bind and clear output
-    filterManager.bindAndClear(output, clearMode);
-
-    // 3. Set input texture and global uniforms
-    this.uniforms.uSampler = input;
-    this.uniforms.filterGlobals = (filterManager as any).globalUniforms;
-
-    // 4. Bind shader (this syncs all non-sampler3D uniforms)
-    renderer.shader.bind(this);
-
-    // 5. Resolve the u_lut uniform location (cached per GL program).
-    //    PixiJS v7 doesn't recognize sampler3D, so we query WebGL directly.
-    const lutUnit = FilmSimulationFilter.LUT_TEXTURE_UNIT;
-    const contextUid = (renderer as any).CONTEXT_UID;
-    const glProgram = this.program.glPrograms[contextUid];
-    const nativeProgram = glProgram?.program;
-    if (nativeProgram) {
-      if (this.lutLocationProgram !== nativeProgram) {
-        this.lutUniformLocation = gl.getUniformLocation(nativeProgram, "u_lut");
-        this.lutLocationProgram = nativeProgram;
+    const sharesAttachment =
+      input === output ||
+      input.baseTexture === output.baseTexture;
+    if (sharesAttachment) {
+      const tempOutput = filterManager.getFilterTexture(input);
+      try {
+        this.drawWithManualBindings(
+          filterManager,
+          input,
+          tempOutput,
+          CLEAR_MODES_ENUM.CLEAR
+        );
+        filterManager.applyFilter(this.passthroughFilter, tempOutput, output, clearMode);
+      } finally {
+        filterManager.returnFilterTexture(tempOutput);
       }
+      return;
     }
 
-    // 6. Bind 3D LUT texture (or null) to our reserved unit and point u_lut there.
-    //    This MUST happen regardless of whether LUT is enabled, because the shader
-    //    always declares `uniform sampler3D u_lut`. If we leave u_lut pointing at
-    //    unit 0 (the default), WebGL will see sampler2D and sampler3D on the same
-    //    unit and refuse to draw.
-    gl.activeTexture(gl.TEXTURE0 + lutUnit);
-    if (this.lutTexture && this.uniforms.u_lutEnabled) {
-      gl.bindTexture(gl.TEXTURE_3D, this.lutTexture);
-    } else {
-      gl.bindTexture(gl.TEXTURE_3D, null);
-    }
-    if (this.lutUniformLocation) {
-      gl.uniform1i(this.lutUniformLocation, lutUnit);
-    }
+    this.drawWithManualBindings(filterManager, input, output, clearMode);
+  }
 
-    // 7. Draw the filter quad
-    const quad = (filterManager as any).quad;
-    renderer.geometry.bind(quad);
-    renderer.geometry.draw(DRAW_MODES.TRIANGLE_STRIP);
+  private drawWithManualBindings(
+    filterManager: FilterSystem,
+    input: RenderTexture,
+    output: RenderTexture,
+    clearMode?: CLEAR_MODES
+  ): void {
+    const lutUnit = FilmSimulationFilter.LUT_TEXTURE_UNIT;
 
-    // 8. Unbind the 3D texture so subsequent filters (e.g. HalationBloomFilter)
-    //    can safely use this unit for sampler2D without a type conflict.
-    //    Also reset PixiJS's internal texture tracking for this unit.
-    gl.activeTexture(gl.TEXTURE0 + lutUnit);
-    gl.bindTexture(gl.TEXTURE_3D, null);
-    gl.bindTexture(gl.TEXTURE_2D, null);
-    const boundTextures = (renderer.texture as any).boundTextures;
-    if (boundTextures && boundTextures[lutUnit] !== undefined) {
-      boundTextures[lutUnit] = null;
-    }
-    // Restore active texture to unit 0 (PixiJS default)
-    gl.activeTexture(gl.TEXTURE0);
+    applyManualFilter(this, filterManager, input, output, clearMode, {
+      beforeDraw: ({ gl, nativeProgram }) => {
+        // Resolve the u_lut uniform location once per linked GL program.
+        if (nativeProgram && this.lutLocationProgram !== nativeProgram) {
+          this.lutUniformLocation = gl.getUniformLocation(nativeProgram, "u_lut");
+          this.lutLocationProgram = nativeProgram;
+        } else if (!nativeProgram) {
+          this.lutUniformLocation = null;
+          this.lutLocationProgram = null;
+        }
+
+        // Always bind sampler3D to our reserved unit, even when LUT is disabled,
+        // so sampler2D/sampler3D never alias the same texture unit.
+        gl.activeTexture(gl.TEXTURE0 + lutUnit);
+        if (this.lutTexture && this.uniforms.u_lutEnabled) {
+          gl.bindTexture(gl.TEXTURE_3D, this.lutTexture);
+        } else {
+          gl.bindTexture(gl.TEXTURE_3D, null);
+        }
+        if (
+          nativeProgram &&
+          this.lutLocationProgram === nativeProgram &&
+          this.lutUniformLocation
+        ) {
+          gl.uniform1i(this.lutUniformLocation, lutUnit);
+        }
+      },
+      afterDraw: ({ renderer, gl }) => {
+        clearTextureUnitBinding(renderer, gl, lutUnit);
+      },
+    });
   }
 
   /**
@@ -230,7 +250,7 @@ export class FilmSimulationFilter extends Filter {
     const cm = this.uniforms.u_colorMatrix;
     for (let i = 0; i < 9; i++) cm[i] = u.u_colorMatrix[i];
 
-    this.uniforms.u_lutEnabled = u.u_lutEnabled;
+    this.uniforms.u_lutEnabled = u.u_lutEnabled && !!this.lutTexture;
     this.uniforms.u_lutIntensity = u.u_lutIntensity;
 
     this.uniforms.u_colorCastEnabled = u.u_colorCastEnabled;
@@ -275,6 +295,7 @@ export class FilmSimulationFilter extends Filter {
     if (this.gl) {
       this.lutCache.dispose(this.gl);
     }
+    this.passthroughFilter.destroy();
     this.blueNoiseTexture.destroy(false);
     this.lutTexture = null;
     this.currentLutKey = null;

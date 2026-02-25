@@ -1,4 +1,5 @@
 import { normalizeAdjustments } from "@/lib/adjustments";
+import { getStockFilmProfileV2ById } from "@/data/filmStockProfiles";
 import type { EditingAdjustments, FilmProfile } from "@/types";
 import type { FilmProfileAny, FilmProfileV2, ResolvedRenderProfile } from "@/types/film";
 import { ensureFilmProfileV2 } from "./migrate";
@@ -7,6 +8,12 @@ import { ensureFilmProfile } from "./registry";
 
 const isFilmProfileV2 = (profile: FilmProfileAny | null | undefined): profile is FilmProfileV2 =>
   Boolean(profile && profile.version === 2);
+
+const resolveAssetPath = (rawPath: string): string => {
+  const normalized = rawPath.replace(/^\/+/, "");
+  const baseUrl = (import.meta.env.BASE_URL ?? "/").replace(/\/+$/, "/");
+  return `${baseUrl}${normalized}`;
+};
 
 const resolveLUT = (
   profile: FilmProfileV2
@@ -19,7 +26,7 @@ const resolveLUT = (
     return null;
   }
   return {
-    path: rawPath.startsWith("/") ? rawPath : `/${rawPath}`,
+    path: resolveAssetPath(rawPath),
     size: profile.lut.size,
     intensity: profile.lut.intensity,
   };
@@ -41,6 +48,18 @@ export const resolveRenderProfile = (
       v2,
       lut: resolveLUT(v2),
     };
+  }
+
+  if (providedProfile && !isFilmProfileV2(providedProfile)) {
+    const stockV2 = getStockFilmProfileV2ById(providedProfile.id);
+    if (stockV2) {
+      return {
+        mode: "v2",
+        source: stockV2,
+        v2: stockV2,
+        lut: resolveLUT(stockV2),
+      };
+    }
   }
 
   const runtimeProfile = createFilmProfileFromAdjustments(normalizeAdjustments(adjustments));

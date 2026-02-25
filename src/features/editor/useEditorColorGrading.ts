@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
-import { useEditorStore } from "@/stores/editorStore";
+import { useEditorStore, type PointColorPickTarget } from "@/stores/editorStore";
 import type { Asset, AssetUpdate, EditingAdjustments, HslColorKey } from "@/types";
 import { rgbToHue, mapHueToHslColor, toHex } from "./colorUtils";
 
@@ -17,17 +17,21 @@ export function useEditorColorGrading(selectedAsset: Asset | null, actions: Edit
   const {
     activeHslColor,
     pointColorPicking,
+    pointColorPickTarget,
     lastPointColorSample,
     setActiveHslColor,
     setPointColorPicking,
+    setPointColorPickTarget,
     setLastPointColorSample,
   } = useEditorStore(
     useShallow((state) => ({
       activeHslColor: state.activeHslColor,
       pointColorPicking: state.pointColorPicking,
+      pointColorPickTarget: state.pointColorPickTarget,
       lastPointColorSample: state.lastPointColorSample,
       setActiveHslColor: state.setActiveHslColor,
       setPointColorPicking: state.setPointColorPicking,
+      setPointColorPickTarget: state.setPointColorPickTarget,
       setLastPointColorSample: state.setLastPointColorSample,
     }))
   );
@@ -178,13 +182,15 @@ export function useEditorColorGrading(selectedAsset: Asset | null, actions: Edit
     });
   }, [applyEditorPatch, selectedAsset]);
 
-  const startPointColorPick = useCallback(() => {
+  const startPointColorPick = useCallback((target: PointColorPickTarget = "hsl") => {
+    setPointColorPickTarget(target);
     setPointColorPicking(true);
-  }, [setPointColorPicking]);
+  }, [setPointColorPickTarget, setPointColorPicking]);
 
   const cancelPointColorPick = useCallback(() => {
     setPointColorPicking(false);
-  }, [setPointColorPicking]);
+    setPointColorPickTarget("hsl");
+  }, [setPointColorPickTarget, setPointColorPicking]);
 
   const commitPointColorSample = useCallback(
     (sample: { red: number; green: number; blue: number }) => {
@@ -201,14 +207,16 @@ export function useEditorColorGrading(selectedAsset: Asset | null, actions: Edit
         mappedColor,
       });
       setPointColorPicking(false);
+      setPointColorPickTarget("hsl");
       return mappedColor;
     },
-    [setActiveHslColor, setLastPointColorSample, setPointColorPicking]
+    [setActiveHslColor, setLastPointColorSample, setPointColorPickTarget, setPointColorPicking]
   );
 
   return {
     activeHslColor,
     pointColorPicking,
+    pointColorPickTarget,
     lastPointColorSample,
     setActiveHslColor,
     previewHslValue,

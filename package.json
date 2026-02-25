@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "generate:shaders": "tsx scripts/generate-shaders.ts",
+    "generate:stock-luts": "python scripts/generate_stock_luts.py",
     "baseline:render": "tsx scripts/render-baseline.ts",
     "dev": "pnpm run generate:shaders && vite",
     "build": "pnpm run generate:shaders && tsc -b && vite build",

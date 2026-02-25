@@ -90,8 +90,7 @@ export const EDITOR_TOOL_PANELS: EditorToolPanelDefinition[] = [
   {
     id: "mask",
     label: "蒙版",
-    description: "局部调整蒙版（即将推出）",
-    disabled: true,
+    description: "局部调整蒙版",
   },
   {
     id: "remove",

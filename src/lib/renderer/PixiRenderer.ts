@@ -18,6 +18,7 @@ import type {
 
 export interface PixiRenderOptions {
   skipGeometry?: boolean;
+  skipMaster?: boolean;
   skipHsl?: boolean;
   skipCurve?: boolean;
   skipDetail?: boolean;
@@ -46,6 +47,18 @@ export interface PixiRenderMetrics {
   };
   activePasses: string[];
 }
+
+const shouldUseReducedDetailKernel = (label: "preview" | "export"): boolean => {
+  if (label !== "preview" || typeof window === "undefined" || typeof navigator === "undefined") {
+    return false;
+  }
+  const userAgent = navigator.userAgent || "";
+  const uaIndicatesMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(userAgent);
+  const coarsePointer = typeof window.matchMedia === "function"
+    ? window.matchMedia("(pointer: coarse)").matches
+    : false;
+  return uaIndicatesMobile || coarsePointer;
+};
 
 /**
  * PixiJS-based rendering engine for the image editor.
@@ -87,6 +100,11 @@ export class PixiRenderer {
   // Cached source dimensions to avoid destroying/recreating texture every frame
   private lastSourceWidth = 0;
   private lastSourceHeight = 0;
+  private lastSourceRef: TexImageSource | null = null;
+  private sourceTextureCache = new Map<TexImageSource, PIXI.Texture>();
+  private sourceTextureLru: TexImageSource[] = [];
+  private lastContextLostLogAt = 0;
+  private lastContextRestoredLogAt = 0;
   private lastTargetWidth = 0;
   private lastTargetHeight = 0;
 
@@ -116,6 +134,9 @@ export class PixiRenderer {
     this.hslFilter = new HSLFilter();
     this.curveFilter = new CurveFilter();
     this.detailFilter = new DetailFilter();
+    this.detailFilter.setNoiseReductionKernelRadius(
+      shouldUseReducedDetailKernel(this.rendererLabel) ? 1 : 2
+    );
     this.filmFilter = new FilmSimulationFilter();
     this.halationBloomFilter = new HalationBloomFilter();
     const gl = (this.app.renderer as PIXI.Renderer).gl;
@@ -127,7 +148,11 @@ export class PixiRenderer {
     const handleContextLost = (event: Event) => {
       event.preventDefault();
       this.contextLost = true;
-      console.warn(`WebGL context lost in PixiRenderer (${this.rendererLabel})`);
+      const now = Date.now();
+      if (now - this.lastContextLostLogAt > 2000) {
+        console.warn(`WebGL context lost in PixiRenderer (${this.rendererLabel})`);
+        this.lastContextLostLogAt = now;
+      }
     };
     const handleContextRestored = () => {
       this.contextLost = false;
@@ -135,9 +160,16 @@ export class PixiRenderer {
       this.lastFilterKey = "";
       this.lastSourceWidth = 0;
       this.lastSourceHeight = 0;
+      this.lastSourceRef = null;
+      this.sourceTextureCache.clear();
+      this.sourceTextureLru = [];
       this.lastTargetWidth = 0;
       this.lastTargetHeight = 0;
-      console.info(`WebGL context restored in PixiRenderer (${this.rendererLabel})`);
+      const now = Date.now();
+      if (now - this.lastContextRestoredLogAt > 2000) {
+        console.info(`WebGL context restored in PixiRenderer (${this.rendererLabel})`);
+        this.lastContextRestoredLogAt = now;
+      }
     };
     view.addEventListener("webglcontextlost", handleContextLost);
     view.addEventListener("webglcontextrestored", handleContextRestored);
@@ -191,37 +223,73 @@ export class PixiRenderer {
 
     const sourceSizeChanged =
       sourceWidth !== this.lastSourceWidth || sourceHeight !== this.lastSourceHeight;
+    const sourceRefChanged = source !== this.lastSourceRef;
     const targetSizeChanged =
       targetWidth !== this.lastTargetWidth || targetHeight !== this.lastTargetHeight;
 
-    if (sourceSizeChanged) {
-      // Dimensions changed — destroy old texture and create a new one
-      if (this.sprite.texture && this.sprite.texture !== PIXI.Texture.EMPTY) {
-        this.sprite.texture.destroy(true);
-      }
+    let nextTexture = this.sourceTextureCache.get(source);
+    const nextTextureNeedsRecreate =
+      !nextTexture ||
+      nextTexture.destroyed ||
+      nextTexture.baseTexture.destroyed ||
+      Math.round(nextTexture.baseTexture.width) !== Math.max(1, Math.round(sourceWidth)) ||
+      Math.round(nextTexture.baseTexture.height) !== Math.max(1, Math.round(sourceHeight));
 
+    if (nextTextureNeedsRecreate) {
+      if (nextTexture && nextTexture !== PIXI.Texture.EMPTY && !nextTexture.destroyed) {
+        nextTexture.destroy(true);
+      }
       const baseTexture = PIXI.BaseTexture.from(source as any, {
         scaleMode: PIXI.SCALE_MODES.LINEAR,
       });
-      this.sprite.texture = new PIXI.Texture(baseTexture);
-      this.lastSourceWidth = sourceWidth;
-      this.lastSourceHeight = sourceHeight;
-    } else {
-      // Same dimensions — update the existing texture resource in-place
-      const baseTexture = this.sprite.texture.baseTexture;
+      nextTexture = new PIXI.Texture(baseTexture);
+      this.sourceTextureCache.set(source, nextTexture);
+    }
+
+    // Track source usage for bounded cache eviction.
+    this.sourceTextureLru = this.sourceTextureLru.filter((entry) => entry !== source);
+    this.sourceTextureLru.push(source);
+    while (this.sourceTextureLru.length > 8) {
+      const oldestSource = this.sourceTextureLru.shift();
+      if (!oldestSource || oldestSource === source || oldestSource === this.lastSourceRef) {
+        continue;
+      }
+      const oldestTexture = this.sourceTextureCache.get(oldestSource);
+      if (oldestTexture && oldestTexture !== this.sprite.texture && !oldestTexture.destroyed) {
+        oldestTexture.destroy(true);
+      }
+      this.sourceTextureCache.delete(oldestSource);
+    }
+    if (!nextTexture) {
+      const baseTexture = PIXI.BaseTexture.from(source as any, {
+        scaleMode: PIXI.SCALE_MODES.LINEAR,
+      });
+      nextTexture = new PIXI.Texture(baseTexture);
+      this.sourceTextureCache.set(source, nextTexture);
+    }
+
+    if (this.sprite.texture !== nextTexture || sourceRefChanged) {
+      this.sprite.texture = nextTexture;
+    }
+    this.lastSourceRef = source;
+
+    // For mutable sources (canvas/video), refresh GPU upload in-place.
+    const isMutableSource =
+      (typeof HTMLCanvasElement !== "undefined" && source instanceof HTMLCanvasElement) ||
+      (typeof OffscreenCanvas !== "undefined" && source instanceof OffscreenCanvas) ||
+      (typeof HTMLVideoElement !== "undefined" && source instanceof HTMLVideoElement);
+    if (isMutableSource && nextTexture) {
+      const baseTexture = nextTexture.baseTexture;
       const resource = baseTexture.resource as any;
       if (resource && typeof resource.update === "function") {
-        resource.source = source;
         resource.update();
-      } else {
-        // Fallback: replace texture if resource doesn't support in-place update
-        this.sprite.texture.destroy(true);
-        const newBase = PIXI.BaseTexture.from(source as any, {
-          scaleMode: PIXI.SCALE_MODES.LINEAR,
-        });
-        this.sprite.texture = new PIXI.Texture(newBase);
+      } else if (typeof baseTexture.update === "function") {
+        baseTexture.update();
       }
     }
+
+    this.lastSourceWidth = sourceWidth;
+    this.lastSourceHeight = sourceHeight;
 
     if (sourceSizeChanged || targetSizeChanged) {
       this.sprite.width = targetWidth;
@@ -305,37 +373,42 @@ export class PixiRenderer {
       optics: 0,
     };
 
-    let timer = performance.now();
-    this.geometryFilter.updateUniforms(geometryUniforms);
-    passCpuMs.geometry = performance.now() - timer;
-
-    timer = performance.now();
-    this.masterFilter.updateUniforms(masterUniforms);
-    passCpuMs.master = performance.now() - timer;
-
-    timer = performance.now();
-    this.hslFilter.updateUniforms(hslUniforms);
-    passCpuMs.hsl = performance.now() - timer;
-
-    timer = performance.now();
-    this.curveFilter.updateUniforms(curveUniforms);
-    passCpuMs.curve = performance.now() - timer;
-
-    timer = performance.now();
-    this.detailFilter.updateUniforms(detailUniforms);
-    passCpuMs.detail = performance.now() - timer;
-
-    // Determine which filters are active this frame
     const useGeometry = !options?.skipGeometry;
+    const useMaster = !options?.skipMaster;
     const useHsl = hslUniforms.enabled && !options?.skipHsl;
     const useCurve = curveUniforms.enabled && !options?.skipCurve;
     const useDetail = detailUniforms.enabled && !options?.skipDetail;
     const useFilm = !!(filmUniforms && !options?.skipFilm);
     const useHalation = !!(halationBloomUniforms && !options?.skipHalationBloom);
+    let timer = performance.now();
+    if (useGeometry) {
+      this.geometryFilter.updateUniforms(geometryUniforms);
+      passCpuMs.geometry = performance.now() - timer;
+    }
 
-    // Keep Master output in linear space whenever there are downstream passes.
-    const hasPostMasterPass = useHsl || useCurve || useDetail || useFilm || useHalation;
-    this.masterFilter.uniforms.u_outputSRGB = !hasPostMasterPass;
+    timer = performance.now();
+    if (useMaster) {
+      this.masterFilter.updateUniforms(masterUniforms);
+      passCpuMs.master = performance.now() - timer;
+    }
+
+    timer = performance.now();
+    if (useHsl) {
+      this.hslFilter.updateUniforms(hslUniforms);
+      passCpuMs.hsl = performance.now() - timer;
+    }
+
+    timer = performance.now();
+    if (useCurve) {
+      this.curveFilter.updateUniforms(curveUniforms);
+      passCpuMs.curve = performance.now() - timer;
+    }
+
+    timer = performance.now();
+    if (useDetail) {
+      this.detailFilter.updateUniforms(detailUniforms);
+      passCpuMs.detail = performance.now() - timer;
+    }
 
     if (useFilm) {
       timer = performance.now();
@@ -353,11 +426,11 @@ export class PixiRenderer {
     // Only reassign sprite.filters when the active combination changes,
     // avoiding PixiJS filter chain rebinding on every frame.
     const filterStartedAt = performance.now();
-    const filterKey = `${useGeometry ? "G" : ""}${useHsl ? "S" : ""}${useCurve ? "C" : ""}${useDetail ? "D" : ""}${useFilm ? "F" : ""}${useHalation ? "H" : ""}`;
+    const filterKey = `${useGeometry ? "G" : ""}${useMaster ? "M" : ""}${useHsl ? "S" : ""}${useCurve ? "C" : ""}${useDetail ? "D" : ""}${useFilm ? "F" : ""}${useHalation ? "H" : ""}`;
     if (filterKey !== this.lastFilterKey) {
       const filters: PIXI.Filter[] = [];
       if (useGeometry) filters.push(this.geometryFilter);
-      filters.push(this.masterFilter);
+      if (useMaster) filters.push(this.masterFilter);
       if (useHsl) filters.push(this.hslFilter);
       if (useCurve) filters.push(this.curveFilter);
       if (useDetail) filters.push(this.detailFilter);
@@ -372,8 +445,9 @@ export class PixiRenderer {
     this.app.render();
     const drawMs = performance.now() - drawStartedAt;
 
-    const activePasses: string[] = ["master"];
-    if (useGeometry) activePasses.unshift("geometry");
+    const activePasses: string[] = [];
+    if (useGeometry) activePasses.push("geometry");
+    if (useMaster) activePasses.push("master");
     if (useHsl) activePasses.push("hsl");
     if (useCurve) activePasses.push("curve");
     if (useDetail) activePasses.push("detail");
@@ -442,9 +516,25 @@ export class PixiRenderer {
       this.filmFilter.disposeLUTCache(gl);
     }
 
-    // Destroy sprite texture (guard against EMPTY to avoid double-destroy)
+    // Destroy source textures (guard against EMPTY to avoid double-destroy)
+    const destroyedTextures = new Set<PIXI.Texture>();
+    for (const texture of this.sourceTextureCache.values()) {
+      if (texture && texture !== PIXI.Texture.EMPTY && !texture.destroyed) {
+        texture.destroy(true);
+        destroyedTextures.add(texture);
+      }
+    }
+    this.sourceTextureCache.clear();
+    this.sourceTextureLru = [];
+
     const tex = this.sprite.texture;
-    if (tex && tex !== PIXI.Texture.EMPTY && tex.baseTexture && !tex.baseTexture.destroyed) {
+    if (
+      tex &&
+      tex !== PIXI.Texture.EMPTY &&
+      !destroyedTextures.has(tex) &&
+      tex.baseTexture &&
+      !tex.baseTexture.destroyed
+    ) {
       tex.destroy(true);
     }
     // Destroy sprite without re-destroying children textures

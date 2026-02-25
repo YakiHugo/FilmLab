@@ -2,9 +2,17 @@ import { presets } from "@/data/presets";
 import {
   ASPECT_RATIOS,
   type ColorGradingAdjustments,
+  type BwMixAdjustments,
+  type CalibrationAdjustments,
   type EditingAdjustments,
   type HslColorKey,
   type HslAdjustments,
+  type LocalAdjustment,
+  type LocalAdjustmentDelta,
+  type LocalAdjustmentMask,
+  type LocalBrushMask,
+  type LocalLinearMask,
+  type LocalRadialMask,
   type PointCurveAdjustments,
   type PointCurvePoint,
   type PresetAdjustments,
@@ -28,6 +36,21 @@ const defaultColorGrading: ColorGradingAdjustments = {
   highlights: { hue: 0, saturation: 0, luminance: 0 },
   blend: 50,
   balance: 0,
+};
+
+const defaultBwMix: BwMixAdjustments = {
+  red: 0,
+  green: 0,
+  blue: 0,
+};
+
+const defaultCalibration: CalibrationAdjustments = {
+  redHue: 0,
+  redSaturation: 0,
+  greenHue: 0,
+  greenSaturation: 0,
+  blueHue: 0,
+  blueSaturation: 0,
 };
 
 const defaultPointCurve: PointCurveAdjustments = {
@@ -127,6 +150,206 @@ const normalizeRightAngleRotation = (value: number) => {
   return normalizedTurns * 90;
 };
 
+const LOCAL_DELTA_KEYS: Array<keyof LocalAdjustmentDelta> = [
+  "exposure",
+  "contrast",
+  "highlights",
+  "shadows",
+  "whites",
+  "blacks",
+  "temperature",
+  "tint",
+  "vibrance",
+  "saturation",
+  "texture",
+  "clarity",
+  "dehaze",
+  "sharpening",
+  "noiseReduction",
+  "colorNoiseReduction",
+];
+
+const normalizeLocalDeltaValue = (
+  key: keyof LocalAdjustmentDelta,
+  value: unknown
+): number | undefined => {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  if (key === "sharpening" || key === "noiseReduction" || key === "colorNoiseReduction") {
+    return clampValue(value, 0, 100);
+  }
+  return clampValue(value, -100, 100);
+};
+
+const normalizeLocalDelta = (delta: unknown): LocalAdjustmentDelta => {
+  if (!delta || typeof delta !== "object") {
+    return {};
+  }
+  const raw = delta as Partial<Record<keyof LocalAdjustmentDelta, unknown>>;
+  const normalized: LocalAdjustmentDelta = {};
+  LOCAL_DELTA_KEYS.forEach((key) => {
+    const value = normalizeLocalDeltaValue(key, raw[key]);
+    if (typeof value === "number") {
+      normalized[key] = value;
+    }
+  });
+  return normalized;
+};
+
+const normalizeLocalMaskLumaRange = (
+  raw: Partial<Record<"lumaMin" | "lumaMax" | "lumaFeather", unknown>>
+) => {
+  const lumaMinRaw = Number.isFinite(raw.lumaMin) ? (raw.lumaMin as number) : 0;
+  const lumaMaxRaw = Number.isFinite(raw.lumaMax) ? (raw.lumaMax as number) : 1;
+  const lumaFeatherRaw = Number.isFinite(raw.lumaFeather) ? (raw.lumaFeather as number) : 0;
+  const lumaMin = clampValue(Math.min(lumaMinRaw, lumaMaxRaw), 0, 1);
+  const lumaMax = clampValue(Math.max(lumaMinRaw, lumaMaxRaw), 0, 1);
+  const lumaFeather = clampValue(lumaFeatherRaw, 0, 1);
+  return {
+    lumaMin,
+    lumaMax,
+    lumaFeather,
+  };
+};
+
+const normalizeLocalMaskColorRange = (
+  raw: Partial<Record<"hueCenter" | "hueRange" | "hueFeather" | "satMin" | "satFeather", unknown>>
+) => {
+  const hueCenterRaw = Number.isFinite(raw.hueCenter) ? (raw.hueCenter as number) : 0;
+  const hueRangeRaw = Number.isFinite(raw.hueRange) ? (raw.hueRange as number) : 180;
+  const hueFeatherRaw = Number.isFinite(raw.hueFeather) ? (raw.hueFeather as number) : 0;
+  const satMinRaw = Number.isFinite(raw.satMin) ? (raw.satMin as number) : 0;
+  const satFeatherRaw = Number.isFinite(raw.satFeather) ? (raw.satFeather as number) : 0;
+
+  const hueCenter = ((hueCenterRaw % 360) + 360) % 360;
+  const hueRange = clampValue(hueRangeRaw, 0, 180);
+  const hueFeather = clampValue(hueFeatherRaw, 0, 180);
+  const satMin = clampValue(satMinRaw, 0, 1);
+  const satFeather = clampValue(satFeatherRaw, 0, 1);
+
+  return {
+    hueCenter,
+    hueRange,
+    hueFeather,
+    satMin,
+    satFeather,
+  };
+};
+
+const normalizeLocalRadialMask = (mask: unknown): LocalRadialMask => {
+  const raw = (mask && typeof mask === "object" ? mask : {}) as Partial<Record<keyof LocalRadialMask, unknown>>;
+  const lumaRange = normalizeLocalMaskLumaRange(raw);
+  const colorRange = normalizeLocalMaskColorRange(raw);
+  return {
+    mode: "radial",
+    centerX: clampValue(Number.isFinite(raw.centerX) ? (raw.centerX as number) : 0.5, 0, 1),
+    centerY: clampValue(Number.isFinite(raw.centerY) ? (raw.centerY as number) : 0.5, 0, 1),
+    radiusX: clampValue(Number.isFinite(raw.radiusX) ? (raw.radiusX as number) : 0.3, 0.01, 1),
+    radiusY: clampValue(Number.isFinite(raw.radiusY) ? (raw.radiusY as number) : 0.3, 0.01, 1),
+    feather: clampValue(Number.isFinite(raw.feather) ? (raw.feather as number) : 0.45, 0, 1),
+    ...lumaRange,
+    ...colorRange,
+    invert: Boolean(raw.invert),
+  };
+};
+
+const normalizeLocalLinearMask = (mask: unknown): LocalLinearMask => {
+  const raw = (mask && typeof mask === "object" ? mask : {}) as Partial<Record<keyof LocalLinearMask, unknown>>;
+  const lumaRange = normalizeLocalMaskLumaRange(raw);
+  const colorRange = normalizeLocalMaskColorRange(raw);
+  const startX = clampValue(Number.isFinite(raw.startX) ? (raw.startX as number) : 0.5, 0, 1);
+  const startY = clampValue(Number.isFinite(raw.startY) ? (raw.startY as number) : 0.2, 0, 1);
+  let endX = clampValue(Number.isFinite(raw.endX) ? (raw.endX as number) : 0.5, 0, 1);
+  let endY = clampValue(Number.isFinite(raw.endY) ? (raw.endY as number) : 0.8, 0, 1);
+  const dx = endX - startX;
+  const dy = endY - startY;
+  if (dx * dx + dy * dy < 1e-6) {
+    endY = clampValue(startY + 0.01, 0, 1);
+    endX = startX;
+  }
+  return {
+    mode: "linear",
+    startX,
+    startY,
+    endX,
+    endY,
+    feather: clampValue(Number.isFinite(raw.feather) ? (raw.feather as number) : 0.4, 0, 1),
+    ...lumaRange,
+    ...colorRange,
+    invert: Boolean(raw.invert),
+  };
+};
+
+const normalizeLocalBrushMask = (mask: unknown): LocalBrushMask => {
+  const raw = (mask && typeof mask === "object" ? mask : {}) as Partial<Record<keyof LocalBrushMask, unknown>>;
+  const lumaRange = normalizeLocalMaskLumaRange(raw);
+  const colorRange = normalizeLocalMaskColorRange(raw);
+  const pointsRaw = Array.isArray(raw.points) ? raw.points : [];
+  const points = pointsRaw
+    .slice(0, 4096)
+    .map((point) => {
+      if (!point || typeof point !== "object") {
+        return null;
+      }
+      const entry = point as Partial<Record<"x" | "y" | "pressure", unknown>>;
+      if (!Number.isFinite(entry.x) || !Number.isFinite(entry.y)) {
+        return null;
+      }
+      return {
+        x: clampValue(entry.x as number, 0, 1),
+        y: clampValue(entry.y as number, 0, 1),
+        pressure: Number.isFinite(entry.pressure)
+          ? clampValue(entry.pressure as number, 0.1, 1)
+          : 1,
+      };
+    })
+    .filter((point): point is NonNullable<typeof point> => Boolean(point));
+  return {
+    mode: "brush",
+    points,
+    brushSize: clampValue(Number.isFinite(raw.brushSize) ? (raw.brushSize as number) : 0.08, 0.005, 0.25),
+    feather: clampValue(Number.isFinite(raw.feather) ? (raw.feather as number) : 0.55, 0, 1),
+    flow: clampValue(Number.isFinite(raw.flow) ? (raw.flow as number) : 0.85, 0.05, 1),
+    ...lumaRange,
+    ...colorRange,
+    invert: Boolean(raw.invert),
+  };
+};
+
+const normalizeLocalMask = (mask: unknown): LocalAdjustmentMask => {
+  const modeValue = mask && typeof mask === "object" ? (mask as { mode?: unknown }).mode : undefined;
+  if (modeValue === "linear") {
+    return normalizeLocalLinearMask(mask);
+  }
+  if (modeValue === "brush") {
+    return normalizeLocalBrushMask(mask);
+  }
+  return normalizeLocalRadialMask(mask);
+};
+
+const normalizeLocalAdjustments = (localAdjustments: unknown): LocalAdjustment[] => {
+  if (!Array.isArray(localAdjustments)) {
+    return [];
+  }
+  const normalized: LocalAdjustment[] = [];
+  localAdjustments.slice(0, 24).forEach((entry, index) => {
+    if (!entry || typeof entry !== "object") {
+      return;
+    }
+    const raw = entry as Partial<LocalAdjustment>;
+    const rawId = typeof raw.id === "string" ? raw.id.trim() : "";
+    normalized.push({
+      id: rawId.length > 0 ? rawId : `local-${index + 1}`,
+      enabled: raw.enabled !== false,
+      amount: clampValue(Number.isFinite(raw.amount) ? (raw.amount as number) : 100, 0, 100),
+      mask: normalizeLocalMask(raw.mask),
+      adjustments: normalizeLocalDelta(raw.adjustments),
+    });
+  });
+  return normalized;
+};
+
 type NormalizableAdjustments = Partial<EditingAdjustments> & {
   hsl?: Partial<Record<HslColorKey, Partial<HslAdjustments[HslColorKey]>>>;
   pointCurve?: Partial<Record<keyof PointCurveAdjustments, PointCurvePoint[]>>;
@@ -216,6 +439,50 @@ const normalizeAdjustmentsUncached = (
     typeof grading?.blend === "number" ? grading.blend : defaults.colorGrading.blend;
   merged.colorGrading.balance =
     typeof grading?.balance === "number" ? grading.balance : defaults.colorGrading.balance;
+  merged.bwEnabled = Boolean(merged.bwEnabled);
+  merged.bwMix = {
+    red: clampValue(merged.bwMix?.red ?? defaults.bwMix?.red ?? 0, -100, 100),
+    green: clampValue(merged.bwMix?.green ?? defaults.bwMix?.green ?? 0, -100, 100),
+    blue: clampValue(merged.bwMix?.blue ?? defaults.bwMix?.blue ?? 0, -100, 100),
+  };
+  merged.calibration = {
+    redHue: clampValue(merged.calibration?.redHue ?? defaults.calibration?.redHue ?? 0, -100, 100),
+    redSaturation: clampValue(
+      merged.calibration?.redSaturation ?? defaults.calibration?.redSaturation ?? 0,
+      -100,
+      100
+    ),
+    greenHue: clampValue(
+      merged.calibration?.greenHue ?? defaults.calibration?.greenHue ?? 0,
+      -100,
+      100
+    ),
+    greenSaturation: clampValue(
+      merged.calibration?.greenSaturation ?? defaults.calibration?.greenSaturation ?? 0,
+      -100,
+      100
+    ),
+    blueHue: clampValue(
+      merged.calibration?.blueHue ?? defaults.calibration?.blueHue ?? 0,
+      -100,
+      100
+    ),
+    blueSaturation: clampValue(
+      merged.calibration?.blueSaturation ?? defaults.calibration?.blueSaturation ?? 0,
+      -100,
+      100
+    ),
+  };
+
+  merged.temperatureKelvin =
+    typeof merged.temperatureKelvin === "number" && Number.isFinite(merged.temperatureKelvin)
+      ? clampValue(merged.temperatureKelvin, 1800, 50000)
+      : undefined;
+  merged.tintMG =
+    typeof merged.tintMG === "number" && Number.isFinite(merged.tintMG)
+      ? clampValue(merged.tintMG, -100, 100)
+      : undefined;
+  merged.localAdjustments = normalizeLocalAdjustments(merged.localAdjustments);
 
   merged.aspectRatio = (ASPECT_RATIOS as readonly string[]).includes(merged.aspectRatio)
     ? merged.aspectRatio
@@ -233,6 +500,28 @@ const normalizeAdjustmentsUncached = (
     Number.isFinite(merged.rightAngleRotation)
       ? merged.rightAngleRotation
       : defaults.rightAngleRotation
+  );
+  merged.perspectiveEnabled = Boolean(merged.perspectiveEnabled);
+  merged.perspectiveHorizontal = clampValue(
+    Number.isFinite(merged.perspectiveHorizontal)
+      ? (merged.perspectiveHorizontal as number)
+      : defaults.perspectiveHorizontal ?? 0,
+    -100,
+    100
+  );
+  merged.perspectiveVertical = clampValue(
+    Number.isFinite(merged.perspectiveVertical)
+      ? (merged.perspectiveVertical as number)
+      : defaults.perspectiveVertical ?? 0,
+    -100,
+    100
+  );
+  merged.opticsVignette = clampValue(
+    Number.isFinite(merged.opticsVignette)
+      ? (merged.opticsVignette as number)
+      : defaults.opticsVignette,
+    0,
+    100
   );
   merged.timestampEnabled = Boolean(merged.timestampEnabled);
   merged.timestampPosition =
@@ -291,6 +580,10 @@ export function createDefaultAdjustments(): EditingAdjustments {
       purple: { ...defaultHsl.purple },
       magenta: { ...defaultHsl.magenta },
     },
+    bwEnabled: false,
+    bwMix: { ...defaultBwMix },
+    calibration: { ...defaultCalibration },
+    localAdjustments: [],
     colorGrading: {
       shadows: { ...defaultColorGrading.shadows },
       midtones: { ...defaultColorGrading.midtones },
@@ -310,6 +603,9 @@ export function createDefaultAdjustments(): EditingAdjustments {
     grainRoughness: 50,
     rotate: 0,
     rightAngleRotation: 0,
+    perspectiveEnabled: false,
+    perspectiveHorizontal: 0,
+    perspectiveVertical: 0,
     vertical: 0,
     horizontal: 0,
     scale: 100,
@@ -323,6 +619,7 @@ export function createDefaultAdjustments(): EditingAdjustments {
     timestampOpacity: 72,
     opticsProfile: false,
     opticsCA: false,
+    opticsVignette: 0,
   };
 }
 

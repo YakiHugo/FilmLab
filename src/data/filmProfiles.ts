@@ -592,16 +592,16 @@ export const filmProfiles: FilmProfile[] = [
 ];
 
 export const presetFilmProfileMap: Record<string, string> = {
-  "portrait-01": "film-portrait-soft-v1",
-  "portrait-02": "film-portrait-fade-v1",
-  "portrait-03": "film-portrait-fade-v1",
-  "landscape-01": "film-landscape-cool-v1",
-  "landscape-02": "film-landscape-cool-v1",
-  "landscape-03": "film-landscape-golden-v1",
-  "night-01": "film-night-neon-v1",
-  "night-02": "film-night-neon-v1",
-  "night-03": "film-night-neon-v1",
-  "bw-01": "film-bw-soft-v1",
-  "bw-02": "film-bw-contrast-v1",
-  "bw-03": "film-bw-soft-v1",
+  "portrait-01": "stock-portra-400",
+  "portrait-02": "stock-gold-200",
+  "portrait-03": "stock-portra-400",
+  "landscape-01": "stock-provia-100f",
+  "landscape-02": "stock-velvia-50",
+  "landscape-03": "stock-ektar-100",
+  "night-01": "stock-cinestill-800t",
+  "night-02": "stock-cinestill-800t",
+  "night-03": "stock-cinestill-800t",
+  "bw-01": "stock-hp5-plus",
+  "bw-02": "stock-tri-x-400",
+  "bw-03": "stock-hp5-plus",
 };

@@ -4,6 +4,7 @@ import { normalizeAdjustments } from "@/lib/adjustments";
 import { useEditorStore } from "@/stores/editorStore";
 import { useProjectStore } from "@/stores/projectStore";
 import type { HistogramData } from "./histogram";
+import { rgbToHue } from "./colorUtils";
 import { useEditorHistory } from "./useEditorHistory";
 import { useEditorAdjustments } from "./useEditorAdjustments";
 import { useEditorColorGrading } from "./useEditorColorGrading";
@@ -20,14 +21,21 @@ export function useEditorState() {
     curveChannel,
     openSections,
     previewHistogram,
+    autoPerspectiveRequestId,
+    autoPerspectiveMode,
+    selectedLocalAdjustmentId,
     setSelectedAssetId,
     setShowOriginal,
     setActiveToolPanelId,
     setMobilePanelExpanded,
     setCurveChannel,
+    setSelectedLocalAdjustmentId,
     toggleOriginal,
     toggleSection,
     setPreviewHistogram,
+    setPointColorPicking,
+    setPointColorPickTarget,
+    requestAutoPerspective,
   } = useEditorStore(
     useShallow((state) => ({
       selectedAssetId: state.selectedAssetId,
@@ -37,14 +45,21 @@ export function useEditorState() {
       curveChannel: state.curveChannel,
       openSections: state.openSections,
       previewHistogram: state.previewHistogram,
+      autoPerspectiveRequestId: state.autoPerspectiveRequestId,
+      autoPerspectiveMode: state.autoPerspectiveMode,
+      selectedLocalAdjustmentId: state.selectedLocalAdjustmentId,
       setSelectedAssetId: state.setSelectedAssetId,
       setShowOriginal: state.setShowOriginal,
       setActiveToolPanelId: state.setActiveToolPanelId,
       setMobilePanelExpanded: state.setMobilePanelExpanded,
       setCurveChannel: state.setCurveChannel,
+      setSelectedLocalAdjustmentId: state.setSelectedLocalAdjustmentId,
       toggleOriginal: state.toggleOriginal,
       toggleSection: state.toggleSection,
       setPreviewHistogram: state.setPreviewHistogram,
+      setPointColorPicking: state.setPointColorPicking,
+      setPointColorPickTarget: state.setPointColorPickTarget,
+      requestAutoPerspective: state.requestAutoPerspective,
     }))
   );
 
@@ -90,6 +105,8 @@ export function useEditorState() {
     updateAdjustmentValue,
     previewCropAdjustments,
     commitCropAdjustments,
+    previewAdjustmentPatch,
+    commitAdjustmentPatch,
     toggleFlip,
     previewPointCurve,
     commitPointCurve,
@@ -98,6 +115,7 @@ export function useEditorState() {
   const {
     activeHslColor,
     pointColorPicking,
+    pointColorPickTarget,
     lastPointColorSample,
     setActiveHslColor,
     previewHslValue,
@@ -148,6 +166,91 @@ export function useEditorState() {
     [setPreviewHistogram]
   );
 
+  const commitLocalMaskColorSample = useCallback(
+    (sample: { red: number; green: number; blue: number }) => {
+      const assetId = selectedAsset?.id;
+      if (!assetId) {
+        setPointColorPicking(false);
+        setPointColorPickTarget("hsl");
+        return null;
+      }
+
+      const liveAsset =
+        useProjectStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+      if (!liveAsset) {
+        setPointColorPicking(false);
+        setPointColorPickTarget("hsl");
+        return null;
+      }
+
+      const currentAdjustments = normalizeAdjustments(liveAsset.adjustments);
+      const localAdjustments = currentAdjustments.localAdjustments ?? [];
+      const targetLocalId = selectedLocalAdjustmentId ?? localAdjustments[0]?.id ?? null;
+      const targetLocal = targetLocalId
+        ? localAdjustments.find((item) => item.id === targetLocalId) ?? null
+        : null;
+      if (!targetLocal || !targetLocalId) {
+        setPointColorPicking(false);
+        setPointColorPickTarget("hsl");
+        return null;
+      }
+
+      const hue = rgbToHue(sample.red, sample.green, sample.blue);
+      const r = sample.red / 255;
+      const g = sample.green / 255;
+      const b = sample.blue / 255;
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const saturation = max <= 1e-6 ? 0 : (max - min) / max;
+
+      const currentHueRange = targetLocal.mask.hueRange ?? 180;
+      const currentSatMin = targetLocal.mask.satMin ?? 0;
+      const currentSatFeather = targetLocal.mask.satFeather ?? 0;
+      const nextHueRange = currentHueRange >= 179.5 ? 35 : currentHueRange;
+      const nextSatMin = currentSatMin <= 1e-4 ? Math.min(0.95, saturation * 0.5) : currentSatMin;
+      const nextSatFeather = currentSatFeather <= 1e-4 ? 0.15 : currentSatFeather;
+
+      const nextLocalAdjustments = localAdjustments.map((item) =>
+        item.id === targetLocalId
+          ? {
+              ...item,
+              mask: {
+                ...item.mask,
+                hueCenter: hue,
+                hueRange: nextHueRange,
+                satMin: nextSatMin,
+                satFeather: nextSatFeather,
+              },
+            }
+          : item
+      );
+
+      const committed = commitAdjustmentPatch(`local:${targetLocalId}:pickColor`, {
+        localAdjustments: nextLocalAdjustments,
+      });
+
+      setSelectedLocalAdjustmentId(targetLocalId);
+      setPointColorPicking(false);
+      setPointColorPickTarget("hsl");
+
+      return committed
+        ? {
+            maskId: targetLocalId,
+            hue,
+            saturation,
+          }
+        : null;
+    },
+    [
+      commitAdjustmentPatch,
+      selectedAsset,
+      selectedLocalAdjustmentId,
+      setPointColorPickTarget,
+      setPointColorPicking,
+      setSelectedLocalAdjustmentId,
+    ]
+  );
+
   return {
     selectedAssetId,
     selectedAsset,
@@ -166,7 +269,11 @@ export function useEditorState() {
     builtInFilmProfiles,
     activeHslColor,
     pointColorPicking,
+    pointColorPickTarget,
     lastPointColorSample,
+    autoPerspectiveRequestId,
+    autoPerspectiveMode,
+    selectedLocalAdjustmentId,
     curveChannel,
     openSections,
     canUndo: history.canUndo,
@@ -178,6 +285,8 @@ export function useEditorState() {
     setCustomPresetName,
     setActiveHslColor,
     setCurveChannel,
+    setSelectedLocalAdjustmentId,
+    requestAutoPerspective,
     toggleOriginal,
     toggleSection,
     updateAdjustments,
@@ -185,6 +294,8 @@ export function useEditorState() {
     updateAdjustmentValue,
     previewCropAdjustments,
     commitCropAdjustments,
+    previewAdjustmentPatch,
+    commitAdjustmentPatch,
     previewPointCurve,
     commitPointCurve,
     previewHslValue,
@@ -197,6 +308,7 @@ export function useEditorState() {
     startPointColorPick,
     cancelPointColorPick,
     commitPointColorSample,
+    commitLocalMaskColorSample,
     toggleFlip,
     handlePreviewHistogramChange,
     handleSetFilmModuleAmount,

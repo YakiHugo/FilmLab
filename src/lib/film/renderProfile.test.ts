@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import type { FilmProfile } from "@/types";
 import type { FilmProfileV2 } from "@/types/film";
 import { resolveRenderProfile } from "./renderProfile";
 
@@ -36,6 +37,23 @@ describe("resolveRenderProfile", () => {
       path: "/luts/test.png",
       size: 8,
       intensity: 0.75,
+    });
+  });
+
+  it("switches stock legacy profile ids to v2 LUT mode", () => {
+    const stockLegacy: FilmProfile = {
+      id: "stock-portra-400",
+      version: 1,
+      name: "Stock Legacy Stub",
+      modules: [],
+    };
+    const resolved = resolveRenderProfile(createDefaultAdjustments(), stockLegacy);
+    expect(resolved.mode).toBe("v2");
+    expect(resolved.v2.id).toBe("stock-portra-400");
+    expect(resolved.lut).toEqual({
+      path: "/luts/stocks/portra400.png",
+      size: 8,
+      intensity: 0.78,
     });
   });
 });

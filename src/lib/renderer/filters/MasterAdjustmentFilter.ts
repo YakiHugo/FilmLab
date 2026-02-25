@@ -21,8 +21,7 @@ export class MasterAdjustmentFilter extends Filter {
     super(vertexSrc, fragmentSrc, {
       u_exposure: 0.0,
       u_contrast: 0.0,
-      u_temperature: 0.0,
-      u_tint: 0.0,
+      u_whiteBalanceLmsScale: new Float32Array([1, 1, 1]),
       u_tonalRange: new Float32Array([0, 0, 0, 0]),
       u_curve: new Float32Array([0, 0, 0, 0]),
       u_hueShift: 0.0,
@@ -35,7 +34,6 @@ export class MasterAdjustmentFilter extends Filter {
       u_colorGradeBlend: 0.5,
       u_colorGradeBalance: 0.0,
       u_dehaze: 0.0,
-      u_outputSRGB: true,
     });
   }
 
@@ -45,8 +43,9 @@ export class MasterAdjustmentFilter extends Filter {
   updateUniforms(u: MasterUniforms): void {
     this.uniforms.u_exposure = u.exposure;
     this.uniforms.u_contrast = u.contrast;
-    this.uniforms.u_temperature = u.temperature;
-    this.uniforms.u_tint = u.tint;
+    this.uniforms.u_whiteBalanceLmsScale[0] = u.whiteBalanceLmsScale[0];
+    this.uniforms.u_whiteBalanceLmsScale[1] = u.whiteBalanceLmsScale[1];
+    this.uniforms.u_whiteBalanceLmsScale[2] = u.whiteBalanceLmsScale[2];
 
     this.uniforms.u_tonalRange[0] = u.highlights;
     this.uniforms.u_tonalRange[1] = u.shadows;

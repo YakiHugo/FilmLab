@@ -13,8 +13,7 @@ uniform vec4  u_tonalRange;  // (highlights, shadows, whites, blacks)
 uniform vec4  u_curve;       // (curveHi, curveLights, curveDarks, curveShadows)
 
 // -- White Balance --
-uniform float u_temperature;
-uniform float u_tint;
+uniform vec3  u_whiteBalanceLmsScale;
 
 // -- OKLab HSL --
 uniform float u_hueShift;
@@ -31,9 +30,6 @@ uniform float u_colorGradeBalance;    // [-1, 1]
 
 // -- Detail --
 uniform float u_dehaze;
-
-// -- Output --
-uniform bool u_outputSRGB;  // true when Film pass is skipped
 
 // ---- sRGB <-> Linear ----
 
@@ -106,14 +102,9 @@ const mat3 LMS_TO_RGB = mat3(
    0.1827,  0.0721,  1.0153
 );
 
-vec3 whiteBalanceLMS(vec3 linearRgb, float temp, float tintVal) {
+vec3 whiteBalanceLMS(vec3 linearRgb, vec3 lmsScale) {
   vec3 lms = RGB_TO_LMS * linearRgb;
-  // Temperature: adjust L (long-wave/red) and S (short-wave/blue) channels
-  float t = temp * 0.10;
-  lms.x *= (1.0 + t);
-  lms.z *= (1.0 - t);
-  // Tint: adjust M (medium-wave/green) channel
-  lms.y *= (1.0 + tintVal * 0.05);
+  lms *= max(lmsScale, vec3(0.0001));
   return LMS_TO_RGB * lms;
 }
 
@@ -171,7 +162,7 @@ void main() {
   color *= exp2(u_exposure);
 
   // Step 3: LMS white balance
-  color = whiteBalanceLMS(color, u_temperature / 100.0, u_tint / 100.0);
+  color = whiteBalanceLMS(color, u_whiteBalanceLmsScale);
 
   // Step 4: Contrast (linear space, pivot = 0.18 mid-gray)
   float pivot = 0.18;
@@ -222,15 +213,15 @@ void main() {
   // Step 9: Dehaze
   if (abs(u_dehaze) > 0.001) {
     float haze = u_dehaze * 0.01;
-    color = (color - haze * 0.1) / max(1.0 - haze * 0.3, 0.1);
-    color = max(color, vec3(0.0));
+    float darkChannel = min(color.r, min(color.g, color.b));
+    float t = clamp(1.0 - haze * darkChannel * 2.0, 0.1, 2.0);
+    vec3 atmosphere = vec3(1.0);
+    color = (color - atmosphere * (1.0 - t)) / t;
+    color = clamp(color, 0.0, 1.0);
   }
 
-  // Step 10: Output (linear if Film follows, sRGB if final)
-  color = clamp(color, 0.0, 1.0);
-  if (u_outputSRGB) {
-    color = linear2srgb(color);
-  }
+  // Step 10: Output (always sRGB)
+  color = linear2srgb(clamp(color, 0.0, 1.0));
 
   outColor = vec4(color, 1.0);
 }

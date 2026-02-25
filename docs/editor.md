@@ -1,4 +1,4 @@
-# FilmLab Editor Architecture (Current)
+﻿# FilmLab Editor Architecture (Current)
 
 > Version: v2026.02.20  
 > Scope: implementation-aligned documentation for the current repository
@@ -47,10 +47,10 @@ and uses a Lightroom-style working layout:
 
 - top action bar: return, asset info, undo/redo, compare, copy/paste settings, reset
 - center preview canvas: zoom/pan/pick-color/keyboard shortcuts
-- tool rail: `preset | edit | crop | mask(disabled) | remove(disabled) | ai`
+- tool rail: `preset | edit | crop | mask | remove(disabled) | ai`
 - right inspector: histogram card (shown only when active tool is `edit`) + panel-mapped section content
 
-Editor keeps a single return entry (`返回工作台`) and routes back to `/?step=<returnStep>`.
+Editor keeps a single return entry (`杩斿洖宸ヤ綔鍙癭) and routes back to `/?step=<returnStep>`.
 Direct in-panel jump-to-export remains intentionally removed to keep one clear exit path.
 
 Current composition modules:
@@ -75,9 +75,10 @@ Undo/redo shortcuts in preview:
 - `Edit` panel is grouped as `Basic / Effects / Detail / Timestamp / Advanced`.
 - Timestamp stamping supports `enable + position + size + opacity`, with EXIF capture time preferred and import time fallback.
 - `Advanced` keeps point-curve, HSL picking, color grading, optics toggles, and film module overrides.
+- `Mask` panel now hosts Local Adjustments (`localAdjustments`) with radial/linear/brush masks, per-mask enable/invert/amount, luminance range controls (`lumaMin/lumaMax/lumaFeather`), hue/saturation range controls (`hueCenter/hueRange/hueFeather/satMin/satFeather`), brush paint-on-preview controls (`brushSize/feather/flow`), preview color-pick to set mask hue center, and local delta sliders (exposure/contrast/highlights/shadows/temperature/tint/saturation/clarity/dehaze).
 - `Crop` panel supports fixed-ratio/free-ratio crop overlay with corner + edge handles; horizontal/vertical/scale are now controlled only by crop-box interaction (no separate form sliders). Crop-box geometry center is always locked to preview center; handle drags perform center-symmetric resize, and long-press + drag inside the crop box pans the image underneath.
-- Crop rotate icon actions are discrete `90°` steps per click (clockwise/counter-clockwise), while the straighten slider remains continuous.
-- In crop mode, preview keeps the source image framing stable; changing crop ratio only updates the crop box geometry.
+- Crop rotate icon actions are discrete `90掳` steps per click (clockwise/counter-clockwise), while the straighten slider remains continuous.
+- Guided perspective mode allows drawing 1-2 reference lines directly on preview before applying correction.
 ## 2.4 Histogram mode behavior
 
 Editor histogram stays RGB-oriented, but adds automatic monochrome overlap rendering:
@@ -92,7 +93,7 @@ Editor histogram stays RGB-oriented, but adds automatic monochrome overlap rende
     - fallback overlap rule: normalized RGB histogram overlap stays tight (`maxAbsBinDelta <= 0.04` and `maxL1BinDelta <= 0.75`).
 - UI behavior:
   - `rgb`: render the existing RGB three-channel histogram.
-  - `rgb-monochrome-overlap`: render neutral gray overlap using `luma`, with label `直方图：RGB（灰度重叠）`.
+  - `rgb-monochrome-overlap`: render neutral gray overlap using `luma`, with label `鐩存柟鍥撅細RGB锛堢伆搴﹂噸鍙狅級`.
 - Source-aware override for BW photos:
   - Editor first detects whether the original source image is monochrome.
   - If source is monochrome, histogram display mode is forced to `rgb-monochrome-overlap` for both original and adjusted preview, matching Lightroom-style BW presentation.
@@ -118,7 +119,7 @@ Editor histogram stays RGB-oriented, but adds automatic monochrome overlap rende
 - DB name: `filmlab-mvp`
 - object stores:
   - `project`
-  - `assets`
+  - localMaskBlobs (large brush-mask point sets offloaded from asset payloads)
 
 Stored asset payload includes blob, metadata, adjustments, film profile info, and AI recommendation result.
 
@@ -149,8 +150,11 @@ Preview and export now run with explicit render modes:
 
 - `source/geometry/master/hsl/curve/detail/film/optics/output` dirty keys
 - cached geometry canvas per mode (`RenderManager` frame state)
+- cached pre-film intermediate canvas (`Geometry -> Master -> HSL -> Curve -> Detail`)
+- when only film/optics keys change, pre-film stage is reused and only the final stage is re-rendered
 - Pixi source upload skipped when geometry key is unchanged
 - output compositing skipped when Pixi output key and timestamp output key are unchanged
+- when local adjustments are active, base Pixi output is composited with per-mask local renders in canvas space before timestamp overlay
 - optional timing diagnostics via `localStorage["filmlab:renderTiming"] = "1"`
 - verbose per-pass CPU timing via `localStorage["filmlab:renderTimingVerbose"] = "1"`
 - runtime feature flags / rollback switches via `filmlab:feature:*` keys
@@ -190,23 +194,34 @@ Renderer lifecycle is now managed by `RenderManager.ts`:
 
 - Pass 1 (`GeometryFilter`)
   - crop/rotate/scale/flip/translate in GPU
+  - optional perspective correction via homography (`perspectiveEnabled + perspectiveHorizontal/Vertical`) with crop-panel auto modes (`auto/level/vertical/full/guided`)
+  - optional lens profile correction (`opticsProfile`) using a two-term Brown-Conrady radial model (`k1 + k2*r^4`), RGB-split chromatic aberration correction (`opticsCA`), and lens vignette correction strength (`opticsVignette`)
   - source upload and geometry uniforms are decoupled so transform-only updates avoid re-upload
 - Pass 2 (`MasterAdjustmentFilter`)
   - master color/tone adjustments
   - linear-space operations with LMS/OKLab helpers in generated shader
+  - white balance supports legacy offset sliders and optional absolute mode (`temperatureKelvin` + `tintMG`)
+  - always re-encodes to sRGB at pass output (downstream passes no longer consume linear RGB)
+  - dehaze uses a dark-channel transmission approximation instead of pure contrast remap
 - Pass 3 (`HSLFilter`)
   - per-hue selective hue/saturation/luminance adjustments (8 color bands)
+  - sRGB -> linear -> OKLab edit -> sRGB (replaces previous HSV-space math)
+  - optional B&W mix (`bwEnabled` + `bwMix`) converted in-pass after color adjustments
+  - optional calibration primaries (`calibration.red/green/blue hue+saturation`) applied with narrow hue windows
 - Pass 4 (`CurveFilter`)
   - point-curve LUT pass (RGB + R/G/B channels)
+  - LUT generation uses monotone cubic Hermite interpolation (replaces linear segment interpolation)
   - legacy 4-slider tone curve is bridged into this pass for compatibility
 - Pass 5 (`DetailFilter`)
-  - texture/clarity/sharpen/noise reduction
+  - multi-scale texture/clarity/sharpen pipeline
+  - 5x5 bilateral luma/chroma noise reduction
 - Pass 6 (`FilmSimulationFilter`)
-  - tone response
-  - optional LUT contribution
-  - color cast, blue-noise grain, vignette
+  - input interpreted as sRGB from previous pass
+  - tone response + color matrix in linear space
+  - converted back to sRGB before LUT/color cast/blue-noise grain/vignette
 - Pass 7 (`HalationBloomFilter`)
   - threshold -> blur H/V -> composite
+  - threshold luminance is evaluated in linear space (threshold uniforms are resolved from sRGB UI values)
   - uses filter texture pool to avoid leaks
 
 ## 4.4 Uniform mapping
@@ -303,7 +318,7 @@ Rendering and shader paths currently rely more on manual/in-browser verification
 ## 9. Known Issues and Constraints
 
 - PixiJS is the sole GPU rendering path; `RenderError` is thrown when WebGL2 is unavailable
-- PixiJS v7 does not natively handle `sampler3D`, so `FilmSimulationFilter` does manual texture unit binding
+- PixiJS v7 does not natively handle `sampler3D`; manual apply internals are isolated in `src/lib/renderer/filters/ManualFilterApply.ts`
 - Repository still has mojibake Chinese strings in some UI/source files and docs; UTF-8 cleanup is still needed
 
 ## 10. Change Checklist (Editor/Render PR)
@@ -326,3 +341,5 @@ When modifying editor/render behavior, verify:
 - `docs/editor-histogram.md`: histogram module behavior, data contract, and iteration guide
 - `docs/film_pipeline.md`: film profile data model notes
 - `docs/project_status.md`: project-level status tracking
+
+

@@ -3,7 +3,7 @@ import type { EditingAdjustments } from "@/types";
 export type ToolGroupId = "filter" | "adjust" | "color" | "effects" | "detail" | "crop";
 
 type NumericKeyOf<T> = {
-  [K in keyof T]-?: T[K] extends number ? K : never;
+  [K in keyof T]-?: NonNullable<T[K]> extends number ? K : never;
 }[keyof T];
 
 export type NumericAdjustmentKey = NumericKeyOf<EditingAdjustments>;

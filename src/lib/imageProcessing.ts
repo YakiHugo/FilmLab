@@ -3,7 +3,12 @@ import { normalizeAdjustments } from "@/lib/adjustments";
 import { applyTimestampOverlay } from "@/lib/timestampOverlay";
 import { clamp } from "@/lib/math";
 import { getRendererRuntimeConfig } from "@/lib/renderer/config";
-import type { EditingAdjustments } from "@/types";
+import type {
+  EditingAdjustments,
+  LocalAdjustment,
+  LocalAdjustmentDelta,
+  LocalAdjustmentMask,
+} from "@/types";
 import type { FilmProfileAny, ResolvedRenderProfile } from "@/types/film";
 import type { RenderMode, FrameState } from "@/lib/renderer/RenderManager";
 import type {
@@ -458,6 +463,193 @@ const hashString = (input: string) => {
   return (hash >>> 0).toString(16);
 };
 
+const LOCAL_DELTA_KEYS: Array<keyof LocalAdjustmentDelta> = [
+  "exposure",
+  "contrast",
+  "highlights",
+  "shadows",
+  "whites",
+  "blacks",
+  "temperature",
+  "tint",
+  "vibrance",
+  "saturation",
+  "texture",
+  "clarity",
+  "dehaze",
+  "sharpening",
+  "noiseReduction",
+  "colorNoiseReduction",
+];
+
+const hasLocalAdjustmentDelta = (delta: LocalAdjustmentDelta) =>
+  LOCAL_DELTA_KEYS.some((key) => Math.abs(delta[key] ?? 0) > 0.0001);
+
+const resolveActiveLocalAdjustments = (localAdjustments: LocalAdjustment[] | undefined) =>
+  (localAdjustments ?? []).filter(
+    (local) =>
+      local.enabled &&
+      local.amount > 0.0001 &&
+      hasLocalAdjustmentDelta(local.adjustments)
+  );
+
+const serializeLocalMask = (mask: LocalAdjustmentMask) => {
+  const lumaMin = clamp(mask.lumaMin ?? 0, 0, 1);
+  const lumaMax = clamp(mask.lumaMax ?? 1, 0, 1);
+  const lumaFeather = clamp(mask.lumaFeather ?? 0, 0, 1);
+  const hueCenter = ((mask.hueCenter ?? 0) % 360 + 360) % 360;
+  const hueRange = clamp(mask.hueRange ?? 180, 0, 180);
+  const hueFeather = clamp(mask.hueFeather ?? 0, 0, 180);
+  const satMin = clamp(mask.satMin ?? 0, 0, 1);
+  const satFeather = clamp(mask.satFeather ?? 0, 0, 1);
+  if (mask.mode === "brush") {
+    const pointSignature = hashString(
+      mask.points
+        .map((point) =>
+          [
+            toNumberKey(point.x, 4),
+            toNumberKey(point.y, 4),
+            toNumberKey(point.pressure ?? 1, 3),
+          ].join(":")
+        )
+        .join("|")
+    );
+    return [
+      "b",
+      toNumberKey(mask.brushSize, 4),
+      toNumberKey(mask.feather, 4),
+      toNumberKey(mask.flow, 4),
+      pointSignature,
+      toNumberKey(Math.min(lumaMin, lumaMax), 4),
+      toNumberKey(Math.max(lumaMin, lumaMax), 4),
+      toNumberKey(lumaFeather, 4),
+      toNumberKey(hueCenter, 2),
+      toNumberKey(hueRange, 2),
+      toNumberKey(hueFeather, 2),
+      toNumberKey(satMin, 4),
+      toNumberKey(satFeather, 4),
+      mask.invert ? "1" : "0",
+    ].join(",");
+  }
+  if (mask.mode === "radial") {
+    return [
+      "r",
+      toNumberKey(mask.centerX, 4),
+      toNumberKey(mask.centerY, 4),
+      toNumberKey(mask.radiusX, 4),
+      toNumberKey(mask.radiusY, 4),
+      toNumberKey(mask.feather, 4),
+      toNumberKey(Math.min(lumaMin, lumaMax), 4),
+      toNumberKey(Math.max(lumaMin, lumaMax), 4),
+      toNumberKey(lumaFeather, 4),
+      toNumberKey(hueCenter, 2),
+      toNumberKey(hueRange, 2),
+      toNumberKey(hueFeather, 2),
+      toNumberKey(satMin, 4),
+      toNumberKey(satFeather, 4),
+      mask.invert ? "1" : "0",
+    ].join(",");
+  }
+  return [
+    "l",
+    toNumberKey(mask.startX, 4),
+    toNumberKey(mask.startY, 4),
+    toNumberKey(mask.endX, 4),
+    toNumberKey(mask.endY, 4),
+    toNumberKey(mask.feather, 4),
+    toNumberKey(Math.min(lumaMin, lumaMax), 4),
+    toNumberKey(Math.max(lumaMin, lumaMax), 4),
+    toNumberKey(lumaFeather, 4),
+    toNumberKey(hueCenter, 2),
+    toNumberKey(hueRange, 2),
+    toNumberKey(hueFeather, 2),
+    toNumberKey(satMin, 4),
+    toNumberKey(satFeather, 4),
+    mask.invert ? "1" : "0",
+  ].join(",");
+};
+
+const createLocalAdjustmentsKey = (localAdjustments: LocalAdjustment[]) => {
+  if (localAdjustments.length === 0) {
+    return "local:none";
+  }
+  const serialized = localAdjustments
+    .map((local) =>
+      [
+        local.id,
+        toNumberKey(local.amount, 3),
+        serializeLocalMask(local.mask),
+        ...LOCAL_DELTA_KEYS.map((key) => toNumberKey(local.adjustments[key] ?? 0, 3)),
+      ].join("|")
+    )
+    .join("||");
+  return `local:${hashString(serialized)}`;
+};
+
+const applyLocalAdjustmentDelta = (
+  base: EditingAdjustments,
+  local: LocalAdjustment
+): EditingAdjustments => {
+  const next: EditingAdjustments = {
+    ...base,
+    localAdjustments: [],
+  };
+  const delta = local.adjustments;
+  const applySigned = (
+    key:
+      | "exposure"
+      | "contrast"
+      | "highlights"
+      | "shadows"
+      | "whites"
+      | "blacks"
+      | "temperature"
+      | "tint"
+      | "vibrance"
+      | "saturation"
+      | "texture"
+      | "clarity"
+      | "dehaze",
+    min = -100,
+    max = 100
+  ) => {
+    const value = delta[key];
+    if (!Number.isFinite(value ?? NaN)) {
+      return;
+    }
+    next[key] = clamp((base[key] ?? 0) + (value as number), min, max);
+  };
+  applySigned("exposure");
+  applySigned("contrast");
+  applySigned("highlights");
+  applySigned("shadows");
+  applySigned("whites");
+  applySigned("blacks");
+  applySigned("temperature");
+  applySigned("tint");
+  applySigned("vibrance");
+  applySigned("saturation");
+  applySigned("texture");
+  applySigned("clarity");
+  applySigned("dehaze");
+
+  const applyUnsigned = (
+    key: "sharpening" | "noiseReduction" | "colorNoiseReduction",
+    min = 0,
+    max = 100
+  ) => {
+    const value = delta[key];
+    if (!Number.isFinite(value ?? NaN)) {
+      return;
+    }
+    next[key] = clamp((base[key] ?? 0) + (value as number), min, max);
+  };
+  applyUnsigned("sharpening");
+  applyUnsigned("noiseReduction");
+  applyUnsigned("colorNoiseReduction");
+  return next;
+};
+
 const getCanvasRuntimeId = (canvas: HTMLCanvasElement) => {
   const cached = _canvasRuntimeIds.get(canvas);
   if (cached) {
@@ -494,6 +686,10 @@ const createMasterKey = (adj: EditingAdjustments) =>
     toNumberKey(adj.blacks, 3),
     toNumberKey(adj.temperature, 3),
     toNumberKey(adj.tint, 3),
+    Number.isFinite(adj.temperatureKelvin ?? NaN)
+      ? toNumberKey(adj.temperatureKelvin as number, 2)
+      : "kelvin:na",
+    Number.isFinite(adj.tintMG ?? NaN) ? toNumberKey(adj.tintMG as number, 2) : "tintmg:na",
     toNumberKey(adj.saturation, 3),
     toNumberKey(adj.vibrance, 3),
     toNumberKey(adj.colorGrading.shadows.hue, 3),
@@ -537,6 +733,16 @@ const createHslKey = (adj: EditingAdjustments) =>
     toNumberKey(adj.hsl.magenta.hue, 2),
     toNumberKey(adj.hsl.magenta.saturation, 2),
     toNumberKey(adj.hsl.magenta.luminance, 2),
+    adj.bwEnabled ? "bw:1" : "bw:0",
+    toNumberKey(adj.bwMix?.red ?? 0, 2),
+    toNumberKey(adj.bwMix?.green ?? 0, 2),
+    toNumberKey(adj.bwMix?.blue ?? 0, 2),
+    toNumberKey(adj.calibration?.redHue ?? 0, 2),
+    toNumberKey(adj.calibration?.redSaturation ?? 0, 2),
+    toNumberKey(adj.calibration?.greenHue ?? 0, 2),
+    toNumberKey(adj.calibration?.greenSaturation ?? 0, 2),
+    toNumberKey(adj.calibration?.blueHue ?? 0, 2),
+    toNumberKey(adj.calibration?.blueSaturation ?? 0, 2),
   ].join("|");
 
 const serializeCurvePoints = (points: EditingAdjustments["pointCurve"]["rgb"]) =>
@@ -606,11 +812,17 @@ const createGeometryKey = (params: {
   outputWidth: number;
   outputHeight: number;
   rotate: number;
+  perspectiveEnabled: boolean;
+  perspectiveHorizontal: number;
+  perspectiveVertical: number;
   scale: number;
   horizontal: number;
   vertical: number;
   flipHorizontal: boolean;
   flipVertical: boolean;
+  opticsProfile: boolean;
+  opticsCA: boolean;
+  opticsVignette: number;
   qualityProfile: RenderQualityProfile;
 }) =>
   [
@@ -624,11 +836,17 @@ const createGeometryKey = (params: {
     toNumberKey(params.outputWidth, 0),
     toNumberKey(params.outputHeight, 0),
     toNumberKey(params.rotate, 3),
+    params.perspectiveEnabled ? "p:1" : "p:0",
+    toNumberKey(params.perspectiveHorizontal, 3),
+    toNumberKey(params.perspectiveVertical, 3),
     toNumberKey(params.scale, 3),
     toNumberKey(params.horizontal, 3),
     toNumberKey(params.vertical, 3),
     params.flipHorizontal ? "1" : "0",
     params.flipVertical ? "1" : "0",
+    params.opticsProfile ? "op:1" : "op:0",
+    params.opticsCA ? "oca:1" : "oca:0",
+    toNumberKey(params.opticsVignette, 2),
     params.qualityProfile,
   ].join("|");
 
@@ -662,6 +880,22 @@ const createGeometryUniforms = (params: {
   const outputWidth = Math.max(1, params.outputWidth);
   const outputHeight = Math.max(1, params.outputHeight);
   const transform = resolveTransform(params.adjustments, outputWidth, outputHeight);
+  const perspectiveHorizontal = params.adjustments.perspectiveHorizontal ?? 0;
+  const perspectiveVertical = params.adjustments.perspectiveVertical ?? 0;
+  const perspectiveEnabled = Boolean(params.adjustments.perspectiveEnabled);
+  const kx = (perspectiveHorizontal / 100) * 0.35;
+  const ky = (perspectiveVertical / 100) * 0.35;
+  const homography = perspectiveEnabled
+    ? [1, 0, 0, 0, 1, 0, kx, ky, 1]
+    : [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  const lensEnabled = params.adjustments.opticsProfile;
+  const opticsStrength = lensEnabled ? clamp(params.adjustments.opticsVignette / 100, 0, 1) : 0;
+  // Two-term Brown-Conrady approximation: k1 controls most of the radial correction,
+  // k2 adds edge behavior so wide-angle frames do not look over-corrected at corners.
+  const lensK1 = lensEnabled ? 0.055 + opticsStrength * 0.05 : 0;
+  const lensK2 = lensEnabled ? -0.015 - opticsStrength * 0.025 : 0;
+  const caEnabled = params.adjustments.opticsCA;
+  const caAmountBasePx = caEnabled ? 1.1 + opticsStrength * 0.9 : 0;
 
   return {
     enabled: true,
@@ -671,11 +905,21 @@ const createGeometryUniforms = (params: {
       params.cropWidth / sourceWidth,
       params.cropHeight / sourceHeight,
     ],
+    sourceSize: [sourceWidth, sourceHeight],
     outputSize: [outputWidth, outputHeight],
     translatePx: [transform.translateX, transform.translateY],
     rotate: transform.rotate,
+    perspectiveEnabled,
+    homography,
     scale: transform.scale,
     flip: [transform.flipHorizontal, transform.flipVertical],
+    lensEnabled,
+    lensK1,
+    lensK2,
+    lensVignetteBoost: opticsStrength,
+    caEnabled,
+    // Signed RGB offsets (px at frame edge); blue shifts opposite red.
+    caAmountPxRgb: [caAmountBasePx, 0, -caAmountBasePx * 0.9],
   };
 };
 
@@ -685,16 +929,26 @@ const createPassthroughGeometryUniforms = (
 ): GeometryUniforms => ({
   enabled: false,
   cropRect: [0, 0, 1, 1],
+  sourceSize: [Math.max(1, outputWidth), Math.max(1, outputHeight)],
   outputSize: [Math.max(1, outputWidth), Math.max(1, outputHeight)],
   translatePx: [0, 0],
   rotate: 0,
+  perspectiveEnabled: false,
+  homography: [1, 0, 0, 0, 1, 0, 0, 0, 1],
   scale: 1,
   flip: [1, 1],
+  lensEnabled: false,
+  lensK1: 0,
+  lensK2: 0,
+  lensVignetteBoost: 0,
+  caEnabled: false,
+  caAmountPxRgb: [0, 0, 0],
 });
 
 const createOutputKey = (params: {
   canvas: HTMLCanvasElement;
   pixiKey: string;
+  localAdjustmentsKey: string;
   timestampText?: string | null;
   adjustments: EditingAdjustments;
 }) => {
@@ -709,6 +963,7 @@ const createOutputKey = (params: {
     getCanvasRuntimeId(params.canvas),
     `${params.canvas.width}x${params.canvas.height}`,
     params.pixiKey,
+    params.localAdjustmentsKey,
     timestampToken,
   ].join("|");
 };
@@ -804,40 +1059,38 @@ const renderWithPixi = async (
     const opticsDirty = frameState.opticsKey !== options.opticsKey;
     const uploadNeeded =
       !!options.forceRerender || sourceDirty || frameState.uploadedGeometryKey !== options.uploadKey;
-    const pixiKey = [
+    const preFilmKey = [
       options.geometryKey,
       options.masterKey,
       options.hslKey,
       options.curveKey,
       options.detailKey,
-      options.filmKey,
-      options.opticsKey,
       options.skipHsl ? "h:0" : "h:1",
       options.skipCurve ? "c:0" : "c:1",
       options.skipDetail ? "d:0" : "d:1",
-      options.skipFilm ? "f:0" : "f:1",
-      options.skipHalationBloom ? "hb:1" : "hb:0",
     ].join("|");
-    const renderNeeded =
+    const preFilmNeeded =
       !!options.forceRerender ||
       uploadNeeded ||
       masterDirty ||
       hslDirty ||
       curveDirty ||
       detailDirty ||
+      frameState.preFilmKey !== preFilmKey ||
+      !frameState.preFilmCanvas;
+    const pixiKey = [
+      preFilmKey,
+      options.filmKey,
+      options.opticsKey,
+      options.skipFilm ? "f:0" : "f:1",
+      options.skipHalationBloom ? "hb:1" : "hb:0",
+    ].join("|");
+    const renderNeeded =
+      !!options.forceRerender ||
+      preFilmNeeded ||
       filmDirty ||
       opticsDirty ||
       frameState.pixiKey !== pixiKey;
-
-    if (uploadNeeded) {
-      renderer.updateSource(
-        sourceImage as TexImageSource,
-        options.sourceWidth,
-        options.sourceHeight,
-        options.targetWidth,
-        options.targetHeight
-      );
-    }
 
     if (renderNeeded) {
       const scratch = _uniformScratchByMode[options.mode];
@@ -907,7 +1160,107 @@ const renderWithPixi = async (
         }
       }
 
-      const renderMetrics = renderer.render(
+      // Safety: when optics are intentionally skipped (rapid preview),
+      // keep a disabled passthrough optics filter in the chain if Film is active.
+      // This avoids a WebGL feedback-loop edge case seen with a single custom Film pass.
+      if (enableFilmPath && !halationBloomUniforms) {
+        const safeHalation = (scratch.halation ?? {
+          halationEnabled: false,
+          halationThreshold: 0.9,
+          halationIntensity: 0,
+          halationColor: [1.0, 0.3, 0.1],
+          bloomEnabled: false,
+          bloomThreshold: 0.85,
+          bloomIntensity: 0,
+        }) as HalationBloomUniforms;
+        safeHalation.halationEnabled = false;
+        safeHalation.halationIntensity = 0;
+        safeHalation.bloomEnabled = false;
+        safeHalation.bloomIntensity = 0;
+        halationBloomUniforms = safeHalation;
+        scratch.halation = safeHalation;
+      }
+
+      const renderMetrics = structuredClone(emptyMetrics);
+      const mergeMetrics = (metrics: RenderWithPixiResult["renderMetrics"]) => {
+        renderMetrics.totalMs += metrics.totalMs;
+        renderMetrics.updateUniformsMs += metrics.updateUniformsMs;
+        renderMetrics.filterChainMs += metrics.filterChainMs;
+        renderMetrics.drawMs += metrics.drawMs;
+        renderMetrics.passCpuMs.geometry += metrics.passCpuMs.geometry;
+        renderMetrics.passCpuMs.master += metrics.passCpuMs.master;
+        renderMetrics.passCpuMs.hsl += metrics.passCpuMs.hsl;
+        renderMetrics.passCpuMs.curve += metrics.passCpuMs.curve;
+        renderMetrics.passCpuMs.detail += metrics.passCpuMs.detail;
+        renderMetrics.passCpuMs.film += metrics.passCpuMs.film;
+        renderMetrics.passCpuMs.optics += metrics.passCpuMs.optics;
+        if (metrics.activePasses.length > 0) {
+          renderMetrics.activePasses = Array.from(
+            new Set([...renderMetrics.activePasses, ...metrics.activePasses])
+          );
+        }
+      };
+
+      if (preFilmNeeded) {
+        renderer.updateSource(
+          sourceImage as TexImageSource,
+          options.sourceWidth,
+          options.sourceHeight,
+          options.targetWidth,
+          options.targetHeight
+        );
+
+        const preFilmMetrics = renderer.render(
+          options.geometryUniforms,
+          masterUniforms,
+          hslUniforms,
+          curveUniforms,
+          detailUniforms,
+          null,
+          {
+            skipHsl: options.skipHsl,
+            skipCurve: options.skipCurve,
+            skipDetail: options.skipDetail,
+            skipFilm: true,
+            skipHalationBloom: true,
+          },
+          null
+        );
+        mergeMetrics(preFilmMetrics);
+
+        if (!frameState.preFilmCanvas) {
+          frameState.preFilmCanvas = document.createElement("canvas");
+        }
+        const preFilmCanvas = frameState.preFilmCanvas;
+        if (preFilmCanvas.width !== options.targetWidth) {
+          preFilmCanvas.width = options.targetWidth;
+        }
+        if (preFilmCanvas.height !== options.targetHeight) {
+          preFilmCanvas.height = options.targetHeight;
+        }
+        const preFilmContext = preFilmCanvas.getContext("2d");
+        if (!preFilmContext) {
+          throw new RenderError("Failed to acquire intermediate pre-film canvas context.");
+        }
+        preFilmContext.clearRect(0, 0, preFilmCanvas.width, preFilmCanvas.height);
+        preFilmContext.drawImage(renderer.canvas, 0, 0, preFilmCanvas.width, preFilmCanvas.height);
+        frameState.preFilmKey = preFilmKey;
+        frameState.uploadedGeometryKey = options.uploadKey;
+      }
+
+      const preFilmCanvas = frameState.preFilmCanvas;
+      if (!preFilmCanvas) {
+        throw new RenderError("Missing pre-film cache canvas for final stage rendering.");
+      }
+
+      renderer.updateSource(
+        preFilmCanvas,
+        options.targetWidth,
+        options.targetHeight,
+        options.targetWidth,
+        options.targetHeight
+      );
+      const finalStageMetrics = renderer.render(
         options.geometryUniforms,
         masterUniforms,
         hslUniforms,
@@ -915,14 +1268,17 @@ const renderWithPixi = async (
         detailUniforms,
         filmUniforms,
         {
-          skipHsl: options.skipHsl,
-          skipCurve: options.skipCurve,
-          skipDetail: options.skipDetail,
+          skipGeometry: true,
+          skipMaster: true,
+          skipHsl: true,
+          skipCurve: true,
+          skipDetail: true,
           skipFilm: options.skipFilm,
-          skipHalationBloom: options.skipHalationBloom,
+          skipHalationBloom: !halationBloomUniforms,
         },
         halationBloomUniforms
       );
+      mergeMetrics(finalStageMetrics);
 
       frameState.sourceKey = options.sourceKey;
       frameState.geometryKey = options.geometryKey;
@@ -932,6 +1288,7 @@ const renderWithPixi = async (
       frameState.detailKey = options.detailKey;
       frameState.filmKey = options.filmKey;
       frameState.opticsKey = options.opticsKey;
+      frameState.preFilmKey = preFilmKey;
       frameState.uploadedGeometryKey = options.uploadKey;
       frameState.pixiKey = pixiKey;
       frameState.lastRenderError = null;
@@ -952,6 +1309,7 @@ const renderWithPixi = async (
     frameState.detailKey = options.detailKey;
     frameState.filmKey = options.filmKey;
     frameState.opticsKey = options.opticsKey;
+    frameState.preFilmKey = preFilmKey;
     frameState.uploadedGeometryKey = options.uploadKey;
     frameState.pixiKey = pixiKey;
     frameState.lastRenderError = null;
@@ -1045,6 +1403,17 @@ const logRenderTimings = (
   );
 };
 
+const describeRenderError = (error: unknown): string => {
+  if (error instanceof Error) {
+    const causeMessage =
+      error.cause !== undefined && error.cause !== null
+        ? describeRenderError(error.cause)
+        : "";
+    return causeMessage ? `${error.message} | cause: ${causeMessage}` : error.message;
+  }
+  return String(error);
+};
+
 const drawGeometryStage = (params: {
   geometryCanvas: HTMLCanvasElement;
   orientedSource: LoadedImageSource;
@@ -1100,6 +1469,354 @@ const getGeometryCanvas = (frameState: FrameState): HTMLCanvasElement => {
     frameState.geometryCanvas = document.createElement("canvas");
   }
   return frameState.geometryCanvas;
+};
+
+const getLocalMaskCanvas = (frameState: FrameState): HTMLCanvasElement => {
+  if (!frameState.localMaskCanvas) {
+    frameState.localMaskCanvas = document.createElement("canvas");
+  }
+  return frameState.localMaskCanvas;
+};
+
+const getLocalBlendCanvas = (frameState: FrameState): HTMLCanvasElement => {
+  if (!frameState.localBlendCanvas) {
+    frameState.localBlendCanvas = document.createElement("canvas");
+  }
+  return frameState.localBlendCanvas;
+};
+
+const ensureCanvasSize = (canvas: HTMLCanvasElement, width: number, height: number) => {
+  if (canvas.width !== width) {
+    canvas.width = width;
+  }
+  if (canvas.height !== height) {
+    canvas.height = height;
+  }
+};
+
+const drawLocalMaskShape = (
+  context: CanvasRenderingContext2D,
+  mask: LocalAdjustmentMask,
+  width: number,
+  height: number
+) => {
+  if (mask.mode === "brush") {
+    const minDimension = Math.max(1, Math.min(width, height));
+    const brushSizePx = Math.max(1, clamp(mask.brushSize, 0.005, 0.25) * minDimension);
+    const feather = clamp(mask.feather, 0, 1);
+    const flow = clamp(mask.flow, 0.05, 1);
+    if (mask.points.length === 0) {
+      return;
+    }
+    for (const point of mask.points) {
+      const px = clamp(point.x, 0, 1) * width;
+      const py = clamp(point.y, 0, 1) * height;
+      const pressure = clamp(point.pressure ?? 1, 0.1, 1);
+      const radius = Math.max(1, brushSizePx * pressure);
+      if (feather <= 0.001) {
+        context.fillStyle = `rgba(255,255,255,${flow})`;
+      } else {
+        const innerRadius = Math.max(0, radius * (1 - feather));
+        const gradient = context.createRadialGradient(px, py, innerRadius, px, py, radius);
+        gradient.addColorStop(0, `rgba(255,255,255,${flow})`);
+        gradient.addColorStop(1, "rgba(255,255,255,0)");
+        context.fillStyle = gradient;
+      }
+      context.beginPath();
+      context.arc(px, py, radius, 0, Math.PI * 2);
+      context.closePath();
+      context.fill();
+    }
+    return;
+  }
+  if (mask.mode === "radial") {
+    const centerX = clamp(mask.centerX, 0, 1) * width;
+    const centerY = clamp(mask.centerY, 0, 1) * height;
+    const radiusX = Math.max(1, clamp(mask.radiusX, 0.01, 1) * width);
+    const radiusY = Math.max(1, clamp(mask.radiusY, 0.01, 1) * height);
+    const feather = clamp(mask.feather, 0, 1);
+
+    context.save();
+    context.translate(centerX, centerY);
+    context.scale(radiusX, radiusY);
+    if (feather <= 0.001) {
+      context.fillStyle = "rgba(255,255,255,1)";
+    } else {
+      const innerRadius = Math.max(0, 1 - feather);
+      const gradient = context.createRadialGradient(0, 0, innerRadius, 0, 0, 1);
+      gradient.addColorStop(0, "rgba(255,255,255,1)");
+      gradient.addColorStop(1, "rgba(255,255,255,0)");
+      context.fillStyle = gradient;
+    }
+    context.beginPath();
+    context.arc(0, 0, 1, 0, Math.PI * 2);
+    context.closePath();
+    context.fill();
+    context.restore();
+    return;
+  }
+
+  const startX = clamp(mask.startX, 0, 1) * width;
+  const startY = clamp(mask.startY, 0, 1) * height;
+  let endX = clamp(mask.endX, 0, 1) * width;
+  let endY = clamp(mask.endY, 0, 1) * height;
+  if ((endX - startX) * (endX - startX) + (endY - startY) * (endY - startY) < 1e-6) {
+    endY += 1;
+  }
+
+  const feather = clamp(mask.feather, 0, 1);
+  const gradient = context.createLinearGradient(startX, startY, endX, endY);
+  if (feather <= 0.001) {
+    gradient.addColorStop(0, "rgba(255,255,255,1)");
+    gradient.addColorStop(0.499, "rgba(255,255,255,1)");
+    gradient.addColorStop(0.501, "rgba(255,255,255,0)");
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
+  } else {
+    const transitionStart = clamp(0.5 - feather * 0.5, 0, 1);
+    const transitionEnd = clamp(0.5 + feather * 0.5, 0, 1);
+    gradient.addColorStop(0, "rgba(255,255,255,1)");
+    gradient.addColorStop(transitionStart, "rgba(255,255,255,1)");
+    gradient.addColorStop(transitionEnd, "rgba(255,255,255,0)");
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
+  }
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, width, height);
+};
+
+const resolveLocalMaskLumaRange = (mask: LocalAdjustmentMask) => {
+  const min = clamp(mask.lumaMin ?? 0, 0, 1);
+  const max = clamp(mask.lumaMax ?? 1, 0, 1);
+  return {
+    min: Math.min(min, max),
+    max: Math.max(min, max),
+    feather: clamp(mask.lumaFeather ?? 0, 0, 1),
+  };
+};
+
+const resolveLocalMaskColorRange = (mask: LocalAdjustmentMask) => ({
+  hueCenter: ((mask.hueCenter ?? 0) % 360 + 360) % 360,
+  hueRange: clamp(mask.hueRange ?? 180, 0, 180),
+  hueFeather: clamp(mask.hueFeather ?? 0, 0, 180),
+  satMin: clamp(mask.satMin ?? 0, 0, 1),
+  satFeather: clamp(mask.satFeather ?? 0, 0, 1),
+});
+
+const smoothstep = (edge0: number, edge1: number, x: number) => {
+  if (Math.abs(edge1 - edge0) < 1e-6) {
+    return x >= edge1 ? 1 : 0;
+  }
+  const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+};
+
+const resolveHueDistance = (a: number, b: number) => {
+  const delta = Math.abs(a - b) % 360;
+  return delta > 180 ? 360 - delta : delta;
+};
+
+const resolveHueSatFromRgb = (r: number, g: number, b: number) => {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const diff = max - min;
+  const sat = max <= 1e-6 ? 0 : diff / max;
+  if (diff <= 1e-6) {
+    return { hue: 0, sat };
+  }
+
+  let hue: number;
+  if (max === r) {
+    hue = ((g - b) / diff) % 6;
+  } else if (max === g) {
+    hue = (b - r) / diff + 2;
+  } else {
+    hue = (r - g) / diff + 4;
+  }
+  hue *= 60;
+  if (hue < 0) {
+    hue += 360;
+  }
+  return {
+    hue,
+    sat,
+  };
+};
+
+const resolveLocalMaskLumaWeight = (
+  luma: number,
+  range: { min: number; max: number; feather: number }
+) => {
+  if (luma < range.min) {
+    if (range.feather <= 1e-4) {
+      return 0;
+    }
+    return smoothstep(range.min - range.feather, range.min, luma);
+  }
+  if (luma > range.max) {
+    if (range.feather <= 1e-4) {
+      return 0;
+    }
+    return 1 - smoothstep(range.max, range.max + range.feather, luma);
+  }
+  return 1;
+};
+
+const resolveLocalMaskColorWeight = (
+  hue: number,
+  sat: number,
+  range: {
+    hueCenter: number;
+    hueRange: number;
+    hueFeather: number;
+    satMin: number;
+    satFeather: number;
+  }
+) => {
+  let hueWeight = 1;
+  if (range.hueRange < 179.999) {
+    if (sat <= 1e-3) {
+      return 0;
+    }
+    const distance = resolveHueDistance(hue, range.hueCenter);
+    if (distance <= range.hueRange) {
+      hueWeight = 1;
+    } else if (range.hueFeather <= 1e-4) {
+      hueWeight = 0;
+    } else {
+      hueWeight =
+        1 - smoothstep(range.hueRange, Math.min(180, range.hueRange + range.hueFeather), distance);
+    }
+  }
+
+  let satWeight = 1;
+  if (range.satMin > 1e-4) {
+    if (range.satFeather <= 1e-4) {
+      satWeight = sat >= range.satMin ? 1 : 0;
+    } else {
+      satWeight = smoothstep(range.satMin, Math.min(1, range.satMin + range.satFeather), sat);
+    }
+  }
+
+  return hueWeight * satWeight;
+};
+
+const applyLocalMaskLumaRange = (
+  maskContext: CanvasRenderingContext2D,
+  referenceContext: CanvasRenderingContext2D,
+  mask: LocalAdjustmentMask,
+  width: number,
+  height: number
+) => {
+  const lumaRange = resolveLocalMaskLumaRange(mask);
+  const colorRange = resolveLocalMaskColorRange(mask);
+  const hasLumaRange = !(lumaRange.min <= 0.0001 && lumaRange.max >= 0.9999);
+  const hasColorRange = !(colorRange.hueRange >= 179.999 && colorRange.satMin <= 1e-4);
+  if (!hasLumaRange && !hasColorRange) {
+    return;
+  }
+
+  const maskImage = maskContext.getImageData(0, 0, width, height);
+  const sourceImage = referenceContext.getImageData(0, 0, width, height);
+  const maskPixels = maskImage.data;
+  const sourcePixels = sourceImage.data;
+
+  for (let index = 0; index < maskPixels.length; index += 4) {
+    const alpha = maskPixels[index + 3] ?? 0;
+    if (alpha <= 0) {
+      continue;
+    }
+    const r = (sourcePixels[index] ?? 0) / 255;
+    const g = (sourcePixels[index + 1] ?? 0) / 255;
+    const b = (sourcePixels[index + 2] ?? 0) / 255;
+    let weight = 1;
+
+    if (hasLumaRange) {
+      const luma = r * 0.2126 + g * 0.7152 + b * 0.0722;
+      weight *= resolveLocalMaskLumaWeight(luma, lumaRange);
+    }
+
+    if (weight > 1e-4 && hasColorRange) {
+      const hueSat = resolveHueSatFromRgb(r, g, b);
+      weight *= resolveLocalMaskColorWeight(hueSat.hue, hueSat.sat, colorRange);
+    }
+
+    maskPixels[index + 3] = Math.round(alpha * weight);
+  }
+
+  maskContext.putImageData(maskImage, 0, 0);
+};
+
+const buildLocalMask = (
+  frameState: FrameState,
+  local: LocalAdjustment,
+  width: number,
+  height: number,
+  referenceContext?: CanvasRenderingContext2D
+): HTMLCanvasElement => {
+  const maskCanvas = getLocalMaskCanvas(frameState);
+  ensureCanvasSize(maskCanvas, width, height);
+  const context = maskCanvas.getContext("2d");
+  if (!context) {
+    throw new RenderError("Failed to acquire local mask canvas context.");
+  }
+  context.clearRect(0, 0, width, height);
+
+  const amount = clamp(local.amount / 100, 0, 1);
+  if (amount <= 0.0001) {
+    return maskCanvas;
+  }
+
+  if (local.mask.invert) {
+    context.fillStyle = "rgba(255,255,255,1)";
+    context.fillRect(0, 0, width, height);
+    context.globalCompositeOperation = "destination-out";
+    drawLocalMaskShape(context, local.mask, width, height);
+    context.globalCompositeOperation = "source-over";
+  } else {
+    drawLocalMaskShape(context, local.mask, width, height);
+  }
+
+  if (amount < 0.999) {
+    context.globalCompositeOperation = "destination-in";
+    context.fillStyle = `rgba(255,255,255,${amount})`;
+    context.fillRect(0, 0, width, height);
+    context.globalCompositeOperation = "source-over";
+  }
+  if (referenceContext) {
+    applyLocalMaskLumaRange(context, referenceContext, local.mask, width, height);
+  }
+
+  return maskCanvas;
+};
+
+const composeLocalLayer = (params: {
+  outputContext: CanvasRenderingContext2D;
+  frameState: FrameState;
+  layerCanvas: HTMLCanvasElement;
+  local: LocalAdjustment;
+  width: number;
+  height: number;
+}) => {
+  const blendCanvas = getLocalBlendCanvas(params.frameState);
+  ensureCanvasSize(blendCanvas, params.width, params.height);
+  const blendContext = blendCanvas.getContext("2d");
+  if (!blendContext) {
+    throw new RenderError("Failed to acquire local blend canvas context.");
+  }
+
+  blendContext.clearRect(0, 0, params.width, params.height);
+  blendContext.drawImage(params.layerCanvas, 0, 0, params.width, params.height);
+  const maskCanvas = buildLocalMask(
+    params.frameState,
+    params.local,
+    params.width,
+    params.height,
+    blendContext
+  );
+  blendContext.globalCompositeOperation = "destination-in";
+  blendContext.drawImage(maskCanvas, 0, 0, params.width, params.height);
+  blendContext.globalCompositeOperation = "source-over";
+
+  params.outputContext.drawImage(blendCanvas, 0, 0, params.width, params.height);
 };
 
 const _renderMutexPromises = new Map<string, Promise<void>>();
@@ -1283,11 +2000,17 @@ export const renderImageToCanvas = async ({
       outputWidth: canvas.width,
       outputHeight: canvas.height,
       rotate: normalizedAdjustments.rotate,
+      perspectiveEnabled: Boolean(normalizedAdjustments.perspectiveEnabled),
+      perspectiveHorizontal: normalizedAdjustments.perspectiveHorizontal ?? 0,
+      perspectiveVertical: normalizedAdjustments.perspectiveVertical ?? 0,
       scale: normalizedAdjustments.scale,
       horizontal: normalizedAdjustments.horizontal,
       vertical: normalizedAdjustments.vertical,
       flipHorizontal: normalizedAdjustments.flipHorizontal,
       flipVertical: normalizedAdjustments.flipVertical,
+      opticsProfile: normalizedAdjustments.opticsProfile,
+      opticsCA: normalizedAdjustments.opticsCA,
+      opticsVignette: normalizedAdjustments.opticsVignette,
       qualityProfile,
     });
     const masterKey = createMasterKey(normalizedAdjustments);
@@ -1296,6 +2019,10 @@ export const renderImageToCanvas = async ({
     const detailKey = createDetailKey(normalizedAdjustments);
     const filmKey = createFilmKey(resolvedProfile, grainSeed);
     const opticsKey = createOpticsKey(resolvedProfile, skipOpticsPass);
+    const activeLocalAdjustments = resolveActiveLocalAdjustments(
+      normalizedAdjustments.localAdjustments
+    );
+    const localAdjustmentsKey = createLocalAdjustmentsKey(activeLocalAdjustments);
 
     const sourceDirty = !incrementalPipeline || frameState.sourceKey !== sourceKey;
     const geometryDirty = !incrementalPipeline || sourceDirty || frameState.geometryKey !== geometryKey;
@@ -1402,6 +2129,7 @@ export const renderImageToCanvas = async ({
       const outputKey = createOutputKey({
         canvas,
         pixiKey: pixiResult.pixiKey,
+        localAdjustmentsKey,
         timestampText,
         adjustments: normalizedAdjustments,
       });
@@ -1411,6 +2139,62 @@ export const renderImageToCanvas = async ({
       if (pixiResult.rendered || outputDirty) {
         outputContext.clearRect(0, 0, canvas.width, canvas.height);
         outputContext.drawImage(pixiResult.canvas, 0, 0, canvas.width, canvas.height);
+
+        for (let localIndex = 0; localIndex < activeLocalAdjustments.length; localIndex += 1) {
+          const local = activeLocalAdjustments[localIndex]!;
+          const localAdjustments = applyLocalAdjustmentDelta(normalizedAdjustments, local);
+          const localMasterKey = createMasterKey(localAdjustments);
+          const localHslKey = createHslKey(localAdjustments);
+          const localCurveKey = createCurveKey(localAdjustments);
+          const localDetailKey = createDetailKey(localAdjustments);
+          const localRenderMode: RenderMode = mode === "preview" ? "export" : mode;
+          const localSlotId = `${slotId}:local:${local.id || localIndex}`;
+          const localFrameState = renderManager.getFrameState(localRenderMode, localSlotId);
+
+          try {
+            const localResult = await renderWithPixi(pixiSource, localAdjustments, localFrameState, {
+              mode: localRenderMode,
+              slotId: localSlotId,
+              strictErrors,
+              resolvedProfile,
+              geometryUniforms,
+              sourceWidth: pixiSourceWidth,
+              sourceHeight: pixiSourceHeight,
+              targetWidth: canvas.width,
+              targetHeight: canvas.height,
+              uploadKey,
+              sourceKey,
+              geometryKey,
+              masterKey: localMasterKey,
+              hslKey: localHslKey,
+              curveKey: localCurveKey,
+              detailKey: localDetailKey,
+              filmKey,
+              opticsKey,
+              grainSeed,
+              forceRerender: !incrementalPipeline,
+              skipHsl: skipHslPass,
+              skipCurve: skipCurvePass,
+              skipDetail: skipDetailPass,
+              skipFilm: skipFilmPass,
+              skipHalationBloom: skipOpticsPass,
+            });
+            composeLocalLayer({
+              outputContext,
+              frameState,
+              layerCanvas: localResult.canvas,
+              local,
+              width: canvas.width,
+              height: canvas.height,
+            });
+          } catch (localRenderError) {
+            if (strictErrors) {
+              throw localRenderError;
+            }
+            console.warn(`[FilmLab] Local adjustment render skipped (${local.id}).`, localRenderError);
+          }
+        }
+
         applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
         frameState.outputKey = outputKey;
         frameState.lastRenderError = null;
@@ -1433,7 +2217,9 @@ export const renderImageToCanvas = async ({
       if (e instanceof DOMException && e.name === "AbortError") {
         throw e;
       }
-      frameState.lastRenderError = e instanceof Error ? e.message : String(e);
+      const nextErrorMessage = describeRenderError(e);
+      const repeatedRenderError = frameState.lastRenderError === nextErrorMessage;
+      frameState.lastRenderError = nextErrorMessage;
       if (strictErrors) {
         throw e;
       }
@@ -1468,7 +2254,9 @@ export const renderImageToCanvas = async ({
         }
       }
 
-      console.warn("[FilmLab] PixiJS render failed, showing geometry fallback preview:", e);
+      if (!repeatedRenderError) {
+        console.warn("[FilmLab] PixiJS render failed, showing geometry fallback preview:", e);
+      }
       const composeStartAt = performance.now();
       const fallbackGeometryCanvas = getGeometryCanvas(frameState);
       drawGeometryStage({
@@ -1489,6 +2277,7 @@ export const renderImageToCanvas = async ({
       frameState.outputKey = createOutputKey({
         canvas,
         pixiKey: `fallback:${geometryKey}`,
+        localAdjustmentsKey,
         timestampText,
         adjustments: normalizedAdjustments,
       });

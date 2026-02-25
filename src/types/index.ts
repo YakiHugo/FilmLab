@@ -217,6 +217,110 @@ export interface ColorGradingAdjustments {
   balance: number;
 }
 
+export interface BwMixAdjustments {
+  red: number;
+  green: number;
+  blue: number;
+}
+
+export interface CalibrationAdjustments {
+  redHue: number;
+  redSaturation: number;
+  greenHue: number;
+  greenSaturation: number;
+  blueHue: number;
+  blueSaturation: number;
+}
+
+export interface LocalAdjustmentDelta {
+  exposure?: number;
+  contrast?: number;
+  highlights?: number;
+  shadows?: number;
+  whites?: number;
+  blacks?: number;
+  temperature?: number;
+  tint?: number;
+  vibrance?: number;
+  saturation?: number;
+  texture?: number;
+  clarity?: number;
+  dehaze?: number;
+  sharpening?: number;
+  noiseReduction?: number;
+  colorNoiseReduction?: number;
+}
+
+export interface LocalRadialMask {
+  mode: "radial";
+  centerX: number; // normalized [0, 1]
+  centerY: number; // normalized [0, 1]
+  radiusX: number; // normalized [0, 1]
+  radiusY: number; // normalized [0, 1]
+  feather: number; // [0, 1]
+  lumaMin?: number; // normalized [0, 1]
+  lumaMax?: number; // normalized [0, 1]
+  lumaFeather?: number; // normalized [0, 1]
+  hueCenter?: number; // degrees [0, 360)
+  hueRange?: number; // degrees [0, 180]
+  hueFeather?: number; // degrees [0, 180]
+  satMin?: number; // normalized [0, 1]
+  satFeather?: number; // normalized [0, 1]
+  invert?: boolean;
+}
+
+export interface LocalLinearMask {
+  mode: "linear";
+  startX: number; // normalized [0, 1]
+  startY: number; // normalized [0, 1]
+  endX: number; // normalized [0, 1]
+  endY: number; // normalized [0, 1]
+  feather: number; // [0, 1]
+  lumaMin?: number; // normalized [0, 1]
+  lumaMax?: number; // normalized [0, 1]
+  lumaFeather?: number; // normalized [0, 1]
+  hueCenter?: number; // degrees [0, 360)
+  hueRange?: number; // degrees [0, 180]
+  hueFeather?: number; // degrees [0, 180]
+  satMin?: number; // normalized [0, 1]
+  satFeather?: number; // normalized [0, 1]
+  invert?: boolean;
+}
+
+export interface LocalBrushPoint {
+  x: number; // normalized [0, 1]
+  y: number; // normalized [0, 1]
+  pressure?: number; // normalized (0, 1]
+}
+
+export interface LocalBrushMask {
+  mode: "brush";
+  pointsBlobId?: string; // optional IndexedDB blob reference for large masks
+  points: LocalBrushPoint[];
+  brushSize: number; // normalized [0.005, 0.25]
+  feather: number; // [0, 1]
+  flow: number; // [0, 1]
+  lumaMin?: number; // normalized [0, 1]
+  lumaMax?: number; // normalized [0, 1]
+  lumaFeather?: number; // normalized [0, 1]
+  hueCenter?: number; // degrees [0, 360)
+  hueRange?: number; // degrees [0, 180]
+  hueFeather?: number; // degrees [0, 180]
+  satMin?: number; // normalized [0, 1]
+  satFeather?: number; // normalized [0, 1]
+  invert?: boolean;
+}
+
+export type LocalAdjustmentMask = LocalRadialMask | LocalLinearMask | LocalBrushMask;
+
+export interface LocalAdjustment {
+  id: string;
+  enabled: boolean;
+  amount: number; // [0, 100]
+  mask: LocalAdjustmentMask;
+  adjustments: LocalAdjustmentDelta;
+}
+
 /**
  * Single source of truth for valid aspect ratio values.
  * `AspectRatio` type is derived from this array.
@@ -254,6 +358,8 @@ export interface EditingAdjustments {
   blacks: number;
   temperature: number;
   tint: number;
+  temperatureKelvin?: number;
+  tintMG?: number;
   vibrance: number;
   saturation: number;
   texture: number;
@@ -265,6 +371,10 @@ export interface EditingAdjustments {
   curveShadows: number;
   pointCurve: PointCurveAdjustments;
   hsl: HslAdjustments;
+  bwEnabled?: boolean;
+  bwMix?: BwMixAdjustments;
+  calibration?: CalibrationAdjustments;
+  localAdjustments?: LocalAdjustment[];
   colorGrading: ColorGradingAdjustments;
   sharpening: number;
   sharpenRadius: number;
@@ -278,6 +388,9 @@ export interface EditingAdjustments {
   grainRoughness: number;
   rotate: number;
   rightAngleRotation: number;
+  perspectiveEnabled?: boolean;
+  perspectiveHorizontal?: number;
+  perspectiveVertical?: number;
   vertical: number;
   horizontal: number;
   scale: number;
@@ -291,6 +404,7 @@ export interface EditingAdjustments {
   timestampOpacity: number;
   opticsProfile: boolean;
   opticsCA: boolean;
+  opticsVignette: number;
 }
 
 /** MIME types accepted for asset import. */

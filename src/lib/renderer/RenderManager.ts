@@ -11,10 +11,14 @@ export interface FrameState {
   detailKey: string | null;
   filmKey: string | null;
   opticsKey: string | null;
+  preFilmKey: string | null;
   pixiKey: string | null;
   outputKey: string | null;
   uploadedGeometryKey: string | null;
   geometryCanvas: HTMLCanvasElement | null;
+  preFilmCanvas: HTMLCanvasElement | null;
+  localMaskCanvas: HTMLCanvasElement | null;
+  localBlendCanvas: HTMLCanvasElement | null;
   lastRenderError: string | null;
 }
 
@@ -27,10 +31,14 @@ const createFrameState = (): FrameState => ({
   detailKey: null,
   filmKey: null,
   opticsKey: null,
+  preFilmKey: null,
   pixiKey: null,
   outputKey: null,
   uploadedGeometryKey: null,
   geometryCanvas: null,
+  preFilmCanvas: null,
+  localMaskCanvas: null,
+  localBlendCanvas: null,
   lastRenderError: null,
 });
 
@@ -67,6 +75,7 @@ export class RenderManager {
 
   private invalidateGpuState(mode: RenderMode, slotId?: string) {
     const state = this.getFrameStateRef(mode, slotId);
+    state.preFilmKey = null;
     state.pixiKey = null;
     state.outputKey = null;
     state.uploadedGeometryKey = null;
@@ -79,6 +88,30 @@ export class RenderManager {
       state.geometryCanvas.width = 0;
       state.geometryCanvas.height = 0;
       state.geometryCanvas = null;
+    }
+  }
+
+  private releasePreFilmCanvas(mode: RenderMode, slotId?: string) {
+    const state = this.getFrameStateRef(mode, slotId);
+    if (state.preFilmCanvas) {
+      state.preFilmCanvas.width = 0;
+      state.preFilmCanvas.height = 0;
+      state.preFilmCanvas = null;
+    }
+    state.preFilmKey = null;
+  }
+
+  private releaseLocalScratchCanvases(mode: RenderMode, slotId?: string) {
+    const state = this.getFrameStateRef(mode, slotId);
+    if (state.localMaskCanvas) {
+      state.localMaskCanvas.width = 0;
+      state.localMaskCanvas.height = 0;
+      state.localMaskCanvas = null;
+    }
+    if (state.localBlendCanvas) {
+      state.localBlendCanvas.width = 0;
+      state.localBlendCanvas.height = 0;
+      state.localBlendCanvas = null;
     }
   }
 
@@ -127,6 +160,8 @@ export class RenderManager {
   clearGeometryCache(mode: RenderMode, slotId?: string): void {
     if (slotId) {
       this.releaseGeometryCanvas(mode, slotId);
+      this.releasePreFilmCanvas(mode, slotId);
+      this.releaseLocalScratchCanvases(mode, slotId);
       const state = this.getFrameStateRef(mode, slotId);
       state.sourceKey = null;
       state.geometryKey = null;
@@ -140,6 +175,8 @@ export class RenderManager {
       }
       const resolvedSlotId = key.slice(modePrefix.length);
       this.releaseGeometryCanvas(mode, resolvedSlotId);
+      this.releasePreFilmCanvas(mode, resolvedSlotId);
+      this.releaseLocalScratchCanvases(mode, resolvedSlotId);
       const state = this.getFrameStateRef(mode, resolvedSlotId);
       state.sourceKey = null;
       state.geometryKey = null;
@@ -161,6 +198,7 @@ export class RenderManager {
         renderer.dispose();
         this.renderers.delete(key);
       }
+      this.releaseLocalScratchCanvases(mode, slotId);
       this.invalidateGpuState(mode, slotId);
       return;
     }
@@ -178,6 +216,7 @@ export class RenderManager {
         continue;
       }
       const resolvedSlotId = key.slice(modePrefix.length);
+      this.releaseLocalScratchCanvases(mode, resolvedSlotId);
       this.invalidateGpuState(mode, resolvedSlotId);
     }
   }
@@ -193,7 +232,22 @@ export class RenderManager {
         state.geometryCanvas.width = 0;
         state.geometryCanvas.height = 0;
       }
+      if (state.preFilmCanvas) {
+        state.preFilmCanvas.width = 0;
+        state.preFilmCanvas.height = 0;
+      }
+      if (state.localMaskCanvas) {
+        state.localMaskCanvas.width = 0;
+        state.localMaskCanvas.height = 0;
+      }
+      if (state.localBlendCanvas) {
+        state.localBlendCanvas.width = 0;
+        state.localBlendCanvas.height = 0;
+      }
       state.geometryCanvas = null;
+      state.preFilmCanvas = null;
+      state.localMaskCanvas = null;
+      state.localBlendCanvas = null;
       state.sourceKey = null;
       state.geometryKey = null;
       state.masterKey = null;
@@ -202,6 +256,7 @@ export class RenderManager {
       state.detailKey = null;
       state.filmKey = null;
       state.opticsKey = null;
+      state.preFilmKey = null;
       state.pixiKey = null;
       state.outputKey = null;
       state.uploadedGeometryKey = null;

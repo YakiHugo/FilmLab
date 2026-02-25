@@ -39,7 +39,7 @@ const MASTER_UNIFORMS: Record<string, string[]> = {
   curve: [
     "uniform vec4  u_curve;       // (curveHi, curveLights, curveDarks, curveShadows)",
   ],
-  whiteBalance: ["uniform float u_temperature;", "uniform float u_tint;"],
+  whiteBalance: ["uniform vec3  u_whiteBalanceLmsScale;"],
   hsl: [
     "uniform float u_hueShift;",
     "uniform float u_saturation;",
@@ -241,10 +241,7 @@ function generateMasterShader(): string {
     parts.push(...MASTER_UNIFORMS.dehaze);
   }
 
-  // Output mode 鈥?when Film pass is skipped, Master must encode sRGB itself
   parts.push("");
-  parts.push("// -- Output --");
-  parts.push("uniform bool u_outputSRGB;  // true when Film pass is skipped");
 
   // Function definitions — in dependency order
   parts.push("");
@@ -335,9 +332,7 @@ function generateMasterShader(): string {
   if (cfg.whiteBalance.enabled) {
     parts.push("");
     parts.push("  // Step 3: LMS white balance");
-    parts.push(
-      "  color = whiteBalanceLMS(color, u_temperature / 100.0, u_tint / 100.0);"
-    );
+    parts.push("  color = whiteBalanceLMS(color, u_whiteBalanceLmsScale);");
   }
 
   // Step 4: Contrast
@@ -446,20 +441,19 @@ function generateMasterShader(): string {
     parts.push("  // Step 9: Dehaze");
     parts.push("  if (abs(u_dehaze) > 0.001) {");
     parts.push("    float haze = u_dehaze * 0.01;");
-    parts.push(
-      "    color = (color - haze * 0.1) / max(1.0 - haze * 0.3, 0.1);"
-    );
-    parts.push("    color = max(color, vec3(0.0));");
+    parts.push("    float darkChannel = min(color.r, min(color.g, color.b));");
+    parts.push("    float t = clamp(1.0 - haze * darkChannel * 2.0, 0.1, 2.0);");
+    parts.push("    vec3 atmosphere = vec3(1.0);");
+    parts.push("    color = (color - atmosphere * (1.0 - t)) / t;");
+    parts.push("    color = clamp(color, 0.0, 1.0);");
     parts.push("  }");
   }
 
-  // Step 10: Clamp and conditionally encode sRGB
+  // Step 10: Output encoding
   parts.push("");
-  parts.push("  // Step 10: Output (linear if Film follows, sRGB if final)");
+  parts.push("  // Step 10: Output encoding");
   parts.push("  color = clamp(color, 0.0, 1.0);");
-  parts.push("  if (u_outputSRGB) {");
-  parts.push("    color = linear2srgb(color);");
-  parts.push("  }");
+  parts.push("  color = linear2srgb(color);");
   parts.push("");
   parts.push("  outColor = vec4(color, 1.0);");
   parts.push("}");
@@ -531,7 +525,6 @@ function generateFilmShader(): string {
 
   // Function definitions - ordered to match original shader layout:
   // srgb -> luminance -> toneResponse -> lut3d -> colorCast -> grain -> vignette
-  // sRGB conversion is always needed (Film pass does final linear->sRGB)
   parts.push("");
   parts.push(loadTemplate("srgb.glsl"));
 
@@ -577,6 +570,9 @@ function generateFilmShader(): string {
   parts.push("");
   parts.push("void main() {");
   parts.push("  vec3 color = texture(uSampler, vTextureCoord).rgb;");
+  parts.push("");
+  parts.push("  // Stage 0: input is sRGB from previous pass");
+  parts.push("  color = srgb2linear(clamp(color, 0.0, 1.0));");
 
   if (cfg.toneResponse.enabled) {
     parts.push("");
@@ -585,6 +581,9 @@ function generateFilmShader(): string {
   if (cfg.colorMatrix.enabled) {
     parts.push("  color = applyColorMatrix(color);");
   }
+  parts.push("");
+  parts.push("  // Stage 1 complete: return to sRGB for LUT and perceptual stylization");
+  parts.push("  color = linear2srgb(clamp(color, 0.0, 1.0));");
   if (cfg.lut.enabled) {
     parts.push("  color = applyLUT(color);");
   }
@@ -599,8 +598,8 @@ function generateFilmShader(): string {
   }
 
   parts.push("");
-  parts.push("  // Final: Linear -> sRGB output");
-  parts.push("  color = linear2srgb(clamp(color, 0.0, 1.0));");
+  parts.push("  // Final: sRGB output");
+  parts.push("  color = clamp(color, 0.0, 1.0);");
   parts.push("");
   parts.push("  outColor = vec4(color, 1.0);");
   parts.push("}");

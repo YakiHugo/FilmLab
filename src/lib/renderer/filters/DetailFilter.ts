@@ -17,6 +17,7 @@ export class DetailFilter extends Filter {
       u_masking: 0,
       u_noiseReduction: 0,
       u_colorNoiseReduction: 0,
+      u_nrKernelRadius: 2,
     });
   }
 
@@ -36,5 +37,8 @@ export class DetailFilter extends Filter {
     this.uniforms.u_noiseReduction = u.noiseReduction;
     this.uniforms.u_colorNoiseReduction = u.colorNoiseReduction;
   }
-}
 
+  setNoiseReductionKernelRadius(radius: 1 | 2): void {
+    this.uniforms.u_nrKernelRadius = radius;
+  }
+}

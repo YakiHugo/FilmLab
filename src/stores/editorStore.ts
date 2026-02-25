@@ -40,6 +40,9 @@ export interface PointColorSample {
   mappedColor: HslColorKey;
 }
 
+export type PointColorPickTarget = "hsl" | "localMask";
+export type AutoPerspectiveMode = "auto" | "level" | "vertical" | "full" | "guided";
+
 const loadOpenSections = (): Record<SectionId, boolean> => {
   if (typeof window === "undefined") {
     return { ...DEFAULT_OPEN_SECTIONS };
@@ -95,7 +98,11 @@ interface EditorState {
   openSections: Record<SectionId, boolean>;
   previewHistogram: HistogramData | null;
   pointColorPicking: boolean;
+  pointColorPickTarget: PointColorPickTarget;
   lastPointColorSample: PointColorSample | null;
+  autoPerspectiveRequestId: number;
+  autoPerspectiveMode: AutoPerspectiveMode;
+  selectedLocalAdjustmentId: string | null;
   historyByAssetId: HistoryByAssetId;
   setSelectedAssetId: (assetId: string | null) => void;
   setShowOriginal: (showOriginal: boolean) => void;
@@ -107,7 +114,10 @@ interface EditorState {
   setActiveHslColor: (color: HslColorKey) => void;
   setCurveChannel: (channel: CurveChannel) => void;
   setPointColorPicking: (picking: boolean) => void;
+  setPointColorPickTarget: (target: PointColorPickTarget) => void;
   setLastPointColorSample: (sample: PointColorSample | null) => void;
+  requestAutoPerspective: (mode: AutoPerspectiveMode) => void;
+  setSelectedLocalAdjustmentId: (id: string | null) => void;
   toggleOriginal: () => void;
   toggleSection: (id: SectionId) => void;
   setPreviewHistogram: (histogram: HistogramData | null) => void;
@@ -135,7 +145,11 @@ export const useEditorStore = create<EditorState>()(
       openSections: loadOpenSections(),
       previewHistogram: null,
       pointColorPicking: false,
+      pointColorPickTarget: "hsl",
       lastPointColorSample: null,
+      autoPerspectiveRequestId: 0,
+      autoPerspectiveMode: "auto",
+      selectedLocalAdjustmentId: null,
       historyByAssetId: {},
       setSelectedAssetId: (selectedAssetId) => set({ selectedAssetId }),
       setShowOriginal: (showOriginal) => set({ showOriginal }),
@@ -152,7 +166,15 @@ export const useEditorStore = create<EditorState>()(
       setActiveHslColor: (activeHslColor) => set({ activeHslColor }),
       setCurveChannel: (curveChannel) => set({ curveChannel }),
       setPointColorPicking: (pointColorPicking) => set({ pointColorPicking }),
+      setPointColorPickTarget: (pointColorPickTarget) => set({ pointColorPickTarget }),
       setLastPointColorSample: (lastPointColorSample) => set({ lastPointColorSample }),
+      requestAutoPerspective: (autoPerspectiveMode) =>
+        set((state) => ({
+          autoPerspectiveMode,
+          autoPerspectiveRequestId: state.autoPerspectiveRequestId + 1,
+        })),
+      setSelectedLocalAdjustmentId: (selectedLocalAdjustmentId) =>
+        set({ selectedLocalAdjustmentId }),
       toggleOriginal: () => set((state) => ({ showOriginal: !state.showOriginal })),
       toggleSection: (id) =>
         set((state) => {

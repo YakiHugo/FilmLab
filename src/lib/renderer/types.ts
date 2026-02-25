@@ -5,16 +5,29 @@ export interface GeometryUniforms {
   enabled: boolean;
   // Crop rectangle in source UV space: (x, y, w, h)
   cropRect: [number, number, number, number];
+  // Source texture size in pixels
+  sourceSize: [number, number];
   // Output canvas size in pixels
   outputSize: [number, number];
   // Translation in output pixel space
   translatePx: [number, number];
   // Rotation in radians
   rotate: number;
+  // Perspective correction (homography in normalized [-1, 1] space)
+  perspectiveEnabled: boolean;
+  homography: number[]; // 9 elements, column-major
   // Scale factor [0.5, 2.0]
   scale: number;
   // Flip multipliers (-1 or 1)
   flip: [number, number];
+  // Lens profile correction (radial Brown-Conrady k1/k2 terms)
+  lensEnabled: boolean;
+  lensK1: number;
+  lensK2: number;
+  lensVignetteBoost: number;
+  // Lateral chromatic aberration correction (signed pixel offsets at image edge for R/G/B)
+  caEnabled: boolean;
+  caAmountPxRgb: [number, number, number];
 }
 
 /** Uniforms for the Master Adjustment shader pass. */
@@ -28,8 +41,7 @@ export interface MasterUniforms {
   blacks: number; // [-100, 100]
 
   // White balance (LMS)
-  temperature: number; // [-100, 100]
-  tint: number; // [-100, 100]
+  whiteBalanceLmsScale: [number, number, number];
 
   // OKLab HSL
   hueShift: number; // [-180, 180] degrees
@@ -61,6 +73,11 @@ export interface HSLUniforms {
   hue: [number, number, number, number, number, number, number, number];
   saturation: [number, number, number, number, number, number, number, number];
   luminance: [number, number, number, number, number, number, number, number];
+  bwEnabled: boolean;
+  bwMix: [number, number, number];
+  calibrationEnabled: boolean;
+  calibrationHue: [number, number, number];
+  calibrationSaturation: [number, number, number];
 }
 
 /** Uniforms for point-curve pass. Curve points are in [0, 255] space. */
@@ -127,14 +144,14 @@ export interface FilmUniforms {
 export interface HalationBloomUniforms {
   // Halation (warm glow from bright areas)
   halationEnabled: boolean;
-  halationThreshold: number; // [0.5, 1.0]
+  halationThreshold: number; // linear luminance threshold (source UI is sRGB domain)
   halationIntensity: number; // [0, 1]
   halationColor?: [number, number, number]; // RGB tint (default warm red)
   halationRadius?: number; // blur radius override
 
   // Bloom (neutral glow from bright areas)
   bloomEnabled: boolean;
-  bloomThreshold: number; // [0.5, 1.0]
+  bloomThreshold: number; // linear luminance threshold (source UI is sRGB domain)
   bloomIntensity: number; // [0, 1]
   bloomRadius?: number; // blur radius override
 }

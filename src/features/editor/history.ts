@@ -10,6 +10,9 @@ import type {
   HslAdjustments,
   HslChannel,
   HslColorKey,
+  LocalAdjustment,
+  LocalAdjustmentDelta,
+  LocalAdjustmentMask,
   PointCurveAdjustments,
   PointCurvePoint,
 } from "@/types";
@@ -131,6 +134,104 @@ const pointCurveEqual = (
   );
 };
 
+const LOCAL_DELTA_KEYS: Array<keyof LocalAdjustmentDelta> = [
+  "exposure",
+  "contrast",
+  "highlights",
+  "shadows",
+  "whites",
+  "blacks",
+  "temperature",
+  "tint",
+  "vibrance",
+  "saturation",
+  "texture",
+  "clarity",
+  "dehaze",
+  "sharpening",
+  "noiseReduction",
+  "colorNoiseReduction",
+];
+
+const localMaskEqual = (a: LocalAdjustmentMask, b: LocalAdjustmentMask): boolean => {
+  if (a.mode !== b.mode || Boolean(a.invert) !== Boolean(b.invert)) {
+    return false;
+  }
+  if (
+    (a.lumaMin ?? 0) !== (b.lumaMin ?? 0) ||
+    (a.lumaMax ?? 1) !== (b.lumaMax ?? 1) ||
+    (a.lumaFeather ?? 0) !== (b.lumaFeather ?? 0) ||
+    (a.hueCenter ?? 0) !== (b.hueCenter ?? 0) ||
+    (a.hueRange ?? 180) !== (b.hueRange ?? 180) ||
+    (a.hueFeather ?? 0) !== (b.hueFeather ?? 0) ||
+    (a.satMin ?? 0) !== (b.satMin ?? 0) ||
+    (a.satFeather ?? 0) !== (b.satFeather ?? 0)
+  ) {
+    return false;
+  }
+  if (a.mode === "radial" && b.mode === "radial") {
+    return (
+      a.centerX === b.centerX &&
+      a.centerY === b.centerY &&
+      a.radiusX === b.radiusX &&
+      a.radiusY === b.radiusY &&
+      a.feather === b.feather
+    );
+  }
+  if (a.mode === "linear" && b.mode === "linear") {
+    return (
+      a.startX === b.startX &&
+      a.startY === b.startY &&
+      a.endX === b.endX &&
+      a.endY === b.endY &&
+      a.feather === b.feather
+    );
+  }
+  if (a.mode === "brush" && b.mode === "brush") {
+    if (
+      a.brushSize !== b.brushSize ||
+      a.feather !== b.feather ||
+      a.flow !== b.flow ||
+      a.points.length !== b.points.length
+    ) {
+      return false;
+    }
+    for (let i = 0; i < a.points.length; i += 1) {
+      const pa = a.points[i]!;
+      const pb = b.points[i]!;
+      if (pa.x !== pb.x || pa.y !== pb.y || (pa.pressure ?? 1) !== (pb.pressure ?? 1)) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return false;
+};
+
+const localAdjustmentEqual = (a: LocalAdjustment, b: LocalAdjustment): boolean => {
+  if (
+    a.id !== b.id ||
+    a.enabled !== b.enabled ||
+    a.amount !== b.amount ||
+    !localMaskEqual(a.mask, b.mask)
+  ) {
+    return false;
+  }
+  return LOCAL_DELTA_KEYS.every((key) => (a.adjustments[key] ?? 0) === (b.adjustments[key] ?? 0));
+};
+
+const localAdjustmentsEqual = (
+  a: LocalAdjustment[] | undefined,
+  b: LocalAdjustment[] | undefined
+): boolean => {
+  const listA = a ?? [];
+  const listB = b ?? [];
+  if (listA.length !== listB.length) {
+    return false;
+  }
+  return listA.every((item, index) => localAdjustmentEqual(item, listB[index]!));
+};
+
 const adjustmentsEqual = (
   a: EditingAdjustments | undefined,
   b: EditingAdjustments | undefined
@@ -146,6 +247,8 @@ const adjustmentsEqual = (
     a.blacks === b.blacks &&
     a.temperature === b.temperature &&
     a.tint === b.tint &&
+    (a.temperatureKelvin ?? null) === (b.temperatureKelvin ?? null) &&
+    (a.tintMG ?? null) === (b.tintMG ?? null) &&
     a.vibrance === b.vibrance &&
     a.saturation === b.saturation &&
     a.texture === b.texture &&
@@ -155,6 +258,16 @@ const adjustmentsEqual = (
     a.curveLights === b.curveLights &&
     a.curveDarks === b.curveDarks &&
     a.curveShadows === b.curveShadows &&
+    (a.bwEnabled ?? false) === (b.bwEnabled ?? false) &&
+    (a.bwMix?.red ?? 0) === (b.bwMix?.red ?? 0) &&
+    (a.bwMix?.green ?? 0) === (b.bwMix?.green ?? 0) &&
+    (a.bwMix?.blue ?? 0) === (b.bwMix?.blue ?? 0) &&
+    (a.calibration?.redHue ?? 0) === (b.calibration?.redHue ?? 0) &&
+    (a.calibration?.redSaturation ?? 0) === (b.calibration?.redSaturation ?? 0) &&
+    (a.calibration?.greenHue ?? 0) === (b.calibration?.greenHue ?? 0) &&
+    (a.calibration?.greenSaturation ?? 0) === (b.calibration?.greenSaturation ?? 0) &&
+    (a.calibration?.blueHue ?? 0) === (b.calibration?.blueHue ?? 0) &&
+    (a.calibration?.blueSaturation ?? 0) === (b.calibration?.blueSaturation ?? 0) &&
     a.sharpening === b.sharpening &&
     a.sharpenRadius === b.sharpenRadius &&
     a.sharpenDetail === b.sharpenDetail &&
@@ -167,6 +280,9 @@ const adjustmentsEqual = (
     a.grainRoughness === b.grainRoughness &&
     a.rotate === b.rotate &&
     a.rightAngleRotation === b.rightAngleRotation &&
+    (a.perspectiveEnabled ?? false) === (b.perspectiveEnabled ?? false) &&
+    (a.perspectiveHorizontal ?? 0) === (b.perspectiveHorizontal ?? 0) &&
+    (a.perspectiveVertical ?? 0) === (b.perspectiveVertical ?? 0) &&
     a.vertical === b.vertical &&
     a.horizontal === b.horizontal &&
     a.scale === b.scale &&
@@ -180,6 +296,8 @@ const adjustmentsEqual = (
     a.timestampOpacity === b.timestampOpacity &&
     a.opticsProfile === b.opticsProfile &&
     a.opticsCA === b.opticsCA &&
+    a.opticsVignette === b.opticsVignette &&
+    localAdjustmentsEqual(a.localAdjustments, b.localAdjustments) &&
     pointCurveEqual(a.pointCurve, b.pointCurve) &&
     hslEqual(a.hsl, b.hsl) &&
     colorGradingEqual(a.colorGrading, b.colorGrading)

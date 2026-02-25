@@ -23,6 +23,107 @@ function copyVec3(target: [number, number, number], source: [number, number, num
   target[2] = source[2];
 }
 
+const srgbToLinearUnit = (value: number): number => {
+  const clamped = Math.min(1, Math.max(0, value));
+  if (clamped <= 0.04045) {
+    return clamped / 12.92;
+  }
+  return Math.pow((clamped + 0.055) / 1.055, 2.4);
+};
+
+const clampValue = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
+const safeNumber = (value: number, fallback = 0) =>
+  Number.isFinite(value) ? value : fallback;
+
+const RGB_TO_LMS: [[number, number, number], [number, number, number], [number, number, number]] = [
+  [0.7328, 0.4296, -0.1624],
+  [-0.7036, 1.6975, 0.0061],
+  [0.0030, 0.0136, 0.9834],
+];
+
+const multiplyMat3Vec3 = (
+  matrix: [[number, number, number], [number, number, number], [number, number, number]],
+  vector: [number, number, number]
+): [number, number, number] => [
+  matrix[0][0] * vector[0] + matrix[0][1] * vector[1] + matrix[0][2] * vector[2],
+  matrix[1][0] * vector[0] + matrix[1][1] * vector[1] + matrix[1][2] * vector[2],
+  matrix[2][0] * vector[0] + matrix[2][1] * vector[1] + matrix[2][2] * vector[2],
+];
+
+const kelvinToSrgb = (kelvin: number): [number, number, number] => {
+  const t = clampValue(kelvin, 1800, 50000) / 100;
+  let r: number;
+  let g: number;
+  let b: number;
+
+  if (t <= 66) {
+    r = 255;
+    g = 99.4708025861 * Math.log(t) - 161.1195681661;
+    b = t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+  } else {
+    r = 329.698727446 * Math.pow(t - 60, -0.1332047592);
+    g = 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+    b = 255;
+  }
+
+  return [
+    clampValue(r, 0, 255) / 255,
+    clampValue(g, 0, 255) / 255,
+    clampValue(b, 0, 255) / 255,
+  ];
+};
+
+const kelvinToLinearRgb = (kelvin: number): [number, number, number] => {
+  const srgb = kelvinToSrgb(kelvin);
+  return [
+    srgbToLinearUnit(srgb[0]),
+    srgbToLinearUnit(srgb[1]),
+    srgbToLinearUnit(srgb[2]),
+  ];
+};
+
+const D65_LMS_REFERENCE = (() => {
+  const linearD65 = kelvinToLinearRgb(6500);
+  return multiplyMat3Vec3(RGB_TO_LMS, linearD65);
+})();
+
+const resolveLegacyWhiteBalanceLmsScale = (
+  temperature: number,
+  tint: number
+): [number, number, number] => {
+  const t = clampValue(temperature, -100, 100) / 100;
+  const m = clampValue(tint, -100, 100) / 100;
+  return [
+    Math.max(0.05, 1 + t * 0.1),
+    Math.max(0.05, 1 + m * 0.05),
+    Math.max(0.05, 1 - t * 0.1),
+  ];
+};
+
+const resolveAbsoluteWhiteBalanceLmsScale = (
+  temperatureKelvin: number,
+  tintMG: number
+): [number, number, number] => {
+  const linearRgb = kelvinToLinearRgb(temperatureKelvin);
+  const lms = multiplyMat3Vec3(RGB_TO_LMS, linearRgb);
+
+  const scaleL = lms[0] / Math.max(1.0e-4, D65_LMS_REFERENCE[0]);
+  const scaleMBase = lms[1] / Math.max(1.0e-4, D65_LMS_REFERENCE[1]);
+  const scaleS = lms[2] / Math.max(1.0e-4, D65_LMS_REFERENCE[2]);
+
+  // Positive tintMG means magenta, i.e. reduce green-sensitive M response.
+  const tintScale = 1 - clampValue(tintMG, -100, 100) * 0.002;
+  const scaleM = scaleMBase * tintScale;
+
+  return [
+    clampValue(scaleL, 0.3, 3.0),
+    clampValue(scaleM, 0.3, 3.0),
+    clampValue(scaleS, 0.3, 3.0),
+  ];
+};
+
 function createMasterUniforms(): MasterUniforms {
   return {
     exposure: 0,
@@ -31,8 +132,7 @@ function createMasterUniforms(): MasterUniforms {
     shadows: 0,
     whites: 0,
     blacks: 0,
-    temperature: 0,
-    tint: 0,
+    whiteBalanceLmsScale: [1, 1, 1],
     hueShift: 0,
     saturation: 0,
     vibrance: 0,
@@ -56,6 +156,11 @@ function createHslUniforms(): HSLUniforms {
     hue: [0, 0, 0, 0, 0, 0, 0, 0],
     saturation: [0, 0, 0, 0, 0, 0, 0, 0],
     luminance: [0, 0, 0, 0, 0, 0, 0, 0],
+    bwEnabled: false,
+    bwMix: [0.2126, 0.7152, 0.0722],
+    calibrationEnabled: false,
+    calibrationHue: [0, 0, 0],
+    calibrationSaturation: [0, 0, 0],
   };
 }
 
@@ -114,11 +219,11 @@ function createFilmUniforms(): FilmUniforms {
 function createHalationBloomUniforms(): HalationBloomUniforms {
   return {
     halationEnabled: false,
-    halationThreshold: 0.9,
+    halationThreshold: srgbToLinearUnit(0.9),
     halationIntensity: 0,
     halationColor: [1.0, 0.3, 0.1],
     bloomEnabled: false,
-    bloomThreshold: 0.85,
+    bloomThreshold: srgbToLinearUnit(0.85),
     bloomIntensity: 0,
   };
 }
@@ -186,23 +291,32 @@ export function resolveFromAdjustments(
   const grading = adj.colorGrading;
 
   // Exposure: map from [-100, 100] UI range to [-5, 5] EV
-  target.exposure = (adj.exposure / 100) * 5;
+  target.exposure = (safeNumber(adj.exposure) / 100) * 5;
 
   // These pass through directly (shader normalizes by /100)
-  target.contrast = adj.contrast;
-  target.highlights = adj.highlights;
-  target.shadows = adj.shadows;
-  target.whites = adj.whites;
-  target.blacks = adj.blacks;
+  target.contrast = safeNumber(adj.contrast);
+  target.highlights = safeNumber(adj.highlights);
+  target.shadows = safeNumber(adj.shadows);
+  target.whites = safeNumber(adj.whites);
+  target.blacks = safeNumber(adj.blacks);
 
-  // White balance
-  target.temperature = adj.temperature;
-  target.tint = adj.tint;
+  // White balance: prefer absolute Kelvin/MG when present and legacy sliders are neutral.
+  const legacyTemperature = safeNumber(adj.temperature);
+  const legacyTint = safeNumber(adj.tint);
+  const hasAbsoluteWhiteBalance =
+    Number.isFinite(adj.temperatureKelvin ?? NaN) || Number.isFinite(adj.tintMG ?? NaN);
+  const legacyWhiteBalanceActive =
+    Math.abs(legacyTemperature) > 0.001 || Math.abs(legacyTint) > 0.001;
+  const whiteBalanceScale =
+    hasAbsoluteWhiteBalance && !legacyWhiteBalanceActive
+      ? resolveAbsoluteWhiteBalanceLmsScale(adj.temperatureKelvin ?? 6500, adj.tintMG ?? 0)
+      : resolveLegacyWhiteBalanceLmsScale(legacyTemperature, legacyTint);
+  copyVec3(target.whiteBalanceLmsScale, whiteBalanceScale);
 
   // OKLab HSL: hueShift is new (not in v1 UI), default to 0
   target.hueShift = 0;
-  target.saturation = adj.saturation;
-  target.vibrance = adj.vibrance;
+  target.saturation = safeNumber(adj.saturation);
+  target.vibrance = safeNumber(adj.vibrance);
   target.luminance = 0; // Not exposed in current UI
 
   // Curves
@@ -214,20 +328,20 @@ export function resolveFromAdjustments(
   target.curveShadows = 0;
 
   // 3-way color grading
-  target.colorGradeShadows[0] = grading.shadows.hue;
-  target.colorGradeShadows[1] = grading.shadows.saturation / 100;
-  target.colorGradeShadows[2] = grading.shadows.luminance / 100;
-  target.colorGradeMidtones[0] = grading.midtones.hue;
-  target.colorGradeMidtones[1] = grading.midtones.saturation / 100;
-  target.colorGradeMidtones[2] = grading.midtones.luminance / 100;
-  target.colorGradeHighlights[0] = grading.highlights.hue;
-  target.colorGradeHighlights[1] = grading.highlights.saturation / 100;
-  target.colorGradeHighlights[2] = grading.highlights.luminance / 100;
-  target.colorGradeBlend = grading.blend / 100;
-  target.colorGradeBalance = grading.balance / 100;
+  target.colorGradeShadows[0] = safeNumber(grading.shadows.hue);
+  target.colorGradeShadows[1] = safeNumber(grading.shadows.saturation) / 100;
+  target.colorGradeShadows[2] = safeNumber(grading.shadows.luminance) / 100;
+  target.colorGradeMidtones[0] = safeNumber(grading.midtones.hue);
+  target.colorGradeMidtones[1] = safeNumber(grading.midtones.saturation) / 100;
+  target.colorGradeMidtones[2] = safeNumber(grading.midtones.luminance) / 100;
+  target.colorGradeHighlights[0] = safeNumber(grading.highlights.hue);
+  target.colorGradeHighlights[1] = safeNumber(grading.highlights.saturation) / 100;
+  target.colorGradeHighlights[2] = safeNumber(grading.highlights.luminance) / 100;
+  target.colorGradeBlend = safeNumber(grading.blend, 50) / 100;
+  target.colorGradeBalance = safeNumber(grading.balance) / 100;
 
   // Detail
-  target.dehaze = adj.dehaze;
+  target.dehaze = safeNumber(adj.dehaze);
 
   return target;
 }
@@ -242,15 +356,48 @@ export function resolveHslUniforms(adj: EditingAdjustments, out?: HSLUniforms): 
 
   for (let i = 0; i < HSL_CHANNELS.length; i += 1) {
     const channel = adj.hsl[HSL_CHANNELS[i]!];
-    target.hue[i] = channel.hue;
-    target.saturation[i] = channel.saturation;
-    target.luminance[i] = channel.luminance;
+    target.hue[i] = safeNumber(channel.hue);
+    target.saturation[i] = safeNumber(channel.saturation);
+    target.luminance[i] = safeNumber(channel.luminance);
     enabled =
       enabled ||
-      Math.abs(channel.hue) > 0.001 ||
-      Math.abs(channel.saturation) > 0.001 ||
-      Math.abs(channel.luminance) > 0.001;
+      Math.abs(safeNumber(channel.hue)) > 0.001 ||
+      Math.abs(safeNumber(channel.saturation)) > 0.001 ||
+      Math.abs(safeNumber(channel.luminance)) > 0.001;
   }
+
+  target.bwEnabled = Boolean(adj.bwEnabled);
+  const bwMix = adj.bwMix ?? { red: 0, green: 0, blue: 0 };
+  const baseWeights: [number, number, number] = [0.2126, 0.7152, 0.0722];
+  target.bwMix[0] = Math.max(0, baseWeights[0] * (1 + bwMix.red * 0.01));
+  target.bwMix[1] = Math.max(0, baseWeights[1] * (1 + bwMix.green * 0.01));
+  target.bwMix[2] = Math.max(0, baseWeights[2] * (1 + bwMix.blue * 0.01));
+  const bwWeightSum = target.bwMix[0] + target.bwMix[1] + target.bwMix[2];
+  if (bwWeightSum > 1.0e-5) {
+    target.bwMix[0] /= bwWeightSum;
+    target.bwMix[1] /= bwWeightSum;
+    target.bwMix[2] /= bwWeightSum;
+  } else {
+    target.bwMix[0] = baseWeights[0];
+    target.bwMix[1] = baseWeights[1];
+    target.bwMix[2] = baseWeights[2];
+  }
+
+  const calibration = adj.calibration;
+  target.calibrationHue[0] = safeNumber(calibration?.redHue ?? 0);
+  target.calibrationHue[1] = safeNumber(calibration?.greenHue ?? 0);
+  target.calibrationHue[2] = safeNumber(calibration?.blueHue ?? 0);
+  target.calibrationSaturation[0] = safeNumber(calibration?.redSaturation ?? 0);
+  target.calibrationSaturation[1] = safeNumber(calibration?.greenSaturation ?? 0);
+  target.calibrationSaturation[2] = safeNumber(calibration?.blueSaturation ?? 0);
+  target.calibrationEnabled =
+    Math.abs(target.calibrationHue[0]) > 0.001 ||
+    Math.abs(target.calibrationHue[1]) > 0.001 ||
+    Math.abs(target.calibrationHue[2]) > 0.001 ||
+    Math.abs(target.calibrationSaturation[0]) > 0.001 ||
+    Math.abs(target.calibrationSaturation[1]) > 0.001 ||
+    Math.abs(target.calibrationSaturation[2]) > 0.001;
+  enabled = enabled || target.bwEnabled || target.calibrationEnabled;
 
   target.enabled = enabled;
   return target;
@@ -305,14 +452,14 @@ export function resolveDetailUniforms(
   out?: DetailUniforms
 ): DetailUniforms {
   const target = out ?? createDetailUniforms();
-  target.texture = adj.texture;
-  target.clarity = adj.clarity;
-  target.sharpening = adj.sharpening;
-  target.sharpenRadius = adj.sharpenRadius;
-  target.sharpenDetail = adj.sharpenDetail;
-  target.masking = adj.masking;
-  target.noiseReduction = adj.noiseReduction;
-  target.colorNoiseReduction = adj.colorNoiseReduction;
+  target.texture = safeNumber(adj.texture);
+  target.clarity = safeNumber(adj.clarity);
+  target.sharpening = safeNumber(adj.sharpening);
+  target.sharpenRadius = safeNumber(adj.sharpenRadius, 40);
+  target.sharpenDetail = safeNumber(adj.sharpenDetail, 25);
+  target.masking = safeNumber(adj.masking);
+  target.noiseReduction = safeNumber(adj.noiseReduction);
+  target.colorNoiseReduction = safeNumber(adj.colorNoiseReduction);
 
   target.enabled =
     Math.abs(target.texture) > 0.001 ||
@@ -336,12 +483,10 @@ export function resolveFilmUniforms(
 ): FilmUniforms {
   const target = out ?? createFilmUniforms();
   const normalized = normalizeFilmProfile(profile);
-  const tone = getFilmModule(normalized, "tone");
   const grain = getFilmModule(normalized, "grain");
   const scan = getFilmModule(normalized, "scan");
   const colorScience = getFilmModule(normalized, "colorScience");
 
-  const toneAmount = tone?.enabled ? tone.amount / 100 : 0;
   const grainAmount = grain?.enabled ? grain.amount / 100 : 0;
   const scanAmount = scan?.enabled ? scan.amount / 100 : 0;
 
@@ -364,8 +509,9 @@ export function resolveFilmUniforms(
     : IDENTITY_3X3;
 
   // Layer 1: Tone Response
-  // Map from legacy tone module -- derive S-curve params from tone settings
-  target.u_toneEnabled = toneAmount > 0;
+  // V1 profiles do not carry explicit tone-response params (shoulder/toe/gamma).
+  // Keep this disabled to avoid no-op shader work.
+  target.u_toneEnabled = false;
   target.u_shoulder = 0; // Identity for v1 profiles; v2 profiles specify explicit values
   target.u_toe = 0; // Identity for v1 profiles; v2 profiles specify explicit values
   target.u_gamma = 1.0;
@@ -434,13 +580,13 @@ export function resolveHalationBloomUniforms(
   const bloomIntensity = (scan?.params.bloomAmount ?? 0) * scanAmount;
 
   target.halationEnabled = halIntensity > 0.001;
-  target.halationThreshold = scan?.params.halationThreshold ?? 0.9;
+  target.halationThreshold = srgbToLinearUnit(scan?.params.halationThreshold ?? 0.9);
   target.halationIntensity = halIntensity;
   target.halationColor = [1.0, 0.3, 0.1]; // Classic warm film halation
   target.halationRadius = Math.max(1, halIntensity * 8);
 
   target.bloomEnabled = bloomIntensity > 0.001;
-  target.bloomThreshold = scan?.params.bloomThreshold ?? 0.85;
+  target.bloomThreshold = srgbToLinearUnit(scan?.params.bloomThreshold ?? 0.85);
   target.bloomIntensity = bloomIntensity;
   target.bloomRadius = Math.max(1, bloomIntensity * 10);
 
@@ -513,13 +659,13 @@ export function resolveHalationBloomUniformsV2(
   const bloom = profile.bloom;
 
   target.halationEnabled = hal?.enabled ?? false;
-  target.halationThreshold = hal?.threshold ?? 0.9;
+  target.halationThreshold = srgbToLinearUnit(hal?.threshold ?? 0.9);
   target.halationIntensity = hal?.intensity ?? 0;
   target.halationColor = hal?.color ?? [1.0, 0.3, 0.1];
   target.halationRadius = hal?.radius;
 
   target.bloomEnabled = bloom?.enabled ?? false;
-  target.bloomThreshold = bloom?.threshold ?? 0.85;
+  target.bloomThreshold = srgbToLinearUnit(bloom?.threshold ?? 0.85);
   target.bloomIntensity = bloom?.intensity ?? 0;
   target.bloomRadius = bloom?.radius;
 

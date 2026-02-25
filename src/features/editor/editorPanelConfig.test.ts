@@ -19,10 +19,14 @@ describe("editor panel config", () => {
     });
   });
 
-  it("uses mask/remove panels as disabled placeholders", () => {
+  it("keeps remove as placeholder while mask panel is available", () => {
     const disabledPanels = EDITOR_TOOL_PANELS.filter((panel) => panel.disabled);
-    expect(disabledPanels).toHaveLength(2);
-    expect(disabledPanels.map((panel) => panel.id)).toEqual(["mask", "remove"]);
+    expect(disabledPanels).toHaveLength(1);
+    expect(disabledPanels.map((panel) => panel.id)).toEqual(["remove"]);
+
+    const maskPanel = EDITOR_TOOL_PANELS.find((panel) => panel.id === "mask");
+    expect(maskPanel?.disabled).not.toBe(true);
+
     expect(EDITOR_PANEL_SECTION_MAP.mask).toEqual(["mask"]);
     expect(EDITOR_PANEL_SECTION_MAP.remove).toEqual(["remove"]);
   });
