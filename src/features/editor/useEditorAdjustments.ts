@@ -41,6 +41,14 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
     [applyEditorPatch, selectedAsset]
   );
 
+  const resolveLiveAsset = useCallback(() => {
+    const assetId = selectedAsset?.id;
+    if (!assetId) {
+      return null;
+    }
+    return useProjectStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+  }, [selectedAsset]);
+
   const flushAdjustmentPreview = useCallback(() => {
     adjustmentPreviewFrameRef.current = null;
     const pending = pendingAdjustmentPreviewRef.current;
@@ -97,12 +105,7 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
         Pick<EditingAdjustments, "horizontal" | "vertical" | "scale" | "customAspectRatio">
       >
     ) => {
-      const assetId = selectedAsset?.id;
-      if (!assetId) {
-        return;
-      }
-      const liveAsset =
-        useProjectStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+      const liveAsset = resolveLiveAsset();
       if (!liveAsset) {
         return;
       }
@@ -114,7 +117,7 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
         adjustments: nextAdjustments,
       });
     },
-    [selectedAsset, stageEditorPatch]
+    [resolveLiveAsset, stageEditorPatch]
   );
 
   const commitCropAdjustments = useCallback(
@@ -123,12 +126,7 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
         Pick<EditingAdjustments, "horizontal" | "vertical" | "scale" | "customAspectRatio">
       >
     ) => {
-      const assetId = selectedAsset?.id;
-      if (!assetId) {
-        return false;
-      }
-      const liveAsset =
-        useProjectStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+      const liveAsset = resolveLiveAsset();
       if (!liveAsset) {
         return false;
       }
@@ -140,7 +138,41 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
         adjustments: nextAdjustments,
       });
     },
-    [commitEditorPatch, selectedAsset]
+    [commitEditorPatch, resolveLiveAsset]
+  );
+
+  const previewAdjustmentPatch = useCallback(
+    (historyKey: string, partial: Partial<EditingAdjustments>) => {
+      const liveAsset = resolveLiveAsset();
+      if (!liveAsset) {
+        return;
+      }
+      const nextAdjustments = {
+        ...normalizeAdjustments(liveAsset.adjustments),
+        ...partial,
+      };
+      stageEditorPatch(`patch:${historyKey}`, {
+        adjustments: nextAdjustments,
+      });
+    },
+    [resolveLiveAsset, stageEditorPatch]
+  );
+
+  const commitAdjustmentPatch = useCallback(
+    (historyKey: string, partial: Partial<EditingAdjustments>) => {
+      const liveAsset = resolveLiveAsset();
+      if (!liveAsset) {
+        return false;
+      }
+      const nextAdjustments = {
+        ...normalizeAdjustments(liveAsset.adjustments),
+        ...partial,
+      };
+      return commitEditorPatch(`patch:${historyKey}`, {
+        adjustments: nextAdjustments,
+      });
+    },
+    [commitEditorPatch, resolveLiveAsset]
   );
 
   const toggleFlip = useCallback(
@@ -159,12 +191,74 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
     [applyEditorPatch, selectedAsset]
   );
 
+  const previewPointCurve = useCallback(
+    (points: EditingAdjustments["pointCurve"]["rgb"]) => {
+      const assetId = selectedAsset?.id;
+      if (!assetId) {
+        return;
+      }
+      const liveAsset =
+        useProjectStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+      if (!liveAsset) {
+        return;
+      }
+      const currentAdjustments = normalizeAdjustments(liveAsset.adjustments);
+      const nextAdjustments = {
+        ...currentAdjustments,
+        pointCurve: {
+          ...currentAdjustments.pointCurve,
+          rgb: points.map((point) => ({
+            x: point.x,
+            y: point.y,
+          })),
+        },
+      };
+      stageEditorPatch("curve:point", {
+        adjustments: nextAdjustments,
+      });
+    },
+    [selectedAsset, stageEditorPatch]
+  );
+
+  const commitPointCurve = useCallback(
+    (points: EditingAdjustments["pointCurve"]["rgb"]) => {
+      const assetId = selectedAsset?.id;
+      if (!assetId) {
+        return false;
+      }
+      const liveAsset =
+        useProjectStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+      if (!liveAsset) {
+        return false;
+      }
+      const currentAdjustments = normalizeAdjustments(liveAsset.adjustments);
+      const nextAdjustments = {
+        ...currentAdjustments,
+        pointCurve: {
+          ...currentAdjustments.pointCurve,
+          rgb: points.map((point) => ({
+            x: point.x,
+            y: point.y,
+          })),
+        },
+      };
+      return commitEditorPatch("curve:point", {
+        adjustments: nextAdjustments,
+      });
+    },
+    [commitEditorPatch, selectedAsset]
+  );
+
   return {
     updateAdjustments,
     previewAdjustmentValue,
     updateAdjustmentValue,
     previewCropAdjustments,
     commitCropAdjustments,
+    previewAdjustmentPatch,
+    commitAdjustmentPatch,
     toggleFlip,
+    previewPointCurve,
+    commitPointCurve,
   };
 }

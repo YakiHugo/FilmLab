@@ -45,6 +45,8 @@ export const TOOL_DEFINITIONS: Record<Exclude<ToolGroupId, "filter">, ToolDefini
   ],
   detail: [
     { id: "sharpening", label: "锐化", min: 0, max: 100 },
+    { id: "sharpenRadius", label: "半径", min: 0, max: 100 },
+    { id: "sharpenDetail", label: "细节", min: 0, max: 100 },
     { id: "noiseReduction", label: "降噪", min: 0, max: 100 },
     { id: "colorNoiseReduction", label: "色彩降噪", min: 0, max: 100 },
   ],

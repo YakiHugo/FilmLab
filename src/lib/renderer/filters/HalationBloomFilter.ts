@@ -3,6 +3,7 @@ import type { FilterSystem, RenderTexture, CLEAR_MODES } from "pixi.js";
 import type { HalationBloomUniforms } from "../types";
 
 import vertexSrc from "../shaders/default.vert?raw";
+import passthroughFragSrc from "../shaders/Passthrough.frag?raw";
 import thresholdFragSrc from "../shaders/HalationThreshold.frag?raw";
 import blurFragSrc from "../shaders/GaussianBlur.frag?raw";
 import compositeFragSrc from "../shaders/HalationComposite.frag?raw";
@@ -43,8 +44,11 @@ export class HalationBloomFilter extends Filter {
   private blurPasses = 2;
 
   constructor() {
-    // The parent Filter is a no-op; all real work happens in apply()
-    super(vertexSrc, undefined);
+    // The parent Filter uses a matching GLSL 300 es passthrough shader
+    // so that the fast path (disabled halation/bloom) doesn't hit a
+    // version mismatch between the 300 es vertex and PixiJS's default
+    // GLSL 100 fragment shader.
+    super(vertexSrc, passthroughFragSrc);
 
     // --- Pass 1: Threshold Extraction ---
     this.thresholdFilter = new Filter(vertexSrc, thresholdFragSrc, {

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { renderImageToBlob } from "@/lib/imageProcessing";
+import { resolveExportConcurrency } from "@/lib/renderer/config";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
 import type {
   EditingAdjustments,
@@ -108,7 +109,10 @@ export function useExport({
     let failedCount = 0;
     const usedFileNames = new Set<string>();
 
-    for (const asset of assets) {
+    const EXPORT_CONCURRENCY = resolveExportConcurrency();
+    let nextIndex = 0;
+
+    const processAsset = async (asset: ExportableAsset, workerIndex: number) => {
       setTasks((prev) =>
         prev.map((item) => (item.id === asset.id ? { ...item, status: "处理中" } : item))
       );
@@ -139,6 +143,7 @@ export function useExport({
           filmProfile: filmProfile ?? undefined,
           timestampText: resolveAssetTimestampText(asset.metadata, asset.createdAt),
           seedKey: asset.id,
+          renderSlot: `export-slot-${workerIndex}`,
         });
         const outputFileName = toUniqueFileName(
           buildDownloadName(asset.name, outputType),
@@ -159,13 +164,28 @@ export function useExport({
           prev.map((item) => (item.id === asset.id ? { ...item, status: "失败" } : item))
         );
       }
-    }
+    };
+
+    const workers = Array.from({ length: Math.min(EXPORT_CONCURRENCY, assets.length) }, (_, index) =>
+      (async () => {
+        while (true) {
+          const asset = assets[nextIndex];
+          nextIndex += 1;
+          if (!asset) {
+            return;
+          }
+          await processAsset(asset, index);
+        }
+      })()
+    );
+
+    await Promise.all(workers);
 
     if (failedCount === 0) {
       setExportFeedback({
         kind: "success",
         title: "导出完成",
-        detail: `已成功导出 ${successCount} 张图片。`,
+        detail: `成功导出 ${successCount} 张图片。`,
       });
       return;
     }
@@ -221,3 +241,4 @@ export function useExport({
     dismissExportFeedback,
   };
 }
+

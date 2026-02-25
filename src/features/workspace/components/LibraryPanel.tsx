@@ -99,6 +99,7 @@ export const LibraryPanel = memo(
         <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
+            variant="secondary"
             onClick={onToggleAllFilteredAssets}
             disabled={filteredAssets.length === 0}
           >
@@ -106,7 +107,7 @@ export const LibraryPanel = memo(
           </Button>
           <Button
             size="sm"
-            variant="secondary"
+            variant="ghost"
             onClick={onClearAssetSelection}
             disabled={selectedAssetCount === 0}
           >
@@ -114,10 +115,6 @@ export const LibraryPanel = memo(
           </Button>
         </div>
         <div className="space-y-2 text-xs text-slate-400">
-          <div className="flex items-center justify-between">
-            <span>已选素材</span>
-            <span className="text-white">{selectedAssetCount} 张</span>
-          </div>
           <div className="flex items-center justify-between">
             <span>当前筛选</span>
             <span className="text-white">

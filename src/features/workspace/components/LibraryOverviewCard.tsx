@@ -48,11 +48,8 @@ export const LibraryOverviewCard = memo(
     onToggleAssetSelection,
   }: LibraryOverviewCardProps) => (
     <Card className="animate-fade-up" style={{ animationDelay: "80ms" }}>
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader>
         <CardTitle>素材一览</CardTitle>
-        <Badge className="border-white/10 bg-white/5 text-slate-200">
-          {filteredAssets.length} 张
-        </Badge>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
@@ -78,6 +75,7 @@ export const LibraryOverviewCard = memo(
           <div className="flex items-center gap-2">
             <Button
               size="sm"
+              variant="secondary"
               onClick={onToggleAllFilteredAssets}
               disabled={filteredAssets.length === 0}
             >
@@ -85,7 +83,7 @@ export const LibraryOverviewCard = memo(
             </Button>
             <Button
               size="sm"
-              variant="secondary"
+              variant="ghost"
               onClick={onClearAssetSelection}
               disabled={filteredSelectedCount === 0}
             >
@@ -111,20 +109,20 @@ export const LibraryOverviewCard = memo(
                 <div
                   key={asset.id}
                   className={cn(
-                    "overflow-hidden rounded-2xl border border-white/10 bg-slate-950/60",
-                    isSelected && "ring-2 ring-sky-200/40",
+                    "group cursor-pointer overflow-hidden rounded-2xl border border-white/10 bg-slate-950/60 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:shadow-black/20",
+                    isSelected && "ring-2 ring-sky-400/50",
                     isActive && "border-sky-200/40"
                   )}
                 >
                   <button
                     type="button"
                     onClick={() => onSetActiveAssetId(asset.id)}
-                    className="block w-full text-left"
+                    className="block w-full overflow-hidden text-left"
                   >
                     <img
                       src={asset.thumbnailUrl ?? asset.objectUrl}
                       alt={asset.name}
-                      className="h-40 w-full object-cover"
+                      className="h-40 w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
                       loading="lazy"
                     />
                   </button>

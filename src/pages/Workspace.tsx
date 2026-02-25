@@ -1,6 +1,5 @@
 import { SlidersHorizontal, Upload } from "lucide-react";
 import { UploadButton } from "@/components/UploadButton";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -18,6 +17,7 @@ export function Workspace() {
     project,
     assets,
     isImporting,
+    importProgress,
     selectedAssetIds,
     clearAssetSelection,
     applyPresetToGroup,
@@ -68,7 +68,6 @@ export function Workspace() {
     previewFilmProfile,
     handleToggleAssetSelection,
     handleToggleAllFilteredAssets,
-    handleImportResult,
     handleFiles,
     applyPreset,
     handleIntensityChange,
@@ -96,8 +95,8 @@ export function Workspace() {
         <CardContent>
           <div
             className={cn(
-              "flex min-h-[160px] flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed p-6 text-center transition",
-              isDragging ? "border-sky-200/50 bg-sky-300/10" : "border-white/10 bg-slate-950/40"
+              "flex min-h-[160px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed p-6 text-center transition",
+              isDragging ? "border-sky-300/40 bg-sky-400/5 shadow-[inset_0_0_40px_rgba(56,189,248,0.05)]" : "border-white/15 bg-slate-950/40"
             )}
             onDragOver={(event) => {
               event.preventDefault();
@@ -116,14 +115,18 @@ export function Workspace() {
             <div>
               <p className="text-sm text-slate-200">拖拽 JPG/PNG/WebP 到此处导入</p>
               <p className="text-xs text-slate-500">
-                {isImporting ? "正在导入与生成缩略图..." : "自动生成缩略图与元信息"}
+                {isImporting
+                  ? importProgress
+                    ? `正在导入 (${importProgress.current}/${importProgress.total})...`
+                    : "正在导入与生成缩略图..."
+                  : "自动生成缩略图与元信息"}
               </p>
             </div>
             <UploadButton
               size="sm"
               variant="secondary"
               label="点此导入"
-              onImportResult={handleImportResult}
+              onFiles={handleFiles}
             />
             <p
               className={cn("min-h-[16px] text-xs text-sky-200", !importNotice && "opacity-0")}
@@ -221,7 +224,6 @@ export function Workspace() {
       <section className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">FilmLab 工作台</p>
             <h2 className="font-display text-2xl text-white sm:text-3xl">
               {currentStep === "library" && "导入素材"}
               {currentStep === "style" && "选择风格"}
@@ -233,7 +235,7 @@ export function Workspace() {
               {currentStep === "export" && "确认参数，完成导出。"}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          {currentStep !== "library" && (
             <Button
               size="sm"
               variant="secondary"
@@ -242,46 +244,40 @@ export function Workspace() {
             >
               打开素材库
             </Button>
-            <div className="hidden sm:flex items-center gap-2">
-              <Badge className="border-white/10 bg-white/5 text-slate-200">
-                素材 {assets.length}
-              </Badge>
-              <Badge className="border-white/10 bg-white/5 text-slate-200">
-                已选 {selectedAssetIds.length}
-              </Badge>
-            </div>
-          </div>
+          )}
         </div>
         <StepIndicator currentStep={currentStep} stepIndex={stepIndex} onStepChange={setStep} />
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="hidden lg:block">
-          <Card className="sticky top-24">
-            <CardContent className="p-4">
-              <LibraryPanel
-                projectName={project?.name ?? "未命名项目"}
-                filteredAssets={filteredAssets}
-                selectedSet={selectedSet}
-                activeAssetId={activeAssetId}
-                selectedAssetCount={selectedAssetIds.length}
-                filteredSelectedCount={filteredSelectedCount}
-                allFilteredSelected={allFilteredSelected}
-                totalSize={totalSize}
-                selectionNotice={selectionNotice}
-                searchText={searchText}
-                selectedGroup={selectedGroup}
-                groupOptions={groupOptions}
-                onSearchTextChange={setSearchText}
-                onSelectedGroupChange={setSelectedGroup}
-                onToggleAllFilteredAssets={handleToggleAllFilteredAssets}
-                onClearAssetSelection={clearAssetSelection}
-                onSetActiveAssetId={setActiveAssetId}
-                onToggleAssetSelection={handleToggleAssetSelection}
-              />
-            </CardContent>
-          </Card>
-        </aside>
+      <div className={cn("grid gap-6", currentStep !== "library" && "lg:grid-cols-[280px_minmax(0,1fr)]")}>
+        {currentStep !== "library" && (
+          <aside className="hidden lg:block">
+            <Card className="sticky top-24">
+              <CardContent className="p-4">
+                <LibraryPanel
+                  projectName={project?.name ?? "未命名项目"}
+                  filteredAssets={filteredAssets}
+                  selectedSet={selectedSet}
+                  activeAssetId={activeAssetId}
+                  selectedAssetCount={selectedAssetIds.length}
+                  filteredSelectedCount={filteredSelectedCount}
+                  allFilteredSelected={allFilteredSelected}
+                  totalSize={totalSize}
+                  selectionNotice={selectionNotice}
+                  searchText={searchText}
+                  selectedGroup={selectedGroup}
+                  groupOptions={groupOptions}
+                  onSearchTextChange={setSearchText}
+                  onSelectedGroupChange={setSelectedGroup}
+                  onToggleAllFilteredAssets={handleToggleAllFilteredAssets}
+                  onClearAssetSelection={clearAssetSelection}
+                  onSetActiveAssetId={setActiveAssetId}
+                  onToggleAssetSelection={handleToggleAssetSelection}
+                />
+              </CardContent>
+            </Card>
+          </aside>
+        )}
         <section className="min-w-0">
           {currentStep === "library" && renderLibraryStep()}
           {currentStep === "style" && renderStyleStep()}
@@ -289,7 +285,7 @@ export function Workspace() {
         </section>
       </div>
 
-      {isLibraryOpen && (
+      {isLibraryOpen && currentStep !== "library" && (
         <div className="fixed inset-x-0 bottom-20 z-40 rounded-t-3xl border border-white/10 bg-slate-950/95 p-4 backdrop-blur md:hidden">
           <div className="mb-3 flex items-center justify-between">
             <p className="text-sm font-medium text-white">素材库</p>
@@ -380,7 +376,7 @@ export function Workspace() {
             <UploadButton
               className="w-full md:w-auto"
               label={primaryAction.label}
-              onImportResult={handleImportResult}
+              onFiles={handleFiles}
             />
           ) : (
             <Button

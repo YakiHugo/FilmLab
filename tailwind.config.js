@@ -27,12 +27,32 @@ export default {
           "0%, 100%": { opacity: 0.6 },
           "50%": { opacity: 1 },
         },
+        "dialog-overlay-in": {
+          "0%": { opacity: 0 },
+          "100%": { opacity: 1 },
+        },
+        "dialog-overlay-out": {
+          "0%": { opacity: 1 },
+          "100%": { opacity: 0 },
+        },
+        "dialog-content-in": {
+          "0%": { opacity: 0, transform: "translate(-50%, -50%) scale(0.96)" },
+          "100%": { opacity: 1, transform: "translate(-50%, -50%) scale(1)" },
+        },
+        "dialog-content-out": {
+          "0%": { opacity: 1, transform: "translate(-50%, -50%) scale(1)" },
+          "100%": { opacity: 0, transform: "translate(-50%, -50%) scale(0.96)" },
+        },
       },
       animation: {
         "fade-up": "fade-up 0.6s ease-out both",
         "fade-in": "fade-in 0.4s ease-out both",
         "float-slow": "float-slow 6s ease-in-out infinite",
         "pulse-soft": "pulse-soft 2.5s ease-in-out infinite",
+        "dialog-overlay-in": "dialog-overlay-in 150ms ease-out",
+        "dialog-overlay-out": "dialog-overlay-out 150ms ease-in",
+        "dialog-content-in": "dialog-content-in 150ms ease-out",
+        "dialog-content-out": "dialog-content-out 150ms ease-in",
       },
     },
   },

@@ -20,14 +20,14 @@ const SHADERS_DIR = path.join(ROOT, "src/lib/renderer/shaders");
 const TEMPLATES_DIR = path.join(SHADERS_DIR, "templates");
 const GENERATED_DIR = path.join(SHADERS_DIR, "generated");
 
-// Import config — use file:// URL for Windows compatibility
+// Import config 鈥?use file:// URL for Windows compatibility
 const configPath = path.join(ROOT, "src/lib/renderer/shader.config.ts");
 const { masterConfig, filmConfig } = await import(
   pathToFileURL(configPath).href
 );
 
 // ---------------------------------------------------------------------------
-// Uniform registries — maps feature name to GLSL uniform declarations
+// Uniform registries 鈥?maps feature name to GLSL uniform declarations
 // ---------------------------------------------------------------------------
 
 const MASTER_UNIFORMS: Record<string, string[]> = {
@@ -39,7 +39,7 @@ const MASTER_UNIFORMS: Record<string, string[]> = {
   curve: [
     "uniform vec4  u_curve;       // (curveHi, curveLights, curveDarks, curveShadows)",
   ],
-  whiteBalance: ["uniform float u_temperature;", "uniform float u_tint;"],
+  whiteBalance: ["uniform vec3  u_whiteBalanceLmsScale;"],
   hsl: [
     "uniform float u_hueShift;",
     "uniform float u_saturation;",
@@ -85,12 +85,15 @@ const FILM_UNIFORMS: Record<string, string[]> = {
     "uniform float u_grainShadowBias;",
     "uniform float u_grainSeed;",
     "uniform bool  u_grainIsColor;",
+    "uniform vec2  u_textureSize;",
+    "uniform sampler2D u_blueNoise;",
   ],
   vignette: [
     "uniform bool  u_vignetteEnabled;",
     "uniform float u_vignetteAmount;",
     "uniform float u_vignetteMidpoint;",
     "uniform float u_vignetteRoundness;",
+    "uniform float u_aspectRatio;",
   ],
 };
 
@@ -103,7 +106,7 @@ function loadTemplate(name: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Dead code elimination — remove function definitions never called
+// Dead code elimination 鈥?remove function definitions never called
 // ---------------------------------------------------------------------------
 
 function eliminateUnusedFunctions(source: string): string {
@@ -124,7 +127,7 @@ function eliminateUnusedFunctions(source: string): string {
     const refPattern = new RegExp(`\\b${name}\\b`, "g");
     const refs = result.match(refPattern);
     if (!refs || refs.length <= 1) {
-      // Only the definition exists — remove the entire function block
+      // Only the definition exists 鈥?remove the entire function block
       result = removeFunctionBlock(result, name);
     }
   }
@@ -141,19 +144,27 @@ function removeFunctionBlock(source: string, funcName: string): string {
   const defMatch = defPattern.exec(source);
   if (!defMatch) return source;
 
-  // Find start — include preceding comment lines
+  // Find start 鈥?include preceding comment lines, but stop at blank lines
+  // that separate this block from unrelated code (e.g. uniform declarations).
   let start = defMatch.index;
   const lines = source.substring(0, start).split("\n");
+  // Walk backwards over comment lines only
   while (
     lines.length > 0 &&
-    (lines[lines.length - 1].trim().startsWith("//") ||
-      lines[lines.length - 1].trim() === "")
+    lines[lines.length - 1].trim().startsWith("//")
   ) {
     start -= lines.pop()!.length + 1; // +1 for newline
   }
+  // Remove at most one preceding blank line
+  if (
+    lines.length > 0 &&
+    lines[lines.length - 1].trim() === ""
+  ) {
+    start -= lines.pop()!.length + 1;
+  }
   start = Math.max(0, start);
 
-  // Find end — count braces to find matching close
+  // Find end 鈥?count braces to find matching close
   let braceCount = 0;
   let end = defMatch.index;
   for (let i = defMatch.index; i < source.length; i++) {
@@ -190,7 +201,7 @@ function generateMasterShader(): string {
   parts.push("");
   parts.push("uniform sampler2D uSampler;");
 
-  // Uniforms — grouped to match the original shader's layout
+  // Uniforms 鈥?grouped to match the original shader's layout
   parts.push("");
   parts.push("// -- Basic --");
   if (cfg.exposure.enabled) {
@@ -230,6 +241,8 @@ function generateMasterShader(): string {
     parts.push(...MASTER_UNIFORMS.dehaze);
   }
 
+  parts.push("");
+
   // Function definitions — in dependency order
   parts.push("");
   parts.push(loadTemplate("srgb.glsl"));
@@ -265,8 +278,8 @@ function generateMasterShader(): string {
     parts.push("vec3 gradeTint(vec3 grade) {");
     parts.push("  float hue = fract((grade.x + 180.0) / 360.0);");
     parts.push("  float sat = clamp(grade.y, 0.0, 1.0);");
-    parts.push("  vec3 rgb = hsv2rgbFast(vec3(hue, sat, 1.0));");
-    parts.push("  return rgb - vec3(0.5);");
+    parts.push("  vec3 rgb = hsv2rgbFast(vec3(hue, 1.0, 1.0));");
+    parts.push("  return (rgb - vec3(0.5)) * sat;");
     parts.push("}");
     parts.push("");
     parts.push("vec3 applyColorGrading(vec3 color, float lum) {");
@@ -296,7 +309,7 @@ function generateMasterShader(): string {
     parts.push("}");
   }
 
-  // main() body — inline code matching the original shader exactly
+  // main() body 鈥?inline code matching the original shader exactly
   parts.push("");
   parts.push("// ---- Main ----");
   parts.push("");
@@ -319,9 +332,7 @@ function generateMasterShader(): string {
   if (cfg.whiteBalance.enabled) {
     parts.push("");
     parts.push("  // Step 3: LMS white balance");
-    parts.push(
-      "  color = whiteBalanceLMS(color, u_temperature / 100.0, u_tint / 100.0);"
-    );
+    parts.push("  color = whiteBalanceLMS(color, u_whiteBalanceLmsScale);");
   }
 
   // Step 4: Contrast
@@ -408,6 +419,7 @@ function generateMasterShader(): string {
     parts.push("  // Luminance");
     parts.push("  lab.x *= (1.0 + u_luminance * 0.01);");
     parts.push("  color = oklab2rgb(lab);");
+    parts.push("  color = max(color, vec3(0.0));  // gamut clamp after OKLab round-trip");
   }
 
   // Step 8: 3-way Color Grading
@@ -429,16 +441,19 @@ function generateMasterShader(): string {
     parts.push("  // Step 9: Dehaze");
     parts.push("  if (abs(u_dehaze) > 0.001) {");
     parts.push("    float haze = u_dehaze * 0.01;");
-    parts.push(
-      "    color = (color - haze * 0.1) / max(1.0 - haze * 0.3, 0.1);"
-    );
+    parts.push("    float darkChannel = min(color.r, min(color.g, color.b));");
+    parts.push("    float t = clamp(1.0 - haze * darkChannel * 2.0, 0.1, 2.0);");
+    parts.push("    vec3 atmosphere = vec3(1.0);");
+    parts.push("    color = (color - atmosphere * (1.0 - t)) / t;");
+    parts.push("    color = clamp(color, 0.0, 1.0);");
     parts.push("  }");
   }
 
-  // Step 10: Linear -> sRGB (always)
+  // Step 10: Output encoding
   parts.push("");
-  parts.push("  // Step 10: Linear -> sRGB");
-  parts.push("  color = linear2srgb(clamp(color, 0.0, 1.0));");
+  parts.push("  // Step 10: Output encoding");
+  parts.push("  color = clamp(color, 0.0, 1.0);");
+  parts.push("  color = linear2srgb(color);");
   parts.push("");
   parts.push("  outColor = vec4(color, 1.0);");
   parts.push("}");
@@ -471,7 +486,7 @@ function generateFilmShader(): string {
     parts.push("uniform sampler3D u_lut;        // 3D LUT texture");
   }
 
-  // Uniforms — grouped by layer
+  // Uniforms 鈥?grouped by layer
   if (cfg.toneResponse.enabled) {
     parts.push("");
     parts.push("// Layer 1: Tone Response");
@@ -498,7 +513,7 @@ function generateFilmShader(): string {
 
   if (cfg.grain.enabled) {
     parts.push("");
-    parts.push("// Layer 6: Grain");
+    parts.push("// Layer 5: Grain");
     parts.push(...FILM_UNIFORMS.grain);
   }
 
@@ -508,17 +523,15 @@ function generateFilmShader(): string {
     parts.push(...FILM_UNIFORMS.vignette);
   }
 
-  // Function definitions — ordered to match original shader layout:
-  // luminance → hash12 → toneResponse → lut3d → colorCast → grain → vignette
+  // Function definitions - ordered to match original shader layout:
+  // srgb -> luminance -> toneResponse -> lut3d -> colorCast -> grain -> vignette
+  parts.push("");
+  parts.push(loadTemplate("srgb.glsl"));
+
   const needsLuminance = cfg.colorCast.enabled || cfg.grain.enabled;
   if (needsLuminance) {
     parts.push("");
     parts.push(loadTemplate("luminance.glsl"));
-  }
-
-  if (cfg.grain.enabled) {
-    parts.push("");
-    parts.push(loadTemplate("hash.glsl"));
   }
 
   if (cfg.toneResponse.enabled) {
@@ -557,6 +570,9 @@ function generateFilmShader(): string {
   parts.push("");
   parts.push("void main() {");
   parts.push("  vec3 color = texture(uSampler, vTextureCoord).rgb;");
+  parts.push("");
+  parts.push("  // Stage 0: input is sRGB from previous pass");
+  parts.push("  color = srgb2linear(clamp(color, 0.0, 1.0));");
 
   if (cfg.toneResponse.enabled) {
     parts.push("");
@@ -565,6 +581,9 @@ function generateFilmShader(): string {
   if (cfg.colorMatrix.enabled) {
     parts.push("  color = applyColorMatrix(color);");
   }
+  parts.push("");
+  parts.push("  // Stage 1 complete: return to sRGB for LUT and perceptual stylization");
+  parts.push("  color = linear2srgb(clamp(color, 0.0, 1.0));");
   if (cfg.lut.enabled) {
     parts.push("  color = applyLUT(color);");
   }
@@ -578,6 +597,9 @@ function generateFilmShader(): string {
     parts.push("  color = applyVignette(color);");
   }
 
+  parts.push("");
+  parts.push("  // Final: sRGB output");
+  parts.push("  color = clamp(color, 0.0, 1.0);");
   parts.push("");
   parts.push("  outColor = vec4(color, 1.0);");
   parts.push("}");
@@ -622,3 +644,4 @@ console.log(`  MasterAdjustment.frag  ${masterLines} lines`);
 console.log(`  FilmSimulation.frag    ${filmLines} lines`);
 console.log(`  default.vert           (copied)`);
 console.log(`  Output: ${GENERATED_DIR}`);
+

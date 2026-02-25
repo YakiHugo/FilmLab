@@ -49,8 +49,11 @@ export const isSupportedImportFile = (file: File) => {
   if (SUPPORTED_IMPORT_TYPES.has(file.type)) {
     return true;
   }
-  if (file.type.startsWith("image/")) {
-    return true;
-  }
   return SUPPORTED_IMPORT_EXTENSIONS.test(file.name);
 };
+
+/** 50 MB per file */
+export const MAX_IMPORT_FILE_SIZE = 50 * 1024 * 1024;
+
+/** Max files per single import batch */
+export const MAX_IMPORT_BATCH_SIZE = 200;

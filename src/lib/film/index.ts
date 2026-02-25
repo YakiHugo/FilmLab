@@ -15,5 +15,5 @@ export {
   resolveFilmProfile,
   resolvePresetFilmProfile,
 } from "./registry";
-export { applyFilmPipeline, type FilmPipelineContext } from "./pipeline";
-export { isWebGL2FilmAvailable, renderFilmProfileWebGL2, disposeWebGL2Renderer } from "./webgl2";
+export { ensureFilmProfileV2, migrateFilmProfileV1ToV2 } from "./migrate";
+export { resolveRenderProfile } from "./renderProfile";

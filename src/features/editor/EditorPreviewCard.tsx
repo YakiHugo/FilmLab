@@ -27,6 +27,270 @@ import {
   type CropRect,
 } from "./cropGeometry";
 import { clamp } from "@/lib/math";
+import type { EditingAdjustments, LocalAdjustment, LocalBrushMask } from "@/types";
+
+const RAD_TO_DEG = 180 / Math.PI;
+
+const normalizeLineAngleDeg = (deg: number) => {
+  let angle = deg;
+  while (angle >= 90) {
+    angle -= 180;
+  }
+  while (angle < -90) {
+    angle += 180;
+  }
+  return angle;
+};
+
+const clampPerspectiveAmount = (value: number) => clamp(Number(value.toFixed(2)), -100, 100);
+
+interface BrushStrokePoint {
+  x: number;
+  y: number;
+  pressure: number;
+}
+
+type BrushLocalAdjustment = LocalAdjustment & { mask: LocalBrushMask };
+
+interface GuidedLine {
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+}
+
+const resolveVerticalDeviation = (angleDeg: number) => (angleDeg >= 0 ? angleDeg - 90 : angleDeg + 90);
+
+const resolveGuidedLineAngle = (line: GuidedLine) =>
+  normalizeLineAngleDeg(Math.atan2(line.end.y - line.start.y, line.end.x - line.start.x) * RAD_TO_DEG);
+
+const resolveGuidedPerspectivePatch = (
+  lines: GuidedLine[],
+  adjustments: EditingAdjustments
+): Partial<EditingAdjustments> | null => {
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const lineData = lines.map((line) => {
+    const angle = resolveGuidedLineAngle(line);
+    const absAngle = Math.abs(angle);
+    const verticalDeviation = resolveVerticalDeviation(angle);
+    const midpoint = {
+      x: (line.start.x + line.end.x) * 0.5,
+      y: (line.start.y + line.end.y) * 0.5,
+    };
+    return {
+      angle,
+      absAngle,
+      verticalDeviation,
+      midpoint,
+    };
+  });
+
+  const horizontalLines = lineData.filter((line) => line.absAngle <= 45);
+  const verticalLines = lineData.filter((line) => line.absAngle > 45);
+
+  let rollDeg = 0;
+  if (horizontalLines.length > 0) {
+    rollDeg =
+      horizontalLines.reduce((sum, line) => sum + line.angle, 0) / Math.max(1, horizontalLines.length);
+  } else if (verticalLines.length > 0) {
+    rollDeg =
+      verticalLines.reduce((sum, line) => sum + line.verticalDeviation, 0) /
+      Math.max(1, verticalLines.length);
+  }
+
+  let perspectiveHorizontal = adjustments.perspectiveHorizontal ?? 0;
+  let perspectiveVertical = adjustments.perspectiveVertical ?? 0;
+  let hasPerspective = false;
+
+  if (verticalLines.length >= 2) {
+    const pair = [...verticalLines]
+      .sort((a, b) => a.midpoint.x - b.midpoint.x)
+      .slice(0, 2);
+    const left = pair[0]!;
+    const right = pair[1]!;
+    perspectiveHorizontal = clampPerspectiveAmount((left.verticalDeviation - right.verticalDeviation) * -120);
+    hasPerspective = true;
+  }
+
+  if (horizontalLines.length >= 2) {
+    const pair = [...horizontalLines]
+      .sort((a, b) => a.midpoint.y - b.midpoint.y)
+      .slice(0, 2);
+    const top = pair[0]!;
+    const bottom = pair[1]!;
+    perspectiveVertical = clampPerspectiveAmount((top.angle - bottom.angle) * -120);
+    hasPerspective = true;
+  }
+
+  const nextRotate = clamp(adjustments.rotate - rollDeg, -45, 45);
+  const patch: Partial<EditingAdjustments> = {};
+  if (Math.abs(nextRotate - adjustments.rotate) > 0.02) {
+    patch.rotate = Number(nextRotate.toFixed(2));
+  }
+
+  if (hasPerspective) {
+    if (Math.abs(perspectiveHorizontal - (adjustments.perspectiveHorizontal ?? 0)) > 0.1) {
+      patch.perspectiveHorizontal = perspectiveHorizontal;
+    }
+    if (Math.abs(perspectiveVertical - (adjustments.perspectiveVertical ?? 0)) > 0.1) {
+      patch.perspectiveVertical = perspectiveVertical;
+    }
+    if (
+      patch.perspectiveHorizontal !== undefined ||
+      patch.perspectiveVertical !== undefined
+    ) {
+      patch.perspectiveEnabled = true;
+    }
+  }
+
+  return Object.keys(patch).length > 0 ? patch : null;
+};
+
+const estimatePerspectiveFromCanvas = (
+  sourceCanvas: HTMLCanvasElement,
+  scratchCanvas: HTMLCanvasElement
+): {
+  rollDeg: number;
+  perspectiveHorizontal: number;
+  perspectiveVertical: number;
+} | null => {
+  if (sourceCanvas.width < 8 || sourceCanvas.height < 8) {
+    return null;
+  }
+
+  const maxDimension = 220;
+  const scale = maxDimension / Math.max(sourceCanvas.width, sourceCanvas.height);
+  const sampleWidth = Math.max(64, Math.round(sourceCanvas.width * Math.min(1, scale)));
+  const sampleHeight = Math.max(64, Math.round(sourceCanvas.height * Math.min(1, scale)));
+  scratchCanvas.width = sampleWidth;
+  scratchCanvas.height = sampleHeight;
+  const scratchContext = scratchCanvas.getContext("2d", { willReadFrequently: true });
+  if (!scratchContext) {
+    return null;
+  }
+  scratchContext.clearRect(0, 0, sampleWidth, sampleHeight);
+  scratchContext.drawImage(sourceCanvas, 0, 0, sampleWidth, sampleHeight);
+  const image = scratchContext.getImageData(0, 0, sampleWidth, sampleHeight);
+  const pixels = image.data;
+
+  const luminance = new Float32Array(sampleWidth * sampleHeight);
+  for (let i = 0, p = 0; i < luminance.length; i += 1, p += 4) {
+    const r = (pixels[p] ?? 0) / 255;
+    const g = (pixels[p + 1] ?? 0) / 255;
+    const b = (pixels[p + 2] ?? 0) / 255;
+    luminance[i] = r * 0.2126 + g * 0.7152 + b * 0.0722;
+  }
+
+  let horizontalWeight = 0;
+  let horizontalAngleSum = 0;
+  let horizontalLeftWeight = 0;
+  let horizontalLeftAngleSum = 0;
+  let horizontalRightWeight = 0;
+  let horizontalRightAngleSum = 0;
+
+  let verticalWeight = 0;
+  let verticalDeviationSum = 0;
+  let verticalTopWeight = 0;
+  let verticalTopDeviationSum = 0;
+  let verticalBottomWeight = 0;
+  let verticalBottomDeviationSum = 0;
+
+  const sampleIndex = (x: number, y: number) => y * sampleWidth + x;
+
+  for (let y = 1; y < sampleHeight - 1; y += 1) {
+    for (let x = 1; x < sampleWidth - 1; x += 1) {
+      const gx =
+        luminance[sampleIndex(x + 1, y - 1)] +
+        2 * luminance[sampleIndex(x + 1, y)] +
+        luminance[sampleIndex(x + 1, y + 1)] -
+        luminance[sampleIndex(x - 1, y - 1)] -
+        2 * luminance[sampleIndex(x - 1, y)] -
+        luminance[sampleIndex(x - 1, y + 1)];
+      const gy =
+        luminance[sampleIndex(x - 1, y + 1)] +
+        2 * luminance[sampleIndex(x, y + 1)] +
+        luminance[sampleIndex(x + 1, y + 1)] -
+        luminance[sampleIndex(x - 1, y - 1)] -
+        2 * luminance[sampleIndex(x, y - 1)] -
+        luminance[sampleIndex(x + 1, y - 1)];
+      const magnitude = Math.hypot(gx, gy);
+      if (magnitude < 0.16) {
+        continue;
+      }
+
+      const lineAngle = normalizeLineAngleDeg((Math.atan2(gy, gx) + Math.PI * 0.5) * RAD_TO_DEG);
+      const absAngle = Math.abs(lineAngle);
+
+      if (absAngle <= 35) {
+        horizontalWeight += magnitude;
+        horizontalAngleSum += lineAngle * magnitude;
+        if (x < sampleWidth * 0.5) {
+          horizontalLeftWeight += magnitude;
+          horizontalLeftAngleSum += lineAngle * magnitude;
+        } else {
+          horizontalRightWeight += magnitude;
+          horizontalRightAngleSum += lineAngle * magnitude;
+        }
+        continue;
+      }
+
+      if (absAngle >= 55) {
+        const verticalDeviation = lineAngle >= 0 ? lineAngle - 90 : lineAngle + 90;
+        verticalWeight += magnitude;
+        verticalDeviationSum += verticalDeviation * magnitude;
+        if (y < sampleHeight * 0.5) {
+          verticalTopWeight += magnitude;
+          verticalTopDeviationSum += verticalDeviation * magnitude;
+        } else {
+          verticalBottomWeight += magnitude;
+          verticalBottomDeviationSum += verticalDeviation * magnitude;
+        }
+      }
+    }
+  }
+
+  const averageHorizontalAngle =
+    horizontalWeight > 1e-5 ? horizontalAngleSum / horizontalWeight : null;
+  const averageVerticalDeviation =
+    verticalWeight > 1e-5 ? verticalDeviationSum / verticalWeight : null;
+  const rollDeg = averageHorizontalAngle ?? averageVerticalDeviation ?? 0;
+
+  const averageHorizontalLeft =
+    horizontalLeftWeight > 1e-5 ? horizontalLeftAngleSum / horizontalLeftWeight : null;
+  const averageHorizontalRight =
+    horizontalRightWeight > 1e-5 ? horizontalRightAngleSum / horizontalRightWeight : null;
+  const averageVerticalTop =
+    verticalTopWeight > 1e-5 ? verticalTopDeviationSum / verticalTopWeight : null;
+  const averageVerticalBottom =
+    verticalBottomWeight > 1e-5 ? verticalBottomDeviationSum / verticalBottomWeight : null;
+
+  if (
+    averageHorizontalAngle === null &&
+    averageVerticalDeviation === null &&
+    averageHorizontalLeft === null &&
+    averageHorizontalRight === null &&
+    averageVerticalTop === null &&
+    averageVerticalBottom === null
+  ) {
+    return null;
+  }
+
+  const horizontalConvergence =
+    averageHorizontalLeft !== null && averageHorizontalRight !== null
+      ? averageHorizontalLeft - averageHorizontalRight
+      : 0;
+  const verticalConvergence =
+    averageVerticalTop !== null && averageVerticalBottom !== null
+      ? averageVerticalTop - averageVerticalBottom
+      : 0;
+
+  return {
+    rollDeg,
+    perspectiveHorizontal: clampPerspectiveAmount(horizontalConvergence * -2.4),
+    perspectiveVertical: clampPerspectiveAmount(verticalConvergence * -3.2),
+  };
+};
 
 export function EditorPreviewCard() {
   const {
@@ -35,13 +299,21 @@ export function EditorPreviewCard() {
     previewFilmProfile: filmProfile,
     activeToolPanelId,
     showOriginal,
+    autoPerspectiveRequestId,
+    autoPerspectiveMode,
     pointColorPicking,
+    pointColorPickTarget,
+    selectedLocalAdjustmentId,
     toggleOriginal,
     cancelPointColorPick,
     commitPointColorSample,
+    commitLocalMaskColorSample,
     handleUndo,
     handleRedo,
     handlePreviewHistogramChange,
+    updateAdjustments,
+    previewAdjustmentPatch,
+    commitAdjustmentPatch,
     previewCropAdjustments,
     commitCropAdjustments,
   } = useEditorState();
@@ -74,17 +346,33 @@ export function EditorPreviewCard() {
   const cropMovePreviewFrameRef = useRef<number | null>(null);
   const cropResizeFrameRef = useRef<number | null>(null);
   const cropResizePendingRectRef = useRef<CropRect | null>(null);
+  const guidedPointerRef = useRef<number | null>(null);
+  const brushPaintSessionRef = useRef<{
+    pointerId: number;
+    maskId: string;
+    points: BrushStrokePoint[];
+  } | null>(null);
+  const pendingBrushPreviewRef = useRef<{
+    maskId: string;
+    points: BrushStrokePoint[];
+  } | null>(null);
+  const brushPreviewFrameRef = useRef<number | null>(null);
   const latestAdjustmentsRef = useRef(adjustments);
   latestAdjustmentsRef.current = adjustments;
   const isCropModeRef = useRef(false);
   const showOriginalRef = useRef(showOriginal);
   showOriginalRef.current = showOriginal;
   const histogramDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastAbortTimeRef = useRef(0);
   // Track the rotation angle that was last rendered to the canvas.
   // The crop rect effect uses this instead of adjustments.rotate so the
   // crop overlay stays in sync with what the canvas actually shows.
   const [renderedRotate, setRenderedRotate] = useState(adjustments?.rotate ?? 0);
   const prevRightAngleRef = useRef(adjustments?.rightAngleRotation ?? 0);
+  const lastAutoPerspectiveRequestRef = useRef(0);
+  const [guidedPerspectiveActive, setGuidedPerspectiveActive] = useState(false);
+  const [guidedLines, setGuidedLines] = useState<GuidedLine[]>([]);
+  const [guidedDraftLine, setGuidedDraftLine] = useState<GuidedLine | null>(null);
 
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [imageNaturalSize, setImageNaturalSize] = useState<{
@@ -137,6 +425,65 @@ export function EditorPreviewCard() {
   const isCropMode =
     activeToolPanelId === "crop" && Boolean(adjustments) && !showOriginal && !pointColorPicking;
   isCropModeRef.current = isCropMode;
+
+  const activeBrushMask = useMemo<BrushLocalAdjustment | null>(() => {
+    if (!adjustments || activeToolPanelId !== "mask") {
+      return null;
+    }
+    const localAdjustments = adjustments.localAdjustments ?? [];
+    if (localAdjustments.length === 0) {
+      return null;
+    }
+    const selected =
+      (selectedLocalAdjustmentId
+        ? localAdjustments.find((item) => item.id === selectedLocalAdjustmentId)
+        : null) ?? localAdjustments[0];
+    if (!selected || !selected.enabled || selected.mask.mode !== "brush") {
+      return null;
+    }
+    return selected as BrushLocalAdjustment;
+  }, [activeToolPanelId, adjustments, selectedLocalAdjustmentId]);
+
+  const brushPaintEnabled =
+    Boolean(activeBrushMask) &&
+    !pointColorPicking &&
+    !isCropMode &&
+    !showOriginal &&
+    Boolean(adjustments);
+
+  const stageBrushPoints = useCallback(
+    (maskId: string, points: BrushStrokePoint[], phase: "preview" | "commit") => {
+      const currentAdjustments = latestAdjustmentsRef.current;
+      if (!currentAdjustments) {
+        return;
+      }
+      const localAdjustments = currentAdjustments.localAdjustments ?? [];
+      const nextLocalAdjustments = localAdjustments.map((item) =>
+        item.id === maskId && item.mask.mode === "brush"
+          ? {
+              ...item,
+              mask: {
+                ...item.mask,
+                points: points.map((point) => ({
+                  x: point.x,
+                  y: point.y,
+                  pressure: point.pressure,
+                })),
+              },
+            }
+          : item
+      );
+      const patch: Partial<EditingAdjustments> = {
+        localAdjustments: nextLocalAdjustments,
+      };
+      if (phase === "preview") {
+        previewAdjustmentPatch(`local:${maskId}:paint`, patch);
+        return;
+      }
+      commitAdjustmentPatch(`local:${maskId}:paint`, patch);
+    },
+    [commitAdjustmentPatch, previewAdjustmentPatch]
+  );
 
   const previewAspectRatio = useMemo(() => {
     if (showOriginal || !adjustments) {
@@ -357,6 +704,13 @@ export function EditorPreviewCard() {
         sampleBufferRef.current.height = 0;
         sampleBufferRef.current = null;
       }
+      if (brushPreviewFrameRef.current !== null) {
+        cancelAnimationFrame(brushPreviewFrameRef.current);
+        brushPreviewFrameRef.current = null;
+      }
+      guidedPointerRef.current = null;
+      brushPaintSessionRef.current = null;
+      pendingBrushPreviewRef.current = null;
     };
   }, []);
 
@@ -606,6 +960,10 @@ export function EditorPreviewCard() {
     }
     const controller = new AbortController();
     const dpr = window.devicePixelRatio || 1;
+    // If the previous render was aborted very recently, the user is likely
+    // dragging a slider — skip the expensive halation/bloom pass for snappier
+    // feedback.  The final render after they release will include it.
+    const isRapidUpdate = performance.now() - lastAbortTimeRef.current < 100;
     const renderPreview = async () => {
       // Reuse a single offscreen canvas across renders to avoid DOM allocation
       if (!workingCanvasRef.current) {
@@ -626,13 +984,13 @@ export function EditorPreviewCard() {
         adjustments: renderAdjustments,
         filmProfile: filmProfile ?? undefined,
         timestampText,
-        preferPixi: true,
         targetSize: {
           width: Math.round(frameSize.width * dpr),
           height: Math.round(frameSize.height * dpr),
         },
         seedKey: selectedAsset.id,
         renderSeed: previewRenderSeed,
+        skipHalationBloom: isRapidUpdate,
         signal: controller.signal,
       });
       if (controller.signal.aborted) {
@@ -675,6 +1033,7 @@ export function EditorPreviewCard() {
 
     return () => {
       controller.abort();
+      lastAbortTimeRef.current = performance.now();
       if (histogramDebounceRef.current !== null) {
         clearTimeout(histogramDebounceRef.current);
         histogramDebounceRef.current = null;
@@ -693,6 +1052,95 @@ export function EditorPreviewCard() {
     showOriginal,
     orientedSourceAspectRatio,
     timestampText,
+  ]);
+
+  useEffect(() => {
+    if (autoPerspectiveRequestId <= 0) {
+      return;
+    }
+    if (lastAutoPerspectiveRequestRef.current === autoPerspectiveRequestId) {
+      return;
+    }
+    lastAutoPerspectiveRequestRef.current = autoPerspectiveRequestId;
+
+    if (!adjustments || showOriginal) {
+      return;
+    }
+    if (autoPerspectiveMode === "guided") {
+      setGuidedLines([]);
+      setGuidedDraftLine(null);
+      guidedPointerRef.current = null;
+      setGuidedPerspectiveActive(true);
+      return;
+    }
+    if (guidedPerspectiveActive) {
+      setGuidedPerspectiveActive(false);
+      setGuidedLines([]);
+      setGuidedDraftLine(null);
+      guidedPointerRef.current = null;
+    }
+    const canvas = canvasRef.current;
+    if (!canvas || canvas.width < 8 || canvas.height < 8) {
+      return;
+    }
+    const scratchCanvas = sampleBufferRef.current ?? document.createElement("canvas");
+    sampleBufferRef.current = scratchCanvas;
+    const estimate = estimatePerspectiveFromCanvas(canvas, scratchCanvas);
+    if (!estimate) {
+      return;
+    }
+
+    const nextPatch: Partial<EditingAdjustments> = {};
+
+    const shouldApplyRotate =
+      autoPerspectiveMode === "auto" ||
+      autoPerspectiveMode === "level" ||
+      autoPerspectiveMode === "full";
+    if (shouldApplyRotate) {
+      const nextRotate = clamp(adjustments.rotate - estimate.rollDeg, -45, 45);
+      if (Math.abs(nextRotate - adjustments.rotate) > 0.05) {
+        nextPatch.rotate = Number(nextRotate.toFixed(2));
+      }
+    }
+
+    const shouldApplyHorizontal =
+      autoPerspectiveMode === "auto" ||
+      autoPerspectiveMode === "full";
+    if (shouldApplyHorizontal) {
+      const current = adjustments.perspectiveHorizontal ?? 0;
+      if (Math.abs(estimate.perspectiveHorizontal - current) > 0.1) {
+        nextPatch.perspectiveHorizontal = estimate.perspectiveHorizontal;
+      }
+    }
+
+    const shouldApplyVertical =
+      autoPerspectiveMode === "auto" ||
+      autoPerspectiveMode === "vertical" ||
+      autoPerspectiveMode === "full";
+    if (shouldApplyVertical) {
+      const current = adjustments.perspectiveVertical ?? 0;
+      if (Math.abs(estimate.perspectiveVertical - current) > 0.1) {
+        nextPatch.perspectiveVertical = estimate.perspectiveVertical;
+      }
+    }
+
+    if (
+      nextPatch.perspectiveHorizontal !== undefined ||
+      nextPatch.perspectiveVertical !== undefined
+    ) {
+      nextPatch.perspectiveEnabled = true;
+    }
+
+    if (Object.keys(nextPatch).length > 0) {
+      updateAdjustments(nextPatch);
+    }
+  }, [
+    adjustments,
+    guidedPerspectiveActive,
+    autoPerspectiveMode,
+    autoPerspectiveRequestId,
+    showOriginal,
+    updateAdjustments,
   ]);
 
   useEffect(() => {
@@ -722,6 +1170,19 @@ export function EditorPreviewCard() {
     cropResizePendingRectRef.current = null;
     setActiveCropDragMode(null);
   }, [isCropMode]);
+
+  useEffect(() => {
+    if (isCropMode) {
+      return;
+    }
+    if (!guidedPerspectiveActive && guidedLines.length === 0 && !guidedDraftLine) {
+      return;
+    }
+    setGuidedPerspectiveActive(false);
+    setGuidedLines([]);
+    setGuidedDraftLine(null);
+    guidedPointerRef.current = null;
+  }, [guidedDraftLine, guidedLines.length, guidedPerspectiveActive, isCropMode]);
 
   useEffect(() => {
     if (!selectedAsset && pointColorPicking) {
@@ -790,6 +1251,221 @@ export function EditorPreviewCard() {
     resetView,
     handleZoom,
   });
+
+  const resolvePointerPosition = (
+    event: React.PointerEvent<HTMLDivElement>,
+    target: HTMLDivElement
+  ) => {
+    const rect = target.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+    return {
+      x: clamp((event.clientX - rect.left) / rect.width, 0, 1),
+      y: clamp((event.clientY - rect.top) / rect.height, 0, 1),
+      pressure: clamp(event.pressure > 0 ? event.pressure : 1, 0.1, 1),
+    };
+  };
+
+  const flushBrushPreview = useCallback(() => {
+    brushPreviewFrameRef.current = null;
+    const pending = pendingBrushPreviewRef.current;
+    pendingBrushPreviewRef.current = null;
+    if (!pending) {
+      return;
+    }
+    stageBrushPoints(pending.maskId, pending.points, "preview");
+  }, [stageBrushPoints]);
+
+  const handleBrushPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!brushPaintEnabled || !activeBrushMask || event.button !== 0) {
+      return;
+    }
+    const pointer = resolvePointerPosition(event, event.currentTarget);
+    if (!pointer) {
+      return;
+    }
+    const basePoints = activeBrushMask.mask.points.map((point) => ({
+      x: point.x,
+      y: point.y,
+      pressure: point.pressure ?? 1,
+    }));
+    const nextPoints = [
+      ...basePoints,
+      {
+        x: pointer.x,
+        y: pointer.y,
+        pressure: pointer.pressure,
+      },
+    ];
+    brushPaintSessionRef.current = {
+      pointerId: event.pointerId,
+      maskId: activeBrushMask.id,
+      points: nextPoints,
+    };
+    pendingBrushPreviewRef.current = {
+      maskId: activeBrushMask.id,
+      points: nextPoints,
+    };
+    if (brushPreviewFrameRef.current === null) {
+      brushPreviewFrameRef.current = requestAnimationFrame(flushBrushPreview);
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleBrushPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const session = brushPaintSessionRef.current;
+    if (!session || session.pointerId !== event.pointerId) {
+      return;
+    }
+    const pointer = resolvePointerPosition(event, event.currentTarget);
+    if (!pointer) {
+      return;
+    }
+    const lastPoint = session.points[session.points.length - 1];
+    if (!lastPoint) {
+      return;
+    }
+    const dx = pointer.x - lastPoint.x;
+    const dy = pointer.y - lastPoint.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance < 0.0018) {
+      return;
+    }
+    const steps = Math.max(1, Math.ceil(distance / 0.0075));
+    for (let step = 1; step <= steps; step += 1) {
+      const t = step / steps;
+      session.points.push({
+        x: lastPoint.x + dx * t,
+        y: lastPoint.y + dy * t,
+        pressure: pointer.pressure,
+      });
+    }
+    pendingBrushPreviewRef.current = {
+      maskId: session.maskId,
+      points: [...session.points],
+    };
+    if (brushPreviewFrameRef.current === null) {
+      brushPreviewFrameRef.current = requestAnimationFrame(flushBrushPreview);
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const handleBrushPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const session = brushPaintSessionRef.current;
+    if (!session || session.pointerId !== event.pointerId) {
+      return;
+    }
+    if (brushPreviewFrameRef.current !== null) {
+      cancelAnimationFrame(brushPreviewFrameRef.current);
+      brushPreviewFrameRef.current = null;
+    }
+    pendingBrushPreviewRef.current = null;
+    stageBrushPoints(session.maskId, session.points, "commit");
+    brushPaintSessionRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const cancelGuidedPerspective = useCallback(() => {
+    setGuidedPerspectiveActive(false);
+    setGuidedLines([]);
+    setGuidedDraftLine(null);
+    guidedPointerRef.current = null;
+  }, []);
+
+  const applyGuidedPerspective = useCallback(
+    (lines: GuidedLine[]) => {
+      const currentAdjustments = latestAdjustmentsRef.current;
+      if (!currentAdjustments) {
+        cancelGuidedPerspective();
+        return;
+      }
+      const patch = resolveGuidedPerspectivePatch(lines, currentAdjustments);
+      if (patch) {
+        updateAdjustments(patch);
+        setActionMessage({
+          type: "success",
+          text: "Guided perspective applied.",
+        });
+      }
+      cancelGuidedPerspective();
+    },
+    [cancelGuidedPerspective, setActionMessage, updateAdjustments]
+  );
+
+  const handleGuidedPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!guidedPerspectiveActive || event.button !== 0) {
+      return;
+    }
+    const pointer = resolvePointerPosition(event, event.currentTarget);
+    if (!pointer) {
+      return;
+    }
+    guidedPointerRef.current = event.pointerId;
+    const nextLine: GuidedLine = {
+      start: { x: pointer.x, y: pointer.y },
+      end: { x: pointer.x, y: pointer.y },
+    };
+    setGuidedDraftLine(nextLine);
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleGuidedPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!guidedPerspectiveActive || guidedPointerRef.current !== event.pointerId) {
+      return;
+    }
+    const pointer = resolvePointerPosition(event, event.currentTarget);
+    if (!pointer) {
+      return;
+    }
+    setGuidedDraftLine((current) =>
+      current
+        ? {
+            ...current,
+            end: { x: pointer.x, y: pointer.y },
+          }
+        : current
+    );
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const handleGuidedPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!guidedPerspectiveActive || guidedPointerRef.current !== event.pointerId) {
+      return;
+    }
+    guidedPointerRef.current = null;
+    const draft = guidedDraftLine;
+    setGuidedDraftLine(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (!draft) {
+      return;
+    }
+    const length = Math.hypot(draft.end.x - draft.start.x, draft.end.y - draft.start.y);
+    if (length < 0.015) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    const nextLines = [...guidedLines, draft].slice(-2);
+    setGuidedLines(nextLines);
+    if (nextLines.length >= 2) {
+      applyGuidedPerspective(nextLines);
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (isCropMode || pointColorPicking || event.button !== 0 || viewScale <= 1) {
@@ -1081,6 +1757,8 @@ export function EditorPreviewCard() {
   };
 
   const previewScale = isCropMode ? 1 : viewScale;
+  const guidedOverlayLines = guidedDraftLine ? [...guidedLines, guidedDraftLine] : guidedLines;
+  const guidedOverlayVisible = guidedPerspectiveActive || guidedOverlayLines.length > 0;
 
   return (
     <div className="relative h-full min-h-[300px] w-full">
@@ -1088,8 +1766,14 @@ export function EditorPreviewCard() {
         ref={imageAreaRef}
         className={cn(
           "relative flex h-full w-full items-center justify-center bg-black touch-none",
-          pointColorPicking ? "cursor-crosshair" : viewScale > 1 && "cursor-grab",
-          !pointColorPicking && isPanning && "cursor-grabbing"
+          pointColorPicking || brushPaintEnabled || guidedPerspectiveActive
+            ? "cursor-crosshair"
+            : viewScale > 1 && "cursor-grab",
+          !pointColorPicking &&
+            !brushPaintEnabled &&
+            !guidedPerspectiveActive &&
+            isPanning &&
+            "cursor-grabbing"
         )}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -1104,6 +1788,10 @@ export function EditorPreviewCard() {
               width: frameSize.width,
               height: frameSize.height,
             }}
+            onPointerDown={guidedPerspectiveActive ? handleGuidedPointerDown : handleBrushPointerDown}
+            onPointerMove={guidedPerspectiveActive ? handleGuidedPointerMove : handleBrushPointerMove}
+            onPointerUp={guidedPerspectiveActive ? handleGuidedPointerUp : handleBrushPointerUp}
+            onPointerCancel={guidedPerspectiveActive ? handleGuidedPointerUp : handleBrushPointerUp}
             onClick={(event) => {
               if (!pointColorPicking || !selectedAsset) {
                 return;
@@ -1124,10 +1812,26 @@ export function EditorPreviewCard() {
                 });
                 return;
               }
+              if (pointColorPickTarget === "localMask") {
+                const result = commitLocalMaskColorSample(sampled);
+                if (!result) {
+                  setActionMessage({
+                    type: "error",
+                    text: "No active local mask selected for color picking.",
+                  });
+                  return;
+                }
+                setActionMessage({
+                  type: "success",
+                  text: `Local mask hue set to ${Math.round(result.hue)}°.`,
+                });
+                return;
+              }
+
               const mappedColor = commitPointColorSample(sampled);
               setActionMessage({
                 type: "success",
-                text: `已取色并映射到 ${mappedColor} 通道。`,
+                text: `Picked color mapped to ${mappedColor} channel.`,
               });
             }}
           >
@@ -1156,7 +1860,72 @@ export function EditorPreviewCard() {
                 )
               ) : null}
             </div>
-            {isCropMode && cropRect && (
+            {guidedOverlayVisible && (
+              <>
+                <svg className="pointer-events-none absolute inset-0 h-full w-full">
+                  {guidedOverlayLines.map((line, index) => (
+                    <line
+                      key={`${index}-${line.start.x.toFixed(4)}-${line.start.y.toFixed(4)}`}
+                      x1={line.start.x * frameSize.width}
+                      y1={line.start.y * frameSize.height}
+                      x2={line.end.x * frameSize.width}
+                      y2={line.end.y * frameSize.height}
+                      vectorEffect="non-scaling-stroke"
+                      stroke="rgba(255, 255, 255, 0.95)"
+                      strokeWidth={1.75}
+                      strokeLinecap="round"
+                      strokeDasharray={index === guidedOverlayLines.length - 1 && guidedDraftLine ? "6 4" : "0"}
+                    />
+                  ))}
+                </svg>
+                {guidedPerspectiveActive && (
+                  <div className="absolute left-3 top-3 z-10 max-w-[260px] rounded-lg border border-white/20 bg-black/65 px-3 py-2 text-xs text-white/90 shadow-lg backdrop-blur">
+                    <p className="font-medium">Guided Perspective</p>
+                    <p className="mt-1 text-white/70">
+                      Draw up to two reference lines, then apply correction.
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="rounded border border-white/25 px-2 py-1 text-[11px] text-white transition hover:border-white/40 hover:bg-white/10"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setGuidedLines([]);
+                          setGuidedDraftLine(null);
+                        }}
+                      >
+                        Reset Lines
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded border border-emerald-300/40 bg-emerald-300/20 px-2 py-1 text-[11px] text-emerald-100 transition hover:bg-emerald-300/30 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={guidedLines.length === 0}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          applyGuidedPerspective(guidedLines);
+                        }}
+                      >
+                        Apply
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded border border-rose-300/40 bg-rose-300/20 px-2 py-1 text-[11px] text-rose-100 transition hover:bg-rose-300/30"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          cancelGuidedPerspective();
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+            {isCropMode && cropRect && !guidedPerspectiveActive && (
               <CropOverlay
                 cropRect={cropRect}
                 frameWidth={frameSize.width}

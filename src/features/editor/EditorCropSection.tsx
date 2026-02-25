@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import type { AutoPerspectiveMode } from "@/stores/editorStore";
 import type { EditingAdjustments } from "@/types";
 import { EditorSection } from "./EditorSection";
 import { EditorSliderRow } from "./EditorSliderRow";
@@ -125,6 +126,14 @@ const normalizeRightAngleRotation = (value: number) => {
   return normalizedTurns * 90;
 };
 
+const normalizePerspectiveAmount = (value: number) => {
+  const clamped = Math.min(100, Math.max(-100, value));
+  if (Math.abs(clamped) < 0.0001) {
+    return 0;
+  }
+  return Number(clamped.toFixed(2));
+};
+
 export const resolveCropRatioOptionId = (adjustments: EditingAdjustments) => {
   if (adjustments.aspectRatio === "original") {
     return "original";
@@ -150,6 +159,7 @@ interface EditorCropSectionProps {
   onPreviewAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
   onCommitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
   onToggleFlip: (axis: "flipHorizontal" | "flipVertical") => void;
+  onRequestAutoPerspective: (mode: AutoPerspectiveMode) => void;
 }
 
 export const EditorCropSection = memo(function EditorCropSection({
@@ -160,10 +170,13 @@ export const EditorCropSection = memo(function EditorCropSection({
   onPreviewAdjustmentValue,
   onCommitAdjustmentValue,
   onToggleFlip,
+  onRequestAutoPerspective,
 }: EditorCropSectionProps) {
   const ratioOptionId = resolveCropRatioOptionId(adjustments);
   const ratioLocked = adjustments.aspectRatio !== "free";
   const rotateSlider = CROP_SLIDERS.find((slider) => slider.key === "rotate");
+  const perspectiveHorizontal = adjustments.perspectiveHorizontal ?? 0;
+  const perspectiveVertical = adjustments.perspectiveVertical ?? 0;
 
   const applyCropRatioOption = (nextId: string) => {
     const option = CROP_RATIO_OPTIONS.find((item) => item.id === nextId);
@@ -233,6 +246,9 @@ export const EditorCropSection = memo(function EditorCropSection({
       customAspectRatio: DEFAULT_ADJUSTMENTS.customAspectRatio,
       rotate: DEFAULT_ADJUSTMENTS.rotate,
       rightAngleRotation: DEFAULT_ADJUSTMENTS.rightAngleRotation,
+      perspectiveEnabled: DEFAULT_ADJUSTMENTS.perspectiveEnabled,
+      perspectiveHorizontal: DEFAULT_ADJUSTMENTS.perspectiveHorizontal,
+      perspectiveVertical: DEFAULT_ADJUSTMENTS.perspectiveVertical,
       horizontal: DEFAULT_ADJUSTMENTS.horizontal,
       vertical: DEFAULT_ADJUSTMENTS.vertical,
       scale: DEFAULT_ADJUSTMENTS.scale,
@@ -247,6 +263,41 @@ export const EditorCropSection = memo(function EditorCropSection({
       rightAngleRotation: normalizeRightAngleRotation(adjustments.rightAngleRotation + delta),
       ...ratioPatch,
     });
+  };
+
+  const handlePerspectiveToggle = (enabled: boolean) => {
+    onUpdateAdjustments({
+      perspectiveEnabled: enabled,
+      perspectiveHorizontal: enabled ? perspectiveHorizontal : DEFAULT_ADJUSTMENTS.perspectiveHorizontal,
+      perspectiveVertical: enabled ? perspectiveVertical : DEFAULT_ADJUSTMENTS.perspectiveVertical,
+    });
+  };
+
+  const previewPerspective = (
+    key: "perspectiveHorizontal" | "perspectiveVertical",
+    value: number
+  ) => {
+    if (!adjustments.perspectiveEnabled) {
+      onUpdateAdjustments({ perspectiveEnabled: true });
+    }
+    onPreviewAdjustmentValue(key, normalizePerspectiveAmount(value));
+  };
+
+  const commitPerspective = (
+    key: "perspectiveHorizontal" | "perspectiveVertical",
+    value: number
+  ) => {
+    if (!adjustments.perspectiveEnabled) {
+      onUpdateAdjustments({ perspectiveEnabled: true });
+    }
+    onCommitAdjustmentValue(key, normalizePerspectiveAmount(value));
+  };
+
+  const requestAutoPerspective = (mode: AutoPerspectiveMode) => {
+    if (!adjustments.perspectiveEnabled) {
+      onUpdateAdjustments({ perspectiveEnabled: true });
+    }
+    onRequestAutoPerspective(mode);
   };
 
   return (
@@ -306,6 +357,95 @@ export const EditorCropSection = memo(function EditorCropSection({
           onReset={() => onCommitAdjustmentValue("rotate", DEFAULT_ADJUSTMENTS.rotate)}
         />
       )}
+
+      <div className="space-y-2 rounded-xl border border-white/10 bg-slate-950/45 p-3">
+        <label className="flex cursor-pointer items-center justify-between gap-3 text-xs text-slate-200">
+          <span>透视校正</span>
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-white/20 bg-slate-950 accent-sky-400"
+            checked={Boolean(adjustments.perspectiveEnabled)}
+            onChange={(event) => handlePerspectiveToggle(event.currentTarget.checked)}
+          />
+        </label>
+        <div className="grid grid-cols-5 gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-7 px-2 text-[11px]"
+            onClick={() => requestAutoPerspective("auto")}
+            disabled={!adjustments.perspectiveEnabled}
+          >
+            Auto
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-7 px-2 text-[11px]"
+            onClick={() => requestAutoPerspective("level")}
+            disabled={!adjustments.perspectiveEnabled}
+          >
+            Level
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-7 px-2 text-[11px]"
+            onClick={() => requestAutoPerspective("vertical")}
+            disabled={!adjustments.perspectiveEnabled}
+          >
+            Vertical
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-7 px-2 text-[11px]"
+            onClick={() => requestAutoPerspective("full")}
+            disabled={!adjustments.perspectiveEnabled}
+          >
+            Full
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-7 px-2 text-[11px]"
+            onClick={() => requestAutoPerspective("guided")}
+            disabled={!adjustments.perspectiveEnabled}
+          >
+            Guided
+          </Button>
+        </div>
+        <EditorSliderRow
+          label="Horizontal"
+          value={perspectiveHorizontal}
+          defaultValue={DEFAULT_ADJUSTMENTS.perspectiveHorizontal ?? 0}
+          min={-100}
+          max={100}
+          step={0.1}
+          disabled={!adjustments.perspectiveEnabled}
+          format={(value) => value.toFixed(1)}
+          onChange={(value) => previewPerspective("perspectiveHorizontal", value)}
+          onCommit={(value) => commitPerspective("perspectiveHorizontal", value)}
+          onReset={() =>
+            commitPerspective("perspectiveHorizontal", DEFAULT_ADJUSTMENTS.perspectiveHorizontal ?? 0)
+          }
+        />
+        <EditorSliderRow
+          label="Vertical"
+          value={perspectiveVertical}
+          defaultValue={DEFAULT_ADJUSTMENTS.perspectiveVertical ?? 0}
+          min={-100}
+          max={100}
+          step={0.1}
+          disabled={!adjustments.perspectiveEnabled}
+          format={(value) => value.toFixed(1)}
+          onChange={(value) => previewPerspective("perspectiveVertical", value)}
+          onCommit={(value) => commitPerspective("perspectiveVertical", value)}
+          onReset={() =>
+            commitPerspective("perspectiveVertical", DEFAULT_ADJUSTMENTS.perspectiveVertical ?? 0)
+          }
+        />
+      </div>
 
       <div className="space-y-2">
         <p className="text-xs text-slate-300">旋转与翻转</p>

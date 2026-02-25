@@ -1,4 +1,5 @@
 ﻿import { filmProfiles, presetFilmProfileMap } from "@/data/filmProfiles";
+import { stockFilmProfilesV1 } from "@/data/filmStockProfiles";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import type {
   EditingAdjustments,
@@ -17,7 +18,7 @@ import {
 } from "./profile";
 
 const builtInProfileMap = new Map(
-  filmProfiles.map((profile) => [profile.id, normalizeFilmProfile(profile)])
+  [...filmProfiles, ...stockFilmProfilesV1].map((profile) => [profile.id, normalizeFilmProfile(profile)])
 );
 
 const EPSILON = 1e-6;
@@ -248,3 +249,5 @@ export const resolveFilmModule = <TId extends FilmModuleConfig["id"]>(
   profile: FilmProfile,
   moduleId: TId
 ) => getFilmModule(profile, moduleId);
+
+

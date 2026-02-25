@@ -12,9 +12,8 @@ FilmLab is a web photo-editing app focused on film look workflows:
 - Asset persistence with IndexedDB
 - AI film preset recommendation via OpenAI endpoint
 - Render architecture:
-  - default PixiJS multi-pass renderer (Master + Film + Halation/Bloom)
-  - legacy WebGL2 fallback (via `window.__FILMLAB_USE_LEGACY = true`)
-  - CPU pipeline final fallback
+  - PixiJS multi-pass renderer (Master + Film + Halation/Bloom)
+  - Throws `RenderError` when WebGL2 is unavailable
 
 ## 2. Runtime Entry Points
 
@@ -33,9 +32,9 @@ src/
   pages/                     # route pages + editor subcomponents
   stores/                    # zustand stores
   lib/
-    imageProcessing.ts       # render entry and pipeline selection
-    film/                    # legacy v1 film pipeline
-    renderer/                # PixiJS multi-pass pipeline (new)
+    imageProcessing.ts       # render entry (PixiJS-only pipeline)
+    film/                    # v1 film profile data model
+    renderer/                # PixiJS multi-pass pipeline
     db.ts                    # IndexedDB adapter
     assetMetadata.ts         # EXIF + thumbnail pipeline
     ai/                      # client-side recommendation requester
@@ -53,11 +52,9 @@ docs/
 
 ### 4.1 `renderImageToCanvas` selection flow
 
-`src/lib/imageProcessing.ts` chooses pipeline in this order:
+`src/lib/imageProcessing.ts` uses the PixiJS multi-pass pipeline as the sole rendering backend:
 
-1. PixiJS multi-pass pipeline (default)
-2. Legacy WebGL2 pipeline (`renderFilmProfileWebGL2`) — used when `window.__FILMLAB_USE_LEGACY === true`
-3. CPU pipeline (`applyFilmPipeline`)
+1. PixiJS multi-pass pipeline (Master + Film + Halation/Bloom)
 
 ### 4.2 PixiJS pipeline (`src/lib/renderer/`)
 
@@ -75,11 +72,10 @@ docs/
   - templates: `shaders/templates/*.glsl`
   - output: `shaders/generated/*` (gitignored)
 
-### 4.3 Legacy pipeline (`src/lib/film/`)
+### 4.3 Film profile data model (`src/lib/film/`)
 
-- `webgl2.ts`: single-pass legacy renderer
-- `pipeline.ts`: CPU fallback
 - `profile.ts`: v1 `FilmProfile` defaults/normalization/mapping
+- `registry.ts`: preset/profile resolution and intensity scaling
 - `migrate.ts`: v1 -> v2 migration helper
 
 ## 5. Data and State
@@ -174,31 +170,30 @@ Notes:
 
 ### 9.3 Debug render mismatch
 
-1. Check if legacy mode is forced (`window.__FILMLAB_USE_LEGACY`)
-2. Compare Pixi output vs legacy path
-3. Inspect generated shaders in `src/lib/renderer/shaders/generated/`
-4. Verify uniform mapping in `uniformResolvers.ts`
-5. Check console for WebGL compile/bind errors
+1. Inspect generated shaders in `src/lib/renderer/shaders/generated/`
+2. Verify uniform mapping in `uniformResolvers.ts`
+3. Check console for WebGL compile/bind errors
+4. Check if `RenderError` is being thrown (WebGL2 unavailable or invalid frame)
 
 ## 10. Known Gaps and Risks
 
-- PixiJS is the default GPU path; legacy WebGL2 available via `window.__FILMLAB_USE_LEGACY = true`
+- PixiJS is the sole GPU rendering path; `RenderError` is thrown when WebGL2 is unavailable
 - `sampler3D` in PixiJS v7 requires manual texture binding workaround
 - Some Chinese UI strings appear with mojibake in source files and need unified UTF-8 cleanup
 - Test coverage exists but is limited (mostly AI utilities)
 
 ## 11. Review Checklist (for PRs touching render/data path)
 
-- Pipeline choice in `imageProcessing.ts` still behaves as expected
+- Pipeline in `imageProcessing.ts` still behaves as expected
 - New params are mapped end-to-end (UI -> type -> uniform -> shader)
 - IndexedDB schema compatibility preserved
 - GPU resources are released (`dispose`/texture cleanup)
-- Both default (PixiJS) and legacy escape-hatch paths still work
+- PixiJS rendering path works correctly
 
 ## 12. Document Index
 
 - Quick repo guide: `AGENTS.md`
 - This file (engineering baseline): `AGENT.md`
 - Editor/render deep dive: `docs/editor.md`
-- Legacy film module doc: `docs/film_pipeline.md`
+- Film profile data model: `docs/film_pipeline.md`
 - Project status notes: `docs/project_status.md`

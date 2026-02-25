@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "generate:shaders": "tsx scripts/generate-shaders.ts",
+    "generate:stock-luts": "python scripts/generate_stock_luts.py",
+    "baseline:render": "tsx scripts/render-baseline.ts",
     "dev": "pnpm run generate:shaders && vite",
     "build": "pnpm run generate:shaders && tsc -b && vite build",
     "preview": "vite preview",
@@ -20,6 +22,7 @@
     "@ai-sdk/google": "^3.0.30",
     "@ai-sdk/openai": "^3.0.26",
     "@ai-sdk/react": "^3.0.99",
+    "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-label": "^2.0.2",
     "@radix-ui/react-select": "^2.0.0",
     "@radix-ui/react-slider": "^1.1.2",

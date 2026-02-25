@@ -5,6 +5,7 @@ import type {
   EditingAdjustments,
   FilmProfile,
   FilmProfileOverrides,
+  LocalBrushPoint,
 } from "@/types";
 
 interface FilmLabDB extends DBSchema {
@@ -38,10 +39,22 @@ interface FilmLabDB extends DBSchema {
       updatedAt: string;
     };
   };
+  localMaskBlobs: {
+    key: string;
+    value: {
+      id: string;
+      assetId: string;
+      blob: Blob;
+      updatedAt: string;
+    };
+    indexes: {
+      byAssetId: string;
+    };
+  };
 }
 
 const DB_NAME = "filmlab-mvp";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let dbFailed = false;
 let dbInstance: IDBPDatabase<FilmLabDB> | null = null;
@@ -54,12 +67,16 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
   for (let attempt = 0; attempt <= MAX_DB_RETRIES; attempt++) {
     try {
       const db = await openDB<FilmLabDB>(DB_NAME, DB_VERSION, {
-        upgrade(db) {
+        upgrade(db, oldVersion) {
           if (!db.objectStoreNames.contains("assets")) {
             db.createObjectStore("assets", { keyPath: "id" });
           }
           if (!db.objectStoreNames.contains("project")) {
             db.createObjectStore("project", { keyPath: "id" });
+          }
+          if (oldVersion < 3 && !db.objectStoreNames.contains("localMaskBlobs")) {
+            const store = db.createObjectStore("localMaskBlobs", { keyPath: "id" });
+            store.createIndex("byAssetId", "assetId", { unique: false });
           }
         },
         blocked() {
@@ -111,6 +128,177 @@ const getDB = (): Promise<IDBPDatabase<FilmLabDB> | null> => {
 /** Returns true if IndexedDB failed to open and we're in memory-only mode. */
 export const isStorageDegraded = () => dbFailed;
 
+const BRUSH_MASK_BLOB_POINT_THRESHOLD = 256;
+
+const clampValue = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const normalizeBrushPoints = (points: LocalBrushPoint[]) =>
+  points.map((point) => ({
+    x: clampValue(Number(point.x) || 0, 0, 1),
+    y: clampValue(Number(point.y) || 0, 0, 1),
+    pressure: clampValue(Number(point.pressure ?? 1) || 1, 0.05, 1),
+  }));
+
+const parseBrushPointsFromBlob = async (blob: Blob): Promise<LocalBrushPoint[] | null> => {
+  try {
+    const raw = JSON.parse(await blob.text()) as {
+      version?: number;
+      points?: Array<{ x?: unknown; y?: unknown; pressure?: unknown }>;
+    };
+    if (raw.version !== 1 || !Array.isArray(raw.points)) {
+      return null;
+    }
+    const nextPoints: LocalBrushPoint[] = [];
+    for (const point of raw.points) {
+      if (!point || typeof point !== "object") {
+        continue;
+      }
+      const x = Number(point.x);
+      const y = Number(point.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        continue;
+      }
+      const pressure = Number(point.pressure ?? 1);
+      nextPoints.push({
+        x: clampValue(x, 0, 1),
+        y: clampValue(y, 0, 1),
+        pressure: clampValue(Number.isFinite(pressure) ? pressure : 1, 0.05, 1),
+      });
+    }
+    return nextPoints;
+  } catch {
+    return null;
+  }
+};
+
+const deleteMaskBlobsByAssetId = async (db: IDBPDatabase<FilmLabDB>, assetId: string) => {
+  if (!db.objectStoreNames.contains("localMaskBlobs")) {
+    return;
+  }
+  const tx = db.transaction("localMaskBlobs", "readwrite");
+  const byAssetId = tx.store.index("byAssetId");
+  let cursor = await byAssetId.openCursor(IDBKeyRange.only(assetId));
+  while (cursor) {
+    await cursor.delete();
+    cursor = await cursor.continue();
+  }
+  await tx.done;
+};
+
+const maybeOffloadBrushMaskBlobs = async (
+  db: IDBPDatabase<FilmLabDB>,
+  assetId: string,
+  adjustments: EditingAdjustments | undefined
+): Promise<EditingAdjustments | undefined> => {
+  if (
+    !adjustments?.localAdjustments ||
+    adjustments.localAdjustments.length === 0 ||
+    !db.objectStoreNames.contains("localMaskBlobs")
+  ) {
+    return adjustments;
+  }
+
+  const tx = db.transaction("localMaskBlobs", "readwrite");
+  const nextLocals = await Promise.all(
+    adjustments.localAdjustments.map(async (local, index) => {
+      if (local.mask.mode !== "brush") {
+        return local;
+      }
+      const points = normalizeBrushPoints(local.mask.points ?? []);
+      if (points.length < BRUSH_MASK_BLOB_POINT_THRESHOLD) {
+        if (!local.mask.pointsBlobId) {
+          return local;
+        }
+        return {
+          ...local,
+          mask: {
+            ...local.mask,
+            points,
+            pointsBlobId: undefined,
+          },
+        };
+      }
+
+      const blobId = `asset:${assetId}:local:${local.id || index}:brush:v1`;
+      const payload = JSON.stringify({
+        version: 1,
+        points,
+      });
+      await tx.store.put({
+        id: blobId,
+        assetId,
+        blob: new Blob([payload], { type: "application/json" }),
+        updatedAt: new Date().toISOString(),
+      });
+      return {
+        ...local,
+        mask: {
+          ...local.mask,
+          points: [],
+          pointsBlobId: blobId,
+        },
+      };
+    })
+  );
+  await tx.done;
+
+  return {
+    ...adjustments,
+    localAdjustments: nextLocals,
+  };
+};
+
+const hydrateBrushMaskBlobs = async (
+  db: IDBPDatabase<FilmLabDB>,
+  adjustments: EditingAdjustments | undefined
+): Promise<EditingAdjustments | undefined> => {
+  if (
+    !adjustments?.localAdjustments ||
+    adjustments.localAdjustments.length === 0 ||
+    !db.objectStoreNames.contains("localMaskBlobs")
+  ) {
+    return adjustments;
+  }
+
+  let changed = false;
+  const nextLocals = await Promise.all(
+    adjustments.localAdjustments.map(async (local) => {
+      if (
+        local.mask.mode !== "brush" ||
+        !local.mask.pointsBlobId ||
+        (local.mask.points?.length ?? 0) > 0
+      ) {
+        return local;
+      }
+      const blobRecord = await db.get("localMaskBlobs", local.mask.pointsBlobId);
+      if (!blobRecord?.blob) {
+        return local;
+      }
+      const points = await parseBrushPointsFromBlob(blobRecord.blob);
+      if (!points || points.length === 0) {
+        return local;
+      }
+      changed = true;
+      return {
+        ...local,
+        mask: {
+          ...local.mask,
+          points,
+        },
+      };
+    })
+  );
+
+  if (!changed) {
+    return adjustments;
+  }
+
+  return {
+    ...adjustments,
+    localAdjustments: nextLocals,
+  };
+};
+
 export async function saveProject(project: FilmLabDB["project"]["value"]): Promise<boolean> {
   const db = await getDB();
   if (!db) return false;
@@ -138,7 +326,12 @@ export async function saveAsset(asset: FilmLabDB["assets"]["value"]): Promise<bo
   const db = await getDB();
   if (!db) return false;
   try {
-    await db.put("assets", asset);
+    await deleteMaskBlobsByAssetId(db, asset.id);
+    const storedAdjustments = await maybeOffloadBrushMaskBlobs(db, asset.id, asset.adjustments);
+    await db.put("assets", {
+      ...asset,
+      adjustments: storedAdjustments,
+    });
     return true;
   } catch (error) {
     console.warn("IndexedDB saveAsset failed:", error);
@@ -152,7 +345,13 @@ export async function loadAssets() {
   const db = await getDB();
   if (!db) return [];
   try {
-    return await db.getAll("assets");
+    const assets = await db.getAll("assets");
+    return Promise.all(
+      assets.map(async (asset) => ({
+        ...asset,
+        adjustments: await hydrateBrushMaskBlobs(db, asset.adjustments),
+      }))
+    );
   } catch (error) {
     console.warn("IndexedDB loadAssets failed:", error);
     return [];
@@ -164,6 +363,9 @@ export async function clearAssets(): Promise<boolean> {
   if (!db) return false;
   try {
     await db.clear("assets");
+    if (db.objectStoreNames.contains("localMaskBlobs")) {
+      await db.clear("localMaskBlobs");
+    }
     return true;
   } catch (error) {
     console.warn("IndexedDB clearAssets failed:", error);
@@ -175,6 +377,7 @@ export async function deleteAsset(id: string): Promise<boolean> {
   const db = await getDB();
   if (!db) return false;
   try {
+    await deleteMaskBlobsByAssetId(db, id);
     await db.delete("assets", id);
     return true;
   } catch (error) {

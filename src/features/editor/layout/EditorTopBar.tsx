@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, Copy, Redo2, RefreshCcw, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 import { useEditorState } from "../useEditorState";
 
@@ -31,6 +32,8 @@ export function EditorTopBar({ returnStep }: EditorTopBarProps) {
   } = useEditorState();
 
   const [message, setMessage] = useState<TopBarMessage | null>(null);
+  const [pasteConfirmOpen, setPasteConfirmOpen] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const canPaste = Boolean(copiedAdjustments);
 
   useEffect(() => {
@@ -135,17 +138,7 @@ export function EditorTopBar({ returnStep }: EditorTopBarProps) {
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => {
-                if (!window.confirm("粘贴将覆盖当前照片参数，确认继续吗？")) {
-                  return;
-                }
-                const pasted = handlePaste();
-                setMessage(
-                  pasted
-                    ? { type: "success", text: "已粘贴到当前素材。" }
-                    : { type: "error", text: "粘贴失败，剪贴板为空或未选择素材。" }
-                );
-              }}
+              onClick={() => setPasteConfirmOpen(true)}
               disabled={!selectedAsset || !canPaste}
             >
               粘贴设置
@@ -154,17 +147,7 @@ export function EditorTopBar({ returnStep }: EditorTopBarProps) {
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => {
-                if (!window.confirm("确认重置当前照片的全部参数吗？")) {
-                  return;
-                }
-                const reset = handleResetAll();
-                setMessage(
-                  reset
-                    ? { type: "success", text: "已重置当前照片参数。" }
-                    : { type: "error", text: "重置失败，请先选择素材。" }
-                );
-              }}
+              onClick={() => setResetConfirmOpen(true)}
               disabled={!selectedAsset}
               className="gap-1.5"
             >
@@ -189,6 +172,36 @@ export function EditorTopBar({ returnStep }: EditorTopBarProps) {
           </p>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pasteConfirmOpen}
+        onOpenChange={setPasteConfirmOpen}
+        title="粘贴设置"
+        description="粘贴将覆盖当前照片参数，确认继续吗？"
+        onConfirm={() => {
+          const pasted = handlePaste();
+          setMessage(
+            pasted
+              ? { type: "success", text: "已粘贴到当前素材。" }
+              : { type: "error", text: "粘贴失败，剪贴板为空或未选择素材。" }
+          );
+        }}
+      />
+
+      <ConfirmDialog
+        open={resetConfirmOpen}
+        onOpenChange={setResetConfirmOpen}
+        title="重置参数"
+        description="确认重置当前照片的全部参数吗？"
+        onConfirm={() => {
+          const reset = handleResetAll();
+          setMessage(
+            reset
+              ? { type: "success", text: "已重置当前照片参数。" }
+              : { type: "error", text: "重置失败，请先选择素材。" }
+          );
+        }}
+      />
     </header>
   );
 }

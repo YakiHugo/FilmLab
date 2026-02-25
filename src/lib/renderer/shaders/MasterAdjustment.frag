@@ -13,14 +13,20 @@ uniform vec4  u_tonalRange;  // (highlights, shadows, whites, blacks)
 uniform vec4  u_curve;       // (curveHi, curveLights, curveDarks, curveShadows)
 
 // -- White Balance --
-uniform float u_temperature;
-uniform float u_tint;
+uniform vec3  u_whiteBalanceLmsScale;
 
 // -- OKLab HSL --
 uniform float u_hueShift;
 uniform float u_saturation;
 uniform float u_vibrance;
 uniform float u_luminance;
+
+// -- Color Grading --
+uniform vec3  u_colorGradeShadows;    // (hueDeg, sat, luminance)
+uniform vec3  u_colorGradeMidtones;   // (hueDeg, sat, luminance)
+uniform vec3  u_colorGradeHighlights; // (hueDeg, sat, luminance)
+uniform float u_colorGradeBlend;      // [0, 1]
+uniform float u_colorGradeBalance;    // [-1, 1]
 
 // -- Detail --
 uniform float u_dehaze;
@@ -82,25 +88,23 @@ vec3 oklab2rgb(vec3 o) {
 
 // ---- LMS (CAT02 chromatic adaptation) ----
 
+// NOTE: GLSL mat3 constructor is column-major.
+// Values below are laid out as columns so the matrix math matches
+// the canonical CAT02 row-major coefficients.
 const mat3 RGB_TO_LMS = mat3(
-   0.7328, 0.4296, -0.1624,
-  -0.7036, 1.6975,  0.0061,
-   0.0030, 0.0136,  0.9834
+   0.7328, -0.7036, 0.0030,
+   0.4296,  1.6975, 0.0136,
+  -0.1624,  0.0061, 0.9834
 );
 const mat3 LMS_TO_RGB = mat3(
-   1.0961, -0.2789, 0.1827,
-   0.4544,  0.4735, 0.0721,
-  -0.0096, -0.0057, 1.0153
+   1.0961,  0.4544, -0.0096,
+  -0.2789,  0.4735, -0.0057,
+   0.1827,  0.0721,  1.0153
 );
 
-vec3 whiteBalanceLMS(vec3 linearRgb, float temp, float tintVal) {
+vec3 whiteBalanceLMS(vec3 linearRgb, vec3 lmsScale) {
   vec3 lms = RGB_TO_LMS * linearRgb;
-  // Temperature: adjust L (long-wave/red) and S (short-wave/blue) channels
-  float t = temp * 0.10;
-  lms.x *= (1.0 + t);
-  lms.z *= (1.0 - t);
-  // Tint: adjust M (medium-wave/green) channel
-  lms.y *= (1.0 + tintVal * 0.05);
+  lms *= max(lmsScale, vec3(0.0001));
   return LMS_TO_RGB * lms;
 }
 
@@ -108,6 +112,42 @@ vec3 whiteBalanceLMS(vec3 linearRgb, float temp, float tintVal) {
 
 float luminance(vec3 c) {
   return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+// ---- 3-way color grading ----
+vec3 hsv2rgbFast(vec3 c) {
+  vec3 p = abs(fract(c.xxx + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+  vec3 rgb = clamp(p - 1.0, 0.0, 1.0);
+  return c.z * mix(vec3(1.0), rgb, c.y);
+}
+
+vec3 gradeTint(vec3 grade) {
+  float hue = fract((grade.x + 180.0) / 360.0);
+  float sat = clamp(grade.y, 0.0, 1.0);
+  vec3 rgb = hsv2rgbFast(vec3(hue, 1.0, 1.0));
+  return (rgb - vec3(0.5)) * sat;
+}
+
+vec3 applyColorGrading(vec3 color, float lum) {
+  float blend = clamp(u_colorGradeBlend, 0.0, 1.0);
+  if (blend < 0.0001) {
+    return color;
+  }
+
+  float balance = clamp(u_colorGradeBalance, -1.0, 1.0);
+  float shadowEdge = clamp(0.45 + balance * 0.2, 0.2, 0.7);
+  float highlightEdge = clamp(0.55 + balance * 0.2, 0.3, 0.8);
+  float wShadows = 1.0 - smoothstep(0.05, shadowEdge, lum);
+  float wHighlights = smoothstep(highlightEdge, 0.95, lum);
+  float wMidtones = clamp(1.0 - wShadows - wHighlights, 0.0, 1.0);
+
+  vec3 tint = gradeTint(u_colorGradeShadows) * wShadows + gradeTint(u_colorGradeMidtones) * wMidtones + gradeTint(u_colorGradeHighlights) * wHighlights;
+  color += tint * blend * 0.45;
+
+  float luminanceShift = (u_colorGradeShadows.z * wShadows + u_colorGradeMidtones.z * wMidtones + u_colorGradeHighlights.z * wHighlights) * blend * 0.25;
+  color *= (1.0 + luminanceShift);
+
+  return clamp(color, 0.0, 1.0);
 }
 
 // ---- Main ----
@@ -122,7 +162,7 @@ void main() {
   color *= exp2(u_exposure);
 
   // Step 3: LMS white balance
-  color = whiteBalanceLMS(color, u_temperature / 100.0, u_tint / 100.0);
+  color = whiteBalanceLMS(color, u_whiteBalanceLmsScale);
 
   // Step 4: Contrast (linear space, pivot = 0.18 mid-gray)
   float pivot = 0.18;
@@ -164,14 +204,23 @@ void main() {
   // Luminance
   lab.x *= (1.0 + u_luminance * 0.01);
   color = oklab2rgb(lab);
+  color = max(color, vec3(0.0));  // gamut clamp after OKLab round-trip
 
-  // Step 8: Dehaze
+  // Step 8: 3-way color grading
+  lum = luminance(color);
+  color = applyColorGrading(color, lum);
+
+  // Step 9: Dehaze
   if (abs(u_dehaze) > 0.001) {
     float haze = u_dehaze * 0.01;
-    color = (color - haze * 0.1) / max(1.0 - haze * 0.3, 0.1);
+    float darkChannel = min(color.r, min(color.g, color.b));
+    float t = clamp(1.0 - haze * darkChannel * 2.0, 0.1, 2.0);
+    vec3 atmosphere = vec3(1.0);
+    color = (color - atmosphere * (1.0 - t)) / t;
+    color = clamp(color, 0.0, 1.0);
   }
 
-  // Step 9: Linear -> sRGB
+  // Step 10: Output (always sRGB)
   color = linear2srgb(clamp(color, 0.0, 1.0));
 
   outColor = vec4(color, 1.0);

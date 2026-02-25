@@ -90,8 +90,7 @@ export const EDITOR_TOOL_PANELS: EditorToolPanelDefinition[] = [
   {
     id: "mask",
     label: "蒙版",
-    description: "局部调整蒙版（即将推出）",
-    disabled: true,
+    description: "局部调整蒙版",
   },
   {
     id: "remove",
@@ -178,6 +177,8 @@ export const EFFECTS_SLIDERS: SliderDefinition[] = [
 
 export const DETAIL_SLIDERS: SliderDefinition[] = [
   { key: "sharpening", label: "锐化", min: 0, max: 100 },
+  { key: "sharpenRadius", label: "半径", min: 0, max: 100 },
+  { key: "sharpenDetail", label: "细节", min: 0, max: 100 },
   { key: "masking", label: "蒙版", min: 0, max: 100 },
   { key: "noiseReduction", label: "亮度降噪", min: 0, max: 100 },
   { key: "colorNoiseReduction", label: "色彩降噪", min: 0, max: 100 },
