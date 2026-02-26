@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { EditingAdjustments, Asset } from "@/types";
@@ -52,6 +52,11 @@ function loadSavedModel(): ModelOption {
 
 let nextSessionId = 0;
 const generateSessionId = () => `ai-edit-${++nextSessionId}-${Date.now()}`;
+const getMessageText = (message: { parts?: Array<{ type?: string; text?: string }> }) =>
+  message.parts
+    ?.filter((part): part is { type: "text"; text: string } => part.type === "text")
+    .map((part) => part.text)
+    .join("") ?? "";
 
 export function useAiEditSession(options: UseAiEditSessionOptions) {
   const { selectedAsset, adjustments, histogramSummary, onApply, onApplyFilmProfile } = options;
@@ -170,7 +175,7 @@ export function useAiEditSession(options: UseAiEditSessionOptions) {
   const estimatedTokens = useMemo(
     () =>
       estimateMessagesTokens(
-        messages.map((m) => ({ role: m.role, content: m.content }))
+        messages.map((m) => ({ role: m.role, content: getMessageText(m) }))
       ),
     [messages]
   );
@@ -184,7 +189,7 @@ export function useAiEditSession(options: UseAiEditSessionOptions) {
       void saveChatSession({
         id: sessionId,
         assetId: selectedAsset.id,
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        messages: messages.map((m) => ({ role: m.role, content: getMessageText(m) })),
         model: selectedModel.id,
         provider: selectedModel.provider,
         updatedAt: new Date().toISOString(),
@@ -369,3 +374,4 @@ export function useAiEditSession(options: UseAiEditSessionOptions) {
     clearChat,
   };
 }
+

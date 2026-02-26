@@ -1,44 +1,105 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
+import { resolveAssetImportDay } from "@/stores/project/grouping";
+import { hasAnyTag, normalizeTags } from "@/stores/project/tagging";
 import type { Asset } from "@/types";
+
+const toTagKey = (tag: string) => tag.toLocaleLowerCase();
+
+export interface WorkspaceFilterCriteria {
+  searchText: string;
+  selectedDay: string;
+  selectedTags: string[];
+}
+
+export const buildWorkspaceFilterOptions = (assets: Asset[]) => {
+  const daySet = new Set<string>();
+  const tagSet = new Set<string>();
+
+  assets.forEach((asset) => {
+    daySet.add(resolveAssetImportDay(asset));
+    normalizeTags(asset.tags ?? []).forEach((tag) => tagSet.add(tag));
+  });
+
+  return {
+    dayOptions: Array.from(daySet).sort((a, b) => b.localeCompare(a)),
+    tagOptions: Array.from(tagSet).sort((a, b) => a.localeCompare(b, "zh-CN")),
+  };
+};
+
+export const filterWorkspaceAssets = (assets: Asset[], criteria: WorkspaceFilterCriteria) => {
+  const normalizedSearch = criteria.searchText.trim().toLowerCase();
+  return assets.filter((asset) => {
+    const day = resolveAssetImportDay(asset);
+    if (criteria.selectedDay !== "all" && day !== criteria.selectedDay) {
+      return false;
+    }
+    if (!hasAnyTag(asset.tags, criteria.selectedTags)) {
+      return false;
+    }
+    if (normalizedSearch && !asset.name.toLowerCase().includes(normalizedSearch)) {
+      return false;
+    }
+    return true;
+  });
+};
 
 export function useWorkspaceFiltering(assets: Asset[]) {
   const [searchText, setSearchText] = useState("");
-  const [selectedGroup, setSelectedGroup] = useState("all");
+  const [selectedDay, setSelectedDay] = useState("all");
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
-  const groupOptions = useMemo(() => {
-    const groups = new Set<string>();
-    assets.forEach((asset) => groups.add(asset.group ?? "未分组"));
-    return Array.from(groups);
-  }, [assets]);
+  const { dayOptions, tagOptions } = useMemo(() => buildWorkspaceFilterOptions(assets), [assets]);
 
-  const normalizedSearch = searchText.trim().toLowerCase();
   const filteredAssets = useMemo(
     () =>
-      assets.filter((asset) => {
-        const group = asset.group ?? "未分组";
-        if (selectedGroup !== "all" && group !== selectedGroup) {
-          return false;
-        }
-        if (normalizedSearch && !asset.name.toLowerCase().includes(normalizedSearch)) {
-          return false;
-        }
-        return true;
+      filterWorkspaceAssets(assets, {
+        searchText,
+        selectedDay,
+        selectedTags,
       }),
-    [assets, normalizedSearch, selectedGroup]
+    [assets, searchText, selectedDay, selectedTags]
   );
+
+  const toggleSelectedTag = (tag: string) => {
+    const normalized = normalizeTags([tag])[0];
+    if (!normalized) {
+      return;
+    }
+
+    const key = toTagKey(normalized);
+    setSelectedTags((prev) => {
+      const prevNormalized = normalizeTags(prev);
+      const exists = prevNormalized.some((item) => toTagKey(item) === key);
+      if (exists) {
+        return prevNormalized.filter((item) => toTagKey(item) !== key);
+      }
+      return normalizeTags([...prevNormalized, normalized]);
+    });
+  };
+
+  const clearSelectedTags = () => {
+    setSelectedTags([]);
+  };
 
   const resetFilters = () => {
     setSearchText("");
-    setSelectedGroup("all");
+    setSelectedDay("all");
+    setSelectedTags([]);
   };
 
   return {
     searchText,
     setSearchText,
-    selectedGroup,
-    setSelectedGroup,
-    groupOptions,
+    selectedDay,
+    setSelectedDay,
+    dayOptions,
+    selectedTags,
+    setSelectedTags,
+    toggleSelectedTag,
+    clearSelectedTags,
+    tagOptions,
     filteredAssets,
     resetFilters,
   };
 }
+

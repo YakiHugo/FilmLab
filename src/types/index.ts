@@ -1,4 +1,4 @@
-export type PresetTag = "portrait" | "landscape" | "night" | "bw";
+﻿export type PresetTag = "portrait" | "landscape" | "night" | "bw";
 
 /**
  * Single source of truth for preset-adjustable numeric keys.
@@ -423,11 +423,16 @@ export interface Asset {
   createdAt: string;
   objectUrl: string;
   thumbnailUrl?: string;
+  /** Local day key used by workspace timeline grouping, e.g. "2026-02-26". */
+  importDay?: string;
+  /** User-defined labels for filtering and batch management. */
+  tags?: string[];
   presetId?: string;
   intensity?: number;
   filmProfileId?: string;
   filmOverrides?: FilmProfileOverrides;
   filmProfile?: FilmProfile;
+  /** @deprecated Legacy field kept for backward-compat reads only. */
   group?: string;
   blob?: Blob;
   thumbnailBlob?: Blob;
@@ -446,6 +451,8 @@ export type AssetUpdate = Partial<
     | "filmProfile"
     | "filmOverrides"
     | "group"
+    | "importDay"
+    | "tags"
     | "metadata"
     | "adjustments"
     | "aiRecommendation"
@@ -476,3 +483,4 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
 }
+

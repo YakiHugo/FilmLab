@@ -1,4 +1,4 @@
-import { memo } from "react";
+﻿import { memo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { useEditorStore } from "@/stores/editorStore";
 import { EditorHistogram } from "./EditorHistogram";
@@ -25,7 +25,7 @@ export const EditorHistogramCard = memo(function EditorHistogramCard() {
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Badge size="control" variant={showOriginal ? "default" : "secondary"}>
-          {showOriginal ? "当前：原图" : "当前：调后"}
+          {showOriginal ? "当前：原图" : "当前：调整后"}
         </Badge>
         <Badge size="control" variant="secondary">
           {histogramModeLabel}
@@ -46,11 +46,12 @@ export const EditorHistogramCard = memo(function EditorHistogramCard() {
             <span>{selectedAsset.intensity ?? 0}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span>分组</span>
-            <span>{selectedAsset.group ?? "未分组"}</span>
+            <span>日期组</span>
+            <span>{selectedAsset.importDay ?? selectedAsset.group ?? "未分组"}</span>
           </div>
         </div>
       )}
     </div>
   );
 });
+

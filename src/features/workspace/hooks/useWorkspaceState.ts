@@ -1,10 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearch } from "@tanstack/react-router";
 import { presets as basePresets } from "@/data/presets";
-import {
-  MAX_STYLE_SELECTION,
-  applySelectionLimit,
-} from "@/lib/ai/recommendationUtils";
+import { MAX_STYLE_SELECTION, applySelectionLimit } from "@/lib/ai/recommendationUtils";
 import { useProjectStore } from "@/stores/projectStore";
 import { useShallow } from "zustand/react/shallow";
 import type { WorkspaceStep } from "../types";
@@ -28,17 +25,23 @@ export const useWorkspaceState = () => {
     project,
     assets,
     isLoading,
-    applyPresetToGroup,
+    applyPresetToDay,
     applyPresetToSelection,
     updateAsset,
+    addTagsToAssets,
+    removeTagsFromAssets,
+    deleteAssets,
   } = useProjectStore(
     useShallow((state) => ({
       project: state.project,
       assets: state.assets,
       isLoading: state.isLoading,
-      applyPresetToGroup: state.applyPresetToGroup,
+      applyPresetToDay: state.applyPresetToDay,
       applyPresetToSelection: state.applyPresetToSelection,
       updateAsset: state.updateAsset,
+      addTagsToAssets: state.addTagsToAssets,
+      removeTagsFromAssets: state.removeTagsFromAssets,
+      deleteAssets: state.deleteAssets,
     }))
   );
 
@@ -50,6 +53,8 @@ export const useWorkspaceState = () => {
   const [quality, setQuality] = useState(92);
   const [maxDimension, setMaxDimension] = useState(0);
   const [activeAssetId, setActiveAssetId] = useState<string | null>(null);
+  const [tagInput, setTagInput] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // --- Sub-hooks ---
   const selection = useWorkspaceSelection();
@@ -120,7 +125,16 @@ export const useWorkspaceState = () => {
     }
 
     presets.setIntensity(clampIntensity(context.intensity));
-  }, [assets, currentStep, isLoading, router, presets.presetById, selection.setSelectionWithLimit, presets.setSelectedPresetId, presets.setIntensity]);
+  }, [
+    assets,
+    currentStep,
+    isLoading,
+    router,
+    presets.presetById,
+    selection.setSelectionWithLimit,
+    presets.setSelectedPresetId,
+    presets.setIntensity,
+  ]);
 
   // --- Keep activeAssetId valid ---
   useEffect(() => {
@@ -175,6 +189,16 @@ export const useWorkspaceState = () => {
   const allFilteredSelected =
     filtering.filteredAssets.length > 0 && filteredSelectedCount === filtering.filteredAssets.length;
 
+  const tagActionAssetIds = useMemo(() => {
+    if (selection.selectedAssetIds.length > 0) {
+      return selection.selectedAssetIds;
+    }
+    if (activeAssetId) {
+      return [activeAssetId];
+    }
+    return [] as string[];
+  }, [activeAssetId, selection.selectedAssetIds]);
+
   // --- Bridged handlers ---
   const handleToggleAllFilteredAssets = useCallback(() => {
     selection.handleToggleAllFilteredAssets(filtering.filteredAssets, allFilteredSelected);
@@ -199,6 +223,63 @@ export const useWorkspaceState = () => {
       selection.handleImportResult(result);
     },
     [selection.handleImportResult]
+  );
+
+  const handleApplyTagToSelection = useCallback(() => {
+    const tag = tagInput.trim();
+    if (!tag || tagActionAssetIds.length === 0) {
+      return;
+    }
+    addTagsToAssets(tagActionAssetIds, [tag]);
+    setTagInput("");
+  }, [addTagsToAssets, tagActionAssetIds, tagInput]);
+
+  const handleRemoveTagFromSelection = useCallback(() => {
+    const tag = tagInput.trim();
+    if (!tag || tagActionAssetIds.length === 0) {
+      return;
+    }
+    removeTagsFromAssets(tagActionAssetIds, [tag]);
+    setTagInput("");
+  }, [removeTagsFromAssets, tagActionAssetIds, tagInput]);
+
+  const handleDeleteSelection = useCallback(async () => {
+    if (isDeleting || selection.selectedAssetIds.length === 0) {
+      return;
+    }
+    const confirmed = window.confirm(
+      `确定删除已选 ${selection.selectedAssetIds.length} 张素材吗？此操作不可撤销。`
+    );
+    if (!confirmed) {
+      return;
+    }
+    setIsDeleting(true);
+    try {
+      await deleteAssets(selection.selectedAssetIds);
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [deleteAssets, isDeleting, selection.selectedAssetIds]);
+
+  const handleDeleteAsset = useCallback(
+    async (assetId: string) => {
+      if (isDeleting) {
+        return;
+      }
+      const target = assets.find((asset) => asset.id === assetId);
+      const label = target?.name ?? "该素材";
+      const confirmed = window.confirm(`确定删除“${label}”吗？此操作不可撤销。`);
+      if (!confirmed) {
+        return;
+      }
+      setIsDeleting(true);
+      try {
+        await deleteAssets([assetId]);
+      } finally {
+        setIsDeleting(false);
+      }
+    },
+    [assets, deleteAssets, isDeleting]
   );
 
   // --- Export ---
@@ -295,9 +376,15 @@ export const useWorkspaceState = () => {
       selectedPresetId: presets.selectedPresetId,
       intensity: clampIntensity(presets.intensity),
     });
-  }, [activeAssetId, currentStep, presets.intensity, isLoading, selection.selectedAssetIds, presets.selectedPresetId]);
+  }, [
+    activeAssetId,
+    currentStep,
+    presets.intensity,
+    isLoading,
+    selection.selectedAssetIds,
+    presets.selectedPresetId,
+  ]);
 
-  // --- Return the same shape as before ---
   return {
     WORKSPACE_STEPS,
     project,
@@ -306,7 +393,7 @@ export const useWorkspaceState = () => {
     importProgress,
     selectedAssetIds: selection.selectedAssetIds,
     clearAssetSelection: selection.clearAssetSelection,
-    applyPresetToGroup,
+    applyPresetToDay,
     applyPresetToSelection,
     updateAsset,
     isDragging,
@@ -315,8 +402,21 @@ export const useWorkspaceState = () => {
     setIsLibraryOpen,
     searchText: filtering.searchText,
     setSearchText: filtering.setSearchText,
-    selectedGroup: filtering.selectedGroup,
-    setSelectedGroup: filtering.setSelectedGroup,
+    selectedDay: filtering.selectedDay,
+    setSelectedDay: filtering.setSelectedDay,
+    dayOptions: filtering.dayOptions,
+    selectedTags: filtering.selectedTags,
+    setSelectedTags: filtering.setSelectedTags,
+    toggleSelectedTag: filtering.toggleSelectedTag,
+    clearSelectedTags: filtering.clearSelectedTags,
+    tagOptions: filtering.tagOptions,
+    tagInput,
+    setTagInput,
+    handleApplyTagToSelection,
+    handleRemoveTagFromSelection,
+    isDeleting,
+    handleDeleteSelection,
+    handleDeleteAsset,
     activeAssetId,
     setActiveAssetId,
     selectedPresetId: presets.selectedPresetId,
@@ -344,7 +444,6 @@ export const useWorkspaceState = () => {
     aiPresetCandidates: presets.aiPresetCandidates,
     selectedSet,
     selectedAssets,
-    groupOptions: filtering.groupOptions,
     filteredAssets: filtering.filteredAssets,
     filteredSelectedCount,
     allFilteredSelected,
@@ -374,3 +473,4 @@ export const useWorkspaceState = () => {
     dismissExportFeedback,
   };
 };
+

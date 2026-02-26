@@ -1,4 +1,4 @@
-import { Link, useLocation, useSearch } from "@tanstack/react-router";
+﻿import { Link, useLocation, useSearch } from "@tanstack/react-router";
 import { Film } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { resolveEditorReturnStep } from "@/features/workspace/navigation";
@@ -17,9 +17,7 @@ export function AppHeader() {
     }))
   );
   const isEditorRoute = pathname === "/editor";
-  const homeStep = isEditorRoute
-    ? resolveEditorReturnStep(editorSearch?.returnStep)
-    : "library";
+  const homeStep = isEditorRoute ? resolveEditorReturnStep(editorSearch?.returnStep) : "library";
 
   return (
     <header className="sticky top-0 z-30 border-b border-white/5 bg-slate-950/70 backdrop-blur">
@@ -51,7 +49,7 @@ export function AppHeader() {
             compact
             className="hidden sm:inline-flex"
             onFiles={(files) => {
-              void useProjectStore.getState().addAssets(Array.from(files));
+              void useProjectStore.getState().importAssets(files);
             }}
           />
         </div>

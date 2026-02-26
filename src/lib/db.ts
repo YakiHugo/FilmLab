@@ -1,4 +1,4 @@
-import { openDB, type DBSchema, type IDBPDatabase } from "idb";
+﻿import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import type {
   AssetAiRecommendation,
   AssetMetadata,
@@ -32,6 +32,8 @@ interface FilmLabDB extends DBSchema {
       filmProfileId?: string;
       filmOverrides?: FilmProfileOverrides;
       group?: string;
+      importDay?: string;
+      tags?: string[];
       thumbnailBlob?: Blob;
       metadata?: AssetMetadata;
       adjustments?: EditingAdjustments;
@@ -70,7 +72,7 @@ interface FilmLabDB extends DBSchema {
 }
 
 const DB_NAME = "filmlab-mvp";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 let dbFailed = false;
 let dbInstance: IDBPDatabase<FilmLabDB> | null = null;
@@ -98,9 +100,11 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
             const chatStore = db.createObjectStore("chatSessions", { keyPath: "id" });
             chatStore.createIndex("byAssetId", "assetId", { unique: false });
           }
+          // v5 introduces optional asset value fields (`importDay`, `tags`) only.
+          // No object store migration is required because IndexedDB values are schemaless.
         },
         blocked() {
-          console.warn("IndexedDB upgrade blocked — another tab has an older version open.");
+          console.warn("IndexedDB upgrade blocked 鈥?another tab has an older version open.");
         },
         blocking() {
           // Another tab is trying to upgrade; close our connection so it can proceed.
@@ -408,7 +412,7 @@ export async function deleteAsset(id: string): Promise<boolean> {
   }
 }
 
-// ── Chat session persistence ──────────────────────────────────────────
+// 鈹€鈹€ Chat session persistence 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 export async function saveChatSession(session: ChatSessionRecord): Promise<boolean> {
   const db = await getDB();
@@ -459,6 +463,18 @@ export async function deleteChatSession(id: string): Promise<boolean> {
   }
 }
 
+export async function clearChatSessions(): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("chatSessions")) return false;
+  try {
+    await db.clear("chatSessions");
+    return true;
+  } catch (error) {
+    console.warn("IndexedDB clearChatSessions failed:", error);
+    return false;
+  }
+}
+
 async function deleteChatSessionsByAssetId(assetId: string): Promise<void> {
   const db = await getDB();
   if (!db || !db.objectStoreNames.contains("chatSessions")) return;
@@ -475,3 +491,4 @@ async function deleteChatSessionsByAssetId(assetId: string): Promise<void> {
     console.warn("IndexedDB deleteChatSessionsByAssetId failed:", error);
   }
 }
+
