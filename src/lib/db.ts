@@ -8,6 +8,15 @@ import type {
   LocalBrushPoint,
 } from "@/types";
 
+export interface ChatSessionRecord {
+  id: string;
+  assetId: string;
+  messages: Array<{ role: string; content: unknown }>;
+  model: string;
+  provider: string;
+  updatedAt: string;
+}
+
 interface FilmLabDB extends DBSchema {
   assets: {
     key: string;
@@ -51,10 +60,17 @@ interface FilmLabDB extends DBSchema {
       byAssetId: string;
     };
   };
+  chatSessions: {
+    key: string;
+    value: ChatSessionRecord;
+    indexes: {
+      byAssetId: string;
+    };
+  };
 }
 
 const DB_NAME = "filmlab-mvp";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 let dbFailed = false;
 let dbInstance: IDBPDatabase<FilmLabDB> | null = null;
@@ -77,6 +93,10 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
           if (oldVersion < 3 && !db.objectStoreNames.contains("localMaskBlobs")) {
             const store = db.createObjectStore("localMaskBlobs", { keyPath: "id" });
             store.createIndex("byAssetId", "assetId", { unique: false });
+          }
+          if (oldVersion < 4 && !db.objectStoreNames.contains("chatSessions")) {
+            const chatStore = db.createObjectStore("chatSessions", { keyPath: "id" });
+            chatStore.createIndex("byAssetId", "assetId", { unique: false });
           }
         },
         blocked() {
@@ -379,9 +399,79 @@ export async function deleteAsset(id: string): Promise<boolean> {
   try {
     await deleteMaskBlobsByAssetId(db, id);
     await db.delete("assets", id);
+    // Clean up associated chat sessions
+    await deleteChatSessionsByAssetId(id);
     return true;
   } catch (error) {
     console.warn("IndexedDB deleteAsset failed:", error);
     return false;
+  }
+}
+
+// ── Chat session persistence ──────────────────────────────────────────
+
+export async function saveChatSession(session: ChatSessionRecord): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("chatSessions")) return false;
+  try {
+    await db.put("chatSessions", session);
+    return true;
+  } catch (error) {
+    console.warn("IndexedDB saveChatSession failed:", error);
+    return false;
+  }
+}
+
+export async function loadChatSession(id: string): Promise<ChatSessionRecord | null> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("chatSessions")) return null;
+  try {
+    return (await db.get("chatSessions", id)) ?? null;
+  } catch (error) {
+    console.warn("IndexedDB loadChatSession failed:", error);
+    return null;
+  }
+}
+
+export async function loadChatSessionByAssetId(assetId: string): Promise<ChatSessionRecord | null> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("chatSessions")) return null;
+  try {
+    const all = await db.getAllFromIndex("chatSessions", "byAssetId", assetId);
+    if (all.length === 0) return null;
+    // Return the most recently updated session
+    return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  } catch (error) {
+    console.warn("IndexedDB loadChatSessionByAssetId failed:", error);
+    return null;
+  }
+}
+
+export async function deleteChatSession(id: string): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("chatSessions")) return false;
+  try {
+    await db.delete("chatSessions", id);
+    return true;
+  } catch (error) {
+    console.warn("IndexedDB deleteChatSession failed:", error);
+    return false;
+  }
+}
+
+async function deleteChatSessionsByAssetId(assetId: string): Promise<void> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("chatSessions")) return;
+  try {
+    const tx = db.transaction("chatSessions", "readwrite");
+    const index = tx.store.index("byAssetId");
+    let cursor = await index.openCursor(IDBKeyRange.only(assetId));
+    while (cursor) {
+      await cursor.delete();
+      cursor = await cursor.continue();
+    }
+    await tx.done;
+  } catch (error) {
+    console.warn("IndexedDB deleteChatSessionsByAssetId failed:", error);
   }
 }
