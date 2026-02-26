@@ -1,4 +1,4 @@
-import { Link, useLocation } from "@tanstack/react-router";
+import { Link, useLocation, useSearch } from "@tanstack/react-router";
 import { Film } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { resolveEditorReturnStep } from "@/features/workspace/navigation";
@@ -7,12 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { UploadButton } from "@/components/UploadButton";
 
 export function AppHeader() {
-  const { pathname, search } = useLocation({
-    select: (state) => ({
-      pathname: state.pathname,
-      search: state.search,
-    }),
-  });
+  const pathname = useLocation({ select: (state) => state.pathname });
+  const editorSearch = useSearch({ from: "/editor", shouldThrow: false });
   const { project, assets, selectedAssetIds } = useProjectStore(
     useShallow((state) => ({
       project: state.project,
@@ -22,7 +18,7 @@ export function AppHeader() {
   );
   const isEditorRoute = pathname === "/editor";
   const homeStep = isEditorRoute
-    ? resolveEditorReturnStep((search as { returnStep?: unknown }).returnStep)
+    ? resolveEditorReturnStep(editorSearch?.returnStep)
     : "library";
 
   return (

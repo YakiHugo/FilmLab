@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useRouter, useSearch } from "@tanstack/react-router";
 import { presets as basePresets } from "@/data/presets";
 import {
   MAX_STYLE_SELECTION,
@@ -21,9 +21,8 @@ import { useWorkspacePresets } from "./useWorkspacePresets";
 import { useWorkspaceSelection } from "./useWorkspaceSelection";
 
 export const useWorkspaceState = () => {
-  const navigate = useNavigate({ from: "/" });
-  const { step } = useSearch({ from: "/" });
-  const currentStep: WorkspaceStep = step === "style" || step === "export" ? step : "library";
+  const router = useRouter();
+  const { step: currentStep } = useSearch({ from: "/" });
 
   const {
     project,
@@ -93,7 +92,7 @@ export const useWorkspaceState = () => {
     const hasExplicitStep = new URLSearchParams(window.location.search).has("step");
     const canRestoreStep = context.step === "library" || assets.length > 0;
     if (!hasExplicitStep && canRestoreStep && context.step !== currentStep) {
-      void navigate({ search: { step: context.step } });
+      void router.navigate({ to: "/", search: { step: context.step } });
     }
 
     if (!assets.length) {
@@ -121,7 +120,7 @@ export const useWorkspaceState = () => {
     }
 
     presets.setIntensity(clampIntensity(context.intensity));
-  }, [assets, currentStep, isLoading, navigate, presets.presetById, selection.setSelectionWithLimit, presets.setSelectedPresetId, presets.setIntensity]);
+  }, [assets, currentStep, isLoading, router, presets.presetById, selection.setSelectionWithLimit, presets.setSelectedPresetId, presets.setIntensity]);
 
   // --- Keep activeAssetId valid ---
   useEffect(() => {
@@ -230,20 +229,20 @@ export const useWorkspaceState = () => {
 
   const setStep = useCallback(
     (nextStep: WorkspaceStep) => {
-      void navigate({ search: { step: nextStep } });
+      void router.navigate({ to: "/", search: { step: nextStep } });
     },
-    [navigate]
+    [router]
   );
 
   const openFineTunePage = useCallback(() => {
     if (!activeAssetId) {
       return;
     }
-    void navigate({
+    void router.navigate({
       to: "/editor",
       search: { assetId: activeAssetId, returnStep: currentStep },
     });
-  }, [activeAssetId, currentStep, navigate]);
+  }, [activeAssetId, currentStep, router]);
 
   const targetSelection = useMemo(
     () =>
