@@ -7,6 +7,26 @@ interface LoadedImageSource {
   cleanup?: () => void;
 }
 
+// LRU-style cache for recommendation image data URLs keyed by asset id.
+const IMAGE_CACHE_MAX = 50;
+const imageDataUrlCache = new Map<string, string>();
+
+const evictOldestCacheEntry = () => {
+  if (imageDataUrlCache.size <= IMAGE_CACHE_MAX) return;
+  const firstKey = imageDataUrlCache.keys().next().value;
+  if (firstKey !== undefined) {
+    imageDataUrlCache.delete(firstKey);
+  }
+};
+
+export const invalidateImageCache = (assetId?: string) => {
+  if (assetId) {
+    imageDataUrlCache.delete(assetId);
+  } else {
+    imageDataUrlCache.clear();
+  }
+};
+
 const loadImageSource = async (source: Blob): Promise<LoadedImageSource> => {
   if (typeof createImageBitmap === "function") {
     const bitmap = await createImageBitmap(source, { imageOrientation: "from-image" });
@@ -57,6 +77,15 @@ export const toRecommendationImageDataUrl = async (
   maxDimension = 640,
   quality = 0.8
 ) => {
+  const cacheKey = asset.id;
+  const cached = imageDataUrlCache.get(cacheKey);
+  if (cached) {
+    // Move to end for LRU behavior
+    imageDataUrlCache.delete(cacheKey);
+    imageDataUrlCache.set(cacheKey, cached);
+    return cached;
+  }
+
   const blob = await toBlobFromAsset(asset);
   const loaded = await loadImageSource(blob);
   const sourceWidth = Math.max(1, loaded.width);
@@ -77,5 +106,10 @@ export const toRecommendationImageDataUrl = async (
   context.imageSmoothingQuality = "high";
   context.drawImage(loaded.source, 0, 0, targetWidth, targetHeight);
   loaded.cleanup?.();
-  return canvas.toDataURL("image/jpeg", quality);
+  const dataUrl = canvas.toDataURL("image/jpeg", quality);
+
+  imageDataUrlCache.set(cacheKey, dataUrl);
+  evictOldestCacheEntry();
+
+  return dataUrl;
 };

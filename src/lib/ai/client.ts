@@ -1,4 +1,5 @@
 import type { AssetMetadata, AiPresetRecommendation } from "@/types";
+import { AiError, type AiErrorCode } from "./errors";
 
 export interface RecommendFilmPresetCandidate {
   id: string;
@@ -103,7 +104,28 @@ export const retryWithBackoff = async <T>(
   throw lastError instanceof Error ? lastError : new Error("Recommendation request failed.");
 };
 
+// Deduplication: prevent duplicate in-flight requests for the same asset
+const inFlightRequests = new Map<string, Promise<RecommendFilmResponsePayload & { attempts: number }>>();
+
 export const requestFilmRecommendationWithRetry = async (
+  payload: RecommendFilmRequestPayload,
+  options?: RecommendFilmOptions
+) => {
+  const dedupeKey = payload.assetId;
+  const existing = inFlightRequests.get(dedupeKey);
+  if (existing) {
+    return existing;
+  }
+
+  const promise = _requestFilmRecommendationImpl(payload, options).finally(() => {
+    inFlightRequests.delete(dedupeKey);
+  });
+
+  inFlightRequests.set(dedupeKey, promise);
+  return promise;
+};
+
+const _requestFilmRecommendationImpl = async (
   payload: RecommendFilmRequestPayload,
   options?: RecommendFilmOptions
 ) => {
@@ -123,7 +145,19 @@ export const requestFilmRecommendationWithRetry = async (
       });
       if (!response.ok) {
         const text = await response.text().catch(() => "");
-        throw new Error(`Recommendation request failed: ${response.status} ${text}`);
+        // Try to parse structured AiError from server
+        try {
+          const parsed = JSON.parse(text) as { error?: string; code?: AiErrorCode };
+          if (parsed.code) {
+            throw new AiError(parsed.error ?? "Request failed.", parsed.code, {
+              statusCode: response.status,
+              retryable: response.status === 429 || response.status >= 500,
+            });
+          }
+        } catch (e) {
+          if (e instanceof AiError) throw e;
+        }
+        throw AiError.fromHttpStatus(response.status, text);
       }
       const parsed = (await response.json()) as Partial<RecommendFilmResponsePayload>;
       if (!parsed || typeof parsed.model !== "string" || !Array.isArray(parsed.topPresets)) {
