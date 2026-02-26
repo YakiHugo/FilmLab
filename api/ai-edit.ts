@@ -1,21 +1,10 @@
-import { streamText } from "ai";
+import { streamText, type UIMessage } from "ai";
 import { z } from "zod";
-import { type ApiRequest, type ApiResponse, readJsonBody, sendError } from "./_utils";
+import { type ApiRequest, type ApiResponse, readJsonBody, sendError, handleRouteError, providerSchema, hasAnyApiKey } from "./_utils";
 import { resolveModel } from "../src/lib/ai/provider";
 import { aiControllableAdjustmentsSchema } from "../src/lib/ai/editSchema";
 import { buildSystemPrompt } from "../src/lib/ai/prompts";
-
-const providerSchema = z.enum(["openai", "anthropic", "google"]);
-
-const histogramSummarySchema = z.object({
-  meanBrightness: z.number(),
-  contrastSpread: z.number(),
-  temperature: z.enum(["warm", "neutral", "cool"]),
-  saturationLevel: z.enum(["low", "medium", "high"]),
-  shadowCharacter: z.enum(["crushed", "normal", "lifted"]),
-  highlightCharacter: z.enum(["clipped", "normal", "rolled"]),
-  isMonochrome: z.boolean(),
-}).optional();
+import { histogramSummarySchema } from "../src/lib/ai/schemas";
 
 const messageSchema = z.object({
   role: z.enum(["user", "assistant", "system"]),
@@ -27,12 +16,12 @@ const requestSchema = z.object({
   provider: providerSchema.default("openai"),
   model: z.string().default("gpt-4.1-mini"),
   imageDataUrl: z.string().optional(),
-  histogramSummary: histogramSummarySchema,
+  histogramSummary: histogramSummarySchema.optional(),
   currentAdjustments: z.record(z.unknown()).optional(),
   currentFilmProfileId: z.string().optional(),
   referenceImages: z.array(z.object({
     imageDataUrl: z.string(),
-    histogramSummary: histogramSummarySchema,
+    histogramSummary: histogramSummarySchema.optional(),
   })).max(3).optional(),
 });
 
@@ -42,8 +31,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     return;
   }
 
-  // Check for at least one API key
-  if (!process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY && !process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+  if (!hasAnyApiKey()) {
     sendError(response, 500, "No AI API key is configured.");
     return;
   }
@@ -58,24 +46,31 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
 
   const systemPrompt = buildSystemPrompt({
-    histogramSummary: payload.histogramSummary as any,
-    currentAdjustments: payload.currentAdjustments as any,
+    histogramSummary: payload.histogramSummary,
+    currentAdjustments: payload.currentAdjustments as Record<string, unknown> | undefined,
     currentFilmProfileId: payload.currentFilmProfileId,
     referenceImages: payload.referenceImages?.map((ref) => ({
-      histogramSummary: ref.histogramSummary as any,
+      histogramSummary: ref.histogramSummary,
     })),
   });
 
-  // Build messages with image content
+  // Find the last user message index for image attachment
+  let lastUserIdx = -1;
+  for (let i = payload.messages.length - 1; i >= 0; i--) {
+    if (payload.messages[i].role === "user") {
+      lastUserIdx = i;
+      break;
+    }
+  }
+
+  // Build messages with image content attached to the last user message
   const messages = payload.messages.map((msg, idx) => {
-    // Attach the current image to the first user message
-    if (msg.role === "user" && idx === 0 && payload.imageDataUrl) {
-      const contentParts: any[] = [];
+    if (msg.role === "user" && idx === lastUserIdx && payload.imageDataUrl) {
+      const contentParts: Array<{ type: string; text?: string; image?: string }> = [];
       if (typeof msg.content === "string") {
         contentParts.push({ type: "text", text: msg.content });
       }
       contentParts.push({ type: "image", image: payload.imageDataUrl });
-      // Attach reference images if present
       if (payload.referenceImages) {
         for (const ref of payload.referenceImages) {
           contentParts.push({ type: "image", image: ref.imageDataUrl });
@@ -88,9 +83,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
   try {
     const result = streamText({
-      model: resolveModel(payload.provider, payload.model),
+      model: await resolveModel(payload.provider, payload.model),
       system: systemPrompt,
-      messages: messages as any,
+      messages: messages as Parameters<typeof streamText>[0]["messages"],
       tools: {
         applyAdjustments: {
           description: "Apply photo editing adjustments to the current image. You MUST call this tool after analyzing the image.",
@@ -107,6 +102,6 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
     result.pipeUIMessageStreamToResponse(response);
   } catch (error) {
-    sendError(response, 500, error instanceof Error ? error.message : "AI edit request failed.");
+    handleRouteError(response, error, "AI edit request failed.");
   }
 }

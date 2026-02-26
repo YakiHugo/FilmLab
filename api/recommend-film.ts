@@ -1,10 +1,8 @@
 import { generateObject } from "ai";
 import { z } from "zod";
-import { type ApiRequest, type ApiResponse, readJsonBody, sendError } from "./_utils";
+import { type ApiRequest, type ApiResponse, readJsonBody, sendError, handleRouteError, providerSchema, checkProviderApiKey } from "./_utils";
 import { resolveModel } from "../src/lib/ai/provider";
 import { sanitizeTopPresetRecommendations } from "../src/lib/ai/recommendationUtils";
-
-const providerSchema = z.enum(["openai", "anthropic", "google"]);
 
 const candidateSchema = z.object({
   id: z.string().min(1),
@@ -49,12 +47,6 @@ const resultSchema = z.object({
   ),
 });
 
-const API_KEY_BY_PROVIDER = {
-  openai: "OPENAI_API_KEY",
-  anthropic: "ANTHROPIC_API_KEY",
-  google: "GOOGLE_GENERATIVE_AI_API_KEY",
-} as const;
-
 const buildPrompt = (
   payload: z.infer<typeof requestSchema>,
   candidateIds: string[]
@@ -88,9 +80,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     return;
   }
 
-  const providerApiKeyEnv = API_KEY_BY_PROVIDER[payload.provider];
-  if (!process.env[providerApiKeyEnv]) {
-    sendError(response, 500, `${providerApiKeyEnv} is not configured.`);
+  const missingKey = checkProviderApiKey(payload.provider);
+  if (missingKey) {
+    sendError(response, 500, `${missingKey} is not configured.`);
     return;
   }
 
@@ -98,7 +90,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
   try {
     const aiResult = await generateObject({
-      model: resolveModel(payload.provider, payload.model),
+      model: await resolveModel(payload.provider, payload.model),
       schema: resultSchema,
       temperature: 0.15,
       messages: [
@@ -134,6 +126,6 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       topPresets,
     });
   } catch (error) {
-    sendError(response, 500, error instanceof Error ? error.message : "Recommendation failed.");
+    handleRouteError(response, error, "Recommendation failed.");
   }
 }
