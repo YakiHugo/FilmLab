@@ -12,6 +12,9 @@ import type { AiControllableAdjustments } from "@/lib/ai/editSchema";
 import type { HistogramSummary } from "@/lib/ai/colorAnalysis";
 import { DEFAULT_MODEL, type ModelOption } from "@/lib/ai/provider";
 import { toRecommendationImageDataUrl } from "@/lib/ai/image";
+import { AiError } from "@/lib/ai/errors";
+import { estimateMessagesTokens } from "@/lib/ai/tokenEstimate";
+import { saveChatSession, loadChatSessionByAssetId, deleteChatSession } from "@/lib/db";
 
 export interface AiPendingResult {
   adjustments: AiControllableAdjustments;
@@ -47,6 +50,9 @@ function loadSavedModel(): ModelOption {
   return DEFAULT_MODEL;
 }
 
+let nextSessionId = 0;
+const generateSessionId = () => `ai-edit-${++nextSessionId}-${Date.now()}`;
+
 export function useAiEditSession(options: UseAiEditSessionOptions) {
   const { selectedAsset, adjustments, histogramSummary, onApply, onApplyFilmProfile } = options;
 
@@ -56,6 +62,8 @@ export function useAiEditSession(options: UseAiEditSessionOptions) {
   const [pendingResult, setPendingResult] = useState<AiPendingResult | null>(null);
   const [isPreviewActive, setIsPreviewActive] = useState(false);
   const [input, setInput] = useState("");
+  const [sessionId, setSessionId] = useState(generateSessionId);
+  const [error, setError] = useState<AiError | null>(null);
   const preApplyAdjustmentsRef = useRef<EditingAdjustments | null>(null);
   const adjustmentsRef = useRef(adjustments);
   const histogramSummaryRef = useRef(histogramSummary);
@@ -130,7 +138,18 @@ export function useAiEditSession(options: UseAiEditSessionOptions) {
     stop,
     setMessages,
   } = useChat({
+    id: sessionId,
     transport,
+
+    onError: (err: Error) => {
+      if (err instanceof AiError) {
+        setError(err);
+      } else {
+        setError(
+          new AiError(err.message || "An unexpected error occurred.", "UNKNOWN")
+        );
+      }
+    },
 
     onToolCall: async ({ toolCall }: { toolCall: any }) => {
       if (toolCall.toolName === "applyAdjustments") {
@@ -146,6 +165,56 @@ export function useAiEditSession(options: UseAiEditSessionOptions) {
   });
 
   const isLoading = status === "submitted" || status === "streaming";
+
+  // Token estimation (recalculated on every message change)
+  const estimatedTokens = useMemo(
+    () =>
+      estimateMessagesTokens(
+        messages.map((m) => ({ role: m.role, content: m.content }))
+      ),
+    [messages]
+  );
+
+  // Auto-save chat to IndexedDB when messages change (debounced)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (messages.length === 0 || !selectedAsset?.id) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      void saveChatSession({
+        id: sessionId,
+        assetId: selectedAsset.id,
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        model: selectedModel.id,
+        provider: selectedModel.provider,
+        updatedAt: new Date().toISOString(),
+      });
+    }, 1000);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [messages, sessionId, selectedAsset?.id, selectedModel.id, selectedModel.provider]);
+
+  // Restore chat from IndexedDB when asset changes
+  useEffect(() => {
+    if (!selectedAsset?.id) return;
+    let cancelled = false;
+    void loadChatSessionByAssetId(selectedAsset.id).then((saved) => {
+      if (cancelled || !saved || saved.messages.length === 0) return;
+      // Restore messages into the chat
+      const restored = saved.messages.map((m, i) => ({
+        id: `restored-${i}`,
+        role: m.role as "user" | "assistant" | "system",
+        content: typeof m.content === "string" ? m.content : "",
+        parts: [],
+      }));
+      setMessages(restored);
+      setSessionId(saved.id);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAsset?.id, setMessages]);
 
   const applyResult = useCallback(() => {
     if (!pendingResult) return;
@@ -195,6 +264,7 @@ export function useAiEditSession(options: UseAiEditSessionOptions) {
   const sendMessage = useCallback(
     (text: string) => {
       if (!text.trim()) return;
+      setError(null);
       void chatSendMessage(
         { text },
         {
@@ -203,9 +273,7 @@ export function useAiEditSession(options: UseAiEditSessionOptions) {
             model: selectedModelRef.current.id,
             imageDataUrl: imageDataUrlRef.current,
             histogramSummary: histogramSummaryRef.current ?? undefined,
-            currentAdjustments: adjustmentsRef.current
-              ? (adjustmentsRef.current as unknown as Record<string, unknown>)
-              : undefined,
+            currentAdjustments: adjustmentsRef.current ?? undefined,
             currentFilmProfileId: selectedAssetRef.current?.filmProfileId ?? undefined,
             referenceImages: referenceImagesRef.current.map((ref) => ({
               imageDataUrl: ref.dataUrl,
@@ -220,11 +288,14 @@ export function useAiEditSession(options: UseAiEditSessionOptions) {
   );
 
   const clearChat = useCallback(() => {
+    void deleteChatSession(sessionId);
     setMessages([]);
     setPendingResult(null);
     setIsPreviewActive(false);
+    setError(null);
+    setSessionId(generateSessionId());
     preApplyAdjustmentsRef.current = null;
-  }, [setMessages]);
+  }, [sessionId, setMessages]);
 
   const addReferenceImage = useCallback((ref: ReferenceImage) => {
     setReferenceImages((prev) => {
@@ -266,15 +337,20 @@ export function useAiEditSession(options: UseAiEditSessionOptions) {
     };
   }, []);
 
+  const clearError = useCallback(() => setError(null), []);
+
   return {
     // Chat state
     messages,
     input,
     setInput,
     isLoading,
+    error,
+    clearError,
     // Model
     selectedModel,
     setSelectedModel,
+    estimatedTokens,
     // Reference images
     referenceImages,
     addReferenceImage,

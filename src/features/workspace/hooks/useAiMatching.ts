@@ -7,9 +7,9 @@ import {
   MAX_RECOMMENDATION_RETRIES,
   MAX_STYLE_SELECTION,
   findAutoApplyPreset,
-  sanitizeTopPresetRecommendations,
 } from "@/lib/ai/recommendationUtils";
 import type { Asset, AssetUpdate, Preset } from "@/types";
+import { DEFAULT_MODEL, type ModelOption } from "@/lib/ai/provider";
 
 interface AiMatchingSummary {
   total: number;
@@ -28,6 +28,7 @@ interface UseAiMatchingOptions {
   aiPresetCandidates: RecommendFilmPresetCandidate[];
   updateAsset: (assetId: string, update: AssetUpdate) => void;
   concurrency?: number;
+  modelOption?: ModelOption;
 }
 
 const createInitialAiProgress = (): AiMatchingProgress => ({
@@ -85,6 +86,7 @@ export function useAiMatching({
   aiPresetCandidates,
   updateAsset,
   concurrency,
+  modelOption = DEFAULT_MODEL,
 }: UseAiMatchingOptions) {
   const [progress, setProgress] = useState<AiMatchingProgress>(createInitialAiProgress);
   const [failedAssetIds, setFailedAssetIds] = useState<string[]>([]);
@@ -171,6 +173,13 @@ export function useAiMatching({
     }
   }, [selectedAssets]);
 
+  const candidateIds = useMemo(
+    () => aiPresetCandidates.map((item) => item.id),
+    [aiPresetCandidates]
+  );
+
+  const candidateSet = useMemo(() => new Set(candidateIds), [candidateIds]);
+
   const runAiMatchingForAssets = useCallback(
     async (targetAssets: Asset[]) => {
       if (targetAssets.length === 0 || aiPresetCandidates.length === 0 || isRunningRef.current) {
@@ -184,7 +193,6 @@ export function useAiMatching({
       inFlightControllerRef.current = controller;
       isRunningRef.current = true;
 
-      const candidateIds = aiPresetCandidates.map((item) => item.id);
       const targetAssetIds = new Set(targetAssets.map((asset) => asset.id));
       const baseSummary = summarizeAiMatching(selectedAssets, targetAssetIds);
 
@@ -246,10 +254,9 @@ export function useAiMatching({
             return "aborted" as const;
           }
 
-          const topPresets = sanitizeTopPresetRecommendations(
-            result.topPresets,
-            candidateIds,
-            DEFAULT_TOP_K
+          // Server already sanitizes; just verify presetIds exist in candidates
+          const topPresets = result.topPresets.filter(
+            (p) => p.presetId && candidateSet.has(p.presetId)
           );
           const autoPreset = findAutoApplyPreset(allPresets, topPresets);
 
@@ -289,7 +296,7 @@ export function useAiMatching({
           updateAsset(asset.id, {
             aiRecommendation: {
               version: 1,
-              model: "gpt-4.1-mini",
+              model: modelOption.id,
               matchedAt: new Date().toISOString(),
               attempts: MAX_RECOMMENDATION_RETRIES,
               topPresets: [],
@@ -345,7 +352,7 @@ export function useAiMatching({
         }
       }
     },
-    [aiPresetCandidates, allPresets, concurrency, selectedAssets, updateAsset]
+    [aiPresetCandidates, allPresets, candidateSet, concurrency, modelOption, selectedAssets, updateAsset]
   );
 
   useEffect(() => {
