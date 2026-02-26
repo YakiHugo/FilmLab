@@ -18,7 +18,7 @@ const createPreset = (id: string): Preset => ({
 });
 
 describe("sanitizeTopPresetRecommendations", () => {
-  it("deduplicates invalid entries and fills fallback values", () => {
+  it("deduplicates and filters invalid entries without fallback filling", () => {
     const result = sanitizeTopPresetRecommendations(
       [
         { presetId: "p2", reason: "first", confidence: 1.2 },
@@ -30,13 +30,20 @@ describe("sanitizeTopPresetRecommendations", () => {
       4
     );
 
-    expect(result).toHaveLength(4);
+    expect(result).toHaveLength(2);
     expect(result[0]?.presetId).toBe("p2");
     expect(result[0]?.confidence).toBe(1);
     expect(result[1]?.presetId).toBe("p1");
     expect(result[1]?.confidence).toBe(0);
-    expect(result[2]?.presetId).toBe("p3");
-    expect(result[3]?.presetId).toBe("p4");
+  });
+
+  it("returns empty array when no valid matches", () => {
+    const result = sanitizeTopPresetRecommendations(
+      [{ presetId: "unknown", reason: "bad", confidence: 0.5 }],
+      ["p1", "p2"],
+      3
+    );
+    expect(result).toHaveLength(0);
   });
 });
 

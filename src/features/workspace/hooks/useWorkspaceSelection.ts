@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+﻿import { useCallback, useState } from "react";
 import {
   MAX_STYLE_SELECTION,
   applySelectionLimit,
@@ -6,17 +6,12 @@ import {
 } from "@/lib/ai/recommendationUtils";
 import { useProjectStore, type AddAssetsResult } from "@/stores/projectStore";
 import { useShallow } from "zustand/react/shallow";
-import {
-  isSupportedImportFile,
-  MAX_IMPORT_FILE_SIZE,
-  MAX_IMPORT_BATCH_SIZE,
-} from "../constants";
 
 export function useWorkspaceSelection() {
   const {
     assets,
     isImporting,
-    addAssets,
+    importAssets,
     selectedAssetIds,
     setSelectedAssetIds,
     clearAssetSelection,
@@ -24,7 +19,7 @@ export function useWorkspaceSelection() {
     useShallow((state) => ({
       assets: state.assets,
       isImporting: state.isImporting,
-      addAssets: state.addAssets,
+      importAssets: state.importAssets,
       selectedAssetIds: state.selectedAssetIds,
       setSelectedAssetIds: state.setSelectedAssetIds,
       clearAssetSelection: state.clearAssetSelection,
@@ -92,19 +87,32 @@ export function useWorkspaceSelection() {
         const merged = [...prev, ...result.addedAssetIds];
         const limited = applySelectionLimit(merged, MAX_STYLE_SELECTION);
         setSelectedAssetIds(limited.ids);
-        setSelectionNotice(
-          limited.limited ? `最多可选择 ${MAX_STYLE_SELECTION} 张素材。` : null
-        );
+        setSelectionNotice(limited.limited ? `最多可选择 ${MAX_STYLE_SELECTION} 张素材。` : null);
       }
 
       const parts: string[] = prefixNotices ? [...prefixNotices] : [];
+
+      if (result.skipped.unsupported > 0) {
+        parts.push(`${result.skipped.unsupported} 个文件格式不支持已跳过。`);
+      }
+      if (result.skipped.oversized > 0) {
+        parts.push(`${result.skipped.oversized} 个超过 50MB 的文件已跳过。`);
+      }
+      if (result.skipped.duplicated > 0) {
+        parts.push(`${result.skipped.duplicated} 个重复文件已跳过。`);
+      }
+      if (result.skipped.overflow > 0) {
+        parts.push(`单次最多导入 500 张，已截断 ${result.skipped.overflow} 张。`);
+      }
 
       if (result.added > 0 && result.failed === 0) {
         parts.push(`已导入 ${result.added} 张素材。`);
       } else if (result.added > 0 && result.failed > 0) {
         parts.push(`已导入 ${result.added} 张，失败 ${result.failed} 张。`);
-      } else if (result.errors && result.errors.length > 0) {
+      } else if (result.errors.length > 0) {
         parts.push(`导入失败：${result.errors[0]}`);
+      } else if (result.accepted === 0) {
+        parts.push("没有可导入的新文件。请检查格式、大小或重复项。");
       } else if (result.added === 0) {
         parts.push("导入失败，请重试或更换文件。");
       }
@@ -128,70 +136,17 @@ export function useWorkspaceSelection() {
         return;
       }
 
-      const notices: string[] = [];
-
-      // Step 1: format filter
-      let accepted = Array.from(files).filter((file) => isSupportedImportFile(file));
-      const unsupportedCount = files.length - accepted.length;
-      if (accepted.length === 0) {
-        setImportNotice("仅支持导入 JPG / PNG / WebP 图片。");
-        return;
-      }
-      if (unsupportedCount > 0) {
-        notices.push(`${unsupportedCount} 个不支持的文件已跳过。`);
-      }
-
-      // Step 2: file size filter
-      const oversized = accepted.filter((f) => f.size > MAX_IMPORT_FILE_SIZE);
-      if (oversized.length > 0) {
-        accepted = accepted.filter((f) => f.size <= MAX_IMPORT_FILE_SIZE);
-        notices.push(`${oversized.length} 个超过 50 MB 的文件已跳过。`);
-        if (accepted.length === 0) {
-          setImportNotice(notices.join(" "));
-          return;
-        }
-      }
-
-      // Step 3: duplicate detection (name + size fingerprint)
-      const existingAssets = useProjectStore.getState().assets;
-      const existingFingerprints = new Set(
-        existingAssets.map((a) => `${a.name}:${a.size}`)
-      );
-      const beforeDedupe = accepted.length;
-      accepted = accepted.filter(
-        (f) => !existingFingerprints.has(`${f.name}:${f.size}`)
-      );
-      const duplicateCount = beforeDedupe - accepted.length;
-      if (duplicateCount > 0) {
-        notices.push(`${duplicateCount} 个重复文件已跳过。`);
-      }
-      if (accepted.length === 0) {
-        setImportNotice(
-          notices.length > 0
-            ? notices.join(" ")
-            : "所有文件已存在，已跳过重复素材。"
-        );
-        return;
-      }
-
-      // Step 4: batch size limit
-      if (accepted.length > MAX_IMPORT_BATCH_SIZE) {
-        notices.push(`单次最多导入 ${MAX_IMPORT_BATCH_SIZE} 张，已截取前 ${MAX_IMPORT_BATCH_SIZE} 张。`);
-        accepted = accepted.slice(0, MAX_IMPORT_BATCH_SIZE);
-      }
-
       resetFilters();
-      const capturedNotices = notices.length > 0 ? [...notices] : undefined;
-      void addAssets(accepted)
+      void importAssets(files)
         .then((result) => {
-          handleImportResult(result, capturedNotices);
+          handleImportResult(result);
           onResult?.(result);
         })
         .catch(() => {
           setImportNotice("导入失败，请重试或更换文件。");
         });
     },
-    [addAssets, handleImportResult, isImporting]
+    [handleImportResult, importAssets, isImporting]
   );
 
   return {
@@ -209,3 +164,4 @@ export function useWorkspaceSelection() {
     handleFiles,
   };
 }
+

@@ -1,34 +1,48 @@
-import { create } from "zustand";
+﻿import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import { presets } from "@/data/presets";
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
-import { prepareAssetPayload } from "@/lib/assetMetadata";
-import { emit } from "@/lib/storeEvents";
-import type { Asset, AssetUpdate, Project } from "@/types";
 import {
   clearAssets,
+  clearChatSessions,
   deleteAsset,
   loadAssets,
   loadProject,
   saveAsset,
   saveProject,
-  type StoredAsset,
 } from "@/lib/db";
+import { emit } from "@/lib/storeEvents";
 import { loadCustomPresets } from "@/features/editor/presetUtils";
+import type { Asset } from "@/types";
+import {
+  DEFAULT_PROJECT_ID,
+  DEFAULT_PROJECT_NAME,
+  IMPORT_COMMIT_CHUNK_SIZE,
+  LEGACY_PROJECT_ID,
+} from "./project/constants";
+import { resolveAssetImportDay } from "./project/grouping";
+import { runImportPipeline } from "./project/importPipeline";
+import {
+  cancelPendingPersists,
+  ensurePersistFlushOnUnload,
+  flushPendingPersists,
+  normalizeAssetUpdate,
+  persistAsset,
+  toStoredAsset,
+} from "./project/persistence";
+import { selectAssets, selectImportProgress, selectIsImporting, selectIsLoading, selectProject, selectSelectedAssetIds } from "./project/selectors";
+import { mergeTags, normalizeTags, removeTags } from "./project/tagging";
+import type { AddAssetsResult, ProjectState } from "./project/types";
 
-/** Look up a preset by ID from both built-in and custom presets. */
 const findPresetById = (presetId: string) => {
-  const builtIn = presets.find((p) => p.id === presetId);
-  if (builtIn) return builtIn;
-  // Fall back to custom presets stored in localStorage
+  const builtIn = presets.find((preset) => preset.id === presetId);
+  if (builtIn) {
+    return builtIn;
+  }
   const custom = loadCustomPresets();
-  return custom.find((p) => p.id === presetId);
+  return custom.find((preset) => preset.id === presetId);
 };
 
-/**
- * Shared helper: apply a preset (and optional intensity) to a subset of assets.
- * Returns the full next-assets array and the list of changed assets for persistence.
- */
 const applyPresetToAssets = (
   assets: Asset[],
   shouldUpdate: (asset: Asset) => boolean,
@@ -37,8 +51,12 @@ const applyPresetToAssets = (
 ): { nextAssets: Asset[]; changed: Asset[] } => {
   const selectedPreset = findPresetById(presetId);
   const changed: Asset[] = [];
+
   const nextAssets = assets.map((asset) => {
-    if (!shouldUpdate(asset)) return asset;
+    if (!shouldUpdate(asset)) {
+      return asset;
+    }
+
     const updated: Asset = {
       ...asset,
       presetId,
@@ -47,49 +65,19 @@ const applyPresetToAssets = (
       filmOverrides: undefined,
       filmProfile: selectedPreset?.filmProfile,
     };
+
     changed.push(updated);
     return updated;
   });
+
   return { nextAssets, changed };
 };
 
-export interface AddAssetsResult {
-  added: number;
-  failed: number;
-  addedAssetIds: string[];
-  errors?: string[];
-}
-
-interface ProjectState {
-  project: Project | null;
-  assets: Asset[];
-  presets: typeof presets;
-  isLoading: boolean;
-  isImporting: boolean;
-  importProgress: { current: number; total: number } | null;
-  selectedAssetIds: string[];
-  init: () => Promise<void>;
-  addAssets: (files: File[]) => Promise<AddAssetsResult>;
-  applyPresetToGroup: (group: string, presetId: string, intensity: number) => void;
-  updatePresetForGroup: (group: string, presetId: string) => void;
-  updateIntensityForGroup: (group: string, intensity: number) => void;
-  applyPresetToSelection: (assetIds: string[], presetId: string, intensity: number) => void;
-  updateAsset: (assetId: string, update: AssetUpdate) => void;
-  updateAssetOnly: (assetId: string, update: AssetUpdate) => void;
-  setSelectedAssetIds: (assetIds: string[]) => void;
-  addToSelection: (assetIds: string[]) => void;
-  toggleAssetSelection: (assetId: string) => void;
-  removeFromSelection: (assetIds: string[]) => void;
-  clearAssetSelection: () => void;
-  deleteAssets: (assetIds: string[]) => Promise<void>;
-  resetProject: () => Promise<void>;
-}
-
-const defaultProject = (): Project => {
+const defaultProject = () => {
   const now = new Date().toISOString();
   return {
-    id: "default-project",
-    name: "FilmLab 项目",
+    id: DEFAULT_PROJECT_ID,
+    name: DEFAULT_PROJECT_NAME,
     createdAt: now,
     updatedAt: now,
   };
@@ -106,147 +94,93 @@ const revokeAssetUrls = (assets: Asset[]) => {
   });
 };
 
-const toStoredAsset = (asset: Asset): StoredAsset | null => {
-  if (!asset.blob) {
-    return null;
-  }
-  const blob =
-    asset.blob instanceof File ? asset.blob.slice(0, asset.blob.size, asset.blob.type) : asset.blob;
+const createEmptyImportResult = (): AddAssetsResult => ({
+  requested: 0,
+  accepted: 0,
+  added: 0,
+  failed: 0,
+  addedAssetIds: [],
+  errors: [],
+  skipped: {
+    unsupported: 0,
+    oversized: 0,
+    duplicated: 0,
+    overflow: 0,
+  },
+});
 
-  return {
-    id: asset.id,
-    name: asset.name,
-    type: asset.type,
-    size: asset.size,
-    createdAt: asset.createdAt,
-    blob,
-    presetId: asset.presetId,
-    intensity: asset.intensity,
-    filmProfileId: asset.filmProfileId,
-    filmOverrides: asset.filmOverrides,
-    filmProfile: asset.filmProfile,
-    group: asset.group,
-    thumbnailBlob: asset.thumbnailBlob,
-    metadata: asset.metadata,
-    adjustments: asset.adjustments ? normalizeAdjustments(asset.adjustments) : undefined,
-    aiRecommendation: asset.aiRecommendation,
-  };
-};
-
-const normalizeAssetUpdate = (update: AssetUpdate): AssetUpdate => {
-  if (!update.adjustments) {
-    return update;
-  }
-  return {
-    ...update,
-    adjustments: normalizeAdjustments(update.adjustments),
-  };
-};
-
-const PERSIST_DEBOUNCE_MS = 300;
-const pendingPersists = new Map<
-  string,
-  { timer: ReturnType<typeof setTimeout>; payload: StoredAsset }
->();
-
-const flushPendingPersists = async () => {
-  const entries = Array.from(pendingPersists.values());
-  pendingPersists.clear();
-  for (const { timer } of entries) {
-    clearTimeout(timer);
-  }
-  await Promise.allSettled(entries.map(({ payload }) => saveAsset(payload)));
-};
-
-const persistAsset = (asset: Asset) => {
-  const payload = toStoredAsset(asset);
-  if (!payload) {
-    return;
-  }
-
-  // Cancel any pending write for this asset so only the latest state is persisted
-  const existing = pendingPersists.get(asset.id);
-  if (existing) {
-    clearTimeout(existing.timer);
-  }
-
-  const timer = setTimeout(() => {
-    pendingPersists.delete(asset.id);
-    void saveAsset(payload).catch((error) => {
-      console.warn("Failed to persist asset", asset.id, error);
-    });
-  }, PERSIST_DEBOUNCE_MS);
-
-  pendingPersists.set(asset.id, { timer, payload });
-};
-
-// Flush pending writes before the page unloads to prevent data loss
-if (typeof window !== "undefined") {
-  window.addEventListener("beforeunload", () => {
-    // Synchronously clear timers and fire writes (best-effort before tab closes)
-    for (const { timer, payload } of pendingPersists.values()) {
-      clearTimeout(timer);
-      void saveAsset(payload).catch(() => {});
-    }
-    pendingPersists.clear();
-  });
-}
+ensurePersistFlushOnUnload();
 
 export const useProjectStore = create<ProjectState>()(
   devtools(
     (set, get) => ({
       project: null,
       assets: [],
-      presets,
       isLoading: true,
       isImporting: false,
       importProgress: null,
       selectedAssetIds: [],
+
       init: async () => {
         set({ isLoading: true });
-        const storedProject = await loadProject();
+
+        let storedProject = await loadProject(DEFAULT_PROJECT_ID);
+        if (!storedProject) {
+          const legacyProject = await loadProject(LEGACY_PROJECT_ID);
+          if (legacyProject) {
+            storedProject = {
+              ...legacyProject,
+              id: DEFAULT_PROJECT_ID,
+            };
+            await saveProject(storedProject);
+          }
+        }
+
         const project = storedProject ?? defaultProject();
         if (!storedProject) {
           await saveProject(project);
         }
 
         const storedAssets = await loadAssets();
-        const assets: Asset[] = storedAssets.map((asset, index) => {
-          const objectUrl = URL.createObjectURL(asset.blob);
-          const thumbnailUrl = asset.thumbnailBlob
-            ? URL.createObjectURL(asset.thumbnailBlob)
+        const assets: Asset[] = storedAssets.map((stored) => {
+          const objectUrl = URL.createObjectURL(stored.blob);
+          const thumbnailUrl = stored.thumbnailBlob
+            ? URL.createObjectURL(stored.thumbnailBlob)
             : objectUrl;
-          const fallbackGroup = `Group ${(index % 4) + 1}`;
-          const group = asset.group ?? fallbackGroup;
+          const importDay = resolveAssetImportDay(stored);
+          const tags = normalizeTags(stored.tags ?? []);
+
           return {
-            id: asset.id,
-            name: asset.name,
-            type: asset.type,
-            size: asset.size,
-            createdAt: asset.createdAt,
+            id: stored.id,
+            name: stored.name,
+            type: stored.type,
+            size: stored.size,
+            createdAt: stored.createdAt,
             objectUrl,
             thumbnailUrl,
-            presetId: asset.presetId,
-            intensity: asset.intensity,
-            filmProfileId: asset.filmProfileId,
-            filmOverrides: asset.filmOverrides,
-            filmProfile: asset.filmProfile,
-            group,
-            blob: asset.blob,
-            thumbnailBlob: asset.thumbnailBlob,
-            metadata: asset.metadata,
-            adjustments: normalizeAdjustments(asset.adjustments ?? createDefaultAdjustments()),
-            aiRecommendation: asset.aiRecommendation,
+            importDay,
+            tags,
+            presetId: stored.presetId,
+            intensity: stored.intensity,
+            filmProfileId: stored.filmProfileId,
+            filmOverrides: stored.filmOverrides,
+            filmProfile: stored.filmProfile,
+            group: stored.group ?? importDay,
+            blob: stored.blob,
+            thumbnailBlob: stored.thumbnailBlob,
+            metadata: stored.metadata,
+            adjustments: normalizeAdjustments(stored.adjustments ?? createDefaultAdjustments()),
+            aiRecommendation: stored.aiRecommendation,
           };
         });
 
-        // Atomically read previous state and update in a single set() call
-        // to avoid race conditions between get() calls.
         set((state) => {
           const nextSelection = state.selectedAssetIds.filter((id) =>
             assets.some((asset) => asset.id === id)
           );
+
           revokeAssetUrls(state.assets);
+
           return {
             project,
             assets,
@@ -254,114 +188,99 @@ export const useProjectStore = create<ProjectState>()(
             selectedAssetIds: nextSelection,
           };
         });
-      },
-      addAssets: async (files: File[]) => {
-        if (files.length === 0) {
-          return {
-            added: 0,
-            failed: 0,
-            addedAssetIds: [],
-          };
-        }
-        set({ isImporting: true, importProgress: { current: 0, total: files.length } });
-        try {
-          const { assets, project } = get();
-          const timestamp = new Date().toISOString();
-          const newAssets: Asset[] = [];
-          let failedCount = 0;
-          let processedCount = 0;
-          const errors: string[] = [];
 
-          // Process files with limited concurrency to avoid overwhelming the browser
-          const CONCURRENCY = 4;
-          let nextIndex = 0;
-
-          const processFile = async () => {
-            while (nextIndex < files.length) {
-              const fileIndex = nextIndex++;
-              const file = files[fileIndex]!;
-              try {
-                const id = `${file.name}-${file.lastModified}-${Math.random().toString(16).slice(2)}`;
-                const group = `Group ${((assets.length + fileIndex) % 4) + 1}`;
-                const fileBlob = file.slice(0, file.size, file.type);
-                const { metadata, thumbnailBlob } = await prepareAssetPayload(fileBlob);
-                const objectUrl = URL.createObjectURL(fileBlob);
-                const thumbnailUrl = thumbnailBlob ? URL.createObjectURL(thumbnailBlob) : objectUrl;
-
-                const asset: Asset = {
-                  id,
-                  name: file.name,
-                  type: file.type,
-                  size: file.size,
-                  createdAt: timestamp,
-                  objectUrl,
-                  thumbnailUrl,
-                  presetId: presets[0]?.id,
-                  intensity: presets[0]?.intensity,
-                  filmProfileId: presets[0]?.filmProfileId,
-                  filmProfile: presets[0]?.filmProfile,
-                  group,
-                  blob: fileBlob,
-                  thumbnailBlob,
-                  metadata,
-                  adjustments: createDefaultAdjustments(),
-                };
-
-                const payload = toStoredAsset(asset);
-                if (payload) {
-                  await saveAsset(payload);
-                }
-                newAssets.push(asset);
-              } catch (error) {
-                console.warn("Failed to import asset", file.name, error);
-                failedCount += 1;
-                const detail = error instanceof Error ? error.message : "Unknown error";
-                errors.push(`${file.name}: ${detail}`);
-              }
-              processedCount += 1;
-              set({ importProgress: { current: processedCount, total: files.length } });
+        const migrationPayloads = assets
+          .filter((asset, index) => {
+            const stored = storedAssets[index];
+            if (!stored) {
+              return false;
             }
+            const storedImportDay = stored.importDay;
+            const normalizedImportDay = asset.importDay;
+            const storedTags = normalizeTags(stored.tags ?? []);
+            const nextTags = asset.tags ?? [];
+            return storedImportDay !== normalizedImportDay || storedTags.join("|") !== nextTags.join("|");
+          })
+          .map((asset) => toStoredAsset(asset))
+          .filter((payload): payload is NonNullable<ReturnType<typeof toStoredAsset>> => Boolean(payload));
+
+        if (migrationPayloads.length > 0) {
+          void Promise.allSettled(migrationPayloads.map((payload) => saveAsset(payload)));
+        }
+      },
+
+      importAssets: async (filesInput) => {
+        const files = Array.isArray(filesInput) ? filesInput : Array.from(filesInput);
+        if (files.length === 0) {
+          return createEmptyImportResult();
+        }
+
+        set({
+          isImporting: true,
+          importProgress: { current: 0, total: files.length },
+        });
+
+        try {
+          const existingAssets = get().assets;
+          const importedAssets: Asset[] = [];
+          let buffered: Asset[] = [];
+
+          const commitBufferedAssets = () => {
+            if (buffered.length === 0) {
+              return;
+            }
+            const chunk = buffered;
+            buffered = [];
+            set((state) => ({
+              assets: [...state.assets, ...chunk],
+            }));
           };
 
-          // Launch up to CONCURRENCY workers
-          await Promise.all(
-            Array.from({ length: Math.min(CONCURRENCY, files.length) }, () => processFile())
-          );
-          if (newAssets.length === 0) {
-            return {
-              added: 0,
-              failed: failedCount || files.length,
-              addedAssetIds: [],
-              errors,
-            };
+          const result = await runImportPipeline({
+            files,
+            existingAssets,
+            onProgress: (progress) => {
+              set({ importProgress: progress });
+            },
+            onAssetImported: (asset) => {
+              importedAssets.push(asset);
+              buffered.push(asset);
+              if (buffered.length >= IMPORT_COMMIT_CHUNK_SIZE) {
+                commitBufferedAssets();
+              }
+            },
+          });
+
+          commitBufferedAssets();
+
+          if (result.added > 0) {
+            const now = new Date().toISOString();
+            const previousProject = get().project;
+            const nextProject = previousProject
+              ? { ...previousProject, updatedAt: now }
+              : defaultProject();
+
+            try {
+              await saveProject(nextProject);
+            } catch (error) {
+              console.warn("Failed to persist project after import", error);
+            }
+
+            set({ project: nextProject });
           }
 
-          const updatedProject = project ? { ...project, updatedAt: timestamp } : defaultProject();
-          try {
-            await saveProject(updatedProject);
-          } catch (error) {
-            console.warn("Failed to persist project after import", error);
-          }
-          set((state) => ({
-            project: updatedProject,
-            assets: [...state.assets, ...newAssets],
-          }));
-          return {
-            added: newAssets.length,
-            failed: failedCount,
-            addedAssetIds: newAssets.map((asset) => asset.id),
-            errors,
-          };
+          return result;
         } finally {
           set({ isImporting: false, importProgress: null });
         }
       },
-      applyPresetToGroup: (group, presetId, intensity) => {
+
+      applyPresetToDay: (day, presetId, intensity) => {
         let changed: Asset[] = [];
         set((state) => {
           const result = applyPresetToAssets(
             state.assets,
-            (a) => a.group === group,
+            (asset) => resolveAssetImportDay(asset) === day,
             presetId,
             intensity
           );
@@ -370,39 +289,14 @@ export const useProjectStore = create<ProjectState>()(
         });
         changed.forEach(persistAsset);
       },
-      updatePresetForGroup: (group, presetId) => {
-        let changed: Asset[] = [];
-        set((state) => {
-          const result = applyPresetToAssets(
-            state.assets,
-            (a) => a.group === group,
-            presetId
-          );
-          changed = result.changed;
-          return { assets: result.nextAssets };
-        });
-        changed.forEach(persistAsset);
-      },
-      updateIntensityForGroup: (group, intensity) => {
-        const changed: Asset[] = [];
-        set((state) => {
-          const nextAssets = state.assets.map((asset) => {
-            if (asset.group !== group) return asset;
-            const updated = { ...asset, intensity };
-            changed.push(updated);
-            return updated;
-          });
-          return { assets: nextAssets };
-        });
-        changed.forEach(persistAsset);
-      },
+
       applyPresetToSelection: (assetIds, presetId, intensity) => {
-        const selectedSet = new Set(assetIds);
+        const selected = new Set(assetIds);
         let changed: Asset[] = [];
         set((state) => {
           const result = applyPresetToAssets(
             state.assets,
-            (a) => selectedSet.has(a.id),
+            (asset) => selected.has(asset.id),
             presetId,
             intensity
           );
@@ -411,6 +305,7 @@ export const useProjectStore = create<ProjectState>()(
         });
         changed.forEach(persistAsset);
       },
+
       updateAsset: (assetId, update) => {
         const normalizedUpdate = normalizeAssetUpdate(update);
         const nextAssets = get().assets.map((asset) =>
@@ -422,6 +317,7 @@ export const useProjectStore = create<ProjectState>()(
         }
         set({ assets: nextAssets });
       },
+
       updateAssetOnly: (assetId, update) => {
         const normalizedUpdate = normalizeAssetUpdate(update);
         const nextAssets = get().assets.map((asset) =>
@@ -429,54 +325,114 @@ export const useProjectStore = create<ProjectState>()(
         );
         set({ assets: nextAssets });
       },
+
       setSelectedAssetIds: (assetIds) => {
         const unique = Array.from(new Set(assetIds));
         set({ selectedAssetIds: unique });
       },
-      addToSelection: (assetIds) => {
-        const unique = new Set(get().selectedAssetIds);
-        assetIds.forEach((id) => unique.add(id));
-        set({ selectedAssetIds: Array.from(unique) });
-      },
-      toggleAssetSelection: (assetId) => {
-        const current = new Set(get().selectedAssetIds);
-        if (current.has(assetId)) {
-          current.delete(assetId);
-        } else {
-          current.add(assetId);
-        }
-        set({ selectedAssetIds: Array.from(current) });
-      },
-      removeFromSelection: (assetIds) => {
-        const current = new Set(get().selectedAssetIds);
-        assetIds.forEach((id) => current.delete(id));
-        set({ selectedAssetIds: Array.from(current) });
-      },
+
       clearAssetSelection: () => {
         set({ selectedAssetIds: [] });
       },
-      deleteAssets: async (assetIds) => {
-        const idsToDelete = new Set(assetIds);
-        const { assets, selectedAssetIds } = get();
-        const toRemove = assets.filter((a) => idsToDelete.has(a.id));
-        const remaining = assets.filter((a) => !idsToDelete.has(a.id));
 
-        // Cancel pending persists for deleted assets
-        for (const id of idsToDelete) {
-          const pending = pendingPersists.get(id);
-          if (pending) {
-            clearTimeout(pending.timer);
-            pendingPersists.delete(id);
-          }
+      setAssetTags: (assetId, tags) => {
+        const normalized = normalizeTags(tags);
+        let changed: Asset | null = null;
+
+        set((state) => {
+          const nextAssets = state.assets.map((asset) => {
+            if (asset.id !== assetId) {
+              return asset;
+            }
+            changed = {
+              ...asset,
+              tags: normalized,
+            };
+            return changed;
+          });
+          return { assets: nextAssets };
+        });
+
+        if (changed) {
+          persistAsset(changed);
+        }
+      },
+
+      addTagsToAssets: (assetIds, tags) => {
+        const ids = new Set(assetIds);
+        const incomingTags = normalizeTags(tags);
+        if (ids.size === 0 || incomingTags.length === 0) {
+          return;
         }
 
-        // Revoke object URLs
+        const changed: Asset[] = [];
+        set((state) => {
+          const nextAssets = state.assets.map((asset) => {
+            if (!ids.has(asset.id)) {
+              return asset;
+            }
+            const nextTags = mergeTags(asset.tags, incomingTags);
+            if ((asset.tags ?? []).join("|") === nextTags.join("|")) {
+              return asset;
+            }
+            const updated = {
+              ...asset,
+              tags: nextTags,
+            };
+            changed.push(updated);
+            return updated;
+          });
+          return { assets: nextAssets };
+        });
+
+        changed.forEach(persistAsset);
+      },
+
+      removeTagsFromAssets: (assetIds, tags) => {
+        const ids = new Set(assetIds);
+        const removingTags = normalizeTags(tags);
+        if (ids.size === 0 || removingTags.length === 0) {
+          return;
+        }
+
+        const changed: Asset[] = [];
+        set((state) => {
+          const nextAssets = state.assets.map((asset) => {
+            if (!ids.has(asset.id)) {
+              return asset;
+            }
+            const nextTags = removeTags(asset.tags, removingTags);
+            if ((asset.tags ?? []).join("|") === nextTags.join("|")) {
+              return asset;
+            }
+            const updated = {
+              ...asset,
+              tags: nextTags,
+            };
+            changed.push(updated);
+            return updated;
+          });
+          return { assets: nextAssets };
+        });
+
+        changed.forEach(persistAsset);
+      },
+
+      deleteAssets: async (assetIds) => {
+        const idsToDelete = new Set(assetIds);
+        if (idsToDelete.size === 0) {
+          return;
+        }
+
+        const { assets, selectedAssetIds } = get();
+        const toRemove = assets.filter((asset) => idsToDelete.has(asset.id));
+        const remaining = assets.filter((asset) => !idsToDelete.has(asset.id));
+
+        cancelPendingPersists(idsToDelete);
         revokeAssetUrls(toRemove);
 
-        // Remove from IndexedDB
         await Promise.allSettled(Array.from(idsToDelete, (id) => deleteAsset(id)));
 
-        // Notify listeners (editorStore clears history in response)
         emit("assets:deleted", idsToDelete);
 
         set({
@@ -484,15 +440,22 @@ export const useProjectStore = create<ProjectState>()(
           selectedAssetIds: selectedAssetIds.filter((id) => !idsToDelete.has(id)),
         });
       },
+
       resetProject: async () => {
         await flushPendingPersists();
         revokeAssetUrls(get().assets);
         await clearAssets();
+        await clearChatSessions();
+
         const project = defaultProject();
         await saveProject(project);
-        set({ project, assets: [], selectedAssetIds: [] });
 
-        // Notify listeners (editorStore clears all history in response)
+        set({
+          project,
+          assets: [],
+          selectedAssetIds: [],
+        });
+
         emit("project:reset");
       },
     }),
@@ -500,13 +463,13 @@ export const useProjectStore = create<ProjectState>()(
   )
 );
 
-// ── Fine-grained selectors ──────────────────────────────────────────
-// Stable references avoid unnecessary re-renders when used with
-// `useProjectStore(selectAssets)` instead of inline arrow functions.
+export type { AddAssetsResult } from "./project/types";
+export {
+  selectAssets,
+  selectImportProgress,
+  selectIsImporting,
+  selectIsLoading,
+  selectProject,
+  selectSelectedAssetIds,
+};
 
-export const selectAssets = (s: ProjectState) => s.assets;
-export const selectProject = (s: ProjectState) => s.project;
-export const selectIsLoading = (s: ProjectState) => s.isLoading;
-export const selectIsImporting = (s: ProjectState) => s.isImporting;
-export const selectSelectedAssetIds = (s: ProjectState) => s.selectedAssetIds;
-export const selectPresets = (s: ProjectState) => s.presets;

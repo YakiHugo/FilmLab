@@ -1,4 +1,4 @@
-import { SlidersHorizontal, Upload } from "lucide-react";
+﻿import { SlidersHorizontal, Upload } from "lucide-react";
 import { UploadButton } from "@/components/UploadButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,7 +20,7 @@ export function Workspace() {
     importProgress,
     selectedAssetIds,
     clearAssetSelection,
-    applyPresetToGroup,
+    applyPresetToDay,
     applyPresetToSelection,
     updateAsset,
     isDragging,
@@ -29,8 +29,20 @@ export function Workspace() {
     setIsLibraryOpen,
     searchText,
     setSearchText,
-    selectedGroup,
-    setSelectedGroup,
+    selectedDay,
+    setSelectedDay,
+    dayOptions,
+    selectedTags,
+    toggleSelectedTag,
+    clearSelectedTags,
+    tagOptions,
+    tagInput,
+    setTagInput,
+    handleApplyTagToSelection,
+    handleRemoveTagFromSelection,
+    isDeleting,
+    handleDeleteSelection,
+    handleDeleteAsset,
     activeAssetId,
     setActiveAssetId,
     selectedPresetId,
@@ -57,7 +69,6 @@ export function Workspace() {
     aiPresetCandidates,
     selectedSet,
     selectedAssets,
-    groupOptions,
     filteredAssets,
     filteredSelectedCount,
     allFilteredSelected,
@@ -96,7 +107,9 @@ export function Workspace() {
           <div
             className={cn(
               "flex min-h-[160px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed p-6 text-center transition",
-              isDragging ? "border-sky-300/40 bg-sky-400/5 shadow-[inset_0_0_40px_rgba(56,189,248,0.05)]" : "border-white/15 bg-slate-950/40"
+              isDragging
+                ? "border-sky-300/40 bg-sky-400/5 shadow-[inset_0_0_40px_rgba(56,189,248,0.05)]"
+                : "border-white/15 bg-slate-950/40"
             )}
             onDragOver={(event) => {
               event.preventDefault();
@@ -118,16 +131,11 @@ export function Workspace() {
                 {isImporting
                   ? importProgress
                     ? `正在导入 (${importProgress.current}/${importProgress.total})...`
-                    : "正在导入与生成缩略图..."
+                    : "正在导入并生成缩略图..."
                   : "自动生成缩略图与元信息"}
               </p>
             </div>
-            <UploadButton
-              size="sm"
-              variant="secondary"
-              label="点此导入"
-              onFiles={handleFiles}
-            />
+            <UploadButton size="sm" variant="secondary" label="点击导入" onFiles={handleFiles} />
             <p
               className={cn("min-h-[16px] text-xs text-sky-200", !importNotice && "opacity-0")}
               role="status"
@@ -146,10 +154,21 @@ export function Workspace() {
         filteredSelectedCount={filteredSelectedCount}
         allFilteredSelected={allFilteredSelected}
         searchText={searchText}
-        selectedGroup={selectedGroup}
-        groupOptions={groupOptions}
+        selectedDay={selectedDay}
+        dayOptions={dayOptions}
+        selectedTags={selectedTags}
+        tagOptions={tagOptions}
+        tagInput={tagInput}
         onSearchTextChange={setSearchText}
-        onSelectedGroupChange={setSelectedGroup}
+        onSelectedDayChange={setSelectedDay}
+        onTagInputChange={setTagInput}
+        onToggleTagFilter={toggleSelectedTag}
+        onClearTagFilter={clearSelectedTags}
+        onApplyTagToSelection={handleApplyTagToSelection}
+        onRemoveTagFromSelection={handleRemoveTagFromSelection}
+        isDeleting={isDeleting}
+        onDeleteSelection={handleDeleteSelection}
+        onDeleteAsset={handleDeleteAsset}
         onToggleAllFilteredAssets={handleToggleAllFilteredAssets}
         onClearAssetSelection={clearAssetSelection}
         onSetActiveAssetId={setActiveAssetId}
@@ -185,14 +204,14 @@ export function Workspace() {
         advancedOpen={advancedOpen}
         customPresetName={customPresetName}
         previewAdjustments={previewAdjustments}
-        selectedGroup={selectedGroup}
+        selectedDay={selectedDay}
         assets={assets}
         targetSelection={targetSelection}
         onApplyPreset={applyPreset}
         onIntensityChange={handleIntensityChange}
         onUpdateAdjustmentValue={updateAdjustmentValue}
         onApplyPresetToSelection={applyPresetToSelection}
-        onApplyPresetToGroup={applyPresetToGroup}
+        onApplyPresetToDay={applyPresetToDay}
         onSetAdvancedOpen={setAdvancedOpen}
         onSetCustomPresetName={setCustomPresetName}
         onSaveCustomPreset={handleSaveCustomPreset}
@@ -265,10 +284,21 @@ export function Workspace() {
                   totalSize={totalSize}
                   selectionNotice={selectionNotice}
                   searchText={searchText}
-                  selectedGroup={selectedGroup}
-                  groupOptions={groupOptions}
+                  selectedDay={selectedDay}
+                  dayOptions={dayOptions}
+                  selectedTags={selectedTags}
+                  tagOptions={tagOptions}
+                  tagInput={tagInput}
                   onSearchTextChange={setSearchText}
-                  onSelectedGroupChange={setSelectedGroup}
+                  onSelectedDayChange={setSelectedDay}
+                  onTagInputChange={setTagInput}
+                  onToggleTagFilter={toggleSelectedTag}
+                  onClearTagFilter={clearSelectedTags}
+                  onApplyTagToSelection={handleApplyTagToSelection}
+                  onRemoveTagFromSelection={handleRemoveTagFromSelection}
+                  isDeleting={isDeleting}
+                  onDeleteSelection={handleDeleteSelection}
+                  onDeleteAsset={handleDeleteAsset}
                   onToggleAllFilteredAssets={handleToggleAllFilteredAssets}
                   onClearAssetSelection={clearAssetSelection}
                   onSetActiveAssetId={setActiveAssetId}
@@ -305,10 +335,21 @@ export function Workspace() {
             totalSize={totalSize}
             selectionNotice={selectionNotice}
             searchText={searchText}
-            selectedGroup={selectedGroup}
-            groupOptions={groupOptions}
+            selectedDay={selectedDay}
+            dayOptions={dayOptions}
+            selectedTags={selectedTags}
+            tagOptions={tagOptions}
+            tagInput={tagInput}
             onSearchTextChange={setSearchText}
-            onSelectedGroupChange={setSelectedGroup}
+            onSelectedDayChange={setSelectedDay}
+            onTagInputChange={setTagInput}
+            onToggleTagFilter={toggleSelectedTag}
+            onClearTagFilter={clearSelectedTags}
+            onApplyTagToSelection={handleApplyTagToSelection}
+            onRemoveTagFromSelection={handleRemoveTagFromSelection}
+            isDeleting={isDeleting}
+            onDeleteSelection={handleDeleteSelection}
+            onDeleteAsset={handleDeleteAsset}
             onToggleAllFilteredAssets={handleToggleAllFilteredAssets}
             onClearAssetSelection={clearAssetSelection}
             onSetActiveAssetId={setActiveAssetId}
@@ -373,11 +414,7 @@ export function Workspace() {
             </Button>
           )}
           {currentStep === "library" && assets.length === 0 ? (
-            <UploadButton
-              className="w-full md:w-auto"
-              label={primaryAction.label}
-              onFiles={handleFiles}
-            />
+            <UploadButton className="w-full md:w-auto" label={primaryAction.label} onFiles={handleFiles} />
           ) : (
             <Button
               className="w-full md:w-auto"

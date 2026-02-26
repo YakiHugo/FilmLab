@@ -1,4 +1,4 @@
-import { clamp } from "@/lib/math";
+import { clamp } from "../math";
 import type { AssetAiRecommendation, AiPresetRecommendation, Preset } from "@/types";
 
 export const MAX_STYLE_SELECTION = 36;
@@ -75,21 +75,6 @@ export const sanitizeTopPresetRecommendations = (
         break;
       }
     }
-  }
-
-  for (const presetId of candidates) {
-    if (output.length >= topK) {
-      break;
-    }
-    if (used.has(presetId)) {
-      continue;
-    }
-    used.add(presetId);
-    output.push({
-      presetId,
-      reason: "Fallback recommendation.",
-      confidence: 0.4,
-    });
   }
 
   return output;

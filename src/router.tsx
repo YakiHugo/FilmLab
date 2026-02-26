@@ -1,7 +1,22 @@
 import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
+import { z } from "zod";
 import App from "@/App";
 import { Workspace } from "@/pages/Workspace";
 import { Editor } from "@/pages/Editor";
+
+const workspaceStepSchema = z.enum(["library", "style", "export"]);
+
+const workspaceSearchSchema = z.object({
+  step: workspaceStepSchema.catch("library"),
+});
+
+const editorSearchSchema = z.object({
+  assetId: z.string().optional().catch(undefined),
+  returnStep: workspaceStepSchema.optional().catch(undefined),
+});
+
+export type WorkspaceSearch = z.infer<typeof workspaceSearchSchema>;
+export type EditorSearch = z.infer<typeof editorSearchSchema>;
 
 const rootRoute = createRootRoute({
   component: App,
@@ -10,28 +25,14 @@ const rootRoute = createRootRoute({
 const landingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  validateSearch: (search: Record<string, unknown>) => ({
-    step: search.step === "style" || search.step === "export" ? search.step : "library",
-  }),
+  validateSearch: workspaceSearchSchema,
   component: Workspace,
 });
 
 const editorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/editor",
-  validateSearch: (search: Record<string, unknown>) => {
-    const returnStep =
-      search.returnStep === "library" ||
-      search.returnStep === "style" ||
-      search.returnStep === "export"
-        ? search.returnStep
-        : undefined;
-
-    return {
-      assetId: typeof search.assetId === "string" ? search.assetId : undefined,
-      ...(returnStep ? { returnStep } : {}),
-    };
-  },
+  validateSearch: editorSearchSchema,
   component: Editor,
 });
 

@@ -1,5 +1,10 @@
-import { Download, Sparkles, Upload } from "lucide-react";
+﻿import { Download, Sparkles, Upload } from "lucide-react";
 import type { PresetAdjustmentKey } from "@/types";
+import {
+  isSupportedImportFile as isSupportedProjectImportFile,
+  MAX_IMPORT_BATCH_SIZE as PROJECT_MAX_IMPORT_BATCH_SIZE,
+  MAX_IMPORT_FILE_SIZE as PROJECT_MAX_IMPORT_FILE_SIZE,
+} from "@/stores/project/constants";
 import type { WorkspaceStepItem } from "./types";
 
 export const CUSTOM_PRESETS_KEY = "filmlab.customPresets";
@@ -7,20 +12,20 @@ export const CUSTOM_PRESETS_KEY = "filmlab.customPresets";
 export const WORKSPACE_STEPS: WorkspaceStepItem[] = [
   {
     id: "library",
-    label: "素材",
-    description: "导入与选择",
+    label: "绱犳潗",
+    description: "瀵煎叆涓庨€夋嫨",
     icon: Upload,
   },
   {
     id: "style",
-    label: "风格",
-    description: "一键统一",
+    label: "椋庢牸",
+    description: "涓€閿粺涓€",
     icon: Sparkles,
   },
   {
     id: "export",
-    label: "导出",
-    description: "交付输出",
+    label: "瀵煎嚭",
+    description: "浜や粯杈撳嚭",
     icon: Download,
   },
 ];
@@ -42,18 +47,11 @@ export const PRESET_ADJUSTMENT_KEYS: PresetAdjustmentKey[] = [
   "grain",
 ];
 
-const SUPPORTED_IMPORT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const SUPPORTED_IMPORT_EXTENSIONS = /\.(jpe?g|png|webp)$/i;
-
-export const isSupportedImportFile = (file: File) => {
-  if (SUPPORTED_IMPORT_TYPES.has(file.type)) {
-    return true;
-  }
-  return SUPPORTED_IMPORT_EXTENSIONS.test(file.name);
-};
+export const isSupportedImportFile = isSupportedProjectImportFile;
 
 /** 50 MB per file */
-export const MAX_IMPORT_FILE_SIZE = 50 * 1024 * 1024;
+export const MAX_IMPORT_FILE_SIZE = PROJECT_MAX_IMPORT_FILE_SIZE;
 
 /** Max files per single import batch */
-export const MAX_IMPORT_BATCH_SIZE = 200;
+export const MAX_IMPORT_BATCH_SIZE = PROJECT_MAX_IMPORT_BATCH_SIZE;
+

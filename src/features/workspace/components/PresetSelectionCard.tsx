@@ -1,4 +1,4 @@
-import { memo, useCallback } from "react";
+﻿import { memo, useCallback } from "react";
 import { Layers } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { presets as basePresets } from "@/data/presets";
 import { cn } from "@/lib/utils";
-import type { EditingAdjustments, Asset } from "@/types";
+import type { Asset, EditingAdjustments } from "@/types";
 
 interface RecommendedPreset {
   preset: (typeof basePresets)[number];
@@ -31,14 +31,14 @@ interface PresetSelectionCardProps {
   advancedOpen: boolean;
   customPresetName: string;
   previewAdjustments: EditingAdjustments | null | undefined;
-  selectedGroup: string;
+  selectedDay: string;
   assets: Asset[];
   targetSelection: string[];
   onApplyPreset: (presetId: string) => void;
   onIntensityChange: (value: number) => void;
   onUpdateAdjustmentValue: (key: keyof EditingAdjustments, value: number) => void;
   onApplyPresetToSelection: (assetIds: string[], presetId: string, intensity: number) => void;
-  onApplyPresetToGroup: (group: string, presetId: string, intensity: number) => void;
+  onApplyPresetToDay: (day: string, presetId: string, intensity: number) => void;
   onSetAdvancedOpen: (fn: (prev: boolean) => boolean) => void;
   onSetCustomPresetName: (value: string) => void;
   onSaveCustomPreset: () => void;
@@ -54,14 +54,14 @@ export const PresetSelectionCard = memo(function PresetSelectionCard({
   advancedOpen,
   customPresetName,
   previewAdjustments,
-  selectedGroup,
+  selectedDay,
   assets,
   targetSelection,
   onApplyPreset,
   onIntensityChange,
   onUpdateAdjustmentValue,
   onApplyPresetToSelection,
-  onApplyPresetToGroup,
+  onApplyPresetToDay,
   onSetAdvancedOpen,
   onSetCustomPresetName,
   onSaveCustomPreset,
@@ -75,17 +75,17 @@ export const PresetSelectionCard = memo(function PresetSelectionCard({
     onApplyPresetToSelection(targetSelection, selectedPresetId, intensity);
   }, [onApplyPresetToSelection, targetSelection, selectedPresetId, intensity]);
 
-  const handleApplyToGroup = useCallback(() => {
-    if (selectedGroup !== "all") {
-      onApplyPresetToGroup(selectedGroup, selectedPresetId, intensity);
+  const handleApplyToDay = useCallback(() => {
+    if (selectedDay !== "all") {
+      onApplyPresetToDay(selectedDay, selectedPresetId, intensity);
     }
-  }, [onApplyPresetToGroup, selectedGroup, selectedPresetId, intensity]);
+  }, [onApplyPresetToDay, selectedDay, selectedPresetId, intensity]);
 
   return (
     <>
       <Card className="animate-fade-up" style={{ animationDelay: "80ms" }}>
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>风格包</CardTitle>
+          <CardTitle>风格库</CardTitle>
           <div className="flex items-center gap-2 text-xs text-slate-400">
             <Layers className="h-4 w-4" />
             已选 {selectedAssetIds.length} 张
@@ -94,9 +94,7 @@ export const PresetSelectionCard = memo(function PresetSelectionCard({
         <CardContent className="space-y-4">
           {activeRecommendedTopPresets.length > 0 && (
             <div className="space-y-2">
-              <p className="text-xs uppercase tracking-[0.24em] text-sky-200/80">
-                AI 推荐（当前图片）
-              </p>
+              <p className="text-xs uppercase tracking-[0.24em] text-sky-200/80">AI 推荐（当前图片）</p>
               <div className="flex gap-3 overflow-x-auto pb-2">
                 {activeRecommendedTopPresets.map(({ preset, recommendation }, index) => {
                   const isActive = preset.id === selectedPresetId;
@@ -118,9 +116,7 @@ export const PresetSelectionCard = memo(function PresetSelectionCard({
                           推荐 {index + 1}
                         </Badge>
                       </div>
-                      <p className="mt-2 text-xs text-slate-400 line-clamp-2">
-                        {recommendation.reason}
-                      </p>
+                      <p className="mt-2 text-xs text-slate-400 line-clamp-2">{recommendation.reason}</p>
                     </button>
                   );
                 })}
@@ -136,7 +132,7 @@ export const PresetSelectionCard = memo(function PresetSelectionCard({
                   key={preset.id}
                   type="button"
                   onClick={() => onApplyPreset(preset.id)}
-                  aria-label={`风格包：${preset.name}`}
+                  aria-label={`风格卡：${preset.name}`}
                   aria-pressed={isActive}
                   className={cn(
                     "min-w-[180px] rounded-2xl border border-white/10 bg-slate-950/60 p-3 text-left transition",
@@ -174,9 +170,7 @@ export const PresetSelectionCard = memo(function PresetSelectionCard({
                       )}
                     >
                       <p className="font-medium text-slate-100">{preset.name}</p>
-                      <p className="mt-2 text-xs text-slate-400 line-clamp-2">
-                        {preset.description}
-                      </p>
+                      <p className="mt-2 text-xs text-slate-400 line-clamp-2">{preset.description}</p>
                       <Badge className="mt-3 border-emerald-200/30 bg-emerald-300/10 text-emerald-200">
                         自定义
                       </Badge>
@@ -192,25 +186,15 @@ export const PresetSelectionCard = memo(function PresetSelectionCard({
               <span className="text-slate-300">风格强度</span>
               <span>{intensity}</span>
             </div>
-            <Slider
-              value={[intensity]}
-              min={0}
-              max={100}
-              step={1}
-              onValueChange={handleIntensitySlider}
-            />
+            <Slider value={[intensity]} min={0} max={100} step={1} onValueChange={handleIntensitySlider} />
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <Button onClick={handleApplyToSelection} disabled={assets.length === 0}>
               应用到已选
             </Button>
-            <Button
-              variant="secondary"
-              onClick={handleApplyToGroup}
-              disabled={selectedGroup === "all"}
-            >
-              应用到当前分组
+            <Button variant="secondary" onClick={handleApplyToDay} disabled={selectedDay === "all"}>
+              应用到当前日期组
             </Button>
           </div>
         </CardContent>
@@ -226,10 +210,7 @@ export const PresetSelectionCard = memo(function PresetSelectionCard({
               QUICK_ADJUST_TOOLS.map((tool) => {
                 const currentValue = activeAdjustments[tool.key];
                 return (
-                  <div
-                    key={tool.key}
-                    className="rounded-2xl border border-white/10 bg-slate-950/60 p-3"
-                  >
+                  <div key={tool.key} className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
                     <div className="flex items-center justify-between text-xs text-slate-400">
                       <span className="text-slate-300">{tool.label}</span>
                       <span>{currentValue}</span>
@@ -324,3 +305,4 @@ export const PresetSelectionCard = memo(function PresetSelectionCard({
     </>
   );
 });
+

@@ -1,6 +1,8 @@
+import { normalizeAdjustments } from "@/lib/adjustments";
 import { clamp } from "@/lib/math";
+import type { EditingAdjustments } from "@/types";
+import { FILM_PROFILE_IDS, aiControllableAdjustmentsSchema } from "./editSchema";
 import type { AiControllableAdjustments } from "./editSchema";
-import { FILM_PROFILE_IDS } from "./editSchema";
 
 const clampRound = (value: number, min: number, max: number) => clamp(Math.round(value), min, max);
 
@@ -67,4 +69,22 @@ export function sanitizeAiAdjustments(raw: AiControllableAdjustments): AiControl
 export function sanitizeFilmProfileId(id: string | undefined): string | undefined {
   if (!id) return undefined;
   return (FILM_PROFILE_IDS as readonly string[]).includes(id) ? id : undefined;
+}
+
+const AI_ADJUSTMENT_KEYS = Object.keys(
+  aiControllableAdjustmentsSchema.shape
+) as (keyof AiControllableAdjustments)[];
+
+export function buildPatchFromAiResult(
+  current: EditingAdjustments | null | undefined,
+  result: AiControllableAdjustments
+): Partial<EditingAdjustments> {
+  const base = normalizeAdjustments(current);
+  const patch: Record<string, unknown> = { ...base };
+
+  for (const key of AI_ADJUSTMENT_KEYS) {
+    patch[key] = result[key];
+  }
+
+  return patch as Partial<EditingAdjustments>;
 }

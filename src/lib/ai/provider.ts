@@ -1,6 +1,5 @@
-import { openai } from "@ai-sdk/openai";
-import { anthropic } from "@ai-sdk/anthropic";
-import { google } from "@ai-sdk/google";
+import type { LanguageModel } from "ai";
+
 export interface ModelOption {
   provider: string;
   id: string;
@@ -17,15 +16,19 @@ export const AVAILABLE_MODELS: ModelOption[] = [
 
 export const DEFAULT_MODEL: ModelOption = AVAILABLE_MODELS[0];
 
-import type { LanguageModel } from "ai";
-
-export function resolveModel(provider: string, modelId: string): LanguageModel {
+export async function resolveModel(provider: string, modelId: string): Promise<LanguageModel> {
   switch (provider) {
-    case "anthropic":
+    case "anthropic": {
+      const { anthropic } = await import("@ai-sdk/anthropic");
       return anthropic(modelId);
-    case "google":
+    }
+    case "google": {
+      const { google } = await import("@ai-sdk/google");
       return google(modelId);
-    default:
+    }
+    default: {
+      const { openai } = await import("@ai-sdk/openai");
       return openai(modelId);
+    }
   }
 }
