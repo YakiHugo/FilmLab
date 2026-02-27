@@ -1558,7 +1558,7 @@ const drawLocalMaskShape = (
 
   const startX = clamp(mask.startX, 0, 1) * width;
   const startY = clamp(mask.startY, 0, 1) * height;
-  let endX = clamp(mask.endX, 0, 1) * width;
+  const endX = clamp(mask.endX, 0, 1) * width;
   let endY = clamp(mask.endY, 0, 1) * height;
   if ((endX - startX) * (endX - startX) + (endY - startY) * (endY - startY) < 1e-6) {
     endY += 1;

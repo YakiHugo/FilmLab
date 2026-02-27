@@ -1,9 +1,9 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`src/` is the main application codebase. Entry points are `main.tsx`, `App.tsx`, and `router.tsx`. Route-level pages live in `src/pages/` (`Editor.tsx`, `Workspace.tsx`), while feature code is organized under `src/features/editor` and `src/features/workspace`. Reusable UI and layout components are in `src/components/ui` and `src/components/layout`.
+`src/` is the main application codebase. Entry points are `main.tsx`, `App.tsx`, and `router.tsx`. Route-level modules are feature pages under `src/features/` (`chat`, `library`, `editor`, `canvas`). Reusable UI and layout components are in `src/components/ui` and `src/components/layout`.
 
-State is managed in `src/stores/` (`editorStore.ts`, `projectStore.ts`). Shared logic lives in `src/lib/` (notably `ai/`, `film/`, and `renderer/`). API handlers for serverless endpoints are in `api/` with shared API utilities in `api/_utils.ts`. Static files are in `public/`, fixtures in `test-assets/`, and build output in `dist/`.
+State is managed in `src/stores/` (`appStore.ts`, `assetStore.ts`, `editorStore.ts`, `canvasStore.ts`, `chatStore.ts`). Shared logic lives in `src/lib/` (notably `ai/`, `film/`, and `renderer/`). API handlers for serverless endpoints are in `api/` with shared API utilities in `api/_utils.ts`. Static files are in `public/`, fixtures in `test-assets/`, and build output in `dist/`.
 
 ## Build, Test, and Development Commands
 - `pnpm install`: install dependencies.
@@ -22,7 +22,7 @@ Use TypeScript + React conventions with 2-space indentation, semicolons, double 
 Vitest is the test framework. Place unit tests beside implementation files (examples: `src/lib/*.test.ts`, `src/stores/*.test.ts`). Cover both standard and edge-case behavior for store logic, AI utilities, and renderer helpers. There is no enforced coverage threshold in scripts; new logic should ship with targeted tests.
 
 ## Commit & Pull Request Guidelines
-Follow Conventional Commit style used in history: `feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `perf: ...`. Keep scopes specific (e.g., `renderer`, `workspace`, `ai`, `router`). For PRs, include:
+Follow Conventional Commit style used in history: `feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `perf: ...`. Keep scopes specific (e.g., `renderer`, `library`, `editor`, `canvas`, `chat`, `ai`, `router`). For PRs, include:
 - clear summary and rationale
 - linked issue/task
 - test evidence (`pnpm test`, `pnpm lint`, `pnpm build`)

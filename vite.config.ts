@@ -21,6 +21,7 @@ export default defineConfig({
           router: ["@tanstack/react-router"],
           ai: ["ai", "@ai-sdk/react", "@ai-sdk/openai", "@ai-sdk/anthropic", "@ai-sdk/google"],
           markdown: ["react-markdown", "remark-gfm"],
+          canvas: ["konva", "react-konva"],
           ui: [
             "lucide-react",
             "@radix-ui/react-label",

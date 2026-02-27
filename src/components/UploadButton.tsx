@@ -1,5 +1,5 @@
-import { Upload } from "lucide-react";
-import { useProjectStore } from "@/stores/projectStore";
+﻿import { Upload } from "lucide-react";
+import { useAssetStore } from "@/stores/assetStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,7 +16,7 @@ interface UploadButtonProps {
 }
 
 export function UploadButton({
-  label = "导入素材",
+  label = "Import Assets",
   className,
   labelClassName,
   variant = "default",
@@ -24,7 +24,7 @@ export function UploadButton({
   compact = false,
   onFiles,
 }: UploadButtonProps) {
-  const isImporting = useProjectStore((state) => state.isImporting);
+  const isImporting = useAssetStore((state) => state.isImporting);
 
   return (
     <Button
@@ -36,7 +36,7 @@ export function UploadButton({
       <Label className="flex cursor-pointer items-center gap-2" aria-busy={isImporting}>
         <Upload className="h-4 w-4" />
         <span className={cn(compact ? "sr-only sm:not-sr-only" : "", labelClassName)}>
-          {isImporting ? "导入中..." : label}
+          {isImporting ? "Importing..." : label}
         </span>
         <Input
           type="file"

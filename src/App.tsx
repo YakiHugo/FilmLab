@@ -1,36 +1,46 @@
 import { useEffect } from "react";
 import { Outlet, useLocation } from "@tanstack/react-router";
-import { useProjectStore } from "@/stores/projectStore";
-import { AppHeader } from "@/components/layout/AppHeader";
+import { AppShell } from "@/components/layout/AppShell";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { useAssetStore } from "@/stores/assetStore";
+import { useAppStore } from "@/stores/appStore";
+import { useCanvasStore } from "@/stores/canvasStore";
+
+const resolveModuleFromPath = (pathname: string) => {
+  if (pathname === "/library") {
+    return "library";
+  }
+  if (pathname === "/editor") {
+    return "editor";
+  }
+  if (pathname.startsWith("/canvas")) {
+    return "canvas";
+  }
+  return "chat";
+};
 
 function App() {
-  const init = useProjectStore((state) => state.init);
+  const initAssets = useAssetStore((state) => state.init);
+  const initCanvas = useCanvasStore((state) => state.init);
+  const setActiveModule = useAppStore((state) => state.setActiveModule);
   const pathname = useLocation({ select: (state) => state.pathname });
-  const isEditorRoute = pathname === "/editor";
 
   useEffect(() => {
-    void init();
-  }, [init]);
+    void initAssets();
+    void initCanvas();
+  }, [initAssets, initCanvas]);
+
+  useEffect(() => {
+    const nextModule = resolveModuleFromPath(pathname);
+    setActiveModule(nextModule);
+  }, [pathname, setActiveModule]);
 
   return (
-    <div className="relative min-h-screen w-full bg-slate-950 text-slate-100">
-      {!isEditorRoute && <div className="pointer-events-none absolute inset-0 app-bg" />}
-      <div className="relative flex min-h-screen w-full flex-col">
-        {!isEditorRoute && <AppHeader />}
-        <main
-          className={
-            isEditorRoute
-              ? "flex h-[100dvh] min-h-[100dvh] w-full flex-col overflow-hidden"
-              : "mx-auto flex min-w-0 w-full max-w-7xl flex-1 flex-col px-4 pb-28 pt-6 md:px-8 md:pb-10"
-          }
-        >
-          <ErrorBoundary>
-            <Outlet />
-          </ErrorBoundary>
-        </main>
-      </div>
-    </div>
+    <AppShell>
+      <ErrorBoundary>
+        <Outlet />
+      </ErrorBoundary>
+    </AppShell>
   );
 }
 

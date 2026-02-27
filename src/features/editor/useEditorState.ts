@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo } from "react";
+﻿import { useCallback, useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { normalizeAdjustments } from "@/lib/adjustments";
 import { useEditorStore } from "@/stores/editorStore";
-import { useProjectStore } from "@/stores/projectStore";
+import { useAssetStore } from "@/stores/assetStore";
 import type { HistogramData } from "./histogram";
 import { rgbToHue } from "./colorUtils";
 import { useEditorHistory } from "./useEditorHistory";
@@ -11,7 +11,7 @@ import { useEditorColorGrading } from "./useEditorColorGrading";
 import { useEditorFilmProfile } from "./useEditorFilmProfile";
 
 export function useEditorState() {
-  const assets = useProjectStore((state) => state.assets);
+  const assets = useAssetStore((state) => state.assets);
 
   const {
     selectedAssetId,
@@ -176,7 +176,7 @@ export function useEditorState() {
       }
 
       const liveAsset =
-        useProjectStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+        useAssetStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
       if (!liveAsset) {
         setPointColorPicking(false);
         setPointColorPickTarget("hsl");

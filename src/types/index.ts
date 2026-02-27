@@ -484,3 +484,6 @@ export interface Project {
   updatedAt: string;
 }
 
+export * from "./canvas";
+export * from "./chat";
+
