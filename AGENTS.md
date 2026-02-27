@@ -1,80 +1,32 @@
-# FilmLab Repository Guidelines
+# Repository Guidelines
 
-> Last updated: 2026-02-16  
-> This file is the quick collaboration guide.  
-> Detailed architecture: `AGENT.md` and `docs/editor.md`.
+## Project Structure & Module Organization
+`src/` is the main application codebase. Entry points are `main.tsx`, `App.tsx`, and `router.tsx`. Route-level pages live in `src/pages/` (`Editor.tsx`, `Workspace.tsx`), while feature code is organized under `src/features/editor` and `src/features/workspace`. Reusable UI and layout components are in `src/components/ui` and `src/components/layout`.
 
-## 1. Current Snapshot
+State is managed in `src/stores/` (`editorStore.ts`, `projectStore.ts`). Shared logic lives in `src/lib/` (notably `ai/`, `film/`, and `renderer/`). API handlers for serverless endpoints are in `api/` with shared API utilities in `api/_utils.ts`. Static files are in `public/`, fixtures in `test-assets/`, and build output in `dist/`.
 
-- Tech stack: Vite + React 18 + TypeScript + Tailwind + Zustand + TanStack Router/Query
-- Main routes: `/` (`Workspace`) and `/editor` (`Editor`)
-- Rendering path:
-  - PixiJS multi-pass (`src/lib/renderer/`) — sole GPU rendering path
-- Persistence: IndexedDB via `idb` (`src/lib/db.ts`)
-- AI recommendation API: `POST /api/recommend-film` (`api/recommend-film.ts`)
+## Build, Test, and Development Commands
+- `pnpm install`: install dependencies.
+- `pnpm dev`: generate shaders, then start Vite dev server.
+- `pnpm build`: generate shaders, type-check (`tsc -b`), and build for production.
+- `pnpm preview`: preview the production build locally.
+- `pnpm test`: run Vitest once.
+- `pnpm test:watch`: run Vitest in watch mode.
+- `pnpm lint` / `pnpm lint:fix`: run ESLint on `src/`.
+- `pnpm format` / `pnpm format:check`: run Prettier for `src/**/*.{ts,tsx,css}`.
 
-## 2. Project Structure
+## Coding Style & Naming Conventions
+Use TypeScript + React conventions with 2-space indentation, semicolons, double quotes, and trailing commas (`.prettierrc`). Keep components in PascalCase (`TopBar.tsx`), utilities in camelCase, and tests named `*.test.ts` colocated with related modules. Prefer the `@` alias for imports from `src/`. Do not manually edit generated shader files in `src/lib/renderer/shaders/generated`; update templates and run `pnpm run generate:shaders`.
 
-- `src/main.tsx`: app bootstrap (`QueryClientProvider` + router)
-- `src/router.tsx`: TanStack Router definitions
-- `src/pages/Workspace.tsx`: import/style/export workflow page
-- `src/pages/Editor.tsx`: fine-tune editor page
-- `src/features/workspace/`: workspace feature components and hooks
-- `src/pages/editor/`: editor subcomponents and helpers
-- `src/lib/imageProcessing.ts`: render entry (geometry + pipeline selection)
-- `src/lib/film/`: v1 film profile data model and resolution
-- `src/lib/renderer/`: PixiJS renderer, filters, LUT loader/cache, shader config
-- `src/stores/`: Zustand stores (`projectStore.ts`, `editorStore.ts`)
-- `src/data/`: presets and built-in film profiles
-- `docs/`: project docs (`editor.md`, `film_pipeline.md`, `project_status.md`)
+## Testing Guidelines
+Vitest is the test framework. Place unit tests beside implementation files (examples: `src/lib/*.test.ts`, `src/stores/*.test.ts`). Cover both standard and edge-case behavior for store logic, AI utilities, and renderer helpers. There is no enforced coverage threshold in scripts; new logic should ship with targeted tests.
 
-## 3. Commands
+## Commit & Pull Request Guidelines
+Follow Conventional Commit style used in history: `feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `perf: ...`. Keep scopes specific (e.g., `renderer`, `workspace`, `ai`, `router`). For PRs, include:
+- clear summary and rationale
+- linked issue/task
+- test evidence (`pnpm test`, `pnpm lint`, `pnpm build`)
+- screenshots or short recordings for UI changes
 
-- `pnpm install`: install dependencies
-- `pnpm dev`: generate shaders then run Vite dev server
-- `pnpm build`: generate shaders + type check + production build
-- `pnpm preview`: preview production build
-- `pnpm generate:shaders`: regenerate shader outputs manually
-- `pnpm vitest`: run tests (currently mainly `src/lib/ai/*.test.ts`)
-
-## 4. Coding Conventions
-
-- TypeScript + React function components
-- 2-space indentation, semicolons, double quotes
-- Use `@/` alias for `src/`
-- Component files: PascalCase
-- Hooks/utils: camelCase
-- Keep route config in `src/router.tsx`
-- Keep client state in Zustand stores under `src/stores/`
-
-## 5. Rendering-Related Changes Checklist
-
-When touching render features, update all of these together:
-
-1. Types (`src/types/index.ts`, optional `src/types/film.ts`)
-2. Uniform types (`src/lib/renderer/types.ts`)
-3. Uniform mapping (`src/lib/renderer/uniformResolvers.ts`)
-4. Shader config/templates (`src/lib/renderer/shader.config.ts`, `src/lib/renderer/shaders/templates/`)
-5. Regenerated shaders (`pnpm generate:shaders`)
-6. UI controls (`src/pages/editor/*` or `src/features/workspace/*`)
-
-## 6. Data and Persistence
-
-- Assets/project are persisted in IndexedDB (`src/lib/db.ts`)
-- Imported assets include metadata + thumbnails (`src/lib/assetMetadata.ts`)
-- Editor UI state (open sections/custom presets) partially uses localStorage
-
-## 7. Documentation Rules
-
-- Keep `AGENT.md` as the main engineering guide
-- Keep `docs/editor.md` focused on editor/render implementation
-- If behavior changes, update docs in the same PR
-
-## 8. Commit/PR Guidance
-
-- Prefer Conventional Commits: `feat:`, `fix:`, `docs:`, `chore:`
-- PR should include:
-  - clear scope
-  - user-visible impact
-  - testing steps
-  - screenshots/GIF for UI changes
+## Security & Configuration Tips
+Start from `.env.example` and define provider keys locally (`OPENAI_API_KEY`, plus optional `ANTHROPIC_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY`). Never commit secrets or local env files.
