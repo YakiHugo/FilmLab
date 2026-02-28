@@ -21,19 +21,15 @@ interface AssetGridProps {
 
 type CompactOrListView = Exclude<LibraryView, "masonry">;
 
-const COMPACT_GAP = 10;
-const LIST_GAP = 0;
+const COMPACT_COLUMN_GAP = 10;
+const COMPACT_ROW_GAP = 6;
+const LIST_GAP = 6;
 const MASONRY_GAP = 14;
-const COMPACT_ITEM_HEIGHT = 346;
 const LIST_ITEM_HEIGHT = 94;
-const COMPACT_CARD_WIDTH = 480;
+const COMPACT_CARD_WIDTH = 230;
 
 const SELECTED_BORDER = "border-yellow-500";
 const NORMAL_BORDER = "border-white/10";
-
-const resolveCompactColumns = (width: number) => {
-  return Math.max(1, Math.floor((width + COMPACT_GAP) / (COMPACT_CARD_WIDTH + COMPACT_GAP)));
-};
 
 const resolveMasonryColumns = (width: number) => {
   if (width >= 1480) return 4;
@@ -169,6 +165,7 @@ function AssetCard({
     <article
       className={cn(
         "border border-white/10 bg-[#0f1114] p-2.5 transition",
+        view === "grid-compact" && "w-full max-w-[230px] justify-self-start",
         isSelected ? SELECTED_BORDER : "hover:border-white/20"
       )}
     >
@@ -188,8 +185,7 @@ function AssetCard({
         <div
           className={cn(
             "overflow-hidden rounded-sm border bg-[#0d0e10] transition",
-            `${NORMAL_BORDER} group-hover:border-white/25`,
-            "mx-auto w-[480px] max-w-full"
+            `${NORMAL_BORDER} group-hover:border-white/25`
           )}
         >
           <img
@@ -216,8 +212,14 @@ export function AssetGrid({ assets, selectedSet, view, onSelectAsset, onImport }
   const scrollRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(1200);
   const [isDragging, setIsDragging] = useState(false);
+  const isMasonry = view === "masonry";
+  const isCompact = view === "grid-compact";
+  const isList = view === "list";
 
   useEffect(() => {
+    if (!isMasonry) {
+      return;
+    }
     const node = scrollRef.current;
     if (!node) {
       return;
@@ -230,22 +232,15 @@ export function AssetGrid({ assets, selectedSet, view, onSelectAsset, onImport }
     });
     observer.observe(node);
     return () => observer.disconnect();
-  }, []);
-
-  const isMasonry = view === "masonry";
-  const rowView = (isMasonry ? "grid-compact" : view) as CompactOrListView;
-  const columns = rowView === "grid-compact" ? resolveCompactColumns(containerWidth) : 1;
-  const rowGap = rowView === "grid-compact" ? COMPACT_GAP : LIST_GAP;
-  const rowHeight = rowView === "grid-compact" ? COMPACT_ITEM_HEIGHT : LIST_ITEM_HEIGHT;
-  const rowCount = Math.ceil(assets.length / columns);
+  }, [isMasonry]);
   const masonryColumns = resolveMasonryColumns(containerWidth);
 
   const rowVirtualizer = useVirtualizer({
-    count: rowCount,
+    count: assets.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => rowHeight + rowGap,
+    estimateSize: () => LIST_ITEM_HEIGHT + LIST_GAP,
     overscan: 7,
-    enabled: !isMasonry,
+    enabled: isList,
   });
   const virtualRows = rowVirtualizer.getVirtualItems();
 
@@ -302,7 +297,28 @@ export function AssetGrid({ assets, selectedSet, view, onSelectAsset, onImport }
         </div>
       )}
 
-      {assets.length > 0 && !isMasonry && (
+      {assets.length > 0 && isCompact && (
+        <div
+          className="grid w-full"
+          style={{
+            gridTemplateColumns: `repeat(auto-fill, minmax(${COMPACT_CARD_WIDTH}px, 1fr))`,
+            columnGap: `${COMPACT_COLUMN_GAP}px`,
+            rowGap: `${COMPACT_ROW_GAP}px`,
+          }}
+        >
+          {assets.map((asset) => (
+            <AssetCard
+              key={asset.id}
+              asset={asset}
+              isSelected={selectedSet.has(asset.id)}
+              view="grid-compact"
+              onSelectAsset={onSelectAsset}
+            />
+          ))}
+        </div>
+      )}
+
+      {assets.length > 0 && isList && (
         <div
           className="relative w-full"
           style={{
@@ -310,35 +326,30 @@ export function AssetGrid({ assets, selectedSet, view, onSelectAsset, onImport }
           }}
         >
           {virtualRows.map((virtualRow) => {
-            const startIndex = virtualRow.index * columns;
-            const rowAssets = assets.slice(startIndex, startIndex + columns);
+            const asset = assets[virtualRow.index];
+            if (!asset) {
+              return null;
+            }
             return (
               <div
                 key={virtualRow.key}
-                className={cn("grid", rowView === "grid-compact" ? "gap-[14px]" : "gap-0")}
+                className="grid"
                 style={{
                   position: "absolute",
                   left: 0,
                   top: 0,
                   width: "100%",
                   transform: `translateY(${virtualRow.start}px)`,
-                  paddingBottom: `${rowGap}px`,
-                  gridTemplateColumns:
-                    rowView === "grid-compact"
-                      ? `repeat(${columns}, ${COMPACT_CARD_WIDTH}px)`
-                      : `repeat(${columns}, minmax(0, 1fr))`,
-                  justifyContent: rowView === "grid-compact" ? "start" : undefined,
+                  paddingBottom: `${LIST_GAP}px`,
+                  gridTemplateColumns: "minmax(0, 1fr)",
                 }}
               >
-                {rowAssets.map((asset) => (
-                  <AssetCard
-                    key={asset.id}
-                    asset={asset}
-                    isSelected={selectedSet.has(asset.id)}
-                    view={rowView}
-                    onSelectAsset={onSelectAsset}
-                  />
-                ))}
+                <AssetCard
+                  asset={asset}
+                  isSelected={selectedSet.has(asset.id)}
+                  view="list"
+                  onSelectAsset={onSelectAsset}
+                />
               </div>
             );
           })}

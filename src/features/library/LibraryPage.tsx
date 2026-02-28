@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -69,24 +69,22 @@ export function LibraryPage() {
         />
       </div>
 
-      <AnimatePresence initial={false}>
-        {detailPanelOpen ? (
-          <motion.div
-            key="metadata-panel"
-            initial={{ width: 0, opacity: 0, x: 18 }}
-            animate={{ width: 320, opacity: 1, x: 0 }}
-            exit={{ width: 0, opacity: 0, x: 18 }}
-            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-            className="hidden shrink-0 overflow-hidden border-l border-white/10 lg:block"
-          >
-            <AssetMetadataPanel
-              asset={selectedAsset}
-              selectedCount={selectedAssetIds.length}
-              className="h-full"
-            />
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+      <motion.div
+        initial={false}
+        animate={{
+          width: detailPanelOpen ? 320 : 0,
+          opacity: detailPanelOpen ? 1 : 0,
+        }}
+        transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+        className="hidden shrink-0 overflow-hidden border-l border-white/10 will-change-[width,opacity] lg:block"
+        style={{ pointerEvents: detailPanelOpen ? "auto" : "none" }}
+      >
+        <AssetMetadataPanel
+          asset={selectedAsset}
+          selectedCount={selectedAssetIds.length}
+          className="h-full"
+        />
+      </motion.div>
 
       {mobileFiltersOpen && (
         <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-sm lg:hidden">

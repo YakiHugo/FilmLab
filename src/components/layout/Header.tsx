@@ -9,8 +9,8 @@ import { useChatStore } from "@/stores/chatStore";
 import { useEditorStore } from "@/stores/editorStore";
 
 const NAV_ITEMS = [
-  { label: "Chat", to: "/" as const, matches: ["/"] },
   { label: "Library", to: "/library" as const, matches: ["/library"] },
+  { label: "Chat", to: "/" as const, matches: ["/"] },
   { label: "Canvas", to: "/canvas" as const, matches: ["/canvas"] },
 ];
 const controlClass =
@@ -100,14 +100,14 @@ export function Header() {
         item.matches.some((match) =>
           match === "/" ? pathname === "/" : pathname.startsWith(match)
         )
-      )?.label ?? null,
+      )?.label ?? "Chat",
     [pathname]
   );
 
   return (
     <header className="sticky top-0 z-40 border-b border-white/10 bg-[#121214]/80 backdrop-blur-xl">
-      <div className="mx-auto flex h-16 w-full max-w-[1600px] items-center justify-between gap-3 px-3 lg:px-5">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="mx-auto grid h-16 w-full max-w-[1600px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-3 lg:px-5">
+        <div className="flex min-w-0 items-center gap-3 justify-self-start">
           <Link
             to="/"
             className="flex h-9 w-9 items-center justify-center rounded-sm border border-white/20 bg-black/45 text-zinc-100"
@@ -117,7 +117,7 @@ export function Header() {
           <p className="truncate text-sm font-semibold tracking-wide text-zinc-200">FilmLab Hub</p>
         </div>
 
-        <nav className="hidden items-center gap-1 rounded-sm border border-white/10 bg-black/35 p-1 md:flex">
+        <nav className="hidden items-center gap-1 rounded-sm border border-white/10 bg-black/35 p-1 justify-self-center md:flex">
           {NAV_ITEMS.map((item) => {
             const isActive = activeTab === item.label;
             return (
@@ -136,7 +136,7 @@ export function Header() {
           })}
         </nav>
 
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 items-center justify-end gap-2 justify-self-end">
           <ContextActions />
         </div>
       </div>
