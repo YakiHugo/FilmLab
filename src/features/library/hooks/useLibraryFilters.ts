@@ -1,19 +1,17 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { Asset } from "@/types";
-import type { LibraryFilters } from "../types";
-
-const DEFAULT_FILTERS: LibraryFilters = {
-  search: "",
-  day: "all",
-  tag: "all",
-};
+import { useLibraryFilterStore } from "./useLibraryFilterStore";
 
 export function useLibraryFilters(assets: Asset[]) {
-  const [filters, setFilters] = useState<LibraryFilters>(DEFAULT_FILTERS);
+  const filters = useLibraryFilterStore((state) => state.filters);
+  const setFilters = useLibraryFilterStore((state) => state.setFilters);
+  const updateFilters = useLibraryFilterStore((state) => state.updateFilters);
+  const resetFilters = useLibraryFilterStore((state) => state.resetFilters);
 
   const filteredAssets = useMemo(() => {
     const search = filters.search.trim().toLowerCase();
-    return assets.filter((asset) => {
+
+    const matched = assets.filter((asset) => {
       const day = asset.importDay || asset.createdAt.slice(0, 10);
       const tags = asset.tags ?? [];
       const matchesSearch =
@@ -24,7 +22,25 @@ export function useLibraryFilters(assets: Asset[]) {
       const matchesTag = filters.tag === "all" || tags.includes(filters.tag);
       return matchesSearch && matchesDay && matchesTag;
     });
-  }, [assets, filters.day, filters.search, filters.tag]);
+
+    return matched.sort((a, b) => {
+      switch (filters.sort) {
+        case "name-asc":
+          return a.name.localeCompare(b.name);
+        case "name-desc":
+          return b.name.localeCompare(a.name);
+        case "size-asc":
+          return a.size - b.size;
+        case "size-desc":
+          return b.size - a.size;
+        case "date-asc":
+          return a.createdAt.localeCompare(b.createdAt);
+        case "date-desc":
+        default:
+          return b.createdAt.localeCompare(a.createdAt);
+      }
+    });
+  }, [assets, filters.day, filters.search, filters.sort, filters.tag]);
 
   const dayOptions = useMemo(() => {
     const values = new Set<string>();
@@ -47,6 +63,8 @@ export function useLibraryFilters(assets: Asset[]) {
   return {
     filters,
     setFilters,
+    updateFilters,
+    resetFilters,
     filteredAssets,
     dayOptions,
     tagOptions,

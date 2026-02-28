@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Button } from "@/components/ui/button";
 import { useAssetStore } from "@/stores/assetStore";
 import { AssetDetailPanel } from "./AssetDetailPanel";
 import { AssetGrid } from "./AssetGrid";
@@ -14,9 +15,16 @@ export function LibraryPage() {
   const isImporting = useAssetStore((state) => state.isImporting);
   const importAssets = useAssetStore((state) => state.importAssets);
 
-  const { filters, setFilters, filteredAssets, dayOptions, tagOptions } = useLibraryFilters(assets);
-  const { selectedAssetIds, selectedSet, toggleAsset } = useAssetSelection(filteredAssets);
-  const { addTag, removeTag, removeSelection } = useBatchOperations();
+  const {
+    filters,
+    setFilters,
+    resetFilters,
+    filteredAssets,
+    dayOptions,
+    tagOptions,
+  } = useLibraryFilters(assets);
+  const { selectedAssetIds, selectedSet, toggleAsset, toggleAll } = useAssetSelection(filteredAssets);
+  const { addTag, removeTag, removeSelection, applyPreset } = useBatchOperations();
 
   const selectedAsset = useMemo(
     () => assets.find((asset) => asset.id === selectedAssetIds[0]) ?? null,
@@ -32,7 +40,26 @@ export function LibraryPage() {
         }}
       />
 
-      <FilterBar filters={filters} dayOptions={dayOptions} tagOptions={tagOptions} onChange={setFilters} />
+      <FilterBar
+        filters={filters}
+        dayOptions={dayOptions}
+        tagOptions={tagOptions}
+        onChange={setFilters}
+        onReset={resetFilters}
+      />
+
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-zinc-500">{filteredAssets.length} results</p>
+        <Button
+          size="sm"
+          variant="secondary"
+          className="rounded-xl border border-white/10 bg-black/45"
+          onClick={toggleAll}
+          disabled={filteredAssets.length === 0}
+        >
+          {selectedAssetIds.length === filteredAssets.length ? "Clear Selection" : "Select All"}
+        </Button>
+      </div>
 
       <BatchActionsBar
         selectedCount={selectedAssetIds.length}
@@ -41,10 +68,21 @@ export function LibraryPage() {
         onDelete={() => {
           void removeSelection();
         }}
+        onApplyPreset={applyPreset}
       />
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <AssetGrid assets={filteredAssets} selectedSet={selectedSet} onToggleSelect={toggleAsset} />
+        <AssetGrid
+          assets={filteredAssets}
+          selectedSet={selectedSet}
+          view={filters.view}
+          onSelectAsset={(assetId, options) =>
+            toggleAsset(assetId, {
+              additive: options.additive,
+              range: options.range,
+            })
+          }
+        />
         <AssetDetailPanel asset={selectedAsset} />
       </div>
     </div>

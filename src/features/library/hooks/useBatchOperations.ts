@@ -6,6 +6,7 @@ export function useBatchOperations() {
   const addTagsToAssets = useAssetStore((state) => state.addTagsToAssets);
   const removeTagsFromAssets = useAssetStore((state) => state.removeTagsFromAssets);
   const deleteAssets = useAssetStore((state) => state.deleteAssets);
+  const applyPresetToSelection = useAssetStore((state) => state.applyPresetToSelection);
 
   const addTag = useCallback(
     (tag: string) => {
@@ -36,10 +37,21 @@ export function useBatchOperations() {
     await deleteAssets(selectedAssetIds);
   }, [deleteAssets, selectedAssetIds]);
 
+  const applyPreset = useCallback(
+    (presetId: string) => {
+      if (!presetId || selectedAssetIds.length === 0) {
+        return;
+      }
+      applyPresetToSelection(selectedAssetIds, presetId, 100);
+    },
+    [applyPresetToSelection, selectedAssetIds]
+  );
+
   return {
     selectedAssetIds,
     addTag,
     removeTag,
     removeSelection,
+    applyPreset,
   };
 }

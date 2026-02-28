@@ -4,8 +4,6 @@ import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { UploadButton } from "@/components/UploadButton";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AVAILABLE_MODELS } from "@/lib/ai/provider";
 import { cn } from "@/lib/utils";
 import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
@@ -35,18 +33,6 @@ function ContextActions() {
   if (pathname === "/") {
     return (
       <div className="flex items-center gap-2">
-        <Select defaultValue={AVAILABLE_MODELS[0]?.id}>
-          <SelectTrigger className="h-9 w-[170px] rounded-full border-white/10 bg-black/35 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {AVAILABLE_MODELS.map((model) => (
-              <SelectItem key={`${model.provider}:${model.id}`} value={model.id}>
-                {model.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         <Button
           size="sm"
           variant="secondary"

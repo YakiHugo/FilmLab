@@ -14,10 +14,19 @@ export function CanvasPage() {
   const documentId = params?.documentId;
   const documents = useCanvasStore((state) => state.documents);
   const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
+  const isLoading = useCanvasStore((state) => state.isLoading);
+  const init = useCanvasStore((state) => state.init);
   const createDocument = useCanvasStore((state) => state.createDocument);
   const setActiveDocumentId = useCanvasStore((state) => state.setActiveDocumentId);
 
   useEffect(() => {
+    void init();
+  }, [init]);
+
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
     if (!documentId) {
       if (documents.length === 0 && !activeDocumentId) {
         void createDocument();
@@ -27,7 +36,7 @@ export function CanvasPage() {
     if (documentId !== activeDocumentId) {
       setActiveDocumentId(documentId);
     }
-  }, [documentId, activeDocumentId, documents.length, createDocument, setActiveDocumentId]);
+  }, [documentId, activeDocumentId, documents.length, createDocument, isLoading, setActiveDocumentId]);
 
   return (
     <div className="grid h-[calc(100dvh-96px)] gap-3 lg:grid-cols-[220px_minmax(0,1fr)_280px]">

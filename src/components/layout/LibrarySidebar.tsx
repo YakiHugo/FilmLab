@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { cn } from "@/lib/utils";
 import { useAssetStore } from "@/stores/assetStore";
+import { useLibraryFilterStore } from "@/features/library/hooks/useLibraryFilterStore";
 
 interface LibrarySidebarProps {
   className?: string;
@@ -16,6 +17,8 @@ export function LibrarySidebar({ className }: LibrarySidebarProps) {
       selectedAssetIds: state.selectedAssetIds,
     }))
   );
+  const filters = useLibraryFilterStore((state) => state.filters);
+  const updateFilters = useLibraryFilterStore((state) => state.updateFilters);
 
   const { dayGroups, tagGroups, selectedAsset } = useMemo(() => {
     const dayMap = new Map<string, number>();
@@ -55,14 +58,33 @@ export function LibrarySidebar({ className }: LibrarySidebarProps) {
         <section>
           <h3 className="mb-2 text-[11px] uppercase tracking-[0.18em] text-zinc-500">Dates</h3>
           <div className="space-y-1">
-            {dayGroups.slice(0, 10).map(([day, count]) => (
-              <div
+            <button
+              type="button"
+              className={[
+                "flex w-full items-center justify-between rounded-lg border px-2 py-1.5 text-xs",
+                filters.day === "all"
+                  ? "border-sky-400/40 bg-sky-400/10 text-zinc-100"
+                  : "border-white/5 bg-white/[0.03] text-zinc-300",
+              ].join(" ")}
+              onClick={() => updateFilters({ day: "all" })}
+            >
+              <span>All days</span>
+            </button>
+            {dayGroups.slice(0, 12).map(([day, count]) => (
+              <button
                 key={day}
-                className="flex items-center justify-between rounded-lg border border-white/5 bg-white/[0.03] px-2 py-1.5 text-xs text-zinc-300"
+                type="button"
+                className={[
+                  "flex w-full items-center justify-between rounded-lg border px-2 py-1.5 text-xs",
+                  filters.day === day
+                    ? "border-sky-400/40 bg-sky-400/10 text-zinc-100"
+                    : "border-white/5 bg-white/[0.03] text-zinc-300",
+                ].join(" ")}
+                onClick={() => updateFilters({ day })}
               >
                 <span>{formatDay(day)}</span>
                 <span className="text-zinc-500">{count}</span>
-              </div>
+              </button>
             ))}
             {dayGroups.length === 0 && <p className="text-xs text-zinc-500">No imports yet.</p>}
           </div>
@@ -71,13 +93,32 @@ export function LibrarySidebar({ className }: LibrarySidebarProps) {
         <section>
           <h3 className="mb-2 text-[11px] uppercase tracking-[0.18em] text-zinc-500">Tags</h3>
           <div className="flex flex-wrap gap-1.5">
-            {tagGroups.slice(0, 12).map(([tag, count]) => (
-              <span
+            <button
+              type="button"
+              className={[
+                "rounded-full border px-2 py-1 text-[11px]",
+                filters.tag === "all"
+                  ? "border-sky-400/40 bg-sky-400/10 text-zinc-100"
+                  : "border-white/10 bg-black/35 text-zinc-300",
+              ].join(" ")}
+              onClick={() => updateFilters({ tag: "all" })}
+            >
+              all
+            </button>
+            {tagGroups.slice(0, 18).map(([tag, count]) => (
+              <button
                 key={tag}
-                className="rounded-full border border-white/10 bg-black/35 px-2 py-1 text-[11px] text-zinc-300"
+                type="button"
+                className={[
+                  "rounded-full border px-2 py-1 text-[11px]",
+                  filters.tag === tag
+                    ? "border-sky-400/40 bg-sky-400/10 text-zinc-100"
+                    : "border-white/10 bg-black/35 text-zinc-300",
+                ].join(" ")}
+                onClick={() => updateFilters({ tag })}
               >
                 {tag} ({count})
-              </span>
+              </button>
             ))}
             {tagGroups.length === 0 && <p className="text-xs text-zinc-500">No tags.</p>}
           </div>
@@ -87,9 +128,16 @@ export function LibrarySidebar({ className }: LibrarySidebarProps) {
           <h3 className="mb-2 text-[11px] uppercase tracking-[0.18em] text-zinc-500">Selected</h3>
           {selectedAsset ? (
             <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.02] p-3 text-xs text-zinc-300">
+              <img
+                src={selectedAsset.thumbnailUrl || selectedAsset.objectUrl}
+                alt={selectedAsset.name}
+                className="aspect-square w-full rounded-lg border border-white/10 object-cover"
+              />
               <p className="truncate font-medium text-zinc-100">{selectedAsset.name}</p>
               <p>{Math.round(selectedAsset.size / 1024)} KB</p>
-              <p>{selectedAsset.metadata?.width ?? "-"} x {selectedAsset.metadata?.height ?? "-"}</p>
+              <p>
+                {selectedAsset.metadata?.width ?? "-"} x {selectedAsset.metadata?.height ?? "-"}
+              </p>
               <p className="truncate text-zinc-500">{selectedAsset.id}</p>
             </div>
           ) : (

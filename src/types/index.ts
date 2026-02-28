@@ -439,6 +439,7 @@ export interface Asset {
   metadata?: AssetMetadata;
   adjustments?: EditingAdjustments;
   aiRecommendation?: AssetAiRecommendation;
+  source?: "imported" | "ai-generated";
 }
 
 /** Fields that consumers may update on an existing asset. */
@@ -456,6 +457,7 @@ export type AssetUpdate = Partial<
     | "metadata"
     | "adjustments"
     | "aiRecommendation"
+    | "source"
     | "thumbnailUrl"
     | "thumbnailBlob"
   >

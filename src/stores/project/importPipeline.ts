@@ -173,6 +173,7 @@ export const runImportPipeline = async ({
             thumbnailBlob,
             metadata,
             adjustments: createDefaultAdjustments(),
+            source: "imported",
           };
 
           const payload = toStoredAsset(asset);

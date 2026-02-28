@@ -4,7 +4,6 @@ import { AppShell } from "@/components/layout/AppShell";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useAssetStore } from "@/stores/assetStore";
 import { useAppStore } from "@/stores/appStore";
-import { useCanvasStore } from "@/stores/canvasStore";
 
 const resolveModuleFromPath = (pathname: string) => {
   if (pathname === "/library") {
@@ -21,14 +20,12 @@ const resolveModuleFromPath = (pathname: string) => {
 
 function App() {
   const initAssets = useAssetStore((state) => state.init);
-  const initCanvas = useCanvasStore((state) => state.init);
   const setActiveModule = useAppStore((state) => state.setActiveModule);
   const pathname = useLocation({ select: (state) => state.pathname });
 
   useEffect(() => {
     void initAssets();
-    void initCanvas();
-  }, [initAssets, initCanvas]);
+  }, [initAssets]);
 
   useEffect(() => {
     const nextModule = resolveModuleFromPath(pathname);

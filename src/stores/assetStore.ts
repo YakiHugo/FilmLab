@@ -172,6 +172,7 @@ export const useAssetStore = create<ProjectState>()(
             metadata: stored.metadata,
             adjustments: normalizeAdjustments(stored.adjustments ?? createDefaultAdjustments()),
             aiRecommendation: stored.aiRecommendation,
+            source: stored.source,
           };
         });
 
