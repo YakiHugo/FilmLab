@@ -42,6 +42,7 @@ export const toStoredAsset = (asset: Asset): StoredAsset | null => {
     metadata: asset.metadata,
     adjustments: asset.adjustments ? normalizeAdjustments(asset.adjustments) : undefined,
     aiRecommendation: asset.aiRecommendation,
+    source: asset.source,
   };
 };
 

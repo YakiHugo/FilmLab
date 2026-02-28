@@ -315,7 +315,7 @@ export const useEditorStore = create<EditorState>()(
   )
 );
 
-// React to projectStore events — keeps stores decoupled (no circular imports).
+// React to asset store events — keeps stores decoupled (no circular imports).
 on("assets:deleted", (deletedIds) => {
   for (const id of deletedIds) {
     useEditorStore.getState().clearHistory(id);

@@ -2,6 +2,8 @@
 import type {
   AssetAiRecommendation,
   AssetMetadata,
+  CanvasDocument,
+  ChatScope,
   EditingAdjustments,
   FilmProfile,
   FilmProfileOverrides,
@@ -10,11 +12,21 @@ import type {
 
 export interface ChatSessionRecord {
   id: string;
-  assetId: string;
-  messages: Array<{ role: string; content: unknown }>;
+  assetId?: string;
+  title?: string;
+  scope?: ChatScope;
+  messages: PersistedChatMessage[];
   model: string;
   provider: string;
+  createdAt?: string;
   updatedAt: string;
+}
+
+export interface PersistedChatMessage {
+  id?: string;
+  role: string;
+  content?: unknown;
+  parts?: unknown;
 }
 
 interface FilmLabDB extends DBSchema {
@@ -39,6 +51,7 @@ interface FilmLabDB extends DBSchema {
       adjustments?: EditingAdjustments;
       filmProfile?: FilmProfile;
       aiRecommendation?: AssetAiRecommendation;
+      source?: "imported" | "ai-generated";
     };
   };
   project: {
@@ -67,12 +80,17 @@ interface FilmLabDB extends DBSchema {
     value: ChatSessionRecord;
     indexes: {
       byAssetId: string;
+      byScope: ChatScope;
     };
+  };
+  canvasDocuments: {
+    key: string;
+    value: CanvasDocument;
   };
 }
 
 const DB_NAME = "filmlab-mvp";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 let dbFailed = false;
 let dbInstance: IDBPDatabase<FilmLabDB> | null = null;
@@ -85,26 +103,35 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
   for (let attempt = 0; attempt <= MAX_DB_RETRIES; attempt++) {
     try {
       const db = await openDB<FilmLabDB>(DB_NAME, DB_VERSION, {
-        upgrade(db, oldVersion) {
+        upgrade(db, oldVersion, _newVersion, transaction) {
           if (!db.objectStoreNames.contains("assets")) {
             db.createObjectStore("assets", { keyPath: "id" });
           }
           if (!db.objectStoreNames.contains("project")) {
             db.createObjectStore("project", { keyPath: "id" });
           }
-          if (oldVersion < 3 && !db.objectStoreNames.contains("localMaskBlobs")) {
+          if (!db.objectStoreNames.contains("localMaskBlobs")) {
             const store = db.createObjectStore("localMaskBlobs", { keyPath: "id" });
             store.createIndex("byAssetId", "assetId", { unique: false });
           }
-          if (oldVersion < 4 && !db.objectStoreNames.contains("chatSessions")) {
+          if (!db.objectStoreNames.contains("chatSessions")) {
             const chatStore = db.createObjectStore("chatSessions", { keyPath: "id" });
             chatStore.createIndex("byAssetId", "assetId", { unique: false });
+            chatStore.createIndex("byScope", "scope", { unique: false });
+          } else if (oldVersion < 6) {
+            const chatStore = transaction.objectStore("chatSessions");
+            if (!chatStore.indexNames.contains("byScope")) {
+              chatStore.createIndex("byScope", "scope", { unique: false });
+            }
           }
-          // v5 introduces optional asset value fields (`importDay`, `tags`) only.
-          // No object store migration is required because IndexedDB values are schemaless.
+          if (!db.objectStoreNames.contains("canvasDocuments")) {
+            db.createObjectStore("canvasDocuments", { keyPath: "id" });
+          }
+          // v5/v6 only add optional value fields (`importDay`, `tags`, `source`).
+          // No migration is needed because IndexedDB values are schemaless.
         },
         blocked() {
-          console.warn("IndexedDB upgrade blocked 鈥?another tab has an older version open.");
+          console.warn("IndexedDB upgrade blocked because another tab still uses an older schema.");
         },
         blocking() {
           // Another tab is trying to upgrade; close our connection so it can proceed.
@@ -412,13 +439,18 @@ export async function deleteAsset(id: string): Promise<boolean> {
   }
 }
 
-// 鈹€鈹€ Chat session persistence 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// Chat session persistence
 
 export async function saveChatSession(session: ChatSessionRecord): Promise<boolean> {
   const db = await getDB();
   if (!db || !db.objectStoreNames.contains("chatSessions")) return false;
   try {
-    await db.put("chatSessions", session);
+    await db.put("chatSessions", {
+      ...session,
+      title: session.title || "New Chat",
+      scope: session.scope ?? "hub",
+      createdAt: session.createdAt || session.updatedAt,
+    });
     return true;
   } catch (error) {
     console.warn("IndexedDB saveChatSession failed:", error);
@@ -437,13 +469,24 @@ export async function loadChatSession(id: string): Promise<ChatSessionRecord | n
   }
 }
 
+export async function loadChatSessionsByScope(scope: ChatScope): Promise<ChatSessionRecord[]> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("chatSessions")) return [];
+  try {
+    const records = await db.getAllFromIndex("chatSessions", "byScope", scope);
+    return records.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  } catch (error) {
+    console.warn("IndexedDB loadChatSessionsByScope failed:", error);
+    return [];
+  }
+}
+
 export async function loadChatSessionByAssetId(assetId: string): Promise<ChatSessionRecord | null> {
   const db = await getDB();
   if (!db || !db.objectStoreNames.contains("chatSessions")) return null;
   try {
     const all = await db.getAllFromIndex("chatSessions", "byAssetId", assetId);
     if (all.length === 0) return null;
-    // Return the most recently updated session
     return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
   } catch (error) {
     console.warn("IndexedDB loadChatSessionByAssetId failed:", error);
@@ -471,6 +514,67 @@ export async function clearChatSessions(): Promise<boolean> {
     return true;
   } catch (error) {
     console.warn("IndexedDB clearChatSessions failed:", error);
+    return false;
+  }
+}
+
+export type StoredCanvasDocument = FilmLabDB["canvasDocuments"]["value"];
+
+export async function saveCanvasDocument(document: StoredCanvasDocument): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("canvasDocuments")) return false;
+  try {
+    await db.put("canvasDocuments", document);
+    return true;
+  } catch (error) {
+    console.warn("IndexedDB saveCanvasDocument failed:", error);
+    return false;
+  }
+}
+
+export async function loadCanvasDocument(id: string): Promise<StoredCanvasDocument | null> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("canvasDocuments")) return null;
+  try {
+    return (await db.get("canvasDocuments", id)) ?? null;
+  } catch (error) {
+    console.warn("IndexedDB loadCanvasDocument failed:", error);
+    return null;
+  }
+}
+
+export async function loadCanvasDocuments(): Promise<StoredCanvasDocument[]> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("canvasDocuments")) return [];
+  try {
+    const documents = await db.getAll("canvasDocuments");
+    return documents.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  } catch (error) {
+    console.warn("IndexedDB loadCanvasDocuments failed:", error);
+    return [];
+  }
+}
+
+export async function deleteCanvasDocument(id: string): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("canvasDocuments")) return false;
+  try {
+    await db.delete("canvasDocuments", id);
+    return true;
+  } catch (error) {
+    console.warn("IndexedDB deleteCanvasDocument failed:", error);
+    return false;
+  }
+}
+
+export async function clearCanvasDocuments(): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("canvasDocuments")) return false;
+  try {
+    await db.clear("canvasDocuments");
+    return true;
+  } catch (error) {
+    console.warn("IndexedDB clearCanvasDocuments failed:", error);
     return false;
   }
 }

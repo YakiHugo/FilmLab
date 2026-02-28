@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+﻿import { useCallback, useEffect, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   createEditorAssetSnapshot,
@@ -8,7 +8,7 @@ import {
   type EditorAssetSnapshot,
 } from "@/features/editor/history";
 import { useEditorStore } from "@/stores/editorStore";
-import { useProjectStore } from "@/stores/projectStore";
+import { useAssetStore } from "@/stores/assetStore";
 import type { Asset, AssetUpdate } from "@/types";
 
 type PendingHistoryByKey = Record<string, EditorAssetSnapshot>;
@@ -16,7 +16,7 @@ type PendingHistoryByKey = Record<string, EditorAssetSnapshot>;
 const createHistorySessionKey = (assetId: string, key: string) => `${assetId}:${key}`;
 
 export function useEditorHistory(selectedAsset: Asset | null) {
-  const { updateAsset, updateAssetOnly } = useProjectStore(
+  const { updateAsset, updateAssetOnly } = useAssetStore(
     useShallow((state) => ({
       updateAsset: state.updateAsset,
       updateAssetOnly: state.updateAssetOnly,

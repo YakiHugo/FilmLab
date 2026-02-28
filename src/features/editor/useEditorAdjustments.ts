@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef } from "react";
+﻿import { useCallback, useEffect, useRef } from "react";
 import { normalizeAdjustments } from "@/lib/adjustments";
-import { useProjectStore } from "@/stores/projectStore";
+import { useAssetStore } from "@/stores/assetStore";
 import type { Asset, AssetUpdate, EditingAdjustments } from "@/types";
 import type { NumericAdjustmentKey } from "./types";
 
@@ -46,7 +46,7 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
     if (!assetId) {
       return null;
     }
-    return useProjectStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+    return useAssetStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
   }, [selectedAsset]);
 
   const flushAdjustmentPreview = useCallback(() => {
@@ -198,7 +198,7 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
         return;
       }
       const liveAsset =
-        useProjectStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+        useAssetStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
       if (!liveAsset) {
         return;
       }
@@ -227,7 +227,7 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
         return false;
       }
       const liveAsset =
-        useProjectStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+        useAssetStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
       if (!liveAsset) {
         return false;
       }
