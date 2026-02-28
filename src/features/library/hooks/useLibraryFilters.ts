@@ -14,13 +14,14 @@ export function useLibraryFilters(assets: Asset[]) {
     const matched = assets.filter((asset) => {
       const day = asset.importDay || asset.createdAt.slice(0, 10);
       const tags = asset.tags ?? [];
+      const source = asset.source ?? "imported";
       const matchesSearch =
         !search ||
         asset.name.toLowerCase().includes(search) ||
         tags.some((tag) => tag.toLowerCase().includes(search));
       const matchesDay = filters.day === "all" || day === filters.day;
-      const matchesTag = filters.tag === "all" || tags.includes(filters.tag);
-      return matchesSearch && matchesDay && matchesTag;
+      const matchesSource = filters.source === "all" || source === filters.source;
+      return matchesSearch && matchesDay && matchesSource;
     });
 
     return matched.sort((a, b) => {
@@ -40,24 +41,17 @@ export function useLibraryFilters(assets: Asset[]) {
           return b.createdAt.localeCompare(a.createdAt);
       }
     });
-  }, [assets, filters.day, filters.search, filters.sort, filters.tag]);
+  }, [assets, filters.day, filters.search, filters.sort, filters.source]);
 
   const dayOptions = useMemo(() => {
-    const values = new Set<string>();
+    const values = new Map<string, number>();
     for (const asset of assets) {
-      values.add(asset.importDay || asset.createdAt.slice(0, 10));
+      const day = asset.importDay || asset.createdAt.slice(0, 10);
+      values.set(day, (values.get(day) ?? 0) + 1);
     }
-    return ["all", ...Array.from(values).sort((a, b) => b.localeCompare(a))];
-  }, [assets]);
-
-  const tagOptions = useMemo(() => {
-    const values = new Set<string>();
-    for (const asset of assets) {
-      for (const tag of asset.tags ?? []) {
-        values.add(tag);
-      }
-    }
-    return ["all", ...Array.from(values).sort((a, b) => a.localeCompare(b))];
+    return [{ value: "all", count: assets.length }, ...Array.from(values.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([value, count]) => ({ value, count }))];
   }, [assets]);
 
   return {
@@ -67,6 +61,5 @@ export function useLibraryFilters(assets: Asset[]) {
     resetFilters,
     filteredAssets,
     dayOptions,
-    tagOptions,
   };
 }

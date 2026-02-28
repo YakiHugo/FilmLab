@@ -4,9 +4,9 @@ import type { LibraryFilters } from "../types";
 const DEFAULT_FILTERS: LibraryFilters = {
   search: "",
   day: "all",
-  tag: "all",
+  source: "all",
   sort: "date-desc",
-  view: "grid",
+  view: "grid-compact",
 };
 
 interface LibraryFilterState {

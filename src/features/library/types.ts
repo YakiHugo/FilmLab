@@ -6,12 +6,14 @@ export type LibrarySort =
   | "size-desc"
   | "size-asc";
 
-export type LibraryView = "grid" | "list";
+export type LibraryView = "grid-compact" | "list" | "masonry";
+
+export type AssetSource = "all" | "imported" | "ai-generated";
 
 export interface LibraryFilters {
   search: string;
   day: string;
-  tag: string;
+  source: AssetSource;
   sort: LibrarySort;
   view: LibraryView;
 }
