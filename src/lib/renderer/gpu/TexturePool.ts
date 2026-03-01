@@ -14,6 +14,7 @@ interface PoolEntry {
   target: PooledRenderTarget;
   inUse: boolean;
   lastUsedAt: number;
+  byteSize: number;
 }
 
 const toKey = (width: number, height: number, format: PipelineOutputFormat) =>
@@ -27,7 +28,8 @@ export class TexturePool {
     private readonly gl: WebGL2RenderingContext,
     private readonly supportsFloatRenderTarget: boolean,
     private readonly supportsFloatLinearFiltering: boolean,
-    private readonly maxFreeEntries = 12
+    private readonly maxFreeEntries = 12,
+    private readonly maxFreeBytes = 256 * 1024 * 1024
   ) {}
 
   resolveFormat(format: PipelineOutputFormat): PipelineOutputFormat {
@@ -64,6 +66,7 @@ export class TexturePool {
       target: created,
       inUse: true,
       lastUsedAt: now,
+      byteSize: created.width * created.height * (created.format === "RGBA16F" ? 8 : 4),
     };
     this.entries.add(entry);
     this.textureToEntry.set(created.texture, entry);
@@ -94,20 +97,24 @@ export class TexturePool {
 
   private pruneFreeEntries(): void {
     const freeEntries = Array.from(this.entries).filter((entry) => !entry.inUse);
-    if (freeEntries.length <= this.maxFreeEntries) {
+    if (freeEntries.length === 0) {
       return;
     }
 
     freeEntries.sort((a, b) => a.lastUsedAt - b.lastUsedAt);
-    const toRemove = freeEntries.length - this.maxFreeEntries;
-    for (let i = 0; i < toRemove; i += 1) {
-      const victim = freeEntries[i];
-      if (!victim) {
-        continue;
+    let freeCount = freeEntries.length;
+    let freeBytes = freeEntries.reduce((sum, entry) => sum + entry.byteSize, 0);
+    for (const victim of freeEntries) {
+      const shouldTrimByCount = freeCount > this.maxFreeEntries;
+      const shouldTrimByBytes = freeBytes > this.maxFreeBytes;
+      if (!shouldTrimByCount && !shouldTrimByBytes) {
+        break;
       }
       this.disposeEntry(victim);
       this.entries.delete(victim);
       this.textureToEntry.delete(victim.target.texture);
+      freeCount -= 1;
+      freeBytes -= victim.byteSize;
     }
   }
 

@@ -945,6 +945,6 @@ export function resolveHalationBloomUniformsV3(
   target.glowIntensity = glow?.intensity ?? 0;
   target.glowMidtoneFocus = glow?.midtoneFocus ?? 0.5;
   target.glowBias = glow?.bias ?? 0.25;
-  target.glowRadius = glow?.enabled ? Math.max(1, (glow?.intensity ?? 0) * 6) : 0;
+  target.glowRadius = glow?.enabled ? glow?.radius ?? Math.max(1, (glow?.intensity ?? 0) * 6) : 0;
   return target;
 }

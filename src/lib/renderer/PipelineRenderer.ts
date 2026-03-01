@@ -6,6 +6,12 @@ import type { PipelinePass } from "./gpu/PipelinePass";
 import { TexturePool } from "./gpu/TexturePool";
 import { readPixelsAsync } from "./gpu/TiledRenderer";
 import { CURVE_LUT_SIZE, buildCurveLutPixels, createIdentityCurvePixels } from "./gpu/CurveLut";
+import {
+  buildGlowCompositePasses,
+  buildGlowMaskPasses,
+  buildHalationCompositePasses,
+  buildHalationMaskPasses,
+} from "./passes/opticsPasses";
 import type {
   CurveUniforms,
   DetailUniforms,
@@ -1710,36 +1716,14 @@ export class PipelineRenderer {
 
         try {
           if (halationEnabled) {
-            const maskPasses: PipelinePass[] = [
-              {
-                id: "halation-threshold",
-                programInfo: this.programs.halationThreshold,
-                uniforms: this.thresholdPassUniforms,
-                outputFormat: this.intermediateFormat,
-                resolution: 0.5,
-                enabled: true,
-              },
-            ];
-            for (let i = 0; i < this.halationBlurPasses; i += 1) {
-              maskPasses.push(
-                {
-                  id: `halation-blur-h-${i}`,
-                  programInfo: this.programs.blur,
-                  uniforms: this.blurHPassUniforms,
-                  outputFormat: this.intermediateFormat,
-                  resolution: 0.5,
-                  enabled: true,
-                },
-                {
-                  id: `halation-blur-v-${i}`,
-                  programInfo: this.programs.blur,
-                  uniforms: this.blurVPassUniforms,
-                  outputFormat: this.intermediateFormat,
-                  resolution: 0.5,
-                  enabled: true,
-                }
-              );
-            }
+            const maskPasses: PipelinePass[] = buildHalationMaskPasses({
+              programs: this.programs,
+              thresholdUniforms: this.thresholdPassUniforms,
+              blurHUniforms: this.blurHPassUniforms,
+              blurVUniforms: this.blurVPassUniforms,
+              blurPasses: this.halationBlurPasses,
+              outputFormat: this.intermediateFormat,
+            });
 
             const maskResult = this.filterPipeline.runToTexture({
               baseWidth: this.lastTargetWidth,
@@ -1757,18 +1741,12 @@ export class PipelineRenderer {
               halationResult = this.filterPipeline.runToTexture({
                 baseWidth: this.lastTargetWidth,
                 baseHeight: this.lastTargetHeight,
-                passes: [
-                  {
-                    id: "halation-composite",
-                    programInfo: this.programs.halationComposite,
-                    uniforms: this.compositePassUniforms,
-                    extraTextures: {
-                      u_blurredMask: maskResult.texture,
-                    },
-                    outputFormat: this.intermediateFormat,
-                    enabled: true,
-                  },
-                ],
+                passes: buildHalationCompositePasses({
+                  programs: this.programs,
+                  compositeUniforms: this.compositePassUniforms,
+                  maskTexture: maskResult.texture,
+                  outputFormat: this.intermediateFormat,
+                }),
                 input: {
                   texture: finalResult.texture,
                   width: finalResult.width,
@@ -1783,36 +1761,14 @@ export class PipelineRenderer {
 
           if (glowEnabled) {
             const glowInput = halationResult ?? finalResult;
-            const glowMaskPasses: PipelinePass[] = [
-              {
-                id: "glow-threshold",
-                programInfo: this.programs.glowThreshold,
-                uniforms: this.glowThresholdPassUniforms,
-                outputFormat: this.intermediateFormat,
-                resolution: 0.5,
-                enabled: true,
-              },
-            ];
-            for (let i = 0; i < this.glowBlurPasses; i += 1) {
-              glowMaskPasses.push(
-                {
-                  id: `glow-blur-h-${i}`,
-                  programInfo: this.programs.blur,
-                  uniforms: this.glowBlurHPassUniforms,
-                  outputFormat: this.intermediateFormat,
-                  resolution: 0.5,
-                  enabled: true,
-                },
-                {
-                  id: `glow-blur-v-${i}`,
-                  programInfo: this.programs.blur,
-                  uniforms: this.glowBlurVPassUniforms,
-                  outputFormat: this.intermediateFormat,
-                  resolution: 0.5,
-                  enabled: true,
-                }
-              );
-            }
+            const glowMaskPasses: PipelinePass[] = buildGlowMaskPasses({
+              programs: this.programs,
+              thresholdUniforms: this.glowThresholdPassUniforms,
+              blurHUniforms: this.glowBlurHPassUniforms,
+              blurVUniforms: this.glowBlurVPassUniforms,
+              blurPasses: this.glowBlurPasses,
+              outputFormat: this.intermediateFormat,
+            });
 
             const glowMaskResult = this.filterPipeline.runToTexture({
               baseWidth: this.lastTargetWidth,
@@ -1830,18 +1786,12 @@ export class PipelineRenderer {
               glowResult = this.filterPipeline.runToTexture({
                 baseWidth: this.lastTargetWidth,
                 baseHeight: this.lastTargetHeight,
-                passes: [
-                  {
-                    id: "glow-composite",
-                    programInfo: this.programs.glowComposite,
-                    uniforms: this.glowCompositePassUniforms,
-                    extraTextures: {
-                      u_glowMask: glowMaskResult.texture,
-                    },
-                    outputFormat: this.intermediateFormat,
-                    enabled: true,
-                  },
-                ],
+                passes: buildGlowCompositePasses({
+                  programs: this.programs,
+                  compositeUniforms: this.glowCompositePassUniforms,
+                  maskTexture: glowMaskResult.texture,
+                  outputFormat: this.intermediateFormat,
+                }),
                 input: {
                   texture: glowInput.texture,
                   width: glowInput.width,

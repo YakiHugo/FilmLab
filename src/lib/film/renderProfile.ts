@@ -94,6 +94,40 @@ const applyAdjustmentCustomLUT = (
   };
 };
 
+const applyAdjustmentGlow = (
+  profile: FilmProfileV3,
+  adjustments: EditingAdjustments
+): FilmProfileV3 => {
+  const intensity = Math.max(0, Math.min(1, adjustments.glowIntensity / 100));
+  const midtoneFocus = Math.max(0, Math.min(1, adjustments.glowMidtoneFocus / 100));
+  const bias = Math.max(0, Math.min(1, adjustments.glowBias / 100));
+  const radius = Math.max(1, (Math.max(0, Math.min(100, adjustments.glowRadius)) / 100) * 20);
+
+  if (intensity <= 0.0001) {
+    return {
+      ...profile,
+      glow: {
+        enabled: false,
+        intensity: 0,
+        midtoneFocus,
+        bias,
+        radius,
+      },
+    };
+  }
+
+  return {
+    ...profile,
+    glow: {
+      enabled: true,
+      intensity,
+      midtoneFocus,
+      bias,
+      radius,
+    },
+  };
+};
+
 export const resolveRenderProfile = (
   adjustments: EditingAdjustments,
   providedProfile?: FilmProfileAny | null
@@ -101,8 +135,8 @@ export const resolveRenderProfile = (
   const normalizedAdjustments = normalizeAdjustments(adjustments);
 
   if (providedProfile && isFilmProfileV3(providedProfile)) {
-    const v3 = applyAdjustmentCustomLUT(
-      ensureFilmProfileV3(providedProfile),
+    const v3 = applyAdjustmentGlow(
+      applyAdjustmentCustomLUT(ensureFilmProfileV3(providedProfile), normalizedAdjustments),
       normalizedAdjustments
     );
     const v2 = ensureFilmProfileV2(v3);
@@ -119,8 +153,8 @@ export const resolveRenderProfile = (
 
   if (providedProfile && isFilmProfileV2(providedProfile)) {
     const v2 = ensureFilmProfileV2(providedProfile);
-    const v3 = applyAdjustmentCustomLUT(
-      ensureFilmProfileV3(v2),
+    const v3 = applyAdjustmentGlow(
+      applyAdjustmentCustomLUT(ensureFilmProfileV3(v2), normalizedAdjustments),
       normalizedAdjustments
     );
     return {
@@ -138,8 +172,8 @@ export const resolveRenderProfile = (
     const stockV2 = getStockFilmProfileV2ById(providedProfile.id);
     if (stockV2) {
       const v2 = ensureFilmProfileV2(stockV2);
-      const v3 = applyAdjustmentCustomLUT(
-        ensureFilmProfileV3(v2),
+      const v3 = applyAdjustmentGlow(
+        applyAdjustmentCustomLUT(ensureFilmProfileV3(v2), normalizedAdjustments),
         normalizedAdjustments
       );
       return {
@@ -157,8 +191,8 @@ export const resolveRenderProfile = (
   const runtimeProfile = createFilmProfileFromAdjustments(normalizedAdjustments);
   const legacyV1 = ensureFilmProfile((providedProfile as FilmProfile | undefined) ?? runtimeProfile);
   const v2 = ensureFilmProfileV2(legacyV1);
-  const v3 = applyAdjustmentCustomLUT(
-    ensureFilmProfileV3(v2),
+  const v3 = applyAdjustmentGlow(
+    applyAdjustmentCustomLUT(ensureFilmProfileV3(v2), normalizedAdjustments),
     normalizedAdjustments
   );
 

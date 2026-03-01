@@ -205,6 +205,7 @@ export function migrateFilmProfileV2ToV3(v2: FilmProfileV2): FilmProfileV3 {
       intensity: 0,
       midtoneFocus: 0.5,
       bias: 0.25,
+      radius: 4,
     },
     filmBreath: {
       enabled: false,
