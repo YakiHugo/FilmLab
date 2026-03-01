@@ -26,16 +26,15 @@ import { EditorPresetCard } from "./EditorPresetCard";
 import { EditorSection } from "./EditorSection";
 import { EditorSliderRow } from "./EditorSliderRow";
 import { AiEditPanel } from "./ai/AiEditPanel";
+import { BasicPanel } from "./components/panels/BasicPanel";
+import { DetailPanel } from "./components/panels/DetailPanel";
+import { EffectsPanel } from "./components/panels/EffectsPanel";
+import { ExportPanel } from "./components/panels/ExportPanel";
 import {
   AI_FEATURES,
-  BASIC_COLOR_SLIDERS,
-  BASIC_LIGHT_SLIDERS,
   CURVE_CHANNELS,
   CURVE_SLIDERS,
-  DETAIL_SLIDERS,
-  EFFECTS_SLIDERS,
   HSL_COLORS,
-  WHITE_BALANCE_PRESETS,
   EDITOR_PANEL_SECTION_MAP,
   type EditorToolPanelId,
   type SectionId,
@@ -135,17 +134,6 @@ const formatFilmValue = (value: number, step: number) => {
   return `${Math.round(value)}`;
 };
 
-const WHITE_BALANCE_CUSTOM_KEY = "__custom__";
-const ABSOLUTE_WHITE_BALANCE_DEFAULT_KELVIN = 6500;
-const ABSOLUTE_WHITE_BALANCE_DEFAULT_TINT_MG = 0;
-
-const resolveWhiteBalancePresetId = (temperature: number, tint: number) => {
-  const preset = WHITE_BALANCE_PRESETS.find(
-    (item) => item.temperature === temperature && item.tint === tint
-  );
-  return preset?.id ?? WHITE_BALANCE_CUSTOM_KEY;
-};
-
 const TIMESTAMP_POSITION_OPTIONS: Array<{
   value: EditingAdjustments["timestampPosition"];
   label: string;
@@ -239,28 +227,6 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
   } = useEditorState();
 
   const [filmResetOpen, setFilmResetOpen] = useState(false);
-  const hasAbsoluteWhiteBalance = adjustments
-    ? Number.isFinite(adjustments.temperatureKelvin ?? NaN) ||
-      Number.isFinite(adjustments.tintMG ?? NaN)
-    : false;
-  const whiteBalanceMode: "relative" | "absolute" = hasAbsoluteWhiteBalance
-    ? "absolute"
-    : "relative";
-  const basicColorSliders =
-    whiteBalanceMode === "absolute"
-      ? BASIC_COLOR_SLIDERS.filter((slider) => slider.key !== "temperature" && slider.key !== "tint")
-      : BASIC_COLOR_SLIDERS;
-  const absoluteTemperatureKelvin = Number.isFinite(adjustments?.temperatureKelvin ?? NaN)
-    ? (adjustments?.temperatureKelvin as number)
-    : ABSOLUTE_WHITE_BALANCE_DEFAULT_KELVIN;
-  const absoluteTintMG = Number.isFinite(adjustments?.tintMG ?? NaN)
-    ? (adjustments?.tintMG as number)
-    : ABSOLUTE_WHITE_BALANCE_DEFAULT_TINT_MG;
-
-  const whiteBalancePresetId = adjustments
-    ? resolveWhiteBalancePresetId(adjustments.temperature, adjustments.tint)
-    : WHITE_BALANCE_CUSTOM_KEY;
-
   const sections = EDITOR_PANEL_SECTION_MAP[panelId] ?? [];
   const shouldRenderPreset = sections.includes("preset");
   const requiresAdjustments = sections.some(
@@ -272,41 +238,6 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
       section !== "export" &&
       section !== "local"
   );
-
-  const handleWhiteBalancePresetChange = (presetId: string) => {
-    if (presetId === WHITE_BALANCE_CUSTOM_KEY) {
-      return;
-    }
-    const preset = WHITE_BALANCE_PRESETS.find((item) => item.id === presetId);
-    if (!preset) {
-      return;
-    }
-    updateAdjustments({
-      temperature: preset.temperature,
-      tint: preset.tint,
-      temperatureKelvin: undefined,
-      tintMG: undefined,
-    });
-  };
-
-  const handleWhiteBalanceModeChange = (nextMode: "relative" | "absolute") => {
-    if (!adjustments) {
-      return;
-    }
-    if (nextMode === "absolute") {
-      updateAdjustments({
-        temperature: 0,
-        tint: 0,
-        temperatureKelvin: absoluteTemperatureKelvin,
-        tintMG: absoluteTintMG,
-      });
-      return;
-    }
-    updateAdjustments({
-      temperatureKelvin: undefined,
-      tintMG: undefined,
-    });
-  };
 
   const previewBwMixValue = (channel: BwMixChannel, value: number) => {
     if (!adjustments) {
@@ -818,7 +749,7 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
                 className={cn(
                   "flex items-center justify-between rounded-xl border px-3 py-2 text-left text-xs",
                   selectedLocalAdjustment?.id === item.id
-                    ? "border-sky-400/60 bg-sky-400/10 text-slate-100"
+                    ? "border-white/35 bg-white/10 text-slate-100"
                     : "border-white/10 bg-slate-950/60 text-slate-300"
                 )}
               >
@@ -836,7 +767,7 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
                 <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-200">
                   <input
                     type="checkbox"
-                    className="h-4 w-4 rounded border-white/20 bg-slate-950 accent-sky-400"
+                    className="h-4 w-4 rounded border-white/20 bg-slate-950 accent-white"
                     checked={selectedLocalAdjustment.enabled}
                     onChange={(event) =>
                       patchSelectedLocalAdjustment(
@@ -851,7 +782,7 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
                 <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-200">
                   <input
                     type="checkbox"
-                    className="h-4 w-4 rounded border-white/20 bg-slate-950 accent-sky-400"
+                    className="h-4 w-4 rounded border-white/20 bg-slate-950 accent-white"
                     checked={Boolean(selectedLocalAdjustment.mask.invert)}
                     onChange={(event) =>
                       patchSelectedLocalAdjustment(
@@ -1588,7 +1519,7 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
             <span>Enable B&W</span>
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-white/20 bg-slate-950 accent-sky-400"
+              className="h-4 w-4 rounded border-white/20 bg-slate-950 accent-white"
               checked={Boolean(adjustments.bwEnabled)}
               onChange={(event) => updateAdjustments({ bwEnabled: event.currentTarget.checked })}
             />
@@ -1668,7 +1599,7 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
           <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-xs text-slate-200">
             <input
               type="checkbox"
-              className="mt-0.5 h-4 w-4 rounded border-white/20 bg-slate-950 accent-sky-400"
+              className="mt-0.5 h-4 w-4 rounded border-white/20 bg-slate-950 accent-white"
               checked={adjustments.opticsCA}
               onChange={(event) => updateAdjustments({ opticsCA: event.currentTarget.checked })}
             />
@@ -1682,7 +1613,7 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
           <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-xs text-slate-200">
             <input
               type="checkbox"
-              className="mt-0.5 h-4 w-4 rounded border-white/20 bg-slate-950 accent-sky-400"
+              className="mt-0.5 h-4 w-4 rounded border-white/20 bg-slate-950 accent-white"
               checked={adjustments.opticsProfile}
               onChange={(event) =>
                 updateAdjustments({ opticsProfile: event.currentTarget.checked })
@@ -1776,247 +1707,38 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
     switch (sectionId) {
       case "basic":
         return (
-          <EditorSection
-            title="基础"
-            hint="光线 / 白平衡 / 色彩"
+          <BasicPanel
+            adjustments={adjustments}
             isOpen={openSections.basic}
             onToggle={() => toggleSection("basic")}
-          >
-            <div className="space-y-3">
-              <p className="text-xs uppercase tracking-[0.24em] text-slate-500">光线</p>
-              {renderSliderRows(
-                adjustments,
-                BASIC_LIGHT_SLIDERS,
-                previewAdjustmentValue,
-                updateAdjustmentValue
-              )}
-
-              <p className="mt-3 text-xs uppercase tracking-[0.24em] text-slate-500">White Balance</p>
-              <div className="space-y-2">
-                <p className="text-xs text-slate-300">
-                  {whiteBalanceMode === "relative" ? "预设模式" : "模式"}
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    size="sm"
-                    variant={whiteBalanceMode === "relative" ? "default" : "secondary"}
-                    onClick={() => handleWhiteBalanceModeChange("relative")}
-                  >
-                    Relative
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={whiteBalanceMode === "absolute" ? "default" : "secondary"}
-                    onClick={() => handleWhiteBalanceModeChange("absolute")}
-                  >
-                    Absolute
-                  </Button>
-                </div>
-                {whiteBalanceMode === "relative" ? (
-                  <Select value={whiteBalancePresetId} onValueChange={handleWhiteBalancePresetChange}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder="Select white balance" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {WHITE_BALANCE_PRESETS.map((preset) => (
-                        <SelectItem key={preset.id} value={preset.id}>
-                          {preset.label}
-                        </SelectItem>
-                      ))}
-                      {whiteBalancePresetId === WHITE_BALANCE_CUSTOM_KEY && (
-                        <SelectItem value={WHITE_BALANCE_CUSTOM_KEY}>Custom</SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <>
-                    <EditorSliderRow
-                      label="Kelvin"
-                      value={absoluteTemperatureKelvin}
-                      defaultValue={ABSOLUTE_WHITE_BALANCE_DEFAULT_KELVIN}
-                      min={1800}
-                      max={50000}
-                      step={50}
-                      format={(value) => `${Math.round(value)}K`}
-                      onChange={(value) =>
-                        previewAdjustmentValue("temperatureKelvin", Math.round(value))
-                      }
-                      onCommit={(value) =>
-                        updateAdjustmentValue("temperatureKelvin", Math.round(value))
-                      }
-                      onReset={() =>
-                        updateAdjustmentValue(
-                          "temperatureKelvin",
-                          ABSOLUTE_WHITE_BALANCE_DEFAULT_KELVIN
-                        )
-                      }
-                    />
-                    <EditorSliderRow
-                      label="Tint (M/G)"
-                      value={absoluteTintMG}
-                      defaultValue={ABSOLUTE_WHITE_BALANCE_DEFAULT_TINT_MG}
-                      min={-100}
-                      max={100}
-                      step={1}
-                      format={(value) =>
-                        value > 0 ? `+${Math.round(value)}` : `${Math.round(value)}`
-                      }
-                      onChange={(value) => previewAdjustmentValue("tintMG", Math.round(value))}
-                      onCommit={(value) => updateAdjustmentValue("tintMG", Math.round(value))}
-                      onReset={() =>
-                        updateAdjustmentValue("tintMG", ABSOLUTE_WHITE_BALANCE_DEFAULT_TINT_MG)
-                      }
-                    />
-                  </>
-                )}
-              </div>
-
-              <p className="mt-3 text-xs uppercase tracking-[0.24em] text-slate-500">色彩</p>
-              {renderSliderRows(
-                adjustments,
-                basicColorSliders,
-                previewAdjustmentValue,
-                updateAdjustmentValue
-              )}
-            </div>
-          </EditorSection>
+            onUpdateAdjustments={updateAdjustments}
+            onPreviewAdjustmentValue={previewAdjustmentValue}
+            onCommitAdjustmentValue={updateAdjustmentValue}
+          />
         );
 
       case "effects": {
-        const customLut = adjustments.customLut ?? {
-          enabled: false,
-          path: "",
-          size: 8 as const,
-          intensity: 0,
-        };
         return (
-          <EditorSection
-            title="效果"
-            hint="纹理 / 清晰度 / 去朦胧 / 颗粒"
+          <EffectsPanel
+            adjustments={adjustments}
             isOpen={openSections.effects}
             onToggle={() => toggleSection("effects")}
-          >
-            <div className="space-y-3">
-              {renderSliderRows(
-                adjustments,
-                EFFECTS_SLIDERS,
-                previewAdjustmentValue,
-                updateAdjustmentValue
-              )}
-              <div className="space-y-2 rounded-xl border border-white/10 bg-slate-950/60 p-3">
-                <label className="flex cursor-pointer items-center justify-between gap-3 text-xs text-slate-200">
-                  <span>Enable Custom LUT</span>
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-white/20 bg-slate-950 accent-sky-400"
-                    checked={customLut.enabled}
-                    onChange={(event) =>
-                      updateAdjustments({
-                        customLut: {
-                          ...customLut,
-                          enabled: event.currentTarget.checked,
-                        },
-                      })
-                    }
-                  />
-                </label>
-                <input
-                  value={customLut.path}
-                  onChange={(event) =>
-                    updateAdjustments({
-                      customLut: {
-                        ...customLut,
-                        path: event.currentTarget.value,
-                      },
-                    })
-                  }
-                  placeholder="/luts/my-look.cube or /luts/my-look.png"
-                  className="h-8 w-full rounded-md border border-white/10 bg-slate-950/70 px-2 text-xs text-slate-100 placeholder:text-slate-500"
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    size="sm"
-                    variant={customLut.size === 8 ? "default" : "secondary"}
-                    onClick={() =>
-                      updateAdjustments({
-                        customLut: {
-                          ...customLut,
-                          size: 8,
-                        },
-                      })
-                    }
-                  >
-                    LUT 8
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={customLut.size === 16 ? "default" : "secondary"}
-                    onClick={() =>
-                      updateAdjustments({
-                        customLut: {
-                          ...customLut,
-                          size: 16,
-                        },
-                      })
-                    }
-                  >
-                    LUT 16
-                  </Button>
-                </div>
-                <EditorSliderRow
-                  label="Custom LUT Intensity"
-                  value={Math.round(customLut.intensity * 100)}
-                  defaultValue={0}
-                  min={0}
-                  max={100}
-                  step={1}
-                  disabled={!customLut.enabled}
-                  onChange={(value) =>
-                    updateAdjustments({
-                      customLut: {
-                        ...customLut,
-                        intensity: Math.max(0, Math.min(1, value / 100)),
-                      },
-                    })
-                  }
-                  onCommit={(value) =>
-                    updateAdjustments({
-                      customLut: {
-                        ...customLut,
-                        intensity: Math.max(0, Math.min(1, value / 100)),
-                      },
-                    })
-                  }
-                  onReset={() =>
-                    updateAdjustments({
-                      customLut: {
-                        ...customLut,
-                        intensity: 0,
-                      },
-                    })
-                  }
-                />
-              </div>
-            </div>
-          </EditorSection>
+            onUpdateAdjustments={updateAdjustments}
+            onPreviewAdjustmentValue={previewAdjustmentValue}
+            onCommitAdjustmentValue={updateAdjustmentValue}
+          />
         );
       }
 
       case "detail":
         return (
-          <EditorSection
-            title="细节"
-            hint="锐化 / 降噪 / 蒙版"
+          <DetailPanel
+            adjustments={adjustments}
             isOpen={openSections.detail}
             onToggle={() => toggleSection("detail")}
-          >
-            {renderSliderRows(
-              adjustments,
-              DETAIL_SLIDERS,
-              previewAdjustmentValue,
-              updateAdjustmentValue
-            )}
-          </EditorSection>
+            onPreviewAdjustmentValue={previewAdjustmentValue}
+            onCommitAdjustmentValue={updateAdjustmentValue}
+          />
         );
 
       case "timestamp":
@@ -2031,7 +1753,7 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
               <span>Enable Timestamp</span>
               <input
                 type="checkbox"
-                className="h-4 w-4 rounded border-white/20 bg-slate-950 accent-sky-400"
+                className="h-4 w-4 rounded border-white/20 bg-slate-950 accent-white"
                 checked={adjustments.timestampEnabled}
                 onChange={(event) =>
                   updateAdjustments({ timestampEnabled: event.currentTarget.checked })
@@ -2145,6 +1867,9 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
           </EditorSection>
         );
 
+      case "export":
+        return <ExportPanel isOpen={openSections.export} onToggle={() => toggleSection("export")} />;
+
       case "ai":
         return (
           <AiEditPanel
@@ -2194,4 +1919,5 @@ export const EditorAdjustmentPanel = memo(function EditorAdjustmentPanel() {
   const { activeToolPanelId } = useEditorState();
   return <EditorInspectorContent panelId={activeToolPanelId} />;
 });
+
 

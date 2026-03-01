@@ -24,12 +24,22 @@ export function useEditorState() {
     autoPerspectiveRequestId,
     autoPerspectiveMode,
     selectedLocalAdjustmentId,
+    layerOrder,
+    layerVisibilityByAssetId,
+    layerOpacityByAssetId,
+    layerBlendModeByAssetId,
     setSelectedAssetId,
     setShowOriginal,
     setActiveToolPanelId,
     setMobilePanelExpanded,
     setCurveChannel,
     setSelectedLocalAdjustmentId,
+    setLayerOrder,
+    moveLayer,
+    setLayerVisibility,
+    setLayerOpacity,
+    setLayerBlendMode,
+    syncLayerState,
     toggleOriginal,
     toggleSection,
     setPreviewHistogram,
@@ -48,12 +58,22 @@ export function useEditorState() {
       autoPerspectiveRequestId: state.autoPerspectiveRequestId,
       autoPerspectiveMode: state.autoPerspectiveMode,
       selectedLocalAdjustmentId: state.selectedLocalAdjustmentId,
+      layerOrder: state.layerOrder,
+      layerVisibilityByAssetId: state.layerVisibilityByAssetId,
+      layerOpacityByAssetId: state.layerOpacityByAssetId,
+      layerBlendModeByAssetId: state.layerBlendModeByAssetId,
       setSelectedAssetId: state.setSelectedAssetId,
       setShowOriginal: state.setShowOriginal,
       setActiveToolPanelId: state.setActiveToolPanelId,
       setMobilePanelExpanded: state.setMobilePanelExpanded,
       setCurveChannel: state.setCurveChannel,
       setSelectedLocalAdjustmentId: state.setSelectedLocalAdjustmentId,
+      setLayerOrder: state.setLayerOrder,
+      moveLayer: state.moveLayer,
+      setLayerVisibility: state.setLayerVisibility,
+      setLayerOpacity: state.setLayerOpacity,
+      setLayerBlendMode: state.setLayerBlendMode,
+      syncLayerState: state.syncLayerState,
       toggleOriginal: state.toggleOriginal,
       toggleSection: state.toggleSection,
       setPreviewHistogram: state.setPreviewHistogram,
@@ -87,6 +107,17 @@ export function useEditorState() {
       setSelectedAssetId(fallbackId);
     }
   }, [assets, selectedAssetId, setSelectedAssetId]);
+
+  useEffect(() => {
+    syncLayerState(assets.map((asset) => asset.id));
+  }, [assets, syncLayerState]);
+
+  const orderedLayerAssetIds = useMemo(() => {
+    const existingIds = new Set(assets.map((asset) => asset.id));
+    const orderedExisting = layerOrder.filter((id) => existingIds.has(id));
+    const missing = assets.map((asset) => asset.id).filter((id) => !orderedExisting.includes(id));
+    return [...orderedExisting, ...missing];
+  }, [assets, layerOrder]);
 
   const adjustments = useMemo(() => {
     if (!selectedAsset) {
@@ -274,6 +305,11 @@ export function useEditorState() {
     autoPerspectiveRequestId,
     autoPerspectiveMode,
     selectedLocalAdjustmentId,
+    layerOrder,
+    orderedLayerAssetIds,
+    layerVisibilityByAssetId,
+    layerOpacityByAssetId,
+    layerBlendModeByAssetId,
     curveChannel,
     openSections,
     canUndo: history.canUndo,
@@ -286,6 +322,11 @@ export function useEditorState() {
     setActiveHslColor,
     setCurveChannel,
     setSelectedLocalAdjustmentId,
+    setLayerOrder,
+    moveLayer,
+    setLayerVisibility,
+    setLayerOpacity,
+    setLayerBlendMode,
     requestAutoPerspective,
     toggleOriginal,
     toggleSection,
@@ -329,5 +370,6 @@ export function useEditorState() {
     handleImportPresets,
     handleExportFilmProfile,
     handleImportFilmProfile,
+    assets,
   };
 }

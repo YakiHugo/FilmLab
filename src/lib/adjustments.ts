@@ -495,6 +495,28 @@ const normalizeAdjustmentsUncached = (
       1
     ),
   };
+  merged.glowIntensity = clampValue(
+    Number.isFinite(merged.glowIntensity) ? merged.glowIntensity : defaults.glowIntensity,
+    0,
+    100
+  );
+  merged.glowMidtoneFocus = clampValue(
+    Number.isFinite(merged.glowMidtoneFocus)
+      ? merged.glowMidtoneFocus
+      : defaults.glowMidtoneFocus,
+    0,
+    100
+  );
+  merged.glowBias = clampValue(
+    Number.isFinite(merged.glowBias) ? merged.glowBias : defaults.glowBias,
+    0,
+    100
+  );
+  merged.glowRadius = clampValue(
+    Number.isFinite(merged.glowRadius) ? merged.glowRadius : defaults.glowRadius,
+    0,
+    100
+  );
 
   merged.aspectRatio = (ASPECT_RATIOS as readonly string[]).includes(merged.aspectRatio)
     ? merged.aspectRatio
@@ -613,6 +635,10 @@ export function createDefaultAdjustments(): EditingAdjustments {
     grain: 0,
     grainSize: 50,
     grainRoughness: 50,
+    glowIntensity: 0,
+    glowMidtoneFocus: 50,
+    glowBias: 25,
+    glowRadius: 24,
     customLut: {
       enabled: false,
       path: "",
@@ -662,6 +688,10 @@ const PRESET_LIMITS: Record<PresetAdjustmentKey, { min: number; max: number }> =
   grain: { min: 0, max: 100 },
   grainSize: { min: 0, max: 100 },
   grainRoughness: { min: 0, max: 100 },
+  glowIntensity: { min: 0, max: 100 },
+  glowMidtoneFocus: { min: 0, max: 100 },
+  glowBias: { min: 0, max: 100 },
+  glowRadius: { min: 0, max: 100 },
   sharpening: { min: 0, max: 100 },
   sharpenRadius: { min: 0, max: 100 },
   sharpenDetail: { min: 0, max: 100 },

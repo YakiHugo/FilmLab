@@ -1,5 +1,5 @@
-import type { ComponentType } from "react";
-import { Bot, Crop, Eraser, Layers, SlidersHorizontal, Wand2 } from "lucide-react";
+﻿import type { ComponentType } from "react";
+import { Bot, Crop, Download, Eraser, Layers, SlidersHorizontal, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EDITOR_TOOL_PANELS, type EditorToolPanelId } from "../editorPanelConfig";
 import { useEditorState } from "../useEditorState";
@@ -10,25 +10,36 @@ const ICON_BY_PANEL: Record<EditorToolPanelId, ComponentType<{ className?: strin
   crop: Crop,
   mask: Wand2,
   remove: Eraser,
+  export: Download,
   ai: Bot,
 };
 
 interface EditorToolRailProps {
   className?: string;
+  layout?: "auto" | "horizontal";
 }
 
-export function EditorToolRail({ className }: EditorToolRailProps) {
+export function EditorToolRail({ className, layout = "auto" }: EditorToolRailProps) {
   const { activeToolPanelId, setActiveToolPanelId, setMobilePanelExpanded } = useEditorState();
+  const isHorizontal = layout === "horizontal";
 
   return (
     <nav
       aria-label="Editor tool panels"
       className={cn(
-        "shrink-0 border-y border-white/10 bg-slate-950/80 px-2 py-2 backdrop-blur-sm lg:h-full lg:border-l lg:border-y-0 lg:px-1 lg:py-3",
+        "shrink-0 bg-[#121316] backdrop-blur-sm",
+        isHorizontal
+          ? "border-b border-white/10 px-2 py-2"
+          : "border-y border-white/10 px-2 py-2 lg:h-full lg:border-r lg:border-y-0 lg:px-1 lg:py-3",
         className
       )}
     >
-      <div className="flex gap-2 overflow-x-auto lg:h-full lg:flex-col lg:overflow-visible">
+      <div
+        className={cn(
+          "flex gap-2 overflow-x-auto",
+          isHorizontal ? "pb-0.5" : "lg:h-full lg:flex-col lg:overflow-visible"
+        )}
+      >
         {EDITOR_TOOL_PANELS.map((panel) => {
           const Icon = ICON_BY_PANEL[panel.id] ?? Layers;
           const isActive = panel.id === activeToolPanelId;
@@ -42,11 +53,13 @@ export function EditorToolRail({ className }: EditorToolRailProps) {
               aria-label={panel.label}
               disabled={disabled}
               className={cn(
-                "group flex shrink-0 items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs text-slate-300 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/40 lg:w-full lg:flex-col lg:gap-1 lg:px-1.5 lg:py-2 lg:text-[11px]",
-                isActive && "border-sky-300/50 bg-sky-300/15 text-sky-100",
-                disabled && "cursor-not-allowed border-white/5 text-slate-500"
+                "group flex shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-[#0f1114]/75 px-3 py-2 text-xs text-zinc-300 transition hover:border-white/20 hover:bg-[#161a1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+                !isHorizontal && "lg:w-full lg:flex-col lg:gap-1 lg:px-1.5 lg:py-2 lg:text-[11px]",
+                isHorizontal && "text-[11px]",
+                isActive && "border-white/40 bg-white/10 text-white",
+                disabled && "cursor-not-allowed border-white/5 text-zinc-500"
               )}
-              title={disabled ? `${panel.label}（即将推出）` : panel.description}
+              title={disabled ? `${panel.label} (coming soon)` : panel.description}
               onClick={() => {
                 if (disabled) {
                   return;
@@ -58,12 +71,12 @@ export function EditorToolRail({ className }: EditorToolRailProps) {
               <Icon
                 className={cn(
                   "h-4 w-4 shrink-0",
-                  isActive ? "text-sky-100" : "text-slate-300",
-                  disabled && "text-slate-500"
+                  isActive ? "text-white" : "text-zinc-300",
+                  disabled && "text-zinc-500"
                 )}
               />
               <span className="whitespace-nowrap">{panel.label}</span>
-              {disabled && <span className="text-[10px] text-slate-500 lg:hidden">即将推出</span>}
+              {disabled && <span className="text-[10px] text-zinc-500 lg:hidden">Soon</span>}
             </button>
           );
         })}
@@ -71,3 +84,4 @@ export function EditorToolRail({ className }: EditorToolRailProps) {
     </nav>
   );
 }
+

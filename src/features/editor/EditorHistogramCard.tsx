@@ -20,7 +20,7 @@ export const EditorHistogramCard = memo(function EditorHistogramCard() {
           <span className="text-slate-500">未选择素材</span>
         )}
       </div>
-      <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/70 p-3">
+      <div className="mt-3 rounded-2xl border border-white/10 bg-[#0f1114]/80 p-3">
         <EditorHistogram histogram={histogram} />
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -32,7 +32,7 @@ export const EditorHistogramCard = memo(function EditorHistogramCard() {
         </Badge>
       </div>
       {selectedAsset && (
-        <div className="mt-3 space-y-2 rounded-2xl border border-white/10 bg-slate-950/60 p-3 text-xs text-slate-300">
+        <div className="mt-3 space-y-2 rounded-2xl border border-white/10 bg-[#0f1114]/70 p-3 text-xs text-slate-300">
           <div className="flex items-center justify-between">
             <span>当前预设</span>
             <span className="text-slate-100">{presetLabel}</span>

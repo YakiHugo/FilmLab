@@ -1,4 +1,4 @@
-import { memo } from "react";
+﻿import { memo } from "react";
 import { AVAILABLE_MODELS, type ModelOption } from "@/lib/ai/provider";
 
 interface AiModelSelectorProps {
@@ -26,7 +26,7 @@ export const AiModelSelector = memo(function AiModelSelector({
     <select
       value={selectedIndex >= 0 ? selectedIndex : 0}
       onChange={handleChange}
-      className="w-full rounded-lg border border-white/10 bg-slate-900/80 px-2.5 py-1.5 text-xs text-slate-200 outline-none transition-colors hover:border-white/20 focus:border-blue-500/50"
+      className="w-full rounded-lg border border-white/10 bg-[#0f1114]/85 px-2.5 py-1.5 text-xs text-zinc-200 outline-none transition-colors hover:border-white/20 focus:border-white/50"
     >
       {AVAILABLE_MODELS.map((model, idx) => (
         <option key={`${model.provider}:${model.id}`} value={idx}>
@@ -36,3 +36,4 @@ export const AiModelSelector = memo(function AiModelSelector({
     </select>
   );
 });
+

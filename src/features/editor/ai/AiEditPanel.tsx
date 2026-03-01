@@ -1,4 +1,4 @@
-import { memo, useCallback } from "react";
+﻿import { memo, useCallback } from "react";
 import { RotateCcw, Settings2 } from "lucide-react";
 import type { EditingAdjustments, Asset } from "@/types";
 import type { HistogramSummary } from "@/lib/ai/colorAnalysis";
@@ -45,8 +45,7 @@ export const AiEditPanel = memo(function AiEditPanel({
   if (!selectedAsset) {
     return (
       <div className="rounded-2xl border border-white/10 bg-slate-950/80 p-4 text-center text-xs text-slate-400">
-        请先在工作区选择一张图片
-      </div>
+        璇峰厛鍦ㄥ伐浣滃尯閫夋嫨涓€寮犲浘鐗?      </div>
     );
   }
 
@@ -54,14 +53,14 @@ export const AiEditPanel = memo(function AiEditPanel({
     <div className="flex h-[520px] flex-col rounded-2xl border border-white/10 bg-slate-950/80">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/5 px-3 py-2">
-        <span className="text-xs font-medium text-slate-300">AI 修图</span>
+        <span className="text-xs font-medium text-slate-300">AI 淇浘</span>
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={() => session.clearChat()}
             className="rounded-md p-1 text-slate-500 transition-colors hover:bg-white/5 hover:text-slate-300"
-            title="清空对话"
-            aria-label="清空对话"
+            title="娓呯┖瀵硅瘽"
+            aria-label="娓呯┖瀵硅瘽"
           >
             <RotateCcw className="h-3.5 w-3.5" />
           </button>
@@ -69,10 +68,10 @@ export const AiEditPanel = memo(function AiEditPanel({
             type="button"
             onClick={() => setShowSettings((v) => !v)}
             className={`rounded-md p-1 transition-colors hover:bg-white/5 ${
-              showSettings ? "text-blue-400" : "text-slate-500 hover:text-slate-300"
+              showSettings ? "text-white" : "text-slate-500 hover:text-slate-300"
             }`}
-            title="设置"
-            aria-label="设置"
+            title="璁剧疆"
+            aria-label="璁剧疆"
             aria-expanded={showSettings}
           >
             <Settings2 className="h-3.5 w-3.5" />
@@ -84,11 +83,11 @@ export const AiEditPanel = memo(function AiEditPanel({
       {showSettings && (
         <div className="space-y-2.5 border-b border-white/5 px-3 py-2.5">
           <div className="space-y-1">
-            <label className="text-[11px] text-slate-500">模型</label>
+            <label className="text-[11px] text-slate-500">妯″瀷</label>
             <AiModelSelector value={session.selectedModel} onChange={session.setSelectedModel} />
           </div>
           <div className="space-y-1">
-            <label className="text-[11px] text-slate-500">参考图 (追色)</label>
+            <label className="text-[11px] text-slate-500">鍙傝€冨浘 (杩借壊)</label>
             <AiReferenceImagePicker
               images={session.referenceImages}
               onAdd={session.addReferenceImage}
@@ -131,3 +130,4 @@ export const AiEditPanel = memo(function AiEditPanel({
     </div>
   );
 });
+

@@ -1,4 +1,4 @@
-import { memo } from "react";
+﻿import { memo } from "react";
 import { FlipHorizontal2, FlipVertical2, Lock, RotateCcw, RotateCw, Unlock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,8 +31,8 @@ type LockableCropRatioOption = CropRatioOption & {
 };
 
 const CROP_RATIO_OPTIONS: CropRatioOption[] = [
-  { id: "original", label: "原始比例", aspectRatio: "original" },
-  { id: "free", label: "自由比例", aspectRatio: "free" },
+  { id: "original", label: "Original", aspectRatio: "original" },
+  { id: "free", label: "Free", aspectRatio: "free" },
   { id: "1:1", label: "1:1", aspectRatio: "1:1", customRatio: 1 },
   { id: "2:1", label: "2:1", aspectRatio: "2:1", customRatio: 2 },
   { id: "1:2", label: "1:2", aspectRatio: "1:2", customRatio: 1 / 2 },
@@ -301,18 +301,18 @@ export const EditorCropSection = memo(function EditorCropSection({
   };
 
   return (
-    <EditorSection title="裁剪" hint="比例 / 拉直 / 旋转" isOpen={isOpen} onToggle={onToggle}>
+    <EditorSection title="Crop" hint="Ratio / perspective / rotation" isOpen={isOpen} onToggle={onToggle}>
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <p className="text-xs text-slate-300">画幅比例</p>
+          <p className="text-xs text-slate-300">Aspect Ratio</p>
           <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={resetCropSection}>
-            重置
+            Reset
           </Button>
         </div>
         <div className="flex items-center gap-2">
           <Select value={ratioOptionId} onValueChange={applyCropRatioOption}>
             <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="选择比例" />
+              <SelectValue placeholder="Select ratio" />
             </SelectTrigger>
             <SelectContent>
               {CROP_RATIO_OPTIONS.map((option) => (
@@ -327,7 +327,7 @@ export const EditorCropSection = memo(function EditorCropSection({
             variant="secondary"
             className="h-8 w-8 px-0"
             onClick={swapCropRatioOrientation}
-            title="切换横竖方向"
+            title="Swap orientation"
           >
             <RotateCw className="h-4 w-4" />
           </Button>
@@ -336,7 +336,7 @@ export const EditorCropSection = memo(function EditorCropSection({
             variant={ratioLocked ? "default" : "secondary"}
             className="h-8 w-8 px-0"
             onClick={toggleCropRatioLock}
-            title={ratioLocked ? "锁定比例" : "自由比例"}
+            title={ratioLocked ? "Lock ratio" : "Free ratio"}
           >
             {ratioLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
           </Button>
@@ -360,10 +360,10 @@ export const EditorCropSection = memo(function EditorCropSection({
 
       <div className="space-y-2 rounded-xl border border-white/10 bg-slate-950/45 p-3">
         <label className="flex cursor-pointer items-center justify-between gap-3 text-xs text-slate-200">
-          <span>透视校正</span>
+          <span>Perspective Correction</span>
           <input
             type="checkbox"
-            className="h-4 w-4 rounded border-white/20 bg-slate-950 accent-sky-400"
+            className="h-4 w-4 rounded border-white/20 bg-slate-950 accent-white"
             checked={Boolean(adjustments.perspectiveEnabled)}
             onChange={(event) => handlePerspectiveToggle(event.currentTarget.checked)}
           />
@@ -448,14 +448,14 @@ export const EditorCropSection = memo(function EditorCropSection({
       </div>
 
       <div className="space-y-2">
-        <p className="text-xs text-slate-300">旋转与翻转</p>
+        <p className="text-xs text-slate-300">Rotate & Flip</p>
         <div className="grid grid-cols-4 gap-2">
           <Button
             size="sm"
             variant="secondary"
             className="h-8 w-full px-0"
             onClick={() => rotateByRightAngle(90)}
-            title="逆时针旋转 90°"
+            title="Rotate left 90°"
           >
             <RotateCcw className="h-4 w-4" />
           </Button>
@@ -464,7 +464,7 @@ export const EditorCropSection = memo(function EditorCropSection({
             variant="secondary"
             className="h-8 w-full px-0"
             onClick={() => rotateByRightAngle(-90)}
-            title="顺时针旋转 90°"
+            title="Rotate right 90°"
           >
             <RotateCw className="h-4 w-4" />
           </Button>
@@ -474,7 +474,7 @@ export const EditorCropSection = memo(function EditorCropSection({
             className="h-8 w-full px-0"
             onClick={() => onToggleFlip("flipHorizontal")}
             aria-pressed={adjustments.flipHorizontal}
-            title="水平翻转"
+            title="Flip horizontal"
           >
             <FlipHorizontal2 className="h-4 w-4" />
           </Button>
@@ -484,7 +484,7 @@ export const EditorCropSection = memo(function EditorCropSection({
             className="h-8 w-full px-0"
             onClick={() => onToggleFlip("flipVertical")}
             aria-pressed={adjustments.flipVertical}
-            title="垂直翻转"
+            title="Flip vertical"
           >
             <FlipVertical2 className="h-4 w-4" />
           </Button>
@@ -493,3 +493,4 @@ export const EditorCropSection = memo(function EditorCropSection({
     </EditorSection>
   );
 });
+

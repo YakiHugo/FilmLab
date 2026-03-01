@@ -19,10 +19,11 @@ const MAX_HISTORY_ASSETS = 20;
 import type { HistogramData } from "@/features/editor/histogram";
 import { loadCustomPresets, saveCustomPresets } from "@/features/editor/presetUtils";
 import { on } from "@/lib/storeEvents";
-import type { EditingAdjustments, HslColorKey, Preset } from "@/types";
+import type { EditingAdjustments, HslColorKey, Preset, EditorLayerBlendMode } from "@/types";
 
 type PresetUpdater = Preset[] | ((current: Preset[]) => Preset[]);
 const OPEN_SECTIONS_STORAGE_KEY = "filmlab.editor.openSections";
+const LAYER_STATE_STORAGE_KEY = "filmlab.editor.layerState.v1";
 
 interface AssetHistoryState {
   past: EditorAssetSnapshot[];
@@ -85,6 +86,101 @@ const saveOpenSections = (sections: Record<SectionId, boolean>) => {
   }, SAVE_SECTIONS_DEBOUNCE_MS);
 };
 
+interface StoredLayerState {
+  layerOrder: string[];
+  layerVisibilityByAssetId: Record<string, boolean>;
+  layerOpacityByAssetId: Record<string, number>;
+  layerBlendModeByAssetId: Record<string, EditorLayerBlendMode>;
+}
+
+const isEditorLayerBlendMode = (value: unknown): value is EditorLayerBlendMode =>
+  value === "normal" ||
+  value === "multiply" ||
+  value === "screen" ||
+  value === "overlay" ||
+  value === "softLight";
+
+const loadLayerState = (): StoredLayerState => {
+  const fallback: StoredLayerState = {
+    layerOrder: [],
+    layerVisibilityByAssetId: {},
+    layerOpacityByAssetId: {},
+    layerBlendModeByAssetId: {},
+  };
+  if (typeof window === "undefined") {
+    return fallback;
+  }
+  const raw = window.localStorage.getItem(LAYER_STATE_STORAGE_KEY);
+  if (!raw) {
+    return fallback;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredLayerState> | null;
+    if (!parsed || typeof parsed !== "object") {
+      return fallback;
+    }
+    const order = Array.isArray(parsed.layerOrder)
+      ? parsed.layerOrder
+          .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+          .map((id) => id.trim())
+      : [];
+    const visibility = Object.fromEntries(
+      Object.entries(parsed.layerVisibilityByAssetId ?? {}).filter(
+        (entry): entry is [string, boolean] =>
+          typeof entry[0] === "string" && typeof entry[1] === "boolean"
+      )
+    );
+    const opacity = Object.fromEntries(
+      Object.entries(parsed.layerOpacityByAssetId ?? {})
+        .filter((entry): entry is [string, number] => typeof entry[0] === "string")
+        .map(([key, value]) => [
+          key,
+          typeof value === "number" ? Math.max(0, Math.min(100, Math.round(value))) : 100,
+        ])
+    );
+    const blendMode = Object.fromEntries(
+      Object.entries(parsed.layerBlendModeByAssetId ?? {}).filter(
+        (entry): entry is [string, EditorLayerBlendMode] =>
+          typeof entry[0] === "string" && isEditorLayerBlendMode(entry[1])
+      )
+    );
+    return {
+      layerOrder: Array.from(new Set(order)),
+      layerVisibilityByAssetId: visibility,
+      layerOpacityByAssetId: opacity,
+      layerBlendModeByAssetId: blendMode,
+    };
+  } catch {
+    return fallback;
+  }
+};
+
+const SAVE_LAYER_STATE_DEBOUNCE_MS = 300;
+let _saveLayerStateTimer: ReturnType<typeof setTimeout> | null = null;
+
+const saveLayerState = (state: StoredLayerState) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (_saveLayerStateTimer) {
+    clearTimeout(_saveLayerStateTimer);
+  }
+  _saveLayerStateTimer = setTimeout(() => {
+    _saveLayerStateTimer = null;
+    window.localStorage.setItem(LAYER_STATE_STORAGE_KEY, JSON.stringify(state));
+  }, SAVE_LAYER_STATE_DEBOUNCE_MS);
+};
+
+const clearLayerState = () => {
+  if (typeof window !== "undefined") {
+    window.localStorage.removeItem(LAYER_STATE_STORAGE_KEY);
+  }
+  if (_saveLayerStateTimer) {
+    clearTimeout(_saveLayerStateTimer);
+    _saveLayerStateTimer = null;
+  }
+};
+
 interface EditorState {
   selectedAssetId: string | null;
   showOriginal: boolean;
@@ -103,6 +199,10 @@ interface EditorState {
   autoPerspectiveRequestId: number;
   autoPerspectiveMode: AutoPerspectiveMode;
   selectedLocalAdjustmentId: string | null;
+  layerOrder: string[];
+  layerVisibilityByAssetId: Record<string, boolean>;
+  layerOpacityByAssetId: Record<string, number>;
+  layerBlendModeByAssetId: Record<string, EditorLayerBlendMode>;
   historyByAssetId: HistoryByAssetId;
   setSelectedAssetId: (assetId: string | null) => void;
   setShowOriginal: (showOriginal: boolean) => void;
@@ -118,6 +218,12 @@ interface EditorState {
   setLastPointColorSample: (sample: PointColorSample | null) => void;
   requestAutoPerspective: (mode: AutoPerspectiveMode) => void;
   setSelectedLocalAdjustmentId: (id: string | null) => void;
+  syncLayerState: (assetIds: string[]) => void;
+  setLayerOrder: (assetIds: string[]) => void;
+  moveLayer: (assetId: string, direction: "up" | "down") => void;
+  setLayerVisibility: (assetId: string, visible: boolean) => void;
+  setLayerOpacity: (assetId: string, opacity: number) => void;
+  setLayerBlendMode: (assetId: string, blendMode: EditorLayerBlendMode) => void;
   toggleOriginal: () => void;
   toggleSection: (id: SectionId) => void;
   setPreviewHistogram: (histogram: HistogramData | null) => void;
@@ -133,6 +239,7 @@ interface EditorState {
 export const useEditorStore = create<EditorState>()(
   devtools(
     (set, get) => ({
+      ...loadLayerState(),
       selectedAssetId: null,
       showOriginal: false,
       activeToolPanelId: DEFAULT_EDITOR_TOOL_PANEL_ID,
@@ -175,6 +282,166 @@ export const useEditorStore = create<EditorState>()(
         })),
       setSelectedLocalAdjustmentId: (selectedLocalAdjustmentId) =>
         set({ selectedLocalAdjustmentId }),
+      syncLayerState: (assetIds) =>
+        set((state) => {
+          const normalizedIds = Array.from(
+            new Set(assetIds.map((id) => id.trim()).filter((id) => id.length > 0))
+          );
+
+          const retainedOrder = state.layerOrder.filter((id) => normalizedIds.includes(id));
+          const missingOrder = normalizedIds.filter((id) => !retainedOrder.includes(id));
+          const nextOrder = [...retainedOrder, ...missingOrder];
+
+          const nextVisibilityByAssetId: Record<string, boolean> = {};
+          const nextOpacityByAssetId: Record<string, number> = {};
+          const nextBlendModeByAssetId: Record<string, EditorLayerBlendMode> = {};
+          for (const id of nextOrder) {
+            nextVisibilityByAssetId[id] = state.layerVisibilityByAssetId[id] ?? true;
+            nextOpacityByAssetId[id] = state.layerOpacityByAssetId[id] ?? 100;
+            nextBlendModeByAssetId[id] = state.layerBlendModeByAssetId[id] ?? "normal";
+          }
+
+          const orderChanged =
+            state.layerOrder.length !== nextOrder.length ||
+            state.layerOrder.some((id, index) => id !== nextOrder[index]);
+          const visibilityChanged =
+            JSON.stringify(state.layerVisibilityByAssetId) !==
+            JSON.stringify(nextVisibilityByAssetId);
+          const opacityChanged =
+            JSON.stringify(state.layerOpacityByAssetId) !== JSON.stringify(nextOpacityByAssetId);
+          const blendModeChanged =
+            JSON.stringify(state.layerBlendModeByAssetId) !==
+            JSON.stringify(nextBlendModeByAssetId);
+
+          if (!orderChanged && !visibilityChanged && !opacityChanged && !blendModeChanged) {
+            return state;
+          }
+
+          saveLayerState({
+            layerOrder: nextOrder,
+            layerVisibilityByAssetId: nextVisibilityByAssetId,
+            layerOpacityByAssetId: nextOpacityByAssetId,
+            layerBlendModeByAssetId: nextBlendModeByAssetId,
+          });
+
+          return {
+            layerOrder: nextOrder,
+            layerVisibilityByAssetId: nextVisibilityByAssetId,
+            layerOpacityByAssetId: nextOpacityByAssetId,
+            layerBlendModeByAssetId: nextBlendModeByAssetId,
+          };
+        }),
+      setLayerOrder: (assetIds) =>
+        set((state) => {
+          if (state.layerOrder.length === 0) {
+            return state;
+          }
+          const known = new Set(state.layerOrder);
+          const nextSeed = Array.from(
+            new Set(assetIds.map((id) => id.trim()).filter((id) => id.length > 0))
+          ).filter((id) => known.has(id));
+          const missing = state.layerOrder.filter((id) => !nextSeed.includes(id));
+          const nextOrder = [...nextSeed, ...missing];
+          if (
+            nextOrder.length === state.layerOrder.length &&
+            nextOrder.every((id, index) => id === state.layerOrder[index])
+          ) {
+            return state;
+          }
+          saveLayerState({
+            layerOrder: nextOrder,
+            layerVisibilityByAssetId: state.layerVisibilityByAssetId,
+            layerOpacityByAssetId: state.layerOpacityByAssetId,
+            layerBlendModeByAssetId: state.layerBlendModeByAssetId,
+          });
+          return {
+            layerOrder: nextOrder,
+          };
+        }),
+      moveLayer: (assetId, direction) =>
+        set((state) => {
+          const index = state.layerOrder.indexOf(assetId);
+          if (index < 0) {
+            return state;
+          }
+          const targetIndex = direction === "up" ? index - 1 : index + 1;
+          if (targetIndex < 0 || targetIndex >= state.layerOrder.length) {
+            return state;
+          }
+          const nextOrder = [...state.layerOrder];
+          const temp = nextOrder[targetIndex];
+          nextOrder[targetIndex] = nextOrder[index]!;
+          nextOrder[index] = temp!;
+          saveLayerState({
+            layerOrder: nextOrder,
+            layerVisibilityByAssetId: state.layerVisibilityByAssetId,
+            layerOpacityByAssetId: state.layerOpacityByAssetId,
+            layerBlendModeByAssetId: state.layerBlendModeByAssetId,
+          });
+          return {
+            layerOrder: nextOrder,
+          };
+        }),
+      setLayerVisibility: (assetId, visible) =>
+        set((state) => {
+          const current = state.layerVisibilityByAssetId[assetId];
+          if (current === visible) {
+            return state;
+          }
+          const nextVisibilityByAssetId = {
+            ...state.layerVisibilityByAssetId,
+            [assetId]: visible,
+          };
+          saveLayerState({
+            layerOrder: state.layerOrder,
+            layerVisibilityByAssetId: nextVisibilityByAssetId,
+            layerOpacityByAssetId: state.layerOpacityByAssetId,
+            layerBlendModeByAssetId: state.layerBlendModeByAssetId,
+          });
+          return {
+            layerVisibilityByAssetId: nextVisibilityByAssetId,
+          };
+        }),
+      setLayerOpacity: (assetId, opacity) =>
+        set((state) => {
+          const nextOpacity = Math.max(0, Math.min(100, Math.round(opacity)));
+          const current = state.layerOpacityByAssetId[assetId];
+          if (current === nextOpacity) {
+            return state;
+          }
+          const nextOpacityByAssetId = {
+            ...state.layerOpacityByAssetId,
+            [assetId]: nextOpacity,
+          };
+          saveLayerState({
+            layerOrder: state.layerOrder,
+            layerVisibilityByAssetId: state.layerVisibilityByAssetId,
+            layerOpacityByAssetId: nextOpacityByAssetId,
+            layerBlendModeByAssetId: state.layerBlendModeByAssetId,
+          });
+          return {
+            layerOpacityByAssetId: nextOpacityByAssetId,
+          };
+        }),
+      setLayerBlendMode: (assetId, blendMode) =>
+        set((state) => {
+          if (state.layerBlendModeByAssetId[assetId] === blendMode) {
+            return state;
+          }
+          const nextBlendModeByAssetId = {
+            ...state.layerBlendModeByAssetId,
+            [assetId]: blendMode,
+          };
+          saveLayerState({
+            layerOrder: state.layerOrder,
+            layerVisibilityByAssetId: state.layerVisibilityByAssetId,
+            layerOpacityByAssetId: state.layerOpacityByAssetId,
+            layerBlendModeByAssetId: nextBlendModeByAssetId,
+          });
+          return {
+            layerBlendModeByAssetId: nextBlendModeByAssetId,
+          };
+        }),
       toggleOriginal: () => set((state) => ({ showOriginal: !state.showOriginal })),
       toggleSection: (id) =>
         set((state) => {
@@ -323,5 +590,12 @@ on("assets:deleted", (deletedIds) => {
 });
 
 on("project:reset", () => {
+  clearLayerState();
+  useEditorStore.setState({
+    layerOrder: [],
+    layerVisibilityByAssetId: {},
+    layerOpacityByAssetId: {},
+    layerBlendModeByAssetId: {},
+  });
   useEditorStore.getState().clearAllHistory();
 });

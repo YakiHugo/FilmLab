@@ -1,19 +1,13 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+﻿import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { presets as basePresets } from "@/data/presets";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { buildPresetDisplayLists } from "./presetListUtils";
 import { useEditorState } from "./useEditorState";
+import { EditorFilmProfilePicker } from "./EditorFilmProfilePicker";
 
 export const EditorPresetCard = memo(function EditorPresetCard() {
   const {
@@ -67,9 +61,9 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
     void (async () => {
       const importedCount = await handleImportPresets(file);
       if (importedCount > 0) {
-        setFeedback({ type: "success", text: `已导入 ${importedCount} 个预设。` });
+        setFeedback({ type: "success", text: `Imported ${importedCount} preset(s).` });
       } else {
-        setFeedback({ type: "error", text: "导入失败或未识别到有效预设。" });
+        setFeedback({ type: "error", text: "Import failed or no valid presets found." });
       }
     })();
     event.currentTarget.value = "";
@@ -85,24 +79,22 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
       const imported = await handleImportFilmProfile(file);
       setFeedback(
         imported
-          ? { type: "success", text: "胶片档案导入成功。" }
-          : { type: "error", text: "胶片档案导入失败，请检查 JSON 内容。" }
+          ? { type: "success", text: "Film profile imported." }
+          : { type: "error", text: "Film profile import failed. Please check the JSON file." }
       );
     })();
     event.currentTarget.value = "";
   };
 
   return (
-    <Card>
+    <Card className="bg-[#121316]">
       <CardHeader>
-        <CardTitle>预设</CardTitle>
+        <CardTitle>Presets</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         {aiRecommendations.length > 0 && (
           <div className="space-y-2">
-            <p className="text-xs uppercase tracking-[0.24em] text-sky-200/80">
-              AI 推荐（当前图片）
-            </p>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/80">AI Recommended</p>
             <div className="grid gap-2">
               {aiRecommendations.map((preset, index) => (
                 <Button
@@ -116,7 +108,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
                   title={preset.reason}
                 >
                   <span className="line-clamp-1">{preset.name}</span>
-                  <span className="text-[10px] text-slate-300">推荐 {index + 1}</span>
+                  <span className="text-[10px] text-slate-300">Rank {index + 1}</span>
                 </Button>
               ))}
             </div>
@@ -124,8 +116,8 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
         )}
 
         <div className="space-y-2">
-          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">全部预设</p>
-          <div className="grid max-h-72 gap-2 overflow-y-auto pr-1">
+          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">All Presets</p>
+          <div className="grid max-h-56 gap-2 overflow-y-auto pr-1">
             {sortedPresets.map((preset) => (
               <Button
                 key={preset.id}
@@ -143,31 +135,18 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
         </div>
 
         <div className="space-y-2">
-          <Label className="text-xs text-slate-400">胶片档案</Label>
-          <Select
-            value={selectedAsset?.filmProfileId ?? "__auto__"}
-            onValueChange={(value) =>
-              handleSelectFilmProfile(value === "__auto__" ? undefined : value)
-            }
+          <Label className="text-xs text-slate-400">Film Profile</Label>
+          <EditorFilmProfilePicker
+            profiles={builtInFilmProfiles}
+            selectedProfileId={selectedAsset?.filmProfileId}
             disabled={!selectedAsset}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="选择胶片档案" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__auto__">自动（跟随预设运行时）</SelectItem>
-              {builtInFilmProfiles.map((profile) => (
-                <SelectItem key={profile.id} value={profile.id}>
-                  {profile.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            onSelect={handleSelectFilmProfile}
+          />
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-3">
+        <div className="rounded-2xl border border-white/10 bg-[#0f1114]/70 p-3">
           <div className="flex items-center justify-between text-xs text-slate-400">
-            <span className="text-slate-300">预设强度</span>
+            <span className="text-slate-300">Preset Intensity</span>
             <span>{selectedAsset?.intensity ?? 0}</span>
           </div>
           <Slider
@@ -178,19 +157,19 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
             onValueChange={(value) => handleSetIntensity(value[0] ?? 0, "live")}
             onValueCommit={(value) => handleSetIntensity(value[0] ?? 0, "commit")}
             disabled={!selectedAsset}
-            aria-label="预设强度"
+            aria-label="Preset Intensity"
           />
         </div>
 
-        <details className="rounded-2xl border border-white/10 bg-slate-950/50 p-3">
-          <summary className="cursor-pointer text-xs font-medium text-slate-300">预设管理</summary>
+        <details className="rounded-2xl border border-white/10 bg-[#0f1114]/60 p-3">
+          <summary className="cursor-pointer text-xs font-medium text-slate-300">Preset Management</summary>
           <div className="mt-3 space-y-3">
             <div className="space-y-2">
-              <Label className="text-xs text-slate-400">保存为自定义预设</Label>
+              <Label className="text-xs text-slate-400">Save Current as Custom Preset</Label>
               <Input
                 value={customPresetName}
                 onChange={(event) => setCustomPresetName(event.target.value)}
-                placeholder="请输入预设名称"
+                placeholder="Enter preset name"
               />
               <Button
                 className="w-full"
@@ -198,16 +177,16 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
                   const saved = handleSaveCustomPreset();
                   setFeedback(
                     saved
-                      ? { type: "success", text: "自定义预设已保存。" }
+                      ? { type: "success", text: "Custom preset saved." }
                       : {
                           type: "error",
-                          text: "保存失败，请填写名称并确认有可保存的参数。",
+                          text: "Save failed. Ensure name is provided and adjustments are available.",
                         }
                   );
                 }}
                 disabled={!customPresetName.trim() || !canSaveCustomPreset}
               >
-                保存预设
+                Save Preset
               </Button>
             </div>
 
@@ -219,16 +198,16 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
                   const exported = handleExportPresets();
                   setFeedback(
                     exported
-                      ? { type: "success", text: "预设 JSON 已导出。" }
-                      : { type: "error", text: "当前没有可导出的自定义预设。" }
+                      ? { type: "success", text: "Presets exported as JSON." }
+                      : { type: "error", text: "No custom presets available to export." }
                   );
                 }}
                 disabled={customPresets.length === 0}
               >
-                导出 JSON
+                Export JSON
               </Button>
               <Button size="sm" variant="secondary" onClick={() => importRef.current?.click()}>
-                导入 JSON
+                Import JSON
               </Button>
               <input
                 ref={importRef}
@@ -247,13 +226,13 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
                   const exported = handleExportFilmProfile();
                   setFeedback(
                     exported
-                      ? { type: "success", text: "胶片档案已导出。" }
-                      : { type: "error", text: "当前无可导出的胶片档案。" }
+                      ? { type: "success", text: "Film profile exported as JSON." }
+                      : { type: "error", text: "No active film profile to export." }
                   );
                 }}
                 disabled={!selectedAsset}
               >
-                导出胶片档案
+                Export Film Profile
               </Button>
               <Button
                 size="sm"
@@ -261,7 +240,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
                 onClick={() => filmImportRef.current?.click()}
                 disabled={!selectedAsset}
               >
-                导入胶片档案
+                Import Film Profile
               </Button>
               <input
                 ref={filmImportRef}
@@ -289,3 +268,4 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
     </Card>
   );
 });
+

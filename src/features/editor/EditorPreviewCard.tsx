@@ -4,6 +4,7 @@ import {
   resolveOrientedAspectRatio,
   renderImageToCanvas,
 } from "@/lib/imageProcessing";
+import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
 import { cn } from "@/lib/utils";
 import {
@@ -27,7 +28,13 @@ import {
   type CropRect,
 } from "./cropGeometry";
 import { clamp } from "@/lib/math";
-import type { EditingAdjustments, LocalAdjustment, LocalBrushMask } from "@/types";
+import type {
+  Asset,
+  EditingAdjustments,
+  EditorLayerBlendMode,
+  LocalAdjustment,
+  LocalBrushMask,
+} from "@/types";
 
 const RAD_TO_DEG = 180 / Math.PI;
 
@@ -43,6 +50,31 @@ const normalizeLineAngleDeg = (deg: number) => {
 };
 
 const clampPerspectiveAmount = (value: number) => clamp(Number(value.toFixed(2)), -100, 100);
+
+const resolveLayerBlendOperation = (
+  blendMode: EditorLayerBlendMode
+): GlobalCompositeOperation => {
+  if (blendMode === "multiply") {
+    return "multiply";
+  }
+  if (blendMode === "screen") {
+    return "screen";
+  }
+  if (blendMode === "overlay") {
+    return "overlay";
+  }
+  if (blendMode === "softLight") {
+    return "soft-light";
+  }
+  return "source-over";
+};
+
+interface LayerPreviewEntry {
+  asset: Asset;
+  opacity: number;
+  blendMode: EditorLayerBlendMode;
+  visible: boolean;
+}
 
 interface BrushStrokePoint {
   x: number;
@@ -294,9 +326,14 @@ const estimatePerspectiveFromCanvas = (
 
 export function EditorPreviewCard() {
   const {
+    assets,
     selectedAsset,
     previewAdjustments: adjustments,
     previewFilmProfile: filmProfile,
+    orderedLayerAssetIds,
+    layerVisibilityByAssetId,
+    layerOpacityByAssetId,
+    layerBlendModeByAssetId,
     activeToolPanelId,
     showOriginal,
     autoPerspectiveRequestId,
@@ -323,6 +360,7 @@ export function EditorPreviewCard() {
   const originalImageRef = useRef<HTMLImageElement | null>(null);
   const sampleBufferRef = useRef<HTMLCanvasElement | null>(null);
   const workingCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const layerCanvasByAssetIdRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
   const cropDragRef = useRef<{
     mode: CropDragMode;
     startX: number;
@@ -407,6 +445,30 @@ export function EditorPreviewCard() {
     return hash >>> 0;
   }, [selectedAsset?.id]);
 
+  const assetById = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
+
+  const layerPreviewEntries = useMemo<LayerPreviewEntry[]>(() => {
+    if (orderedLayerAssetIds.length === 0) {
+      return [];
+    }
+    return orderedLayerAssetIds
+      .map((id) => assetById.get(id))
+      .filter((asset): asset is Asset => Boolean(asset))
+      .map((asset) => ({
+        asset,
+        visible: layerVisibilityByAssetId[asset.id] ?? true,
+        opacity: clamp((layerOpacityByAssetId[asset.id] ?? 100) / 100, 0, 1),
+        blendMode: layerBlendModeByAssetId[asset.id] ?? "normal",
+      }))
+      .filter((layer) => layer.visible && layer.opacity > 0.0001);
+  }, [
+    assetById,
+    layerBlendModeByAssetId,
+    layerOpacityByAssetId,
+    layerVisibilityByAssetId,
+    orderedLayerAssetIds,
+  ]);
+
   const sourceAspectRatio = useMemo(() => {
     if (imageNaturalSize) {
       return imageNaturalSize.width / imageNaturalSize.height;
@@ -425,6 +487,9 @@ export function EditorPreviewCard() {
   const isCropMode =
     activeToolPanelId === "crop" && Boolean(adjustments) && !showOriginal && !pointColorPicking;
   isCropModeRef.current = isCropMode;
+
+  const shouldRenderLayerComposite = layerPreviewEntries.length > 1 && !isCropMode;
+  const shouldShowOriginalImage = showOriginal && !shouldRenderLayerComposite;
 
   const activeBrushMask = useMemo<BrushLocalAdjustment | null>(() => {
     if (!adjustments || activeToolPanelId !== "mask") {
@@ -704,6 +769,13 @@ export function EditorPreviewCard() {
         sampleBufferRef.current.height = 0;
         sampleBufferRef.current = null;
       }
+      if (layerCanvasByAssetIdRef.current.size > 0) {
+        for (const layerCanvas of layerCanvasByAssetIdRef.current.values()) {
+          layerCanvas.width = 0;
+          layerCanvas.height = 0;
+        }
+        layerCanvasByAssetIdRef.current.clear();
+      }
       if (brushPreviewFrameRef.current !== null) {
         cancelAnimationFrame(brushPreviewFrameRef.current);
         brushPreviewFrameRef.current = null;
@@ -903,7 +975,7 @@ export function EditorPreviewCard() {
       handlePreviewHistogramChange(null);
       return undefined;
     }
-    if (!showOriginal) {
+    if (!showOriginal || shouldRenderLayerComposite) {
       return undefined;
     }
     let isCancelled = false;
@@ -945,13 +1017,18 @@ export function EditorPreviewCard() {
     return () => {
       isCancelled = true;
     };
-  }, [handlePreviewHistogramChange, selectedAsset, showOriginal]);
+  }, [handlePreviewHistogramChange, selectedAsset, showOriginal, shouldRenderLayerComposite]);
 
   useEffect(() => {
-    if (!selectedAsset || !adjustments || showOriginal) {
-      if (!selectedAsset || !adjustments) {
-        handlePreviewHistogramChange(null);
-      }
+    if (!selectedAsset) {
+      handlePreviewHistogramChange(null);
+      return undefined;
+    }
+    if (!adjustments && !shouldRenderLayerComposite) {
+      handlePreviewHistogramChange(null);
+      return undefined;
+    }
+    if (showOriginal && !shouldRenderLayerComposite) {
       return undefined;
     }
     const canvas = canvasRef.current;
@@ -964,38 +1041,114 @@ export function EditorPreviewCard() {
     // dragging a slider — skip the expensive halation/bloom pass for snappier
     // feedback.  The final render after they release will include it.
     const isRapidUpdate = performance.now() - lastAbortTimeRef.current < 100;
+
     const renderPreview = async () => {
       // Reuse a single offscreen canvas across renders to avoid DOM allocation
       if (!workingCanvasRef.current) {
         workingCanvasRef.current = document.createElement("canvas");
       }
       const workingCanvas = workingCanvasRef.current;
-      const renderAdjustments = isCropMode
-        ? {
-            ...adjustments,
-            aspectRatio: "original" as const,
-            customAspectRatio: orientedSourceAspectRatio,
-            scale: 100,
+
+      if (shouldRenderLayerComposite) {
+        const layerCanvasMap = layerCanvasByAssetIdRef.current;
+        const activeLayerIdSet = new Set(layerPreviewEntries.map((entry) => entry.asset.id));
+        for (const [assetId, layerCanvas] of layerCanvasMap.entries()) {
+          if (activeLayerIdSet.has(assetId)) {
+            continue;
           }
-        : adjustments;
-      await renderImageToCanvas({
-        canvas: workingCanvas,
-        source: selectedAsset.blob ?? selectedAsset.objectUrl,
-        adjustments: renderAdjustments,
-        filmProfile: filmProfile ?? undefined,
-        timestampText,
-        targetSize: {
-          width: Math.round(frameSize.width * dpr),
-          height: Math.round(frameSize.height * dpr),
-        },
-        seedKey: selectedAsset.id,
-        renderSeed: previewRenderSeed,
-        skipHalationBloom: isRapidUpdate,
-        signal: controller.signal,
-      });
-      if (controller.signal.aborted) {
-        return;
+          layerCanvas.width = 0;
+          layerCanvas.height = 0;
+          layerCanvasMap.delete(assetId);
+        }
+
+        const targetWidth = Math.round(frameSize.width * dpr);
+        const targetHeight = Math.round(frameSize.height * dpr);
+        if (workingCanvas.width !== targetWidth || workingCanvas.height !== targetHeight) {
+          workingCanvas.width = targetWidth;
+          workingCanvas.height = targetHeight;
+        }
+        const workingContext = workingCanvas.getContext("2d", { willReadFrequently: true });
+        if (!workingContext) {
+          return;
+        }
+        workingContext.clearRect(0, 0, workingCanvas.width, workingCanvas.height);
+
+        const layersBottomToTop = [...layerPreviewEntries].reverse();
+        for (let layerIndex = 0; layerIndex < layersBottomToTop.length; layerIndex += 1) {
+          if (controller.signal.aborted) {
+            return;
+          }
+          const layer = layersBottomToTop[layerIndex]!;
+          let layerCanvas = layerCanvasMap.get(layer.asset.id);
+          if (!layerCanvas) {
+            layerCanvas = document.createElement("canvas");
+            layerCanvasMap.set(layer.asset.id, layerCanvas);
+          }
+
+          const layerAdjustments = showOriginal
+            ? createDefaultAdjustments()
+            : normalizeAdjustments(layer.asset.adjustments);
+          const layerTimestamp = null;
+          await renderImageToCanvas({
+            canvas: layerCanvas,
+            source: layer.asset.blob ?? layer.asset.objectUrl,
+            adjustments: layerAdjustments,
+            filmProfile: showOriginal ? undefined : layer.asset.filmProfile,
+            timestampText: layerTimestamp,
+            targetSize: {
+              width: targetWidth,
+              height: targetHeight,
+            },
+            seedKey: layer.asset.id,
+            renderSeed: (previewRenderSeed ^ ((layerIndex + 1) * 2654435761)) >>> 0,
+            skipHalationBloom: isRapidUpdate,
+            signal: controller.signal,
+            sourceCacheKey: `preview:${layer.asset.id}:${layer.asset.size}`,
+          });
+          if (controller.signal.aborted) {
+            return;
+          }
+
+          workingContext.save();
+          workingContext.globalAlpha = layer.opacity;
+          workingContext.globalCompositeOperation = resolveLayerBlendOperation(layer.blendMode);
+          workingContext.drawImage(layerCanvas, 0, 0, workingCanvas.width, workingCanvas.height);
+          workingContext.restore();
+        }
+      } else {
+        const renderAdjustments = isCropMode
+          ? {
+              ...adjustments!,
+              aspectRatio: "original" as const,
+              customAspectRatio: orientedSourceAspectRatio,
+              scale: 100,
+            }
+          : adjustments!;
+        await renderImageToCanvas({
+          canvas: workingCanvas,
+          source: selectedAsset.blob ?? selectedAsset.objectUrl,
+          adjustments: renderAdjustments,
+          filmProfile: filmProfile ?? undefined,
+          timestampText,
+          targetSize: {
+            width: Math.round(frameSize.width * dpr),
+            height: Math.round(frameSize.height * dpr),
+          },
+          seedKey: selectedAsset.id,
+          renderSeed: previewRenderSeed,
+          skipHalationBloom: isRapidUpdate,
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        // Mark the rotation that is now visible on the canvas so the crop
+        // rect effect can stay in sync with the rendered image.
+        const justRenderedRotate = renderAdjustments.rotate;
+        setRenderedRotate(justRenderedRotate);
       }
+
       const outputContext = canvas.getContext("2d", { willReadFrequently: true });
       if (!outputContext) {
         return;
@@ -1006,11 +1159,6 @@ export function EditorPreviewCard() {
       }
       outputContext.clearRect(0, 0, canvas.width, canvas.height);
       outputContext.drawImage(workingCanvas, 0, 0, canvas.width, canvas.height);
-
-      // Mark the rotation that is now visible on the canvas so the crop
-      // rect effect can stay in sync with the rendered image.
-      const justRenderedRotate = renderAdjustments.rotate;
-      setRenderedRotate(justRenderedRotate);
 
       if (!controller.signal.aborted) {
         if (histogramDebounceRef.current !== null) {
@@ -1047,10 +1195,12 @@ export function EditorPreviewCard() {
     handlePreviewHistogramChange,
     isCropMode,
     isSourceMonochrome,
+    layerPreviewEntries,
     previewRenderSeed,
     selectedAsset,
     showOriginal,
     orientedSourceAspectRatio,
+    shouldRenderLayerComposite,
     timestampText,
   ]);
 
@@ -1195,7 +1345,7 @@ export function EditorPreviewCard() {
       const x = clamp(normalizedX, 0, 1);
       const y = clamp(normalizedY, 0, 1);
 
-      if (showOriginal || !adjustments) {
+      if ((showOriginal && !shouldRenderLayerComposite) || !adjustments) {
         const image = originalImageRef.current;
         if (!image || image.naturalWidth <= 0 || image.naturalHeight <= 0) {
           return null;
@@ -1237,7 +1387,7 @@ export function EditorPreviewCard() {
         blue: pixel[2] ?? 0,
       };
     },
-    [adjustments, showOriginal]
+    [adjustments, showOriginal, shouldRenderLayerComposite]
   );
 
   const { actionMessage, setActionMessage } = useEditorKeyboard({
@@ -1843,7 +1993,7 @@ export function EditorPreviewCard() {
               }}
             >
               {selectedAsset ? (
-                showOriginal || !adjustments ? (
+                shouldShowOriginalImage || !adjustments ? (
                   <img
                     ref={originalImageRef}
                     src={selectedAsset.objectUrl}
