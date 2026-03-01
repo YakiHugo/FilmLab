@@ -25,7 +25,7 @@ float toneChannel(float x, float shoulder, float toe, float gamma) {
   float lifted = pow(max(x, 0.0), toeGamma);
   x = mix(x, lifted, toe);
 
-  return clamp(x, 0.0, 1.0);
+  return max(x, 0.0);
 }
 
 vec3 applyToneResponse(vec3 color) {

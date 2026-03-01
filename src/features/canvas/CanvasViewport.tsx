@@ -343,8 +343,8 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
                     locked: false,
                     visible: true,
                     zIndex: activeDocument.elements.length + 1,
-                    fill: "#38bdf8",
-                    stroke: "#38bdf8",
+                    fill: "#f59e0b",
+                    stroke: "#f59e0b",
                     strokeWidth: 4,
                   }
                 : {
@@ -360,8 +360,9 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
                     locked: false,
                     visible: true,
                     zIndex: activeDocument.elements.length + 1,
-                    fill: shapeType === "rect" ? "rgba(56, 189, 248, 0.2)" : "rgba(56, 189, 248, 0.35)",
-                    stroke: "#38bdf8",
+                    fill:
+                      shapeType === "rect" ? "rgba(245, 158, 11, 0.2)" : "rgba(245, 158, 11, 0.35)",
+                    stroke: "#f59e0b",
                     strokeWidth: 2,
                   };
 
@@ -467,7 +468,7 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
                       shapeDraft.currentX,
                       shapeDraft.currentY,
                     ]}
-                    stroke="#38bdf8"
+                    stroke="#f59e0b"
                     strokeWidth={3}
                     dash={[8, 6]}
                   />
@@ -478,8 +479,8 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
                     y={Math.min(shapeDraft.startY, shapeDraft.currentY)}
                     width={Math.abs(shapeDraft.currentX - shapeDraft.startX)}
                     height={Math.abs(shapeDraft.currentY - shapeDraft.startY)}
-                    fill="rgba(56, 189, 248, 0.18)"
-                    stroke="#38bdf8"
+                    fill="rgba(245, 158, 11, 0.18)"
+                    stroke="#f59e0b"
                     strokeWidth={2}
                     dash={[8, 6]}
                   />
@@ -494,8 +495,8 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
                         Math.abs(shapeDraft.currentY - shapeDraft.startY)
                       ) / 2
                     }
-                    fill="rgba(56, 189, 248, 0.22)"
-                    stroke="#38bdf8"
+                    fill="rgba(245, 158, 11, 0.22)"
+                    stroke="#f59e0b"
                     strokeWidth={2}
                     dash={[8, 6]}
                   />
@@ -506,9 +507,9 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
             <Transformer
               ref={transformerRef}
               rotateEnabled
-              borderStroke="#38bdf8"
-              anchorStroke="#38bdf8"
-              anchorFill="#0b1220"
+              borderStroke="#f59e0b"
+              anchorStroke="#f59e0b"
+              anchorFill="#111111"
               onTransformEnd={() => {
                 const stage = stageRef.current;
                 if (!stage || !activeDocumentId || selectedElementIds.length === 0) {
@@ -571,7 +572,7 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
             }
           }}
           autoFocus
-          className="absolute resize-none rounded-lg border border-sky-300/40 bg-slate-950/85 p-2 text-sm text-zinc-100 outline-none"
+          className="absolute resize-none rounded-lg border border-amber-300/40 bg-slate-950/85 p-2 text-sm text-zinc-100 outline-none"
           style={{
             left: editingTextElement.x * zoom + viewport.x + 24,
             top: editingTextElement.y * zoom + viewport.y + 24,

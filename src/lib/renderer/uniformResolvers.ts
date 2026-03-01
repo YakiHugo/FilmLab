@@ -1,5 +1,5 @@
 import type { EditingAdjustments, FilmProfile } from "@/types";
-import type { FilmProfileV2 } from "@/types/film";
+import type { FilmProfileV2, FilmProfileV3 } from "@/types/film";
 import type {
   MasterUniforms,
   HSLUniforms,
@@ -190,6 +190,16 @@ function createDetailUniforms(): DetailUniforms {
 
 function createFilmUniforms(): FilmUniforms {
   return {
+    u_expandEnabled: false,
+    u_expandBlackPoint: 0,
+    u_expandWhitePoint: 1,
+    u_filmCompressionEnabled: false,
+    u_highlightRolloff: 0.4,
+    u_shoulderWidth: 0.4,
+    u_filmDeveloperEnabled: false,
+    u_developerContrast: 0,
+    u_developerGamma: 1,
+    u_colorSeparation: [1, 1, 1],
     u_toneEnabled: false,
     u_shoulder: 0,
     u_toe: 0,
@@ -198,21 +208,55 @@ function createFilmUniforms(): FilmUniforms {
     u_colorMatrix: [...IDENTITY_3X3],
     u_lutEnabled: false,
     u_lutIntensity: 0,
+    u_printEnabled: false,
+    u_printDensity: 0,
+    u_printContrast: 0,
+    u_printWarmth: 0,
+    u_printStock: 0,
+    u_printLutEnabled: false,
+    u_printLutIntensity: 1,
+    u_cmyColorHeadEnabled: false,
+    u_cyan: 0,
+    u_magenta: 0,
+    u_yellow: 0,
     u_colorCastEnabled: false,
     u_colorCastShadows: [0, 0, 0],
     u_colorCastMidtones: [0, 0, 0],
     u_colorCastHighlights: [0, 0, 0],
+    u_printToningEnabled: false,
+    u_toningShadows: [0, 0, 0],
+    u_toningMidtones: [0, 0, 0],
+    u_toningHighlights: [0, 0, 0],
+    u_toningStrength: 0.35,
+    u_customLutEnabled: false,
+    u_customLutIntensity: 0,
     u_grainEnabled: false,
+    u_grainModel: 0,
     u_grainAmount: 0,
     u_grainSize: 0.5,
     u_grainRoughness: 0.5,
     u_grainShadowBias: 0.45,
     u_grainSeed: 0,
     u_grainIsColor: true,
+    u_crystalDensity: 0.5,
+    u_crystalSizeMean: 0.5,
+    u_crystalSizeVariance: 0.35,
+    u_grainColorSeparation: [1, 1, 1],
+    u_scannerMTF: 0.55,
+    u_filmFormat: 2,
     u_vignetteEnabled: false,
     u_vignetteAmount: 0,
     u_vignetteMidpoint: 0.5,
     u_vignetteRoundness: 0.5,
+    u_filmBreathEnabled: false,
+    u_breathAmount: 0,
+    u_breathSeed: 0,
+    u_filmDamageEnabled: false,
+    u_damageAmount: 0,
+    u_damageSeed: 0,
+    u_overscanEnabled: false,
+    u_overscanAmount: 0,
+    u_overscanRoundness: 0.5,
   };
 }
 
@@ -222,9 +266,16 @@ function createHalationBloomUniforms(): HalationBloomUniforms {
     halationThreshold: srgbToLinearUnit(0.9),
     halationIntensity: 0,
     halationColor: [1.0, 0.3, 0.1],
+    halationHue: 16,
+    halationSaturation: 0.75,
+    halationBlueCompensation: 0.2,
     bloomEnabled: false,
     bloomThreshold: srgbToLinearUnit(0.85),
     bloomIntensity: 0,
+    glowEnabled: false,
+    glowIntensity: 0,
+    glowMidtoneFocus: 0.5,
+    glowBias: 0.25,
   };
 }
 
@@ -482,6 +533,26 @@ export function resolveFilmUniforms(
   out?: FilmUniforms
 ): FilmUniforms {
   const target = out ?? createFilmUniforms();
+  target.u_expandEnabled = false;
+  target.u_filmCompressionEnabled = false;
+  target.u_filmDeveloperEnabled = false;
+  target.u_printEnabled = false;
+  target.u_printLutEnabled = false;
+  target.u_printLutIntensity = 1;
+  target.u_cmyColorHeadEnabled = false;
+  target.u_printToningEnabled = false;
+  target.u_customLutEnabled = false;
+  target.u_customLutIntensity = 0;
+  target.u_filmBreathEnabled = false;
+  target.u_filmDamageEnabled = false;
+  target.u_overscanEnabled = false;
+  target.u_grainModel = 0;
+  target.u_crystalDensity = 0.5;
+  target.u_crystalSizeMean = 0.5;
+  target.u_crystalSizeVariance = 0.35;
+  target.u_grainColorSeparation = [1, 1, 1];
+  target.u_scannerMTF = 0.55;
+  target.u_filmFormat = 2;
   const normalized = normalizeFilmProfile(profile);
   const grain = getFilmModule(normalized, "grain");
   const scan = getFilmModule(normalized, "scan");
@@ -583,12 +654,20 @@ export function resolveHalationBloomUniforms(
   target.halationThreshold = srgbToLinearUnit(scan?.params.halationThreshold ?? 0.9);
   target.halationIntensity = halIntensity;
   target.halationColor = [1.0, 0.3, 0.1]; // Classic warm film halation
+  target.halationHue = 16;
+  target.halationSaturation = 0.75;
+  target.halationBlueCompensation = 0.2;
   target.halationRadius = Math.max(1, halIntensity * 8);
 
   target.bloomEnabled = bloomIntensity > 0.001;
   target.bloomThreshold = srgbToLinearUnit(scan?.params.bloomThreshold ?? 0.85);
   target.bloomIntensity = bloomIntensity;
   target.bloomRadius = Math.max(1, bloomIntensity * 10);
+  target.glowEnabled = false;
+  target.glowIntensity = 0;
+  target.glowMidtoneFocus = 0.5;
+  target.glowBias = 0.25;
+  target.glowRadius = undefined;
 
   return target;
 }
@@ -604,6 +683,43 @@ export function resolveFilmUniformsV2(
   out?: FilmUniforms
 ): FilmUniforms {
   const target = out ?? createFilmUniforms();
+  target.u_expandEnabled = false;
+  target.u_expandBlackPoint = 0;
+  target.u_expandWhitePoint = 1;
+  target.u_filmCompressionEnabled = false;
+  target.u_highlightRolloff = 0.4;
+  target.u_shoulderWidth = 0.4;
+  target.u_filmDeveloperEnabled = false;
+  target.u_developerContrast = 0;
+  target.u_developerGamma = 1;
+  target.u_colorSeparation = [1, 1, 1];
+  target.u_printEnabled = false;
+  target.u_printDensity = 0;
+  target.u_printContrast = 0;
+  target.u_printWarmth = 0;
+  target.u_printStock = 0;
+  target.u_printLutEnabled = false;
+  target.u_printLutIntensity = 1;
+  target.u_cmyColorHeadEnabled = false;
+  target.u_cyan = 0;
+  target.u_magenta = 0;
+  target.u_yellow = 0;
+  target.u_printToningEnabled = false;
+  target.u_toningShadows = [0, 0, 0];
+  target.u_toningMidtones = [0, 0, 0];
+  target.u_toningHighlights = [0, 0, 0];
+  target.u_toningStrength = 0.35;
+  target.u_customLutEnabled = false;
+  target.u_customLutIntensity = 0;
+  target.u_filmBreathEnabled = false;
+  target.u_breathAmount = 0;
+  target.u_breathSeed = options?.grainSeed ?? Date.now();
+  target.u_filmDamageEnabled = false;
+  target.u_damageAmount = 0;
+  target.u_damageSeed = options?.grainSeed ?? Date.now();
+  target.u_overscanEnabled = false;
+  target.u_overscanAmount = 0;
+  target.u_overscanRoundness = 0.5;
   const cc = profile.colorCast;
   const colorMatrix = transpose3x3(profile.colorMatrix?.matrix ?? IDENTITY_3X3);
 
@@ -631,12 +747,19 @@ export function resolveFilmUniformsV2(
 
   // Layer 5: Grain
   target.u_grainEnabled = profile.grain.enabled && profile.grain.amount > 0;
+  target.u_grainModel = 0;
   target.u_grainAmount = profile.grain.amount;
   target.u_grainSize = profile.grain.size;
   target.u_grainRoughness = profile.grain.roughness;
   target.u_grainShadowBias = profile.grain.shadowBias;
   target.u_grainSeed = options?.grainSeed ?? Date.now();
   target.u_grainIsColor = profile.grain.colorGrain;
+  target.u_crystalDensity = 0.5;
+  target.u_crystalSizeMean = 0.5;
+  target.u_crystalSizeVariance = 0.35;
+  target.u_grainColorSeparation = [1, 1, 1];
+  target.u_scannerMTF = 0.55;
+  target.u_filmFormat = 2;
 
   // Layer 6: Vignette
   target.u_vignetteEnabled = profile.vignette.enabled && Math.abs(profile.vignette.amount) > 0.001;
@@ -662,12 +785,166 @@ export function resolveHalationBloomUniformsV2(
   target.halationThreshold = srgbToLinearUnit(hal?.threshold ?? 0.9);
   target.halationIntensity = hal?.intensity ?? 0;
   target.halationColor = hal?.color ?? [1.0, 0.3, 0.1];
+  target.halationHue = 16;
+  target.halationSaturation = 0.75;
+  target.halationBlueCompensation = 0.2;
   target.halationRadius = hal?.radius;
 
   target.bloomEnabled = bloom?.enabled ?? false;
   target.bloomThreshold = srgbToLinearUnit(bloom?.threshold ?? 0.85);
   target.bloomIntensity = bloom?.intensity ?? 0;
   target.bloomRadius = bloom?.radius;
+  target.glowEnabled = false;
+  target.glowIntensity = 0;
+  target.glowMidtoneFocus = 0.5;
+  target.glowBias = 0.25;
+  target.glowRadius = undefined;
 
+  return target;
+}
+
+const resolvePrintStockCode = (
+  stock: "kodak-2383" | "endura" | "cineon-log" | "custom" | undefined
+) => {
+  if (stock === "endura") return 1;
+  if (stock === "cineon-log") return 2;
+  if (stock === "custom") return 3;
+  return 0;
+};
+
+const resolveFilmFormatCode = (format: "8mm" | "16mm" | "35mm" | "65mm" | undefined) => {
+  if (format === "8mm") return 0;
+  if (format === "16mm") return 1;
+  if (format === "65mm") return 3;
+  return 2;
+};
+
+export function resolveFilmUniformsV3(
+  profile: FilmProfileV3,
+  options?: { grainSeed?: number },
+  out?: FilmUniforms
+): FilmUniforms {
+  const target = out ?? createFilmUniforms();
+  const cc = profile.colorCast;
+  const toning = profile.printToning;
+  const colorMatrix = transpose3x3(profile.colorMatrix?.matrix ?? IDENTITY_3X3);
+  const grainSeed = options?.grainSeed ?? Date.now();
+
+  target.u_expandEnabled = profile.expand?.enabled ?? false;
+  target.u_expandBlackPoint = profile.expand?.blackPoint ?? 0;
+  target.u_expandWhitePoint = profile.expand?.whitePoint ?? 1;
+
+  target.u_filmCompressionEnabled = profile.filmCompression?.enabled ?? false;
+  target.u_highlightRolloff = profile.filmCompression?.highlightRolloff ?? 0.4;
+  target.u_shoulderWidth = profile.filmCompression?.shoulderWidth ?? 0.4;
+
+  target.u_filmDeveloperEnabled = profile.filmDeveloper?.enabled ?? false;
+  target.u_developerContrast = profile.filmDeveloper?.contrast ?? 0;
+  target.u_developerGamma = profile.filmDeveloper?.gamma ?? 1;
+  copyVec3(target.u_colorSeparation, profile.filmDeveloper?.colorSeparation ?? [1, 1, 1]);
+
+  target.u_toneEnabled = profile.toneResponse.enabled;
+  target.u_shoulder = profile.toneResponse.shoulder;
+  target.u_toe = profile.toneResponse.toe;
+  target.u_gamma = profile.toneResponse.gamma;
+
+  target.u_colorMatrixEnabled = profile.colorMatrix?.enabled ?? false;
+  for (let i = 0; i < 9; i += 1) {
+    target.u_colorMatrix[i] = colorMatrix[i] ?? IDENTITY_3X3[i] ?? 0;
+  }
+
+  target.u_lutEnabled = profile.lut3d.enabled && profile.lut3d.intensity > 0;
+  target.u_lutIntensity = profile.lut3d.intensity;
+
+  target.u_printEnabled = profile.print?.enabled ?? false;
+  target.u_printDensity = profile.print?.density ?? 0;
+  target.u_printContrast = profile.print?.contrast ?? 0;
+  target.u_printWarmth = profile.print?.warmth ?? 0;
+  target.u_printStock = resolvePrintStockCode(profile.print?.stock);
+  target.u_printLutEnabled =
+    (profile.print?.enabled ?? false) && profile.print?.stock === "custom";
+  target.u_printLutIntensity = 1;
+
+  target.u_cmyColorHeadEnabled = profile.cmyColorHead?.enabled ?? false;
+  target.u_cyan = profile.cmyColorHead?.cyan ?? 0;
+  target.u_magenta = profile.cmyColorHead?.magenta ?? 0;
+  target.u_yellow = profile.cmyColorHead?.yellow ?? 0;
+
+  target.u_colorCastEnabled = cc?.enabled ?? false;
+  copyVec3(target.u_colorCastShadows, cc?.shadows ?? [0, 0, 0]);
+  copyVec3(target.u_colorCastMidtones, cc?.midtones ?? [0, 0, 0]);
+  copyVec3(target.u_colorCastHighlights, cc?.highlights ?? [0, 0, 0]);
+
+  target.u_printToningEnabled = toning?.enabled ?? false;
+  copyVec3(target.u_toningShadows, toning?.shadows ?? [0, 0, 0]);
+  copyVec3(target.u_toningMidtones, toning?.midtones ?? [0, 0, 0]);
+  copyVec3(target.u_toningHighlights, toning?.highlights ?? [0, 0, 0]);
+  target.u_toningStrength = toning?.strength ?? 0.35;
+
+  target.u_customLutEnabled = profile.customLut?.enabled ?? false;
+  target.u_customLutIntensity = profile.customLut?.intensity ?? 0;
+
+  target.u_grainEnabled = profile.grain.enabled && profile.grain.amount > 0;
+  target.u_grainModel = profile.grain.model === "procedural" ? 1 : 0;
+  target.u_grainAmount = profile.grain.amount;
+  target.u_grainSize = profile.grain.size;
+  target.u_grainRoughness = profile.grain.roughness;
+  target.u_grainShadowBias = profile.grain.shadowBias;
+  target.u_grainSeed = grainSeed;
+  target.u_grainIsColor = profile.grain.colorGrain;
+  target.u_crystalDensity = profile.grain.crystalDensity;
+  target.u_crystalSizeMean = profile.grain.crystalSizeMean;
+  target.u_crystalSizeVariance = profile.grain.crystalSizeVariance;
+  copyVec3(target.u_grainColorSeparation, profile.grain.colorSeparation);
+  target.u_scannerMTF = profile.grain.scannerMTF;
+  target.u_filmFormat = resolveFilmFormatCode(profile.grain.filmFormat);
+
+  target.u_vignetteEnabled = profile.vignette.enabled && Math.abs(profile.vignette.amount) > 0.001;
+  target.u_vignetteAmount = profile.vignette.amount;
+  target.u_vignetteMidpoint = profile.vignette.midpoint;
+  target.u_vignetteRoundness = profile.vignette.roundness;
+
+  target.u_filmBreathEnabled = profile.filmBreath?.enabled ?? false;
+  target.u_breathAmount = profile.filmBreath?.amount ?? 0;
+  target.u_breathSeed = grainSeed;
+
+  target.u_filmDamageEnabled = profile.filmDamage?.enabled ?? false;
+  target.u_damageAmount = profile.filmDamage?.amount ?? 0;
+  target.u_damageSeed = grainSeed;
+
+  target.u_overscanEnabled = profile.overscan?.enabled ?? false;
+  target.u_overscanAmount = profile.overscan?.amount ?? 0;
+  target.u_overscanRoundness = profile.overscan?.roundness ?? 0.5;
+
+  return target;
+}
+
+export function resolveHalationBloomUniformsV3(
+  profile: FilmProfileV3,
+  out?: HalationBloomUniforms
+): HalationBloomUniforms {
+  const target = out ?? createHalationBloomUniforms();
+  const hal = profile.halation;
+  const bloom = profile.bloom;
+  const glow = profile.glow;
+
+  target.halationEnabled = hal?.enabled ?? false;
+  target.halationThreshold = srgbToLinearUnit(hal?.threshold ?? 0.9);
+  target.halationIntensity = hal?.intensity ?? 0;
+  target.halationColor = [1.0, 0.3, 0.1];
+  target.halationHue = hal?.hue ?? 16;
+  target.halationSaturation = hal?.saturation ?? 0.75;
+  target.halationBlueCompensation = hal?.blueCompensation ?? 0.2;
+  target.halationRadius = hal?.radius ?? 3;
+
+  target.bloomEnabled = bloom?.enabled ?? false;
+  target.bloomThreshold = srgbToLinearUnit(bloom?.threshold ?? 0.85);
+  target.bloomIntensity = bloom?.intensity ?? 0;
+  target.bloomRadius = bloom?.radius ?? 4;
+  target.glowEnabled = glow?.enabled ?? false;
+  target.glowIntensity = glow?.intensity ?? 0;
+  target.glowMidtoneFocus = glow?.midtoneFocus ?? 0.5;
+  target.glowBias = glow?.bias ?? 0.25;
+  target.glowRadius = glow?.enabled ? glow?.radius ?? Math.max(1, (glow?.intensity ?? 0) * 6) : 0;
   return target;
 }

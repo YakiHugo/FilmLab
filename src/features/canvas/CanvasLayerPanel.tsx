@@ -57,7 +57,7 @@ export function CanvasLayerPanel() {
               className={[
                 "flex items-center gap-2 rounded-lg border px-2 py-1.5",
                 selected
-                  ? "border-sky-400/40 bg-sky-400/10 text-zinc-100"
+                  ? "border-amber-400/40 bg-amber-400/10 text-zinc-100"
                   : "border-white/10 bg-white/[0.02] text-zinc-300",
               ].join(" ")}
             >

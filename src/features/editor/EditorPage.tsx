@@ -3,7 +3,7 @@ import { useSearch } from "@tanstack/react-router";
 import { Card, CardContent } from "@/components/ui/card";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { EditorInspectorPanel } from "@/features/editor/layout/EditorInspectorPanel";
-import { EditorToolRail } from "@/features/editor/layout/EditorToolRail";
+import { EditorLayerPanel } from "@/features/editor/layout/EditorLayerPanel";
 import { EditorTopBar } from "@/features/editor/layout/EditorTopBar";
 import { EditorPreviewCard } from "@/features/editor/EditorPreviewCard";
 import { useAssetStore } from "@/stores/assetStore";
@@ -34,7 +34,7 @@ export function EditorPage() {
   }, [assetId, assets, selectedAssetId, setSelectedAssetId]);
 
   return (
-    <div className="editor-shell flex h-[calc(100dvh-96px)] min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 text-slate-100">
+    <div className="editor-shell flex h-[calc(100dvh-64px)] min-h-0 flex-1 flex-col overflow-hidden border border-white/10 bg-[#121316] text-slate-100">
       <EditorTopBar />
 
       {assets.length === 0 ? (
@@ -47,13 +47,14 @@ export function EditorPage() {
         </div>
       ) : (
         <ErrorBoundary>
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:grid lg:h-full lg:grid-cols-[minmax(0,1fr)_360px_62px] lg:grid-rows-[minmax(0,1fr)]">
-            <section className="order-1 min-h-[300px] overflow-hidden lg:h-full lg:min-h-0">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:grid lg:h-full lg:grid-cols-[280px_minmax(0,1fr)_360px] lg:grid-rows-[minmax(0,1fr)]">
+            <EditorLayerPanel className="order-2 lg:order-1" />
+
+            <section className="order-1 min-h-[300px] overflow-hidden lg:order-2 lg:h-full lg:min-h-0">
               <EditorPreviewCard />
             </section>
 
-            <EditorToolRail className="order-2 lg:order-3" />
-            <EditorInspectorPanel className="order-3 max-h-[48vh] lg:order-2 lg:max-h-none" />
+            <EditorInspectorPanel className="order-3 max-h-[48vh] lg:order-3 lg:max-h-none" />
           </div>
         </ErrorBoundary>
       )}

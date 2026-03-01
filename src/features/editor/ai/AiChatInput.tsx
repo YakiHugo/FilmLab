@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef, useState } from "react";
+﻿import { memo, useCallback, useRef, useState } from "react";
 import { Send, Square } from "lucide-react";
 
 interface AiChatInputProps {
@@ -54,7 +54,7 @@ export const AiChatInput = memo(function AiChatInput({
   }, []);
 
   return (
-    <div className="flex items-end gap-2 rounded-xl border border-white/10 bg-slate-900/60 p-2">
+    <div className="flex items-end gap-2 rounded-xl border border-white/10 bg-[#0f1114]/85 p-2">
       <textarea
         ref={textareaRef}
         value={value}
@@ -65,16 +65,16 @@ export const AiChatInput = memo(function AiChatInput({
         onKeyDown={handleKeyDown}
         onCompositionStart={() => setComposing(true)}
         onCompositionEnd={() => setComposing(false)}
-        placeholder="描述你想要的风格，或输入微调指令..."
+        placeholder="鎻忚堪浣犳兂瑕佺殑椋庢牸锛屾垨杈撳叆寰皟鎸囦护..."
         disabled={disabled}
         rows={1}
-        className="min-h-[32px] flex-1 resize-none bg-transparent text-sm text-slate-200 placeholder-slate-500 outline-none"
+        className="min-h-[32px] flex-1 resize-none bg-transparent text-sm text-zinc-200 placeholder-zinc-500 outline-none"
       />
       <button
         type="button"
         onClick={handleSubmit}
         disabled={disabled || (!isLoading && !value.trim())}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600/80 text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-zinc-900 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
       >
         {isLoading ? (
           <Square className="h-3.5 w-3.5 fill-current" />
@@ -85,3 +85,4 @@ export const AiChatInput = memo(function AiChatInput({
     </div>
   );
 });
+

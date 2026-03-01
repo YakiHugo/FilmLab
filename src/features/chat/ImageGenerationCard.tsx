@@ -42,7 +42,7 @@ export function ImageGenerationCard({
   return (
     <div className="rounded-xl border border-white/10 bg-black/40 p-3 text-xs text-zinc-300">
       <div className="flex items-center gap-2 text-zinc-100">
-        <Sparkles className="h-4 w-4 text-sky-300" />
+        <Sparkles className="h-4 w-4 text-amber-300" />
         <p className="font-medium">Image Generation</p>
       </div>
 
@@ -92,7 +92,7 @@ export function ImageGenerationCard({
 
         <Button
           type="button"
-          className="h-9 w-full rounded-xl bg-sky-400 text-black hover:bg-sky-300"
+          className="h-9 w-full rounded-xl bg-amber-400 text-black hover:bg-amber-300"
           disabled={status === "loading"}
           onClick={onGenerate}
         >

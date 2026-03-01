@@ -89,7 +89,7 @@ export function ChatThread({ messages, status, error, onRetry, toolResults }: Ch
               className={[
                 "max-w-[92%] rounded-2xl border p-3 text-sm leading-6",
                 isUser
-                  ? "ml-auto border-sky-400/30 bg-sky-400/10 text-zinc-100"
+                  ? "ml-auto border-amber-400/30 bg-amber-400/10 text-zinc-100"
                   : "border-white/10 bg-black/40 text-zinc-200",
               ].join(" ")}
             >
@@ -118,9 +118,9 @@ export function ChatThread({ messages, status, error, onRetry, toolResults }: Ch
 
         {(status === "streaming" || status === "submitted") && (
           <div className="inline-flex w-fit items-center gap-2 rounded-full border border-white/10 bg-black/40 px-3 py-1.5 text-[11px] text-zinc-400">
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-sky-300 [animation-delay:-0.2s]" />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-sky-300 [animation-delay:-0.1s]" />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-sky-300" />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-amber-300 [animation-delay:-0.2s]" />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-amber-300 [animation-delay:-0.1s]" />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-amber-300" />
             Thinking
           </div>
         )}

@@ -28,7 +28,7 @@ export function ShapeElement({ element, isSelected, onSelect, onDragEnd }: Shape
           y={element.height / 2}
           radius={Math.min(element.width, element.height) / 2}
           fill={element.fill}
-          stroke={isSelected ? "#38bdf8" : element.stroke}
+          stroke={isSelected ? "#f59e0b" : element.stroke}
           strokeWidth={isSelected ? 2 : element.strokeWidth}
         />
       )}
@@ -36,7 +36,7 @@ export function ShapeElement({ element, isSelected, onSelect, onDragEnd }: Shape
       {element.shape === "line" && (
         <Line
           points={[0, 0, element.width, element.height]}
-          stroke={isSelected ? "#38bdf8" : element.stroke || element.fill}
+          stroke={isSelected ? "#f59e0b" : element.stroke || element.fill}
           strokeWidth={isSelected ? 3 : element.strokeWidth || 2}
         />
       )}
@@ -46,7 +46,7 @@ export function ShapeElement({ element, isSelected, onSelect, onDragEnd }: Shape
           width={element.width}
           height={element.height}
           fill={element.fill}
-          stroke={isSelected ? "#38bdf8" : element.stroke}
+          stroke={isSelected ? "#f59e0b" : element.stroke}
           strokeWidth={isSelected ? 2 : element.strokeWidth}
         />
       )}

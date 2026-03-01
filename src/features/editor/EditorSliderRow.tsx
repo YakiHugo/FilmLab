@@ -1,8 +1,8 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+﻿import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Slider } from "@/components/ui/slider";
 import { clamp } from "@/lib/math";
 
-interface EditorSliderRowProps {
+export interface EditorSliderRowProps {
   label: string;
   value: number;
   min: number;
@@ -118,7 +118,7 @@ export const EditorSliderRow = memo(function EditorSliderRow({
   }, [inputValue, onChange, onCommit, parseInputValue, step, value]);
 
   return (
-    <div className="space-y-2">
+    <div className="group space-y-2">
       <div className="flex items-center justify-between text-xs text-slate-400">
         <span className="text-slate-300">{label}</span>
         <div className="flex items-center gap-2">
@@ -142,8 +142,8 @@ export const EditorSliderRow = memo(function EditorSliderRow({
                     handleCancelEditingValue();
                   }
                 }}
-                aria-label={`${label} 数值输入`}
-                className="absolute inset-0 border-b border-sky-400/80 bg-transparent px-1 text-right text-xs text-slate-100 outline-none"
+                aria-label={`${label} value input`}
+                className="absolute inset-0 border-b border-white/80 bg-transparent px-1 text-right text-xs text-slate-100 outline-none"
               />
             )}
             <button
@@ -152,7 +152,7 @@ export const EditorSliderRow = memo(function EditorSliderRow({
               onClick={handleStartEditingValue}
               aria-hidden={isEditingValue}
               tabIndex={isEditingValue ? -1 : 0}
-              className={`h-full w-full border-b border-sky-400/25 px-1 text-right text-xs font-medium text-slate-100 transition hover:border-sky-400/50 focus-visible:outline-none focus-visible:border-sky-400/80 disabled:cursor-not-allowed disabled:opacity-60 ${isEditingValue ? "invisible" : ""}`}
+              className={`h-full w-full border-b border-white/25 px-1 text-right text-xs font-medium text-slate-100 transition hover:border-white/50 focus-visible:border-white/80 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 ${isEditingValue ? "invisible" : ""}`}
             >
               {format ? format(value) : value}
             </button>
@@ -160,10 +160,10 @@ export const EditorSliderRow = memo(function EditorSliderRow({
           {canReset && (
             <button
               type="button"
-              className="rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-slate-300 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/40"
+              className="rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-slate-300 opacity-0 transition hover:bg-white/10 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
               onClick={onReset}
             >
-              重置
+              Reset
             </button>
           )}
         </div>
@@ -181,3 +181,4 @@ export const EditorSliderRow = memo(function EditorSliderRow({
     </div>
   );
 });
+

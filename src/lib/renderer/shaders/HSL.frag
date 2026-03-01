@@ -15,22 +15,6 @@ uniform bool u_calibrationEnabled;
 uniform float u_calibrationHue[3];
 uniform float u_calibrationSaturation[3];
 
-vec3 srgb2linear(vec3 c) {
-  return mix(
-    c / 12.92,
-    pow((c + 0.055) / 1.055, vec3(2.4)),
-    step(0.04045, c)
-  );
-}
-
-vec3 linear2srgb(vec3 c) {
-  return mix(
-    c * 12.92,
-    1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055,
-    step(0.0031308, c)
-  );
-}
-
 vec3 rgb2oklab(vec3 c) {
   float l = 0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b;
   float m = 0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b;
@@ -123,14 +107,13 @@ float calibrationWeight(float hueDeg, float centerDeg) {
 }
 
 void main() {
-  vec3 color = texture(uSampler, vTextureCoord).rgb;
+  vec3 color = max(texture(uSampler, vTextureCoord).rgb, vec3(0.0));
   if (!u_enabled) {
-    outColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+    outColor = vec4(color, 1.0);
     return;
   }
 
-  vec3 linear = srgb2linear(clamp(color, 0.0, 1.0));
-  vec3 lab = rgb2oklab(max(linear, vec3(0.0)));
+  vec3 lab = rgb2oklab(max(color, vec3(0.0)));
   vec2 ab = lab.yz;
   float chroma = length(ab);
   float hueDeg = 0.0;
@@ -175,7 +158,7 @@ void main() {
   }
 
   lab.yz = ab;
-  lab.x = clamp(lab.x * lumScale, 0.0, 1.0);
+  lab.x = max(lab.x * lumScale, 0.0);
 
   if (u_calibrationEnabled) {
     vec2 calAb = lab.yz;
@@ -207,8 +190,7 @@ void main() {
     }
   }
 
-  vec3 adjustedLinear = clamp(gamutMapSoftClip(oklab2rgb(lab)), 0.0, 1.0);
-  vec3 adjusted = linear2srgb(adjustedLinear);
+  vec3 adjusted = gamutMapSoftClip(oklab2rgb(lab));
   if (u_bwEnabled) {
     vec3 bwWeights = max(u_bwMix, vec3(0.0));
     float bwWeightSum = max(bwWeights.r + bwWeights.g + bwWeights.b, 1.0e-5);
@@ -216,5 +198,5 @@ void main() {
     float bwLum = dot(adjusted, bwWeights);
     adjusted = vec3(bwLum);
   }
-  outColor = vec4(clamp(adjusted, 0.0, 1.0), 1.0);
+  outColor = vec4(adjusted, 1.0);
 }

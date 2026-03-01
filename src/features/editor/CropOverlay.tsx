@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+﻿import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import {
   CROP_CORNER_EDGE_MAP,
@@ -111,7 +111,7 @@ export function CropOverlay({
               handle === "s" && "bottom-0 left-0 right-0 h-[2px]",
               handle === "w" && "bottom-0 left-0 top-0 w-[2px]",
               handle === "e" && "bottom-0 right-0 top-0 w-[2px]",
-              highlightedCropEdges.has(handle) ? "bg-sky-300" : "bg-white/65"
+              highlightedCropEdges.has(handle) ? "bg-white" : "bg-white/65"
             )}
           />
         ))}
@@ -132,15 +132,15 @@ export function CropOverlay({
           <span
             key={handle}
             data-crop-handle={handle}
-            className={cn(
-              "absolute z-10 h-3 w-3 rounded-full border",
-              highlightedCropCorner === handle
-                ? "border-sky-300 bg-sky-200 shadow-[0_0_0_2px_rgba(125,211,252,0.35)]"
+              className={cn(
+                "absolute z-10 h-3 w-3 rounded-full border",
+                highlightedCropCorner === handle
+                ? "border-white bg-white shadow-[0_0_0_2px_rgba(255,255,255,0.35)]"
                 : "border-white/90 bg-slate-100",
-              handle === "nw" && "-left-1.5 -top-1.5 cursor-nwse-resize",
-              handle === "ne" && "-right-1.5 -top-1.5 cursor-nesw-resize",
-              handle === "sw" && "-bottom-1.5 -left-1.5 cursor-nesw-resize",
-              handle === "se" && "-bottom-1.5 -right-1.5 cursor-nwse-resize"
+                handle === "nw" && "-left-1.5 -top-1.5 cursor-nwse-resize",
+                handle === "ne" && "-right-1.5 -top-1.5 cursor-nesw-resize",
+                handle === "sw" && "-bottom-1.5 -left-1.5 cursor-nesw-resize",
+                handle === "se" && "-bottom-1.5 -right-1.5 cursor-nwse-resize"
             )}
           />
         ))}
@@ -148,14 +148,14 @@ export function CropOverlay({
           <span
             key={handle}
             data-crop-handle={handle}
-            className={cn(
-              "absolute z-10 rounded-full",
-              highlightedCropEdges.has(handle)
-                ? "bg-sky-300 shadow-[0_0_0_1px_rgba(125,211,252,0.7)]"
+              className={cn(
+                "absolute z-10 rounded-full",
+                highlightedCropEdges.has(handle)
+                ? "bg-white shadow-[0_0_0_1px_rgba(255,255,255,0.75)]"
                 : "bg-white/95 shadow-[0_0_0_1px_rgba(255,255,255,0.45)]",
-              handle === "n" && "left-1/2 -top-0.5 h-1 w-14 -translate-x-1/2 cursor-ns-resize",
-              handle === "s" && "bottom-[-2px] left-1/2 h-1 w-14 -translate-x-1/2 cursor-ns-resize",
-              handle === "w" && "top-1/2 -left-0.5 h-14 w-1 -translate-y-1/2 cursor-ew-resize",
+                handle === "n" && "left-1/2 -top-0.5 h-1 w-14 -translate-x-1/2 cursor-ns-resize",
+                handle === "s" && "bottom-[-2px] left-1/2 h-1 w-14 -translate-x-1/2 cursor-ns-resize",
+                handle === "w" && "top-1/2 -left-0.5 h-14 w-1 -translate-y-1/2 cursor-ew-resize",
               handle === "e" && "right-[-2px] top-1/2 h-14 w-1 -translate-y-1/2 cursor-ew-resize"
             )}
           />
@@ -164,3 +164,4 @@ export function CropOverlay({
     </div>
   );
 }
+

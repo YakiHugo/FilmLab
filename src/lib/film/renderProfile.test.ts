@@ -8,11 +8,12 @@ describe("resolveRenderProfile", () => {
   it("returns legacy-v1 mode for runtime adjustments", () => {
     const resolved = resolveRenderProfile(createDefaultAdjustments());
     expect(resolved.mode).toBe("legacy-v1");
+    expect(resolved.mode).not.toBe("v2");
     expect(resolved.legacyV1).toBeDefined();
     expect(resolved.lut).toBeNull();
   });
 
-  it("normalizes v2 LUT paths and keeps v2 mode", () => {
+  it("normalizes v2 LUT paths and upgrades to v3 render mode", () => {
     const v2: FilmProfileV2 = {
       id: "film-v2-test",
       version: 2,
@@ -32,7 +33,7 @@ describe("resolveRenderProfile", () => {
     };
 
     const resolved = resolveRenderProfile(createDefaultAdjustments(), v2);
-    expect(resolved.mode).toBe("v2");
+    expect(resolved.mode).toBe("v3");
     expect(resolved.lut).toEqual({
       path: "/luts/test.png",
       size: 8,
@@ -40,7 +41,7 @@ describe("resolveRenderProfile", () => {
     });
   });
 
-  it("switches stock legacy profile ids to v2 LUT mode", () => {
+  it("switches stock legacy profile ids to v3 LUT mode", () => {
     const stockLegacy: FilmProfile = {
       id: "stock-portra-400",
       version: 1,
@@ -48,12 +49,72 @@ describe("resolveRenderProfile", () => {
       modules: [],
     };
     const resolved = resolveRenderProfile(createDefaultAdjustments(), stockLegacy);
-    expect(resolved.mode).toBe("v2");
+    expect(resolved.mode).toBe("v3");
     expect(resolved.v2.id).toBe("stock-portra-400");
     expect(resolved.lut).toEqual({
       path: "/luts/stocks/portra400.png",
       size: 8,
       intensity: 0.78,
+    });
+  });
+
+  it("applies custom LUT override from adjustments", () => {
+    const adjustments = createDefaultAdjustments();
+    adjustments.customLut = {
+      enabled: true,
+      path: "luts/custom/test.cube",
+      size: 16,
+      intensity: 0.6,
+    };
+
+    const resolved = resolveRenderProfile(adjustments);
+    expect(resolved.customLut).toEqual({
+      path: "/luts/custom/test.cube",
+      size: 16,
+      intensity: 0.6,
+    });
+  });
+
+  it("resolves print custom LUT path/size for v3 print stock", () => {
+    const base = createDefaultAdjustments();
+    const resolved = resolveRenderProfile(base, {
+      id: "film-v3-print-custom",
+      version: 3,
+      name: "Print Custom",
+      type: "negative",
+      toneResponse: { enabled: false, shoulder: 0.8, toe: 0.3, gamma: 1 },
+      lut3d: { enabled: false, path: "", size: 16, intensity: 0 },
+      print: {
+        enabled: true,
+        stock: "custom",
+        density: 0,
+        contrast: 0,
+        warmth: 0,
+        lutPath: "luts/print/custom.cube",
+        lutSize: 16,
+      },
+      grain: {
+        enabled: false,
+        model: "blue-noise",
+        amount: 0,
+        size: 0.5,
+        colorGrain: false,
+        roughness: 0.5,
+        shadowBias: 0.5,
+        crystalDensity: 0.5,
+        crystalSizeMean: 0.5,
+        crystalSizeVariance: 0.35,
+        colorSeparation: [1, 1, 1],
+        scannerMTF: 0.55,
+        filmFormat: "35mm",
+      },
+      vignette: { enabled: false, amount: 0, midpoint: 0.5, roundness: 0.5 },
+    });
+
+    expect(resolved.mode).toBe("v3");
+    expect(resolved.printLut).toEqual({
+      path: "/luts/print/custom.cube",
+      size: 16,
     });
   });
 });

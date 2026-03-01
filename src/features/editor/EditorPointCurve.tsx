@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+﻿import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { clamp } from "@/lib/math";
 import type { PointCurvePoint } from "@/types";
 
@@ -86,7 +86,7 @@ export const EditorPointCurve = memo(function EditorPointCurve({
       CONTROL_XS.map((x, index) => ({
         x,
         y: controlValues[index] ?? sampleCurveY(points, x),
-        label: ["阴影", "暗部", "亮部", "高光"][index] ?? `P${index + 1}`,
+        label: ["Shadows", "Darks", "Lights", "Highlights"][index] ?? `P${index + 1}`,
       })),
     [controlValues, points]
   );
@@ -144,23 +144,23 @@ export const EditorPointCurve = memo(function EditorPointCurve({
   }, [controlValues, draggingIndex, onCommit, onPreview, points]);
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-3">
+    <div className="rounded-2xl border border-white/10 bg-[#0f1114]/80 p-3">
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs font-medium text-slate-200">点曲线</p>
-        <p className="text-[11px] text-slate-500">拖动控制点调整 RGB 曲线</p>
+        <p className="text-xs font-medium text-slate-200">Point Curve</p>
+        <p className="text-[11px] text-slate-500">Drag control points to adjust the RGB curve</p>
       </div>
       <div ref={trackRef} className="relative h-40 rounded-xl border border-white/10 bg-black/40">
         <svg viewBox="0 0 100 100" className="h-full w-full">
           <path d="M 0 50 L 100 50" stroke="rgba(148,163,184,0.25)" strokeWidth="1" />
-          <path d={curvePath} fill="none" stroke="rgba(56,189,248,0.95)" strokeWidth="2.2" />
+          <path d={curvePath} fill="none" stroke="rgba(255,255,255,0.92)" strokeWidth="2.2" />
         </svg>
         {handles.map((handle, index) => (
           <button
             key={`${handle.label}-${handle.x}`}
             type="button"
-            className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-sky-200/50 bg-slate-950 p-1 shadow-[0_0_0_2px_rgba(15,23,42,0.8)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/40"
+            className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/50 bg-slate-950 p-1 shadow-[0_0_0_2px_rgba(10,10,12,0.82)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
             style={{ left: `${(handle.x / 255) * 100}%`, top: `${curveValueToY(handle.y)}%` }}
-            aria-label={`调整${handle.label}`}
+            aria-label={`Adjust ${handle.label}`}
             onPointerDown={(event) => {
               event.preventDefault();
               const rect = trackRef.current?.getBoundingClientRect();
@@ -172,7 +172,7 @@ export const EditorPointCurve = memo(function EditorPointCurve({
               setDraggingIndex(index);
             }}
           >
-            <span className="block h-2.5 w-2.5 rounded-full bg-sky-300" />
+            <span className="block h-2.5 w-2.5 rounded-full bg-white" />
           </button>
         ))}
       </div>
@@ -187,4 +187,5 @@ export const EditorPointCurve = memo(function EditorPointCurve({
     </div>
   );
 });
+
 

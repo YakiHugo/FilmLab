@@ -1,4 +1,4 @@
-import { PixiRenderer } from "./PixiRenderer";
+import { PipelineRenderer } from "./PipelineRenderer";
 
 export type RenderMode = "preview" | "export";
 
@@ -11,12 +11,11 @@ export interface FrameState {
   detailKey: string | null;
   filmKey: string | null;
   opticsKey: string | null;
-  preFilmKey: string | null;
-  pixiKey: string | null;
+  pipelineKey: string | null;
   outputKey: string | null;
+  tilePlanKey: string | null;
   uploadedGeometryKey: string | null;
   geometryCanvas: HTMLCanvasElement | null;
-  preFilmCanvas: HTMLCanvasElement | null;
   localMaskCanvas: HTMLCanvasElement | null;
   localBlendCanvas: HTMLCanvasElement | null;
   lastRenderError: string | null;
@@ -31,24 +30,23 @@ const createFrameState = (): FrameState => ({
   detailKey: null,
   filmKey: null,
   opticsKey: null,
-  preFilmKey: null,
-  pixiKey: null,
+  pipelineKey: null,
   outputKey: null,
+  tilePlanKey: null,
   uploadedGeometryKey: null,
   geometryCanvas: null,
-  preFilmCanvas: null,
   localMaskCanvas: null,
   localBlendCanvas: null,
   lastRenderError: null,
 });
 
 /**
- * Owns PixiRenderer instances for preview/export slots.
+ * Owns PipelineRenderer instances for preview/export slots.
  * - Preview uses a single fixed slot.
  * - Export can use multiple slots for concurrent exports.
  */
 export class RenderManager {
-  private readonly renderers = new Map<string, PixiRenderer>();
+  private readonly renderers = new Map<string, PipelineRenderer>();
   private readonly frameStates = new Map<string, FrameState>();
 
   private resolveSlotId(mode: RenderMode, slotId?: string): string {
@@ -75,9 +73,9 @@ export class RenderManager {
 
   private invalidateGpuState(mode: RenderMode, slotId?: string) {
     const state = this.getFrameStateRef(mode, slotId);
-    state.preFilmKey = null;
-    state.pixiKey = null;
+    state.pipelineKey = null;
     state.outputKey = null;
+    state.tilePlanKey = null;
     state.uploadedGeometryKey = null;
     state.lastRenderError = null;
   }
@@ -89,16 +87,6 @@ export class RenderManager {
       state.geometryCanvas.height = 0;
       state.geometryCanvas = null;
     }
-  }
-
-  private releasePreFilmCanvas(mode: RenderMode, slotId?: string) {
-    const state = this.getFrameStateRef(mode, slotId);
-    if (state.preFilmCanvas) {
-      state.preFilmCanvas.width = 0;
-      state.preFilmCanvas.height = 0;
-      state.preFilmCanvas = null;
-    }
-    state.preFilmKey = null;
   }
 
   private releaseLocalScratchCanvases(mode: RenderMode, slotId?: string) {
@@ -115,9 +103,9 @@ export class RenderManager {
     }
   }
 
-  private createRenderer(mode: RenderMode, width: number, height: number): PixiRenderer {
+  private createRenderer(mode: RenderMode, width: number, height: number): PipelineRenderer {
     const canvas = document.createElement("canvas");
-    const renderer = new PixiRenderer(canvas, width, height, {
+    const renderer = new PipelineRenderer(canvas, width, height, {
       preserveDrawingBuffer: mode === "export",
       label: mode,
     });
@@ -133,7 +121,7 @@ export class RenderManager {
   /**
    * Return a healthy renderer for the requested mode/slot, recreating after context loss.
    */
-  getRenderer(mode: RenderMode, width: number, height: number, slotId?: string): PixiRenderer {
+  getRenderer(mode: RenderMode, width: number, height: number, slotId?: string): PipelineRenderer {
     const key = this.resolveKey(mode, slotId);
     let renderer = this.renderers.get(key) ?? null;
 
@@ -160,7 +148,6 @@ export class RenderManager {
   clearGeometryCache(mode: RenderMode, slotId?: string): void {
     if (slotId) {
       this.releaseGeometryCanvas(mode, slotId);
-      this.releasePreFilmCanvas(mode, slotId);
       this.releaseLocalScratchCanvases(mode, slotId);
       const state = this.getFrameStateRef(mode, slotId);
       state.sourceKey = null;
@@ -175,7 +162,6 @@ export class RenderManager {
       }
       const resolvedSlotId = key.slice(modePrefix.length);
       this.releaseGeometryCanvas(mode, resolvedSlotId);
-      this.releasePreFilmCanvas(mode, resolvedSlotId);
       this.releaseLocalScratchCanvases(mode, resolvedSlotId);
       const state = this.getFrameStateRef(mode, resolvedSlotId);
       state.sourceKey = null;
@@ -232,10 +218,6 @@ export class RenderManager {
         state.geometryCanvas.width = 0;
         state.geometryCanvas.height = 0;
       }
-      if (state.preFilmCanvas) {
-        state.preFilmCanvas.width = 0;
-        state.preFilmCanvas.height = 0;
-      }
       if (state.localMaskCanvas) {
         state.localMaskCanvas.width = 0;
         state.localMaskCanvas.height = 0;
@@ -245,7 +227,6 @@ export class RenderManager {
         state.localBlendCanvas.height = 0;
       }
       state.geometryCanvas = null;
-      state.preFilmCanvas = null;
       state.localMaskCanvas = null;
       state.localBlendCanvas = null;
       state.sourceKey = null;
@@ -256,9 +237,9 @@ export class RenderManager {
       state.detailKey = null;
       state.filmKey = null;
       state.opticsKey = null;
-      state.preFilmKey = null;
-      state.pixiKey = null;
+      state.pipelineKey = null;
       state.outputKey = null;
+      state.tilePlanKey = null;
       state.uploadedGeometryKey = null;
       state.lastRenderError = null;
     }

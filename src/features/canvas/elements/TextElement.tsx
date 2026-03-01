@@ -31,7 +31,7 @@ export function TextElement({ element, isSelected, onSelect, onDragEnd, onDouble
       onDblClick={onDoubleClick}
       onDblTap={onDoubleClick}
       onDragEnd={(event) => onDragEnd(event.target.x(), event.target.y())}
-      stroke={isSelected ? "#38bdf8" : undefined}
+      stroke={isSelected ? "#f59e0b" : undefined}
       strokeWidth={isSelected ? 1 : 0}
     />
   );

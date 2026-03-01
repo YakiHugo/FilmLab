@@ -31,7 +31,6 @@ vec3 sampleCrossBlur(vec2 uv, float radiusPx) {
   vec3 east = texture(uSampler, uv + dx).rgb;
   vec3 west = texture(uSampler, uv - dx).rgb;
   vec3 center = texture(uSampler, uv).rgb;
-
   return (center * 4.0 + north + south + east + west) / 8.0;
 }
 
@@ -50,38 +49,6 @@ vec3 sampleRingBlur(vec2 uv, float radiusPx) {
   vec3 p6 = texture(uSampler, uv - ddx + ddy).rgb;
   vec3 p7 = texture(uSampler, uv - ddx - ddy).rgb;
   return (p0 + p1 + p2 + p3 + p4 + p5 + p6 + p7) * 0.125;
-}
-
-vec3 sampleBilateral(vec2 uv, vec3 center, float sigmaRange, int kernelRadius) {
-  float sigmaSpatial = 1.65;
-  float invTwoSpatialVar = 1.0 / (2.0 * sigmaSpatial * sigmaSpatial);
-  float invTwoRangeVar = 1.0 / max(2.0 * sigmaRange * sigmaRange, 1.0e-5);
-  float centerLum = luminance(center);
-
-  vec3 weightedSum = vec3(0.0);
-  float weightSum = 0.0;
-
-  for (int y = -2; y <= 2; y += 1) {
-    for (int x = -2; x <= 2; x += 1) {
-      if (abs(x) > kernelRadius || abs(y) > kernelRadius) {
-        continue;
-      }
-      vec2 offset = vec2(float(x), float(y)) * u_texelSize;
-      vec3 sampleColor = texture(uSampler, uv + offset).rgb;
-
-      float spatialDist2 = float(x * x + y * y);
-      float spatialWeight = exp(-spatialDist2 * invTwoSpatialVar);
-
-      float rangeDiff = luminance(sampleColor) - centerLum;
-      float rangeWeight = exp(-(rangeDiff * rangeDiff) * invTwoRangeVar);
-
-      float weight = spatialWeight * rangeWeight;
-      weightedSum += sampleColor * weight;
-      weightSum += weight;
-    }
-  }
-
-  return weightedSum / max(weightSum, 1.0e-5);
 }
 
 void main() {
@@ -107,14 +74,11 @@ void main() {
 
   vec3 color = center;
 
-  // Texture: fine-scale micro-contrast.
   color += highPassFine * (u_texture * 0.01) * 0.75;
 
-  // Clarity: large-scale local contrast (closer to Lightroom behavior).
   float lumCoarse = luminance(highPassCoarse);
   color += vec3(lumCoarse * (u_clarity * 0.01) * 0.95);
 
-  // Sharpening with edge masking.
   float sharpen = clamp(u_sharpening * 0.01, 0.0, 1.0);
   if (sharpen > 0.0) {
     float detailGain = mix(0.55, 1.75, clamp(u_sharpenDetail * 0.01, 0.0, 1.0));
@@ -123,26 +87,18 @@ void main() {
     color += highPassFine * sharpen * detailGain * edgeMask;
   }
 
-  // Noise reduction is stronger in flat regions, using bilateral filtering.
-  float flatMask = 1.0 - smoothstep(0.02, 0.14, edgeStrength * 3.0);
-  float sigmaRange = mix(0.02, 0.12, clamp(u_noiseReduction * 0.01, 0.0, 1.0));
-  int kernelRadius = int(clamp(round(u_nrKernelRadius), 1.0, 2.0));
-  vec3 bilateral = sampleBilateral(vTextureCoord, center, sigmaRange, kernelRadius);
-
-  float lumaNr = clamp(u_noiseReduction * 0.01, 0.0, 1.0);
-  if (lumaNr > 0.0) {
-    color = mix(color, bilateral, lumaNr * 0.7 * flatMask);
+  // Keep a mild in-pass NR blend; stronger multi-scale NR is handled by dedicated passes.
+  float nrLuma = clamp(u_noiseReduction * 0.01, 0.0, 1.0) * 0.35;
+  float nrChroma = clamp(u_colorNoiseReduction * 0.01, 0.0, 1.0) * 0.35;
+  if (nrLuma > 0.0 || nrChroma > 0.0) {
+    vec3 soft = mix(blurFine, blurMedium, 0.45);
+    float lumaColor = luminance(color);
+    float lumaSoft = luminance(soft);
+    float flatMask = 1.0 - smoothstep(0.02, 0.14, edgeStrength * 3.0);
+    float outLuma = mix(lumaColor, lumaSoft, nrLuma * flatMask);
+    vec3 outChroma = mix(color - vec3(lumaColor), soft - vec3(lumaSoft), nrChroma * flatMask);
+    color = vec3(outLuma) + outChroma;
   }
 
-  float chromaNr = clamp(u_colorNoiseReduction * 0.01, 0.0, 1.0);
-  if (chromaNr > 0.0) {
-    float lumColor = luminance(color);
-    float lumBilateral = luminance(bilateral);
-    vec3 chroma = color - vec3(lumColor);
-    vec3 chromaBilateral = bilateral - vec3(lumBilateral);
-    chroma = mix(chroma, chromaBilateral, chromaNr * 0.8 * flatMask);
-    color = vec3(lumColor) + chroma;
-  }
-
-  outColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+  outColor = vec4(max(color, vec3(0.0)), 1.0);
 }

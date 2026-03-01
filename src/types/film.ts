@@ -1,13 +1,5 @@
-/**
- * Film Profile V2 — new profile format with 6-layer model.
- *
- * Coexists with the V1 `FilmProfile` type. V1 profiles are auto-migrated
- * to V2 at runtime via `ensureFilmProfileV2()`.
- */
-
 import type { FilmProfile } from "./index";
 
-/** Film Profile V2 with explicit layer configuration. */
 export interface FilmProfileV2 {
   id: string;
   version: 2;
@@ -16,103 +8,256 @@ export interface FilmProfileV2 {
   type: "negative" | "slide" | "instant" | "bw";
   tags?: string[];
 
-  /** Layer 1: Tone Response — filmic S-curve */
   toneResponse: {
     enabled: boolean;
-    shoulder: number; // [0, 1] highlight compression
-    toe: number; // [0, 1] shadow lift
-    gamma: number; // [0.5, 2.0] mid-tone curve
+    shoulder: number;
+    toe: number;
+    gamma: number;
   };
 
-  /** Layer 2: Color Matrix (Phase 3 — optional) */
   colorMatrix?: {
     enabled: boolean;
-    /** 3x3 row-major color matrix */
     matrix: [number, number, number, number, number, number, number, number, number];
   };
 
-  /** Layer 3: 3D LUT via HaldCLUT */
   lut: {
     enabled: boolean;
-    /** HaldCLUT file path relative to public/luts/ */
     path: string;
-    /** LUT level: 8 = 8^3 = 512px, 16 = 16^3 = 4096px */
     size: 8 | 16;
-    /** Blend intensity [0, 1] */
     intensity: number;
   };
 
-  /** Layer 4: Per-zone color cast */
   colorCast?: {
     enabled: boolean;
-    shadows: [number, number, number]; // RGB offset
-    midtones: [number, number, number]; // RGB offset
-    highlights: [number, number, number]; // RGB offset
+    shadows: [number, number, number];
+    midtones: [number, number, number];
+    highlights: [number, number, number];
   };
 
-  /** Layer 5: Halation — warm glow from bright areas bleeding through film base */
   halation?: {
     enabled: boolean;
-    intensity: number; // [0, 1]
-    threshold: number; // [0.5, 1]
-    color: [number, number, number]; // glow tint (typically warm red)
-    radius: number; // blur radius [1, 20]
+    intensity: number;
+    threshold: number;
+    color: [number, number, number];
+    radius: number;
   };
 
-  /** Layer 5: Bloom — neutral bright-area glow */
   bloom?: {
     enabled: boolean;
-    intensity: number; // [0, 1]
-    threshold: number; // [0.5, 1]
-    radius: number; // blur radius [1, 20]
+    intensity: number;
+    threshold: number;
+    radius: number;
   };
 
-  /** Layer 6: Film grain */
   grain: {
     enabled: boolean;
-    amount: number; // [0, 1]
-    size: number; // [0.5, 2.0]
-    colorGrain: boolean; // true = color grain, false = luminance-only
-    roughness: number; // [0, 1]
-    shadowBias: number; // [0, 1] shadow grain enhancement
+    amount: number;
+    size: number;
+    colorGrain: boolean;
+    roughness: number;
+    shadowBias: number;
   };
 
-  /** Layer 6: Vignette */
   vignette: {
     enabled: boolean;
-    amount: number; // [-1, 1] (negative = white corners)
-    midpoint: number; // [0, 1] gradient start
-    roundness: number; // [0, 1] ellipse shape
+    amount: number;
+    midpoint: number;
+    roundness: number;
   };
 
-  /** Film defects — light leaks, dust, scratches (migrated from V1) */
   defects?: {
     enabled: boolean;
-    leakProbability: number; // [0, 1]
-    leakStrength: number; // [0, 1]
-    dustAmount: number; // [0, 1]
-    scratchAmount: number; // [0, 1]
+    leakProbability: number;
+    leakStrength: number;
+    dustAmount: number;
+    scratchAmount: number;
   };
 }
 
-/** Discriminated union of all film profile versions. Use `version` to narrow. */
-export type FilmProfileAny = FilmProfile | FilmProfileV2;
+export interface FilmProfileV3 {
+  id: string;
+  version: 3;
+  name: string;
+  description?: string;
+  type: "negative" | "slide" | "instant" | "bw";
+  tags?: string[];
 
-/**
- * Canonical render profile payload used by the renderer bridge.
- * - `legacy-v1`: preserves current v1 rendering behavior.
- * - `v2`: uses the V2 mapping and optional LUT loading.
- */
+  expand?: {
+    enabled: boolean;
+    blackPoint: number;
+    whitePoint: number;
+  };
+
+  filmCompression?: {
+    enabled: boolean;
+    highlightRolloff: number;
+    shoulderWidth: number;
+  };
+
+  filmDeveloper?: {
+    enabled: boolean;
+    contrast: number;
+    gamma: number;
+    colorSeparation: [number, number, number];
+  };
+
+  toneResponse: {
+    enabled: boolean;
+    shoulder: number;
+    toe: number;
+    gamma: number;
+  };
+
+  colorMatrix?: {
+    enabled: boolean;
+    matrix: [number, number, number, number, number, number, number, number, number];
+  };
+
+  lut3d: {
+    enabled: boolean;
+    path: string;
+    size: 8 | 16;
+    intensity: number;
+  };
+
+  print?: {
+    enabled: boolean;
+    stock: "kodak-2383" | "endura" | "cineon-log" | "custom";
+    density: number;
+    contrast: number;
+    warmth: number;
+    lutPath?: string;
+    lutSize?: 8 | 16;
+  };
+
+  cmyColorHead?: {
+    enabled: boolean;
+    cyan: number;
+    magenta: number;
+    yellow: number;
+  };
+
+  colorCast?: {
+    enabled: boolean;
+    shadows: [number, number, number];
+    midtones: [number, number, number];
+    highlights: [number, number, number];
+  };
+
+  printToning?: {
+    enabled: boolean;
+    shadows: [number, number, number];
+    midtones: [number, number, number];
+    highlights: [number, number, number];
+    strength: number;
+  };
+
+  halation?: {
+    enabled: boolean;
+    intensity: number;
+    threshold: number;
+    radius: number;
+    hue: number;
+    saturation: number;
+    blueCompensation: number;
+  };
+
+  bloom?: {
+    enabled: boolean;
+    intensity: number;
+    threshold: number;
+    radius: number;
+  };
+
+  grain: {
+    enabled: boolean;
+    model: "blue-noise" | "procedural";
+    amount: number;
+    size: number;
+    colorGrain: boolean;
+    roughness: number;
+    shadowBias: number;
+    crystalDensity: number;
+    crystalSizeMean: number;
+    crystalSizeVariance: number;
+    colorSeparation: [number, number, number];
+    scannerMTF: number;
+    filmFormat: "8mm" | "16mm" | "35mm" | "65mm";
+  };
+
+  vignette: {
+    enabled: boolean;
+    amount: number;
+    midpoint: number;
+    roundness: number;
+  };
+
+  glow?: {
+    enabled: boolean;
+    intensity: number;
+    midtoneFocus: number;
+    bias: number;
+    radius?: number;
+  };
+
+  filmBreath?: {
+    enabled: boolean;
+    amount: number;
+  };
+
+  filmDamage?: {
+    enabled: boolean;
+    amount: number;
+  };
+
+  overscan?: {
+    enabled: boolean;
+    amount: number;
+    roundness: number;
+  };
+
+  customLut?: {
+    enabled: boolean;
+    path: string;
+    size: 8 | 16;
+    intensity: number;
+  };
+
+  defects?: {
+    enabled: boolean;
+    leakProbability: number;
+    leakStrength: number;
+    dustAmount: number;
+    scratchAmount: number;
+  };
+}
+
+export type FilmProfileAny = FilmProfile | FilmProfileV2 | FilmProfileV3;
+
 export interface ResolvedRenderProfile {
-  mode: "legacy-v1" | "v2";
+  mode: "legacy-v1" | "v3";
   source: FilmProfileAny;
   legacyV1?: FilmProfile;
   v2: FilmProfileV2;
+  v3: FilmProfileV3;
   lut:
     | {
         path: string;
         size: 8 | 16;
         intensity: number;
+      }
+    | null;
+  customLut:
+    | {
+        path: string;
+        size: 8 | 16;
+        intensity: number;
+      }
+    | null;
+  printLut:
+    | {
+        path: string;
+        size: 8 | 16;
       }
     | null;
 }

@@ -25,6 +25,10 @@ export const PRESET_ADJUSTMENT_KEYS = [
   "grain",
   "grainSize",
   "grainRoughness",
+  "glowIntensity",
+  "glowMidtoneFocus",
+  "glowBias",
+  "glowRadius",
   "sharpening",
   "sharpenRadius",
   "sharpenDetail",
@@ -386,6 +390,16 @@ export interface EditingAdjustments {
   grain: number;
   grainSize: number;
   grainRoughness: number;
+  glowIntensity: number;
+  glowMidtoneFocus: number;
+  glowBias: number;
+  glowRadius: number;
+  customLut?: {
+    enabled: boolean;
+    path: string;
+    size: 8 | 16;
+    intensity: number;
+  };
   rotate: number;
   rightAngleRotation: number;
   perspectiveEnabled?: boolean;
@@ -488,4 +502,7 @@ export interface Project {
 
 export * from "./canvas";
 export * from "./chat";
+export * from "./adjustments";
+export * from "./editor";
+export * from "./renderer";
 

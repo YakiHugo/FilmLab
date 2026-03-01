@@ -32,6 +32,14 @@ uniform bool u_caEnabled;
 uniform vec3 u_caAmountPxRgb;
 uniform bool u_enabled;
 
+vec3 srgb2linear(vec3 c) {
+  return mix(
+    c / 12.92,
+    pow((c + 0.055) / 1.055, vec3(2.4)),
+    step(0.04045, c)
+  );
+}
+
 vec2 applyLensRemap(vec2 uv, float k1, float k2) {
   vec2 p = uv * 2.0 - 1.0;
   float r2 = dot(p, p);
@@ -53,7 +61,8 @@ vec2 applyHomography(vec2 uv, mat3 h) {
 
 void main() {
   if (!u_enabled) {
-    outColor = texture(uSampler, vTextureCoord);
+    vec4 passthrough = texture(uSampler, vTextureCoord);
+    outColor = vec4(srgb2linear(clamp(passthrough.rgb, 0.0, 1.0)), passthrough.a);
     return;
   }
 
@@ -124,5 +133,5 @@ void main() {
     sampled.rgb *= lift;
   }
 
-  outColor = vec4(clamp(sampled.rgb, 0.0, 1.0), sampled.a);
+  outColor = vec4(srgb2linear(clamp(sampled.rgb, 0.0, 1.0)), sampled.a);
 }
