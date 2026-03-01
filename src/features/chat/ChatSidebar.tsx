@@ -19,7 +19,7 @@ export function ChatSidebar({
   return (
     <aside className="flex h-[calc(100dvh-96px)] w-full flex-col rounded-2xl border border-white/10 bg-black/35">
       <div className="border-b border-white/10 p-3">
-        <Button onClick={onNew} className="w-full rounded-xl bg-sky-400 text-black hover:bg-sky-300">
+        <Button onClick={onNew} className="w-full rounded-xl bg-amber-400 text-black hover:bg-amber-300">
           New Chat
         </Button>
       </div>
@@ -30,7 +30,7 @@ export function ChatSidebar({
             className={[
               "group rounded-xl border px-3 py-2 text-left text-xs transition",
               conversation.id === activeConversationId
-                ? "border-sky-400/40 bg-sky-400/10 text-zinc-100"
+                ? "border-amber-400/40 bg-amber-400/10 text-zinc-100"
                 : "border-white/5 bg-white/[0.02] text-zinc-300 hover:border-white/15",
             ].join(" ")}
           >

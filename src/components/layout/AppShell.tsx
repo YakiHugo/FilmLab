@@ -10,6 +10,7 @@ interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   const pathname = useLocation({ select: (state) => state.pathname });
   const isLibraryRoute = pathname === "/library";
+  const isEditorRoute = pathname === "/editor";
 
   return (
     <div className="relative min-h-screen w-full bg-[#1b1b1d] text-zinc-100">
@@ -19,7 +20,9 @@ export function AppShell({ children }: AppShellProps) {
         <main
           className={cn(
             "w-full flex-1 min-w-0",
-            isLibraryRoute ? "px-0 pb-0 pt-0" : "mx-auto max-w-[1600px] px-3 pb-4 pt-4 lg:px-5"
+            (isLibraryRoute || isEditorRoute)
+              ? "px-0 pb-0 pt-0"
+              : "mx-auto max-w-[1600px] px-3 pb-4 pt-4 lg:px-5"
           )}
         >
           {children}

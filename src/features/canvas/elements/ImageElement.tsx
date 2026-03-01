@@ -75,8 +75,8 @@ export function ImageElement({ element, src, isSelected, onSelect, onDragEnd }: 
         rotation={element.rotation}
         opacity={element.opacity}
         visible={element.visible}
-        fill={isSelected ? "#334155" : "#27272a"}
-        stroke={isSelected ? "#38bdf8" : "#52525b"}
+        fill={isSelected ? "#3f3120" : "#27272a"}
+        stroke={isSelected ? "#f59e0b" : "#52525b"}
         strokeWidth={isSelected ? 2 : 1}
         draggable={!element.locked}
         onClick={(event) => onSelect(Boolean(event.evt.shiftKey))}
@@ -101,7 +101,7 @@ export function ImageElement({ element, src, isSelected, onSelect, onDragEnd }: 
       onClick={(event) => onSelect(Boolean(event.evt.shiftKey))}
       onTap={() => onSelect(false)}
       onDragEnd={(event) => onDragEnd(event.target.x(), event.target.y())}
-      stroke={isSelected ? "#38bdf8" : undefined}
+      stroke={isSelected ? "#f59e0b" : undefined}
       strokeWidth={isSelected ? 2 : 0}
     />
   );

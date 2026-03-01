@@ -106,7 +106,7 @@ export function ChatInput({ isLoading, onSend, onStop }: ChatInputProps) {
               submit();
             }}
             placeholder="Describe your concept, mood, or sequence..."
-            className="min-h-[56px] max-h-[200px] flex-1 resize-none overflow-y-auto rounded-xl border border-white/10 bg-black/45 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-sky-400"
+            className="min-h-[56px] max-h-[200px] flex-1 resize-none overflow-y-auto rounded-xl border border-white/10 bg-black/45 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-amber-400"
           />
 
           {isLoading ? (
@@ -119,7 +119,7 @@ export function ChatInput({ isLoading, onSend, onStop }: ChatInputProps) {
               Stop
             </Button>
           ) : (
-            <Button type="submit" disabled={!value.trim() && selectedFiles.length === 0} className="h-10 rounded-xl bg-sky-400 text-black hover:bg-sky-300">
+            <Button type="submit" disabled={!value.trim() && selectedFiles.length === 0} className="h-10 rounded-xl bg-amber-400 text-black hover:bg-amber-300">
               Send
             </Button>
           )}
