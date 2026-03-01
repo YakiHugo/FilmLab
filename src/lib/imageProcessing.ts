@@ -3,6 +3,7 @@ import { normalizeAdjustments } from "@/lib/adjustments";
 import { applyTimestampOverlay } from "@/lib/timestampOverlay";
 import { clamp } from "@/lib/math";
 import { getRendererRuntimeConfig } from "@/lib/renderer/config";
+import { createTilePlan } from "@/lib/renderer/gpu/TiledRenderer";
 import type {
   EditingAdjustments,
   LocalAdjustment,
@@ -355,7 +356,7 @@ const resolveMaxTextureSize = () => {
   return _maxTextureSizeCache;
 };
 
-interface RenderWithPixiOptions {
+interface RenderWithPipelineOptions {
   mode: RenderMode;
   slotId: string;
   strictErrors: boolean;
@@ -376,6 +377,7 @@ interface RenderWithPixiOptions {
   opticsKey: string;
   grainSeed: number;
   forceRerender?: boolean;
+  captureLinearOutput?: boolean;
   skipHsl?: boolean;
   skipCurve?: boolean;
   skipDetail?: boolean;
@@ -383,10 +385,10 @@ interface RenderWithPixiOptions {
   skipHalationBloom?: boolean;
 }
 
-interface RenderWithPixiResult {
+interface RenderWithPipelineResult {
   canvas: HTMLCanvasElement;
   rendered: boolean;
-  pixiKey: string;
+  pipelineKey: string;
   renderMetrics: {
     totalMs: number;
     updateUniformsMs: number;
@@ -405,7 +407,44 @@ interface RenderWithPixiResult {
   };
 }
 
-interface PixiModuleCache {
+const createEmptyPipelineMetrics = (): RenderWithPipelineResult["renderMetrics"] => ({
+  totalMs: 0,
+  updateUniformsMs: 0,
+  filterChainMs: 0,
+  drawMs: 0,
+  passCpuMs: {
+    geometry: 0,
+    master: 0,
+    hsl: 0,
+    curve: 0,
+    detail: 0,
+    film: 0,
+    optics: 0,
+  },
+  activePasses: [],
+});
+
+const mergePipelineMetrics = (
+  target: RenderWithPipelineResult["renderMetrics"],
+  metrics: RenderWithPipelineResult["renderMetrics"]
+) => {
+  target.totalMs += metrics.totalMs;
+  target.updateUniformsMs += metrics.updateUniformsMs;
+  target.filterChainMs += metrics.filterChainMs;
+  target.drawMs += metrics.drawMs;
+  target.passCpuMs.geometry += metrics.passCpuMs.geometry;
+  target.passCpuMs.master += metrics.passCpuMs.master;
+  target.passCpuMs.hsl += metrics.passCpuMs.hsl;
+  target.passCpuMs.curve += metrics.passCpuMs.curve;
+  target.passCpuMs.detail += metrics.passCpuMs.detail;
+  target.passCpuMs.film += metrics.passCpuMs.film;
+  target.passCpuMs.optics += metrics.passCpuMs.optics;
+  if (metrics.activePasses.length > 0) {
+    target.activePasses = Array.from(new Set([...target.activePasses, ...metrics.activePasses]));
+  }
+};
+
+interface PipelineModuleCache {
   RenderManager: typeof import("@/lib/renderer/RenderManager").RenderManager;
   resolveFromAdjustments: typeof import("@/lib/renderer/uniformResolvers").resolveFromAdjustments;
   resolveHslUniforms: typeof import("@/lib/renderer/uniformResolvers").resolveHslUniforms;
@@ -413,11 +452,11 @@ interface PixiModuleCache {
   resolveDetailUniforms: typeof import("@/lib/renderer/uniformResolvers").resolveDetailUniforms;
   resolveFilmUniforms: typeof import("@/lib/renderer/uniformResolvers").resolveFilmUniforms;
   resolveHalationBloomUniforms: typeof import("@/lib/renderer/uniformResolvers").resolveHalationBloomUniforms;
-  resolveFilmUniformsV2: typeof import("@/lib/renderer/uniformResolvers").resolveFilmUniformsV2;
-  resolveHalationBloomUniformsV2: typeof import("@/lib/renderer/uniformResolvers").resolveHalationBloomUniformsV2;
+  resolveFilmUniformsV3: typeof import("@/lib/renderer/uniformResolvers").resolveFilmUniformsV3;
+  resolveHalationBloomUniformsV3: typeof import("@/lib/renderer/uniformResolvers").resolveHalationBloomUniformsV3;
 }
 
-let _pixiModuleCache: PixiModuleCache | null = null;
+let _pipelineModuleCache: PipelineModuleCache | null = null;
 let _renderManagerInstance: InstanceType<
   typeof import("@/lib/renderer/RenderManager").RenderManager
 > | null = null;
@@ -785,21 +824,39 @@ const createFilmKey = (resolvedProfile: ResolvedRenderProfile, grainSeed: number
         4
       )}`
     : "none";
+  const customLutKey = resolvedProfile.customLut
+    ? `${resolvedProfile.customLut.path}:${resolvedProfile.customLut.size}:${toNumberKey(
+        resolvedProfile.customLut.intensity,
+        4
+      )}`
+    : "none";
+  const printLutKey = resolvedProfile.printLut
+    ? `${resolvedProfile.printLut.path}:${resolvedProfile.printLut.size}`
+    : "none";
   return [
     "f",
     resolvedProfile.mode,
     sourceProfileHash,
     lutKey,
+    customLutKey,
+    printLutKey,
     toNumberKey(grainSeed, 0),
   ].join("|");
 };
 
 const createOpticsKey = (resolvedProfile: ResolvedRenderProfile, skipHalationBloom?: boolean) => {
-  const halation = resolvedProfile.v2.halation
-    ? JSON.stringify(resolvedProfile.v2.halation)
+  const halation = resolvedProfile.v3.halation
+    ? JSON.stringify(resolvedProfile.v3.halation)
     : "none";
-  const bloom = resolvedProfile.v2.bloom ? JSON.stringify(resolvedProfile.v2.bloom) : "none";
-  return ["o", skipHalationBloom ? "1" : "0", hashString(halation), hashString(bloom)].join("|");
+  const bloom = resolvedProfile.v3.bloom ? JSON.stringify(resolvedProfile.v3.bloom) : "none";
+  const glow = resolvedProfile.v3.glow ? JSON.stringify(resolvedProfile.v3.glow) : "none";
+  return [
+    "o",
+    skipHalationBloom ? "1" : "0",
+    hashString(halation),
+    hashString(bloom),
+    hashString(glow),
+  ].join("|");
 };
 
 const createGeometryKey = (params: {
@@ -947,7 +1004,7 @@ const createPassthroughGeometryUniforms = (
 
 const createOutputKey = (params: {
   canvas: HTMLCanvasElement;
-  pixiKey: string;
+  pipelineKey: string;
   localAdjustmentsKey: string;
   timestampText?: string | null;
   adjustments: EditingAdjustments;
@@ -962,15 +1019,15 @@ const createOutputKey = (params: {
     "out",
     getCanvasRuntimeId(params.canvas),
     `${params.canvas.width}x${params.canvas.height}`,
-    params.pixiKey,
+    params.pipelineKey,
     params.localAdjustmentsKey,
     timestampToken,
   ].join("|");
 };
 
-const ensurePixiModules = async (): Promise<PixiModuleCache> => {
-  if (_pixiModuleCache) {
-    return _pixiModuleCache;
+const ensurePipelineModules = async (): Promise<PipelineModuleCache> => {
+  if (_pipelineModuleCache) {
+    return _pipelineModuleCache;
   }
 
   const [managerMod, uniformsMod] = await Promise.all([
@@ -978,7 +1035,7 @@ const ensurePixiModules = async (): Promise<PixiModuleCache> => {
     import("@/lib/renderer/uniformResolvers"),
   ]);
 
-  _pixiModuleCache = {
+  _pipelineModuleCache = {
     RenderManager: managerMod.RenderManager,
     resolveFromAdjustments: uniformsMod.resolveFromAdjustments,
     resolveHslUniforms: uniformsMod.resolveHslUniforms,
@@ -986,15 +1043,15 @@ const ensurePixiModules = async (): Promise<PixiModuleCache> => {
     resolveDetailUniforms: uniformsMod.resolveDetailUniforms,
     resolveFilmUniforms: uniformsMod.resolveFilmUniforms,
     resolveHalationBloomUniforms: uniformsMod.resolveHalationBloomUniforms,
-    resolveFilmUniformsV2: uniformsMod.resolveFilmUniformsV2,
-    resolveHalationBloomUniformsV2: uniformsMod.resolveHalationBloomUniformsV2,
+    resolveFilmUniformsV3: uniformsMod.resolveFilmUniformsV3,
+    resolveHalationBloomUniformsV3: uniformsMod.resolveHalationBloomUniformsV3,
   };
 
-  return _pixiModuleCache;
+  return _pipelineModuleCache;
 };
 
 const getRenderManager = async () => {
-  const modules = await ensurePixiModules();
+  const modules = await ensurePipelineModules();
   if (!_renderManagerInstance) {
     _renderManagerInstance = new modules.RenderManager();
   }
@@ -1002,16 +1059,16 @@ const getRenderManager = async () => {
 };
 
 /**
- * Lazy-load and invoke the PixiJS multi-pass renderer.
+ * Lazy-load and invoke the Pipeline multi-pass renderer.
  * This is the sole GPU rendering path and throws RenderError on failure.
  */
-const renderWithPixi = async (
+const renderWithPipeline = async (
   sourceImage: CanvasImageSource,
   adjustments: EditingAdjustments,
   frameState: FrameState,
-  options: RenderWithPixiOptions
-): Promise<RenderWithPixiResult> => {
-  const emptyMetrics: RenderWithPixiResult["renderMetrics"] = {
+  options: RenderWithPipelineOptions
+): Promise<RenderWithPipelineResult> => {
+  const emptyMetrics: RenderWithPipelineResult["renderMetrics"] = {
     totalMs: 0,
     updateUniformsMs: 0,
     filterChainMs: 0,
@@ -1028,7 +1085,7 @@ const renderWithPixi = async (
     activePasses: [],
   };
   try {
-    const modules = await ensurePixiModules();
+    const modules = await ensurePipelineModules();
     const renderManager = await getRenderManager();
     const renderer = renderManager.getRenderer(
       options.mode,
@@ -1059,38 +1116,30 @@ const renderWithPixi = async (
     const opticsDirty = frameState.opticsKey !== options.opticsKey;
     const uploadNeeded =
       !!options.forceRerender || sourceDirty || frameState.uploadedGeometryKey !== options.uploadKey;
-    const preFilmKey = [
+    const pipelineKey = [
       options.geometryKey,
       options.masterKey,
       options.hslKey,
       options.curveKey,
       options.detailKey,
+      options.filmKey,
+      options.opticsKey,
       options.skipHsl ? "h:0" : "h:1",
       options.skipCurve ? "c:0" : "c:1",
       options.skipDetail ? "d:0" : "d:1",
+      options.skipFilm ? "f:0" : "f:1",
+      options.skipHalationBloom ? "hb:1" : "hb:0",
     ].join("|");
-    const preFilmNeeded =
+    const renderNeeded =
       !!options.forceRerender ||
       uploadNeeded ||
       masterDirty ||
       hslDirty ||
       curveDirty ||
       detailDirty ||
-      frameState.preFilmKey !== preFilmKey ||
-      !frameState.preFilmCanvas;
-    const pixiKey = [
-      preFilmKey,
-      options.filmKey,
-      options.opticsKey,
-      options.skipFilm ? "f:0" : "f:1",
-      options.skipHalationBloom ? "hb:1" : "hb:0",
-    ].join("|");
-    const renderNeeded =
-      !!options.forceRerender ||
-      preFilmNeeded ||
       filmDirty ||
       opticsDirty ||
-      frameState.pixiKey !== pixiKey;
+      frameState.pipelineKey !== pipelineKey;
 
     if (renderNeeded) {
       const scratch = _uniformScratchByMode[options.mode];
@@ -1103,19 +1152,21 @@ const renderWithPixi = async (
       const detailUniforms = modules.resolveDetailUniforms(adjustments, scratch.detail);
       scratch.detail = detailUniforms;
 
-      let filmUniforms: ReturnType<typeof modules.resolveFilmUniforms> | ReturnType<
-        typeof modules.resolveFilmUniformsV2
-      > | null = null;
-      let halationBloomUniforms: ReturnType<typeof modules.resolveHalationBloomUniforms> | ReturnType<
-        typeof modules.resolveHalationBloomUniformsV2
-      > | null = null;
+      let filmUniforms:
+        | ReturnType<typeof modules.resolveFilmUniforms>
+        | ReturnType<typeof modules.resolveFilmUniformsV3>
+        | null = null;
+      let halationBloomUniforms:
+        | ReturnType<typeof modules.resolveHalationBloomUniforms>
+        | ReturnType<typeof modules.resolveHalationBloomUniformsV3>
+        | null = null;
       const enableFilmPath = !options.skipFilm;
       const enableOpticsPath = !options.skipHalationBloom;
 
-      if (options.resolvedProfile.mode === "v2") {
+      if (options.resolvedProfile.mode === "v3") {
         if (enableFilmPath) {
-          filmUniforms = modules.resolveFilmUniformsV2(
-            options.resolvedProfile.v2,
+          filmUniforms = modules.resolveFilmUniformsV3(
+            options.resolvedProfile.v3,
             {
               grainSeed: options.grainSeed,
             },
@@ -1126,16 +1177,47 @@ const renderWithPixi = async (
           if (!filmUniforms.u_lutEnabled) {
             filmUniforms.u_lutIntensity = 0;
           }
+          filmUniforms.u_customLutEnabled =
+            filmUniforms.u_customLutEnabled && !!options.resolvedProfile.customLut;
+          if (!filmUniforms.u_customLutEnabled) {
+            filmUniforms.u_customLutIntensity = 0;
+          }
+          filmUniforms.u_printLutEnabled =
+            filmUniforms.u_printLutEnabled && !!options.resolvedProfile.printLut;
+          if (!filmUniforms.u_printLutEnabled) {
+            filmUniforms.u_printLutIntensity = 0;
+          }
+
           if (options.resolvedProfile.lut) {
             await renderer.ensureLUT({
               url: options.resolvedProfile.lut.path,
               level: options.resolvedProfile.lut.size,
             });
           }
+
+          if (
+            options.resolvedProfile.customLut &&
+            typeof renderer.ensureCustomLUT === "function"
+          ) {
+            await renderer.ensureCustomLUT({
+              url: options.resolvedProfile.customLut.path,
+              level: options.resolvedProfile.customLut.size,
+            });
+          }
+
+          if (
+            options.resolvedProfile.printLut &&
+            typeof renderer.ensurePrintLUT === "function"
+          ) {
+            await renderer.ensurePrintLUT({
+              url: options.resolvedProfile.printLut.path,
+              level: options.resolvedProfile.printLut.size,
+            });
+          }
         }
         if (enableOpticsPath) {
-          halationBloomUniforms = modules.resolveHalationBloomUniformsV2(
-            options.resolvedProfile.v2,
+          halationBloomUniforms = modules.resolveHalationBloomUniformsV3(
+            options.resolvedProfile.v3,
             scratch.halation
           );
           scratch.halation = halationBloomUniforms;
@@ -1160,48 +1242,8 @@ const renderWithPixi = async (
         }
       }
 
-      // Safety: when optics are intentionally skipped (rapid preview),
-      // keep a disabled passthrough optics filter in the chain if Film is active.
-      // This avoids a WebGL feedback-loop edge case seen with a single custom Film pass.
-      if (enableFilmPath && !halationBloomUniforms) {
-        const safeHalation = (scratch.halation ?? {
-          halationEnabled: false,
-          halationThreshold: 0.9,
-          halationIntensity: 0,
-          halationColor: [1.0, 0.3, 0.1],
-          bloomEnabled: false,
-          bloomThreshold: 0.85,
-          bloomIntensity: 0,
-        }) as HalationBloomUniforms;
-        safeHalation.halationEnabled = false;
-        safeHalation.halationIntensity = 0;
-        safeHalation.bloomEnabled = false;
-        safeHalation.bloomIntensity = 0;
-        halationBloomUniforms = safeHalation;
-        scratch.halation = safeHalation;
-      }
-
       const renderMetrics = structuredClone(emptyMetrics);
-      const mergeMetrics = (metrics: RenderWithPixiResult["renderMetrics"]) => {
-        renderMetrics.totalMs += metrics.totalMs;
-        renderMetrics.updateUniformsMs += metrics.updateUniformsMs;
-        renderMetrics.filterChainMs += metrics.filterChainMs;
-        renderMetrics.drawMs += metrics.drawMs;
-        renderMetrics.passCpuMs.geometry += metrics.passCpuMs.geometry;
-        renderMetrics.passCpuMs.master += metrics.passCpuMs.master;
-        renderMetrics.passCpuMs.hsl += metrics.passCpuMs.hsl;
-        renderMetrics.passCpuMs.curve += metrics.passCpuMs.curve;
-        renderMetrics.passCpuMs.detail += metrics.passCpuMs.detail;
-        renderMetrics.passCpuMs.film += metrics.passCpuMs.film;
-        renderMetrics.passCpuMs.optics += metrics.passCpuMs.optics;
-        if (metrics.activePasses.length > 0) {
-          renderMetrics.activePasses = Array.from(
-            new Set([...renderMetrics.activePasses, ...metrics.activePasses])
-          );
-        }
-      };
-
-      if (preFilmNeeded) {
+      if (uploadNeeded) {
         renderer.updateSource(
           sourceImage as TexImageSource,
           options.sourceWidth,
@@ -1209,58 +1251,9 @@ const renderWithPixi = async (
           options.targetWidth,
           options.targetHeight
         );
-
-        const preFilmMetrics = renderer.render(
-          options.geometryUniforms,
-          masterUniforms,
-          hslUniforms,
-          curveUniforms,
-          detailUniforms,
-          null,
-          {
-            skipHsl: options.skipHsl,
-            skipCurve: options.skipCurve,
-            skipDetail: options.skipDetail,
-            skipFilm: true,
-            skipHalationBloom: true,
-          },
-          null
-        );
-        mergeMetrics(preFilmMetrics);
-
-        if (!frameState.preFilmCanvas) {
-          frameState.preFilmCanvas = document.createElement("canvas");
-        }
-        const preFilmCanvas = frameState.preFilmCanvas;
-        if (preFilmCanvas.width !== options.targetWidth) {
-          preFilmCanvas.width = options.targetWidth;
-        }
-        if (preFilmCanvas.height !== options.targetHeight) {
-          preFilmCanvas.height = options.targetHeight;
-        }
-        const preFilmContext = preFilmCanvas.getContext("2d");
-        if (!preFilmContext) {
-          throw new RenderError("Failed to acquire intermediate pre-film canvas context.");
-        }
-        preFilmContext.clearRect(0, 0, preFilmCanvas.width, preFilmCanvas.height);
-        preFilmContext.drawImage(renderer.canvas, 0, 0, preFilmCanvas.width, preFilmCanvas.height);
-        frameState.preFilmKey = preFilmKey;
-        frameState.uploadedGeometryKey = options.uploadKey;
       }
 
-      const preFilmCanvas = frameState.preFilmCanvas;
-      if (!preFilmCanvas) {
-        throw new RenderError("Missing pre-film cache canvas for final stage rendering.");
-      }
-
-      renderer.updateSource(
-        preFilmCanvas,
-        options.targetWidth,
-        options.targetHeight,
-        options.targetWidth,
-        options.targetHeight
-      );
-      const finalStageMetrics = renderer.render(
+      const finalMetrics = renderer.render(
         options.geometryUniforms,
         masterUniforms,
         hslUniforms,
@@ -1268,17 +1261,27 @@ const renderWithPixi = async (
         detailUniforms,
         filmUniforms,
         {
-          skipGeometry: true,
-          skipMaster: true,
-          skipHsl: true,
-          skipCurve: true,
-          skipDetail: true,
+          skipHsl: options.skipHsl,
+          skipCurve: options.skipCurve,
+          skipDetail: options.skipDetail,
           skipFilm: options.skipFilm,
-          skipHalationBloom: !halationBloomUniforms,
+          skipHalationBloom: options.skipHalationBloom,
+          captureLinearOutput: options.captureLinearOutput,
         },
         halationBloomUniforms
       );
-      mergeMetrics(finalStageMetrics);
+      renderMetrics.totalMs = finalMetrics.totalMs;
+      renderMetrics.updateUniformsMs = finalMetrics.updateUniformsMs;
+      renderMetrics.filterChainMs = finalMetrics.filterChainMs;
+      renderMetrics.drawMs = finalMetrics.drawMs;
+      renderMetrics.passCpuMs.geometry = finalMetrics.passCpuMs.geometry;
+      renderMetrics.passCpuMs.master = finalMetrics.passCpuMs.master;
+      renderMetrics.passCpuMs.hsl = finalMetrics.passCpuMs.hsl;
+      renderMetrics.passCpuMs.curve = finalMetrics.passCpuMs.curve;
+      renderMetrics.passCpuMs.detail = finalMetrics.passCpuMs.detail;
+      renderMetrics.passCpuMs.film = finalMetrics.passCpuMs.film;
+      renderMetrics.passCpuMs.optics = finalMetrics.passCpuMs.optics;
+      renderMetrics.activePasses = [...finalMetrics.activePasses];
 
       frameState.sourceKey = options.sourceKey;
       frameState.geometryKey = options.geometryKey;
@@ -1288,15 +1291,14 @@ const renderWithPixi = async (
       frameState.detailKey = options.detailKey;
       frameState.filmKey = options.filmKey;
       frameState.opticsKey = options.opticsKey;
-      frameState.preFilmKey = preFilmKey;
       frameState.uploadedGeometryKey = options.uploadKey;
-      frameState.pixiKey = pixiKey;
+      frameState.pipelineKey = pipelineKey;
       frameState.lastRenderError = null;
 
       return {
         canvas: renderer.canvas,
         rendered: true,
-        pixiKey,
+        pipelineKey,
         renderMetrics,
       };
     }
@@ -1309,15 +1311,14 @@ const renderWithPixi = async (
     frameState.detailKey = options.detailKey;
     frameState.filmKey = options.filmKey;
     frameState.opticsKey = options.opticsKey;
-    frameState.preFilmKey = preFilmKey;
     frameState.uploadedGeometryKey = options.uploadKey;
-    frameState.pixiKey = pixiKey;
+    frameState.pipelineKey = pipelineKey;
     frameState.lastRenderError = null;
 
     return {
       canvas: renderer.canvas,
       rendered: false,
-      pixiKey,
+      pipelineKey,
       renderMetrics: emptyMetrics,
     };
   } catch (e) {
@@ -1336,17 +1337,17 @@ const renderWithPixi = async (
     if (e instanceof RenderError) {
       throw e;
     }
-    throw new RenderError("PixiJS render failed", { cause: e });
+    throw new RenderError("Pipeline render failed", { cause: e });
   }
 };
 
 interface RenderTimings {
   decodeMs: number;
   geometryMs: number;
-  pixiMs: number;
+  pipelineMs: number;
   composeMs: number;
   totalMs: number;
-  pixiMetrics?: RenderWithPixiResult["renderMetrics"];
+  pipelineMetrics?: RenderWithPipelineResult["renderMetrics"];
 }
 
 const shouldLogRenderTimings = (runtimeConfig: ReturnType<typeof getRendererRuntimeConfig>) =>
@@ -1372,10 +1373,10 @@ const logRenderTimings = (
     return;
   }
   const verbose = runtimeConfig.diagnostics.verboseRenderTimings;
-  const metrics = timings.pixiMetrics;
+  const metrics = timings.pipelineMetrics;
   const detailSuffix =
     verbose && metrics
-      ? ` pixiDetail(update=${metrics.updateUniformsMs.toFixed(
+      ? ` pipelineDetail(update=${metrics.updateUniformsMs.toFixed(
           2
         )}ms,chain=${metrics.filterChainMs.toFixed(2)}ms,draw=${metrics.drawMs.toFixed(
           2
@@ -1390,7 +1391,7 @@ const logRenderTimings = (
   console.info(
     `[FilmLab][${mode}] decode=${timings.decodeMs.toFixed(2)}ms geometry=${timings.geometryMs.toFixed(
       2
-    )}ms pixi=${timings.pixiMs.toFixed(2)}ms compose=${timings.composeMs.toFixed(
+    )}ms pipeline=${timings.pipelineMs.toFixed(2)}ms compose=${timings.composeMs.toFixed(
       2
     )}ms total=${timings.totalMs.toFixed(2)}ms ` +
       `dirty(s=${dirty.sourceDirty ? 1 : 0},g=${dirty.geometryDirty ? 1 : 0},m=${
@@ -1423,12 +1424,20 @@ const drawGeometryStage = (params: {
   cropHeight: number;
   outputWidth: number;
   outputHeight: number;
+  fullOutputWidth?: number;
+  fullOutputHeight?: number;
+  outputOffsetX?: number;
+  outputOffsetY?: number;
   adjustments: EditingAdjustments;
   qualityProfile: RenderQualityProfile;
 }) => {
   const geometryCanvas = params.geometryCanvas;
   geometryCanvas.width = Math.max(1, Math.round(params.outputWidth));
   geometryCanvas.height = Math.max(1, Math.round(params.outputHeight));
+  const fullOutputWidth = Math.max(1, Math.round(params.fullOutputWidth ?? params.outputWidth));
+  const fullOutputHeight = Math.max(1, Math.round(params.fullOutputHeight ?? params.outputHeight));
+  const outputOffsetX = params.outputOffsetX ?? 0;
+  const outputOffsetY = params.outputOffsetY ?? 0;
   const geometryContext = geometryCanvas.getContext("2d", {
     willReadFrequently: true,
   });
@@ -1439,11 +1448,11 @@ const drawGeometryStage = (params: {
   geometryContext.clearRect(0, 0, geometryCanvas.width, geometryCanvas.height);
   geometryContext.imageSmoothingQuality = params.qualityProfile === "full" ? "high" : "medium";
 
-  const transform = resolveTransform(params.adjustments, geometryCanvas.width, geometryCanvas.height);
+  const transform = resolveTransform(params.adjustments, fullOutputWidth, fullOutputHeight);
   geometryContext.save();
   geometryContext.translate(
-    geometryCanvas.width / 2 + transform.translateX,
-    geometryCanvas.height / 2 + transform.translateY
+    fullOutputWidth / 2 + transform.translateX - outputOffsetX,
+    fullOutputHeight / 2 + transform.translateY - outputOffsetY
   );
   geometryContext.rotate(transform.rotate);
   geometryContext.scale(
@@ -1456,10 +1465,10 @@ const drawGeometryStage = (params: {
     params.cropY,
     params.cropWidth,
     params.cropHeight,
-    -geometryCanvas.width / 2,
-    -geometryCanvas.height / 2,
-    geometryCanvas.width,
-    geometryCanvas.height
+    -fullOutputWidth / 2,
+    -fullOutputHeight / 2,
+    fullOutputWidth,
+    fullOutputHeight
   );
   geometryContext.restore();
 };
@@ -1802,6 +1811,32 @@ const composeLocalLayer = (params: {
   if (!blendContext) {
     throw new RenderError("Failed to acquire local blend canvas context.");
   }
+  const maskCanvas = prepareLocalMaskCanvas({
+    frameState: params.frameState,
+    layerCanvas: params.layerCanvas,
+    local: params.local,
+    width: params.width,
+    height: params.height,
+  });
+  blendContext.globalCompositeOperation = "destination-in";
+  blendContext.drawImage(maskCanvas, 0, 0, params.width, params.height);
+  blendContext.globalCompositeOperation = "source-over";
+  params.outputContext.drawImage(blendCanvas, 0, 0, params.width, params.height);
+};
+
+const prepareLocalMaskCanvas = (params: {
+  frameState: FrameState;
+  layerCanvas: HTMLCanvasElement;
+  local: LocalAdjustment;
+  width: number;
+  height: number;
+}) => {
+  const blendCanvas = getLocalBlendCanvas(params.frameState);
+  ensureCanvasSize(blendCanvas, params.width, params.height);
+  const blendContext = blendCanvas.getContext("2d");
+  if (!blendContext) {
+    throw new RenderError("Failed to acquire local blend canvas context.");
+  }
 
   blendContext.clearRect(0, 0, params.width, params.height);
   blendContext.drawImage(params.layerCanvas, 0, 0, params.width, params.height);
@@ -1812,11 +1847,7 @@ const composeLocalLayer = (params: {
     params.height,
     blendContext
   );
-  blendContext.globalCompositeOperation = "destination-in";
-  blendContext.drawImage(maskCanvas, 0, 0, params.width, params.height);
-  blendContext.globalCompositeOperation = "source-over";
-
-  params.outputContext.drawImage(blendCanvas, 0, 0, params.width, params.height);
+  return maskCanvas;
 };
 
 const _renderMutexPromises = new Map<string, Promise<void>>();
@@ -1854,13 +1885,13 @@ if (import.meta.hot) {
       _renderManagerInstance.disposeAll();
       _renderManagerInstance = null;
     }
-    _pixiModuleCache = null;
+    _pipelineModuleCache = null;
     clearUniformScratch();
     clearSourceBitmapCache();
   });
 
   import.meta.hot.accept(["@/lib/renderer/RenderManager", "@/lib/renderer/uniformResolvers"], () => {
-    _pixiModuleCache = null;
+    _pipelineModuleCache = null;
     clearUniformScratch();
   });
 }
@@ -1897,7 +1928,7 @@ export const renderImageToCanvas = async ({
   const timings: RenderTimings = {
     decodeMs: 0,
     geometryMs: 0,
-    pixiMs: 0,
+    pipelineMs: 0,
     composeMs: 0,
     totalMs: 0,
   };
@@ -1962,16 +1993,32 @@ export const renderImageToCanvas = async ({
       maxTextureSize = Math.min(maxTextureSize, renderManager.getMaxTextureSize(mode, slotId));
     } catch {
       // If renderer bootstrap fails (e.g. no WebGL2), keep the probe value.
-      // The Pixi stage will handle strict/non-strict error semantics.
+      // The GPU pipeline stage will handle strict/non-strict error semantics.
     }
+    frameState.tilePlanKey = null;
+    let exportTilePlan: ReturnType<typeof createTilePlan> | null = null;
     const largestOutputDimension = Math.max(outputWidth, outputHeight);
     if (largestOutputDimension > maxTextureSize) {
-      const textureScale = maxTextureSize / largestOutputDimension;
-      outputWidth = Math.max(1, Math.floor(outputWidth * textureScale));
-      outputHeight = Math.max(1, Math.floor(outputHeight * textureScale));
-      console.warn(
-        `[FilmLab] Output clamped to ${outputWidth}x${outputHeight} due to MAX_TEXTURE_SIZE=${maxTextureSize}.`
-      );
+      const tilePlan = createTilePlan({
+        width: Math.max(1, Math.round(outputWidth)),
+        height: Math.max(1, Math.round(outputHeight)),
+        tileSize: Math.max(512, maxTextureSize - 128),
+        overlap: 64,
+      });
+      frameState.tilePlanKey = `${tilePlan.length}:${tilePlan[0]?.width ?? 0}x${
+        tilePlan[0]?.height ?? 0
+      }`;
+      if (mode === "export") {
+        exportTilePlan = tilePlan;
+      } else {
+        const textureScale = maxTextureSize / largestOutputDimension;
+        outputWidth = Math.max(1, Math.floor(outputWidth * textureScale));
+        outputHeight = Math.max(1, Math.floor(outputHeight * textureScale));
+        console.warn(
+          `[FilmLab] Output clamped to ${outputWidth}x${outputHeight} due to MAX_TEXTURE_SIZE=${maxTextureSize}.` +
+            ` Planned tiles at full resolution: ${tilePlan.length}.`
+        );
+      }
     }
 
     const nextCanvasWidth = Math.max(1, Math.round(outputWidth));
@@ -2023,6 +2070,7 @@ export const renderImageToCanvas = async ({
       normalizedAdjustments.localAdjustments
     );
     const localAdjustmentsKey = createLocalAdjustmentsKey(activeLocalAdjustments);
+    const useHdrLocalComposition = activeLocalAdjustments.length > 0 && !exportTilePlan;
 
     const sourceDirty = !incrementalPipeline || frameState.sourceKey !== sourceKey;
     const geometryDirty = !incrementalPipeline || sourceDirty || frameState.geometryKey !== geometryKey;
@@ -2032,6 +2080,249 @@ export const renderImageToCanvas = async ({
     const detailDirty = !incrementalPipeline || frameState.detailKey !== detailKey;
     const filmDirty = !incrementalPipeline || frameState.filmKey !== filmKey;
     const opticsDirty = !incrementalPipeline || frameState.opticsKey !== opticsKey;
+    const tiledOrientedSource = orientedSource;
+
+    if (exportTilePlan) {
+      const releaseMutex = await acquireRenderMutex(mode, slotId);
+      let outputDirty = false;
+      const tiledPipelineKey = [
+        "tiled",
+        geometryKey,
+        masterKey,
+        hslKey,
+        curveKey,
+        detailKey,
+        filmKey,
+        opticsKey,
+        frameState.tilePlanKey ?? `${exportTilePlan.length}`,
+      ].join("|");
+
+      try {
+        throwIfAborted(signal);
+        const renderTiledLayer = async (
+          layerAdjustments: EditingAdjustments,
+          layerKeys: {
+            master: string;
+            hsl: string;
+            curve: string;
+            detail: string;
+          },
+          layerContext: CanvasRenderingContext2D,
+          layerId: string,
+          collectMetrics: boolean
+        ): Promise<RenderWithPipelineResult["renderMetrics"]> => {
+          const layerMetrics = createEmptyPipelineMetrics();
+          const tileGeometryCanvas = document.createElement("canvas");
+          const tileRenderMode: RenderMode = "export";
+          const tileSlotId = `${slotId}:tile:${layerId}`;
+          const tileFrameState = renderManager.getFrameState(tileRenderMode, tileSlotId);
+
+          layerContext.clearRect(0, 0, canvas.width, canvas.height);
+
+          for (let tileIndex = 0; tileIndex < exportTilePlan.length; tileIndex += 1) {
+            const tile = exportTilePlan[tileIndex]!;
+            throwIfAborted(signal);
+
+            drawGeometryStage({
+              geometryCanvas: tileGeometryCanvas,
+              orientedSource: tiledOrientedSource,
+              cropX,
+              cropY,
+              cropWidth,
+              cropHeight,
+              outputWidth: tile.width,
+              outputHeight: tile.height,
+              fullOutputWidth: canvas.width,
+              fullOutputHeight: canvas.height,
+              outputOffsetX: tile.x,
+              outputOffsetY: tile.y,
+              adjustments: layerAdjustments,
+              qualityProfile,
+            });
+
+            const tileGeometryUniforms = createPassthroughGeometryUniforms(tile.width, tile.height);
+            const tileUploadKey = `tile:${tile.x},${tile.y},${tile.width}x${tile.height}|${layerId}`;
+            const tileSourceKey = `${sourceKey}|${layerId}|tile:${tileIndex}`;
+            const tileGeometryKey = `${geometryKey}|tile:${tile.x},${tile.y},${tile.width}x${tile.height}`;
+
+            const tileResult = await renderWithPipeline(tileGeometryCanvas, layerAdjustments, tileFrameState, {
+              mode: tileRenderMode,
+              slotId: tileSlotId,
+              strictErrors,
+              resolvedProfile,
+              geometryUniforms: tileGeometryUniforms,
+              sourceWidth: tile.width,
+              sourceHeight: tile.height,
+              targetWidth: tile.width,
+              targetHeight: tile.height,
+              uploadKey: tileUploadKey,
+              sourceKey: tileSourceKey,
+              geometryKey: tileGeometryKey,
+              masterKey: layerKeys.master,
+              hslKey: layerKeys.hsl,
+              curveKey: layerKeys.curve,
+              detailKey: layerKeys.detail,
+              filmKey,
+              opticsKey,
+              grainSeed,
+              forceRerender: true,
+              skipHsl: skipHslPass,
+              skipCurve: skipCurvePass,
+              skipDetail: skipDetailPass,
+              skipFilm: skipFilmPass,
+              skipHalationBloom: skipOpticsPass,
+            });
+
+            if (collectMetrics) {
+              mergePipelineMetrics(layerMetrics, tileResult.renderMetrics);
+            }
+
+            const srcX = Math.max(0, tile.contentX - tile.x);
+            const srcY = Math.max(0, tile.contentY - tile.y);
+            layerContext.drawImage(
+              tileResult.canvas,
+              srcX,
+              srcY,
+              tile.contentWidth,
+              tile.contentHeight,
+              tile.contentX,
+              tile.contentY,
+              tile.contentWidth,
+              tile.contentHeight
+            );
+          }
+
+          tileGeometryCanvas.width = 0;
+          tileGeometryCanvas.height = 0;
+          return layerMetrics;
+        };
+
+        const outputKey = createOutputKey({
+          canvas,
+          pipelineKey: tiledPipelineKey,
+          localAdjustmentsKey,
+          timestampText,
+          adjustments: normalizedAdjustments,
+        });
+        outputDirty = !incrementalPipeline || frameState.outputKey !== outputKey;
+
+        if (outputDirty) {
+          const pipelineStartAt = performance.now();
+          const baseMetrics = await renderTiledLayer(
+            normalizedAdjustments,
+            {
+              master: masterKey,
+              hsl: hslKey,
+              curve: curveKey,
+              detail: detailKey,
+            },
+            outputContext,
+            "base",
+            true
+          );
+          timings.pipelineMs = performance.now() - pipelineStartAt;
+          timings.pipelineMetrics = baseMetrics;
+
+          const composeStartAt = performance.now();
+          for (let localIndex = 0; localIndex < activeLocalAdjustments.length; localIndex += 1) {
+            const local = activeLocalAdjustments[localIndex]!;
+            const localAdjustments = applyLocalAdjustmentDelta(normalizedAdjustments, local);
+            const localCanvas = document.createElement("canvas");
+            localCanvas.width = canvas.width;
+            localCanvas.height = canvas.height;
+            const localContext = localCanvas.getContext("2d", { willReadFrequently: true });
+            if (!localContext) {
+              localCanvas.width = 0;
+              localCanvas.height = 0;
+              throw new RenderError("Failed to acquire tiled local layer context.");
+            }
+
+            try {
+              await renderTiledLayer(
+                localAdjustments,
+                {
+                  master: createMasterKey(localAdjustments),
+                  hsl: createHslKey(localAdjustments),
+                  curve: createCurveKey(localAdjustments),
+                  detail: createDetailKey(localAdjustments),
+                },
+                localContext,
+                `local:${local.id || localIndex}`,
+                false
+              );
+              composeLocalLayer({
+                outputContext,
+                frameState,
+                layerCanvas: localCanvas,
+                local,
+                width: canvas.width,
+                height: canvas.height,
+              });
+            } finally {
+              localCanvas.width = 0;
+              localCanvas.height = 0;
+            }
+          }
+
+          applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
+          timings.composeMs = performance.now() - composeStartAt;
+
+          frameState.sourceKey = sourceKey;
+          frameState.geometryKey = geometryKey;
+          frameState.masterKey = masterKey;
+          frameState.hslKey = hslKey;
+          frameState.curveKey = curveKey;
+          frameState.detailKey = detailKey;
+          frameState.filmKey = filmKey;
+          frameState.opticsKey = opticsKey;
+          frameState.uploadedGeometryKey = `tiled:${sourceKey}`;
+          frameState.pipelineKey = tiledPipelineKey;
+          frameState.outputKey = outputKey;
+          frameState.lastRenderError = null;
+        }
+
+        timings.totalMs = performance.now() - callStartAt;
+        logRenderTimings(mode, runtimeConfig, timings, {
+          sourceDirty,
+          geometryDirty: true,
+          masterDirty,
+          hslDirty,
+          curveDirty,
+          detailDirty,
+          filmDirty,
+          opticsDirty,
+          outputDirty,
+        });
+        return;
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") {
+          throw e;
+        }
+        if (strictErrors) {
+          throw e;
+        }
+        console.warn("[FilmLab] Tiled export failed, trying geometry fallback:", e);
+        const fallbackGeometryCanvas = getGeometryCanvas(frameState);
+        drawGeometryStage({
+          geometryCanvas: fallbackGeometryCanvas,
+          orientedSource,
+          cropX,
+          cropY,
+          cropWidth,
+          cropHeight,
+          outputWidth: canvas.width,
+          outputHeight: canvas.height,
+          adjustments: normalizedAdjustments,
+          qualityProfile,
+        });
+        outputContext.clearRect(0, 0, canvas.width, canvas.height);
+        outputContext.drawImage(fallbackGeometryCanvas, 0, 0, canvas.width, canvas.height);
+        applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
+        return;
+      } finally {
+        releaseMutex();
+      }
+    }
 
     const geometryStartAt = performance.now();
     let geometryUniforms = createGeometryUniforms({
@@ -2052,9 +2343,9 @@ export const renderImageToCanvas = async ({
       targetWidth: canvas.width,
       targetHeight: canvas.height,
     });
-    let pixiSource: CanvasImageSource = orientedSource.source;
-    let pixiSourceWidth = orientedSource.width;
-    let pixiSourceHeight = orientedSource.height;
+    let pipelineSource: CanvasImageSource = orientedSource.source;
+    let pipelineSourceWidth = orientedSource.width;
+    let pipelineSourceHeight = orientedSource.height;
 
     if (!useGpuGeometryPass) {
       const geometryCanvas = getGeometryCanvas(frameState);
@@ -2079,9 +2370,9 @@ export const renderImageToCanvas = async ({
       }
       geometryUniforms = createPassthroughGeometryUniforms(canvas.width, canvas.height);
       uploadKey = `cpu:${geometryKey}`;
-      pixiSource = geometryCanvas;
-      pixiSourceWidth = geometryCanvas.width;
-      pixiSourceHeight = geometryCanvas.height;
+      pipelineSource = geometryCanvas;
+      pipelineSourceWidth = geometryCanvas.width;
+      pipelineSourceHeight = geometryCanvas.height;
     }
     timings.geometryMs = performance.now() - geometryStartAt;
 
@@ -2095,15 +2386,15 @@ export const renderImageToCanvas = async ({
     try {
       throwIfAborted(signal);
 
-      const pixiStartAt = performance.now();
-      const pixiResult = await renderWithPixi(pixiSource, normalizedAdjustments, frameState, {
+      const pipelineStartAt = performance.now();
+      const pipelineResult = await renderWithPipeline(pipelineSource, normalizedAdjustments, frameState, {
         mode,
         slotId,
         strictErrors,
         resolvedProfile,
         geometryUniforms,
-        sourceWidth: pixiSourceWidth,
-        sourceHeight: pixiSourceHeight,
+        sourceWidth: pipelineSourceWidth,
+        sourceHeight: pipelineSourceHeight,
         targetWidth: canvas.width,
         targetHeight: canvas.height,
         uploadKey,
@@ -2117,18 +2408,19 @@ export const renderImageToCanvas = async ({
         opticsKey,
         grainSeed,
         forceRerender: !incrementalPipeline,
+        captureLinearOutput: useHdrLocalComposition,
         skipHsl: skipHslPass,
         skipCurve: skipCurvePass,
         skipDetail: skipDetailPass,
         skipFilm: skipFilmPass,
         skipHalationBloom: skipOpticsPass,
       });
-      timings.pixiMs = performance.now() - pixiStartAt;
-      timings.pixiMetrics = pixiResult.renderMetrics;
+      timings.pipelineMs = performance.now() - pipelineStartAt;
+      timings.pipelineMetrics = pipelineResult.renderMetrics;
 
       const outputKey = createOutputKey({
         canvas,
-        pixiKey: pixiResult.pixiKey,
+        pipelineKey: pipelineResult.pipelineKey,
         localAdjustmentsKey,
         timestampText,
         adjustments: normalizedAdjustments,
@@ -2136,62 +2428,166 @@ export const renderImageToCanvas = async ({
       outputDirty = !incrementalPipeline || frameState.outputKey !== outputKey;
 
       const composeStartAt = performance.now();
-      if (pixiResult.rendered || outputDirty) {
-        outputContext.clearRect(0, 0, canvas.width, canvas.height);
-        outputContext.drawImage(pixiResult.canvas, 0, 0, canvas.width, canvas.height);
+      if (pipelineResult.rendered || outputDirty) {
+        const composeLocalWithCanvas = async () => {
+          outputContext.clearRect(0, 0, canvas.width, canvas.height);
+          outputContext.drawImage(pipelineResult.canvas, 0, 0, canvas.width, canvas.height);
 
-        for (let localIndex = 0; localIndex < activeLocalAdjustments.length; localIndex += 1) {
-          const local = activeLocalAdjustments[localIndex]!;
-          const localAdjustments = applyLocalAdjustmentDelta(normalizedAdjustments, local);
-          const localMasterKey = createMasterKey(localAdjustments);
-          const localHslKey = createHslKey(localAdjustments);
-          const localCurveKey = createCurveKey(localAdjustments);
-          const localDetailKey = createDetailKey(localAdjustments);
-          const localRenderMode: RenderMode = mode === "preview" ? "export" : mode;
-          const localSlotId = `${slotId}:local:${local.id || localIndex}`;
-          const localFrameState = renderManager.getFrameState(localRenderMode, localSlotId);
+          for (let localIndex = 0; localIndex < activeLocalAdjustments.length; localIndex += 1) {
+            const local = activeLocalAdjustments[localIndex]!;
+            const localAdjustments = applyLocalAdjustmentDelta(normalizedAdjustments, local);
+            const localMasterKey = createMasterKey(localAdjustments);
+            const localHslKey = createHslKey(localAdjustments);
+            const localCurveKey = createCurveKey(localAdjustments);
+            const localDetailKey = createDetailKey(localAdjustments);
+            const localRenderMode: RenderMode = mode;
+            const localSlotId = `${slotId}:local:${local.id || localIndex}`;
+            const localFrameState = renderManager.getFrameState(localRenderMode, localSlotId);
 
-          try {
-            const localResult = await renderWithPixi(pixiSource, localAdjustments, localFrameState, {
-              mode: localRenderMode,
-              slotId: localSlotId,
-              strictErrors,
-              resolvedProfile,
-              geometryUniforms,
-              sourceWidth: pixiSourceWidth,
-              sourceHeight: pixiSourceHeight,
-              targetWidth: canvas.width,
-              targetHeight: canvas.height,
-              uploadKey,
-              sourceKey,
-              geometryKey,
-              masterKey: localMasterKey,
-              hslKey: localHslKey,
-              curveKey: localCurveKey,
-              detailKey: localDetailKey,
-              filmKey,
-              opticsKey,
-              grainSeed,
-              forceRerender: !incrementalPipeline,
-              skipHsl: skipHslPass,
-              skipCurve: skipCurvePass,
-              skipDetail: skipDetailPass,
-              skipFilm: skipFilmPass,
-              skipHalationBloom: skipOpticsPass,
-            });
-            composeLocalLayer({
-              outputContext,
-              frameState,
-              layerCanvas: localResult.canvas,
-              local,
-              width: canvas.width,
-              height: canvas.height,
-            });
-          } catch (localRenderError) {
-            if (strictErrors) {
-              throw localRenderError;
+            try {
+              const localResult = await renderWithPipeline(pipelineSource, localAdjustments, localFrameState, {
+                mode: localRenderMode,
+                slotId: localSlotId,
+                strictErrors,
+                resolvedProfile,
+                geometryUniforms,
+                sourceWidth: pipelineSourceWidth,
+                sourceHeight: pipelineSourceHeight,
+                targetWidth: canvas.width,
+                targetHeight: canvas.height,
+                uploadKey,
+                sourceKey,
+                geometryKey,
+                masterKey: localMasterKey,
+                hslKey: localHslKey,
+                curveKey: localCurveKey,
+                detailKey: localDetailKey,
+                filmKey,
+                opticsKey,
+                grainSeed,
+                forceRerender: !incrementalPipeline,
+                skipHsl: skipHslPass,
+                skipCurve: skipCurvePass,
+                skipDetail: skipDetailPass,
+                skipFilm: skipFilmPass,
+                skipHalationBloom: skipOpticsPass,
+              });
+              composeLocalLayer({
+                outputContext,
+                frameState,
+                layerCanvas: localResult.canvas,
+                local,
+                width: canvas.width,
+                height: canvas.height,
+              });
+            } catch (localRenderError) {
+              if (strictErrors) {
+                throw localRenderError;
+              }
+              console.warn(`[FilmLab] Local adjustment render skipped (${local.id}).`, localRenderError);
             }
-            console.warn(`[FilmLab] Local adjustment render skipped (${local.id}).`, localRenderError);
+          }
+        };
+
+        if (!useHdrLocalComposition) {
+          await composeLocalWithCanvas();
+        } else {
+          const composeRenderer = renderManager.getRenderer(mode, canvas.width, canvas.height, slotId);
+          let compositedLinear = composeRenderer.consumeCapturedLinearResult();
+          if (!compositedLinear) {
+            await composeLocalWithCanvas();
+          } else {
+            try {
+              for (let localIndex = 0; localIndex < activeLocalAdjustments.length; localIndex += 1) {
+                const local = activeLocalAdjustments[localIndex]!;
+                const localAdjustments = applyLocalAdjustmentDelta(normalizedAdjustments, local);
+                const localMasterKey = createMasterKey(localAdjustments);
+                const localHslKey = createHslKey(localAdjustments);
+                const localCurveKey = createCurveKey(localAdjustments);
+                const localDetailKey = createDetailKey(localAdjustments);
+                const localRenderMode: RenderMode = mode;
+                const localSlotId = `${slotId}:local:${local.id || localIndex}`;
+                const localFrameState = renderManager.getFrameState(localRenderMode, localSlotId);
+
+                try {
+                  const localResult = await renderWithPipeline(
+                    pipelineSource,
+                    localAdjustments,
+                    localFrameState,
+                    {
+                      mode: localRenderMode,
+                      slotId: localSlotId,
+                      strictErrors,
+                      resolvedProfile,
+                      geometryUniforms,
+                      sourceWidth: pipelineSourceWidth,
+                      sourceHeight: pipelineSourceHeight,
+                      targetWidth: canvas.width,
+                      targetHeight: canvas.height,
+                      uploadKey,
+                      sourceKey,
+                      geometryKey,
+                      masterKey: localMasterKey,
+                      hslKey: localHslKey,
+                      curveKey: localCurveKey,
+                      detailKey: localDetailKey,
+                      filmKey,
+                      opticsKey,
+                      grainSeed,
+                      captureLinearOutput: true,
+                      skipHsl: skipHslPass,
+                      skipCurve: skipCurvePass,
+                      skipDetail: skipDetailPass,
+                      skipFilm: skipFilmPass,
+                      skipHalationBloom: skipOpticsPass,
+                    }
+                  );
+                  const localRenderer = renderManager.getRenderer(
+                    localRenderMode,
+                    canvas.width,
+                    canvas.height,
+                    localSlotId
+                  );
+                  const localLinear = localRenderer.borrowCapturedLinearResult();
+                  if (!localLinear) {
+                    continue;
+                  }
+
+                  let blended: ReturnType<typeof composeRenderer.blendLinearWithMask> | null = null;
+                  try {
+                    const maskCanvas = prepareLocalMaskCanvas({
+                      frameState,
+                      layerCanvas: localResult.canvas,
+                      local,
+                      width: canvas.width,
+                      height: canvas.height,
+                    });
+                    blended = composeRenderer.blendLinearWithMask(
+                      compositedLinear,
+                      localLinear,
+                      maskCanvas
+                    );
+                  } finally {
+                    localLinear.release();
+                  }
+                  if (blended) {
+                    compositedLinear.release();
+                    compositedLinear = blended;
+                  }
+                } catch (localRenderError) {
+                  if (strictErrors) {
+                    throw localRenderError;
+                  }
+                  console.warn(`[FilmLab] Local adjustment render skipped (${local.id}).`, localRenderError);
+                }
+              }
+
+              composeRenderer.presentLinearResult(compositedLinear);
+              outputContext.clearRect(0, 0, canvas.width, canvas.height);
+              outputContext.drawImage(composeRenderer.canvas, 0, 0, canvas.width, canvas.height);
+            } finally {
+              compositedLinear.release();
+            }
           }
         }
 
@@ -2255,7 +2651,7 @@ export const renderImageToCanvas = async ({
       }
 
       if (!repeatedRenderError) {
-        console.warn("[FilmLab] PixiJS render failed, showing geometry fallback preview:", e);
+        console.warn("[FilmLab] Pipeline render failed, showing geometry fallback preview:", e);
       }
       const composeStartAt = performance.now();
       const fallbackGeometryCanvas = getGeometryCanvas(frameState);
@@ -2276,7 +2672,7 @@ export const renderImageToCanvas = async ({
       applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
       frameState.outputKey = createOutputKey({
         canvas,
-        pixiKey: `fallback:${geometryKey}`,
+        pipelineKey: `fallback:${geometryKey}`,
         localAdjustmentsKey,
         timestampText,
         adjustments: normalizedAdjustments,
@@ -2356,3 +2752,4 @@ export const renderImageToBlob = async (
     canvas.height = 0;
   }
 };
+
