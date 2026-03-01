@@ -197,6 +197,7 @@ export interface FilmProfileV3 {
     intensity: number;
     midtoneFocus: number;
     bias: number;
+    radius?: number;
   };
 
   filmBreath?: {
