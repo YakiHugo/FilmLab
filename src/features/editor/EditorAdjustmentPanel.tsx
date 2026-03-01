@@ -496,6 +496,41 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
     commitLocalAdjustments(next, `${id}:create`);
   };
 
+  const addDodgeBurnAdjustment = (kind: "dodge" | "burn") => {
+    if (!adjustments) {
+      return;
+    }
+    const id = createLocalAdjustmentId();
+    const exposureDelta = kind === "dodge" ? 18 : -18;
+    const created: LocalAdjustment = {
+      id,
+      enabled: true,
+      amount: 100,
+      mask: {
+        mode: "brush",
+        points: [],
+        brushSize: 0.075,
+        feather: 0.6,
+        flow: 0.65,
+        lumaMin: 0,
+        lumaMax: 1,
+        lumaFeather: 0,
+        hueCenter: 0,
+        hueRange: 180,
+        hueFeather: 0,
+        satMin: 0,
+        satFeather: 0,
+        invert: false,
+      },
+      adjustments: {
+        exposure: exposureDelta,
+      },
+    };
+    const next = [...localAdjustments, created];
+    setSelectedLocalAdjustmentId(id);
+    commitLocalAdjustments(next, `${id}:create:${kind}`);
+  };
+
   const removeSelectedLocalAdjustment = () => {
     if (!selectedLocalAdjustment) {
       return;
@@ -726,6 +761,22 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Local Adjustments</p>
         <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-7 px-2 text-xs"
+            onClick={() => addDodgeBurnAdjustment("dodge")}
+          >
+            + Dodge
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-7 px-2 text-xs"
+            onClick={() => addDodgeBurnAdjustment("burn")}
+          >
+            + Burn
+          </Button>
           <Button
             size="sm"
             variant="secondary"
@@ -1831,7 +1882,13 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
           </EditorSection>
         );
 
-      case "effects":
+      case "effects": {
+        const customLut = adjustments.customLut ?? {
+          enabled: false,
+          path: "",
+          size: 8 as const,
+          intensity: 0,
+        };
         return (
           <EditorSection
             title="效果"
@@ -1839,14 +1896,111 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
             isOpen={openSections.effects}
             onToggle={() => toggleSection("effects")}
           >
-            {renderSliderRows(
-              adjustments,
-              EFFECTS_SLIDERS,
-              previewAdjustmentValue,
-              updateAdjustmentValue
-            )}
+            <div className="space-y-3">
+              {renderSliderRows(
+                adjustments,
+                EFFECTS_SLIDERS,
+                previewAdjustmentValue,
+                updateAdjustmentValue
+              )}
+              <div className="space-y-2 rounded-xl border border-white/10 bg-slate-950/60 p-3">
+                <label className="flex cursor-pointer items-center justify-between gap-3 text-xs text-slate-200">
+                  <span>Enable Custom LUT</span>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-white/20 bg-slate-950 accent-sky-400"
+                    checked={customLut.enabled}
+                    onChange={(event) =>
+                      updateAdjustments({
+                        customLut: {
+                          ...customLut,
+                          enabled: event.currentTarget.checked,
+                        },
+                      })
+                    }
+                  />
+                </label>
+                <input
+                  value={customLut.path}
+                  onChange={(event) =>
+                    updateAdjustments({
+                      customLut: {
+                        ...customLut,
+                        path: event.currentTarget.value,
+                      },
+                    })
+                  }
+                  placeholder="/luts/my-look.cube or /luts/my-look.png"
+                  className="h-8 w-full rounded-md border border-white/10 bg-slate-950/70 px-2 text-xs text-slate-100 placeholder:text-slate-500"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    size="sm"
+                    variant={customLut.size === 8 ? "default" : "secondary"}
+                    onClick={() =>
+                      updateAdjustments({
+                        customLut: {
+                          ...customLut,
+                          size: 8,
+                        },
+                      })
+                    }
+                  >
+                    LUT 8
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={customLut.size === 16 ? "default" : "secondary"}
+                    onClick={() =>
+                      updateAdjustments({
+                        customLut: {
+                          ...customLut,
+                          size: 16,
+                        },
+                      })
+                    }
+                  >
+                    LUT 16
+                  </Button>
+                </div>
+                <EditorSliderRow
+                  label="Custom LUT Intensity"
+                  value={Math.round(customLut.intensity * 100)}
+                  defaultValue={0}
+                  min={0}
+                  max={100}
+                  step={1}
+                  disabled={!customLut.enabled}
+                  onChange={(value) =>
+                    updateAdjustments({
+                      customLut: {
+                        ...customLut,
+                        intensity: Math.max(0, Math.min(1, value / 100)),
+                      },
+                    })
+                  }
+                  onCommit={(value) =>
+                    updateAdjustments({
+                      customLut: {
+                        ...customLut,
+                        intensity: Math.max(0, Math.min(1, value / 100)),
+                      },
+                    })
+                  }
+                  onReset={() =>
+                    updateAdjustments({
+                      customLut: {
+                        ...customLut,
+                        intensity: 0,
+                      },
+                    })
+                  }
+                />
+              </div>
+            </div>
           </EditorSection>
         );
+      }
 
       case "detail":
         return (

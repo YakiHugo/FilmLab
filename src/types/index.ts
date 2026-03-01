@@ -386,6 +386,12 @@ export interface EditingAdjustments {
   grain: number;
   grainSize: number;
   grainRoughness: number;
+  customLut?: {
+    enabled: boolean;
+    path: string;
+    size: 8 | 16;
+    intensity: number;
+  };
   rotate: number;
   rightAngleRotation: number;
   perspectiveEnabled?: boolean;

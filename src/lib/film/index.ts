@@ -15,5 +15,10 @@ export {
   resolveFilmProfile,
   resolvePresetFilmProfile,
 } from "./registry";
-export { ensureFilmProfileV2, migrateFilmProfileV1ToV2 } from "./migrate";
+export {
+  ensureFilmProfileV2,
+  ensureFilmProfileV3,
+  migrateFilmProfileV1ToV2,
+  migrateFilmProfileV2ToV3,
+} from "./migrate";
 export { resolveRenderProfile } from "./renderProfile";

@@ -483,6 +483,18 @@ const normalizeAdjustmentsUncached = (
       ? clampValue(merged.tintMG, -100, 100)
       : undefined;
   merged.localAdjustments = normalizeLocalAdjustments(merged.localAdjustments);
+  merged.customLut = {
+    enabled: Boolean(merged.customLut?.enabled),
+    path: typeof merged.customLut?.path === "string" ? merged.customLut.path : "",
+    size: merged.customLut?.size === 16 ? 16 : 8,
+    intensity: clampValue(
+      Number.isFinite(merged.customLut?.intensity)
+        ? (merged.customLut?.intensity as number)
+        : 0,
+      0,
+      1
+    ),
+  };
 
   merged.aspectRatio = (ASPECT_RATIOS as readonly string[]).includes(merged.aspectRatio)
     ? merged.aspectRatio
@@ -601,6 +613,12 @@ export function createDefaultAdjustments(): EditingAdjustments {
     grain: 0,
     grainSize: 50,
     grainRoughness: 50,
+    customLut: {
+      enabled: false,
+      path: "",
+      size: 8,
+      intensity: 0,
+    },
     rotate: 0,
     rightAngleRotation: 0,
     perspectiveEnabled: false,
