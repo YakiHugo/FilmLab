@@ -1,14 +1,10 @@
-import * as PIXI from "pixi.js";
-import { Filter } from "pixi.js";
 import type { PointCurvePoint } from "@/types";
 import type { CurveUniforms } from "../types";
-
-import vertexSrc from "../shaders/default.vert?raw";
-import fragmentSrc from "../shaders/Curve.frag?raw";
 
 const LUT_SIZE = 256;
 
 const clampByte = (value: number) => Math.min(255, Math.max(0, Math.round(value)));
+const clampUnit = (value: number) => Math.min(1, Math.max(0, value));
 
 const normalizeCurvePoints = (points: PointCurvePoint[]): PointCurvePoint[] => {
   const sorted = [...points]
@@ -128,12 +124,12 @@ const sampleHermite = (
   return h00 * p0.y + h10 * dx * m0 + h01 * p1.y + h11 * dx * m1;
 };
 
-const buildCurveTable = (points: PointCurvePoint[]): Uint8Array => {
-  const table = new Uint8Array(LUT_SIZE);
+const buildCurveTable = (points: PointCurvePoint[]): Float32Array => {
+  const table = new Float32Array(LUT_SIZE);
   const normalized = normalizeCurvePoints(points);
   if (normalized.length < 2) {
     for (let i = 0; i < LUT_SIZE; i += 1) {
-      table[i] = i;
+      table[i] = i / (LUT_SIZE - 1);
     }
     return table;
   }
@@ -151,84 +147,43 @@ const buildCurveTable = (points: PointCurvePoint[]): Uint8Array => {
     const p1 = normalized[Math.min(segmentIndex + 1, normalized.length - 1)]!;
     const m0 = tangents[segmentIndex] ?? 0;
     const m1 = tangents[Math.min(segmentIndex + 1, tangents.length - 1)] ?? 0;
-    table[x] = clampByte(sampleHermite(p0, p1, m0, m1, x));
+    table[x] = clampUnit(sampleHermite(p0, p1, m0, m1, x) / 255);
   }
 
   return table;
 };
 
-export class CurveFilter extends Filter {
-  private lutPixels: Uint8Array;
-  private lutBaseTexture: PIXI.BaseTexture;
-  private lutTexture: PIXI.Texture;
+export const createIdentityCurvePixels = (): Float32Array => {
+  const pixels = new Float32Array(LUT_SIZE * 4);
+  for (let i = 0; i < LUT_SIZE; i += 1) {
+    const base = i * 4;
+    const value = i / (LUT_SIZE - 1);
+    pixels[base] = value;
+    pixels[base + 1] = value;
+    pixels[base + 2] = value;
+    pixels[base + 3] = value;
+  }
+  return pixels;
+};
 
-  constructor() {
-    const lutPixels = new Uint8Array(LUT_SIZE * 4);
-    for (let i = 0; i < LUT_SIZE; i += 1) {
-      const base = i * 4;
-      lutPixels[base] = i;
-      lutPixels[base + 1] = i;
-      lutPixels[base + 2] = i;
-      lutPixels[base + 3] = i;
-    }
-    const lutBaseTexture = PIXI.BaseTexture.fromBuffer(lutPixels, LUT_SIZE, 1, {
-      scaleMode: PIXI.SCALE_MODES.LINEAR,
-      alphaMode: PIXI.ALPHA_MODES.NO_PREMULTIPLIED_ALPHA,
-    });
-    const lutTexture = new PIXI.Texture(lutBaseTexture);
+export const buildCurveLutPixels = (
+  curve: CurveUniforms,
+  output: Float32Array = createIdentityCurvePixels()
+): Float32Array => {
+  const rgbTable = buildCurveTable(curve.rgb);
+  const redTable = buildCurveTable(curve.red);
+  const greenTable = buildCurveTable(curve.green);
+  const blueTable = buildCurveTable(curve.blue);
 
-    super(vertexSrc, fragmentSrc, {
-      u_enabled: false,
-      u_curveLut: lutTexture,
-    });
-
-    this.lutPixels = lutPixels;
-    this.lutBaseTexture = lutBaseTexture;
-    this.lutTexture = lutTexture;
-
-    // Initialize identity LUT.
-    this.updateUniforms({
-      enabled: false,
-      rgb: [
-        { x: 0, y: 0 },
-        { x: 255, y: 255 },
-      ],
-      red: [
-        { x: 0, y: 0 },
-        { x: 255, y: 255 },
-      ],
-      green: [
-        { x: 0, y: 0 },
-        { x: 255, y: 255 },
-      ],
-      blue: [
-        { x: 0, y: 0 },
-        { x: 255, y: 255 },
-      ],
-    });
+  for (let i = 0; i < LUT_SIZE; i += 1) {
+    const base = i * 4;
+    output[base] = rgbTable[i] ?? i / (LUT_SIZE - 1);
+    output[base + 1] = redTable[i] ?? i / (LUT_SIZE - 1);
+    output[base + 2] = greenTable[i] ?? i / (LUT_SIZE - 1);
+    output[base + 3] = blueTable[i] ?? i / (LUT_SIZE - 1);
   }
 
-  updateUniforms(u: CurveUniforms): void {
-    this.uniforms.u_enabled = u.enabled;
+  return output;
+};
 
-    const rgbTable = buildCurveTable(u.rgb);
-    const redTable = buildCurveTable(u.red);
-    const greenTable = buildCurveTable(u.green);
-    const blueTable = buildCurveTable(u.blue);
-
-    for (let i = 0; i < LUT_SIZE; i += 1) {
-      const base = i * 4;
-      this.lutPixels[base] = rgbTable[i] ?? i;
-      this.lutPixels[base + 1] = redTable[i] ?? i;
-      this.lutPixels[base + 2] = greenTable[i] ?? i;
-      this.lutPixels[base + 3] = blueTable[i] ?? i;
-    }
-
-    this.lutBaseTexture.update();
-  }
-
-  destroy(): void {
-    this.lutTexture.destroy(true);
-    super.destroy();
-  }
-}
+export const CURVE_LUT_SIZE = LUT_SIZE;

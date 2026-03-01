@@ -1,3 +1,6 @@
+import * as twgl from "twgl.js";
+import { parseCubeLUT } from "./CubeLUTParser";
+
 /**
  * HaldCLUT PNG -> WebGL 3D Texture loader.
  *
@@ -7,6 +10,20 @@
  *
  * Each pixel position encodes an (R, G, B) input and the pixel color is the mapped output.
  */
+
+export type LUTTextureFormat = "RGBA8" | "RGBA16F";
+
+const floatLinearSupportCache = new WeakMap<WebGL2RenderingContext, boolean>();
+
+const supportsFloatLinearFiltering = (gl: WebGL2RenderingContext): boolean => {
+  const cached = floatLinearSupportCache.get(gl);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const supported = !!gl.getExtension("OES_texture_float_linear");
+  floatLinearSupportCache.set(gl, supported);
+  return supported;
+};
 
 /**
  * Load an image from a URL or Blob source.
@@ -35,6 +52,20 @@ function loadImage(src: string | Blob): Promise<HTMLImageElement> {
       img.src = src;
     }
   });
+}
+
+async function loadText(src: string | Blob): Promise<string> {
+  if (src instanceof Blob) {
+    return src.text();
+  }
+  const response = await fetch(src, {
+    credentials: "omit",
+    cache: "force-cache",
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to load LUT text: ${src}`);
+  }
+  return response.text();
 }
 
 /**
@@ -75,21 +106,93 @@ function parseHaldCLUT(imageData: ImageData, level: number): Uint8Array {
 /**
  * Upload parsed 3D LUT data as a WebGL 3D texture.
  */
-function upload3DTexture(gl: WebGL2RenderingContext, data: Uint8Array, size: number): WebGLTexture {
-  const texture = gl.createTexture();
-  if (!texture) {
-    throw new Error("Failed to create WebGL 3D texture for LUT");
+const toFloatData = (data: Uint8Array | Float32Array): Float32Array => {
+  if (data instanceof Float32Array) {
+    return data;
+  }
+  const floatData = new Float32Array(data.length);
+  for (let i = 0; i < data.length; i += 1) {
+    floatData[i] = data[i]! / 255;
+  }
+  return floatData;
+};
+
+const toByteData = (data: Uint8Array | Float32Array): Uint8Array => {
+  if (data instanceof Uint8Array) {
+    return data;
+  }
+  const byteData = new Uint8Array(data.length);
+  for (let i = 0; i < data.length; i += 1) {
+    byteData[i] = Math.round(Math.min(1, Math.max(0, data[i]!)) * 255);
+  }
+  return byteData;
+};
+
+function upload3DTexture(
+  gl: WebGL2RenderingContext,
+  data: Uint8Array | Float32Array,
+  size: number,
+  format: LUTTextureFormat
+): WebGLTexture {
+  if (format === "RGBA16F") {
+    const floatData = toFloatData(data);
+    return twgl.createTexture(gl, {
+      target: gl.TEXTURE_3D,
+      src: floatData,
+      width: size,
+      height: size,
+      depth: size,
+      internalFormat: gl.RGBA16F,
+      format: gl.RGBA,
+      type: gl.FLOAT,
+      min: gl.LINEAR,
+      mag: gl.LINEAR,
+      wrapS: gl.CLAMP_TO_EDGE,
+      wrapT: gl.CLAMP_TO_EDGE,
+      wrapR: gl.CLAMP_TO_EDGE,
+      auto: false,
+    });
   }
 
-  gl.bindTexture(gl.TEXTURE_3D, texture);
-  gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGBA8, size, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
-  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+  return twgl.createTexture(gl, {
+    target: gl.TEXTURE_3D,
+    src: toByteData(data),
+    width: size,
+    height: size,
+    depth: size,
+    internalFormat: gl.RGBA8,
+    format: gl.RGBA,
+    type: gl.UNSIGNED_BYTE,
+    min: gl.LINEAR,
+    mag: gl.LINEAR,
+    wrapS: gl.CLAMP_TO_EDGE,
+    wrapT: gl.CLAMP_TO_EDGE,
+    wrapR: gl.CLAMP_TO_EDGE,
+    auto: false,
+  });
+}
 
-  return texture;
+/**
+ * Load a .cube LUT file and upload it as a WebGL 3D texture.
+ */
+export async function loadCubeLUT(
+  gl: WebGL2RenderingContext,
+  source: string | Blob,
+  textureFormat: LUTTextureFormat = "RGBA8"
+): Promise<WebGLTexture> {
+  const text = await loadText(source);
+  const parsed = parseCubeLUT(text);
+  if (textureFormat === "RGBA16F") {
+    if (!supportsFloatLinearFiltering(gl)) {
+      return upload3DTexture(gl, parsed.data, parsed.size, "RGBA8");
+    }
+    try {
+      return upload3DTexture(gl, parsed.data, parsed.size, "RGBA16F");
+    } catch {
+      return upload3DTexture(gl, parsed.data, parsed.size, "RGBA8");
+    }
+  }
+  return upload3DTexture(gl, parsed.data, parsed.size, "RGBA8");
 }
 
 /**
@@ -151,7 +254,8 @@ function readPixels(image: HTMLImageElement): ImageData {
 export async function loadHaldCLUT(
   gl: WebGL2RenderingContext,
   imageSrc: string | Blob,
-  level: 8 | 16 = 8
+  level: 8 | 16 = 8,
+  textureFormat: LUTTextureFormat = "RGBA8"
 ): Promise<WebGLTexture> {
   // 1. Load image
   const image = await loadImage(imageSrc);
@@ -167,6 +271,39 @@ export async function loadHaldCLUT(
   const data = parseHaldCLUT(imageData, level);
   // imageData is now unreferenced and eligible for GC
 
-  // 5. Upload as WebGL 3D Texture
-  return upload3DTexture(gl, data, size);
+  // 5. Upload as WebGL 3D Texture. Prefer higher precision when requested,
+  // but always fall back to RGBA8 for compatibility.
+  if (textureFormat === "RGBA16F") {
+    if (!supportsFloatLinearFiltering(gl)) {
+      return upload3DTexture(gl, data, size, "RGBA8");
+    }
+    try {
+      return upload3DTexture(gl, data, size, "RGBA16F");
+    } catch {
+      return upload3DTexture(gl, data, size, "RGBA8");
+    }
+  }
+
+  return upload3DTexture(gl, data, size, "RGBA8");
+}
+
+/**
+ * Generic 3D LUT loader.
+ * - `.cube` -> parse text LUT
+ * - fallback -> parse HaldCLUT PNG
+ */
+export async function load3DLUT(
+  gl: WebGL2RenderingContext,
+  source: string | Blob,
+  level: 8 | 16 = 8,
+  textureFormat: LUTTextureFormat = "RGBA8"
+): Promise<WebGLTexture> {
+  const isCubeByPath =
+    typeof source === "string" ? /\.cube(?:$|\?)/i.test(source) : false;
+  const isCubeByMime =
+    source instanceof Blob ? /text|cube|json/i.test(source.type) : false;
+  if (isCubeByPath || isCubeByMime) {
+    return loadCubeLUT(gl, source, textureFormat);
+  }
+  return loadHaldCLUT(gl, source, level, textureFormat);
 }

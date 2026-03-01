@@ -1,75 +1,50 @@
 import type { PointCurvePoint } from "@/types";
 
-/** Uniforms for the Geometry shader pass. */
 export interface GeometryUniforms {
   enabled: boolean;
-  // Crop rectangle in source UV space: (x, y, w, h)
   cropRect: [number, number, number, number];
-  // Source texture size in pixels
   sourceSize: [number, number];
-  // Output canvas size in pixels
   outputSize: [number, number];
-  // Translation in output pixel space
   translatePx: [number, number];
-  // Rotation in radians
   rotate: number;
-  // Perspective correction (homography in normalized [-1, 1] space)
   perspectiveEnabled: boolean;
-  homography: number[]; // 9 elements, column-major
-  // Scale factor [0.5, 2.0]
+  homography: number[];
   scale: number;
-  // Flip multipliers (-1 or 1)
   flip: [number, number];
-  // Lens profile correction (radial Brown-Conrady k1/k2 terms)
   lensEnabled: boolean;
   lensK1: number;
   lensK2: number;
   lensVignetteBoost: number;
-  // Lateral chromatic aberration correction (signed pixel offsets at image edge for R/G/B)
   caEnabled: boolean;
   caAmountPxRgb: [number, number, number];
 }
 
-/** Uniforms for the Master Adjustment shader pass. */
 export interface MasterUniforms {
-  // Basic adjustments
-  exposure: number; // [-5, 5] EV
-  contrast: number; // [-100, 100]
-  highlights: number; // [-100, 100]
-  shadows: number; // [-100, 100]
-  whites: number; // [-100, 100]
-  blacks: number; // [-100, 100]
-
-  // White balance (LMS)
+  exposure: number;
+  contrast: number;
+  highlights: number;
+  shadows: number;
+  whites: number;
+  blacks: number;
   whiteBalanceLmsScale: [number, number, number];
-
-  // OKLab HSL
-  hueShift: number; // [-180, 180] degrees
-  saturation: number; // [-100, 100]
-  vibrance: number; // [-100, 100]
-  luminance: number; // [-100, 100]
-
-  // Curves (4 segments)
-  curveHighlights: number; // [-100, 100]
-  curveLights: number; // [-100, 100]
-  curveDarks: number; // [-100, 100]
-  curveShadows: number; // [-100, 100]
-
-  // Color grading (3-way)
-  colorGradeShadows: [number, number, number]; // (hueDeg, sat[0..1], luminance[-1..1])
-  colorGradeMidtones: [number, number, number]; // (hueDeg, sat[0..1], luminance[-1..1])
-  colorGradeHighlights: [number, number, number]; // (hueDeg, sat[0..1], luminance[-1..1])
-  colorGradeBlend: number; // [0, 1]
-  colorGradeBalance: number; // [-1, 1]
-
-  // Detail
-  dehaze: number; // [-100, 100]
+  hueShift: number;
+  saturation: number;
+  vibrance: number;
+  luminance: number;
+  curveHighlights: number;
+  curveLights: number;
+  curveDarks: number;
+  curveShadows: number;
+  colorGradeShadows: [number, number, number];
+  colorGradeMidtones: [number, number, number];
+  colorGradeHighlights: [number, number, number];
+  colorGradeBlend: number;
+  colorGradeBalance: number;
+  dehaze: number;
 }
 
-/** Uniforms for the 8-channel HSL selective color pass. */
 export interface HSLUniforms {
   enabled: boolean;
-  // Per channel values in UI range: hue[-100,100], saturation[-100,100], luminance[-100,100]
   hue: [number, number, number, number, number, number, number, number];
   saturation: [number, number, number, number, number, number, number, number];
   luminance: [number, number, number, number, number, number, number, number];
@@ -80,7 +55,6 @@ export interface HSLUniforms {
   calibrationSaturation: [number, number, number];
 }
 
-/** Uniforms for point-curve pass. Curve points are in [0, 255] space. */
 export interface CurveUniforms {
   enabled: boolean;
   rgb: PointCurvePoint[];
@@ -89,69 +63,119 @@ export interface CurveUniforms {
   blue: PointCurvePoint[];
 }
 
-/** Uniforms for detail pass (clarity/texture/sharpen/NR). */
 export interface DetailUniforms {
   enabled: boolean;
-  texture: number; // [-100, 100]
-  clarity: number; // [-100, 100]
-  sharpening: number; // [0, 100]
-  sharpenRadius: number; // [0, 100]
-  sharpenDetail: number; // [0, 100]
-  masking: number; // [0, 100]
-  noiseReduction: number; // [0, 100]
-  colorNoiseReduction: number; // [0, 100]
+  texture: number;
+  clarity: number;
+  sharpening: number;
+  sharpenRadius: number;
+  sharpenDetail: number;
+  masking: number;
+  noiseReduction: number;
+  colorNoiseReduction: number;
 }
 
-/** Uniforms for the Film Simulation shader pass. */
 export interface FilmUniforms {
-  // Layer 1: Tone Response
+  u_expandEnabled: boolean;
+  u_expandBlackPoint: number;
+  u_expandWhitePoint: number;
+
+  u_filmCompressionEnabled: boolean;
+  u_highlightRolloff: number;
+  u_shoulderWidth: number;
+
+  u_filmDeveloperEnabled: boolean;
+  u_developerContrast: number;
+  u_developerGamma: number;
+  u_colorSeparation: [number, number, number];
+
   u_toneEnabled: boolean;
-  u_shoulder: number; // [0, 1]
-  u_toe: number; // [0, 1]
-  u_gamma: number; // [0.5, 2.0]
+  u_shoulder: number;
+  u_toe: number;
+  u_gamma: number;
 
-  // Layer 2: Color Matrix
   u_colorMatrixEnabled: boolean;
-  u_colorMatrix: number[]; // 9 elements, column-major for WebGL
+  u_colorMatrix: number[];
 
-  // Layer 3: LUT
   u_lutEnabled: boolean;
-  u_lutIntensity: number; // [0, 1]
+  u_lutIntensity: number;
 
-  // Layer 4: Color Cast (per-zone tinting)
+  u_printEnabled: boolean;
+  u_printDensity: number;
+  u_printContrast: number;
+  u_printWarmth: number;
+  u_printStock: number;
+  u_printLutEnabled: boolean;
+  u_printLutIntensity: number;
+
+  u_cmyColorHeadEnabled: boolean;
+  u_cyan: number;
+  u_magenta: number;
+  u_yellow: number;
+
   u_colorCastEnabled: boolean;
-  u_colorCastShadows: [number, number, number]; // RGB offset
-  u_colorCastMidtones: [number, number, number]; // RGB offset
-  u_colorCastHighlights: [number, number, number]; // RGB offset
+  u_colorCastShadows: [number, number, number];
+  u_colorCastMidtones: [number, number, number];
+  u_colorCastHighlights: [number, number, number];
 
-  // Layer 5: Grain
+  u_printToningEnabled: boolean;
+  u_toningShadows: [number, number, number];
+  u_toningMidtones: [number, number, number];
+  u_toningHighlights: [number, number, number];
+  u_toningStrength: number;
+
+  u_customLutEnabled: boolean;
+  u_customLutIntensity: number;
+
   u_grainEnabled: boolean;
-  u_grainAmount: number; // [0, 1]
-  u_grainSize: number; // [0.5, 2.0]
-  u_grainRoughness: number; // [0, 1]
-  u_grainShadowBias: number; // [0, 1]
+  u_grainModel: number;
+  u_grainAmount: number;
+  u_grainSize: number;
+  u_grainRoughness: number;
+  u_grainShadowBias: number;
   u_grainSeed: number;
   u_grainIsColor: boolean;
+  u_crystalDensity: number;
+  u_crystalSizeMean: number;
+  u_crystalSizeVariance: number;
+  u_grainColorSeparation: [number, number, number];
+  u_scannerMTF: number;
+  u_filmFormat: number;
 
-  // Layer 6: Vignette
   u_vignetteEnabled: boolean;
-  u_vignetteAmount: number; // [-1, 1]
-  u_vignetteMidpoint: number; // [0, 1]
-  u_vignetteRoundness: number; // [0, 1]
+  u_vignetteAmount: number;
+  u_vignetteMidpoint: number;
+  u_vignetteRoundness: number;
+
+  u_filmBreathEnabled: boolean;
+  u_breathAmount: number;
+  u_breathSeed: number;
+
+  u_filmDamageEnabled: boolean;
+  u_damageAmount: number;
+  u_damageSeed: number;
+
+  u_overscanEnabled: boolean;
+  u_overscanAmount: number;
+  u_overscanRoundness: number;
 }
 
-/** Uniforms for the Halation/Bloom multi-pass filter. */
 export interface HalationBloomUniforms {
-  // Halation (warm glow from bright areas)
   halationEnabled: boolean;
-  halationThreshold: number; // linear luminance threshold (source UI is sRGB domain)
-  halationIntensity: number; // [0, 1]
-  halationColor?: [number, number, number]; // RGB tint (default warm red)
-  halationRadius?: number; // blur radius override
-
-  // Bloom (neutral glow from bright areas)
+  halationThreshold: number;
+  halationIntensity: number;
+  halationColor?: [number, number, number];
+  halationHue?: number;
+  halationSaturation?: number;
+  halationBlueCompensation?: number;
+  halationRadius?: number;
   bloomEnabled: boolean;
-  bloomThreshold: number; // linear luminance threshold (source UI is sRGB domain)
-  bloomIntensity: number; // [0, 1]
-  bloomRadius?: number; // blur radius override
+  bloomThreshold: number;
+  bloomIntensity: number;
+  bloomRadius?: number;
+  glowEnabled: boolean;
+  glowIntensity: number;
+  glowMidtoneFocus: number;
+  glowBias: number;
+  glowRadius?: number;
 }

@@ -11,35 +11,19 @@ uniform float u_halationThreshold; // [0.5, 1.0]
 // Bloom params
 uniform float u_bloomThreshold;    // [0.5, 1.0]
 
-vec3 srgb2linear(vec3 c) {
-  return mix(
-    c / 12.92,
-    pow((c + 0.055) / 1.055, vec3(2.4)),
-    step(0.04045, c)
-  );
-}
-
 float luminance(vec3 c) {
   return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
 
 void main() {
-  vec3 color = texture(uSampler, vTextureCoord).rgb;
-  float lum = luminance(srgb2linear(clamp(color, 0.0, 1.0)));
+  vec3 color = max(texture(uSampler, vTextureCoord).rgb, vec3(0.0));
+  float lum = luminance(color);
+  float redWeightedLum = dot(color, vec3(0.55, 0.35, 0.10));
 
-  // R channel: halation mask (bright pixels above halation threshold)
-  float halMask = clamp(
-    (lum - u_halationThreshold) / max(1.0 - u_halationThreshold, 0.001),
-    0.0, 1.0
-  );
+  // Store HDR energy, not normalized masks, so highlights above 1.0 drive stronger optics.
+  float halationEnergy = max(redWeightedLum - u_halationThreshold, 0.0);
+  float bloomEnergy = max(lum - u_bloomThreshold, 0.0);
 
-  // G channel: bloom mask (bright pixels above bloom threshold)
-  float bloomMask = clamp(
-    (lum - u_bloomThreshold) / max(1.0 - u_bloomThreshold, 0.001),
-    0.0, 1.0
-  );
-
-  // Pack both masks into a single texture for efficiency
-  // R = halation mask, G = bloom mask, B = unused, A = 1
-  outColor = vec4(halMask, bloomMask, 0.0, 1.0);
+  // RGB: halation energy tinted by source color, A: neutral bloom energy.
+  outColor = vec4(color * halationEnergy, bloomEnergy);
 }

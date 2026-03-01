@@ -79,12 +79,19 @@ const FILM_UNIFORMS: Record<string, string[]> = {
   ],
   grain: [
     "uniform bool  u_grainEnabled;",
+    "uniform float u_grainModel;",
     "uniform float u_grainAmount;",
     "uniform float u_grainSize;",
     "uniform float u_grainRoughness;",
     "uniform float u_grainShadowBias;",
     "uniform float u_grainSeed;",
     "uniform bool  u_grainIsColor;",
+    "uniform float u_crystalDensity;",
+    "uniform float u_crystalSizeMean;",
+    "uniform float u_crystalSizeVariance;",
+    "uniform vec3  u_grainColorSeparation;",
+    "uniform float u_scannerMTF;",
+    "uniform float u_filmFormat;",
     "uniform vec2  u_textureSize;",
     "uniform sampler2D u_blueNoise;",
   ],
@@ -245,8 +252,6 @@ function generateMasterShader(): string {
 
   // Function definitions — in dependency order
   parts.push("");
-  parts.push(loadTemplate("srgb.glsl"));
-
   if (cfg.hsl.enabled && cfg.hsl.space === "OKLab") {
     parts.push("");
     parts.push(loadTemplate("oklab.glsl"));
@@ -305,7 +310,7 @@ function generateMasterShader(): string {
     );
     parts.push("  color *= (1.0 + luminanceShift);");
     parts.push("");
-    parts.push("  return clamp(color, 0.0, 1.0);");
+    parts.push("  return max(color, vec3(0.0));");
     parts.push("}");
   }
 
@@ -316,30 +321,25 @@ function generateMasterShader(): string {
   parts.push("void main() {");
   parts.push("  vec3 color = texture(uSampler, vTextureCoord).rgb;");
 
-  // Step 1: sRGB -> Linear (always)
-  parts.push("");
-  parts.push("  // Step 1: sRGB -> Linear");
-  parts.push("  color = srgb2linear(color);");
-
-  // Step 2: Exposure
+  // Step 1: Exposure
   if (cfg.exposure.enabled) {
     parts.push("");
-    parts.push("  // Step 2: Exposure (linear space, physically accurate)");
+    parts.push("  // Step 1: Exposure (linear space, physically accurate)");
     parts.push("  color *= exp2(u_exposure);");
   }
 
-  // Step 3: White Balance
+  // Step 2: White Balance
   if (cfg.whiteBalance.enabled) {
     parts.push("");
-    parts.push("  // Step 3: LMS white balance");
+    parts.push("  // Step 2: LMS white balance");
     parts.push("  color = whiteBalanceLMS(color, u_whiteBalanceLmsScale);");
   }
 
-  // Step 4: Contrast
+  // Step 3: Contrast
   if (cfg.contrast.enabled) {
     parts.push("");
     parts.push(
-      "  // Step 4: Contrast (linear space, pivot = 0.18 mid-gray)"
+      "  // Step 3: Contrast (linear space, pivot = 0.18 mid-gray)"
     );
     parts.push("  float pivot = 0.18;");
     parts.push(
@@ -347,11 +347,11 @@ function generateMasterShader(): string {
     );
   }
 
-  // Step 5: Tonal range
+  // Step 4: Tonal range
   let lumDeclared = false;
   if (cfg.tonalRange.enabled) {
     parts.push("");
-    parts.push("  // Step 5: Tonal range adjustments");
+    parts.push("  // Step 4: Tonal range adjustments");
     parts.push("  float lum = luminance(color);");
     lumDeclared = true;
     parts.push("  float hiMask = smoothstep(0.5, 1.0, lum);");
@@ -372,10 +372,10 @@ function generateMasterShader(): string {
     parts.push("  color += color * tonalDelta;");
   }
 
-  // Step 6: Curves
+  // Step 5: Curves
   if (cfg.curve.enabled) {
     parts.push("");
-    parts.push("  // Step 6: Curves (4 segment additive)");
+    parts.push("  // Step 5: Curves (4 segment additive)");
     if (lumDeclared) {
       parts.push("  lum = luminance(color);");
     } else {
@@ -397,10 +397,10 @@ function generateMasterShader(): string {
     parts.push("  color += color * curveDelta;");
   }
 
-  // Step 7: OKLab HSL
+  // Step 6: OKLab HSL
   if (cfg.hsl.enabled) {
     parts.push("");
-    parts.push("  // Step 7: OKLab HSL adjustments");
+    parts.push("  // Step 6: OKLab HSL adjustments");
     parts.push("  vec3 lab = rgb2oklab(color);");
     parts.push("  // Hue rotation");
     parts.push("  float angle = u_hueShift * 3.14159265 / 180.0;");
@@ -422,10 +422,10 @@ function generateMasterShader(): string {
     parts.push("  color = max(color, vec3(0.0));  // gamut clamp after OKLab round-trip");
   }
 
-  // Step 8: 3-way Color Grading
+  // Step 7: 3-way Color Grading
   if (cfg.colorGrading.enabled) {
     parts.push("");
-    parts.push("  // Step 8: 3-way color grading");
+    parts.push("  // Step 7: 3-way color grading");
     if (lumDeclared) {
       parts.push("  lum = luminance(color);");
     } else {
@@ -435,25 +435,24 @@ function generateMasterShader(): string {
     parts.push("  color = applyColorGrading(color, lum);");
   }
 
-  // Step 9: Dehaze
+  // Step 8: Dehaze
   if (cfg.dehaze.enabled) {
     parts.push("");
-    parts.push("  // Step 9: Dehaze");
+    parts.push("  // Step 8: Dehaze");
     parts.push("  if (abs(u_dehaze) > 0.001) {");
     parts.push("    float haze = u_dehaze * 0.01;");
     parts.push("    float darkChannel = min(color.r, min(color.g, color.b));");
     parts.push("    float t = clamp(1.0 - haze * darkChannel * 2.0, 0.1, 2.0);");
     parts.push("    vec3 atmosphere = vec3(1.0);");
     parts.push("    color = (color - atmosphere * (1.0 - t)) / t;");
-    parts.push("    color = clamp(color, 0.0, 1.0);");
+    parts.push("    color = max(color, vec3(0.0));");
     parts.push("  }");
   }
 
-  // Step 10: Output encoding
+  // Step 9: Linear output
   parts.push("");
-  parts.push("  // Step 10: Output encoding");
-  parts.push("  color = clamp(color, 0.0, 1.0);");
-  parts.push("  color = linear2srgb(color);");
+  parts.push("  // Step 9: Linear output");
+  parts.push("  color = max(color, vec3(0.0));");
   parts.push("");
   parts.push("  outColor = vec4(color, 1.0);");
   parts.push("}");
@@ -571,8 +570,7 @@ function generateFilmShader(): string {
   parts.push("void main() {");
   parts.push("  vec3 color = texture(uSampler, vTextureCoord).rgb;");
   parts.push("");
-  parts.push("  // Stage 0: input is sRGB from previous pass");
-  parts.push("  color = srgb2linear(clamp(color, 0.0, 1.0));");
+  parts.push("  // Stage 0: input is linear from previous pass");
 
   if (cfg.toneResponse.enabled) {
     parts.push("");
@@ -582,10 +580,11 @@ function generateFilmShader(): string {
     parts.push("  color = applyColorMatrix(color);");
   }
   parts.push("");
-  parts.push("  // Stage 1 complete: return to sRGB for LUT and perceptual stylization");
-  parts.push("  color = linear2srgb(clamp(color, 0.0, 1.0));");
+  parts.push("  // Stage 1: keep LUT compatibility with temporary sRGB roundtrip");
   if (cfg.lut.enabled) {
-    parts.push("  color = applyLUT(color);");
+    parts.push("  vec3 lutColor = linear2srgb(clamp(color, 0.0, 1.0));");
+    parts.push("  lutColor = applyLUT(lutColor);");
+    parts.push("  color = srgb2linear(clamp(lutColor, 0.0, 1.0));");
   }
   if (cfg.colorCast.enabled) {
     parts.push("  color = applyColorCast(color);");
@@ -598,7 +597,7 @@ function generateFilmShader(): string {
   }
 
   parts.push("");
-  parts.push("  // Final: sRGB output");
+  parts.push("  // Final: linear output, encoded by OutputEncode pass");
   parts.push("  color = clamp(color, 0.0, 1.0);");
   parts.push("");
   parts.push("  outColor = vec4(color, 1.0);");

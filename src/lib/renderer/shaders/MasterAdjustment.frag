@@ -31,23 +31,7 @@ uniform float u_colorGradeBalance;    // [-1, 1]
 // -- Detail --
 uniform float u_dehaze;
 
-// ---- sRGB <-> Linear ----
 
-vec3 srgb2linear(vec3 c) {
-  return mix(
-    c / 12.92,
-    pow((c + 0.055) / 1.055, vec3(2.4)),
-    step(0.04045, c)
-  );
-}
-
-vec3 linear2srgb(vec3 c) {
-  return mix(
-    c * 12.92,
-    1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055,
-    step(0.0031308, c)
-  );
-}
 
 // ---- OKLab ----
 // Bjorn Ottosson, https://bottosson.github.io/posts/oklab/
@@ -147,7 +131,7 @@ vec3 applyColorGrading(vec3 color, float lum) {
   float luminanceShift = (u_colorGradeShadows.z * wShadows + u_colorGradeMidtones.z * wMidtones + u_colorGradeHighlights.z * wHighlights) * blend * 0.25;
   color *= (1.0 + luminanceShift);
 
-  return clamp(color, 0.0, 1.0);
+  return max(color, vec3(0.0));
 }
 
 // ---- Main ----
@@ -155,20 +139,17 @@ vec3 applyColorGrading(vec3 color, float lum) {
 void main() {
   vec3 color = texture(uSampler, vTextureCoord).rgb;
 
-  // Step 1: sRGB -> Linear
-  color = srgb2linear(color);
-
-  // Step 2: Exposure (linear space, physically accurate)
+  // Step 1: Exposure (linear space, physically accurate)
   color *= exp2(u_exposure);
 
-  // Step 3: LMS white balance
+  // Step 2: LMS white balance
   color = whiteBalanceLMS(color, u_whiteBalanceLmsScale);
 
-  // Step 4: Contrast (linear space, pivot = 0.18 mid-gray)
+  // Step 3: Contrast (linear space, pivot = 0.18 mid-gray)
   float pivot = 0.18;
   color = pivot * pow(max(color / pivot, vec3(0.0)), vec3(1.0 + u_contrast * 0.01));
 
-  // Step 5: Tonal range adjustments
+  // Step 4: Tonal range adjustments
   float lum = luminance(color);
   float hiMask = smoothstep(0.5, 1.0, lum);
   float shMask = 1.0 - smoothstep(0.0, 0.5, lum);
@@ -181,7 +162,7 @@ void main() {
                    + blMask * u_tonalRange.w * 0.01;
   color += color * tonalDelta;
 
-  // Step 6: Curves (4 segment additive)
+  // Step 5: Curves (4 segment additive)
   lum = luminance(color);
   float curveDelta = smoothstep(0.7, 1.0, lum) * u_curve.x * 0.01
                    + smoothstep(0.4, 0.7, lum) * (1.0 - smoothstep(0.7, 0.85, lum)) * u_curve.y * 0.01
@@ -189,7 +170,7 @@ void main() {
                    + (1.0 - smoothstep(0.1, 0.3, lum)) * u_curve.w * 0.01;
   color += color * curveDelta;
 
-  // Step 7: OKLab HSL adjustments
+  // Step 6: OKLab HSL adjustments
   vec3 lab = rgb2oklab(color);
   // Hue rotation
   float angle = u_hueShift * 3.14159265 / 180.0;
@@ -206,22 +187,22 @@ void main() {
   color = oklab2rgb(lab);
   color = max(color, vec3(0.0));  // gamut clamp after OKLab round-trip
 
-  // Step 8: 3-way color grading
+  // Step 7: 3-way color grading
   lum = luminance(color);
   color = applyColorGrading(color, lum);
 
-  // Step 9: Dehaze
+  // Step 8: Dehaze
   if (abs(u_dehaze) > 0.001) {
     float haze = u_dehaze * 0.01;
     float darkChannel = min(color.r, min(color.g, color.b));
     float t = clamp(1.0 - haze * darkChannel * 2.0, 0.1, 2.0);
     vec3 atmosphere = vec3(1.0);
     color = (color - atmosphere * (1.0 - t)) / t;
-    color = clamp(color, 0.0, 1.0);
+    color = max(color, vec3(0.0));
   }
 
-  // Step 10: Output (always sRGB)
-  color = linear2srgb(clamp(color, 0.0, 1.0));
+  // Step 9: Linear output
+  color = max(color, vec3(0.0));
 
   outColor = vec4(color, 1.0);
 }

@@ -1,10 +1,10 @@
-import { loadHaldCLUT } from "./LUTLoader";
+import { load3DLUT, type LUTTextureFormat } from "./LUTLoader";
 
 /** How long a failed LUT load is remembered before retrying (ms). */
 const NEGATIVE_CACHE_TTL_MS = 30_000;
 
 /**
- * LRU cache for WebGL 3D textures loaded from HaldCLUT images.
+ * LRU cache for WebGL 3D textures loaded from HaldCLUT images or CUBE files.
  *
  * Manages up to `maxSize` cached textures. When the cache is full,
  * the least-recently-used texture is evicted and its GPU resource freed.
@@ -17,7 +17,7 @@ const NEGATIVE_CACHE_TTL_MS = 30_000;
  */
 export class LUTCache {
   private cache = new Map<string, WebGLTexture>();
-  /** Timestamps of failed loads — entries older than TTL are retried. */
+  /** Timestamps of failed loads. Entries older than TTL are retried. */
   private failures = new Map<string, number>();
   private maxSize: number;
 
@@ -32,36 +32,46 @@ export class LUTCache {
    * Throws if the load fails. The failure is negatively cached so
    * subsequent calls within the TTL window reject immediately.
    */
-  async get(gl: WebGL2RenderingContext, lutPath: string, level: 8 | 16 = 8): Promise<WebGLTexture> {
+  async get(
+    gl: WebGL2RenderingContext,
+    lutPath: string,
+    level: 8 | 16 = 8,
+    options?: {
+      textureFormat?: LUTTextureFormat;
+    }
+  ): Promise<WebGLTexture> {
+    const textureFormat = options?.textureFormat ?? "RGBA8";
+    const cacheKey = `${lutPath}|${level}|${textureFormat}`;
+
     // Check positive cache
-    const existing = this.cache.get(lutPath);
+    const existing = this.cache.get(cacheKey);
     if (existing) {
-      this.cache.delete(lutPath);
-      this.cache.set(lutPath, existing);
+      this.cache.delete(cacheKey);
+      this.cache.set(cacheKey, existing);
       return existing;
     }
 
-    // Check negative cache — reject fast if recently failed
-    const failedAt = this.failures.get(lutPath);
+    // Check negative cache. Reject fast if recently failed.
+    const failedAt = this.failures.get(cacheKey);
     if (failedAt !== undefined) {
       if (Date.now() - failedAt < NEGATIVE_CACHE_TTL_MS) {
-        throw new Error(`LUT load for "${lutPath}" recently failed, skipping retry`);
+        throw new Error(`LUT load for "${cacheKey}" recently failed, skipping retry`);
       }
-      this.failures.delete(lutPath);
+      this.failures.delete(cacheKey);
     }
 
     // Load new LUT
     let texture: WebGLTexture;
     try {
-      texture = await loadHaldCLUT(gl, lutPath, level);
+      texture = await load3DLUT(gl, lutPath, level, textureFormat);
     } catch (err) {
-      this.failures.set(lutPath, Date.now());
+      this.failures.set(cacheKey, Date.now());
       throw err;
     }
 
-    this.cache.set(lutPath, texture);
+    this.cache.set(cacheKey, texture);
 
-    // LRU eviction — first key in Map is the oldest entry
+    // LRU eviction: first key in Map is the oldest entry.
     while (this.cache.size > this.maxSize) {
       const oldestKey = this.cache.keys().next().value!;
       const tex = this.cache.get(oldestKey);
@@ -77,8 +87,8 @@ export class LUTCache {
   /**
    * Check if a LUT is already cached (positive cache only).
    */
-  has(lutPath: string): boolean {
-    return this.cache.has(lutPath);
+  has(lutPath: string, level: 8 | 16 = 8, textureFormat: LUTTextureFormat = "RGBA8"): boolean {
+    return this.cache.has(`${lutPath}|${level}|${textureFormat}`);
   }
 
   /**
