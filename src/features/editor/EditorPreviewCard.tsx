@@ -5,6 +5,7 @@ import {
   renderImageToCanvas,
 } from "@/lib/imageProcessing";
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
+import { resolveLayerAdjustments } from "@/lib/editorLayers";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
 import { cn } from "@/lib/utils";
 import {
@@ -30,6 +31,7 @@ import {
 import { clamp } from "@/lib/math";
 import type {
   Asset,
+  EditorLayer,
   EditingAdjustments,
   EditorLayerBlendMode,
   LocalAdjustment,
@@ -70,10 +72,11 @@ const resolveLayerBlendOperation = (
 };
 
 interface LayerPreviewEntry {
-  asset: Asset;
+  layer: EditorLayer;
+  sourceAsset: Asset;
+  adjustments: EditingAdjustments;
   opacity: number;
   blendMode: EditorLayerBlendMode;
-  visible: boolean;
 }
 
 interface BrushStrokePoint {
@@ -328,12 +331,9 @@ export function EditorPreviewCard() {
   const {
     assets,
     selectedAsset,
+    layers,
     previewAdjustments: adjustments,
     previewFilmProfile: filmProfile,
-    orderedLayerAssetIds,
-    layerVisibilityByAssetId,
-    layerOpacityByAssetId,
-    layerBlendModeByAssetId,
     activeToolPanelId,
     showOriginal,
     autoPerspectiveRequestId,
@@ -360,7 +360,7 @@ export function EditorPreviewCard() {
   const originalImageRef = useRef<HTMLImageElement | null>(null);
   const sampleBufferRef = useRef<HTMLCanvasElement | null>(null);
   const workingCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const layerCanvasByAssetIdRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
+  const layerCanvasByLayerIdRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
   const cropDragRef = useRef<{
     mode: CropDragMode;
     startX: number;
@@ -448,26 +448,36 @@ export function EditorPreviewCard() {
   const assetById = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
 
   const layerPreviewEntries = useMemo<LayerPreviewEntry[]>(() => {
-    if (orderedLayerAssetIds.length === 0) {
+    if (!selectedAsset || layers.length === 0) {
       return [];
     }
-    return orderedLayerAssetIds
-      .map((id) => assetById.get(id))
-      .filter((asset): asset is Asset => Boolean(asset))
-      .map((asset) => ({
-        asset,
-        visible: layerVisibilityByAssetId[asset.id] ?? true,
-        opacity: clamp((layerOpacityByAssetId[asset.id] ?? 100) / 100, 0, 1),
-        blendMode: layerBlendModeByAssetId[asset.id] ?? "normal",
-      }))
-      .filter((layer) => layer.visible && layer.opacity > 0.0001);
-  }, [
-    assetById,
-    layerBlendModeByAssetId,
-    layerOpacityByAssetId,
-    layerVisibilityByAssetId,
-    orderedLayerAssetIds,
-  ]);
+
+    return layers
+      .map((layer) => {
+        const sourceAsset =
+          layer.type === "texture" && layer.textureAssetId
+            ? assetById.get(layer.textureAssetId) ?? null
+            : selectedAsset;
+        if (!sourceAsset) {
+          return null;
+        }
+        if (!layer.visible) {
+          return null;
+        }
+        const opacity = clamp(layer.opacity / 100, 0, 1);
+        if (opacity <= 0.0001) {
+          return null;
+        }
+        return {
+          layer,
+          sourceAsset,
+          adjustments: resolveLayerAdjustments(layer, selectedAsset.adjustments),
+          opacity,
+          blendMode: layer.blendMode,
+        };
+      })
+      .filter((entry): entry is LayerPreviewEntry => Boolean(entry));
+  }, [assetById, layers, selectedAsset]);
 
   const sourceAspectRatio = useMemo(() => {
     if (imageNaturalSize) {
@@ -769,12 +779,12 @@ export function EditorPreviewCard() {
         sampleBufferRef.current.height = 0;
         sampleBufferRef.current = null;
       }
-      if (layerCanvasByAssetIdRef.current.size > 0) {
-        for (const layerCanvas of layerCanvasByAssetIdRef.current.values()) {
+      if (layerCanvasByLayerIdRef.current.size > 0) {
+        for (const layerCanvas of layerCanvasByLayerIdRef.current.values()) {
           layerCanvas.width = 0;
           layerCanvas.height = 0;
         }
-        layerCanvasByAssetIdRef.current.clear();
+        layerCanvasByLayerIdRef.current.clear();
       }
       if (brushPreviewFrameRef.current !== null) {
         cancelAnimationFrame(brushPreviewFrameRef.current);
@@ -1050,15 +1060,15 @@ export function EditorPreviewCard() {
       const workingCanvas = workingCanvasRef.current;
 
       if (shouldRenderLayerComposite) {
-        const layerCanvasMap = layerCanvasByAssetIdRef.current;
-        const activeLayerIdSet = new Set(layerPreviewEntries.map((entry) => entry.asset.id));
-        for (const [assetId, layerCanvas] of layerCanvasMap.entries()) {
-          if (activeLayerIdSet.has(assetId)) {
+        const layerCanvasMap = layerCanvasByLayerIdRef.current;
+        const activeLayerIdSet = new Set(layerPreviewEntries.map((entry) => entry.layer.id));
+        for (const [layerId, layerCanvas] of layerCanvasMap.entries()) {
+          if (activeLayerIdSet.has(layerId)) {
             continue;
           }
           layerCanvas.width = 0;
           layerCanvas.height = 0;
-          layerCanvasMap.delete(assetId);
+          layerCanvasMap.delete(layerId);
         }
 
         const targetWidth = Math.round(frameSize.width * dpr);
@@ -1079,31 +1089,31 @@ export function EditorPreviewCard() {
             return;
           }
           const layer = layersBottomToTop[layerIndex]!;
-          let layerCanvas = layerCanvasMap.get(layer.asset.id);
+          let layerCanvas = layerCanvasMap.get(layer.layer.id);
           if (!layerCanvas) {
             layerCanvas = document.createElement("canvas");
-            layerCanvasMap.set(layer.asset.id, layerCanvas);
+            layerCanvasMap.set(layer.layer.id, layerCanvas);
           }
 
           const layerAdjustments = showOriginal
             ? createDefaultAdjustments()
-            : normalizeAdjustments(layer.asset.adjustments);
+            : normalizeAdjustments(layer.adjustments);
           const layerTimestamp = null;
           await renderImageToCanvas({
             canvas: layerCanvas,
-            source: layer.asset.blob ?? layer.asset.objectUrl,
+            source: layer.sourceAsset.blob ?? layer.sourceAsset.objectUrl,
             adjustments: layerAdjustments,
-            filmProfile: showOriginal ? undefined : layer.asset.filmProfile,
+            filmProfile: showOriginal ? undefined : layer.sourceAsset.filmProfile,
             timestampText: layerTimestamp,
             targetSize: {
               width: targetWidth,
               height: targetHeight,
             },
-            seedKey: layer.asset.id,
+            seedKey: `${selectedAsset?.id ?? "asset"}:${layer.layer.id}`,
             renderSeed: (previewRenderSeed ^ ((layerIndex + 1) * 2654435761)) >>> 0,
             skipHalationBloom: isRapidUpdate,
             signal: controller.signal,
-            sourceCacheKey: `preview:${layer.asset.id}:${layer.asset.size}`,
+            sourceCacheKey: `preview:${layer.sourceAsset.id}:${layer.layer.id}:${layer.sourceAsset.size}`,
           });
           if (controller.signal.aborted) {
             return;
@@ -1390,9 +1400,8 @@ export function EditorPreviewCard() {
     [adjustments, showOriginal, shouldRenderLayerComposite]
   );
 
-  const { actionMessage, setActionMessage } = useEditorKeyboard({
+  useEditorKeyboard({
     selectedAsset,
-    showOriginal,
     isCropMode,
     viewScale,
     toggleOriginal,
@@ -1540,14 +1549,10 @@ export function EditorPreviewCard() {
       const patch = resolveGuidedPerspectivePatch(lines, currentAdjustments);
       if (patch) {
         updateAdjustments(patch);
-        setActionMessage({
-          type: "success",
-          text: "Guided perspective applied.",
-        });
       }
       cancelGuidedPerspective();
     },
-    [cancelGuidedPerspective, setActionMessage, updateAdjustments]
+    [cancelGuidedPerspective, updateAdjustments]
   );
 
   const handleGuidedPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -1956,33 +1961,17 @@ export function EditorPreviewCard() {
               const normalizedY = (event.clientY - rect.top) / rect.height;
               const sampled = samplePixelColor(normalizedX, normalizedY);
               if (!sampled) {
-                setActionMessage({
-                  type: "error",
-                  text: "取色失败，请重试。",
-                });
                 return;
               }
               if (pointColorPickTarget === "localMask") {
                 const result = commitLocalMaskColorSample(sampled);
                 if (!result) {
-                  setActionMessage({
-                    type: "error",
-                    text: "No active local mask selected for color picking.",
-                  });
                   return;
                 }
-                setActionMessage({
-                  type: "success",
-                  text: `Local mask hue set to ${Math.round(result.hue)}°.`,
-                });
                 return;
               }
 
-              const mappedColor = commitPointColorSample(sampled);
-              setActionMessage({
-                type: "success",
-                text: `Picked color mapped to ${mappedColor} channel.`,
-              });
+              commitPointColorSample(sampled);
             }}
           >
             <div
@@ -2090,20 +2079,6 @@ export function EditorPreviewCard() {
         )}
       </div>
 
-      {actionMessage && (
-        <p
-          role="status"
-          aria-live="polite"
-          className={cn(
-            "absolute bottom-4 right-4 rounded-full border px-3 py-1 text-xs shadow-lg",
-            actionMessage.type === "success"
-              ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-200"
-              : "border-rose-300/30 bg-rose-300/10 text-rose-200"
-          )}
-        >
-          {actionMessage.text}
-        </p>
-      )}
     </div>
   );
 }

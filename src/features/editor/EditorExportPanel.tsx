@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Download } from "lucide-react";
+import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -9,9 +9,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { normalizeAdjustments } from "@/lib/adjustments";
+import { resolveLayerAdjustments } from "@/lib/editorLayers";
 import { renderImageToCanvas } from "@/lib/imageProcessing";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
-import { cn } from "@/lib/utils";
 import { copyJpegExif } from "@/lib/export/jpegExif";
 import { encodeRgbaToTiff } from "@/lib/export/tiff";
 import type {
@@ -108,8 +108,6 @@ const resolveSourceSize = async (sourceBlob: Blob, fallback: { width: number; he
   }
 };
 
-const formatDimensions = (width: number, height: number) => `${width} x ${height}`;
-
 const resolveBaseName = (fileName: string) => fileName.replace(/\.[^/.]+$/, "");
 
 const resolveTargetSize = (
@@ -136,13 +134,10 @@ export function EditorExportPanel() {
   const {
     assets,
     selectedAsset,
+    layers,
     adjustments,
     previewAdjustments,
     previewFilmProfile,
-    orderedLayerAssetIds,
-    layerVisibilityByAssetId,
-    layerOpacityByAssetId,
-    layerBlendModeByAssetId,
   } = useEditorState();
   const [format, setFormat] = useState<ExportFormat>("jpeg");
   const [quality, setQuality] = useState(92);
@@ -155,7 +150,6 @@ export function EditorExportPanel() {
   const [isExporting, setIsExporting] = useState(false);
   const [isExportingLut, setIsExportingLut] = useState(false);
   const [cubeLutSize, setCubeLutSize] = useState<CubeLutSize>(33);
-  const [status, setStatus] = useState<{ type: "success" | "error" | "warning"; text: string } | null>(null);
 
   const activeAdjustments = (previewAdjustments ?? adjustments) as EditingAdjustments | null;
 
@@ -179,24 +173,34 @@ export function EditorExportPanel() {
   const assetById = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
 
   const exportLayers = useMemo(
-    () =>
-      orderedLayerAssetIds
-        .map((assetId) => assetById.get(assetId))
-        .filter((asset): asset is Asset => Boolean(asset))
-        .map((asset) => ({
-          asset,
-          visible: layerVisibilityByAssetId[asset.id] ?? true,
-          opacity: Math.max(0, Math.min(1, (layerOpacityByAssetId[asset.id] ?? 100) / 100)),
-          blendMode: layerBlendModeByAssetId[asset.id] ?? "normal",
-        }))
-        .filter((layer) => layer.visible && layer.opacity > 0.0001),
-    [
-      assetById,
-      layerBlendModeByAssetId,
-      layerOpacityByAssetId,
-      layerVisibilityByAssetId,
-      orderedLayerAssetIds,
-    ]
+    () => {
+      if (!selectedAsset) {
+        return [];
+      }
+      return layers
+        .map((layer) => {
+          const sourceAsset =
+            layer.type === "texture" && layer.textureAssetId
+              ? assetById.get(layer.textureAssetId) ?? null
+              : selectedAsset;
+          if (!sourceAsset || !layer.visible) {
+            return null;
+          }
+          const opacity = Math.max(0, Math.min(1, layer.opacity / 100));
+          if (opacity <= 0.0001) {
+            return null;
+          }
+          return {
+            layer,
+            sourceAsset,
+            opacity,
+            blendMode: layer.blendMode,
+            adjustments: resolveLayerAdjustments(layer, selectedAsset.adjustments),
+          };
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+    },
+    [assetById, layers, selectedAsset]
   );
 
   const canExportImage = Boolean(selectedAsset && activeAdjustments && !isExporting && !isExportingLut);
@@ -207,7 +211,6 @@ export function EditorExportPanel() {
       return;
     }
 
-    setStatus(null);
     setIsExporting(true);
 
     const renderCanvas = document.createElement("canvas");
@@ -241,19 +244,16 @@ export function EditorExportPanel() {
         const layersBottomToTop = [...exportLayers].reverse();
         for (let layerIndex = 0; layerIndex < layersBottomToTop.length; layerIndex += 1) {
           const layer = layersBottomToTop[layerIndex]!;
-          let layerSourceBlob = sourceBlobCache.get(layer.asset.id);
+          let layerSourceBlob = sourceBlobCache.get(layer.sourceAsset.id);
           if (!layerSourceBlob) {
-            layerSourceBlob = await resolveAssetSourceBlob(layer.asset);
-            sourceBlobCache.set(layer.asset.id, layerSourceBlob);
+            layerSourceBlob = await resolveAssetSourceBlob(layer.sourceAsset);
+            sourceBlobCache.set(layer.sourceAsset.id, layerSourceBlob);
           }
-          const layerAdjustments =
-            layer.asset.id === selectedAsset.id
-              ? activeAdjustments
-              : normalizeAdjustments(layer.asset.adjustments);
+          const layerAdjustments = normalizeAdjustments(layer.adjustments);
           const layerFilmProfile =
-            layer.asset.id === selectedAsset.id
-              ? previewFilmProfile ?? layer.asset.filmProfile
-              : layer.asset.filmProfile;
+            layer.sourceAsset.id === selectedAsset.id
+              ? previewFilmProfile ?? layer.sourceAsset.filmProfile
+              : layer.sourceAsset.filmProfile;
 
           await renderImageToCanvas({
             canvas: layerCanvas,
@@ -262,12 +262,12 @@ export function EditorExportPanel() {
             filmProfile: layerFilmProfile ?? undefined,
             timestampText: null,
             targetSize,
-            seedKey: layer.asset.id,
-            sourceCacheKey: `export:${layer.asset.id}:${layer.asset.size}`,
+            seedKey: `${selectedAsset.id}:${layer.layer.id}`,
+            sourceCacheKey: `export:${layer.sourceAsset.id}:${layer.layer.id}:${layer.sourceAsset.size}`,
             mode: "export",
             qualityProfile: "full",
             strictErrors: true,
-            renderSlot: `export-panel:layer:${layer.asset.id}:${layerIndex}`,
+            renderSlot: `export-panel:layer:${layer.layer.id}:${layerIndex}`,
           });
 
           compositeContext.save();
@@ -336,27 +336,12 @@ export function EditorExportPanel() {
       URL.revokeObjectURL(url);
 
       if (metadataMode === "preserve" && format !== "jpeg") {
-        setStatus({
-          type: "warning",
-          text: "Exported successfully. Metadata preservation currently applies to JPEG only.",
-        });
+        console.warn("Metadata preservation currently applies to JPEG only.");
       } else if (colorSpace !== "srgb") {
-        setStatus({
-          type: "warning",
-          text: "Exported successfully. Current renderer outputs sRGB; custom color space is a UI preference.",
-        });
-      } else {
-        setStatus({
-          type: "success",
-          text: `Exported ${selectedFormat.label} (${formatDimensions(renderCanvas.width, renderCanvas.height)}).`,
-        });
+        console.warn("Current renderer outputs sRGB; custom color space is a UI preference.");
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Export failed.";
-      setStatus({
-        type: "error",
-        text: message,
-      });
+      console.error("Export failed.", error);
     } finally {
       renderCanvas.width = 0;
       renderCanvas.height = 0;
@@ -369,7 +354,6 @@ export function EditorExportPanel() {
       return;
     }
 
-    setStatus(null);
     setIsExportingLut(true);
 
     const [{ generateCubeLUT }, { PipelineRenderer }] = await Promise.all([
@@ -397,16 +381,8 @@ export function EditorExportPanel() {
       anchor.click();
       URL.revokeObjectURL(url);
 
-      setStatus({
-        type: "success",
-        text: `Exported CUBE LUT (${cubeLutSize}^3).`,
-      });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "LUT export failed.";
-      setStatus({
-        type: "error",
-        text: message,
-      });
+      console.error("LUT export failed.", error);
     } finally {
       renderer.dispose();
       lutCanvas.width = 0;
@@ -601,21 +577,6 @@ export function EditorExportPanel() {
         </div>
       </div>
 
-      {status && (
-        <p
-          role="status"
-          aria-live="polite"
-          className={cn(
-            "rounded-lg border px-2.5 py-1.5 text-xs",
-            status.type === "success" && "border-emerald-300/30 bg-emerald-300/10 text-emerald-200",
-            status.type === "warning" && "border-white/30 bg-white/10 text-zinc-200",
-            status.type === "error" && "border-rose-300/30 bg-rose-300/10 text-rose-200"
-          )}
-        >
-          {status.type === "warning" && <AlertCircle className="mr-1 inline h-3.5 w-3.5" />}
-          {status.text}
-        </p>
-      )}
     </div>
   );
 }

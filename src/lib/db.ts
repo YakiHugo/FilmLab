@@ -4,6 +4,7 @@ import type {
   AssetMetadata,
   CanvasDocument,
   ChatScope,
+  EditorLayer,
   EditingAdjustments,
   FilmProfile,
   FilmProfileOverrides,
@@ -49,6 +50,7 @@ interface FilmLabDB extends DBSchema {
       thumbnailBlob?: Blob;
       metadata?: AssetMetadata;
       adjustments?: EditingAdjustments;
+      layers?: EditorLayer[];
       filmProfile?: FilmProfile;
       aiRecommendation?: AssetAiRecommendation;
       source?: "imported" | "ai-generated";

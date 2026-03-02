@@ -12,6 +12,7 @@ const createSnapshot = (seed: number): EditorAssetSnapshot => ({
     ...createDefaultAdjustments(),
     exposure: seed,
   },
+  layers: undefined,
   filmProfileId: undefined,
   filmProfile: undefined,
   filmOverrides: undefined,
