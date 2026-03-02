@@ -1,4 +1,4 @@
-﻿import type { ComponentType } from "react";
+import { type ComponentType } from "react";
 import { Bot, Crop, Download, Eraser, Layers, SlidersHorizontal, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EDITOR_TOOL_PANELS, type EditorToolPanelId } from "../editorPanelConfig";
@@ -16,30 +16,20 @@ const ICON_BY_PANEL: Record<EditorToolPanelId, ComponentType<{ className?: strin
 
 interface EditorToolRailProps {
   className?: string;
-  layout?: "auto" | "horizontal";
 }
 
-export function EditorToolRail({ className, layout = "auto" }: EditorToolRailProps) {
+export function EditorToolRail({ className }: EditorToolRailProps) {
   const { activeToolPanelId, setActiveToolPanelId, setMobilePanelExpanded } = useEditorState();
-  const isHorizontal = layout === "horizontal";
 
   return (
     <nav
-      aria-label="Editor tool panels"
+      aria-label="Editor tools"
       className={cn(
-        "shrink-0 bg-[#121316] backdrop-blur-sm",
-        isHorizontal
-          ? "border-b border-white/10 px-2 py-2"
-          : "border-y border-white/10 px-2 py-2 lg:h-full lg:border-r lg:border-y-0 lg:px-1 lg:py-3",
+        "relative flex h-full w-12 shrink-0 flex-col bg-[#121214]",
         className
       )}
     >
-      <div
-        className={cn(
-          "flex gap-2 overflow-x-auto",
-          isHorizontal ? "pb-0.5" : "lg:h-full lg:flex-col lg:overflow-visible"
-        )}
-      >
+      <div className="flex flex-1 flex-col items-center gap-1.5 overflow-y-auto px-1.5 py-2">
         {EDITOR_TOOL_PANELS.map((panel) => {
           const Icon = ICON_BY_PANEL[panel.id] ?? Layers;
           const isActive = panel.id === activeToolPanelId;
@@ -53,11 +43,9 @@ export function EditorToolRail({ className, layout = "auto" }: EditorToolRailPro
               aria-label={panel.label}
               disabled={disabled}
               className={cn(
-                "group flex shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-[#0f1114]/75 px-3 py-2 text-xs text-zinc-300 transition hover:border-white/20 hover:bg-[#161a1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40",
-                !isHorizontal && "lg:w-full lg:flex-col lg:gap-1 lg:px-1.5 lg:py-2 lg:text-[11px]",
-                isHorizontal && "text-[11px]",
+                "flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-[#0f1114] text-zinc-300 transition hover:border-white/20 hover:bg-[#161a1f]",
                 isActive && "border-white/40 bg-white/10 text-white",
-                disabled && "cursor-not-allowed border-white/5 text-zinc-500"
+                disabled && "cursor-not-allowed border-white/5 text-zinc-600"
               )}
               title={disabled ? `${panel.label} (coming soon)` : panel.description}
               onClick={() => {
@@ -68,15 +56,7 @@ export function EditorToolRail({ className, layout = "auto" }: EditorToolRailPro
                 setMobilePanelExpanded(true);
               }}
             >
-              <Icon
-                className={cn(
-                  "h-4 w-4 shrink-0",
-                  isActive ? "text-white" : "text-zinc-300",
-                  disabled && "text-zinc-500"
-                )}
-              />
-              <span className="whitespace-nowrap">{panel.label}</span>
-              {disabled && <span className="text-[10px] text-zinc-500 lg:hidden">Soon</span>}
+              <Icon className={cn("h-4 w-4", disabled && "text-zinc-600")} />
             </button>
           );
         })}
@@ -84,4 +64,3 @@ export function EditorToolRail({ className, layout = "auto" }: EditorToolRailPro
     </nav>
   );
 }
-
