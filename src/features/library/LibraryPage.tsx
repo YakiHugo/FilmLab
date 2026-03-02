@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { useNavigate } from "@tanstack/react-router";
 import { X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import { useLibraryFilters } from "./hooks/useLibraryFilters";
 import type { LibraryView } from "./types";
 
 export function LibraryPage() {
+  const navigate = useNavigate();
   const assets = useAssetStore((state) => state.assets);
   const importAssets = useAssetStore((state) => state.importAssets);
 
@@ -57,6 +59,12 @@ export function LibraryPage() {
           assets={filteredAssets}
           selectedSet={selectedSet}
           view={filters.view}
+          onOpenInEditor={(assetId) => {
+            void navigate({
+              to: "/editor",
+              search: { assetId },
+            });
+          }}
           onSelectAsset={(assetId, options) =>
             toggleAsset(assetId, {
               additive: options.additive,

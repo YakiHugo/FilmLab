@@ -9,6 +9,7 @@ interface AssetGridProps {
   assets: Asset[];
   selectedSet: Set<string>;
   view: LibraryView;
+  onOpenInEditor?: (assetId: string) => void;
   onSelectAsset: (
     assetId: string,
     options: {
@@ -42,10 +43,12 @@ const toKb = (size: number) => `${Math.max(1, Math.round(size / 1024))} KB`;
 function MasonryAssetCard({
   asset,
   isSelected,
+  onOpenInEditor,
   onSelectAsset,
 }: {
   asset: Asset;
   isSelected: boolean;
+  onOpenInEditor?: AssetGridProps["onOpenInEditor"];
   onSelectAsset: AssetGridProps["onSelectAsset"];
 }) {
   const [isVisible, setIsVisible] = useState(false);
@@ -87,6 +90,9 @@ function MasonryAssetCard({
             range: event.shiftKey,
           })
         }
+        onDoubleClick={() => {
+          onOpenInEditor?.(asset.id);
+        }}
       >
         <p className="truncate pb-1.5 text-[11px] font-medium tracking-wide text-zinc-300">
           {asset.name}
@@ -117,11 +123,13 @@ function AssetCard({
   asset,
   isSelected,
   view,
+  onOpenInEditor,
   onSelectAsset,
 }: {
   asset: Asset;
   isSelected: boolean;
   view: CompactOrListView;
+  onOpenInEditor?: AssetGridProps["onOpenInEditor"];
   onSelectAsset: AssetGridProps["onSelectAsset"];
 }) {
   const src = asset.thumbnailUrl || asset.objectUrl;
@@ -144,6 +152,9 @@ function AssetCard({
               range: event.shiftKey,
             })
           }
+          onDoubleClick={() => {
+            onOpenInEditor?.(asset.id);
+          }}
         >
           <img
             src={src}
@@ -178,6 +189,9 @@ function AssetCard({
             range: event.shiftKey,
           })
         }
+        onDoubleClick={() => {
+          onOpenInEditor?.(asset.id);
+        }}
       >
         <p className="truncate pb-2 text-[11px] font-medium tracking-wide text-zinc-300">
           {asset.name}
@@ -208,7 +222,14 @@ function AssetCard({
   );
 }
 
-export function AssetGrid({ assets, selectedSet, view, onSelectAsset, onImport }: AssetGridProps) {
+export function AssetGrid({
+  assets,
+  selectedSet,
+  view,
+  onOpenInEditor,
+  onSelectAsset,
+  onImport,
+}: AssetGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(1200);
   const [isDragging, setIsDragging] = useState(false);
@@ -291,6 +312,7 @@ export function AssetGrid({ assets, selectedSet, view, onSelectAsset, onImport }
               key={asset.id}
               asset={asset}
               isSelected={selectedSet.has(asset.id)}
+              onOpenInEditor={onOpenInEditor}
               onSelectAsset={onSelectAsset}
             />
           ))}
@@ -312,6 +334,7 @@ export function AssetGrid({ assets, selectedSet, view, onSelectAsset, onImport }
               asset={asset}
               isSelected={selectedSet.has(asset.id)}
               view="grid-compact"
+              onOpenInEditor={onOpenInEditor}
               onSelectAsset={onSelectAsset}
             />
           ))}
@@ -348,6 +371,7 @@ export function AssetGrid({ assets, selectedSet, view, onSelectAsset, onImport }
                   asset={asset}
                   isSelected={selectedSet.has(asset.id)}
                   view="list"
+                  onOpenInEditor={onOpenInEditor}
                   onSelectAsset={onSelectAsset}
                 />
               </div>
