@@ -40,6 +40,13 @@ const EXPORT_FORMATS: ExportFormatOption[] = [
   { id: "webp", label: "WebP", mimeType: "image/webp", extension: "webp" },
 ];
 
+type CubeLutSize = 17 | 33;
+
+const CUBE_LUT_OPTIONS: ReadonlyArray<{ label: string; value: CubeLutSize }> = [
+  { label: "17 (Fast)", value: 17 },
+  { label: "33 (High Quality)", value: 33 },
+];
+
 const resolveLayerBlendOperation = (
   blendMode: EditorLayerBlendMode
 ): GlobalCompositeOperation => {
@@ -146,6 +153,8 @@ export function EditorExportPanel() {
   const [colorSpace, setColorSpace] = useState<ExportColorSpace>("srgb");
   const [metadataMode, setMetadataMode] = useState<ExportMetadataMode>("strip");
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportingLut, setIsExportingLut] = useState(false);
+  const [cubeLutSize, setCubeLutSize] = useState<CubeLutSize>(33);
   const [status, setStatus] = useState<{ type: "success" | "error" | "warning"; text: string } | null>(null);
 
   const activeAdjustments = (previewAdjustments ?? adjustments) as EditingAdjustments | null;
@@ -190,7 +199,8 @@ export function EditorExportPanel() {
     ]
   );
 
-  const canExport = Boolean(selectedAsset && activeAdjustments && !isExporting);
+  const canExportImage = Boolean(selectedAsset && activeAdjustments && !isExporting && !isExportingLut);
+  const canExportCubeLut = Boolean(selectedAsset && activeAdjustments && !isExporting && !isExportingLut);
 
   const handleExport = async () => {
     if (!selectedAsset || !activeAdjustments) {
@@ -354,6 +364,57 @@ export function EditorExportPanel() {
     }
   };
 
+  const handleExportCubeLut = async () => {
+    if (!selectedAsset || !activeAdjustments) {
+      return;
+    }
+
+    setStatus(null);
+    setIsExportingLut(true);
+
+    const [{ generateCubeLUT }, { PipelineRenderer }] = await Promise.all([
+      import("@/lib/export/lutGenerator"),
+      import("@/lib/renderer/PipelineRenderer"),
+    ]);
+    const lutCanvas = document.createElement("canvas");
+    const renderer = new PipelineRenderer(lutCanvas, 1, 1, { label: "export" });
+
+    try {
+      const cubeText = await generateCubeLUT(
+        renderer,
+        activeAdjustments,
+        previewFilmProfile ?? selectedAsset.filmProfile ?? null,
+        cubeLutSize
+      );
+
+      const blob = new Blob([cubeText], { type: "text/plain;charset=utf-8" });
+      const fileBaseName = resolveBaseName(selectedAsset.name);
+      const fileName = `${fileBaseName}-lut-${cubeLutSize}.cube`;
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+
+      setStatus({
+        type: "success",
+        text: `Exported CUBE LUT (${cubeLutSize}^3).`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "LUT export failed.";
+      setStatus({
+        type: "error",
+        text: message,
+      });
+    } finally {
+      renderer.dispose();
+      lutCanvas.width = 0;
+      lutCanvas.height = 0;
+      setIsExportingLut(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="space-y-1">
@@ -497,7 +558,7 @@ export function EditorExportPanel() {
       <Button
         type="button"
         className="w-full"
-        disabled={!canExport}
+        disabled={!canExportImage}
         onClick={() => {
           void handleExport();
         }}
@@ -505,6 +566,40 @@ export function EditorExportPanel() {
         <Download className="h-4 w-4" />
         {isExporting ? "Exporting..." : `Export ${selectedFormat.label}`}
       </Button>
+
+      <div className="space-y-2 rounded-lg border border-white/10 bg-white/5 p-2.5">
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-zinc-100">LUT Export (.cube)</p>
+          <p className="text-[11px] text-zinc-400">
+            Export current global + film look as a 3D LUT.
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+          <Select value={`${cubeLutSize}`} onValueChange={(value) => setCubeLutSize(value === "17" ? 17 : 33)}>
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CUBE_LUT_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={`${option.value}`}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-8"
+            disabled={!canExportCubeLut}
+            onClick={() => {
+              void handleExportCubeLut();
+            }}
+          >
+            {isExportingLut ? "Exporting LUT..." : "Export LUT"}
+          </Button>
+        </div>
+      </div>
 
       {status && (
         <p
