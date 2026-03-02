@@ -47,6 +47,7 @@ export function useEditorState() {
     selectedAssetId,
     selectedLayerId,
     showOriginal,
+    viewportScale,
     activeToolPanelId,
     mobilePanelExpanded,
     curveChannel,
@@ -58,6 +59,7 @@ export function useEditorState() {
     setSelectedAssetId,
     setSelectedLayerId,
     setShowOriginal,
+    setViewportScale,
     setActiveToolPanelId,
     setMobilePanelExpanded,
     setCurveChannel,
@@ -73,6 +75,7 @@ export function useEditorState() {
       selectedAssetId: state.selectedAssetId,
       selectedLayerId: state.selectedLayerId,
       showOriginal: state.showOriginal,
+      viewportScale: state.viewportScale,
       activeToolPanelId: state.activeToolPanelId,
       mobilePanelExpanded: state.mobilePanelExpanded,
       curveChannel: state.curveChannel,
@@ -84,6 +87,7 @@ export function useEditorState() {
       setSelectedAssetId: state.setSelectedAssetId,
       setSelectedLayerId: state.setSelectedLayerId,
       setShowOriginal: state.setShowOriginal,
+      setViewportScale: state.setViewportScale,
       setActiveToolPanelId: state.setActiveToolPanelId,
       setMobilePanelExpanded: state.setMobilePanelExpanded,
       setCurveChannel: state.setCurveChannel,
@@ -325,6 +329,31 @@ export function useEditorState() {
     setSelectedLayerId(duplicated.id);
   }, [addLayer, selectedAsset, selectedLayer, setSelectedLayerId]);
 
+  const addTextureLayer = useCallback(
+    (textureAssetId: string) => {
+      if (!selectedAsset) {
+        return;
+      }
+      const textureAsset = assets.find((asset) => asset.id === textureAssetId);
+      if (!textureAsset) {
+        return;
+      }
+      const textureLayer: EditorLayer = {
+        id: createEditorLayerId("texture"),
+        name: textureAsset.name,
+        type: "texture",
+        visible: true,
+        opacity: 100,
+        blendMode: "normal",
+        textureAssetId,
+        adjustments: createDefaultAdjustments(),
+      };
+      addLayer(selectedAsset.id, textureLayer);
+      setSelectedLayerId(textureLayer.id);
+    },
+    [addLayer, assets, selectedAsset, setSelectedLayerId]
+  );
+
   const setLayerVisibility = useCallback(
     (layerId: string, visible: boolean) => {
       if (!selectedAsset) {
@@ -492,6 +521,7 @@ export function useEditorState() {
     presetLabel,
     filmProfileLabel,
     showOriginal,
+    viewportScale,
     activeToolPanelId,
     mobilePanelExpanded,
     copiedAdjustments,
@@ -512,6 +542,7 @@ export function useEditorState() {
     setSelectedAssetId,
     setSelectedLayerId,
     setShowOriginal,
+    setViewportScale,
     setActiveToolPanelId,
     setMobilePanelExpanded,
     setCustomPresetName,
@@ -520,6 +551,7 @@ export function useEditorState() {
     setSelectedLocalAdjustmentId,
     addAdjustmentLayer,
     addDuplicateLayer,
+    addTextureLayer,
     reorderLayer,
     moveLayer: moveSelectedLayer,
     removeLayer: removeSelectedLayer,

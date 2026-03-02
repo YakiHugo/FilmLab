@@ -88,6 +88,7 @@ const saveOpenSections = (sections: Record<SectionId, boolean>) => {
 interface EditorState {
   selectedAssetId: string | null;
   showOriginal: boolean;
+  viewportScale: number;
   activeToolPanelId: EditorToolPanelId;
   mobilePanelExpanded: boolean;
   copiedAdjustments: EditingAdjustments | null;
@@ -108,6 +109,7 @@ interface EditorState {
   setSelectedAssetId: (assetId: string | null) => void;
   setSelectedLayerId: (layerId: string | null) => void;
   setShowOriginal: (showOriginal: boolean) => void;
+  setViewportScale: (scale: number) => void;
   setActiveToolPanelId: (panelId: EditorToolPanelId) => void;
   setMobilePanelExpanded: (expanded: boolean) => void;
   setCopiedAdjustments: (adjustments: EditingAdjustments | null) => void;
@@ -138,6 +140,7 @@ export const useEditorStore = create<EditorState>()(
       selectedAssetId: null,
       selectedLayerId: null,
       showOriginal: false,
+      viewportScale: 1,
       activeToolPanelId: DEFAULT_EDITOR_TOOL_PANEL_ID,
       mobilePanelExpanded: true,
       copiedAdjustments: null,
@@ -157,6 +160,7 @@ export const useEditorStore = create<EditorState>()(
       setSelectedAssetId: (selectedAssetId) => set({ selectedAssetId }),
       setSelectedLayerId: (selectedLayerId) => set({ selectedLayerId }),
       setShowOriginal: (showOriginal) => set({ showOriginal }),
+      setViewportScale: (viewportScale) => set({ viewportScale }),
       setActiveToolPanelId: (activeToolPanelId) => set({ activeToolPanelId }),
       setMobilePanelExpanded: (mobilePanelExpanded) => set({ mobilePanelExpanded }),
       setCopiedAdjustments: (copiedAdjustments) => set({ copiedAdjustments }),
@@ -330,6 +334,7 @@ on("project:reset", () => {
   useEditorStore.setState({
     selectedLayerId: null,
     selectedAssetId: null,
+    viewportScale: 1,
   });
   useEditorStore.getState().clearAllHistory();
 });
