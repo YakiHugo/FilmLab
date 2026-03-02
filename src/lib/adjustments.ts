@@ -495,6 +495,10 @@ const normalizeAdjustmentsUncached = (
       1
     ),
   };
+  merged.pushPullEv =
+    typeof merged.pushPullEv === "number" && Number.isFinite(merged.pushPullEv)
+      ? clampValue(merged.pushPullEv, -2, 2)
+      : undefined;
   merged.glowIntensity = clampValue(
     Number.isFinite(merged.glowIntensity) ? merged.glowIntensity : defaults.glowIntensity,
     0,

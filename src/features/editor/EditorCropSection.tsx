@@ -454,7 +454,7 @@ export const EditorCropSection = memo(function EditorCropSection({
             size="sm"
             variant="secondary"
             className="h-8 w-full px-0"
-            onClick={() => rotateByRightAngle(90)}
+            onClick={() => rotateByRightAngle(-90)}
             title="Rotate left 90°"
           >
             <RotateCcw className="h-4 w-4" />
@@ -463,7 +463,7 @@ export const EditorCropSection = memo(function EditorCropSection({
             size="sm"
             variant="secondary"
             className="h-8 w-full px-0"
-            onClick={() => rotateByRightAngle(-90)}
+            onClick={() => rotateByRightAngle(90)}
             title="Rotate right 90°"
           >
             <RotateCw className="h-4 w-4" />

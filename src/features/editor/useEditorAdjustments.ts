@@ -53,17 +53,18 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
     adjustmentPreviewFrameRef.current = null;
     const pending = pendingAdjustmentPreviewRef.current;
     pendingAdjustmentPreviewRef.current = null;
-    if (!pending || !selectedAsset) {
+    const liveAsset = resolveLiveAsset();
+    if (!pending || !liveAsset) {
       return;
     }
     const nextAdjustments = {
-      ...normalizeAdjustments(selectedAsset.adjustments),
+      ...normalizeAdjustments(liveAsset.adjustments),
       [pending.key]: pending.value,
     };
     stageEditorPatch(`adjustment:${pending.key}`, {
       adjustments: nextAdjustments,
     });
-  }, [selectedAsset, stageEditorPatch]);
+  }, [resolveLiveAsset, stageEditorPatch]);
 
   const previewAdjustmentValue = useCallback(
     (key: NumericAdjustmentKey, value: number) => {
@@ -80,7 +81,8 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
 
   const updateAdjustmentValue = useCallback(
     (key: NumericAdjustmentKey, value: number) => {
-      if (!selectedAsset) {
+      const liveAsset = resolveLiveAsset();
+      if (!liveAsset) {
         return;
       }
       if (adjustmentPreviewFrameRef.current !== null) {
@@ -89,14 +91,14 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
       }
       pendingAdjustmentPreviewRef.current = null;
       const nextAdjustments = {
-        ...normalizeAdjustments(selectedAsset.adjustments),
+        ...normalizeAdjustments(liveAsset.adjustments),
         [key]: value,
       };
       void commitEditorPatch(`adjustment:${key}`, {
         adjustments: nextAdjustments,
       });
     },
-    [commitEditorPatch, selectedAsset]
+    [commitEditorPatch, resolveLiveAsset]
   );
 
   const previewCropAdjustments = useCallback(

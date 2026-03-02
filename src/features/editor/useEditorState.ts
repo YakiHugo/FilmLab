@@ -84,29 +84,11 @@ export function useEditorState() {
   );
 
   const selectedAsset = useMemo(() => {
-    if (assets.length === 0) {
+    if (assets.length === 0 || !selectedAssetId) {
       return null;
     }
-    return assets.find((asset) => asset.id === selectedAssetId) ?? assets[0] ?? null;
+    return assets.find((asset) => asset.id === selectedAssetId) ?? null;
   }, [assets, selectedAssetId]);
-
-  useEffect(() => {
-    if (assets.length === 0) {
-      if (selectedAssetId !== null) {
-        setSelectedAssetId(null);
-      }
-      return;
-    }
-    const hasValidSelection =
-      typeof selectedAssetId === "string" && assets.some((asset) => asset.id === selectedAssetId);
-    if (hasValidSelection) {
-      return;
-    }
-    const fallbackId = assets[0]?.id ?? null;
-    if (fallbackId && fallbackId !== selectedAssetId) {
-      setSelectedAssetId(fallbackId);
-    }
-  }, [assets, selectedAssetId, setSelectedAssetId]);
 
   useEffect(() => {
     syncLayerState(assets.map((asset) => asset.id));
