@@ -1,4 +1,4 @@
-#version 300 es
+﻿#version 300 es
 precision highp float;
 
 in vec2 vTextureCoord;
@@ -23,7 +23,9 @@ void main() {
     float edge = smoothstep(u_vignetteMidpoint, 1.0, dist);
 
     if (u_vignetteAmount > 0.0) {
-      color *= 1.0 - edge * edge * u_vignetteAmount;
+      float darkening = 1.0 - edge * edge * u_vignetteAmount;
+      float contrastReduction = 1.0 - edge * u_vignetteAmount * 0.15;
+      color = mix(vec3(0.18), color, contrastReduction) * darkening;
     } else {
       color += vec3(edge * edge * abs(u_vignetteAmount) * 0.35);
     }

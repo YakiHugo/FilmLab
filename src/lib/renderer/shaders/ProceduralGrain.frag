@@ -33,11 +33,15 @@ float hash12(vec2 p) {
   return fract((p3.x + p3.y) * p3.z);
 }
 
-float grainFromBlueNoise(vec2 uv, float grainScale, float roughness, vec2 seedOffset) {
+vec4 sampleBlueNoise(vec2 uv, float grainScale, vec2 seedOffset) {
   vec2 noiseUv = fract((uv * u_textureSize / 64.0) * grainScale + seedOffset);
-  float coarse = texture(u_blueNoise, noiseUv).r - 0.5;
-  float fine = texture(u_blueNoise, fract(noiseUv * 1.97 + vec2(0.37, 0.73))).r - 0.5;
-  return mix(coarse, fine, roughness);
+  return texture(u_blueNoise, noiseUv);
+}
+
+float grainFromBlueNoise(vec4 noiseSample, float roughness) {
+  float coarse = noiseSample.r - 0.5;
+  float fine = noiseSample.g - 0.5;
+  return mix(coarse, fine, clamp(roughness, 0.0, 1.0));
 }
 
 float crystalCell(vec2 uv, float cellScale, float variance, float seed) {
@@ -86,10 +90,12 @@ void main() {
       fract(u_grainSeed * 0.000123),
       fract(u_grainSeed * 0.000217)
     );
+    vec4 blueNoise = sampleBlueNoise(vTextureCoord, grainScale, seedOffset);
+    float blueNoiseMono = grainFromBlueNoise(blueNoise, u_grainRoughness);
 
     float monoNoise = 0.0;
     if (u_grainModel < 0.5) {
-      monoNoise = grainFromBlueNoise(vTextureCoord, grainScale, u_grainRoughness, seedOffset);
+      monoNoise = blueNoiseMono;
     } else {
       monoNoise = proceduralGrain(
         vTextureCoord + seedOffset,
@@ -98,7 +104,7 @@ void main() {
         u_crystalSizeVariance,
         u_grainSeed * 0.000013
       );
-      monoNoise = mix(monoNoise, grainFromBlueNoise(vTextureCoord, grainScale, 0.5, seedOffset), 0.2);
+      monoNoise = mix(monoNoise, mix(blueNoise.r - 0.5, blueNoise.b - 0.5, 0.5), 0.2);
     }
 
     float noiseStrength = monoNoise * u_grainAmount * 0.6 * shadowWeight * mtf;
@@ -106,11 +112,13 @@ void main() {
 
     if (u_grainIsColor) {
       vec3 separation = max(u_grainColorSeparation, vec3(0.001));
-      float nR = monoNoise + hash12(vTextureCoord * u_textureSize * 0.47 + vec2(seedOffset.x, 0.13)) - 0.5;
-      float nG = monoNoise + hash12(vTextureCoord * u_textureSize * 0.53 + vec2(seedOffset.y, 0.37)) - 0.5;
-      float nB = monoNoise + hash12(vTextureCoord * u_textureSize * 0.61 + vec2(0.71, seedOffset.x)) - 0.5;
-      vec3 rgbNoise = vec3(nR, nG, nB) * vec3(0.42) * separation;
-      color += rgbNoise * (u_grainAmount * shadowWeight * blackFloorMask * highlightWeight);
+      vec3 chromaNoise = vec3(
+        blueNoise.b - 0.5,
+        blueNoise.a - 0.5,
+        ((blueNoise.r + blueNoise.g) * 0.5) - 0.5
+      );
+      vec3 rgbNoise = (vec3(monoNoise) + chromaNoise * vec3(0.42)) * separation;
+      color += rgbNoise * (u_grainAmount * shadowWeight * blackFloorMask * highlightWeight * mtf);
     } else {
       color += vec3(noiseStrength);
     }

@@ -1,4 +1,4 @@
-#version 300 es
+﻿#version 300 es
 precision highp float;
 
 in vec2 vTextureCoord;
@@ -26,14 +26,20 @@ void main() {
     float n1 = hash12(vec2(seed * 3.1, seed * 0.91));
     float n2 = hash12(vec2(seed * 1.3, seed * 2.4));
 
+    vec2 seedOffset = vec2(fract(seed * 0.73), fract(seed * 0.37));
+    vec2 spatialUv = vTextureCoord * 0.5 + seedOffset;
+    float spatialNoise = hash12(floor(spatialUv * 4.0)) * 0.5 + 0.5;
+
     float exposure = (n0 - 0.5) * 0.16 * amount;
     float contrast = (n1 - 0.5) * 0.22 * amount;
+    float localExposure = exposure * (0.7 + spatialNoise * 0.6);
+    float localContrast = contrast * (0.8 + spatialNoise * 0.4);
     vec3 tint = vec3((n2 - 0.5) * 0.035, 0.0, (0.5 - n2) * 0.03) * amount;
 
-    color *= exp2(exposure);
+    color *= exp2(localExposure);
     const float pivot = 0.18;
-    color = pivot * pow(max(color / pivot, vec3(0.0)), vec3(1.0 + contrast));
-    color += tint;
+    color = pivot * pow(max(color / pivot, vec3(0.0)), vec3(1.0 + localContrast));
+    color += tint * (0.8 + spatialNoise * 0.4);
   }
 
   outColor = vec4(max(color, vec3(0.0)), sampled.a);

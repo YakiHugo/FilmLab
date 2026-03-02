@@ -811,6 +811,16 @@ const createDetailKey = (adj: EditingAdjustments) =>
     toNumberKey(adj.masking, 2),
     toNumberKey(adj.noiseReduction, 2),
     toNumberKey(adj.colorNoiseReduction, 2),
+    (() => {
+      const raw = adj as unknown as Record<string, unknown>;
+      const candidates = [raw.u_shortEdgePx, raw.shortEdgePx];
+      for (const candidate of candidates) {
+        if (typeof candidate === "number" && Number.isFinite(candidate) && candidate > 0) {
+          return toNumberKey(candidate, 2);
+        }
+      }
+      return "auto";
+    })(),
   ].join("|");
 
 const createFilmKey = (resolvedProfile: ResolvedRenderProfile, grainSeed: number) => {
@@ -824,6 +834,12 @@ const createFilmKey = (resolvedProfile: ResolvedRenderProfile, grainSeed: number
         4
       )}`
     : "none";
+  const lutBlendKey = resolvedProfile.lutBlend
+    ? `${resolvedProfile.lutBlend.path}:${resolvedProfile.lutBlend.size}:${toNumberKey(
+        resolvedProfile.lutBlend.mixFactor,
+        4
+      )}`
+    : "none";
   const customLutKey = resolvedProfile.customLut
     ? `${resolvedProfile.customLut.path}:${resolvedProfile.customLut.size}:${toNumberKey(
         resolvedProfile.customLut.intensity,
@@ -833,13 +849,23 @@ const createFilmKey = (resolvedProfile: ResolvedRenderProfile, grainSeed: number
   const printLutKey = resolvedProfile.printLut
     ? `${resolvedProfile.printLut.path}:${resolvedProfile.printLut.size}`
     : "none";
+  const pushPullKey = [
+    resolvedProfile.pushPull.enabled ? "1" : "0",
+    toNumberKey(resolvedProfile.pushPull.ev, 3),
+    resolvedProfile.pushPull.source,
+    resolvedProfile.pushPull.selectedStop === null
+      ? "none"
+      : toNumberKey(resolvedProfile.pushPull.selectedStop, 2),
+  ].join(":");
   return [
     "f",
     resolvedProfile.mode,
     sourceProfileHash,
     lutKey,
+    lutBlendKey,
     customLutKey,
     printLutKey,
+    pushPullKey,
     toNumberKey(grainSeed, 0),
   ].join("|");
 };
@@ -1149,7 +1175,13 @@ const renderWithPipeline = async (
       scratch.hsl = hslUniforms;
       const curveUniforms = modules.resolveCurveUniforms(adjustments, scratch.curve);
       scratch.curve = curveUniforms;
-      const detailUniforms = modules.resolveDetailUniforms(adjustments, scratch.detail);
+      const detailUniforms = modules.resolveDetailUniforms(
+        adjustments,
+        {
+          shortEdgePx: Math.min(options.targetWidth, options.targetHeight),
+        },
+        scratch.detail
+      );
       scratch.detail = detailUniforms;
 
       let filmUniforms:
@@ -1177,6 +1209,9 @@ const renderWithPipeline = async (
           if (!filmUniforms.u_lutEnabled) {
             filmUniforms.u_lutIntensity = 0;
           }
+          filmUniforms.u_lutMixEnabled =
+            filmUniforms.u_lutEnabled && !!options.resolvedProfile.lutBlend;
+          filmUniforms.u_lutMixFactor = options.resolvedProfile.lutBlend?.mixFactor ?? 0;
           filmUniforms.u_customLutEnabled =
             filmUniforms.u_customLutEnabled && !!options.resolvedProfile.customLut;
           if (!filmUniforms.u_customLutEnabled) {
@@ -1192,6 +1227,15 @@ const renderWithPipeline = async (
             await renderer.ensureLUT({
               url: options.resolvedProfile.lut.path,
               level: options.resolvedProfile.lut.size,
+            });
+          }
+          if (
+            options.resolvedProfile.lutBlend &&
+            typeof renderer.ensureLUTBlend === "function"
+          ) {
+            await renderer.ensureLUTBlend({
+              url: options.resolvedProfile.lutBlend.path,
+              level: options.resolvedProfile.lutBlend.size,
             });
           }
 
@@ -2752,4 +2796,3 @@ export const renderImageToBlob = async (
     canvas.height = 0;
   }
 };
-
