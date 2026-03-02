@@ -1,4 +1,4 @@
-﻿import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useMemo, useRef } from "react";
 import { presets as basePresets } from "@/data/presets";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,10 +29,6 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
 
   const importRef = useRef<HTMLInputElement | null>(null);
   const filmImportRef = useRef<HTMLInputElement | null>(null);
-  const [feedback, setFeedback] = useState<{
-    type: "success" | "error";
-    text: string;
-  } | null>(null);
 
   const selectedPresetId = selectedAsset?.presetId;
   const canSaveCustomPreset = Boolean(previewAdjustments);
@@ -42,16 +38,6 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
     [allPresets, selectedAsset?.aiRecommendation]
   );
 
-  useEffect(() => {
-    if (!feedback) {
-      return undefined;
-    }
-    const timer = window.setTimeout(() => {
-      setFeedback(null);
-    }, 2600);
-    return () => window.clearTimeout(timer);
-  }, [feedback]);
-
   const handleImportFile: React.ChangeEventHandler<HTMLInputElement> = (event) => {
     const file = event.currentTarget.files?.[0] ?? null;
     if (!file) {
@@ -59,12 +45,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
       return;
     }
     void (async () => {
-      const importedCount = await handleImportPresets(file);
-      if (importedCount > 0) {
-        setFeedback({ type: "success", text: `Imported ${importedCount} preset(s).` });
-      } else {
-        setFeedback({ type: "error", text: "Import failed or no valid presets found." });
-      }
+      await handleImportPresets(file);
     })();
     event.currentTarget.value = "";
   };
@@ -76,12 +57,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
       return;
     }
     void (async () => {
-      const imported = await handleImportFilmProfile(file);
-      setFeedback(
-        imported
-          ? { type: "success", text: "Film profile imported." }
-          : { type: "error", text: "Film profile import failed. Please check the JSON file." }
-      );
+      await handleImportFilmProfile(file);
     })();
     event.currentTarget.value = "";
   };
@@ -174,15 +150,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
               <Button
                 className="w-full"
                 onClick={() => {
-                  const saved = handleSaveCustomPreset();
-                  setFeedback(
-                    saved
-                      ? { type: "success", text: "Custom preset saved." }
-                      : {
-                          type: "error",
-                          text: "Save failed. Ensure name is provided and adjustments are available.",
-                        }
-                  );
+                  handleSaveCustomPreset();
                 }}
                 disabled={!customPresetName.trim() || !canSaveCustomPreset}
               >
@@ -195,12 +163,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
                 size="sm"
                 variant="secondary"
                 onClick={() => {
-                  const exported = handleExportPresets();
-                  setFeedback(
-                    exported
-                      ? { type: "success", text: "Presets exported as JSON." }
-                      : { type: "error", text: "No custom presets available to export." }
-                  );
+                  handleExportPresets();
                 }}
                 disabled={customPresets.length === 0}
               >
@@ -223,12 +186,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
                 size="sm"
                 variant="secondary"
                 onClick={() => {
-                  const exported = handleExportFilmProfile();
-                  setFeedback(
-                    exported
-                      ? { type: "success", text: "Film profile exported as JSON." }
-                      : { type: "error", text: "No active film profile to export." }
-                  );
+                  handleExportFilmProfile();
                 }}
                 disabled={!selectedAsset}
               >
@@ -253,17 +211,6 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
           </div>
         </details>
 
-        {feedback && (
-          <p
-            role="status"
-            aria-live="polite"
-            className={
-              feedback.type === "success" ? "text-xs text-emerald-300" : "text-xs text-rose-300"
-            }
-          >
-            {feedback.text}
-          </p>
-        )}
       </CardContent>
     </Card>
   );
