@@ -1,6 +1,5 @@
-﻿import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { normalizeAdjustments } from "@/lib/adjustments";
-import { useAssetStore } from "@/stores/assetStore";
 import type { Asset, AssetUpdate, EditingAdjustments } from "@/types";
 import type { NumericAdjustmentKey } from "./types";
 
@@ -42,28 +41,25 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
   );
 
   const resolveLiveAsset = useCallback(() => {
-    const assetId = selectedAsset?.id;
-    if (!assetId) {
-      return null;
-    }
-    return useAssetStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+    return selectedAsset;
   }, [selectedAsset]);
 
   const flushAdjustmentPreview = useCallback(() => {
     adjustmentPreviewFrameRef.current = null;
     const pending = pendingAdjustmentPreviewRef.current;
     pendingAdjustmentPreviewRef.current = null;
-    if (!pending || !selectedAsset) {
+    const liveAsset = resolveLiveAsset();
+    if (!pending || !liveAsset) {
       return;
     }
     const nextAdjustments = {
-      ...normalizeAdjustments(selectedAsset.adjustments),
+      ...normalizeAdjustments(liveAsset.adjustments),
       [pending.key]: pending.value,
     };
     stageEditorPatch(`adjustment:${pending.key}`, {
       adjustments: nextAdjustments,
     });
-  }, [selectedAsset, stageEditorPatch]);
+  }, [resolveLiveAsset, stageEditorPatch]);
 
   const previewAdjustmentValue = useCallback(
     (key: NumericAdjustmentKey, value: number) => {
@@ -80,7 +76,8 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
 
   const updateAdjustmentValue = useCallback(
     (key: NumericAdjustmentKey, value: number) => {
-      if (!selectedAsset) {
+      const liveAsset = resolveLiveAsset();
+      if (!liveAsset) {
         return;
       }
       if (adjustmentPreviewFrameRef.current !== null) {
@@ -89,14 +86,14 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
       }
       pendingAdjustmentPreviewRef.current = null;
       const nextAdjustments = {
-        ...normalizeAdjustments(selectedAsset.adjustments),
+        ...normalizeAdjustments(liveAsset.adjustments),
         [key]: value,
       };
       void commitEditorPatch(`adjustment:${key}`, {
         adjustments: nextAdjustments,
       });
     },
-    [commitEditorPatch, selectedAsset]
+    [commitEditorPatch, resolveLiveAsset]
   );
 
   const previewCropAdjustments = useCallback(
@@ -193,12 +190,7 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
 
   const previewPointCurve = useCallback(
     (points: EditingAdjustments["pointCurve"]["rgb"]) => {
-      const assetId = selectedAsset?.id;
-      if (!assetId) {
-        return;
-      }
-      const liveAsset =
-        useAssetStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+      const liveAsset = resolveLiveAsset();
       if (!liveAsset) {
         return;
       }
@@ -217,17 +209,12 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
         adjustments: nextAdjustments,
       });
     },
-    [selectedAsset, stageEditorPatch]
+    [resolveLiveAsset, stageEditorPatch]
   );
 
   const commitPointCurve = useCallback(
     (points: EditingAdjustments["pointCurve"]["rgb"]) => {
-      const assetId = selectedAsset?.id;
-      if (!assetId) {
-        return false;
-      }
-      const liveAsset =
-        useAssetStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+      const liveAsset = resolveLiveAsset();
       if (!liveAsset) {
         return false;
       }
@@ -246,7 +233,7 @@ export function useEditorAdjustments(selectedAsset: Asset | null, actions: Edito
         adjustments: nextAdjustments,
       });
     },
-    [commitEditorPatch, selectedAsset]
+    [commitEditorPatch, resolveLiveAsset]
   );
 
   return {

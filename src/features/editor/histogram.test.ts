@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildHistogram, forceMonochromeHistogramMode, type HistogramData } from "./histogram";
+import {
+  buildHistogram,
+  forceMonochromeHistogramMode,
+  HISTOGRAM_TARGET_SAMPLE_COUNT,
+  resolveHistogramSampleStride,
+  type HistogramData,
+} from "./histogram";
 
 const clampByte = (value: number) => Math.max(0, Math.min(255, Math.round(value)));
 
@@ -27,6 +33,36 @@ const collectBins = (histogram: HistogramData) => [
 ];
 
 describe("buildHistogram", () => {
+  it("samples every pixel when pixel count is within target sample count", () => {
+    const pixelCount = Math.floor(HISTOGRAM_TARGET_SAMPLE_COUNT / 4);
+    const data = createPixelData(pixelCount, (index) => {
+      const value = index % 256;
+      return [value, value, value, 255];
+    });
+
+    const histogram = buildHistogram(data);
+
+    expect(resolveHistogramSampleStride(pixelCount)).toBe(4);
+    expect(histogram.analysis.sampleCount).toBe(pixelCount);
+  });
+
+  it("increases stride for large inputs to cap sampled pixels", () => {
+    const pixelCount = HISTOGRAM_TARGET_SAMPLE_COUNT * 6 + 33;
+    const stride = resolveHistogramSampleStride(pixelCount);
+    const stridePixels = stride / 4;
+    const expectedSamples = Math.ceil(pixelCount / stridePixels);
+    const data = createPixelData(pixelCount, (index) => {
+      const value = index % 256;
+      return [value, value, value, 255];
+    });
+
+    const histogram = buildHistogram(data);
+
+    expect(stride).toBeGreaterThan(4);
+    expect(histogram.analysis.sampleCount).toBe(expectedSamples);
+    expect(histogram.analysis.sampleCount).toBeLessThanOrEqual(HISTOGRAM_TARGET_SAMPLE_COUNT);
+  });
+
   it("detects a pure grayscale gradient as monochrome overlap", () => {
     const data = createPixelData(512, (index) => {
       const value = index % 256;

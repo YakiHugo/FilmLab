@@ -38,6 +38,14 @@ export function useEditorHistory(selectedAsset: Asset | null) {
     pendingHistoryRef.current = {};
   }, [selectedAsset?.id]);
 
+  const resolveLiveAsset = useCallback(() => {
+    const assetId = selectedAsset?.id;
+    if (!assetId) {
+      return null;
+    }
+    return useAssetStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+  }, [selectedAsset]);
+
   const clearPendingHistoryForAsset = useCallback((assetId: string) => {
     const prefix = `${assetId}:`;
     Object.keys(pendingHistoryRef.current).forEach((key) => {
@@ -49,54 +57,57 @@ export function useEditorHistory(selectedAsset: Asset | null) {
 
   const applyEditorPatch = useCallback(
     (patch: AssetUpdate, options?: { before?: EditorAssetSnapshot }) => {
-      if (!selectedAsset) {
+      const liveAsset = resolveLiveAsset();
+      if (!liveAsset) {
         return false;
       }
-      const before = options?.before ?? createEditorAssetSnapshot(selectedAsset);
-      const merged: Asset = { ...selectedAsset, ...patch };
+      const before = options?.before ?? createEditorAssetSnapshot(liveAsset);
+      const merged: Asset = { ...liveAsset, ...patch };
       const after = createEditorAssetSnapshot(merged);
       if (isEditorAssetSnapshotEqual(before, after)) {
         return false;
       }
-      pushHistory(selectedAsset.id, before);
-      updateAsset(selectedAsset.id, patch);
+      pushHistory(liveAsset.id, before);
+      updateAsset(liveAsset.id, patch);
       return true;
     },
-    [pushHistory, selectedAsset, updateAsset]
+    [pushHistory, resolveLiveAsset, updateAsset]
   );
 
   const stageEditorPatch = useCallback(
     (historyKey: string, patch: AssetUpdate) => {
-      if (!selectedAsset) {
+      const liveAsset = resolveLiveAsset();
+      if (!liveAsset) {
         return;
       }
-      const sessionKey = createHistorySessionKey(selectedAsset.id, historyKey);
+      const sessionKey = createHistorySessionKey(liveAsset.id, historyKey);
       if (!pendingHistoryRef.current[sessionKey]) {
-        pendingHistoryRef.current[sessionKey] = createEditorAssetSnapshot(selectedAsset);
+        pendingHistoryRef.current[sessionKey] = createEditorAssetSnapshot(liveAsset);
       }
       const before = pendingHistoryRef.current[sessionKey];
-      const merged: Asset = { ...selectedAsset, ...patch };
+      const merged: Asset = { ...liveAsset, ...patch };
       const after = createEditorAssetSnapshotRef(merged);
       if (isEditorAssetSnapshotEqual(before, after)) {
         return;
       }
-      updateAssetOnly(selectedAsset.id, patch);
+      updateAssetOnly(liveAsset.id, patch);
     },
-    [selectedAsset, updateAssetOnly]
+    [resolveLiveAsset, updateAssetOnly]
   );
 
   const commitEditorPatch = useCallback(
     (historyKey: string, patch: AssetUpdate) => {
-      if (!selectedAsset) {
+      const liveAsset = resolveLiveAsset();
+      if (!liveAsset) {
         return false;
       }
-      const sessionKey = createHistorySessionKey(selectedAsset.id, historyKey);
+      const sessionKey = createHistorySessionKey(liveAsset.id, historyKey);
       const before =
-        pendingHistoryRef.current[sessionKey] ?? createEditorAssetSnapshot(selectedAsset);
+        pendingHistoryRef.current[sessionKey] ?? createEditorAssetSnapshot(liveAsset);
       delete pendingHistoryRef.current[sessionKey];
       return applyEditorPatch(patch, { before });
     },
-    [applyEditorPatch, selectedAsset]
+    [applyEditorPatch, resolveLiveAsset]
   );
 
   const selectedAssetId = selectedAsset?.id ?? null;

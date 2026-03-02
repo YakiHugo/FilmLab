@@ -73,6 +73,7 @@ export interface DetailUniforms {
   masking: number;
   noiseReduction: number;
   colorNoiseReduction: number;
+  u_shortEdgePx: number;
 }
 
 export interface FilmUniforms {
@@ -99,12 +100,15 @@ export interface FilmUniforms {
 
   u_lutEnabled: boolean;
   u_lutIntensity: number;
+  u_lutMixEnabled: boolean;
+  u_lutMixFactor: number;
 
   u_printEnabled: boolean;
   u_printDensity: number;
   u_printContrast: number;
   u_printWarmth: number;
   u_printStock: number;
+  u_printTargetWhiteKelvin: number;
   u_printLutEnabled: boolean;
   u_printLutIntensity: number;
 
@@ -150,6 +154,10 @@ export interface FilmUniforms {
   u_filmBreathEnabled: boolean;
   u_breathAmount: number;
   u_breathSeed: number;
+  u_gateWeaveEnabled: boolean;
+  u_gateWeaveAmount: number;
+  u_gateWeaveSeed: number;
+  u_pushPullEv: number;
 
   u_filmDamageEnabled: boolean;
   u_damageAmount: number;

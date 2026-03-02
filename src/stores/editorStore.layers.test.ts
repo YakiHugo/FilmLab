@@ -1,57 +1,23 @@
-import { beforeEach, describe, expect, it } from "vitest";
+﻿import { beforeEach, describe, expect, it } from "vitest";
 import { useEditorStore } from "./editorStore";
 
-describe("editorStore layer state", () => {
+describe("editorStore layer selection", () => {
   beforeEach(() => {
-    useEditorStore.setState({
-      layerOrder: [],
-      layerVisibilityByAssetId: {},
-      layerOpacityByAssetId: {},
-      layerBlendModeByAssetId: {},
-    });
+    useEditorStore.setState({ selectedLayerId: null });
   });
 
-  it("initializes missing layer defaults during sync", () => {
+  it("sets selected layer id", () => {
     const store = useEditorStore.getState();
-    store.syncLayerState(["asset-a", "asset-b"]);
+    store.setSelectedLayerId("layer-1");
 
-    const next = useEditorStore.getState();
-    expect(next.layerOrder).toEqual(["asset-a", "asset-b"]);
-    expect(next.layerVisibilityByAssetId["asset-a"]).toBe(true);
-    expect(next.layerOpacityByAssetId["asset-b"]).toBe(100);
-    expect(next.layerBlendModeByAssetId["asset-a"]).toBe("normal");
+    expect(useEditorStore.getState().selectedLayerId).toBe("layer-1");
   });
 
-  it("preserves known order and appends newly added assets", () => {
+  it("clears selected layer id", () => {
     const store = useEditorStore.getState();
-    store.syncLayerState(["a", "b", "c"]);
-    store.setLayerOrder(["c", "a", "b"]);
-    store.syncLayerState(["a", "b", "c", "d"]);
+    store.setSelectedLayerId("layer-1");
+    store.setSelectedLayerId(null);
 
-    const next = useEditorStore.getState();
-    expect(next.layerOrder).toEqual(["c", "a", "b", "d"]);
-  });
-
-  it("moves layers up and down", () => {
-    const store = useEditorStore.getState();
-    store.syncLayerState(["a", "b", "c"]);
-    store.moveLayer("b", "up");
-    expect(useEditorStore.getState().layerOrder).toEqual(["b", "a", "c"]);
-    store.moveLayer("b", "down");
-    expect(useEditorStore.getState().layerOrder).toEqual(["a", "b", "c"]);
-  });
-
-  it("updates visibility, opacity, and blend mode", () => {
-    const store = useEditorStore.getState();
-    store.syncLayerState(["a"]);
-    store.setLayerVisibility("a", false);
-    store.setLayerOpacity("a", 37.4);
-    store.setLayerBlendMode("a", "overlay");
-
-    const next = useEditorStore.getState();
-    expect(next.layerVisibilityByAssetId["a"]).toBe(false);
-    expect(next.layerOpacityByAssetId["a"]).toBe(37);
-    expect(next.layerBlendModeByAssetId["a"]).toBe("overlay");
+    expect(useEditorStore.getState().selectedLayerId).toBeNull();
   });
 });
-

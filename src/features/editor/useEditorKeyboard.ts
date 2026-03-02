@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { isEditableElement, ZOOM_STEP } from "./cropGeometry";
 
 interface UseEditorKeyboardOptions {
   selectedAsset: { id: string } | null | undefined;
-  showOriginal: boolean;
   isCropMode: boolean;
   viewScale: number;
   toggleOriginal: () => void;
@@ -15,7 +14,6 @@ interface UseEditorKeyboardOptions {
 
 export function useEditorKeyboard({
   selectedAsset,
-  showOriginal,
   isCropMode,
   viewScale,
   toggleOriginal,
@@ -24,25 +22,12 @@ export function useEditorKeyboard({
   resetView,
   handleZoom,
 }: UseEditorKeyboardOptions) {
-  const [actionMessage, setActionMessage] = useState<{
-    type: "success" | "error";
-    text: string;
-  } | null>(null);
-
   const triggerUndo = useCallback(() => {
-    const undone = handleUndo();
-    setActionMessage(
-      undone ? { type: "success", text: "已撤销。" } : { type: "error", text: "没有可撤销的操作。" }
-    );
-    return undone;
+    return handleUndo();
   }, [handleUndo]);
 
   const triggerRedo = useCallback(() => {
-    const redone = handleRedo();
-    setActionMessage(
-      redone ? { type: "success", text: "已重做。" } : { type: "error", text: "没有可重做的操作。" }
-    );
-    return redone;
+    return handleRedo();
   }, [handleRedo]);
 
   useEffect(() => {
@@ -75,10 +60,6 @@ export function useEditorKeyboard({
       if (key === "o") {
         event.preventDefault();
         toggleOriginal();
-        setActionMessage({
-          type: "success",
-          text: !showOriginal ? "已切换为原图预览。" : "已切换回编辑预览。",
-        });
         return;
       }
 
@@ -113,23 +94,9 @@ export function useEditorKeyboard({
     isCropMode,
     resetView,
     selectedAsset,
-    showOriginal,
     toggleOriginal,
     triggerRedo,
     triggerUndo,
     viewScale,
   ]);
-
-  // Auto-dismiss action messages
-  useEffect(() => {
-    if (!actionMessage) {
-      return undefined;
-    }
-    const timer = window.setTimeout(() => {
-      setActionMessage(null);
-    }, 2200);
-    return () => window.clearTimeout(timer);
-  }, [actionMessage]);
-
-  return { actionMessage, setActionMessage };
 }

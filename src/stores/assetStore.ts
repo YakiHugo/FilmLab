@@ -1,7 +1,17 @@
-﻿import { create } from "zustand";
+import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import { presets } from "@/data/presets";
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
+import {
+  cloneEditorLayers,
+  createBaseLayer,
+  createEditorLayerId,
+  ensureAssetLayers,
+  moveLayerByDirection,
+  resolveBaseAdjustmentsFromLayers,
+  resolveLayerAdjustments,
+  resolveBaseLayer,
+} from "@/lib/editorLayers";
 import {
   clearAssets,
   clearCanvasDocuments,
@@ -14,7 +24,7 @@ import {
 } from "@/lib/db";
 import { emit } from "@/lib/storeEvents";
 import { loadCustomPresets } from "@/features/editor/presetUtils";
-import type { Asset } from "@/types";
+import type { Asset, EditorLayer } from "@/types";
 import {
   DEFAULT_PROJECT_ID,
   DEFAULT_PROJECT_NAME,
@@ -95,6 +105,53 @@ const revokeAssetUrls = (assets: Asset[]) => {
   });
 };
 
+const withLayerMutation = (
+  asset: Asset,
+  mutate: (layers: EditorLayer[]) => EditorLayer[]
+): Asset => {
+  const currentLayers = ensureAssetLayers(asset);
+  const nextLayers = mutate(cloneEditorLayers(currentLayers));
+  const normalizedLayers = ensureAssetLayers({
+    id: asset.id,
+    adjustments: asset.adjustments,
+    layers: nextLayers,
+  });
+  const nextAdjustments = resolveBaseAdjustmentsFromLayers(normalizedLayers, asset.adjustments);
+  return {
+    ...asset,
+    adjustments: nextAdjustments,
+    layers: normalizedLayers,
+  };
+};
+
+const applyNormalizedAssetUpdate = (asset: Asset, update: ReturnType<typeof normalizeAssetUpdate>) => {
+  const merged: Asset = {
+    ...asset,
+    ...update,
+  };
+
+  if (update.adjustments && !update.layers) {
+    const layersWithUpdatedBase = withLayerMutation(merged, (layers) =>
+      layers.map((layer) =>
+        layer.type === "base"
+          ? {
+              ...layer,
+              adjustments: normalizeAdjustments(update.adjustments),
+            }
+          : layer
+      )
+    );
+    return layersWithUpdatedBase;
+  }
+
+  const normalizedLayers = ensureAssetLayers(merged);
+  return {
+    ...merged,
+    layers: normalizedLayers,
+    adjustments: resolveBaseAdjustmentsFromLayers(normalizedLayers, merged.adjustments),
+  };
+};
+
 const createEmptyImportResult = (): AddAssetsResult => ({
   requested: 0,
   accepted: 0,
@@ -150,6 +207,15 @@ export const useAssetStore = create<ProjectState>()(
             : objectUrl;
           const importDay = resolveAssetImportDay(stored);
           const tags = normalizeTags(stored.tags ?? []);
+          const normalizedAdjustments = normalizeAdjustments(
+            stored.adjustments ?? createDefaultAdjustments()
+          );
+
+          const normalizedLayers = ensureAssetLayers({
+            id: stored.id,
+            adjustments: normalizedAdjustments,
+            layers: stored.layers,
+          });
 
           return {
             id: stored.id,
@@ -170,7 +236,8 @@ export const useAssetStore = create<ProjectState>()(
             blob: stored.blob,
             thumbnailBlob: stored.thumbnailBlob,
             metadata: stored.metadata,
-            adjustments: normalizeAdjustments(stored.adjustments ?? createDefaultAdjustments()),
+            adjustments: resolveBaseAdjustmentsFromLayers(normalizedLayers, normalizedAdjustments),
+            layers: normalizedLayers,
             aiRecommendation: stored.aiRecommendation,
             source: stored.source,
           };
@@ -201,7 +268,12 @@ export const useAssetStore = create<ProjectState>()(
             const normalizedImportDay = asset.importDay;
             const storedTags = normalizeTags(stored.tags ?? []);
             const nextTags = asset.tags ?? [];
-            return storedImportDay !== normalizedImportDay || storedTags.join("|") !== nextTags.join("|");
+            return (
+              storedImportDay !== normalizedImportDay ||
+              storedTags.join("|") !== nextTags.join("|") ||
+              !Array.isArray(stored.layers) ||
+              stored.layers.length === 0
+            );
           })
           .map((asset) => toStoredAsset(asset))
           .filter((payload): payload is NonNullable<ReturnType<typeof toStoredAsset>> => Boolean(payload));
@@ -312,7 +384,7 @@ export const useAssetStore = create<ProjectState>()(
       updateAsset: (assetId, update) => {
         const normalizedUpdate = normalizeAssetUpdate(update);
         const nextAssets = get().assets.map((asset) =>
-          asset.id === assetId ? { ...asset, ...normalizedUpdate } : asset
+          asset.id === assetId ? applyNormalizedAssetUpdate(asset, normalizedUpdate) : asset
         );
         const updatedAsset = nextAssets.find((asset) => asset.id === assetId);
         if (updatedAsset) {
@@ -324,9 +396,197 @@ export const useAssetStore = create<ProjectState>()(
       updateAssetOnly: (assetId, update) => {
         const normalizedUpdate = normalizeAssetUpdate(update);
         const nextAssets = get().assets.map((asset) =>
-          asset.id === assetId ? { ...asset, ...normalizedUpdate } : asset
+          asset.id === assetId ? applyNormalizedAssetUpdate(asset, normalizedUpdate) : asset
         );
         set({ assets: nextAssets });
+      },
+
+      addLayer: (assetId, layer) => {
+        let changed: Asset | null = null;
+        set((state) => ({
+          assets: state.assets.map((asset) => {
+            if (asset.id !== assetId) {
+              return asset;
+            }
+            changed = withLayerMutation(asset, (layers) =>
+              layer.type === "base" ? [...layers, layer] : [layer, ...layers]
+            );
+            return changed;
+          }),
+        }));
+        if (changed) {
+          persistAsset(changed);
+        }
+      },
+
+      removeLayer: (assetId, layerId) => {
+        let changed: Asset | null = null;
+        set((state) => ({
+          assets: state.assets.map((asset) => {
+            if (asset.id !== assetId) {
+              return asset;
+            }
+            changed = withLayerMutation(asset, (layers) => {
+              if (layers.length <= 1) {
+                return layers;
+              }
+              const target = layers.find((layer) => layer.id === layerId);
+              if (!target || target.type === "base") {
+                return layers;
+              }
+              return layers.filter((layer) => layer.id !== layerId);
+            });
+            return changed;
+          }),
+        }));
+        if (changed) {
+          persistAsset(changed);
+        }
+      },
+
+      updateLayer: (assetId, layerId, patch) => {
+        let changed: Asset | null = null;
+        set((state) => ({
+          assets: state.assets.map((asset) => {
+            if (asset.id !== assetId) {
+              return asset;
+            }
+            changed = withLayerMutation(asset, (layers) =>
+              layers.map((layer) => (layer.id === layerId ? { ...layer, ...patch } : layer))
+            );
+            return changed;
+          }),
+        }));
+        if (changed) {
+          persistAsset(changed);
+        }
+      },
+
+      moveLayer: (assetId, layerId, direction) => {
+        let changed: Asset | null = null;
+        set((state) => ({
+          assets: state.assets.map((asset) => {
+            if (asset.id !== assetId) {
+              return asset;
+            }
+            changed = withLayerMutation(asset, (layers) =>
+              moveLayerByDirection(layers, layerId, direction)
+            );
+            return changed;
+          }),
+        }));
+        if (changed) {
+          persistAsset(changed);
+        }
+      },
+
+      duplicateLayer: (assetId, layerId) => {
+        let changed: Asset | null = null;
+        set((state) => ({
+          assets: state.assets.map((asset) => {
+            if (asset.id !== assetId) {
+              return asset;
+            }
+            changed = withLayerMutation(asset, (layers) => {
+              const sourceIndex = layers.findIndex((layer) => layer.id === layerId);
+              if (sourceIndex < 0) {
+                return layers;
+              }
+              const source = layers[sourceIndex]!;
+              const duplicate: EditorLayer = {
+                ...source,
+                id: createEditorLayerId("layer"),
+                type: source.type === "base" ? "duplicate" : source.type,
+                name: `${source.name} Copy`,
+              };
+              const nextLayers = cloneEditorLayers(layers);
+              nextLayers.splice(sourceIndex, 0, duplicate);
+              return nextLayers;
+            });
+            return changed;
+          }),
+        }));
+        if (changed) {
+          persistAsset(changed);
+        }
+      },
+
+      mergeLayerDown: (assetId, layerId) => {
+        let changed: Asset | null = null;
+        set((state) => ({
+          assets: state.assets.map((asset) => {
+            if (asset.id !== assetId) {
+              return asset;
+            }
+            changed = withLayerMutation(asset, (layers) => {
+              const index = layers.findIndex((layer) => layer.id === layerId);
+              if (index < 0 || index >= layers.length - 1) {
+                return layers;
+              }
+              const current = layers[index]!;
+              const below = layers[index + 1]!;
+              if (current.type === "base") {
+                return layers;
+              }
+
+              const mergedAdjustments = {
+                ...resolveLayerAdjustments(below, asset.adjustments),
+                ...(current.adjustments ?? {}),
+              };
+
+              const nextLayers = cloneEditorLayers(layers);
+              nextLayers[index + 1] = {
+                ...below,
+                adjustments: mergedAdjustments,
+              };
+              nextLayers.splice(index, 1);
+              return nextLayers;
+            });
+            return changed;
+          }),
+        }));
+        if (changed) {
+          persistAsset(changed);
+        }
+      },
+
+      flattenLayers: (assetId) => {
+        let changed: Asset | null = null;
+        set((state) => ({
+          assets: state.assets.map((asset) => {
+            if (asset.id !== assetId) {
+              return asset;
+            }
+            changed = withLayerMutation(asset, (layers) => {
+              const base = resolveBaseLayer(layers) ?? createBaseLayer(asset);
+              let flattenedAdjustments = resolveLayerAdjustments(base, asset.adjustments);
+              for (const layer of [...layers].reverse()) {
+                if (layer.id === base.id || !layer.visible || !layer.adjustments) {
+                  continue;
+                }
+                flattenedAdjustments = {
+                  ...flattenedAdjustments,
+                  ...layer.adjustments,
+                };
+              }
+              return [
+                {
+                  ...base,
+                  name: "Background",
+                  type: "base",
+                  visible: true,
+                  opacity: 100,
+                  blendMode: "normal",
+                  adjustments: flattenedAdjustments,
+                },
+              ];
+            });
+            return changed;
+          }),
+        }));
+        if (changed) {
+          persistAsset(changed);
+        }
       },
 
       setSelectedAssetIds: (assetIds) => {

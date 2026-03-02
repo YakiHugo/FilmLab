@@ -7,6 +7,7 @@ out vec4 outColor;
 uniform sampler2D uSampler;
 uniform bool u_enabled;
 uniform vec2 u_texelSize;
+uniform float u_shortEdgePx;
 
 uniform float u_texture;
 uniform float u_clarity;
@@ -20,6 +21,17 @@ uniform float u_nrKernelRadius;
 
 float luminance(vec3 c) {
   return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+float resolveShortEdgePx() {
+  if (u_shortEdgePx > 0.0) {
+    return u_shortEdgePx;
+  }
+  float maxTexel = max(u_texelSize.x, u_texelSize.y);
+  if (maxTexel <= 0.0) {
+    return 1.0;
+  }
+  return 1.0 / maxTexel;
 }
 
 vec3 sampleCrossBlur(vec2 uv, float radiusPx) {
@@ -59,9 +71,12 @@ void main() {
   }
 
   float sharpenRadius = mix(0.8, 2.4, clamp(u_sharpenRadius * 0.01, 0.0, 1.0));
+  float shortEdgePx = max(resolveShortEdgePx(), 1.0);
+  float mediumRadiusPx = max(1.0, shortEdgePx * 0.008);
+  float coarseRadiusPx = max(mediumRadiusPx + 0.5, shortEdgePx * 0.03);
   vec3 blurFine = sampleCrossBlur(vTextureCoord, sharpenRadius);
-  vec3 blurMedium = sampleRingBlur(vTextureCoord, 8.0);
-  vec3 blurCoarse = sampleRingBlur(vTextureCoord, 32.0);
+  vec3 blurMedium = sampleRingBlur(vTextureCoord, mediumRadiusPx);
+  vec3 blurCoarse = sampleRingBlur(vTextureCoord, coarseRadiusPx);
   vec3 blurClarity = mix(blurMedium, blurCoarse, 0.55);
 
   vec3 highPassFine = center - blurFine;

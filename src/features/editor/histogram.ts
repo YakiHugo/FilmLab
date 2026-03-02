@@ -1,5 +1,6 @@
 const HISTOGRAM_BINS = 64;
-const SAMPLE_STRIDE = 16;
+const RGBA_STRIDE = 4;
+export const HISTOGRAM_TARGET_SAMPLE_COUNT = 16_384;
 const DELTA_BINS = 256;
 const TRANSPARENT_ALPHA_THRESHOLD = 8;
 const MONOCHROME_P95_THRESHOLD = 8;
@@ -44,6 +45,14 @@ export const forceMonochromeHistogramMode = (
 const resolveBinIndex = (value: number) =>
   Math.min(HISTOGRAM_BINS - 1, Math.floor((value / 255) * (HISTOGRAM_BINS - 1)));
 
+export const resolveHistogramSampleStride = (pixelCount: number) => {
+  if (pixelCount <= HISTOGRAM_TARGET_SAMPLE_COUNT) {
+    return RGBA_STRIDE;
+  }
+  const stridePixels = Math.ceil(pixelCount / HISTOGRAM_TARGET_SAMPLE_COUNT);
+  return stridePixels * RGBA_STRIDE;
+};
+
 const createBins = () => Array.from({ length: HISTOGRAM_BINS }, () => 0);
 
 const normalizeBins = (values: number[], max: number) => values.map((value) => value / max);
@@ -87,10 +96,12 @@ export const buildHistogram = (data: Uint8ClampedArray): HistogramData => {
   const b = createBins();
   const luma = createBins();
   const deltaDistribution = Array.from({ length: DELTA_BINS }, () => 0);
+  const pixelCount = Math.floor(data.length / RGBA_STRIDE);
+  const sampleStride = resolveHistogramSampleStride(pixelCount);
   let sampleCount = 0;
   let channelDeltaTotal = 0;
 
-  for (let i = 0; i < data.length; i += SAMPLE_STRIDE) {
+  for (let i = 0; i < data.length; i += sampleStride) {
     const alpha = data[i + 3] ?? 255;
     if (alpha <= TRANSPARENT_ALPHA_THRESHOLD) {
       continue;

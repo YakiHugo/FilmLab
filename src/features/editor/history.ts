@@ -3,6 +3,7 @@ import type {
   AssetUpdate,
   ColorGradingAdjustments,
   ColorGradingZone,
+  EditorLayer,
   EditingAdjustments,
   FilmModuleConfig,
   FilmProfile,
@@ -23,6 +24,7 @@ export interface EditorAssetSnapshot {
   presetId: string | undefined;
   intensity: number | undefined;
   adjustments: EditingAdjustments | undefined;
+  layers: EditorLayer[] | undefined;
   filmProfileId: string | undefined;
   filmProfile: FilmProfile | undefined;
   filmOverrides: FilmProfileOverrides | undefined;
@@ -42,6 +44,7 @@ export const createEditorAssetSnapshot = (asset: Asset): EditorAssetSnapshot => 
   presetId: asset.presetId,
   intensity: asset.intensity,
   adjustments: asset.adjustments ? cloneValue(asset.adjustments) : undefined,
+  layers: asset.layers ? cloneValue(asset.layers) : undefined,
   filmProfileId: asset.filmProfileId,
   filmProfile: asset.filmProfile ? cloneValue(asset.filmProfile) : undefined,
   filmOverrides: asset.filmOverrides ? cloneValue(asset.filmOverrides) : undefined,
@@ -304,6 +307,41 @@ const adjustmentsEqual = (
   );
 };
 
+const editorLayerEqual = (a: EditorLayer, b: EditorLayer): boolean => {
+  if (
+    a.id !== b.id ||
+    a.name !== b.name ||
+    a.type !== b.type ||
+    a.visible !== b.visible ||
+    a.opacity !== b.opacity ||
+    a.blendMode !== b.blendMode ||
+    a.textureAssetId !== b.textureAssetId
+  ) {
+    return false;
+  }
+  if (JSON.stringify(a.mask ?? null) !== JSON.stringify(b.mask ?? null)) {
+    return false;
+  }
+  if (JSON.stringify(a.adjustments ?? null) !== JSON.stringify(b.adjustments ?? null)) {
+    return false;
+  }
+  return true;
+};
+
+const layersEqual = (a: EditorLayer[] | undefined, b: EditorLayer[] | undefined): boolean => {
+  const listA = a ?? [];
+  const listB = b ?? [];
+  if (listA.length !== listB.length) {
+    return false;
+  }
+  for (let i = 0; i < listA.length; i += 1) {
+    if (!editorLayerEqual(listA[i]!, listB[i]!)) {
+      return false;
+    }
+  }
+  return true;
+};
+
 const filmModuleEqual = (a: FilmModuleConfig, b: FilmModuleConfig): boolean => {
   if (
     a.id !== b.id ||
@@ -394,6 +432,7 @@ export const isEditorAssetSnapshotEqual = (
   a.intensity === b.intensity &&
   a.filmProfileId === b.filmProfileId &&
   adjustmentsEqual(a.adjustments, b.adjustments) &&
+  layersEqual(a.layers, b.layers) &&
   filmProfileEqual(a.filmProfile, b.filmProfile) &&
   filmOverridesEqual(a.filmOverrides, b.filmOverrides);
 
@@ -405,6 +444,7 @@ export const createEditorAssetSnapshotRef = (asset: Asset): EditorAssetSnapshot 
   presetId: asset.presetId,
   intensity: asset.intensity,
   adjustments: asset.adjustments,
+  layers: asset.layers,
   filmProfileId: asset.filmProfileId,
   filmProfile: asset.filmProfile,
   filmOverrides: asset.filmOverrides,
@@ -414,6 +454,7 @@ export const editorSnapshotToAssetPatch = (snapshot: EditorAssetSnapshot): Asset
   presetId: snapshot.presetId,
   intensity: snapshot.intensity,
   adjustments: snapshot.adjustments ? cloneValue(snapshot.adjustments) : undefined,
+  layers: snapshot.layers ? cloneValue(snapshot.layers) : undefined,
   filmProfileId: snapshot.filmProfileId,
   filmProfile: snapshot.filmProfile ? cloneValue(snapshot.filmProfile) : undefined,
   filmOverrides: snapshot.filmOverrides ? cloneValue(snapshot.filmOverrides) : undefined,

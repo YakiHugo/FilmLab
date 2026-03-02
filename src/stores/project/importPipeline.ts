@@ -1,6 +1,7 @@
-﻿import pLimit from "p-limit";
+import pLimit from "p-limit";
 import { presets } from "@/data/presets";
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import { createBaseLayer } from "@/lib/editorLayers";
 import { prepareAssetPayload } from "@/lib/assetMetadata";
 import { saveAsset } from "@/lib/db";
 import type { Asset } from "@/types";
@@ -173,8 +174,10 @@ export const runImportPipeline = async ({
             thumbnailBlob,
             metadata,
             adjustments: createDefaultAdjustments(),
+            layers: [],
             source: "imported",
           };
+          asset.layers = [createBaseLayer(asset)];
 
           const payload = toStoredAsset(asset);
           const persisted = payload ? await saveAsset(payload) : false;

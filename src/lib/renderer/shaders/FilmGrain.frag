@@ -19,6 +19,12 @@ float luminance(vec3 c) {
   return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
 
+float hash12(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
 void main() {
   vec4 sampled = texture(uSampler, vTextureCoord);
   vec3 color = sampled.rgb;
@@ -30,10 +36,11 @@ void main() {
       fract(u_grainSeed * 0.000217)
     );
     vec2 noiseUv = fract((vTextureCoord * u_textureSize / 64.0) * grainScale + seedOffset);
+    vec4 noiseSample = texture(u_blueNoise, noiseUv);
 
-    float coarse = texture(u_blueNoise, noiseUv).r - 0.5;
-    float fine = texture(u_blueNoise, fract(noiseUv * 1.97 + vec2(0.37, 0.73))).r - 0.5;
-    float mixed = mix(coarse, fine, u_grainRoughness);
+    float coarse = noiseSample.r - 0.5;
+    float fine = noiseSample.g - 0.5;
+    float mixed = mix(coarse, fine, clamp(u_grainRoughness, 0.0, 1.0));
 
     float lum = max(luminance(color), 0.0);
     float lumCompressed = lum / (1.0 + lum);
@@ -44,12 +51,14 @@ void main() {
     noiseStrength *= blackFloorMask * highlightWeight;
 
     if (u_grainIsColor) {
-      float cR = (texture(u_blueNoise, fract(noiseUv * 1.07 + vec2(0.13, 0.41))).r - 0.5) * 0.14;
-      float cG = (texture(u_blueNoise, fract(noiseUv * 1.23 + vec2(0.53, 0.17))).r - 0.5) * 0.14;
-      float cB = (texture(u_blueNoise, fract(noiseUv * 1.51 + vec2(0.31, 0.67))).r - 0.5) * 0.17;
-      color.r += noiseStrength * (1.0 + cR);
-      color.g += noiseStrength * (1.0 + cG);
-      color.b += noiseStrength * (1.0 + cB);
+      float blueChannelNoise = hash12(noiseUv * 127.0 + vec2(0.31, 0.67)) - 0.5;
+      vec3 colorOffset = vec3(
+        noiseSample.b - 0.5,
+        noiseSample.a - 0.5,
+        blueChannelNoise
+      );
+      vec3 channelGain = vec3(1.0) + colorOffset * vec3(0.14, 0.14, 0.17);
+      color += noiseStrength * channelGain;
     } else {
       color += vec3(noiseStrength);
     }

@@ -1,15 +1,9 @@
-﻿import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, Copy, Redo2, RefreshCcw, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { cn } from "@/lib/utils";
 import { useEditorState } from "../useEditorState";
-
-interface TopBarMessage {
-  type: "success" | "error";
-  text: string;
-}
 
 export function EditorTopBar() {
   const {
@@ -27,17 +21,8 @@ export function EditorTopBar() {
     handleResetAll,
   } = useEditorState();
 
-  const [message, setMessage] = useState<TopBarMessage | null>(null);
   const [pasteConfirmOpen, setPasteConfirmOpen] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
-
-  useEffect(() => {
-    if (!message) {
-      return;
-    }
-    const timer = window.setTimeout(() => setMessage(null), 1800);
-    return () => window.clearTimeout(timer);
-  }, [message]);
 
   return (
     <header className="shrink-0 border-b border-white/10 bg-[#121316] px-3 py-2 backdrop-blur lg:px-4">
@@ -67,8 +52,7 @@ export function EditorTopBar() {
             className="rounded-xl border border-white/10 bg-[#0f1114] hover:border-white/20 hover:bg-[#161a1f]"
             disabled={!selectedAsset || !canUndo}
             onClick={() => {
-              const ok = handleUndo();
-              setMessage({ type: ok ? "success" : "error", text: ok ? "Undo" : "Nothing to undo" });
+              handleUndo();
             }}
           >
             <Undo2 className="h-4 w-4" />
@@ -79,8 +63,7 @@ export function EditorTopBar() {
             className="rounded-xl border border-white/10 bg-[#0f1114] hover:border-white/20 hover:bg-[#161a1f]"
             disabled={!selectedAsset || !canRedo}
             onClick={() => {
-              const ok = handleRedo();
-              setMessage({ type: ok ? "success" : "error", text: ok ? "Redo" : "Nothing to redo" });
+              handleRedo();
             }}
           >
             <Redo2 className="h-4 w-4" />
@@ -100,8 +83,7 @@ export function EditorTopBar() {
             className="rounded-xl border border-white/10 bg-[#0f1114] hover:border-white/20 hover:bg-[#161a1f]"
             disabled={!selectedAsset}
             onClick={() => {
-              const ok = handleCopy();
-              setMessage({ type: ok ? "success" : "error", text: ok ? "Copied" : "Copy failed" });
+              handleCopy();
             }}
           >
             <Copy className="h-4 w-4" />
@@ -127,27 +109,13 @@ export function EditorTopBar() {
         </div>
       </div>
 
-      {message && (
-        <p
-          className={cn(
-            "mt-2 rounded-lg border px-2.5 py-1 text-xs",
-            message.type === "success"
-              ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-200"
-              : "border-rose-300/30 bg-rose-300/10 text-rose-200"
-          )}
-        >
-          {message.text}
-        </p>
-      )}
-
       <ConfirmDialog
         open={pasteConfirmOpen}
         onOpenChange={setPasteConfirmOpen}
         title="Paste Settings"
         description="This replaces current adjustments for the selected image."
         onConfirm={() => {
-          const ok = handlePaste();
-          setMessage({ type: ok ? "success" : "error", text: ok ? "Pasted" : "Paste failed" });
+          handlePaste();
         }}
       />
 
@@ -157,8 +125,7 @@ export function EditorTopBar() {
         title="Reset Adjustments"
         description="Reset all current adjustment values for this image?"
         onConfirm={() => {
-          const ok = handleResetAll();
-          setMessage({ type: ok ? "success" : "error", text: ok ? "Reset" : "Reset failed" });
+          handleResetAll();
         }}
       />
     </header>

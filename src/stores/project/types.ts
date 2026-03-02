@@ -1,4 +1,4 @@
-﻿import type { Asset, AssetUpdate, Project } from "@/types";
+import type { Asset, AssetUpdate, EditorLayer, Project } from "@/types";
 
 export interface ImportProgress {
   current: number;
@@ -39,6 +39,13 @@ export interface ProjectState {
   applyPresetToSelection: (assetIds: string[], presetId: string, intensity: number) => void;
   updateAsset: (assetId: string, update: AssetUpdate) => void;
   updateAssetOnly: (assetId: string, update: AssetUpdate) => void;
+  addLayer: (assetId: string, layer: EditorLayer) => void;
+  removeLayer: (assetId: string, layerId: string) => void;
+  updateLayer: (assetId: string, layerId: string, patch: Partial<EditorLayer>) => void;
+  moveLayer: (assetId: string, layerId: string, direction: "up" | "down") => void;
+  duplicateLayer: (assetId: string, layerId: string) => void;
+  mergeLayerDown: (assetId: string, layerId: string) => void;
+  flattenLayers: (assetId: string) => void;
 
   setSelectedAssetIds: (assetIds: string[]) => void;
   clearAssetSelection: () => void;

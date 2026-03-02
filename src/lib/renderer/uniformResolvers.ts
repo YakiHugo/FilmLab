@@ -11,10 +11,21 @@ import type {
 import { getFilmModule, normalizeFilmProfile } from "@/lib/film/profile";
 
 const IDENTITY_3X3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+const VEC3_ZERO: [number, number, number] = [0, 0, 0];
+const VEC3_ONE: [number, number, number] = [1, 1, 1];
+const HALATION_COLOR_DEFAULT: [number, number, number] = [1.0, 0.3, 0.1];
 
 /** Transpose 3x3 row-major to column-major for WebGL. */
-function transpose3x3(m: number[]): number[] {
-  return [m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]];
+function transpose3x3Into(target: number[], source: number[]) {
+  target[0] = source[0] ?? 1;
+  target[1] = source[3] ?? 0;
+  target[2] = source[6] ?? 0;
+  target[3] = source[1] ?? 0;
+  target[4] = source[4] ?? 1;
+  target[5] = source[7] ?? 0;
+  target[6] = source[2] ?? 0;
+  target[7] = source[5] ?? 0;
+  target[8] = source[8] ?? 1;
 }
 
 function copyVec3(target: [number, number, number], source: [number, number, number]) {
@@ -90,22 +101,22 @@ const D65_LMS_REFERENCE = (() => {
 })();
 
 const resolveLegacyWhiteBalanceLmsScale = (
+  out: [number, number, number],
   temperature: number,
   tint: number
-): [number, number, number] => {
+): void => {
   const t = clampValue(temperature, -100, 100) / 100;
   const m = clampValue(tint, -100, 100) / 100;
-  return [
-    Math.max(0.05, 1 + t * 0.1),
-    Math.max(0.05, 1 + m * 0.05),
-    Math.max(0.05, 1 - t * 0.1),
-  ];
+  out[0] = Math.max(0.05, 1 + t * 0.1);
+  out[1] = Math.max(0.05, 1 + m * 0.05);
+  out[2] = Math.max(0.05, 1 - t * 0.1);
 };
 
 const resolveAbsoluteWhiteBalanceLmsScale = (
+  out: [number, number, number],
   temperatureKelvin: number,
   tintMG: number
-): [number, number, number] => {
+): void => {
   const linearRgb = kelvinToLinearRgb(temperatureKelvin);
   const lms = multiplyMat3Vec3(RGB_TO_LMS, linearRgb);
 
@@ -117,11 +128,9 @@ const resolveAbsoluteWhiteBalanceLmsScale = (
   const tintScale = 1 - clampValue(tintMG, -100, 100) * 0.002;
   const scaleM = scaleMBase * tintScale;
 
-  return [
-    clampValue(scaleL, 0.3, 3.0),
-    clampValue(scaleM, 0.3, 3.0),
-    clampValue(scaleS, 0.3, 3.0),
-  ];
+  out[0] = clampValue(scaleL, 0.3, 3.0);
+  out[1] = clampValue(scaleM, 0.3, 3.0);
+  out[2] = clampValue(scaleS, 0.3, 3.0);
 };
 
 function createMasterUniforms(): MasterUniforms {
@@ -185,6 +194,7 @@ function createDetailUniforms(): DetailUniforms {
     masking: 0,
     noiseReduction: 0,
     colorNoiseReduction: 0,
+    u_shortEdgePx: 1,
   };
 }
 
@@ -208,11 +218,14 @@ function createFilmUniforms(): FilmUniforms {
     u_colorMatrix: [...IDENTITY_3X3],
     u_lutEnabled: false,
     u_lutIntensity: 0,
+    u_lutMixEnabled: false,
+    u_lutMixFactor: 0,
     u_printEnabled: false,
     u_printDensity: 0,
     u_printContrast: 0,
     u_printWarmth: 0,
     u_printStock: 0,
+    u_printTargetWhiteKelvin: 6500,
     u_printLutEnabled: false,
     u_printLutIntensity: 1,
     u_cmyColorHeadEnabled: false,
@@ -251,6 +264,10 @@ function createFilmUniforms(): FilmUniforms {
     u_filmBreathEnabled: false,
     u_breathAmount: 0,
     u_breathSeed: 0,
+    u_gateWeaveEnabled: false,
+    u_gateWeaveAmount: 0,
+    u_gateWeaveSeed: 0,
+    u_pushPullEv: 0,
     u_filmDamageEnabled: false,
     u_damageAmount: 0,
     u_damageSeed: 0,
@@ -265,7 +282,7 @@ function createHalationBloomUniforms(): HalationBloomUniforms {
     halationEnabled: false,
     halationThreshold: srgbToLinearUnit(0.9),
     halationIntensity: 0,
-    halationColor: [1.0, 0.3, 0.1],
+    halationColor: [...HALATION_COLOR_DEFAULT],
     halationHue: 16,
     halationSaturation: 0.75,
     halationBlueCompensation: 0.2,
@@ -358,11 +375,15 @@ export function resolveFromAdjustments(
     Number.isFinite(adj.temperatureKelvin ?? NaN) || Number.isFinite(adj.tintMG ?? NaN);
   const legacyWhiteBalanceActive =
     Math.abs(legacyTemperature) > 0.001 || Math.abs(legacyTint) > 0.001;
-  const whiteBalanceScale =
-    hasAbsoluteWhiteBalance && !legacyWhiteBalanceActive
-      ? resolveAbsoluteWhiteBalanceLmsScale(adj.temperatureKelvin ?? 6500, adj.tintMG ?? 0)
-      : resolveLegacyWhiteBalanceLmsScale(legacyTemperature, legacyTint);
-  copyVec3(target.whiteBalanceLmsScale, whiteBalanceScale);
+  if (hasAbsoluteWhiteBalance && !legacyWhiteBalanceActive) {
+    resolveAbsoluteWhiteBalanceLmsScale(
+      target.whiteBalanceLmsScale,
+      adj.temperatureKelvin ?? 6500,
+      adj.tintMG ?? 0
+    );
+  } else {
+    resolveLegacyWhiteBalanceLmsScale(target.whiteBalanceLmsScale, legacyTemperature, legacyTint);
+  }
 
   // OKLab HSL: hueShift is new (not in v1 UI), default to 0
   target.hueShift = 0;
@@ -498,8 +519,20 @@ export function resolveCurveUniforms(
 /**
  * Resolve detail uniforms from adjustments.
  */
+const resolveAdjustmentShortEdgePx = (adj: EditingAdjustments): number | null => {
+  const raw = adj as unknown as Record<string, unknown>;
+  const candidates = [raw.u_shortEdgePx, raw.shortEdgePx];
+  for (const candidate of candidates) {
+    if (typeof candidate === "number" && Number.isFinite(candidate) && candidate > 0) {
+      return candidate;
+    }
+  }
+  return null;
+};
+
 export function resolveDetailUniforms(
   adj: EditingAdjustments,
+  context?: { shortEdgePx?: number },
   out?: DetailUniforms
 ): DetailUniforms {
   const target = out ?? createDetailUniforms();
@@ -511,6 +544,11 @@ export function resolveDetailUniforms(
   target.masking = safeNumber(adj.masking);
   target.noiseReduction = safeNumber(adj.noiseReduction);
   target.colorNoiseReduction = safeNumber(adj.colorNoiseReduction);
+  const contextShortEdgePx =
+    typeof context?.shortEdgePx === "number" && Number.isFinite(context.shortEdgePx)
+      ? context.shortEdgePx
+      : null;
+  target.u_shortEdgePx = Math.max(1, resolveAdjustmentShortEdgePx(adj) ?? contextShortEdgePx ?? 1);
 
   target.enabled =
     Math.abs(target.texture) > 0.001 ||
@@ -533,24 +571,50 @@ export function resolveFilmUniforms(
   out?: FilmUniforms
 ): FilmUniforms {
   const target = out ?? createFilmUniforms();
+  const sharedSeed = options?.grainSeed ?? Date.now();
   target.u_expandEnabled = false;
   target.u_filmCompressionEnabled = false;
   target.u_filmDeveloperEnabled = false;
+  copyVec3(target.u_colorSeparation, VEC3_ONE);
   target.u_printEnabled = false;
+  target.u_printDensity = 0;
+  target.u_printContrast = 0;
+  target.u_printWarmth = 0;
+  target.u_printStock = 0;
+  target.u_printTargetWhiteKelvin = 6500;
   target.u_printLutEnabled = false;
   target.u_printLutIntensity = 1;
   target.u_cmyColorHeadEnabled = false;
+  target.u_cyan = 0;
+  target.u_magenta = 0;
+  target.u_yellow = 0;
   target.u_printToningEnabled = false;
+  copyVec3(target.u_toningShadows, VEC3_ZERO);
+  copyVec3(target.u_toningMidtones, VEC3_ZERO);
+  copyVec3(target.u_toningHighlights, VEC3_ZERO);
+  target.u_toningStrength = 0.35;
+  target.u_lutMixEnabled = false;
+  target.u_lutMixFactor = 0;
   target.u_customLutEnabled = false;
   target.u_customLutIntensity = 0;
   target.u_filmBreathEnabled = false;
+  target.u_breathAmount = 0;
+  target.u_breathSeed = sharedSeed;
+  target.u_gateWeaveEnabled = false;
+  target.u_gateWeaveAmount = 0;
+  target.u_gateWeaveSeed = sharedSeed;
+  target.u_pushPullEv = 0;
   target.u_filmDamageEnabled = false;
+  target.u_damageAmount = 0;
+  target.u_damageSeed = sharedSeed;
   target.u_overscanEnabled = false;
+  target.u_overscanAmount = 0;
+  target.u_overscanRoundness = 0.5;
   target.u_grainModel = 0;
   target.u_crystalDensity = 0.5;
   target.u_crystalSizeMean = 0.5;
   target.u_crystalSizeVariance = 0.35;
-  target.u_grainColorSeparation = [1, 1, 1];
+  copyVec3(target.u_grainColorSeparation, VEC3_ONE);
   target.u_scannerMTF = 0.55;
   target.u_filmFormat = 2;
   const normalized = normalizeFilmProfile(profile);
@@ -565,19 +629,6 @@ export function resolveFilmUniforms(
   const warmth = (scan?.params.scanWarmth ?? 0) / 100;
   const warmthScale = warmth * 0.12 * scanAmount;
   const hasColorCast = Math.abs(warmthScale) > 0.001;
-  const colorMatrix = colorScience?.enabled
-    ? transpose3x3([
-        colorScience.params.rgbMix[0],
-        0,
-        0,
-        0,
-        colorScience.params.rgbMix[1],
-        0,
-        0,
-        0,
-        colorScience.params.rgbMix[2],
-      ])
-    : IDENTITY_3X3;
 
   // Layer 1: Tone Response
   // V1 profiles do not carry explicit tone-response params (shoulder/toe/gamma).
@@ -595,7 +646,12 @@ export function resolveFilmUniforms(
       colorScience.params.rgbMix[2] !== 1
     : false;
   for (let i = 0; i < 9; i += 1) {
-    target.u_colorMatrix[i] = colorMatrix[i] ?? IDENTITY_3X3[i] ?? 0;
+    target.u_colorMatrix[i] = IDENTITY_3X3[i] ?? 0;
+  }
+  if (colorScience?.enabled) {
+    target.u_colorMatrix[0] = colorScience.params.rgbMix[0];
+    target.u_colorMatrix[4] = colorScience.params.rgbMix[1];
+    target.u_colorMatrix[8] = colorScience.params.rgbMix[2];
   }
 
   // Layer 3: LUT (not available in v1 profiles, disabled by default)
@@ -620,7 +676,7 @@ export function resolveFilmUniforms(
   target.u_grainSize = grain?.params.size ?? 0.5;
   target.u_grainRoughness = grain?.params.roughness ?? 0.5;
   target.u_grainShadowBias = grain?.params.shadowBoost ?? 0.45;
-  target.u_grainSeed = options?.grainSeed ?? Date.now();
+  target.u_grainSeed = sharedSeed;
   target.u_grainIsColor = (grain?.params.color ?? 0.08) > 0.01;
 
   // Layer 6: Vignette
@@ -653,7 +709,11 @@ export function resolveHalationBloomUniforms(
   target.halationEnabled = halIntensity > 0.001;
   target.halationThreshold = srgbToLinearUnit(scan?.params.halationThreshold ?? 0.9);
   target.halationIntensity = halIntensity;
-  target.halationColor = [1.0, 0.3, 0.1]; // Classic warm film halation
+  if (target.halationColor) {
+    copyVec3(target.halationColor, HALATION_COLOR_DEFAULT);
+  } else {
+    target.halationColor = [...HALATION_COLOR_DEFAULT];
+  } // Classic warm film halation
   target.halationHue = 16;
   target.halationSaturation = 0.75;
   target.halationBlueCompensation = 0.2;
@@ -683,6 +743,7 @@ export function resolveFilmUniformsV2(
   out?: FilmUniforms
 ): FilmUniforms {
   const target = out ?? createFilmUniforms();
+  const sharedSeed = options?.grainSeed ?? Date.now();
   target.u_expandEnabled = false;
   target.u_expandBlackPoint = 0;
   target.u_expandWhitePoint = 1;
@@ -692,12 +753,13 @@ export function resolveFilmUniformsV2(
   target.u_filmDeveloperEnabled = false;
   target.u_developerContrast = 0;
   target.u_developerGamma = 1;
-  target.u_colorSeparation = [1, 1, 1];
+  copyVec3(target.u_colorSeparation, VEC3_ONE);
   target.u_printEnabled = false;
   target.u_printDensity = 0;
   target.u_printContrast = 0;
   target.u_printWarmth = 0;
   target.u_printStock = 0;
+  target.u_printTargetWhiteKelvin = 6500;
   target.u_printLutEnabled = false;
   target.u_printLutIntensity = 1;
   target.u_cmyColorHeadEnabled = false;
@@ -705,23 +767,28 @@ export function resolveFilmUniformsV2(
   target.u_magenta = 0;
   target.u_yellow = 0;
   target.u_printToningEnabled = false;
-  target.u_toningShadows = [0, 0, 0];
-  target.u_toningMidtones = [0, 0, 0];
-  target.u_toningHighlights = [0, 0, 0];
+  copyVec3(target.u_toningShadows, VEC3_ZERO);
+  copyVec3(target.u_toningMidtones, VEC3_ZERO);
+  copyVec3(target.u_toningHighlights, VEC3_ZERO);
   target.u_toningStrength = 0.35;
+  target.u_lutMixEnabled = false;
+  target.u_lutMixFactor = 0;
   target.u_customLutEnabled = false;
   target.u_customLutIntensity = 0;
   target.u_filmBreathEnabled = false;
   target.u_breathAmount = 0;
-  target.u_breathSeed = options?.grainSeed ?? Date.now();
+  target.u_breathSeed = sharedSeed;
+  target.u_gateWeaveEnabled = false;
+  target.u_gateWeaveAmount = 0;
+  target.u_gateWeaveSeed = sharedSeed;
+  target.u_pushPullEv = 0;
   target.u_filmDamageEnabled = false;
   target.u_damageAmount = 0;
-  target.u_damageSeed = options?.grainSeed ?? Date.now();
+  target.u_damageSeed = sharedSeed;
   target.u_overscanEnabled = false;
   target.u_overscanAmount = 0;
   target.u_overscanRoundness = 0.5;
   const cc = profile.colorCast;
-  const colorMatrix = transpose3x3(profile.colorMatrix?.matrix ?? IDENTITY_3X3);
 
   // Layer 1: Tone Response
   target.u_toneEnabled = profile.toneResponse.enabled;
@@ -731,19 +798,19 @@ export function resolveFilmUniformsV2(
 
   // Layer 2: Color Matrix
   target.u_colorMatrixEnabled = profile.colorMatrix?.enabled ?? false;
-  for (let i = 0; i < 9; i += 1) {
-    target.u_colorMatrix[i] = colorMatrix[i] ?? IDENTITY_3X3[i] ?? 0;
-  }
+  transpose3x3Into(target.u_colorMatrix, profile.colorMatrix?.matrix ?? IDENTITY_3X3);
 
   // Layer 3: LUT
   target.u_lutEnabled = profile.lut.enabled && profile.lut.intensity > 0;
   target.u_lutIntensity = profile.lut.intensity;
+  target.u_lutMixEnabled = false;
+  target.u_lutMixFactor = 0;
 
   // Layer 4: Color Cast
   target.u_colorCastEnabled = cc?.enabled ?? false;
-  copyVec3(target.u_colorCastShadows, cc?.shadows ?? [0, 0, 0]);
-  copyVec3(target.u_colorCastMidtones, cc?.midtones ?? [0, 0, 0]);
-  copyVec3(target.u_colorCastHighlights, cc?.highlights ?? [0, 0, 0]);
+  copyVec3(target.u_colorCastShadows, cc?.shadows ?? VEC3_ZERO);
+  copyVec3(target.u_colorCastMidtones, cc?.midtones ?? VEC3_ZERO);
+  copyVec3(target.u_colorCastHighlights, cc?.highlights ?? VEC3_ZERO);
 
   // Layer 5: Grain
   target.u_grainEnabled = profile.grain.enabled && profile.grain.amount > 0;
@@ -752,12 +819,12 @@ export function resolveFilmUniformsV2(
   target.u_grainSize = profile.grain.size;
   target.u_grainRoughness = profile.grain.roughness;
   target.u_grainShadowBias = profile.grain.shadowBias;
-  target.u_grainSeed = options?.grainSeed ?? Date.now();
+  target.u_grainSeed = sharedSeed;
   target.u_grainIsColor = profile.grain.colorGrain;
   target.u_crystalDensity = 0.5;
   target.u_crystalSizeMean = 0.5;
   target.u_crystalSizeVariance = 0.35;
-  target.u_grainColorSeparation = [1, 1, 1];
+  copyVec3(target.u_grainColorSeparation, VEC3_ONE);
   target.u_scannerMTF = 0.55;
   target.u_filmFormat = 2;
 
@@ -784,7 +851,11 @@ export function resolveHalationBloomUniformsV2(
   target.halationEnabled = hal?.enabled ?? false;
   target.halationThreshold = srgbToLinearUnit(hal?.threshold ?? 0.9);
   target.halationIntensity = hal?.intensity ?? 0;
-  target.halationColor = hal?.color ?? [1.0, 0.3, 0.1];
+  if (target.halationColor) {
+    copyVec3(target.halationColor, hal?.color ?? HALATION_COLOR_DEFAULT);
+  } else {
+    target.halationColor = [...(hal?.color ?? HALATION_COLOR_DEFAULT)];
+  }
   target.halationHue = 16;
   target.halationSaturation = 0.75;
   target.halationBlueCompensation = 0.2;
@@ -827,8 +898,11 @@ export function resolveFilmUniformsV3(
   const target = out ?? createFilmUniforms();
   const cc = profile.colorCast;
   const toning = profile.printToning;
-  const colorMatrix = transpose3x3(profile.colorMatrix?.matrix ?? IDENTITY_3X3);
   const grainSeed = options?.grainSeed ?? Date.now();
+  const printTargetWhiteKelvin = clampValue(profile.print?.targetWhiteKelvin ?? 6500, 5500, 6500);
+  const pushPullEv = safeNumber(profile.pushPull?.ev ?? 0);
+  const gateWeaveAmount = clampValue(safeNumber(profile.gateWeave?.amount ?? 0), 0, 1);
+  const gateWeaveSeed = profile.gateWeave?.seed ?? grainSeed;
 
   target.u_expandEnabled = profile.expand?.enabled ?? false;
   target.u_expandBlackPoint = profile.expand?.blackPoint ?? 0;
@@ -841,7 +915,7 @@ export function resolveFilmUniformsV3(
   target.u_filmDeveloperEnabled = profile.filmDeveloper?.enabled ?? false;
   target.u_developerContrast = profile.filmDeveloper?.contrast ?? 0;
   target.u_developerGamma = profile.filmDeveloper?.gamma ?? 1;
-  copyVec3(target.u_colorSeparation, profile.filmDeveloper?.colorSeparation ?? [1, 1, 1]);
+  copyVec3(target.u_colorSeparation, profile.filmDeveloper?.colorSeparation ?? VEC3_ONE);
 
   target.u_toneEnabled = profile.toneResponse.enabled;
   target.u_shoulder = profile.toneResponse.shoulder;
@@ -849,18 +923,19 @@ export function resolveFilmUniformsV3(
   target.u_gamma = profile.toneResponse.gamma;
 
   target.u_colorMatrixEnabled = profile.colorMatrix?.enabled ?? false;
-  for (let i = 0; i < 9; i += 1) {
-    target.u_colorMatrix[i] = colorMatrix[i] ?? IDENTITY_3X3[i] ?? 0;
-  }
+  transpose3x3Into(target.u_colorMatrix, profile.colorMatrix?.matrix ?? IDENTITY_3X3);
 
   target.u_lutEnabled = profile.lut3d.enabled && profile.lut3d.intensity > 0;
   target.u_lutIntensity = profile.lut3d.intensity;
+  target.u_lutMixEnabled = false;
+  target.u_lutMixFactor = 0;
 
   target.u_printEnabled = profile.print?.enabled ?? false;
   target.u_printDensity = profile.print?.density ?? 0;
   target.u_printContrast = profile.print?.contrast ?? 0;
   target.u_printWarmth = profile.print?.warmth ?? 0;
   target.u_printStock = resolvePrintStockCode(profile.print?.stock);
+  target.u_printTargetWhiteKelvin = printTargetWhiteKelvin;
   target.u_printLutEnabled =
     (profile.print?.enabled ?? false) && profile.print?.stock === "custom";
   target.u_printLutIntensity = 1;
@@ -871,14 +946,14 @@ export function resolveFilmUniformsV3(
   target.u_yellow = profile.cmyColorHead?.yellow ?? 0;
 
   target.u_colorCastEnabled = cc?.enabled ?? false;
-  copyVec3(target.u_colorCastShadows, cc?.shadows ?? [0, 0, 0]);
-  copyVec3(target.u_colorCastMidtones, cc?.midtones ?? [0, 0, 0]);
-  copyVec3(target.u_colorCastHighlights, cc?.highlights ?? [0, 0, 0]);
+  copyVec3(target.u_colorCastShadows, cc?.shadows ?? VEC3_ZERO);
+  copyVec3(target.u_colorCastMidtones, cc?.midtones ?? VEC3_ZERO);
+  copyVec3(target.u_colorCastHighlights, cc?.highlights ?? VEC3_ZERO);
 
   target.u_printToningEnabled = toning?.enabled ?? false;
-  copyVec3(target.u_toningShadows, toning?.shadows ?? [0, 0, 0]);
-  copyVec3(target.u_toningMidtones, toning?.midtones ?? [0, 0, 0]);
-  copyVec3(target.u_toningHighlights, toning?.highlights ?? [0, 0, 0]);
+  copyVec3(target.u_toningShadows, toning?.shadows ?? VEC3_ZERO);
+  copyVec3(target.u_toningMidtones, toning?.midtones ?? VEC3_ZERO);
+  copyVec3(target.u_toningHighlights, toning?.highlights ?? VEC3_ZERO);
   target.u_toningStrength = toning?.strength ?? 0.35;
 
   target.u_customLutEnabled = profile.customLut?.enabled ?? false;
@@ -907,6 +982,10 @@ export function resolveFilmUniformsV3(
   target.u_filmBreathEnabled = profile.filmBreath?.enabled ?? false;
   target.u_breathAmount = profile.filmBreath?.amount ?? 0;
   target.u_breathSeed = grainSeed;
+  target.u_gateWeaveEnabled = profile.gateWeave?.enabled ?? false;
+  target.u_gateWeaveAmount = gateWeaveAmount;
+  target.u_gateWeaveSeed = gateWeaveSeed;
+  target.u_pushPullEv = pushPullEv;
 
   target.u_filmDamageEnabled = profile.filmDamage?.enabled ?? false;
   target.u_damageAmount = profile.filmDamage?.amount ?? 0;
@@ -931,7 +1010,11 @@ export function resolveHalationBloomUniformsV3(
   target.halationEnabled = hal?.enabled ?? false;
   target.halationThreshold = srgbToLinearUnit(hal?.threshold ?? 0.9);
   target.halationIntensity = hal?.intensity ?? 0;
-  target.halationColor = [1.0, 0.3, 0.1];
+  if (target.halationColor) {
+    copyVec3(target.halationColor, HALATION_COLOR_DEFAULT);
+  } else {
+    target.halationColor = [...HALATION_COLOR_DEFAULT];
+  }
   target.halationHue = hal?.hue ?? 16;
   target.halationSaturation = hal?.saturation ?? 0.75;
   target.halationBlueCompensation = hal?.blueCompensation ?? 0.2;

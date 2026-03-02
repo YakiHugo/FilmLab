@@ -3,10 +3,8 @@ import { CirclePlus, Film, MessageSquarePlus } from "lucide-react";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useChatStore } from "@/stores/chatStore";
-import { useEditorStore } from "@/stores/editorStore";
 
 const NAV_ITEMS = [
   { label: "Library", to: "/library" as const, matches: ["/library"] },
@@ -18,8 +16,6 @@ const controlClass =
 
 function ContextActions() {
   const pathname = useLocation({ select: (state) => state.pathname });
-  const assets = useAssetStore((state) => state.assets);
-  const selectedAssetId = useEditorStore((state) => state.selectedAssetId);
   const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
   const documents = useCanvasStore((state) => state.documents);
   const createConversation = useChatStore((state) => state.createConversation);
@@ -47,23 +43,7 @@ function ContextActions() {
   }
 
   if (pathname === "/editor") {
-    const selectedName = assets.find((asset) => asset.id === selectedAssetId)?.name ?? "No asset";
-    return (
-      <div className="flex items-center gap-2">
-        <span className="max-w-[220px] truncate rounded-sm border border-white/10 bg-black/40 px-3 py-1.5 text-xs text-zinc-300">
-          {selectedName}
-        </span>
-        <Button
-          size="sm"
-          variant="secondary"
-          className={`h-9 ${controlClass}`}
-          onClick={() => useEditorStore.getState().setSelectedAssetId(selectedAssetId)}
-          disabled={!selectedAssetId}
-        >
-          Sync
-        </Button>
-      </div>
-    );
+    return null;
   }
 
   if (pathname.startsWith("/canvas")) {

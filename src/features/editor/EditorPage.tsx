@@ -16,21 +16,31 @@ export function EditorPage() {
   const { assetId } = useSearch({ from: "/editor" });
 
   useEffect(() => {
+    // Priority 1: Use URL parameter if valid
     if (assetId && assets.some((asset) => asset.id === assetId)) {
-      setSelectedAssetId(assetId);
+      if (selectedAssetId !== assetId) {
+        setSelectedAssetId(assetId);
+      }
+      return;
     }
-  }, [assetId, assets, setSelectedAssetId]);
 
-  useEffect(() => {
+    // Priority 2: Keep current selection if still valid
     if (selectedAssetId && assets.some((asset) => asset.id === selectedAssetId)) {
       return;
     }
+
+    // Priority 3: Fallback to first asset or null
     if (assets.length === 0) {
-      setSelectedAssetId(null);
+      if (selectedAssetId !== null) {
+        setSelectedAssetId(null);
+      }
       return;
     }
-    const fallback = assets.some((asset) => asset.id === assetId) ? assetId : assets[0]?.id;
-    setSelectedAssetId(fallback ?? null);
+
+    const fallbackId = assets[0]?.id ?? null;
+    if (fallbackId !== selectedAssetId) {
+      setSelectedAssetId(fallbackId);
+    }
   }, [assetId, assets, selectedAssetId, setSelectedAssetId]);
 
   return (

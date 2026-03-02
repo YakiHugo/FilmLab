@@ -1,4 +1,11 @@
-﻿export type PresetTag = "portrait" | "landscape" | "night" | "bw";
+import type {
+  EditorLayerBlendMode,
+  EditorLayerMask,
+  EditorLayerType,
+  LuminosityMaskData,
+} from "./editor";
+
+export type PresetTag = "portrait" | "landscape" | "night" | "bw";
 
 /**
  * Single source of truth for preset-adjustable numeric keys.
@@ -317,6 +324,25 @@ export interface LocalBrushMask {
 
 export type LocalAdjustmentMask = LocalRadialMask | LocalLinearMask | LocalBrushMask;
 
+
+export type EditorLayerMaskData =
+  | LocalRadialMask
+  | LocalLinearMask
+  | LocalBrushMask
+  | LuminosityMaskData;
+
+export interface EditorLayer {
+  id: string;
+  name: string;
+  type: EditorLayerType;
+  visible: boolean;
+  opacity: number; // [0, 100]
+  blendMode: EditorLayerBlendMode;
+  adjustments?: Partial<EditingAdjustments>;
+  textureAssetId?: string;
+  mask?: Omit<EditorLayerMask, "data"> & { data?: EditorLayerMaskData };
+}
+
 export interface LocalAdjustment {
   id: string;
   enabled: boolean;
@@ -400,6 +426,7 @@ export interface EditingAdjustments {
     size: 8 | 16;
     intensity: number;
   };
+  pushPullEv?: number;
   rotate: number;
   rightAngleRotation: number;
   perspectiveEnabled?: boolean;
@@ -452,6 +479,7 @@ export interface Asset {
   thumbnailBlob?: Blob;
   metadata?: AssetMetadata;
   adjustments?: EditingAdjustments;
+  layers?: EditorLayer[];
   aiRecommendation?: AssetAiRecommendation;
   source?: "imported" | "ai-generated";
 }
@@ -470,6 +498,7 @@ export type AssetUpdate = Partial<
     | "tags"
     | "metadata"
     | "adjustments"
+    | "layers"
     | "aiRecommendation"
     | "source"
     | "thumbnailUrl"
