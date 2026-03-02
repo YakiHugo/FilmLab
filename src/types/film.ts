@@ -74,6 +74,26 @@ export interface FilmProfileV2 {
   };
 }
 
+export interface FilmPushPullLutVariant {
+  path: string;
+  size?: 8 | 16;
+  intensity?: number;
+}
+
+export interface FilmPushPullSettings {
+  enabled: boolean;
+  ev: number;
+  minEv?: number;
+  maxEv?: number;
+  lutByStop?: Record<string, string | FilmPushPullLutVariant>;
+}
+
+export interface FilmGateWeaveSettings {
+  enabled: boolean;
+  amount: number;
+  seed?: number;
+}
+
 export interface FilmProfileV3 {
   id: string;
   version: 3;
@@ -120,12 +140,15 @@ export interface FilmProfileV3 {
     intensity: number;
   };
 
+  pushPull?: FilmPushPullSettings;
+
   print?: {
     enabled: boolean;
     stock: "kodak-2383" | "endura" | "cineon-log" | "custom";
     density: number;
     contrast: number;
     warmth: number;
+    targetWhiteKelvin?: number;
     lutPath?: string;
     lutSize?: 8 | 16;
   };
@@ -205,6 +228,8 @@ export interface FilmProfileV3 {
     amount: number;
   };
 
+  gateWeave?: FilmGateWeaveSettings;
+
   filmDamage?: {
     enabled: boolean;
     amount: number;
@@ -234,6 +259,13 @@ export interface FilmProfileV3 {
 
 export type FilmProfileAny = FilmProfile | FilmProfileV2 | FilmProfileV3;
 
+export interface ResolvedPushPull {
+  enabled: boolean;
+  ev: number;
+  source: "none" | "profile" | "adjustments";
+  selectedStop: number | null;
+}
+
 export interface ResolvedRenderProfile {
   mode: "legacy-v1" | "v3";
   source: FilmProfileAny;
@@ -245,6 +277,13 @@ export interface ResolvedRenderProfile {
         path: string;
         size: 8 | 16;
         intensity: number;
+      }
+    | null;
+  lutBlend:
+    | {
+        path: string;
+        size: 8 | 16;
+        mixFactor: number;
       }
     | null;
   customLut:
@@ -260,4 +299,5 @@ export interface ResolvedRenderProfile {
         size: 8 | 16;
       }
     | null;
+  pushPull: ResolvedPushPull;
 }

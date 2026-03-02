@@ -400,6 +400,7 @@ export interface EditingAdjustments {
     size: 8 | 16;
     intensity: number;
   };
+  pushPullEv?: number;
   rotate: number;
   rightAngleRotation: number;
   perspectiveEnabled?: boolean;

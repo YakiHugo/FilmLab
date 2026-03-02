@@ -141,12 +141,19 @@ export function migrateFilmProfileV2ToV3(v2: FilmProfileV2): FilmProfileV3 {
       size: v2.lut.size,
       intensity: v2.lut.intensity,
     },
+    pushPull: {
+      enabled: false,
+      ev: 0,
+      minEv: -2,
+      maxEv: 2,
+    },
     print: {
       enabled: false,
       stock: "kodak-2383",
       density: 0,
       contrast: 0,
       warmth: 0,
+      targetWhiteKelvin: 6500,
     },
     cmyColorHead: {
       enabled: false,
@@ -210,6 +217,11 @@ export function migrateFilmProfileV2ToV3(v2: FilmProfileV2): FilmProfileV3 {
     filmBreath: {
       enabled: false,
       amount: 0,
+    },
+    gateWeave: {
+      enabled: false,
+      amount: 0,
+      seed: 0,
     },
     filmDamage: {
       enabled: false,
