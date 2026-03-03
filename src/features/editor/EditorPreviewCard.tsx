@@ -6,6 +6,7 @@ import {
 } from "@/lib/imageProcessing";
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import { resolveLayerAdjustments } from "@/lib/editorLayers";
+import { applyMaskToLayerCanvas, generateMaskTexture } from "@/lib/layerMaskTexture";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
 import { cn } from "@/lib/utils";
 import {
@@ -361,6 +362,9 @@ export function EditorPreviewCard() {
   const sampleBufferRef = useRef<HTMLCanvasElement | null>(null);
   const workingCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const layerCanvasByLayerIdRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
+  const layerMaskCanvasByLayerIdRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
+  const layerMaskScratchByLayerIdRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
+  const layerBlendCanvasByLayerIdRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
   const cropDragRef = useRef<{
     mode: CropDragMode;
     startX: number;
@@ -786,6 +790,27 @@ export function EditorPreviewCard() {
         }
         layerCanvasByLayerIdRef.current.clear();
       }
+      if (layerMaskCanvasByLayerIdRef.current.size > 0) {
+        for (const maskCanvas of layerMaskCanvasByLayerIdRef.current.values()) {
+          maskCanvas.width = 0;
+          maskCanvas.height = 0;
+        }
+        layerMaskCanvasByLayerIdRef.current.clear();
+      }
+      if (layerMaskScratchByLayerIdRef.current.size > 0) {
+        for (const scratchCanvas of layerMaskScratchByLayerIdRef.current.values()) {
+          scratchCanvas.width = 0;
+          scratchCanvas.height = 0;
+        }
+        layerMaskScratchByLayerIdRef.current.clear();
+      }
+      if (layerBlendCanvasByLayerIdRef.current.size > 0) {
+        for (const blendCanvas of layerBlendCanvasByLayerIdRef.current.values()) {
+          blendCanvas.width = 0;
+          blendCanvas.height = 0;
+        }
+        layerBlendCanvasByLayerIdRef.current.clear();
+      }
       if (brushPreviewFrameRef.current !== null) {
         cancelAnimationFrame(brushPreviewFrameRef.current);
         brushPreviewFrameRef.current = null;
@@ -1061,15 +1086,26 @@ export function EditorPreviewCard() {
 
       if (shouldRenderLayerComposite) {
         const layerCanvasMap = layerCanvasByLayerIdRef.current;
+        const layerMaskCanvasMap = layerMaskCanvasByLayerIdRef.current;
+        const layerMaskScratchMap = layerMaskScratchByLayerIdRef.current;
+        const layerBlendCanvasMap = layerBlendCanvasByLayerIdRef.current;
         const activeLayerIdSet = new Set(layerPreviewEntries.map((entry) => entry.layer.id));
-        for (const [layerId, layerCanvas] of layerCanvasMap.entries()) {
-          if (activeLayerIdSet.has(layerId)) {
-            continue;
+
+        const pruneCanvasMap = (canvasMap: Map<string, HTMLCanvasElement>) => {
+          for (const [layerId, layerCanvas] of canvasMap.entries()) {
+            if (activeLayerIdSet.has(layerId)) {
+              continue;
+            }
+            layerCanvas.width = 0;
+            layerCanvas.height = 0;
+            canvasMap.delete(layerId);
           }
-          layerCanvas.width = 0;
-          layerCanvas.height = 0;
-          layerCanvasMap.delete(layerId);
-        }
+        };
+
+        pruneCanvasMap(layerCanvasMap);
+        pruneCanvasMap(layerMaskCanvasMap);
+        pruneCanvasMap(layerMaskScratchMap);
+        pruneCanvasMap(layerBlendCanvasMap);
 
         const targetWidth = Math.round(frameSize.width * dpr);
         const targetHeight = Math.round(frameSize.height * dpr);
@@ -1119,10 +1155,39 @@ export function EditorPreviewCard() {
             return;
           }
 
+          let drawSource: CanvasImageSource = layerCanvas;
+          if (layer.layer.mask) {
+            let maskCanvas = layerMaskCanvasMap.get(layer.layer.id);
+            if (!maskCanvas) {
+              maskCanvas = document.createElement("canvas");
+              layerMaskCanvasMap.set(layer.layer.id, maskCanvas);
+            }
+            let maskScratchCanvas = layerMaskScratchMap.get(layer.layer.id);
+            if (!maskScratchCanvas) {
+              maskScratchCanvas = document.createElement("canvas");
+              layerMaskScratchMap.set(layer.layer.id, maskScratchCanvas);
+            }
+            const generatedMask = generateMaskTexture(layer.layer.mask, {
+              width: workingCanvas.width,
+              height: workingCanvas.height,
+              referenceSource: layerCanvas,
+              targetCanvas: maskCanvas,
+              scratchCanvas: maskScratchCanvas,
+            });
+            if (generatedMask) {
+              let blendCanvas = layerBlendCanvasMap.get(layer.layer.id);
+              if (!blendCanvas) {
+                blendCanvas = document.createElement("canvas");
+                layerBlendCanvasMap.set(layer.layer.id, blendCanvas);
+              }
+              drawSource = applyMaskToLayerCanvas(layerCanvas, generatedMask, blendCanvas);
+            }
+          }
+
           workingContext.save();
           workingContext.globalAlpha = layer.opacity;
           workingContext.globalCompositeOperation = resolveLayerBlendOperation(layer.blendMode);
-          workingContext.drawImage(layerCanvas, 0, 0, workingCanvas.width, workingCanvas.height);
+          workingContext.drawImage(drawSource, 0, 0, workingCanvas.width, workingCanvas.height);
           workingContext.restore();
         }
       } else {
