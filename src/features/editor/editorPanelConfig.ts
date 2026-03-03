@@ -119,7 +119,7 @@ export const EDITOR_TOOL_PANELS: EditorToolPanelDefinition[] = [
 
 export const EDITOR_PANEL_SECTION_MAP: Record<EditorToolPanelId, EditorPanelSectionId[]> = {
   preset: ["preset"],
-  edit: ["basic", "effects", "detail", "timestamp", "advanced"],
+  edit: ["basic", "effects", "detail", "optics", "timestamp", "advanced"],
   crop: ["crop"],
   mask: ["mask"],
   remove: ["remove"],

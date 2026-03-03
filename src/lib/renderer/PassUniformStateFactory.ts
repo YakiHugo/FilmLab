@@ -12,6 +12,7 @@ export const createGeometryPassUniforms = () => ({
   u_lensK1: 0,
   u_lensK2: 0,
   u_lensVignetteBoost: 0,
+  u_lensVignetteMidpoint: 0.25, // corresponds to UI midpoint ~50 after transform
   u_caEnabled: false,
   u_caAmountPxRgb: new Float32Array([0, 0, 0]),
   u_enabled: true,

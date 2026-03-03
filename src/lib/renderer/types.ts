@@ -15,6 +15,7 @@ export interface GeometryUniforms {
   lensK1: number;
   lensK2: number;
   lensVignetteBoost: number;
+  lensVignetteMidpoint: number;
   caEnabled: boolean;
   caAmountPxRgb: [number, number, number];
 }

@@ -554,10 +554,40 @@ const normalizeAdjustmentsUncached = (
     -100,
     100
   );
+  merged.opticsProfile = Boolean(merged.opticsProfile);
+  merged.opticsCA = Boolean(merged.opticsCA);
+  merged.opticsDistortionK1 = clampValue(
+    Number.isFinite(merged.opticsDistortionK1)
+      ? (merged.opticsDistortionK1 as number)
+      : defaults.opticsDistortionK1 ?? 0,
+    -100,
+    100
+  );
+  merged.opticsDistortionK2 = clampValue(
+    Number.isFinite(merged.opticsDistortionK2)
+      ? (merged.opticsDistortionK2 as number)
+      : defaults.opticsDistortionK2 ?? 0,
+    -100,
+    100
+  );
+  merged.opticsCaAmount = clampValue(
+    Number.isFinite(merged.opticsCaAmount)
+      ? (merged.opticsCaAmount as number)
+      : defaults.opticsCaAmount ?? 0,
+    0,
+    100
+  );
   merged.opticsVignette = clampValue(
     Number.isFinite(merged.opticsVignette)
       ? (merged.opticsVignette as number)
       : defaults.opticsVignette,
+    0,
+    100
+  );
+  merged.opticsVignetteMidpoint = clampValue(
+    Number.isFinite(merged.opticsVignetteMidpoint)
+      ? (merged.opticsVignetteMidpoint as number)
+      : defaults.opticsVignetteMidpoint ?? 50,
     0,
     100
   );
@@ -667,7 +697,11 @@ export function createDefaultAdjustments(): EditingAdjustments {
     timestampOpacity: 72,
     opticsProfile: false,
     opticsCA: false,
+    opticsDistortionK1: 0,
+    opticsDistortionK2: 0,
+    opticsCaAmount: 0,
     opticsVignette: 0,
+    opticsVignetteMidpoint: 50,
   };
 }
 
