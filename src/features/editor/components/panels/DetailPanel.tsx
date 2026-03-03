@@ -14,6 +14,10 @@ interface DetailPanelProps {
   onToggle: () => void;
   onPreviewAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
   onCommitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
+  hasChanges?: boolean;
+  changesVisible?: boolean;
+  onToggleVisibility?: () => void;
+  onResetChanges?: () => void;
 }
 
 const renderSliderRows = (
@@ -44,6 +48,10 @@ export const DetailPanel = memo(function DetailPanel({
   onToggle,
   onPreviewAdjustmentValue,
   onCommitAdjustmentValue,
+  hasChanges,
+  changesVisible,
+  onToggleVisibility,
+  onResetChanges,
 }: DetailPanelProps) {
   return (
     <EditorSection
@@ -51,6 +59,10 @@ export const DetailPanel = memo(function DetailPanel({
       hint="Sharpening and noise reduction"
       isOpen={isOpen}
       onToggle={onToggle}
+      hasChanges={hasChanges}
+      changesVisible={changesVisible}
+      onToggleVisibility={onToggleVisibility}
+      onResetChanges={onResetChanges}
     >
       {renderSliderRows(adjustments, DETAIL_SLIDERS, onPreviewAdjustmentValue, onCommitAdjustmentValue)}
     </EditorSection>

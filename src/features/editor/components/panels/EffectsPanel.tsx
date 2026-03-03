@@ -19,6 +19,10 @@ interface EffectsPanelProps {
   onUpdateAdjustments: (patch: Partial<EditingAdjustments>) => void;
   onPreviewAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
   onCommitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
+  hasChanges?: boolean;
+  changesVisible?: boolean;
+  onToggleVisibility?: () => void;
+  onResetChanges?: () => void;
 }
 
 const renderSliderRows = (
@@ -50,6 +54,10 @@ export const EffectsPanel = memo(function EffectsPanel({
   onUpdateAdjustments,
   onPreviewAdjustmentValue,
   onCommitAdjustmentValue,
+  hasChanges,
+  changesVisible,
+  onToggleVisibility,
+  onResetChanges,
 }: EffectsPanelProps) {
   const customLut = adjustments.customLut ?? {
     enabled: false,
@@ -64,6 +72,10 @@ export const EffectsPanel = memo(function EffectsPanel({
       hint="Texture, clarity, dehaze, grain, and glow"
       isOpen={isOpen}
       onToggle={onToggle}
+      hasChanges={hasChanges}
+      changesVisible={changesVisible}
+      onToggleVisibility={onToggleVisibility}
+      onResetChanges={onResetChanges}
     >
       <div className="space-y-3">
         {renderSliderRows(
