@@ -1,8 +1,8 @@
 import type {
   EditorLayerBlendMode,
   EditorLayerMask,
+  EditorLayerMaskData,
   EditorLayerType,
-  LuminosityMaskData,
 } from "./editor";
 
 export type PresetTag = "portrait" | "landscape" | "night" | "bw";
@@ -325,12 +325,6 @@ export interface LocalBrushMask {
 export type LocalAdjustmentMask = LocalRadialMask | LocalLinearMask | LocalBrushMask;
 
 
-export type EditorLayerMaskData =
-  | LocalRadialMask
-  | LocalLinearMask
-  | LocalBrushMask
-  | LuminosityMaskData;
-
 export interface EditorLayer {
   id: string;
   name: string;
@@ -445,7 +439,11 @@ export interface EditingAdjustments {
   timestampOpacity: number;
   opticsProfile: boolean;
   opticsCA: boolean;
+  opticsDistortionK1?: number;
+  opticsDistortionK2?: number;
+  opticsCaAmount?: number;
   opticsVignette: number;
+  opticsVignetteMidpoint?: number;
 }
 
 /** MIME types accepted for asset import. */

@@ -16,10 +16,48 @@ export interface LuminosityMaskData {
   feather: number; // [0, 1]
 }
 
+export interface LayerBrushMaskPoint {
+  x: number; // normalized [0, 1]
+  y: number; // normalized [0, 1]
+  pressure?: number; // normalized (0, 1]
+}
+
+export interface LayerBrushMaskData {
+  mode: "brush";
+  points: LayerBrushMaskPoint[];
+  brushSize: number; // normalized [0.005, 0.25]
+  feather: number; // [0, 1]
+  flow: number; // [0, 1]
+}
+
+export interface LayerRadialMaskData {
+  mode: "radial";
+  centerX: number; // normalized [0, 1]
+  centerY: number; // normalized [0, 1]
+  radiusX: number; // normalized [0, 1]
+  radiusY: number; // normalized [0, 1]
+  feather: number; // [0, 1]
+}
+
+export interface LayerLinearMaskData {
+  mode: "linear";
+  startX: number; // normalized [0, 1]
+  startY: number; // normalized [0, 1]
+  endX: number; // normalized [0, 1]
+  endY: number; // normalized [0, 1]
+  feather: number; // [0, 1]
+}
+
+export type EditorLayerMaskData =
+  | LayerBrushMaskData
+  | LayerRadialMaskData
+  | LayerLinearMaskData
+  | LuminosityMaskData;
+
 export interface EditorLayerMask {
   mode: EditorLayerMaskMode;
   inverted: boolean;
-  data?: unknown;
+  data?: EditorLayerMaskData;
 }
 
 export interface EditorLayerDefinition {
