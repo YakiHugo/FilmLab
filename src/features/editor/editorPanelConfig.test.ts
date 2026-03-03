@@ -31,6 +31,10 @@ describe("editor panel config", () => {
     expect(EDITOR_PANEL_SECTION_MAP.remove).toEqual(["remove"]);
   });
 
+  it("keeps optics controls in edit panel", () => {
+    expect(EDITOR_PANEL_SECTION_MAP.edit).toContain("optics");
+  });
+
   it("does not contain unknown mappings", () => {
     const knownIds = new Set<EditorToolPanelId>(EDITOR_TOOL_PANELS.map((panel) => panel.id));
     Object.keys(EDITOR_PANEL_SECTION_MAP).forEach((key) => {

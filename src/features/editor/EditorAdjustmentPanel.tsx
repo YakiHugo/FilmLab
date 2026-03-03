@@ -1595,21 +1595,21 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
         </div>
 
         <div className="space-y-3 rounded-xl border border-white/10 bg-slate-950/55 p-3">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">光学校正</p>
-          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-xs text-slate-200">
-            <input
-              type="checkbox"
-              className="mt-0.5 h-4 w-4 rounded border-white/20 bg-slate-950 accent-white"
-              checked={adjustments.opticsCA}
-              onChange={(event) => updateAdjustments({ opticsCA: event.currentTarget.checked })}
-            />
-            <span className="space-y-0.5">
-              <span className="block">Remove Chromatic Aberration</span>
-              <span className="block text-[11px] text-slate-500">
-                校正边缘色差并减少高反差区域的彩边伪影。
-              </span>
-            </span>
-          </label>
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">胶片模块覆盖</p>
+          {renderFilmControls()}
+        </div>
+      </div>
+    );
+  };
+
+  const renderOpticsControls = () => {
+    if (!adjustments) {
+      return null;
+    }
+
+    return (
+      <div className="space-y-4">
+        <div className="space-y-3 rounded-xl border border-white/10 bg-slate-950/55 p-3">
           <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-xs text-slate-200">
             <input
               type="checkbox"
@@ -1620,12 +1620,82 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
               }
             />
             <span className="space-y-0.5">
-              <span className="block">启用镜头配置文件校正</span>
+              <span className="block">Enable Lens Correction</span>
               <span className="block text-[11px] text-slate-500">
-                修正桶形/枕形畸变并提升边缘暗角亮度。
+                启用镜头畸变与暗角校正。
               </span>
             </span>
           </label>
+          <EditorSliderRow
+            label="Lens Distortion"
+            value={adjustments.opticsDistortionK1 ?? DEFAULT_ADJUSTMENTS.opticsDistortionK1 ?? 0}
+            defaultValue={DEFAULT_ADJUSTMENTS.opticsDistortionK1 ?? 0}
+            min={-100}
+            max={100}
+            step={1}
+            disabled={!adjustments.opticsProfile}
+            format={(value) => (value > 0 ? `+${Math.round(value)}` : `${Math.round(value)}`)}
+            onChange={(value) => previewAdjustmentValue("opticsDistortionK1", Math.round(value))}
+            onCommit={(value) => updateAdjustmentValue("opticsDistortionK1", Math.round(value))}
+            onReset={() =>
+              updateAdjustmentValue(
+                "opticsDistortionK1",
+                DEFAULT_ADJUSTMENTS.opticsDistortionK1 ?? 0
+              )
+            }
+          />
+          <EditorSliderRow
+            label="Lens Distortion Fine"
+            value={adjustments.opticsDistortionK2 ?? DEFAULT_ADJUSTMENTS.opticsDistortionK2 ?? 0}
+            defaultValue={DEFAULT_ADJUSTMENTS.opticsDistortionK2 ?? 0}
+            min={-100}
+            max={100}
+            step={1}
+            disabled={!adjustments.opticsProfile}
+            format={(value) => (value > 0 ? `+${Math.round(value)}` : `${Math.round(value)}`)}
+            onChange={(value) => previewAdjustmentValue("opticsDistortionK2", Math.round(value))}
+            onCommit={(value) => updateAdjustmentValue("opticsDistortionK2", Math.round(value))}
+            onReset={() =>
+              updateAdjustmentValue(
+                "opticsDistortionK2",
+                DEFAULT_ADJUSTMENTS.opticsDistortionK2 ?? 0
+              )
+            }
+          />
+        </div>
+
+        <div className="space-y-3 rounded-xl border border-white/10 bg-slate-950/55 p-3">
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-xs text-slate-200">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 rounded border-white/20 bg-slate-950 accent-white"
+              checked={adjustments.opticsCA}
+              onChange={(event) => updateAdjustments({ opticsCA: event.currentTarget.checked })}
+            />
+            <span className="space-y-0.5">
+              <span className="block">Remove Chromatic Aberration</span>
+              <span className="block text-[11px] text-slate-500">
+                校正边缘色差并减少高反差区域彩边伪影。
+              </span>
+            </span>
+          </label>
+          <EditorSliderRow
+            label="Chromatic Aberration Amount"
+            value={adjustments.opticsCaAmount ?? DEFAULT_ADJUSTMENTS.opticsCaAmount ?? 0}
+            defaultValue={DEFAULT_ADJUSTMENTS.opticsCaAmount ?? 0}
+            min={0}
+            max={100}
+            step={1}
+            disabled={!adjustments.opticsCA}
+            onChange={(value) => previewAdjustmentValue("opticsCaAmount", Math.round(value))}
+            onCommit={(value) => updateAdjustmentValue("opticsCaAmount", Math.round(value))}
+            onReset={() =>
+              updateAdjustmentValue("opticsCaAmount", DEFAULT_ADJUSTMENTS.opticsCaAmount ?? 0)
+            }
+          />
+        </div>
+
+        <div className="space-y-3 rounded-xl border border-white/10 bg-slate-950/55 p-3">
           <EditorSliderRow
             label="Lens Vignette Correction"
             value={adjustments.opticsVignette}
@@ -1633,18 +1703,37 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
             min={0}
             max={100}
             step={1}
-            disabled={!adjustments.opticsProfile}
             onChange={(value) => previewAdjustmentValue("opticsVignette", Math.round(value))}
             onCommit={(value) => updateAdjustmentValue("opticsVignette", Math.round(value))}
             onReset={() =>
               updateAdjustmentValue("opticsVignette", DEFAULT_ADJUSTMENTS.opticsVignette)
             }
           />
-        </div>
-
-        <div className="space-y-3 rounded-xl border border-white/10 bg-slate-950/55 p-3">
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">胶片模块覆盖</p>
-          {renderFilmControls()}
+          <EditorSliderRow
+            label="Vignette Midpoint"
+            value={
+              adjustments.opticsVignetteMidpoint ??
+              DEFAULT_ADJUSTMENTS.opticsVignetteMidpoint ??
+              50
+            }
+            defaultValue={DEFAULT_ADJUSTMENTS.opticsVignetteMidpoint ?? 50}
+            min={0}
+            max={100}
+            step={1}
+            disabled={adjustments.opticsVignette < 1}
+            onChange={(value) =>
+              previewAdjustmentValue("opticsVignetteMidpoint", Math.round(value))
+            }
+            onCommit={(value) =>
+              updateAdjustmentValue("opticsVignetteMidpoint", Math.round(value))
+            }
+            onReset={() =>
+              updateAdjustmentValue(
+                "opticsVignetteMidpoint",
+                DEFAULT_ADJUSTMENTS.opticsVignetteMidpoint ?? 50
+              )
+            }
+          />
         </div>
       </div>
     );
@@ -1815,11 +1904,23 @@ export const EditorInspectorContent = memo(function EditorInspectorContent({
           </EditorSection>
         );
 
+      case "optics":
+        return (
+          <EditorSection
+            title="Optics"
+            hint="镜头畸变 / 色差 / 暗角修复"
+            isOpen={openSections.optics}
+            onToggle={() => toggleSection("optics")}
+          >
+            {renderOpticsControls()}
+          </EditorSection>
+        );
+
       case "advanced":
         return (
           <EditorSection
             title="高级"
-            hint="曲线 / HSL / 色彩分级 / 光学校正 / 胶片模块"
+            hint="曲线 / HSL / 色彩分级 / 胶片模块"
             isOpen={openSections.advanced}
             onToggle={() => toggleSection("advanced")}
           >
