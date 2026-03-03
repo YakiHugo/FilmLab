@@ -4,7 +4,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { EditorFooterBar } from "@/features/editor/layout/EditorFooterBar";
 import { EditorInspectorPanel } from "@/features/editor/layout/EditorInspectorPanel";
-import { EditorToolRail } from "@/features/editor/layout/EditorToolRail";
 import { EditorLayerPopover } from "@/features/editor/layout/EditorLayerPopover";
 import { EditorPreviewCard } from "@/features/editor/EditorPreviewCard";
 import { useAssetStore } from "@/stores/assetStore";
@@ -72,9 +71,6 @@ export function EditorPage() {
               </section>
               <EditorFooterBar />
             </div>
-
-            {/* Tool Rail - between preview and inspector */}
-            <EditorToolRail />
 
             <EditorInspectorPanel className="max-h-[44vh] md:max-h-none" />
           </div>

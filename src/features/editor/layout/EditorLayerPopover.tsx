@@ -26,13 +26,11 @@ export function EditorLayerPopover({ className }: EditorLayerPopoverProps) {
   const {
     assets,
     selectedAsset,
-    selectedLayer,
     selectedLayerId,
     layers,
     setSelectedLayerId,
     addTextureLayer,
     reorderLayer,
-    moveLayer,
     removeLayer,
     setLayerVisibility,
   } = useEditorState();
@@ -104,7 +102,7 @@ export function EditorLayerPopover({ className }: EditorLayerPopoverProps) {
 
           {/* Layer Thumbnails */}
           <div className="flex-1 space-y-3 overflow-y-auto p-3">
-            {layers.map((layer, index) => {
+            {layers.map((layer, _index) => {
               const isSelected = layer.id === selectedLayerId;
               const isDragging = draggingLayerId === layer.id;
               const previewSrc =
