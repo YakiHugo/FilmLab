@@ -106,6 +106,7 @@ interface EditorState {
   selectedLayerId: string | null;
   selectedLocalAdjustmentId: string | null;
   historyByAssetId: HistoryByAssetId;
+  bypassedPanels: Set<string>;
   setSelectedAssetId: (assetId: string | null) => void;
   setSelectedLayerId: (layerId: string | null) => void;
   setShowOriginal: (showOriginal: boolean) => void;
@@ -124,6 +125,8 @@ interface EditorState {
   setSelectedLocalAdjustmentId: (id: string | null) => void;
   toggleOriginal: () => void;
   toggleSection: (id: SectionId) => void;
+  toggleBypassPanel: (panelId: string) => void;
+  isPanelBypassed: (panelId: string) => boolean;
   setPreviewHistogram: (histogram: HistogramData | null) => void;
   canUndo: (assetId: string) => boolean;
   canRedo: (assetId: string) => boolean;
@@ -157,6 +160,7 @@ export const useEditorStore = create<EditorState>()(
       autoPerspectiveMode: "auto",
       selectedLocalAdjustmentId: null,
       historyByAssetId: {},
+      bypassedPanels: new Set<string>(),
       setSelectedAssetId: (selectedAssetId) => set({ selectedAssetId }),
       setSelectedLayerId: (selectedLayerId) => set({ selectedLayerId }),
       setShowOriginal: (showOriginal) => set({ showOriginal }),
@@ -196,6 +200,17 @@ export const useEditorStore = create<EditorState>()(
           };
         }),
       setPreviewHistogram: (previewHistogram) => set({ previewHistogram }),
+      toggleBypassPanel: (panelId) =>
+        set((state) => {
+          const next = new Set(state.bypassedPanels);
+          if (next.has(panelId)) {
+            next.delete(panelId);
+          } else {
+            next.add(panelId);
+          }
+          return { bypassedPanels: next };
+        }),
+      isPanelBypassed: (panelId) => get().bypassedPanels.has(panelId),
       canUndo: (assetId) => {
         const history = get().historyByAssetId[assetId];
         return Boolean(history && history.past.length > 0);

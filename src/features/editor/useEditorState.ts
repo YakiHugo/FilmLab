@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
+import { createDefaultLayerMask, createDefaultLayerMaskData } from "@/lib/editorLayerMasks";
 import {
   createEditorLayerId,
   ensureAssetLayers,
@@ -10,7 +11,14 @@ import {
 } from "@/lib/editorLayers";
 import { useEditorStore } from "@/stores/editorStore";
 import { useAssetStore } from "@/stores/assetStore";
-import type { AssetUpdate, EditorLayer, EditorLayerBlendMode } from "@/types";
+import type {
+  AssetUpdate,
+  EditorLayer,
+  EditorLayerBlendMode,
+  EditorLayerMask,
+  EditorLayerMaskData,
+  EditorLayerMaskMode,
+} from "@/types";
 import type { HistogramData } from "./histogram";
 import { rgbToHue } from "./colorUtils";
 import { useEditorHistory } from "./useEditorHistory";
@@ -56,6 +64,7 @@ export function useEditorState() {
     autoPerspectiveRequestId,
     autoPerspectiveMode,
     selectedLocalAdjustmentId,
+    bypassedPanels,
     setSelectedAssetId,
     setSelectedLayerId,
     setShowOriginal,
@@ -66,6 +75,8 @@ export function useEditorState() {
     setSelectedLocalAdjustmentId,
     toggleOriginal,
     toggleSection,
+    toggleBypassPanel,
+    isPanelBypassed,
     setPreviewHistogram,
     setPointColorPicking,
     setPointColorPickTarget,
@@ -84,6 +95,7 @@ export function useEditorState() {
       autoPerspectiveRequestId: state.autoPerspectiveRequestId,
       autoPerspectiveMode: state.autoPerspectiveMode,
       selectedLocalAdjustmentId: state.selectedLocalAdjustmentId,
+      bypassedPanels: state.bypassedPanels,
       setSelectedAssetId: state.setSelectedAssetId,
       setSelectedLayerId: state.setSelectedLayerId,
       setShowOriginal: state.setShowOriginal,
@@ -94,6 +106,8 @@ export function useEditorState() {
       setSelectedLocalAdjustmentId: state.setSelectedLocalAdjustmentId,
       toggleOriginal: state.toggleOriginal,
       toggleSection: state.toggleSection,
+      toggleBypassPanel: state.toggleBypassPanel,
+      isPanelBypassed: state.isPanelBypassed,
       setPreviewHistogram: state.setPreviewHistogram,
       setPointColorPicking: state.setPointColorPicking,
       setPointColorPickTarget: state.setPointColorPickTarget,
@@ -277,6 +291,84 @@ export function useEditorState() {
     handleImportPresets,
   } = useEditorFilmProfile(selectedAssetForEditing, adjustments, historyActions);
 
+  // Apply bypass logic to preview adjustments
+  const bypassedPreviewAdjustments = useMemo(() => {
+    if (!resolvedPreviewAdjustments) {
+      return null;
+    }
+    const defaults = createDefaultAdjustments();
+    let result = { ...resolvedPreviewAdjustments };
+
+    // Bypass Basic panel
+    if (bypassedPanels.has("basic")) {
+      result = {
+        ...result,
+        exposure: defaults.exposure,
+        contrast: defaults.contrast,
+        highlights: defaults.highlights,
+        shadows: defaults.shadows,
+        whites: defaults.whites,
+        blacks: defaults.blacks,
+        temperature: defaults.temperature,
+        tint: defaults.tint,
+        vibrance: defaults.vibrance,
+        saturation: defaults.saturation,
+      };
+    }
+
+    // Bypass Effects panel
+    if (bypassedPanels.has("effects")) {
+      result = {
+        ...result,
+        texture: defaults.texture,
+        clarity: defaults.clarity,
+        dehaze: defaults.dehaze,
+        grain: defaults.grain,
+        grainSize: defaults.grainSize,
+        grainRoughness: defaults.grainRoughness,
+        vignette: defaults.vignette,
+        glowIntensity: defaults.glowIntensity,
+        glowMidtoneFocus: defaults.glowMidtoneFocus,
+        glowBias: defaults.glowBias,
+        glowRadius: defaults.glowRadius,
+      };
+    }
+
+    // Bypass Detail panel
+    if (bypassedPanels.has("detail")) {
+      result = {
+        ...result,
+        sharpening: defaults.sharpening,
+        sharpenRadius: defaults.sharpenRadius,
+        sharpenDetail: defaults.sharpenDetail,
+        masking: defaults.masking,
+        noiseReduction: defaults.noiseReduction,
+        colorNoiseReduction: defaults.colorNoiseReduction,
+      };
+    }
+
+    // Bypass Crop panel
+    if (bypassedPanels.has("crop")) {
+      result = {
+        ...result,
+        rotate: defaults.rotate,
+        rightAngleRotation: defaults.rightAngleRotation,
+        perspectiveEnabled: defaults.perspectiveEnabled,
+        perspectiveHorizontal: defaults.perspectiveHorizontal,
+        perspectiveVertical: defaults.perspectiveVertical,
+        horizontal: defaults.horizontal,
+        vertical: defaults.vertical,
+        scale: defaults.scale,
+        flipHorizontal: defaults.flipHorizontal,
+        flipVertical: defaults.flipVertical,
+        aspectRatio: defaults.aspectRatio,
+        customAspectRatio: defaults.customAspectRatio,
+      };
+    }
+
+    return result;
+  }, [resolvedPreviewAdjustments, bypassedPanels]);
+
   const handlePreviewHistogramChange = useCallback(
     (histogram: HistogramData | null) => {
       setPreviewHistogram(histogram);
@@ -369,7 +461,8 @@ export function useEditorState() {
       if (!selectedAsset) {
         return;
       }
-      updateLayer(selectedAsset.id, layerId, { opacity });
+      const nextOpacity = Math.max(0, Math.min(100, Math.round(opacity)));
+      updateLayer(selectedAsset.id, layerId, { opacity: nextOpacity });
     },
     [selectedAsset, updateLayer]
   );
@@ -380,6 +473,88 @@ export function useEditorState() {
         return;
       }
       updateLayer(selectedAsset.id, layerId, { blendMode });
+    },
+    [selectedAsset, updateLayer]
+  );
+
+  const setLayerMask = useCallback(
+    (layerId: string, mask: EditorLayerMask | undefined) => {
+      if (!selectedAsset) {
+        return;
+      }
+      updateLayer(selectedAsset.id, layerId, { mask });
+    },
+    [selectedAsset, updateLayer]
+  );
+
+  const setLayerMaskMode = useCallback(
+    (layerId: string, mode: EditorLayerMaskMode) => {
+      if (!selectedAsset) {
+        return;
+      }
+      const layer = layers.find((item) => item.id === layerId);
+      if (!layer) {
+        return;
+      }
+
+      const currentMask = layer.mask;
+      const nextMask: EditorLayerMask =
+        currentMask?.mode === mode
+          ? {
+              mode,
+              inverted: currentMask.inverted,
+              data: currentMask.data ?? createDefaultLayerMaskData(mode),
+            }
+          : createDefaultLayerMask(mode);
+      updateLayer(selectedAsset.id, layerId, { mask: nextMask });
+    },
+    [layers, selectedAsset, updateLayer]
+  );
+
+  const updateLayerMaskData = useCallback(
+    (layerId: string, data: EditorLayerMaskData) => {
+      if (!selectedAsset) {
+        return;
+      }
+      const layer = layers.find((item) => item.id === layerId);
+      if (!layer?.mask) {
+        return;
+      }
+      updateLayer(selectedAsset.id, layerId, {
+        mask: {
+          ...layer.mask,
+          data,
+        },
+      });
+    },
+    [layers, selectedAsset, updateLayer]
+  );
+
+  const invertLayerMask = useCallback(
+    (layerId: string) => {
+      if (!selectedAsset) {
+        return;
+      }
+      const layer = layers.find((item) => item.id === layerId);
+      if (!layer?.mask) {
+        return;
+      }
+      updateLayer(selectedAsset.id, layerId, {
+        mask: {
+          ...layer.mask,
+          inverted: !layer.mask.inverted,
+        },
+      });
+    },
+    [layers, selectedAsset, updateLayer]
+  );
+
+  const clearLayerMask = useCallback(
+    (layerId: string) => {
+      if (!selectedAsset) {
+        return;
+      }
+      updateLayer(selectedAsset.id, layerId, { mask: undefined });
     },
     [selectedAsset, updateLayer]
   );
@@ -515,7 +690,7 @@ export function useEditorState() {
     selectedLayer,
     layers,
     adjustments,
-    previewAdjustments: resolvedPreviewAdjustments,
+    previewAdjustments: bypassedPreviewAdjustments,
     previewFilmProfile,
     previewHistogram,
     presetLabel,
@@ -561,9 +736,17 @@ export function useEditorState() {
     setLayerVisibility,
     setLayerOpacity,
     setLayerBlendMode,
+    setLayerMask,
+    setLayerMaskMode,
+    updateLayerMaskData,
+    invertLayerMask,
+    clearLayerMask,
     requestAutoPerspective,
     toggleOriginal,
     toggleSection,
+    toggleBypassPanel,
+    isPanelBypassed,
+    bypassedPanels,
     updateAdjustments,
     previewAdjustmentValue,
     updateAdjustmentValue,

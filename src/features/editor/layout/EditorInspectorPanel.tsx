@@ -1,38 +1,294 @@
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { EditorHistogramCard } from "../EditorHistogramCard";
-import { EditorInspectorContent } from "../EditorAdjustmentPanel";
-import { EDITOR_TOOL_PANELS } from "../editorPanelConfig";
+import { EditorPresetCard } from "../EditorPresetCard";
+import { EditorSection } from "../EditorSection";
 import { useEditorState } from "../useEditorState";
+import { BasicPanel } from "../components/panels/BasicPanel";
+import { EffectsPanel } from "../components/panels/EffectsPanel";
+import { DetailPanel } from "../components/panels/DetailPanel";
+import { ExportPanel } from "../components/panels/ExportPanel";
+import { LayerPropertiesPanel } from "../components/panels/LayerPropertiesPanel";
+import { EditorCropSection } from "../EditorCropSection";
+import { AiEditPanel } from "../ai/AiEditPanel";
+import { Badge } from "@/components/ui/badge";
+import { AI_FEATURES } from "../editorPanelConfig";
+import type { EditingAdjustments } from "@/types";
+
+function hasBasicChanges(adjustments: EditingAdjustments): boolean {
+  return (
+    adjustments.exposure !== 0 ||
+    adjustments.contrast !== 0 ||
+    adjustments.highlights !== 0 ||
+    adjustments.shadows !== 0 ||
+    adjustments.whites !== 0 ||
+    adjustments.blacks !== 0 ||
+    adjustments.temperature !== 0 ||
+    adjustments.tint !== 0 ||
+    adjustments.vibrance !== 0 ||
+    adjustments.saturation !== 0
+  );
+}
+
+function hasEffectsChanges(adjustments: EditingAdjustments): boolean {
+  return (
+    adjustments.texture !== 0 ||
+    adjustments.clarity !== 0 ||
+    adjustments.dehaze !== 0 ||
+    adjustments.grain !== 0 ||
+    adjustments.vignette !== 0 ||
+    adjustments.glowIntensity !== 0
+  );
+}
+
+function hasDetailChanges(adjustments: EditingAdjustments): boolean {
+  return (
+    adjustments.sharpening !== 0 ||
+    adjustments.noiseReduction !== 0 ||
+    adjustments.colorNoiseReduction !== 0
+  );
+}
+
+function hasCropChanges(adjustments: EditingAdjustments): boolean {
+  return (
+    adjustments.rotate !== 0 ||
+    adjustments.rightAngleRotation !== 0 ||
+    adjustments.perspectiveHorizontal !== 0 ||
+    adjustments.perspectiveVertical !== 0 ||
+    adjustments.horizontal !== 0 ||
+    adjustments.vertical !== 0 ||
+    adjustments.scale !== 100 ||
+    adjustments.flipHorizontal !== false ||
+    adjustments.flipVertical !== false ||
+    adjustments.aspectRatio !== "original"
+  );
+}
 
 interface EditorInspectorPanelProps {
   className?: string;
 }
 
 export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
-  const { activeToolPanelId } = useEditorState();
-  const showHistogram = activeToolPanelId === "edit";
-  const panelLabel =
-    EDITOR_TOOL_PANELS.find((panel) => panel.id === activeToolPanelId)?.label ?? "Edit";
+  const {
+    adjustments,
+    openSections,
+    toggleSection,
+    toggleBypassPanel,
+    isPanelBypassed,
+    updateAdjustments,
+    previewAdjustmentValue,
+    updateAdjustmentValue,
+    toggleFlip,
+    requestAutoPerspective,
+    selectedAsset,
+    selectedLayer,
+    setLayerOpacity,
+    setLayerBlendMode,
+    setLayerMaskMode,
+    invertLayerMask,
+    clearLayerMask,
+    handleSelectFilmProfile,
+  } = useEditorState();
+
+  const [layerChangesVisible, setLayerChangesVisible] = useState(true);
+
+  const basicHasChanges = adjustments ? hasBasicChanges(adjustments) : false;
+  const effectsHasChanges = adjustments ? hasEffectsChanges(adjustments) : false;
+  const detailHasChanges = adjustments ? hasDetailChanges(adjustments) : false;
+  const cropHasChanges = adjustments ? hasCropChanges(adjustments) : false;
+
+  const resetBasicPanel = () => {
+    updateAdjustments({
+      exposure: 0,
+      contrast: 0,
+      highlights: 0,
+      shadows: 0,
+      whites: 0,
+      blacks: 0,
+      temperature: 0,
+      tint: 0,
+      vibrance: 0,
+      saturation: 0,
+    });
+  };
+
+  const resetEffectsPanel = () => {
+    updateAdjustments({
+      texture: 0,
+      clarity: 0,
+      dehaze: 0,
+      grain: 0,
+      grainSize: 50,
+      grainRoughness: 50,
+      vignette: 0,
+      glowIntensity: 0,
+      glowMidtoneFocus: 50,
+      glowBias: 25,
+      glowRadius: 24,
+    });
+  };
+
+  const resetDetailPanel = () => {
+    updateAdjustments({
+      sharpening: 0,
+      sharpenRadius: 40,
+      sharpenDetail: 25,
+      masking: 0,
+      noiseReduction: 0,
+      colorNoiseReduction: 0,
+    });
+  };
+
+  const resetCropPanel = () => {
+    updateAdjustments({
+      rotate: 0,
+      rightAngleRotation: 0,
+      perspectiveEnabled: false,
+      perspectiveHorizontal: 0,
+      perspectiveVertical: 0,
+      horizontal: 0,
+      vertical: 0,
+      scale: 100,
+      flipHorizontal: false,
+      flipVertical: false,
+      aspectRatio: "original",
+      customAspectRatio: 4 / 3,
+    });
+  };
 
   return (
     <aside
       className={cn(
-        "flex min-h-0 w-full shrink-0 flex-col bg-[#121214] md:w-[360px]",
+        "flex min-h-0 w-full shrink-0 flex-col bg-[#121214] pl-5 md:w-[340px]",
         className
       )}
     >
-      <div className="flex items-center justify-between px-3 py-2.5">
-        <div className="flex items-center gap-3 text-xs">
-          <span className="font-medium text-slate-100">Tools</span>
-          <span className="text-slate-500">{panelLabel}</span>
-          <span className="h-1 w-1 rounded-full bg-white/70" />
-        </div>
-      </div>
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+        {/* Histogram */}
+        <EditorHistogramCard />
 
-      {showHistogram ? <EditorHistogramCard /> : null}
+        {/* Layer Properties */}
+        <LayerPropertiesPanel
+          layer={selectedLayer}
+          isOpen={openSections.local}
+          onToggle={() => toggleSection("local")}
+          onSetOpacity={setLayerOpacity}
+          onSetBlendMode={setLayerBlendMode}
+          onSetMaskMode={setLayerMaskMode}
+          onInvertMask={invertLayerMask}
+          onClearMask={clearLayerMask}
+          hasChanges={selectedLayer ? (selectedLayer.opacity !== 100 || selectedLayer.blendMode !== "normal") : false}
+          changesVisible={layerChangesVisible}
+          onToggleVisibility={() => setLayerChangesVisible((prev) => !prev)}
+          onResetChanges={() => {
+            if (selectedLayer) {
+              setLayerOpacity(selectedLayer.id, 100);
+              setLayerBlendMode(selectedLayer.id, "normal");
+            }
+          }}
+        />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        <EditorInspectorContent panelId={activeToolPanelId} />
+        {/* Preset */}
+        <EditorPresetCard />
+
+        {/* Crop */}
+        {adjustments && (
+          <EditorCropSection
+            adjustments={adjustments}
+            isOpen={openSections.crop}
+            onToggle={() => toggleSection("crop")}
+            onUpdateAdjustments={updateAdjustments}
+            onPreviewAdjustmentValue={previewAdjustmentValue}
+            onCommitAdjustmentValue={updateAdjustmentValue}
+            onToggleFlip={toggleFlip}
+            onRequestAutoPerspective={requestAutoPerspective}
+            hasChanges={cropHasChanges}
+            changesVisible={!isPanelBypassed("crop")}
+            onToggleVisibility={() => toggleBypassPanel("crop")}
+            onResetChanges={resetCropPanel}
+          />
+        )}
+
+        {/* Develop / Basic */}
+        {adjustments && (
+          <BasicPanel
+            adjustments={adjustments}
+            isOpen={openSections.basic}
+            onToggle={() => toggleSection("basic")}
+            onUpdateAdjustments={updateAdjustments}
+            onPreviewAdjustmentValue={previewAdjustmentValue}
+            onCommitAdjustmentValue={updateAdjustmentValue}
+            hasChanges={basicHasChanges}
+            changesVisible={!isPanelBypassed("basic")}
+            onToggleVisibility={() => toggleBypassPanel("basic")}
+            onResetChanges={resetBasicPanel}
+          />
+        )}
+
+        {/* Effects */}
+        {adjustments && (
+          <EffectsPanel
+            adjustments={adjustments}
+            isOpen={openSections.effects}
+            onToggle={() => toggleSection("effects")}
+            onUpdateAdjustments={updateAdjustments}
+            onPreviewAdjustmentValue={previewAdjustmentValue}
+            onCommitAdjustmentValue={updateAdjustmentValue}
+            hasChanges={effectsHasChanges}
+            changesVisible={!isPanelBypassed("effects")}
+            onToggleVisibility={() => toggleBypassPanel("effects")}
+            onResetChanges={resetEffectsPanel}
+          />
+        )}
+
+        {/* Detail */}
+        {adjustments && (
+          <DetailPanel
+            adjustments={adjustments}
+            isOpen={openSections.detail}
+            onToggle={() => toggleSection("detail")}
+            onPreviewAdjustmentValue={previewAdjustmentValue}
+            onCommitAdjustmentValue={updateAdjustmentValue}
+            hasChanges={detailHasChanges}
+            changesVisible={!isPanelBypassed("detail")}
+            onToggleVisibility={() => toggleBypassPanel("detail")}
+            onResetChanges={resetDetailPanel}
+          />
+        )}
+
+        {/* Export */}
+        <ExportPanel
+          isOpen={openSections.export}
+          onToggle={() => toggleSection("export")}
+        />
+
+        {/* AI */}
+        {adjustments ? (
+          <AiEditPanel
+            selectedAsset={selectedAsset ?? null}
+            adjustments={adjustments}
+            onUpdateAdjustments={updateAdjustments}
+            onSelectFilmProfile={handleSelectFilmProfile}
+          />
+        ) : (
+          <EditorSection
+            title="AI"
+            hint="智能建议"
+            isOpen={openSections.ai}
+            onToggle={() => toggleSection("ai")}
+          >
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {AI_FEATURES.map((label) => (
+                  <Badge key={label} className="border-white/10 bg-white/5 text-slate-200">
+                    {label}
+                  </Badge>
+                ))}
+              </div>
+              <p className="text-xs text-slate-400">AI adjustments are coming soon.</p>
+            </div>
+          </EditorSection>
+        )}
       </div>
     </aside>
   );
