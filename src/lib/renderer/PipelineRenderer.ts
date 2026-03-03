@@ -45,6 +45,8 @@ import { readPixelsAsync } from "./gpu/TiledRenderer";
 import { CURVE_LUT_SIZE, buildCurveLutPixels, createIdentityCurvePixels } from "./gpu/CurveLut";
 import { encodeCurveLutToBytes, encodeCurveLutToHalfFloats } from "./CurveLutEncoding";
 import { runPostProcessing } from "./RenderPostProcessing";
+import { generateMaskTexture as generateLayerMaskTexture } from "@/lib/layerMaskTexture";
+import type { EditorLayerBlendMode, EditorLayerMask } from "@/types";
 import type {
   CurveUniforms,
   DetailUniforms,
@@ -122,6 +124,21 @@ interface UniformUpdateOptions {
   filmUniforms: FilmUniforms | null;
   halationBloomUniforms: HalationBloomUniforms | null | undefined;
 }
+
+interface LayerBlendOptions {
+  opacity?: number;
+  blendMode?: EditorLayerBlendMode;
+  maskSource?: TexImageSource | null;
+  invertMask?: boolean;
+}
+
+const LAYER_BLEND_MODE_MAP: Record<EditorLayerBlendMode, number> = {
+  normal: 0,
+  multiply: 1,
+  screen: 2,
+  overlay: 3,
+  softLight: 4,
+};
 
 const NO_OP_METRICS: PipelineRenderMetrics = {
   totalMs: 0,
@@ -212,6 +229,7 @@ export class PipelineRenderer {
   private damageTexture: WebGLTexture;
   private borderTexture: WebGLTexture;
   private fallback3DLutTexture: WebGLTexture;
+  private fullMaskTexture: WebGLTexture;
   private destroyed = false;
   private contextLost = false;
   private onContextLost: (() => void) | null = null;
@@ -245,7 +263,12 @@ export class PipelineRenderer {
   private readonly bilateralQuarterPassUniforms = createBilateralPassUniforms(0.06);
   private readonly reconstructPassUniforms = createReconstructPassUniforms();
   private readonly outputEncodeUniforms = createOutputEncodeUniforms();
-  private readonly maskedBlendUniforms = {};
+  private readonly maskedBlendUniforms = {
+    u_opacity: 1,
+    u_blendMode: LAYER_BLEND_MODE_MAP.normal,
+    u_useMask: false,
+    u_invertMask: false,
+  };
   private capturedLinearResult: LinearRenderResult | null = null;
 
   constructor(
@@ -363,6 +386,20 @@ export class PipelineRenderer {
     });
 
     this.fallback3DLutTexture = createIdentity3DLutTexture(gl);
+    this.fullMaskTexture = twgl.createTexture(gl, {
+      target: gl.TEXTURE_2D,
+      src: new Uint8Array([255, 255, 255, 255]),
+      width: 1,
+      height: 1,
+      internalFormat: gl.RGBA8,
+      format: gl.RGBA,
+      type: gl.UNSIGNED_BYTE,
+      min: gl.NEAREST,
+      mag: gl.NEAREST,
+      wrapS: gl.CLAMP_TO_EDGE,
+      wrapT: gl.CLAMP_TO_EDGE,
+      auto: false,
+    });
     this.filmPassUniforms.u_lut = this.fallback3DLutTexture;
     this.filmPassUniforms.u_lutBlend = this.fallback3DLutTexture;
     this.filmPassUniforms.u_lutMixEnabled = false;
@@ -472,10 +509,27 @@ export class PipelineRenderer {
     this.drawLinearToCanvas(result.texture, result.width, result.height, result.format);
   }
 
-  blendLinearWithMask(
+  generateMaskTexture(
+    mask: EditorLayerMask,
+    width: number,
+    height: number,
+    referenceSource?: CanvasImageSource,
+    targetCanvas?: HTMLCanvasElement,
+    scratchCanvas?: HTMLCanvasElement
+  ): HTMLCanvasElement | null {
+    return generateLayerMaskTexture(mask, {
+      width,
+      height,
+      referenceSource,
+      targetCanvas,
+      scratchCanvas,
+    });
+  }
+
+  blendLinearLayers(
     base: LinearRenderResult,
     layer: LinearRenderResult,
-    maskSource: TexImageSource
+    options?: LayerBlendOptions
   ): LinearRenderResult {
     if (this.destroyed || this.contextLost) {
       return {
@@ -486,22 +540,36 @@ export class PipelineRenderer {
         release: () => {},
       };
     }
-    const maskTexture = twgl.createTexture(this.gl, {
-      target: this.gl.TEXTURE_2D,
-      src: maskSource,
-      min: this.gl.LINEAR,
-      mag: this.gl.LINEAR,
-      wrapS: this.gl.CLAMP_TO_EDGE,
-      wrapT: this.gl.CLAMP_TO_EDGE,
-      auto: false,
-    });
+
+    const blendMode = options?.blendMode ?? "normal";
+    const opacity = Math.max(0, Math.min(1, options?.opacity ?? 1));
+    const useMask = Boolean(options?.maskSource);
+    let maskTexture: WebGLTexture = this.fullMaskTexture;
+
+    if (useMask && options?.maskSource) {
+      maskTexture = twgl.createTexture(this.gl, {
+        target: this.gl.TEXTURE_2D,
+        src: options.maskSource,
+        min: this.gl.LINEAR,
+        mag: this.gl.LINEAR,
+        wrapS: this.gl.CLAMP_TO_EDGE,
+        wrapT: this.gl.CLAMP_TO_EDGE,
+        auto: false,
+      });
+    }
+
+    this.maskedBlendUniforms.u_opacity = opacity;
+    this.maskedBlendUniforms.u_blendMode = LAYER_BLEND_MODE_MAP[blendMode];
+    this.maskedBlendUniforms.u_useMask = useMask;
+    this.maskedBlendUniforms.u_invertMask = Boolean(options?.invertMask);
+
     try {
       const blended = this.filterPipeline.runToTexture({
         baseWidth: this.lastTargetWidth,
         baseHeight: this.lastTargetHeight,
         passes: [
           {
-            id: "masked-linear-blend",
+            id: "layer-blend",
             programInfo: this.programs.maskedBlend,
             uniforms: this.maskedBlendUniforms,
             extraTextures: {
@@ -527,8 +595,22 @@ export class PipelineRenderer {
         release: blended.release,
       };
     } finally {
-      this.gl.deleteTexture(maskTexture);
+      if (useMask) {
+        this.gl.deleteTexture(maskTexture);
+      }
     }
+  }
+
+  blendLinearWithMask(
+    base: LinearRenderResult,
+    layer: LinearRenderResult,
+    maskSource: TexImageSource
+  ): LinearRenderResult {
+    return this.blendLinearLayers(base, layer, {
+      blendMode: "normal",
+      opacity: 1,
+      maskSource,
+    });
   }
 
   async loadLUT(url: string, level: 8 | 16 = 8): Promise<void> {
@@ -950,11 +1032,13 @@ export class PipelineRenderer {
     this.gl.deleteTexture(this.damageTexture);
     this.gl.deleteTexture(this.borderTexture);
     this.gl.deleteTexture(this.fallback3DLutTexture);
+    this.gl.deleteTexture(this.fullMaskTexture);
     this.curveLutTexture = null as unknown as WebGLTexture;
     this.blueNoiseTexture = null as unknown as WebGLTexture;
     this.damageTexture = null as unknown as WebGLTexture;
     this.borderTexture = null as unknown as WebGLTexture;
     this.fallback3DLutTexture = null as unknown as WebGLTexture;
+    this.fullMaskTexture = null as unknown as WebGLTexture;
 
     this.lutTexture = null;
     this.currentLutKey = null;

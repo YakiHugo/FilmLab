@@ -24,7 +24,9 @@ import downsampleFragSrc from "./shaders/Downsample.frag?raw";
 import bilateralScaleFragSrc from "./shaders/BilateralScale.frag?raw";
 import reconstructFragSrc from "./shaders/Reconstruct.frag?raw";
 import outputEncodeFragSrc from "./shaders/OutputEncode.frag?raw";
-import maskedBlendFragSrc from "./shaders/MaskedBlend.frag?raw";
+import layerBlendFragSrc from "./shaders/LayerBlend.frag?raw";
+import linearGradientMaskFragSrc from "./shaders/LinearGradientMask.frag?raw";
+import radialGradientMaskFragSrc from "./shaders/RadialGradientMask.frag?raw";
 
 export interface RendererPrograms {
   passthrough: ProgramInfo;
@@ -50,6 +52,8 @@ export interface RendererPrograms {
   reconstruct: ProgramInfo;
   outputEncode: ProgramInfo;
   maskedBlend: ProgramInfo;
+  linearGradientMask: ProgramInfo;
+  radialGradientMask: ProgramInfo;
 }
 
 type ProgramName = keyof RendererPrograms;
@@ -77,7 +81,9 @@ const PROGRAM_FRAGMENTS: Record<ProgramName, string> = {
   bilateralScale: bilateralScaleFragSrc,
   reconstruct: reconstructFragSrc,
   outputEncode: outputEncodeFragSrc,
-  maskedBlend: maskedBlendFragSrc,
+  maskedBlend: layerBlendFragSrc,
+  linearGradientMask: linearGradientMaskFragSrc,
+  radialGradientMask: radialGradientMaskFragSrc,
 };
 
 const CORE_PRECOMPILE_PROGRAMS: readonly ProgramName[] = [
