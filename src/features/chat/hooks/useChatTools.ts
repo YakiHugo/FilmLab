@@ -1,8 +1,14 @@
 import { useCallback } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { presets } from "@/data/presets";
+import { getDefaultImageModelForProvider } from "@/lib/ai/imageProviders";
 import { emit } from "@/lib/storeEvents";
 import type { Asset, CanvasElement, CanvasTextElement } from "@/types";
+import type {
+  ImageAspectRatio,
+  ImageGenerationRequest,
+  ImageProviderId,
+} from "@/types/imageGeneration";
 import { getRegisteredCanvasStage } from "@/features/canvas/hooks/canvasStageRegistry";
 import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
@@ -27,6 +33,28 @@ const asStringArray = (value: unknown) =>
   Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     : [];
+
+const asFiniteNumber = (value: unknown): number | undefined => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const sizeToAspectRatio = (size: string): ImageAspectRatio => {
+  if (size === "1024x1536") {
+    return "2:3";
+  }
+  if (size === "1536x1024") {
+    return "3:2";
+  }
+  return "1:1";
+};
+
+const toImageProvider = (value: unknown): ImageProviderId => {
+  if (value === "stability" || value === "flux" || value === "openai") {
+    return value;
+  }
+  return "openai";
+};
 
 const buildAssetSummary = (asset: Asset) => ({
   id: asset.id,
@@ -160,24 +188,120 @@ export function useChatTools() {
           if (!prompt) {
             return toolFailure(toolCall, "Missing prompt.");
           }
-          const provider = String(toolCall.args.provider ?? "openai") as "openai" | "stability";
+          const provider = toImageProvider(toolCall.args.provider);
           const model = String(
-            toolCall.args.model ?? (provider === "stability" ? "stable-image-core" : "gpt-image-1")
-          );
-          const size = String(toolCall.args.size ?? "1024x1024");
+            toolCall.args.model ?? getDefaultImageModelForProvider(provider)
+          ).trim() || getDefaultImageModelForProvider(provider);
+          const size = String(toolCall.args.size ?? "").trim();
+          const aspectRatioRaw = String(toolCall.args.aspectRatio ?? "").trim();
+          const aspectRatio =
+            aspectRatioRaw === "16:9" ||
+            aspectRatioRaw === "9:16" ||
+            aspectRatioRaw === "4:3" ||
+            aspectRatioRaw === "3:4" ||
+            aspectRatioRaw === "3:2" ||
+            aspectRatioRaw === "2:3" ||
+            aspectRatioRaw === "custom" ||
+            aspectRatioRaw === "1:1"
+              ? (aspectRatioRaw as ImageAspectRatio)
+              : size
+                ? sizeToAspectRatio(size)
+                : "1:1";
 
-          const generation = await generateAndImportImage({
+          const request: ImageGenerationRequest = {
             prompt,
             provider,
             model,
-            size,
-          });
+            aspectRatio,
+            style:
+              toolCall.args.style === "photorealistic" ||
+              toolCall.args.style === "cinematic" ||
+              toolCall.args.style === "anime" ||
+              toolCall.args.style === "digital-art" ||
+              toolCall.args.style === "oil-painting" ||
+              toolCall.args.style === "watercolor" ||
+              toolCall.args.style === "sketch" ||
+              toolCall.args.style === "3d-render" ||
+              toolCall.args.style === "pixel-art" ||
+              toolCall.args.style === "none"
+                ? toolCall.args.style
+                : "none",
+            stylePreset:
+              typeof toolCall.args.stylePreset === "string"
+                ? toolCall.args.stylePreset
+                : undefined,
+            negativePrompt:
+              typeof toolCall.args.negativePrompt === "string"
+                ? toolCall.args.negativePrompt
+                : undefined,
+            seed: asFiniteNumber(toolCall.args.seed),
+            guidanceScale: asFiniteNumber(toolCall.args.guidanceScale),
+            steps: asFiniteNumber(toolCall.args.steps),
+            sampler:
+              typeof toolCall.args.sampler === "string"
+                ? toolCall.args.sampler
+                : undefined,
+            batchSize: Math.min(
+              4,
+              Math.max(1, Math.round(asFiniteNumber(toolCall.args.batchSize) ?? 1))
+            ),
+            referenceImages: Array.isArray(toolCall.args.referenceImages)
+              ? toolCall.args.referenceImages
+                  .filter(
+                    (entry): entry is { url: string; weight?: number; type?: string } =>
+                      typeof entry === "object" &&
+                      entry !== null &&
+                      typeof (entry as { url?: unknown }).url === "string"
+                  )
+                  .slice(0, 4)
+                  .map((entry, index) => ({
+                    id: `tool-ref-${index}`,
+                    url: entry.url,
+                    weight: asFiniteNumber(entry.weight),
+                    type:
+                      entry.type === "style" ||
+                      entry.type === "content" ||
+                      entry.type === "controlnet"
+                        ? entry.type
+                        : "content",
+                  }))
+              : undefined,
+            modelParams:
+              toolCall.args.modelParams &&
+              typeof toolCall.args.modelParams === "object" &&
+              !Array.isArray(toolCall.args.modelParams)
+                ? Object.entries(toolCall.args.modelParams as Record<string, unknown>).reduce<
+                    Record<string, string | number | boolean | null>
+                  >((accumulator, [key, value]) => {
+                    if (
+                      typeof value === "string" ||
+                      typeof value === "number" ||
+                      typeof value === "boolean" ||
+                      value === null
+                    ) {
+                      accumulator[key] = value;
+                    }
+                    return accumulator;
+                  }, {})
+                : undefined,
+          };
+
+          const generation = await generateAndImportImage(request);
+
           return toolSuccess(toolCall, {
             prompt,
             provider,
             model,
-            size,
+            aspectRatio,
+            style: request.style,
+            batchSize: request.batchSize,
             imageUrl: generation.imageUrl,
+            images: generation.images.map((image) => ({
+              imageUrl: image.imageUrl,
+              assetId: image.assetId,
+              provider: image.provider,
+              model: image.model,
+            })),
             importedAssetIds: generation.importedAssetIds,
           });
         }
