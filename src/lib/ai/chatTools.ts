@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  IMAGE_ASPECT_RATIOS,
+  IMAGE_PROVIDER_IDS,
+  IMAGE_STYLE_IDS,
+  REFERENCE_IMAGE_TYPES,
+} from "@/types/imageGeneration";
 
 export const selectAssetsToolSchema = z.object({
   query: z.string().min(1).describe("Natural-language condition for matching assets."),
@@ -16,9 +22,30 @@ export const createCanvasToolSchema = z.object({
 
 export const generateImageToolSchema = z.object({
   prompt: z.string().min(1),
-  provider: z.enum(["openai", "stability"]).default("openai"),
-  model: z.string().default("gpt-image-1"),
-  size: z.string().default("1024x1024"),
+  provider: z.enum(IMAGE_PROVIDER_IDS).default("openai"),
+  model: z.string().optional(),
+  aspectRatio: z.enum(IMAGE_ASPECT_RATIOS).optional(),
+  // Backward-compatible alias to support old tool calls.
+  size: z.string().optional(),
+  style: z.enum(IMAGE_STYLE_IDS).optional(),
+  stylePreset: z.string().optional(),
+  negativePrompt: z.string().optional(),
+  seed: z.number().int().min(0).optional(),
+  guidanceScale: z.number().min(1).max(20).optional(),
+  steps: z.number().int().min(1).max(80).optional(),
+  sampler: z.string().optional(),
+  batchSize: z.number().int().min(1).max(4).default(1),
+  referenceImages: z
+    .array(
+      z.object({
+        url: z.string().min(1),
+        weight: z.number().min(0).max(1).optional(),
+        type: z.enum(REFERENCE_IMAGE_TYPES).default("content"),
+      })
+    )
+    .max(4)
+    .optional(),
+  modelParams: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
 });
 
 export const applyPresetToAssetsToolSchema = z.object({

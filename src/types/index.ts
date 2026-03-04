@@ -529,6 +529,7 @@ export interface Project {
 
 export * from "./canvas";
 export * from "./chat";
+export * from "./imageGeneration";
 export * from "./adjustments";
 export * from "./editor";
 export * from "./renderer";
