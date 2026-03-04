@@ -1,95 +1,16 @@
-import { z } from "zod";
 import { type ApiRequest, type ApiResponse, readJsonBody, sendError } from "./_utils";
+import { imageGenerationRequestSchema } from "../src/lib/ai/imageGenerationSchema";
+import type { ImageProviderId } from "../src/types/imageGeneration";
+import { fluxImageProvider } from "./ai/providers/flux";
+import { openAiImageProvider } from "./ai/providers/openai";
+import { stabilityImageProvider } from "./ai/providers/stability";
+import type { ImageProviderAdapter } from "./ai/types";
 
-const requestSchema = z.object({
-  prompt: z.string().min(1),
-  provider: z.enum(["openai", "stability"]).default("openai"),
-  model: z.string().default("gpt-image-1"),
-  size: z.string().default("1024x1024"),
-});
-
-const sizeToAspectRatio = (size: string) => {
-  if (size === "1024x1536") {
-    return "2:3";
-  }
-  if (size === "1536x1024") {
-    return "3:2";
-  }
-  return "1:1";
+const PROVIDER_ADAPTERS: Record<ImageProviderId, ImageProviderAdapter> = {
+  openai: openAiImageProvider,
+  stability: stabilityImageProvider,
+  flux: fluxImageProvider,
 };
-
-const toDataUrl = (bytes: ArrayBuffer, mimeType: string) =>
-  `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`;
-
-async function generateWithOpenAI(payload: z.infer<typeof requestSchema>) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is not configured.");
-  }
-
-  const upstream = await fetch("https://api.openai.com/v1/images/generations", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: payload.model,
-      prompt: payload.prompt,
-      size: payload.size,
-    }),
-  });
-
-  if (!upstream.ok) {
-    throw new Error((await upstream.text()) || "OpenAI image generation failed.");
-  }
-
-  const json = (await upstream.json()) as {
-    data?: Array<{ b64_json?: string; url?: string }>;
-  };
-  const first = json.data?.[0];
-  if (!first) {
-    throw new Error("No image returned from provider.");
-  }
-
-  const imageUrl = first.url ?? (first.b64_json ? `data:image/png;base64,${first.b64_json}` : null);
-  if (!imageUrl) {
-    throw new Error("Provider response missing image data.");
-  }
-  return imageUrl;
-}
-
-async function generateWithStability(payload: z.infer<typeof requestSchema>) {
-  const apiKey = process.env.STABILITY_API_KEY;
-  if (!apiKey) {
-    throw new Error("STABILITY_API_KEY is not configured.");
-  }
-
-  const endpoint = payload.model.includes("ultra")
-    ? "https://api.stability.ai/v2beta/stable-image/generate/ultra"
-    : "https://api.stability.ai/v2beta/stable-image/generate/core";
-
-  const formData = new FormData();
-  formData.append("prompt", payload.prompt);
-  formData.append("output_format", "png");
-  formData.append("aspect_ratio", sizeToAspectRatio(payload.size));
-
-  const upstream = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      Accept: "image/*",
-    },
-    body: formData,
-  });
-
-  if (!upstream.ok) {
-    throw new Error((await upstream.text()) || "Stability image generation failed.");
-  }
-
-  const arrayBuffer = await upstream.arrayBuffer();
-  return toDataUrl(arrayBuffer, "image/png");
-}
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (request.method !== "POST") {
@@ -97,20 +18,40 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     return;
   }
 
-  let payload: z.infer<typeof requestSchema>;
+  let payload: ReturnType<typeof imageGenerationRequestSchema.parse>;
   try {
-    payload = requestSchema.parse(await readJsonBody(request));
+    payload = imageGenerationRequestSchema.parse(await readJsonBody(request));
   } catch {
     sendError(response, 400, "Invalid request payload.");
     return;
   }
 
   try {
-    const imageUrl =
-      payload.provider === "stability"
-        ? await generateWithStability(payload)
-        : await generateWithOpenAI(payload);
-    response.status(200).json({ imageUrl });
+    const adapter = PROVIDER_ADAPTERS[payload.provider];
+    if (!adapter) {
+      sendError(response, 400, `Unsupported provider: ${payload.provider}`);
+      return;
+    }
+
+    const generated = await adapter.generate(payload);
+    const firstImageUrl = generated.images[0]?.imageUrl;
+    if (!firstImageUrl) {
+      throw new Error("Provider did not return any image.");
+    }
+
+    response.status(200).json({
+      provider: generated.provider,
+      model: generated.model,
+      createdAt: new Date().toISOString(),
+      imageUrl: firstImageUrl,
+      images: generated.images.map((image) => ({
+        imageUrl: image.imageUrl,
+        provider: generated.provider,
+        model: generated.model,
+        mimeType: image.mimeType,
+        revisedPrompt: image.revisedPrompt,
+      })),
+    });
   } catch (error) {
     sendError(response, 500, error instanceof Error ? error.message : "Image generation failed.");
   }
