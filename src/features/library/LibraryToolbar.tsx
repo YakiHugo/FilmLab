@@ -49,7 +49,7 @@ export function LibraryToolbar({
     "rounded-sm border border-white/10 bg-black/40 text-zinc-200 hover:border-white/20 hover:bg-white/[0.08] focus-visible:border-yellow-500/60 focus-visible:ring-0";
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-white/10 bg-[#15171a] px-3 py-2">
+    <div className="flex flex-wrap items-center gap-2 bg-[#121214] px-3 py-2">
       <Button
         type="button"
         size="sm"

@@ -22,15 +22,14 @@ interface AssetGridProps {
 
 type CompactOrListView = Exclude<LibraryView, "masonry">;
 
-const COMPACT_COLUMN_GAP = 10;
-const COMPACT_ROW_GAP = 6;
-const LIST_GAP = 6;
-const MASONRY_GAP = 14;
-const LIST_ITEM_HEIGHT = 94;
+const COMPACT_COLUMN_GAP = 0;
+const COMPACT_ROW_GAP = 0;
+const LIST_GAP = 0;
+const MASONRY_GAP = 0;
+const LIST_ITEM_HEIGHT = 86;
 const COMPACT_CARD_WIDTH = 230;
 
 const SELECTED_BORDER = "border-yellow-500";
-const NORMAL_BORDER = "border-white/10";
 
 const resolveMasonryColumns = (width: number) => {
   if (width >= 1480) return 4;
@@ -76,8 +75,8 @@ function MasonryAssetCard({
     <article
       ref={cardRef}
       className={cn(
-        "break-inside-avoid border bg-[#0f1114] p-2.5 transition",
-        isSelected ? SELECTED_BORDER : `${NORMAL_BORDER} hover:border-white/20`
+        "break-inside-avoid bg-[#0a0b0d] p-2.5 transition",
+        isSelected ? SELECTED_BORDER : "hover:bg-[#0e0f12]"
       )}
       style={{ marginBottom: `${MASONRY_GAP}px` }}
     >
@@ -99,8 +98,8 @@ function MasonryAssetCard({
         </p>
         <div
           className={cn(
-            "overflow-hidden rounded-sm border bg-[#0e0f11] transition",
-            `${NORMAL_BORDER} hover:border-white/25`
+          "overflow-hidden bg-[#08090b] transition",
+          "hover:bg-[#0c0d0f]"
           )}
         >
           {isVisible ? (
@@ -139,13 +138,13 @@ function AssetCard({
     return (
       <article
         className={cn(
-          "border border-white/10 bg-[#0f1114] transition",
-          isSelected ? SELECTED_BORDER : "hover:border-white/20"
+          "bg-[#0a0b0d] p-2 transition",
+          isSelected ? SELECTED_BORDER : "hover:bg-[#0e0f12]"
         )}
       >
         <button
           type="button"
-          className="flex w-full items-center gap-3 px-2 py-2 text-left"
+          className="flex w-full items-center gap-3 text-left"
           onClick={(event) =>
             onSelectAsset(asset.id, {
               additive: event.ctrlKey || event.metaKey,
@@ -159,7 +158,7 @@ function AssetCard({
           <img
             src={src}
             alt={asset.name}
-            className="h-[70px] w-[70px] border border-white/10 object-cover"
+            className="h-[70px] w-[70px] object-cover"
             loading="lazy"
           />
           <div className="min-w-0 flex-1">
@@ -175,9 +174,8 @@ function AssetCard({
   return (
     <article
       className={cn(
-        "border border-white/10 bg-[#0f1114] p-2.5 transition",
-        view === "grid-compact" && "w-full max-w-[230px] justify-self-start",
-        isSelected ? SELECTED_BORDER : "hover:border-white/20"
+        "bg-[#0a0b0d] p-2.5 transition",
+        isSelected ? SELECTED_BORDER : "hover:bg-[#0e0f12]"
       )}
     >
       <button
@@ -193,13 +191,13 @@ function AssetCard({
           onOpenInEditor?.(asset.id);
         }}
       >
-        <p className="truncate pb-2 text-[11px] font-medium tracking-wide text-zinc-300">
+        <p className="truncate pb-1.5 text-[11px] font-medium tracking-wide text-zinc-300">
           {asset.name}
         </p>
         <div
           className={cn(
-            "overflow-hidden rounded-sm border bg-[#0d0e10] transition",
-            `${NORMAL_BORDER} group-hover:border-white/25`
+            "overflow-hidden bg-[#08090b] transition",
+            "group-hover:bg-[#0c0d0f]"
           )}
         >
           <img
@@ -268,7 +266,7 @@ export function AssetGrid({
   return (
     <div
       ref={scrollRef}
-      className="relative min-h-0 flex-1 overflow-auto bg-[#111316] px-3 pb-4 pt-3"
+      className="relative min-h-0 flex-1 overflow-auto bg-[#121214] px-0 pb-0 pt-0"
       onDragOver={(event) => {
         event.preventDefault();
         setIsDragging(true);
@@ -295,7 +293,7 @@ export function AssetGrid({
       )}
 
       {assets.length === 0 && (
-        <div className="border border-white/10 bg-black/30 p-8 text-center text-sm text-zinc-500">
+        <div className="bg-[#0a0b0d] p-8 text-center text-sm text-zinc-500">
           No photos match current filters.
         </div>
       )}

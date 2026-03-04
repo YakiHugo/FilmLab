@@ -33,11 +33,11 @@ export function LibraryPage() {
   };
 
   return (
-    <div className="flex h-[calc(100dvh-64px)] overflow-hidden border-y border-white/10 bg-[#121316]">
+    <div className="flex h-[calc(100dvh-44px)] overflow-hidden bg-[#121214]">
       <LibraryFilterSidebar
         dayOptions={dayOptions}
         onImport={handleImport}
-        className="hidden w-[280px] shrink-0 border-r border-white/10 lg:flex"
+        className="hidden w-[280px] shrink-0 lg:flex"
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -84,7 +84,7 @@ export function LibraryPage() {
           opacity: detailPanelOpen ? 1 : 0,
         }}
         transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-        className="hidden shrink-0 overflow-hidden border-l border-white/10 will-change-[width,opacity] lg:block"
+        className="hidden shrink-0 overflow-hidden will-change-[width,opacity] lg:block"
         style={{ pointerEvents: detailPanelOpen ? "auto" : "none" }}
       >
         <AssetMetadataPanel
@@ -96,8 +96,8 @@ export function LibraryPage() {
 
       {mobileFiltersOpen && (
         <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-sm lg:hidden">
-          <div className="absolute left-0 top-0 h-full w-[86vw] max-w-[320px] border-r border-white/10 bg-[#111115]">
-            <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+          <div className="absolute left-0 top-0 h-full w-[86vw] max-w-[320px] bg-[#121214]">
+            <div className="flex items-center justify-between px-3 py-2">
               <p className="text-xs uppercase tracking-[0.18em] text-zinc-400">Filters</p>
               <Button
                 type="button"

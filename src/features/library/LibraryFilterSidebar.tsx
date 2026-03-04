@@ -50,7 +50,7 @@ export function LibraryFilterSidebar({
   const resetFilters = useLibraryFilterStore((state) => state.resetFilters);
 
   return (
-    <aside className={cn("flex min-h-0 flex-col bg-[#101114] p-3", className)}>
+    <aside className={cn("flex min-h-0 flex-col bg-[#121214] p-3", className)}>
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
         <Input

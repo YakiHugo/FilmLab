@@ -50,7 +50,7 @@ export function AssetMetadataPanel({ asset, selectedCount, className }: AssetMet
     "rounded-sm border border-white/10 bg-black/45 text-zinc-200 hover:border-white/20 hover:bg-white/[0.08] focus-visible:border-yellow-500/60 focus-visible:ring-0";
 
   return (
-    <aside className={cn("min-h-0 overflow-y-auto bg-[#101114] p-3", className)}>
+    <aside className={cn("min-h-0 overflow-y-auto bg-[#121214] p-3", className)}>
       <h2 className="text-xs uppercase tracking-[0.2em] text-zinc-500">Metadata & Actions</h2>
 
       {!hasSelection && (
