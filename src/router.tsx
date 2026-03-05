@@ -1,10 +1,10 @@
-﻿import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
+import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 import { z } from "zod";
 import App from "@/App";
-import { CanvasPage } from "@/features/canvas/CanvasPage";
-import { ChatPage } from "@/features/chat/ChatPage";
-import { EditorPage } from "@/features/editor/EditorPage";
-import { LibraryPage } from "@/features/library/LibraryPage";
+import { CanvasPage } from "@/pages/canvas";
+import { ChatPage } from "@/pages/chat";
+import { EditorPage } from "@/pages/editor";
+import { LibraryPage } from "@/pages/library";
 
 const editorSearchSchema = z.object({
   assetId: z.string().optional().catch(undefined),

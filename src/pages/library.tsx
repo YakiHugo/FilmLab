@@ -4,13 +4,13 @@ import { X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useAssetStore } from "@/stores/assetStore";
-import { AssetGrid } from "./AssetGrid";
-import { AssetMetadataPanel } from "./AssetMetadataPanel";
-import { LibraryFilterSidebar } from "./LibraryFilterSidebar";
-import { LibraryToolbar } from "./LibraryToolbar";
-import { useAssetSelection } from "./hooks/useAssetSelection";
-import { useLibraryFilters } from "./hooks/useLibraryFilters";
-import type { LibraryView } from "./types";
+import { AssetGrid } from "@/features/library/AssetGrid";
+import { AssetMetadataPanel } from "@/features/library/AssetMetadataPanel";
+import { LibraryFilterSidebar } from "@/features/library/LibraryFilterSidebar";
+import { LibraryToolbar } from "@/features/library/LibraryToolbar";
+import { useAssetSelection } from "@/features/library/hooks/useAssetSelection";
+import { useLibraryFilters } from "@/features/library/hooks/useLibraryFilters";
+import type { LibraryView } from "@/features/library/types";
 
 export function LibraryPage() {
   const navigate = useNavigate();

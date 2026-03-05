@@ -10,13 +10,13 @@ import {
 import { IMAGE_STYLE_PRESETS, type ImageStylePreset } from "@/lib/ai/imageStylePresets";
 import type { ImageModelParamValue } from "@/lib/ai/imageModelParams";
 import { AVAILABLE_MODELS } from "@/lib/ai/provider";
-import { ChatInput } from "./ChatInput";
-import { ImageGenerationPanel } from "./ImageGenerationPanel";
-import { ChatSidebar } from "./ChatSidebar";
-import { ChatThread } from "./ChatThread";
-import { ImageStyleGrid } from "./ImageStyleGrid";
-import { useChatSession } from "./hooks/useChatSession";
-import { useImageGeneration } from "./hooks/useImageGeneration";
+import { ChatInput } from "@/features/chat/ChatInput";
+import { ImageGenerationPanel } from "@/features/chat/ImageGenerationPanel";
+import { ChatSidebar } from "@/features/chat/ChatSidebar";
+import { ChatThread } from "@/features/chat/ChatThread";
+import { ImageStyleGrid } from "@/features/chat/ImageStyleGrid";
+import { useChatSession } from "@/features/chat/hooks/useChatSession";
+import { useImageGeneration } from "@/features/chat/hooks/useImageGeneration";
 
 const SPEED_TO_STEPS: Record<"fast" | "balanced" | "quality", number> = {
   fast: 20,

@@ -2,11 +2,11 @@ import type Konva from "konva";
 import { useEffect, useRef } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { CanvasAssetPicker } from "./CanvasAssetPicker";
-import { CanvasLayerPanel } from "./CanvasLayerPanel";
-import { CanvasPropertiesPanel } from "./CanvasPropertiesPanel";
-import { CanvasToolbar } from "./CanvasToolbar";
-import { CanvasViewport } from "./CanvasViewport";
+import { CanvasAssetPicker } from "@/features/canvas/CanvasAssetPicker";
+import { CanvasLayerPanel } from "@/features/canvas/CanvasLayerPanel";
+import { CanvasPropertiesPanel } from "@/features/canvas/CanvasPropertiesPanel";
+import { CanvasToolbar } from "@/features/canvas/CanvasToolbar";
+import { CanvasViewport } from "@/features/canvas/CanvasViewport";
 
 export function CanvasPage() {
   const stageRef = useRef<Konva.Stage>(null);
