@@ -29,6 +29,9 @@ interface ChatInputProps {
   isLoading: boolean;
   isGeneratingImage?: boolean;
   imageMode: boolean;
+  promptValue?: string;
+  onPromptChange?: (value: string) => void;
+  hideSettings?: boolean;
   selectedStyle: { title: string; previewUrl: string } | null;
   generationSpeed: "fast" | "balanced" | "quality";
   imageProviders: Array<{
@@ -140,6 +143,9 @@ export function ChatInput({
   isLoading,
   isGeneratingImage = false,
   imageMode,
+  promptValue,
+  onPromptChange,
+  hideSettings = false,
   selectedStyle,
   generationSpeed,
   imageProviders,
@@ -160,19 +166,28 @@ export function ChatInput({
   onGenerateImage,
   onStop,
 }: ChatInputProps) {
-  const [value, setValue] = useState("");
+  const [internalValue, setInternalValue] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [showCommonPanel, setShowCommonPanel] = useState(true);
   const [showModelPanel, setShowModelPanel] = useState(true);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isControlled = promptValue !== undefined;
+  const value = isControlled ? promptValue : internalValue;
 
   const selectedProvider = useMemo(
     () => imageProviders.find((provider) => provider.id === imageProvider) ?? imageProviders[0],
     [imageProvider, imageProviders]
   );
   const resolutionValue = resolveResolutionFromSize(commonParams.width, commonParams.height);
+
+  const handleValueChange = (nextValue: string) => {
+    if (!isControlled) {
+      setInternalValue(nextValue);
+    }
+    onPromptChange?.(nextValue);
+  };
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -182,6 +197,12 @@ export function ChatInput({
     textarea.style.height = "auto";
     textarea.style.height = `${Math.min(textarea.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
   }, [value]);
+
+  useEffect(() => {
+    if (hideSettings) {
+      setShowSettings(false);
+    }
+  }, [hideSettings]);
 
   const resetAttachments = () => {
     setSelectedFiles([]);
@@ -204,7 +225,11 @@ export function ChatInput({
     } else {
       onSend({ text, files: files ?? null });
     }
-    setValue("");
+    if (isControlled) {
+      onPromptChange?.("");
+    } else {
+      setInternalValue("");
+    }
     resetAttachments();
   };
 
@@ -270,7 +295,7 @@ export function ChatInput({
         <textarea
           ref={textareaRef}
           value={value}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => handleValueChange(event.target.value)}
           onKeyDown={(event) => {
             if (event.key !== "Enter" || event.shiftKey) {
               return;
@@ -293,19 +318,21 @@ export function ChatInput({
               <Plus className="h-5 w-5" />
             </button>
 
-            <button
-              type="button"
-              className={[
-                "rounded-full p-2 transition",
-                showSettings
-                  ? "bg-amber-300/20 text-amber-100"
-                  : "text-zinc-400 hover:bg-white/10 hover:text-zinc-100",
-              ].join(" ")}
-              onClick={() => setShowSettings((previous) => !previous)}
-              aria-label="Open generation settings"
-            >
-              <Settings2 className="h-5 w-5" />
-            </button>
+            {!hideSettings && (
+              <button
+                type="button"
+                className={[
+                  "rounded-full p-2 transition",
+                  showSettings
+                    ? "bg-amber-300/20 text-amber-100"
+                    : "text-zinc-400 hover:bg-white/10 hover:text-zinc-100",
+                ].join(" ")}
+                onClick={() => setShowSettings((previous) => !previous)}
+                aria-label="Open generation settings"
+              >
+                <Settings2 className="h-5 w-5" />
+              </button>
+            )}
 
             <button
               type="button"
@@ -361,7 +388,7 @@ export function ChatInput({
           )}
         </div>
 
-        {showSettings && imageMode && (
+        {showSettings && imageMode && !hideSettings && (
           <div className="absolute bottom-[96px] left-3 right-3 space-y-2 rounded-2xl border border-white/15 bg-[#0c111b]/95 p-3 shadow-[0_18px_34px_rgba(0,0,0,0.55)] backdrop-blur">
             <button
               type="button"

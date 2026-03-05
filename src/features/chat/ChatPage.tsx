@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { PanelLeft } from "lucide-react";
+import { PanelLeft, PanelRight } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -11,6 +11,7 @@ import { IMAGE_STYLE_PRESETS, type ImageStylePreset } from "@/lib/ai/imageStyleP
 import type { ImageModelParamValue } from "@/lib/ai/imageModelParams";
 import { AVAILABLE_MODELS } from "@/lib/ai/provider";
 import { ChatInput } from "./ChatInput";
+import { ImageGenerationPanel } from "./ImageGenerationPanel";
 import { ChatSidebar } from "./ChatSidebar";
 import { ChatThread } from "./ChatThread";
 import { ImageStyleGrid } from "./ImageStyleGrid";
@@ -22,6 +23,13 @@ const SPEED_TO_STEPS: Record<"fast" | "balanced" | "quality", number> = {
   balanced: 30,
   quality: 45,
 };
+
+const GRID_COLS = {
+  normal2Col: "lg:grid-cols-[300px_minmax(0,1fr)]",
+  collapsed2Col: "lg:grid-cols-[84px_minmax(0,1fr)]",
+  normal3Col: "lg:grid-cols-[300px_minmax(0,1fr)_280px]",
+  collapsed3Col: "lg:grid-cols-[84px_minmax(0,1fr)_280px]",
+} as const;
 
 export function ChatPage() {
   const {
@@ -45,6 +53,8 @@ export function ChatPage() {
   const updateGenerationConfig = imageGeneration.updateConfig;
   const [imageMode, setImageMode] = useState(true);
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
+  const [configPanelCollapsed, setConfigPanelCollapsed] = useState(false);
+  const [imagePrompt, setImagePrompt] = useState("");
   const [generationSpeed, setGenerationSpeed] = useState<"fast" | "balanced" | "quality">(
     "fast"
   );
@@ -67,10 +77,8 @@ export function ChatPage() {
       style: preset.style,
       stylePreset: preset.stylePreset ?? "",
     });
-    imageGeneration.setPrompt(
-      preset.promptHint
-        ? `${imageGeneration.prompt.trim()} ${preset.promptHint}`.trim()
-        : imageGeneration.prompt
+    setImagePrompt((previous) =>
+      preset.promptHint ? `${previous.trim()} ${preset.promptHint}`.trim() : previous
     );
   };
 
@@ -83,11 +91,20 @@ export function ChatPage() {
     });
   };
 
+  const gridClassName =
+    imageMode && !configPanelCollapsed
+      ? historyCollapsed
+        ? GRID_COLS.collapsed3Col
+        : GRID_COLS.normal3Col
+      : historyCollapsed
+        ? GRID_COLS.collapsed2Col
+        : GRID_COLS.normal2Col;
+
   return (
     <div
       className={[
         "grid h-[calc(100dvh-96px)] gap-4",
-        historyCollapsed ? "lg:grid-cols-[84px_minmax(0,1fr)]" : "lg:grid-cols-[300px_minmax(0,1fr)]",
+        gridClassName,
       ].join(" ")}
     >
       <div className="hidden lg:block">
@@ -120,6 +137,16 @@ export function ChatPage() {
             <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
               Hub Chat
             </p>
+            {imageMode && (
+              <button
+                type="button"
+                className="hidden h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-300 transition hover:border-white/30 hover:bg-white/5 lg:inline-flex"
+                onClick={() => setConfigPanelCollapsed((previous) => !previous)}
+                aria-label="Toggle config panel"
+              >
+                <PanelRight className="h-4 w-4" />
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -183,6 +210,9 @@ export function ChatPage() {
           isLoading={isLoading}
           isGeneratingImage={imageGeneration.status === "loading"}
           imageMode={imageMode}
+          promptValue={imageMode ? imagePrompt : undefined}
+          onPromptChange={imageMode ? setImagePrompt : undefined}
+          hideSettings={imageMode && !configPanelCollapsed}
           selectedStyle={
             selectedPreset
               ? {
@@ -232,11 +262,68 @@ export function ChatPage() {
           onImageModeChange={setImageMode}
           onSend={sendUserMessage}
           onGenerateImage={(input) => {
+            setImagePrompt(input.text);
             void imageGeneration.generateFromChatInput(input);
           }}
           onStop={stop}
         />
       </section>
+
+      {imageMode && (
+        <div className="hidden min-h-0 lg:block">
+          {configPanelCollapsed ? (
+            <div className="flex h-[calc(100dvh-96px)] flex-col items-center rounded-2xl border border-white/10 bg-black/20 pt-3">
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-zinc-300 transition hover:border-white/30 hover:bg-white/5"
+                onClick={() => setConfigPanelCollapsed(false)}
+                aria-label="Expand config panel"
+              >
+                <PanelRight className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="h-[calc(100dvh-96px)]">
+              <ImageGenerationPanel
+                prompt={imagePrompt}
+                status={imageGeneration.status}
+                error={imageGeneration.error}
+                config={imageGeneration.config}
+                providerName={imageGeneration.providerConfig.name}
+                providerFeatures={imageGeneration.supportedFeatures}
+                providers={imageGeneration.providers.map((provider) => ({
+                  id: provider.id,
+                  name: provider.name,
+                  models: provider.models.map((model) => ({
+                    id: model.id,
+                    name: model.name,
+                    costPerImage: model.costPerImage,
+                  })),
+                }))}
+                styles={imageGeneration.styles}
+                aspectRatioOptions={imageGeneration.aspectRatioOptions}
+                results={imageGeneration.results}
+                onPromptChange={setImagePrompt}
+                onProviderChange={imageGeneration.setProvider}
+                onModelChange={imageGeneration.setModel}
+                onConfigChange={imageGeneration.updateConfig}
+                onAddReferenceFiles={(files) => {
+                  void imageGeneration.addReferenceFiles(files);
+                }}
+                onUpdateReferenceImage={imageGeneration.updateReferenceImage}
+                onRemoveReferenceImage={imageGeneration.removeReferenceImage}
+                onClearReferenceImages={imageGeneration.clearReferenceImages}
+                onGenerate={() => {
+                  void imageGeneration.generateFromChatInput({ text: imagePrompt });
+                }}
+                onAddToCanvas={(assetId) => {
+                  void imageGeneration.addToCanvas(assetId);
+                }}
+              />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
