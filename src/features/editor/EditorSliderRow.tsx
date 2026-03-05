@@ -47,17 +47,12 @@ export const EditorSliderRow = memo(function EditorSliderRow({
   max,
   step = 1,
   disabled = false,
-  defaultValue,
+  defaultValue: _defaultValue,
   format,
   onChange,
   onCommit,
-  onReset,
+  onReset: _onReset,
 }: EditorSliderRowProps) {
-  const hasDefault = typeof defaultValue === "number";
-  const canReset =
-    Boolean(onReset) &&
-    hasDefault &&
-    Math.abs(value - (defaultValue ?? 0)) > Math.max(step / 2, 0.0001);
   const [isEditingValue, setIsEditingValue] = useState(false);
   const [inputValue, setInputValue] = useState(() => formatInputValue(value, step));
   const valueInputRef = useRef<HTMLInputElement | null>(null);
@@ -118,54 +113,43 @@ export const EditorSliderRow = memo(function EditorSliderRow({
   }, [inputValue, onChange, onCommit, parseInputValue, step, value]);
 
   return (
-    <div className="group space-y-2">
-      <div className="flex items-center justify-between text-xs text-slate-400">
-        <span className="text-slate-300">{label}</span>
-        <div className="flex items-center gap-2">
-          <div className="relative h-6 w-16">
-            {isEditingValue && (
-              <input
-                ref={valueInputRef}
-                type="text"
-                inputMode={step < 1 ? "decimal" : "numeric"}
-                value={inputValue}
-                onChange={(event) => setInputValue(event.target.value)}
-                onBlur={handleCommitEditingValue}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    handleCommitEditingValue();
-                    return;
-                  }
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    handleCancelEditingValue();
-                  }
-                }}
-                aria-label={`${label} value input`}
-                className="absolute inset-0 border-b border-white/80 bg-transparent px-1 text-right text-xs text-slate-100 outline-none"
-              />
-            )}
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={handleStartEditingValue}
-              aria-hidden={isEditingValue}
-              tabIndex={isEditingValue ? -1 : 0}
-              className={`h-full w-full border-b border-white/25 px-1 text-right text-xs font-medium text-slate-100 transition hover:border-white/50 focus-visible:border-white/80 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 ${isEditingValue ? "invisible" : ""}`}
-            >
-              {format ? format(value) : value}
-            </button>
-          </div>
-          {canReset && (
-            <button
-              type="button"
-              className="rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-slate-300 opacity-0 transition hover:bg-white/10 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
-              onClick={onReset}
-            >
-              Reset
-            </button>
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-slate-400">{label}</span>
+        <div className="relative h-5 w-14">
+          {isEditingValue && (
+            <input
+              ref={valueInputRef}
+              type="text"
+              inputMode={step < 1 ? "decimal" : "numeric"}
+              value={inputValue}
+              onChange={(event) => setInputValue(event.target.value)}
+              onBlur={handleCommitEditingValue}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleCommitEditingValue();
+                  return;
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  handleCancelEditingValue();
+                }
+              }}
+              aria-label={`${label} value input`}
+              className="absolute inset-0 border-b border-white/60 bg-transparent px-1 text-right text-xs text-slate-200 outline-none"
+            />
           )}
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={handleStartEditingValue}
+            aria-hidden={isEditingValue}
+            tabIndex={isEditingValue ? -1 : 0}
+            className={`h-full w-full px-1 text-right text-xs text-slate-300 transition hover:text-slate-100 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 ${isEditingValue ? "invisible" : ""}`}
+          >
+            {format ? format(value) : value}
+          </button>
         </div>
       </div>
       <Slider

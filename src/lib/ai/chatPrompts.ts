@@ -28,7 +28,7 @@ Tool capabilities:
 - selectAssets: select assets by semantic query.
 - openInEditor: open one asset in the editor.
 - createCanvas: create a board and optionally place assets.
-- generateImage: generate and import AI image assets.
+- generateImage: generate and import AI image assets with provider/model/style/ratio options.
 - applyPresetToAssets: batch apply film presets.
 - tagAssets: add/remove tags in bulk.
 - deleteAssets: delete assets only when confirm=true.

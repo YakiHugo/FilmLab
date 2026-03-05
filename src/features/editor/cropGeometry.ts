@@ -20,7 +20,7 @@ export const isEditableElement = (target: EventTarget | null) => {
   );
 };
 
-export const ZOOM_MIN = 1;
+export const ZOOM_MIN = 0.5;
 export const ZOOM_MAX = 3;
 export const ZOOM_STEP = 0.05;
 export const CROP_RECT_MIN_SIZE = 72;

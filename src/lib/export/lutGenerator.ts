@@ -68,6 +68,7 @@ const createPassthroughGeometryUniforms = (width: number, height: number): Geome
   lensK1: 0,
   lensK2: 0,
   lensVignetteBoost: 0,
+  lensVignetteMidpoint: 0.25,
   caEnabled: false,
   caAmountPxRgb: [0, 0, 0],
 });

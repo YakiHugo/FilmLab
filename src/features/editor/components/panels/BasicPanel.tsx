@@ -31,6 +31,10 @@ interface BasicPanelProps {
   onUpdateAdjustments: (patch: Partial<EditingAdjustments>) => void;
   onPreviewAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
   onCommitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
+  hasChanges?: boolean;
+  changesVisible?: boolean;
+  onToggleVisibility?: () => void;
+  onResetChanges?: () => void;
 }
 
 const resolveWhiteBalancePresetId = (temperature: number, tint: number) => {
@@ -69,6 +73,10 @@ export const BasicPanel = memo(function BasicPanel({
   onUpdateAdjustments,
   onPreviewAdjustmentValue,
   onCommitAdjustmentValue,
+  hasChanges,
+  changesVisible,
+  onToggleVisibility,
+  onResetChanges,
 }: BasicPanelProps) {
   const hasAbsoluteWhiteBalance =
     Number.isFinite(adjustments.temperatureKelvin ?? NaN) || Number.isFinite(adjustments.tintMG ?? NaN);
@@ -123,6 +131,10 @@ export const BasicPanel = memo(function BasicPanel({
       hint="Light, white balance, and color"
       isOpen={isOpen}
       onToggle={onToggle}
+      hasChanges={hasChanges}
+      changesVisible={changesVisible}
+      onToggleVisibility={onToggleVisibility}
+      onResetChanges={onResetChanges}
     >
       <div className="space-y-3">
         <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Light</p>

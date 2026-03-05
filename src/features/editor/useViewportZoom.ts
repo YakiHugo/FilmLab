@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clamp } from "@/lib/math";
 import { ZOOM_MAX, ZOOM_MIN } from "./cropGeometry";
+import { useEditorStore } from "@/stores/editorStore";
+
+export const ZOOM_PRESETS = [
+  { label: "Fit", value: "fit" },
+  { label: "50%", value: 0.5 },
+  { label: "100%", value: 1 },
+  { label: "150%", value: 1.5 },
+  { label: "200%", value: 2 },
+] as const;
 
 interface UseViewportZoomOptions {
   /** Ref to the image area element for wheel event interception */
@@ -10,7 +19,8 @@ interface UseViewportZoomOptions {
 }
 
 export function useViewportZoom({ imageAreaRef, isCropModeRef }: UseViewportZoomOptions) {
-  const [viewScale, setViewScale] = useState(1);
+  const viewScale = useEditorStore((state) => state.viewportScale);
+  const setViewportScale = useEditorStore((state) => state.setViewportScale);
   const [viewOffset, setViewOffset] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
 
@@ -22,13 +32,20 @@ export function useViewportZoom({ imageAreaRef, isCropModeRef }: UseViewportZoom
   } | null>(null);
 
   const resetView = useCallback(() => {
-    setViewScale(1);
+    setViewportScale(1);
     setViewOffset({ x: 0, y: 0 });
-  }, []);
+  }, [setViewportScale]);
+
+  const setViewScale = useCallback(
+    (nextScale: number) => {
+      setViewportScale(clamp(nextScale, ZOOM_MIN, ZOOM_MAX));
+    },
+    [setViewportScale]
+  );
 
   const handleZoom = useCallback((nextScale: number) => {
-    setViewScale(clamp(nextScale, ZOOM_MIN, ZOOM_MAX));
-  }, []);
+    setViewScale(nextScale);
+  }, [setViewScale]);
 
   // Prevent browser zoom on Ctrl+wheel / pinch inside the image area
   useEffect(() => {

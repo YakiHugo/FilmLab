@@ -192,7 +192,8 @@ export default async function handler(request: ApiRequest, response: ApiResponse
           parameters: createCanvasToolSchema,
         },
         generateImage: {
-          description: "Generate and import an image from text prompt.",
+          description:
+            "Generate and import image assets from text prompt with optional provider/model/style/aspect/advanced params.",
           parameters: generateImageToolSchema,
         },
         applyPresetToAssets: {

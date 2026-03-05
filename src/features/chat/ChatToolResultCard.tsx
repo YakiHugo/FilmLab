@@ -12,6 +12,33 @@ const asString = (value: unknown) => (typeof value === "string" ? value : "");
 const asStringArray = (value: unknown) =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 
+const asImageResults = (value: unknown) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+      const imageUrl =
+        typeof (entry as { imageUrl?: unknown }).imageUrl === "string"
+          ? (entry as { imageUrl: string }).imageUrl
+          : "";
+      if (!imageUrl) {
+        return null;
+      }
+      return {
+        imageUrl,
+        assetId:
+          typeof (entry as { assetId?: unknown }).assetId === "string"
+            ? (entry as { assetId: string }).assetId
+            : null,
+      };
+    })
+    .filter((entry): entry is { imageUrl: string; assetId: string | null } => Boolean(entry));
+};
+
 export function ChatToolResultCard({ result }: ChatToolResultCardProps) {
   const assets = useAssetStore((state) => state.assets);
 
@@ -27,6 +54,8 @@ export function ChatToolResultCard({ result }: ChatToolResultCardProps) {
     result.toolName === "createCanvas" ||
     result.toolName === "generateImage";
   const shouldShowFallback = !hasCustomBody || !result.success;
+  const generatedImages = asImageResults(result.data?.images);
+  const fallbackImageUrl = asString(result.data?.imageUrl);
 
   return (
     <div className={["rounded-xl border p-3 text-xs", cardTone].join(" ")}>
@@ -66,12 +95,31 @@ export function ChatToolResultCard({ result }: ChatToolResultCardProps) {
         </Link>
       )}
 
-      {result.toolName === "generateImage" && result.success && asString(result.data?.imageUrl) && (
-        <img
-          src={asString(result.data?.imageUrl)}
-          alt="Generated from tool"
-          className="mt-2 w-full rounded-lg border border-white/10"
-        />
+      {result.toolName === "generateImage" && result.success && (
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          {(generatedImages.length > 0
+            ? generatedImages
+            : fallbackImageUrl
+              ? [{ imageUrl: fallbackImageUrl, assetId: null }]
+              : []
+          ).map((entry, index) => (
+            <div
+              key={`${entry.imageUrl}-${index}`}
+              className="overflow-hidden rounded-md border border-white/10 bg-black/35"
+            >
+              <img
+                src={entry.imageUrl}
+                alt="Generated from tool"
+                className="aspect-square w-full object-cover"
+              />
+              {entry.assetId && (
+                <p className="truncate px-1.5 py-1 text-[10px] text-zinc-300">
+                  asset: {entry.assetId}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
       )}
 
       {shouldShowFallback && (

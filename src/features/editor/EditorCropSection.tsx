@@ -160,6 +160,10 @@ interface EditorCropSectionProps {
   onCommitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
   onToggleFlip: (axis: "flipHorizontal" | "flipVertical") => void;
   onRequestAutoPerspective: (mode: AutoPerspectiveMode) => void;
+  hasChanges?: boolean;
+  changesVisible?: boolean;
+  onToggleVisibility?: () => void;
+  onResetChanges?: () => void;
 }
 
 export const EditorCropSection = memo(function EditorCropSection({
@@ -171,6 +175,10 @@ export const EditorCropSection = memo(function EditorCropSection({
   onCommitAdjustmentValue,
   onToggleFlip,
   onRequestAutoPerspective,
+  hasChanges,
+  changesVisible,
+  onToggleVisibility,
+  onResetChanges,
 }: EditorCropSectionProps) {
   const ratioOptionId = resolveCropRatioOptionId(adjustments);
   const ratioLocked = adjustments.aspectRatio !== "free";
@@ -301,7 +309,16 @@ export const EditorCropSection = memo(function EditorCropSection({
   };
 
   return (
-    <EditorSection title="Crop" hint="Ratio / perspective / rotation" isOpen={isOpen} onToggle={onToggle}>
+    <EditorSection
+      title="Crop"
+      hint="Ratio / perspective / rotation"
+      isOpen={isOpen}
+      onToggle={onToggle}
+      hasChanges={hasChanges}
+      changesVisible={changesVisible}
+      onToggleVisibility={onToggleVisibility}
+      onResetChanges={onResetChanges}
+    >
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-xs text-slate-300">Aspect Ratio</p>

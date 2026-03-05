@@ -905,7 +905,11 @@ const createGeometryKey = (params: {
   flipVertical: boolean;
   opticsProfile: boolean;
   opticsCA: boolean;
+  opticsDistortionK1: number;
+  opticsDistortionK2: number;
+  opticsCaAmount: number;
   opticsVignette: number;
+  opticsVignetteMidpoint: number;
   qualityProfile: RenderQualityProfile;
 }) =>
   [
@@ -929,7 +933,11 @@ const createGeometryKey = (params: {
     params.flipVertical ? "1" : "0",
     params.opticsProfile ? "op:1" : "op:0",
     params.opticsCA ? "oca:1" : "oca:0",
+    toNumberKey(params.opticsDistortionK1, 2),
+    toNumberKey(params.opticsDistortionK2, 2),
+    toNumberKey(params.opticsCaAmount, 2),
     toNumberKey(params.opticsVignette, 2),
+    toNumberKey(params.opticsVignetteMidpoint, 2),
     params.qualityProfile,
   ].join("|");
 
@@ -972,13 +980,21 @@ const createGeometryUniforms = (params: {
     ? [1, 0, 0, 0, 1, 0, kx, ky, 1]
     : [1, 0, 0, 0, 1, 0, 0, 0, 1];
   const lensEnabled = params.adjustments.opticsProfile;
-  const opticsStrength = lensEnabled ? clamp(params.adjustments.opticsVignette / 100, 0, 1) : 0;
-  // Two-term Brown-Conrady approximation: k1 controls most of the radial correction,
-  // k2 adds edge behavior so wide-angle frames do not look over-corrected at corners.
-  const lensK1 = lensEnabled ? 0.055 + opticsStrength * 0.05 : 0;
-  const lensK2 = lensEnabled ? -0.015 - opticsStrength * 0.025 : 0;
+  // Vignette removal is independent of lens profile
+  const opticsVignetteStrength = clamp(params.adjustments.opticsVignette / 100, 0, 1);
+  const lensK1Control = clamp((params.adjustments.opticsDistortionK1 ?? 0) / 100, -1, 1);
+  const lensK2Control = clamp((params.adjustments.opticsDistortionK2 ?? 0) / 100, -1, 1);
+  const lensK1 = lensEnabled ? lensK1Control * 0.5 : 0;
+  const lensK2 = lensEnabled ? lensK2Control * 0.3 : 0;
+  const vignetteMidpointControl = clamp(
+    (params.adjustments.opticsVignetteMidpoint ?? 50) / 100,
+    0,
+    1
+  );
+  const lensVignetteMidpoint = 0.05 + vignetteMidpointControl * 0.4;
   const caEnabled = params.adjustments.opticsCA;
-  const caAmountBasePx = caEnabled ? 1.1 + opticsStrength * 0.9 : 0;
+  const caAmountControl = clamp((params.adjustments.opticsCaAmount ?? 0) / 100, 0, 1);
+  const caAmountBasePx = caEnabled ? caAmountControl * 2.5 : 0;
 
   return {
     enabled: true,
@@ -999,7 +1015,8 @@ const createGeometryUniforms = (params: {
     lensEnabled,
     lensK1,
     lensK2,
-    lensVignetteBoost: opticsStrength,
+    lensVignetteBoost: opticsVignetteStrength,
+    lensVignetteMidpoint,
     caEnabled,
     // Signed RGB offsets (px at frame edge); blue shifts opposite red.
     caAmountPxRgb: [caAmountBasePx, 0, -caAmountBasePx * 0.9],
@@ -1024,9 +1041,35 @@ const createPassthroughGeometryUniforms = (
   lensK1: 0,
   lensK2: 0,
   lensVignetteBoost: 0,
+  lensVignetteMidpoint: 0.25,
   caEnabled: false,
   caAmountPxRgb: [0, 0, 0],
 });
+
+const applyOpticsToPassthroughGeometryUniforms = (
+  passthrough: GeometryUniforms,
+  optics: GeometryUniforms
+) => {
+  passthrough.lensEnabled = optics.lensEnabled;
+  passthrough.lensK1 = optics.lensK1;
+  passthrough.lensK2 = optics.lensK2;
+  passthrough.lensVignetteBoost = optics.lensVignetteBoost;
+  passthrough.lensVignetteMidpoint = optics.lensVignetteMidpoint;
+  passthrough.caEnabled = optics.caEnabled;
+  passthrough.caAmountPxRgb = [...optics.caAmountPxRgb] as [number, number, number];
+
+  const lensDistortionActive = Math.abs(optics.lensK1) > 1e-6 || Math.abs(optics.lensK2) > 1e-6;
+  const vignetteActive = optics.lensVignetteBoost > 0.001;
+  const caAmountMax = Math.max(
+    Math.abs(optics.caAmountPxRgb[0]),
+    Math.abs(optics.caAmountPxRgb[1]),
+    Math.abs(optics.caAmountPxRgb[2])
+  );
+  const caActive = optics.caEnabled && caAmountMax > 0.001;
+
+  // Keep geometry disabled unless optics actually need the shader path.
+  passthrough.enabled = lensDistortionActive || vignetteActive || caActive;
+};
 
 const createOutputKey = (params: {
   canvas: HTMLCanvasElement;
@@ -2101,7 +2144,11 @@ export const renderImageToCanvas = async ({
       flipVertical: normalizedAdjustments.flipVertical,
       opticsProfile: normalizedAdjustments.opticsProfile,
       opticsCA: normalizedAdjustments.opticsCA,
+      opticsDistortionK1: normalizedAdjustments.opticsDistortionK1 ?? 0,
+      opticsDistortionK2: normalizedAdjustments.opticsDistortionK2 ?? 0,
+      opticsCaAmount: normalizedAdjustments.opticsCaAmount ?? 0,
       opticsVignette: normalizedAdjustments.opticsVignette,
+      opticsVignetteMidpoint: normalizedAdjustments.opticsVignetteMidpoint ?? 50,
       qualityProfile,
     });
     const masterKey = createMasterKey(normalizedAdjustments);
@@ -2412,7 +2459,12 @@ export const renderImageToCanvas = async ({
           qualityProfile,
         });
       }
-      geometryUniforms = createPassthroughGeometryUniforms(canvas.width, canvas.height);
+      const passthroughGeometryUniforms = createPassthroughGeometryUniforms(
+        canvas.width,
+        canvas.height
+      );
+      applyOpticsToPassthroughGeometryUniforms(passthroughGeometryUniforms, geometryUniforms);
+      geometryUniforms = passthroughGeometryUniforms;
       uploadKey = `cpu:${geometryKey}`;
       pipelineSource = geometryCanvas;
       pipelineSourceWidth = geometryCanvas.width;

@@ -79,14 +79,14 @@ export function EditorHistogram({ histogram }: { histogram: HistogramData | null
 
   if (!paths) {
     return (
-      <div className="flex h-28 w-full items-center justify-center text-xs text-slate-500">
+      <div className="flex h-20 w-full items-center justify-center text-xs text-slate-500">
         暂无直方图
       </div>
     );
   }
 
   return (
-    <div className="h-28 w-full">
+    <div className="h-20 w-full">
       <svg
         viewBox="0 0 100 100"
         className="h-full w-full"

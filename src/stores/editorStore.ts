@@ -88,6 +88,7 @@ const saveOpenSections = (sections: Record<SectionId, boolean>) => {
 interface EditorState {
   selectedAssetId: string | null;
   showOriginal: boolean;
+  viewportScale: number;
   activeToolPanelId: EditorToolPanelId;
   mobilePanelExpanded: boolean;
   copiedAdjustments: EditingAdjustments | null;
@@ -105,9 +106,11 @@ interface EditorState {
   selectedLayerId: string | null;
   selectedLocalAdjustmentId: string | null;
   historyByAssetId: HistoryByAssetId;
+  bypassedPanels: Set<string>;
   setSelectedAssetId: (assetId: string | null) => void;
   setSelectedLayerId: (layerId: string | null) => void;
   setShowOriginal: (showOriginal: boolean) => void;
+  setViewportScale: (scale: number) => void;
   setActiveToolPanelId: (panelId: EditorToolPanelId) => void;
   setMobilePanelExpanded: (expanded: boolean) => void;
   setCopiedAdjustments: (adjustments: EditingAdjustments | null) => void;
@@ -122,6 +125,8 @@ interface EditorState {
   setSelectedLocalAdjustmentId: (id: string | null) => void;
   toggleOriginal: () => void;
   toggleSection: (id: SectionId) => void;
+  toggleBypassPanel: (panelId: string) => void;
+  isPanelBypassed: (panelId: string) => boolean;
   setPreviewHistogram: (histogram: HistogramData | null) => void;
   canUndo: (assetId: string) => boolean;
   canRedo: (assetId: string) => boolean;
@@ -138,6 +143,7 @@ export const useEditorStore = create<EditorState>()(
       selectedAssetId: null,
       selectedLayerId: null,
       showOriginal: false,
+      viewportScale: 1,
       activeToolPanelId: DEFAULT_EDITOR_TOOL_PANEL_ID,
       mobilePanelExpanded: true,
       copiedAdjustments: null,
@@ -154,9 +160,11 @@ export const useEditorStore = create<EditorState>()(
       autoPerspectiveMode: "auto",
       selectedLocalAdjustmentId: null,
       historyByAssetId: {},
+      bypassedPanels: new Set<string>(),
       setSelectedAssetId: (selectedAssetId) => set({ selectedAssetId }),
       setSelectedLayerId: (selectedLayerId) => set({ selectedLayerId }),
       setShowOriginal: (showOriginal) => set({ showOriginal }),
+      setViewportScale: (viewportScale) => set({ viewportScale }),
       setActiveToolPanelId: (activeToolPanelId) => set({ activeToolPanelId }),
       setMobilePanelExpanded: (mobilePanelExpanded) => set({ mobilePanelExpanded }),
       setCopiedAdjustments: (copiedAdjustments) => set({ copiedAdjustments }),
@@ -192,6 +200,17 @@ export const useEditorStore = create<EditorState>()(
           };
         }),
       setPreviewHistogram: (previewHistogram) => set({ previewHistogram }),
+      toggleBypassPanel: (panelId) =>
+        set((state) => {
+          const next = new Set(state.bypassedPanels);
+          if (next.has(panelId)) {
+            next.delete(panelId);
+          } else {
+            next.add(panelId);
+          }
+          return { bypassedPanels: next };
+        }),
+      isPanelBypassed: (panelId) => get().bypassedPanels.has(panelId),
       canUndo: (assetId) => {
         const history = get().historyByAssetId[assetId];
         return Boolean(history && history.past.length > 0);
@@ -330,6 +349,7 @@ on("project:reset", () => {
   useEditorStore.setState({
     selectedLayerId: null,
     selectedAssetId: null,
+    viewportScale: 1,
   });
   useEditorStore.getState().clearAllHistory();
 });

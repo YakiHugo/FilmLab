@@ -299,7 +299,11 @@ const adjustmentsEqual = (
     a.timestampOpacity === b.timestampOpacity &&
     a.opticsProfile === b.opticsProfile &&
     a.opticsCA === b.opticsCA &&
+    (a.opticsDistortionK1 ?? 0) === (b.opticsDistortionK1 ?? 0) &&
+    (a.opticsDistortionK2 ?? 0) === (b.opticsDistortionK2 ?? 0) &&
+    (a.opticsCaAmount ?? 0) === (b.opticsCaAmount ?? 0) &&
     a.opticsVignette === b.opticsVignette &&
+    (a.opticsVignetteMidpoint ?? 50) === (b.opticsVignetteMidpoint ?? 50) &&
     localAdjustmentsEqual(a.localAdjustments, b.localAdjustments) &&
     pointCurveEqual(a.pointCurve, b.pointCurve) &&
     hslEqual(a.hsl, b.hsl) &&

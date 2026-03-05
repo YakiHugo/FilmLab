@@ -28,6 +28,7 @@ uniform bool u_lensEnabled;
 uniform float u_lensK1;
 uniform float u_lensK2;
 uniform float u_lensVignetteBoost;
+uniform float u_lensVignetteMidpoint;
 uniform bool u_caEnabled;
 uniform vec3 u_caAmountPxRgb;
 uniform bool u_enabled;
@@ -128,7 +129,7 @@ void main() {
 
   if (u_lensVignetteBoost > 0.001) {
     float edge = clamp(length(opticsUv - 0.5) * 1.41421356, 0.0, 1.0);
-    edge = smoothstep(0.25, 1.0, edge);
+    edge = smoothstep(clamp(u_lensVignetteMidpoint, 0.0, 0.95), 1.0, edge);
     float lift = 1.0 + edge * edge * u_lensVignetteBoost * 0.65;
     sampled.rgb *= lift;
   }

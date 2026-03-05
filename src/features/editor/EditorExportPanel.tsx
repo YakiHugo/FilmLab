@@ -11,6 +11,7 @@ import {
 import { normalizeAdjustments } from "@/lib/adjustments";
 import { resolveLayerAdjustments } from "@/lib/editorLayers";
 import { renderImageToCanvas } from "@/lib/imageProcessing";
+import { applyMaskToLayerCanvas, generateMaskTexture } from "@/lib/layerMaskTexture";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
 import { copyJpegExif } from "@/lib/export/jpegExif";
 import { encodeRgbaToTiff } from "@/lib/export/tiff";
@@ -240,6 +241,9 @@ export function EditorExportPanel() {
         compositeContext.clearRect(0, 0, compositeCanvas.width, compositeCanvas.height);
 
         const layerCanvas = document.createElement("canvas");
+        const layerMaskCanvas = document.createElement("canvas");
+        const layerMaskScratchCanvas = document.createElement("canvas");
+        const maskedLayerCanvas = document.createElement("canvas");
         const sourceBlobCache = new Map<string, Blob>();
         const layersBottomToTop = [...exportLayers].reverse();
         for (let layerIndex = 0; layerIndex < layersBottomToTop.length; layerIndex += 1) {
@@ -270,10 +274,24 @@ export function EditorExportPanel() {
             renderSlot: `export-panel:layer:${layer.layer.id}:${layerIndex}`,
           });
 
+          let drawSource: CanvasImageSource = layerCanvas;
+          if (layer.layer.mask) {
+            const generatedMask = generateMaskTexture(layer.layer.mask, {
+              width: compositeCanvas.width,
+              height: compositeCanvas.height,
+              referenceSource: layerCanvas,
+              targetCanvas: layerMaskCanvas,
+              scratchCanvas: layerMaskScratchCanvas,
+            });
+            if (generatedMask) {
+              drawSource = applyMaskToLayerCanvas(layerCanvas, generatedMask, maskedLayerCanvas);
+            }
+          }
+
           compositeContext.save();
           compositeContext.globalAlpha = layer.opacity;
           compositeContext.globalCompositeOperation = resolveLayerBlendOperation(layer.blendMode);
-          compositeContext.drawImage(layerCanvas, 0, 0, compositeCanvas.width, compositeCanvas.height);
+          compositeContext.drawImage(drawSource, 0, 0, compositeCanvas.width, compositeCanvas.height);
           compositeContext.restore();
         }
 
@@ -289,6 +307,12 @@ export function EditorExportPanel() {
         renderContext.drawImage(compositeCanvas, 0, 0, renderCanvas.width, renderCanvas.height);
         layerCanvas.width = 0;
         layerCanvas.height = 0;
+        layerMaskCanvas.width = 0;
+        layerMaskCanvas.height = 0;
+        layerMaskScratchCanvas.width = 0;
+        layerMaskScratchCanvas.height = 0;
+        maskedLayerCanvas.width = 0;
+        maskedLayerCanvas.height = 0;
         compositeCanvas.width = 0;
         compositeCanvas.height = 0;
       } else {

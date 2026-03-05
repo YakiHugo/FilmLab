@@ -23,6 +23,7 @@ interface GeometryPassUniformState {
   u_lensK1: number;
   u_lensK2: number;
   u_lensVignetteBoost: number;
+  u_lensVignetteMidpoint: number;
   u_caEnabled: boolean;
   u_caAmountPxRgb: Float32Array;
 }
@@ -219,6 +220,7 @@ export const applyGeometryPassUniforms = (
   target.u_lensK1 = uniforms.lensK1;
   target.u_lensK2 = uniforms.lensK2;
   target.u_lensVignetteBoost = uniforms.lensVignetteBoost;
+  target.u_lensVignetteMidpoint = uniforms.lensVignetteMidpoint;
   target.u_caEnabled = uniforms.caEnabled;
   target.u_caAmountPxRgb[0] = uniforms.caAmountPxRgb[0];
   target.u_caAmountPxRgb[1] = uniforms.caAmountPxRgb[1];

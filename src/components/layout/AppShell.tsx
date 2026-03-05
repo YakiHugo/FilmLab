@@ -13,13 +13,13 @@ export function AppShell({ children }: AppShellProps) {
   const isEditorRoute = pathname === "/editor";
 
   return (
-    <div className="relative min-h-screen w-full bg-[#1b1b1d] text-zinc-100">
+    <div className="relative h-screen w-full overflow-hidden bg-[#121214] text-zinc-100">
       <div className="pointer-events-none absolute inset-0 app-shell-atmosphere" />
-      <div className="relative flex min-h-screen flex-col">
+      <div className="relative flex h-full flex-col">
         <Header />
         <main
           className={cn(
-            "w-full flex-1 min-w-0",
+            "w-full flex-1 min-w-0 min-h-0",
             (isLibraryRoute || isEditorRoute)
               ? "px-0 pb-0 pt-0"
               : "mx-auto max-w-[1600px] px-3 pb-4 pt-4 lg:px-5"
