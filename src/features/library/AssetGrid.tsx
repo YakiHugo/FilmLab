@@ -1,5 +1,5 @@
 ﻿import { useVirtualizer } from "@tanstack/react-virtual";
-import { Circle, Heart, Star } from "lucide-react";
+import { Heart } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 import type { Asset } from "@/types";
 import { cn } from "@/lib/utils";
@@ -18,14 +18,11 @@ interface AssetGridProps {
     }
   ) => void;
   onImport: (files: FileList) => void;
+  onToggleLike: (assetId: string, nextLiked: boolean) => void;
 }
 
 type CompactOrListView = Exclude<LibraryView, "masonry">;
 
-const COMPACT_COLUMN_GAP = 0;
-const COMPACT_ROW_GAP = 0;
-const LIST_GAP = 0;
-const MASONRY_GAP = 0;
 const LIST_ITEM_HEIGHT = 86;
 const COMPACT_CARD_WIDTH = 230;
 const COMPACT_ROW_HEIGHT = 300;
@@ -45,19 +42,22 @@ const MasonryAssetCard = memo(function MasonryAssetCard({
   isSelected,
   onOpenInEditor,
   onSelectAsset,
+  onToggleLike,
 }: {
   asset: Asset;
   isSelected: boolean;
   onOpenInEditor?: AssetGridProps["onOpenInEditor"];
   onSelectAsset: AssetGridProps["onSelectAsset"];
+  onToggleLike: AssetGridProps["onToggleLike"];
 }) {
+  const isLiked = (asset.tags ?? []).includes("liked");
+
   return (
     <article
       className={cn(
         "break-inside-avoid bg-[#0a0b0d] p-2.5 transition",
         isSelected ? SELECTED_BORDER : "hover:bg-[#0e0f12]"
       )}
-      style={{ marginBottom: `${MASONRY_GAP}px` }}
     >
       <button
         type="button"
@@ -83,6 +83,24 @@ const MasonryAssetCard = memo(function MasonryAssetCard({
             loading="lazy"
           />
         </div>
+        <div className="flex items-center justify-end pt-2">
+          <button
+            type="button"
+            className={cn(
+              "inline-flex h-7 w-7 items-center justify-center rounded-sm border border-white/10 transition",
+              isLiked
+                ? "bg-rose-500/20 text-rose-300"
+                : "bg-black/35 text-zinc-500 hover:text-zinc-200"
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleLike(asset.id, !isLiked);
+            }}
+            aria-label={isLiked ? "Unlike asset" : "Like asset"}
+          >
+            <Heart className={cn("h-3.5 w-3.5", isLiked && "fill-current")} />
+          </button>
+        </div>
       </button>
     </article>
   );
@@ -94,15 +112,18 @@ const AssetCard = memo(function AssetCard({
   view,
   onOpenInEditor,
   onSelectAsset,
+  onToggleLike,
 }: {
   asset: Asset;
   isSelected: boolean;
   view: CompactOrListView;
   onOpenInEditor?: AssetGridProps["onOpenInEditor"];
   onSelectAsset: AssetGridProps["onSelectAsset"];
+  onToggleLike: AssetGridProps["onToggleLike"];
 }) {
   const src = asset.thumbnailUrl || asset.objectUrl;
   const importDay = asset.importDay || asset.createdAt.slice(0, 10);
+  const isLiked = (asset.tags ?? []).includes("liked");
 
   if (view === "list") {
     return (
@@ -136,6 +157,22 @@ const AssetCard = memo(function AssetCard({
             <p className="truncate text-xs text-zinc-500">{importDay}</p>
           </div>
           <p className="text-xs text-zinc-500">{toKb(asset.size)}</p>
+          <button
+            type="button"
+            className={cn(
+              "inline-flex h-7 w-7 items-center justify-center rounded-sm border border-white/10 transition",
+              isLiked
+                ? "bg-rose-500/20 text-rose-300"
+                : "bg-black/35 text-zinc-500 hover:text-zinc-200"
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleLike(asset.id, !isLiked);
+            }}
+            aria-label={isLiked ? "Unlike asset" : "Like asset"}
+          >
+            <Heart className={cn("h-3.5 w-3.5", isLiked && "fill-current")} />
+          </button>
         </button>
       </article>
     );
@@ -173,11 +210,22 @@ const AssetCard = memo(function AssetCard({
           />
         </div>
         <div className="flex items-center justify-between pt-2 text-zinc-600">
-          <div className="flex items-center gap-2 text-zinc-600">
-            <Star className="h-3.5 w-3.5" />
-            <Heart className="h-3.5 w-3.5" />
-            <Circle className="h-3.5 w-3.5" />
-          </div>
+          <button
+            type="button"
+            className={cn(
+              "inline-flex h-7 w-7 items-center justify-center rounded-sm border border-white/10 transition",
+              isLiked
+                ? "bg-rose-500/20 text-rose-300"
+                : "bg-black/35 text-zinc-500 hover:text-zinc-200"
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleLike(asset.id, !isLiked);
+            }}
+            aria-label={isLiked ? "Unlike asset" : "Like asset"}
+          >
+            <Heart className={cn("h-3.5 w-3.5", isLiked && "fill-current")} />
+          </button>
           <span className="text-[11px]">{toKb(asset.size)}</span>
         </div>
       </button>
@@ -192,6 +240,7 @@ export function AssetGrid({
   onOpenInEditor,
   onSelectAsset,
   onImport,
+  onToggleLike,
 }: AssetGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(1200);
@@ -222,7 +271,7 @@ export function AssetGrid({
   const rowVirtualizer = useVirtualizer({
     count: assets.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => LIST_ITEM_HEIGHT + LIST_GAP,
+    estimateSize: () => LIST_ITEM_HEIGHT,
     overscan: 7,
     enabled: isList,
   });
@@ -231,7 +280,7 @@ export function AssetGrid({
   const compactVirtualizer = useVirtualizer({
     count: compactRowCount,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => COMPACT_ROW_HEIGHT + COMPACT_ROW_GAP,
+    estimateSize: () => COMPACT_ROW_HEIGHT,
     overscan: 6,
     enabled: isCompact,
   });
@@ -240,7 +289,7 @@ export function AssetGrid({
   return (
     <div
       ref={scrollRef}
-      className="relative min-h-0 flex-1 overflow-auto bg-[#121214] px-0 pb-0 pt-0"
+      className="relative min-h-0 flex-1 overflow-auto bg-[#121214]"
       onDragOver={(event) => {
         event.preventDefault();
         setIsDragging(true);
@@ -276,7 +325,7 @@ export function AssetGrid({
         <div
           style={{
             columnCount: masonryColumns,
-            columnGap: `${MASONRY_GAP}px`,
+            columnGap: 0,
           }}
         >
           {assets.map((asset) => (
@@ -286,6 +335,7 @@ export function AssetGrid({
               isSelected={selectedSet.has(asset.id)}
               onOpenInEditor={onOpenInEditor}
               onSelectAsset={onSelectAsset}
+              onToggleLike={onToggleLike}
             />
           ))}
         </div>
@@ -303,8 +353,6 @@ export function AssetGrid({
                 style={{
                   transform: `translateY(${virtualRow.start}px)`,
                   gridTemplateColumns: `repeat(${compactColumns}, minmax(0, 1fr))`,
-                  columnGap: `${COMPACT_COLUMN_GAP}px`,
-                  rowGap: `${COMPACT_ROW_GAP}px`,
                 }}
               >
                 {rowAssets.map((asset) => (
@@ -315,6 +363,7 @@ export function AssetGrid({
                     view="grid-compact"
                     onOpenInEditor={onOpenInEditor}
                     onSelectAsset={onSelectAsset}
+                    onToggleLike={onToggleLike}
                   />
                 ))}
               </div>
@@ -345,7 +394,6 @@ export function AssetGrid({
                   top: 0,
                   width: "100%",
                   transform: `translateY(${virtualRow.start}px)`,
-                  paddingBottom: `${LIST_GAP}px`,
                   gridTemplateColumns: "minmax(0, 1fr)",
                 }}
               >
@@ -355,6 +403,7 @@ export function AssetGrid({
                   view="list"
                   onOpenInEditor={onOpenInEditor}
                   onSelectAsset={onSelectAsset}
+                  onToggleLike={onToggleLike}
                 />
               </div>
             );

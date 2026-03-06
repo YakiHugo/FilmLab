@@ -33,6 +33,11 @@ const ORIGIN_OPTIONS: Array<{ value: AssetOriginFilter; label: string }> = [
   { value: "ai", label: "AI" },
 ];
 
+const LIKE_OPTIONS: Array<{ value: "all" | "liked"; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "liked", label: "Liked" },
+];
+
 const SORT_OPTIONS: Array<{ value: LibrarySort; label: string }> = [
   { value: "date-desc", label: "Date (newest)" },
   { value: "date-asc", label: "Date (oldest)" },
@@ -154,6 +159,21 @@ export function LibraryFilterSidebar({
                 onClick={() => updateFilters({ origin: origin.value })}
               >
                 <span>{origin.label}</span>
+              </button>
+            ))}
+          </div>
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Likes" count={LIKE_OPTIONS.length} defaultOpen={false}>
+          <div className="space-y-1">
+            {LIKE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={optionButtonClass(filters.liked === option.value)}
+                onClick={() => updateFilters({ liked: option.value })}
+              >
+                <span>{option.label}</span>
               </button>
             ))}
           </div>
