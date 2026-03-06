@@ -14,7 +14,7 @@ import { UploadButton } from "@/components/UploadButton";
 import { importAssetFiles } from "@/lib/assetImport";
 import { cn } from "@/lib/utils";
 import type { EditorLayerBlendMode } from "@/types";
-import { useEditorState } from "../useEditorState";
+import { useEditorLayerActions, useEditorSelectionState } from "../useEditorSlices";
 import { LAYER_CATEGORIES, type LayerAsset, type LayerCategory } from "./layerCategories";
 
 interface EditorLayerPopoverProps {
@@ -24,17 +24,10 @@ interface EditorLayerPopoverProps {
 type ViewMode = "layers" | "add";
 
 export function EditorLayerPopover({ className }: EditorLayerPopoverProps) {
-  const {
-    assets,
-    selectedAsset,
-    selectedLayerId,
-    layers,
-    setSelectedLayerId,
-    addTextureLayer,
-    reorderLayer,
-    removeLayer,
-    setLayerVisibility,
-  } = useEditorState();
+  const { assets, layers, selectedAsset, selectedLayerId, setSelectedLayerId } =
+    useEditorSelectionState();
+  const { addTextureLayer, reorderLayer, removeLayer, setLayerVisibility } =
+    useEditorLayerActions();
   const [draggingLayerId, setDraggingLayerId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("layers");
   const [uploadError, setUploadError] = useState<string | null>(null);

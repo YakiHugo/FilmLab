@@ -7,6 +7,18 @@ const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, "..");
 const IMAGES_DIR = path.join(ROOT, "test-assets", "images");
 const OUTPUT_PATH = path.join(ROOT, "docs", "render_baseline.md");
+const PREVIEW_INTERACTION_BASELINES = {
+  "crop-drag": {
+    maxAverageFrameIntervalMs: 22,
+    maxAverageMainThreadMs: 10,
+    minSampleCount: 6,
+  },
+  "brush-paint": {
+    maxAverageFrameIntervalMs: 20,
+    maxAverageMainThreadMs: 8,
+    minSampleCount: 6,
+  },
+} as const;
 
 const formatBytes = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B`;
@@ -52,10 +64,21 @@ const markdownLines = [
   "2. Enable timing logs in DevTools:",
   "   - `localStorage.setItem(\"filmlab:renderTiming\", \"1\")`",
   "   - optional: `localStorage.setItem(\"filmlab:renderTimingVerbose\", \"1\")`",
+  "   - `localStorage.setItem(\"filmlab:previewInteractionTiming\", \"1\")`",
   "3. Reload and perform fixed interaction scripts:",
   "   - 10s exposure drag, 10s WB drag, 10s clarity drag.",
+  "   - 10s crop translate drag in Crop mode.",
+  "   - 10s brush mask painting in Mask mode.",
   "   - repeat for preview and export scenarios.",
   "4. Capture console timing logs and compute P50/P95 by mode.",
+  "5. Treat preview interaction summaries as regression gates.",
+  "",
+  "## Preview Interaction Gates",
+  "",
+  "| Interaction | Avg Frame Interval | Avg Main Thread | Min Samples |",
+  "| --- | ---: | ---: | ---: |",
+  `| Crop Drag | <= ${PREVIEW_INTERACTION_BASELINES["crop-drag"].maxAverageFrameIntervalMs} ms | <= ${PREVIEW_INTERACTION_BASELINES["crop-drag"].maxAverageMainThreadMs} ms | >= ${PREVIEW_INTERACTION_BASELINES["crop-drag"].minSampleCount} |`,
+  `| Brush Paint | <= ${PREVIEW_INTERACTION_BASELINES["brush-paint"].maxAverageFrameIntervalMs} ms | <= ${PREVIEW_INTERACTION_BASELINES["brush-paint"].maxAverageMainThreadMs} ms | >= ${PREVIEW_INTERACTION_BASELINES["brush-paint"].minSampleCount} |`,
   "",
   "## Notes",
   "",
@@ -64,5 +87,6 @@ const markdownLines = [
   "",
 ];
 
+fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
 fs.writeFileSync(OUTPUT_PATH, `${markdownLines.join("\n")}\n`, "utf8");
 console.log(`[FilmLab] Wrote baseline manifest: ${path.relative(ROOT, OUTPUT_PATH)}`);

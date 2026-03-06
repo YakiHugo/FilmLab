@@ -4,7 +4,13 @@ import type { EditingAdjustments } from "@/types";
 import { EditorCropSection } from "../EditorCropSection";
 import { EditorHistogramCard } from "../EditorHistogramCard";
 import { EditorPresetCard } from "../EditorPresetCard";
-import { useEditorState } from "../useEditorState";
+import {
+  useEditorAdjustmentActions,
+  useEditorAdjustmentState,
+  useEditorLayerActions,
+  useEditorSelectionState,
+  useEditorViewState,
+} from "../useEditorSlices";
 import { BasicPanel } from "../components/panels/BasicPanel";
 import { DetailPanel } from "../components/panels/DetailPanel";
 import { EffectsPanel } from "../components/panels/EffectsPanel";
@@ -65,24 +71,28 @@ interface EditorInspectorPanelProps {
 }
 
 export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
+  const { adjustments } = useEditorAdjustmentState();
   const {
-    adjustments,
-    openSections,
-    toggleSection,
-    toggleBypassPanel,
-    isPanelBypassed,
-    updateAdjustments,
     previewAdjustmentValue,
-    updateAdjustmentValue,
     toggleFlip,
-    requestAutoPerspective,
-    selectedLayer,
-    setLayerOpacity,
+    updateAdjustments,
+    updateAdjustmentValue,
+  } = useEditorAdjustmentActions();
+  const {
+    clearLayerMask,
+    invertLayerMask,
     setLayerBlendMode,
     setLayerMaskMode,
-    invertLayerMask,
-    clearLayerMask,
-  } = useEditorState();
+    setLayerOpacity,
+  } = useEditorLayerActions();
+  const { selectedLayer } = useEditorSelectionState();
+  const {
+    isPanelBypassed,
+    openSections,
+    requestAutoPerspective,
+    toggleBypassPanel,
+    toggleSection,
+  } = useEditorViewState();
 
   const [layerChangesVisible, setLayerChangesVisible] = useState(true);
 

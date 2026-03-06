@@ -5,7 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { useEditorState } from "./useEditorState";
+import {
+  useEditorAdjustmentState,
+  useEditorPresetActions,
+  useEditorSelectionState,
+} from "./useEditorSlices";
 import { EditorFilmProfilePicker } from "./EditorFilmProfilePicker";
 
 const presetCollator = new Intl.Collator("zh-Hans", {
@@ -14,12 +18,14 @@ const presetCollator = new Intl.Collator("zh-Hans", {
 });
 
 export const EditorPresetCard = memo(function EditorPresetCard() {
+  const { selectedAsset } = useEditorSelectionState();
   const {
-    selectedAsset,
-    customPresets,
     builtInFilmProfiles,
     customPresetName,
+    customPresets,
     previewAdjustments,
+  } = useEditorAdjustmentState();
+  const {
     setCustomPresetName,
     handleSelectPreset,
     handleSelectFilmProfile,
@@ -29,7 +35,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
     handleImportPresets,
     handleExportFilmProfile,
     handleImportFilmProfile,
-  } = useEditorState();
+  } = useEditorPresetActions();
 
   const importRef = useRef<HTMLInputElement | null>(null);
   const filmImportRef = useRef<HTMLInputElement | null>(null);
