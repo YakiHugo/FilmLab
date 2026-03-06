@@ -504,9 +504,6 @@ export const stockFilmProfilesV1: FilmProfile[] = stockProfilesV2Source.map((pro
   toLegacyStockProfile(profile)
 );
 
-export const stockFilmProfilesV2: FilmProfileV2[] = stockProfilesV2Source.map((profile) =>
-  cloneV2(profile)
-);
 
 export const getStockFilmProfileV2ById = (id: string | undefined): FilmProfileV2 | null => {
   if (!id) {

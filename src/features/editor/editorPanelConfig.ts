@@ -1,4 +1,3 @@
-﻿import type { HslColorKey } from "@/types";
 import type { NumericAdjustmentKey } from "./types";
 
 export type SectionId =
@@ -127,23 +126,7 @@ export const EDITOR_PANEL_SECTION_MAP: Record<EditorToolPanelId, EditorPanelSect
   ai: ["ai"],
 };
 
-export const HSL_COLORS: Array<{ id: HslColorKey; label: string; swatch: string }> = [
-  { id: "red", label: "Red", swatch: "bg-red-400" },
-  { id: "orange", label: "Orange", swatch: "bg-orange-400" },
-  { id: "yellow", label: "Yellow", swatch: "bg-yellow-300" },
-  { id: "green", label: "Green", swatch: "bg-emerald-400" },
-  { id: "aqua", label: "Aqua", swatch: "bg-cyan-400" },
-  { id: "blue", label: "Blue", swatch: "bg-blue-400" },
-  { id: "purple", label: "Purple", swatch: "bg-purple-400" },
-  { id: "magenta", label: "Magenta", swatch: "bg-pink-400" },
-];
 
-export const CURVE_CHANNELS: Array<{ id: CurveChannel; label: string; enabled: boolean }> = [
-  { id: "rgb", label: "RGB", enabled: true },
-  { id: "red", label: "R", enabled: false },
-  { id: "green", label: "G", enabled: false },
-  { id: "blue", label: "B", enabled: false },
-];
 
 export const BASIC_LIGHT_SLIDERS: SliderDefinition[] = [
   { key: "exposure", label: "Exposure", min: -100, max: 100, format: formatSigned },
@@ -171,12 +154,6 @@ export const WHITE_BALANCE_PRESETS: WhiteBalancePreset[] = [
   { id: "fluorescent", label: "Fluorescent", temperature: -20, tint: 12 },
 ];
 
-export const CURVE_SLIDERS: SliderDefinition[] = [
-  { key: "curveHighlights", label: "Highlights", min: -100, max: 100, format: formatSigned },
-  { key: "curveLights", label: "Lights", min: -100, max: 100, format: formatSigned },
-  { key: "curveDarks", label: "Darks", min: -100, max: 100, format: formatSigned },
-  { key: "curveShadows", label: "Shadows", min: -100, max: 100, format: formatSigned },
-];
 
 export const EFFECTS_SLIDERS: SliderDefinition[] = [
   { key: "clarity", label: "Clarity", min: -100, max: 100, format: formatSigned },
