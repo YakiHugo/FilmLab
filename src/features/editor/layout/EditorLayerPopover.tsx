@@ -1,7 +1,7 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  ChevronLeft,
   ChevronDown,
+  ChevronLeft,
   ChevronUp,
   Download,
   Eye,
@@ -9,8 +9,9 @@ import {
   Image as ImageIcon,
   Plus,
   Trash2,
-  Upload,
 } from "lucide-react";
+import { UploadButton } from "@/components/UploadButton";
+import { importAssetFiles } from "@/lib/assetImport";
 import { cn } from "@/lib/utils";
 import type { EditorLayerBlendMode } from "@/types";
 import { useEditorState } from "../useEditorState";
@@ -36,7 +37,7 @@ export function EditorLayerPopover({ className }: EditorLayerPopoverProps) {
   } = useEditorState();
   const [draggingLayerId, setDraggingLayerId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("layers");
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const assetById = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
 
@@ -61,12 +62,48 @@ export function EditorLayerPopover({ className }: EditorLayerPopoverProps) {
     if (!selectedAsset) {
       return;
     }
+    setUploadError(null);
     addTextureLayer(asset.id);
     setViewMode("layers");
   };
 
-  const handleFileSelect = () => {
-    fileInputRef.current?.click();
+  const handleUploadFiles = async (files: FileList) => {
+    if (!selectedAsset) {
+      return;
+    }
+
+    setUploadError(null);
+
+    const result = await importAssetFiles(files);
+    const textureAssetIds = result.resolvedAssetIds.filter((assetId) => assetId !== selectedAsset.id);
+
+    if (textureAssetIds.length > 0) {
+      textureAssetIds.forEach((assetId) => addTextureLayer(assetId));
+      setViewMode("layers");
+      return;
+    }
+
+    if (result.errors[0]) {
+      setUploadError(result.errors[0]);
+      return;
+    }
+
+    if (result.skipped.unsupported > 0) {
+      setUploadError("Only JPEG, PNG, WebP, TIFF, and AVIF images can be uploaded as layers.");
+      return;
+    }
+
+    if (result.skipped.oversized > 0) {
+      setUploadError("Layer uploads are limited to 50 MB per image.");
+      return;
+    }
+
+    if (result.skipped.duplicated > 0) {
+      setUploadError("That image is already in the library. Use the existing asset from the list.");
+      return;
+    }
+
+    setUploadError("No image was added as a layer.");
   };
 
   const isExpanded = viewMode === "add";
@@ -80,14 +117,11 @@ export function EditorLayerPopover({ className }: EditorLayerPopoverProps) {
       )}
     >
       {viewMode === "layers" ? (
-        /* ===== Normal State: Layer Thumbnails ===== */
         <>
-          {/* Header: Layers title */}
           <div className="flex items-center justify-center px-2 py-3">
             <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Layers</p>
           </div>
 
-          {/* Add Button */}
           <div className="flex justify-center p-3">
             <button
               type="button"
@@ -100,9 +134,8 @@ export function EditorLayerPopover({ className }: EditorLayerPopoverProps) {
             </button>
           </div>
 
-          {/* Layer Thumbnails */}
           <div className="flex-1 space-y-3 overflow-y-auto p-3">
-            {layers.map((layer, _index) => {
+            {layers.map((layer) => {
               const isSelected = layer.id === selectedLayerId;
               const isDragging = draggingLayerId === layer.id;
               const previewSrc =
@@ -163,7 +196,6 @@ export function EditorLayerPopover({ className }: EditorLayerPopoverProps) {
                     </div>
                   )}
 
-                  {/* Hover overlay with controls */}
                   <div className="absolute inset-0 flex items-center justify-center gap-1 bg-black/60 opacity-0 transition group-hover:opacity-100">
                     <button
                       type="button"
@@ -193,7 +225,6 @@ export function EditorLayerPopover({ className }: EditorLayerPopoverProps) {
                     )}
                   </div>
 
-                  {/* Layer type indicator */}
                   <div className="absolute bottom-0.5 left-0.5 rounded bg-black/60 px-1 py-0.5 text-[8px] uppercase tracking-wide text-zinc-400">
                     {layer.type === "base" ? "B" : layer.type === "adjustment" ? "A" : "T"}
                   </div>
@@ -209,9 +240,7 @@ export function EditorLayerPopover({ className }: EditorLayerPopoverProps) {
           </div>
         </>
       ) : (
-        /* ===== Add Layer State: Category Browser ===== */
         <>
-          {/* Header with back button */}
           <div className="flex items-center px-3 py-2">
             <button
               type="button"
@@ -219,38 +248,24 @@ export function EditorLayerPopover({ className }: EditorLayerPopoverProps) {
               onClick={() => setViewMode("layers")}
             >
               <ChevronLeft className="h-4 w-4" />
-              <span>圖層</span>
+              <span>Layers</span>
             </button>
           </div>
 
-          {/* Upload button */}
           <div className="p-3">
-            <button
-              type="button"
-              className="flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-zinc-800 text-[12px] text-zinc-200 transition hover:bg-zinc-700 hover:text-white"
-              onClick={handleFileSelect}
-            >
-              <Upload className="h-4 w-4" />
-              <span>加載圖像</span>
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(event) => {
-                // Handle file upload - integrate with asset import
-                const file = event.target.files?.[0];
-                if (file) {
-                  // TODO: Import file as asset and add as layer
-                  console.log("File selected:", file.name);
-                }
-                event.target.value = "";
+            <UploadButton
+              label="Upload Layer"
+              variant="secondary"
+              size="sm"
+              className="h-9 w-full justify-center rounded-lg border-0 bg-zinc-800 px-3 text-[12px] text-zinc-200 hover:bg-zinc-700 hover:text-white"
+              labelClassName="text-[12px]"
+              onFiles={(files) => {
+                void handleUploadFiles(files);
               }}
             />
+            {uploadError ? <p className="mt-2 text-[11px] text-rose-300">{uploadError}</p> : null}
           </div>
 
-          {/* Category browser */}
           <div className="flex-1 overflow-y-auto">
             {categoriesWithUserAssets.map((category) => (
               <CategorySection
@@ -262,14 +277,15 @@ export function EditorLayerPopover({ className }: EditorLayerPopoverProps) {
             ))}
           </div>
 
-          {/* Footer: Get more assets */}
           <div className="p-3">
             <button
               type="button"
-              className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-zinc-800 text-[12px] text-zinc-200 transition hover:bg-zinc-700 hover:text-white"
+              className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-zinc-800 text-[12px] text-zinc-200 transition disabled:cursor-not-allowed disabled:opacity-50"
+              disabled
+              title="More layer sources are not available yet."
             >
               <Download className="h-4 w-4" />
-              <span>獲取更多資產</span>
+              <span>More Sources</span>
             </button>
           </div>
         </>
@@ -291,7 +307,6 @@ function CategorySection({ category, onSelectAsset, disabled }: CategorySectionP
 
   return (
     <div>
-      {/* Category header */}
       <button
         type="button"
         className="flex w-full items-center justify-between px-3 py-2 text-left transition hover:bg-white/5"
@@ -300,7 +315,7 @@ function CategorySection({ category, onSelectAsset, disabled }: CategorySectionP
         <span className="text-[12px] font-medium text-zinc-200">{category.name}</span>
         <div className="flex items-center gap-2">
           {category.showViewAll && hasAssets && (
-            <span className="text-[11px] text-blue-400">查看全部</span>
+            <span className="text-[11px] text-blue-400">View all</span>
           )}
           {expanded ? (
             <ChevronUp className="h-3 w-3 text-zinc-400" />
@@ -310,7 +325,6 @@ function CategorySection({ category, onSelectAsset, disabled }: CategorySectionP
         </div>
       </button>
 
-      {/* Asset grid */}
       {expanded && (
         <div className="px-3 pb-3">
           {hasAssets ? (
@@ -335,7 +349,7 @@ function CategorySection({ category, onSelectAsset, disabled }: CategorySectionP
             </div>
           ) : (
             <p className="py-3 text-center text-[11px] text-zinc-500">
-              {category.id === "user" ? "尚無已導入的圖像" : "暫無資源"}
+              {category.id === "user" ? "No imported assets yet." : "More assets coming soon."}
             </p>
           )}
         </div>

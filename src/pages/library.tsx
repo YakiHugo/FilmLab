@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { importAssetFiles } from "@/lib/assetImport";
 import { useAssetStore } from "@/stores/assetStore";
 import { AssetGrid } from "@/features/library/AssetGrid";
 import { AssetMetadataPanel } from "@/features/library/AssetMetadataPanel";
@@ -14,7 +15,6 @@ export function LibraryPage() {
   const navigate = useNavigate();
   const isLoading = useAssetStore((state) => state.isLoading);
   const assets = useAssetStore((state) => state.assets);
-  const importAssets = useAssetStore((state) => state.importAssets);
   const importAssetFromUrl = useAssetStore((state) => state.importAssetFromUrl);
   const addTagsToAssets = useAssetStore((state) => state.addTagsToAssets);
   const removeTagsFromAssets = useAssetStore((state) => state.removeTagsFromAssets);
@@ -30,7 +30,7 @@ export function LibraryPage() {
   );
 
   const handleImport = (files: FileList) => {
-    void importAssets(files);
+    void importAssetFiles(files);
   };
 
   const handleImportUrl = async (url: string) => {

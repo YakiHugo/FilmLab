@@ -1,5 +1,6 @@
 ﻿import { useCallback, useMemo, useState } from "react";
 import { generateImage as requestImageGeneration } from "@/lib/ai/imageGeneration";
+import { importAssetFiles } from "@/lib/assetImport";
 import type { GenerationConfig } from "@/stores/generationConfigStore";
 import type {
   GeneratedImage,
@@ -167,12 +168,12 @@ export async function saveGeneratedImages(
   }
 
   const files = await toUploadFiles(selectedEntries);
-  const importResult = await useAssetStore.getState().importAssets(files, {
+  const importResult = await importAssetFiles(files, {
     source: "ai-generated",
     origin: "ai",
   });
 
-  const importedAssetIds = importResult.addedAssetIds;
+  const importedAssetIds = importResult.resolvedAssetIds;
   if (importedAssetIds[0]) {
     useAssetStore.getState().setSelectedAssetIds([importedAssetIds[0]]);
   }
