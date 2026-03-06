@@ -10,8 +10,6 @@ const editorSearchSchema = z.object({
   assetId: z.string().optional().catch(undefined),
 });
 
-export type EditorSearch = z.infer<typeof editorSearchSchema>;
-
 const rootRoute = createRootRoute({
   component: App,
 });

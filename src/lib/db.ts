@@ -222,9 +222,6 @@ const getDB = (): Promise<IDBPDatabase<FilmLabDB> | null> => {
   return dbInitPromise;
 };
 
-/** Returns true if IndexedDB failed to open and we're in memory-only mode. */
-export const isStorageDegraded = () => dbFailed;
-
 const BRUSH_MASK_BLOB_POINT_THRESHOLD = 256;
 
 const clampValue = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));

@@ -21,18 +21,4 @@ export const resolveAssetImportDay = (asset: Pick<Asset, "importDay" | "createdA
   return toLocalDayKey(asset.createdAt);
 };
 
-export const toDayLabel = (dayKey: string) => {
-  if (!DATE_KEY_RE.test(dayKey)) {
-    return dayKey;
-  }
-  const date = new Date(`${dayKey}T00:00:00`);
-  if (Number.isNaN(date.getTime())) {
-    return dayKey;
-  }
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
-};
 

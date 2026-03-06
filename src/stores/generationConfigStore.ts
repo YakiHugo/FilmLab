@@ -236,4 +236,3 @@ export const useGenerationConfigStore = create<GenerationConfigState>()(
   )
 );
 
-export const getDefaultGenerationConfig = () => DEFAULT_CONFIG;

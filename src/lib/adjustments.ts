@@ -1,4 +1,3 @@
-import { presets } from "@/data/presets";
 import {
   ASPECT_RATIOS,
   type ColorGradingAdjustments,
@@ -760,19 +759,3 @@ export const applyPresetAdjustments = (
   return next;
 };
 
-export const resolveAdjustmentsWithPreset = (
-  adjustments: EditingAdjustments | undefined,
-  presetId?: string,
-  intensity?: number
-) => {
-  const base = normalizeAdjustments(adjustments);
-  if (!presetId) {
-    return base;
-  }
-  const preset = presets.find((item) => item.id === presetId);
-  if (!preset) {
-    return base;
-  }
-  const resolvedIntensity = typeof intensity === "number" ? intensity : preset.intensity;
-  return applyPresetAdjustments(base, preset.adjustments, resolvedIntensity);
-};
