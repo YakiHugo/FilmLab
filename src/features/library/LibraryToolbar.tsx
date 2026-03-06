@@ -3,7 +3,6 @@ import {
   Columns3,
   LayoutGrid,
   List,
-  PanelLeft,
   PanelRight,
   type LucideIcon,
 } from "lucide-react";
@@ -20,7 +19,6 @@ interface LibraryToolbarProps {
   onViewChange: (view: LibraryView) => void;
   onToggleAll: () => void;
   onToggleDetailPanel: () => void;
-  onToggleFilterPanel: () => void;
 }
 
 const VIEW_ITEMS: Array<{
@@ -43,24 +41,12 @@ export function LibraryToolbar({
   onViewChange,
   onToggleAll,
   onToggleDetailPanel,
-  onToggleFilterPanel,
 }: LibraryToolbarProps) {
   const controlClass =
     "rounded-sm border border-white/10 bg-black/40 text-zinc-200 hover:border-white/20 hover:bg-white/[0.08] focus-visible:border-yellow-500/60 focus-visible:ring-0";
 
   return (
     <div className="flex flex-wrap items-center gap-2 bg-[#121214] px-3 py-2">
-      <Button
-        type="button"
-        size="sm"
-        variant="secondary"
-        className={cn("lg:hidden", controlClass)}
-        onClick={onToggleFilterPanel}
-      >
-        <PanelLeft className="mr-1 h-4 w-4" />
-        Filters
-      </Button>
-
       <div className="flex items-center gap-1 rounded-sm border border-white/10 bg-black/35 p-1">
         {VIEW_ITEMS.map((item) => {
           const Icon = item.icon;

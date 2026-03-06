@@ -14,6 +14,7 @@ export type AssetOriginFilter = "all" | "file" | "url" | "ai";
 export interface LibraryFilters {
   search: string;
   day: string;
+  liked: "all" | "liked";
   source: AssetSource;
   origin: AssetOriginFilter;
   sort: LibrarySort;

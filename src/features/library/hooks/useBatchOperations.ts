@@ -38,11 +38,11 @@ export function useBatchOperations() {
   }, [deleteAssets, selectedAssetIds]);
 
   const applyPreset = useCallback(
-    (presetId: string) => {
+    (presetId: string, intensity?: number) => {
       if (!presetId || selectedAssetIds.length === 0) {
         return;
       }
-      applyPresetToSelection(selectedAssetIds, presetId, 100);
+      applyPresetToSelection(selectedAssetIds, presetId, intensity);
     },
     [applyPresetToSelection, selectedAssetIds]
   );

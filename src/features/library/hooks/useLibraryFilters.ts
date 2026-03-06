@@ -5,7 +5,6 @@ import { useLibraryFilterStore } from "./useLibraryFilterStore";
 
 export function useLibraryFilters(assets: Asset[]) {
   const filters = useLibraryFilterStore((state) => state.filters);
-  const setFilters = useLibraryFilterStore((state) => state.setFilters);
   const updateFilters = useLibraryFilterStore((state) => state.updateFilters);
   const resetFilters = useLibraryFilterStore((state) => state.resetFilters);
   const debouncedSearch = useDebouncedValue(filters.search, 200);
@@ -25,14 +24,14 @@ export function useLibraryFilters(assets: Asset[]) {
         const day = asset.importDay || asset.createdAt.slice(0, 10);
         const source = asset.source ?? "imported";
         const origin = asset.origin ?? "file";
-        const searchIndex = `${asset.name.toLowerCase()} ${(asset.tags ?? [])
-          .map((tag) => tag.toLowerCase())
-          .join(" ")}`;
+        const searchIndex = asset.name.toLowerCase();
+        const isLiked = (asset.tags ?? []).includes("liked");
         return {
           asset,
           day,
           source,
           origin,
+          isLiked,
           searchIndex,
         };
       }),
@@ -46,9 +45,10 @@ export function useLibraryFilters(assets: Asset[]) {
       .filter((entry) => {
         const matchesSearch = !search || entry.searchIndex.includes(search);
         const matchesDay = filters.day === "all" || entry.day === filters.day;
+        const matchesLiked = filters.liked === "all" || entry.isLiked;
         const matchesSource = filters.source === "all" || entry.source === filters.source;
         const matchesOrigin = filters.origin === "all" || entry.origin === filters.origin;
-        return matchesSearch && matchesDay && matchesSource && matchesOrigin;
+        return matchesSearch && matchesDay && matchesLiked && matchesSource && matchesOrigin;
       })
       .map((entry) => entry.asset);
 
@@ -69,7 +69,15 @@ export function useLibraryFilters(assets: Asset[]) {
           return b.createdAt.localeCompare(a.createdAt);
       }
     });
-  }, [debouncedSearch, filters.day, filters.origin, filters.sort, filters.source, indexedAssets]);
+  }, [
+    debouncedSearch,
+    filters.day,
+    filters.liked,
+    filters.origin,
+    filters.sort,
+    filters.source,
+    indexedAssets,
+  ]);
 
   const dayOptions = useMemo(() => {
     const values = new Map<string, number>();
@@ -86,7 +94,6 @@ export function useLibraryFilters(assets: Asset[]) {
 
   return {
     filters,
-    setFilters,
     updateFilters,
     resetFilters,
     filteredAssets,

@@ -48,7 +48,7 @@ export interface ProjectState {
   runAssetSync: () => Promise<void>;
   retryAssetSyncForAsset: (assetId: string) => Promise<void>;
   applyPresetToDay: (day: string, presetId: string, intensity: number) => void;
-  applyPresetToSelection: (assetIds: string[], presetId: string, intensity: number) => void;
+  applyPresetToSelection: (assetIds: string[], presetId: string, intensity?: number) => void;
   updateAsset: (assetId: string, update: AssetUpdate) => void;
   updateAssetOnly: (assetId: string, update: AssetUpdate) => void;
   addLayer: (assetId: string, layer: EditorLayer) => void;
