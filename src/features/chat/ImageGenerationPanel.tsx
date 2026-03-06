@@ -38,7 +38,11 @@ interface ImageGenerationPanelProps {
     provider: string;
     model: string;
     assetId: string | null;
+    selected: boolean;
+    saved: boolean;
+    index: number;
   }>;
+  isSavingSelection: boolean;
   onPromptChange: (value: string) => void;
   onProviderChange: (provider: ImageProviderId) => void;
   onModelChange: (model: string) => void;
@@ -48,6 +52,8 @@ interface ImageGenerationPanelProps {
   onRemoveReferenceImage: (id: string) => void;
   onClearReferenceImages: () => void;
   onGenerate: () => void;
+  onToggleResultSelection: (index: number) => void;
+  onSaveSelectedResults: () => void;
   onAddToCanvas: (assetId: string | null) => void;
 }
 
@@ -67,6 +73,7 @@ export function ImageGenerationPanel({
   styles,
   aspectRatioOptions,
   results,
+  isSavingSelection,
   onPromptChange,
   onProviderChange,
   onModelChange,
@@ -76,10 +83,14 @@ export function ImageGenerationPanel({
   onRemoveReferenceImage,
   onClearReferenceImages,
   onGenerate,
+  onToggleResultSelection,
+  onSaveSelectedResults,
   onAddToCanvas,
 }: ImageGenerationPanelProps) {
   const selectedProvider = providers.find((provider) => provider.id === config.provider);
   const selectedModel = selectedProvider?.models.find((model) => model.id === config.model);
+  const isGenerating = status === "loading";
+  const isBusy = isGenerating || isSavingSelection;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.09),transparent_45%),rgba(0,0,0,0.35)]">
@@ -339,10 +350,10 @@ export function ImageGenerationPanel({
         <Button
           type="button"
           className="h-9 w-full rounded-xl bg-amber-400 text-black hover:bg-amber-300"
-          disabled={status === "loading" || !prompt.trim()}
+          disabled={isBusy || !prompt.trim()}
           onClick={onGenerate}
         >
-          {status === "loading" ? "Generating..." : "Generate Images"}
+          {isSavingSelection ? "Saving..." : isGenerating ? "Generating..." : "Generate Images"}
         </Button>
 
         {selectedModel?.costPerImage !== undefined && (
@@ -359,6 +370,19 @@ export function ImageGenerationPanel({
 
         {results.length > 0 && (
           <div className="space-y-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="h-8 w-full rounded-xl border border-white/10 bg-emerald-500/15 text-xs text-emerald-100 hover:bg-emerald-500/25"
+              disabled={
+                isSavingSelection ||
+                results.every((entry) => !entry.selected || entry.saved)
+              }
+              onClick={onSaveSelectedResults}
+            >
+              {isSavingSelection ? "Saving..." : "Save Selected to Library"}
+            </Button>
             <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">
               Results
             </Label>
@@ -370,6 +394,9 @@ export function ImageGenerationPanel({
                   provider={entry.provider}
                   model={entry.model}
                   assetId={entry.assetId}
+                  selected={entry.selected}
+                  saved={entry.saved}
+                  onToggleSelection={() => onToggleResultSelection(entry.index)}
                   onAddToCanvas={onAddToCanvas}
                 />
               ))}

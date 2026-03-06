@@ -10,8 +10,14 @@ export const DEFAULT_IMPORT_CONCURRENCY = 4;
 export const MIN_IMPORT_CONCURRENCY = 2;
 export const MAX_IMPORT_CONCURRENCY = 6;
 
-const SUPPORTED_IMPORT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const SUPPORTED_IMPORT_EXTENSIONS = /\.(jpe?g|png|webp)$/i;
+const SUPPORTED_IMPORT_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/tiff",
+  "image/avif",
+]);
+const SUPPORTED_IMPORT_EXTENSIONS = /\.(jpe?g|png|webp|tiff?|avif)$/i;
 
 export const isSupportedImportFile = (file: File) => {
   if (SUPPORTED_IMPORT_TYPES.has(file.type)) {

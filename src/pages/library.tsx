@@ -14,8 +14,10 @@ import type { LibraryView } from "@/features/library/types";
 
 export function LibraryPage() {
   const navigate = useNavigate();
+  const isLoading = useAssetStore((state) => state.isLoading);
   const assets = useAssetStore((state) => state.assets);
   const importAssets = useAssetStore((state) => state.importAssets);
+  const importAssetFromUrl = useAssetStore((state) => state.importAssetFromUrl);
 
   const { filters, updateFilters, filteredAssets, dayOptions } = useLibraryFilters(assets);
   const { selectedAssetIds, selectedSet, toggleAsset, toggleAll } =
@@ -32,13 +34,18 @@ export function LibraryPage() {
     void importAssets(files);
   };
 
+  const handleImportUrl = async (url: string) => {
+    await importAssetFromUrl(url);
+  };
+
   return (
     <div className="flex h-[calc(100dvh-44px)] overflow-hidden bg-[#121214]">
-      <LibraryFilterSidebar
-        dayOptions={dayOptions}
-        onImport={handleImport}
-        className="hidden w-[280px] shrink-0 lg:flex"
-      />
+        <LibraryFilterSidebar
+          dayOptions={dayOptions}
+          onImport={handleImport}
+          onImportUrl={handleImportUrl}
+          className="hidden w-[280px] shrink-0 lg:flex"
+        />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <LibraryToolbar
@@ -55,26 +62,46 @@ export function LibraryPage() {
           onToggleFilterPanel={() => setMobileFiltersOpen(true)}
         />
 
-        <AssetGrid
-          assets={filteredAssets}
-          selectedSet={selectedSet}
-          view={filters.view}
-          onOpenInEditor={(assetId) => {
-            void navigate({
-              to: "/editor",
-              search: { assetId },
-            });
-          }}
-          onSelectAsset={(assetId, options) =>
-            toggleAsset(assetId, {
-              additive: options.additive,
-              range: options.range,
-            })
-          }
-          onImport={(files) => {
-            handleImport(files);
-          }}
-        />
+        {isLoading ? (
+          <div className="flex min-h-0 flex-1 flex-col gap-4 bg-[#121214] p-4">
+            <div>
+              <p className="text-sm text-zinc-200">Loading library...</p>
+              <p className="text-xs text-zinc-500">Preparing local assets and sync state.</p>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {Array.from({ length: 8 }, (_, index) => (
+                <div
+                  key={`library-loading-${index}`}
+                  className="rounded-sm border border-white/10 bg-black/25 p-2.5"
+                >
+                  <div className="aspect-[4/5] animate-pulse bg-white/5" />
+                  <div className="mt-2 h-3 w-2/3 animate-pulse bg-white/5" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <AssetGrid
+            assets={filteredAssets}
+            selectedSet={selectedSet}
+            view={filters.view}
+            onOpenInEditor={(assetId) => {
+              void navigate({
+                to: "/editor",
+                search: { assetId },
+              });
+            }}
+            onSelectAsset={(assetId, options) =>
+              toggleAsset(assetId, {
+                additive: options.additive,
+                range: options.range,
+              })
+            }
+            onImport={(files) => {
+              handleImport(files);
+            }}
+          />
+        )}
       </div>
 
       <motion.div
@@ -112,6 +139,7 @@ export function LibraryPage() {
             <LibraryFilterSidebar
               dayOptions={dayOptions}
               onImport={handleImport}
+              onImportUrl={handleImportUrl}
               className="h-[calc(100%-40px)]"
             />
           </div>

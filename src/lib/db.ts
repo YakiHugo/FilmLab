@@ -1,7 +1,11 @@
 ﻿import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import type {
   AssetAiRecommendation,
+  AssetOrigin,
+  AssetOwnerRef,
   AssetMetadata,
+  AssetRemoteState,
+  AssetSyncJobOperation,
   CanvasDocument,
   ChatScope,
   EditorLayer,
@@ -54,6 +58,10 @@ interface FilmLabDB extends DBSchema {
       filmProfile?: FilmProfile;
       aiRecommendation?: AssetAiRecommendation;
       source?: "imported" | "ai-generated";
+      origin?: AssetOrigin;
+      contentHash?: string;
+      remote?: AssetRemoteState;
+      ownerRef?: AssetOwnerRef;
     };
   };
   project: {
@@ -89,10 +97,29 @@ interface FilmLabDB extends DBSchema {
     key: string;
     value: CanvasDocument;
   };
+  assetSyncJobs: {
+    key: string;
+    value: {
+      jobId: string;
+      localAssetId: string;
+      op: AssetSyncJobOperation;
+      attempts: number;
+      nextRetryAt: string;
+      lastError?: string;
+      remoteAssetId?: string;
+      createdAt: string;
+      updatedAt: string;
+    };
+    indexes: {
+      byLocalAssetId: string;
+      byNextRetryAt: string;
+      byOp: AssetSyncJobOperation;
+    };
+  };
 }
 
 const DB_NAME = "filmlab-mvp";
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 let dbFailed = false;
 let dbInstance: IDBPDatabase<FilmLabDB> | null = null;
@@ -129,8 +156,25 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
           if (!db.objectStoreNames.contains("canvasDocuments")) {
             db.createObjectStore("canvasDocuments", { keyPath: "id" });
           }
-          // v5/v6 only add optional value fields (`importDay`, `tags`, `source`).
-          // No migration is needed because IndexedDB values are schemaless.
+          if (!db.objectStoreNames.contains("assetSyncJobs")) {
+            const syncStore = db.createObjectStore("assetSyncJobs", { keyPath: "jobId" });
+            syncStore.createIndex("byLocalAssetId", "localAssetId", { unique: false });
+            syncStore.createIndex("byNextRetryAt", "nextRetryAt", { unique: false });
+            syncStore.createIndex("byOp", "op", { unique: false });
+          } else if (oldVersion < 7) {
+            const syncStore = transaction.objectStore("assetSyncJobs");
+            if (!syncStore.indexNames.contains("byLocalAssetId")) {
+              syncStore.createIndex("byLocalAssetId", "localAssetId", { unique: false });
+            }
+            if (!syncStore.indexNames.contains("byNextRetryAt")) {
+              syncStore.createIndex("byNextRetryAt", "nextRetryAt", { unique: false });
+            }
+            if (!syncStore.indexNames.contains("byOp")) {
+              syncStore.createIndex("byOp", "op", { unique: false });
+            }
+          }
+          // v5+ only add optional value fields (`importDay`, `tags`, `source`, sync fields).
+          // No value migration is needed because IndexedDB values are schemaless.
         },
         blocked() {
           console.warn("IndexedDB upgrade blocked because another tab still uses an older schema.");
@@ -231,6 +275,20 @@ const deleteMaskBlobsByAssetId = async (db: IDBPDatabase<FilmLabDB>, assetId: st
   const tx = db.transaction("localMaskBlobs", "readwrite");
   const byAssetId = tx.store.index("byAssetId");
   let cursor = await byAssetId.openCursor(IDBKeyRange.only(assetId));
+  while (cursor) {
+    await cursor.delete();
+    cursor = await cursor.continue();
+  }
+  await tx.done;
+};
+
+const deleteSyncJobsByAssetId = async (db: IDBPDatabase<FilmLabDB>, assetId: string) => {
+  if (!db.objectStoreNames.contains("assetSyncJobs")) {
+    return;
+  }
+  const tx = db.transaction("assetSyncJobs", "readwrite");
+  const byLocalAssetId = tx.store.index("byLocalAssetId");
+  let cursor = await byLocalAssetId.openCursor(IDBKeyRange.only(assetId));
   while (cursor) {
     await cursor.delete();
     cursor = await cursor.continue();
@@ -411,6 +469,86 @@ export async function loadAssets() {
   }
 }
 
+export type StoredAssetSyncJob = FilmLabDB["assetSyncJobs"]["value"];
+
+export async function saveAssetSyncJob(job: StoredAssetSyncJob): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return false;
+  try {
+    await db.put("assetSyncJobs", job);
+    return true;
+  } catch (error) {
+    console.warn("IndexedDB saveAssetSyncJob failed:", error);
+    return false;
+  }
+}
+
+export async function saveAssetSyncJobs(jobs: StoredAssetSyncJob[]): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return false;
+  if (jobs.length === 0) return true;
+  try {
+    const tx = db.transaction("assetSyncJobs", "readwrite");
+    for (const job of jobs) {
+      await tx.store.put(job);
+    }
+    await tx.done;
+    return true;
+  } catch (error) {
+    console.warn("IndexedDB saveAssetSyncJobs failed:", error);
+    return false;
+  }
+}
+
+export async function loadAssetSyncJobs(limit = 128): Promise<StoredAssetSyncJob[]> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return [];
+  try {
+    const jobs = await db.getAll("assetSyncJobs");
+    return jobs
+      .sort((a, b) => a.nextRetryAt.localeCompare(b.nextRetryAt))
+      .slice(0, Math.max(1, limit));
+  } catch (error) {
+    console.warn("IndexedDB loadAssetSyncJobs failed:", error);
+    return [];
+  }
+}
+
+export async function loadAssetSyncJobsByAssetId(assetId: string): Promise<StoredAssetSyncJob[]> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return [];
+  try {
+    return await db.getAllFromIndex("assetSyncJobs", "byLocalAssetId", assetId);
+  } catch (error) {
+    console.warn("IndexedDB loadAssetSyncJobsByAssetId failed:", error);
+    return [];
+  }
+}
+
+export async function deleteAssetSyncJob(jobId: string): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return false;
+  try {
+    await db.delete("assetSyncJobs", jobId);
+    return true;
+  } catch (error) {
+    console.warn("IndexedDB deleteAssetSyncJob failed:", error);
+    return false;
+  }
+}
+
+export async function deleteAssetSyncJobsByAssetId(assetId: string): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return false;
+  try {
+    await deleteSyncJobsByAssetId(db, assetId);
+    return true;
+  } catch (error) {
+    console.warn("IndexedDB deleteAssetSyncJobsByAssetId failed:", error);
+    return false;
+  }
+}
+
 export async function clearAssets(): Promise<boolean> {
   const db = await getDB();
   if (!db) return false;
@@ -418,6 +556,9 @@ export async function clearAssets(): Promise<boolean> {
     await db.clear("assets");
     if (db.objectStoreNames.contains("localMaskBlobs")) {
       await db.clear("localMaskBlobs");
+    }
+    if (db.objectStoreNames.contains("assetSyncJobs")) {
+      await db.clear("assetSyncJobs");
     }
     return true;
   } catch (error) {

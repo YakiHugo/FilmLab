@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { useAssetStore } from "@/stores/assetStore";
 import type { Asset } from "@/types";
 import { useBatchOperations } from "./hooks/useBatchOperations";
 import { CollapsibleSection } from "./CollapsibleSection";
@@ -32,9 +33,33 @@ interface AssetMetadataPanelProps {
 const sourceLabel = (source: Asset["source"]) =>
   source === "ai-generated" ? "AI Generated" : "Imported";
 const toKb = (size: number) => `${Math.max(1, Math.round(size / 1024))} KB`;
+const syncStatusLabel = (status: Asset["remote"] extends infer T ? (T extends { status: infer S } ? S : never) : never) => {
+  switch (status) {
+    case "synced":
+      return "Synced";
+    case "uploading":
+      return "Uploading";
+    case "upload_queued":
+      return "Queued";
+    case "upload_failed":
+      return "Sync Failed";
+    case "delete_queued":
+      return "Delete Queued";
+    case "deleting":
+      return "Deleting";
+    case "delete_failed":
+      return "Delete Failed";
+    case "deleted":
+      return "Deleted";
+    case "local_only":
+    default:
+      return "Local Only";
+  }
+};
 
 export function AssetMetadataPanel({ asset, selectedCount, className }: AssetMetadataPanelProps) {
   const navigate = useNavigate();
+  const retryAssetSyncForAsset = useAssetStore((state) => state.retryAssetSyncForAsset);
   const { selectedAssetIds, removeSelection, applyPreset } = useBatchOperations();
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -90,6 +115,12 @@ export function AssetMetadataPanel({ asset, selectedCount, className }: AssetMet
                 {sourceLabel(asset.source)}
               </span>
             </p>
+            <p>
+              Sync:{" "}
+              <span className="inline-block border border-white/10 bg-black/35 px-2 py-0.5 text-[11px]">
+                {syncStatusLabel(asset.remote?.status ?? "local_only")}
+              </span>
+            </p>
           </div>
 
           <CollapsibleSection title="EXIF" defaultOpen={false}>
@@ -119,6 +150,18 @@ export function AssetMetadataPanel({ asset, selectedCount, className }: AssetMet
           >
             Open in Editor
           </Button>
+          {asset.remote?.status === "upload_failed" ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              className={cn("w-full", controlClass)}
+              onClick={() => {
+                void retryAssetSyncForAsset(asset.id);
+              }}
+            >
+              Retry Sync
+            </Button>
+          ) : null}
         </div>
       )}
 

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+﻿import { useCallback, useMemo, useState } from "react";
 import { generateImage as requestImageGeneration } from "@/lib/ai/imageGeneration";
 import type { GenerationConfig } from "@/stores/generationConfigStore";
 import type {
@@ -11,11 +11,20 @@ import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useGenerationConfig } from "./useGenerationConfig";
 
+interface GeneratedResultItem extends GeneratedImage {
+  index: number;
+  assetId: string | null;
+  selected: boolean;
+  saved: boolean;
+}
+
 interface ImageGenerationState {
   status: "idle" | "loading" | "done" | "error";
   error: string | null;
   prompt: string;
-  results: Array<GeneratedImage & { assetId: string | null }>;
+  isSavingSelection: boolean;
+  resultBatchId: string | null;
+  results: GeneratedResultItem[];
 }
 
 interface ImportedImage {
@@ -23,6 +32,7 @@ interface ImportedImage {
   assetId: string | null;
   provider: GeneratedImage["provider"];
   model: string;
+  index: number;
   mimeType?: string;
   revisedPrompt?: string | null;
 }
@@ -32,6 +42,7 @@ interface ImportedGenerationResult {
   assetId: string | null;
   images: ImportedImage[];
   importedAssetIds: string[];
+  indexToAssetId: Record<number, string>;
 }
 
 const createElementId = () => {
@@ -41,7 +52,15 @@ const createElementId = () => {
   return `canvas-image-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 };
 
-const blobToFileExtension = (mimeType: string) => (mimeType.includes("jpeg") ? "jpg" : "png");
+const createResultBatchId = () => {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `generated-batch-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+};
+
+const blobToFileExtension = (mimeType: string) =>
+  mimeType.includes("jpeg") ? "jpg" : mimeType.includes("webp") ? "webp" : "png";
 
 const readFileAsDataUrl = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -97,23 +116,19 @@ const toImageRequest = (
   height: config.height ?? undefined,
   style: supportedFeatures.styles ? config.style : "none",
   stylePreset: config.stylePreset || undefined,
-  negativePrompt: supportedFeatures.negativePrompt
-    ? config.negativePrompt || undefined
-    : undefined,
+  negativePrompt: supportedFeatures.negativePrompt ? config.negativePrompt || undefined : undefined,
   referenceImages: supportedFeatures.referenceImages ? config.referenceImages : [],
   seed: supportedFeatures.seed ? config.seed ?? undefined : undefined,
-  guidanceScale: supportedFeatures.guidanceScale
-    ? config.guidanceScale ?? undefined
-    : undefined,
+  guidanceScale: supportedFeatures.guidanceScale ? config.guidanceScale ?? undefined : undefined,
   steps: supportedFeatures.steps ? config.steps ?? undefined : undefined,
   sampler: config.sampler || undefined,
   batchSize: config.batchSize,
   modelParams: config.modelParams,
 });
 
-const toUploadFiles = async (images: GeneratedImage[]) =>
+const toUploadFiles = async (images: Array<{ image: GeneratedImage; index: number }>) =>
   Promise.all(
-    images.map(async (image, index) => {
+    images.map(async ({ image, index }) => {
       const imageResponse = await fetch(image.imageUrl);
       if (!imageResponse.ok) {
         throw new Error("Generated image could not be downloaded.");
@@ -128,33 +143,68 @@ const toUploadFiles = async (images: GeneratedImage[]) =>
     })
   );
 
-export async function generateAndImportImage(
-  request: ImageGenerationRequest
-): Promise<ImportedGenerationResult> {
+export async function generateImages(request: ImageGenerationRequest): Promise<GeneratedImage[]> {
   const generated = await requestImageGeneration(request);
-  const files = await toUploadFiles(generated.images);
-  const importResult = await useAssetStore.getState().importAssets(files);
+  return generated.images;
+}
 
-  for (const assetId of importResult.addedAssetIds) {
-    useAssetStore.getState().updateAsset(assetId, { source: "ai-generated" });
+export async function saveGeneratedImages(
+  images: GeneratedImage[],
+  selectedIndexes: number[]
+): Promise<ImportedGenerationResult> {
+  const selectedEntries = selectedIndexes
+    .map((index) => ({ image: images[index], index }))
+    .filter((entry): entry is { image: GeneratedImage; index: number } => Boolean(entry.image));
+
+  if (selectedEntries.length === 0) {
+    return {
+      imageUrl: "",
+      assetId: null,
+      images: [],
+      importedAssetIds: [],
+      indexToAssetId: {},
+    };
   }
+
+  const files = await toUploadFiles(selectedEntries);
+  const importResult = await useAssetStore.getState().importAssets(files, {
+    source: "ai-generated",
+    origin: "ai",
+  });
 
   const importedAssetIds = importResult.addedAssetIds;
   if (importedAssetIds[0]) {
     useAssetStore.getState().setSelectedAssetIds([importedAssetIds[0]]);
   }
 
-  const images = generated.images.map((image, index) => ({
-    ...image,
-    assetId: importedAssetIds[index] ?? null,
-  }));
+  const indexToAssetId: Record<number, string> = {};
+  const importedImages = selectedEntries.map((entry, arrayIndex) => {
+    const assetId = importedAssetIds[arrayIndex] ?? null;
+    if (assetId) {
+      indexToAssetId[entry.index] = assetId;
+    }
+    return {
+      ...entry.image,
+      index: entry.index,
+      assetId,
+    };
+  });
 
   return {
-    imageUrl: images[0]?.imageUrl ?? generated.imageUrl ?? "",
-    assetId: importedAssetIds[0] ?? null,
-    images,
+    imageUrl: importedImages[0]?.imageUrl ?? "",
+    assetId: importedImages[0]?.assetId ?? null,
+    images: importedImages,
     importedAssetIds,
+    indexToAssetId,
   };
+}
+
+export async function generateAndImportImage(
+  request: ImageGenerationRequest
+): Promise<ImportedGenerationResult> {
+  const generatedImages = await generateImages(request);
+  const selectedIndexes = generatedImages.map((_, index) => index);
+  return saveGeneratedImages(generatedImages, selectedIndexes);
 }
 
 export function useImageGeneration() {
@@ -178,6 +228,8 @@ export function useImageGeneration() {
     status: "idle",
     error: null,
     prompt: "",
+    isSavingSelection: false,
+    resultBatchId: null,
     results: [],
   });
 
@@ -187,7 +239,49 @@ export function useImageGeneration() {
     setState((previous) => ({ ...previous, prompt }));
   }, []);
 
+  const runGeneration = useCallback(
+    async (prompt: string, configForRequest: GenerationConfig) => {
+      setState((previous) => ({
+        ...previous,
+        status: "loading",
+        error: null,
+        resultBatchId: null,
+        results: [],
+      }));
+
+      try {
+        const images = await generateImages(toImageRequest(prompt, configForRequest, supportedFeatures));
+        setState((previous) => ({
+          ...previous,
+          status: "done",
+          error: null,
+          resultBatchId: createResultBatchId(),
+          results: images.map((image, index) => ({
+            ...image,
+            index,
+            assetId: null,
+            selected: true,
+            saved: false,
+          })),
+        }));
+        return images;
+      } catch (error) {
+        setState((previous) => ({
+          ...previous,
+          status: "error",
+          results: [],
+          error: error instanceof Error ? error.message : "Image generation failed.",
+        }));
+        return null;
+      }
+    },
+    [supportedFeatures]
+  );
+
   const generate = useCallback(async () => {
+    if (state.isSavingSelection) {
+      return null;
+    }
     const prompt = state.prompt.trim();
     if (!prompt) {
       setState((previous) => ({
@@ -198,37 +292,78 @@ export function useImageGeneration() {
       return null;
     }
 
+    return runGeneration(prompt, config);
+  }, [config, runGeneration, state.isSavingSelection, state.prompt]);
+
+  const saveSelectedResults = useCallback(async () => {
+    const resultBatchId = state.resultBatchId;
+    const selectedIndexes = state.results
+      .filter((entry) => entry.selected && !entry.saved)
+      .map((entry) => entry.index);
+    if (!resultBatchId || selectedIndexes.length === 0) {
+      return null;
+    }
+
     setState((previous) => ({
       ...previous,
-      status: "loading",
+      isSavingSelection: true,
       error: null,
-      results: [],
     }));
 
     try {
-      const result = await generateAndImportImage(
-        toImageRequest(prompt, config, supportedFeatures)
-      );
+      const generatedImages = state.results.map((entry) => ({
+        imageUrl: entry.imageUrl,
+        provider: entry.provider,
+        model: entry.model,
+        mimeType: entry.mimeType,
+        revisedPrompt: entry.revisedPrompt,
+      }));
+
+      const imported = await saveGeneratedImages(generatedImages, selectedIndexes);
       setState((previous) => ({
         ...previous,
-        status: "done",
+        isSavingSelection: false,
         error: null,
-        results: result.images,
+        results:
+          previous.resultBatchId !== resultBatchId
+            ? previous.results
+            : previous.results.map((entry) => {
+                const assetId = imported.indexToAssetId[entry.index];
+                if (!assetId) {
+                  return entry;
+                }
+                return {
+                  ...entry,
+                  assetId,
+                  saved: true,
+                  selected: false,
+                };
+              }),
       }));
-      return result;
+      return imported;
     } catch (error) {
       setState((previous) => ({
         ...previous,
-        status: "error",
-        results: [],
-        error:
-          error instanceof Error
-            ? error.message
-            : "Image generation failed.",
+        isSavingSelection: false,
+        error: error instanceof Error ? error.message : "Save generated images failed.",
       }));
       return null;
     }
-  }, [config, state.prompt, supportedFeatures]);
+  }, [state.resultBatchId, state.results]);
+
+  const toggleResultSelection = useCallback((index: number) => {
+    setState((previous) => ({
+      ...previous,
+      results: previous.results.map((entry) =>
+        entry.index === index && !entry.saved
+          ? {
+              ...entry,
+              selected: !entry.selected,
+            }
+          : entry
+      ),
+    }));
+  }, []);
 
   const addReferenceFiles = useCallback(
     async (filesInput: FileList | File[]) => {
@@ -241,6 +376,9 @@ export function useImageGeneration() {
 
   const generateFromChatInput = useCallback(
     async (input: { text: string; files?: FileList | null }) => {
+      if (state.isSavingSelection) {
+        return null;
+      }
       const prompt = input.text.trim();
       if (!prompt) {
         setState((previous) => ({
@@ -252,95 +390,67 @@ export function useImageGeneration() {
       }
 
       let configForRequest = config;
-      if (
-        supportedFeatures.referenceImages &&
-        input.files &&
-        input.files.length > 0
-      ) {
+      if (supportedFeatures.referenceImages && input.files && input.files.length > 0) {
         const entries = await filesToReferenceImages(input.files);
         addReferenceImages(entries);
         configForRequest = {
           ...configForRequest,
-          referenceImages: [
-            ...config.referenceImages,
-            ...entries,
-          ].slice(0, 4),
+          referenceImages: [...config.referenceImages, ...entries].slice(0, 4),
         };
       }
 
       setState((previous) => ({
         ...previous,
         prompt,
-        status: "loading",
-        error: null,
-        results: [],
       }));
 
-      try {
-        const result = await generateAndImportImage(
-          toImageRequest(prompt, configForRequest, supportedFeatures)
-        );
-        setState((previous) => ({
-          ...previous,
-          status: "done",
-          error: null,
-          results: result.images,
-        }));
-        return result;
-      } catch (error) {
-        setState((previous) => ({
-          ...previous,
-          status: "error",
-          results: [],
-          error:
-            error instanceof Error
-              ? error.message
-              : "Image generation failed.",
-        }));
-        return null;
-      }
+      return runGeneration(prompt, configForRequest);
     },
-    [addReferenceImages, config, supportedFeatures]
+    [addReferenceImages, config, runGeneration, state.isSavingSelection, supportedFeatures.referenceImages]
   );
 
-  const addToCanvas = useCallback(async (assetId?: string | null) => {
-    const finalAssetId = assetId ?? state.results[0]?.assetId ?? null;
-    if (!finalAssetId) {
-      return null;
-    }
+  const addToCanvas = useCallback(
+    async (assetId?: string | null) => {
+      const finalAssetId =
+        assetId ?? state.results.find((entry) => entry.assetId)?.assetId ?? null;
+      if (!finalAssetId) {
+        return null;
+      }
 
-    const canvas = useCanvasStore.getState();
-    let documentId = canvas.activeDocumentId;
-    if (!documentId) {
-      const created = await canvas.createDocument("AI Board");
-      documentId = created.id;
-    }
-    if (!documentId) {
-      return null;
-    }
+      const canvas = useCanvasStore.getState();
+      let documentId = canvas.activeDocumentId;
+      if (!documentId) {
+        const created = await canvas.createDocument("AI Board");
+        documentId = created.id;
+      }
+      if (!documentId) {
+        return null;
+      }
 
-    const document = canvas.documents.find((item) => item.id === documentId);
-    const zIndex = (document?.elements.length ?? 0) + 1;
+      const document = canvas.documents.find((item) => item.id === documentId);
+      const zIndex = (document?.elements.length ?? 0) + 1;
 
-    const element: CanvasImageElement = {
-      id: createElementId(),
-      type: "image",
-      assetId: finalAssetId,
-      x: 140 + zIndex * 24,
-      y: 120 + zIndex * 24,
-      width: 420,
-      height: 420,
-      rotation: 0,
-      opacity: 1,
-      locked: false,
-      visible: true,
-      zIndex,
-    };
+      const element: CanvasImageElement = {
+        id: createElementId(),
+        type: "image",
+        assetId: finalAssetId,
+        x: 140 + zIndex * 24,
+        y: 120 + zIndex * 24,
+        width: 420,
+        height: 420,
+        rotation: 0,
+        opacity: 1,
+        locked: false,
+        visible: true,
+        zIndex,
+      };
 
-    await canvas.upsertElement(documentId, element);
-    canvas.setSelectedElementIds([element.id]);
-    return { documentId, elementId: element.id };
-  }, [state.results]);
+      await canvas.upsertElement(documentId, element);
+      canvas.setSelectedElementIds([element.id]);
+      return { documentId, elementId: element.id };
+    },
+    [state.results]
+  );
 
   const aspectRatioOptions = useMemo(
     () => modelConfig.supportedAspectRatios,
@@ -367,6 +477,8 @@ export function useImageGeneration() {
     clearReferenceImages,
     generate,
     generateFromChatInput,
+    toggleResultSelection,
+    saveSelectedResults,
     addToCanvas,
   };
 }

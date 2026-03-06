@@ -12,8 +12,14 @@ interface ImageStyleGridProps {
     provider: string;
     model: string;
     assetId: string | null;
+    selected: boolean;
+    saved: boolean;
+    index: number;
   }>;
+  isSavingSelection: boolean;
   onSelectPreset: (preset: ImageStylePreset) => void;
+  onToggleResultSelection: (index: number) => void;
+  onSaveSelectedResults: () => void;
   onAddToCanvas: (assetId: string | null) => void;
 }
 
@@ -23,9 +29,14 @@ export function ImageStyleGrid({
   status,
   error,
   results,
+  isSavingSelection,
   onSelectPreset,
+  onToggleResultSelection,
+  onSaveSelectedResults,
   onAddToCanvas,
 }: ImageStyleGridProps) {
+  const hasSelectedUnsavedResults = results.some((entry) => entry.selected && !entry.saved);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.18),transparent_40%),radial-gradient(circle_at_top_left,rgba(245,158,11,0.12),transparent_45%),#0a0d14] p-4 sm:p-6">
       <div className="mx-auto w-full max-w-6xl">
@@ -84,6 +95,14 @@ export function ImageStyleGrid({
 
         {results.length > 0 && (
           <div className="mt-8 space-y-3">
+            <button
+              type="button"
+              className="inline-flex h-10 items-center justify-center rounded-xl border border-emerald-400/25 bg-emerald-500/15 px-4 text-sm font-medium text-emerald-100 transition hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-45"
+              disabled={isSavingSelection || !hasSelectedUnsavedResults}
+              onClick={onSaveSelectedResults}
+            >
+              {isSavingSelection ? "Saving..." : "Save Selected to Library"}
+            </button>
             <p className="text-lg font-medium text-zinc-200">最新生成</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {results.map((entry, index) => (
@@ -93,6 +112,9 @@ export function ImageStyleGrid({
                   provider={entry.provider}
                   model={entry.model}
                   assetId={entry.assetId}
+                  selected={entry.selected}
+                  saved={entry.saved}
+                  onToggleSelection={() => onToggleResultSelection(entry.index)}
                   onAddToCanvas={onAddToCanvas}
                 />
               ))}

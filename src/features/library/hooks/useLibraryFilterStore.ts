@@ -5,6 +5,7 @@ const DEFAULT_FILTERS: LibraryFilters = {
   search: "",
   day: "all",
   source: "all",
+  origin: "all",
   sort: "date-desc",
   view: "grid-compact",
 };

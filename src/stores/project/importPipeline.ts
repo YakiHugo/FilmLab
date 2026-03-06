@@ -2,6 +2,7 @@ import pLimit from "p-limit";
 import { presets } from "@/data/presets";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import { createBaseLayer } from "@/lib/editorLayers";
+import { sha256FromBlob } from "@/lib/hash";
 import { prepareAssetPayload } from "@/lib/assetMetadata";
 import { saveAsset } from "@/lib/db";
 import type { Asset } from "@/types";
@@ -14,11 +15,12 @@ import {
 } from "./constants";
 import { toLocalDayKey } from "./grouping";
 import { toStoredAsset } from "./persistence";
-import type { ImportAssetsResult, ImportProgress } from "./types";
+import type { ImportAssetOptions, ImportAssetsResult, ImportProgress } from "./types";
 
 interface ImportPipelineOptions {
   files: File[];
   existingAssets: Asset[];
+  importOptions?: ImportAssetOptions;
   onProgress?: (progress: ImportProgress) => void;
   onAssetImported?: (asset: Asset) => void;
 }
@@ -51,6 +53,7 @@ const createEmptyResult = (requested = 0): ImportAssetsResult => ({
 export const runImportPipeline = async ({
   files,
   existingAssets,
+  importOptions,
   onProgress,
   onAssetImported,
 }: ImportPipelineOptions): Promise<ImportAssetsResult> => {
@@ -134,6 +137,9 @@ export const runImportPipeline = async ({
   const timestamp = new Date().toISOString();
   const importDay = toLocalDayKey(timestamp);
   const defaultPreset = presets[0];
+  const source = importOptions?.source ?? "imported";
+  const origin = importOptions?.origin ?? "file";
+  const ownerRef = importOptions?.ownerRef;
 
   const limit = pLimit(resolveImportConcurrency());
   const addedAssetIds: string[] = [];
@@ -150,6 +156,7 @@ export const runImportPipeline = async ({
         try {
           const id = createAssetId(file);
           const fileBlob = file.slice(0, file.size, file.type);
+          const contentHash = await sha256FromBlob(fileBlob);
           const { metadata, thumbnailBlob } = await prepareAssetPayload(fileBlob);
 
           objectUrl = URL.createObjectURL(fileBlob);
@@ -175,7 +182,14 @@ export const runImportPipeline = async ({
             metadata,
             adjustments: createDefaultAdjustments(),
             layers: [],
-            source: "imported",
+            source,
+            origin,
+            contentHash,
+            ownerRef,
+            remote: {
+              status: "upload_queued",
+              updatedAt: timestamp,
+            },
           };
           asset.layers = [createBaseLayer(asset)];
 

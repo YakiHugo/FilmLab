@@ -1,9 +1,11 @@
-import { Search, X } from "lucide-react";
+﻿import { Search, X } from "lucide-react";
+import { useState } from "react";
 import { UploadButton } from "@/components/UploadButton";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useLibraryFilterStore } from "./hooks/useLibraryFilterStore";
-import type { AssetSource, LibrarySort } from "./types";
+import type { AssetOriginFilter, AssetSource, LibrarySort } from "./types";
 import { CollapsibleSection } from "./CollapsibleSection";
 
 interface FilterOption {
@@ -14,6 +16,7 @@ interface FilterOption {
 interface LibraryFilterSidebarProps {
   dayOptions: FilterOption[];
   onImport: (files: FileList) => void;
+  onImportUrl: (url: string) => Promise<void>;
   className?: string;
 }
 
@@ -21,6 +24,13 @@ const SOURCE_OPTIONS: Array<{ value: AssetSource; label: string }> = [
   { value: "all", label: "All" },
   { value: "imported", label: "Imported" },
   { value: "ai-generated", label: "AI Generated" },
+];
+
+const ORIGIN_OPTIONS: Array<{ value: AssetOriginFilter; label: string }> = [
+  { value: "all", label: "All Origins" },
+  { value: "file", label: "Files" },
+  { value: "url", label: "URL" },
+  { value: "ai", label: "AI" },
 ];
 
 const SORT_OPTIONS: Array<{ value: LibrarySort; label: string }> = [
@@ -43,11 +53,15 @@ const optionButtonClass = (active: boolean) =>
 export function LibraryFilterSidebar({
   dayOptions,
   onImport,
+  onImportUrl,
   className,
 }: LibraryFilterSidebarProps) {
   const filters = useLibraryFilterStore((state) => state.filters);
   const updateFilters = useLibraryFilterStore((state) => state.updateFilters);
   const resetFilters = useLibraryFilterStore((state) => state.resetFilters);
+  const [urlInput, setUrlInput] = useState("");
+  const [urlError, setUrlError] = useState<string | null>(null);
+  const [isImportingUrl, setIsImportingUrl] = useState(false);
 
   return (
     <aside className={cn("flex min-h-0 flex-col bg-[#121214] p-3", className)}>
@@ -68,6 +82,48 @@ export function LibraryFilterSidebar({
         labelClassName="text-xs"
         onFiles={onImport}
       />
+
+      <form
+        className="mt-2 space-y-2 rounded-sm border border-white/10 bg-black/30 p-2"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const next = urlInput.trim();
+          if (!next || isImportingUrl) {
+            return;
+          }
+          setIsImportingUrl(true);
+          setUrlError(null);
+          try {
+            await onImportUrl(next);
+            setUrlInput("");
+          } catch (error) {
+            setUrlError(error instanceof Error ? error.message : "URL import failed.");
+          } finally {
+            setIsImportingUrl(false);
+          }
+        }}
+      >
+        <Input
+          value={urlInput}
+          onChange={(event) => {
+            setUrlInput(event.target.value);
+            setUrlError(null);
+          }}
+          placeholder="Import from URL"
+          className="h-8 rounded-sm border-white/10 bg-black/40 text-xs text-zinc-200 placeholder:text-zinc-500 focus-visible:border-yellow-500/60 focus-visible:ring-0"
+        />
+        <Button
+          type="submit"
+          size="sm"
+          variant="secondary"
+          className="h-8 w-full rounded-sm border border-white/10 bg-black/45 text-xs text-zinc-200 hover:border-white/20 hover:bg-white/[0.08] focus-visible:border-yellow-500/60 focus-visible:ring-0"
+          disabled={isImportingUrl || !urlInput.trim()}
+        >
+          {isImportingUrl ? "Importing URL..." : "Import URL"}
+        </Button>
+        {urlError ? <p className="text-[11px] text-rose-300">{urlError}</p> : null}
+      </form>
+
       <p className="mt-2 text-[11px] text-zinc-500">
         Tip: You can also drag and drop files into the grid.
       </p>
@@ -88,6 +144,21 @@ export function LibraryFilterSidebar({
           </div>
         </CollapsibleSection>
 
+        <CollapsibleSection title="Origin" count={ORIGIN_OPTIONS.length} defaultOpen={false}>
+          <div className="space-y-1">
+            {ORIGIN_OPTIONS.map((origin) => (
+              <button
+                key={origin.value}
+                type="button"
+                className={optionButtonClass(filters.origin === origin.value)}
+                onClick={() => updateFilters({ origin: origin.value })}
+              >
+                <span>{origin.label}</span>
+              </button>
+            ))}
+          </div>
+        </CollapsibleSection>
+
         <CollapsibleSection title="Dates" count={Math.max(0, dayOptions.length - 1)}>
           <div className="space-y-1">
             {dayOptions.slice(0, 21).map((option) => (
@@ -97,9 +168,7 @@ export function LibraryFilterSidebar({
                 className={optionButtonClass(filters.day === option.value)}
                 onClick={() => updateFilters({ day: option.value })}
               >
-                <span className="truncate">
-                  {option.value === "all" ? "All dates" : option.value}
-                </span>
+                <span className="truncate">{option.value === "all" ? "All dates" : option.value}</span>
                 <span className="text-[11px] text-zinc-500">{option.count}</span>
               </button>
             ))}

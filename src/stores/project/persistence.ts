@@ -45,6 +45,10 @@ export const toStoredAsset = (asset: Asset): StoredAsset | null => {
     layers: ensureAssetLayers(asset),
     aiRecommendation: asset.aiRecommendation,
     source: asset.source,
+    origin: asset.origin,
+    contentHash: asset.contentHash,
+    remote: asset.remote,
+    ownerRef: asset.ownerRef,
   };
 };
 

@@ -454,6 +454,31 @@ export type AssetMimeType =
   | "image/webp"
   | "image/avif";
 
+export type AssetOrigin = "file" | "url" | "ai";
+
+export type AssetRemoteSyncStatus =
+  | "local_only"
+  | "upload_queued"
+  | "uploading"
+  | "synced"
+  | "upload_failed"
+  | "delete_queued"
+  | "deleting"
+  | "deleted"
+  | "delete_failed";
+
+export interface AssetRemoteState {
+  status: AssetRemoteSyncStatus;
+  remoteAssetId?: string;
+  lastError?: string;
+  updatedAt?: string;
+  lastSyncedAt?: string;
+}
+
+export interface AssetOwnerRef {
+  userId: string;
+}
+
 export interface Asset {
   id: string;
   name: string;
@@ -480,6 +505,10 @@ export interface Asset {
   layers?: EditorLayer[];
   aiRecommendation?: AssetAiRecommendation;
   source?: "imported" | "ai-generated";
+  origin?: AssetOrigin;
+  contentHash?: string;
+  remote?: AssetRemoteState;
+  ownerRef?: AssetOwnerRef;
 }
 
 /** Fields that consumers may update on an existing asset. */
@@ -499,10 +528,28 @@ export type AssetUpdate = Partial<
     | "layers"
     | "aiRecommendation"
     | "source"
+    | "origin"
+    | "contentHash"
+    | "remote"
+    | "ownerRef"
     | "thumbnailUrl"
     | "thumbnailBlob"
   >
 >;
+
+export type AssetSyncJobOperation = "upload" | "delete";
+
+export interface AssetSyncJob {
+  jobId: string;
+  localAssetId: string;
+  op: AssetSyncJobOperation;
+  attempts: number;
+  nextRetryAt: string;
+  lastError?: string;
+  remoteAssetId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 /** An asset that is guaranteed to have its image blob loaded. */
 export type RenderableAsset = Asset & { blob: Blob };

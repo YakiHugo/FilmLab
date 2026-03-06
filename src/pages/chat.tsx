@@ -191,7 +191,12 @@ export function ChatPage() {
             status={imageGeneration.status}
             error={imageGeneration.error}
             results={imageGeneration.results}
+            isSavingSelection={imageGeneration.isSavingSelection}
             onSelectPreset={selectStylePreset}
+            onToggleResultSelection={imageGeneration.toggleResultSelection}
+            onSaveSelectedResults={() => {
+              void imageGeneration.saveSelectedResults();
+            }}
             onAddToCanvas={(assetId) => {
               void imageGeneration.addToCanvas(assetId);
             }}
@@ -208,7 +213,9 @@ export function ChatPage() {
 
         <ChatInput
           isLoading={isLoading}
-          isGeneratingImage={imageGeneration.status === "loading"}
+          isGeneratingImage={
+            imageGeneration.status === "loading" || imageGeneration.isSavingSelection
+          }
           imageMode={imageMode}
           promptValue={imageMode ? imagePrompt : undefined}
           onPromptChange={imageMode ? setImagePrompt : undefined}
@@ -303,6 +310,7 @@ export function ChatPage() {
                 styles={imageGeneration.styles}
                 aspectRatioOptions={imageGeneration.aspectRatioOptions}
                 results={imageGeneration.results}
+                isSavingSelection={imageGeneration.isSavingSelection}
                 onPromptChange={setImagePrompt}
                 onProviderChange={imageGeneration.setProvider}
                 onModelChange={imageGeneration.setModel}
@@ -315,6 +323,10 @@ export function ChatPage() {
                 onClearReferenceImages={imageGeneration.clearReferenceImages}
                 onGenerate={() => {
                   void imageGeneration.generateFromChatInput({ text: imagePrompt });
+                }}
+                onToggleResultSelection={imageGeneration.toggleResultSelection}
+                onSaveSelectedResults={() => {
+                  void imageGeneration.saveSelectedResults();
                 }}
                 onAddToCanvas={(assetId) => {
                   void imageGeneration.addToCanvas(assetId);

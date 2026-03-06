@@ -1,6 +1,6 @@
-import { useVirtualizer } from "@tanstack/react-virtual";
+﻿import { useVirtualizer } from "@tanstack/react-virtual";
 import { Circle, Heart, Star } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { Asset } from "@/types";
 import { cn } from "@/lib/utils";
 import type { LibraryView } from "./types";
@@ -28,6 +28,7 @@ const LIST_GAP = 0;
 const MASONRY_GAP = 0;
 const LIST_ITEM_HEIGHT = 86;
 const COMPACT_CARD_WIDTH = 230;
+const COMPACT_ROW_HEIGHT = 300;
 
 const SELECTED_BORDER = "border-yellow-500";
 
@@ -39,7 +40,7 @@ const resolveMasonryColumns = (width: number) => {
 
 const toKb = (size: number) => `${Math.max(1, Math.round(size / 1024))} KB`;
 
-function MasonryAssetCard({
+const MasonryAssetCard = memo(function MasonryAssetCard({
   asset,
   isSelected,
   onOpenInEditor,
@@ -50,30 +51,8 @@ function MasonryAssetCard({
   onOpenInEditor?: AssetGridProps["onOpenInEditor"];
   onSelectAsset: AssetGridProps["onSelectAsset"];
 }) {
-  const [isVisible, setIsVisible] = useState(false);
-  const cardRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const node = cardRef.current;
-    if (!node) {
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setIsVisible(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "260px 0px" }
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-
   return (
     <article
-      ref={cardRef}
       className={cn(
         "break-inside-avoid bg-[#0a0b0d] p-2.5 transition",
         isSelected ? SELECTED_BORDER : "hover:bg-[#0e0f12]"
@@ -96,29 +75,20 @@ function MasonryAssetCard({
         <p className="truncate pb-1.5 text-[11px] font-medium tracking-wide text-zinc-300">
           {asset.name}
         </p>
-        <div
-          className={cn(
-          "overflow-hidden bg-[#08090b] transition",
-          "hover:bg-[#0c0d0f]"
-          )}
-        >
-          {isVisible ? (
-            <img
-              src={asset.thumbnailUrl || asset.objectUrl}
-              alt={asset.name}
-              className="w-full object-cover"
-              loading="lazy"
-            />
-          ) : (
-            <div className="aspect-[3/4] w-full animate-pulse bg-zinc-800/40" />
-          )}
+        <div className={cn("overflow-hidden bg-[#08090b] transition", "hover:bg-[#0c0d0f]")}>
+          <img
+            src={asset.thumbnailUrl || asset.objectUrl}
+            alt={asset.name}
+            className="w-full object-cover"
+            loading="lazy"
+          />
         </div>
       </button>
     </article>
   );
-}
+});
 
-function AssetCard({
+const AssetCard = memo(function AssetCard({
   asset,
   isSelected,
   view,
@@ -194,12 +164,7 @@ function AssetCard({
         <p className="truncate pb-1.5 text-[11px] font-medium tracking-wide text-zinc-300">
           {asset.name}
         </p>
-        <div
-          className={cn(
-            "overflow-hidden bg-[#08090b] transition",
-            "group-hover:bg-[#0c0d0f]"
-          )}
-        >
+        <div className={cn("overflow-hidden bg-[#08090b] transition", "group-hover:bg-[#0c0d0f]")}>
           <img
             src={src}
             alt={asset.name}
@@ -218,7 +183,7 @@ function AssetCard({
       </button>
     </article>
   );
-}
+});
 
 export function AssetGrid({
   assets,
@@ -236,9 +201,6 @@ export function AssetGrid({
   const isList = view === "list";
 
   useEffect(() => {
-    if (!isMasonry) {
-      return;
-    }
     const node = scrollRef.current;
     if (!node) {
       return;
@@ -251,8 +213,11 @@ export function AssetGrid({
     });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [isMasonry]);
+  }, []);
+
   const masonryColumns = resolveMasonryColumns(containerWidth);
+  const compactColumns = Math.max(1, Math.floor(containerWidth / COMPACT_CARD_WIDTH));
+  const compactRowCount = Math.ceil(assets.length / compactColumns);
 
   const rowVirtualizer = useVirtualizer({
     count: assets.length,
@@ -262,6 +227,15 @@ export function AssetGrid({
     enabled: isList,
   });
   const virtualRows = rowVirtualizer.getVirtualItems();
+
+  const compactVirtualizer = useVirtualizer({
+    count: compactRowCount,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => COMPACT_ROW_HEIGHT + COMPACT_ROW_GAP,
+    overscan: 6,
+    enabled: isCompact,
+  });
+  const compactVirtualRows = compactVirtualizer.getVirtualItems();
 
   return (
     <div
@@ -318,24 +292,34 @@ export function AssetGrid({
       )}
 
       {assets.length > 0 && isCompact && (
-        <div
-          className="grid w-full"
-          style={{
-            gridTemplateColumns: `repeat(auto-fill, minmax(${COMPACT_CARD_WIDTH}px, 1fr))`,
-            columnGap: `${COMPACT_COLUMN_GAP}px`,
-            rowGap: `${COMPACT_ROW_GAP}px`,
-          }}
-        >
-          {assets.map((asset) => (
-            <AssetCard
-              key={asset.id}
-              asset={asset}
-              isSelected={selectedSet.has(asset.id)}
-              view="grid-compact"
-              onOpenInEditor={onOpenInEditor}
-              onSelectAsset={onSelectAsset}
-            />
-          ))}
+        <div className="relative w-full" style={{ height: `${compactVirtualizer.getTotalSize()}px` }}>
+          {compactVirtualRows.map((virtualRow) => {
+            const from = virtualRow.index * compactColumns;
+            const rowAssets = assets.slice(from, from + compactColumns);
+            return (
+              <div
+                key={virtualRow.key}
+                className="absolute left-0 top-0 grid w-full"
+                style={{
+                  transform: `translateY(${virtualRow.start}px)`,
+                  gridTemplateColumns: `repeat(${compactColumns}, minmax(0, 1fr))`,
+                  columnGap: `${COMPACT_COLUMN_GAP}px`,
+                  rowGap: `${COMPACT_ROW_GAP}px`,
+                }}
+              >
+                {rowAssets.map((asset) => (
+                  <AssetCard
+                    key={asset.id}
+                    asset={asset}
+                    isSelected={selectedSet.has(asset.id)}
+                    view="grid-compact"
+                    onOpenInEditor={onOpenInEditor}
+                    onSelectAsset={onSelectAsset}
+                  />
+                ))}
+              </div>
+            );
+          })}
         </div>
       )}
 
