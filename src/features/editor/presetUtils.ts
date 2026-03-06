@@ -14,7 +14,7 @@ import {
   type PresetAdjustments,
 } from "@/types";
 
-export const CUSTOM_PRESETS_KEY = "filmlab.customPresets";
+const CUSTOM_PRESETS_KEY = "filmlab.customPresets";
 
 const isPresetLike = (value: unknown): value is Record<string, unknown> => {
   if (!value || typeof value !== "object") {

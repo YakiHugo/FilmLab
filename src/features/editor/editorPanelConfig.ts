@@ -14,7 +14,6 @@ export type SectionId =
   | "crop"
   | "mask"
   | "remove"
-  | "ai"
   | "local"
   | "export";
 
@@ -26,17 +25,7 @@ export type EditorToolPanelId =
   | "crop"
   | "mask"
   | "remove"
-  | "export"
-  | "ai";
-
-export type EditorPanelSectionId = SectionId | "preset";
-
-export interface EditorToolPanelDefinition {
-  id: EditorToolPanelId;
-  label: string;
-  description: string;
-  disabled?: boolean;
-}
+  | "export";
 
 export interface SliderDefinition {
   key: NumericAdjustmentKey;
@@ -47,7 +36,7 @@ export interface SliderDefinition {
   format?: (value: number) => string;
 }
 
-export interface WhiteBalancePreset {
+interface WhiteBalancePreset {
   id: string;
   label: string;
   temperature: number;
@@ -70,63 +59,11 @@ export const DEFAULT_OPEN_SECTIONS: Record<SectionId, boolean> = {
   crop: true,
   mask: true,
   remove: true,
-  ai: true,
   local: false,
   export: true,
 };
 
 export const DEFAULT_EDITOR_TOOL_PANEL_ID: EditorToolPanelId = "edit";
-
-export const EDITOR_TOOL_PANELS: EditorToolPanelDefinition[] = [
-  {
-    id: "preset",
-    label: "Preset",
-    description: "Browse creative presets and quick looks.",
-  },
-  {
-    id: "edit",
-    label: "Edit",
-    description: "Light, color, effects, detail, and advanced controls.",
-  },
-  {
-    id: "crop",
-    label: "Crop",
-    description: "Aspect ratio, rotation, and perspective correction.",
-  },
-  {
-    id: "mask",
-    label: "Mask",
-    description: "Local adjustments with radial, linear, and brush masks.",
-  },
-  {
-    id: "remove",
-    label: "Remove",
-    description: "Healing and object removal tools (coming soon).",
-    disabled: true,
-  },
-  {
-    id: "export",
-    label: "Export",
-    description: "Render and download with format and output options.",
-  },
-  {
-    id: "ai",
-    label: "AI",
-    description: "AI-assisted edit suggestions.",
-  },
-];
-
-export const EDITOR_PANEL_SECTION_MAP: Record<EditorToolPanelId, EditorPanelSectionId[]> = {
-  preset: ["preset"],
-  edit: ["basic", "effects", "detail", "optics", "timestamp", "advanced"],
-  crop: ["crop"],
-  mask: ["mask"],
-  remove: ["remove"],
-  export: ["export"],
-  ai: ["ai"],
-};
-
-
 
 export const BASIC_LIGHT_SLIDERS: SliderDefinition[] = [
   { key: "exposure", label: "Exposure", min: -100, max: 100, format: formatSigned },
@@ -190,11 +127,4 @@ export const CROP_SLIDERS: SliderDefinition[] = [
     step: 0.01,
     format: (value) => value.toFixed(2),
   },
-];
-
-export const AI_FEATURES = [
-  "Auto exposure and white balance",
-  "Subject-aware adjustment",
-  "Sky enhancement",
-  "Skin tone protection",
 ];

@@ -165,4 +165,3 @@ export const EditorSliderRow = memo(function EditorSliderRow({
     </div>
   );
 });
-
