@@ -9,6 +9,7 @@ import type {
   ImageStyleId,
   ReferenceImage,
 } from "@/types/imageGeneration";
+import { ProviderApiKeyPanel } from "./ProviderApiKeyPanel";
 import { ImageResultCard } from "./ImageResultCard";
 import { ReferenceImagePicker } from "./ReferenceImagePicker";
 
@@ -33,6 +34,7 @@ interface ImageGenerationPanelProps {
   }>;
   styles: Array<{ id: ImageStyleId; label: string; promptHint: string }>;
   aspectRatioOptions: string[];
+  maxBatchSize: number;
   results: Array<{
     imageUrl: string;
     provider: string;
@@ -58,7 +60,12 @@ interface ImageGenerationPanelProps {
 }
 
 const toNumberOrNull = (value: string) => {
-  const next = Number(value);
+  const trimmedValue = value.trim();
+  if (!trimmedValue) {
+    return null;
+  }
+
+  const next = Number(trimmedValue);
   return Number.isFinite(next) ? next : null;
 };
 
@@ -72,6 +79,7 @@ export function ImageGenerationPanel({
   providers,
   styles,
   aspectRatioOptions,
+  maxBatchSize,
   results,
   isSavingSelection,
   onPromptChange,
@@ -156,6 +164,14 @@ export function ImageGenerationPanel({
             </Select>
           </div>
         </div>
+
+        <ProviderApiKeyPanel
+          providers={providers.map((provider) => ({
+            id: provider.id,
+            name: provider.name,
+          }))}
+          currentProvider={config.provider}
+        />
 
         <div className="space-y-1.5 rounded-xl border border-white/10 bg-black/30 p-2.5">
           <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">
@@ -273,15 +289,15 @@ export function ImageGenerationPanel({
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <Label className="text-[11px] text-zinc-400">Batch</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={4}
-                  value={config.batchSize}
+                  <Input
+                    type="number"
+                    min={1}
+                    max={maxBatchSize}
+                    value={config.batchSize}
                   onChange={(event) =>
                     onConfigChange({
                       batchSize: Math.min(
-                        4,
+                        maxBatchSize,
                         Math.max(1, Number(event.target.value) || 1)
                       ),
                     })

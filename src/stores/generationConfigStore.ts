@@ -129,7 +129,10 @@ const sanitizeConfig = (config: GenerationConfig): GenerationConfig => {
       typeof config.height === "number" && Number.isFinite(config.height)
         ? Math.max(256, Math.round(config.height))
         : null,
-    batchSize: Math.min(4, Math.max(1, Math.round(config.batchSize || 1))),
+    batchSize: Math.min(
+      modelConfig?.maxBatchSize ?? 4,
+      Math.max(1, Math.round(config.batchSize || 1))
+    ),
     modelParams: sanitizeModelParams(
       config.provider,
       model,

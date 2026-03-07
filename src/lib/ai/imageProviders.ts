@@ -19,6 +19,7 @@ export interface ImageModelConfig {
   supportedAspectRatios: ImageAspectRatio[];
   defaultSteps?: number;
   costPerImage?: number;
+  maxBatchSize?: number;
 }
 
 export interface ImageProviderConfig {
@@ -54,6 +55,7 @@ export const IMAGE_PROVIDERS: ImageProviderConfig[] = [
         name: "DALL-E 3",
         description: "Prompt-faithful high quality generation",
         supportedAspectRatios: ["1:1", "16:9", "9:16", "3:2", "2:3"],
+        maxBatchSize: 1,
       },
     ],
     supportedFeatures: {
@@ -90,7 +92,7 @@ export const IMAGE_PROVIDERS: ImageProviderConfig[] = [
     ],
     supportedFeatures: {
       negativePrompt: true,
-      referenceImages: true,
+      referenceImages: false,
       seed: true,
       guidanceScale: true,
       steps: true,
@@ -126,6 +128,26 @@ export const IMAGE_PROVIDERS: ImageProviderConfig[] = [
       seed: true,
       guidanceScale: true,
       steps: true,
+      styles: true,
+    },
+  },
+  {
+    id: "ideogram",
+    name: "Ideogram",
+    models: [
+      {
+        id: "ideogram-3",
+        name: "Ideogram 3",
+        description: "Prompt-faithful image generation with native style controls",
+        supportedAspectRatios: COMMON_ASPECT_RATIOS,
+      },
+    ],
+    supportedFeatures: {
+      negativePrompt: true,
+      referenceImages: true,
+      seed: true,
+      guidanceScale: false,
+      steps: false,
       styles: true,
     },
   },

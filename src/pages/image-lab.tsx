@@ -20,6 +20,7 @@ const IMAGE_GRID_COLS = {
 
 export function ImageLabPage() {
   const imageGeneration = useImageGeneration();
+  const updateGenerationConfig = imageGeneration.updateConfig;
   const [configPanelCollapsed, setConfigPanelCollapsed] = useState(false);
   const [imagePrompt, setImagePrompt] = useState("");
   const [generationSpeed, setGenerationSpeed] = useState<"fast" | "balanced" | "quality">(
@@ -27,8 +28,8 @@ export function ImageLabPage() {
   );
 
   useEffect(() => {
-    imageGeneration.updateConfig({ steps: IMAGE_SPEED_TO_STEPS[generationSpeed] });
-  }, [generationSpeed, imageGeneration.updateConfig]);
+    updateGenerationConfig({ steps: IMAGE_SPEED_TO_STEPS[generationSpeed] });
+  }, [generationSpeed, updateGenerationConfig]);
 
   const selectedPreset = useMemo(
     () =>
@@ -117,7 +118,9 @@ export function ImageLabPage() {
           }))}
           imageProvider={imageGeneration.config.provider}
           imageModel={imageGeneration.config.model}
+          providerFeatures={imageGeneration.supportedFeatures}
           aspectRatioOptions={imageGeneration.aspectRatioOptions}
+          maxBatchSize={imageGeneration.modelConfig.maxBatchSize ?? 4}
           commonParams={{
             aspectRatio: imageGeneration.config.aspectRatio,
             width: imageGeneration.config.width,
@@ -178,6 +181,7 @@ export function ImageLabPage() {
               }))}
               styles={imageGeneration.styles}
               aspectRatioOptions={imageGeneration.aspectRatioOptions}
+              maxBatchSize={imageGeneration.modelConfig.maxBatchSize ?? 4}
               results={imageGeneration.results}
               isSavingSelection={imageGeneration.isSavingSelection}
               onPromptChange={setImagePrompt}

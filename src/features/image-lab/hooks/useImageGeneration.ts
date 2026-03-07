@@ -1,5 +1,6 @@
 ﻿import { useCallback, useMemo, useState } from "react";
 import { generateImage as requestImageGeneration } from "@/lib/ai/imageGeneration";
+import { useEffect, useRef } from "react";
 import { importAssetFiles } from "@/lib/assetImport";
 import type { GenerationConfig } from "@/stores/generationConfigStore";
 import type {
@@ -143,8 +144,11 @@ const toUploadFiles = async (images: Array<{ image: GeneratedImage; index: numbe
     })
   );
 
-export async function generateImages(request: ImageGenerationRequest): Promise<GeneratedImage[]> {
-  const generated = await requestImageGeneration(request);
+export async function generateImages(
+  request: ImageGenerationRequest,
+  options?: { signal?: AbortSignal }
+): Promise<GeneratedImage[]> {
+  const generated = await requestImageGeneration(request, options);
   return generated.images;
 }
 
@@ -200,9 +204,10 @@ export async function saveGeneratedImages(
 }
 
 export async function generateAndImportImage(
-  request: ImageGenerationRequest
+  request: ImageGenerationRequest,
+  options?: { signal?: AbortSignal }
 ): Promise<ImportedGenerationResult> {
-  const generatedImages = await generateImages(request);
+  const generatedImages = await generateImages(request, options);
   const selectedIndexes = generatedImages.map((_, index) => index);
   return saveGeneratedImages(generatedImages, selectedIndexes);
 }
@@ -231,11 +236,23 @@ export function useImageGeneration() {
     resultBatchId: null,
     results: [],
   });
+  const generationAbortControllerRef = useRef<AbortController | null>(null);
 
   const supportedFeatures = providerConfig.supportedFeatures;
 
+  useEffect(() => {
+    return () => {
+      generationAbortControllerRef.current?.abort();
+      generationAbortControllerRef.current = null;
+    };
+  }, []);
+
   const runGeneration = useCallback(
     async (prompt: string, configForRequest: GenerationConfig) => {
+      generationAbortControllerRef.current?.abort();
+      const controller = new AbortController();
+      generationAbortControllerRef.current = controller;
+
       setState((previous) => ({
         ...previous,
         status: "loading",
@@ -245,7 +262,16 @@ export function useImageGeneration() {
       }));
 
       try {
-        const images = await generateImages(toImageRequest(prompt, configForRequest, supportedFeatures));
+        const images = await generateImages(
+          toImageRequest(prompt, configForRequest, supportedFeatures),
+          {
+            signal: controller.signal,
+          }
+        );
+        if (generationAbortControllerRef.current !== controller) {
+          return null;
+        }
+
         setState((previous) => ({
           ...previous,
           status: "done",
@@ -261,6 +287,10 @@ export function useImageGeneration() {
         }));
         return images;
       } catch (error) {
+        if (controller.signal.aborted) {
+          return null;
+        }
+
         setState((previous) => ({
           ...previous,
           status: "error",
@@ -268,6 +298,10 @@ export function useImageGeneration() {
           error: error instanceof Error ? error.message : "Image generation failed.",
         }));
         return null;
+      } finally {
+        if (generationAbortControllerRef.current === controller) {
+          generationAbortControllerRef.current = null;
+        }
       }
     },
     [supportedFeatures]

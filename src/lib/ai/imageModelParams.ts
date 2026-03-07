@@ -27,24 +27,38 @@ interface ImageModelParamConfig {
 
 const OPENAI_GPT_IMAGE_FIELDS: ImageModelParamDefinition[] = [
   {
-    key: "renderMood",
-    label: "Render Mood",
+    key: "quality",
+    label: "Quality",
     type: "select",
     options: [
-      { label: "Neutral", value: "neutral" },
-      { label: "Vivid", value: "vivid" },
-      { label: "Muted", value: "muted" },
+      { label: "Auto", value: "auto" },
+      { label: "Low", value: "low" },
+      { label: "Medium", value: "medium" },
+      { label: "High", value: "high" },
     ],
-    defaultValue: "neutral",
+    defaultValue: "auto",
   },
   {
-    key: "detailLevel",
-    label: "Detail Level",
-    type: "number",
-    min: 1,
-    max: 10,
-    step: 1,
-    defaultValue: 6,
+    key: "background",
+    label: "Background",
+    type: "select",
+    options: [
+      { label: "Auto", value: "auto" },
+      { label: "Opaque", value: "opaque" },
+      { label: "Transparent", value: "transparent" },
+    ],
+    defaultValue: "auto",
+  },
+  {
+    key: "outputFormat",
+    label: "Output",
+    type: "select",
+    options: [
+      { label: "PNG", value: "png" },
+      { label: "JPEG", value: "jpeg" },
+      { label: "WebP", value: "webp" },
+    ],
+    defaultValue: "png",
   },
 ];
 
@@ -126,6 +140,32 @@ const FLUX_COMMON_FIELDS: ImageModelParamDefinition[] = [
   },
 ];
 
+const IDEOGRAM_FIELDS: ImageModelParamDefinition[] = [
+  {
+    key: "renderingSpeed",
+    label: "Render Speed",
+    type: "select",
+    options: [
+      { label: "Flash", value: "FLASH" },
+      { label: "Turbo", value: "TURBO" },
+      { label: "Default", value: "DEFAULT" },
+      { label: "Quality", value: "QUALITY" },
+    ],
+    defaultValue: "TURBO",
+  },
+  {
+    key: "magicPrompt",
+    label: "Magic Prompt",
+    type: "select",
+    options: [
+      { label: "Auto", value: "AUTO" },
+      { label: "On", value: "ON" },
+      { label: "Off", value: "OFF" },
+    ],
+    defaultValue: "AUTO",
+  },
+];
+
 const MODEL_PARAM_CONFIGS: ImageModelParamConfig[] = [
   {
     provider: "openai",
@@ -166,6 +206,11 @@ const MODEL_PARAM_CONFIGS: ImageModelParamConfig[] = [
     provider: "flux",
     model: "flux-schnell",
     fields: FLUX_COMMON_FIELDS,
+  },
+  {
+    provider: "ideogram",
+    model: "ideogram-3",
+    fields: IDEOGRAM_FIELDS,
   },
 ];
 

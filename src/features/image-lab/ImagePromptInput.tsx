@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { ImageAspectRatio, ImageProviderId } from "@/types/imageGeneration";
+import { ProviderApiKeyPanel } from "./ProviderApiKeyPanel";
 
 interface ImagePromptInputProps {
   isGeneratingImage?: boolean;
@@ -36,7 +37,16 @@ interface ImagePromptInputProps {
   }>;
   imageProvider: ImageProviderId;
   imageModel: string;
+  providerFeatures: {
+    negativePrompt: boolean;
+    referenceImages: boolean;
+    seed: boolean;
+    guidanceScale: boolean;
+    steps: boolean;
+    styles: boolean;
+  };
   aspectRatioOptions: ImageAspectRatio[];
+  maxBatchSize: number;
   commonParams: {
     aspectRatio: ImageAspectRatio;
     width: number | null;
@@ -76,7 +86,12 @@ const IMAGE_MAX_TEXTAREA_HEIGHT = 220;
 const RESOLUTION_PRESETS = [1024, 1536, 2048] as const;
 
 const toNumberOrNull = (value: string): number | null => {
-  const next = Number(value);
+  const trimmedValue = value.trim();
+  if (!trimmedValue) {
+    return null;
+  }
+
+  const next = Number(trimmedValue);
   return Number.isFinite(next) ? next : null;
 };
 
@@ -144,7 +159,9 @@ export function ImagePromptInput({
   imageProviders,
   imageProvider,
   imageModel,
+  providerFeatures,
   aspectRatioOptions,
+  maxBatchSize,
   commonParams,
   modelParams,
   modelParamDefinitions,
@@ -191,6 +208,12 @@ export function ImagePromptInput({
     }
   };
 
+  useEffect(() => {
+    if (!providerFeatures.referenceImages) {
+      resetAttachments();
+    }
+  }, [providerFeatures.referenceImages]);
+
   const submit = () => {
     const text = promptValue.trim();
     const files = fileInputRef.current?.files;
@@ -201,7 +224,6 @@ export function ImagePromptInput({
     }
 
     onGenerateImage({ text, files: files ?? null });
-    onPromptChange("");
     resetAttachments();
   };
 
@@ -278,8 +300,9 @@ export function ImagePromptInput({
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              className="rounded-full p-2 text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100"
+              className="rounded-full p-2 text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
               onClick={() => fileInputRef.current?.click()}
+              disabled={!providerFeatures.referenceImages}
               aria-label="Add files"
             >
               <Plus className="h-5 w-5" />
@@ -419,11 +442,14 @@ export function ImagePromptInput({
                   <Input
                     type="number"
                     min={1}
-                    max={4}
+                    max={maxBatchSize}
                     value={commonParams.batchSize}
                     onChange={(event) =>
-                      onCommonParamsChange({
-                        batchSize: Math.min(4, Math.max(1, Number(event.target.value) || 1)),
+                        onCommonParamsChange({
+                        batchSize: Math.min(
+                          maxBatchSize,
+                          Math.max(1, Number(event.target.value) || 1)
+                        ),
                       })
                     }
                     className="h-8 border-white/10 bg-black/35 text-xs"
@@ -508,61 +534,63 @@ export function ImagePromptInput({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  <div className="space-y-1">
-                    <Label className="text-[11px] text-zinc-400">Seed</Label>
-                    <Input
-                      type="number"
-                      value={modelParams.seed ?? ""}
-                      onChange={(event) =>
-                        onModelParamsChange({ seed: toNumberOrNull(event.target.value) })
-                      }
-                      placeholder="Auto"
-                      className="h-8 border-white/10 bg-black/35 text-xs"
-                    />
-                  </div>
+                {(providerFeatures.seed ||
+                  providerFeatures.guidanceScale ||
+                  providerFeatures.steps) && (
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {providerFeatures.seed && (
+                      <div className="space-y-1">
+                        <Label className="text-[11px] text-zinc-400">Seed</Label>
+                        <Input
+                          type="number"
+                          value={modelParams.seed ?? ""}
+                          onChange={(event) =>
+                            onModelParamsChange({ seed: toNumberOrNull(event.target.value) })
+                          }
+                          placeholder="Auto"
+                          className="h-8 border-white/10 bg-black/35 text-xs"
+                        />
+                      </div>
+                    )}
 
-                  <div className="space-y-1">
-                    <Label className="text-[11px] text-zinc-400">Guidance</Label>
-                    <Input
-                      type="number"
-                      step={0.1}
-                      min={1}
-                      max={20}
-                      value={modelParams.guidanceScale ?? ""}
-                      onChange={(event) =>
-                        onModelParamsChange({ guidanceScale: toNumberOrNull(event.target.value) })
-                      }
-                      placeholder="Auto"
-                      className="h-8 border-white/10 bg-black/35 text-xs"
-                    />
-                  </div>
+                    {providerFeatures.guidanceScale && (
+                      <div className="space-y-1">
+                        <Label className="text-[11px] text-zinc-400">Guidance</Label>
+                        <Input
+                          type="number"
+                          step={0.1}
+                          min={1}
+                          max={20}
+                          value={modelParams.guidanceScale ?? ""}
+                          onChange={(event) =>
+                            onModelParamsChange({
+                              guidanceScale: toNumberOrNull(event.target.value),
+                            })
+                          }
+                          placeholder="Auto"
+                          className="h-8 border-white/10 bg-black/35 text-xs"
+                        />
+                      </div>
+                    )}
 
-                  <div className="space-y-1">
-                    <Label className="text-[11px] text-zinc-400">Steps</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={80}
-                      value={modelParams.steps ?? ""}
-                      onChange={(event) =>
-                        onModelParamsChange({ steps: toNumberOrNull(event.target.value) })
-                      }
-                      placeholder="Auto"
-                      className="h-8 border-white/10 bg-black/35 text-xs"
-                    />
+                    {providerFeatures.steps && (
+                      <div className="space-y-1">
+                        <Label className="text-[11px] text-zinc-400">Steps</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={80}
+                          value={modelParams.steps ?? ""}
+                          onChange={(event) =>
+                            onModelParamsChange({ steps: toNumberOrNull(event.target.value) })
+                          }
+                          placeholder="Auto"
+                          className="h-8 border-white/10 bg-black/35 text-xs"
+                        />
+                      </div>
+                    )}
                   </div>
-
-                  <div className="space-y-1">
-                    <Label className="text-[11px] text-zinc-400">Sampler</Label>
-                    <Input
-                      value={modelParams.sampler}
-                      onChange={(event) => onModelParamsChange({ sampler: event.target.value })}
-                      placeholder="euler"
-                      className="h-8 border-white/10 bg-black/35 text-xs"
-                    />
-                  </div>
-                </div>
+                )}
 
                 {modelParamDefinitions.length > 0 && (
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -637,17 +665,29 @@ export function ImagePromptInput({
                   </div>
                 )}
 
-                <div className="space-y-1">
-                  <Label className="text-[11px] text-zinc-400">Negative Prompt</Label>
-                  <textarea
-                    value={modelParams.negativePrompt}
-                    onChange={(event) => onModelParamsChange({ negativePrompt: event.target.value })}
-                    placeholder="Describe what to avoid"
-                    className="min-h-[58px] w-full resize-y rounded-xl border border-white/10 bg-black/35 px-2.5 py-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-500"
-                  />
-                </div>
+                {providerFeatures.negativePrompt && (
+                  <div className="space-y-1">
+                    <Label className="text-[11px] text-zinc-400">Negative Prompt</Label>
+                    <textarea
+                      value={modelParams.negativePrompt}
+                      onChange={(event) =>
+                        onModelParamsChange({ negativePrompt: event.target.value })
+                      }
+                      placeholder="Describe what to avoid"
+                      className="min-h-[58px] w-full resize-y rounded-xl border border-white/10 bg-black/35 px-2.5 py-2 text-xs text-zinc-100 outline-none placeholder:text-zinc-500"
+                    />
+                  </div>
+                )}
               </div>
             )}
+
+            <ProviderApiKeyPanel
+              providers={imageProviders.map((provider) => ({
+                id: provider.id,
+                name: provider.name,
+              }))}
+              currentProvider={imageProvider}
+            />
           </div>
         )}
       </form>

@@ -1,8 +1,93 @@
 import { imageGenerationRequestSchema, type ImageGenerationRequest } from "./imageGenerationSchema";
+import { resolveApiUrl } from "@/lib/api/resolveApiUrl";
 import type { GeneratedImage, ImageGenerationResponse } from "@/types/imageGeneration";
+import { getProviderApiKey } from "@/stores/apiKeyStore";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
+
+const GENERATION_REQUEST_TIMEOUT_MS = 125_000;
+
+interface GenerateImageOptions {
+  signal?: AbortSignal;
+}
+
+const createAbortError = () => {
+  if (typeof DOMException === "function") {
+    return new DOMException("The operation was aborted.", "AbortError");
+  }
+  const error = new Error("The operation was aborted.");
+  error.name = "AbortError";
+  return error;
+};
+
+const mergeAbortSignals = (signals: Array<AbortSignal | undefined>) => {
+  const activeSignals = signals.filter(Boolean) as AbortSignal[];
+  if (activeSignals.length <= 1) {
+    return {
+      signal: activeSignals[0],
+      cleanup: () => undefined,
+    };
+  }
+
+  const controller = new AbortController();
+  const abort = () => {
+    controller.abort();
+  };
+
+  for (const signal of activeSignals) {
+    if (signal.aborted) {
+      controller.abort();
+      return {
+        signal: controller.signal,
+        cleanup: () => undefined,
+      };
+    }
+  }
+
+  for (const signal of activeSignals) {
+    signal.addEventListener("abort", abort, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      for (const signal of activeSignals) {
+        signal.removeEventListener("abort", abort);
+      }
+    },
+  };
+};
+
+const fetchWithTimeout = async (
+  input: RequestInfo | URL,
+  init: RequestInit,
+  options?: GenerateImageOptions
+) => {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => {
+    controller.abort();
+  }, GENERATION_REQUEST_TIMEOUT_MS);
+  const { signal, cleanup } = mergeAbortSignals([controller.signal, options?.signal]);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      if (options?.signal?.aborted && !controller.signal.aborted) {
+        throw createAbortError();
+      }
+      throw new Error("Image generation timed out.", { cause: error });
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+    cleanup();
+  }
+};
 
 const normalizeImages = (value: unknown, fallbackProvider: string, fallbackModel: string): GeneratedImage[] => {
   if (!Array.isArray(value)) {
@@ -15,7 +100,7 @@ const normalizeImages = (value: unknown, fallbackProvider: string, fallbackModel
       continue;
     }
     normalized.push({
-      imageUrl: item.imageUrl,
+      imageUrl: resolveApiUrl(item.imageUrl),
       provider: (
         typeof item.provider === "string" ? item.provider : fallbackProvider
       ) as GeneratedImage["provider"],
@@ -29,15 +114,20 @@ const normalizeImages = (value: unknown, fallbackProvider: string, fallbackModel
   return normalized;
 };
 
-export async function generateImage(request: ImageGenerationRequest): Promise<ImageGenerationResponse> {
+export async function generateImage(
+  request: ImageGenerationRequest,
+  options?: GenerateImageOptions
+): Promise<ImageGenerationResponse> {
   const payload = imageGenerationRequestSchema.parse(request);
-  const response = await fetch("/api/image-generate", {
+  const providerKey = getProviderApiKey(payload.provider);
+  const response = await fetchWithTimeout(resolveApiUrl("/api/image-generate"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      ...(providerKey ? { [`X-Provider-Key-${payload.provider}`]: providerKey } : {}),
     },
     body: JSON.stringify(payload),
-  });
+  }, options);
   if (!response.ok) {
     let message = "Image generation failed.";
     try {
@@ -60,7 +150,8 @@ export async function generateImage(request: ImageGenerationRequest): Promise<Im
   const model = typeof json.model === "string" ? json.model : payload.model;
   const createdAt = typeof json.createdAt === "string" ? json.createdAt : new Date().toISOString();
   const normalizedImages = normalizeImages(json.images, provider, model);
-  const fallbackImageUrl = typeof json.imageUrl === "string" ? json.imageUrl : undefined;
+  const fallbackImageUrl =
+    typeof json.imageUrl === "string" ? resolveApiUrl(json.imageUrl) : undefined;
 
   const images =
     normalizedImages.length > 0
