@@ -1,4 +1,5 @@
 import type { ImageStyleId } from "@/types/imageGeneration";
+import { getStylePromptHint } from "../../../shared/imageStyleHints";
 
 export interface ImageStyleConfig {
   id: ImageStyleId;
@@ -10,52 +11,52 @@ export const IMAGE_STYLES: ImageStyleConfig[] = [
   {
     id: "none",
     label: "None",
-    promptHint: "No style hint.",
+    promptHint: getStylePromptHint("none"),
   },
   {
     id: "photorealistic",
     label: "Photorealistic",
-    promptHint: "Natural lighting, realistic texture, true-to-life detail.",
+    promptHint: getStylePromptHint("photorealistic"),
   },
   {
     id: "cinematic",
     label: "Cinematic",
-    promptHint: "Film-like lighting, dramatic contrast, subtle grain.",
+    promptHint: getStylePromptHint("cinematic"),
   },
   {
     id: "anime",
     label: "Anime",
-    promptHint: "Stylized outlines, expressive color, cel-shaded look.",
+    promptHint: getStylePromptHint("anime"),
   },
   {
     id: "digital-art",
     label: "Digital Art",
-    promptHint: "Painterly digital brushwork with high color control.",
+    promptHint: getStylePromptHint("digital-art"),
   },
   {
     id: "oil-painting",
     label: "Oil Painting",
-    promptHint: "Thick brush texture and classical painterly strokes.",
+    promptHint: getStylePromptHint("oil-painting"),
   },
   {
     id: "watercolor",
     label: "Watercolor",
-    promptHint: "Soft pigment bleeding with paper texture feel.",
+    promptHint: getStylePromptHint("watercolor"),
   },
   {
     id: "sketch",
     label: "Sketch",
-    promptHint: "Graphite-like outlines, rough hand-drawn shading.",
+    promptHint: getStylePromptHint("sketch"),
   },
   {
     id: "3d-render",
     label: "3D Render",
-    promptHint: "Physically based lighting and rendered material detail.",
+    promptHint: getStylePromptHint("3d-render"),
   },
   {
     id: "pixel-art",
     label: "Pixel Art",
-    promptHint: "Low-resolution pixel grid and retro game palette.",
+    promptHint: getStylePromptHint("pixel-art"),
   },
 ];
 
