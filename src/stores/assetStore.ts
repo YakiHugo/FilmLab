@@ -1,7 +1,17 @@
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
+import pLimit from "p-limit";
 import { presets } from "@/data/presets";
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
+import {
+  completeAssetUpload,
+  fetchAssetChanges,
+  deleteRemoteAsset,
+  presignAssetUpload,
+  uploadToPresignedTarget,
+} from "@/lib/assetSyncApi";
+import { getCurrentUserId } from "@/lib/authToken";
+import { sha256FromBlob } from "@/lib/hash";
 import {
   cloneEditorLayers,
   createBaseLayer,
@@ -15,16 +25,20 @@ import {
 import {
   clearAssets,
   clearCanvasDocuments,
-  clearChatSessions,
   deleteAsset,
+  deleteAssetSyncJob,
+  deleteAssetSyncJobsByAssetId,
+  loadAssetSyncJobs,
   loadAssets,
   loadProject,
+  saveAssetSyncJob,
+  saveAssetSyncJobs,
   saveAsset,
   saveProject,
 } from "@/lib/db";
 import { emit } from "@/lib/storeEvents";
 import { loadCustomPresets } from "@/features/editor/presetUtils";
-import type { Asset, EditorLayer } from "@/types";
+import type { Asset, AssetRemoteSyncStatus, EditorLayer } from "@/types";
 import {
   DEFAULT_PROJECT_ID,
   DEFAULT_PROJECT_NAME,
@@ -41,6 +55,7 @@ import {
   persistAsset,
   toStoredAsset,
 } from "./project/persistence";
+import { MAX_SYNC_ATTEMPTS, createSyncJob, isSyncJobReady, withSyncJobFailure } from "./project/sync";
 import { selectAssets, selectImportProgress, selectIsImporting, selectIsLoading, selectProject, selectSelectedAssetIds } from "./project/selectors";
 import { mergeTags, normalizeTags, removeTags } from "./project/tagging";
 import type { AddAssetsResult, ProjectState } from "./project/types";
@@ -167,6 +182,69 @@ const createEmptyImportResult = (): AddAssetsResult => ({
   },
 });
 
+const syncNowIso = () => new Date().toISOString();
+let isSyncRunning = false;
+let lastRemoteChangeCursor: string | undefined;
+
+const withRemoteStatus = (
+  asset: Asset,
+  status: AssetRemoteSyncStatus,
+  patch?: Partial<NonNullable<Asset["remote"]>>
+): Asset => ({
+  ...asset,
+  remote: {
+    ...asset.remote,
+    ...(patch ?? {}),
+    status,
+    updatedAt: syncNowIso(),
+  },
+});
+
+const latestIso = (left?: string, right?: string): string | undefined => {
+  if (!left) return right;
+  if (!right) return left;
+  return Date.parse(left) >= Date.parse(right) ? left : right;
+};
+
+const toMetadataRecord = (asset: Asset): Record<string, unknown> | undefined => {
+  if (!asset.metadata) {
+    return undefined;
+  }
+  return {
+    width: asset.metadata.width,
+    height: asset.metadata.height,
+    cameraMake: asset.metadata.cameraMake,
+    cameraModel: asset.metadata.cameraModel,
+    lensModel: asset.metadata.lensModel,
+    focalLength: asset.metadata.focalLength,
+    aperture: asset.metadata.aperture,
+    shutterSpeed: asset.metadata.shutterSpeed,
+    iso: asset.metadata.iso,
+    capturedAt: asset.metadata.capturedAt,
+  };
+};
+
+const toQueuedUploadAsset = (asset: Asset) =>
+  withRemoteStatus(asset, "upload_queued", {
+    lastError: undefined,
+  });
+
+const enqueueUploadJobs = (assets: Asset[]) => {
+  if (assets.length === 0) {
+    return;
+  }
+  const queuedAt = syncNowIso();
+  void saveAssetSyncJobs(
+    assets.map((asset) =>
+      createSyncJob({
+        localAssetId: asset.id,
+        op: "upload",
+        nextRetryAt: queuedAt,
+      })
+    )
+  );
+};
+
 ensurePersistFlushOnUnload();
 
 export const useAssetStore = create<ProjectState>()(
@@ -240,8 +318,27 @@ export const useAssetStore = create<ProjectState>()(
             layers: normalizedLayers,
             aiRecommendation: stored.aiRecommendation,
             source: stored.source,
+            origin: stored.origin ?? "file",
+            contentHash: stored.contentHash,
+            remote:
+              stored.remote ??
+              ({
+                status: "local_only",
+                updatedAt: new Date().toISOString(),
+              } as const),
+            ownerRef: stored.ownerRef ?? { userId: getCurrentUserId() },
           };
         });
+
+        lastRemoteChangeCursor = assets.reduce<string | undefined>(
+          (cursor, asset) => {
+            if (!asset.remote?.remoteAssetId) {
+              return cursor;
+            }
+            return latestIso(cursor, asset.remote.lastSyncedAt ?? asset.remote.updatedAt);
+          },
+          lastRemoteChangeCursor
+        );
 
         set((state) => {
           const nextSelection = state.selectedAssetIds.filter((id) =>
@@ -281,13 +378,51 @@ export const useAssetStore = create<ProjectState>()(
         if (migrationPayloads.length > 0) {
           void Promise.allSettled(migrationPayloads.map((payload) => saveAsset(payload)));
         }
+
+        const existingSyncJobs = await loadAssetSyncJobs(5000);
+        const queuedUploadIds = new Set(
+          existingSyncJobs
+            .filter((job) => job.op === "upload")
+            .map((job) => job.localAssetId)
+        );
+        const legacyAssets = assets.filter(
+          (asset) =>
+            (asset.remote?.status === "local_only" || !asset.remote) &&
+            Boolean(asset.blob) &&
+            !queuedUploadIds.has(asset.id)
+        );
+        if (legacyAssets.length > 0) {
+          const queuedAt = syncNowIso();
+          const jobs = legacyAssets.map((asset) =>
+            createSyncJob({
+              localAssetId: asset.id,
+              op: "upload",
+              nextRetryAt: queuedAt,
+            })
+          );
+          await saveAssetSyncJobs(jobs);
+
+          const updatedIds = new Set(legacyAssets.map((asset) => asset.id));
+          set((state) => ({
+            assets: state.assets.map((asset) =>
+              updatedIds.has(asset.id)
+                ? withRemoteStatus(asset, "upload_queued", { lastError: undefined })
+                : asset
+            ),
+          }));
+          legacyAssets
+            .map((asset) => withRemoteStatus(asset, "upload_queued", { lastError: undefined }))
+            .forEach(persistAsset);
+        }
       },
 
-      importAssets: async (filesInput) => {
+      importAssets: async (filesInput, options) => {
         const files = Array.isArray(filesInput) ? filesInput : Array.from(filesInput);
         if (files.length === 0) {
           return createEmptyImportResult();
         }
+
+        const ownerRef = options?.ownerRef ?? { userId: getCurrentUserId() };
 
         set({
           isImporting: true,
@@ -313,6 +448,11 @@ export const useAssetStore = create<ProjectState>()(
           const result = await runImportPipeline({
             files,
             existingAssets,
+            importOptions: {
+              source: options?.source,
+              origin: options?.origin,
+              ownerRef,
+            },
             onProgress: (progress) => {
               set({ importProgress: progress });
             },
@@ -326,6 +466,20 @@ export const useAssetStore = create<ProjectState>()(
           });
 
           commitBufferedAssets();
+
+          if (importedAssets.length > 0) {
+            const queuedAt = syncNowIso();
+            await saveAssetSyncJobs(
+              importedAssets.map((asset) =>
+                createSyncJob({
+                  localAssetId: asset.id,
+                  op: "upload",
+                  nextRetryAt: queuedAt,
+                })
+              )
+            );
+            void get().runAssetSync();
+          }
 
           if (result.added > 0) {
             const now = new Date().toISOString();
@@ -350,6 +504,378 @@ export const useAssetStore = create<ProjectState>()(
         }
       },
 
+      importAssetFromUrl: async (url) => {
+        const input = url.trim();
+        if (!input) {
+          return createEmptyImportResult();
+        }
+
+        const response = await fetch(input);
+        if (!response.ok) {
+          throw new Error(`URL import failed: ${response.status} ${response.statusText}`);
+        }
+        const blob = await response.blob();
+        if (!blob || blob.size === 0) {
+          throw new Error("URL import failed: empty response.");
+        }
+
+        const type = blob.type || "image/jpeg";
+        const urlPath = new URL(input, window.location.origin).pathname;
+        const fileNameFromUrl = decodeURIComponent(urlPath.split("/").pop() || "").trim();
+        const extension = type.includes("png")
+          ? "png"
+          : type.includes("webp")
+            ? "webp"
+            : type.includes("avif")
+              ? "avif"
+              : type.includes("tiff")
+                ? "tiff"
+                : "jpg";
+        const fileName = fileNameFromUrl || `url-import-${Date.now()}.${extension}`;
+        const file = new File([blob], fileName, {
+          type,
+          lastModified: Date.now(),
+        });
+
+        return get().importAssets([file], {
+          source: "imported",
+          origin: "url",
+          ownerRef: { userId: getCurrentUserId() },
+        });
+      },
+
+      runAssetSync: async () => {
+        if (isSyncRunning) {
+          return;
+        }
+        isSyncRunning = true;
+
+        const reconcileRemoteChanges = async () => {
+          try {
+            const changes = await fetchAssetChanges(lastRemoteChangeCursor);
+            if (changes.length === 0) {
+              return;
+            }
+
+            lastRemoteChangeCursor = changes.reduce<string | undefined>(
+              (cursor, change) => latestIso(cursor, change.updatedAt),
+              lastRemoteChangeCursor
+            );
+
+            const changesByRemoteId = new Map(changes.map((change) => [change.remoteAssetId, change]));
+            const changesByHash = new Map(changes.map((change) => [change.contentHash, change]));
+            const currentState = get();
+            const updates = new Map<string, Asset>();
+            const removeIds = new Set<string>();
+
+            for (const asset of currentState.assets) {
+              const byRemoteId = asset.remote?.remoteAssetId
+                ? changesByRemoteId.get(asset.remote.remoteAssetId)
+                : undefined;
+              const change = byRemoteId ?? (asset.contentHash ? changesByHash.get(asset.contentHash) : undefined);
+              if (!change) {
+                continue;
+              }
+
+              if (change.deletedAt) {
+                removeIds.add(asset.id);
+                continue;
+              }
+
+              const synced = withRemoteStatus(
+                {
+                  ...asset,
+                  contentHash: asset.contentHash ?? change.contentHash,
+                },
+                "synced",
+                {
+                  remoteAssetId: change.remoteAssetId,
+                  lastError: undefined,
+                  lastSyncedAt: change.updatedAt,
+                }
+              );
+              updates.set(asset.id, synced);
+            }
+
+            if (updates.size === 0 && removeIds.size === 0) {
+              return;
+            }
+
+            const removedAssets = currentState.assets.filter((asset) => removeIds.has(asset.id));
+            if (removedAssets.length > 0) {
+              cancelPendingPersists(new Set(removedAssets.map((asset) => asset.id)));
+              revokeAssetUrls(removedAssets);
+            }
+
+            set((state) => ({
+              assets: state.assets
+                .filter((asset) => !removeIds.has(asset.id))
+                .map((asset) => updates.get(asset.id) ?? asset),
+              selectedAssetIds: state.selectedAssetIds.filter((id) => !removeIds.has(id)),
+            }));
+
+            updates.forEach((asset) => persistAsset(asset));
+            if (removedAssets.length > 0) {
+              const removedIds = new Set(removedAssets.map((asset) => asset.id));
+              await Promise.allSettled(
+                removedAssets.flatMap((asset) => [
+                  deleteAssetSyncJobsByAssetId(asset.id),
+                  deleteAsset(asset.id),
+                ])
+              );
+              emit("assets:deleted", removedIds);
+            }
+          } catch (error) {
+            console.warn("Failed to reconcile remote changes", error);
+          }
+        };
+
+        try {
+          const jobs = (await loadAssetSyncJobs(256)).filter((job) => isSyncJobReady(job));
+          const uploadJobs = jobs.filter((job) => job.op === "upload");
+          const deleteJobs = jobs.filter((job) => job.op === "delete");
+          const runUpload = pLimit(2);
+          const runDelete = pLimit(1);
+
+          if (jobs.length > 0) {
+            await Promise.all([
+              ...uploadJobs.map((job) =>
+                runUpload(async () => {
+                  const current = get().assets.find((asset) => asset.id === job.localAssetId);
+                  if (!current?.blob) {
+                    await deleteAssetSyncJob(job.jobId);
+                    return;
+                  }
+
+                  let working = withRemoteStatus(current, "uploading", { lastError: undefined });
+                  set((state) => ({
+                    assets: state.assets.map((asset) =>
+                      asset.id === current.id ? working : asset
+                    ),
+                  }));
+                  persistAsset(working);
+
+                  try {
+                    const source = working.source ?? "imported";
+                    const origin = working.origin ?? "file";
+                    const workingBlob = working.blob;
+                    if (!workingBlob) {
+                      throw new Error("Missing blob for upload sync.");
+                    }
+                    let contentHash = working.contentHash;
+                    if (!contentHash) {
+                      contentHash = await sha256FromBlob(workingBlob);
+                      working = {
+                        ...working,
+                        contentHash,
+                      };
+                      set((state) => ({
+                        assets: state.assets.map((asset) =>
+                          asset.id === current.id ? working : asset
+                        ),
+                      }));
+                      persistAsset(working);
+                    }
+                    if (!contentHash) {
+                      throw new Error("Missing content hash for sync upload.");
+                    }
+
+                    const prepared = await presignAssetUpload({
+                      localAssetId: current.id,
+                      name: working.name,
+                      type: working.type,
+                      size: working.size,
+                      createdAt: working.createdAt,
+                      source,
+                      origin,
+                      contentHash,
+                      tags: working.tags ?? [],
+                      metadata: toMetadataRecord(working),
+                    });
+
+                    if (!prepared.existing) {
+                      await uploadToPresignedTarget(prepared.upload, workingBlob);
+                      if (working.thumbnailBlob && prepared.thumbnailUpload) {
+                        await uploadToPresignedTarget(prepared.thumbnailUpload, working.thumbnailBlob);
+                      }
+                      await completeAssetUpload({
+                        remoteAssetId: prepared.remoteAssetId,
+                        localAssetId: current.id,
+                        objectKey: prepared.objectKey,
+                        thumbnailKey: prepared.thumbnailKey,
+                        name: working.name,
+                        type: working.type,
+                        size: working.size,
+                        createdAt: working.createdAt,
+                        source,
+                        origin,
+                        contentHash,
+                        tags: working.tags ?? [],
+                        metadata: toMetadataRecord(working),
+                      });
+                    }
+
+                    const synced = withRemoteStatus(working, "synced", {
+                      remoteAssetId: prepared.remoteAssetId,
+                      lastError: undefined,
+                      lastSyncedAt:
+                        ("updatedAt" in prepared ? prepared.updatedAt : undefined) ?? syncNowIso(),
+                    });
+                    set((state) => ({
+                      assets: state.assets.map((asset) =>
+                        asset.id === current.id ? synced : asset
+                      ),
+                    }));
+                    persistAsset(synced);
+                    await deleteAssetSyncJob(job.jobId);
+                    lastRemoteChangeCursor = latestIso(
+                      lastRemoteChangeCursor,
+                      synced.remote?.lastSyncedAt ?? synced.remote?.updatedAt
+                    );
+                  } catch (error) {
+                    const message = error instanceof Error ? error.message : "Upload sync failed.";
+                    const failedJob = withSyncJobFailure(job, message);
+                    if (failedJob.attempts >= MAX_SYNC_ATTEMPTS) {
+                      await deleteAssetSyncJob(job.jobId);
+                      const failed = withRemoteStatus(working, "upload_failed", {
+                        lastError: message,
+                      });
+                      set((state) => ({
+                        assets: state.assets.map((asset) =>
+                          asset.id === current.id ? failed : asset
+                        ),
+                      }));
+                      persistAsset(failed);
+                      return;
+                    }
+
+                    await saveAssetSyncJob(failedJob);
+                    const requeued = withRemoteStatus(working, "upload_queued", {
+                      lastError: message,
+                    });
+                    set((state) => ({
+                      assets: state.assets.map((asset) =>
+                        asset.id === current.id ? requeued : asset
+                      ),
+                    }));
+                    persistAsset(requeued);
+                  }
+                })
+              ),
+              ...deleteJobs.map((job) =>
+                runDelete(async () => {
+                  const current = get().assets.find((asset) => asset.id === job.localAssetId);
+                  const remoteAssetId = job.remoteAssetId ?? current?.remote?.remoteAssetId;
+                  if (!remoteAssetId) {
+                    await deleteAssetSyncJob(job.jobId);
+                    return;
+                  }
+
+                  let deletingAsset: Asset | null = null;
+                  if (current) {
+                    const deleting = withRemoteStatus(current, "deleting", {
+                      remoteAssetId,
+                      lastError: undefined,
+                    });
+                    deletingAsset = deleting;
+                    set((state) => ({
+                      assets: state.assets.map((asset) =>
+                        asset.id === current.id ? deleting : asset
+                      ),
+                    }));
+                    persistAsset(deleting);
+                  }
+
+                  try {
+                    await deleteRemoteAsset(remoteAssetId);
+                    await deleteAssetSyncJob(job.jobId);
+
+                    if (deletingAsset) {
+                      const deleted = withRemoteStatus(deletingAsset, "deleted", {
+                        remoteAssetId,
+                        lastError: undefined,
+                        lastSyncedAt: syncNowIso(),
+                      });
+                      set((state) => ({
+                        assets: state.assets.filter((asset) => asset.id !== deleted.id),
+                        selectedAssetIds: state.selectedAssetIds.filter((id) => id !== deleted.id),
+                      }));
+                      cancelPendingPersists(new Set([deleted.id]));
+                      revokeAssetUrls([deleted]);
+                      await Promise.allSettled([
+                        deleteAssetSyncJobsByAssetId(deleted.id),
+                        deleteAsset(deleted.id),
+                      ]);
+                      lastRemoteChangeCursor = latestIso(
+                        lastRemoteChangeCursor,
+                        deleted.remote?.lastSyncedAt ?? deleted.remote?.updatedAt
+                      );
+                    }
+                  } catch (error) {
+                    const message = error instanceof Error ? error.message : "Delete sync failed.";
+                    const failedJob = withSyncJobFailure(job, message);
+                    if (failedJob.attempts >= MAX_SYNC_ATTEMPTS) {
+                      await deleteAssetSyncJob(job.jobId);
+                      if (deletingAsset) {
+                        const failed = withRemoteStatus(deletingAsset, "delete_failed", {
+                          remoteAssetId,
+                          lastError: message,
+                        });
+                        set((state) => ({
+                          assets: state.assets.map((asset) =>
+                            asset.id === failed.id ? failed : asset
+                          ),
+                        }));
+                        persistAsset(failed);
+                      }
+                      return;
+                    }
+
+                    await saveAssetSyncJob(failedJob);
+                    if (deletingAsset) {
+                      const requeued = withRemoteStatus(deletingAsset, "delete_queued", {
+                        remoteAssetId,
+                        lastError: message,
+                      });
+                      set((state) => ({
+                        assets: state.assets.map((asset) =>
+                          asset.id === requeued.id ? requeued : asset
+                        ),
+                      }));
+                      persistAsset(requeued);
+                    }
+                  }
+                })
+              ),
+            ]);
+          }
+
+          await reconcileRemoteChanges();
+        } finally {
+          isSyncRunning = false;
+        }
+      },
+
+      retryAssetSyncForAsset: async (assetId) => {
+        const asset = get().assets.find((item) => item.id === assetId);
+        if (!asset?.blob) {
+          return;
+        }
+
+        const nextJob = createSyncJob({
+          localAssetId: asset.id,
+          op: "upload",
+          nextRetryAt: syncNowIso(),
+        });
+        await saveAssetSyncJob(nextJob);
+        const queued = withRemoteStatus(asset, "upload_queued", { lastError: undefined });
+        set((state) => ({
+          assets: state.assets.map((item) => (item.id === asset.id ? queued : item)),
+        }));
+        persistAsset(queued);
+        void get().runAssetSync();
+      },
+
       applyPresetToDay: (day, presetId, intensity) => {
         let changed: Asset[] = [];
         set((state) => {
@@ -362,7 +888,15 @@ export const useAssetStore = create<ProjectState>()(
           changed = result.changed;
           return { assets: result.nextAssets };
         });
-        changed.forEach(persistAsset);
+        const queued = changed.map(toQueuedUploadAsset);
+        if (queued.length > 0) {
+          const queuedById = new Map(queued.map((asset) => [asset.id, asset]));
+          set((state) => ({
+            assets: state.assets.map((asset) => queuedById.get(asset.id) ?? asset),
+          }));
+          queued.forEach(persistAsset);
+          enqueueUploadJobs(queued);
+        }
       },
 
       applyPresetToSelection: (assetIds, presetId, intensity) => {
@@ -378,7 +912,15 @@ export const useAssetStore = create<ProjectState>()(
           changed = result.changed;
           return { assets: result.nextAssets };
         });
-        changed.forEach(persistAsset);
+        const queued = changed.map(toQueuedUploadAsset);
+        if (queued.length > 0) {
+          const queuedById = new Map(queued.map((asset) => [asset.id, asset]));
+          set((state) => ({
+            assets: state.assets.map((asset) => queuedById.get(asset.id) ?? asset),
+          }));
+          queued.forEach(persistAsset);
+          enqueueUploadJobs(queued);
+        }
       },
 
       updateAsset: (assetId, update) => {
@@ -387,10 +929,14 @@ export const useAssetStore = create<ProjectState>()(
           asset.id === assetId ? applyNormalizedAssetUpdate(asset, normalizedUpdate) : asset
         );
         const updatedAsset = nextAssets.find((asset) => asset.id === assetId);
+        const queued = updatedAsset ? toQueuedUploadAsset(updatedAsset) : null;
         if (updatedAsset) {
-          persistAsset(updatedAsset);
+          persistAsset(queued ?? updatedAsset);
+          enqueueUploadJobs(queued ? [queued] : [updatedAsset]);
         }
-        set({ assets: nextAssets });
+        set({
+          assets: nextAssets.map((asset) => (queued && asset.id === assetId ? queued : asset)),
+        });
       },
 
       updateAssetOnly: (assetId, update) => {
@@ -415,7 +961,12 @@ export const useAssetStore = create<ProjectState>()(
           }),
         }));
         if (changed) {
-          persistAsset(changed);
+          const queued = toQueuedUploadAsset(changed);
+          set((state) => ({
+            assets: state.assets.map((asset) => (asset.id === queued.id ? queued : asset)),
+          }));
+          persistAsset(queued);
+          enqueueUploadJobs([queued]);
         }
       },
 
@@ -440,7 +991,12 @@ export const useAssetStore = create<ProjectState>()(
           }),
         }));
         if (changed) {
-          persistAsset(changed);
+          const queued = toQueuedUploadAsset(changed);
+          set((state) => ({
+            assets: state.assets.map((asset) => (asset.id === queued.id ? queued : asset)),
+          }));
+          persistAsset(queued);
+          enqueueUploadJobs([queued]);
         }
       },
 
@@ -458,7 +1014,12 @@ export const useAssetStore = create<ProjectState>()(
           }),
         }));
         if (changed) {
-          persistAsset(changed);
+          const queued = toQueuedUploadAsset(changed);
+          set((state) => ({
+            assets: state.assets.map((asset) => (asset.id === queued.id ? queued : asset)),
+          }));
+          persistAsset(queued);
+          enqueueUploadJobs([queued]);
         }
       },
 
@@ -476,7 +1037,12 @@ export const useAssetStore = create<ProjectState>()(
           }),
         }));
         if (changed) {
-          persistAsset(changed);
+          const queued = toQueuedUploadAsset(changed);
+          set((state) => ({
+            assets: state.assets.map((asset) => (asset.id === queued.id ? queued : asset)),
+          }));
+          persistAsset(queued);
+          enqueueUploadJobs([queued]);
         }
       },
 
@@ -507,7 +1073,12 @@ export const useAssetStore = create<ProjectState>()(
           }),
         }));
         if (changed) {
-          persistAsset(changed);
+          const queued = toQueuedUploadAsset(changed);
+          set((state) => ({
+            assets: state.assets.map((asset) => (asset.id === queued.id ? queued : asset)),
+          }));
+          persistAsset(queued);
+          enqueueUploadJobs([queued]);
         }
       },
 
@@ -546,7 +1117,12 @@ export const useAssetStore = create<ProjectState>()(
           }),
         }));
         if (changed) {
-          persistAsset(changed);
+          const queued = toQueuedUploadAsset(changed);
+          set((state) => ({
+            assets: state.assets.map((asset) => (asset.id === queued.id ? queued : asset)),
+          }));
+          persistAsset(queued);
+          enqueueUploadJobs([queued]);
         }
       },
 
@@ -585,7 +1161,12 @@ export const useAssetStore = create<ProjectState>()(
           }),
         }));
         if (changed) {
-          persistAsset(changed);
+          const queued = toQueuedUploadAsset(changed);
+          set((state) => ({
+            assets: state.assets.map((asset) => (asset.id === queued.id ? queued : asset)),
+          }));
+          persistAsset(queued);
+          enqueueUploadJobs([queued]);
         }
       },
 
@@ -617,7 +1198,12 @@ export const useAssetStore = create<ProjectState>()(
         });
 
         if (changed) {
-          persistAsset(changed);
+          const queued = toQueuedUploadAsset(changed);
+          set((state) => ({
+            assets: state.assets.map((asset) => (asset.id === queued.id ? queued : asset)),
+          }));
+          persistAsset(queued);
+          enqueueUploadJobs([queued]);
         }
       },
 
@@ -648,7 +1234,15 @@ export const useAssetStore = create<ProjectState>()(
           return { assets: nextAssets };
         });
 
-        changed.forEach(persistAsset);
+        const queued = changed.map(toQueuedUploadAsset);
+        if (queued.length > 0) {
+          const queuedById = new Map(queued.map((asset) => [asset.id, asset]));
+          set((state) => ({
+            assets: state.assets.map((asset) => queuedById.get(asset.id) ?? asset),
+          }));
+          queued.forEach(persistAsset);
+          enqueueUploadJobs(queued);
+        }
       },
 
       removeTagsFromAssets: (assetIds, tags) => {
@@ -678,7 +1272,15 @@ export const useAssetStore = create<ProjectState>()(
           return { assets: nextAssets };
         });
 
-        changed.forEach(persistAsset);
+        const queued = changed.map(toQueuedUploadAsset);
+        if (queued.length > 0) {
+          const queuedById = new Map(queued.map((asset) => [asset.id, asset]));
+          set((state) => ({
+            assets: state.assets.map((asset) => queuedById.get(asset.id) ?? asset),
+          }));
+          queued.forEach(persistAsset);
+          enqueueUploadJobs(queued);
+        }
       },
 
       deleteAssets: async (assetIds) => {
@@ -688,27 +1290,67 @@ export const useAssetStore = create<ProjectState>()(
         }
 
         const { assets, selectedAssetIds } = get();
-        const toRemove = assets.filter((asset) => idsToDelete.has(asset.id));
-        const remaining = assets.filter((asset) => !idsToDelete.has(asset.id));
+        const targets = assets.filter((asset) => idsToDelete.has(asset.id));
+        const remoteDeleteAssets = targets.filter((asset) => Boolean(asset.remote?.remoteAssetId));
+        const localDeleteAssets = targets.filter((asset) => !asset.remote?.remoteAssetId);
 
-        cancelPendingPersists(idsToDelete);
-        revokeAssetUrls(toRemove);
+        const queuedRemoteDeletes = remoteDeleteAssets.map((asset) =>
+          withRemoteStatus(asset, "delete_queued", {
+            remoteAssetId: asset.remote?.remoteAssetId,
+            lastError: undefined,
+          })
+        );
 
-        await Promise.allSettled(Array.from(idsToDelete, (id) => deleteAsset(id)));
+        if (queuedRemoteDeletes.length > 0) {
+          await Promise.allSettled(
+            queuedRemoteDeletes.map((asset) => deleteAssetSyncJobsByAssetId(asset.id))
+          );
+          await saveAssetSyncJobs(
+            queuedRemoteDeletes.map((asset) =>
+              createSyncJob({
+                localAssetId: asset.id,
+                op: "delete",
+                remoteAssetId: asset.remote?.remoteAssetId,
+                nextRetryAt: syncNowIso(),
+              })
+            )
+          );
+          queuedRemoteDeletes.forEach(persistAsset);
+        }
+
+        if (localDeleteAssets.length > 0) {
+          const localDeleteIds = new Set(localDeleteAssets.map((asset) => asset.id));
+          cancelPendingPersists(localDeleteIds);
+          revokeAssetUrls(localDeleteAssets);
+          await Promise.allSettled(
+            localDeleteAssets.flatMap((asset) => [
+              deleteAssetSyncJobsByAssetId(asset.id),
+              deleteAsset(asset.id),
+            ])
+          );
+        }
+
+        const localDeleteIdSet = new Set(localDeleteAssets.map((asset) => asset.id));
+        const queuedById = new Map(queuedRemoteDeletes.map((asset) => [asset.id, asset]));
+
+        set({
+          assets: assets
+            .filter((asset) => !localDeleteIdSet.has(asset.id))
+            .map((asset) => queuedById.get(asset.id) ?? asset),
+          selectedAssetIds: selectedAssetIds.filter((id) => !idsToDelete.has(id)),
+        });
 
         emit("assets:deleted", idsToDelete);
 
-        set({
-          assets: remaining,
-          selectedAssetIds: selectedAssetIds.filter((id) => !idsToDelete.has(id)),
-        });
+        if (queuedRemoteDeletes.length > 0) {
+          void get().runAssetSync();
+        }
       },
 
       resetProject: async () => {
         await flushPendingPersists();
         revokeAssetUrls(get().assets);
         await clearAssets();
-        await clearChatSessions();
         await clearCanvasDocuments();
 
         const project = defaultProject();

@@ -1,16 +1,9 @@
 ﻿type Listener<T> = (payload: T) => void;
 
-export interface ChatToolDispatchPayload {
-  toolName: string;
-  args: Record<string, unknown>;
-  conversationId?: string;
-}
-
 interface StoreEvents {
   "assets:imported": string[];
   "assets:deleted": Set<string>;
   "project:reset": void;
-  "chat:tool-dispatch": ChatToolDispatchPayload;
 }
 
 type EventName = keyof StoreEvents;

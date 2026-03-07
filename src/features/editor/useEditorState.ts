@@ -25,6 +25,18 @@ import { useEditorHistory } from "./useEditorHistory";
 import { useEditorAdjustments } from "./useEditorAdjustments";
 import { useEditorColorGrading } from "./useEditorColorGrading";
 import { useEditorFilmProfile } from "./useEditorFilmProfile";
+export {
+  useEditorAdjustmentActions,
+  useEditorAdjustmentState,
+  useEditorColorGradingActions,
+  useEditorColorGradingState,
+  useEditorHistoryState,
+  useEditorLayerActions,
+  useEditorPresetActions,
+  useEditorPresetState,
+  useEditorSelectionState,
+  useEditorViewState,
+} from "./useEditorSlices";
 
 export function useEditorState() {
   const {

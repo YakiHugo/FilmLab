@@ -1,4 +1,4 @@
-import type { Asset, AssetUpdate, EditorLayer, Project } from "@/types";
+import type { Asset, AssetOrigin, AssetUpdate, EditorLayer, Project } from "@/types";
 
 export interface ImportProgress {
   current: number;
@@ -22,6 +22,12 @@ export interface ImportAssetsResult {
   skipped: ImportSkipSummary;
 }
 
+export interface ImportAssetOptions {
+  source?: Asset["source"];
+  origin?: AssetOrigin;
+  ownerRef?: Asset["ownerRef"];
+}
+
 // Backward-compatible alias for existing consumers during migration.
 export type AddAssetsResult = ImportAssetsResult;
 
@@ -34,9 +40,15 @@ export interface ProjectState {
   selectedAssetIds: string[];
 
   init: () => Promise<void>;
-  importAssets: (files: File[] | FileList) => Promise<ImportAssetsResult>;
+  importAssets: (
+    files: File[] | FileList,
+    options?: ImportAssetOptions
+  ) => Promise<ImportAssetsResult>;
+  importAssetFromUrl: (url: string) => Promise<ImportAssetsResult>;
+  runAssetSync: () => Promise<void>;
+  retryAssetSyncForAsset: (assetId: string) => Promise<void>;
   applyPresetToDay: (day: string, presetId: string, intensity: number) => void;
-  applyPresetToSelection: (assetIds: string[], presetId: string, intensity: number) => void;
+  applyPresetToSelection: (assetIds: string[], presetId: string, intensity?: number) => void;
   updateAsset: (assetId: string, update: AssetUpdate) => void;
   updateAssetOnly: (assetId: string, update: AssetUpdate) => void;
   addLayer: (assetId: string, layer: EditorLayer) => void;

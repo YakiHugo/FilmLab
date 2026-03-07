@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+﻿import { useEffect, useMemo, useRef } from "react";
 import type { Asset } from "@/types";
 import { useAssetStore } from "@/stores/assetStore";
 
@@ -15,14 +15,32 @@ export function useAssetSelection(assets: Asset[]) {
 
   const selectedSet = useMemo(() => new Set(selectedAssetIds), [selectedAssetIds]);
   const assetIds = useMemo(() => assets.map((asset) => asset.id), [assets]);
+  const assetIdSet = useMemo(() => new Set(assetIds), [assetIds]);
+  const assetIndexById = useMemo(() => {
+    const indexMap = new Map<string, number>();
+    assetIds.forEach((id, index) => {
+      indexMap.set(id, index);
+    });
+    return indexMap;
+  }, [assetIds]);
+
+  useEffect(() => {
+    const nextSelected = selectedAssetIds.filter((id) => assetIdSet.has(id));
+    if (nextSelected.length !== selectedAssetIds.length) {
+      setSelectedAssetIds(nextSelected);
+    }
+    if (anchorIdRef.current && !assetIdSet.has(anchorIdRef.current)) {
+      anchorIdRef.current = nextSelected[0] ?? null;
+    }
+  }, [assetIdSet, selectedAssetIds, setSelectedAssetIds]);
 
   const toggleAsset = (assetId: string, options?: ToggleAssetOptions) => {
     const additive = Boolean(options?.additive);
     const range = Boolean(options?.range);
 
     if (range && anchorIdRef.current) {
-      const startIndex = assetIds.indexOf(anchorIdRef.current);
-      const endIndex = assetIds.indexOf(assetId);
+      const startIndex = assetIndexById.get(anchorIdRef.current) ?? -1;
+      const endIndex = assetIndexById.get(assetId) ?? -1;
       if (startIndex >= 0 && endIndex >= 0) {
         const [from, to] =
           startIndex < endIndex ? [startIndex, endIndex] : [endIndex, startIndex];

@@ -100,5 +100,30 @@ describe("project import pipeline", () => {
     expect(progress[0]).toEqual({ current: 0, total: 3 });
     expect(progress[progress.length - 1]).toEqual({ current: 3, total: 3 });
   });
+
+  it("supports custom import metadata for ai/url flow", async () => {
+    const imported: Asset[] = [];
+
+    const result = await runImportPipeline({
+      files: [createFile("ai.jpg")],
+      existingAssets: [],
+      importOptions: {
+        source: "ai-generated",
+        origin: "ai",
+        ownerRef: { userId: "user-1" },
+      },
+      onAssetImported: (asset) => {
+        imported.push(asset);
+      },
+    });
+
+    expect(result.added).toBe(1);
+    expect(imported).toHaveLength(1);
+    expect(imported[0]?.source).toBe("ai-generated");
+    expect(imported[0]?.origin).toBe("ai");
+    expect(imported[0]?.ownerRef).toEqual({ userId: "user-1" });
+    expect(imported[0]?.remote?.status).toBe("upload_queued");
+    expect(imported[0]?.contentHash).toBeTruthy();
+  });
 });
 

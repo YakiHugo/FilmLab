@@ -8,9 +8,9 @@ const MONOCHROME_MEAN_THRESHOLD = 5;
 const MONOCHROME_MAX_ABS_BIN_DELTA_THRESHOLD = 0.04;
 const MONOCHROME_L1_BIN_DELTA_THRESHOLD = 0.75;
 
-export type HistogramMode = "rgb" | "rgb-monochrome-overlap";
+type HistogramMode = "rgb" | "rgb-monochrome-overlap";
 
-export interface HistogramAnalysis {
+interface HistogramAnalysis {
   isMonochrome: boolean;
   sampleCount: number;
   meanChannelDelta: number;

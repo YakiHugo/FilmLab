@@ -5,17 +5,27 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { buildPresetDisplayLists } from "./presetListUtils";
-import { useEditorState } from "./useEditorState";
+import {
+  useEditorAdjustmentState,
+  useEditorPresetActions,
+  useEditorSelectionState,
+} from "./useEditorSlices";
 import { EditorFilmProfilePicker } from "./EditorFilmProfilePicker";
 
+const presetCollator = new Intl.Collator("zh-Hans", {
+  numeric: true,
+  sensitivity: "base",
+});
+
 export const EditorPresetCard = memo(function EditorPresetCard() {
+  const { selectedAsset } = useEditorSelectionState();
   const {
-    selectedAsset,
-    customPresets,
     builtInFilmProfiles,
     customPresetName,
+    customPresets,
     previewAdjustments,
+  } = useEditorAdjustmentState();
+  const {
     setCustomPresetName,
     handleSelectPreset,
     handleSelectFilmProfile,
@@ -25,17 +35,16 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
     handleImportPresets,
     handleExportFilmProfile,
     handleImportFilmProfile,
-  } = useEditorState();
+  } = useEditorPresetActions();
 
   const importRef = useRef<HTMLInputElement | null>(null);
   const filmImportRef = useRef<HTMLInputElement | null>(null);
 
   const selectedPresetId = selectedAsset?.presetId;
   const canSaveCustomPreset = Boolean(previewAdjustments);
-  const allPresets = useMemo(() => [...basePresets, ...customPresets], [customPresets]);
-  const { aiRecommendations, sortedPresets } = useMemo(
-    () => buildPresetDisplayLists(allPresets, selectedAsset?.aiRecommendation),
-    [allPresets, selectedAsset?.aiRecommendation]
+  const sortedPresets = useMemo(
+    () => [...basePresets, ...customPresets].sort((a, b) => presetCollator.compare(a.name, b.name)),
+    [customPresets]
   );
 
   const handleImportFile: React.ChangeEventHandler<HTMLInputElement> = (event) => {
@@ -44,9 +53,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
       event.currentTarget.value = "";
       return;
     }
-    void (async () => {
-      await handleImportPresets(file);
-    })();
+    void handleImportPresets(file);
     event.currentTarget.value = "";
   };
 
@@ -56,9 +63,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
       event.currentTarget.value = "";
       return;
     }
-    void (async () => {
-      await handleImportFilmProfile(file);
-    })();
+    void handleImportFilmProfile(file);
     event.currentTarget.value = "";
   };
 
@@ -68,29 +73,6 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
         <CardTitle>Presets</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {aiRecommendations.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-[0.24em] text-white/80">AI Recommended</p>
-            <div className="grid gap-2">
-              {aiRecommendations.map((preset, index) => (
-                <Button
-                  key={`${preset.id}-${index}`}
-                  size="sm"
-                  variant={selectedPresetId === preset.id ? "default" : "secondary"}
-                  onClick={() => handleSelectPreset(preset.id)}
-                  aria-pressed={selectedPresetId === preset.id}
-                  disabled={!selectedAsset}
-                  className="justify-between gap-2"
-                  title={preset.reason}
-                >
-                  <span className="line-clamp-1">{preset.name}</span>
-                  <span className="text-[10px] text-slate-300">Rank {index + 1}</span>
-                </Button>
-              ))}
-            </div>
-          </div>
-        )}
-
         <div className="space-y-2">
           <p className="text-xs uppercase tracking-[0.24em] text-slate-500">All Presets</p>
           <div className="grid max-h-56 gap-2 overflow-y-auto pr-1">
@@ -138,7 +120,9 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
         </div>
 
         <details className="rounded-2xl border border-white/10 bg-[#0f1114]/60 p-3">
-          <summary className="cursor-pointer text-xs font-medium text-slate-300">Preset Management</summary>
+          <summary className="cursor-pointer text-xs font-medium text-slate-300">
+            Preset Management
+          </summary>
           <div className="mt-3 space-y-3">
             <div className="space-y-2">
               <Label className="text-xs text-slate-400">Save Current as Custom Preset</Label>
@@ -210,9 +194,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
             </div>
           </div>
         </details>
-
       </CardContent>
     </Card>
   );
 });
-

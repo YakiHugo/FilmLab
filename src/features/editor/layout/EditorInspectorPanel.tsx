@@ -1,19 +1,21 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import type { EditingAdjustments } from "@/types";
+import { EditorCropSection } from "../EditorCropSection";
 import { EditorHistogramCard } from "../EditorHistogramCard";
 import { EditorPresetCard } from "../EditorPresetCard";
-import { EditorSection } from "../EditorSection";
-import { useEditorState } from "../useEditorState";
+import {
+  useEditorAdjustmentActions,
+  useEditorAdjustmentState,
+  useEditorLayerActions,
+  useEditorSelectionState,
+  useEditorViewState,
+} from "../useEditorSlices";
 import { BasicPanel } from "../components/panels/BasicPanel";
-import { EffectsPanel } from "../components/panels/EffectsPanel";
 import { DetailPanel } from "../components/panels/DetailPanel";
+import { EffectsPanel } from "../components/panels/EffectsPanel";
 import { ExportPanel } from "../components/panels/ExportPanel";
 import { LayerPropertiesPanel } from "../components/panels/LayerPropertiesPanel";
-import { EditorCropSection } from "../EditorCropSection";
-import { AiEditPanel } from "../ai/AiEditPanel";
-import { Badge } from "@/components/ui/badge";
-import { AI_FEATURES } from "../editorPanelConfig";
-import type { EditingAdjustments } from "@/types";
 
 function hasBasicChanges(adjustments: EditingAdjustments): boolean {
   return (
@@ -69,26 +71,28 @@ interface EditorInspectorPanelProps {
 }
 
 export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
+  const { adjustments } = useEditorAdjustmentState();
   const {
-    adjustments,
-    openSections,
-    toggleSection,
-    toggleBypassPanel,
-    isPanelBypassed,
-    updateAdjustments,
     previewAdjustmentValue,
-    updateAdjustmentValue,
     toggleFlip,
-    requestAutoPerspective,
-    selectedAsset,
-    selectedLayer,
-    setLayerOpacity,
+    updateAdjustments,
+    updateAdjustmentValue,
+  } = useEditorAdjustmentActions();
+  const {
+    clearLayerMask,
+    invertLayerMask,
     setLayerBlendMode,
     setLayerMaskMode,
-    invertLayerMask,
-    clearLayerMask,
-    handleSelectFilmProfile,
-  } = useEditorState();
+    setLayerOpacity,
+  } = useEditorLayerActions();
+  const { selectedLayer } = useEditorSelectionState();
+  const {
+    isPanelBypassed,
+    openSections,
+    requestAutoPerspective,
+    toggleBypassPanel,
+    toggleSection,
+  } = useEditorViewState();
 
   const [layerChangesVisible, setLayerChangesVisible] = useState(true);
 
@@ -164,10 +168,8 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
       )}
     >
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-        {/* Histogram */}
         <EditorHistogramCard />
 
-        {/* Layer Properties */}
         <LayerPropertiesPanel
           layer={selectedLayer}
           isOpen={openSections.local}
@@ -177,7 +179,11 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
           onSetMaskMode={setLayerMaskMode}
           onInvertMask={invertLayerMask}
           onClearMask={clearLayerMask}
-          hasChanges={selectedLayer ? (selectedLayer.opacity !== 100 || selectedLayer.blendMode !== "normal") : false}
+          hasChanges={
+            selectedLayer
+              ? selectedLayer.opacity !== 100 || selectedLayer.blendMode !== "normal"
+              : false
+          }
           changesVisible={layerChangesVisible}
           onToggleVisibility={() => setLayerChangesVisible((prev) => !prev)}
           onResetChanges={() => {
@@ -188,10 +194,8 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
           }}
         />
 
-        {/* Preset */}
         <EditorPresetCard />
 
-        {/* Crop */}
         {adjustments && (
           <EditorCropSection
             adjustments={adjustments}
@@ -209,7 +213,6 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
           />
         )}
 
-        {/* Develop / Basic */}
         {adjustments && (
           <BasicPanel
             adjustments={adjustments}
@@ -225,7 +228,6 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
           />
         )}
 
-        {/* Effects */}
         {adjustments && (
           <EffectsPanel
             adjustments={adjustments}
@@ -241,7 +243,6 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
           />
         )}
 
-        {/* Detail */}
         {adjustments && (
           <DetailPanel
             adjustments={adjustments}
@@ -256,39 +257,10 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
           />
         )}
 
-        {/* Export */}
         <ExportPanel
           isOpen={openSections.export}
           onToggle={() => toggleSection("export")}
         />
-
-        {/* AI */}
-        {adjustments ? (
-          <AiEditPanel
-            selectedAsset={selectedAsset ?? null}
-            adjustments={adjustments}
-            onUpdateAdjustments={updateAdjustments}
-            onSelectFilmProfile={handleSelectFilmProfile}
-          />
-        ) : (
-          <EditorSection
-            title="AI"
-            hint="智能建议"
-            isOpen={openSections.ai}
-            onToggle={() => toggleSection("ai")}
-          >
-            <div className="space-y-3">
-              <div className="flex flex-wrap gap-2">
-                {AI_FEATURES.map((label) => (
-                  <Badge key={label} className="border-white/10 bg-white/5 text-slate-200">
-                    {label}
-                  </Badge>
-                ))}
-              </div>
-              <p className="text-xs text-slate-400">AI adjustments are coming soon.</p>
-            </div>
-          </EditorSection>
-        )}
       </div>
     </aside>
   );

@@ -1,7 +1,7 @@
 import { memo, type ComponentProps } from "react";
 import { EditorSliderRow } from "@/features/editor/EditorSliderRow";
 
-export type SliderControlProps = ComponentProps<typeof EditorSliderRow>;
+type SliderControlProps = ComponentProps<typeof EditorSliderRow>;
 
 /**
  * Reusable slider control primitive for editor panels.
@@ -10,4 +10,3 @@ export type SliderControlProps = ComponentProps<typeof EditorSliderRow>;
 export const SliderControl = memo(function SliderControl(props: SliderControlProps) {
   return <EditorSliderRow {...props} />;
 });
-

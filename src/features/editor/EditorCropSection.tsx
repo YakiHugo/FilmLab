@@ -134,7 +134,7 @@ const normalizePerspectiveAmount = (value: number) => {
   return Number(clamped.toFixed(2));
 };
 
-export const resolveCropRatioOptionId = (adjustments: EditingAdjustments) => {
+const resolveCropRatioOptionId = (adjustments: EditingAdjustments) => {
   if (adjustments.aspectRatio === "original") {
     return "original";
   }
@@ -510,4 +510,3 @@ export const EditorCropSection = memo(function EditorCropSection({
     </EditorSection>
   );
 });
-

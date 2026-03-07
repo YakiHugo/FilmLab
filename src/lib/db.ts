@@ -1,34 +1,18 @@
 ﻿import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import type {
   AssetAiRecommendation,
+  AssetOrigin,
+  AssetOwnerRef,
   AssetMetadata,
+  AssetRemoteState,
+  AssetSyncJobOperation,
   CanvasDocument,
-  ChatScope,
   EditorLayer,
   EditingAdjustments,
   FilmProfile,
   FilmProfileOverrides,
   LocalBrushPoint,
 } from "@/types";
-
-export interface ChatSessionRecord {
-  id: string;
-  assetId?: string;
-  title?: string;
-  scope?: ChatScope;
-  messages: PersistedChatMessage[];
-  model: string;
-  provider: string;
-  createdAt?: string;
-  updatedAt: string;
-}
-
-export interface PersistedChatMessage {
-  id?: string;
-  role: string;
-  content?: unknown;
-  parts?: unknown;
-}
 
 interface FilmLabDB extends DBSchema {
   assets: {
@@ -54,6 +38,10 @@ interface FilmLabDB extends DBSchema {
       filmProfile?: FilmProfile;
       aiRecommendation?: AssetAiRecommendation;
       source?: "imported" | "ai-generated";
+      origin?: AssetOrigin;
+      contentHash?: string;
+      remote?: AssetRemoteState;
+      ownerRef?: AssetOwnerRef;
     };
   };
   project: {
@@ -77,22 +65,33 @@ interface FilmLabDB extends DBSchema {
       byAssetId: string;
     };
   };
-  chatSessions: {
-    key: string;
-    value: ChatSessionRecord;
-    indexes: {
-      byAssetId: string;
-      byScope: ChatScope;
-    };
-  };
   canvasDocuments: {
     key: string;
     value: CanvasDocument;
   };
+  assetSyncJobs: {
+    key: string;
+    value: {
+      jobId: string;
+      localAssetId: string;
+      op: AssetSyncJobOperation;
+      attempts: number;
+      nextRetryAt: string;
+      lastError?: string;
+      remoteAssetId?: string;
+      createdAt: string;
+      updatedAt: string;
+    };
+    indexes: {
+      byLocalAssetId: string;
+      byNextRetryAt: string;
+      byOp: AssetSyncJobOperation;
+    };
+  };
 }
 
 const DB_NAME = "filmlab-mvp";
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 let dbFailed = false;
 let dbInstance: IDBPDatabase<FilmLabDB> | null = null;
@@ -116,21 +115,28 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
             const store = db.createObjectStore("localMaskBlobs", { keyPath: "id" });
             store.createIndex("byAssetId", "assetId", { unique: false });
           }
-          if (!db.objectStoreNames.contains("chatSessions")) {
-            const chatStore = db.createObjectStore("chatSessions", { keyPath: "id" });
-            chatStore.createIndex("byAssetId", "assetId", { unique: false });
-            chatStore.createIndex("byScope", "scope", { unique: false });
-          } else if (oldVersion < 6) {
-            const chatStore = transaction.objectStore("chatSessions");
-            if (!chatStore.indexNames.contains("byScope")) {
-              chatStore.createIndex("byScope", "scope", { unique: false });
-            }
-          }
           if (!db.objectStoreNames.contains("canvasDocuments")) {
             db.createObjectStore("canvasDocuments", { keyPath: "id" });
           }
-          // v5/v6 only add optional value fields (`importDay`, `tags`, `source`).
-          // No migration is needed because IndexedDB values are schemaless.
+          if (!db.objectStoreNames.contains("assetSyncJobs")) {
+            const syncStore = db.createObjectStore("assetSyncJobs", { keyPath: "jobId" });
+            syncStore.createIndex("byLocalAssetId", "localAssetId", { unique: false });
+            syncStore.createIndex("byNextRetryAt", "nextRetryAt", { unique: false });
+            syncStore.createIndex("byOp", "op", { unique: false });
+          } else if (oldVersion < 7) {
+            const syncStore = transaction.objectStore("assetSyncJobs");
+            if (!syncStore.indexNames.contains("byLocalAssetId")) {
+              syncStore.createIndex("byLocalAssetId", "localAssetId", { unique: false });
+            }
+            if (!syncStore.indexNames.contains("byNextRetryAt")) {
+              syncStore.createIndex("byNextRetryAt", "nextRetryAt", { unique: false });
+            }
+            if (!syncStore.indexNames.contains("byOp")) {
+              syncStore.createIndex("byOp", "op", { unique: false });
+            }
+          }
+          // v5+ only add optional value fields (`importDay`, `tags`, `source`, sync fields).
+          // No value migration is needed because IndexedDB values are schemaless.
         },
         blocked() {
           console.warn("IndexedDB upgrade blocked because another tab still uses an older schema.");
@@ -177,9 +183,6 @@ const getDB = (): Promise<IDBPDatabase<FilmLabDB> | null> => {
   }
   return dbInitPromise;
 };
-
-/** Returns true if IndexedDB failed to open and we're in memory-only mode. */
-export const isStorageDegraded = () => dbFailed;
 
 const BRUSH_MASK_BLOB_POINT_THRESHOLD = 256;
 
@@ -231,6 +234,20 @@ const deleteMaskBlobsByAssetId = async (db: IDBPDatabase<FilmLabDB>, assetId: st
   const tx = db.transaction("localMaskBlobs", "readwrite");
   const byAssetId = tx.store.index("byAssetId");
   let cursor = await byAssetId.openCursor(IDBKeyRange.only(assetId));
+  while (cursor) {
+    await cursor.delete();
+    cursor = await cursor.continue();
+  }
+  await tx.done;
+};
+
+const deleteSyncJobsByAssetId = async (db: IDBPDatabase<FilmLabDB>, assetId: string) => {
+  if (!db.objectStoreNames.contains("assetSyncJobs")) {
+    return;
+  }
+  const tx = db.transaction("assetSyncJobs", "readwrite");
+  const byLocalAssetId = tx.store.index("byLocalAssetId");
+  let cursor = await byLocalAssetId.openCursor(IDBKeyRange.only(assetId));
   while (cursor) {
     await cursor.delete();
     cursor = await cursor.continue();
@@ -411,6 +428,86 @@ export async function loadAssets() {
   }
 }
 
+export type StoredAssetSyncJob = FilmLabDB["assetSyncJobs"]["value"];
+
+export async function saveAssetSyncJob(job: StoredAssetSyncJob): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return false;
+  try {
+    await db.put("assetSyncJobs", job);
+    return true;
+  } catch (error) {
+    console.warn("IndexedDB saveAssetSyncJob failed:", error);
+    return false;
+  }
+}
+
+export async function saveAssetSyncJobs(jobs: StoredAssetSyncJob[]): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return false;
+  if (jobs.length === 0) return true;
+  try {
+    const tx = db.transaction("assetSyncJobs", "readwrite");
+    for (const job of jobs) {
+      await tx.store.put(job);
+    }
+    await tx.done;
+    return true;
+  } catch (error) {
+    console.warn("IndexedDB saveAssetSyncJobs failed:", error);
+    return false;
+  }
+}
+
+export async function loadAssetSyncJobs(limit = 128): Promise<StoredAssetSyncJob[]> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return [];
+  try {
+    const jobs = await db.getAll("assetSyncJobs");
+    return jobs
+      .sort((a, b) => a.nextRetryAt.localeCompare(b.nextRetryAt))
+      .slice(0, Math.max(1, limit));
+  } catch (error) {
+    console.warn("IndexedDB loadAssetSyncJobs failed:", error);
+    return [];
+  }
+}
+
+export async function loadAssetSyncJobsByAssetId(assetId: string): Promise<StoredAssetSyncJob[]> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return [];
+  try {
+    return await db.getAllFromIndex("assetSyncJobs", "byLocalAssetId", assetId);
+  } catch (error) {
+    console.warn("IndexedDB loadAssetSyncJobsByAssetId failed:", error);
+    return [];
+  }
+}
+
+export async function deleteAssetSyncJob(jobId: string): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return false;
+  try {
+    await db.delete("assetSyncJobs", jobId);
+    return true;
+  } catch (error) {
+    console.warn("IndexedDB deleteAssetSyncJob failed:", error);
+    return false;
+  }
+}
+
+export async function deleteAssetSyncJobsByAssetId(assetId: string): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return false;
+  try {
+    await deleteSyncJobsByAssetId(db, assetId);
+    return true;
+  } catch (error) {
+    console.warn("IndexedDB deleteAssetSyncJobsByAssetId failed:", error);
+    return false;
+  }
+}
+
 export async function clearAssets(): Promise<boolean> {
   const db = await getDB();
   if (!db) return false;
@@ -418,6 +515,9 @@ export async function clearAssets(): Promise<boolean> {
     await db.clear("assets");
     if (db.objectStoreNames.contains("localMaskBlobs")) {
       await db.clear("localMaskBlobs");
+    }
+    if (db.objectStoreNames.contains("assetSyncJobs")) {
+      await db.clear("assetSyncJobs");
     }
     return true;
   } catch (error) {
@@ -432,90 +532,9 @@ export async function deleteAsset(id: string): Promise<boolean> {
   try {
     await deleteMaskBlobsByAssetId(db, id);
     await db.delete("assets", id);
-    // Clean up associated chat sessions
-    await deleteChatSessionsByAssetId(id);
     return true;
   } catch (error) {
     console.warn("IndexedDB deleteAsset failed:", error);
-    return false;
-  }
-}
-
-// Chat session persistence
-
-export async function saveChatSession(session: ChatSessionRecord): Promise<boolean> {
-  const db = await getDB();
-  if (!db || !db.objectStoreNames.contains("chatSessions")) return false;
-  try {
-    await db.put("chatSessions", {
-      ...session,
-      title: session.title || "New Chat",
-      scope: session.scope ?? "hub",
-      createdAt: session.createdAt || session.updatedAt,
-    });
-    return true;
-  } catch (error) {
-    console.warn("IndexedDB saveChatSession failed:", error);
-    return false;
-  }
-}
-
-export async function loadChatSession(id: string): Promise<ChatSessionRecord | null> {
-  const db = await getDB();
-  if (!db || !db.objectStoreNames.contains("chatSessions")) return null;
-  try {
-    return (await db.get("chatSessions", id)) ?? null;
-  } catch (error) {
-    console.warn("IndexedDB loadChatSession failed:", error);
-    return null;
-  }
-}
-
-export async function loadChatSessionsByScope(scope: ChatScope): Promise<ChatSessionRecord[]> {
-  const db = await getDB();
-  if (!db || !db.objectStoreNames.contains("chatSessions")) return [];
-  try {
-    const records = await db.getAllFromIndex("chatSessions", "byScope", scope);
-    return records.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  } catch (error) {
-    console.warn("IndexedDB loadChatSessionsByScope failed:", error);
-    return [];
-  }
-}
-
-export async function loadChatSessionByAssetId(assetId: string): Promise<ChatSessionRecord | null> {
-  const db = await getDB();
-  if (!db || !db.objectStoreNames.contains("chatSessions")) return null;
-  try {
-    const all = await db.getAllFromIndex("chatSessions", "byAssetId", assetId);
-    if (all.length === 0) return null;
-    return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-  } catch (error) {
-    console.warn("IndexedDB loadChatSessionByAssetId failed:", error);
-    return null;
-  }
-}
-
-export async function deleteChatSession(id: string): Promise<boolean> {
-  const db = await getDB();
-  if (!db || !db.objectStoreNames.contains("chatSessions")) return false;
-  try {
-    await db.delete("chatSessions", id);
-    return true;
-  } catch (error) {
-    console.warn("IndexedDB deleteChatSession failed:", error);
-    return false;
-  }
-}
-
-export async function clearChatSessions(): Promise<boolean> {
-  const db = await getDB();
-  if (!db || !db.objectStoreNames.contains("chatSessions")) return false;
-  try {
-    await db.clear("chatSessions");
-    return true;
-  } catch (error) {
-    console.warn("IndexedDB clearChatSessions failed:", error);
     return false;
   }
 }
@@ -580,21 +599,3 @@ export async function clearCanvasDocuments(): Promise<boolean> {
     return false;
   }
 }
-
-async function deleteChatSessionsByAssetId(assetId: string): Promise<void> {
-  const db = await getDB();
-  if (!db || !db.objectStoreNames.contains("chatSessions")) return;
-  try {
-    const tx = db.transaction("chatSessions", "readwrite");
-    const index = tx.store.index("byAssetId");
-    let cursor = await index.openCursor(IDBKeyRange.only(assetId));
-    while (cursor) {
-      await cursor.delete();
-      cursor = await cursor.continue();
-    }
-    await tx.done;
-  } catch (error) {
-    console.warn("IndexedDB deleteChatSessionsByAssetId failed:", error);
-  }
-}
-

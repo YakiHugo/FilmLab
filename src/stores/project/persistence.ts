@@ -2,7 +2,7 @@ import { normalizeAdjustments } from "@/lib/adjustments";
 import { ensureAssetLayers, resolveBaseAdjustmentsFromLayers } from "@/lib/editorLayers";
 import { saveAsset, type StoredAsset } from "@/lib/db";
 import type { Asset, AssetUpdate } from "@/types";
-import { mergeTags, normalizeTags } from "./tagging";
+import { normalizeTags } from "./tagging";
 
 const PERSIST_DEBOUNCE_MS = 300;
 
@@ -45,6 +45,10 @@ export const toStoredAsset = (asset: Asset): StoredAsset | null => {
     layers: ensureAssetLayers(asset),
     aiRecommendation: asset.aiRecommendation,
     source: asset.source,
+    origin: asset.origin,
+    contentHash: asset.contentHash,
+    remote: asset.remote,
+    ownerRef: asset.ownerRef,
   };
 };
 
@@ -129,8 +133,4 @@ export const ensurePersistFlushOnUnload = () => {
   isBeforeUnloadBound = true;
 };
 
-export const mergeAssetTags = (asset: Asset, tags: string[]) => ({
-  ...asset,
-  tags: mergeTags(asset.tags, tags),
-});
 

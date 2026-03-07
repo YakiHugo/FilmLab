@@ -5,7 +5,13 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ZOOM_PRESETS } from "../useViewportZoom";
-import { useEditorState } from "../useEditorState";
+import {
+  useEditorHistoryState,
+  useEditorPresetActions,
+  useEditorPresetState,
+  useEditorSelectionState,
+  useEditorViewState,
+} from "../useEditorSlices";
 
 const ZOOM_SELECT_ITEMS = ZOOM_PRESETS.map((preset) => ({
   ...preset,
@@ -25,20 +31,11 @@ const resolveZoomSelectValue = (scale: number) => {
 const resolveZoomLabel = (scale: number) => `${Math.round(scale * 100)}%`;
 
 export function EditorFooterBar() {
-  const {
-    selectedAsset,
-    presetLabel,
-    showOriginal,
-    viewportScale,
-    copiedAdjustments,
-    canUndo,
-    setViewportScale,
-    toggleOriginal,
-    handleCopy,
-    handlePaste,
-    handleUndo,
-    handleResetAll,
-  } = useEditorState();
+  const { selectedAsset } = useEditorSelectionState();
+  const { copiedAdjustments, presetLabel } = useEditorPresetState();
+  const { handleCopy, handlePaste, handleResetAll } = useEditorPresetActions();
+  const { canUndo, handleUndo } = useEditorHistoryState();
+  const { setViewportScale, showOriginal, toggleOriginal, viewportScale } = useEditorViewState();
   const [pendingAction, setPendingAction] = useState<string | undefined>(undefined);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [pasteConfirmOpen, setPasteConfirmOpen] = useState(false);

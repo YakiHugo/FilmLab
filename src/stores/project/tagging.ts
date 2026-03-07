@@ -54,20 +54,4 @@ export const removeTags = (current: string[] | undefined, removing: string[]) =>
   return normalizedCurrent.filter((tag) => !removingKeys.has(toKey(tag)));
 };
 
-export const hasAnyTag = (assetTags: string[] | undefined, selectedTags: string[]) => {
-  if (!selectedTags.length) {
-    return true;
-  }
-  if (!assetTags || assetTags.length === 0) {
-    return false;
-  }
-
-  const assetKeys = new Set(normalizeTags(assetTags).map(toKey));
-  for (const tag of normalizeTags(selectedTags)) {
-    if (assetKeys.has(toKey(tag))) {
-      return true;
-    }
-  }
-  return false;
-};
 

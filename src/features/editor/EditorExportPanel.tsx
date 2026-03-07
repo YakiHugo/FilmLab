@@ -25,7 +25,7 @@ import type {
   ExportResolutionPreset,
 } from "@/types";
 import { EditorSliderRow } from "./EditorSliderRow";
-import { useEditorState } from "./useEditorState";
+import { useEditorAdjustmentState, useEditorSelectionState } from "./useEditorSlices";
 
 interface ExportFormatOption {
   id: ExportFormat;
@@ -132,14 +132,8 @@ const resolveTargetSize = (
 };
 
 export function EditorExportPanel() {
-  const {
-    assets,
-    selectedAsset,
-    layers,
-    adjustments,
-    previewAdjustments,
-    previewFilmProfile,
-  } = useEditorState();
+  const { assets, layers, selectedAsset } = useEditorSelectionState();
+  const { adjustments, previewAdjustments, previewFilmProfile } = useEditorAdjustmentState();
   const [format, setFormat] = useState<ExportFormat>("jpeg");
   const [quality, setQuality] = useState(92);
   const [pngCompression, setPngCompression] = useState(6);

@@ -45,7 +45,6 @@ interface GenerationConfigState {
   updateReferenceImage: (id: string, patch: Partial<ReferenceImage>) => void;
   removeReferenceImage: (id: string) => void;
   clearReferenceImages: () => void;
-  resetConfig: () => void;
 }
 
 const DEFAULT_CONFIG: GenerationConfig = {
@@ -227,13 +226,7 @@ export const useGenerationConfigStore = create<GenerationConfigState>()(
             referenceImages: [],
           }),
         })),
-      resetConfig: () =>
-        set({
-          config: DEFAULT_CONFIG,
-        }),
     }),
     { name: "GenerationConfigStore", enabled: process.env.NODE_ENV === "development" }
   )
 );
-
-export const getDefaultGenerationConfig = () => DEFAULT_CONFIG;

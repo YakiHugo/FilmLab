@@ -129,7 +129,7 @@ export const buildCropImagePolygon = (
   }));
 };
 
-export const isPointInsideConvexPolygon = (point: Point, polygon: Point[]) => {
+const isPointInsideConvexPolygon = (point: Point, polygon: Point[]) => {
   let hasPositive = false;
   let hasNegative = false;
   for (let i = 0; i < polygon.length; i += 1) {
