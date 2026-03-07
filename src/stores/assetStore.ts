@@ -25,7 +25,6 @@ import {
 import {
   clearAssets,
   clearCanvasDocuments,
-  clearChatSessions,
   deleteAsset,
   deleteAssetSyncJob,
   deleteAssetSyncJobsByAssetId,
@@ -1352,7 +1351,6 @@ export const useAssetStore = create<ProjectState>()(
         await flushPendingPersists();
         revokeAssetUrls(get().assets);
         await clearAssets();
-        await clearChatSessions();
         await clearCanvasDocuments();
 
         const project = defaultProject();
