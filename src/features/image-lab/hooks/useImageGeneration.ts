@@ -22,7 +22,6 @@ interface GeneratedResultItem extends GeneratedImage {
 interface ImageGenerationState {
   status: "idle" | "loading" | "done" | "error";
   error: string | null;
-  prompt: string;
   isSavingSelection: boolean;
   resultBatchId: string | null;
   results: GeneratedResultItem[];
@@ -228,17 +227,12 @@ export function useImageGeneration() {
   const [state, setState] = useState<ImageGenerationState>({
     status: "idle",
     error: null,
-    prompt: "",
     isSavingSelection: false,
     resultBatchId: null,
     results: [],
   });
 
   const supportedFeatures = providerConfig.supportedFeatures;
-
-  const setPrompt = useCallback((prompt: string) => {
-    setState((previous) => ({ ...previous, prompt }));
-  }, []);
 
   const runGeneration = useCallback(
     async (prompt: string, configForRequest: GenerationConfig) => {
@@ -278,23 +272,6 @@ export function useImageGeneration() {
     },
     [supportedFeatures]
   );
-
-  const generate = useCallback(async () => {
-    if (state.isSavingSelection) {
-      return null;
-    }
-    const prompt = state.prompt.trim();
-    if (!prompt) {
-      setState((previous) => ({
-        ...previous,
-        status: "error",
-        error: "Prompt is required.",
-      }));
-      return null;
-    }
-
-    return runGeneration(prompt, config);
-  }, [config, runGeneration, state.isSavingSelection, state.prompt]);
 
   const saveSelectedResults = useCallback(async () => {
     const resultBatchId = state.resultBatchId;
@@ -375,7 +352,7 @@ export function useImageGeneration() {
     [addReferenceImages]
   );
 
-  const generateFromChatInput = useCallback(
+  const generateFromPromptInput = useCallback(
     async (input: { text: string; files?: FileList | null }) => {
       if (state.isSavingSelection) {
         return null;
@@ -399,11 +376,6 @@ export function useImageGeneration() {
           referenceImages: [...config.referenceImages, ...entries].slice(0, 4),
         };
       }
-
-      setState((previous) => ({
-        ...previous,
-        prompt,
-      }));
 
       return runGeneration(prompt, configForRequest);
     },
@@ -468,7 +440,6 @@ export function useImageGeneration() {
     modelParamDefinitions,
     supportedFeatures,
     aspectRatioOptions,
-    setPrompt,
     setProvider,
     setModel,
     updateConfig,
@@ -476,8 +447,7 @@ export function useImageGeneration() {
     updateReferenceImage,
     removeReferenceImage,
     clearReferenceImages,
-    generate,
-    generateFromChatInput,
+    generateFromPromptInput,
     toggleResultSelection,
     saveSelectedResults,
     addToCanvas,

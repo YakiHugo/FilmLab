@@ -1,14 +1,13 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { CirclePlus, Film, MessageSquarePlus } from "lucide-react";
+import { CirclePlus, Film } from "lucide-react";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { useChatStore } from "@/stores/chatStore";
 
 const NAV_ITEMS = [
   { label: "Library", to: "/library" as const, matches: ["/library", "/editor"] },
-  { label: "Chat", to: "/" as const, matches: ["/"] },
+  { label: "Images", to: "/" as const, matches: ["/"] },
   { label: "Canvas", to: "/canvas" as const, matches: ["/canvas"] },
 ];
 const controlClass =
@@ -18,31 +17,8 @@ function ContextActions() {
   const pathname = useLocation({ select: (state) => state.pathname });
   const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
   const documents = useCanvasStore((state) => state.documents);
-  const createConversation = useChatStore((state) => state.createConversation);
 
-  if (pathname === "/") {
-    return (
-      <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          variant="secondary"
-          className={`${controlClass}`}
-          onClick={() => {
-            void createConversation();
-          }}
-        >
-          <MessageSquarePlus className="h-3.5 w-3.5" />
-          New
-        </Button>
-      </div>
-    );
-  }
-
-  if (pathname === "/library") {
-    return null;
-  }
-
-  if (pathname === "/editor") {
+  if (pathname === "/" || pathname === "/library" || pathname === "/editor") {
     return null;
   }
 
@@ -80,7 +56,7 @@ export function Header() {
         item.matches.some((match) =>
           match === "/" ? pathname === "/" : pathname.startsWith(match)
         )
-      )?.label ?? "Chat",
+      )?.label ?? "Images",
     [pathname]
   );
 

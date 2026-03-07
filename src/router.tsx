@@ -2,8 +2,8 @@ import { createRootRoute, createRoute, createRouter } from "@tanstack/react-rout
 import { z } from "zod";
 import App from "@/App";
 import { CanvasPage } from "@/pages/canvas";
-import { ChatPage } from "@/pages/chat";
 import { EditorPage } from "@/pages/editor";
+import { ImageLabPage } from "@/pages/image-lab";
 import { LibraryPage } from "@/pages/library";
 
 const editorSearchSchema = z.object({
@@ -14,10 +14,10 @@ const rootRoute = createRootRoute({
   component: App,
 });
 
-const chatRoute = createRoute({
+const imageLabRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: ChatPage,
+  component: ImageLabPage,
 });
 
 const libraryRoute = createRoute({
@@ -46,7 +46,7 @@ const canvasDocumentRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
-  chatRoute,
+  imageLabRoute,
   libraryRoute,
   editorRoute,
   canvasRoute,

@@ -15,7 +15,7 @@ const resolveModuleFromPath = (pathname: string) => {
   if (pathname.startsWith("/canvas")) {
     return "canvas";
   }
-  return "chat";
+  return "images";
 };
 
 function App() {

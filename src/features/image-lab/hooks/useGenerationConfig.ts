@@ -17,7 +17,6 @@ export function useGenerationConfig() {
   const updateReferenceImage = useGenerationConfigStore((state) => state.updateReferenceImage);
   const removeReferenceImage = useGenerationConfigStore((state) => state.removeReferenceImage);
   const clearReferenceImages = useGenerationConfigStore((state) => state.clearReferenceImages);
-  const resetConfig = useGenerationConfigStore((state) => state.resetConfig);
 
   const providerConfig = useMemo(
     () => getImageProviderConfig(config.provider) ?? IMAGE_PROVIDERS[0]!,
@@ -48,6 +47,5 @@ export function useGenerationConfig() {
     updateReferenceImage,
     removeReferenceImage,
     clearReferenceImages,
-    resetConfig,
   };
 }
