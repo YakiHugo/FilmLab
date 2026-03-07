@@ -8,6 +8,22 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   plugins: [react()],
+  server: {
+    proxy: {
+      "/api/image-generate": {
+        target: "http://localhost:3001",
+        changeOrigin: true,
+      },
+      "/api/generated-images": {
+        target: "http://localhost:3001",
+        changeOrigin: true,
+      },
+      "/api/recommend-film": {
+        target: "http://localhost:3001",
+        changeOrigin: true,
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),

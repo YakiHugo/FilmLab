@@ -1,4 +1,5 @@
 import type { AssetMetadata, AiPresetRecommendation } from "@/types";
+import { resolveApiUrl } from "@/lib/api/resolveApiUrl";
 import { AiError, type AiErrorCode } from "./errors";
 
 export interface RecommendFilmPresetCandidate {
@@ -135,7 +136,7 @@ const _requestFilmRecommendationImpl = async (
   const data = await retryWithBackoff<RecommendFilmResponsePayload>(
     async (attempt) => {
       attempts = attempt;
-      const response = await fetchImpl("/api/recommend-film", {
+      const response = await fetchImpl(resolveApiUrl("/api/recommend-film"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
