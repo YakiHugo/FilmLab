@@ -1,31 +1,38 @@
-﻿import { useCallback, useMemo, useState } from "react";
-import { generateImage as requestImageGeneration } from "@/lib/ai/imageGeneration";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { importAssetFiles } from "@/lib/assetImport";
-import type { GenerationConfig } from "@/stores/generationConfigStore";
+import { generateImage as requestImageGeneration } from "@/lib/ai/imageGeneration";
+import { getImageProviderConfig } from "@/lib/ai/imageProviders";
+import type { CanvasImageElement } from "@/types";
 import type {
   GeneratedImage,
   ImageGenerationRequest,
   ReferenceImage,
 } from "@/types/imageGeneration";
-import type { CanvasImageElement } from "@/types";
 import { useAssetStore } from "@/stores/assetStore";
+import type { GenerationConfig } from "@/stores/generationConfigStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useGenerationConfig } from "./useGenerationConfig";
 
-interface GeneratedResultItem extends GeneratedImage {
+export interface GeneratedResultItem extends GeneratedImage {
   index: number;
   assetId: string | null;
   selected: boolean;
   saved: boolean;
 }
 
-interface ImageGenerationState {
-  status: "idle" | "loading" | "done" | "error";
+export interface ImageGenerationTurn {
+  id: string;
+  prompt: string;
+  createdAt: string;
+  configSnapshot: GenerationConfig;
+  status: "loading" | "done" | "error";
   error: string | null;
   isSavingSelection: boolean;
-  resultBatchId: string | null;
   results: GeneratedResultItem[];
+}
+
+interface ImageGenerationState {
+  turns: ImageGenerationTurn[];
 }
 
 interface ImportedImage {
@@ -53,12 +60,18 @@ const createElementId = () => {
   return `canvas-image-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 };
 
-const createResultBatchId = () => {
+const createTurnId = () => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
   }
-  return `generated-batch-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  return `generated-turn-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 };
+
+const cloneGenerationConfig = (config: GenerationConfig): GenerationConfig => ({
+  ...config,
+  referenceImages: config.referenceImages.map((entry) => ({ ...entry })),
+  modelParams: { ...config.modelParams },
+});
 
 const blobToFileExtension = (mimeType: string) =>
   mimeType.includes("jpeg") ? "jpg" : mimeType.includes("webp") ? "webp" : "png";
@@ -143,6 +156,21 @@ const toUploadFiles = async (images: Array<{ image: GeneratedImage; index: numbe
       return file;
     })
   );
+
+const updateTurnInList = (
+  turns: ImageGenerationTurn[],
+  turnId: string,
+  updater: (turn: ImageGenerationTurn) => ImageGenerationTurn
+) => turns.map((turn) => (turn.id === turnId ? updater(turn) : turn));
+
+const toGeneratedResultItems = (images: GeneratedImage[]): GeneratedResultItem[] =>
+  images.map((image, index) => ({
+    ...image,
+    index,
+    assetId: null,
+    selected: true,
+    saved: false,
+  }));
 
 export async function generateImages(
   request: ImageGenerationRequest,
@@ -230,150 +258,103 @@ export function useImageGeneration() {
   } = useGenerationConfig();
 
   const [state, setState] = useState<ImageGenerationState>({
-    status: "idle",
-    error: null,
-    isSavingSelection: false,
-    resultBatchId: null,
-    results: [],
+    turns: [],
   });
-  const generationAbortControllerRef = useRef<AbortController | null>(null);
+  const generationRequestRef = useRef<{
+    controller: AbortController;
+    turnId: string;
+  } | null>(null);
 
   const supportedFeatures = providerConfig.supportedFeatures;
 
   useEffect(() => {
     return () => {
-      generationAbortControllerRef.current?.abort();
-      generationAbortControllerRef.current = null;
+      generationRequestRef.current?.controller.abort();
+      generationRequestRef.current = null;
     };
   }, []);
 
-  const runGeneration = useCallback(
-    async (prompt: string, configForRequest: GenerationConfig) => {
-      generationAbortControllerRef.current?.abort();
-      const controller = new AbortController();
-      generationAbortControllerRef.current = controller;
+  const saveSelectedResults = useCallback(
+    async (turnId: string) => {
+      const turn = state.turns.find((entry) => entry.id === turnId);
+      if (!turn) {
+        return null;
+      }
+
+      const selectedIndexes = turn.results
+        .filter((entry) => entry.selected && !entry.saved)
+        .map((entry) => entry.index);
+      if (selectedIndexes.length === 0) {
+        return null;
+      }
 
       setState((previous) => ({
-        ...previous,
-        status: "loading",
-        error: null,
-        resultBatchId: null,
-        results: [],
+        turns: updateTurnInList(previous.turns, turnId, (entry) => ({
+          ...entry,
+          isSavingSelection: true,
+          error: null,
+        })),
       }));
 
       try {
-        const images = await generateImages(
-          toImageRequest(prompt, configForRequest, supportedFeatures),
-          {
-            signal: controller.signal,
-          }
-        );
-        if (generationAbortControllerRef.current !== controller) {
-          return null;
-        }
+        const generatedImages = turn.results.map((entry) => ({
+          imageUrl: entry.imageUrl,
+          provider: entry.provider,
+          model: entry.model,
+          mimeType: entry.mimeType,
+          revisedPrompt: entry.revisedPrompt,
+        }));
+
+        const imported = await saveGeneratedImages(generatedImages, selectedIndexes);
 
         setState((previous) => ({
-          ...previous,
-          status: "done",
-          error: null,
-          resultBatchId: createResultBatchId(),
-          results: images.map((image, index) => ({
-            ...image,
-            index,
-            assetId: null,
-            selected: true,
-            saved: false,
+          turns: updateTurnInList(previous.turns, turnId, (entry) => ({
+            ...entry,
+            isSavingSelection: false,
+            error: null,
+            results: entry.results.map((result) => {
+              const assetId = imported.indexToAssetId[result.index];
+              if (!assetId) {
+                return result;
+              }
+              return {
+                ...result,
+                assetId,
+                saved: true,
+                selected: false,
+              };
+            }),
           })),
         }));
-        return images;
-      } catch (error) {
-        if (controller.signal.aborted) {
-          return null;
-        }
 
+        return imported;
+      } catch (error) {
         setState((previous) => ({
-          ...previous,
-          status: "error",
-          results: [],
-          error: error instanceof Error ? error.message : "Image generation failed.",
+          turns: updateTurnInList(previous.turns, turnId, (entry) => ({
+            ...entry,
+            isSavingSelection: false,
+            error: error instanceof Error ? error.message : "Save generated images failed.",
+          })),
         }));
         return null;
-      } finally {
-        if (generationAbortControllerRef.current === controller) {
-          generationAbortControllerRef.current = null;
-        }
       }
     },
-    [supportedFeatures]
+    [state.turns]
   );
 
-  const saveSelectedResults = useCallback(async () => {
-    const resultBatchId = state.resultBatchId;
-    const selectedIndexes = state.results
-      .filter((entry) => entry.selected && !entry.saved)
-      .map((entry) => entry.index);
-    if (!resultBatchId || selectedIndexes.length === 0) {
-      return null;
-    }
-
+  const toggleResultSelection = useCallback((turnId: string, index: number) => {
     setState((previous) => ({
-      ...previous,
-      isSavingSelection: true,
-      error: null,
-    }));
-
-    try {
-      const generatedImages = state.results.map((entry) => ({
-        imageUrl: entry.imageUrl,
-        provider: entry.provider,
-        model: entry.model,
-        mimeType: entry.mimeType,
-        revisedPrompt: entry.revisedPrompt,
-      }));
-
-      const imported = await saveGeneratedImages(generatedImages, selectedIndexes);
-      setState((previous) => ({
-        ...previous,
-        isSavingSelection: false,
-        error: null,
-        results:
-          previous.resultBatchId !== resultBatchId
-            ? previous.results
-            : previous.results.map((entry) => {
-                const assetId = imported.indexToAssetId[entry.index];
-                if (!assetId) {
-                  return entry;
-                }
-                return {
-                  ...entry,
-                  assetId,
-                  saved: true,
-                  selected: false,
-                };
-              }),
-      }));
-      return imported;
-    } catch (error) {
-      setState((previous) => ({
-        ...previous,
-        isSavingSelection: false,
-        error: error instanceof Error ? error.message : "Save generated images failed.",
-      }));
-      return null;
-    }
-  }, [state.resultBatchId, state.results]);
-
-  const toggleResultSelection = useCallback((index: number) => {
-    setState((previous) => ({
-      ...previous,
-      results: previous.results.map((entry) =>
-        entry.index === index && !entry.saved
-          ? {
-              ...entry,
-              selected: !entry.selected,
-            }
-          : entry
-      ),
+      turns: updateTurnInList(previous.turns, turnId, (turn) => ({
+        ...turn,
+        results: turn.results.map((entry) =>
+          entry.index === index && !entry.saved
+            ? {
+                ...entry,
+                selected: !entry.selected,
+              }
+            : entry
+        ),
+      })),
     }));
   }, []);
 
@@ -387,39 +368,116 @@ export function useImageGeneration() {
   );
 
   const generateFromPromptInput = useCallback(
-    async (input: { text: string; files?: FileList | null }) => {
-      if (state.isSavingSelection) {
-        return null;
-      }
+    async (input: { text: string }) => {
       const prompt = input.text.trim();
       if (!prompt) {
-        setState((previous) => ({
-          ...previous,
-          status: "error",
-          error: "Prompt is required for image generation.",
-        }));
         return null;
       }
 
-      let configForRequest = config;
-      if (supportedFeatures.referenceImages && input.files && input.files.length > 0) {
-        const entries = await filesToReferenceImages(input.files);
-        addReferenceImages(entries);
-        configForRequest = {
-          ...configForRequest,
-          referenceImages: [...config.referenceImages, ...entries].slice(0, 4),
-        };
+      if (generationRequestRef.current) {
+        const { controller, turnId } = generationRequestRef.current;
+        controller.abort();
+        setState((previous) => ({
+          turns: updateTurnInList(previous.turns, turnId, (turn) =>
+            turn.status === "loading"
+              ? {
+                  ...turn,
+                  status: "error",
+                  error: "Generation canceled by a newer request.",
+                }
+              : turn
+          ),
+        }));
       }
 
-      return runGeneration(prompt, configForRequest);
+      const turnId = createTurnId();
+      const configSnapshot = cloneGenerationConfig(config);
+      const requestProviderConfig = getImageProviderConfig(configSnapshot.provider);
+      const requestSupportedFeatures =
+        requestProviderConfig?.supportedFeatures ?? supportedFeatures;
+      const controller = new AbortController();
+
+      generationRequestRef.current = {
+        controller,
+        turnId,
+      };
+
+      setState((previous) => ({
+        turns: [
+          {
+            id: turnId,
+            prompt,
+            createdAt: new Date().toISOString(),
+            configSnapshot,
+            status: "loading",
+            error: null,
+            isSavingSelection: false,
+            results: [],
+          },
+          ...previous.turns,
+        ],
+      }));
+
+      try {
+        const images = await generateImages(
+          toImageRequest(prompt, configSnapshot, requestSupportedFeatures),
+          {
+            signal: controller.signal,
+          }
+        );
+
+        if (
+          generationRequestRef.current?.controller !== controller ||
+          generationRequestRef.current?.turnId !== turnId
+        ) {
+          return null;
+        }
+
+        setState((previous) => ({
+          turns: updateTurnInList(previous.turns, turnId, (turn) => ({
+            ...turn,
+            status: "done",
+            error: null,
+            results: toGeneratedResultItems(images),
+          })),
+        }));
+
+        return images;
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return null;
+        }
+
+        setState((previous) => ({
+          turns: updateTurnInList(previous.turns, turnId, (turn) => ({
+            ...turn,
+            status: "error",
+            results: [],
+            error: error instanceof Error ? error.message : "Image generation failed.",
+          })),
+        }));
+        return null;
+      } finally {
+        if (
+          generationRequestRef.current?.controller === controller &&
+          generationRequestRef.current?.turnId === turnId
+        ) {
+          generationRequestRef.current = null;
+        }
+      }
     },
-    [addReferenceImages, config, runGeneration, state.isSavingSelection, supportedFeatures.referenceImages]
+    [config, supportedFeatures]
   );
 
   const addToCanvas = useCallback(
-    async (assetId?: string | null) => {
+    async (turnId: string, assetId?: string | null) => {
+      const turn = state.turns.find((entry) => entry.id === turnId);
+      if (!turn) {
+        return null;
+      }
+
       const finalAssetId =
-        assetId ?? state.results.find((entry) => entry.assetId)?.assetId ?? null;
+        assetId ?? turn.results.find((entry) => entry.assetId)?.assetId ?? null;
       if (!finalAssetId) {
         return null;
       }
@@ -456,7 +514,7 @@ export function useImageGeneration() {
       canvas.setSelectedElementIds([element.id]);
       return { documentId, elementId: element.id };
     },
-    [state.results]
+    [state.turns]
   );
 
   const aspectRatioOptions = useMemo(
@@ -464,8 +522,14 @@ export function useImageGeneration() {
     [modelConfig.supportedAspectRatios]
   );
 
+  const isGenerating = useMemo(
+    () => state.turns.some((turn) => turn.status === "loading"),
+    [state.turns]
+  );
+
   return {
-    ...state,
+    turns: state.turns,
+    isGenerating,
     config,
     providers,
     styles,
