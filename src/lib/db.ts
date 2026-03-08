@@ -1,6 +1,5 @@
 ﻿import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import type {
-  AssetAiRecommendation,
   AssetOrigin,
   AssetOwnerRef,
   AssetMetadata,
@@ -36,7 +35,6 @@ interface FilmLabDB extends DBSchema {
       adjustments?: EditingAdjustments;
       layers?: EditorLayer[];
       filmProfile?: FilmProfile;
-      aiRecommendation?: AssetAiRecommendation;
       source?: "imported" | "ai-generated";
       origin?: AssetOrigin;
       contentHash?: string;
