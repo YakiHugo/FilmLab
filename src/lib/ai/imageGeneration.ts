@@ -115,6 +115,16 @@ const normalizeImages = (value: unknown, fallbackProvider: string, fallbackModel
   return normalized;
 };
 
+const normalizeWarnings = (value: unknown) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(
+    (entry): entry is string => typeof entry === "string" && entry.trim().length > 0
+  );
+};
+
 export async function generateImage(
   request: ImageGenerationRequest,
   options?: GenerateImageOptions
@@ -151,6 +161,7 @@ export async function generateImage(
   const model = typeof json.model === "string" ? json.model : payload.model;
   const createdAt = typeof json.createdAt === "string" ? json.createdAt : new Date().toISOString();
   const normalizedImages = normalizeImages(json.images, provider, model);
+  const warnings = normalizeWarnings(json.warnings);
   const fallbackImageUrl =
     typeof json.imageUrl === "string" ? resolveApiUrl(json.imageUrl) : undefined;
 
@@ -179,5 +190,6 @@ export async function generateImage(
     ...(typeof json.imageId === "string" ? { imageId: json.imageId } : {}),
     imageUrl: fallbackImageUrl ?? images[0]?.imageUrl,
     images,
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 }

@@ -7,6 +7,7 @@ import type { Asset, CanvasImageElement } from "@/types";
 import type {
   GeneratedImage,
   ImageGenerationRequest,
+  ImageGenerationResponse,
   ReferenceImage,
 } from "@/types/imageGeneration";
 import { useAssetStore } from "@/stores/assetStore";
@@ -31,6 +32,7 @@ export interface ImageGenerationTurn {
   configSnapshot: GenerationConfig;
   status: "loading" | "done" | "error";
   error: string | null;
+  warnings: string[];
   isSavingSelection: boolean;
   results: GeneratedResultItem[];
 }
@@ -340,9 +342,8 @@ const toGeneratedResultItems = (images: GeneratedImage[]): GeneratedResultItem[]
 export async function generateImages(
   request: ImageGenerationRequest,
   options?: { signal?: AbortSignal }
-): Promise<GeneratedImage[]> {
-  const generated = await requestImageGeneration(request, options);
-  return generated.images;
+): Promise<ImageGenerationResponse> {
+  return requestImageGeneration(request, options);
 }
 
 export async function saveGeneratedImages(
@@ -589,6 +590,7 @@ export function useImageGeneration() {
             configSnapshot,
             status: "loading",
             error: null,
+            warnings: [],
             isSavingSelection: false,
             results: [],
           },
@@ -599,7 +601,7 @@ export function useImageGeneration() {
       }));
 
       try {
-        const images = await generateImages(
+        const generated = await generateImages(
           toImageRequest(prompt, configSnapshot, requestSupportedFeatures, {
             supportsCustomSize: Boolean(requestModelConfig?.supportsCustomSize),
           }),
@@ -620,11 +622,12 @@ export function useImageGeneration() {
             ...turn,
             status: "done",
             error: null,
-            results: toGeneratedResultItems(images),
+            warnings: generated.warnings ?? [],
+            results: toGeneratedResultItems(generated.images),
           })),
         }));
 
-        return images;
+        return generated.images;
       } catch (error) {
         if (controller.signal.aborted) {
           return null;
@@ -636,6 +639,7 @@ export function useImageGeneration() {
             status: "error",
             results: [],
             error: error instanceof Error ? error.message : "Image generation failed.",
+            warnings: [],
           })),
         }));
         return null;

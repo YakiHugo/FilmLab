@@ -45,6 +45,31 @@ const resolveTurnMeta = (turn: ImageGenerationTurn) => {
   };
 };
 
+function TurnWarnings({
+  warnings,
+  compact = false,
+}: {
+  warnings: string[];
+  compact?: boolean;
+}) {
+  if (warnings.length === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      className={cn(
+        "mb-3 rounded-2xl border border-amber-400/18 bg-amber-500/10 px-4 py-3 text-amber-100",
+        compact ? "text-xs" : "text-sm"
+      )}
+    >
+      {warnings.map((warning, index) => (
+        <p key={`${warning}-${index}`}>{warning}</p>
+      ))}
+    </div>
+  );
+}
+
 function TurnTags({ turn, compact = false }: { turn: ImageGenerationTurn; compact?: boolean }) {
   const meta = useMemo(() => resolveTurnMeta(turn), [turn]);
   const items = [
@@ -227,6 +252,8 @@ function LatestTurnStage({
           </div>
         ) : null}
 
+        <TurnWarnings warnings={turn.warnings} />
+
         {turn.results.length > 0 ? (
           <div className="flex gap-3 overflow-x-auto pb-2">
             {turn.results.map((entry) => (
@@ -373,6 +400,8 @@ function HistoryTurnRow({
             {turn.error}
           </div>
         ) : null}
+
+        <TurnWarnings warnings={turn.warnings} compact />
 
         {turn.results.length > 0 ? (
           <div className="flex gap-3 overflow-x-auto pb-1">
