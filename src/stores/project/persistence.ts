@@ -43,7 +43,6 @@ export const toStoredAsset = (asset: Asset): StoredAsset | null => {
     metadata: asset.metadata,
     adjustments: asset.adjustments ? normalizeAdjustments(asset.adjustments) : undefined,
     layers: ensureAssetLayers(asset),
-    aiRecommendation: asset.aiRecommendation,
     source: asset.source,
     origin: asset.origin,
     contentHash: asset.contentHash,
@@ -132,5 +131,4 @@ export const ensurePersistFlushOnUnload = () => {
 
   isBeforeUnloadBound = true;
 };
-
 
