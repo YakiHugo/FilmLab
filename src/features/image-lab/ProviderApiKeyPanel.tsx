@@ -13,6 +13,14 @@ interface ProviderApiKeyPanelProps {
   currentProvider: ImageProviderId;
 }
 
+const getPlaceholder = (providerId: ImageProviderId, providerName: string) => {
+  if (providerId === "seedream") {
+    return "Enter AccessKeyId:SecretAccessKey or leave blank for server fallback";
+  }
+
+  return `Use a ${providerName} key or leave blank for server fallback`;
+};
+
 export function ProviderApiKeyPanel({
   providers,
   currentProvider,
@@ -83,7 +91,7 @@ export function ProviderApiKeyPanel({
                 autoComplete="off"
                 spellCheck={false}
                 value={value}
-                placeholder={`Use a ${provider.name} key or leave blank for server fallback`}
+                placeholder={getPlaceholder(provider.id, provider.name)}
                 className="h-8 border-white/10 bg-black/35 text-xs"
                 onChange={(event) =>
                   setDraftKeys((previous) => ({

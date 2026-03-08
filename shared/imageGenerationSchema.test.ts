@@ -83,4 +83,22 @@ describe("imageGenerationRequestSchema", () => {
 
     expect(issuePaths).toContain("batchSize");
   });
+
+  it("accepts Seedream custom sizes and model params", () => {
+    const result = imageGenerationRequestSchema.safeParse({
+      ...basePayload,
+      provider: "seedream",
+      model: "seedream-3.0",
+      aspectRatio: "custom",
+      width: 1344,
+      height: 768,
+      negativePrompt: "avoid blur",
+      seed: 42,
+      guidanceScale: 4.5,
+      steps: 25,
+      modelParams: {},
+    });
+
+    expect(result.success).toBe(true);
+  });
 });

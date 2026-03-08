@@ -199,6 +199,28 @@ export const IMAGE_PROVIDERS: ImageProviderConfig[] = [
       referenceImages: IDEOGRAM_REFERENCE_SUPPORT,
     },
   },
+  {
+    id: "seedream",
+    name: "Seedream",
+    models: [
+      {
+        id: "seedream-3.0",
+        name: "Seedream 3.0",
+        supportedAspectRatios: [...COMMON_ASPECT_RATIOS, "custom"],
+        supportsCustomSize: true,
+        defaultSteps: 25,
+        maxBatchSize: 4,
+      },
+    ],
+    supportedFeatures: {
+      negativePrompt: true,
+      seed: true,
+      guidanceScale: true,
+      steps: true,
+      styles: true,
+      referenceImages: NO_REFERENCE_SUPPORT,
+    },
+  },
 ];
 
 export const DEFAULT_IMAGE_PROVIDER: ImageProviderId = "openai";

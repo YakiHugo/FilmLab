@@ -213,6 +213,11 @@ const MODEL_PARAM_CONFIGS: ImageModelParamConfig[] = [
     model: "ideogram-3",
     fields: IDEOGRAM_FIELDS,
   },
+  {
+    provider: "seedream",
+    model: "seedream-3.0",
+    fields: [],
+  },
 ];
 
 const normalizeModelParamValue = (
