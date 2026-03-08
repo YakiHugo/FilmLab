@@ -4,7 +4,18 @@ interface DownloadableImageResult {
   mimeType?: string;
 }
 
+export interface DownloadAllSummary {
+  succeeded: number;
+  failed: number;
+  failures: Array<{
+    displayIndex: number;
+    imageUrl: string;
+    message: string;
+  }>;
+}
+
 const DOWNLOAD_GAP_MS = 200;
+const OBJECT_URL_REVOKE_DELAY_MS = 30_000;
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -28,11 +39,11 @@ const triggerBrowserDownload = (blob: Blob, filename: string) => {
   document.body.removeChild(anchor);
   window.setTimeout(() => {
     URL.revokeObjectURL(objectUrl);
-  }, 0);
+  }, OBJECT_URL_REVOKE_DELAY_MS);
 };
 
-export const getImageDownloadFilename = (index: number, mimeType?: string) =>
-  `ai-image-${index}.${toFileExtension(mimeType)}`;
+export const getImageDownloadFilename = (displayIndex: number, mimeType?: string) =>
+  `ai-image-${displayIndex}.${toFileExtension(mimeType)}`;
 
 export const downloadImageFromUrl = async (url: string, filename: string) => {
   const response = await fetch(url);
@@ -44,12 +55,39 @@ export const downloadImageFromUrl = async (url: string, filename: string) => {
   triggerBrowserDownload(blob, filename);
 };
 
-export const downloadAllResults = async (results: DownloadableImageResult[]) => {
-  for (const result of results) {
-    await downloadImageFromUrl(
-      result.imageUrl,
-      getImageDownloadFilename(result.index + 1, result.mimeType)
-    );
-    await sleep(DOWNLOAD_GAP_MS);
+export const downloadAllResults = async (
+  results: DownloadableImageResult[]
+): Promise<DownloadAllSummary> => {
+  let succeeded = 0;
+  let failed = 0;
+  const failures: DownloadAllSummary["failures"] = [];
+
+  for (const [listIndex, result] of results.entries()) {
+    try {
+      await downloadImageFromUrl(
+        result.imageUrl,
+        getImageDownloadFilename(result.index + 1, result.mimeType)
+      );
+      succeeded += 1;
+    } catch (error) {
+      failed += 1;
+      const message =
+        error instanceof Error ? error.message : "Generated image could not be downloaded.";
+      failures.push({
+        displayIndex: result.index + 1,
+        imageUrl: result.imageUrl,
+        message,
+      });
+      console.warn("Generated image download failed.", {
+        error,
+        imageUrl: result.imageUrl,
+      });
+    }
+
+    if (listIndex < results.length - 1) {
+      await sleep(DOWNLOAD_GAP_MS);
+    }
   }
+
+  return { succeeded, failed, failures };
 };
