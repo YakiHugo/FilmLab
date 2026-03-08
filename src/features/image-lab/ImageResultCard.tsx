@@ -1,4 +1,4 @@
-import { Check, Layers } from "lucide-react";
+import { ArrowUpFromLine, Check, Download, Layers, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ImageResultCardProps {
@@ -11,6 +11,9 @@ interface ImageResultCardProps {
   compact?: boolean;
   onToggleSelection: () => void;
   onAddToCanvas: () => void;
+  onDownload?: () => void;
+  onUpscale?: () => void;
+  isUpscaling?: boolean;
 }
 
 export function ImageResultCard({
@@ -23,6 +26,9 @@ export function ImageResultCard({
   compact = false,
   onToggleSelection,
   onAddToCanvas,
+  onDownload,
+  onUpscale,
+  isUpscaling = false,
 }: ImageResultCardProps) {
   return (
     <article
@@ -60,37 +66,91 @@ export function ImageResultCard({
         </div>
       </div>
 
-      <div className={cn("grid grid-cols-2 gap-2 border-t border-white/6 bg-[#090b10]/94 p-2.5", compact && "gap-1.5 p-2")}>
-        <button
-          type="button"
-          className={cn(
-            "inline-flex items-center justify-center rounded-full border font-medium transition",
-            compact ? "h-8 text-[11px]" : "h-9 text-xs",
-            saved
-              ? "cursor-not-allowed border-white/8 bg-white/[0.02] text-zinc-500"
-              : selected
-                ? "border-white/16 bg-white/[0.1] text-zinc-100 hover:bg-white/[0.14]"
-                : "border-white/10 bg-white/[0.04] text-zinc-300 hover:border-white/16 hover:bg-white/[0.08]"
-          )}
-          onClick={onToggleSelection}
-          disabled={saved}
-        >
-          <Check className={cn("mr-1.5", compact ? "h-3.5 w-3.5" : "h-4 w-4")} />
-          {compact ? "Save" : selected ? "Selected" : "Save"}
-        </button>
+      <div className={cn("space-y-2 border-t border-white/6 bg-[#090b10]/94 p-2.5", compact && "space-y-1.5 p-2")}>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            className={cn(
+              "inline-flex items-center justify-center rounded-full border font-medium transition",
+              compact ? "h-8 text-[11px]" : "h-9 text-xs",
+              saved
+                ? "cursor-not-allowed border-white/8 bg-white/[0.02] text-zinc-500"
+                : selected
+                  ? "border-white/16 bg-white/[0.1] text-zinc-100 hover:bg-white/[0.14]"
+                  : "border-white/10 bg-white/[0.04] text-zinc-300 hover:border-white/16 hover:bg-white/[0.08]"
+            )}
+            onClick={onToggleSelection}
+            disabled={saved}
+          >
+            <Check className={cn(compact ? "h-3.5 w-3.5" : "mr-1.5 h-4 w-4")} />
+            {compact ? <span className="sr-only">Save</span> : selected ? "Selected" : "Save"}
+          </button>
 
-        <button
-          type="button"
-          className={cn(
-            "inline-flex items-center justify-center rounded-full border font-medium transition",
-            compact ? "h-8 text-[11px]" : "h-9 text-xs",
-            "border-white/10 bg-white/[0.04] text-zinc-200 hover:border-white/16 hover:bg-white/[0.08]"
-          )}
-          onClick={onAddToCanvas}
-        >
-          <Layers className={cn("mr-1.5", compact ? "h-3.5 w-3.5" : "h-4 w-4")} />
-          {compact ? "Canvas" : assetId ? "Canvas" : "Save + Canvas"}
-        </button>
+          <button
+            type="button"
+            className={cn(
+              "inline-flex items-center justify-center rounded-full border font-medium transition",
+              compact ? "h-8 text-[11px]" : "h-9 text-xs",
+              "border-white/10 bg-white/[0.04] text-zinc-200 hover:border-white/16 hover:bg-white/[0.08]"
+            )}
+            onClick={onAddToCanvas}
+          >
+            <Layers className={cn(compact ? "h-3.5 w-3.5" : "mr-1.5 h-4 w-4")} />
+            {compact ? (
+              <span className="sr-only">Add to canvas</span>
+            ) : assetId ? (
+              "Canvas"
+            ) : (
+              "Save + Canvas"
+            )}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            className={cn(
+              "inline-flex items-center justify-center rounded-full border font-medium transition",
+              compact ? "h-8 text-[11px]" : "h-9 text-xs",
+              "border-white/10 bg-white/[0.04] text-zinc-200 hover:border-white/16 hover:bg-white/[0.08]"
+            )}
+            onClick={onDownload}
+            disabled={!onDownload}
+            aria-label="Download image"
+            title="Download image"
+          >
+            <Download className={cn(compact ? "h-3.5 w-3.5" : "mr-1.5 h-4 w-4")} />
+            {compact ? <span className="sr-only">Download</span> : "Download"}
+          </button>
+
+          <button
+            type="button"
+            className={cn(
+              "inline-flex items-center justify-center rounded-full border font-medium transition",
+              compact ? "h-8 text-[11px]" : "h-9 text-xs",
+              onUpscale
+                ? "border-white/10 bg-white/[0.04] text-zinc-200 hover:border-white/16 hover:bg-white/[0.08]"
+                : "cursor-not-allowed border-white/8 bg-white/[0.02] text-zinc-600"
+            )}
+            onClick={onUpscale}
+            disabled={!onUpscale || isUpscaling}
+            aria-label="Upscale image"
+            title="Upscale image"
+          >
+            {isUpscaling ? (
+              <Loader2 className={cn("animate-spin", compact ? "h-3.5 w-3.5" : "mr-1.5 h-4 w-4")} />
+            ) : (
+              <ArrowUpFromLine className={cn(compact ? "h-3.5 w-3.5" : "mr-1.5 h-4 w-4")} />
+            )}
+            {compact ? (
+              <span className="sr-only">Upscale</span>
+            ) : isUpscaling ? (
+              "Upscaling"
+            ) : (
+              "Upscale"
+            )}
+          </button>
+        </div>
       </div>
     </article>
   );

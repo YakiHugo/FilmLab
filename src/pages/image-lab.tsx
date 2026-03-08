@@ -1,9 +1,14 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { IMAGE_STYLE_PRESETS, type ImageStylePreset } from "@/lib/ai/imageStylePresets";
 import type { ImageModelParamValue } from "@/lib/ai/imageModelParams";
 import { ImageChatFeed } from "@/features/image-lab/ImageChatFeed";
 import { ImagePromptInput } from "@/features/image-lab/ImagePromptInput";
 import { useImageGeneration } from "@/features/image-lab/hooks/useImageGeneration";
+import {
+  downloadAllResults,
+  downloadImageFromUrl,
+  getImageDownloadFilename,
+} from "@/features/image-lab/utils/downloadUtils";
 import type { ImageStyleId } from "@/types/imageGeneration";
 import { IMAGE_GENERATION_LIMITS } from "@/lib/ai/imageGenerationSchema";
 
@@ -47,6 +52,7 @@ const resolveSpeedFromSteps = (
 
 export function ImageLabPage() {
   const imageGeneration = useImageGeneration();
+  const [externalPrompt, setExternalPrompt] = useState<string | null>(null);
   const updateGenerationConfig = imageGeneration.updateConfig;
   const generationSpeed = resolveSpeedFromSteps(
     imageGeneration.config.steps,
@@ -90,6 +96,65 @@ export function ImageLabPage() {
     });
   };
 
+  const handleDeleteTurn = useCallback(
+    (turnId: string) => {
+      imageGeneration.deleteTurn(turnId);
+    },
+    [imageGeneration]
+  );
+
+  const handleRetryTurn = useCallback(
+    (turnId: string) => {
+      void imageGeneration.retryTurn(turnId);
+    },
+    [imageGeneration]
+  );
+
+  const handleReuseParameters = useCallback(
+    (turnId: string) => {
+      const prompt = imageGeneration.reuseParameters(turnId);
+      if (prompt) {
+        setExternalPrompt(prompt);
+      }
+    },
+    [imageGeneration]
+  );
+
+  const handleDownloadAll = useCallback(
+    (turnId: string) => {
+      const turn = imageGeneration.turns.find((entry) => entry.id === turnId);
+      if (!turn) {
+        return;
+      }
+
+      void downloadAllResults(turn.results);
+    },
+    [imageGeneration.turns]
+  );
+
+  const handleDownloadResult = useCallback(
+    (turnId: string, index: number) => {
+      const turn = imageGeneration.turns.find((entry) => entry.id === turnId);
+      const result = turn?.results.find((entry) => entry.index === index);
+      if (!result) {
+        return;
+      }
+
+      void downloadImageFromUrl(
+        result.imageUrl,
+        getImageDownloadFilename(result.index + 1, result.mimeType)
+      );
+    },
+    [imageGeneration.turns]
+  );
+
+  const handleUpscaleResult = useCallback(
+    (turnId: string, index: number) => {
+      void imageGeneration.upscaleResult(turnId, index);
+    },
+    [imageGeneration]
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#050506]">
       <ImageChatFeed
@@ -102,6 +167,12 @@ export function ImageLabPage() {
         onAddToCanvas={(turnId, index, assetId) => {
           void imageGeneration.addToCanvas(turnId, index, assetId);
         }}
+        onDeleteTurn={handleDeleteTurn}
+        onRetryTurn={handleRetryTurn}
+        onReuseParameters={handleReuseParameters}
+        onDownloadAll={handleDownloadAll}
+        onDownloadResult={handleDownloadResult}
+        onUpscaleResult={handleUpscaleResult}
       />
 
       <ImagePromptInput
@@ -142,6 +213,8 @@ export function ImageLabPage() {
         }}
         modelParamDefinitions={imageGeneration.modelParamDefinitions}
         referenceImages={imageGeneration.config.referenceImages}
+        externalPrompt={externalPrompt}
+        onExternalPromptConsumed={() => setExternalPrompt(null)}
         onGenerationSpeedChange={(speed) =>
           updateGenerationConfig({
             steps: resolveStepsForSpeed(imageGeneration.modelConfig.defaultSteps, speed),

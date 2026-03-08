@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { importAssetFiles } from "@/lib/assetImport";
 import { generateImage as requestImageGeneration } from "@/lib/ai/imageGeneration";
-import { getImageProviderConfig } from "@/lib/ai/imageProviders";
+import { upscaleImage } from "@/lib/ai/imageUpscale";
+import { getImageModelConfig, getImageProviderConfig } from "@/lib/ai/imageProviders";
 import type { Asset, CanvasImageElement } from "@/types";
 import type {
   GeneratedImage,
@@ -18,6 +19,7 @@ export interface GeneratedResultItem extends GeneratedImage {
   assetId: string | null;
   selected: boolean;
   saved: boolean;
+  isUpscaling?: boolean;
 }
 
 export interface ImageGenerationTurn {
@@ -287,6 +289,28 @@ const updateTurnInList = (
   updater: (turn: ImageGenerationTurn) => ImageGenerationTurn
 ) => turns.map((turn) => (turn.id === turnId ? updater(turn) : turn));
 
+const updateResultInTurnList = (
+  turns: ImageGenerationTurn[],
+  turnId: string,
+  resultIndex: number,
+  updater: (result: GeneratedResultItem) => GeneratedResultItem
+) =>
+  updateTurnInList(turns, turnId, (turn) => ({
+    ...turn,
+    results: turn.results.map((result) =>
+      result.index === resultIndex ? updater(result) : result
+    ),
+  }));
+
+const resolveGeneratedImageId = (image: Pick<GeneratedImage, "imageId" | "imageUrl">) => {
+  if (typeof image.imageId === "string" && image.imageId.trim()) {
+    return image.imageId.trim();
+  }
+
+  const match = image.imageUrl.match(/\/api\/generated-images\/([^/?#]+)/);
+  return match?.[1] ?? null;
+};
+
 const toGeneratedResultItems = (images: GeneratedImage[]): GeneratedResultItem[] =>
   images.map((image, index) => ({
     ...image,
@@ -398,6 +422,27 @@ export function useImageGeneration() {
     };
   }, []);
 
+  const cancelActiveGeneration = useCallback((reason: string) => {
+    if (!generationRequestRef.current) {
+      return;
+    }
+
+    const { controller, turnId } = generationRequestRef.current;
+    controller.abort();
+    generationRequestRef.current = null;
+    setState((previous) => ({
+      turns: updateTurnInList(previous.turns, turnId, (turn) =>
+        turn.status === "loading"
+          ? {
+              ...turn,
+              status: "error",
+              error: reason,
+            }
+          : turn
+      ),
+    }));
+  }, []);
+
   const saveSelectedResults = useCallback(
     async (turnId: string) => {
       const turn = state.turns.find((entry) => entry.id === turnId);
@@ -493,32 +538,21 @@ export function useImageGeneration() {
     [addReferenceImages, providerConfig.supportedFeatures.referenceImages.maxFileSizeBytes]
   );
 
-  const generateFromPromptInput = useCallback(
-    async (input: { text: string }) => {
-      const prompt = input.text.trim();
+  const generateWithConfig = useCallback(
+    async (promptInput: string, configSnapshot: GenerationConfig) => {
+      const prompt = promptInput.trim();
       if (!prompt) {
         return null;
       }
 
-      if (generationRequestRef.current) {
-        const { controller, turnId } = generationRequestRef.current;
-        controller.abort();
-        setState((previous) => ({
-          turns: updateTurnInList(previous.turns, turnId, (turn) =>
-            turn.status === "loading"
-              ? {
-                  ...turn,
-                  status: "error",
-                  error: "Generation canceled by a newer request.",
-                }
-              : turn
-          ),
-        }));
-      }
+      cancelActiveGeneration("Generation canceled by a newer request.");
 
       const turnId = createTurnId();
-      const configSnapshot = cloneGenerationConfig(config);
       const requestProviderConfig = getImageProviderConfig(configSnapshot.provider);
+      const requestModelConfig = getImageModelConfig(
+        configSnapshot.provider,
+        configSnapshot.model
+      );
       const requestSupportedFeatures =
         requestProviderConfig?.supportedFeatures ?? supportedFeatures;
       const controller = new AbortController();
@@ -547,13 +581,13 @@ export function useImageGeneration() {
       try {
         const images = await generateImages(
           toImageRequest(prompt, configSnapshot, requestSupportedFeatures, {
-            supportsCustomSize: Boolean(modelConfig.supportsCustomSize),
+            supportsCustomSize: Boolean(requestModelConfig?.supportsCustomSize),
           }),
           {
             signal: controller.signal,
           }
         );
-        
+
         if (
           generationRequestRef.current?.controller !== controller ||
           generationRequestRef.current?.turnId !== turnId
@@ -594,7 +628,151 @@ export function useImageGeneration() {
         }
       }
     },
-    [config, modelConfig.supportsCustomSize, supportedFeatures]
+    [cancelActiveGeneration, supportedFeatures]
+  );
+
+  const generateFromPromptInput = useCallback(
+    async (input: { text: string }) =>
+      generateWithConfig(input.text, cloneGenerationConfig(config)),
+    [config, generateWithConfig]
+  );
+
+  const deleteTurn = useCallback(
+    (turnId: string) => {
+      if (generationRequestRef.current?.turnId === turnId) {
+        generationRequestRef.current.controller.abort();
+        generationRequestRef.current = null;
+      }
+
+      setState((previous) => ({
+        turns: previous.turns.filter((turn) => turn.id !== turnId),
+      }));
+    },
+    []
+  );
+
+  const retryTurn = useCallback(
+    async (turnId: string) => {
+      const turn = state.turns.find((entry) => entry.id === turnId);
+      if (!turn) {
+        return null;
+      }
+
+      return generateWithConfig(turn.prompt, cloneGenerationConfig(turn.configSnapshot));
+    },
+    [generateWithConfig, state.turns]
+  );
+
+  const reuseParameters = useCallback(
+    (turnId: string) => {
+      const turn = state.turns.find((entry) => entry.id === turnId);
+      if (!turn) {
+        return null;
+      }
+
+      const snapshot = cloneGenerationConfig(turn.configSnapshot);
+      setProvider(snapshot.provider);
+      setModel(snapshot.model);
+      updateConfig(snapshot);
+      return turn.prompt;
+    },
+    [setModel, setProvider, state.turns, updateConfig]
+  );
+
+  const upscaleResult = useCallback(
+    async (turnId: string, index: number) => {
+      const turn = state.turns.find((entry) => entry.id === turnId);
+      const result = turn?.results.find((entry) => entry.index === index);
+      if (!turn || !result || result.isUpscaling) {
+        return null;
+      }
+
+      const supportsUpscale = Boolean(
+        getImageProviderConfig(result.provider)?.supportedFeatures.supportsUpscale
+      );
+      if (!supportsUpscale || result.provider !== "stability") {
+        setState((previous) => ({
+          turns: updateTurnInList(previous.turns, turnId, (entry) => ({
+            ...entry,
+            error: "Upscale is not available for this provider.",
+          })),
+        }));
+        return null;
+      }
+
+      const imageId = resolveGeneratedImageId(result);
+      if (!imageId) {
+        setState((previous) => ({
+          turns: updateTurnInList(previous.turns, turnId, (entry) => ({
+            ...entry,
+            error: "Generated image is no longer available for upscale.",
+          })),
+        }));
+        return null;
+      }
+
+      setState((previous) => ({
+        turns: updateResultInTurnList(
+          updateTurnInList(previous.turns, turnId, (entry) => ({
+            ...entry,
+            error: null,
+          })),
+          turnId,
+          index,
+          (entry) => ({
+            ...entry,
+            isUpscaling: true,
+          })
+        ),
+      }));
+
+      try {
+        const upscaled = await upscaleImage({
+          provider: "stability",
+          model: result.model,
+          imageId,
+          scale: "2x",
+        });
+
+        setState((previous) => ({
+          turns: updateTurnInList(previous.turns, turnId, (entry) => ({
+            ...entry,
+            error: null,
+            results: entry.results.map((item) =>
+              item.index === index
+                ? {
+                    ...item,
+                    ...upscaled,
+                    assetId: null,
+                    saved: false,
+                    selected: true,
+                    isUpscaling: false,
+                  }
+                : item
+            ),
+          })),
+        }));
+
+        return upscaled;
+      } catch (error) {
+        setState((previous) => ({
+          turns: updateTurnInList(previous.turns, turnId, (entry) => ({
+            ...entry,
+            error: error instanceof Error ? error.message : "Image upscale failed.",
+            results: entry.results.map((item) =>
+              item.index === index
+                ? {
+                    ...item,
+                    isUpscaling: false,
+                  }
+                : item
+            ),
+          })),
+        }));
+        return null;
+      }
+    },
+    [state.turns]
   );
 
   const addToCanvas = useCallback(
@@ -701,6 +879,10 @@ export function useImageGeneration() {
     removeReferenceImage,
     clearReferenceImages,
     generateFromPromptInput,
+    deleteTurn,
+    retryTurn,
+    reuseParameters,
+    upscaleResult,
     toggleResultSelection,
     saveSelectedResults,
     addToCanvas,
