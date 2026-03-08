@@ -30,7 +30,7 @@ describe("generateImage", () => {
       new Response(
         JSON.stringify({
           provider: "seedream",
-          model: "seedream-3.0",
+          model: "doubao-seedream-5-0-260128",
           createdAt: "2026-03-09T00:00:00.000Z",
           imageId: "img-1",
           imageUrl: "/api/generated-images/img-1",
@@ -40,7 +40,7 @@ describe("generateImage", () => {
               imageId: "img-1",
               imageUrl: "/api/generated-images/img-1",
               provider: "seedream",
-              model: "seedream-3.0",
+              model: "doubao-seedream-5-0-260128",
             },
           ],
         }),
@@ -57,7 +57,7 @@ describe("generateImage", () => {
     const result = await generateImage({
       prompt: "Rainy alley",
       provider: "seedream",
-      model: "seedream-3.0",
+      model: "doubao-seedream-5-0-260128",
       aspectRatio: "1:1",
       style: "none",
       referenceImages: [],

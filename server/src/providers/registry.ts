@@ -29,11 +29,8 @@ const getServerApiKey = (providerId: ImageProviderId) => {
       return config.fluxApiKey ?? "";
     case "ideogram":
       return config.ideogramApiKey ?? "";
-    case "seedream": {
-      const accessKeyId = config.volcengineAccessKeyId ?? "";
-      const secretAccessKey = config.volcengineSecretAccessKey ?? "";
-      return accessKeyId && secretAccessKey ? `${accessKeyId}:${secretAccessKey}` : "";
-    }
+    case "seedream":
+      return config.arkApiKey ?? "";
     default:
       return "";
   }

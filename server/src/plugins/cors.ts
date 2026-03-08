@@ -14,6 +14,7 @@ export const registerCors: FastifyPluginAsync = async (app) => {
       "X-Provider-Key-stability",
       "X-Provider-Key-flux",
       "X-Provider-Key-ideogram",
+      "X-Provider-Key-seedream",
     ],
   });
 };

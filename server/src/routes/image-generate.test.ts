@@ -114,4 +114,53 @@ describe("imageGenerateRoute", () => {
 
     await app.close();
   });
+
+  it("reads the Seedream provider key from request headers", async () => {
+    const { default: Fastify } = await import("fastify");
+    const { imageGenerateRoute } = await import("./image-generate");
+
+    generateMock.mockResolvedValue({
+      provider: "seedream",
+      model: "doubao-seedream-5-0-260128",
+      images: [
+        {
+          binaryData: Buffer.from([1, 2, 3]),
+          mimeType: "image/jpeg",
+        },
+      ],
+    });
+    storeGeneratedImageMock.mockReturnValue("seedream-1");
+
+    const app = Fastify();
+    await app.register(imageGenerateRoute);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      headers: {
+        "X-Provider-Key-seedream": "ark-user-key",
+      },
+      payload: {
+        prompt: "Studio portrait",
+        provider: "seedream",
+        model: "doubao-seedream-5-0-260128",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        referenceImages: [],
+        modelParams: {},
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(getUserProviderKeyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        "x-provider-key-seedream": "ark-user-key",
+      }),
+      "seedream"
+    );
+    expect(resolveApiKeyMock).toHaveBeenCalledWith("seedream", "user-key");
+
+    await app.close();
+  });
 });

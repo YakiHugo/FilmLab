@@ -215,7 +215,7 @@ const MODEL_PARAM_CONFIGS: ImageModelParamConfig[] = [
   },
   {
     provider: "seedream",
-    model: "seedream-3.0",
+    model: "doubao-seedream-5-0-260128",
     fields: [],
   },
 ];
