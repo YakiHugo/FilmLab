@@ -101,6 +101,7 @@ const normalizeImages = (value: unknown, fallbackProvider: string, fallbackModel
     }
     normalized.push({
       imageUrl: resolveApiUrl(item.imageUrl),
+      ...(typeof item.imageId === "string" ? { imageId: item.imageId } : {}),
       provider: (
         typeof item.provider === "string" ? item.provider : fallbackProvider
       ) as GeneratedImage["provider"],
@@ -160,6 +161,7 @@ export async function generateImage(
         ? [
             {
               imageUrl: fallbackImageUrl,
+              ...(typeof json.imageId === "string" ? { imageId: json.imageId } : {}),
               provider,
               model,
             },
@@ -174,6 +176,7 @@ export async function generateImage(
     provider,
     model,
     createdAt,
+    ...(typeof json.imageId === "string" ? { imageId: json.imageId } : {}),
     imageUrl: fallbackImageUrl ?? images[0]?.imageUrl,
     images,
   };

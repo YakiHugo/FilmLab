@@ -44,6 +44,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           });
           const imageId = storeGeneratedImage(downloaded.buffer, downloaded.mimeType);
           return {
+            imageId,
             imageUrl: `/api/generated-images/${imageId}`,
             mimeType: downloaded.mimeType,
           };
@@ -54,6 +55,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
 
         const imageId = storeGeneratedImage(image.binaryData, image.mimeType);
         return {
+          imageId,
           imageUrl: `/api/generated-images/${imageId}`,
           mimeType: image.mimeType,
         };
@@ -102,6 +104,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
               return null;
             }
             return {
+              imageId: normalized.imageId,
               imageUrl: normalized.imageUrl,
               mimeType: normalized.mimeType,
               revisedPrompt: image.revisedPrompt ?? null,
@@ -111,6 +114,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         const normalizedImages = normalizedResults.reduce<
           Array<{
             imageUrl: string;
+            imageId: string;
             provider: typeof generated.provider;
             model: string;
             mimeType?: string;
@@ -122,6 +126,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           }
 
           accumulator.push({
+            imageId: image.imageId,
             imageUrl: image.imageUrl,
             provider: generated.provider,
             model: generated.model,
@@ -131,6 +136,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           return accumulator;
         }, []);
         const firstImageUrl = normalizedImages[0]?.imageUrl;
+        const firstImageId = normalizedImages[0]?.imageId;
 
         if (!firstImageUrl) {
           throw new ProviderError("Provider did not return any image.");
@@ -140,6 +146,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           provider: generated.provider,
           model: generated.model,
           createdAt: new Date().toISOString(),
+          imageId: firstImageId,
           imageUrl: firstImageUrl,
           images: normalizedImages,
         });

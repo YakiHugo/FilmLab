@@ -93,14 +93,17 @@ describe("imageGenerateRoute", () => {
     );
 
     const body = response.json();
+    expect(body.imageId).toBe("remote-1");
     expect(body.imageUrl).toBe("/api/generated-images/remote-1");
     expect(body.images).toEqual([
       expect.objectContaining({
+        imageId: "remote-1",
         imageUrl: "/api/generated-images/remote-1",
         provider: "flux",
         model: "flux-pro",
       }),
       expect.objectContaining({
+        imageId: "binary-1",
         imageUrl: "/api/generated-images/binary-1",
         provider: "flux",
         model: "flux-pro",

@@ -18,6 +18,10 @@ export default defineConfig({
         target: "http://localhost:3001",
         changeOrigin: true,
       },
+      "/api/image-upscale": {
+        target: "http://localhost:3001",
+        changeOrigin: true,
+      },
       "/api/recommend-film": {
         target: "http://localhost:3001",
         changeOrigin: true,

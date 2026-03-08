@@ -18,6 +18,7 @@ export interface ImageProviderFeatureSupport {
   guidanceScale: boolean;
   steps: boolean;
   styles: boolean;
+  supportsUpscale?: boolean;
   referenceImages: ImageReferenceImageCapability;
 }
 
@@ -135,6 +136,7 @@ export const IMAGE_PROVIDERS: ImageProviderConfig[] = [
       guidanceScale: true,
       steps: true,
       styles: true,
+      supportsUpscale: true,
       referenceImages: NO_REFERENCE_SUPPORT,
     },
   },
