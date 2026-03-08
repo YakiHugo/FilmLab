@@ -1,5 +1,4 @@
 import { KeyRound, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { ImageProviderId } from "@/types/imageGeneration";
@@ -15,7 +14,7 @@ interface ProviderApiKeyPanelProps {
 
 const getPlaceholder = (providerId: ImageProviderId, providerName: string) => {
   if (providerId === "seedream") {
-    return "Enter AccessKeyId:SecretAccessKey or leave blank for server fallback";
+    return "Enter Ark API Key or leave blank for server fallback (ARK_API_KEY)";
   }
 
   return `Use a ${providerName} key or leave blank for server fallback`;
@@ -28,11 +27,6 @@ export function ProviderApiKeyPanel({
   const keys = useApiKeyStore((state) => state.keys);
   const setKey = useApiKeyStore((state) => state.setKey);
   const clearKey = useApiKeyStore((state) => state.clearKey);
-  const [draftKeys, setDraftKeys] = useState<Partial<Record<ImageProviderId, string>>>({});
-
-  useEffect(() => {
-    setDraftKeys(keys);
-  }, [keys]);
 
   return (
     <section className="rounded-xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-3">
@@ -53,7 +47,7 @@ export function ProviderApiKeyPanel({
       <div className="mt-3 space-y-2">
         {providers.map((provider) => {
           const isCurrentProvider = provider.id === currentProvider;
-          const value = draftKeys[provider.id] ?? "";
+          const value = keys[provider.id] ?? "";
 
           return (
             <div
@@ -72,13 +66,7 @@ export function ProviderApiKeyPanel({
                   variant="ghost"
                   size="sm"
                   className="h-7 px-2 text-[11px] text-zinc-400 hover:text-zinc-100"
-                  onClick={() => {
-                    setDraftKeys((previous) => ({
-                      ...previous,
-                      [provider.id]: "",
-                    }));
-                    clearKey(provider.id);
-                  }}
+                  onClick={() => clearKey(provider.id)}
                   disabled={!keys[provider.id]}
                 >
                   <Trash2 className="mr-1 h-3.5 w-3.5" />
@@ -93,13 +81,7 @@ export function ProviderApiKeyPanel({
                 value={value}
                 placeholder={getPlaceholder(provider.id, provider.name)}
                 className="h-8 border-white/10 bg-black/35 text-xs"
-                onChange={(event) =>
-                  setDraftKeys((previous) => ({
-                    ...previous,
-                    [provider.id]: event.target.value,
-                  }))
-                }
-                onBlur={(event) => setKey(provider.id, event.target.value)}
+                onChange={(event) => setKey(provider.id, event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key !== "Enter") {
                     return;
