@@ -12,8 +12,15 @@ const envSchema = z.object({
   PROVIDER_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(120_000),
   IMAGE_GENERATE_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(1_000).optional(),
   IMAGE_GENERATE_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1_000).max(3_600_000).optional(),
+  IMAGE_UPSCALE_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(1_000).optional(),
+  IMAGE_UPSCALE_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1_000).max(3_600_000).optional(),
   GENERATED_IMAGE_GET_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(10_000).optional(),
-  GENERATED_IMAGE_GET_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1_000).max(3_600_000).optional(),
+  GENERATED_IMAGE_GET_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(3_600_000)
+    .optional(),
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(1_000).default(20),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(60_000),
   GENERATED_IMAGE_STORE_MAX_ITEMS: z.coerce.number().int().min(1).max(10_000).default(128),
@@ -39,6 +46,8 @@ export interface AppConfig {
   rateLimitTimeWindowMs: number;
   imageGenerateRateLimitMax: number;
   imageGenerateRateLimitTimeWindowMs: number;
+  imageUpscaleRateLimitMax: number;
+  imageUpscaleRateLimitTimeWindowMs: number;
   generatedImageGetRateLimitMax: number;
   generatedImageGetRateLimitTimeWindowMs: number;
   generatedImageStoreMaxItems: number;
@@ -59,7 +68,7 @@ const toCorsOrigin = (value: string) => {
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
-  return origins.length > 1 ? origins : origins[0] ?? "http://localhost:5173";
+  return origins.length > 1 ? origins : (origins[0] ?? "http://localhost:5173");
 };
 
 export const getConfig = (): AppConfig => {
@@ -80,18 +89,20 @@ export const getConfig = (): AppConfig => {
     imageGenerateRateLimitMax: env.IMAGE_GENERATE_RATE_LIMIT_MAX ?? env.RATE_LIMIT_MAX,
     imageGenerateRateLimitTimeWindowMs:
       env.IMAGE_GENERATE_RATE_LIMIT_WINDOW_MS ?? env.RATE_LIMIT_WINDOW_MS,
+    imageUpscaleRateLimitMax:
+      env.IMAGE_UPSCALE_RATE_LIMIT_MAX ?? env.IMAGE_GENERATE_RATE_LIMIT_MAX ?? env.RATE_LIMIT_MAX,
+    imageUpscaleRateLimitTimeWindowMs:
+      env.IMAGE_UPSCALE_RATE_LIMIT_WINDOW_MS ??
+      env.IMAGE_GENERATE_RATE_LIMIT_WINDOW_MS ??
+      env.RATE_LIMIT_WINDOW_MS,
     generatedImageGetRateLimitMax:
       env.GENERATED_IMAGE_GET_RATE_LIMIT_MAX ?? Math.max(env.RATE_LIMIT_MAX * 6, 60),
     generatedImageGetRateLimitTimeWindowMs:
       env.GENERATED_IMAGE_GET_RATE_LIMIT_WINDOW_MS ?? env.RATE_LIMIT_WINDOW_MS,
     generatedImageStoreMaxItems: env.GENERATED_IMAGE_STORE_MAX_ITEMS,
     generatedImageStoreMaxBytes: Math.round(env.GENERATED_IMAGE_STORE_MAX_MB * 1024 * 1024),
-    generatedImageDownloadMaxBytes: Math.round(
-      env.GENERATED_IMAGE_DOWNLOAD_MAX_MB * 1024 * 1024
-    ),
-    referenceImageDownloadMaxBytes: Math.round(
-      env.REFERENCE_IMAGE_DOWNLOAD_MAX_MB * 1024 * 1024
-    ),
+    generatedImageDownloadMaxBytes: Math.round(env.GENERATED_IMAGE_DOWNLOAD_MAX_MB * 1024 * 1024),
+    referenceImageDownloadMaxBytes: Math.round(env.REFERENCE_IMAGE_DOWNLOAD_MAX_MB * 1024 * 1024),
     openAiApiKey: env.OPENAI_API_KEY,
     stabilityApiKey: env.STABILITY_API_KEY,
     fluxApiKey: env.FLUX_API_KEY ?? env.FAL_KEY,

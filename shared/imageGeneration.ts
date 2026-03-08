@@ -70,7 +70,7 @@ export interface GeneratedImage {
 }
 
 export interface ImageUpscaleRequest {
-  provider: "stability";
+  provider: ImageProviderId;
   model: string;
   imageId: string;
   scale?: ImageUpscaleScale;
