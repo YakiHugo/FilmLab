@@ -149,6 +149,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           imageId: firstImageId,
           imageUrl: firstImageUrl,
           images: normalizedImages,
+          ...(generated.warnings?.length ? { warnings: generated.warnings } : {}),
         });
       } catch (error) {
         if (error instanceof ProviderError) {
