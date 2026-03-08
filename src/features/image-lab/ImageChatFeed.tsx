@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { Loader2, Sparkles } from "lucide-react";
+import { Download, Loader2, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import { IMAGE_STYLE_PRESETS } from "@/lib/ai/imageStylePresets";
 import { IMAGE_STYLES } from "@/lib/ai/imageStyles";
@@ -14,6 +14,12 @@ interface ImageChatFeedProps {
   onToggleResultSelection: (turnId: string, index: number) => void;
   onSaveSelectedResults: (turnId: string) => void;
   onAddToCanvas: (turnId: string, index: number, assetId?: string | null) => void;
+  onDeleteTurn: (turnId: string) => void;
+  onRetryTurn: (turnId: string) => void;
+  onReuseParameters: (turnId: string) => void;
+  onDownloadAll: (turnId: string) => void;
+  onDownloadResult: (turnId: string, index: number) => void;
+  onUpscaleResult: (turnId: string, index: number) => void;
 }
 
 const formatTurnTime = (value: string) =>
@@ -35,6 +41,7 @@ const resolveTurnMeta = (turn: ImageGenerationTurn) => {
     providerName: provider?.name ?? turn.configSnapshot.provider,
     modelName: model?.name ?? turn.configSnapshot.model,
     styleLabel: preset?.title ?? (style?.id !== "none" ? style?.label : null),
+    supportsUpscale: Boolean(provider?.supportedFeatures.supportsUpscale),
   };
 };
 
@@ -90,12 +97,25 @@ function LatestTurnStage({
   onToggleResultSelection,
   onSaveSelectedResults,
   onAddToCanvas,
+  onDeleteTurn,
+  onRetryTurn,
+  onReuseParameters,
+  onDownloadAll,
+  onDownloadResult,
+  onUpscaleResult,
 }: {
   turn: ImageGenerationTurn;
   onToggleResultSelection: (turnId: string, index: number) => void;
   onSaveSelectedResults: (turnId: string) => void;
   onAddToCanvas: (turnId: string, index: number, assetId?: string | null) => void;
+  onDeleteTurn: (turnId: string) => void;
+  onRetryTurn: (turnId: string) => void;
+  onReuseParameters: (turnId: string) => void;
+  onDownloadAll: (turnId: string) => void;
+  onDownloadResult: (turnId: string, index: number) => void;
+  onUpscaleResult: (turnId: string, index: number) => void;
 }) {
+  const meta = useMemo(() => resolveTurnMeta(turn), [turn]);
   const selectedUnsavedCount = turn.results.filter((entry) => entry.selected && !entry.saved).length;
 
   return (
@@ -109,12 +129,30 @@ function LatestTurnStage({
       <div className="max-w-[360px] rounded-[30px] border border-white/8 bg-[linear-gradient(145deg,rgba(255,255,255,0.05),rgba(255,255,255,0.025))] p-6 shadow-[0_24px_54px_rgba(0,0,0,0.32)]">
         <div className="flex items-center justify-between gap-3">
           <span className="text-[11px] uppercase tracking-[0.28em] text-zinc-500">Prompt</span>
-          <span className="text-xs text-zinc-500">{formatTurnTime(turn.createdAt)}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-zinc-500">{formatTurnTime(turn.createdAt)}</span>
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-zinc-400 transition hover:border-white/16 hover:bg-white/[0.08] hover:text-zinc-200"
+              onClick={() => onDeleteTurn(turn.id)}
+              aria-label="Delete turn"
+              title="Delete turn"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
         <p className="mt-4 whitespace-pre-wrap text-[17px] leading-8 text-zinc-50">
           {turn.prompt}
         </p>
         <TurnTags turn={turn} />
+        <button
+          type="button"
+          className="mt-4 text-sm font-medium text-zinc-300 transition hover:text-white"
+          onClick={() => onReuseParameters(turn.id)}
+        >
+          Reuse params
+        </button>
       </div>
 
       <div className="min-w-0">
@@ -133,21 +171,41 @@ function LatestTurnStage({
             )}
           </div>
 
-          {turn.results.length > 0 ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
-              className={cn(
-                "inline-flex h-9 items-center justify-center rounded-full border px-4 text-sm font-medium transition",
-                selectedUnsavedCount > 0 && !turn.isSavingSelection
-                  ? "border-white/14 bg-white/[0.08] text-zinc-100 hover:bg-white/[0.12]"
-                  : "border-white/8 bg-white/[0.03] text-zinc-500"
-              )}
-              onClick={() => onSaveSelectedResults(turn.id)}
-              disabled={selectedUnsavedCount === 0 || turn.isSavingSelection}
+              className="inline-flex h-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-4 text-sm font-medium text-zinc-200 transition hover:border-white/16 hover:bg-white/[0.08]"
+              onClick={() => onRetryTurn(turn.id)}
             >
-              {turn.isSavingSelection ? "Saving..." : "Save selected"}
+              <RotateCcw className="mr-1.5 h-4 w-4" />
+              Retry
             </button>
-          ) : null}
+            {turn.results.length > 0 ? (
+              <button
+                type="button"
+                className="inline-flex h-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-4 text-sm font-medium text-zinc-200 transition hover:border-white/16 hover:bg-white/[0.08]"
+                onClick={() => onDownloadAll(turn.id)}
+              >
+                <Download className="mr-1.5 h-4 w-4" />
+                Download all
+              </button>
+            ) : null}
+            {turn.results.length > 0 ? (
+              <button
+                type="button"
+                className={cn(
+                  "inline-flex h-9 items-center justify-center rounded-full border px-4 text-sm font-medium transition",
+                  selectedUnsavedCount > 0 && !turn.isSavingSelection
+                    ? "border-white/14 bg-white/[0.08] text-zinc-100 hover:bg-white/[0.12]"
+                    : "border-white/8 bg-white/[0.03] text-zinc-500"
+                )}
+                onClick={() => onSaveSelectedResults(turn.id)}
+                disabled={selectedUnsavedCount === 0 || turn.isSavingSelection}
+              >
+                {turn.isSavingSelection ? "Saving..." : "Save selected"}
+              </button>
+            ) : null}
+          </div>
         </div>
 
         {turn.status === "loading" && turn.results.length === 0 ? <LoadingShelf /> : null}
@@ -169,8 +227,15 @@ function LatestTurnStage({
                   assetId={entry.assetId}
                   selected={entry.selected}
                   saved={entry.saved}
+                  isUpscaling={entry.isUpscaling}
                   onToggleSelection={() => onToggleResultSelection(turn.id, entry.index)}
                   onAddToCanvas={() => onAddToCanvas(turn.id, entry.index, entry.assetId)}
+                  onDownload={() => onDownloadResult(turn.id, entry.index)}
+                  onUpscale={
+                    meta.supportsUpscale
+                      ? () => onUpscaleResult(turn.id, entry.index)
+                      : undefined
+                  }
                 />
               </div>
             ))}
@@ -186,12 +251,25 @@ function HistoryTurnRow({
   onToggleResultSelection,
   onSaveSelectedResults,
   onAddToCanvas,
+  onDeleteTurn,
+  onRetryTurn,
+  onReuseParameters,
+  onDownloadAll,
+  onDownloadResult,
+  onUpscaleResult,
 }: {
   turn: ImageGenerationTurn;
   onToggleResultSelection: (turnId: string, index: number) => void;
   onSaveSelectedResults: (turnId: string) => void;
   onAddToCanvas: (turnId: string, index: number, assetId?: string | null) => void;
+  onDeleteTurn: (turnId: string) => void;
+  onRetryTurn: (turnId: string) => void;
+  onReuseParameters: (turnId: string) => void;
+  onDownloadAll: (turnId: string) => void;
+  onDownloadResult: (turnId: string, index: number) => void;
+  onUpscaleResult: (turnId: string, index: number) => void;
 }) {
+  const meta = useMemo(() => resolveTurnMeta(turn), [turn]);
   const selectedUnsavedCount = turn.results.filter((entry) => entry.selected && !entry.saved).length;
 
   return (
@@ -205,16 +283,34 @@ function HistoryTurnRow({
       <div className="max-w-[280px] rounded-[24px] border border-white/8 bg-white/[0.03] p-4">
         <div className="flex items-center justify-between gap-3">
           <span className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Prompt</span>
-          <span className="text-[11px] text-zinc-500">{formatTurnTime(turn.createdAt)}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-zinc-500">{formatTurnTime(turn.createdAt)}</span>
+            <button
+              type="button"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-zinc-400 transition hover:border-white/16 hover:bg-white/[0.08] hover:text-zinc-200"
+              onClick={() => onDeleteTurn(turn.id)}
+              aria-label="Delete turn"
+              title="Delete turn"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
         <p className="mt-3 line-clamp-4 whitespace-pre-wrap text-sm leading-6 text-zinc-100">
           {turn.prompt}
         </p>
         <TurnTags turn={turn} compact />
+        <button
+          type="button"
+          className="mt-3 text-xs font-medium text-zinc-300 transition hover:text-white"
+          onClick={() => onReuseParameters(turn.id)}
+        >
+          Reuse params
+        </button>
       </div>
 
       <div className="min-w-0">
-        <div className="mb-3 flex items-center gap-3">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
           <span className="text-xs text-zinc-500">
             {turn.status === "loading"
               ? "Generating"
@@ -222,6 +318,24 @@ function HistoryTurnRow({
                 ? "Error"
                 : `${turn.results.length} results`}
           </span>
+          <button
+            type="button"
+            className="inline-flex h-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-3 text-xs font-medium text-zinc-200 transition hover:border-white/16 hover:bg-white/[0.08]"
+            onClick={() => onRetryTurn(turn.id)}
+          >
+            <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+            Retry
+          </button>
+          {turn.results.length > 0 ? (
+            <button
+              type="button"
+              className="inline-flex h-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-3 text-xs font-medium text-zinc-200 transition hover:border-white/16 hover:bg-white/[0.08]"
+              onClick={() => onDownloadAll(turn.id)}
+            >
+              <Download className="mr-1.5 h-3.5 w-3.5" />
+              Download all
+            </button>
+          ) : null}
           {turn.results.length > 0 ? (
             <button
               type="button"
@@ -259,8 +373,15 @@ function HistoryTurnRow({
                   selected={entry.selected}
                   saved={entry.saved}
                   compact
+                  isUpscaling={entry.isUpscaling}
                   onToggleSelection={() => onToggleResultSelection(turn.id, entry.index)}
                   onAddToCanvas={() => onAddToCanvas(turn.id, entry.index, entry.assetId)}
+                  onDownload={() => onDownloadResult(turn.id, entry.index)}
+                  onUpscale={
+                    meta.supportsUpscale
+                      ? () => onUpscaleResult(turn.id, entry.index)
+                      : undefined
+                  }
                 />
               </div>
             ))}
@@ -277,6 +398,12 @@ export function ImageChatFeed({
   onToggleResultSelection,
   onSaveSelectedResults,
   onAddToCanvas,
+  onDeleteTurn,
+  onRetryTurn,
+  onReuseParameters,
+  onDownloadAll,
+  onDownloadResult,
+  onUpscaleResult,
 }: ImageChatFeedProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const latestTurnIdRef = useRef<string | null>(null);
@@ -311,6 +438,12 @@ export function ImageChatFeed({
             onToggleResultSelection={onToggleResultSelection}
             onSaveSelectedResults={onSaveSelectedResults}
             onAddToCanvas={onAddToCanvas}
+            onDeleteTurn={onDeleteTurn}
+            onRetryTurn={onRetryTurn}
+            onReuseParameters={onReuseParameters}
+            onDownloadAll={onDownloadAll}
+            onDownloadResult={onDownloadResult}
+            onUpscaleResult={onUpscaleResult}
           />
         ) : (
           <div className="flex-1" />
@@ -326,6 +459,12 @@ export function ImageChatFeed({
                   onToggleResultSelection={onToggleResultSelection}
                   onSaveSelectedResults={onSaveSelectedResults}
                   onAddToCanvas={onAddToCanvas}
+                  onDeleteTurn={onDeleteTurn}
+                  onRetryTurn={onRetryTurn}
+                  onReuseParameters={onReuseParameters}
+                  onDownloadAll={onDownloadAll}
+                  onDownloadResult={onDownloadResult}
+                  onUpscaleResult={onUpscaleResult}
                 />
               ))}
             </AnimatePresence>

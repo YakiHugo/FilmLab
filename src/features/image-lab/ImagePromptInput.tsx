@@ -63,6 +63,8 @@ interface ImagePromptInputProps {
   };
   modelParamDefinitions: ImageModelParamDefinition[];
   referenceImages: ReferenceImage[];
+  externalPrompt?: string | null;
+  onExternalPromptConsumed?: () => void;
   onGenerationSpeedChange: (speed: "fast" | "balanced" | "quality") => void;
   onImageProviderChange: (provider: ImageProviderId) => void;
   onImageModelChange: (model: string) => void;
@@ -248,6 +250,8 @@ export function ImagePromptInput({
   modelParams,
   modelParamDefinitions,
   referenceImages,
+  externalPrompt = null,
+  onExternalPromptConsumed,
   onGenerationSpeedChange,
   onImageProviderChange,
   onImageModelChange,
@@ -333,6 +337,16 @@ export function ImagePromptInput({
       setActiveHoverPanel(null);
     }
   }, [activeHoverPanel, providerFeatures.referenceImages.enabled]);
+
+  useEffect(() => {
+    if (!externalPrompt) {
+      return;
+    }
+
+    setPromptValue(externalPrompt);
+    onExternalPromptConsumed?.();
+    textareaRef.current?.focus();
+  }, [externalPrompt, onExternalPromptConsumed]);
 
   const clearCloseTimer = () => {
     if (closeTimerRef.current) {
