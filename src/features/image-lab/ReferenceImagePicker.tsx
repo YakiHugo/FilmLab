@@ -8,6 +8,9 @@ import type { ReferenceImage } from "@/types/imageGeneration";
 
 interface ReferenceImagePickerProps {
   referenceImages: ReferenceImage[];
+  maxImages: number;
+  supportedTypes: ReferenceImage["type"][];
+  supportsWeight: boolean;
   disabled?: boolean;
   onAddFiles: (files: FileList) => void;
   onUpdateImage: (id: string, patch: Partial<ReferenceImage>) => void;
@@ -17,6 +20,9 @@ interface ReferenceImagePickerProps {
 
 export function ReferenceImagePicker({
   referenceImages,
+  maxImages,
+  supportedTypes,
+  supportsWeight,
   disabled = false,
   onAddFiles,
   onUpdateImage,
@@ -61,11 +67,11 @@ export function ReferenceImagePicker({
         size="sm"
         variant="secondary"
         className="h-8 w-full text-xs"
-        disabled={disabled || referenceImages.length >= 4}
+        disabled={disabled || referenceImages.length >= maxImages}
         onClick={() => fileInputRef.current?.click()}
       >
         <ImagePlus className="mr-1.5 h-3.5 w-3.5" />
-        Add Reference ({referenceImages.length}/4)
+        Add Reference ({referenceImages.length}/{maxImages})
       </Button>
 
       {referenceImages.length === 0 && (
@@ -112,27 +118,37 @@ export function ReferenceImagePicker({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="content">Content</SelectItem>
-                  <SelectItem value="style">Style</SelectItem>
-                  <SelectItem value="controlnet">ControlNet</SelectItem>
+                  {supportedTypes.includes("content") ? (
+                    <SelectItem value="content">Content</SelectItem>
+                  ) : null}
+                  {supportedTypes.includes("style") ? (
+                    <SelectItem value="style">Style</SelectItem>
+                  ) : null}
+                  {supportedTypes.includes("controlnet") ? (
+                    <SelectItem value="controlnet">ControlNet</SelectItem>
+                  ) : null}
                 </SelectContent>
               </Select>
 
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-[10px] text-zinc-500">
-                  <span>Weight</span>
-                  <span>{(entry.weight ?? 1).toFixed(2)}</span>
+              {supportsWeight ? (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px] text-zinc-500">
+                    <span>Weight</span>
+                    <span>{(entry.weight ?? 1).toFixed(2)}</span>
+                  </div>
+                  <Slider
+                    value={[entry.weight ?? 1]}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    onValueChange={(value) =>
+                      onUpdateImage(entry.id, { weight: value[0] ?? 1 })
+                    }
+                  />
                 </div>
-                <Slider
-                  value={[entry.weight ?? 1]}
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  onValueChange={(value) =>
-                    onUpdateImage(entry.id, { weight: value[0] ?? 1 })
-                  }
-                />
-              </div>
+              ) : (
+                <p className="text-[10px] text-zinc-500">Current model uses fixed reference weight.</p>
+              )}
             </div>
           </div>
         ))}

@@ -10,7 +10,7 @@ interface ImageResultCardProps {
   selected: boolean;
   compact?: boolean;
   onToggleSelection: () => void;
-  onAddToCanvas: (assetId: string | null) => void;
+  onAddToCanvas: () => void;
 }
 
 export function ImageResultCard({
@@ -84,15 +84,12 @@ export function ImageResultCard({
           className={cn(
             "inline-flex items-center justify-center rounded-full border font-medium transition",
             compact ? "h-8 text-[11px]" : "h-9 text-xs",
-            assetId
-              ? "border-white/10 bg-white/[0.04] text-zinc-200 hover:border-white/16 hover:bg-white/[0.08]"
-              : "cursor-not-allowed border-white/8 bg-white/[0.02] text-zinc-500"
+            "border-white/10 bg-white/[0.04] text-zinc-200 hover:border-white/16 hover:bg-white/[0.08]"
           )}
-          onClick={() => onAddToCanvas(assetId)}
-          disabled={!assetId}
+          onClick={onAddToCanvas}
         >
           <Layers className={cn("mr-1.5", compact ? "h-3.5 w-3.5" : "h-4 w-4")} />
-          {compact ? "Canvas" : "Canvas"}
+          {compact ? "Canvas" : assetId ? "Canvas" : "Save + Canvas"}
         </button>
       </div>
     </article>

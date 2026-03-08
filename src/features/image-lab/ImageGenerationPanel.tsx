@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { ImageProviderFeatureSupport } from "@/lib/ai/imageProviders";
 import type { GenerationConfig } from "@/stores/generationConfigStore";
 import type {
   ImageProviderId,
@@ -19,14 +20,7 @@ interface ImageGenerationPanelProps {
   error: string | null;
   config: GenerationConfig;
   providerName: string;
-  providerFeatures: {
-    negativePrompt: boolean;
-    referenceImages: boolean;
-    seed: boolean;
-    guidanceScale: boolean;
-    steps: boolean;
-    styles: boolean;
-  };
+  providerFeatures: ImageProviderFeatureSupport;
   providers: Array<{
     id: ImageProviderId;
     name: string;
@@ -56,7 +50,7 @@ interface ImageGenerationPanelProps {
   onGenerate: () => void;
   onToggleResultSelection: (index: number) => void;
   onSaveSelectedResults: () => void;
-  onAddToCanvas: (assetId: string | null) => void;
+  onAddToCanvas: (index: number, assetId: string | null) => void;
 }
 
 const toNumberOrNull = (value: string) => {
@@ -251,9 +245,12 @@ export function ImageGenerationPanel({
           </div>
         )}
 
-        {providerFeatures.referenceImages ? (
+        {providerFeatures.referenceImages.enabled ? (
           <ReferenceImagePicker
             referenceImages={config.referenceImages}
+            maxImages={providerFeatures.referenceImages.maxImages}
+            supportedTypes={providerFeatures.referenceImages.supportedTypes}
+            supportsWeight={providerFeatures.referenceImages.supportsWeight}
             onAddFiles={onAddReferenceFiles}
             onUpdateImage={onUpdateReferenceImage}
             onRemoveImage={onRemoveReferenceImage}
@@ -413,7 +410,7 @@ export function ImageGenerationPanel({
                   selected={entry.selected}
                   saved={entry.saved}
                   onToggleSelection={() => onToggleResultSelection(entry.index)}
-                  onAddToCanvas={onAddToCanvas}
+                  onAddToCanvas={() => onAddToCanvas(entry.index, entry.assetId)}
                 />
               ))}
             </div>

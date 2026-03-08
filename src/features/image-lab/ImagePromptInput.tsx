@@ -17,6 +17,7 @@ import type {
   ImageModelParamDefinition,
   ImageModelParamValue,
 } from "@/lib/ai/imageModelParams";
+import type { ImageProviderFeatureSupport } from "@/lib/ai/imageProviders";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -31,8 +32,6 @@ import { ReferenceImagePicker } from "./ReferenceImagePicker";
 
 interface ImagePromptInputProps {
   isGeneratingImage?: boolean;
-  promptValue: string;
-  onPromptChange: (value: string) => void;
   generationSpeed: "fast" | "balanced" | "quality";
   stylePresets: ImageStylePreset[];
   selectedStylePresetId: string | null;
@@ -45,14 +44,7 @@ interface ImagePromptInputProps {
   }>;
   imageProvider: ImageProviderId;
   imageModel: string;
-  providerFeatures: {
-    negativePrompt: boolean;
-    referenceImages: boolean;
-    seed: boolean;
-    guidanceScale: boolean;
-    steps: boolean;
-    styles: boolean;
-  };
+  providerFeatures: ImageProviderFeatureSupport;
   aspectRatioOptions: ImageAspectRatio[];
   maxBatchSize: number;
   commonParams: {
@@ -241,8 +233,6 @@ function SectionToggle({ title, open, onClick }: { title: string; open: boolean;
 
 export function ImagePromptInput({
   isGeneratingImage = false,
-  promptValue,
-  onPromptChange,
   generationSpeed,
   stylePresets,
   selectedStylePresetId,
@@ -272,10 +262,12 @@ export function ImagePromptInput({
   onClearReferenceImages,
   onGenerateImage,
 }: ImagePromptInputProps) {
+  const [promptValue, setPromptValue] = useState("");
   const [activeHoverPanel, setActiveHoverPanel] = useState<HoverPanelId | null>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showApiKeys, setShowApiKeys] = useState(false);
+  const [isComposing, setIsComposing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<number | null>(null);
@@ -288,13 +280,19 @@ export function ImagePromptInput({
     stylePresets.find((preset) => preset.id === selectedStylePresetId) ?? null;
   const selectedStyle = styles.find((style) => style.id === selectedStyleId) ?? null;
   const selectedModel = selectedProvider?.models.find((model) => model.id === imageModel);
+  const supportsCustomSize = aspectRatioOptions.includes("custom");
   const resolutionValue = resolveResolutionFromSize(commonParams.width, commonParams.height);
   const modelLabel = selectedModel?.name ?? imageModel;
   const styleLabel =
     selectedPreset?.title ??
     (selectedStyle && selectedStyle.id !== "none" ? selectedStyle.label : "Style");
-  const resolutionLabel = formatResolutionLabel(resolutionValue);
-  const refsLabel = referenceImages.length > 0 ? `Refs ${referenceImages.length}` : "Refs";
+  const resolutionLabel = supportsCustomSize
+    ? formatResolutionLabel(resolutionValue)
+    : "Auto size";
+  const refsLabel =
+    referenceImages.length > 0
+      ? `Refs ${referenceImages.length}/${providerFeatures.referenceImages.maxImages}`
+      : "Refs";
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -331,10 +329,10 @@ export function ImagePromptInput({
   }, []);
 
   useEffect(() => {
-    if (!providerFeatures.referenceImages && activeHoverPanel === "refs") {
+    if (!providerFeatures.referenceImages.enabled && activeHoverPanel === "refs") {
       setActiveHoverPanel(null);
     }
-  }, [activeHoverPanel, providerFeatures.referenceImages]);
+  }, [activeHoverPanel, providerFeatures.referenceImages.enabled]);
 
   const clearCloseTimer = () => {
     if (closeTimerRef.current) {
@@ -369,7 +367,7 @@ export function ImagePromptInput({
     }
 
     onGenerateImage({ text });
-    onPromptChange("");
+    setPromptValue("");
     setModelMenuOpen(false);
     setActiveHoverPanel(null);
   };
@@ -458,6 +456,11 @@ export function ImagePromptInput({
                   : "border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/16 hover:bg-white/[0.08]"
               )}
               onClick={() => {
+                if (!supportsCustomSize) {
+                  onCommonParamsChange({ aspectRatio: ratio });
+                  return;
+                }
+
                 const resized = resolveSizeFromAspectAndResolution(
                   ratio,
                   Number(resolutionValue),
@@ -481,56 +484,67 @@ export function ImagePromptInput({
 
   const renderResolutionPanel = () => (
     <PanelShell className="left-1/2 w-[320px] -translate-x-1/2">
-      <div className="space-y-4">
-        <div className="flex gap-2">
-          {RESOLUTION_PRESETS.map((preset) => {
-            const active = Number(resolutionValue) === preset;
-            return (
-              <button
-                key={preset}
-                type="button"
-                className={cn(
-                  "inline-flex h-10 flex-1 items-center justify-center rounded-full border text-sm font-medium transition",
-                  active
-                    ? "border-white/16 bg-white/[0.1] text-zinc-100"
-                    : "border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/16 hover:bg-white/[0.08]"
-                )}
-                onClick={() => {
-                  const resized = resolveSizeFromAspectAndResolution(
-                    commonParams.aspectRatio,
-                    preset,
-                    commonParams.width,
-                    commonParams.height
-                  );
-                  onCommonParamsChange({
-                    width: resized.width,
-                    height: resized.height,
-                  });
-                }}
-              >
-                {formatResolutionLabel(String(preset))}
-              </button>
-            );
-          })}
-        </div>
+      {supportsCustomSize ? (
+        <div className="space-y-4">
+          <div className="flex gap-2">
+            {RESOLUTION_PRESETS.map((preset) => {
+              const active = Number(resolutionValue) === preset;
+              return (
+                <button
+                  key={preset}
+                  type="button"
+                  className={cn(
+                    "inline-flex h-10 flex-1 items-center justify-center rounded-full border text-sm font-medium transition",
+                    active
+                      ? "border-white/16 bg-white/[0.1] text-zinc-100"
+                      : "border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/16 hover:bg-white/[0.08]"
+                  )}
+                  onClick={() => {
+                    const resized = resolveSizeFromAspectAndResolution(
+                      commonParams.aspectRatio,
+                      preset,
+                      commonParams.width,
+                      commonParams.height
+                    );
+                    onCommonParamsChange({
+                      width: resized.width,
+                      height: resized.height,
+                    });
+                  }}
+                >
+                  {formatResolutionLabel(String(preset))}
+                </button>
+              );
+            })}
+          </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <Input
-            type="number"
-            value={commonParams.width ?? ""}
-            onChange={(event) => onCommonParamsChange({ width: toNumberOrNull(event.target.value) })}
-            className="h-11 rounded-[18px] border-white/10 bg-black/30 text-sm"
-            placeholder="Width"
-          />
-          <Input
-            type="number"
-            value={commonParams.height ?? ""}
-            onChange={(event) => onCommonParamsChange({ height: toNumberOrNull(event.target.value) })}
-            className="h-11 rounded-[18px] border-white/10 bg-black/30 text-sm"
-            placeholder="Height"
-          />
+          <div className="grid grid-cols-2 gap-2">
+            <Input
+              type="number"
+              value={commonParams.width ?? ""}
+              onChange={(event) =>
+                onCommonParamsChange({ width: toNumberOrNull(event.target.value) })
+              }
+              className="h-11 rounded-[18px] border-white/10 bg-black/30 text-sm"
+              placeholder="Width"
+            />
+            <Input
+              type="number"
+              value={commonParams.height ?? ""}
+              onChange={(event) =>
+                onCommonParamsChange({ height: toNumberOrNull(event.target.value) })
+              }
+              className="h-11 rounded-[18px] border-white/10 bg-black/30 text-sm"
+              placeholder="Height"
+            />
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="rounded-[18px] border border-white/10 bg-black/30 px-4 py-4 text-sm text-zinc-300">
+          Current model uses provider-managed output sizes. Switch to a Flux model to set
+          explicit resolution.
+        </div>
+      )}
     </PanelShell>
   );
 
@@ -538,6 +552,9 @@ export function ImagePromptInput({
     <PanelShell className="left-1/2 w-[360px] -translate-x-1/2">
       <ReferenceImagePicker
         referenceImages={referenceImages}
+        maxImages={providerFeatures.referenceImages.maxImages}
+        supportedTypes={providerFeatures.referenceImages.supportedTypes}
+        supportsWeight={providerFeatures.referenceImages.supportsWeight}
         onAddFiles={onAddReferenceFiles}
         onUpdateImage={onUpdateReferenceImage}
         onRemoveImage={onRemoveReferenceImage}
@@ -791,9 +808,16 @@ export function ImagePromptInput({
             name="image-prompt"
             ref={textareaRef}
             value={promptValue}
-            onChange={(event) => onPromptChange(event.target.value)}
+            onChange={(event) => setPromptValue(event.target.value)}
+            onCompositionStart={() => setIsComposing(true)}
+            onCompositionEnd={() => setIsComposing(false)}
             onKeyDown={(event) => {
-              if (event.key !== "Enter" || event.shiftKey) {
+              if (
+                event.key !== "Enter" ||
+                event.shiftKey ||
+                isComposing ||
+                event.nativeEvent.isComposing
+              ) {
                 return;
               }
               event.preventDefault();
@@ -883,7 +907,7 @@ export function ImagePromptInput({
                 </div>
               ))}
 
-              {providerFeatures.referenceImages ? (
+              {providerFeatures.referenceImages.enabled ? (
                 <div
                   className="relative"
                   onMouseEnter={() => openHoverPanel("refs")}

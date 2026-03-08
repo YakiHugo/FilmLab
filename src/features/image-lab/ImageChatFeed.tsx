@@ -13,7 +13,7 @@ interface ImageChatFeedProps {
   currentModelName: string;
   onToggleResultSelection: (turnId: string, index: number) => void;
   onSaveSelectedResults: (turnId: string) => void;
-  onAddToCanvas: (turnId: string, assetId?: string | null) => void;
+  onAddToCanvas: (turnId: string, index: number, assetId?: string | null) => void;
 }
 
 const formatTurnTime = (value: string) =>
@@ -94,7 +94,7 @@ function LatestTurnStage({
   turn: ImageGenerationTurn;
   onToggleResultSelection: (turnId: string, index: number) => void;
   onSaveSelectedResults: (turnId: string) => void;
-  onAddToCanvas: (turnId: string, assetId?: string | null) => void;
+  onAddToCanvas: (turnId: string, index: number, assetId?: string | null) => void;
 }) {
   const selectedUnsavedCount = turn.results.filter((entry) => entry.selected && !entry.saved).length;
 
@@ -170,7 +170,7 @@ function LatestTurnStage({
                   selected={entry.selected}
                   saved={entry.saved}
                   onToggleSelection={() => onToggleResultSelection(turn.id, entry.index)}
-                  onAddToCanvas={(assetId) => onAddToCanvas(turn.id, assetId)}
+                  onAddToCanvas={() => onAddToCanvas(turn.id, entry.index, entry.assetId)}
                 />
               </div>
             ))}
@@ -190,7 +190,7 @@ function HistoryTurnRow({
   turn: ImageGenerationTurn;
   onToggleResultSelection: (turnId: string, index: number) => void;
   onSaveSelectedResults: (turnId: string) => void;
-  onAddToCanvas: (turnId: string, assetId?: string | null) => void;
+  onAddToCanvas: (turnId: string, index: number, assetId?: string | null) => void;
 }) {
   const selectedUnsavedCount = turn.results.filter((entry) => entry.selected && !entry.saved).length;
 
@@ -260,7 +260,7 @@ function HistoryTurnRow({
                   saved={entry.saved}
                   compact
                   onToggleSelection={() => onToggleResultSelection(turn.id, entry.index)}
-                  onAddToCanvas={(assetId) => onAddToCanvas(turn.id, assetId)}
+                  onAddToCanvas={() => onAddToCanvas(turn.id, entry.index, entry.assetId)}
                 />
               </div>
             ))}

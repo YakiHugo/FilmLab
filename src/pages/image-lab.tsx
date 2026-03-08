@@ -1,28 +1,57 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { IMAGE_STYLE_PRESETS, type ImageStylePreset } from "@/lib/ai/imageStylePresets";
 import type { ImageModelParamValue } from "@/lib/ai/imageModelParams";
 import { ImageChatFeed } from "@/features/image-lab/ImageChatFeed";
 import { ImagePromptInput } from "@/features/image-lab/ImagePromptInput";
 import { useImageGeneration } from "@/features/image-lab/hooks/useImageGeneration";
 import type { ImageStyleId } from "@/types/imageGeneration";
+import { IMAGE_GENERATION_LIMITS } from "@/lib/ai/imageGenerationSchema";
 
-const IMAGE_SPEED_TO_STEPS: Record<"fast" | "balanced" | "quality", number> = {
-  fast: 20,
-  balanced: 30,
-  quality: 45,
+const resolveStepsForSpeed = (
+  defaultSteps: number | undefined,
+  speed: "fast" | "balanced" | "quality"
+) => {
+  const baseSteps = defaultSteps ?? 30;
+  if (speed === "fast") {
+    return Math.max(IMAGE_GENERATION_LIMITS.steps.min, baseSteps - 10);
+  }
+  if (speed === "quality") {
+    return Math.min(IMAGE_GENERATION_LIMITS.steps.max, baseSteps + 15);
+  }
+  return Math.min(
+    IMAGE_GENERATION_LIMITS.steps.max,
+    Math.max(IMAGE_GENERATION_LIMITS.steps.min, baseSteps)
+  );
+};
+
+const resolveSpeedFromSteps = (
+  steps: number | null,
+  defaultSteps: number | undefined
+): "fast" | "balanced" | "quality" => {
+  const baseSteps = defaultSteps ?? 30;
+  const candidates = {
+    fast: resolveStepsForSpeed(defaultSteps, "fast"),
+    balanced: resolveStepsForSpeed(defaultSteps, "balanced"),
+    quality: resolveStepsForSpeed(defaultSteps, "quality"),
+  } as const;
+  const target = steps ?? baseSteps;
+
+  return (Object.entries(candidates) as Array<
+    ["fast" | "balanced" | "quality", number]
+  >).reduce(
+    (closest, entry) =>
+      Math.abs(entry[1] - target) < Math.abs(closest[1] - target) ? entry : closest,
+    ["balanced", candidates.balanced]
+  )[0];
 };
 
 export function ImageLabPage() {
   const imageGeneration = useImageGeneration();
   const updateGenerationConfig = imageGeneration.updateConfig;
-  const [imagePrompt, setImagePrompt] = useState("");
-  const [generationSpeed, setGenerationSpeed] = useState<"fast" | "balanced" | "quality">(
-    "fast"
+  const generationSpeed = resolveSpeedFromSteps(
+    imageGeneration.config.steps,
+    imageGeneration.modelConfig.defaultSteps
   );
-
-  useEffect(() => {
-    updateGenerationConfig({ steps: IMAGE_SPEED_TO_STEPS[generationSpeed] });
-  }, [generationSpeed, updateGenerationConfig]);
 
   const selectedPreset = useMemo(
     () =>
@@ -70,15 +99,13 @@ export function ImageLabPage() {
         onSaveSelectedResults={(turnId) => {
           void imageGeneration.saveSelectedResults(turnId);
         }}
-        onAddToCanvas={(turnId, assetId) => {
-          void imageGeneration.addToCanvas(turnId, assetId);
+        onAddToCanvas={(turnId, index, assetId) => {
+          void imageGeneration.addToCanvas(turnId, index, assetId);
         }}
       />
 
       <ImagePromptInput
         isGeneratingImage={imageGeneration.isGenerating}
-        promptValue={imagePrompt}
-        onPromptChange={setImagePrompt}
         generationSpeed={generationSpeed}
         stylePresets={IMAGE_STYLE_PRESETS}
         selectedStylePresetId={selectedPreset?.id ?? null}
@@ -115,7 +142,11 @@ export function ImageLabPage() {
         }}
         modelParamDefinitions={imageGeneration.modelParamDefinitions}
         referenceImages={imageGeneration.config.referenceImages}
-        onGenerationSpeedChange={setGenerationSpeed}
+        onGenerationSpeedChange={(speed) =>
+          updateGenerationConfig({
+            steps: resolveStepsForSpeed(imageGeneration.modelConfig.defaultSteps, speed),
+          })
+        }
         onImageProviderChange={imageGeneration.setProvider}
         onImageModelChange={imageGeneration.setModel}
         onStyleChange={setBaseStyle}
