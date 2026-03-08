@@ -123,4 +123,42 @@ describe("sanitizeGenerationConfig", () => {
     expect(sanitized.referenceImages[0]?.type).toBe("style");
     expect(sanitized.referenceImages[0]?.weight).toBe(1);
   });
+
+  it("falls back legacy Seedream selections to the 5.0 MVP config", () => {
+    const sanitized = sanitizeGenerationConfig(
+      createConfig({
+        provider: "seedream",
+        model: "seedream-3.0",
+        aspectRatio: "custom",
+        width: 1536,
+        height: 1024,
+        negativePrompt: "avoid blur",
+        referenceImages: [
+          {
+            id: "ref-1",
+            url: "data:image/png;base64,abc",
+            type: "content",
+            weight: 0.5,
+          },
+        ],
+        seed: 42,
+        guidanceScale: 7,
+        steps: 32,
+        batchSize: 3,
+        modelParams: {},
+      })
+    );
+
+    expect(sanitized.model).toBe("doubao-seedream-5-0-260128");
+    expect(sanitized.aspectRatio).toBe("1:1");
+    expect(sanitized.width).toBeNull();
+    expect(sanitized.height).toBeNull();
+    expect(sanitized.negativePrompt).toBe("");
+    expect(sanitized.referenceImages).toEqual([]);
+    expect(sanitized.seed).toBeNull();
+    expect(sanitized.guidanceScale).toBeNull();
+    expect(sanitized.steps).toBeNull();
+    expect(sanitized.batchSize).toBe(1);
+    expect(sanitized.modelParams).toEqual({});
+  });
 });

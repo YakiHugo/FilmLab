@@ -33,8 +33,7 @@ const envSchema = z.object({
   FAL_KEY: z.string().trim().min(1).optional(),
   FLUX_API_BASE_URL: z.string().trim().url().default("https://fal.run"),
   IDEOGRAM_API_KEY: z.string().trim().min(1).optional(),
-  VOLCENGINE_ACCESS_KEY_ID: z.string().trim().min(1).optional(),
-  VOLCENGINE_SECRET_ACCESS_KEY: z.string().trim().min(1).optional(),
+  ARK_API_KEY: z.string().trim().min(1).optional(),
 });
 
 export interface AppConfig {
@@ -61,8 +60,7 @@ export interface AppConfig {
   fluxApiKey?: string;
   fluxApiBaseUrl: string;
   ideogramApiKey?: string;
-  volcengineAccessKeyId?: string;
-  volcengineSecretAccessKey?: string;
+  arkApiKey?: string;
 }
 
 let cachedConfig: AppConfig | null = null;
@@ -112,8 +110,7 @@ export const getConfig = (): AppConfig => {
     fluxApiKey: env.FLUX_API_KEY ?? env.FAL_KEY,
     fluxApiBaseUrl: env.FLUX_API_BASE_URL.replace(/\/+$/, ""),
     ideogramApiKey: env.IDEOGRAM_API_KEY,
-    volcengineAccessKeyId: env.VOLCENGINE_ACCESS_KEY_ID,
-    volcengineSecretAccessKey: env.VOLCENGINE_SECRET_ACCESS_KEY,
+    arkApiKey: env.ARK_API_KEY,
   };
 
   return cachedConfig;

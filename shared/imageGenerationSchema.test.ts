@@ -84,11 +84,23 @@ describe("imageGenerationRequestSchema", () => {
     expect(issuePaths).toContain("batchSize");
   });
 
-  it("accepts Seedream custom sizes and model params", () => {
+  it("accepts Seedream 5.0 prompt generation with supported aspect ratios", () => {
     const result = imageGenerationRequestSchema.safeParse({
       ...basePayload,
       provider: "seedream",
-      model: "seedream-3.0",
+      model: "doubao-seedream-5-0-260128",
+      aspectRatio: "16:9",
+      style: "cinematic",
+      modelParams: {},
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects Seedream controls disabled by the 5.0 MVP", () => {
+    const issuePaths = getIssuePaths({
+      provider: "seedream",
+      model: "doubao-seedream-5-0-260128",
       aspectRatio: "custom",
       width: 1344,
       height: 768,
@@ -96,9 +108,22 @@ describe("imageGenerationRequestSchema", () => {
       seed: 42,
       guidanceScale: 4.5,
       steps: 25,
-      modelParams: {},
+      batchSize: 2,
+      referenceImages: [
+        {
+          url: "data:image/png;base64,abc",
+          type: "content",
+        },
+      ],
     });
 
-    expect(result.success).toBe(true);
+    expect(issuePaths).toContain("aspectRatio");
+    expect(issuePaths).toContain("width");
+    expect(issuePaths).toContain("negativePrompt");
+    expect(issuePaths).toContain("seed");
+    expect(issuePaths).toContain("guidanceScale");
+    expect(issuePaths).toContain("steps");
+    expect(issuePaths).toContain("batchSize");
+    expect(issuePaths).toContain("referenceImages");
   });
 });
