@@ -23,7 +23,7 @@ interface ImageChatFeedProps {
 }
 
 const formatTurnTime = (value: string) =>
-  new Intl.DateTimeFormat("zh-CN", {
+  new Intl.DateTimeFormat(undefined, {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
@@ -56,20 +56,25 @@ function TurnTags({ turn, compact = false }: { turn: ImageGenerationTurn; compac
       ? `${turn.configSnapshot.referenceImages.length} refs`
       : null,
   ].filter((value): value is string => Boolean(value));
+  const itemCounts = new Map<string, number>();
 
   return (
     <div className="mt-4 flex flex-wrap gap-2">
-      {items.map((item) => (
-        <span
-          key={item}
-          className={cn(
-            "rounded-full border border-white/10 bg-white/[0.04] font-medium text-zinc-300",
-            compact ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-[11px]"
-          )}
-        >
-          {item}
-        </span>
-      ))}
+      {items.map((item) => {
+        const nextCount = (itemCounts.get(item) ?? 0) + 1;
+        itemCounts.set(item, nextCount);
+        return (
+          <span
+            key={`${item}-${nextCount}`}
+            className={cn(
+              "rounded-full border border-white/10 bg-white/[0.04] font-medium text-zinc-300",
+              compact ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-[11px]"
+            )}
+          >
+            {item}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -85,7 +90,12 @@ function LoadingShelf({ compact = false }: { compact?: boolean }) {
             compact ? "w-[140px]" : "w-[235px]"
           )}
         >
-          <div className={cn("animate-pulse bg-white/[0.07]", compact ? "aspect-square" : "aspect-[4/5]")} />
+          <div
+            className={cn(
+              "animate-pulse bg-white/[0.07]",
+              compact ? "aspect-square" : "aspect-[4/5]"
+            )}
+          />
         </div>
       ))}
     </div>
@@ -116,7 +126,9 @@ function LatestTurnStage({
   onUpscaleResult: (turnId: string, index: number) => void;
 }) {
   const meta = useMemo(() => resolveTurnMeta(turn), [turn]);
-  const selectedUnsavedCount = turn.results.filter((entry) => entry.selected && !entry.saved).length;
+  const selectedUnsavedCount = turn.results.filter(
+    (entry) => entry.selected && !entry.saved
+  ).length;
 
   return (
     <motion.section
@@ -142,9 +154,7 @@ function LatestTurnStage({
             </button>
           </div>
         </div>
-        <p className="mt-4 whitespace-pre-wrap text-[17px] leading-8 text-zinc-50">
-          {turn.prompt}
-        </p>
+        <p className="mt-4 whitespace-pre-wrap text-[17px] leading-8 text-zinc-50">{turn.prompt}</p>
         <TurnTags turn={turn} />
         <button
           type="button"
@@ -176,6 +186,7 @@ function LatestTurnStage({
               type="button"
               className="inline-flex h-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-4 text-sm font-medium text-zinc-200 transition hover:border-white/16 hover:bg-white/[0.08]"
               onClick={() => onRetryTurn(turn.id)}
+              disabled={turn.status === "loading"}
             >
               <RotateCcw className="mr-1.5 h-4 w-4" />
               Retry
@@ -228,13 +239,12 @@ function LatestTurnStage({
                   selected={entry.selected}
                   saved={entry.saved}
                   isUpscaling={entry.isUpscaling}
+                  upscaleError={entry.upscaleError}
                   onToggleSelection={() => onToggleResultSelection(turn.id, entry.index)}
                   onAddToCanvas={() => onAddToCanvas(turn.id, entry.index, entry.assetId)}
                   onDownload={() => onDownloadResult(turn.id, entry.index)}
                   onUpscale={
-                    meta.supportsUpscale
-                      ? () => onUpscaleResult(turn.id, entry.index)
-                      : undefined
+                    meta.supportsUpscale ? () => onUpscaleResult(turn.id, entry.index) : undefined
                   }
                 />
               </div>
@@ -270,7 +280,9 @@ function HistoryTurnRow({
   onUpscaleResult: (turnId: string, index: number) => void;
 }) {
   const meta = useMemo(() => resolveTurnMeta(turn), [turn]);
-  const selectedUnsavedCount = turn.results.filter((entry) => entry.selected && !entry.saved).length;
+  const selectedUnsavedCount = turn.results.filter(
+    (entry) => entry.selected && !entry.saved
+  ).length;
 
   return (
     <motion.article
@@ -322,6 +334,7 @@ function HistoryTurnRow({
             type="button"
             className="inline-flex h-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-3 text-xs font-medium text-zinc-200 transition hover:border-white/16 hover:bg-white/[0.08]"
             onClick={() => onRetryTurn(turn.id)}
+            disabled={turn.status === "loading"}
           >
             <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
             Retry
@@ -374,13 +387,12 @@ function HistoryTurnRow({
                   saved={entry.saved}
                   compact
                   isUpscaling={entry.isUpscaling}
+                  upscaleError={entry.upscaleError}
                   onToggleSelection={() => onToggleResultSelection(turn.id, entry.index)}
                   onAddToCanvas={() => onAddToCanvas(turn.id, entry.index, entry.assetId)}
                   onDownload={() => onDownloadResult(turn.id, entry.index)}
                   onUpscale={
-                    meta.supportsUpscale
-                      ? () => onUpscaleResult(turn.id, entry.index)
-                      : undefined
+                    meta.supportsUpscale ? () => onUpscaleResult(turn.id, entry.index) : undefined
                   }
                 />
               </div>
@@ -425,7 +437,10 @@ export function ImageChatFeed({
   }, [turns]);
 
   return (
-    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto bg-[#050506] px-6 pb-6 pt-8 lg:px-8">
+    <div
+      ref={scrollRef}
+      className="min-h-0 flex-1 overflow-y-auto bg-[#050506] px-6 pb-6 pt-8 lg:px-8"
+    >
       <div className="mx-auto flex min-h-full w-full max-w-[1650px] flex-col">
         <div className="mb-4 flex items-center gap-2 text-sm font-medium text-zinc-300">
           <span className="text-zinc-500">Model</span>

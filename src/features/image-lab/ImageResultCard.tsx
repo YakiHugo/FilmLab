@@ -14,6 +14,7 @@ interface ImageResultCardProps {
   onDownload?: () => void;
   onUpscale?: () => void;
   isUpscaling?: boolean;
+  upscaleError?: string | null;
 }
 
 export function ImageResultCard({
@@ -29,6 +30,7 @@ export function ImageResultCard({
   onDownload,
   onUpscale,
   isUpscaling = false,
+  upscaleError = null,
 }: ImageResultCardProps) {
   return (
     <article
@@ -66,7 +68,12 @@ export function ImageResultCard({
         </div>
       </div>
 
-      <div className={cn("space-y-2 border-t border-white/6 bg-[#090b10]/94 p-2.5", compact && "space-y-1.5 p-2")}>
+      <div
+        className={cn(
+          "space-y-2 border-t border-white/6 bg-[#090b10]/94 p-2.5",
+          compact && "space-y-1.5 p-2"
+        )}
+      >
         <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
@@ -91,9 +98,12 @@ export function ImageResultCard({
             className={cn(
               "inline-flex items-center justify-center rounded-full border font-medium transition",
               compact ? "h-8 text-[11px]" : "h-9 text-xs",
-              "border-white/10 bg-white/[0.04] text-zinc-200 hover:border-white/16 hover:bg-white/[0.08]"
+              isUpscaling
+                ? "cursor-not-allowed border-white/8 bg-white/[0.02] text-zinc-500"
+                : "border-white/10 bg-white/[0.04] text-zinc-200 hover:border-white/16 hover:bg-white/[0.08]"
             )}
             onClick={onAddToCanvas}
+            disabled={isUpscaling}
           >
             <Layers className={cn(compact ? "h-3.5 w-3.5" : "mr-1.5 h-4 w-4")} />
             {compact ? (
@@ -128,14 +138,20 @@ export function ImageResultCard({
             className={cn(
               "inline-flex items-center justify-center rounded-full border font-medium transition",
               compact ? "h-8 text-[11px]" : "h-9 text-xs",
-              onUpscale
+              onUpscale && !isUpscaling
                 ? "border-white/10 bg-white/[0.04] text-zinc-200 hover:border-white/16 hover:bg-white/[0.08]"
-                : "cursor-not-allowed border-white/8 bg-white/[0.02] text-zinc-600"
+                : "cursor-not-allowed border-white/8 bg-white/[0.02] text-zinc-500"
             )}
             onClick={onUpscale}
             disabled={!onUpscale || isUpscaling}
             aria-label="Upscale image"
-            title="Upscale image"
+            title={
+              isUpscaling
+                ? "Upscaling image"
+                : onUpscale
+                  ? "Upscale image"
+                  : "Upscale is only available for Stability AI"
+            }
           >
             {isUpscaling ? (
               <Loader2 className={cn("animate-spin", compact ? "h-3.5 w-3.5" : "mr-1.5 h-4 w-4")} />
@@ -151,6 +167,17 @@ export function ImageResultCard({
             )}
           </button>
         </div>
+
+        {upscaleError ? (
+          <div
+            className={cn(
+              "rounded-2xl border border-rose-400/14 bg-rose-500/10 px-3 py-2 text-rose-100",
+              compact ? "text-[10px]" : "text-[11px]"
+            )}
+          >
+            {upscaleError}
+          </div>
+        ) : null}
       </div>
     </article>
   );

@@ -14,13 +14,15 @@ import type { GenerationConfig } from "@/stores/generationConfigStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useGenerationConfig } from "./useGenerationConfig";
 
-export interface GeneratedResultItem extends GeneratedImage {
+export type GeneratedResultItem = Omit<GeneratedImage, "imageId"> & {
+  imageId?: string | null;
   index: number;
   assetId: string | null;
   selected: boolean;
   saved: boolean;
   isUpscaling?: boolean;
-}
+  upscaleError?: string | null;
+};
 
 export interface ImageGenerationTurn {
   id: string;
@@ -77,6 +79,7 @@ const cloneGenerationConfig = (config: GenerationConfig): GenerationConfig => ({
 
 const REFERENCE_IMAGE_MAX_DIMENSION = 1_600;
 const DEFAULT_CANVAS_LONG_EDGE = 420;
+const GENERATED_IMAGE_PATH_SEGMENT = "generated-images";
 
 const blobToFileExtension = (mimeType: string) =>
   mimeType.includes("jpeg") ? "jpg" : mimeType.includes("webp") ? "webp" : "png";
@@ -182,7 +185,9 @@ export const filesToReferenceImages = async (
   options?: { maxFileSizeBytes?: number }
 ): Promise<ReferenceImage[]> => {
   const files = Array.isArray(filesInput) ? filesInput : Array.from(filesInput);
-  const entries = await Promise.all(files.map((file) => toReferenceImageEntry(file, type, options)));
+  const entries = await Promise.all(
+    files.map((file) => toReferenceImageEntry(file, type, options))
+  );
   return entries;
 };
 
@@ -205,15 +210,15 @@ const toImageRequest = (
   provider: config.provider,
   model: config.model,
   aspectRatio: config.aspectRatio,
-  width: options?.supportsCustomSize ? config.width ?? undefined : undefined,
-  height: options?.supportsCustomSize ? config.height ?? undefined : undefined,
+  width: options?.supportsCustomSize ? (config.width ?? undefined) : undefined,
+  height: options?.supportsCustomSize ? (config.height ?? undefined) : undefined,
   style: supportedFeatures.styles ? config.style : "none",
   stylePreset: config.stylePreset || undefined,
   negativePrompt: supportedFeatures.negativePrompt ? config.negativePrompt || undefined : undefined,
   referenceImages: supportedFeatures.referenceImages.enabled ? config.referenceImages : [],
-  seed: supportedFeatures.seed ? config.seed ?? undefined : undefined,
-  guidanceScale: supportedFeatures.guidanceScale ? config.guidanceScale ?? undefined : undefined,
-  steps: supportedFeatures.steps ? config.steps ?? undefined : undefined,
+  seed: supportedFeatures.seed ? (config.seed ?? undefined) : undefined,
+  guidanceScale: supportedFeatures.guidanceScale ? (config.guidanceScale ?? undefined) : undefined,
+  steps: supportedFeatures.steps ? (config.steps ?? undefined) : undefined,
   sampler: config.sampler || undefined,
   batchSize: config.batchSize,
   modelParams: config.modelParams,
@@ -232,18 +237,12 @@ export const resolveCanvasImageSize = (asset?: Asset | null) => {
   if (sourceWidth >= sourceHeight) {
     return {
       width: DEFAULT_CANVAS_LONG_EDGE,
-      height: Math.max(
-        96,
-        Math.round((DEFAULT_CANVAS_LONG_EDGE * sourceHeight) / sourceWidth)
-      ),
+      height: Math.max(96, Math.round((DEFAULT_CANVAS_LONG_EDGE * sourceHeight) / sourceWidth)),
     };
   }
 
   return {
-    width: Math.max(
-      96,
-      Math.round((DEFAULT_CANVAS_LONG_EDGE * sourceWidth) / sourceHeight)
-    ),
+    width: Math.max(96, Math.round((DEFAULT_CANVAS_LONG_EDGE * sourceWidth) / sourceHeight)),
     height: DEFAULT_CANVAS_LONG_EDGE,
   };
 };
@@ -263,6 +262,7 @@ const applyImportedAssetsToResults = (
       assetId,
       saved: true,
       selected: options?.deselectImported !== false ? false : result.selected,
+      upscaleError: null,
     };
   });
 
@@ -302,13 +302,29 @@ const updateResultInTurnList = (
     ),
   }));
 
-const resolveGeneratedImageId = (image: Pick<GeneratedImage, "imageId" | "imageUrl">) => {
+const resolveGeneratedImageId = (image: { imageId?: string | null; imageUrl: string }) => {
   if (typeof image.imageId === "string" && image.imageId.trim()) {
     return image.imageId.trim();
   }
 
-  const match = image.imageUrl.match(/\/api\/generated-images\/([^/?#]+)/);
-  return match?.[1] ?? null;
+  try {
+    const baseUrl = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+    const url = new URL(image.imageUrl, baseUrl);
+    const pathSegments = url.pathname.split("/").filter(Boolean);
+    const generatedImageIndex = pathSegments.lastIndexOf(GENERATED_IMAGE_PATH_SEGMENT);
+    const fallbackImageId = generatedImageIndex >= 0 ? pathSegments[generatedImageIndex + 1] : null;
+    if (fallbackImageId?.trim()) {
+      return fallbackImageId.trim();
+    }
+  } catch (error) {
+    console.warn("Could not parse generated image url.", {
+      error,
+      imageUrl: image.imageUrl,
+    });
+  }
+
+  console.warn("Could not resolve generated image id from url.", image.imageUrl);
+  return null;
 };
 
 const toGeneratedResultItems = (images: GeneratedImage[]): GeneratedResultItem[] =>
@@ -318,6 +334,7 @@ const toGeneratedResultItems = (images: GeneratedImage[]): GeneratedResultItem[]
     assetId: null,
     selected: true,
     saved: false,
+    upscaleError: null,
   }));
 
 export async function generateImages(
@@ -353,9 +370,6 @@ export async function saveGeneratedImages(
   });
 
   const importedAssetIds = importResult.resolvedAssetIds;
-  if (importedAssetIds[0]) {
-    useAssetStore.getState().setSelectedAssetIds([importedAssetIds[0]]);
-  }
 
   const indexToAssetId: Record<number, string> = {};
   const importedImages = selectedEntries.map((entry, arrayIndex) => {
@@ -379,15 +393,6 @@ export async function saveGeneratedImages(
   };
 }
 
-export async function generateAndImportImage(
-  request: ImageGenerationRequest,
-  options?: { signal?: AbortSignal }
-): Promise<ImportedGenerationResult> {
-  const generatedImages = await generateImages(request, options);
-  const selectedIndexes = generatedImages.map((_, index) => index);
-  return saveGeneratedImages(generatedImages, selectedIndexes);
-}
-
 export function useImageGeneration() {
   const {
     config,
@@ -408,10 +413,12 @@ export function useImageGeneration() {
   const [state, setState] = useState<ImageGenerationState>({
     turns: [],
   });
+  const stateRef = useRef(state);
   const generationRequestRef = useRef<{
     controller: AbortController;
     turnId: string;
   } | null>(null);
+  stateRef.current = state;
 
   const supportedFeatures = providerConfig.supportedFeatures;
 
@@ -429,7 +436,6 @@ export function useImageGeneration() {
 
     const { controller, turnId } = generationRequestRef.current;
     controller.abort();
-    generationRequestRef.current = null;
     setState((previous) => ({
       turns: updateTurnInList(previous.turns, turnId, (turn) =>
         turn.status === "loading"
@@ -443,73 +449,84 @@ export function useImageGeneration() {
     }));
   }, []);
 
-  const saveSelectedResults = useCallback(
-    async (turnId: string) => {
-      const turn = state.turns.find((entry) => entry.id === turnId);
-      if (!turn) {
-        return null;
-      }
+  const updateResultUpscaleState = useCallback(
+    (
+      turnId: string,
+      index: number,
+      updater: (result: GeneratedResultItem) => GeneratedResultItem
+    ) => {
+      setState((previous) => ({
+        turns: updateResultInTurnList(previous.turns, turnId, index, updater),
+      }));
+    },
+    []
+  );
 
-      const selectedIndexes = turn.results
-        .filter((entry) => entry.selected && !entry.saved)
-        .map((entry) => entry.index);
-      if (selectedIndexes.length === 0) {
-        return null;
-      }
+  const saveSelectedResults = useCallback(async (turnId: string) => {
+    const turn = stateRef.current.turns.find((entry) => entry.id === turnId);
+    if (!turn) {
+      return null;
+    }
+
+    const selectedIndexes = turn.results
+      .filter((entry) => entry.selected && !entry.saved)
+      .map((entry) => entry.index);
+    if (selectedIndexes.length === 0) {
+      return null;
+    }
+
+    setState((previous) => ({
+      turns: updateTurnInList(previous.turns, turnId, (entry) => ({
+        ...entry,
+        isSavingSelection: true,
+        error: null,
+      })),
+    }));
+
+    try {
+      const generatedImages = turn.results.map((entry) => ({
+        imageUrl: entry.imageUrl,
+        imageId: entry.imageId ?? undefined,
+        provider: entry.provider,
+        model: entry.model,
+        mimeType: entry.mimeType,
+        revisedPrompt: entry.revisedPrompt,
+      }));
+
+      const imported = await saveGeneratedImages(generatedImages, selectedIndexes);
 
       setState((previous) => ({
         turns: updateTurnInList(previous.turns, turnId, (entry) => ({
           ...entry,
-          isSavingSelection: true,
+          isSavingSelection: false,
           error: null,
+          results: entry.results.map((result) => {
+            const assetId = imported.indexToAssetId[result.index];
+            if (!assetId) {
+              return result;
+            }
+            return {
+              ...result,
+              assetId,
+              saved: true,
+              selected: false,
+            };
+          }),
         })),
       }));
 
-      try {
-        const generatedImages = turn.results.map((entry) => ({
-          imageUrl: entry.imageUrl,
-          provider: entry.provider,
-          model: entry.model,
-          mimeType: entry.mimeType,
-          revisedPrompt: entry.revisedPrompt,
-        }));
-
-        const imported = await saveGeneratedImages(generatedImages, selectedIndexes);
-
-        setState((previous) => ({
-          turns: updateTurnInList(previous.turns, turnId, (entry) => ({
-            ...entry,
-            isSavingSelection: false,
-            error: null,
-            results: entry.results.map((result) => {
-              const assetId = imported.indexToAssetId[result.index];
-              if (!assetId) {
-                return result;
-              }
-              return {
-                ...result,
-                assetId,
-                saved: true,
-                selected: false,
-              };
-            }),
-          })),
-        }));
-
-        return imported;
-      } catch (error) {
-        setState((previous) => ({
-          turns: updateTurnInList(previous.turns, turnId, (entry) => ({
-            ...entry,
-            isSavingSelection: false,
-            error: error instanceof Error ? error.message : "Save generated images failed.",
-          })),
-        }));
-        return null;
-      }
-    },
-    [state.turns]
-  );
+      return imported;
+    } catch (error) {
+      setState((previous) => ({
+        turns: updateTurnInList(previous.turns, turnId, (entry) => ({
+          ...entry,
+          isSavingSelection: false,
+          error: error instanceof Error ? error.message : "Save generated images failed.",
+        })),
+      }));
+      return null;
+    }
+  }, []);
 
   const toggleResultSelection = useCallback((turnId: string, index: number) => {
     setState((previous) => ({
@@ -539,7 +556,11 @@ export function useImageGeneration() {
   );
 
   const generateWithConfig = useCallback(
-    async (promptInput: string, configSnapshot: GenerationConfig) => {
+    async (
+      promptInput: string,
+      configSnapshot: GenerationConfig,
+      options?: { replaceTurnId?: string }
+    ) => {
       const prompt = promptInput.trim();
       if (!prompt) {
         return null;
@@ -549,10 +570,7 @@ export function useImageGeneration() {
 
       const turnId = createTurnId();
       const requestProviderConfig = getImageProviderConfig(configSnapshot.provider);
-      const requestModelConfig = getImageModelConfig(
-        configSnapshot.provider,
-        configSnapshot.model
-      );
+      const requestModelConfig = getImageModelConfig(configSnapshot.provider, configSnapshot.model);
       const requestSupportedFeatures =
         requestProviderConfig?.supportedFeatures ?? supportedFeatures;
       const controller = new AbortController();
@@ -574,7 +592,9 @@ export function useImageGeneration() {
             isSavingSelection: false,
             results: [],
           },
-          ...previous.turns,
+          ...(options?.replaceTurnId
+            ? previous.turns.filter((turn) => turn.id !== options.replaceTurnId)
+            : previous.turns),
         ],
       }));
 
@@ -637,51 +657,52 @@ export function useImageGeneration() {
     [config, generateWithConfig]
   );
 
-  const deleteTurn = useCallback(
-    (turnId: string) => {
-      if (generationRequestRef.current?.turnId === turnId) {
-        generationRequestRef.current.controller.abort();
-        generationRequestRef.current = null;
-      }
+  const deleteTurn = useCallback((turnId: string) => {
+    if (generationRequestRef.current?.turnId === turnId) {
+      generationRequestRef.current.controller.abort();
+      generationRequestRef.current = null;
+    }
 
-      setState((previous) => ({
-        turns: previous.turns.filter((turn) => turn.id !== turnId),
-      }));
-    },
-    []
-  );
+    setState((previous) => ({
+      turns: previous.turns.filter((turn) => turn.id !== turnId),
+    }));
+  }, []);
 
   const retryTurn = useCallback(
     async (turnId: string) => {
-      const turn = state.turns.find((entry) => entry.id === turnId);
+      const turn = stateRef.current.turns.find((entry) => entry.id === turnId);
       if (!turn) {
         return null;
       }
 
-      return generateWithConfig(turn.prompt, cloneGenerationConfig(turn.configSnapshot));
+      return generateWithConfig(turn.prompt, cloneGenerationConfig(turn.configSnapshot), {
+        replaceTurnId: turn.id,
+      });
     },
-    [generateWithConfig, state.turns]
+    [generateWithConfig]
   );
 
   const reuseParameters = useCallback(
     (turnId: string) => {
-      const turn = state.turns.find((entry) => entry.id === turnId);
+      const turn = stateRef.current.turns.find((entry) => entry.id === turnId);
       if (!turn) {
         return null;
       }
 
       const snapshot = cloneGenerationConfig(turn.configSnapshot);
+      const configWithoutRefs: Partial<GenerationConfig> = { ...snapshot };
+      delete configWithoutRefs.referenceImages;
       setProvider(snapshot.provider);
       setModel(snapshot.model);
-      updateConfig(snapshot);
+      updateConfig(configWithoutRefs);
       return turn.prompt;
     },
-    [setModel, setProvider, state.turns, updateConfig]
+    [setModel, setProvider, updateConfig]
   );
 
   const upscaleResult = useCallback(
     async (turnId: string, index: number) => {
-      const turn = state.turns.find((entry) => entry.id === turnId);
+      const turn = stateRef.current.turns.find((entry) => entry.id === turnId);
       const result = turn?.results.find((entry) => entry.index === index);
       if (!turn || !result || result.isUpscaling) {
         return null;
@@ -690,45 +711,34 @@ export function useImageGeneration() {
       const supportsUpscale = Boolean(
         getImageProviderConfig(result.provider)?.supportedFeatures.supportsUpscale
       );
-      if (!supportsUpscale || result.provider !== "stability") {
-        setState((previous) => ({
-          turns: updateTurnInList(previous.turns, turnId, (entry) => ({
-            ...entry,
-            error: "Upscale is not available for this provider.",
-          })),
+      if (!supportsUpscale) {
+        updateResultUpscaleState(turnId, index, (entry) => ({
+          ...entry,
+          isUpscaling: false,
+          upscaleError: "Upscale is not available for this provider.",
         }));
         return null;
       }
 
       const imageId = resolveGeneratedImageId(result);
       if (!imageId) {
-        setState((previous) => ({
-          turns: updateTurnInList(previous.turns, turnId, (entry) => ({
-            ...entry,
-            error: "Generated image is no longer available for upscale.",
-          })),
+        updateResultUpscaleState(turnId, index, (entry) => ({
+          ...entry,
+          isUpscaling: false,
+          upscaleError: "Generated image is no longer available for upscale.",
         }));
         return null;
       }
 
-      setState((previous) => ({
-        turns: updateResultInTurnList(
-          updateTurnInList(previous.turns, turnId, (entry) => ({
-            ...entry,
-            error: null,
-          })),
-          turnId,
-          index,
-          (entry) => ({
-            ...entry,
-            isUpscaling: true,
-          })
-        ),
+      updateResultUpscaleState(turnId, index, (entry) => ({
+        ...entry,
+        isUpscaling: true,
+        upscaleError: null,
       }));
 
       try {
         const upscaled = await upscaleImage({
-          provider: "stability",
+          provider: result.provider,
           model: result.model,
           imageId,
           scale: "2x",
@@ -737,16 +747,17 @@ export function useImageGeneration() {
         setState((previous) => ({
           turns: updateTurnInList(previous.turns, turnId, (entry) => ({
             ...entry,
-            error: null,
             results: entry.results.map((item) =>
               item.index === index
                 ? {
                     ...item,
                     ...upscaled,
+                    imageId: upscaled.imageId ?? null,
                     assetId: null,
                     saved: false,
                     selected: true,
                     isUpscaling: false,
+                    upscaleError: null,
                   }
                 : item
             ),
@@ -755,29 +766,20 @@ export function useImageGeneration() {
 
         return upscaled;
       } catch (error) {
-        setState((previous) => ({
-          turns: updateTurnInList(previous.turns, turnId, (entry) => ({
-            ...entry,
-            error: error instanceof Error ? error.message : "Image upscale failed.",
-            results: entry.results.map((item) =>
-              item.index === index
-                ? {
-                    ...item,
-                    isUpscaling: false,
-                  }
-                : item
-            ),
-          })),
+        updateResultUpscaleState(turnId, index, (entry) => ({
+          ...entry,
+          isUpscaling: false,
+          upscaleError: error instanceof Error ? error.message : "Image upscale failed.",
         }));
         return null;
       }
     },
-    [state.turns]
+    [updateResultUpscaleState]
   );
 
   const addToCanvas = useCallback(
     async (turnId: string, index?: number, assetId?: string | null) => {
-      const turn = state.turns.find((entry) => entry.id === turnId);
+      const turn = stateRef.current.turns.find((entry) => entry.id === turnId);
       if (!turn) {
         return null;
       }
@@ -785,11 +787,12 @@ export function useImageGeneration() {
       let finalAssetId =
         assetId ??
         (typeof index === "number"
-          ? turn.results.find((entry) => entry.index === index)?.assetId ?? null
-          : turn.results.find((entry) => entry.assetId)?.assetId ?? null);
+          ? (turn.results.find((entry) => entry.index === index)?.assetId ?? null)
+          : (turn.results.find((entry) => entry.assetId)?.assetId ?? null));
       if (!finalAssetId && typeof index === "number") {
         const generatedImages = turn.results.map((entry) => ({
           imageUrl: entry.imageUrl,
+          imageId: entry.imageId ?? undefined,
           provider: entry.provider,
           model: entry.model,
           mimeType: entry.mimeType,
@@ -812,9 +815,7 @@ export function useImageGeneration() {
       }
 
       const canvas = useCanvasStore.getState();
-      const asset = useAssetStore
-        .getState()
-        .assets.find((entry) => entry.id === finalAssetId);
+      const asset = useAssetStore.getState().assets.find((entry) => entry.id === finalAssetId);
       let documentId = canvas.activeDocumentId;
       if (!documentId) {
         const created = await canvas.createDocument("AI Board");
@@ -847,7 +848,7 @@ export function useImageGeneration() {
       canvas.setSelectedElementIds([element.id]);
       return { documentId, elementId: element.id };
     },
-    [state.turns]
+    []
   );
 
   const aspectRatioOptions = useMemo(

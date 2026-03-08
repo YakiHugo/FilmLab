@@ -1,11 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GeneratedImage } from "@/types/imageGeneration";
 
-const {
-  importAssetFilesMock,
-  setSelectedAssetIdsMock,
-  assetState,
-} = vi.hoisted(() => {
+const { importAssetFilesMock, setSelectedAssetIdsMock, assetState } = vi.hoisted(() => {
   const importAssetFilesMock = vi.fn();
   const setSelectedAssetIdsMock = vi.fn();
 
@@ -120,6 +116,6 @@ describe("image generation helpers", () => {
     });
     expect(result.indexToAssetId).toEqual({ 1: "asset-2" });
     expect(result.importedAssetIds).toEqual(["asset-2"]);
-    expect(setSelectedAssetIdsMock).toHaveBeenCalledWith(["asset-2"]);
+    expect(setSelectedAssetIdsMock).not.toHaveBeenCalled();
   });
 });
