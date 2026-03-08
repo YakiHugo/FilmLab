@@ -15,6 +15,7 @@ export interface ProviderGenerationResult {
   provider: ImageProviderId;
   model: string;
   images: ProviderGeneratedImage[];
+  warnings?: string[];
 }
 
 export interface ProviderImageUpscaleRequest {

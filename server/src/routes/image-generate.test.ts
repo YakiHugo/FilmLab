@@ -48,6 +48,7 @@ describe("imageGenerateRoute", () => {
     generateMock.mockResolvedValue({
       provider: "flux",
       model: "flux-pro",
+      warnings: ["2 of 4 images completed."],
       images: [
         {
           imageUrl: "https://cdn.example.com/remote.png",
@@ -95,6 +96,7 @@ describe("imageGenerateRoute", () => {
     const body = response.json();
     expect(body.imageId).toBe("remote-1");
     expect(body.imageUrl).toBe("/api/generated-images/remote-1");
+    expect(body.warnings).toEqual(["2 of 4 images completed."]);
     expect(body.images).toEqual([
       expect.objectContaining({
         imageId: "remote-1",
