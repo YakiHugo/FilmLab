@@ -1,4 +1,4 @@
-export const IMAGE_PROVIDER_IDS = ["openai", "stability", "flux", "ideogram"] as const;
+export const IMAGE_PROVIDER_IDS = ["openai", "stability", "flux", "ideogram", "seedream"] as const;
 export type ImageProviderId = (typeof IMAGE_PROVIDER_IDS)[number];
 
 export const IMAGE_ASPECT_RATIOS = [
@@ -83,4 +83,5 @@ export interface ImageGenerationResponse {
   imageId?: string;
   imageUrl?: string;
   images: GeneratedImage[];
+  warnings?: string[];
 }

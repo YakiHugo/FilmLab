@@ -17,6 +17,7 @@ export const buildServer = () => {
           "req.headers.x-provider-key-stability",
           "req.headers.x-provider-key-flux",
           "req.headers.x-provider-key-ideogram",
+          "req.headers.x-provider-key-seedream",
         ],
         censor: "[REDACTED]",
       },

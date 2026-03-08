@@ -3,6 +3,7 @@ import type { ImageProviderId } from "../shared/imageGenerationSchema";
 import { fluxImageProvider } from "./flux";
 import { ideogramImageProvider } from "./ideogram";
 import { openAiImageProvider } from "./openai";
+import seedreamImageProvider from "./seedream";
 import { stabilityImageProvider } from "./stability";
 import type { ImageProviderAdapter } from "./types";
 
@@ -11,6 +12,7 @@ const PROVIDER_ADAPTERS: Record<ImageProviderId, ImageProviderAdapter> = {
   stability: stabilityImageProvider,
   flux: fluxImageProvider,
   ideogram: ideogramImageProvider,
+  seedream: seedreamImageProvider,
 };
 
 export const getProviderAdapter = (providerId: ImageProviderId) =>
@@ -27,6 +29,11 @@ const getServerApiKey = (providerId: ImageProviderId) => {
       return config.fluxApiKey ?? "";
     case "ideogram":
       return config.ideogramApiKey ?? "";
+    case "seedream": {
+      const accessKeyId = config.volcengineAccessKeyId ?? "";
+      const secretAccessKey = config.volcengineSecretAccessKey ?? "";
+      return accessKeyId && secretAccessKey ? `${accessKeyId}:${secretAccessKey}` : "";
+    }
     default:
       return "";
   }
