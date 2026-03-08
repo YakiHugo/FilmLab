@@ -1,9 +1,14 @@
+import { getConfig } from "../config";
 import { dataUrlToBlob, extensionFromMimeType, isDataUrl } from "../shared/dataUrl";
 import { fetchWithTimeout } from "../shared/fetchWithTimeout";
 import type {
   ImageAspectRatio,
   ParsedImageGenerationRequest,
 } from "../shared/imageGenerationSchema";
+import {
+  getImageContentType,
+  readResponseBufferWithinLimit,
+} from "../shared/readResponseWithinLimit";
 import { assertSafeRemoteUrl } from "../shared/safeRemoteUrl";
 import type { ImageProviderAdapter } from "./types";
 import { ProviderError, readProviderError } from "./types";
@@ -34,7 +39,7 @@ const toStyleType = (style: ParsedImageGenerationRequest["style"]) => {
   }
 };
 
-const toReferenceBlob = async (url: string) => {
+const toReferenceBlob = async (url: string, options?: { signal?: AbortSignal }) => {
   if (isDataUrl(url)) {
     return dataUrlToBlob(url);
   }
@@ -42,35 +47,41 @@ const toReferenceBlob = async (url: string) => {
   const safeUrl = await assertSafeRemoteUrl(url, "Ideogram reference image");
   const response = await fetchWithTimeout(
     safeUrl,
-    {
-      method: "GET",
-      redirect: "error",
-    },
-    "Downloading a reference image for Ideogram timed out."
-  );
+      {
+        method: "GET",
+        redirect: "error",
+      },
+      "Downloading a reference image for Ideogram timed out.",
+      options
+    );
 
   if (!response.ok) {
     throw new ProviderError("Ideogram reference image could not be downloaded.", response.status);
   }
 
-  const contentType = response.headers.get("content-type") ?? "";
-  if (!contentType.startsWith("image/")) {
+  const contentType = getImageContentType(response, "");
+  if (!contentType) {
     throw new ProviderError("Ideogram reference image URL did not return an image.", 400);
   }
 
-  const arrayBuffer = await response.arrayBuffer();
-  return new Blob([arrayBuffer], { type: contentType });
+  const buffer = await readResponseBufferWithinLimit(
+    response,
+    getConfig().referenceImageDownloadMaxBytes,
+    "Ideogram reference image is too large to download."
+  );
+  return new Blob([buffer], { type: contentType });
 };
 
 const appendReferenceImages = async (
   formData: FormData,
-  request: ParsedImageGenerationRequest
+  request: ParsedImageGenerationRequest,
+  options?: { signal?: AbortSignal }
 ) => {
   const styleReferences = request.referenceImages.filter((entry) => entry.type === "style");
   const styleBlobs = await Promise.all(
     styleReferences.map(async (entry) => ({
       entry,
-      blob: await toReferenceBlob(entry.url),
+      blob: await toReferenceBlob(entry.url, options),
     }))
   );
 
@@ -85,7 +96,7 @@ const appendReferenceImages = async (
 
   const characterReference = request.referenceImages.find((entry) => entry.type !== "style");
   if (characterReference) {
-    const blob = await toReferenceBlob(characterReference.url);
+    const blob = await toReferenceBlob(characterReference.url, options);
     const extension = extensionFromMimeType(blob.type);
     formData.append(
       "character_reference_images",
@@ -96,7 +107,7 @@ const appendReferenceImages = async (
 };
 
 export const ideogramImageProvider: ImageProviderAdapter = {
-  async generate(request, apiKey) {
+  async generate(request, apiKey, options) {
     const batchSize = Math.min(Math.max(request.batchSize ?? 1, 1), 4);
     const renderingSpeed =
       typeof request.modelParams.renderingSpeed === "string"
@@ -122,7 +133,7 @@ export const ideogramImageProvider: ImageProviderAdapter = {
       formData.append("seed", String(request.seed));
     }
 
-    await appendReferenceImages(formData, request);
+    await appendReferenceImages(formData, request, options);
 
     const upstream = await fetchWithTimeout(
       "https://api.ideogram.ai/v1/ideogram-v3/generate",
@@ -133,7 +144,8 @@ export const ideogramImageProvider: ImageProviderAdapter = {
         },
         body: formData,
       },
-      "Ideogram image generation timed out."
+      "Ideogram image generation timed out.",
+      options
     );
 
     if (!upstream.ok) {

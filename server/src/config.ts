@@ -10,10 +10,16 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().trim().min(1).default("http://localhost:5173"),
   REQUEST_BODY_LIMIT_MB: z.coerce.number().min(1).max(50).default(12),
   PROVIDER_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(120_000),
+  IMAGE_GENERATE_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(1_000).optional(),
+  IMAGE_GENERATE_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1_000).max(3_600_000).optional(),
+  GENERATED_IMAGE_GET_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(10_000).optional(),
+  GENERATED_IMAGE_GET_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1_000).max(3_600_000).optional(),
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(1_000).default(20),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(60_000),
   GENERATED_IMAGE_STORE_MAX_ITEMS: z.coerce.number().int().min(1).max(10_000).default(128),
   GENERATED_IMAGE_STORE_MAX_MB: z.coerce.number().min(1).max(512).default(64),
+  GENERATED_IMAGE_DOWNLOAD_MAX_MB: z.coerce.number().min(1).max(512).default(32),
+  REFERENCE_IMAGE_DOWNLOAD_MAX_MB: z.coerce.number().min(1).max(128).default(8),
   OPENAI_API_KEY: z.string().trim().min(1).optional(),
   STABILITY_API_KEY: z.string().trim().min(1).optional(),
   FLUX_API_KEY: z.string().trim().min(1).optional(),
@@ -31,8 +37,14 @@ export interface AppConfig {
   providerRequestTimeoutMs: number;
   rateLimitMax: number;
   rateLimitTimeWindowMs: number;
+  imageGenerateRateLimitMax: number;
+  imageGenerateRateLimitTimeWindowMs: number;
+  generatedImageGetRateLimitMax: number;
+  generatedImageGetRateLimitTimeWindowMs: number;
   generatedImageStoreMaxItems: number;
   generatedImageStoreMaxBytes: number;
+  generatedImageDownloadMaxBytes: number;
+  referenceImageDownloadMaxBytes: number;
   openAiApiKey?: string;
   stabilityApiKey?: string;
   fluxApiKey?: string;
@@ -65,8 +77,21 @@ export const getConfig = (): AppConfig => {
     providerRequestTimeoutMs: env.PROVIDER_REQUEST_TIMEOUT_MS,
     rateLimitMax: env.RATE_LIMIT_MAX,
     rateLimitTimeWindowMs: env.RATE_LIMIT_WINDOW_MS,
+    imageGenerateRateLimitMax: env.IMAGE_GENERATE_RATE_LIMIT_MAX ?? env.RATE_LIMIT_MAX,
+    imageGenerateRateLimitTimeWindowMs:
+      env.IMAGE_GENERATE_RATE_LIMIT_WINDOW_MS ?? env.RATE_LIMIT_WINDOW_MS,
+    generatedImageGetRateLimitMax:
+      env.GENERATED_IMAGE_GET_RATE_LIMIT_MAX ?? Math.max(env.RATE_LIMIT_MAX * 6, 60),
+    generatedImageGetRateLimitTimeWindowMs:
+      env.GENERATED_IMAGE_GET_RATE_LIMIT_WINDOW_MS ?? env.RATE_LIMIT_WINDOW_MS,
     generatedImageStoreMaxItems: env.GENERATED_IMAGE_STORE_MAX_ITEMS,
     generatedImageStoreMaxBytes: Math.round(env.GENERATED_IMAGE_STORE_MAX_MB * 1024 * 1024),
+    generatedImageDownloadMaxBytes: Math.round(
+      env.GENERATED_IMAGE_DOWNLOAD_MAX_MB * 1024 * 1024
+    ),
+    referenceImageDownloadMaxBytes: Math.round(
+      env.REFERENCE_IMAGE_DOWNLOAD_MAX_MB * 1024 * 1024
+    ),
     openAiApiKey: env.OPENAI_API_KEY,
     stabilityApiKey: env.STABILITY_API_KEY,
     fluxApiKey: env.FLUX_API_KEY ?? env.FAL_KEY,

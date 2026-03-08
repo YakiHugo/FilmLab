@@ -14,34 +14,32 @@ const FAL_ENDPOINTS: Record<string, string> = {
 };
 
 const toDimensions = (request: ParsedImageGenerationRequest) => {
-  if (request.aspectRatio === "custom" && request.width && request.height) {
+  if (request.width && request.height) {
     return {
       width: request.width,
       height: request.height,
     };
   }
 
+  if (request.aspectRatio === "4:3") {
+    return { width: 1536, height: 1152 };
+  }
+  if (request.aspectRatio === "3:4") {
+    return { width: 1152, height: 1536 };
+  }
+  if (request.aspectRatio === "3:2") {
+    return { width: 1536, height: 1024 };
+  }
+  if (request.aspectRatio === "2:3") {
+    return { width: 1024, height: 1536 };
+  }
   if (request.aspectRatio === "16:9") {
-    return { width: 1344, height: 768 };
+    return { width: 1536, height: 864 };
   }
   if (request.aspectRatio === "9:16") {
-    return { width: 768, height: 1344 };
-  }
-  if (request.aspectRatio === "3:2" || request.aspectRatio === "4:3") {
-    return { width: 1216, height: 832 };
-  }
-  if (request.aspectRatio === "2:3" || request.aspectRatio === "3:4") {
-    return { width: 832, height: 1216 };
+    return { width: 864, height: 1536 };
   }
   return { width: 1024, height: 1024 };
-};
-
-const toFalImageSize = (request: ParsedImageGenerationRequest) => {
-  if (request.aspectRatio === "16:9") return "landscape_16_9";
-  if (request.aspectRatio === "9:16") return "portrait_16_9";
-  if (request.aspectRatio === "3:2" || request.aspectRatio === "4:3") return "landscape_4_3";
-  if (request.aspectRatio === "2:3" || request.aspectRatio === "3:4") return "portrait_4_3";
-  return "square_hd";
 };
 
 const extractImageUrls = (value: unknown): string[] => {
@@ -102,15 +100,14 @@ const toMimeType = (outputFormat: string) =>
   outputFormat === "jpeg" ? "image/jpeg" : "image/png";
 
 export const fluxImageProvider: ImageProviderAdapter = {
-  async generate(request, apiKey) {
-    const endpointId = FAL_ENDPOINTS[request.model] ?? FAL_ENDPOINTS["flux-dev"];
+  async generate(request, apiKey, options) {
+    const endpointId = FAL_ENDPOINTS[request.model];
+    if (!endpointId) {
+      throw new ProviderError(`Unsupported Flux model: ${request.model}.`, 400);
+    }
     const endpoint = `${getConfig().fluxApiBaseUrl}/${endpointId}`;
     const batchSize = Math.min(Math.max(request.batchSize ?? 1, 1), 4);
     const { width, height } = toDimensions(request);
-    const imageSize =
-      request.aspectRatio === "custom" && request.width && request.height
-        ? { width, height }
-        : toFalImageSize(request);
     const outputFormat =
       typeof request.modelParams.outputFormat === "string"
         ? request.modelParams.outputFormat
@@ -143,7 +140,7 @@ export const fluxImageProvider: ImageProviderAdapter = {
         },
         body: JSON.stringify({
           prompt: buildPrompt(request),
-          image_size: imageSize,
+          image_size: { width, height },
           seed: typeof request.seed === "number" ? request.seed : undefined,
           guidance_scale: request.guidanceScale,
           num_inference_steps: request.steps,
@@ -155,7 +152,8 @@ export const fluxImageProvider: ImageProviderAdapter = {
           sync_mode: true,
         }),
       },
-      "Flux image generation timed out."
+      "Flux image generation timed out.",
+      options
     );
 
     if (!upstream.ok) {

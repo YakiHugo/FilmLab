@@ -72,7 +72,7 @@ const extractImages = (
   }, []);
 
 export const openAiImageProvider: ImageProviderAdapter = {
-  async generate(request, apiKey) {
+  async generate(request, apiKey, options) {
     const batchSize = Math.min(Math.max(request.batchSize ?? 1, 1), 4);
     if (request.model === "dall-e-3" && batchSize > 1) {
       throw new ProviderError("DALL-E 3 supports batch size 1 only.", 400);
@@ -114,7 +114,8 @@ export const openAiImageProvider: ImageProviderAdapter = {
         },
         body: JSON.stringify(body),
       },
-      "OpenAI image generation timed out."
+      "OpenAI image generation timed out.",
+      options
     );
 
     if (!upstream.ok) {
