@@ -1,4 +1,5 @@
 import type {
+  ImageUpscaleScale,
   ImageProviderId,
   ParsedImageGenerationRequest,
 } from "../shared/imageGenerationSchema";
@@ -16,12 +17,24 @@ export interface ProviderGenerationResult {
   images: ProviderGeneratedImage[];
 }
 
+export interface ProviderImageUpscaleRequest {
+  model: string;
+  imageBuffer: Buffer;
+  mimeType: string;
+  scale: ImageUpscaleScale;
+}
+
 export interface ImageProviderAdapter {
   generate: (
     request: ParsedImageGenerationRequest,
     apiKey: string,
     options?: { signal?: AbortSignal }
   ) => Promise<ProviderGenerationResult>;
+  upscale?: (
+    request: ProviderImageUpscaleRequest,
+    apiKey: string,
+    options?: { signal?: AbortSignal }
+  ) => Promise<ProviderGeneratedImage>;
 }
 
 export class ProviderError extends Error {

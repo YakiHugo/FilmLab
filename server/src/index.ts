@@ -4,6 +4,7 @@ import { registerCors } from "./plugins/cors";
 import { registerRateLimit } from "./plugins/rateLimit";
 import { generatedImageRoute } from "./routes/generated-image";
 import { imageGenerateRoute } from "./routes/image-generate";
+import { imageUpscaleRoute } from "./routes/image-upscale";
 import { recommendFilmRoute } from "./routes/recommend-film";
 
 export const buildServer = () => {
@@ -53,6 +54,7 @@ const start = async () => {
   await app.register(registerRateLimit);
   await app.register(generatedImageRoute);
   await app.register(imageGenerateRoute);
+  await app.register(imageUpscaleRoute);
   await app.register(recommendFilmRoute);
 
   app.get("/health", async () => ({

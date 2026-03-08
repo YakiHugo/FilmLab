@@ -30,6 +30,9 @@ export type ImageStyleId = (typeof IMAGE_STYLE_IDS)[number];
 export const REFERENCE_IMAGE_TYPES = ["style", "content", "controlnet"] as const;
 export type ReferenceImageType = (typeof REFERENCE_IMAGE_TYPES)[number];
 
+export const IMAGE_UPSCALE_SCALES = ["2x", "4x"] as const;
+export type ImageUpscaleScale = (typeof IMAGE_UPSCALE_SCALES)[number];
+
 export interface ReferenceImage {
   id: string;
   url: string;
@@ -59,16 +62,25 @@ export interface ImageGenerationRequest {
 
 export interface GeneratedImage {
   imageUrl: string;
+  imageId?: string;
   provider: ImageProviderId;
   model: string;
   mimeType?: string;
   revisedPrompt?: string | null;
 }
 
+export interface ImageUpscaleRequest {
+  provider: "stability";
+  model: string;
+  imageId: string;
+  scale?: ImageUpscaleScale;
+}
+
 export interface ImageGenerationResponse {
   provider: ImageProviderId;
   model: string;
   createdAt: string;
+  imageId?: string;
   imageUrl?: string;
   images: GeneratedImage[];
 }

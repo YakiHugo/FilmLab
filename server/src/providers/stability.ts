@@ -1,7 +1,7 @@
 import { getStylePromptHint } from "../shared/imageStyleHints";
 import { fetchWithTimeout } from "../shared/fetchWithTimeout";
 import type { ParsedImageGenerationRequest } from "../shared/imageGenerationSchema";
-import type { ImageProviderAdapter } from "./types";
+import type { ImageProviderAdapter, ProviderImageUpscaleRequest } from "./types";
 import { ProviderError, readProviderError } from "./types";
 
 const toStabilityAspectRatio = (request: ParsedImageGenerationRequest) => {
@@ -56,6 +56,36 @@ const toMimeType = (outputFormat: string) => {
   if (outputFormat === "jpeg") return "image/jpeg";
   if (outputFormat === "webp") return "image/webp";
   return "image/png";
+};
+
+const toOutputFormat = (mimeType: string) => {
+  if (mimeType.includes("jpeg")) return "jpeg";
+  if (mimeType.includes("webp")) return "webp";
+  return "png";
+};
+
+const toFileExtension = (mimeType: string) => {
+  if (mimeType.includes("jpeg")) return "jpg";
+  if (mimeType.includes("webp")) return "webp";
+  return "png";
+};
+
+const buildUpscaleFormData = (request: ProviderImageUpscaleRequest) => {
+  const formData = new FormData();
+  const outputFormat = toOutputFormat(request.mimeType);
+  const imageBytes = new Uint8Array(request.imageBuffer.byteLength);
+  imageBytes.set(request.imageBuffer);
+  const imageFile = new Blob([imageBytes], {
+    type: request.mimeType || toMimeType(outputFormat),
+  });
+
+  formData.append("image", imageFile, `upscale-source.${toFileExtension(request.mimeType)}`);
+  formData.append("scale", request.scale);
+  formData.append("output_format", outputFormat);
+  return {
+    formData,
+    mimeType: toMimeType(outputFormat),
+  };
 };
 
 export const stabilityImageProvider: ImageProviderAdapter = {
@@ -155,6 +185,37 @@ export const stabilityImageProvider: ImageProviderAdapter = {
       provider: "stability",
       model: request.model,
       images,
+    };
+  },
+  async upscale(request, apiKey, options) {
+    const endpoint = new URL("https://api.stability.ai/v2beta/stable-image/upscale/fast");
+    const { formData, mimeType } = buildUpscaleFormData(request);
+
+    const upstream = await fetchWithTimeout(
+      endpoint,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Accept: "image/*",
+        },
+        body: formData,
+      },
+      "Stability image upscale timed out.",
+      options
+    );
+
+    if (!upstream.ok) {
+      throw new ProviderError(
+        await readProviderError(upstream, "Stability image upscale failed."),
+        upstream.status
+      );
+    }
+
+    const arrayBuffer = await upstream.arrayBuffer();
+    return {
+      binaryData: Buffer.from(arrayBuffer),
+      mimeType,
     };
   },
 };

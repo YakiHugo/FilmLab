@@ -11,6 +11,7 @@ export {
 
 export type {
   ImageAspectRatio,
+  ImageUpscaleScale,
   ImageProviderId,
   ImageStyleId,
   ReferenceImageType,
