@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import {
   getDefaultImageModelParams,
-  getImageModelParamDefinitions,
+  sanitizeImageModelParams,
   type ImageModelParamValue,
 } from "@/lib/ai/imageModelParams";
 import {
@@ -11,6 +11,7 @@ import {
   getImageModelConfig,
   getImageProviderConfig,
 } from "@/lib/ai/imageProviders";
+import { IMAGE_GENERATION_LIMITS } from "@/lib/ai/imageGenerationSchema";
 import type {
   ImageAspectRatio,
   ImageProviderId,
@@ -51,8 +52,8 @@ const DEFAULT_CONFIG: GenerationConfig = {
   provider: DEFAULT_IMAGE_PROVIDER,
   model: getDefaultImageModelForProvider(DEFAULT_IMAGE_PROVIDER),
   aspectRatio: "1:1",
-  width: 1024,
-  height: 1024,
+  width: null,
+  height: null,
   style: "none",
   stylePreset: "",
   negativePrompt: "",
@@ -68,40 +69,54 @@ const DEFAULT_CONFIG: GenerationConfig = {
   ),
 };
 
-const normalizeModelParamValue = (
-  expectedType: "select" | "number" | "boolean",
-  value: unknown,
-  defaultValue: ImageModelParamValue
-): ImageModelParamValue => {
-  if (expectedType === "number") {
-    return typeof value === "number" && Number.isFinite(value) ? value : defaultValue;
-  }
-  if (expectedType === "boolean") {
-    return typeof value === "boolean" ? value : defaultValue;
-  }
-  return typeof value === "string" ? value : defaultValue;
-};
-
-const sanitizeModelParams = (
-  providerId: ImageProviderId,
-  modelId: string,
-  modelParams: Record<string, ImageModelParamValue>
+const clampNullableInteger = (
+  value: number | null | undefined,
+  minimum: number,
+  maximum: number
 ) => {
-  const fields = getImageModelParamDefinitions(providerId, modelId);
-  if (fields.length === 0) {
-    return {};
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
   }
-  return fields.reduce<Record<string, ImageModelParamValue>>((accumulator, field) => {
-    accumulator[field.key] = normalizeModelParamValue(
-      field.type,
-      modelParams[field.key],
-      field.defaultValue
-    );
-    return accumulator;
-  }, {});
+  return Math.min(maximum, Math.max(minimum, Math.round(value)));
 };
 
-const sanitizeConfig = (config: GenerationConfig): GenerationConfig => {
+const clampNullableNumber = (
+  value: number | null | undefined,
+  minimum: number,
+  maximum: number
+) => {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+  return Math.min(maximum, Math.max(minimum, value));
+};
+
+const getDefaultStepsForModel = (
+  providerId: ImageProviderId,
+  modelId: string
+) => getImageModelConfig(providerId, modelId)?.defaultSteps ?? null;
+
+const sanitizeReferenceImages = (
+  providerId: ImageProviderId,
+  referenceImages: ReferenceImage[]
+) => {
+  const provider = getImageProviderConfig(providerId);
+  const support = provider?.supportedFeatures.referenceImages;
+  if (!support?.enabled) {
+    return [];
+  }
+
+  const fallbackType = support.supportedTypes[0] ?? "content";
+  return referenceImages.slice(0, support.maxImages).map((entry) => ({
+    ...entry,
+    type: support.supportedTypes.includes(entry.type) ? entry.type : fallbackType,
+    weight: support.supportsWeight
+      ? clampNullableNumber(entry.weight ?? 1, 0, 1) ?? 1
+      : 1,
+  }));
+};
+
+export const sanitizeGenerationConfig = (config: GenerationConfig): GenerationConfig => {
   const provider = getImageProviderConfig(config.provider);
   if (!provider) {
     return DEFAULT_CONFIG;
@@ -121,23 +136,44 @@ const sanitizeConfig = (config: GenerationConfig): GenerationConfig => {
     ...config,
     model,
     aspectRatio,
-    width:
-      typeof config.width === "number" && Number.isFinite(config.width)
-        ? Math.max(256, Math.round(config.width))
-        : null,
-    height:
-      typeof config.height === "number" && Number.isFinite(config.height)
-        ? Math.max(256, Math.round(config.height))
-        : null,
-    batchSize: Math.min(
-      modelConfig?.maxBatchSize ?? 4,
-      Math.max(1, Math.round(config.batchSize || 1))
+    width: clampNullableInteger(
+      config.width,
+      IMAGE_GENERATION_LIMITS.width.min,
+      IMAGE_GENERATION_LIMITS.width.max
     ),
-    modelParams: sanitizeModelParams(
+    height: clampNullableInteger(
+      config.height,
+      IMAGE_GENERATION_LIMITS.height.min,
+      IMAGE_GENERATION_LIMITS.height.max
+    ),
+    batchSize: Math.min(
+      modelConfig?.maxBatchSize ?? IMAGE_GENERATION_LIMITS.batchSize.max,
+      Math.max(
+        IMAGE_GENERATION_LIMITS.batchSize.min,
+        Math.round(config.batchSize || IMAGE_GENERATION_LIMITS.batchSize.min)
+      )
+    ),
+    seed: clampNullableInteger(
+      config.seed,
+      IMAGE_GENERATION_LIMITS.seed.min,
+      IMAGE_GENERATION_LIMITS.seed.max
+    ),
+    guidanceScale: clampNullableNumber(
+      config.guidanceScale,
+      IMAGE_GENERATION_LIMITS.guidanceScale.min,
+      IMAGE_GENERATION_LIMITS.guidanceScale.max
+    ),
+    steps: clampNullableInteger(
+      config.steps,
+      IMAGE_GENERATION_LIMITS.steps.min,
+      IMAGE_GENERATION_LIMITS.steps.max
+    ),
+    modelParams: sanitizeImageModelParams(
       config.provider,
       model,
       config.modelParams ?? {}
     ),
+    referenceImages: sanitizeReferenceImages(config.provider, config.referenceImages ?? []),
   };
 
   if (!provider.supportedFeatures.styles) {
@@ -147,7 +183,7 @@ const sanitizeConfig = (config: GenerationConfig): GenerationConfig => {
   if (!provider.supportedFeatures.negativePrompt) {
     next.negativePrompt = "";
   }
-  if (!provider.supportedFeatures.referenceImages) {
+  if (!provider.supportedFeatures.referenceImages.enabled) {
     next.referenceImages = [];
   }
   if (!provider.supportedFeatures.seed) {
@@ -158,6 +194,41 @@ const sanitizeConfig = (config: GenerationConfig): GenerationConfig => {
   }
   if (!provider.supportedFeatures.steps) {
     next.steps = null;
+  } else if (next.steps === null) {
+    next.steps = getDefaultStepsForModel(config.provider, model);
+  }
+
+  if (!modelConfig?.supportsCustomSize) {
+    if (next.aspectRatio === "custom") {
+      next.aspectRatio = supportedAspectRatios[0] ?? "1:1";
+    }
+    if (next.width !== null || next.height !== null) {
+      next.width = null;
+      next.height = null;
+    }
+  } else if (
+    next.width !== null &&
+    next.height !== null &&
+    next.aspectRatio !== "custom"
+  ) {
+    const [rawWidth, rawHeight] = next.aspectRatio.split(":");
+    const aspectWidth = Number(rawWidth);
+    const aspectHeight = Number(rawHeight);
+    if (
+      Number.isFinite(aspectWidth) &&
+      Number.isFinite(aspectHeight) &&
+      aspectWidth > 0 &&
+      aspectHeight > 0
+    ) {
+      const requestedRatio = next.width / next.height;
+      const targetRatio = aspectWidth / aspectHeight;
+      if (Math.abs(requestedRatio - targetRatio) > 0.02) {
+        next.height = Math.max(
+          IMAGE_GENERATION_LIMITS.height.min,
+          Math.round(next.width / targetRatio)
+        );
+      }
+    }
   }
 
   return next;
@@ -166,10 +237,10 @@ const sanitizeConfig = (config: GenerationConfig): GenerationConfig => {
 export const useGenerationConfigStore = create<GenerationConfigState>()(
   devtools(
     (set) => ({
-      config: DEFAULT_CONFIG,
+      config: sanitizeGenerationConfig(DEFAULT_CONFIG),
       setProvider: (provider) =>
         set((state) => ({
-          config: sanitizeConfig({
+          config: sanitizeGenerationConfig({
             ...state.config,
             provider,
             model: getDefaultImageModelForProvider(provider),
@@ -181,7 +252,7 @@ export const useGenerationConfigStore = create<GenerationConfigState>()(
         })),
       setModel: (model) =>
         set((state) => ({
-          config: sanitizeConfig({
+          config: sanitizeGenerationConfig({
             ...state.config,
             model,
             modelParams: getDefaultImageModelParams(state.config.provider, model),
@@ -189,21 +260,21 @@ export const useGenerationConfigStore = create<GenerationConfigState>()(
         })),
       updateConfig: (patch) =>
         set((state) => ({
-          config: sanitizeConfig({
+          config: sanitizeGenerationConfig({
             ...state.config,
             ...patch,
           }),
         })),
       addReferenceImages: (entries) =>
         set((state) => ({
-          config: sanitizeConfig({
+          config: sanitizeGenerationConfig({
             ...state.config,
-            referenceImages: [...state.config.referenceImages, ...entries].slice(0, 4),
+            referenceImages: [...state.config.referenceImages, ...entries],
           }),
         })),
       updateReferenceImage: (id, patch) =>
         set((state) => ({
-          config: sanitizeConfig({
+          config: sanitizeGenerationConfig({
             ...state.config,
             referenceImages: state.config.referenceImages.map((entry) =>
               entry.id === id
@@ -217,14 +288,14 @@ export const useGenerationConfigStore = create<GenerationConfigState>()(
         })),
       removeReferenceImage: (id) =>
         set((state) => ({
-          config: sanitizeConfig({
+          config: sanitizeGenerationConfig({
             ...state.config,
             referenceImages: state.config.referenceImages.filter((entry) => entry.id !== id),
           }),
         })),
       clearReferenceImages: () =>
         set((state) => ({
-          config: sanitizeConfig({
+          config: sanitizeGenerationConfig({
             ...state.config,
             referenceImages: [],
           }),

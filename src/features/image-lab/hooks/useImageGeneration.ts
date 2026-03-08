@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { importAssetFiles } from "@/lib/assetImport";
 import { generateImage as requestImageGeneration } from "@/lib/ai/imageGeneration";
 import { getImageProviderConfig } from "@/lib/ai/imageProviders";
-import type { CanvasImageElement } from "@/types";
+import type { Asset, CanvasImageElement } from "@/types";
 import type {
   GeneratedImage,
   ImageGenerationRequest,
@@ -73,40 +73,114 @@ const cloneGenerationConfig = (config: GenerationConfig): GenerationConfig => ({
   modelParams: { ...config.modelParams },
 });
 
+const REFERENCE_IMAGE_MAX_DIMENSION = 1_600;
+const DEFAULT_CANVAS_LONG_EDGE = 420;
+
 const blobToFileExtension = (mimeType: string) =>
   mimeType.includes("jpeg") ? "jpg" : mimeType.includes("webp") ? "webp" : "png";
 
-const readFileAsDataUrl = (file: File): Promise<string> =>
+const readBlobAsDataUrl = (file: Blob): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result !== "string" || !reader.result) {
-        reject(new Error(`Could not read reference image: ${file.name}`));
+        reject(new Error("Could not read reference image."));
         return;
       }
       resolve(reader.result);
     };
-    reader.onerror = () => reject(new Error(`Could not read reference image: ${file.name}`));
+    reader.onerror = () => reject(new Error("Could not read reference image."));
     reader.readAsDataURL(file);
   });
 
+const loadImageFromFile = (file: File): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error(`Could not process reference image: ${file.name}`));
+    };
+    image.src = objectUrl;
+  });
+
+const renderReferenceImageBlob = async (file: File) => {
+  if (typeof document === "undefined") {
+    return file;
+  }
+
+  const image = await loadImageFromFile(file);
+  const longestEdge = Math.max(image.naturalWidth, image.naturalHeight);
+  if (longestEdge <= REFERENCE_IMAGE_MAX_DIMENSION) {
+    return file;
+  }
+
+  const scale = REFERENCE_IMAGE_MAX_DIMENSION / longestEdge;
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return file;
+  }
+
+  context.drawImage(image, 0, 0, width, height);
+  const outputType = file.type === "image/png" ? "image/png" : "image/jpeg";
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, outputType, outputType === "image/jpeg" ? 0.88 : undefined);
+  });
+  if (!blob) {
+    return file;
+  }
+
+  const extension = blobToFileExtension(blob.type);
+  const baseName = file.name.replace(/\.[^.]+$/, "") || "reference";
+  return new File([blob], `${baseName}.${extension}`, {
+    type: blob.type,
+    lastModified: file.lastModified,
+  });
+};
+
+const toReferenceImageEntry = async (
+  file: File,
+  type: ReferenceImage["type"],
+  options?: { maxFileSizeBytes?: number }
+): Promise<ReferenceImage> => {
+  const processedFile = await renderReferenceImageBlob(file);
+  if (options?.maxFileSizeBytes && processedFile.size > options.maxFileSizeBytes) {
+    throw new Error(
+      `Reference image "${file.name}" is too large. Keep files under ${Math.round(
+        options.maxFileSizeBytes / 1024 / 1024
+      )} MB.`
+    );
+  }
+
+  return {
+    id:
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `ref-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    url: await readBlobAsDataUrl(processedFile),
+    fileName: processedFile.name,
+    type,
+    weight: 1,
+  };
+};
+
 export const filesToReferenceImages = async (
   filesInput: FileList | File[],
-  type: ReferenceImage["type"] = "content"
+  type: ReferenceImage["type"] = "content",
+  options?: { maxFileSizeBytes?: number }
 ): Promise<ReferenceImage[]> => {
   const files = Array.isArray(filesInput) ? filesInput : Array.from(filesInput);
-  const entries = await Promise.all(
-    files.map(async (file) => ({
-      id:
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `ref-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-      url: await readFileAsDataUrl(file),
-      fileName: file.name,
-      type,
-      weight: 1,
-    }))
-  );
+  const entries = await Promise.all(files.map((file) => toReferenceImageEntry(file, type, options)));
   return entries;
 };
 
@@ -115,23 +189,26 @@ const toImageRequest = (
   config: GenerationConfig,
   supportedFeatures: {
     negativePrompt: boolean;
-    referenceImages: boolean;
+    referenceImages: {
+      enabled: boolean;
+    };
     seed: boolean;
     guidanceScale: boolean;
     steps: boolean;
     styles: boolean;
-  }
+  },
+  options?: { supportsCustomSize?: boolean }
 ): ImageGenerationRequest => ({
   prompt,
   provider: config.provider,
   model: config.model,
   aspectRatio: config.aspectRatio,
-  width: config.width ?? undefined,
-  height: config.height ?? undefined,
+  width: options?.supportsCustomSize ? config.width ?? undefined : undefined,
+  height: options?.supportsCustomSize ? config.height ?? undefined : undefined,
   style: supportedFeatures.styles ? config.style : "none",
   stylePreset: config.stylePreset || undefined,
   negativePrompt: supportedFeatures.negativePrompt ? config.negativePrompt || undefined : undefined,
-  referenceImages: supportedFeatures.referenceImages ? config.referenceImages : [],
+  referenceImages: supportedFeatures.referenceImages.enabled ? config.referenceImages : [],
   seed: supportedFeatures.seed ? config.seed ?? undefined : undefined,
   guidanceScale: supportedFeatures.guidanceScale ? config.guidanceScale ?? undefined : undefined,
   steps: supportedFeatures.steps ? config.steps ?? undefined : undefined,
@@ -139,6 +216,53 @@ const toImageRequest = (
   batchSize: config.batchSize,
   modelParams: config.modelParams,
 });
+
+export const resolveCanvasImageSize = (asset?: Asset | null) => {
+  const sourceWidth = asset?.metadata?.width ?? 0;
+  const sourceHeight = asset?.metadata?.height ?? 0;
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
+    return {
+      width: DEFAULT_CANVAS_LONG_EDGE,
+      height: DEFAULT_CANVAS_LONG_EDGE,
+    };
+  }
+
+  if (sourceWidth >= sourceHeight) {
+    return {
+      width: DEFAULT_CANVAS_LONG_EDGE,
+      height: Math.max(
+        96,
+        Math.round((DEFAULT_CANVAS_LONG_EDGE * sourceHeight) / sourceWidth)
+      ),
+    };
+  }
+
+  return {
+    width: Math.max(
+      96,
+      Math.round((DEFAULT_CANVAS_LONG_EDGE * sourceWidth) / sourceHeight)
+    ),
+    height: DEFAULT_CANVAS_LONG_EDGE,
+  };
+};
+
+const applyImportedAssetsToResults = (
+  results: GeneratedResultItem[],
+  indexToAssetId: Record<number, string>,
+  options?: { deselectImported?: boolean }
+) =>
+  results.map((result) => {
+    const assetId = indexToAssetId[result.index];
+    if (!assetId) {
+      return result;
+    }
+    return {
+      ...result,
+      assetId,
+      saved: true,
+      selected: options?.deselectImported !== false ? false : result.selected,
+    };
+  });
 
 const toUploadFiles = async (images: Array<{ image: GeneratedImage; index: number }>) =>
   Promise.all(
@@ -360,11 +484,13 @@ export function useImageGeneration() {
 
   const addReferenceFiles = useCallback(
     async (filesInput: FileList | File[]) => {
-      const entries = await filesToReferenceImages(filesInput);
+      const entries = await filesToReferenceImages(filesInput, "content", {
+        maxFileSizeBytes: providerConfig.supportedFeatures.referenceImages.maxFileSizeBytes,
+      });
       addReferenceImages(entries);
       return entries;
     },
-    [addReferenceImages]
+    [addReferenceImages, providerConfig.supportedFeatures.referenceImages.maxFileSizeBytes]
   );
 
   const generateFromPromptInput = useCallback(
@@ -420,12 +546,14 @@ export function useImageGeneration() {
 
       try {
         const images = await generateImages(
-          toImageRequest(prompt, configSnapshot, requestSupportedFeatures),
+          toImageRequest(prompt, configSnapshot, requestSupportedFeatures, {
+            supportsCustomSize: Boolean(modelConfig.supportsCustomSize),
+          }),
           {
             signal: controller.signal,
           }
         );
-
+        
         if (
           generationRequestRef.current?.controller !== controller ||
           generationRequestRef.current?.turnId !== turnId
@@ -466,23 +594,49 @@ export function useImageGeneration() {
         }
       }
     },
-    [config, supportedFeatures]
+    [config, modelConfig.supportsCustomSize, supportedFeatures]
   );
 
   const addToCanvas = useCallback(
-    async (turnId: string, assetId?: string | null) => {
+    async (turnId: string, index?: number, assetId?: string | null) => {
       const turn = state.turns.find((entry) => entry.id === turnId);
       if (!turn) {
         return null;
       }
 
-      const finalAssetId =
-        assetId ?? turn.results.find((entry) => entry.assetId)?.assetId ?? null;
+      let finalAssetId =
+        assetId ??
+        (typeof index === "number"
+          ? turn.results.find((entry) => entry.index === index)?.assetId ?? null
+          : turn.results.find((entry) => entry.assetId)?.assetId ?? null);
+      if (!finalAssetId && typeof index === "number") {
+        const generatedImages = turn.results.map((entry) => ({
+          imageUrl: entry.imageUrl,
+          provider: entry.provider,
+          model: entry.model,
+          mimeType: entry.mimeType,
+          revisedPrompt: entry.revisedPrompt,
+        }));
+        const imported = await saveGeneratedImages(generatedImages, [index]);
+        finalAssetId = imported.indexToAssetId[index] ?? null;
+
+        if (finalAssetId) {
+          setState((previous) => ({
+            turns: updateTurnInList(previous.turns, turnId, (entry) => ({
+              ...entry,
+              results: applyImportedAssetsToResults(entry.results, imported.indexToAssetId),
+            })),
+          }));
+        }
+      }
       if (!finalAssetId) {
         return null;
       }
 
       const canvas = useCanvasStore.getState();
+      const asset = useAssetStore
+        .getState()
+        .assets.find((entry) => entry.id === finalAssetId);
       let documentId = canvas.activeDocumentId;
       if (!documentId) {
         const created = await canvas.createDocument("AI Board");
@@ -492,6 +646,7 @@ export function useImageGeneration() {
         return null;
       }
 
+      const { width, height } = resolveCanvasImageSize(asset);
       const document = canvas.documents.find((item) => item.id === documentId);
       const zIndex = (document?.elements.length ?? 0) + 1;
 
@@ -501,8 +656,8 @@ export function useImageGeneration() {
         assetId: finalAssetId,
         x: 140 + zIndex * 24,
         y: 120 + zIndex * 24,
-        width: 420,
-        height: 420,
+        width,
+        height,
         rotation: 0,
         opacity: 1,
         locked: false,

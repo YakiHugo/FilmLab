@@ -115,7 +115,7 @@ export function ImageStyleGrid({
                   selected={entry.selected}
                   saved={entry.saved}
                   onToggleSelection={() => onToggleResultSelection(entry.index)}
-                  onAddToCanvas={onAddToCanvas}
+                  onAddToCanvas={() => onAddToCanvas(entry.assetId)}
                 />
               ))}
             </div>
