@@ -14,22 +14,28 @@ export const imageUpscaleRoute: FastifyPluginAsync = async (app) => {
     {
       config: {
         rateLimit: {
-          max: config.imageGenerateRateLimitMax,
-          timeWindow: config.imageGenerateRateLimitTimeWindowMs,
+          max: config.imageUpscaleRateLimitMax,
+          timeWindow: config.imageUpscaleRateLimitTimeWindowMs,
         },
       },
     },
     async (request, reply) => {
       const requestController = new AbortController();
+      const requestSocket = request.raw.socket;
       const abortRequest = () => {
         requestController.abort();
+      };
+      const handleRequestClose = () => {
+        if (!reply.sent) {
+          abortRequest();
+        }
       };
       const handleResponseClose = () => {
         if (!reply.raw.writableEnded) {
           abortRequest();
         }
       };
-      request.raw.once("aborted", abortRequest);
+      requestSocket?.once("close", handleRequestClose);
       reply.raw.once("close", handleResponseClose);
 
       let payload;
@@ -112,7 +118,7 @@ export const imageUpscaleRoute: FastifyPluginAsync = async (app) => {
           provider: payload.provider,
         });
       } finally {
-        request.raw.removeListener("aborted", abortRequest);
+        requestSocket?.removeListener("close", handleRequestClose);
         reply.raw.removeListener("close", handleResponseClose);
       }
     }

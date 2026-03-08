@@ -41,8 +41,7 @@ const toEndpoint = (model: string) => {
 };
 
 const buildPrompt = (request: ParsedImageGenerationRequest) => {
-  const styleHint =
-    request.style !== "none" ? getStylePromptHint(request.style) : "";
+  const styleHint = request.style !== "none" ? getStylePromptHint(request.style) : "";
 
   return [
     request.prompt.trim(),
@@ -70,17 +69,30 @@ const toFileExtension = (mimeType: string) => {
   return "png";
 };
 
+const resolveUpscaleEndpoint = (scale: ProviderImageUpscaleRequest["scale"]) => {
+  if (scale === "2x") {
+    return new URL("https://api.stability.ai/v2beta/stable-image/upscale/fast");
+  }
+
+  throw new ProviderError(
+    `Stability AI upscale scale "${scale}" is not supported by the configured provider endpoint.`,
+    400
+  );
+};
+
 const buildUpscaleFormData = (request: ProviderImageUpscaleRequest) => {
   const formData = new FormData();
   const outputFormat = toOutputFormat(request.mimeType);
-  const imageBytes = new Uint8Array(request.imageBuffer.byteLength);
-  imageBytes.set(request.imageBuffer);
-  const imageFile = new Blob([imageBytes], {
+  const imageBytes = new Uint8Array(
+    request.imageBuffer.buffer,
+    request.imageBuffer.byteOffset,
+    request.imageBuffer.byteLength
+  );
+  const imageFile = new Blob([imageBytes as unknown as BlobPart], {
     type: request.mimeType || toMimeType(outputFormat),
   });
 
   formData.append("image", imageFile, `upscale-source.${toFileExtension(request.mimeType)}`);
-  formData.append("scale", request.scale);
   formData.append("output_format", outputFormat);
   return {
     formData,
@@ -188,7 +200,7 @@ export const stabilityImageProvider: ImageProviderAdapter = {
     };
   },
   async upscale(request, apiKey, options) {
-    const endpoint = new URL("https://api.stability.ai/v2beta/stable-image/upscale/fast");
+    const endpoint = resolveUpscaleEndpoint(request.scale);
     const { formData, mimeType } = buildUpscaleFormData(request);
 
     const upstream = await fetchWithTimeout(
