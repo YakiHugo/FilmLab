@@ -10,8 +10,8 @@ export const generatedImageRoute: FastifyPluginAsync = async (app) => {
     {
       config: {
         rateLimit: {
-          max: config.rateLimitMax,
-          timeWindow: config.rateLimitTimeWindowMs,
+          max: config.generatedImageGetRateLimitMax,
+          timeWindow: config.generatedImageGetRateLimitTimeWindowMs,
         },
       },
     },

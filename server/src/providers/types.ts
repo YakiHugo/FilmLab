@@ -19,7 +19,8 @@ export interface ProviderGenerationResult {
 export interface ImageProviderAdapter {
   generate: (
     request: ParsedImageGenerationRequest,
-    apiKey: string
+    apiKey: string,
+    options?: { signal?: AbortSignal }
   ) => Promise<ProviderGenerationResult>;
 }
 

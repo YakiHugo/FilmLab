@@ -14,12 +14,13 @@ const toStabilityAspectRatio = (request: ParsedImageGenerationRequest) => {
       return "3:2";
     case "2:3":
       return "2:3";
-    case "4:3":
-      return "3:2";
-    case "3:4":
-      return "2:3";
-    default:
+    case "1:1":
       return "1:1";
+    default:
+      throw new ProviderError(
+        `Stability AI does not support aspect ratio ${request.aspectRatio}.`,
+        400
+      );
   }
 };
 
@@ -32,7 +33,11 @@ const toEndpoint = (model: string) => {
     return new URL("https://api.stability.ai/v2beta/stable-image/generate/sd3");
   }
 
-  return new URL("https://api.stability.ai/v2beta/stable-image/generate/core");
+  if (model === "stable-image-core") {
+    return new URL("https://api.stability.ai/v2beta/stable-image/generate/core");
+  }
+
+  throw new ProviderError(`Unsupported Stability AI model: ${model}.`, 400);
 };
 
 const buildPrompt = (request: ParsedImageGenerationRequest) => {
@@ -54,7 +59,7 @@ const toMimeType = (outputFormat: string) => {
 };
 
 export const stabilityImageProvider: ImageProviderAdapter = {
-  async generate(request, apiKey) {
+  async generate(request, apiKey, options) {
     const endpoint = toEndpoint(request.model);
     const batchSize = Math.min(Math.max(request.batchSize ?? 1, 1), 4);
     const outputFormat =
@@ -107,7 +112,8 @@ export const stabilityImageProvider: ImageProviderAdapter = {
             },
             body: formData,
           },
-          "Stability image generation timed out."
+          "Stability image generation timed out.",
+          options
         );
 
         if (!upstream.ok) {

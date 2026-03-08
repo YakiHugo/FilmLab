@@ -3,6 +3,7 @@ import { ZodError } from "zod";
 import { getConfig } from "../config";
 import { getProviderAdapter, getUserProviderKey, resolveApiKey } from "../providers/registry";
 import { ProviderError } from "../providers/types";
+import { downloadGeneratedImage } from "../shared/downloadGeneratedImage";
 import { storeGeneratedImage } from "../shared/generatedImageStore";
 import { imageGenerationRequestSchema } from "../shared/imageGenerationSchema";
 
@@ -14,26 +15,48 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
     {
       config: {
         rateLimit: {
-          max: config.rateLimitMax,
-          timeWindow: config.rateLimitTimeWindowMs,
+          max: config.imageGenerateRateLimitMax,
+          timeWindow: config.imageGenerateRateLimitTimeWindowMs,
         },
       },
     },
     async (request, reply) => {
-      const toGeneratedImageUrl = (image: {
+      const requestController = new AbortController();
+      const abortRequest = () => {
+        requestController.abort();
+      };
+      const handleResponseClose = () => {
+        if (!reply.raw.writableEnded) {
+          abortRequest();
+        }
+      };
+      request.raw.once("aborted", abortRequest);
+      reply.raw.once("close", handleResponseClose);
+
+      const toGeneratedImageUrl = async (image: {
         binaryData?: Buffer;
         imageUrl?: string;
         mimeType?: string;
       }) => {
         if (image.imageUrl) {
-          return image.imageUrl;
+          const downloaded = await downloadGeneratedImage(image.imageUrl, {
+            signal: requestController.signal,
+          });
+          const imageId = storeGeneratedImage(downloaded.buffer, downloaded.mimeType);
+          return {
+            imageUrl: `/api/generated-images/${imageId}`,
+            mimeType: downloaded.mimeType,
+          };
         }
         if (!image.binaryData || !image.mimeType) {
           return null;
         }
 
         const imageId = storeGeneratedImage(image.binaryData, image.mimeType);
-        return `/api/generated-images/${imageId}`;
+        return {
+          imageUrl: `/api/generated-images/${imageId}`,
+          mimeType: image.mimeType,
+        };
       };
 
       let payload;
@@ -69,8 +92,23 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
       }
 
       try {
-        const generated = await adapter.generate(payload, apiKey);
-        const normalizedImages = generated.images.reduce<
+        const generated = await adapter.generate(payload, apiKey, {
+          signal: requestController.signal,
+        });
+        const normalizedResults = await Promise.all(
+          generated.images.map(async (image) => {
+            const normalized = await toGeneratedImageUrl(image);
+            if (!normalized) {
+              return null;
+            }
+            return {
+              imageUrl: normalized.imageUrl,
+              mimeType: normalized.mimeType,
+              revisedPrompt: image.revisedPrompt ?? null,
+            };
+          })
+        );
+        const normalizedImages = normalizedResults.reduce<
           Array<{
             imageUrl: string;
             provider: typeof generated.provider;
@@ -79,17 +117,16 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             revisedPrompt: string | null;
           }>
         >((accumulator, image) => {
-          const imageUrl = toGeneratedImageUrl(image);
-          if (!imageUrl) {
+          if (!image) {
             return accumulator;
           }
 
           accumulator.push({
-            imageUrl,
+            imageUrl: image.imageUrl,
             provider: generated.provider,
             model: generated.model,
             mimeType: image.mimeType,
-            revisedPrompt: image.revisedPrompt ?? null,
+            revisedPrompt: image.revisedPrompt,
           });
           return accumulator;
         }, []);
@@ -119,6 +156,9 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           error: "Image generation failed.",
           provider: payload.provider,
         });
+      } finally {
+        request.raw.removeListener("aborted", abortRequest);
+        reply.raw.removeListener("close", handleResponseClose);
       }
     }
   );
