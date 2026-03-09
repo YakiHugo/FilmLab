@@ -1,4 +1,5 @@
 import { ArrowUpFromLine, Check, Download, Layers, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
 interface ImageResultCardProps {
@@ -32,6 +33,12 @@ export function ImageResultCard({
   isUpscaling = false,
   upscaleError = null,
 }: ImageResultCardProps) {
+  const [hasImageError, setHasImageError] = useState(false);
+
+  useEffect(() => {
+    setHasImageError(false);
+  }, [imageUrl]);
+
   return (
     <article
       className={cn(
@@ -40,14 +47,33 @@ export function ImageResultCard({
       )}
     >
       <div className="relative">
-        <img
-          src={imageUrl}
-          alt="AI generated"
-          className={cn(
-            "w-full object-cover transition duration-500 group-hover:scale-[1.02]",
-            compact ? "aspect-square" : "aspect-[4/5]"
-          )}
-        />
+        {hasImageError ? (
+          <div
+            className={cn(
+              "flex w-full flex-col items-center justify-center gap-2 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),rgba(10,12,18,0.98)_62%)] px-4 text-center",
+              compact ? "aspect-square" : "aspect-[4/5]"
+            )}
+          >
+            <span className="rounded-full border border-amber-300/20 bg-amber-500/12 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-amber-100">
+              Image expired
+            </span>
+            <p className={cn("max-w-[18rem] text-zinc-200", compact ? "text-[11px]" : "text-sm")}>
+              This cached preview is no longer available. Retry to generate a fresh result.
+            </p>
+          </div>
+        ) : (
+          <img
+            src={imageUrl}
+            alt="AI generated"
+            className={cn(
+              "w-full object-cover transition duration-500 group-hover:scale-[1.02]",
+              compact ? "aspect-square" : "aspect-[4/5]"
+            )}
+            onError={() => {
+              setHasImageError(true);
+            }}
+          />
+        )}
 
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(4,5,8,0.04),rgba(4,5,8,0.02)_34%,rgba(4,5,8,0.84))]" />
 
