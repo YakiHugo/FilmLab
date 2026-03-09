@@ -40,11 +40,18 @@ export interface ImageProviderAdapter {
 
 export class ProviderError extends Error {
   statusCode: number;
+  isRetriable: boolean;
 
-  constructor(message: string, statusCode = 502, cause?: unknown) {
+  constructor(
+    message: string,
+    statusCode = 502,
+    cause?: unknown,
+    options?: { isRetriable?: boolean }
+  ) {
     super(message, cause ? { cause } : undefined);
     this.name = "ProviderError";
     this.statusCode = statusCode;
+    this.isRetriable = options?.isRetriable ?? false;
   }
 }
 

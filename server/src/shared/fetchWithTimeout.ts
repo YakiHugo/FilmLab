@@ -64,9 +64,9 @@ export const fetchWithTimeout = async (
       throw error;
     }
     if (isAbortError(error)) {
-      throw new ProviderError(timeoutMessage, 504, error);
+      throw new ProviderError(timeoutMessage, 504, error, { isRetriable: true });
     }
-    throw new ProviderError("Provider request failed.", 502, error);
+    throw new ProviderError("Provider request failed.", 502, error, { isRetriable: true });
   } finally {
     clearTimeout(timeoutId);
     cleanup();

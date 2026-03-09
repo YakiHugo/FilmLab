@@ -268,6 +268,47 @@ describe("seedreamImageProvider", () => {
     ).rejects.toMatchObject({
       statusCode: 401,
       message: "Unauthorized",
+      isRetriable: false,
+    });
+  });
+
+
+  it("marks retriable upstream statuses explicitly", async () => {
+    const { seedreamImageProvider } = await import("./seedream");
+
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            message: "Too many requests",
+          },
+        }),
+        {
+          status: 429,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+
+    await expect(
+      seedreamImageProvider.generate(
+        {
+          prompt: "Busy prompt",
+          provider: "seedream",
+          model: "doubao-seedream-5-0-260128",
+          aspectRatio: "1:1",
+          style: "none",
+          referenceImages: [],
+          batchSize: 1,
+          modelParams: {},
+        },
+        "ark-api-key"
+      )
+    ).rejects.toMatchObject({
+      statusCode: 429,
+      isRetriable: true,
     });
   });
 

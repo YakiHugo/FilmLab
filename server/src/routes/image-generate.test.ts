@@ -170,7 +170,7 @@ describe("imageGenerateRoute", () => {
     const { ProviderError } = await import("../providers/types");
 
     generateMock
-      .mockRejectedValueOnce(new ProviderError("rate limited", 429))
+      .mockRejectedValueOnce(new ProviderError("rate limited", 429, undefined, { isRetriable: true }))
       .mockResolvedValueOnce({
         provider: "seedream",
         model: "doubao-seedream-4-0-250828",
@@ -219,4 +219,39 @@ describe("imageGenerateRoute", () => {
 
     await app.close();
   });
+
+  it("does not fallback when provider error is not explicitly retriable", async () => {
+    const { default: Fastify } = await import("fastify");
+    const { imageGenerateRoute } = await import("./image-generate");
+    const { ProviderError } = await import("../providers/types");
+
+    generateMock.mockRejectedValueOnce(new ProviderError("policy blocked", 502));
+
+    const app = Fastify();
+    await app.register(imageGenerateRoute);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      headers: {
+        "X-Provider-Key-seedream": "ark-user-key",
+      },
+      payload: {
+        prompt: "Blocked prompt",
+        provider: "seedream",
+        model: "doubao-seedream-5-0-260128",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        referenceImages: [],
+        modelParams: {},
+      },
+    });
+
+    expect(response.statusCode).toBe(502);
+    expect(generateMock).toHaveBeenCalledTimes(1);
+
+    await app.close();
+  });
+
 });
