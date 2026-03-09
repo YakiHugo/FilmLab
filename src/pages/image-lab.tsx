@@ -1,3 +1,4 @@
+import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IMAGE_STYLE_PRESETS, type ImageStylePreset } from "@/lib/ai/imageStylePresets";
 import type { ImageModelParamValue } from "@/lib/ai/imageModelParams";
@@ -9,6 +10,7 @@ import {
   downloadImageFromUrl,
   getImageDownloadFilename,
 } from "@/features/image-lab/utils/downloadUtils";
+import { useImageSessionStore } from "@/stores/imageSessionStore";
 import type { ImageStyleId } from "@/types/imageGeneration";
 import { IMAGE_GENERATION_LIMITS } from "@/lib/ai/imageGenerationSchema";
 
@@ -49,6 +51,8 @@ const resolveSpeedFromSteps = (
 };
 
 export function ImageLabPage() {
+  const hydrateSession = useImageSessionStore((state) => state.hydrateSession);
+  const isHydrated = useImageSessionStore((state) => state.isHydrated);
   const imageGeneration = useImageGeneration();
   const [externalPrompt, setExternalPrompt] = useState<string | null>(null);
   const [downloadFeedback, setDownloadFeedback] = useState<string | null>(null);
@@ -62,6 +66,7 @@ export function ImageLabPage() {
     toggleResultSelection,
     saveSelectedResults,
     addToCanvas,
+    clearSession,
   } = imageGeneration;
   const turnsRef = useRef(turns);
   turnsRef.current = turns;
@@ -69,6 +74,10 @@ export function ImageLabPage() {
     imageGeneration.config.steps,
     imageGeneration.modelConfig.defaultSteps
   );
+
+  useEffect(() => {
+    void hydrateSession();
+  }, [hydrateSession]);
 
   useEffect(() => {
     if (!downloadFeedback) {
@@ -210,11 +219,30 @@ export function ImageLabPage() {
     [addToCanvas]
   );
 
+  const handleClearHistory = useCallback(() => {
+    if (typeof window !== "undefined" && !window.confirm("Clear all generation history?")) {
+      return;
+    }
+
+    clearSession();
+    setDownloadFeedback(null);
+    setExternalPrompt(null);
+  }, [clearSession]);
+
+  if (!isHydrated) {
+    return (
+      <div className="flex h-full min-h-[320px] items-center justify-center bg-[#050506]">
+        <Loader2 className="h-5 w-5 animate-spin text-zinc-500" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#050506]">
       <ImageChatFeed
         turns={turns}
         currentModelName={currentModelName}
+        onClearHistory={handleClearHistory}
         onToggleResultSelection={toggleResultSelection}
         onSaveSelectedResults={handleSaveSelectedResults}
         onAddToCanvas={handleAddToCanvas}

@@ -11,6 +11,7 @@ import { ImageResultCard } from "./ImageResultCard";
 interface ImageChatFeedProps {
   turns: ImageGenerationTurn[];
   currentModelName: string;
+  onClearHistory: () => void;
   onToggleResultSelection: (turnId: string, index: number) => void;
   onSaveSelectedResults: (turnId: string) => void;
   onAddToCanvas: (turnId: string, index: number, assetId?: string | null) => void;
@@ -436,6 +437,7 @@ function HistoryTurnRow({
 export function ImageChatFeed({
   turns,
   currentModelName,
+  onClearHistory,
   onToggleResultSelection,
   onSaveSelectedResults,
   onAddToCanvas,
@@ -471,9 +473,20 @@ export function ImageChatFeed({
       className="min-h-0 flex-1 overflow-y-auto bg-[#050506] px-6 pb-6 pt-8 lg:px-8"
     >
       <div className="mx-auto flex min-h-full w-full max-w-[1650px] flex-col">
-        <div className="mb-4 flex items-center gap-2 text-sm font-medium text-zinc-300">
-          <span className="text-zinc-500">Model</span>
-          <span>{currentModelName}</span>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-zinc-300">
+            <span className="text-zinc-500">Model</span>
+            <span>{currentModelName}</span>
+          </div>
+          <button
+            type="button"
+            className="inline-flex h-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-4 text-sm font-medium text-zinc-300 transition hover:border-white/16 hover:bg-white/[0.08] hover:text-zinc-100 disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/[0.02] disabled:text-zinc-600"
+            onClick={onClearHistory}
+            disabled={turns.length === 0}
+          >
+            <Trash2 className="mr-1.5 h-4 w-4" />
+            Clear history
+          </button>
         </div>
 
         {latestTurn ? (

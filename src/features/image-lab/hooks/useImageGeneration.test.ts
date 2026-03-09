@@ -25,7 +25,13 @@ vi.mock("@/stores/assetStore", () => ({
   },
 }));
 
-import { resolveCanvasImageSize, saveGeneratedImages } from "./useImageGeneration";
+import {
+  resolveCanvasImageSize,
+  resolveRetryRequestSnapshot,
+  RETRY_REFERENCE_IMAGES_OMITTED_WARNING,
+  saveGeneratedImages,
+  toPersistedRequestSnapshot,
+} from "./useImageGeneration";
 
 describe("image generation helpers", () => {
   beforeEach(() => {
@@ -117,5 +123,56 @@ describe("image generation helpers", () => {
     expect(result.indexToAssetId).toEqual({ 1: "asset-2" });
     expect(result.importedAssetIds).toEqual(["asset-2"]);
     expect(setSelectedAssetIdsMock).not.toHaveBeenCalled();
+  });
+
+  it("strips reference image data from persisted request snapshots", () => {
+    const snapshot = toPersistedRequestSnapshot({
+      prompt: "portrait",
+      provider: "seedream",
+      model: "seedream-5.0",
+      aspectRatio: "1:1",
+      style: "none",
+      batchSize: 1,
+      referenceImages: [
+        {
+          id: "ref-1",
+          url: "data:image/png;base64,abc123",
+          fileName: "ref.png",
+          type: "content",
+          weight: 0.8,
+        },
+      ],
+    });
+
+    expect(snapshot.referenceImages).toEqual([
+      {
+        id: "ref-1",
+        fileName: "ref.png",
+        type: "content",
+        weight: 0.8,
+      },
+    ]);
+  });
+
+  it("drops missing retry reference images and emits a warning", () => {
+    const retry = resolveRetryRequestSnapshot({
+      prompt: "portrait",
+      provider: "seedream",
+      model: "seedream-5.0",
+      aspectRatio: "1:1",
+      style: "none",
+      batchSize: 1,
+      referenceImages: [
+        {
+          id: "ref-1",
+          fileName: "ref.png",
+          type: "content",
+          weight: 1,
+        },
+      ],
+    });
+
+    expect(retry.request.referenceImages).toEqual([]);
+    expect(retry.warnings).toEqual([RETRY_REFERENCE_IMAGES_OMITTED_WARNING]);
   });
 });
