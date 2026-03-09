@@ -5,7 +5,13 @@ import type { ImageProviderAdapter, ProviderGeneratedImage } from "./types";
 import { ProviderError, readProviderError } from "./types";
 
 const ARK_IMAGE_GENERATION_URL = "https://ark.cn-beijing.volces.com/api/v3/images/generations";
-const SEEDREAM_MODEL_ID = "doubao-seedream-5-0-260128";
+const SUPPORTED_SEEDREAM_MODELS = new Set([
+  "doubao-seedream-5-0-260128",
+  "doubao-seedream-4-0-250828",
+  "qwen-image-2512",
+  "z-image-v1",
+  "doubao-kling-o1-250424",
+]);
 const DEFAULT_MIME_TYPE = "image/jpeg";
 
 const SEEDREAM_SIZE_BY_ASPECT_RATIO: Record<
@@ -28,6 +34,21 @@ const toArkSize = (request: ParsedImageGenerationRequest) =>
   request.aspectRatio === "custom"
     ? SEEDREAM_SIZE_BY_ASPECT_RATIO["1:1"]
     : SEEDREAM_SIZE_BY_ASPECT_RATIO[request.aspectRatio];
+
+const resolveResponseFormat = (request: ParsedImageGenerationRequest) => {
+  const value = request.modelParams.responseFormat;
+  return value === "b64_json" ? "b64_json" : "url";
+};
+
+const resolveSequentialImageGeneration = (request: ParsedImageGenerationRequest) => {
+  const value = request.modelParams.sequentialImageGeneration;
+  return value === "enabled" ? "enabled" : "disabled";
+};
+
+const resolveWatermark = (request: ParsedImageGenerationRequest) => {
+  const value = request.modelParams.watermark;
+  return typeof value === "boolean" ? value : true;
+};
 
 const buildPrompt = (request: ParsedImageGenerationRequest) => {
   const styleHint = request.style !== "none" ? getStylePromptHint(request.style) : "";
@@ -121,7 +142,7 @@ const extractImages = (
 
 export const seedreamImageProvider: ImageProviderAdapter = {
   async generate(request, apiKey, options) {
-    if (request.model !== SEEDREAM_MODEL_ID) {
+    if (!SUPPORTED_SEEDREAM_MODELS.has(request.model)) {
       throw new ProviderError(`Unsupported Seedream model: ${request.model}.`, 400);
     }
     const normalizedApiKey = apiKey.trim();
@@ -138,13 +159,13 @@ export const seedreamImageProvider: ImageProviderAdapter = {
           Authorization: `Bearer ${normalizedApiKey}`,
         },
         body: JSON.stringify({
-          model: SEEDREAM_MODEL_ID,
+          model: request.model,
           prompt: buildPrompt(request),
           size: toArkSize(request),
-          sequential_image_generation: "disabled",
-          response_format: "url",
+          sequential_image_generation: resolveSequentialImageGeneration(request),
+          response_format: resolveResponseFormat(request),
           stream: false,
-          watermark: true,
+          watermark: resolveWatermark(request),
         }),
       },
       "Seedream image generation timed out.",

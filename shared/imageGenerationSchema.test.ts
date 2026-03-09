@@ -97,6 +97,31 @@ describe("imageGenerationRequestSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts additional Ark hosted models under Seedream", () => {
+    const result = imageGenerationRequestSchema.safeParse({
+      ...basePayload,
+      provider: "seedream",
+      model: "qwen-image-2512",
+      aspectRatio: "1:1",
+      style: "cinematic",
+      modelParams: {},
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("validates Seedream model params options", () => {
+    const issuePaths = getIssuePaths({
+      provider: "seedream",
+      model: "qwen-image-2512",
+      modelParams: {
+        responseFormat: "png",
+      },
+    });
+
+    expect(issuePaths).toContain("modelParams.responseFormat");
+  });
+
   it("rejects Seedream controls disabled by the 5.0 MVP", () => {
     const issuePaths = getIssuePaths({
       provider: "seedream",
