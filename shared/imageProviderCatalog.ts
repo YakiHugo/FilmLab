@@ -3,6 +3,7 @@ import type {
   ImageProviderId,
   ReferenceImageType,
 } from "./imageGeneration";
+import { getProviderModelCatalog } from "./providerCapabilityRegistry";
 
 export interface ImageReferenceImageCapability {
   enabled: boolean;
@@ -202,43 +203,7 @@ export const IMAGE_PROVIDERS: ImageProviderConfig[] = [
   {
     id: "seedream",
     name: "Seedream",
-    models: [
-      {
-        id: "doubao-seedream-5-0-260128",
-        name: "Seedream 5.0",
-        description: "Ark text-to-image generation",
-        supportedAspectRatios: COMMON_ASPECT_RATIOS,
-        maxBatchSize: 1,
-      },
-      {
-        id: "doubao-seedream-4-0-250828",
-        name: "Seedream 4.0",
-        description: "Ark text-to-image generation",
-        supportedAspectRatios: COMMON_ASPECT_RATIOS,
-        maxBatchSize: 1,
-      },
-      {
-        id: "doubao-kling-o1-250424",
-        name: "Kling O1",
-        description: "Ark cinematic image generation",
-        supportedAspectRatios: COMMON_ASPECT_RATIOS,
-        maxBatchSize: 1,
-      },
-      {
-        id: "qwen-image-2512",
-        name: "Qwen Image 2512",
-        description: "Ark Qwen text-to-image generation",
-        supportedAspectRatios: COMMON_ASPECT_RATIOS,
-        maxBatchSize: 1,
-      },
-      {
-        id: "z-image-v1",
-        name: "Z Image",
-        description: "Ark Z image generation",
-        supportedAspectRatios: COMMON_ASPECT_RATIOS,
-        maxBatchSize: 1,
-      },
-    ],
+    models: getProviderModelCatalog("seedream"),
     supportedFeatures: {
       negativePrompt: false,
       seed: false,

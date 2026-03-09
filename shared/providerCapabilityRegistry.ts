@@ -1,4 +1,12 @@
-import type { ImageProviderId } from "./imageGeneration";
+import type { ImageAspectRatio, ImageProviderId } from "./imageGeneration";
+
+export interface ModelCatalogEntry {
+  id: string;
+  name: string;
+  description?: string;
+  supportedAspectRatios: ImageAspectRatio[];
+  maxBatchSize?: number;
+}
 
 export interface ModelCapabilityEntry {
   provider: ImageProviderId;
@@ -6,6 +14,44 @@ export interface ModelCapabilityEntry {
   fallbackModels: string[];
   tags: string[];
 }
+
+const SEEDREAM_MODEL_CATALOG: ModelCatalogEntry[] = [
+  {
+    id: "doubao-seedream-5-0-260128",
+    name: "Seedream 5.0",
+    description: "Ark text-to-image generation",
+    supportedAspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
+    maxBatchSize: 1,
+  },
+  {
+    id: "doubao-seedream-4-0-250828",
+    name: "Seedream 4.0",
+    description: "Ark text-to-image generation",
+    supportedAspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
+    maxBatchSize: 1,
+  },
+  {
+    id: "qwen-image-2512",
+    name: "Qwen Image 2512",
+    description: "Ark Qwen text-to-image generation",
+    supportedAspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
+    maxBatchSize: 1,
+  },
+  {
+    id: "z-image-v1",
+    name: "Z Image",
+    description: "Ark Z image generation",
+    supportedAspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
+    maxBatchSize: 1,
+  },
+  {
+    id: "doubao-kling-o1-250424",
+    name: "Kling O1",
+    description: "Ark cinematic image generation",
+    supportedAspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
+    maxBatchSize: 1,
+  },
+];
 
 const SEEDREAM_CAPABILITIES: Record<string, Omit<ModelCapabilityEntry, "provider" | "model">> = {
   "doubao-seedream-5-0-260128": {
@@ -29,6 +75,16 @@ const SEEDREAM_CAPABILITIES: Record<string, Omit<ModelCapabilityEntry, "provider
     tags: ["kling", "cinematic"],
   },
 };
+
+export const getProviderModelCatalog = (provider: ImageProviderId): ModelCatalogEntry[] => {
+  if (provider === "seedream") {
+    return SEEDREAM_MODEL_CATALOG;
+  }
+  return [];
+};
+
+export const isProviderModelSupported = (provider: ImageProviderId, model: string): boolean =>
+  getProviderModelCatalog(provider).some((entry) => entry.id === model);
 
 export const getModelCapability = (
   provider: ImageProviderId,
