@@ -121,6 +121,92 @@ describe("seedreamImageProvider", () => {
     expect(result.images[0]?.revisedPrompt).toBe("Refined rainy alley");
   });
 
+  it("passes through configured seedream model params", async () => {
+    const { seedreamImageProvider } = await import("./seedream");
+
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              b64_json: Buffer.from([1, 2, 3]).toString("base64"),
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+
+    await seedreamImageProvider.generate(
+      {
+        prompt: "A clean product shot",
+        provider: "seedream",
+        model: "qwen-image-2512",
+        aspectRatio: "1:1",
+        style: "none",
+        referenceImages: [],
+        batchSize: 1,
+        modelParams: {
+          responseFormat: "b64_json",
+          watermark: false,
+          sequentialImageGeneration: "enabled",
+        },
+      },
+      "ark-api-key"
+    );
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body.response_format).toBe("b64_json");
+    expect(body.watermark).toBe(false);
+    expect(body.sequential_image_generation).toBe("enabled");
+  });
+
+  it("passes through newly supported Ark model ids", async () => {
+    const { seedreamImageProvider } = await import("./seedream");
+
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              url: "https://cdn.example.com/generated-qwen.jpeg",
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+
+    await seedreamImageProvider.generate(
+      {
+        prompt: "A clean product shot",
+        provider: "seedream",
+        model: "qwen-image-2512",
+        aspectRatio: "1:1",
+        style: "none",
+        referenceImages: [],
+        batchSize: 1,
+        modelParams: {},
+      },
+      "ark-api-key"
+    );
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body.model).toBe("qwen-image-2512");
+  });
+
   it("rejects empty Ark API keys before sending a request", async () => {
     const { seedreamImageProvider } = await import("./seedream");
 
@@ -182,6 +268,47 @@ describe("seedreamImageProvider", () => {
     ).rejects.toMatchObject({
       statusCode: 401,
       message: "Unauthorized",
+      isRetriable: false,
+    });
+  });
+
+
+  it("marks retriable upstream statuses explicitly", async () => {
+    const { seedreamImageProvider } = await import("./seedream");
+
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            message: "Too many requests",
+          },
+        }),
+        {
+          status: 429,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+
+    await expect(
+      seedreamImageProvider.generate(
+        {
+          prompt: "Busy prompt",
+          provider: "seedream",
+          model: "doubao-seedream-5-0-260128",
+          aspectRatio: "1:1",
+          style: "none",
+          referenceImages: [],
+          batchSize: 1,
+          modelParams: {},
+        },
+        "ark-api-key"
+      )
+    ).rejects.toMatchObject({
+      statusCode: 429,
+      isRetriable: true,
     });
   });
 

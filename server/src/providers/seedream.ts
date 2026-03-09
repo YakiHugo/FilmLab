@@ -1,3 +1,4 @@
+import { isProviderModelSupported } from "../../../shared/providerCapabilityRegistry";
 import { getStylePromptHint } from "../shared/imageStyleHints";
 import { fetchWithTimeout } from "../shared/fetchWithTimeout";
 import type { ParsedImageGenerationRequest } from "../shared/imageGenerationSchema";
@@ -5,8 +6,10 @@ import type { ImageProviderAdapter, ProviderGeneratedImage } from "./types";
 import { ProviderError, readProviderError } from "./types";
 
 const ARK_IMAGE_GENERATION_URL = "https://ark.cn-beijing.volces.com/api/v3/images/generations";
-const SEEDREAM_MODEL_ID = "doubao-seedream-5-0-260128";
 const DEFAULT_MIME_TYPE = "image/jpeg";
+
+const isRetriableUpstreamStatus = (statusCode: number) =>
+  statusCode === 408 || statusCode === 409 || statusCode === 425 || statusCode === 429 || statusCode >= 500;
 
 const SEEDREAM_SIZE_BY_ASPECT_RATIO: Record<
   Exclude<ParsedImageGenerationRequest["aspectRatio"], "custom">,
@@ -28,6 +31,21 @@ const toArkSize = (request: ParsedImageGenerationRequest) =>
   request.aspectRatio === "custom"
     ? SEEDREAM_SIZE_BY_ASPECT_RATIO["1:1"]
     : SEEDREAM_SIZE_BY_ASPECT_RATIO[request.aspectRatio];
+
+const resolveResponseFormat = (request: ParsedImageGenerationRequest) => {
+  const value = request.modelParams.responseFormat;
+  return value === "b64_json" ? "b64_json" : "url";
+};
+
+const resolveSequentialImageGeneration = (request: ParsedImageGenerationRequest) => {
+  const value = request.modelParams.sequentialImageGeneration;
+  return value === "enabled" ? "enabled" : "disabled";
+};
+
+const resolveWatermark = (request: ParsedImageGenerationRequest) => {
+  const value = request.modelParams.watermark;
+  return typeof value === "boolean" ? value : true;
+};
 
 const buildPrompt = (request: ParsedImageGenerationRequest) => {
   const styleHint = request.style !== "none" ? getStylePromptHint(request.style) : "";
@@ -121,7 +139,7 @@ const extractImages = (
 
 export const seedreamImageProvider: ImageProviderAdapter = {
   async generate(request, apiKey, options) {
-    if (request.model !== SEEDREAM_MODEL_ID) {
+    if (!isProviderModelSupported("seedream", request.model)) {
       throw new ProviderError(`Unsupported Seedream model: ${request.model}.`, 400);
     }
     const normalizedApiKey = apiKey.trim();
@@ -138,13 +156,13 @@ export const seedreamImageProvider: ImageProviderAdapter = {
           Authorization: `Bearer ${normalizedApiKey}`,
         },
         body: JSON.stringify({
-          model: SEEDREAM_MODEL_ID,
+          model: request.model,
           prompt: buildPrompt(request),
           size: toArkSize(request),
-          sequential_image_generation: "disabled",
-          response_format: "url",
+          sequential_image_generation: resolveSequentialImageGeneration(request),
+          response_format: resolveResponseFormat(request),
           stream: false,
-          watermark: true,
+          watermark: resolveWatermark(request),
         }),
       },
       "Seedream image generation timed out.",
@@ -154,7 +172,11 @@ export const seedreamImageProvider: ImageProviderAdapter = {
     if (!upstream.ok) {
       throw new ProviderError(
         await readProviderError(upstream, "Seedream image generation failed."),
-        upstream.status
+        upstream.status,
+        undefined,
+        {
+          isRetriable: isRetriableUpstreamStatus(upstream.status),
+        }
       );
     }
 

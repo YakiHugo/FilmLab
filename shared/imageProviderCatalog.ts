@@ -3,6 +3,7 @@ import type {
   ImageProviderId,
   ReferenceImageType,
 } from "./imageGeneration";
+import { getProviderModelCatalog } from "./providerCapabilityRegistry";
 
 export interface ImageReferenceImageCapability {
   enabled: boolean;
@@ -202,15 +203,7 @@ export const IMAGE_PROVIDERS: ImageProviderConfig[] = [
   {
     id: "seedream",
     name: "Seedream",
-    models: [
-      {
-        id: "doubao-seedream-5-0-260128",
-        name: "Seedream 5.0",
-        description: "Ark text-to-image generation",
-        supportedAspectRatios: COMMON_ASPECT_RATIOS,
-        maxBatchSize: 1,
-      },
-    ],
+    models: getProviderModelCatalog("seedream"),
     supportedFeatures: {
       negativePrompt: false,
       seed: false,

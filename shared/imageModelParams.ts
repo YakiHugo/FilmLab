@@ -167,6 +167,38 @@ const IDEOGRAM_FIELDS: ImageModelParamDefinition[] = [
   },
 ];
 
+const SEEDREAM_COMMON_FIELDS: ImageModelParamDefinition[] = [
+  {
+    key: "responseFormat",
+    label: "Response Format",
+    type: "select",
+    description: "Ark image generation response payload format.",
+    options: [
+      { label: "URL", value: "url" },
+      { label: "Base64", value: "b64_json" },
+    ],
+    defaultValue: "url",
+  },
+  {
+    key: "watermark",
+    label: "Watermark",
+    type: "boolean",
+    description: "Whether to keep provider watermark in generated images.",
+    defaultValue: true,
+  },
+  {
+    key: "sequentialImageGeneration",
+    label: "Sequential Generation",
+    type: "select",
+    description: "Generate batch images sequentially or in parallel when supported.",
+    options: [
+      { label: "Disabled", value: "disabled" },
+      { label: "Enabled", value: "enabled" },
+    ],
+    defaultValue: "disabled",
+  },
+];
+
 const MODEL_PARAM_CONFIGS: ImageModelParamConfig[] = [
   {
     provider: "openai",
@@ -216,7 +248,27 @@ const MODEL_PARAM_CONFIGS: ImageModelParamConfig[] = [
   {
     provider: "seedream",
     model: "doubao-seedream-5-0-260128",
-    fields: [],
+    fields: SEEDREAM_COMMON_FIELDS,
+  },
+  {
+    provider: "seedream",
+    model: "doubao-seedream-4-0-250828",
+    fields: SEEDREAM_COMMON_FIELDS,
+  },
+  {
+    provider: "seedream",
+    model: "qwen-image-2512",
+    fields: SEEDREAM_COMMON_FIELDS,
+  },
+  {
+    provider: "seedream",
+    model: "z-image-v1",
+    fields: SEEDREAM_COMMON_FIELDS,
+  },
+  {
+    provider: "seedream",
+    model: "doubao-kling-o1-250424",
+    fields: SEEDREAM_COMMON_FIELDS,
   },
 ];
 
