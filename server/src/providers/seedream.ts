@@ -8,6 +8,9 @@ import { ProviderError, readProviderError } from "./types";
 const ARK_IMAGE_GENERATION_URL = "https://ark.cn-beijing.volces.com/api/v3/images/generations";
 const DEFAULT_MIME_TYPE = "image/jpeg";
 
+const isRetriableUpstreamStatus = (statusCode: number) =>
+  statusCode === 408 || statusCode === 409 || statusCode === 425 || statusCode === 429 || statusCode >= 500;
+
 const SEEDREAM_SIZE_BY_ASPECT_RATIO: Record<
   Exclude<ParsedImageGenerationRequest["aspectRatio"], "custom">,
   string
@@ -169,7 +172,11 @@ export const seedreamImageProvider: ImageProviderAdapter = {
     if (!upstream.ok) {
       throw new ProviderError(
         await readProviderError(upstream, "Seedream image generation failed."),
-        upstream.status
+        upstream.status,
+        undefined,
+        {
+          isRetriable: isRetriableUpstreamStatus(upstream.status),
+        }
       );
     }
 

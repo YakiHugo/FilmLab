@@ -1,13 +1,8 @@
 import type { ParsedImageGenerationRequest } from "../shared/imageGenerationSchema";
+import type { ProviderError } from "../providers/types";
 import { resolveModelFallbackChain } from "../../../shared/providerCapabilityRegistry";
 
-export const shouldFallbackToNextModel = (statusCode?: number) => {
-  if (typeof statusCode !== "number") {
-    return true;
-  }
-
-  return statusCode === 408 || statusCode === 409 || statusCode === 425 || statusCode === 429 || statusCode >= 500;
-};
+export const shouldFallbackToNextModel = (error: ProviderError) => error.isRetriable;
 
 export const buildRoutedRequests = (
   payload: ParsedImageGenerationRequest

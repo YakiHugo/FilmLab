@@ -111,7 +111,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             }
 
             lastProviderError = error;
-            if (!shouldFallbackToNextModel(error.statusCode)) {
+            if (!shouldFallbackToNextModel(error)) {
               throw error;
             }
           }
