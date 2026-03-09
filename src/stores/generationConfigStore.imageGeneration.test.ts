@@ -159,6 +159,10 @@ describe("sanitizeGenerationConfig", () => {
     expect(sanitized.guidanceScale).toBeNull();
     expect(sanitized.steps).toBeNull();
     expect(sanitized.batchSize).toBe(1);
-    expect(sanitized.modelParams).toEqual({});
+    expect(sanitized.modelParams).toEqual({
+      responseFormat: "url",
+      sequentialImageGeneration: "disabled",
+      watermark: true,
+    });
   });
 });
