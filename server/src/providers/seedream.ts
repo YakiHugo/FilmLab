@@ -1,3 +1,4 @@
+import { isProviderModelSupported } from "../../../shared/providerCapabilityRegistry";
 import { getStylePromptHint } from "../shared/imageStyleHints";
 import { fetchWithTimeout } from "../shared/fetchWithTimeout";
 import type { ParsedImageGenerationRequest } from "../shared/imageGenerationSchema";
@@ -5,13 +6,6 @@ import type { ImageProviderAdapter, ProviderGeneratedImage } from "./types";
 import { ProviderError, readProviderError } from "./types";
 
 const ARK_IMAGE_GENERATION_URL = "https://ark.cn-beijing.volces.com/api/v3/images/generations";
-const SUPPORTED_SEEDREAM_MODELS = new Set([
-  "doubao-seedream-5-0-260128",
-  "doubao-seedream-4-0-250828",
-  "qwen-image-2512",
-  "z-image-v1",
-  "doubao-kling-o1-250424",
-]);
 const DEFAULT_MIME_TYPE = "image/jpeg";
 
 const SEEDREAM_SIZE_BY_ASPECT_RATIO: Record<
@@ -142,7 +136,7 @@ const extractImages = (
 
 export const seedreamImageProvider: ImageProviderAdapter = {
   async generate(request, apiKey, options) {
-    if (!SUPPORTED_SEEDREAM_MODELS.has(request.model)) {
+    if (!isProviderModelSupported("seedream", request.model)) {
       throw new ProviderError(`Unsupported Seedream model: ${request.model}.`, 400);
     }
     const normalizedApiKey = apiKey.trim();
