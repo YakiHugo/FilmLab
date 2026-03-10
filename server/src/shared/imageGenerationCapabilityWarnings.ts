@@ -1,25 +1,25 @@
-import {
-  getImageModelFeatureSupport,
-  getImageModelName,
-  getImageProviderName,
-} from "../../../shared/imageProviderCatalog";
+import { resolveRouteTarget } from "../gateway/router/registry";
 import type { ParsedImageGenerationRequest } from "./imageGenerationSchema";
 
 export const getImageGenerationCapabilityWarnings = (
   request: ParsedImageGenerationRequest
 ): string[] => {
-  const featureSupport = getImageModelFeatureSupport(request.provider, request.model);
-  if (!featureSupport) {
+  const target = resolveRouteTarget({
+    providerId: request.provider,
+    model: request.model,
+    operation: "generate",
+  });
+  if (!target) {
     return [];
   }
 
   const warnings: string[] = [];
-  if (!featureSupport.referenceImages.enabled && request.referenceImages.length > 0) {
-    const providerName = getImageProviderName(request.provider);
-    const modelName = getImageModelName(request.provider, request.model);
+  if (!target.capability.referenceImages.enabled && request.referenceImages.length > 0) {
     const count = request.referenceImages.length;
     warnings.push(
-      `${providerName} ${modelName} ignores ${count} reference image${count === 1 ? "" : "s"}.`
+      `${target.family.displayName} ${target.model.displayName} ignores ${count} reference image${
+        count === 1 ? "" : "s"
+      }.`
     );
   }
 

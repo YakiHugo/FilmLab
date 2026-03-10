@@ -1,109 +1,162 @@
+import type { ImageModelParamDefinition } from "../../../shared/imageModelParams";
 import {
-  IMAGE_PROVIDERS,
-  type ImageModelConfig,
-  type ImageProviderConfig,
-} from "../../../shared/imageProviderCatalog";
-import type { ImageProviderId } from "../shared/imageGenerationSchema";
-import {
-  providerHealthStore,
-  type ProviderHealthSnapshot,
-  type ProviderOperation,
-  type ProviderHealthStore,
-} from "./healthStore";
+  getRuntimeModelFamilies,
+  getRuntimeModels,
+  getRuntimeProviderConfiguration,
+  getRuntimeProviders,
+} from "../gateway/router/registry";
+import { routerHealth } from "../gateway/router/health";
+import type { HealthRecordInput, RuntimeProviderId } from "../gateway/router/types";
+import type { ProviderHealthSnapshot } from "./healthStore";
 
 export interface CapabilityConstraintSummary {
   supportsCustomSize: boolean;
   supportedAspectRatios: string[];
   maxBatchSize: number;
-  supportsUpscale: boolean;
-  unsupportedFields: string[];
   referenceImages: {
     enabled: boolean;
     maxImages: number;
     supportedTypes: string[];
     supportsWeight: boolean;
+    maxFileSizeBytes?: number;
   };
+  unsupportedFields: string[];
 }
 
-export interface ProviderModelCapability {
-  providerId: ImageProviderId;
-  providerName: string;
-  credentialSlot: string;
-  modelId: string;
-  modelName: string;
-  description?: string;
-  operation: ProviderOperation;
+export interface ProviderOperationCapability {
+  operation: "generate" | "upscale";
+  enabled: boolean;
+  configured: boolean;
   constraints: CapabilityConstraintSummary;
+  parameterDefinitions: ImageModelParamDefinition[];
   health: ProviderHealthSnapshot;
 }
 
-const toConstraintSummary = (model: ImageModelConfig): CapabilityConstraintSummary => {
-  const features = model.supportedFeatures;
-  const unsupportedFields: string[] = [];
-  if (!features.negativePrompt) unsupportedFields.push("negativePrompt");
-  if (!features.seed) unsupportedFields.push("seed");
-  if (!features.guidanceScale) unsupportedFields.push("guidanceScale");
-  if (!features.steps) unsupportedFields.push("steps");
-  if (!features.styles) unsupportedFields.push("style", "stylePreset");
+export interface ProviderModelCapability {
+  providerId: RuntimeProviderId;
+  providerName: string;
+  credentialSlot: string;
+  configured: boolean;
+  missingCredential: boolean;
+  familyId: string;
+  familyName: string;
+  legacyProviderAliases: string[];
+  modelId: string;
+  modelName: string;
+  description?: string;
+  operations: ProviderOperationCapability[];
+  generation: ProviderOperationCapability;
+  upscale: ProviderOperationCapability;
+}
 
-  return {
-    supportsCustomSize: Boolean(model.supportsCustomSize),
-    supportedAspectRatios: model.supportedAspectRatios,
-    maxBatchSize: model.maxBatchSize ?? 1,
-    supportsUpscale: Boolean(features.supportsUpscale),
-    unsupportedFields,
-    referenceImages: {
-      enabled: features.referenceImages.enabled,
-      maxImages: features.referenceImages.maxImages,
-      supportedTypes: features.referenceImages.supportedTypes,
-      supportsWeight: features.referenceImages.supportsWeight,
-    },
-  };
-};
-
-const collectOperationCapabilities = (
-  healthStore: ProviderHealthStore,
-  provider: ImageProviderConfig,
-  model: ImageModelConfig,
-  operation: ProviderOperation,
-  now: number
-): ProviderModelCapability => ({
-  providerId: provider.id,
-  providerName: provider.name,
-  credentialSlot: provider.credentialSlot,
-  modelId: model.id,
-  modelName: model.name,
-  description: model.description,
-  operation,
-  constraints: toConstraintSummary(model),
-  health: healthStore.getSnapshot(provider.id, model.id, operation, now),
+const toConstraintSummary = (operation: ProviderOperationCapability): CapabilityConstraintSummary => ({
+  supportsCustomSize: operation.constraints.supportsCustomSize,
+  supportedAspectRatios: operation.constraints.supportedAspectRatios,
+  maxBatchSize: operation.constraints.maxBatchSize,
+  referenceImages: operation.constraints.referenceImages,
+  unsupportedFields: operation.constraints.unsupportedFields,
 });
 
-export const createProviderCapabilitiesRegistry = (healthStore: ProviderHealthStore) => ({
+export const createProviderCapabilitiesRegistry = (health = routerHealth) => ({
   getProviderCapabilities(now = Date.now()) {
-    const providers = IMAGE_PROVIDERS.map((provider) => ({
-      providerId: provider.id,
-      providerName: provider.name,
-      credentialSlot: provider.credentialSlot,
-      models: provider.models.map((model) => ({
-        modelId: model.id,
-        modelName: model.name,
-        description: model.description,
-        generation: collectOperationCapabilities(healthStore, provider, model, "generate", now),
-        upscale: collectOperationCapabilities(healthStore, provider, model, "upscale", now),
-      })),
-    }));
+    const providers = getRuntimeProviders().map((provider) => {
+      const providerConfiguration = getRuntimeProviderConfiguration(provider.id);
+      const families = getRuntimeModelFamilies().filter((family) => family.provider === provider.id);
+      const models = getRuntimeModels()
+        .filter((model) => families.some((family) => family.id === model.family))
+        .map((model) => {
+          const family = families.find((entry) => entry.id === model.family);
+          if (!family) {
+            throw new Error(`Missing runtime family for model ${model.id}.`);
+          }
+
+          const operations = (["generate", "upscale"] as const).map((operation) => {
+            const capability = model.operations[operation] ?? {
+              operation,
+              enabled: false,
+              supportsCustomSize: false,
+              supportedAspectRatios: [],
+              maxBatchSize: 1,
+              referenceImages: {
+                enabled: false,
+                maxImages: 0,
+                supportedTypes: [],
+                supportsWeight: false,
+              },
+              unsupportedFields: [],
+              parameterDefinitions: [],
+            };
+
+            return {
+              operation,
+              enabled: capability.enabled,
+              configured: providerConfiguration.configured,
+              constraints: {
+                supportsCustomSize: capability.supportsCustomSize,
+                supportedAspectRatios: capability.supportedAspectRatios,
+                maxBatchSize: capability.maxBatchSize,
+                referenceImages: capability.referenceImages,
+                unsupportedFields: capability.unsupportedFields,
+              },
+              parameterDefinitions: capability.parameterDefinitions,
+              health: health.getSnapshot(provider.id, model.id, operation, now),
+            } satisfies ProviderOperationCapability;
+          });
+
+          const generation =
+            operations.find((operation) => operation.operation === "generate") ?? operations[0]!;
+          const upscale =
+            operations.find((operation) => operation.operation === "upscale") ?? operations[1]!;
+
+          return {
+            providerId: provider.id,
+            providerName: provider.name,
+            credentialSlot: provider.credentialSlot,
+            configured: providerConfiguration.configured,
+            missingCredential: providerConfiguration.missingCredential,
+            familyId: family.id,
+            familyName: family.displayName,
+            legacyProviderAliases: [...family.legacyProviderAliases],
+            modelId: model.id,
+            modelName: model.displayName,
+            description: model.description,
+            operations,
+            generation,
+            upscale,
+          } satisfies ProviderModelCapability;
+        });
+
+      return {
+        providerId: provider.id,
+        providerName: provider.name,
+        credentialSlot: provider.credentialSlot,
+        configured: providerConfiguration.configured,
+        missingCredential: providerConfiguration.missingCredential,
+        families: families.map((family) => ({
+          familyId: family.id,
+          familyName: family.displayName,
+          legacyProviderAliases: [...family.legacyProviderAliases],
+        })),
+        models,
+      };
+    });
 
     const compatibilitySummary = providers.flatMap((provider) =>
       provider.models.map((model) => ({
         providerId: provider.providerId,
+        familyId: model.familyId,
+        legacyProviderAliases: [...model.legacyProviderAliases],
         modelId: model.modelId,
-        supportsCustomSize: model.generation.constraints.supportsCustomSize,
-        supportsUpscale: model.generation.constraints.supportsUpscale,
-        unsupportedFields: model.generation.constraints.unsupportedFields,
-        supportedAspectRatios: model.generation.constraints.supportedAspectRatios,
-        maxBatchSize: model.generation.constraints.maxBatchSize,
-        referenceImages: model.generation.constraints.referenceImages,
+        generate: {
+          enabled: model.generation.enabled,
+          configured: model.generation.configured,
+          ...toConstraintSummary(model.generation),
+        },
+        upscale: {
+          enabled: model.upscale.enabled,
+          configured: model.upscale.configured,
+          ...toConstraintSummary(model.upscale),
+        },
       }))
     );
 
@@ -113,20 +166,12 @@ export const createProviderCapabilitiesRegistry = (healthStore: ProviderHealthSt
       compatibilitySummary,
     };
   },
-  recordProviderCallResult(input: {
-    provider: ImageProviderId;
-    model: string;
-    operation: ProviderOperation;
-    success: boolean;
-    latencyMs: number;
-    errorType?: string;
-    occurredAt?: number;
-  }) {
-    healthStore.record(input);
+  recordProviderCallResult(input: HealthRecordInput) {
+    health.record(input);
   },
 });
 
-const defaultRegistry = createProviderCapabilitiesRegistry(providerHealthStore);
+const defaultRegistry = createProviderCapabilitiesRegistry();
 
 export const getProviderCapabilities = defaultRegistry.getProviderCapabilities;
 export const recordProviderCallResult = defaultRegistry.recordProviderCallResult;

@@ -1,9 +1,12 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ZodError } from "zod";
-import { recordProviderCallResult } from "../capabilities/registry";
 import { getConfig } from "../config";
-import { getProviderAdapter, getUserProviderKey, resolveApiKey } from "../providers/registry";
-import { ProviderError } from "../providers/types";
+import { imageRuntimeRouter } from "../gateway/router/router";
+import {
+  getLegacyProviderAliasForModel,
+  getRuntimeProviderIdForModel,
+} from "../gateway/router/registry";
+import { ProviderError } from "../providers/base/errors";
 import { getGeneratedImage, storeGeneratedImage } from "../shared/generatedImageStore";
 import { imageUpscaleRequestSchema } from "../shared/imageUpscaleSchema";
 
@@ -51,26 +54,6 @@ export const imageUpscaleRoute: FastifyPluginAsync = async (app) => {
         return reply.code(400).send({ error: message });
       }
 
-      const adapter = getProviderAdapter(payload.provider);
-      if (!adapter?.upscale) {
-        return reply.code(400).send({
-          error: `Upscale is not supported for provider: ${payload.provider}`,
-        });
-      }
-
-      const userKey = getUserProviderKey(
-        request.headers as Record<string, string | string[] | undefined>,
-        payload.provider
-      );
-      const apiKey = resolveApiKey(payload.provider, userKey);
-
-      if (!apiKey) {
-        return reply.code(401).send({
-          error: "API key required",
-          provider: payload.provider,
-        });
-      }
-
       const sourceImage = getGeneratedImage(payload.imageId);
       if (!sourceImage) {
         return reply.code(404).send({
@@ -78,38 +61,29 @@ export const imageUpscaleRoute: FastifyPluginAsync = async (app) => {
         });
       }
 
-      const callStartedAt = Date.now();
-
       try {
-        const upscaled = await adapter.upscale(
+        const legacyProvider = getLegacyProviderAliasForModel(payload.model) ?? "seedream";
+        const upscaled = await imageRuntimeRouter.upscale(
+          payload,
           {
-            model: payload.model,
             imageBuffer: sourceImage.buffer,
             mimeType: sourceImage.mimeType,
-            scale: payload.scale,
           },
-          apiKey,
           {
             signal: requestController.signal,
           }
         );
 
-        if (!upscaled.binaryData || !upscaled.mimeType) {
+        if (!upscaled?.binaryData || !upscaled.mimeType) {
           throw new ProviderError("Provider did not return an upscaled image.");
         }
 
         const imageId = storeGeneratedImage(upscaled.binaryData, upscaled.mimeType);
 
-        recordProviderCallResult({
-          provider: payload.provider,
-          model: payload.model,
-          operation: "upscale",
-          success: true,
-          latencyMs: Date.now() - callStartedAt,
-        });
-
         return reply.code(200).send({
-          provider: payload.provider,
+          provider: legacyProvider,
+          runtimeProvider: getRuntimeProviderIdForModel(payload.model) ?? payload.provider,
+          modelFamily: legacyProvider,
           model: payload.model,
           imageId,
           imageUrl: `/api/generated-images/${imageId}`,
@@ -117,32 +91,15 @@ export const imageUpscaleRoute: FastifyPluginAsync = async (app) => {
         });
       } catch (error) {
         if (error instanceof ProviderError) {
-          recordProviderCallResult({
-            provider: payload.provider,
-            model: payload.model,
-            operation: "upscale",
-            success: false,
-            latencyMs: Date.now() - callStartedAt,
-            errorType: "provider_error",
-          });
           return reply.code(error.statusCode).send({
             error: error.message,
-            provider: payload.provider,
+            provider: getLegacyProviderAliasForModel(payload.model) ?? payload.provider,
           });
         }
-
-        recordProviderCallResult({
-          provider: payload.provider,
-          model: payload.model,
-          operation: "upscale",
-          success: false,
-          latencyMs: Date.now() - callStartedAt,
-          errorType: "internal_error",
-        });
         app.log.error(error);
         return reply.code(500).send({
           error: "Image upscale failed.",
-          provider: payload.provider,
+          provider: getLegacyProviderAliasForModel(payload.model) ?? payload.provider,
         });
       } finally {
         requestSocket?.removeListener("close", handleRequestClose);

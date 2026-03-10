@@ -1,9 +1,7 @@
-import type { ImageProviderId } from "../shared/imageGenerationSchema";
-
 export type ProviderOperation = "generate" | "upscale";
 
 export interface ProviderCallResultInput {
-  provider: ImageProviderId;
+  provider: string;
   model: string;
   operation: ProviderOperation;
   success: boolean;
@@ -110,7 +108,7 @@ export class ProviderHealthStore {
   }
 
   getSnapshot(
-    provider: ImageProviderId,
+    provider: string,
     model: string,
     operation: ProviderOperation,
     now = Date.now()
@@ -194,7 +192,7 @@ export class ProviderHealthStore {
     state.events = state.events.filter((event) => event.occurredAt >= cutoff);
   }
 
-  private key(provider: ImageProviderId, model: string, operation: ProviderOperation) {
+  private key(provider: string, model: string, operation: ProviderOperation) {
     return `${provider}:${model}:${operation}`;
   }
 }

@@ -1,6 +1,22 @@
 export const IMAGE_PROVIDER_IDS = ["seedream", "qwen", "zimage", "kling"] as const;
 export type ImageProviderId = (typeof IMAGE_PROVIDER_IDS)[number];
 
+export const IMAGE_MODEL_FAMILY_IDS = IMAGE_PROVIDER_IDS;
+export type ImageModelFamilyId = ImageProviderId;
+
+export const IMAGE_RUNTIME_PROVIDER_IDS = ["ark", "dashscope", "kling"] as const;
+export type RuntimeImageProviderId = (typeof IMAGE_RUNTIME_PROVIDER_IDS)[number];
+
+export const IMAGE_REQUEST_PROVIDER_IDS = [
+  "seedream",
+  "qwen",
+  "zimage",
+  "kling",
+  "ark",
+  "dashscope",
+] as const;
+export type ImageRequestProviderId = (typeof IMAGE_REQUEST_PROVIDER_IDS)[number];
+
 export const IMAGE_ASPECT_RATIOS = [
   "1:1",
   "16:9",
@@ -45,7 +61,7 @@ export interface ReferenceImage {
 export interface ImageGenerationRequest {
   prompt: string;
   negativePrompt?: string;
-  provider: ImageProviderId;
+  provider: ImageRequestProviderId;
   model: string;
   aspectRatio: ImageAspectRatio;
   width?: number;
@@ -66,12 +82,14 @@ export interface GeneratedImage {
   imageId?: string;
   provider: ImageProviderId;
   model: string;
+  runtimeProvider?: RuntimeImageProviderId;
+  modelFamily?: ImageModelFamilyId;
   mimeType?: string;
   revisedPrompt?: string | null;
 }
 
 export interface ImageUpscaleRequest {
-  provider: ImageProviderId;
+  provider: ImageRequestProviderId;
   model: string;
   imageId: string;
   scale?: ImageUpscaleScale;
@@ -79,6 +97,8 @@ export interface ImageUpscaleRequest {
 
 export interface ImageGenerationResponse {
   provider: ImageProviderId;
+  runtimeProvider?: RuntimeImageProviderId;
+  modelFamily?: ImageModelFamilyId;
   model: string;
   createdAt: string;
   imageId?: string;

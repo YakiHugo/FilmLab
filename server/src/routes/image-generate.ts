@@ -1,9 +1,9 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ZodError } from "zod";
-import { recordProviderCallResult } from "../capabilities/registry";
 import { getConfig } from "../config";
-import { getProviderAdapter, getUserProviderKey, resolveApiKey } from "../providers/registry";
-import { ProviderError } from "../providers/types";
+import { imageRuntimeRouter } from "../gateway/router/router";
+import { getLegacyProviderAliasForModel } from "../gateway/router/registry";
+import { ProviderError } from "../providers/base/errors";
 import { downloadGeneratedImage } from "../shared/downloadGeneratedImage";
 import { storeGeneratedImage } from "../shared/generatedImageStore";
 import { getImageGenerationCapabilityWarnings } from "../shared/imageGenerationCapabilityWarnings";
@@ -75,30 +75,8 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         return reply.code(400).send({ error: message });
       }
 
-      const adapter = getProviderAdapter(payload.provider);
-      if (!adapter) {
-        return reply.code(400).send({
-          error: `Unsupported provider: ${payload.provider}`,
-        });
-      }
-
-      const userKey = getUserProviderKey(
-        request.headers as Record<string, string | string[] | undefined>,
-        payload.provider
-      );
-      const apiKey = resolveApiKey(payload.provider, userKey);
-
-      if (!apiKey) {
-        return reply.code(401).send({
-          error: "API key required",
-          provider: payload.provider,
-        });
-      }
-
-      const callStartedAt = Date.now();
-
       try {
-        const generated = await adapter.generate(payload, apiKey, {
+        const generated = await imageRuntimeRouter.generate(payload, {
           signal: requestController.signal,
         });
         const capabilityWarnings = getImageGenerationCapabilityWarnings(payload);
@@ -122,7 +100,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           Array<{
             imageUrl: string;
             imageId: string;
-            provider: typeof generated.provider;
+            provider: string;
             model: string;
             mimeType?: string;
             revisedPrompt: string | null;
@@ -135,7 +113,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           accumulator.push({
             imageId: image.imageId,
             imageUrl: image.imageUrl,
-            provider: generated.provider,
+            provider: generated.legacyProvider,
             model: generated.model,
             mimeType: image.mimeType,
             revisedPrompt: image.revisedPrompt,
@@ -149,16 +127,10 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           throw new ProviderError("Provider did not return any image.");
         }
 
-        recordProviderCallResult({
-          provider: payload.provider,
-          model: payload.model,
-          operation: "generate",
-          success: true,
-          latencyMs: Date.now() - callStartedAt,
-        });
-
         return reply.code(200).send({
-          provider: generated.provider,
+          provider: generated.legacyProvider,
+          runtimeProvider: generated.runtimeProvider,
+          modelFamily: generated.modelFamily,
           model: generated.model,
           createdAt: new Date().toISOString(),
           imageId: firstImageId,
@@ -166,34 +138,17 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           images: normalizedImages,
           ...(mergedWarnings.length > 0 ? { warnings: mergedWarnings } : {}),
         });
-      } catch (error) {
+        } catch (error) {
         if (error instanceof ProviderError) {
-          recordProviderCallResult({
-            provider: payload.provider,
-            model: payload.model,
-            operation: "generate",
-            success: false,
-            latencyMs: Date.now() - callStartedAt,
-            errorType: "provider_error",
-          });
           return reply.code(error.statusCode).send({
             error: error.message,
-            provider: payload.provider,
+            provider: getLegacyProviderAliasForModel(payload.model) ?? payload.provider,
           });
         }
-
-        recordProviderCallResult({
-          provider: payload.provider,
-          model: payload.model,
-          operation: "generate",
-          success: false,
-          latencyMs: Date.now() - callStartedAt,
-          errorType: "internal_error",
-        });
         app.log.error(error);
         return reply.code(500).send({
           error: "Image generation failed.",
-          provider: payload.provider,
+          provider: getLegacyProviderAliasForModel(payload.model) ?? payload.provider,
         });
       } finally {
         request.raw.removeListener("aborted", abortRequest);
