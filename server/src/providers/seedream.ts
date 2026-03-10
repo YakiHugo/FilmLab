@@ -4,7 +4,11 @@ import { getStylePromptHint } from "../shared/imageStyleHints";
 import { fetchWithTimeout } from "../shared/fetchWithTimeout";
 import type { ParsedImageGenerationRequest } from "../shared/imageGenerationSchema";
 import type { ImageProviderAdapter, ProviderGeneratedImage } from "./types";
-import { ProviderError, readProviderError } from "./types";
+import { ProviderError } from "./types";
+import {
+  normalizeHttpProviderError,
+  normalizeInvalidProviderResponseError,
+} from "./errorNormalizer";
 
 const DEFAULT_MIME_TYPE = "image/jpeg";
 
@@ -167,24 +171,31 @@ export const seedreamImageProvider: ImageProviderAdapter = {
         }),
       },
       "Seedream image generation timed out.",
-      options
+      { ...options, provider: "seedream" }
     );
 
     if (!upstream.ok) {
-      throw new ProviderError(
-        await readProviderError(upstream, "Seedream image generation failed."),
-        upstream.status
-      );
+      throw await normalizeHttpProviderError({
+        response: upstream,
+        fallbackMessage: "Seedream image generation failed.",
+        provider: "seedream",
+      });
     }
 
     const json = (await upstream.json()) as unknown;
     if (!isRecord(json)) {
-      throw new ProviderError("Seedream provider returned an invalid response.");
+      throw normalizeInvalidProviderResponseError({
+        message: "Seedream provider returned an invalid response.",
+        provider: "seedream",
+      });
     }
 
     const { images, warnings } = extractImages(json);
     if (images.length === 0) {
-      throw new ProviderError(readSeedreamErrorMessage(json));
+      throw normalizeInvalidProviderResponseError({
+        message: readSeedreamErrorMessage(json),
+        provider: "seedream",
+      });
     }
 
     return {

@@ -38,50 +38,46 @@ export interface ImageProviderAdapter {
   ) => Promise<ProviderGeneratedImage>;
 }
 
+export type ProviderErrorCode =
+  | "PROVIDER_AUTH"
+  | "PROVIDER_RATE_LIMIT"
+  | "PROVIDER_TIMEOUT"
+  | "PROVIDER_RESPONSE_INVALID"
+  | "PROVIDER_UPSTREAM";
+
+interface ProviderErrorOptions {
+  statusCode?: number;
+  code?: ProviderErrorCode;
+  provider?: ImageProviderId;
+  upstreamStatus?: number;
+  retryable?: boolean;
+  cause?: unknown;
+}
+
 export class ProviderError extends Error {
   statusCode: number;
+  code: ProviderErrorCode;
+  provider?: ImageProviderId;
+  upstreamStatus?: number;
+  retryable: boolean;
 
-  constructor(message: string, statusCode = 502, cause?: unknown) {
-    super(message, cause ? { cause } : undefined);
+  constructor(message: string, statusCode?: number, cause?: unknown);
+  constructor(message: string, options?: ProviderErrorOptions);
+  constructor(message: string, statusOrOptions: number | ProviderErrorOptions = 502, cause?: unknown) {
+    const options: ProviderErrorOptions =
+      typeof statusOrOptions === "number"
+        ? { statusCode: statusOrOptions, cause }
+        : statusOrOptions;
+
+    super(message, options.cause ? { cause: options.cause } : undefined);
     this.name = "ProviderError";
-    this.statusCode = statusCode;
+    this.statusCode = options.statusCode ?? 502;
+    this.code = options.code ?? "PROVIDER_UPSTREAM";
+    this.provider = options.provider;
+    this.upstreamStatus = options.upstreamStatus;
+    this.retryable = options.retryable ?? this.statusCode >= 500;
   }
 }
 
 export const toDataUrl = (bytes: ArrayBuffer, mimeType: string) =>
   `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`;
-
-const isObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-export const readProviderError = async (response: Response, fallback: string) => {
-  const contentType = response.headers.get("content-type") ?? "";
-  const text = await response.text().catch(() => "");
-  const trimmedText = text.trim();
-
-  if (contentType.includes("application/json") && trimmedText) {
-    try {
-      const json = JSON.parse(trimmedText) as unknown;
-      if (isObject(json)) {
-        const nestedError = isObject(json.error) ? json.error : null;
-        if (nestedError && typeof nestedError.message === "string" && nestedError.message.trim()) {
-          return nestedError.message;
-        }
-        if (typeof json.error === "string" && json.error.trim()) {
-          return json.error;
-        }
-        if (typeof json.message === "string" && json.message.trim()) {
-          return json.message;
-        }
-      }
-    } catch {
-      // Fall through to text parsing.
-    }
-  }
-
-  if (trimmedText) {
-    return trimmedText;
-  }
-
-  return fallback;
-};

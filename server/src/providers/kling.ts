@@ -4,7 +4,12 @@ import { fetchWithTimeout } from "../shared/fetchWithTimeout";
 import { getStylePromptHint } from "../shared/imageStyleHints";
 import type { ParsedImageGenerationRequest } from "../shared/imageGenerationSchema";
 import type { ImageProviderAdapter, ProviderGeneratedImage } from "./types";
-import { ProviderError, readProviderError } from "./types";
+import { ProviderError } from "./types";
+import {
+  normalizeHttpProviderError,
+  normalizeInvalidProviderResponseError,
+  normalizeTimeoutProviderError,
+} from "./errorNormalizer";
 
 const POLL_INTERVAL_MS = 2_500;
 
@@ -121,7 +126,12 @@ const waitForPoll = (signal: AbortSignal | undefined, durationMs: number) =>
 
     const onAbort = () => {
       clearTimeout(timeoutId);
-      reject(new ProviderError("Kling image generation timed out.", 504));
+      reject(
+        normalizeTimeoutProviderError({
+          message: "Kling image generation timed out.",
+          provider: "kling",
+        })
+      );
     };
 
     signal?.addEventListener("abort", onAbort, { once: true });
@@ -161,27 +171,31 @@ export const klingImageProvider: ImageProviderAdapter = {
         }),
       },
       "Kling image generation timed out.",
-      options
+      { ...options, provider: "kling" }
     );
 
     if (!createResponse.ok) {
-      throw new ProviderError(
-        await readProviderError(createResponse, "Kling image generation failed."),
-        createResponse.status
-      );
+      throw await normalizeHttpProviderError({
+        response: createResponse,
+        fallbackMessage: "Kling image generation failed.",
+        provider: "kling",
+      });
     }
 
     const createPayload = (await createResponse.json()) as unknown;
     if (readKlingCode(createPayload) !== 0) {
-      throw new ProviderError(
-        readKlingErrorMessage(createPayload, "Kling image generation failed."),
-        502
-      );
+      throw normalizeInvalidProviderResponseError({
+        message: readKlingErrorMessage(createPayload, "Kling image generation failed."),
+        provider: "kling",
+      });
     }
 
     const taskId = extractKlingTaskId(createPayload);
     if (!taskId) {
-      throw new ProviderError("Kling provider did not return a task id.");
+      throw normalizeInvalidProviderResponseError({
+        message: "Kling provider did not return a task id.",
+        provider: "kling",
+      });
     }
 
     const deadline = Date.now() + getConfig().providerRequestTimeoutMs;
@@ -196,29 +210,33 @@ export const klingImageProvider: ImageProviderAdapter = {
           },
         },
         "Kling image generation timed out.",
-        options
+        { ...options, provider: "kling" }
       );
 
       if (!pollResponse.ok) {
-        throw new ProviderError(
-          await readProviderError(pollResponse, "Kling image generation failed."),
-          pollResponse.status
-        );
+        throw await normalizeHttpProviderError({
+          response: pollResponse,
+          fallbackMessage: "Kling image generation failed.",
+          provider: "kling",
+        });
       }
 
       const pollPayload = (await pollResponse.json()) as unknown;
       if (readKlingCode(pollPayload) !== 0) {
-        throw new ProviderError(
-          readKlingErrorMessage(pollPayload, "Kling image generation failed."),
-          502
-        );
+        throw normalizeInvalidProviderResponseError({
+          message: readKlingErrorMessage(pollPayload, "Kling image generation failed."),
+          provider: "kling",
+        });
       }
 
       const status = readKlingTaskStatus(pollPayload);
       if (status === "succeed") {
         const images = extractKlingImages(pollPayload);
         if (images.length === 0) {
-          throw new ProviderError("Kling provider returned no image URL.");
+          throw normalizeInvalidProviderResponseError({
+            message: "Kling provider returned no image URL.",
+            provider: "kling",
+          });
         }
 
         return {
@@ -229,15 +247,18 @@ export const klingImageProvider: ImageProviderAdapter = {
       }
 
       if (status === "failed") {
-        throw new ProviderError(
-          readKlingErrorMessage(pollPayload, "Kling image generation failed."),
-          502
-        );
+        throw normalizeInvalidProviderResponseError({
+          message: readKlingErrorMessage(pollPayload, "Kling image generation failed."),
+          provider: "kling",
+        });
       }
 
       await waitForPoll(options?.signal, POLL_INTERVAL_MS);
     }
 
-    throw new ProviderError("Kling image generation timed out.", 504);
+    throw normalizeTimeoutProviderError({
+      message: "Kling image generation timed out.",
+      provider: "kling",
+    });
   },
 };

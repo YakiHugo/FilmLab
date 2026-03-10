@@ -2,7 +2,11 @@ import { getImageModelConfig } from "../../../shared/imageProviderCatalog";
 import { getConfig } from "../config";
 import { fetchWithTimeout } from "../shared/fetchWithTimeout";
 import type { ImageProviderAdapter } from "./types";
-import { ProviderError, readProviderError } from "./types";
+import { ProviderError } from "./types";
+import {
+  normalizeHttpProviderError,
+  normalizeInvalidProviderResponseError,
+} from "./errorNormalizer";
 import {
   buildDashScopePrompt,
   extractDashScopeImages,
@@ -61,20 +65,24 @@ export const zImageProvider: ImageProviderAdapter = {
         }),
       },
       "Z Image generation timed out.",
-      options
+      { ...options, provider: "zimage" }
     );
 
     if (!upstream.ok) {
-      throw new ProviderError(
-        await readProviderError(upstream, "Z Image generation failed."),
-        upstream.status
-      );
+      throw await normalizeHttpProviderError({
+        response: upstream,
+        fallbackMessage: "Z Image generation failed.",
+        provider: "zimage",
+      });
     }
 
     const json = (await upstream.json()) as unknown;
     const images = extractDashScopeImages(json);
     if (images.length === 0) {
-      throw new ProviderError("Z Image provider returned no image URL.");
+      throw normalizeInvalidProviderResponseError({
+        message: "Z Image provider returned no image URL.",
+        provider: "zimage",
+      });
     }
 
     return {

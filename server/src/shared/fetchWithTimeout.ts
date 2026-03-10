@@ -1,5 +1,6 @@
 import { getConfig } from "../config";
-import { ProviderError } from "../providers/types";
+import { normalizeProviderRequestError } from "../providers/errorNormalizer";
+import type { ImageProviderId } from "../shared/imageGenerationSchema";
 
 const isAbortError = (error: unknown) =>
   error instanceof Error && error.name === "AbortError";
@@ -46,7 +47,7 @@ export const fetchWithTimeout = async (
   input: RequestInfo | URL,
   init: RequestInit,
   timeoutMessage: string,
-  options?: { signal?: AbortSignal }
+  options?: { signal?: AbortSignal; provider?: ImageProviderId }
 ) => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
@@ -60,13 +61,21 @@ export const fetchWithTimeout = async (
       signal,
     });
   } catch (error) {
-    if (error instanceof ProviderError) {
-      throw error;
-    }
     if (isAbortError(error)) {
-      throw new ProviderError(timeoutMessage, 504, error);
+      throw normalizeProviderRequestError({
+        error,
+        fallbackMessage: "Provider request failed.",
+        timeoutMessage,
+        provider: options?.provider,
+      });
     }
-    throw new ProviderError("Provider request failed.", 502, error);
+
+    throw normalizeProviderRequestError({
+      error,
+      fallbackMessage: "Provider request failed.",
+      timeoutMessage,
+      provider: options?.provider,
+    });
   } finally {
     clearTimeout(timeoutId);
     cleanup();

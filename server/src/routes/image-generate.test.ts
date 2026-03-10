@@ -193,6 +193,11 @@ describe("imageGenerateRoute", () => {
     });
 
     expect(response.statusCode).toBe(502);
+    expect(response.json()).toMatchObject({
+      error: "policy blocked",
+      errorCode: "PROVIDER_UPSTREAM",
+      provider: "seedream",
+    });
     expect(generateMock).toHaveBeenCalledTimes(1);
 
     await app.close();
@@ -275,4 +280,53 @@ describe("imageGenerateRoute", () => {
 
     await app.close();
   });
+  it("returns the same normalized errorCode for equivalent auth errors across providers", async () => {
+    const { default: Fastify } = await import("fastify");
+    const { imageGenerateRoute } = await import("./image-generate");
+    const { ProviderError } = await import("../providers/types");
+
+    const app = Fastify();
+    await app.register(imageGenerateRoute);
+
+    const providers = [
+      { provider: "qwen", model: "qwen-image-2.0-pro" },
+      { provider: "seedream", model: "doubao-seedream-5-0-260128" },
+    ] as const;
+
+    for (const item of providers) {
+      generateMock.mockRejectedValueOnce(
+        new ProviderError(`${item.provider} auth failed`, {
+          statusCode: 401,
+          code: "PROVIDER_AUTH",
+          provider: item.provider,
+          upstreamStatus: 401,
+          retryable: false,
+        })
+      );
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/image-generate",
+        payload: {
+          prompt: "Auth check",
+          provider: item.provider,
+          model: item.model,
+          aspectRatio: "1:1",
+          batchSize: 1,
+          style: "none",
+          referenceImages: [],
+          modelParams: {},
+        },
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(response.json()).toMatchObject({
+        provider: item.provider,
+        errorCode: "PROVIDER_AUTH",
+      });
+    }
+
+    await app.close();
+  });
+
 });

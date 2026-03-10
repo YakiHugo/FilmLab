@@ -159,6 +159,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         if (error instanceof ProviderError) {
           return reply.code(error.statusCode).send({
             error: error.message,
+            errorCode: error.code,
             provider: payload.provider,
           });
         }

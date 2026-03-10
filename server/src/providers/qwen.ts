@@ -2,7 +2,11 @@ import { getImageModelConfig } from "../../../shared/imageProviderCatalog";
 import { getConfig } from "../config";
 import { fetchWithTimeout } from "../shared/fetchWithTimeout";
 import type { ImageProviderAdapter } from "./types";
-import { ProviderError, readProviderError } from "./types";
+import { ProviderError } from "./types";
+import {
+  normalizeHttpProviderError,
+  normalizeInvalidProviderResponseError,
+} from "./errorNormalizer";
 import {
   buildDashScopePrompt,
   extractDashScopeImages,
@@ -65,20 +69,24 @@ export const qwenImageProvider: ImageProviderAdapter = {
         }),
       },
       "Qwen image generation timed out.",
-      options
+      { ...options, provider: "qwen" }
     );
 
     if (!upstream.ok) {
-      throw new ProviderError(
-        await readProviderError(upstream, "Qwen image generation failed."),
-        upstream.status
-      );
+      throw await normalizeHttpProviderError({
+        response: upstream,
+        fallbackMessage: "Qwen image generation failed.",
+        provider: "qwen",
+      });
     }
 
     const json = (await upstream.json()) as unknown;
     const images = extractDashScopeImages(json);
     if (images.length === 0) {
-      throw new ProviderError("Qwen provider returned no image URL.");
+      throw normalizeInvalidProviderResponseError({
+        message: "Qwen provider returned no image URL.",
+        provider: "qwen",
+      });
     }
 
     return {
