@@ -26,147 +26,6 @@ interface ImageModelParamConfig {
   fields: ImageModelParamDefinition[];
 }
 
-const OPENAI_GPT_IMAGE_FIELDS: ImageModelParamDefinition[] = [
-  {
-    key: "quality",
-    label: "Quality",
-    type: "select",
-    options: [
-      { label: "Auto", value: "auto" },
-      { label: "Low", value: "low" },
-      { label: "Medium", value: "medium" },
-      { label: "High", value: "high" },
-    ],
-    defaultValue: "auto",
-  },
-  {
-    key: "background",
-    label: "Background",
-    type: "select",
-    options: [
-      { label: "Auto", value: "auto" },
-      { label: "Opaque", value: "opaque" },
-      { label: "Transparent", value: "transparent" },
-    ],
-    defaultValue: "auto",
-  },
-  {
-    key: "outputFormat",
-    label: "Output",
-    type: "select",
-    options: [
-      { label: "PNG", value: "png" },
-      { label: "JPEG", value: "jpeg" },
-      { label: "WebP", value: "webp" },
-    ],
-    defaultValue: "png",
-  },
-];
-
-const OPENAI_DALLE_FIELDS: ImageModelParamDefinition[] = [
-  {
-    key: "quality",
-    label: "Quality",
-    type: "select",
-    options: [
-      { label: "Standard", value: "standard" },
-      { label: "HD", value: "hd" },
-    ],
-    defaultValue: "standard",
-  },
-  {
-    key: "styleTone",
-    label: "Style Tone",
-    type: "select",
-    options: [
-      { label: "Natural", value: "natural" },
-      { label: "Vivid", value: "vivid" },
-    ],
-    defaultValue: "natural",
-  },
-];
-
-const STABILITY_COMMON_FIELDS: ImageModelParamDefinition[] = [
-  {
-    key: "outputFormat",
-    label: "Output",
-    type: "select",
-    options: [
-      { label: "PNG", value: "png" },
-      { label: "JPEG", value: "jpeg" },
-      { label: "WebP", value: "webp" },
-    ],
-    defaultValue: "png",
-  },
-  {
-    key: "stylePreset",
-    label: "Style Preset",
-    type: "select",
-    options: [
-      { label: "Auto", value: "auto" },
-      { label: "Photographic", value: "photographic" },
-      { label: "Cinematic", value: "cinematic" },
-      { label: "Digital Art", value: "digital-art" },
-      { label: "Anime", value: "anime" },
-    ],
-    defaultValue: "auto",
-  },
-];
-
-const FLUX_COMMON_FIELDS: ImageModelParamDefinition[] = [
-  {
-    key: "outputFormat",
-    label: "Output",
-    type: "select",
-    options: [
-      { label: "PNG", value: "png" },
-      { label: "JPEG", value: "jpeg" },
-    ],
-    defaultValue: "png",
-  },
-  {
-    key: "safetyTolerance",
-    label: "Safety Tolerance",
-    type: "number",
-    min: 0,
-    max: 6,
-    step: 1,
-    defaultValue: 2,
-  },
-  {
-    key: "promptUpsampling",
-    label: "Prompt Upsampling",
-    type: "boolean",
-    defaultValue: true,
-  },
-];
-
-const IDEOGRAM_FIELDS: ImageModelParamDefinition[] = [
-  {
-    key: "renderingSpeed",
-    label: "Render Speed",
-    type: "select",
-    options: [
-      { label: "Flash", value: "FLASH" },
-      { label: "Turbo", value: "TURBO" },
-      { label: "Default", value: "DEFAULT" },
-      { label: "Quality", value: "QUALITY" },
-    ],
-    defaultValue: "TURBO",
-  },
-  {
-    key: "magicPrompt",
-    label: "Magic Prompt",
-    type: "select",
-    options: [
-      { label: "Auto", value: "AUTO" },
-      { label: "On", value: "ON" },
-      { label: "Off", value: "OFF" },
-    ],
-    defaultValue: "AUTO",
-  },
-];
-
 const SEEDREAM_COMMON_FIELDS: ImageModelParamDefinition[] = [
   {
     key: "responseFormat",
@@ -199,52 +58,47 @@ const SEEDREAM_COMMON_FIELDS: ImageModelParamDefinition[] = [
   },
 ];
 
+const QWEN_FIELDS: ImageModelParamDefinition[] = [
+  {
+    key: "promptExtend",
+    label: "Prompt Rewrite",
+    type: "boolean",
+    description: "Let the provider expand and refine the prompt.",
+    defaultValue: true,
+  },
+];
+
+const Z_IMAGE_FIELDS: ImageModelParamDefinition[] = [
+  {
+    key: "promptExtend",
+    label: "Prompt Rewrite",
+    type: "boolean",
+    description: "Return the rewritten prompt and reasoning alongside the image.",
+    defaultValue: false,
+  },
+];
+
+const KLING_FIELDS: ImageModelParamDefinition[] = [
+  {
+    key: "resolution",
+    label: "Resolution",
+    type: "select",
+    options: [
+      { label: "1K", value: "1k" },
+      { label: "2K", value: "2k" },
+    ],
+    defaultValue: "1k",
+  },
+  {
+    key: "watermark",
+    label: "Watermark",
+    type: "boolean",
+    description: "Also request watermarked result URLs from Kling.",
+    defaultValue: false,
+  },
+];
+
 const MODEL_PARAM_CONFIGS: ImageModelParamConfig[] = [
-  {
-    provider: "openai",
-    model: "gpt-image-1",
-    fields: OPENAI_GPT_IMAGE_FIELDS,
-  },
-  {
-    provider: "openai",
-    model: "dall-e-3",
-    fields: OPENAI_DALLE_FIELDS,
-  },
-  {
-    provider: "stability",
-    model: "stable-image-core",
-    fields: STABILITY_COMMON_FIELDS,
-  },
-  {
-    provider: "stability",
-    model: "stable-image-ultra",
-    fields: STABILITY_COMMON_FIELDS,
-  },
-  {
-    provider: "stability",
-    model: "sd3-large",
-    fields: STABILITY_COMMON_FIELDS,
-  },
-  {
-    provider: "flux",
-    model: "flux-pro",
-    fields: FLUX_COMMON_FIELDS,
-  },
-  {
-    provider: "flux",
-    model: "flux-dev",
-    fields: FLUX_COMMON_FIELDS,
-  },
-  {
-    provider: "flux",
-    model: "flux-schnell",
-    fields: FLUX_COMMON_FIELDS,
-  },
-  {
-    provider: "ideogram",
-    model: "ideogram-3",
-    fields: IDEOGRAM_FIELDS,
-  },
   {
     provider: "seedream",
     model: "doubao-seedream-5-0-260128",
@@ -256,19 +110,29 @@ const MODEL_PARAM_CONFIGS: ImageModelParamConfig[] = [
     fields: SEEDREAM_COMMON_FIELDS,
   },
   {
-    provider: "seedream",
-    model: "qwen-image-2512",
-    fields: SEEDREAM_COMMON_FIELDS,
+    provider: "qwen",
+    model: "qwen-image-2.0-pro",
+    fields: QWEN_FIELDS,
   },
   {
-    provider: "seedream",
-    model: "z-image-v1",
-    fields: SEEDREAM_COMMON_FIELDS,
+    provider: "qwen",
+    model: "qwen-image-2.0",
+    fields: QWEN_FIELDS,
   },
   {
-    provider: "seedream",
-    model: "doubao-kling-o1-250424",
-    fields: SEEDREAM_COMMON_FIELDS,
+    provider: "zimage",
+    model: "z-image-turbo",
+    fields: Z_IMAGE_FIELDS,
+  },
+  {
+    provider: "kling",
+    model: "kling-v2-1",
+    fields: KLING_FIELDS,
+  },
+  {
+    provider: "kling",
+    model: "kling-v3",
+    fields: KLING_FIELDS,
   },
 ];
 

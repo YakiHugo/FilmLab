@@ -1,5 +1,6 @@
 import cors from "@fastify/cors";
 import type { FastifyPluginAsync } from "fastify";
+import { IMAGE_PROVIDER_IDS } from "../../../shared/imageGeneration";
 import { getConfig } from "../config";
 
 export const registerCors: FastifyPluginAsync = async (app) => {
@@ -10,11 +11,7 @@ export const registerCors: FastifyPluginAsync = async (app) => {
     allowedHeaders: [
       "Content-Type",
       "Authorization",
-      "X-Provider-Key-openai",
-      "X-Provider-Key-stability",
-      "X-Provider-Key-flux",
-      "X-Provider-Key-ideogram",
-      "X-Provider-Key-seedream",
+      ...IMAGE_PROVIDER_IDS.map((providerId) => `X-Provider-Key-${providerId}`),
     ],
   });
 };

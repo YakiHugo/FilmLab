@@ -1,9 +1,11 @@
-import type {
-  ImageAspectRatio,
-  ImageProviderId,
-  ReferenceImageType,
+import {
+  IMAGE_PROVIDER_IDS,
+  type ImageAspectRatio,
+  type ImageProviderId,
+  type ReferenceImageType,
 } from "./imageGeneration";
-import { getProviderModelCatalog } from "./providerCapabilityRegistry";
+
+export type ImageProviderCredentialSlotId = "ark" | "dashscope" | "kling";
 
 export interface ImageReferenceImageCapability {
   enabled: boolean;
@@ -28,6 +30,7 @@ export interface ImageModelConfig {
   name: string;
   description?: string;
   supportedAspectRatios: ImageAspectRatio[];
+  supportedFeatures: ImageProviderFeatureSupport;
   supportsCustomSize?: boolean;
   defaultSteps?: number;
   costPerImage?: number;
@@ -37,8 +40,8 @@ export interface ImageModelConfig {
 export interface ImageProviderConfig {
   id: ImageProviderId;
   name: string;
+  credentialSlot: ImageProviderCredentialSlotId;
   models: ImageModelConfig[];
-  supportedFeatures: ImageProviderFeatureSupport;
 }
 
 const COMMON_ASPECT_RATIOS: ImageAspectRatio[] = [
@@ -51,7 +54,8 @@ const COMMON_ASPECT_RATIOS: ImageAspectRatio[] = [
   "2:3",
 ];
 
-const LIMITED_ASPECT_RATIOS: ImageAspectRatio[] = ["1:1", "16:9", "9:16", "3:2", "2:3"];
+const WIDESCREEN_ASPECT_RATIOS: ImageAspectRatio[] = [...COMMON_ASPECT_RATIOS, "21:9"];
+const CUSTOM_WIDESCREEN_ASPECT_RATIOS: ImageAspectRatio[] = [...WIDESCREEN_ASPECT_RATIOS, "custom"];
 
 const NO_REFERENCE_SUPPORT: ImageReferenceImageCapability = {
   enabled: false,
@@ -60,173 +64,175 @@ const NO_REFERENCE_SUPPORT: ImageReferenceImageCapability = {
   supportsWeight: false,
 };
 
-const FLUX_REFERENCE_SUPPORT: ImageReferenceImageCapability = {
-  enabled: true,
-  maxImages: 4,
-  supportedTypes: ["style", "content", "controlnet"],
-  supportsWeight: true,
-  maxFileSizeBytes: 2_500_000,
+const SEEDREAM_FEATURES: ImageProviderFeatureSupport = {
+  negativePrompt: false,
+  seed: false,
+  guidanceScale: false,
+  steps: false,
+  styles: true,
+  referenceImages: NO_REFERENCE_SUPPORT,
 };
 
-const IDEOGRAM_REFERENCE_SUPPORT: ImageReferenceImageCapability = {
-  enabled: true,
-  maxImages: 4,
-  supportedTypes: ["style", "content"],
-  supportsWeight: false,
-  maxFileSizeBytes: 2_500_000,
+const QWEN_FEATURES: ImageProviderFeatureSupport = {
+  negativePrompt: true,
+  seed: true,
+  guidanceScale: false,
+  steps: false,
+  styles: true,
+  referenceImages: NO_REFERENCE_SUPPORT,
+};
+
+const Z_IMAGE_FEATURES: ImageProviderFeatureSupport = {
+  negativePrompt: false,
+  seed: true,
+  guidanceScale: false,
+  steps: false,
+  styles: true,
+  referenceImages: NO_REFERENCE_SUPPORT,
+};
+
+const KLING_FEATURES: ImageProviderFeatureSupport = {
+  negativePrompt: true,
+  seed: false,
+  guidanceScale: false,
+  steps: false,
+  styles: true,
+  referenceImages: NO_REFERENCE_SUPPORT,
+};
+
+const LEGACY_PROVIDER_NAMES: Record<string, string> = {
+  openai: "OpenAI",
+  stability: "Stability AI",
+  flux: "Flux",
+  ideogram: "Ideogram",
+};
+
+const LEGACY_MODEL_NAMES: Record<string, string> = {
+  "qwen-image-2512": "Qwen Image 2512",
+  "z-image-v1": "Z Image v1",
+  "doubao-kling-o1-250424": "Kling O1",
 };
 
 export const IMAGE_PROVIDERS: ImageProviderConfig[] = [
   {
-    id: "openai",
-    name: "OpenAI",
+    id: "seedream",
+    name: "Seedream",
+    credentialSlot: "ark",
     models: [
       {
-        id: "gpt-image-1",
-        name: "GPT Image 1",
-        description: "General-purpose image generation",
-        supportedAspectRatios: LIMITED_ASPECT_RATIOS,
-        maxBatchSize: 4,
+        id: "doubao-seedream-5-0-260128",
+        name: "Seedream 5.0",
+        description: "Ark text-to-image generation",
+        supportedAspectRatios: COMMON_ASPECT_RATIOS,
+        supportedFeatures: SEEDREAM_FEATURES,
+        maxBatchSize: 1,
       },
       {
-        id: "dall-e-3",
-        name: "DALL-E 3",
-        description: "Prompt-faithful high quality generation",
-        supportedAspectRatios: LIMITED_ASPECT_RATIOS,
+        id: "doubao-seedream-4-0-250828",
+        name: "Seedream 4.0",
+        description: "Ark text-to-image generation",
+        supportedAspectRatios: COMMON_ASPECT_RATIOS,
+        supportedFeatures: SEEDREAM_FEATURES,
         maxBatchSize: 1,
       },
     ],
-    supportedFeatures: {
-      negativePrompt: false,
-      seed: false,
-      guidanceScale: false,
-      steps: false,
-      styles: true,
-      referenceImages: NO_REFERENCE_SUPPORT,
-    },
   },
   {
-    id: "stability",
-    name: "Stability AI",
+    id: "qwen",
+    name: "Qwen Image",
+    credentialSlot: "dashscope",
     models: [
       {
-        id: "stable-image-core",
-        name: "Stable Image Core",
-        supportedAspectRatios: LIMITED_ASPECT_RATIOS,
-        defaultSteps: 30,
-        maxBatchSize: 4,
+        id: "qwen-image-2.0-pro",
+        name: "Qwen Image 2.0 Pro",
+        description: "DashScope synchronous text-to-image",
+        supportedAspectRatios: CUSTOM_WIDESCREEN_ASPECT_RATIOS,
+        supportedFeatures: QWEN_FEATURES,
+        supportsCustomSize: true,
+        maxBatchSize: 6,
       },
       {
-        id: "stable-image-ultra",
-        name: "Stable Image Ultra",
-        supportedAspectRatios: LIMITED_ASPECT_RATIOS,
-        defaultSteps: 40,
-        maxBatchSize: 4,
-      },
-      {
-        id: "sd3-large",
-        name: "SD3 Large",
-        supportedAspectRatios: LIMITED_ASPECT_RATIOS,
-        defaultSteps: 35,
-        maxBatchSize: 4,
+        id: "qwen-image-2.0",
+        name: "Qwen Image 2.0",
+        description: "DashScope synchronous text-to-image",
+        supportedAspectRatios: CUSTOM_WIDESCREEN_ASPECT_RATIOS,
+        supportedFeatures: QWEN_FEATURES,
+        supportsCustomSize: true,
+        maxBatchSize: 6,
       },
     ],
-    supportedFeatures: {
-      negativePrompt: true,
-      seed: true,
-      guidanceScale: true,
-      steps: true,
-      styles: true,
-      supportsUpscale: true,
-      referenceImages: NO_REFERENCE_SUPPORT,
-    },
   },
   {
-    id: "flux",
-    name: "Flux",
+    id: "zimage",
+    name: "Z Image",
+    credentialSlot: "dashscope",
     models: [
       {
-        id: "flux-pro",
-        name: "Flux Pro",
-        supportedAspectRatios: [...COMMON_ASPECT_RATIOS, "custom"],
+        id: "z-image-turbo",
+        name: "Z Image Turbo",
+        description: "DashScope lightweight text-to-image",
+        supportedAspectRatios: CUSTOM_WIDESCREEN_ASPECT_RATIOS,
+        supportedFeatures: Z_IMAGE_FEATURES,
         supportsCustomSize: true,
-        defaultSteps: 30,
-        maxBatchSize: 4,
-      },
-      {
-        id: "flux-dev",
-        name: "Flux Dev",
-        supportedAspectRatios: [...COMMON_ASPECT_RATIOS, "custom"],
-        supportsCustomSize: true,
-        defaultSteps: 28,
-        maxBatchSize: 4,
-      },
-      {
-        id: "flux-schnell",
-        name: "Flux Schnell",
-        supportedAspectRatios: [...COMMON_ASPECT_RATIOS, "custom"],
-        supportsCustomSize: true,
-        defaultSteps: 20,
-        maxBatchSize: 4,
+        maxBatchSize: 1,
       },
     ],
-    supportedFeatures: {
-      negativePrompt: true,
-      seed: true,
-      guidanceScale: true,
-      steps: true,
-      styles: true,
-      referenceImages: FLUX_REFERENCE_SUPPORT,
-    },
   },
   {
-    id: "ideogram",
-    name: "Ideogram",
+    id: "kling",
+    name: "Kling",
+    credentialSlot: "kling",
     models: [
       {
-        id: "ideogram-3",
-        name: "Ideogram 3",
-        description: "Prompt-faithful image generation with native style controls",
-        supportedAspectRatios: COMMON_ASPECT_RATIOS,
-        maxBatchSize: 4,
+        id: "kling-v2-1",
+        name: "Kling v2.1",
+        description: "Kling official image generation API",
+        supportedAspectRatios: WIDESCREEN_ASPECT_RATIOS,
+        supportedFeatures: KLING_FEATURES,
+        maxBatchSize: 9,
+      },
+      {
+        id: "kling-v3",
+        name: "Kling v3",
+        description: "Kling official image generation API",
+        supportedAspectRatios: WIDESCREEN_ASPECT_RATIOS,
+        supportedFeatures: KLING_FEATURES,
+        maxBatchSize: 9,
       },
     ],
-    supportedFeatures: {
-      negativePrompt: true,
-      seed: true,
-      guidanceScale: false,
-      steps: false,
-      styles: true,
-      referenceImages: IDEOGRAM_REFERENCE_SUPPORT,
-    },
-  },
-  {
-    id: "seedream",
-    name: "Seedream",
-    models: getProviderModelCatalog("seedream"),
-    supportedFeatures: {
-      negativePrompt: false,
-      seed: false,
-      guidanceScale: false,
-      steps: false,
-      styles: true,
-      referenceImages: NO_REFERENCE_SUPPORT,
-    },
   },
 ];
 
-export const DEFAULT_IMAGE_PROVIDER: ImageProviderId = "openai";
+export const DEFAULT_IMAGE_PROVIDER: ImageProviderId = "seedream";
 
-export const getImageProviderConfig = (providerId: ImageProviderId): ImageProviderConfig | undefined =>
+export const getImageProviderConfig = (providerId: string): ImageProviderConfig | undefined =>
   IMAGE_PROVIDERS.find((provider) => provider.id === providerId);
 
 export const getDefaultImageModelForProvider = (providerId: ImageProviderId): string => {
   const provider = getImageProviderConfig(providerId);
-  return provider?.models[0]?.id ?? "gpt-image-1";
+  return provider?.models[0]?.id ?? "doubao-seedream-5-0-260128";
 };
 
 export const getImageModelConfig = (
-  providerId: ImageProviderId,
+  providerId: string,
   modelId: string
 ): ImageModelConfig | undefined =>
   getImageProviderConfig(providerId)?.models.find((model) => model.id === modelId);
+
+export const getImageModelFeatureSupport = (
+  providerId: string,
+  modelId: string
+): ImageProviderFeatureSupport | undefined => getImageModelConfig(providerId, modelId)?.supportedFeatures;
+
+export const getImageProviderCredentialSlot = (
+  providerId: string
+): ImageProviderCredentialSlotId | undefined => getImageProviderConfig(providerId)?.credentialSlot;
+
+export const isImageProviderId = (value: string): value is ImageProviderId =>
+  (IMAGE_PROVIDER_IDS as readonly string[]).includes(value);
+
+export const getImageProviderName = (providerId: string) =>
+  getImageProviderConfig(providerId)?.name ?? LEGACY_PROVIDER_NAMES[providerId] ?? providerId;
+
+export const getImageModelName = (providerId: string, modelId: string) =>
+  getImageModelConfig(providerId, modelId)?.name ?? LEGACY_MODEL_NAMES[modelId] ?? modelId;

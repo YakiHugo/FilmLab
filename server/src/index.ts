@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import { IMAGE_PROVIDER_IDS } from "../../shared/imageGeneration";
 import { getConfig } from "./config";
 import { registerCors } from "./plugins/cors";
 import { registerRateLimit } from "./plugins/rateLimit";
@@ -13,11 +14,7 @@ export const buildServer = () => {
       redact: {
         paths: [
           "req.headers.authorization",
-          "req.headers.x-provider-key-openai",
-          "req.headers.x-provider-key-stability",
-          "req.headers.x-provider-key-flux",
-          "req.headers.x-provider-key-ideogram",
-          "req.headers.x-provider-key-seedream",
+          ...IMAGE_PROVIDER_IDS.map((providerId) => `req.headers.x-provider-key-${providerId}`),
         ],
         censor: "[REDACTED]",
       },

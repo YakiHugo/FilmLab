@@ -46,8 +46,8 @@ describe("imageGenerateRoute", () => {
     const { imageGenerateRoute } = await import("./image-generate");
 
     generateMock.mockResolvedValue({
-      provider: "flux",
-      model: "flux-pro",
+      provider: "qwen",
+      model: "qwen-image-2.0-pro",
       warnings: ["2 of 4 images completed."],
       images: [
         {
@@ -75,8 +75,8 @@ describe("imageGenerateRoute", () => {
       url: "/api/image-generate",
       payload: {
         prompt: "Studio portrait",
-        provider: "flux",
-        model: "flux-pro",
+        provider: "qwen",
+        model: "qwen-image-2.0-pro",
         aspectRatio: "1:1",
         batchSize: 1,
         style: "none",
@@ -101,14 +101,14 @@ describe("imageGenerateRoute", () => {
       expect.objectContaining({
         imageId: "remote-1",
         imageUrl: "/api/generated-images/remote-1",
-        provider: "flux",
-        model: "flux-pro",
+        provider: "qwen",
+        model: "qwen-image-2.0-pro",
       }),
       expect.objectContaining({
         imageId: "binary-1",
         imageUrl: "/api/generated-images/binary-1",
-        provider: "flux",
-        model: "flux-pro",
+        provider: "qwen",
+        model: "qwen-image-2.0-pro",
       }),
     ]);
 
@@ -164,63 +164,7 @@ describe("imageGenerateRoute", () => {
     await app.close();
   });
 
-  it("falls back to the next routed model on retriable provider errors", async () => {
-    const { default: Fastify } = await import("fastify");
-    const { imageGenerateRoute } = await import("./image-generate");
-    const { ProviderError } = await import("../providers/types");
-
-    generateMock
-      .mockRejectedValueOnce(new ProviderError("rate limited", 429, undefined, { isRetriable: true }))
-      .mockResolvedValueOnce({
-        provider: "seedream",
-        model: "doubao-seedream-4-0-250828",
-        images: [
-          {
-            binaryData: Buffer.from([1, 2, 3]),
-            mimeType: "image/jpeg",
-          },
-        ],
-      });
-    storeGeneratedImageMock.mockReturnValue("seedream-fallback-1");
-
-    const app = Fastify();
-    await app.register(imageGenerateRoute);
-
-    const response = await app.inject({
-      method: "POST",
-      url: "/api/image-generate",
-      headers: {
-        "X-Provider-Key-seedream": "ark-user-key",
-      },
-      payload: {
-        prompt: "Studio portrait",
-        provider: "seedream",
-        model: "doubao-seedream-5-0-260128",
-        aspectRatio: "1:1",
-        batchSize: 1,
-        style: "none",
-        referenceImages: [],
-        modelParams: {},
-      },
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(generateMock).toHaveBeenCalledTimes(2);
-    expect(generateMock.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({
-        model: "doubao-seedream-5-0-260128",
-      })
-    );
-    expect(generateMock.mock.calls[1]?.[0]).toEqual(
-      expect.objectContaining({
-        model: "doubao-seedream-4-0-250828",
-      })
-    );
-
-    await app.close();
-  });
-
-  it("does not fallback when provider error is not explicitly retriable", async () => {
+  it("returns provider errors without retrying another model", async () => {
     const { default: Fastify } = await import("fastify");
     const { imageGenerateRoute } = await import("./image-generate");
     const { ProviderError } = await import("../providers/types");
@@ -254,4 +198,33 @@ describe("imageGenerateRoute", () => {
     await app.close();
   });
 
+  it("returns 401 when no user key or server key is available", async () => {
+    const { default: Fastify } = await import("fastify");
+    const { imageGenerateRoute } = await import("./image-generate");
+
+    resolveApiKeyMock.mockReturnValue("");
+
+    const app = Fastify();
+    await app.register(imageGenerateRoute);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      payload: {
+        prompt: "Studio portrait",
+        provider: "qwen",
+        model: "qwen-image-2.0-pro",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        referenceImages: [],
+        modelParams: {},
+      },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(generateMock).not.toHaveBeenCalled();
+
+    await app.close();
+  });
 });

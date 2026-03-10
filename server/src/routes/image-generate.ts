@@ -3,7 +3,6 @@ import { ZodError } from "zod";
 import { getConfig } from "../config";
 import { getProviderAdapter, getUserProviderKey, resolveApiKey } from "../providers/registry";
 import { ProviderError } from "../providers/types";
-import { buildRoutedRequests, shouldFallbackToNextModel } from "../routing/modelRouting";
 import { downloadGeneratedImage } from "../shared/downloadGeneratedImage";
 import { storeGeneratedImage } from "../shared/generatedImageStore";
 import { imageGenerationRequestSchema } from "../shared/imageGenerationSchema";
@@ -95,31 +94,9 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
       }
 
       try {
-        const routedRequests = buildRoutedRequests(payload);
-        let generated = null;
-        let lastProviderError: ProviderError | null = null;
-
-        for (const requestPayload of routedRequests) {
-          try {
-            generated = await adapter.generate(requestPayload, apiKey, {
-              signal: requestController.signal,
-            });
-            break;
-          } catch (error) {
-            if (!(error instanceof ProviderError)) {
-              throw error;
-            }
-
-            lastProviderError = error;
-            if (!shouldFallbackToNextModel(error)) {
-              throw error;
-            }
-          }
-        }
-
-        if (!generated) {
-          throw lastProviderError ?? new ProviderError("Provider did not return any image.");
-        }
+        const generated = await adapter.generate(payload, apiKey, {
+          signal: requestController.signal,
+        });
 
         const normalizedResults = await Promise.all(
           generated.images.map(async (image) => {

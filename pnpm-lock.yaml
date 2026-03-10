@@ -159,24 +159,12 @@ importers:
 
   server:
     dependencies:
-      '@ai-sdk/anthropic':
-        specifier: ^3.0.46
-        version: 3.0.46(zod@4.3.6)
-      '@ai-sdk/google':
-        specifier: ^3.0.30
-        version: 3.0.30(zod@4.3.6)
-      '@ai-sdk/openai':
-        specifier: ^3.0.26
-        version: 3.0.26(zod@4.3.6)
       '@fastify/cors':
         specifier: ^11.0.1
         version: 11.2.0
       '@fastify/rate-limit':
         specifier: ^10.3.0
         version: 10.3.0
-      ai:
-        specifier: ^6.0.77
-        version: 6.0.97(zod@4.3.6)
       dotenv:
         specifier: ^17.2.3
         version: 17.3.1

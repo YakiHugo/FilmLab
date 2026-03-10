@@ -3,8 +3,8 @@ import { imageGenerationRequestSchema } from "./imageGenerationSchema";
 
 const basePayload = {
   prompt: "A cinematic night street scene",
-  provider: "openai" as const,
-  model: "gpt-image-1",
+  provider: "seedream" as const,
+  model: "doubao-seedream-5-0-260128",
   aspectRatio: "1:1" as const,
   style: "none" as const,
   referenceImages: [],
@@ -29,8 +29,8 @@ const getIssuePaths = (payload: Record<string, unknown>) => {
 describe("imageGenerationRequestSchema", () => {
   it("rejects models that do not belong to the selected provider", () => {
     const issuePaths = getIssuePaths({
-      provider: "openai",
-      model: "flux-pro",
+      provider: "qwen",
+      model: "z-image-turbo",
     });
 
     expect(issuePaths).toContain("model");
@@ -38,35 +38,34 @@ describe("imageGenerationRequestSchema", () => {
 
   it("rejects unsupported aspect ratios for the selected model", () => {
     const issuePaths = getIssuePaths({
-      provider: "openai",
-      model: "gpt-image-1",
-      aspectRatio: "4:3",
+      provider: "seedream",
+      model: "doubao-seedream-5-0-260128",
+      aspectRatio: "21:9",
     });
 
     expect(issuePaths).toContain("aspectRatio");
   });
 
-  it("rejects unsupported Ideogram reference types and weights", () => {
+  it("rejects reference images for models that do not support them", () => {
     const issuePaths = getIssuePaths({
-      provider: "ideogram",
-      model: "ideogram-3",
+      provider: "qwen",
+      model: "qwen-image-2.0-pro",
       referenceImages: [
         {
           url: "data:image/png;base64,abc",
-          type: "controlnet",
+          type: "content",
           weight: 0.4,
         },
       ],
     });
 
-    expect(issuePaths).toContain("referenceImages.0.type");
-    expect(issuePaths).toContain("referenceImages.0.weight");
+    expect(issuePaths).toContain("referenceImages");
   });
 
   it("rejects explicit dimensions for models without custom-size support", () => {
     const issuePaths = getIssuePaths({
-      provider: "openai",
-      model: "gpt-image-1",
+      provider: "seedream",
+      model: "doubao-seedream-5-0-260128",
       width: 1536,
       height: 1024,
     });
@@ -76,9 +75,9 @@ describe("imageGenerationRequestSchema", () => {
 
   it("rejects batch sizes above the model limit", () => {
     const issuePaths = getIssuePaths({
-      provider: "openai",
-      model: "dall-e-3",
-      batchSize: 2,
+      provider: "qwen",
+      model: "qwen-image-2.0-pro",
+      batchSize: 7,
     });
 
     expect(issuePaths).toContain("batchSize");
@@ -97,14 +96,21 @@ describe("imageGenerationRequestSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("accepts additional Ark hosted models under Seedream", () => {
+  it("accepts Qwen custom-size generation with supported controls", () => {
     const result = imageGenerationRequestSchema.safeParse({
       ...basePayload,
-      provider: "seedream",
-      model: "qwen-image-2512",
-      aspectRatio: "1:1",
+      provider: "qwen",
+      model: "qwen-image-2.0-pro",
+      aspectRatio: "custom",
+      width: 1536,
+      height: 1024,
       style: "cinematic",
-      modelParams: {},
+      negativePrompt: "avoid blur",
+      seed: 42,
+      batchSize: 2,
+      modelParams: {
+        promptExtend: true,
+      },
     });
 
     expect(result.success).toBe(true);
@@ -113,7 +119,7 @@ describe("imageGenerationRequestSchema", () => {
   it("validates Seedream model params options", () => {
     const issuePaths = getIssuePaths({
       provider: "seedream",
-      model: "qwen-image-2512",
+      model: "doubao-seedream-5-0-260128",
       modelParams: {
         responseFormat: "png",
       },
@@ -122,7 +128,7 @@ describe("imageGenerationRequestSchema", () => {
     expect(issuePaths).toContain("modelParams.responseFormat");
   });
 
-  it("rejects Seedream controls disabled by the 5.0 MVP", () => {
+  it("rejects Seedream controls disabled by the current model capabilities", () => {
     const issuePaths = getIssuePaths({
       provider: "seedream",
       model: "doubao-seedream-5-0-260128",

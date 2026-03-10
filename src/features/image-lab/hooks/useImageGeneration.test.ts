@@ -99,13 +99,13 @@ describe("image generation helpers", () => {
     const images: GeneratedImage[] = [
       {
         imageUrl: "/api/generated-images/1",
-        provider: "flux",
-        model: "flux-pro",
+        provider: "qwen",
+        model: "qwen-image-2.0-pro",
       },
       {
         imageUrl: "/api/generated-images/2",
-        provider: "flux",
-        model: "flux-pro",
+        provider: "qwen",
+        model: "qwen-image-2.0-pro",
         mimeType: "image/png",
       },
     ];
@@ -129,7 +129,7 @@ describe("image generation helpers", () => {
     const snapshot = toPersistedRequestSnapshot({
       prompt: "portrait",
       provider: "seedream",
-      model: "seedream-5.0",
+      model: "doubao-seedream-5-0-260128",
       aspectRatio: "1:1",
       style: "none",
       batchSize: 1,
@@ -158,7 +158,7 @@ describe("image generation helpers", () => {
     const retry = resolveRetryRequestSnapshot({
       prompt: "portrait",
       provider: "seedream",
-      model: "seedream-5.0",
+      model: "doubao-seedream-5-0-260128",
       aspectRatio: "1:1",
       style: "none",
       batchSize: 1,

@@ -284,7 +284,9 @@ export function ImageLabPage() {
         imageModel={imageGeneration.config.model}
         providerFeatures={imageGeneration.supportedFeatures}
         aspectRatioOptions={imageGeneration.aspectRatioOptions}
-        maxBatchSize={imageGeneration.modelConfig.maxBatchSize ?? 4}
+        maxBatchSize={
+          imageGeneration.modelConfig.maxBatchSize ?? IMAGE_GENERATION_LIMITS.batchSize.max
+        }
         commonParams={{
           aspectRatio: imageGeneration.config.aspectRatio,
           width: imageGeneration.config.width,

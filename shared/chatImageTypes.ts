@@ -1,6 +1,5 @@
 import type {
   ImageGenerationRequest,
-  ImageProviderId,
   ReferenceImage,
 } from "./imageGeneration";
 
@@ -12,15 +11,16 @@ export interface PersistedReferenceImageSnapshot extends Omit<ReferenceImage, "u
 }
 
 export interface PersistedImageGenerationRequestSnapshot
-  extends Omit<ImageGenerationRequest, "referenceImages">,
+  extends Omit<ImageGenerationRequest, "provider" | "referenceImages">,
     Record<string, unknown> {
+  provider?: string;
   referenceImages?: PersistedReferenceImageSnapshot[];
 }
 
 export interface GenerationJobSnapshot {
   id: string;
   turnId: string;
-  provider: ImageProviderId;
+  provider: string;
   model: string;
   compiledPrompt: string;
   requestSnapshot: PersistedImageGenerationRequestSnapshot;
@@ -33,7 +33,7 @@ export interface GenerationJobSnapshot {
 export interface PersistedResultItem {
   imageUrl: string;
   imageId: string | null;
-  provider: ImageProviderId;
+  provider: string;
   model: string;
   mimeType?: string;
   revisedPrompt?: string | null;
