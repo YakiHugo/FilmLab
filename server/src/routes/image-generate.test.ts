@@ -227,4 +227,52 @@ describe("imageGenerateRoute", () => {
 
     await app.close();
   });
+
+  it("adds capability-registry warnings when unsupported reference images are supplied", async () => {
+    const { default: Fastify } = await import("fastify");
+    const { imageGenerateRoute } = await import("./image-generate");
+
+    generateMock.mockResolvedValue({
+      provider: "qwen",
+      model: "qwen-image-2.0-pro",
+      images: [
+        {
+          binaryData: Buffer.from([1, 2, 3]),
+          mimeType: "image/png",
+        },
+      ],
+    });
+    storeGeneratedImageMock.mockReturnValue("qwen-1");
+
+    const app = Fastify();
+    await app.register(imageGenerateRoute);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      payload: {
+        prompt: "Studio portrait",
+        provider: "qwen",
+        model: "qwen-image-2.0-pro",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        referenceImages: [
+          {
+            url: "data:image/png;base64,abc",
+            type: "content",
+          },
+        ],
+        modelParams: {},
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.warnings).toEqual([
+      "Qwen Image Qwen Image 2.0 Pro ignores 1 reference image.",
+    ]);
+
+    await app.close();
+  });
 });

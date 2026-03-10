@@ -46,8 +46,9 @@ describe("imageGenerationRequestSchema", () => {
     expect(issuePaths).toContain("aspectRatio");
   });
 
-  it("rejects reference images for models that do not support them", () => {
-    const issuePaths = getIssuePaths({
+  it("accepts reference images for models that do not support them", () => {
+    const result = imageGenerationRequestSchema.safeParse({
+      ...basePayload,
       provider: "qwen",
       model: "qwen-image-2.0-pro",
       referenceImages: [
@@ -59,7 +60,7 @@ describe("imageGenerationRequestSchema", () => {
       ],
     });
 
-    expect(issuePaths).toContain("referenceImages");
+    expect(result.success).toBe(true);
   });
 
   it("rejects explicit dimensions for models without custom-size support", () => {
@@ -155,6 +156,5 @@ describe("imageGenerationRequestSchema", () => {
     expect(issuePaths).toContain("guidanceScale");
     expect(issuePaths).toContain("steps");
     expect(issuePaths).toContain("batchSize");
-    expect(issuePaths).toContain("referenceImages");
   });
 });

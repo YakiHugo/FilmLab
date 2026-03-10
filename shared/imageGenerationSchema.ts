@@ -234,43 +234,37 @@ export const imageGenerationRequestSchema = z
     }
 
     const referenceSupport = supportedFeatures.referenceImages;
-    if (!referenceSupport.enabled && payload.referenceImages.length > 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `${provider.name} ${model.name} does not support reference images.`,
-        path: ["referenceImages"],
-      });
-    }
-
-    if (payload.referenceImages.length > referenceSupport.maxImages) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `${provider.name} ${model.name} supports at most ${referenceSupport.maxImages} reference images.`,
-        path: ["referenceImages"],
-      });
-    }
-
-    payload.referenceImages.forEach((referenceImage, index) => {
-      if (!referenceSupport.supportedTypes.includes(referenceImage.type)) {
+    if (referenceSupport.enabled) {
+      if (payload.referenceImages.length > referenceSupport.maxImages) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `${provider.name} ${model.name} does not support reference image type ${referenceImage.type}.`,
-          path: ["referenceImages", index, "type"],
+          message: `${provider.name} ${model.name} supports at most ${referenceSupport.maxImages} reference images.`,
+          path: ["referenceImages"],
         });
       }
 
-      if (
-        !referenceSupport.supportsWeight &&
-        typeof referenceImage.weight === "number" &&
-        referenceImage.weight !== 1
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `${provider.name} ${model.name} does not support reference image weights.`,
-          path: ["referenceImages", index, "weight"],
-        });
-      }
-    });
+      payload.referenceImages.forEach((referenceImage, index) => {
+        if (!referenceSupport.supportedTypes.includes(referenceImage.type)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `${provider.name} ${model.name} does not support reference image type ${referenceImage.type}.`,
+            path: ["referenceImages", index, "type"],
+          });
+        }
+
+        if (
+          !referenceSupport.supportsWeight &&
+          typeof referenceImage.weight === "number" &&
+          referenceImage.weight !== 1
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `${provider.name} ${model.name} does not support reference image weights.`,
+            path: ["referenceImages", index, "weight"],
+          });
+        }
+      });
+    }
 
     if (payload.batchSize > (model.maxBatchSize ?? IMAGE_GENERATION_LIMITS.batchSize.max)) {
       ctx.addIssue({

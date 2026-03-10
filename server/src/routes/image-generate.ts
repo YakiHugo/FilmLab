@@ -5,6 +5,7 @@ import { getProviderAdapter, getUserProviderKey, resolveApiKey } from "../provid
 import { ProviderError } from "../providers/types";
 import { downloadGeneratedImage } from "../shared/downloadGeneratedImage";
 import { storeGeneratedImage } from "../shared/generatedImageStore";
+import { getImageGenerationCapabilityWarnings } from "../shared/imageGenerationCapabilityWarnings";
 import { imageGenerationRequestSchema } from "../shared/imageGenerationSchema";
 
 export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
@@ -97,6 +98,8 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         const generated = await adapter.generate(payload, apiKey, {
           signal: requestController.signal,
         });
+        const capabilityWarnings = getImageGenerationCapabilityWarnings(payload);
+        const mergedWarnings = [...capabilityWarnings, ...(generated.warnings ?? [])];
 
         const normalizedResults = await Promise.all(
           generated.images.map(async (image) => {
@@ -150,7 +153,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           imageId: firstImageId,
           imageUrl: firstImageUrl,
           images: normalizedImages,
-          ...(generated.warnings?.length ? { warnings: generated.warnings } : {}),
+          ...(mergedWarnings.length > 0 ? { warnings: mergedWarnings } : {}),
         });
       } catch (error) {
         if (error instanceof ProviderError) {
