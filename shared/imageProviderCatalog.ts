@@ -1,7 +1,11 @@
 import {
+  IMAGE_REQUEST_PROVIDER_IDS,
+  IMAGE_RUNTIME_PROVIDER_IDS,
   IMAGE_PROVIDER_IDS,
   type ImageAspectRatio,
+  type ImageRequestProviderId,
   type ImageProviderId,
+  type RuntimeImageProviderId,
   type ReferenceImageType,
 } from "./imageGeneration";
 
@@ -101,6 +105,8 @@ const KLING_FEATURES: ImageProviderFeatureSupport = {
 };
 
 const LEGACY_PROVIDER_NAMES: Record<string, string> = {
+  ark: "Ark",
+  dashscope: "DashScope",
   openai: "OpenAI",
   stability: "Stability AI",
   flux: "Flux",
@@ -205,6 +211,18 @@ export const IMAGE_PROVIDERS: ImageProviderConfig[] = [
 
 export const DEFAULT_IMAGE_PROVIDER: ImageProviderId = "seedream";
 
+const RUNTIME_PROVIDER_CREDENTIAL_SLOTS: Record<
+  RuntimeImageProviderId,
+  ImageProviderCredentialSlotId
+> = {
+  ark: "ark",
+  dashscope: "dashscope",
+  kling: "kling",
+};
+
+const findProviderByModelId = (modelId: string): ImageProviderConfig | undefined =>
+  IMAGE_PROVIDERS.find((provider) => provider.models.some((model) => model.id === modelId));
+
 export const getImageProviderConfig = (providerId: string): ImageProviderConfig | undefined =>
   IMAGE_PROVIDERS.find((provider) => provider.id === providerId);
 
@@ -216,8 +234,10 @@ export const getDefaultImageModelForProvider = (providerId: ImageProviderId): st
 export const getImageModelConfig = (
   providerId: string,
   modelId: string
-): ImageModelConfig | undefined =>
-  getImageProviderConfig(providerId)?.models.find((model) => model.id === modelId);
+): ImageModelConfig | undefined => {
+  const normalizedProviderId = normalizeImageRequestProvider(providerId, modelId) ?? providerId;
+  return getImageProviderConfig(normalizedProviderId)?.models.find((model) => model.id === modelId);
+};
 
 export const getImageModelFeatureSupport = (
   providerId: string,
@@ -226,13 +246,47 @@ export const getImageModelFeatureSupport = (
 
 export const getImageProviderCredentialSlot = (
   providerId: string
-): ImageProviderCredentialSlotId | undefined => getImageProviderConfig(providerId)?.credentialSlot;
+): ImageProviderCredentialSlotId | undefined =>
+  getImageProviderConfig(providerId)?.credentialSlot ??
+  RUNTIME_PROVIDER_CREDENTIAL_SLOTS[providerId as RuntimeImageProviderId];
 
 export const isImageProviderId = (value: string): value is ImageProviderId =>
   (IMAGE_PROVIDER_IDS as readonly string[]).includes(value);
+
+export const isImageRuntimeProviderId = (value: string): value is RuntimeImageProviderId =>
+  (IMAGE_RUNTIME_PROVIDER_IDS as readonly string[]).includes(value);
+
+export const isImageRequestProviderId = (value: string): value is ImageRequestProviderId =>
+  (IMAGE_REQUEST_PROVIDER_IDS as readonly string[]).includes(value);
+
+export const normalizeImageRequestProvider = (
+  providerId: string,
+  modelId: string
+): ImageProviderId | null => {
+  const directProvider = getImageProviderConfig(providerId);
+  if (directProvider) {
+    return directProvider.models.some((model) => model.id === modelId) ? directProvider.id : null;
+  }
+
+  const credentialSlot = RUNTIME_PROVIDER_CREDENTIAL_SLOTS[providerId as RuntimeImageProviderId];
+  if (!credentialSlot) {
+    return null;
+  }
+
+  const provider = IMAGE_PROVIDERS.find(
+    (candidate) =>
+      candidate.credentialSlot === credentialSlot &&
+      candidate.models.some((model) => model.id === modelId)
+  );
+
+  return provider?.id ?? null;
+};
 
 export const getImageProviderName = (providerId: string) =>
   getImageProviderConfig(providerId)?.name ?? LEGACY_PROVIDER_NAMES[providerId] ?? providerId;
 
 export const getImageModelName = (providerId: string, modelId: string) =>
-  getImageModelConfig(providerId, modelId)?.name ?? LEGACY_MODEL_NAMES[modelId] ?? modelId;
+  getImageModelConfig(providerId, modelId)?.name ??
+  findProviderByModelId(modelId)?.models.find((model) => model.id === modelId)?.name ??
+  LEGACY_MODEL_NAMES[modelId] ??
+  modelId;

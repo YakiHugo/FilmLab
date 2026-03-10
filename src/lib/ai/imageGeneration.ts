@@ -1,7 +1,7 @@
 import { imageGenerationRequestSchema, type ImageGenerationRequest } from "./imageGenerationSchema";
 import { resolveApiUrl } from "@/lib/api/resolveApiUrl";
+import { normalizeImageRequestProvider } from "@/lib/ai/imageProviders";
 import type { GeneratedImage, ImageGenerationResponse } from "@/types/imageGeneration";
-import { getProviderApiKey } from "@/stores/apiKeyStore";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -89,7 +89,13 @@ const fetchWithTimeout = async (
   }
 };
 
-const normalizeImages = (value: unknown, fallbackProvider: string, fallbackModel: string): GeneratedImage[] => {
+const normalizeImages = (
+  value: unknown,
+  fallbackProvider: string,
+  fallbackModel: string,
+  runtimeProvider?: ImageGenerationResponse["runtimeProvider"],
+  modelFamily?: ImageGenerationResponse["modelFamily"]
+): GeneratedImage[] => {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -106,6 +112,8 @@ const normalizeImages = (value: unknown, fallbackProvider: string, fallbackModel
         typeof item.provider === "string" ? item.provider : fallbackProvider
       ) as GeneratedImage["provider"],
       model: typeof item.model === "string" ? item.model : fallbackModel,
+      ...(runtimeProvider ? { runtimeProvider } : {}),
+      ...(modelFamily ? { modelFamily } : {}),
       ...(typeof item.mimeType === "string" ? { mimeType: item.mimeType } : {}),
       ...(typeof item.revisedPrompt === "string" || item.revisedPrompt === null
         ? { revisedPrompt: item.revisedPrompt }
@@ -130,12 +138,10 @@ export async function generateImage(
   options?: GenerateImageOptions
 ): Promise<ImageGenerationResponse> {
   const payload = imageGenerationRequestSchema.parse(request);
-  const providerKey = getProviderApiKey(payload.provider);
   const response = await fetchWithTimeout(resolveApiUrl("/api/image-generate"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(providerKey ? { [`X-Provider-Key-${payload.provider}`]: providerKey } : {}),
     },
     body: JSON.stringify(payload),
   }, options);
@@ -157,10 +163,28 @@ export async function generateImage(
     throw new Error("Invalid image generation response.");
   }
 
-  const provider = (typeof json.provider === "string" ? json.provider : payload.provider) as ImageGenerationResponse["provider"];
+  const provider = (
+    typeof json.provider === "string"
+      ? json.provider
+      : normalizeImageRequestProvider(payload.provider, payload.model) ?? "seedream"
+  ) as ImageGenerationResponse["provider"];
   const model = typeof json.model === "string" ? json.model : payload.model;
+  const runtimeProvider =
+    typeof json.runtimeProvider === "string"
+      ? (json.runtimeProvider as ImageGenerationResponse["runtimeProvider"])
+      : undefined;
+  const modelFamily =
+    typeof json.modelFamily === "string"
+      ? (json.modelFamily as ImageGenerationResponse["modelFamily"])
+      : undefined;
   const createdAt = typeof json.createdAt === "string" ? json.createdAt : new Date().toISOString();
-  const normalizedImages = normalizeImages(json.images, provider, model);
+  const normalizedImages = normalizeImages(
+    json.images,
+    provider,
+    model,
+    runtimeProvider,
+    modelFamily
+  );
   const warnings = normalizeWarnings(json.warnings);
   const fallbackImageUrl =
     typeof json.imageUrl === "string" ? resolveApiUrl(json.imageUrl) : undefined;
@@ -175,6 +199,8 @@ export async function generateImage(
               ...(typeof json.imageId === "string" ? { imageId: json.imageId } : {}),
               provider,
               model,
+              ...(runtimeProvider ? { runtimeProvider } : {}),
+              ...(modelFamily ? { modelFamily } : {}),
             },
           ]
         : [];
@@ -185,6 +211,8 @@ export async function generateImage(
 
   return {
     provider,
+    ...(runtimeProvider ? { runtimeProvider } : {}),
+    ...(modelFamily ? { modelFamily } : {}),
     model,
     createdAt,
     ...(typeof json.imageId === "string" ? { imageId: json.imageId } : {}),

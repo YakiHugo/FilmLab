@@ -16,6 +16,7 @@ import {
   getImageModelName,
   getImageProviderName,
   isImageProviderId as isKnownImageProviderId,
+  normalizeImageRequestProvider,
 } from "@/lib/ai/imageProviders";
 import type { Asset, CanvasImageElement } from "@/types";
 import type {
@@ -230,10 +231,13 @@ const deserializeConfig = (snapshot: Record<string, unknown>): GenerationConfig 
   }
 
   const fallbackConfig = createDefaultGenerationConfig();
+  const snapshotModel = typeof snapshot.model === "string" ? snapshot.model : fallbackConfig.model;
+  const normalizedProvider =
+    typeof snapshot.provider === "string"
+      ? normalizeImageRequestProvider(snapshot.provider, snapshotModel)
+      : null;
   const provider =
-    typeof snapshot.provider === "string" && isKnownImageProviderId(snapshot.provider)
-    ? snapshot.provider
-    : fallbackConfig.provider;
+    normalizedProvider ?? fallbackConfig.provider;
   const fallbackModel = getDefaultImageModelForProvider(provider);
 
   const nextConfig = sanitizeGenerationConfig({
@@ -270,15 +274,20 @@ const deserializeConfig = (snapshot: Record<string, unknown>): GenerationConfig 
 };
 
 const resolveSnapshotProviderAndModel = (snapshot: Record<string, unknown>) => {
-  const provider =
+  const rawProvider =
     typeof snapshot.provider === "string" && snapshot.provider.trim()
       ? snapshot.provider
       : DEFAULT_IMAGE_PROVIDER;
+  const rawModel =
+    typeof snapshot.model === "string" && snapshot.model.trim()
+      ? snapshot.model
+      : getDefaultImageModelForProvider(DEFAULT_IMAGE_PROVIDER);
+  const provider = normalizeImageRequestProvider(rawProvider, rawModel) ?? DEFAULT_IMAGE_PROVIDER;
   const fallbackModel = isKnownImageProviderId(provider)
     ? getDefaultImageModelForProvider(provider)
     : getDefaultImageModelForProvider(DEFAULT_IMAGE_PROVIDER);
   const model =
-    typeof snapshot.model === "string" && snapshot.model.trim() ? snapshot.model : fallbackModel;
+    rawModel || fallbackModel;
 
   return { provider, model };
 };
@@ -305,11 +314,18 @@ const resolveSnapshotDisplayMeta = (snapshot: Record<string, unknown>) => {
   };
 };
 
-const isRetryableProviderModel = (providerId: string, modelId: string) =>
-  isKnownImageProviderId(providerId) && Boolean(getImageModelConfig(providerId, modelId));
+const isRetryableProviderModel = (providerId: string, modelId: string) => {
+  const normalizedProviderId = normalizeImageRequestProvider(providerId, modelId);
+  return Boolean(normalizedProviderId && getImageModelConfig(normalizedProviderId, modelId));
+};
 
-const buildLegacyRetryError = (providerId: string, modelId: string) =>
-  `${getImageProviderName(providerId)} ${getImageModelName(providerId, modelId)} is no longer available. Choose a current model and run the prompt again.`;
+const buildLegacyRetryError = (providerId: string, modelId: string) => {
+  const normalizedProviderId = normalizeImageRequestProvider(providerId, modelId) ?? providerId;
+  return `${getImageProviderName(normalizedProviderId)} ${getImageModelName(
+    normalizedProviderId,
+    modelId
+  )} is no longer available. Choose a current model and run the prompt again.`;
+};
 
 const cloneImageRequest = (
   request: ImageGenerationRequest

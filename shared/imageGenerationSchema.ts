@@ -1,7 +1,7 @@
 import { z } from "zod";
 import {
   IMAGE_ASPECT_RATIOS,
-  IMAGE_PROVIDER_IDS,
+  IMAGE_REQUEST_PROVIDER_IDS,
   IMAGE_STYLE_IDS,
   REFERENCE_IMAGE_TYPES,
 } from "./imageGeneration";
@@ -9,11 +9,11 @@ import {
   getImageModelConfig,
   getImageModelFeatureSupport,
   getImageProviderName,
-  getImageProviderConfig,
+  normalizeImageRequestProvider,
 } from "./imageProviderCatalog";
 import { appendImageModelParamIssues } from "./imageModelParams";
 
-export const imageProviderSchema = z.enum(IMAGE_PROVIDER_IDS);
+export const imageProviderSchema = z.enum(IMAGE_REQUEST_PROVIDER_IDS);
 export const imageAspectRatioSchema = z.enum(IMAGE_ASPECT_RATIOS);
 export const imageStyleSchema = z.enum(IMAGE_STYLE_IDS);
 export const referenceImageTypeSchema = z.enum(REFERENCE_IMAGE_TYPES);
@@ -86,17 +86,22 @@ export const imageGenerationRequestSchema = z
       .default({}),
   })
   .superRefine((payload, ctx) => {
-    const provider = getImageProviderConfig(payload.provider);
-    if (!provider) {
+    const normalizedProviderId = normalizeImageRequestProvider(payload.provider, payload.model);
+    if (!normalizedProviderId) {
+      const providerName = getImageProviderName(payload.provider);
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `Unsupported provider: ${payload.provider}.`,
-        path: ["provider"],
+        message: `Unsupported model for ${providerName}: ${payload.model}.`,
+        path: ["model"],
       });
       return;
     }
 
-    const model = getImageModelConfig(payload.provider, payload.model);
+    const provider = {
+      id: normalizedProviderId,
+      name: getImageProviderName(normalizedProviderId),
+    };
+    const model = getImageModelConfig(normalizedProviderId, payload.model);
     if (!model) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -106,7 +111,7 @@ export const imageGenerationRequestSchema = z
       return;
     }
 
-    const supportedFeatures = getImageModelFeatureSupport(payload.provider, payload.model);
+    const supportedFeatures = getImageModelFeatureSupport(normalizedProviderId, payload.model);
     if (!supportedFeatures) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -274,7 +279,7 @@ export const imageGenerationRequestSchema = z
       });
     }
 
-    appendImageModelParamIssues(payload.provider, payload.model, payload.modelParams, ctx);
+    appendImageModelParamIssues(normalizedProviderId, payload.model, payload.modelParams, ctx);
   });
 
 export type ParsedImageGenerationRequest = z.infer<typeof imageGenerationRequestSchema>;

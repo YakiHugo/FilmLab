@@ -8,7 +8,10 @@ export {
   getImageProviderCredentialSlot,
   getImageProviderConfig,
   getImageProviderName,
+  isImageRequestProviderId,
+  isImageRuntimeProviderId,
   isImageProviderId,
+  normalizeImageRequestProvider,
   type ImageModelConfig,
   type ImageProviderConfig,
   type ImageProviderCredentialSlotId,
@@ -16,4 +19,9 @@ export {
   type ImageReferenceImageCapability,
 } from "../../../shared/imageProviderCatalog";
 
-export type { ImageProviderId } from "../../../shared/imageGeneration";
+export type {
+  ImageModelFamilyId,
+  ImageProviderId,
+  ImageRequestProviderId,
+  RuntimeImageProviderId,
+} from "../../../shared/imageGeneration";

@@ -27,6 +27,23 @@ const getIssuePaths = (payload: Record<string, unknown>) => {
 };
 
 describe("imageGenerationRequestSchema", () => {
+  it("accepts canonical runtime providers when the model resolves to a matching family", () => {
+    const result = imageGenerationRequestSchema.safeParse({
+      ...basePayload,
+      provider: "dashscope",
+      model: "qwen-image-2.0-pro",
+      aspectRatio: "16:9",
+      style: "cinematic",
+      negativePrompt: "avoid blur",
+      seed: 42,
+      modelParams: {
+        promptExtend: true,
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it("rejects models that do not belong to the selected provider", () => {
     const issuePaths = getIssuePaths({
       provider: "qwen",
@@ -38,7 +55,7 @@ describe("imageGenerationRequestSchema", () => {
 
   it("rejects unsupported aspect ratios for the selected model", () => {
     const issuePaths = getIssuePaths({
-      provider: "seedream",
+      provider: "ark",
       model: "doubao-seedream-5-0-260128",
       aspectRatio: "21:9",
     });

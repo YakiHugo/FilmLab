@@ -1,6 +1,6 @@
 import { resolveApiUrl } from "@/lib/api/resolveApiUrl";
+import { normalizeImageRequestProvider } from "@/lib/ai/imageProviders";
 import type { GeneratedImage } from "@/types/imageGeneration";
-import { getProviderApiKey } from "@/stores/apiKeyStore";
 import { imageUpscaleRequestSchema, type ImageUpscaleRequest } from "./imageUpscaleSchema";
 
 const UPSCALE_REQUEST_TIMEOUT_MS = 125_000;
@@ -94,14 +94,12 @@ export async function upscaleImage(
   options?: UpscaleImageOptions
 ): Promise<GeneratedImage> {
   const payload = imageUpscaleRequestSchema.parse(request);
-  const providerKey = getProviderApiKey(payload.provider);
   const response = await fetchWithTimeout(
     resolveApiUrl("/api/image-upscale"),
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(providerKey ? { [`X-Provider-Key-${payload.provider}`]: providerKey } : {}),
       },
       body: JSON.stringify(payload),
     },
@@ -126,11 +124,23 @@ export async function upscaleImage(
     throw new Error("Invalid image upscale response.");
   }
 
+  const provider = (
+    typeof json.provider === "string"
+      ? json.provider
+      : normalizeImageRequestProvider(payload.provider, payload.model) ?? "seedream"
+  ) as GeneratedImage["provider"];
+
   return {
     imageUrl: resolveApiUrl(json.imageUrl),
     ...(typeof json.imageId === "string" ? { imageId: json.imageId } : {}),
-    provider: payload.provider,
-    model: payload.model,
+    provider,
+    model: typeof json.model === "string" ? json.model : payload.model,
+    ...(typeof json.runtimeProvider === "string"
+      ? { runtimeProvider: json.runtimeProvider as GeneratedImage["runtimeProvider"] }
+      : {}),
+    ...(typeof json.modelFamily === "string"
+      ? { modelFamily: json.modelFamily as GeneratedImage["modelFamily"] }
+      : {}),
     ...(typeof json.mimeType === "string" ? { mimeType: json.mimeType } : {}),
   };
 }
