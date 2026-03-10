@@ -1,17 +1,25 @@
 import { getConfig } from "../config";
 import { getImageProviderCredentialSlot } from "../../../shared/imageProviderCatalog";
 import type { ImageProviderId } from "../shared/imageGenerationSchema";
-import { klingImageProvider } from "./kling";
-import { qwenImageProvider } from "./qwen";
-import seedreamImageProvider from "./seedream";
-import { zImageProvider } from "./zimage";
+import { createProviderAdapter, type ProviderProtocol } from "./protocol";
+import { klingImageProtocol } from "./kling";
+import { qwenImageProtocol } from "./qwen";
+import { seedreamImageProtocol } from "./seedream";
+import { zImageProtocol } from "./zimage";
 import type { ImageProviderAdapter } from "./types";
 
+const PROVIDER_PROTOCOLS: Record<ImageProviderId, ProviderProtocol<any, any, any, any>> = {
+  seedream: seedreamImageProtocol,
+  qwen: qwenImageProtocol,
+  zimage: zImageProtocol,
+  kling: klingImageProtocol,
+};
+
 const PROVIDER_ADAPTERS: Record<ImageProviderId, ImageProviderAdapter> = {
-  seedream: seedreamImageProvider,
-  qwen: qwenImageProvider,
-  zimage: zImageProvider,
-  kling: klingImageProvider,
+  seedream: createProviderAdapter(PROVIDER_PROTOCOLS.seedream),
+  qwen: createProviderAdapter(PROVIDER_PROTOCOLS.qwen),
+  zimage: createProviderAdapter(PROVIDER_PROTOCOLS.zimage),
+  kling: createProviderAdapter(PROVIDER_PROTOCOLS.kling),
 };
 
 export const getProviderAdapter = (providerId: ImageProviderId) =>

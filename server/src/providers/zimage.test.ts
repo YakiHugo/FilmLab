@@ -80,4 +80,41 @@ describe("zImageProvider", () => {
     });
   });
 
+  it("surfaces request creation failures from DashScope", async () => {
+    const { zImageProvider } = await import("./zimage");
+
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          message: "model disabled",
+        }),
+        {
+          status: 403,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+
+    await expect(
+      zImageProvider.generate(
+        {
+          prompt: "Unavailable model",
+          provider: "zimage",
+          model: "z-image-turbo",
+          aspectRatio: "1:1",
+          style: "none",
+          referenceImages: [],
+          batchSize: 1,
+          modelParams: {},
+        },
+        "dashscope-key"
+      )
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: "model disabled",
+    });
+  });
+
 });

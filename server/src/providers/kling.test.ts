@@ -9,6 +9,7 @@ describe("klingImageProvider", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -120,6 +121,46 @@ describe("klingImageProvider", () => {
     });
   });
 
+  it("surfaces task creation failures", async () => {
+    const { klingImageProvider } = await import("./kling");
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          code: 10001,
+          message: "quota exceeded",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+
+    await expect(
+      klingImageProvider.generate(
+        {
+          prompt: "Too many requests",
+          provider: "kling",
+          model: "kling-v2-1",
+          aspectRatio: "1:1",
+          style: "none",
+          referenceImages: [],
+          batchSize: 1,
+          modelParams: {},
+        },
+        "kling-key"
+      )
+    ).rejects.toMatchObject({
+      statusCode: 502,
+      message: "quota exceeded",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("surfaces failed Kling task statuses", async () => {
     const { klingImageProvider } = await import("./kling");
 
@@ -178,4 +219,67 @@ describe("klingImageProvider", () => {
     });
   });
 
+  it("times out when poll does not converge", async () => {
+    vi.useFakeTimers();
+    const { klingImageProvider } = await import("./kling");
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            data: {
+              task_id: "task-timeout",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      )
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            data: {
+              task_status: "processing",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        )
+      );
+
+    const pending = klingImageProvider.generate(
+      {
+        prompt: "Long running task",
+        provider: "kling",
+        model: "kling-v2-1",
+        aspectRatio: "1:1",
+        style: "none",
+        referenceImages: [],
+        batchSize: 1,
+        modelParams: {},
+      },
+      "kling-key",
+      {
+        timeoutMs: 1,
+      }
+    );
+
+    const timedOut = expect(pending).rejects.toMatchObject({
+      statusCode: 504,
+      message: "Kling image generation timed out.",
+    });
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    await timedOut;
+  });
 });

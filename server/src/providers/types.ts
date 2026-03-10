@@ -18,6 +18,20 @@ export interface ProviderGenerationResult {
   warnings?: string[];
 }
 
+export interface ProviderRequestContext {
+  signal?: AbortSignal;
+  timeoutMs: number;
+  traceId: string;
+}
+
+export interface ProviderRawResponse {
+  status: number;
+  payload: unknown;
+  headers?: Headers;
+}
+
+export type ProviderNormalizedResult = ProviderGenerationResult;
+
 export interface ProviderImageUpscaleRequest {
   model: string;
   imageBuffer: Buffer;
@@ -29,7 +43,7 @@ export interface ImageProviderAdapter {
   generate: (
     request: ParsedImageGenerationRequest,
     apiKey: string,
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal; timeoutMs?: number; traceId?: string }
   ) => Promise<ProviderGenerationResult>;
   upscale?: (
     request: ProviderImageUpscaleRequest,
