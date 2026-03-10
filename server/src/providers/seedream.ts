@@ -2,7 +2,6 @@ import { getImageModelConfig } from "../../../shared/imageProviderCatalog";
 import { getConfig } from "../config";
 import { getStylePromptHint } from "../shared/imageStyleHints";
 import { fetchWithTimeout } from "../shared/fetchWithTimeout";
-import { getReferenceImageWarningsForUnsupportedProvider } from "./referenceImages";
 import type { ParsedImageGenerationRequest } from "../shared/imageGenerationSchema";
 import type { ImageProviderAdapter, ProviderGeneratedImage } from "./types";
 import { ProviderError, readProviderError } from "./types";
@@ -184,18 +183,15 @@ export const seedreamImageProvider: ImageProviderAdapter = {
     }
 
     const { images, warnings } = extractImages(json);
-    const referenceWarnings = getReferenceImageWarningsForUnsupportedProvider(request, "Seedream");
     if (images.length === 0) {
       throw new ProviderError(readSeedreamErrorMessage(json));
     }
-
-    const mergedWarnings = [...warnings, ...referenceWarnings];
 
     return {
       provider: "seedream",
       model: request.model,
       images,
-      ...(mergedWarnings.length > 0 ? { warnings: mergedWarnings } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   },
 };

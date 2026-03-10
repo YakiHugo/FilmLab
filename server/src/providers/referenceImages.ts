@@ -1,19 +1,9 @@
 import type { ParsedImageGenerationRequest } from "../shared/imageGenerationSchema";
+import { getImageGenerationCapabilityWarnings } from "../shared/imageGenerationCapabilityWarnings";
 
-export const getUnsupportedReferenceImageWarning = (
-  providerName: string,
-  count: number
-) =>
-  `${providerName} does not support reference images yet. Ignored ${count} reference image${count === 1 ? "" : "s"}.`;
-
+/**
+ * @deprecated use getImageGenerationCapabilityWarnings instead.
+ */
 export const getReferenceImageWarningsForUnsupportedProvider = (
-  request: ParsedImageGenerationRequest,
-  providerName: string
-) => {
-  const count = request.referenceImages.length;
-  if (count === 0) {
-    return [];
-  }
-
-  return [getUnsupportedReferenceImageWarning(providerName, count)];
-};
+  request: ParsedImageGenerationRequest
+) => getImageGenerationCapabilityWarnings(request);
