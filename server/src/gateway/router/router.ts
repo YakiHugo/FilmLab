@@ -28,7 +28,7 @@ const executeWithFallback = async <T>(
       const result = await handler(target);
       recordResult({
         provider: target.provider.id,
-        model: target.model.id,
+        model: target.deployment.providerModel,
         operation,
         success: true,
         latencyMs: Date.now() - startedAt,
@@ -38,7 +38,7 @@ const executeWithFallback = async <T>(
       lastError = error;
       recordResult({
         provider: target.provider.id,
-        model: target.model.id,
+        model: target.deployment.providerModel,
         operation,
         success: false,
         latencyMs: Date.now() - startedAt,
@@ -62,9 +62,8 @@ export const imageRuntimeRouter = {
     options?: { signal?: AbortSignal; timeoutMs?: number; traceId?: string }
   ) {
     const targets = selectRouteTargets({
-      providerId: request.provider,
-      model: request.model,
-      operation: "generate",
+      modelId: request.modelId,
+      capability: "image.generate",
     });
 
     return executeWithFallback("generate", targets, async (target) => {
@@ -87,35 +86,6 @@ export const imageRuntimeRouter = {
     payload: { imageBuffer: Buffer; mimeType: string },
     options?: { signal?: AbortSignal; timeoutMs?: number; traceId?: string }
   ) {
-    const targets = selectRouteTargets({
-      providerId: request.provider,
-      model: request.model,
-      operation: "upscale",
-    });
-
-    return executeWithFallback("upscale", targets, async (target) => {
-      const configuredProvider = getRuntimeProviderConfiguration(target.provider.id);
-      if (!configuredProvider.configured) {
-        throw new ProviderError(`${target.provider.name} API key is required.`, 401);
-      }
-
-      const adapter = getPlatformProviderAdapter(target.provider.id);
-      if (!adapter.upscale) {
-        throw new ProviderError(
-          `${target.family.displayName} ${target.model.displayName} does not support upscale.`,
-          400
-        );
-      }
-
-      return adapter.upscale({
-        target,
-        request,
-        imageBuffer: payload.imageBuffer,
-        mimeType: payload.mimeType,
-        scale: request.scale,
-        apiKey: getRuntimeProviderKey(target.provider.id),
-        options,
-      });
-    });
+    throw new ProviderError("Image upscale is not available in the model registry refactor.", 400);
   },
 };

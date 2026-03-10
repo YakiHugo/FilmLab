@@ -1,5 +1,3 @@
-import type { ProviderRouteTarget } from "./types";
-import { resolveFallbackRouteTargets } from "./registry";
+import type { ResolvedRouteTarget } from "./types";
 
-export const getFallbackTargets = (target: ProviderRouteTarget) =>
-  resolveFallbackRouteTargets(target);
+export const getFallbackTargets = (_target: ResolvedRouteTarget) => [];

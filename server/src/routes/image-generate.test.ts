@@ -35,10 +35,11 @@ describe("imageGenerateRoute", () => {
     const { imageGenerateRoute } = await import("./image-generate");
 
     generateMock.mockResolvedValue({
+      modelId: "qwen-image-2-pro",
+      logicalModel: "image.qwen.v2.pro",
+      deploymentId: "dashscope-qwen-image-2-pro-primary",
       runtimeProvider: "dashscope",
-      modelFamily: "qwen",
-      legacyProvider: "qwen",
-      model: "qwen-image-2.0-pro",
+      providerModel: "qwen-image-2.0-pro",
       warnings: ["2 of 4 images completed."],
       images: [
         {
@@ -66,8 +67,7 @@ describe("imageGenerateRoute", () => {
       url: "/api/image-generate",
       payload: {
         prompt: "Studio portrait",
-        provider: "dashscope",
-        model: "qwen-image-2.0-pro",
+        modelId: "qwen-image-2-pro",
         aspectRatio: "1:1",
         batchSize: 1,
         style: "none",
@@ -79,8 +79,7 @@ describe("imageGenerateRoute", () => {
     expect(response.statusCode).toBe(200);
     expect(generateMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        provider: "dashscope",
-        model: "qwen-image-2.0-pro",
+        modelId: "qwen-image-2-pro",
       }),
       expect.objectContaining({
         signal: expect.any(AbortSignal),
@@ -88,9 +87,11 @@ describe("imageGenerateRoute", () => {
     );
 
     const body = response.json();
-    expect(body.provider).toBe("qwen");
+    expect(body.modelId).toBe("qwen-image-2-pro");
+    expect(body.logicalModel).toBe("image.qwen.v2.pro");
+    expect(body.deploymentId).toBe("dashscope-qwen-image-2-pro-primary");
     expect(body.runtimeProvider).toBe("dashscope");
-    expect(body.modelFamily).toBe("qwen");
+    expect(body.providerModel).toBe("qwen-image-2.0-pro");
     expect(body.imageId).toBe("remote-1");
     expect(body.imageUrl).toBe("/api/generated-images/remote-1");
     expect(body.warnings).toEqual(["2 of 4 images completed."]);
@@ -98,13 +99,13 @@ describe("imageGenerateRoute", () => {
       expect.objectContaining({
         imageId: "remote-1",
         imageUrl: "/api/generated-images/remote-1",
-        provider: "qwen",
+        provider: "dashscope",
         model: "qwen-image-2.0-pro",
       }),
       expect.objectContaining({
         imageId: "binary-1",
         imageUrl: "/api/generated-images/binary-1",
-        provider: "qwen",
+        provider: "dashscope",
         model: "qwen-image-2.0-pro",
       }),
     ]);
@@ -127,8 +128,7 @@ describe("imageGenerateRoute", () => {
       url: "/api/image-generate",
       payload: {
         prompt: "Blocked prompt",
-        provider: "seedream",
-        model: "doubao-seedream-5-0-260128",
+        modelId: "seedream-v5",
         aspectRatio: "1:1",
         batchSize: 1,
         style: "none",
@@ -140,21 +140,21 @@ describe("imageGenerateRoute", () => {
     expect(response.statusCode).toBe(502);
     expect(response.json()).toEqual({
       error: "policy blocked",
-      provider: "seedream",
     });
 
     await app.close();
   });
 
-  it("adds capability-registry warnings when unsupported reference images are supplied", async () => {
+  it("rejects unsupported parameter combinations from the selected model", async () => {
     const { default: Fastify } = await import("fastify");
     const { imageGenerateRoute } = await import("./image-generate");
 
     generateMock.mockResolvedValue({
+      modelId: "qwen-image-2-pro",
+      logicalModel: "image.qwen.v2.pro",
+      deploymentId: "dashscope-qwen-image-2-pro-primary",
       runtimeProvider: "dashscope",
-      modelFamily: "qwen",
-      legacyProvider: "qwen",
-      model: "qwen-image-2.0-pro",
+      providerModel: "qwen-image-2.0-pro",
       images: [
         {
           binaryData: Buffer.from([1, 2, 3]),
@@ -172,8 +172,7 @@ describe("imageGenerateRoute", () => {
       url: "/api/image-generate",
       payload: {
         prompt: "Studio portrait",
-        provider: "dashscope",
-        model: "qwen-image-2.0-pro",
+        modelId: "qwen-image-2-pro",
         aspectRatio: "1:1",
         batchSize: 1,
         style: "none",
@@ -187,10 +186,10 @@ describe("imageGenerateRoute", () => {
       },
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json().warnings).toEqual([
-      "Qwen Image Qwen Image 2.0 Pro ignores 1 reference image.",
-    ]);
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      error: "Qwen Image 2.0 Pro does not support reference images.",
+    });
 
     await app.close();
   });

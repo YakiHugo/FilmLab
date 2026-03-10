@@ -1,13 +1,13 @@
 import type { RuntimeProviderId } from "../../gateway/router/types";
-import { arkPlatformAdapter } from "../ark/adapter";
+import { arkProvider } from "../ark/provider";
 import type { PlatformProviderAdapter } from "./adapter";
-import { dashscopePlatformAdapter } from "../dashscope/adapter";
-import { klingPlatformAdapter } from "../kling/adapter";
+import { dashscopeProvider } from "../dashscope/provider";
+import { klingProvider } from "../kling/provider";
 
 const PLATFORM_ADAPTERS: Record<RuntimeProviderId, PlatformProviderAdapter> = {
-  ark: arkPlatformAdapter,
-  dashscope: dashscopePlatformAdapter,
-  kling: klingPlatformAdapter,
+  ark: arkProvider,
+  dashscope: dashscopeProvider,
+  kling: klingProvider,
 };
 
 export const getPlatformProviderAdapter = (providerId: RuntimeProviderId) =>

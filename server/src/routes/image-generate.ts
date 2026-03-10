@@ -2,12 +2,15 @@ import type { FastifyPluginAsync } from "fastify";
 import { ZodError } from "zod";
 import { getConfig } from "../config";
 import { imageRuntimeRouter } from "../gateway/router/router";
-import { getLegacyProviderAliasForModel } from "../gateway/router/registry";
 import { ProviderError } from "../providers/base/errors";
+import { getFrontendImageModelById } from "../models/frontendRegistry";
 import { downloadGeneratedImage } from "../shared/downloadGeneratedImage";
 import { storeGeneratedImage } from "../shared/generatedImageStore";
 import { getImageGenerationCapabilityWarnings } from "../shared/imageGenerationCapabilityWarnings";
-import { imageGenerationRequestSchema } from "../shared/imageGenerationSchema";
+import {
+  imageGenerationRequestSchema,
+  validateImageGenerationRequestAgainstModel,
+} from "../shared/imageGenerationSchema";
 
 export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
   const config = getConfig();
@@ -76,6 +79,27 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
       }
 
       try {
+        const frontendModel = getFrontendImageModelById(payload.modelId);
+        if (!frontendModel) {
+          return reply.code(400).send({ error: `Unsupported modelId: ${payload.modelId}.` });
+        }
+
+        const compatibility = imageGenerationRequestSchema.safeParse(payload);
+        if (!compatibility.success) {
+          return reply.code(400).send({ error: "Invalid request payload." });
+        }
+
+        const compatibilityProbe = imageGenerationRequestSchema.superRefine((nextPayload, ctx) => {
+          validateImageGenerationRequestAgainstModel(nextPayload, frontendModel, ctx);
+        });
+        const validationResult = compatibilityProbe.safeParse(payload);
+        if (!validationResult.success) {
+          const firstIssue = validationResult.error.issues[0];
+          return reply.code(400).send({
+            error: firstIssue?.message ?? "Request is incompatible with selected model.",
+          });
+        }
+
         const generated = await imageRuntimeRouter.generate(payload, {
           signal: requestController.signal,
         });
@@ -113,8 +137,8 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           accumulator.push({
             imageId: image.imageId,
             imageUrl: image.imageUrl,
-            provider: generated.legacyProvider,
-            model: generated.model,
+            provider: generated.runtimeProvider,
+            model: generated.providerModel,
             mimeType: image.mimeType,
             revisedPrompt: image.revisedPrompt,
           });
@@ -128,10 +152,11 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         }
 
         return reply.code(200).send({
-          provider: generated.legacyProvider,
+          modelId: generated.modelId,
+          logicalModel: generated.logicalModel,
+          deploymentId: generated.deploymentId,
           runtimeProvider: generated.runtimeProvider,
-          modelFamily: generated.modelFamily,
-          model: generated.model,
+          providerModel: generated.providerModel,
           createdAt: new Date().toISOString(),
           imageId: firstImageId,
           imageUrl: firstImageUrl,
@@ -142,13 +167,11 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         if (error instanceof ProviderError) {
           return reply.code(error.statusCode).send({
             error: error.message,
-            provider: getLegacyProviderAliasForModel(payload.model) ?? payload.provider,
           });
         }
         app.log.error(error);
         return reply.code(500).send({
           error: "Image generation failed.",
-          provider: getLegacyProviderAliasForModel(payload.model) ?? payload.provider,
         });
       } finally {
         request.raw.removeListener("aborted", abortRequest);

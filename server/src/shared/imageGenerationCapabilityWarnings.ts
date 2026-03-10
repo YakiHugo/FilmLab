@@ -1,25 +1,19 @@
-import { resolveRouteTarget } from "../gateway/router/registry";
+import { getFrontendImageModelById } from "../models/frontendRegistry";
 import type { ParsedImageGenerationRequest } from "./imageGenerationSchema";
 
 export const getImageGenerationCapabilityWarnings = (
   request: ParsedImageGenerationRequest
 ): string[] => {
-  const target = resolveRouteTarget({
-    providerId: request.provider,
-    model: request.model,
-    operation: "generate",
-  });
-  if (!target) {
+  const frontendModel = getFrontendImageModelById(request.modelId);
+  if (!frontendModel) {
     return [];
   }
 
   const warnings: string[] = [];
-  if (!target.capability.referenceImages.enabled && request.referenceImages.length > 0) {
+  if (!frontendModel.constraints.referenceImages.enabled && request.referenceImages.length > 0) {
     const count = request.referenceImages.length;
     warnings.push(
-      `${target.family.displayName} ${target.model.displayName} ignores ${count} reference image${
-        count === 1 ? "" : "s"
-      }.`
+      `${frontendModel.label} ignores ${count} reference image${count === 1 ? "" : "s"}.`
     );
   }
 

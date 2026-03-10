@@ -2,6 +2,11 @@ import type {
   ImageGenerationRequest,
   ReferenceImage,
 } from "./imageGeneration";
+import type {
+  FrontendImageModelId,
+  ImageDeploymentId,
+  LogicalImageModelId,
+} from "./imageModelCatalog";
 
 export type GenerationJobStatus = "running" | "succeeded" | "failed";
 export type PersistedGenerationTurnStatus = "loading" | "done" | "error";
@@ -11,17 +16,19 @@ export interface PersistedReferenceImageSnapshot extends Omit<ReferenceImage, "u
 }
 
 export interface PersistedImageGenerationRequestSnapshot
-  extends Omit<ImageGenerationRequest, "provider" | "referenceImages">,
+  extends Omit<ImageGenerationRequest, "referenceImages">,
     Record<string, unknown> {
-  provider?: string;
   referenceImages?: PersistedReferenceImageSnapshot[];
 }
 
 export interface GenerationJobSnapshot {
   id: string;
   turnId: string;
-  provider: string;
-  model: string;
+  modelId: FrontendImageModelId;
+  logicalModel: LogicalImageModelId;
+  deploymentId: ImageDeploymentId;
+  runtimeProvider: string;
+  providerModel: string;
   compiledPrompt: string;
   requestSnapshot: PersistedImageGenerationRequestSnapshot;
   status: GenerationJobStatus;
@@ -33,8 +40,8 @@ export interface GenerationJobSnapshot {
 export interface PersistedResultItem {
   imageUrl: string;
   imageId: string | null;
-  provider: string;
-  model: string;
+  runtimeProvider: string;
+  providerModel: string;
   mimeType?: string;
   revisedPrompt?: string | null;
   index: number;
@@ -46,6 +53,11 @@ export interface PersistedGenerationTurn {
   id: string;
   prompt: string;
   createdAt: string;
+  modelId: FrontendImageModelId;
+  logicalModel: LogicalImageModelId;
+  deploymentId: ImageDeploymentId;
+  runtimeProvider: string;
+  providerModel: string;
   configSnapshot: Record<string, unknown>;
   status: PersistedGenerationTurnStatus;
   error: string | null;

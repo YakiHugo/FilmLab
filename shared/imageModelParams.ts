@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ImageProviderId } from "./imageGeneration";
+import type { FrontendImageModelId } from "./imageModelCatalog";
 
 export type ImageModelParamValue = string | number | boolean | null;
 
@@ -21,8 +21,7 @@ export interface ImageModelParamDefinition {
 }
 
 interface ImageModelParamConfig {
-  provider: ImageProviderId;
-  model: string;
+  modelId: FrontendImageModelId;
   fields: ImageModelParamDefinition[];
 }
 
@@ -100,38 +99,31 @@ const KLING_FIELDS: ImageModelParamDefinition[] = [
 
 const MODEL_PARAM_CONFIGS: ImageModelParamConfig[] = [
   {
-    provider: "seedream",
-    model: "doubao-seedream-5-0-260128",
+    modelId: "seedream-v5",
     fields: SEEDREAM_COMMON_FIELDS,
   },
   {
-    provider: "seedream",
-    model: "doubao-seedream-4-0-250828",
+    modelId: "seedream-v4",
     fields: SEEDREAM_COMMON_FIELDS,
   },
   {
-    provider: "qwen",
-    model: "qwen-image-2.0-pro",
+    modelId: "qwen-image-2-pro",
     fields: QWEN_FIELDS,
   },
   {
-    provider: "qwen",
-    model: "qwen-image-2.0",
+    modelId: "qwen-image-2",
     fields: QWEN_FIELDS,
   },
   {
-    provider: "zimage",
-    model: "z-image-turbo",
+    modelId: "zimage-turbo",
     fields: Z_IMAGE_FIELDS,
   },
   {
-    provider: "kling",
-    model: "kling-v2-1",
+    modelId: "kling-v2-1",
     fields: KLING_FIELDS,
   },
   {
-    provider: "kling",
-    model: "kling-v3",
+    modelId: "kling-v3",
     fields: KLING_FIELDS,
   },
 ];
@@ -166,17 +158,15 @@ const normalizeModelParamValue = (
 };
 
 export const getImageModelParamDefinitions = (
-  provider: ImageProviderId,
-  model: string
+  modelId: FrontendImageModelId | string
 ): ImageModelParamDefinition[] =>
-  MODEL_PARAM_CONFIGS.find((entry) => entry.provider === provider && entry.model === model)?.fields ??
+  MODEL_PARAM_CONFIGS.find((entry) => entry.modelId === modelId)?.fields ??
   [];
 
 export const getDefaultImageModelParams = (
-  provider: ImageProviderId,
-  model: string
+  modelId: FrontendImageModelId | string
 ): Record<string, ImageModelParamValue> =>
-  getImageModelParamDefinitions(provider, model).reduce<Record<string, ImageModelParamValue>>(
+  getImageModelParamDefinitions(modelId).reduce<Record<string, ImageModelParamValue>>(
     (accumulator, field) => {
       accumulator[field.key] = field.defaultValue;
       return accumulator;
@@ -185,11 +175,10 @@ export const getDefaultImageModelParams = (
   );
 
 export const sanitizeImageModelParams = (
-  provider: ImageProviderId,
-  model: string,
+  modelId: FrontendImageModelId | string,
   modelParams: Record<string, ImageModelParamValue>
 ): Record<string, ImageModelParamValue> =>
-  getImageModelParamDefinitions(provider, model).reduce<Record<string, ImageModelParamValue>>(
+  getImageModelParamDefinitions(modelId).reduce<Record<string, ImageModelParamValue>>(
     (accumulator, field) => {
       accumulator[field.key] = normalizeModelParamValue(field, modelParams[field.key]);
       return accumulator;
@@ -198,12 +187,11 @@ export const sanitizeImageModelParams = (
   );
 
 export const appendImageModelParamIssues = (
-  provider: ImageProviderId,
-  model: string,
+  modelId: FrontendImageModelId | string,
   modelParams: Record<string, ImageModelParamValue>,
   ctx: z.RefinementCtx
 ) => {
-  const definitions = getImageModelParamDefinitions(provider, model);
+  const definitions = getImageModelParamDefinitions(modelId);
   const definitionsByKey = new Map(definitions.map((definition) => [definition.key, definition]));
 
   for (const key of Object.keys(modelParams)) {

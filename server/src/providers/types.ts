@@ -1,8 +1,7 @@
 import type {
-  ImageUpscaleScale,
-  ImageProviderId,
   ParsedImageGenerationRequest,
 } from "../shared/imageGenerationSchema";
+import type { ImageProviderId, ImageUpscaleScale } from "../../../shared/imageGeneration";
 
 export interface ProviderGeneratedImage {
   imageUrl?: string;

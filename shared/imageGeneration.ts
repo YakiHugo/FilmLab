@@ -61,8 +61,7 @@ export interface ReferenceImage {
 export interface ImageGenerationRequest {
   prompt: string;
   negativePrompt?: string;
-  provider: ImageRequestProviderId;
-  model: string;
+  modelId: import("./imageModelCatalog").FrontendImageModelId;
   aspectRatio: ImageAspectRatio;
   width?: number;
   height?: number;
@@ -80,10 +79,8 @@ export interface ImageGenerationRequest {
 export interface GeneratedImage {
   imageUrl: string;
   imageId?: string;
-  provider: ImageProviderId;
+  provider: RuntimeImageProviderId;
   model: string;
-  runtimeProvider?: RuntimeImageProviderId;
-  modelFamily?: ImageModelFamilyId;
   mimeType?: string;
   revisedPrompt?: string | null;
 }
@@ -96,10 +93,11 @@ export interface ImageUpscaleRequest {
 }
 
 export interface ImageGenerationResponse {
-  provider: ImageProviderId;
-  runtimeProvider?: RuntimeImageProviderId;
-  modelFamily?: ImageModelFamilyId;
-  model: string;
+  modelId: import("./imageModelCatalog").FrontendImageModelId;
+  logicalModel: import("./imageModelCatalog").LogicalImageModelId;
+  deploymentId: import("./imageModelCatalog").ImageDeploymentId;
+  runtimeProvider: RuntimeImageProviderId;
+  providerModel: string;
   createdAt: string;
   imageId?: string;
   imageUrl?: string;

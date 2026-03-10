@@ -1,29 +1,40 @@
+import type { RuntimeImageProviderId } from "../../../../shared/imageGeneration";
+import type {
+  FrontendImageModelId,
+  ImageCapabilityId,
+  ImageDeploymentId,
+  ImageGenerationConstraintSummary,
+  ImageModelDefaults,
+  LogicalImageModelId,
+  ProviderModelId,
+} from "../../../../shared/imageModelCatalog";
 import type { ImageModelParamDefinition } from "../../../../shared/imageModelParams";
 
-export type RuntimeProviderId = "ark" | "dashscope" | "kling";
+export type RuntimeProviderId = RuntimeImageProviderId;
 export type RuntimeCredentialSlotId = RuntimeProviderId;
-export type ModelFamilyId = "seedream" | "qwen" | "zimage" | "kling";
-export type LegacyProviderAlias = ModelFamilyId;
 export type ImageOperation = "generate" | "upscale";
 
-export interface ReferenceImageCapabilitySummary {
-  enabled: boolean;
-  maxImages: number;
-  supportedTypes: string[];
-  supportsWeight: boolean;
-  maxFileSizeBytes?: number;
+export interface FrontendModelSpec {
+  id: FrontendImageModelId;
+  label: string;
+  logicalModel: LogicalImageModelId;
+  capability: "image.generate";
+  routingPolicy: "primary";
+  visible: boolean;
+  description?: string;
+  constraints: ImageGenerationConstraintSummary;
+  parameterDefinitions: ImageModelParamDefinition[];
+  defaults: ImageModelDefaults;
 }
 
-export interface OperationCapability {
-  operation: ImageOperation;
+export interface DeploymentSpec {
+  id: ImageDeploymentId;
+  logicalModel: LogicalImageModelId;
+  provider: RuntimeProviderId;
+  providerModel: ProviderModelId;
+  capability: ImageCapabilityId;
   enabled: boolean;
-  supportsCustomSize: boolean;
-  supportedAspectRatios: string[];
-  maxBatchSize: number;
-  referenceImages: ReferenceImageCapabilitySummary;
-  unsupportedFields: string[];
-  parameterDefinitions: ImageModelParamDefinition[];
-  fallbackModelIds?: string[];
+  priority: number;
 }
 
 export interface ProviderSpec {
@@ -34,34 +45,15 @@ export interface ProviderSpec {
   healthScope: "model_operation";
 }
 
-export interface ModelFamilySpec {
-  id: ModelFamilyId;
-  provider: RuntimeProviderId;
-  displayName: string;
-  legacyProviderAliases: LegacyProviderAlias[];
-}
-
-export interface ModelSpec {
-  id: string;
-  family: ModelFamilyId;
-  displayName: string;
-  description?: string;
-  operations: Partial<Record<ImageOperation, OperationCapability>>;
-}
-
-export interface ProviderRouteTarget {
+export interface ResolvedRouteTarget {
+  frontendModel: FrontendModelSpec;
+  deployment: DeploymentSpec;
   provider: ProviderSpec;
-  family: ModelFamilySpec;
-  model: ModelSpec;
-  operation: ImageOperation;
-  capability: OperationCapability;
-  legacyProviderAlias: LegacyProviderAlias;
 }
 
 export interface RouterSelectionInput {
-  providerId: string;
-  model: string;
-  operation: ImageOperation;
+  modelId: FrontendImageModelId;
+  capability: ImageCapabilityId;
 }
 
 export interface HealthRecordInput {

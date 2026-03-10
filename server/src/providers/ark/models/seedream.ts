@@ -1,11 +1,15 @@
-import { getConfig } from "../../config";
-import { getStylePromptHint } from "../../shared/imageStyleHints";
-import type { PlatformProviderAdapter } from "../base/adapter";
-import { createProviderRequestContext, fetchProviderResponse, toProviderRawResponse } from "../base/client";
-import { ProviderError, readProviderError } from "../base/errors";
-import type { ProviderGeneratedImage } from "../base/types";
+import { getConfig } from "../../../config";
+import { getStylePromptHint } from "../../../shared/imageStyleHints";
+import { createProviderRequestContext, fetchProviderResponse, toProviderRawResponse } from "../../base/client";
+import { ProviderError, readProviderError } from "../../base/errors";
+import type {
+  PlatformProviderGenerateInput,
+  ProviderGeneratedImage,
+  RuntimeGenerationResult,
+} from "../../base/types";
 
 const DEFAULT_MIME_TYPE = "image/jpeg";
+const SUPPORTED_MODELS = new Set(["doubao-seedream-5-0-260128", "doubao-seedream-4-0-250828"]);
 
 const SEEDREAM_SIZE_BY_ASPECT_RATIO = {
   "1:1": "2K",
@@ -29,17 +33,7 @@ const toArkSize = (aspectRatio: string) =>
     ? SEEDREAM_SIZE_BY_ASPECT_RATIO["1:1"]
     : SEEDREAM_SIZE_BY_ASPECT_RATIO[aspectRatio as keyof typeof SEEDREAM_SIZE_BY_ASPECT_RATIO];
 
-const resolveResponseFormat = (value: unknown) => (value === "b64_json" ? "b64_json" : "url");
-
-const resolveSequentialImageGeneration = (value: unknown) =>
-  value === "enabled" ? "enabled" : "disabled";
-
-const resolveWatermark = (value: unknown) => (typeof value === "boolean" ? value : true);
-
-const buildPrompt = (
-  prompt: string,
-  style: Parameters<typeof getStylePromptHint>[0]
-) => {
+const buildPrompt = (prompt: string, style: Parameters<typeof getStylePromptHint>[0]) => {
   const styleHint = style !== "none" ? getStylePromptHint(style) : "";
   const parts = [prompt.trim()];
 
@@ -49,6 +43,11 @@ const buildPrompt = (
 
   return parts.join("\n");
 };
+
+const resolveResponseFormat = (value: unknown) => (value === "b64_json" ? "b64_json" : "url");
+const resolveSequentialImageGeneration = (value: unknown) =>
+  value === "enabled" ? "enabled" : "disabled";
+const resolveWatermark = (value: unknown) => (typeof value === "boolean" ? value : true);
 
 const readSeedreamErrorMessage = (payload: Record<string, unknown>) => {
   if (typeof payload.message === "string" && payload.message.trim()) {
@@ -129,69 +128,68 @@ const extractImages = (
   );
 };
 
-export const arkPlatformAdapter: PlatformProviderAdapter = {
-  async generate(input) {
-    if (input.target.family.id !== "seedream") {
-      throw new ProviderError(
-        `Unsupported Ark model family: ${input.target.family.id}.`,
-        400
-      );
-    }
+export const generateArkSeedream = async (
+  input: PlatformProviderGenerateInput
+): Promise<RuntimeGenerationResult> => {
+  const providerModel = input.target.deployment.providerModel;
+  if (!SUPPORTED_MODELS.has(providerModel)) {
+    throw new ProviderError(`Unsupported Ark model: ${providerModel}.`, 400);
+  }
 
-    const normalizedApiKey = input.apiKey.trim();
-    if (!normalizedApiKey) {
-      throw new ProviderError("Ark API key is required.", 401);
-    }
+  const normalizedApiKey = input.apiKey.trim();
+  if (!normalizedApiKey) {
+    throw new ProviderError("Ark API key is required.", 401);
+  }
 
-    const context = createProviderRequestContext(input.options);
-    const upstream = await fetchProviderResponse(
-      getArkImageGenerationUrl(),
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${normalizedApiKey}`,
-        },
-        body: JSON.stringify({
-          model: input.request.model,
-          prompt: buildPrompt(input.request.prompt, input.request.style),
-          size: toArkSize(input.request.aspectRatio),
-          sequential_image_generation: resolveSequentialImageGeneration(
-            input.request.modelParams.sequentialImageGeneration
-          ),
-          response_format: resolveResponseFormat(input.request.modelParams.responseFormat),
-          stream: false,
-          watermark: resolveWatermark(input.request.modelParams.watermark),
-        }),
+  const context = createProviderRequestContext(input.options);
+  const upstream = await fetchProviderResponse(
+    getArkImageGenerationUrl(),
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${normalizedApiKey}`,
       },
-      "Ark image generation timed out.",
-      context
+      body: JSON.stringify({
+        model: providerModel,
+        prompt: buildPrompt(input.request.prompt, input.request.style),
+        size: toArkSize(input.request.aspectRatio),
+        sequential_image_generation: resolveSequentialImageGeneration(
+          input.request.modelParams.sequentialImageGeneration
+        ),
+        response_format: resolveResponseFormat(input.request.modelParams.responseFormat),
+        stream: false,
+        watermark: resolveWatermark(input.request.modelParams.watermark),
+      }),
+    },
+    "Ark image generation timed out.",
+    context
+  );
+
+  if (!upstream.ok) {
+    throw new ProviderError(
+      await readProviderError(upstream, "Ark image generation failed."),
+      upstream.status
     );
+  }
 
-    if (!upstream.ok) {
-      throw new ProviderError(
-        await readProviderError(upstream, "Ark image generation failed."),
-        upstream.status
-      );
-    }
+  const rawResponse = toProviderRawResponse(upstream, (await upstream.json()) as unknown);
+  if (!isRecord(rawResponse.payload)) {
+    throw new ProviderError("Ark provider returned an invalid response.");
+  }
 
-    const rawResponse = toProviderRawResponse(upstream, (await upstream.json()) as unknown);
-    if (!isRecord(rawResponse.payload)) {
-      throw new ProviderError("Ark provider returned an invalid response.");
-    }
+  const { images, warnings } = extractImages(rawResponse.payload);
+  if (images.length === 0) {
+    throw new ProviderError(readSeedreamErrorMessage(rawResponse.payload));
+  }
 
-    const { images, warnings } = extractImages(rawResponse.payload);
-    if (images.length === 0) {
-      throw new ProviderError(readSeedreamErrorMessage(rawResponse.payload));
-    }
-
-    return {
-      runtimeProvider: input.target.provider.id,
-      modelFamily: input.target.family.id,
-      legacyProvider: input.target.legacyProviderAlias,
-      model: input.request.model,
-      images,
-      ...(warnings.length > 0 ? { warnings } : {}),
-    };
-  },
+  return {
+    modelId: input.target.frontendModel.id,
+    logicalModel: input.target.frontendModel.logicalModel,
+    deploymentId: input.target.deployment.id,
+    runtimeProvider: input.target.provider.id,
+    providerModel,
+    images,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  };
 };

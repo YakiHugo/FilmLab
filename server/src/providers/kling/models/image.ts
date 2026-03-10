@@ -1,11 +1,16 @@
-import { getConfig } from "../../config";
-import { getStylePromptHint } from "../../shared/imageStyleHints";
-import type { PlatformProviderAdapter } from "../base/adapter";
-import { createProviderRequestContext, fetchProviderResponse, toProviderRawResponse } from "../base/client";
-import { ProviderError, readProviderError } from "../base/errors";
-import type { ProviderRawResponse } from "../base/types";
+import { getConfig } from "../../../config";
+import { getStylePromptHint } from "../../../shared/imageStyleHints";
+import { createProviderRequestContext, fetchProviderResponse, toProviderRawResponse } from "../../base/client";
+import { ProviderError, readProviderError } from "../../base/errors";
+import type {
+  PlatformProviderGenerateInput,
+  ProviderGeneratedImage,
+  ProviderRawResponse,
+  RuntimeGenerationResult,
+} from "../../base/types";
 
 const POLL_INTERVAL_MS = 2_500;
+const SUPPORTED_MODELS = new Set(["kling-v2-1", "kling-v3"]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -13,10 +18,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const getKlingImageGenerationUrl = () =>
   new URL("/v1/images/generations", `${getConfig().klingApiBaseUrl}/`).toString();
 
-const buildPrompt = (
-  prompt: string,
-  style: Parameters<typeof getStylePromptHint>[0]
-) => {
+const buildPrompt = (prompt: string, style: Parameters<typeof getStylePromptHint>[0]) => {
   const styleHint = style !== "none" ? getStylePromptHint(style) : "";
   const parts = [prompt.trim()];
 
@@ -28,7 +30,6 @@ const buildPrompt = (
 };
 
 const resolveResolution = (value: unknown) => (value === "2k" ? "2k" : "1k");
-
 const resolveWatermark = (value: unknown) => (typeof value === "boolean" ? value : false);
 
 const readKlingErrorMessage = (payload: unknown, fallback: string) => {
@@ -78,7 +79,7 @@ const readKlingTaskStatus = (payload: unknown) => {
     : null;
 };
 
-const extractKlingImages = (payload: unknown) => {
+const extractKlingImages = (payload: unknown): ProviderGeneratedImage[] => {
   if (!isRecord(payload) || !isRecord(payload.data) || !isRecord(payload.data.task_result)) {
     return [];
   }
@@ -87,7 +88,7 @@ const extractKlingImages = (payload: unknown) => {
     ? payload.data.task_result.images
     : [];
 
-  return images.reduce<Array<{ imageUrl: string }>>((results, image) => {
+  return images.reduce<ProviderGeneratedImage[]>((results, image) => {
     if (!isRecord(image)) {
       return results;
     }
@@ -176,72 +177,78 @@ const pollKlingTask = async (
   throw new ProviderError("Kling image generation timed out.", 504);
 };
 
-export const klingPlatformAdapter: PlatformProviderAdapter = {
-  async generate(input) {
-    const normalizedApiKey = input.apiKey.trim();
-    if (!normalizedApiKey) {
-      throw new ProviderError("Kling API key is required.", 401);
-    }
+export const generateKlingImage = async (
+  input: PlatformProviderGenerateInput
+): Promise<RuntimeGenerationResult> => {
+  const providerModel = input.target.deployment.providerModel;
+  if (!SUPPORTED_MODELS.has(providerModel)) {
+    throw new ProviderError(`Unsupported Kling model: ${providerModel}.`, 400);
+  }
 
-    const context = createProviderRequestContext(input.options);
-    const createResponse = await fetchProviderResponse(
-      getKlingImageGenerationUrl(),
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${normalizedApiKey}`,
-        },
-        body: JSON.stringify({
-          model_name: input.request.model,
-          prompt: buildPrompt(input.request.prompt, input.request.style),
-          ...(input.request.negativePrompt?.trim()
-            ? { negative_prompt: input.request.negativePrompt.trim() }
-            : {}),
-          n: Math.min(Math.max(input.request.batchSize ?? 1, 1), 9),
-          aspect_ratio: input.request.aspectRatio,
-          resolution: resolveResolution(input.request.modelParams.resolution),
-          watermark_info: {
-            enabled: resolveWatermark(input.request.modelParams.watermark),
-          },
-        }),
+  const normalizedApiKey = input.apiKey.trim();
+  if (!normalizedApiKey) {
+    throw new ProviderError("Kling API key is required.", 401);
+  }
+
+  const context = createProviderRequestContext(input.options);
+  const createResponse = await fetchProviderResponse(
+    getKlingImageGenerationUrl(),
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${normalizedApiKey}`,
       },
-      "Kling image generation timed out.",
-      context
+      body: JSON.stringify({
+        model_name: providerModel,
+        prompt: buildPrompt(input.request.prompt, input.request.style),
+        ...(input.request.negativePrompt?.trim()
+          ? { negative_prompt: input.request.negativePrompt.trim() }
+          : {}),
+        n: Math.min(Math.max(input.request.batchSize ?? 1, 1), 9),
+        aspect_ratio: input.request.aspectRatio,
+        resolution: resolveResolution(input.request.modelParams.resolution),
+        watermark_info: {
+          enabled: resolveWatermark(input.request.modelParams.watermark),
+        },
+      }),
+    },
+    "Kling image generation timed out.",
+    context
+  );
+
+  if (!createResponse.ok) {
+    throw new ProviderError(
+      await readProviderError(createResponse, "Kling image generation failed."),
+      createResponse.status
     );
+  }
 
-    if (!createResponse.ok) {
-      throw new ProviderError(
-        await readProviderError(createResponse, "Kling image generation failed."),
-        createResponse.status
-      );
-    }
+  const createPayload = (await createResponse.json()) as unknown;
+  if (readKlingCode(createPayload) !== 0) {
+    throw new ProviderError(
+      readKlingErrorMessage(createPayload, "Kling image generation failed."),
+      502
+    );
+  }
 
-    const createPayload = (await createResponse.json()) as unknown;
-    if (readKlingCode(createPayload) !== 0) {
-      throw new ProviderError(
-        readKlingErrorMessage(createPayload, "Kling image generation failed."),
-        502
-      );
-    }
+  const taskId = extractKlingTaskId(createPayload);
+  if (!taskId) {
+    throw new ProviderError("Kling provider did not return a task id.");
+  }
 
-    const taskId = extractKlingTaskId(createPayload);
-    if (!taskId) {
-      throw new ProviderError("Kling provider did not return a task id.");
-    }
+  const rawResponse = await pollKlingTask(taskId, normalizedApiKey, context);
+  const images = extractKlingImages(rawResponse.payload);
+  if (images.length === 0) {
+    throw new ProviderError("Kling provider returned no image URL.");
+  }
 
-    const rawResponse = await pollKlingTask(taskId, normalizedApiKey, context);
-    const images = extractKlingImages(rawResponse.payload);
-    if (images.length === 0) {
-      throw new ProviderError("Kling provider returned no image URL.");
-    }
-
-    return {
-      runtimeProvider: input.target.provider.id,
-      modelFamily: input.target.family.id,
-      legacyProvider: input.target.legacyProviderAlias,
-      model: input.request.model,
-      images,
-    };
-  },
+  return {
+    modelId: input.target.frontendModel.id,
+    logicalModel: input.target.frontendModel.logicalModel,
+    deploymentId: input.target.deployment.id,
+    runtimeProvider: input.target.provider.id,
+    providerModel,
+    images,
+  };
 };

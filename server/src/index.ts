@@ -3,9 +3,8 @@ import { getConfig } from "./config";
 import { registerCors } from "./plugins/cors";
 import { registerRateLimit } from "./plugins/rateLimit";
 import { generatedImageRoute } from "./routes/generated-image";
-import { providerCapabilitiesRoute } from "./routes/provider-capabilities";
+import { modelCatalogRoute } from "./routes/model-catalog";
 import { imageGenerateRoute } from "./routes/image-generate";
-import { imageUpscaleRoute } from "./routes/image-upscale";
 
 export const buildServer = () => {
   const config = getConfig();
@@ -48,8 +47,7 @@ const start = async () => {
   await app.register(registerRateLimit);
   await app.register(generatedImageRoute);
   await app.register(imageGenerateRoute);
-  await app.register(imageUpscaleRoute);
-  await app.register(providerCapabilitiesRoute);
+  await app.register(modelCatalogRoute);
 
   app.get("/health", async () => ({
     status: "ok",
