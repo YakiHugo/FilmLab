@@ -5,19 +5,17 @@ import type {
   PersistedGenerationTurn,
   PersistedResultItem,
 } from "../../../../shared/chatImageTypes";
+import type { FrontendImageModelId } from "../../../../shared/imageModelCatalog";
 import { importAssetFiles } from "@/lib/assetImport";
-import { getDefaultImageModelParams, type ImageModelParamValue } from "@/lib/ai/imageModelParams";
+import type { ImageModelParamValue } from "@/lib/ai/imageModelParams";
 import { generateImage as requestImageGeneration } from "@/lib/ai/imageGeneration";
 import {
-  DEFAULT_IMAGE_PROVIDER,
-  getDefaultImageModelForProvider,
-  getImageModelConfig,
-  getImageModelFeatureSupport,
-  getImageModelName,
-  getImageProviderName,
-  isImageProviderId as isKnownImageProviderId,
-  normalizeImageRequestProvider,
-} from "@/lib/ai/imageProviders";
+  getImageModelCatalogEntry,
+  getRuntimeProviderEntry,
+  toCatalogFeatureSupport,
+  type CatalogDrivenFeatureSupport,
+  type ImageModelCatalog,
+} from "@/lib/ai/imageModelCatalog";
 import type { Asset, CanvasImageElement } from "@/types";
 import type {
   GeneratedImage,
@@ -62,8 +60,11 @@ export interface ImageGenerationTurn {
   prompt: string;
   createdAt: string;
   configSnapshot: GenerationConfig;
-  displayProviderId: string;
-  displayModelId: string;
+  selectedModelId: string;
+  selectedModelLabel: string;
+  runtimeProvider: string;
+  runtimeProviderLabel: string;
+  providerModel: string;
   displayAspectRatio: string;
   displayStyleId: string;
   displayStylePresetId: string;
@@ -143,28 +144,22 @@ const isImageStyleId = (value: unknown): value is ImageStyleId =>
 const isReferenceImageType = (value: unknown): value is ReferenceImageType =>
   typeof value === "string" && (REFERENCE_IMAGE_TYPES as readonly string[]).includes(value);
 
-const createDefaultGenerationConfig = (): GenerationConfig => {
-  const provider = DEFAULT_IMAGE_PROVIDER;
-  const model = getDefaultImageModelForProvider(provider);
-
-  return sanitizeGenerationConfig({
-    provider,
-    model,
-    aspectRatio: "1:1",
-    width: null,
-    height: null,
-    style: "none",
-    stylePreset: "",
-    negativePrompt: "",
-    referenceImages: [],
-    seed: null,
-    guidanceScale: null,
-    steps: null,
-    sampler: "",
-    batchSize: 1,
-    modelParams: getDefaultImageModelParams(provider, model),
-  });
-};
+const createFallbackGenerationConfig = (): GenerationConfig => ({
+  modelId: "seedream-v5",
+  aspectRatio: "1:1",
+  width: null,
+  height: null,
+  style: "none",
+  stylePreset: "",
+  negativePrompt: "",
+  referenceImages: [],
+  seed: null,
+  guidanceScale: null,
+  steps: null,
+  sampler: "",
+  batchSize: 1,
+  modelParams: {},
+});
 
 const serializeConfig = (config: GenerationConfig): Record<string, unknown> => ({
   ...config,
@@ -224,26 +219,25 @@ const deserializeReferenceImages = (value: unknown): ReferenceImage[] => {
 
 const deserializedConfigCache = new WeakMap<Record<string, unknown>, GenerationConfig>();
 
-const deserializeConfig = (snapshot: Record<string, unknown>): GenerationConfig => {
+const deserializeConfig = (
+  snapshot: Record<string, unknown>,
+  catalog: ImageModelCatalog | null | undefined
+): GenerationConfig => {
   const cached = deserializedConfigCache.get(snapshot);
   if (cached) {
     return cached;
   }
 
-  const fallbackConfig = createDefaultGenerationConfig();
-  const snapshotModel = typeof snapshot.model === "string" ? snapshot.model : fallbackConfig.model;
-  const normalizedProvider =
-    typeof snapshot.provider === "string"
-      ? normalizeImageRequestProvider(snapshot.provider, snapshotModel)
-      : null;
-  const provider =
-    normalizedProvider ?? fallbackConfig.provider;
-  const fallbackModel = getDefaultImageModelForProvider(provider);
+  const fallbackConfig = createFallbackGenerationConfig();
+  const fallbackModel = catalog?.models[0] ?? null;
+  const requestedModelId =
+    typeof snapshot.modelId === "string" ? snapshot.modelId : fallbackModel?.id ?? fallbackConfig.modelId;
+  const selectedModel =
+    getImageModelCatalogEntry(catalog, requestedModelId) ?? fallbackModel;
 
   const nextConfig = sanitizeGenerationConfig({
     ...fallbackConfig,
-    provider,
-    model: typeof snapshot.model === "string" ? snapshot.model : fallbackModel,
+    modelId: selectedModel?.id ?? fallbackConfig.modelId,
     aspectRatio: isImageAspectRatio(snapshot.aspectRatio)
       ? snapshot.aspectRatio
       : fallbackConfig.aspectRatio,
@@ -267,35 +261,22 @@ const deserializeConfig = (snapshot: Record<string, unknown>): GenerationConfig 
     batchSize:
       typeof snapshot.batchSize === "number" ? snapshot.batchSize : fallbackConfig.batchSize,
     modelParams: deserializeModelParams(snapshot.modelParams),
-  });
+  }, selectedModel);
 
   deserializedConfigCache.set(snapshot, nextConfig);
   return nextConfig;
 };
 
-const resolveSnapshotProviderAndModel = (snapshot: Record<string, unknown>) => {
-  const rawProvider =
-    typeof snapshot.provider === "string" && snapshot.provider.trim()
-      ? snapshot.provider
-      : DEFAULT_IMAGE_PROVIDER;
-  const rawModel =
-    typeof snapshot.model === "string" && snapshot.model.trim()
-      ? snapshot.model
-      : getDefaultImageModelForProvider(DEFAULT_IMAGE_PROVIDER);
-  const provider = normalizeImageRequestProvider(rawProvider, rawModel) ?? DEFAULT_IMAGE_PROVIDER;
-  const fallbackModel = isKnownImageProviderId(provider)
-    ? getDefaultImageModelForProvider(provider)
-    : getDefaultImageModelForProvider(DEFAULT_IMAGE_PROVIDER);
-  const model =
-    rawModel || fallbackModel;
-
-  return { provider, model };
-};
-
-const resolveSnapshotDisplayMeta = (snapshot: Record<string, unknown>) => {
-  const config = deserializeConfig(snapshot);
+const resolveSnapshotDisplayMeta = (
+  snapshot: Record<string, unknown>,
+  catalog: ImageModelCatalog | null | undefined
+) => {
+  const config = deserializeConfig(snapshot, catalog);
+  const selectedModel = getImageModelCatalogEntry(catalog, config.modelId);
 
   return {
+    modelId: config.modelId,
+    modelLabel: selectedModel?.label ?? config.modelId,
     aspectRatio:
       typeof snapshot.aspectRatio === "string" && snapshot.aspectRatio.trim()
         ? snapshot.aspectRatio
@@ -314,18 +295,13 @@ const resolveSnapshotDisplayMeta = (snapshot: Record<string, unknown>) => {
   };
 };
 
-const isRetryableProviderModel = (providerId: string, modelId: string) => {
-  const normalizedProviderId = normalizeImageRequestProvider(providerId, modelId);
-  return Boolean(normalizedProviderId && getImageModelConfig(normalizedProviderId, modelId));
-};
+const isRetryableModel = (
+  catalog: ImageModelCatalog | null | undefined,
+  modelId: FrontendImageModelId | string
+) => Boolean(getImageModelCatalogEntry(catalog, modelId));
 
-const buildLegacyRetryError = (providerId: string, modelId: string) => {
-  const normalizedProviderId = normalizeImageRequestProvider(providerId, modelId) ?? providerId;
-  return `${getImageProviderName(normalizedProviderId)} ${getImageModelName(
-    normalizedProviderId,
-    modelId
-  )} is no longer available. Choose a current model and run the prompt again.`;
-};
+const buildUnavailableModelError = (modelLabel: string) =>
+  `${modelLabel} is no longer available. Choose a current model and run the prompt again.`;
 
 const cloneImageRequest = (
   request: ImageGenerationRequest
@@ -383,8 +359,8 @@ const toPersistedResults = (images: GeneratedImage[]): PersistedResultItem[] =>
   images.map((image, index) => ({
     imageUrl: image.imageUrl,
     imageId: image.imageId ?? null,
-    provider: image.provider,
-    model: image.model,
+    runtimeProvider: image.provider,
+    providerModel: image.model,
     mimeType: image.mimeType,
     revisedPrompt: image.revisedPrompt ?? null,
     index,
@@ -440,18 +416,23 @@ const applyImportedAssetsToPersistedResults = (
 const toUITurn = (
   turn: PersistedGenerationTurn,
   runtimeResults: Record<number, RuntimeResultState> | undefined,
-  isSavingSelection: boolean
+  isSavingSelection: boolean,
+  catalog: ImageModelCatalog | null | undefined
 ): ImageGenerationTurn => {
-  const { provider, model } = resolveSnapshotProviderAndModel(turn.configSnapshot);
-  const displayMeta = resolveSnapshotDisplayMeta(turn.configSnapshot);
+  const displayMeta = resolveSnapshotDisplayMeta(turn.configSnapshot, catalog);
+  const runtimeProviderLabel =
+    getRuntimeProviderEntry(catalog, turn.runtimeProvider)?.name ?? turn.runtimeProvider;
 
   return {
     id: turn.id,
     prompt: turn.prompt,
     createdAt: turn.createdAt,
-    configSnapshot: deserializeConfig(turn.configSnapshot),
-    displayProviderId: provider,
-    displayModelId: model,
+    configSnapshot: deserializeConfig(turn.configSnapshot, catalog),
+    selectedModelId: displayMeta.modelId,
+    selectedModelLabel: displayMeta.modelLabel,
+    runtimeProvider: turn.runtimeProvider,
+    runtimeProviderLabel,
+    providerModel: turn.providerModel,
     displayAspectRatio: displayMeta.aspectRatio,
     displayStyleId: displayMeta.styleId,
     displayStylePresetId: displayMeta.stylePresetId,
@@ -465,8 +446,8 @@ const toUITurn = (
       return {
         imageUrl: result.imageUrl,
         imageId: result.imageId ?? undefined,
-        provider: result.provider,
-        model: result.model,
+        provider: result.runtimeProvider,
+        model: result.providerModel,
         mimeType: result.mimeType,
         revisedPrompt: result.revisedPrompt ?? null,
         index: result.index,
@@ -596,21 +577,11 @@ export const filesToReferenceImages = async (
 const toImageRequest = (
   prompt: string,
   config: GenerationConfig,
-  supportedFeatures: {
-    negativePrompt: boolean;
-    referenceImages: {
-      enabled: boolean;
-    };
-    seed: boolean;
-    guidanceScale: boolean;
-    steps: boolean;
-    styles: boolean;
-  },
+  supportedFeatures: CatalogDrivenFeatureSupport,
   options?: { supportsCustomSize?: boolean }
 ): ImageGenerationRequest => ({
   prompt,
-  provider: config.provider,
-  model: config.model,
+  modelId: config.modelId,
   aspectRatio: config.aspectRatio,
   width: options?.supportsCustomSize ? (config.width ?? undefined) : undefined,
   height: options?.supportsCustomSize ? (config.height ?? undefined) : undefined,
@@ -723,14 +694,17 @@ export async function saveGeneratedImages(
 
 export function useImageGeneration() {
   const {
+    catalog,
+    catalogError,
+    isCatalogLoading,
     config,
+    models,
     providers,
     styles,
-    providerConfig,
     modelConfig,
     modelParamDefinitions,
     supportedFeatures,
-    setProvider,
+    setConfig,
     setModel,
     updateConfig,
     addReferenceImages,
@@ -880,7 +854,7 @@ export function useImageGeneration() {
         return cached.uiTurn;
       }
 
-      const uiTurn = toUITurn(turn, runtimeState, isSavingSelection);
+      const uiTurn = toUITurn(turn, runtimeState, isSavingSelection, catalog);
       uiTurnCacheRef.current.set(turn.id, {
         turn,
         runtimeResults: runtimeState,
@@ -889,7 +863,7 @@ export function useImageGeneration() {
       });
       return uiTurn;
     },
-    []
+    [catalog]
   );
 
   const getUiTurnById = useCallback(
@@ -999,6 +973,8 @@ export function useImageGeneration() {
       if (!prompt) {
         return null;
       }
+      const requestModel =
+        getImageModelCatalogEntry(catalog, options.requestSnapshot.modelId) ?? modelConfig;
 
       cancelActiveGeneration("Generation canceled by a newer request.");
 
@@ -1018,6 +994,11 @@ export function useImageGeneration() {
           id: turnId,
           prompt,
           createdAt,
+          modelId: options.requestSnapshot.modelId,
+          logicalModel: requestModel?.logicalModel ?? "image.seedream.v5",
+          deploymentId: requestModel?.deploymentId ?? "ark-seedream-v5-primary",
+          runtimeProvider: requestModel?.primaryProvider ?? "ark",
+          providerModel: requestModel?.providerModel ?? "doubao-seedream-5-0-260128",
           configSnapshot: serializeConfig(cloneGenerationConfig(options.configSnapshot)),
           status: "loading",
           error: null,
@@ -1028,8 +1009,11 @@ export function useImageGeneration() {
         {
           id: jobId,
           turnId,
-          provider: options.requestSnapshot.provider,
-          model: options.requestSnapshot.model,
+          modelId: options.requestSnapshot.modelId,
+          logicalModel: requestModel?.logicalModel ?? "image.seedream.v5",
+          deploymentId: requestModel?.deploymentId ?? "ark-seedream-v5-primary",
+          runtimeProvider: requestModel?.primaryProvider ?? "ark",
+          providerModel: requestModel?.providerModel ?? "doubao-seedream-5-0-260128",
           compiledPrompt: prompt,
           requestSnapshot: toPersistedRequestSnapshot(options.requestSnapshot),
           status: "running",
@@ -1059,6 +1043,10 @@ export function useImageGeneration() {
         }
 
         updateTurn(turnId, {
+          logicalModel: generated.logicalModel,
+          deploymentId: generated.deploymentId,
+          runtimeProvider: generated.runtimeProvider,
+          providerModel: generated.providerModel,
           status: "done",
           error: null,
           warnings: [...(options.localWarnings ?? []), ...(generated.warnings ?? [])],
@@ -1103,9 +1091,11 @@ export function useImageGeneration() {
     },
     [
       addTurnWithJob,
+      catalog,
       cancelActiveGeneration,
       clearRuntimeTurnState,
       deleteTurnFromStore,
+      modelConfig,
       updateJob,
       updateTurn,
     ]
@@ -1118,35 +1108,31 @@ export function useImageGeneration() {
       options?: { replaceTurnId?: string }
     ) => {
       const prompt = promptInput.trim();
-      if (!prompt) {
+      if (!prompt || !catalog) {
         return null;
       }
 
       const nextConfigSnapshot = cloneGenerationConfig(configSnapshot);
-      const requestModelConfig = getImageModelConfig(
-        nextConfigSnapshot.provider,
-        nextConfigSnapshot.model
-      );
-      const requestSupportedFeatures =
-        getImageModelFeatureSupport(nextConfigSnapshot.provider, nextConfigSnapshot.model) ??
-        supportedFeatures;
+      const requestModelConfig = getImageModelCatalogEntry(catalog, nextConfigSnapshot.modelId);
+      const requestSupportedFeatures = toCatalogFeatureSupport(requestModelConfig);
 
       return runGeneration({
         prompt,
         configSnapshot: nextConfigSnapshot,
         requestSnapshot: toImageRequest(prompt, nextConfigSnapshot, requestSupportedFeatures, {
-          supportsCustomSize: Boolean(requestModelConfig?.supportsCustomSize),
+          supportsCustomSize: Boolean(requestModelConfig?.constraints.supportsCustomSize),
         }),
         replaceTurnId: options?.replaceTurnId,
       });
     },
-    [runGeneration, supportedFeatures]
+    [catalog, runGeneration]
   );
 
   const retryFromSnapshot = useCallback(
     async (job: GenerationJobSnapshot, originalTurn: PersistedGenerationTurn) => {
-      if (!isRetryableProviderModel(job.provider, job.model)) {
-        const errorMessage = buildLegacyRetryError(job.provider, job.model);
+      const selectedModel = getImageModelCatalogEntry(catalog, job.modelId);
+      if (!isRetryableModel(catalog, job.modelId)) {
+        const errorMessage = buildUnavailableModelError(selectedModel?.label ?? job.modelId);
         updateTurn(originalTurn.id, {
           status: "error",
           error: errorMessage,
@@ -1164,18 +1150,18 @@ export function useImageGeneration() {
       const retryRequest = resolveRetryRequestSnapshot(job.requestSnapshot);
       return runGeneration({
         prompt: originalTurn.prompt,
-        configSnapshot: deserializeConfig(originalTurn.configSnapshot),
+        configSnapshot: deserializeConfig(originalTurn.configSnapshot, catalog),
         requestSnapshot: retryRequest.request,
         replaceTurnId: originalTurn.id,
         localWarnings: retryRequest.warnings,
       });
     },
-    [runGeneration, updateJob, updateTurn]
+    [catalog, runGeneration, updateJob, updateTurn]
   );
 
   const generateFromPromptInput = useCallback(
     async (input: { text: string }) =>
-      generateWithConfig(input.text, cloneGenerationConfig(config)),
+      config ? generateWithConfig(input.text, cloneGenerationConfig(config)) : null,
     [config, generateWithConfig]
   );
 
@@ -1209,20 +1195,19 @@ export function useImageGeneration() {
         return retryFromSnapshot(job, turn);
       }
 
-      const { provider, model } = resolveSnapshotProviderAndModel(turn.configSnapshot);
-      if (!isRetryableProviderModel(provider, model)) {
+      if (!isRetryableModel(catalog, turn.modelId)) {
         updateTurn(turn.id, {
           status: "error",
-          error: buildLegacyRetryError(provider, model),
+          error: buildUnavailableModelError(turn.modelId),
         });
         return null;
       }
 
-      return generateWithConfig(turn.prompt, deserializeConfig(turn.configSnapshot), {
+      return generateWithConfig(turn.prompt, deserializeConfig(turn.configSnapshot, catalog), {
         replaceTurnId: turn.id,
       });
     },
-    [generateWithConfig, getTurnById, retryFromSnapshot, updateTurn]
+    [catalog, generateWithConfig, getTurnById, retryFromSnapshot, updateTurn]
   );
 
   const reuseParameters = useCallback(
@@ -1232,24 +1217,22 @@ export function useImageGeneration() {
         return null;
       }
 
-      const { provider, model } = resolveSnapshotProviderAndModel(turn.configSnapshot);
-      if (!isRetryableProviderModel(provider, model)) {
+      if (!isRetryableModel(catalog, turn.modelId)) {
         updateTurn(turn.id, {
           status: "error",
-          error: buildLegacyRetryError(provider, model),
+          error: buildUnavailableModelError(turn.modelId),
         });
         return turn.prompt;
       }
 
-      const snapshot = cloneGenerationConfig(deserializeConfig(turn.configSnapshot));
-      const configWithoutRefs: Partial<GenerationConfig> = { ...snapshot };
-      delete configWithoutRefs.referenceImages;
-      setProvider(snapshot.provider);
-      setModel(snapshot.model);
-      updateConfig(configWithoutRefs);
+      const snapshot = cloneGenerationConfig(deserializeConfig(turn.configSnapshot, catalog));
+      setConfig({
+        ...snapshot,
+        referenceImages: [],
+      });
       return turn.prompt;
     },
-    [getTurnById, setModel, setProvider, updateConfig, updateTurn]
+    [catalog, getTurnById, setConfig, updateTurn]
   );
 
   const saveSelectedResults = useCallback(
@@ -1405,12 +1388,12 @@ export function useImageGeneration() {
         getCachedUiTurn(turn, runtimeResults[turn.id], Boolean(savingTurnIds[turn.id]))
       );
     },
-    [getCachedUiTurn, runtimeResults, savingTurnIds, session?.turns]
+    [catalog, getCachedUiTurn, runtimeResults, savingTurnIds, session?.turns]
   );
 
-  const aspectRatioOptions = useMemo(
-    () => modelConfig.supportedAspectRatios,
-    [modelConfig.supportedAspectRatios]
+  const aspectRatioOptions = useMemo<ImageAspectRatio[]>(
+    () => modelConfig?.constraints.supportedAspectRatios ?? ["1:1"],
+    [modelConfig?.constraints.supportedAspectRatios]
   );
 
   const isGenerating = useMemo(
@@ -1421,15 +1404,16 @@ export function useImageGeneration() {
   return {
     turns,
     isGenerating,
+    isCatalogLoading,
+    catalogError,
     config,
+    models,
     providers,
     styles,
-    providerConfig,
     modelConfig,
     modelParamDefinitions,
     supportedFeatures,
     aspectRatioOptions,
-    setProvider,
     setModel,
     updateConfig,
     addReferenceFiles,

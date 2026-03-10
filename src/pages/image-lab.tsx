@@ -52,7 +52,6 @@ const resolveSpeedFromSteps = (
 
 export function ImageLabPage() {
   const hydrateSession = useImageSessionStore((state) => state.hydrateSession);
-  const isHydrated = useImageSessionStore((state) => state.isHydrated);
   const imageGeneration = useImageGeneration();
   const [externalPrompt, setExternalPrompt] = useState<string | null>(null);
   const [downloadFeedback, setDownloadFeedback] = useState<string | null>(null);
@@ -71,8 +70,8 @@ export function ImageLabPage() {
   const turnsRef = useRef(turns);
   turnsRef.current = turns;
   const generationSpeed = resolveSpeedFromSteps(
-    imageGeneration.config.steps,
-    imageGeneration.modelConfig.defaultSteps
+    imageGeneration.config?.steps ?? null,
+    imageGeneration.modelConfig?.defaults.steps ?? undefined
   );
 
   useEffect(() => {
@@ -96,19 +95,14 @@ export function ImageLabPage() {
   const selectedPreset = useMemo(
     () =>
       IMAGE_STYLE_PRESETS.find(
-        (preset) => preset.stylePreset === imageGeneration.config.stylePreset
+        (preset) => preset.stylePreset === imageGeneration.config?.stylePreset
       ) ?? null,
-    [imageGeneration.config.stylePreset]
+    [imageGeneration.config?.stylePreset]
   );
-  const currentModelName = useMemo(() => {
-    const currentProvider = imageGeneration.providers.find(
-      (provider) => provider.id === imageGeneration.config.provider
-    );
-    return (
-      currentProvider?.models.find((model) => model.id === imageGeneration.config.model)?.name ??
-      imageGeneration.config.model
-    );
-  }, [imageGeneration.config.model, imageGeneration.config.provider, imageGeneration.providers]);
+  const currentModelName = useMemo(
+    () => imageGeneration.modelConfig?.label ?? imageGeneration.config?.modelId ?? "Model",
+    [imageGeneration.config?.modelId, imageGeneration.modelConfig?.label]
+  );
 
   const selectStylePreset = (preset: ImageStylePreset) => {
     imageGeneration.updateConfig({
@@ -127,7 +121,7 @@ export function ImageLabPage() {
   const updateModelExtraParam = (key: string, value: ImageModelParamValue) => {
     imageGeneration.updateConfig({
       modelParams: {
-        ...imageGeneration.config.modelParams,
+        ...(imageGeneration.config?.modelParams ?? {}),
         [key]: value,
       },
     });
@@ -199,10 +193,10 @@ export function ImageLabPage() {
   const handleGenerationSpeedChange = useCallback(
     (speed: "fast" | "balanced" | "quality") => {
       updateGenerationConfig({
-        steps: resolveStepsForSpeed(imageGeneration.modelConfig.defaultSteps, speed),
+        steps: resolveStepsForSpeed(imageGeneration.modelConfig?.defaults.steps ?? undefined, speed),
       });
     },
-    [imageGeneration.modelConfig.defaultSteps, updateGenerationConfig]
+    [imageGeneration.modelConfig?.defaults.steps, updateGenerationConfig]
   );
 
   const handleSaveSelectedResults = useCallback(
@@ -229,10 +223,33 @@ export function ImageLabPage() {
     setExternalPrompt(null);
   }, [clearSession]);
 
-  if (!isHydrated) {
+  if (imageGeneration.isCatalogLoading) {
     return (
       <div className="flex h-full min-h-[320px] items-center justify-center bg-[#050506]">
         <Loader2 className="h-5 w-5 animate-spin text-zinc-500" />
+      </div>
+    );
+  }
+
+  if (imageGeneration.catalogError) {
+    return (
+      <div className="flex h-full min-h-[320px] items-center justify-center bg-[#050506] px-6">
+        <div
+          role="alert"
+          className="max-w-xl rounded-3xl border border-rose-300/20 bg-rose-500/10 px-6 py-5 text-sm text-rose-100"
+        >
+          {imageGeneration.catalogError}
+        </div>
+      </div>
+    );
+  }
+
+  if (!imageGeneration.config || !imageGeneration.modelConfig) {
+    return (
+      <div className="flex h-full min-h-[320px] items-center justify-center bg-[#050506] px-6">
+        <div className="max-w-xl rounded-3xl border border-white/10 bg-white/[0.04] px-6 py-5 text-sm text-zinc-200">
+          No image models are available in the current catalog response.
+        </div>
       </div>
     );
   }
@@ -262,7 +279,6 @@ export function ImageLabPage() {
           {downloadFeedback}
         </div>
       ) : null}
-
       <ImagePromptInput
         isGeneratingImage={imageGeneration.isGenerating}
         generationSpeed={generationSpeed}
@@ -270,22 +286,22 @@ export function ImageLabPage() {
         selectedStylePresetId={selectedPreset?.id ?? null}
         styles={imageGeneration.styles}
         selectedStyleId={imageGeneration.config.style}
-        imageProviders={imageGeneration.providers.map((provider) => ({
-          id: provider.id,
-          name: provider.name,
-          models: provider.models.map((model) => ({
-            id: model.id,
-            name: model.name,
-            description: model.description,
-            costPerImage: model.costPerImage,
-          })),
+        imageModels={imageGeneration.models.map((model) => ({
+          id: model.id,
+          name: model.label,
+          description: model.description,
+          providerId: model.primaryProvider,
+          providerName:
+            imageGeneration.providers.find((provider) => provider.id === model.primaryProvider)?.name ??
+            model.primaryProvider,
+          costPerImage: undefined,
         }))}
-        imageProvider={imageGeneration.config.provider}
-        imageModel={imageGeneration.config.model}
+        runtimeProviders={imageGeneration.providers}
+        imageModel={imageGeneration.config.modelId}
         providerFeatures={imageGeneration.supportedFeatures}
         aspectRatioOptions={imageGeneration.aspectRatioOptions}
         maxBatchSize={
-          imageGeneration.modelConfig.maxBatchSize ?? IMAGE_GENERATION_LIMITS.batchSize.max
+          imageGeneration.modelConfig?.constraints.maxBatchSize ?? IMAGE_GENERATION_LIMITS.batchSize.max
         }
         commonParams={{
           aspectRatio: imageGeneration.config.aspectRatio,
@@ -306,7 +322,6 @@ export function ImageLabPage() {
         externalPrompt={externalPrompt}
         onExternalPromptConsumed={handleExternalPromptConsumed}
         onGenerationSpeedChange={handleGenerationSpeedChange}
-        onImageProviderChange={imageGeneration.setProvider}
         onImageModelChange={imageGeneration.setModel}
         onStyleChange={setBaseStyle}
         onSelectStylePreset={selectStylePreset}

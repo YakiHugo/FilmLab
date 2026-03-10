@@ -1,29 +1,14 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { ImageChatFeed } from "./ImageChatFeed";
 import type { ImageGenerationTurn } from "./hooks/useImageGeneration";
-
-const getImageModelFeatureSupportMock = vi.fn();
-
-vi.mock("@/lib/ai/imageProviders", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/ai/imageProviders")>(
-    "@/lib/ai/imageProviders"
-  );
-
-  return {
-    ...actual,
-    getImageModelFeatureSupport: (...args: [string, string]) =>
-      getImageModelFeatureSupportMock(...args),
-  };
-});
 
 const buildTurn = (): ImageGenerationTurn => ({
   id: "turn-1",
   prompt: "A portrait",
-  createdAt: new Date().toISOString(),
+  createdAt: new Date("2026-03-10T12:00:00.000Z").toISOString(),
   configSnapshot: {
-    provider: "qwen",
-    model: "qwen-image-2.0-pro",
+    modelId: "qwen-image-2-pro",
     aspectRatio: "1:1",
     width: null,
     height: null,
@@ -38,8 +23,11 @@ const buildTurn = (): ImageGenerationTurn => ({
     batchSize: 1,
     modelParams: {},
   },
-  displayProviderId: "qwen",
-  displayModelId: "qwen-image-2.0-pro",
+  selectedModelId: "qwen-image-2-pro",
+  selectedModelLabel: "Qwen Image 2.0 Pro",
+  runtimeProvider: "dashscope",
+  runtimeProviderLabel: "DashScope",
+  providerModel: "qwen-image-2.0-pro",
   displayAspectRatio: "1:1",
   displayStyleId: "none",
   displayStylePresetId: "",
@@ -52,7 +40,7 @@ const buildTurn = (): ImageGenerationTurn => ({
     {
       imageUrl: "https://example.com/image.png",
       imageId: "image-1",
-      provider: "qwen",
+      provider: "dashscope",
       model: "qwen-image-2.0-pro",
       index: 0,
       assetId: null,
@@ -68,7 +56,7 @@ const renderFeed = () =>
   renderToStaticMarkup(
     <ImageChatFeed
       turns={[buildTurn()]}
-      currentModelName="Qwen"
+      currentModelName="Qwen Image 2.0 Pro"
       onClearHistory={noop}
       onToggleResultSelection={noop}
       onSaveSelectedResults={noop}
@@ -83,20 +71,18 @@ const renderFeed = () =>
   );
 
 describe("ImageChatFeed", () => {
-  it("enables upscale action when model supports upscale", () => {
-    getImageModelFeatureSupportMock.mockReturnValue({ supportsUpscale: true });
-
+  it("renders selected model and runtime provider metadata from the turn", () => {
     const html = renderFeed();
 
-    expect(html).toContain('title="Upscale image"');
-    expect(html).not.toContain('title="Upscale is not available for this result"');
+    expect(html).toContain("Model Qwen Image 2.0 Pro");
+    expect(html).toContain("Runtime DashScope");
+    expect(html).toContain("qwen-image-2.0-pro");
   });
 
-  it("keeps upscale action disabled when model does not support upscale", () => {
-    getImageModelFeatureSupportMock.mockReturnValue({ supportsUpscale: false });
-
+  it("keeps upscale action disabled for image results in the catalog-driven flow", () => {
     const html = renderFeed();
 
     expect(html).toContain('title="Upscale is not available for this result"');
+    expect(html).not.toContain('title="Upscale image"');
   });
 });

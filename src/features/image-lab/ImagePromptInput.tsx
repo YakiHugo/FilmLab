@@ -14,13 +14,15 @@ import {
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ImageStylePreset } from "@/lib/ai/imageStylePresets";
 import type { ImageModelParamDefinition, ImageModelParamValue } from "@/lib/ai/imageModelParams";
-import type { ImageProviderFeatureSupport } from "@/lib/ai/imageProviders";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type {
+  CatalogDrivenFeatureSupport,
+  ImageRuntimeProviderEntry,
+} from "@/lib/ai/imageModelCatalog";
+import type {
   ImageAspectRatio,
-  ImageProviderId,
   ImageStyleId,
   ReferenceImage,
 } from "@/types/imageGeneration";
@@ -34,14 +36,17 @@ interface ImagePromptInputProps {
   selectedStylePresetId: string | null;
   styles: Array<{ id: ImageStyleId; label: string; promptHint: string }>;
   selectedStyleId: ImageStyleId;
-  imageProviders: Array<{
-    id: ImageProviderId;
+  imageModels: Array<{
+    id: string;
     name: string;
-    models: Array<{ id: string; name: string; description?: string; costPerImage?: number }>;
+    description?: string;
+    providerId: string;
+    providerName: string;
+    costPerImage?: number;
   }>;
-  imageProvider: ImageProviderId;
   imageModel: string;
-  providerFeatures: ImageProviderFeatureSupport;
+  runtimeProviders: ImageRuntimeProviderEntry[];
+  providerFeatures: CatalogDrivenFeatureSupport;
   aspectRatioOptions: ImageAspectRatio[];
   maxBatchSize: number;
   commonParams: {
@@ -63,7 +68,6 @@ interface ImagePromptInputProps {
   externalPrompt?: string | null;
   onExternalPromptConsumed?: () => void;
   onGenerationSpeedChange: (speed: "fast" | "balanced" | "quality") => void;
-  onImageProviderChange: (provider: ImageProviderId) => void;
   onImageModelChange: (model: string) => void;
   onStyleChange: (style: ImageStyleId) => void;
   onSelectStylePreset: (preset: ImageStylePreset) => void;
@@ -245,9 +249,9 @@ export function ImagePromptInput({
   selectedStylePresetId,
   styles,
   selectedStyleId,
-  imageProviders,
-  imageProvider,
+  imageModels,
   imageModel,
+  runtimeProviders,
   providerFeatures,
   aspectRatioOptions,
   maxBatchSize,
@@ -258,7 +262,6 @@ export function ImagePromptInput({
   externalPrompt = null,
   onExternalPromptConsumed,
   onGenerationSpeedChange,
-  onImageProviderChange,
   onImageModelChange,
   onStyleChange,
   onSelectStylePreset,
@@ -281,13 +284,12 @@ export function ImagePromptInput({
   const containerRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<number | null>(null);
 
-  const selectedProvider = useMemo(
-    () => imageProviders.find((provider) => provider.id === imageProvider) ?? imageProviders[0],
-    [imageProvider, imageProviders]
-  );
   const selectedPreset = stylePresets.find((preset) => preset.id === selectedStylePresetId) ?? null;
   const selectedStyle = styles.find((style) => style.id === selectedStyleId) ?? null;
-  const selectedModel = selectedProvider?.models.find((model) => model.id === imageModel);
+  const selectedModel = useMemo(
+    () => imageModels.find((model) => model.id === imageModel) ?? imageModels[0],
+    [imageModel, imageModels]
+  );
   const supportsCustomSize = aspectRatioOptions.includes("custom");
   const resolutionValue = resolveResolutionFromSize(commonParams.width, commonParams.height);
   const modelLabel = selectedModel?.name ?? imageModel;
@@ -397,10 +399,7 @@ export function ImagePromptInput({
     setActiveHoverPanel(null);
   };
 
-  const selectModel = (providerId: ImageProviderId, modelId: string) => {
-    if (providerId !== imageProvider) {
-      onImageProviderChange(providerId);
-    }
+  const selectModel = (modelId: string) => {
     onImageModelChange(modelId);
     setModelMenuOpen(false);
   };
@@ -804,11 +803,8 @@ export function ImagePromptInput({
 
         {showApiKeys ? (
           <ProviderApiKeyPanel
-            providers={imageProviders.map((provider) => ({
-              id: provider.id,
-              name: provider.name,
-            }))}
-            currentProvider={imageProvider}
+            providers={runtimeProviders}
+            currentProviderId={selectedModel?.providerId ?? null}
           />
         ) : null}
       </div>
@@ -874,48 +870,39 @@ export function ImagePromptInput({
                 <AnimatePresence>
                   {modelMenuOpen ? (
                     <PanelShell className="left-0 max-h-[420px] w-[340px] overflow-y-auto p-2">
-                      <div className="space-y-3">
-                        {imageProviders.map((provider) => (
-                          <div key={provider.id}>
-                            <p className="px-3 pb-1 pt-2 text-[10px] uppercase tracking-[0.26em] text-zinc-500">
-                              {provider.name}
-                            </p>
-                            <div className="space-y-1">
-                              {provider.models.map((model) => {
-                                const active =
-                                  provider.id === imageProvider && model.id === imageModel;
-                                return (
-                                  <button
-                                    key={`${provider.id}-${model.id}`}
-                                    type="button"
-                                    className={cn(
-                                      "flex w-full items-start gap-3 rounded-[18px] px-3 py-3 text-left transition",
-                                      active
-                                        ? "bg-white/[0.1] text-zinc-100"
-                                        : "text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-100"
-                                    )}
-                                    onClick={() => selectModel(provider.id, model.id)}
-                                  >
-                                    <span className="mt-1 h-2.5 w-2.5 rounded-full border border-white/20 bg-white/10" />
-                                    <span className="min-w-0 flex-1">
-                                      <span className="block text-sm font-medium">
-                                        {model.name}
-                                      </span>
-                                      {model.description ? (
-                                        <span className="mt-1 block text-xs leading-5 text-zinc-500">
-                                          {model.description}
-                                        </span>
-                                      ) : null}
-                                    </span>
-                                    {active ? (
-                                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-zinc-100" />
-                                    ) : null}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
+                      <div className="space-y-1">
+                        {imageModels.map((model) => {
+                          const active = model.id === imageModel;
+                          return (
+                            <button
+                              key={model.id}
+                              type="button"
+                              className={cn(
+                                "flex w-full items-start gap-3 rounded-[18px] px-3 py-3 text-left transition",
+                                active
+                                  ? "bg-white/[0.1] text-zinc-100"
+                                  : "text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-100"
+                              )}
+                              onClick={() => selectModel(model.id)}
+                            >
+                              <span className="mt-1 h-2.5 w-2.5 rounded-full border border-white/20 bg-white/10" />
+                              <span className="min-w-0 flex-1">
+                                <span className="block text-sm font-medium">{model.name}</span>
+                                <span className="mt-1 block text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                                  {model.providerName}
+                                </span>
+                                {model.description ? (
+                                  <span className="mt-1 block text-xs leading-5 text-zinc-500">
+                                    {model.description}
+                                  </span>
+                                ) : null}
+                              </span>
+                              {active ? (
+                                <Check className="mt-0.5 h-4 w-4 shrink-0 text-zinc-100" />
+                              ) : null}
+                            </button>
+                          );
+                        })}
                       </div>
                     </PanelShell>
                   ) : null}

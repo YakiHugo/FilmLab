@@ -94,7 +94,7 @@ interface FilmLabDB extends DBSchema {
 }
 
 const DB_NAME = "filmlab-mvp";
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 
 let dbFailed = false;
 let dbInstance: IDBPDatabase<FilmLabDB> | null = null;
@@ -140,6 +140,8 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
           }
           if (!db.objectStoreNames.contains("imageGenerationSessions")) {
             db.createObjectStore("imageGenerationSessions", { keyPath: "id" });
+          } else if (oldVersion < 9) {
+            transaction.objectStore("imageGenerationSessions").clear();
           }
           // v5+ only add optional value fields (`importDay`, `tags`, `source`, sync fields).
           // No value migration is needed because IndexedDB values are schemaless.

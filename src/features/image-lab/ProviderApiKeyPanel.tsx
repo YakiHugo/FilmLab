@@ -1,65 +1,18 @@
 import { useEffect } from "react";
 import { KeyRound } from "lucide-react";
-import {
-  getImageProviderCredentialSlot,
-  type ImageProviderCredentialSlotId,
-} from "@/lib/ai/imageProviders";
-import type { ImageProviderId } from "@/types/imageGeneration";
+import type { ImageRuntimeProviderEntry } from "@/lib/ai/imageModelCatalog";
 
 interface ProviderApiKeyPanelProps {
-  providers: Array<{
-    id: ImageProviderId;
-    name: string;
-  }>;
-  currentProvider: ImageProviderId;
+  providers: ImageRuntimeProviderEntry[];
+  currentProviderId: string | null;
 }
 
 const LEGACY_IMAGE_PROVIDER_STORAGE_KEY = "filmlab-image-provider-keys";
 
-const SLOT_LABELS: Record<ImageProviderCredentialSlotId, string> = {
-  ark: "Ark",
-  dashscope: "DashScope",
-  kling: "Kling",
-};
-
 export function ProviderApiKeyPanel({
   providers,
-  currentProvider,
+  currentProviderId,
 }: ProviderApiKeyPanelProps) {
-  const currentSlot = getImageProviderCredentialSlot(currentProvider);
-  const slots = Object.values(
-    providers.reduce<
-      Partial<
-        Record<
-          ImageProviderCredentialSlotId,
-          {
-            id: ImageProviderCredentialSlotId;
-            title: string;
-            providerNames: string[];
-          }
-        >
-      >
-    >((accumulator, provider) => {
-      const slot = getImageProviderCredentialSlot(provider.id);
-      if (!slot) {
-        return accumulator;
-      }
-
-      const existing = accumulator[slot];
-      if (existing) {
-        existing.providerNames.push(provider.name);
-        return accumulator;
-      }
-
-      accumulator[slot] = {
-        id: slot,
-        title: SLOT_LABELS[slot],
-        providerNames: [provider.name],
-      };
-      return accumulator;
-    }, {})
-  );
-
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -90,16 +43,12 @@ export function ProviderApiKeyPanel({
       </div>
 
       <div className="mt-3 space-y-2">
-        {slots.map((slot) => {
-          if (!slot) {
-            return null;
-          }
-
-          const isCurrentProvider = slot.id === currentSlot;
+        {providers.map((provider) => {
+          const isCurrentProvider = provider.id === currentProviderId;
 
           return (
             <div
-              key={slot.id}
+              key={provider.id}
               className={[
                 "rounded-xl border px-2.5 py-2",
                 isCurrentProvider
@@ -109,8 +58,10 @@ export function ProviderApiKeyPanel({
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs font-medium text-zinc-100">{slot.title}</p>
-                  <p className="text-[11px] text-zinc-500">{slot.providerNames.join(" / ")}</p>
+                  <p className="text-xs font-medium text-zinc-100">{provider.name}</p>
+                  <p className="text-[11px] text-zinc-500">
+                    {provider.configured ? "Configured on server" : "Missing server credential"}
+                  </p>
                 </div>
                 <span className="rounded-full border border-white/10 bg-black/30 px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-zinc-400">
                   Server managed

@@ -3,11 +3,6 @@ import { Download, Loader2, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import { IMAGE_STYLE_PRESETS } from "@/lib/ai/imageStylePresets";
 import { IMAGE_STYLES } from "@/lib/ai/imageStyles";
-import {
-  getImageModelFeatureSupport,
-  getImageModelName,
-  getImageProviderName,
-} from "@/lib/ai/imageProviders";
 import { cn } from "@/lib/utils";
 import type { ImageGenerationTurn } from "./hooks/useImageGeneration";
 import { ImageResultCard } from "./ImageResultCard";
@@ -41,12 +36,10 @@ const resolveTurnMeta = (turn: ImageGenerationTurn) => {
     IMAGE_STYLES.find((entry) => entry.id === turn.displayStyleId) ?? IMAGE_STYLES[0];
 
   return {
-    providerName: getImageProviderName(turn.displayProviderId),
-    modelName: getImageModelName(turn.displayProviderId, turn.displayModelId),
+    providerName: turn.runtimeProviderLabel,
+    modelName: turn.selectedModelLabel,
     styleLabel: preset?.title ?? (style?.id !== "none" ? style?.label : null),
-    supportsUpscale: Boolean(
-      getImageModelFeatureSupport(turn.displayProviderId, turn.displayModelId)?.supportsUpscale
-    ),
+    supportsUpscale: false,
   };
 };
 
@@ -78,8 +71,9 @@ function TurnWarnings({
 function TurnTags({ turn, compact = false }: { turn: ImageGenerationTurn; compact?: boolean }) {
   const meta = useMemo(() => resolveTurnMeta(turn), [turn]);
   const items = [
-    meta.providerName,
-    meta.modelName,
+    `Model ${meta.modelName}`,
+    `Runtime ${meta.providerName}`,
+    turn.providerModel,
     meta.styleLabel,
     turn.displayAspectRatio,
     turn.displayReferenceImageCount > 0

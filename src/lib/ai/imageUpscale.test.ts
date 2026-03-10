@@ -16,7 +16,7 @@ describe("upscaleImage", () => {
     vi.restoreAllMocks();
   });
 
-  it("accepts canonical providers and returns legacy-compatible provider metadata", async () => {
+  it("accepts canonical providers and returns the normalized generated image payload", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetchMock);
     fetchMock.mockResolvedValue(
@@ -55,8 +55,6 @@ describe("upscaleImage", () => {
     );
     expect(result).toMatchObject({
       provider: "qwen",
-      runtimeProvider: "dashscope",
-      modelFamily: "qwen",
       model: "qwen-image-2.0-pro",
       imageId: "img-upscaled-1",
       imageUrl: "/api/generated-images/img-upscaled-1",

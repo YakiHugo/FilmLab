@@ -135,12 +135,6 @@ export async function upscaleImage(
     ...(typeof json.imageId === "string" ? { imageId: json.imageId } : {}),
     provider,
     model: typeof json.model === "string" ? json.model : payload.model,
-    ...(typeof json.runtimeProvider === "string"
-      ? { runtimeProvider: json.runtimeProvider as GeneratedImage["runtimeProvider"] }
-      : {}),
-    ...(typeof json.modelFamily === "string"
-      ? { modelFamily: json.modelFamily as GeneratedImage["modelFamily"] }
-      : {}),
     ...(typeof json.mimeType === "string" ? { mimeType: json.mimeType } : {}),
   };
 }

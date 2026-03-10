@@ -194,6 +194,11 @@ export const useImageSessionStore = create<ImageSessionState>()(
               await persistSession(normalizedSession.session);
             }
 
+            const currentState = get();
+            if (currentState.isHydrated && currentState.session) {
+              return;
+            }
+
             set({
               session: normalizedSession?.session ?? latestSession,
               isHydrated: true,
