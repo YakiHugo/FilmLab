@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ZodError } from "zod";
+import { recordProviderCallResult } from "../capabilities/registry";
 import { getConfig } from "../config";
 import { getProviderAdapter, getUserProviderKey, resolveApiKey } from "../providers/registry";
 import { ProviderError } from "../providers/types";
@@ -77,6 +78,8 @@ export const imageUpscaleRoute: FastifyPluginAsync = async (app) => {
         });
       }
 
+      const callStartedAt = Date.now();
+
       try {
         const upscaled = await adapter.upscale(
           {
@@ -97,6 +100,14 @@ export const imageUpscaleRoute: FastifyPluginAsync = async (app) => {
 
         const imageId = storeGeneratedImage(upscaled.binaryData, upscaled.mimeType);
 
+        recordProviderCallResult({
+          provider: payload.provider,
+          model: payload.model,
+          operation: "upscale",
+          success: true,
+          latencyMs: Date.now() - callStartedAt,
+        });
+
         return reply.code(200).send({
           provider: payload.provider,
           model: payload.model,
@@ -106,12 +117,28 @@ export const imageUpscaleRoute: FastifyPluginAsync = async (app) => {
         });
       } catch (error) {
         if (error instanceof ProviderError) {
+          recordProviderCallResult({
+            provider: payload.provider,
+            model: payload.model,
+            operation: "upscale",
+            success: false,
+            latencyMs: Date.now() - callStartedAt,
+            errorType: "provider_error",
+          });
           return reply.code(error.statusCode).send({
             error: error.message,
             provider: payload.provider,
           });
         }
 
+        recordProviderCallResult({
+          provider: payload.provider,
+          model: payload.model,
+          operation: "upscale",
+          success: false,
+          latencyMs: Date.now() - callStartedAt,
+          errorType: "internal_error",
+        });
         app.log.error(error);
         return reply.code(500).send({
           error: "Image upscale failed.",

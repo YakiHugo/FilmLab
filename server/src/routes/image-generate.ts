@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ZodError } from "zod";
+import { recordProviderCallResult } from "../capabilities/registry";
 import { getConfig } from "../config";
 import { getProviderAdapter, getUserProviderKey, resolveApiKey } from "../providers/registry";
 import { ProviderError } from "../providers/types";
@@ -94,6 +95,8 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         });
       }
 
+      const callStartedAt = Date.now();
+
       try {
         const generated = await adapter.generate(payload, apiKey, {
           signal: requestController.signal,
@@ -146,6 +149,14 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           throw new ProviderError("Provider did not return any image.");
         }
 
+        recordProviderCallResult({
+          provider: payload.provider,
+          model: payload.model,
+          operation: "generate",
+          success: true,
+          latencyMs: Date.now() - callStartedAt,
+        });
+
         return reply.code(200).send({
           provider: generated.provider,
           model: generated.model,
@@ -157,12 +168,28 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         });
       } catch (error) {
         if (error instanceof ProviderError) {
+          recordProviderCallResult({
+            provider: payload.provider,
+            model: payload.model,
+            operation: "generate",
+            success: false,
+            latencyMs: Date.now() - callStartedAt,
+            errorType: "provider_error",
+          });
           return reply.code(error.statusCode).send({
             error: error.message,
             provider: payload.provider,
           });
         }
 
+        recordProviderCallResult({
+          provider: payload.provider,
+          model: payload.model,
+          operation: "generate",
+          success: false,
+          latencyMs: Date.now() - callStartedAt,
+          errorType: "internal_error",
+        });
         app.log.error(error);
         return reply.code(500).send({
           error: "Image generation failed.",
