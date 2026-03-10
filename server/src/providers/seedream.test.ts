@@ -352,4 +352,49 @@ describe("seedreamImageProvider", () => {
     expect(result.images).toHaveLength(1);
     expect(result.warnings).toEqual(["One image failed moderation"]);
   });
+
+  it("returns a warning when reference images are provided but unsupported", async () => {
+    const { seedreamImageProvider } = await import("./seedream");
+
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              url: "https://cdn.example.com/generated-1.jpeg",
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+
+    const result = await seedreamImageProvider.generate(
+      {
+        prompt: "Studio portrait",
+        provider: "seedream",
+        model: "doubao-seedream-5-0-260128",
+        aspectRatio: "1:1",
+        style: "none",
+        referenceImages: [
+          {
+            url: "https://example.com/ref.png",
+            type: "content",
+          },
+        ],
+        batchSize: 1,
+        modelParams: {},
+      },
+      "ark-api-key"
+    );
+
+    expect(result.warnings).toEqual([
+      "Seedream does not support reference images yet. Ignored 1 reference image.",
+    ]);
+  });
 });

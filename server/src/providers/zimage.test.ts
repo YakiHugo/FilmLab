@@ -79,4 +79,52 @@ describe("zImageProvider", () => {
       ],
     });
   });
+
+  it("returns a warning when reference images are provided but unsupported", async () => {
+    const { zImageProvider } = await import("./zimage");
+
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          output: {
+            results: [
+              {
+                url: "https://cdn.example.com/zimage-1.png",
+              },
+            ],
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+
+    const result = await zImageProvider.generate(
+      {
+        prompt: "Architecture",
+        provider: "zimage",
+        model: "z-image-turbo",
+        aspectRatio: "1:1",
+        style: "none",
+        referenceImages: [
+          {
+            url: "https://example.com/ref.png",
+            type: "style",
+            weight: 1,
+          },
+        ],
+        batchSize: 1,
+        modelParams: {},
+      },
+      "dashscope-key"
+    );
+
+    expect(result.warnings).toEqual([
+      "Z Image does not support reference images yet. Ignored 1 reference image.",
+    ]);
+  });
 });

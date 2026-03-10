@@ -1,6 +1,7 @@
 import { getImageModelConfig } from "../../../shared/imageProviderCatalog";
 import { getConfig } from "../config";
 import { fetchWithTimeout } from "../shared/fetchWithTimeout";
+import { getReferenceImageWarningsForUnsupportedProvider } from "./referenceImages";
 import { getStylePromptHint } from "../shared/imageStyleHints";
 import type { ParsedImageGenerationRequest } from "../shared/imageGenerationSchema";
 import type { ImageProviderAdapter, ProviderGeneratedImage } from "./types";
@@ -138,6 +139,8 @@ export const klingImageProvider: ImageProviderAdapter = {
       throw new ProviderError("Kling API key is required.", 401);
     }
 
+    const referenceWarnings = getReferenceImageWarningsForUnsupportedProvider(request, "Kling");
+
     const createResponse = await fetchWithTimeout(
       getKlingImageGenerationUrl(),
       {
@@ -225,6 +228,7 @@ export const klingImageProvider: ImageProviderAdapter = {
           provider: "kling",
           model: request.model,
           images,
+          warnings: referenceWarnings.length > 0 ? referenceWarnings : undefined,
         };
       }
 

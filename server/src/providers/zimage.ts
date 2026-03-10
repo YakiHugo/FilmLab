@@ -2,6 +2,7 @@ import { getImageModelConfig } from "../../../shared/imageProviderCatalog";
 import { getConfig } from "../config";
 import { fetchWithTimeout } from "../shared/fetchWithTimeout";
 import type { ImageProviderAdapter } from "./types";
+import { getReferenceImageWarningsForUnsupportedProvider } from "./referenceImages";
 import { ProviderError, readProviderError } from "./types";
 import {
   buildDashScopePrompt,
@@ -77,10 +78,13 @@ export const zImageProvider: ImageProviderAdapter = {
       throw new ProviderError("Z Image provider returned no image URL.");
     }
 
+    const warnings = getReferenceImageWarningsForUnsupportedProvider(request, "Z Image");
+
     return {
       provider: "zimage",
       model: request.model,
       images,
+      warnings: warnings.length > 0 ? warnings : undefined,
     };
   },
 };

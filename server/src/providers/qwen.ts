@@ -2,6 +2,7 @@ import { getImageModelConfig } from "../../../shared/imageProviderCatalog";
 import { getConfig } from "../config";
 import { fetchWithTimeout } from "../shared/fetchWithTimeout";
 import type { ImageProviderAdapter } from "./types";
+import { getReferenceImageWarningsForUnsupportedProvider } from "./referenceImages";
 import { ProviderError, readProviderError } from "./types";
 import {
   buildDashScopePrompt,
@@ -81,10 +82,13 @@ export const qwenImageProvider: ImageProviderAdapter = {
       throw new ProviderError("Qwen provider returned no image URL.");
     }
 
+    const warnings = getReferenceImageWarningsForUnsupportedProvider(request, "Qwen Image");
+
     return {
       provider: "qwen",
       model: request.model,
       images,
+      warnings: warnings.length > 0 ? warnings : undefined,
     };
   },
 };
