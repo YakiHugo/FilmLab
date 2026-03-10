@@ -5,7 +5,7 @@ describe("registerCors", () => {
     vi.restoreAllMocks();
   });
 
-  it("allows the Seedream provider key header in CORS preflight responses", async () => {
+  it("does not expose deprecated provider key headers in CORS preflight responses", async () => {
     const { default: Fastify } = await import("fastify");
     const { registerCors } = await import("./cors");
 
@@ -24,7 +24,7 @@ describe("registerCors", () => {
     });
 
     expect(response.statusCode).toBe(204);
-    expect(response.headers["access-control-allow-headers"]).toContain(
+    expect(response.headers["access-control-allow-headers"]).not.toContain(
       "X-Provider-Key-seedream"
     );
 

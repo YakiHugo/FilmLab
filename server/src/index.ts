@@ -1,5 +1,4 @@
 import Fastify from "fastify";
-import { IMAGE_PROVIDER_IDS } from "../../shared/imageGeneration";
 import { getConfig } from "./config";
 import { registerCors } from "./plugins/cors";
 import { registerRateLimit } from "./plugins/rateLimit";
@@ -13,10 +12,7 @@ export const buildServer = () => {
   return Fastify({
     logger: {
       redact: {
-        paths: [
-          "req.headers.authorization",
-          ...IMAGE_PROVIDER_IDS.map((providerId) => `req.headers.x-provider-key-${providerId}`),
-        ],
+        paths: ["req.headers.authorization"],
         censor: "[REDACTED]",
       },
     },
