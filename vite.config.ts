@@ -10,15 +10,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      "/api/image-generate": {
-        target: "http://localhost:3001",
-        changeOrigin: true,
-      },
-      "/api/generated-images": {
-        target: "http://localhost:3001",
-        changeOrigin: true,
-      },
-      "/api/image-upscale": {
+      "/api": {
         target: "http://localhost:3001",
         changeOrigin: true,
       },

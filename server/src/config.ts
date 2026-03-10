@@ -1,7 +1,25 @@
 import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 import { z } from "zod";
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const serverDir = path.resolve(__dirname, "..");
+const workspaceDir = path.resolve(serverDir, "..");
+
+const loadEnvFile = (envPath: string) => {
+  dotenv.config({
+    path: envPath,
+    quiet: true,
+  });
+};
+
+// Load broader defaults first, then allow server-scoped files to override them.
+loadEnvFile(path.join(workspaceDir, ".env"));
+loadEnvFile(path.join(workspaceDir, ".env.local"));
+loadEnvFile(path.join(serverDir, ".env"));
+loadEnvFile(path.join(serverDir, ".env.local"));
 
 const emptyStringToUndefined = (value: unknown) => {
   if (typeof value !== "string") {
