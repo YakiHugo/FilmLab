@@ -3,7 +3,12 @@ import { getConfig } from "../config";
 import { getStylePromptHint } from "../shared/imageStyleHints";
 import { fetchWithTimeout } from "../shared/fetchWithTimeout";
 import type { ParsedImageGenerationRequest } from "../shared/imageGenerationSchema";
-import type { ImageProviderAdapter, ProviderGeneratedImage } from "./types";
+import {
+  createProviderAdapter,
+  toProviderRawResponse,
+  type ProviderProtocol,
+} from "./protocol";
+import type { ProviderGeneratedImage } from "./types";
 import { ProviderError, readProviderError } from "./types";
 
 const DEFAULT_MIME_TYPE = "image/jpeg";
@@ -138,8 +143,20 @@ const extractImages = (
   );
 };
 
-export const seedreamImageProvider: ImageProviderAdapter = {
-  async generate(request, apiKey, options) {
+interface SeedreamBuildRequest {
+  request: ParsedImageGenerationRequest;
+  apiKey: string;
+  url: string;
+  body: Record<string, unknown>;
+}
+
+export const seedreamImageProtocol: ProviderProtocol<
+  ParsedImageGenerationRequest,
+  SeedreamBuildRequest,
+  Response,
+  ReturnType<typeof toProviderRawResponse>
+> = {
+  buildRequest(request, apiKey) {
     if (!getImageModelConfig("seedream", request.model)) {
       throw new ProviderError(`Unsupported Seedream model: ${request.model}.`, 400);
     }
@@ -148,26 +165,37 @@ export const seedreamImageProvider: ImageProviderAdapter = {
       throw new ProviderError("Seedream API key is required.", 401);
     }
 
+    return {
+      request,
+      apiKey: normalizedApiKey,
+      url: getArkImageGenerationUrl(),
+      body: {
+        model: request.model,
+        prompt: buildPrompt(request),
+        size: toArkSize(request),
+        sequential_image_generation: resolveSequentialImageGeneration(request),
+        response_format: resolveResponseFormat(request),
+        stream: false,
+        watermark: resolveWatermark(request),
+      },
+    };
+  },
+  async execute(buildRequest, context) {
     const upstream = await fetchWithTimeout(
-      getArkImageGenerationUrl(),
+      buildRequest.url,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${normalizedApiKey}`,
+          Authorization: `Bearer ${buildRequest.apiKey}`,
         },
-        body: JSON.stringify({
-          model: request.model,
-          prompt: buildPrompt(request),
-          size: toArkSize(request),
-          sequential_image_generation: resolveSequentialImageGeneration(request),
-          response_format: resolveResponseFormat(request),
-          stream: false,
-          watermark: resolveWatermark(request),
-        }),
+        body: JSON.stringify(buildRequest.body),
       },
       "Seedream image generation timed out.",
-      options
+      {
+        signal: context.signal,
+        timeoutMs: context.timeoutMs,
+      }
     );
 
     if (!upstream.ok) {
@@ -177,14 +205,20 @@ export const seedreamImageProvider: ImageProviderAdapter = {
       );
     }
 
-    const json = (await upstream.json()) as unknown;
-    if (!isRecord(json)) {
+    return upstream;
+  },
+  async poll(executeResponse) {
+    const json = (await executeResponse.json()) as unknown;
+    return toProviderRawResponse(executeResponse, json);
+  },
+  normalizeResult({ request, rawResponse }) {
+    if (!isRecord(rawResponse.payload)) {
       throw new ProviderError("Seedream provider returned an invalid response.");
     }
 
-    const { images, warnings } = extractImages(json);
+    const { images, warnings } = extractImages(rawResponse.payload);
     if (images.length === 0) {
-      throw new ProviderError(readSeedreamErrorMessage(json));
+      throw new ProviderError(readSeedreamErrorMessage(rawResponse.payload));
     }
 
     return {
@@ -195,5 +229,7 @@ export const seedreamImageProvider: ImageProviderAdapter = {
     };
   },
 };
+
+export const seedreamImageProvider = createProviderAdapter(seedreamImageProtocol);
 
 export default seedreamImageProvider;

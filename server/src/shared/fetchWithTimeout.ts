@@ -46,12 +46,12 @@ export const fetchWithTimeout = async (
   input: RequestInfo | URL,
   init: RequestInit,
   timeoutMessage: string,
-  options?: { signal?: AbortSignal }
+  options?: { signal?: AbortSignal; timeoutMs?: number }
 ) => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
     controller.abort();
-  }, getConfig().providerRequestTimeoutMs);
+  }, options?.timeoutMs ?? getConfig().providerRequestTimeoutMs);
   const { signal, cleanup } = mergeAbortSignals([controller.signal, options?.signal]);
 
   try {

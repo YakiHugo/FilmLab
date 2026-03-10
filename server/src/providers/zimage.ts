@@ -1,7 +1,12 @@
 import { getImageModelConfig } from "../../../shared/imageProviderCatalog";
 import { getConfig } from "../config";
 import { fetchWithTimeout } from "../shared/fetchWithTimeout";
-import type { ImageProviderAdapter } from "./types";
+import type { ParsedImageGenerationRequest } from "../shared/imageGenerationSchema";
+import {
+  createProviderAdapter,
+  toProviderRawResponse,
+  type ProviderProtocol,
+} from "./protocol";
 import { ProviderError, readProviderError } from "./types";
 import {
   buildDashScopePrompt,
@@ -15,13 +20,25 @@ const getDashScopeGenerationUrl = () =>
     `${getConfig().dashscopeApiBaseUrl}/`
   ).toString();
 
-const resolvePromptExtend = (request: Parameters<ImageProviderAdapter["generate"]>[0]) => {
+const resolvePromptExtend = (request: ParsedImageGenerationRequest) => {
   const value = request.modelParams.promptExtend;
   return typeof value === "boolean" ? value : false;
 };
 
-export const zImageProvider: ImageProviderAdapter = {
-  async generate(request, apiKey, options) {
+interface ZImageBuildRequest {
+  request: ParsedImageGenerationRequest;
+  apiKey: string;
+  url: string;
+  body: Record<string, unknown>;
+}
+
+export const zImageProtocol: ProviderProtocol<
+  ParsedImageGenerationRequest,
+  ZImageBuildRequest,
+  Response,
+  ReturnType<typeof toProviderRawResponse>
+> = {
+  buildRequest(request, apiKey) {
     if (!getImageModelConfig("zimage", request.model)) {
       throw new ProviderError(`Unsupported Z Image model: ${request.model}.`, 400);
     }
@@ -31,37 +48,48 @@ export const zImageProvider: ImageProviderAdapter = {
       throw new ProviderError("DashScope API key is required.", 401);
     }
 
+    return {
+      request,
+      apiKey: normalizedApiKey,
+      url: getDashScopeGenerationUrl(),
+      body: {
+        model: request.model,
+        input: {
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  text: buildDashScopePrompt(request),
+                },
+              ],
+            },
+          ],
+        },
+        parameters: {
+          size: toDashScopeSize(request),
+          prompt_extend: resolvePromptExtend(request),
+          ...(typeof request.seed === "number" ? { seed: request.seed } : {}),
+        },
+      },
+    };
+  },
+  async execute(buildRequest, context) {
     const upstream = await fetchWithTimeout(
-      getDashScopeGenerationUrl(),
+      buildRequest.url,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${normalizedApiKey}`,
+          Authorization: `Bearer ${buildRequest.apiKey}`,
         },
-        body: JSON.stringify({
-          model: request.model,
-          input: {
-            messages: [
-              {
-                role: "user",
-                content: [
-                  {
-                    text: buildDashScopePrompt(request),
-                  },
-                ],
-              },
-            ],
-          },
-          parameters: {
-            size: toDashScopeSize(request),
-            prompt_extend: resolvePromptExtend(request),
-            ...(typeof request.seed === "number" ? { seed: request.seed } : {}),
-          },
-        }),
+        body: JSON.stringify(buildRequest.body),
       },
       "Z Image generation timed out.",
-      options
+      {
+        signal: context.signal,
+        timeoutMs: context.timeoutMs,
+      }
     );
 
     if (!upstream.ok) {
@@ -71,8 +99,14 @@ export const zImageProvider: ImageProviderAdapter = {
       );
     }
 
-    const json = (await upstream.json()) as unknown;
-    const images = extractDashScopeImages(json);
+    return upstream;
+  },
+  async poll(executeResponse) {
+    const json = (await executeResponse.json()) as unknown;
+    return toProviderRawResponse(executeResponse, json);
+  },
+  normalizeResult({ request, rawResponse }) {
+    const images = extractDashScopeImages(rawResponse.payload);
     if (images.length === 0) {
       throw new ProviderError("Z Image provider returned no image URL.");
     }
@@ -84,3 +118,5 @@ export const zImageProvider: ImageProviderAdapter = {
     };
   },
 };
+
+export const zImageProvider = createProviderAdapter(zImageProtocol);

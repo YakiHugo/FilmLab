@@ -98,4 +98,43 @@ describe("qwenImageProvider", () => {
     });
   });
 
+  it("surfaces request creation failures from DashScope", async () => {
+    const { qwenImageProvider } = await import("./qwen");
+
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            message: "invalid parameter",
+          },
+        }),
+        {
+          status: 400,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+
+    await expect(
+      qwenImageProvider.generate(
+        {
+          prompt: "Broken request",
+          provider: "qwen",
+          model: "qwen-image-2.0-pro",
+          aspectRatio: "1:1",
+          style: "none",
+          referenceImages: [],
+          batchSize: 1,
+          modelParams: {},
+        },
+        "dashscope-key"
+      )
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: "invalid parameter",
+    });
+  });
+
 });
