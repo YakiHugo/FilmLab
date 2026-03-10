@@ -58,7 +58,12 @@ describe("qwenImageProvider", () => {
           promptExtend: false,
         },
       },
-      "dashscope-key"
+      "dashscope-key",
+      {
+        requestContext: {
+          authHeaders: { Authorization: "Bearer dashscope-key" },
+        },
+      }
     );
 
     expect(fetchMock).toHaveBeenCalledOnce();

@@ -6,6 +6,8 @@ import { qwenImageProvider } from "./qwen";
 import seedreamImageProvider from "./seedream";
 import { zImageProvider } from "./zimage";
 import type { ImageProviderAdapter } from "./types";
+import { registerAuthStrategy } from "./auth";
+import { createGeneratedImageUploadStrategy, registerUploadStrategy } from "./upload";
 
 const PROVIDER_ADAPTERS: Record<ImageProviderId, ImageProviderAdapter> = {
   seedream: seedreamImageProvider,
@@ -13,6 +15,16 @@ const PROVIDER_ADAPTERS: Record<ImageProviderId, ImageProviderAdapter> = {
   zimage: zImageProvider,
   kling: klingImageProvider,
 };
+
+registerAuthStrategy("seedream", (apiKey) => ({ Authorization: `Bearer ${apiKey.trim()}` }));
+registerAuthStrategy("qwen", (apiKey) => ({ Authorization: `Bearer ${apiKey.trim()}` }));
+registerAuthStrategy("zimage", (apiKey) => ({ Authorization: `Bearer ${apiKey.trim()}` }));
+registerAuthStrategy("kling", (apiKey) => ({ Authorization: `Bearer ${apiKey.trim()}` }));
+
+registerUploadStrategy("seedream", async (asset) => asset.url?.trim() ?? "");
+registerUploadStrategy("kling", async (asset) => asset.url?.trim() ?? "");
+registerUploadStrategy("qwen", createGeneratedImageUploadStrategy());
+registerUploadStrategy("zimage", createGeneratedImageUploadStrategy());
 
 export const getProviderAdapter = (providerId: ImageProviderId) =>
   PROVIDER_ADAPTERS[providerId];

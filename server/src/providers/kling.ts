@@ -144,7 +144,7 @@ export const klingImageProvider: ImageProviderAdapter = {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${normalizedApiKey}`,
+          ...(options?.requestContext?.authHeaders ?? {}),
         },
         body: JSON.stringify({
           model_name: request.model,
@@ -192,7 +192,7 @@ export const klingImageProvider: ImageProviderAdapter = {
         {
           method: "GET",
           headers: {
-            Authorization: `Bearer ${normalizedApiKey}`,
+            ...(options?.requestContext?.authHeaders ?? {}),
           },
         },
         "Kling image generation timed out.",

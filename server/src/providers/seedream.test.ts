@@ -47,7 +47,12 @@ describe("seedreamImageProvider", () => {
         batchSize: 1,
         modelParams: {},
       },
-      "ark-api-key"
+      "ark-api-key",
+      {
+        requestContext: {
+          authHeaders: { Authorization: "Bearer ark-api-key" },
+        },
+      }
     );
 
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -112,7 +117,12 @@ describe("seedreamImageProvider", () => {
         batchSize: 1,
         modelParams: {},
       },
-      "ark-api-key"
+      "ark-api-key",
+      {
+        requestContext: {
+          authHeaders: { Authorization: "Bearer ark-api-key" },
+        },
+      }
     );
 
     expect(result.images).toHaveLength(1);
@@ -157,7 +167,12 @@ describe("seedreamImageProvider", () => {
           sequentialImageGeneration: "enabled",
         },
       },
-      "ark-api-key"
+      "ark-api-key",
+      {
+        requestContext: {
+          authHeaders: { Authorization: "Bearer ark-api-key" },
+        },
+      }
     );
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -199,7 +214,12 @@ describe("seedreamImageProvider", () => {
         batchSize: 1,
         modelParams: {},
       },
-      "ark-api-key"
+      "ark-api-key",
+      {
+        requestContext: {
+          authHeaders: { Authorization: "Bearer ark-api-key" },
+        },
+      }
     );
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -346,7 +366,12 @@ describe("seedreamImageProvider", () => {
         batchSize: 1,
         modelParams: {},
       },
-      "ark-api-key"
+      "ark-api-key",
+      {
+        requestContext: {
+          authHeaders: { Authorization: "Bearer ark-api-key" },
+        },
+      }
     );
 
     expect(result.images).toHaveLength(1);

@@ -2,6 +2,8 @@ import type { FastifyPluginAsync } from "fastify";
 import { ZodError } from "zod";
 import { getConfig } from "../config";
 import { getProviderAdapter, getUserProviderKey, resolveApiKey } from "../providers/registry";
+import { resolveAuthHeaders } from "../providers/auth";
+import { uploadAssetIfNeeded } from "../providers/upload";
 import { ProviderError } from "../providers/types";
 import { getGeneratedImage, storeGeneratedImage } from "../shared/generatedImageStore";
 import { imageUpscaleRequestSchema } from "../shared/imageUpscaleSchema";
@@ -77,17 +79,38 @@ export const imageUpscaleRoute: FastifyPluginAsync = async (app) => {
         });
       }
 
+      const requestContext = {
+        headers: request.headers as Record<string, string | string[] | undefined>,
+      };
+
       try {
+        const uploadedImageResourceId = await uploadAssetIfNeeded(
+          payload.provider,
+          {
+            url: `/api/generated-images/${payload.imageId}`,
+            buffer: sourceImage.buffer,
+            mimeType: sourceImage.mimeType,
+          },
+          apiKey,
+          { signal: requestController.signal }
+        );
+        const authHeaders = resolveAuthHeaders(payload.provider, apiKey, requestContext);
+
         const upscaled = await adapter.upscale(
           {
             model: payload.model,
             imageBuffer: sourceImage.buffer,
             mimeType: sourceImage.mimeType,
             scale: payload.scale,
+            imageResourceId: uploadedImageResourceId,
           },
           apiKey,
           {
             signal: requestController.signal,
+            requestContext: {
+              ...requestContext,
+              authHeaders,
+            },
           }
         );
 

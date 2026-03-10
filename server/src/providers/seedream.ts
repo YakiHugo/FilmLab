@@ -154,7 +154,7 @@ export const seedreamImageProvider: ImageProviderAdapter = {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${normalizedApiKey}`,
+          ...(options?.requestContext?.authHeaders ?? {}),
         },
         body: JSON.stringify({
           model: request.model,

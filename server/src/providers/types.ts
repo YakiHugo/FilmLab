@@ -23,18 +23,24 @@ export interface ProviderImageUpscaleRequest {
   imageBuffer: Buffer;
   mimeType: string;
   scale: ImageUpscaleScale;
+  imageResourceId?: string;
+}
+
+export interface ProviderRequestContext {
+  headers?: Record<string, string | string[] | undefined>;
+  authHeaders?: Record<string, string>;
 }
 
 export interface ImageProviderAdapter {
   generate: (
     request: ParsedImageGenerationRequest,
     apiKey: string,
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal; requestContext?: ProviderRequestContext }
   ) => Promise<ProviderGenerationResult>;
   upscale?: (
     request: ProviderImageUpscaleRequest,
     apiKey: string,
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal; requestContext?: ProviderRequestContext }
   ) => Promise<ProviderGeneratedImage>;
 }
 
@@ -48,8 +54,10 @@ export class ProviderError extends Error {
   }
 }
 
-export const toDataUrl = (bytes: ArrayBuffer, mimeType: string) =>
-  `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`;
+export const toDataUrl = (bytes: ArrayBuffer | Uint8Array, mimeType: string) => {
+  const normalizedBytes = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes;
+  return `data:${mimeType};base64,${Buffer.from(normalizedBytes).toString("base64")}`;
+};
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;

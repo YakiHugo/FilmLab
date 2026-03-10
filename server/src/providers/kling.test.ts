@@ -72,7 +72,12 @@ describe("klingImageProvider", () => {
           watermark: true,
         },
       },
-      "kling-key"
+      "kling-key",
+      {
+        requestContext: {
+          authHeaders: { Authorization: "Bearer kling-key" },
+        },
+      }
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(2);

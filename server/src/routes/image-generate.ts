@@ -2,6 +2,8 @@ import type { FastifyPluginAsync } from "fastify";
 import { ZodError } from "zod";
 import { getConfig } from "../config";
 import { getProviderAdapter, getUserProviderKey, resolveApiKey } from "../providers/registry";
+import { resolveAuthHeaders } from "../providers/auth";
+import { uploadAssetIfNeeded } from "../providers/upload";
 import { ProviderError } from "../providers/types";
 import { downloadGeneratedImage } from "../shared/downloadGeneratedImage";
 import { storeGeneratedImage } from "../shared/generatedImageStore";
@@ -94,11 +96,35 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         });
       }
 
+      const requestContext = {
+        headers: request.headers as Record<string, string | string[] | undefined>,
+      };
+
       try {
-        const generated = await adapter.generate(payload, apiKey, {
+        const normalizedPayload = {
+          ...payload,
+          referenceImages: await Promise.all(
+            payload.referenceImages.map(async (image) => ({
+              ...image,
+              url: await uploadAssetIfNeeded(
+                payload.provider,
+                { url: image.url },
+                apiKey,
+                { signal: requestController.signal }
+              ),
+            }))
+          ),
+        };
+
+        const authHeaders = resolveAuthHeaders(payload.provider, apiKey, requestContext);
+        const generated = await adapter.generate(normalizedPayload, apiKey, {
           signal: requestController.signal,
+          requestContext: {
+            ...requestContext,
+            authHeaders,
+          },
         });
-        const capabilityWarnings = getImageGenerationCapabilityWarnings(payload);
+        const capabilityWarnings = getImageGenerationCapabilityWarnings(normalizedPayload);
         const mergedWarnings = [...capabilityWarnings, ...(generated.warnings ?? [])];
 
         const normalizedResults = await Promise.all(
