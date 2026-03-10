@@ -3,7 +3,11 @@ import { Download, Loader2, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import { IMAGE_STYLE_PRESETS } from "@/lib/ai/imageStylePresets";
 import { IMAGE_STYLES } from "@/lib/ai/imageStyles";
-import { getImageModelName, getImageProviderName } from "@/lib/ai/imageProviders";
+import {
+  getImageModelFeatureSupport,
+  getImageModelName,
+  getImageProviderName,
+} from "@/lib/ai/imageProviders";
 import { cn } from "@/lib/utils";
 import type { ImageGenerationTurn } from "./hooks/useImageGeneration";
 import { ImageResultCard } from "./ImageResultCard";
@@ -40,7 +44,9 @@ const resolveTurnMeta = (turn: ImageGenerationTurn) => {
     providerName: getImageProviderName(turn.displayProviderId),
     modelName: getImageModelName(turn.displayProviderId, turn.displayModelId),
     styleLabel: preset?.title ?? (style?.id !== "none" ? style?.label : null),
-    supportsUpscale: false,
+    supportsUpscale: Boolean(
+      getImageModelFeatureSupport(turn.displayProviderId, turn.displayModelId)?.supportsUpscale
+    ),
   };
 };
 
