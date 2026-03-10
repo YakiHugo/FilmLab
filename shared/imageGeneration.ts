@@ -1,4 +1,4 @@
-export const IMAGE_PROVIDER_IDS = ["openai", "stability", "flux", "ideogram", "seedream"] as const;
+export const IMAGE_PROVIDER_IDS = ["seedream", "qwen", "zimage", "kling"] as const;
 export type ImageProviderId = (typeof IMAGE_PROVIDER_IDS)[number];
 
 export const IMAGE_ASPECT_RATIOS = [
@@ -9,6 +9,7 @@ export const IMAGE_ASPECT_RATIOS = [
   "3:4",
   "3:2",
   "2:3",
+  "21:9",
   "custom",
 ] as const;
 export type ImageAspectRatio = (typeof IMAGE_ASPECT_RATIOS)[number];

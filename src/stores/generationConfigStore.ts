@@ -9,6 +9,7 @@ import {
   DEFAULT_IMAGE_PROVIDER,
   getDefaultImageModelForProvider,
   getImageModelConfig,
+  getImageModelFeatureSupport,
   getImageProviderConfig,
 } from "@/lib/ai/imageProviders";
 import { IMAGE_GENERATION_LIMITS } from "@/lib/ai/imageGenerationSchema";
@@ -98,10 +99,10 @@ const getDefaultStepsForModel = (
 
 const sanitizeReferenceImages = (
   providerId: ImageProviderId,
+  modelId: string,
   referenceImages: ReferenceImage[]
 ) => {
-  const provider = getImageProviderConfig(providerId);
-  const support = provider?.supportedFeatures.referenceImages;
+  const support = getImageModelFeatureSupport(providerId, modelId)?.referenceImages;
   if (!support?.enabled) {
     return [];
   }
@@ -126,6 +127,7 @@ export const sanitizeGenerationConfig = (config: GenerationConfig): GenerationCo
     ? config.model
     : provider.models[0]?.id ?? getDefaultImageModelForProvider(config.provider);
   const modelConfig = getImageModelConfig(config.provider, model);
+  const supportedFeatures = getImageModelFeatureSupport(config.provider, model);
 
   const supportedAspectRatios = modelConfig?.supportedAspectRatios ?? ["1:1"];
   const aspectRatio = supportedAspectRatios.includes(config.aspectRatio)
@@ -173,26 +175,30 @@ export const sanitizeGenerationConfig = (config: GenerationConfig): GenerationCo
       model,
       config.modelParams ?? {}
     ),
-    referenceImages: sanitizeReferenceImages(config.provider, config.referenceImages ?? []),
+    referenceImages: sanitizeReferenceImages(
+      config.provider,
+      model,
+      config.referenceImages ?? []
+    ),
   };
 
-  if (!provider.supportedFeatures.styles) {
+  if (!supportedFeatures?.styles) {
     next.style = "none";
     next.stylePreset = "";
   }
-  if (!provider.supportedFeatures.negativePrompt) {
+  if (!supportedFeatures?.negativePrompt) {
     next.negativePrompt = "";
   }
-  if (!provider.supportedFeatures.referenceImages.enabled) {
+  if (!supportedFeatures?.referenceImages.enabled) {
     next.referenceImages = [];
   }
-  if (!provider.supportedFeatures.seed) {
+  if (!supportedFeatures?.seed) {
     next.seed = null;
   }
-  if (!provider.supportedFeatures.guidanceScale) {
+  if (!supportedFeatures?.guidanceScale) {
     next.guidanceScale = null;
   }
-  if (!provider.supportedFeatures.steps) {
+  if (!supportedFeatures?.steps) {
     next.steps = null;
   } else if (next.steps === null) {
     next.steps = getDefaultStepsForModel(config.provider, model);

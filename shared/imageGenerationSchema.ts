@@ -7,6 +7,8 @@ import {
 } from "./imageGeneration";
 import {
   getImageModelConfig,
+  getImageModelFeatureSupport,
+  getImageProviderName,
   getImageProviderConfig,
 } from "./imageProviderCatalog";
 import { appendImageModelParamIssues } from "./imageModelParams";
@@ -22,7 +24,7 @@ export const IMAGE_GENERATION_LIMITS = {
   seed: { min: 0, max: 2_147_483_647 },
   guidanceScale: { min: 1, max: 20 },
   steps: { min: 1, max: 80 },
-  batchSize: { min: 1, max: 4 },
+  batchSize: { min: 1, max: 9 },
 } as const;
 
 export const referenceImageSchema = z.object({
@@ -37,8 +39,8 @@ export const imageGenerationRequestSchema = z
   .object({
     prompt: z.string().trim().min(1),
     negativePrompt: z.string().trim().optional(),
-    provider: imageProviderSchema.default("openai"),
-    model: z.string().trim().min(1).default("gpt-image-1"),
+    provider: imageProviderSchema.default("seedream"),
+    model: z.string().trim().min(1).default("doubao-seedream-5-0-260128"),
     aspectRatio: imageAspectRatioSchema.default("1:1"),
     width: z
       .number()
@@ -98,7 +100,17 @@ export const imageGenerationRequestSchema = z
     if (!model) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `Unsupported model for ${provider.name}: ${payload.model}.`,
+        message: `Unsupported model for ${getImageProviderName(payload.provider)}: ${payload.model}.`,
+        path: ["model"],
+      });
+      return;
+    }
+
+    const supportedFeatures = getImageModelFeatureSupport(payload.provider, payload.model);
+    if (!supportedFeatures) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Model feature metadata is missing for ${provider.name} ${model.name}.`,
         path: ["model"],
       });
       return;
@@ -169,63 +181,63 @@ export const imageGenerationRequestSchema = z
       }
     }
 
-    if (!provider.supportedFeatures.negativePrompt && payload.negativePrompt) {
+    if (!supportedFeatures.negativePrompt && payload.negativePrompt) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `${provider.name} does not support negative prompts.`,
+        message: `${provider.name} ${model.name} does not support negative prompts.`,
         path: ["negativePrompt"],
       });
     }
 
-    if (!provider.supportedFeatures.seed && typeof payload.seed === "number") {
+    if (!supportedFeatures.seed && typeof payload.seed === "number") {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `${provider.name} does not support seeds.`,
+        message: `${provider.name} ${model.name} does not support seeds.`,
         path: ["seed"],
       });
     }
 
     if (
-      !provider.supportedFeatures.guidanceScale &&
+      !supportedFeatures.guidanceScale &&
       typeof payload.guidanceScale === "number"
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `${provider.name} does not support guidance scale.`,
+        message: `${provider.name} ${model.name} does not support guidance scale.`,
         path: ["guidanceScale"],
       });
     }
 
-    if (!provider.supportedFeatures.steps && typeof payload.steps === "number") {
+    if (!supportedFeatures.steps && typeof payload.steps === "number") {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `${provider.name} does not support custom step counts.`,
+        message: `${provider.name} ${model.name} does not support custom step counts.`,
         path: ["steps"],
       });
     }
 
-    if (!provider.supportedFeatures.styles) {
+    if (!supportedFeatures.styles) {
       if (payload.style !== "none") {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `${provider.name} does not support style hints.`,
+          message: `${provider.name} ${model.name} does not support style hints.`,
           path: ["style"],
         });
       }
       if (payload.stylePreset) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `${provider.name} does not support style presets.`,
+          message: `${provider.name} ${model.name} does not support style presets.`,
           path: ["stylePreset"],
         });
       }
     }
 
-    const referenceSupport = provider.supportedFeatures.referenceImages;
+    const referenceSupport = supportedFeatures.referenceImages;
     if (!referenceSupport.enabled && payload.referenceImages.length > 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `${provider.name} does not support reference images.`,
+        message: `${provider.name} ${model.name} does not support reference images.`,
         path: ["referenceImages"],
       });
     }
@@ -233,7 +245,7 @@ export const imageGenerationRequestSchema = z
     if (payload.referenceImages.length > referenceSupport.maxImages) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `${provider.name} supports at most ${referenceSupport.maxImages} reference images.`,
+        message: `${provider.name} ${model.name} supports at most ${referenceSupport.maxImages} reference images.`,
         path: ["referenceImages"],
       });
     }
@@ -242,7 +254,7 @@ export const imageGenerationRequestSchema = z
       if (!referenceSupport.supportedTypes.includes(referenceImage.type)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `${provider.name} does not support reference image type ${referenceImage.type}.`,
+          message: `${provider.name} ${model.name} does not support reference image type ${referenceImage.type}.`,
           path: ["referenceImages", index, "type"],
         });
       }
@@ -254,7 +266,7 @@ export const imageGenerationRequestSchema = z
       ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `${provider.name} does not support reference image weights.`,
+          message: `${provider.name} ${model.name} does not support reference image weights.`,
           path: ["referenceImages", index, "weight"],
         });
       }

@@ -1,15 +1,12 @@
-import { isProviderModelSupported } from "../../../shared/providerCapabilityRegistry";
+import { getImageModelConfig } from "../../../shared/imageProviderCatalog";
+import { getConfig } from "../config";
 import { getStylePromptHint } from "../shared/imageStyleHints";
 import { fetchWithTimeout } from "../shared/fetchWithTimeout";
 import type { ParsedImageGenerationRequest } from "../shared/imageGenerationSchema";
 import type { ImageProviderAdapter, ProviderGeneratedImage } from "./types";
 import { ProviderError, readProviderError } from "./types";
 
-const ARK_IMAGE_GENERATION_URL = "https://ark.cn-beijing.volces.com/api/v3/images/generations";
 const DEFAULT_MIME_TYPE = "image/jpeg";
-
-const isRetriableUpstreamStatus = (statusCode: number) =>
-  statusCode === 408 || statusCode === 409 || statusCode === 425 || statusCode === 429 || statusCode >= 500;
 
 const SEEDREAM_SIZE_BY_ASPECT_RATIO: Record<
   Exclude<ParsedImageGenerationRequest["aspectRatio"], "custom">,
@@ -22,10 +19,14 @@ const SEEDREAM_SIZE_BY_ASPECT_RATIO: Record<
   "3:4": "1728x2304",
   "3:2": "2352x1568",
   "2:3": "1568x2352",
+  "21:9": "2560x1080",
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
+
+const getArkImageGenerationUrl = () =>
+  new URL("/api/v3/images/generations", `${getConfig().arkApiBaseUrl}/`).toString();
 
 const toArkSize = (request: ParsedImageGenerationRequest) =>
   request.aspectRatio === "custom"
@@ -139,7 +140,7 @@ const extractImages = (
 
 export const seedreamImageProvider: ImageProviderAdapter = {
   async generate(request, apiKey, options) {
-    if (!isProviderModelSupported("seedream", request.model)) {
+    if (!getImageModelConfig("seedream", request.model)) {
       throw new ProviderError(`Unsupported Seedream model: ${request.model}.`, 400);
     }
     const normalizedApiKey = apiKey.trim();
@@ -148,7 +149,7 @@ export const seedreamImageProvider: ImageProviderAdapter = {
     }
 
     const upstream = await fetchWithTimeout(
-      ARK_IMAGE_GENERATION_URL,
+      getArkImageGenerationUrl(),
       {
         method: "POST",
         headers: {
@@ -172,11 +173,7 @@ export const seedreamImageProvider: ImageProviderAdapter = {
     if (!upstream.ok) {
       throw new ProviderError(
         await readProviderError(upstream, "Seedream image generation failed."),
-        upstream.status,
-        undefined,
-        {
-          isRetriable: isRetriableUpstreamStatus(upstream.status),
-        }
+        upstream.status
       );
     }
 

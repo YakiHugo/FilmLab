@@ -3,6 +3,21 @@ import { z } from "zod";
 
 dotenv.config();
 
+const emptyStringToUndefined = (value: unknown) => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const normalized = value.trim();
+  return normalized ? normalized : undefined;
+};
+
+const optionalTrimmedString = () =>
+  z.preprocess(emptyStringToUndefined, z.string().trim().min(1).optional());
+
+const optionalUrlString = () =>
+  z.preprocess(emptyStringToUndefined, z.string().trim().url().optional());
+
 const envSchema = z.object({
   NODE_ENV: z.string().optional(),
   HOST: z.string().trim().min(1).default("0.0.0.0"),
@@ -27,13 +42,12 @@ const envSchema = z.object({
   GENERATED_IMAGE_STORE_MAX_MB: z.coerce.number().min(1).max(512).default(64),
   GENERATED_IMAGE_DOWNLOAD_MAX_MB: z.coerce.number().min(1).max(512).default(32),
   REFERENCE_IMAGE_DOWNLOAD_MAX_MB: z.coerce.number().min(1).max(128).default(8),
-  OPENAI_API_KEY: z.string().trim().min(1).optional(),
-  STABILITY_API_KEY: z.string().trim().min(1).optional(),
-  FLUX_API_KEY: z.string().trim().min(1).optional(),
-  FAL_KEY: z.string().trim().min(1).optional(),
-  FLUX_API_BASE_URL: z.string().trim().url().default("https://fal.run"),
-  IDEOGRAM_API_KEY: z.string().trim().min(1).optional(),
-  ARK_API_KEY: z.string().trim().min(1).optional(),
+  ARK_API_KEY: optionalTrimmedString(),
+  ARK_API_BASE_URL: optionalUrlString().default("https://ark.cn-beijing.volces.com"),
+  DASHSCOPE_API_KEY: optionalTrimmedString(),
+  DASHSCOPE_API_BASE_URL: optionalUrlString().default("https://dashscope.aliyuncs.com"),
+  KLING_API_KEY: optionalTrimmedString(),
+  KLING_API_BASE_URL: optionalUrlString().default("https://api-singapore.klingai.com"),
 });
 
 export interface AppConfig {
@@ -55,12 +69,12 @@ export interface AppConfig {
   generatedImageStoreMaxBytes: number;
   generatedImageDownloadMaxBytes: number;
   referenceImageDownloadMaxBytes: number;
-  openAiApiKey?: string;
-  stabilityApiKey?: string;
-  fluxApiKey?: string;
-  fluxApiBaseUrl: string;
-  ideogramApiKey?: string;
   arkApiKey?: string;
+  arkApiBaseUrl: string;
+  dashscopeApiKey?: string;
+  dashscopeApiBaseUrl: string;
+  klingApiKey?: string;
+  klingApiBaseUrl: string;
 }
 
 let cachedConfig: AppConfig | null = null;
@@ -105,12 +119,12 @@ export const getConfig = (): AppConfig => {
     generatedImageStoreMaxBytes: Math.round(env.GENERATED_IMAGE_STORE_MAX_MB * 1024 * 1024),
     generatedImageDownloadMaxBytes: Math.round(env.GENERATED_IMAGE_DOWNLOAD_MAX_MB * 1024 * 1024),
     referenceImageDownloadMaxBytes: Math.round(env.REFERENCE_IMAGE_DOWNLOAD_MAX_MB * 1024 * 1024),
-    openAiApiKey: env.OPENAI_API_KEY,
-    stabilityApiKey: env.STABILITY_API_KEY,
-    fluxApiKey: env.FLUX_API_KEY ?? env.FAL_KEY,
-    fluxApiBaseUrl: env.FLUX_API_BASE_URL.replace(/\/+$/, ""),
-    ideogramApiKey: env.IDEOGRAM_API_KEY,
     arkApiKey: env.ARK_API_KEY,
+    arkApiBaseUrl: env.ARK_API_BASE_URL.replace(/\/+$/, ""),
+    dashscopeApiKey: env.DASHSCOPE_API_KEY,
+    dashscopeApiBaseUrl: env.DASHSCOPE_API_BASE_URL.replace(/\/+$/, ""),
+    klingApiKey: env.KLING_API_KEY,
+    klingApiBaseUrl: env.KLING_API_BASE_URL.replace(/\/+$/, ""),
   };
 
   return cachedConfig;

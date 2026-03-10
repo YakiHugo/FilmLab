@@ -3,7 +3,7 @@ import { Download, Loader2, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import { IMAGE_STYLE_PRESETS } from "@/lib/ai/imageStylePresets";
 import { IMAGE_STYLES } from "@/lib/ai/imageStyles";
-import { getImageProviderConfig } from "@/lib/ai/imageProviders";
+import { getImageModelName, getImageProviderName } from "@/lib/ai/imageProviders";
 import { cn } from "@/lib/utils";
 import type { ImageGenerationTurn } from "./hooks/useImageGeneration";
 import { ImageResultCard } from "./ImageResultCard";
@@ -30,19 +30,17 @@ const formatTurnTime = (value: string) =>
   }).format(new Date(value));
 
 const resolveTurnMeta = (turn: ImageGenerationTurn) => {
-  const provider = getImageProviderConfig(turn.configSnapshot.provider);
-  const model = provider?.models.find((entry) => entry.id === turn.configSnapshot.model);
   const preset = IMAGE_STYLE_PRESETS.find(
-    (entry) => entry.stylePreset === turn.configSnapshot.stylePreset
+    (entry) => entry.stylePreset === turn.displayStylePresetId
   );
   const style =
-    IMAGE_STYLES.find((entry) => entry.id === turn.configSnapshot.style) ?? IMAGE_STYLES[0];
+    IMAGE_STYLES.find((entry) => entry.id === turn.displayStyleId) ?? IMAGE_STYLES[0];
 
   return {
-    providerName: provider?.name ?? turn.configSnapshot.provider,
-    modelName: model?.name ?? turn.configSnapshot.model,
+    providerName: getImageProviderName(turn.displayProviderId),
+    modelName: getImageModelName(turn.displayProviderId, turn.displayModelId),
     styleLabel: preset?.title ?? (style?.id !== "none" ? style?.label : null),
-    supportsUpscale: Boolean(provider?.supportedFeatures.supportsUpscale),
+    supportsUpscale: false,
   };
 };
 
@@ -77,9 +75,9 @@ function TurnTags({ turn, compact = false }: { turn: ImageGenerationTurn; compac
     meta.providerName,
     meta.modelName,
     meta.styleLabel,
-    turn.configSnapshot.aspectRatio,
-    turn.configSnapshot.referenceImages.length > 0
-      ? `${turn.configSnapshot.referenceImages.length} refs`
+    turn.displayAspectRatio,
+    turn.displayReferenceImageCount > 0
+      ? `${turn.displayReferenceImageCount} refs`
       : null,
   ].filter((value): value is string => Boolean(value));
   const itemCounts = new Map<string, number>();

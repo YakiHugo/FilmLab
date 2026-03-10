@@ -176,7 +176,7 @@ export function ImageResultCard({
                 ? "Upscaling image"
                 : onUpscale
                   ? "Upscale image"
-                  : "Upscale is only available for Stability AI"
+                  : "Upscale is not available for this result"
             }
           >
             {isUpscaling ? (

@@ -566,8 +566,8 @@ export function ImagePromptInput({
         </div>
       ) : (
         <div className="rounded-[18px] border border-white/10 bg-black/30 px-4 py-4 text-sm text-zinc-300">
-          Current model uses provider-managed output sizes. Switch to a Flux model to set explicit
-          resolution.
+          Current model uses provider-managed output sizes.
+          Switch to a model with custom size support to set an explicit resolution.
         </div>
       )}
     </PanelShell>

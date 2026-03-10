@@ -1,18 +1,17 @@
 import { getConfig } from "../config";
+import { getImageProviderCredentialSlot } from "../../../shared/imageProviderCatalog";
 import type { ImageProviderId } from "../shared/imageGenerationSchema";
-import { fluxImageProvider } from "./flux";
-import { ideogramImageProvider } from "./ideogram";
-import { openAiImageProvider } from "./openai";
+import { klingImageProvider } from "./kling";
+import { qwenImageProvider } from "./qwen";
 import seedreamImageProvider from "./seedream";
-import { stabilityImageProvider } from "./stability";
+import { zImageProvider } from "./zimage";
 import type { ImageProviderAdapter } from "./types";
 
 const PROVIDER_ADAPTERS: Record<ImageProviderId, ImageProviderAdapter> = {
-  openai: openAiImageProvider,
-  stability: stabilityImageProvider,
-  flux: fluxImageProvider,
-  ideogram: ideogramImageProvider,
   seedream: seedreamImageProvider,
+  qwen: qwenImageProvider,
+  zimage: zImageProvider,
+  kling: klingImageProvider,
 };
 
 export const getProviderAdapter = (providerId: ImageProviderId) =>
@@ -20,17 +19,13 @@ export const getProviderAdapter = (providerId: ImageProviderId) =>
 
 const getServerApiKey = (providerId: ImageProviderId) => {
   const config = getConfig();
-  switch (providerId) {
-    case "openai":
-      return config.openAiApiKey ?? "";
-    case "stability":
-      return config.stabilityApiKey ?? "";
-    case "flux":
-      return config.fluxApiKey ?? "";
-    case "ideogram":
-      return config.ideogramApiKey ?? "";
-    case "seedream":
+  switch (getImageProviderCredentialSlot(providerId)) {
+    case "ark":
       return config.arkApiKey ?? "";
+    case "dashscope":
+      return config.dashscopeApiKey ?? "";
+    case "kling":
+      return config.klingApiKey ?? "";
     default:
       return "";
   }

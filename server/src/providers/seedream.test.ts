@@ -146,7 +146,7 @@ describe("seedreamImageProvider", () => {
       {
         prompt: "A clean product shot",
         provider: "seedream",
-        model: "qwen-image-2512",
+        model: "doubao-seedream-4-0-250828",
         aspectRatio: "1:1",
         style: "none",
         referenceImages: [],
@@ -167,7 +167,7 @@ describe("seedreamImageProvider", () => {
     expect(body.sequential_image_generation).toBe("enabled");
   });
 
-  it("passes through newly supported Ark model ids", async () => {
+  it("passes through Seedream 4.0 model ids", async () => {
     const { seedreamImageProvider } = await import("./seedream");
 
     fetchMock.mockResolvedValue(
@@ -175,7 +175,7 @@ describe("seedreamImageProvider", () => {
         JSON.stringify({
           data: [
             {
-              url: "https://cdn.example.com/generated-qwen.jpeg",
+              url: "https://cdn.example.com/generated-4.jpeg",
             },
           ],
         }),
@@ -192,7 +192,7 @@ describe("seedreamImageProvider", () => {
       {
         prompt: "A clean product shot",
         provider: "seedream",
-        model: "qwen-image-2512",
+        model: "doubao-seedream-4-0-250828",
         aspectRatio: "1:1",
         style: "none",
         referenceImages: [],
@@ -204,7 +204,7 @@ describe("seedreamImageProvider", () => {
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-    expect(body.model).toBe("qwen-image-2512");
+    expect(body.model).toBe("doubao-seedream-4-0-250828");
   });
 
   it("rejects empty Ark API keys before sending a request", async () => {
@@ -268,47 +268,6 @@ describe("seedreamImageProvider", () => {
     ).rejects.toMatchObject({
       statusCode: 401,
       message: "Unauthorized",
-      isRetriable: false,
-    });
-  });
-
-
-  it("marks retriable upstream statuses explicitly", async () => {
-    const { seedreamImageProvider } = await import("./seedream");
-
-    fetchMock.mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          error: {
-            message: "Too many requests",
-          },
-        }),
-        {
-          status: 429,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
-      )
-    );
-
-    await expect(
-      seedreamImageProvider.generate(
-        {
-          prompt: "Busy prompt",
-          provider: "seedream",
-          model: "doubao-seedream-5-0-260128",
-          aspectRatio: "1:1",
-          style: "none",
-          referenceImages: [],
-          batchSize: 1,
-          modelParams: {},
-        },
-        "ark-api-key"
-      )
-    ).rejects.toMatchObject({
-      statusCode: 429,
-      isRetriable: true,
     });
   });
 

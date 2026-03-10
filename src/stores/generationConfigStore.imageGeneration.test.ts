@@ -5,8 +5,8 @@ import type { GenerationConfig } from "./generationConfigStore";
 import { sanitizeGenerationConfig } from "./generationConfigStore";
 
 const createConfig = (patch: Partial<GenerationConfig> = {}): GenerationConfig => ({
-  provider: "flux",
-  model: "flux-pro",
+  provider: "qwen",
+  model: "qwen-image-2.0-pro",
   aspectRatio: "custom",
   width: 1024,
   height: 1024,
@@ -19,7 +19,7 @@ const createConfig = (patch: Partial<GenerationConfig> = {}): GenerationConfig =
   steps: null,
   sampler: "",
   batchSize: 1,
-  modelParams: getDefaultImageModelParams("flux", "flux-pro"),
+  modelParams: getDefaultImageModelParams("qwen", "qwen-image-2.0-pro"),
   ...patch,
 });
 
@@ -36,8 +36,8 @@ describe("sanitizeGenerationConfig", () => {
 
     const sanitized = sanitizeGenerationConfig(
       createConfig({
-        provider: "openai",
-        model: "gpt-image-1",
+        provider: "seedream",
+        model: "doubao-seedream-5-0-260128",
         aspectRatio: "16:9",
         width: 1536,
         height: 864,
@@ -46,7 +46,7 @@ describe("sanitizeGenerationConfig", () => {
         seed: 42,
         guidanceScale: 12,
         steps: 35,
-        modelParams: getDefaultImageModelParams("openai", "gpt-image-1"),
+        modelParams: getDefaultImageModelParams("seedream", "doubao-seedream-5-0-260128"),
       })
     );
 
@@ -57,9 +57,10 @@ describe("sanitizeGenerationConfig", () => {
     expect(sanitized.seed).toBeNull();
     expect(sanitized.guidanceScale).toBeNull();
     expect(sanitized.steps).toBeNull();
+    expect(sanitized.batchSize).toBe(1);
   });
 
-  it("clamps Flux custom-size requests locally before request validation", () => {
+  it("clamps Qwen custom-size requests locally before request validation", () => {
     const sanitized = sanitizeGenerationConfig(
       createConfig({
         width: 50_000,
@@ -69,8 +70,8 @@ describe("sanitizeGenerationConfig", () => {
         steps: 200,
         batchSize: 9,
         modelParams: {
-          ...getDefaultImageModelParams("flux", "flux-pro"),
-          safetyTolerance: 99,
+          ...getDefaultImageModelParams("qwen", "qwen-image-2.0-pro"),
+          promptExtend: "invalid" as never,
         },
       })
     );
@@ -78,53 +79,53 @@ describe("sanitizeGenerationConfig", () => {
     expect(sanitized.width).toBe(4096);
     expect(sanitized.height).toBe(256);
     expect(sanitized.seed).toBe(0);
-    expect(sanitized.guidanceScale).toBe(20);
-    expect(sanitized.steps).toBe(80);
-    expect(sanitized.batchSize).toBe(4);
-    expect(sanitized.modelParams.safetyTolerance).toBe(6);
+    expect(sanitized.guidanceScale).toBeNull();
+    expect(sanitized.steps).toBeNull();
+    expect(sanitized.batchSize).toBe(6);
+    expect(sanitized.modelParams.promptExtend).toBe(true);
   });
 
-  it("fills in the model default steps when the provider supports custom step counts", () => {
+  it("drops unsupported negative prompts for Z Image and clamps batch size", () => {
     const sanitized = sanitizeGenerationConfig(
       createConfig({
-        provider: "stability",
-        model: "stable-image-core",
-        aspectRatio: "1:1",
-        width: 1024,
-        height: 1024,
-        steps: null,
-        modelParams: getDefaultImageModelParams("stability", "stable-image-core"),
+        provider: "zimage",
+        model: "z-image-turbo",
+        negativePrompt: "avoid blur",
+        seed: 99,
+        batchSize: 4,
+        modelParams: getDefaultImageModelParams("zimage", "z-image-turbo"),
       })
     );
 
-    expect(sanitized.steps).toBe(30);
+    expect(sanitized.negativePrompt).toBe("");
+    expect(sanitized.seed).toBe(99);
+    expect(sanitized.batchSize).toBe(1);
+  });
+
+  it("keeps Kling widescreen aspect ratios but drops unsupported seed control", () => {
+    const sanitized = sanitizeGenerationConfig(
+      createConfig({
+        provider: "kling",
+        model: "kling-v3",
+        aspectRatio: "21:9",
+        width: 1536,
+        height: 1024,
+        negativePrompt: "avoid blur",
+        seed: 123,
+        batchSize: 12,
+        modelParams: getDefaultImageModelParams("kling", "kling-v3"),
+      })
+    );
+
+    expect(sanitized.aspectRatio).toBe("21:9");
     expect(sanitized.width).toBeNull();
     expect(sanitized.height).toBeNull();
+    expect(sanitized.negativePrompt).toBe("avoid blur");
+    expect(sanitized.seed).toBeNull();
+    expect(sanitized.batchSize).toBe(9);
   });
 
-  it("normalizes Ideogram reference capabilities in store state", () => {
-    const sanitized = sanitizeGenerationConfig(
-      createConfig({
-        provider: "ideogram",
-        model: "ideogram-3",
-        referenceImages: [
-          {
-            id: "ref-1",
-            url: "data:image/png;base64,abc",
-            type: "controlnet",
-            weight: 0.3,
-          },
-        ],
-        modelParams: getDefaultImageModelParams("ideogram", "ideogram-3"),
-      })
-    );
-
-    expect(sanitized.referenceImages).toHaveLength(1);
-    expect(sanitized.referenceImages[0]?.type).toBe("style");
-    expect(sanitized.referenceImages[0]?.weight).toBe(1);
-  });
-
-  it("falls back legacy Seedream selections to the 5.0 MVP config", () => {
+  it("falls back legacy Seedream selections to the 5.0 current config", () => {
     const sanitized = sanitizeGenerationConfig(
       createConfig({
         provider: "seedream",

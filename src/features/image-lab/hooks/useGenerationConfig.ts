@@ -32,6 +32,10 @@ export function useGenerationConfig() {
     () => getImageModelParamDefinitions(config.provider, config.model),
     [config.model, config.provider]
   );
+  const supportedFeatures = useMemo(
+    () => modelConfig.supportedFeatures,
+    [modelConfig.supportedFeatures]
+  );
 
   return {
     config,
@@ -40,6 +44,7 @@ export function useGenerationConfig() {
     providerConfig,
     modelConfig,
     modelParamDefinitions,
+    supportedFeatures,
     setProvider,
     setModel,
     updateConfig,
