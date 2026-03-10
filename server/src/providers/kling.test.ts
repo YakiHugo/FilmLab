@@ -177,4 +177,5 @@ describe("klingImageProvider", () => {
       message: "moderation blocked",
     });
   });
+
 });

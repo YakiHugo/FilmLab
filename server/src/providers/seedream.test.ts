@@ -352,4 +352,5 @@ describe("seedreamImageProvider", () => {
     expect(result.images).toHaveLength(1);
     expect(result.warnings).toEqual(["One image failed moderation"]);
   });
+
 });
