@@ -67,7 +67,7 @@ const envSchema = z.object({
   KLING_API_KEY: optionalTrimmedString(),
   KLING_ACCESS_KEY: optionalTrimmedString(),
   KLING_SECRET_KEY: optionalTrimmedString(),
-  KLING_API_BASE_URL: optionalUrlString().default("https://api-singapore.klingai.com"),
+  KLING_API_BASE_URL: optionalUrlString().default("https://api-beijing.klingai.com"),
 });
 
 export interface AppConfig {

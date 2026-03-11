@@ -22,12 +22,20 @@ describe("kling auth", () => {
     expect(signature).toMatch(/^[A-Za-z0-9_-]+$/);
   });
 
-  it("prefers a legacy bearer token override when present", () => {
+  it("prefers access key and secret key over a legacy bearer token", () => {
     expect(
       resolveKlingBearerToken({
         apiKey: "legacy-bearer-token",
-        accessKey: "ignored-access-key",
-        secretKey: "ignored-secret-key",
+        accessKey: "test-access-key",
+        secretKey: "test-secret-key",
+      }, 1_700_000_000_000)
+    ).toBe(generateKlingAuthToken("test-access-key", "test-secret-key", 1_700_000_000_000));
+  });
+
+  it("falls back to a legacy bearer token when access key and secret key are absent", () => {
+    expect(
+      resolveKlingBearerToken({
+        apiKey: "legacy-bearer-token",
       })
     ).toBe("legacy-bearer-token");
   });

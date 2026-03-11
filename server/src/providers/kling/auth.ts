@@ -37,16 +37,16 @@ export const resolveKlingBearerToken = (
   credentials: RuntimeProviderCredentials,
   now = Date.now()
 ) => {
+  const accessKey = credentials.accessKey?.trim() ?? "";
+  const secretKey = credentials.secretKey?.trim() ?? "";
+  if (accessKey && secretKey) {
+    return generateKlingAuthToken(accessKey, secretKey, now);
+  }
+
   const legacyApiKey = credentials.apiKey?.trim();
   if (legacyApiKey) {
     return legacyApiKey;
   }
 
-  const accessKey = credentials.accessKey?.trim() ?? "";
-  const secretKey = credentials.secretKey?.trim() ?? "";
-  if (!accessKey || !secretKey) {
-    throw new ProviderError("Kling access key and secret key are required.", 401);
-  }
-
-  return generateKlingAuthToken(accessKey, secretKey, now);
+  throw new ProviderError("Kling access key and secret key are required.", 401);
 };
