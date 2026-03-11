@@ -65,6 +65,8 @@ const envSchema = z.object({
   DASHSCOPE_API_KEY: optionalTrimmedString(),
   DASHSCOPE_API_BASE_URL: optionalUrlString().default("https://dashscope.aliyuncs.com"),
   KLING_API_KEY: optionalTrimmedString(),
+  KLING_ACCESS_KEY: optionalTrimmedString(),
+  KLING_SECRET_KEY: optionalTrimmedString(),
   KLING_API_BASE_URL: optionalUrlString().default("https://api-singapore.klingai.com"),
 });
 
@@ -92,6 +94,8 @@ export interface AppConfig {
   dashscopeApiKey?: string;
   dashscopeApiBaseUrl: string;
   klingApiKey?: string;
+  klingAccessKey?: string;
+  klingSecretKey?: string;
   klingApiBaseUrl: string;
 }
 
@@ -142,6 +146,8 @@ export const getConfig = (): AppConfig => {
     dashscopeApiKey: env.DASHSCOPE_API_KEY,
     dashscopeApiBaseUrl: env.DASHSCOPE_API_BASE_URL.replace(/\/+$/, ""),
     klingApiKey: env.KLING_API_KEY,
+    klingAccessKey: env.KLING_ACCESS_KEY,
+    klingSecretKey: env.KLING_SECRET_KEY,
     klingApiBaseUrl: env.KLING_API_BASE_URL.replace(/\/+$/, ""),
   };
 

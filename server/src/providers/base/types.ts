@@ -35,10 +35,16 @@ export interface ProviderRawResponse {
   headers?: Headers;
 }
 
+export interface RuntimeProviderCredentials {
+  apiKey?: string;
+  accessKey?: string;
+  secretKey?: string;
+}
+
 export interface PlatformProviderGenerateInput {
   target: ResolvedRouteTarget;
   request: ParsedImageGenerationRequest;
-  apiKey: string;
+  credentials: RuntimeProviderCredentials;
   options?: { signal?: AbortSignal; timeoutMs?: number; traceId?: string };
 }
 
@@ -48,6 +54,6 @@ export interface PlatformProviderUpscaleInput {
   imageBuffer: Buffer;
   mimeType: string;
   scale: ImageUpscaleScale;
-  apiKey: string;
+  credentials: RuntimeProviderCredentials;
   options?: { signal?: AbortSignal; timeoutMs?: number; traceId?: string };
 }

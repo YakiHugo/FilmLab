@@ -8,6 +8,7 @@ import type {
   ProviderRawResponse,
   RuntimeGenerationResult,
 } from "../../base/types";
+import { resolveKlingBearerToken } from "../auth";
 
 const POLL_INTERVAL_MS = 2_500;
 const SUPPORTED_MODELS = new Set(["kling-v2-1", "kling-v3"]);
@@ -126,7 +127,7 @@ const waitForPoll = (signal: AbortSignal | undefined, durationMs: number) =>
 
 const pollKlingTask = async (
   taskId: string,
-  apiKey: string,
+  bearerToken: string,
   context: ReturnType<typeof createProviderRequestContext>
 ): Promise<ProviderRawResponse> => {
   const deadline = Date.now() + context.timeoutMs;
@@ -137,7 +138,7 @@ const pollKlingTask = async (
       {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${bearerToken}`,
         },
       },
       "Kling image generation timed out.",
@@ -185,11 +186,7 @@ export const generateKlingImage = async (
     throw new ProviderError(`Unsupported Kling model: ${providerModel}.`, 400);
   }
 
-  const normalizedApiKey = input.apiKey.trim();
-  if (!normalizedApiKey) {
-    throw new ProviderError("Kling API key is required.", 401);
-  }
-
+  const bearerToken = resolveKlingBearerToken(input.credentials);
   const context = createProviderRequestContext(input.options);
   const createResponse = await fetchProviderResponse(
     getKlingImageGenerationUrl(),
@@ -197,7 +194,7 @@ export const generateKlingImage = async (
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${normalizedApiKey}`,
+        Authorization: `Bearer ${bearerToken}`,
       },
       body: JSON.stringify({
         model_name: providerModel,
@@ -237,7 +234,7 @@ export const generateKlingImage = async (
     throw new ProviderError("Kling provider did not return a task id.");
   }
 
-  const rawResponse = await pollKlingTask(taskId, normalizedApiKey, context);
+  const rawResponse = await pollKlingTask(taskId, bearerToken, context);
   const images = extractKlingImages(rawResponse.payload);
   if (images.length === 0) {
     throw new ProviderError("Kling provider returned no image URL.");

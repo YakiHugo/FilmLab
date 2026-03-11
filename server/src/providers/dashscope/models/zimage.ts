@@ -20,7 +20,7 @@ export const generateDashscopeZImage = async (
     throw new ProviderError(`Unsupported DashScope Z Image model: ${providerModel}.`, 400);
   }
 
-  const normalizedApiKey = input.apiKey.trim();
+  const normalizedApiKey = input.credentials.apiKey?.trim() ?? "";
   if (!normalizedApiKey) {
     throw new ProviderError("DashScope API key is required.", 401);
   }

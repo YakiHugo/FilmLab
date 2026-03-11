@@ -8,6 +8,7 @@ import type {
   RouterSelectionInput,
   RuntimeProviderId,
 } from "./types";
+import type { RuntimeProviderCredentials } from "../../providers/base/types";
 
 const PROVIDERS: ProviderSpec[] = [
   {
@@ -132,23 +133,40 @@ export const getDeploymentsForLogicalModel = (
     ...deployment,
   }));
 
-export const getRuntimeProviderKey = (providerId: RuntimeProviderId) => {
+export const getRuntimeProviderCredentials = (
+  providerId: RuntimeProviderId
+): RuntimeProviderCredentials => {
   const config = getConfig();
   switch (providerId) {
     case "ark":
-      return config.arkApiKey?.trim() ?? "";
+      return {
+        apiKey: config.arkApiKey?.trim() ?? "",
+      };
     case "dashscope":
-      return config.dashscopeApiKey?.trim() ?? "";
+      return {
+        apiKey: config.dashscopeApiKey?.trim() ?? "",
+      };
     case "kling":
-      return config.klingApiKey?.trim() ?? "";
+      return {
+        apiKey: config.klingApiKey?.trim() ?? "",
+        accessKey: config.klingAccessKey?.trim() ?? "",
+        secretKey: config.klingSecretKey?.trim() ?? "",
+      };
   }
 };
 
+export const getRuntimeProviderKey = (providerId: RuntimeProviderId) =>
+  getRuntimeProviderCredentials(providerId).apiKey ?? "";
+
 export const getRuntimeProviderConfiguration = (providerId: RuntimeProviderId) => {
-  const apiKey = getRuntimeProviderKey(providerId);
+  const credentials = getRuntimeProviderCredentials(providerId);
+  const configured =
+    providerId === "kling"
+      ? Boolean(credentials.apiKey || (credentials.accessKey && credentials.secretKey))
+      : Boolean(credentials.apiKey);
   return {
-    configured: Boolean(apiKey),
-    missingCredential: !apiKey,
+    configured,
+    missingCredential: !configured,
   };
 };
 

@@ -22,7 +22,7 @@ export const generateDashscopeQwen = async (
     throw new ProviderError(`Unsupported DashScope Qwen model: ${providerModel}.`, 400);
   }
 
-  const normalizedApiKey = input.apiKey.trim();
+  const normalizedApiKey = input.credentials.apiKey?.trim() ?? "";
   if (!normalizedApiKey) {
     throw new ProviderError("DashScope API key is required.", 401);
   }

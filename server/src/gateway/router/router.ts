@@ -3,7 +3,7 @@ import type { ParsedImageUpscaleRequest } from "../../shared/imageUpscaleSchema"
 import { getPlatformModelAdapter } from "../../providers/base/registry";
 import { ProviderError } from "../../providers/base/errors";
 import { routerHealth } from "./health";
-import { getRuntimeProviderConfiguration, getRuntimeProviderKey } from "./registry";
+import { getRuntimeProviderConfiguration, getRuntimeProviderCredentials } from "./registry";
 import { isRetriableProviderError } from "./retry";
 import { selectRouteTargets } from "./selection";
 import type { HealthRecordInput, ImageOperation } from "./types";
@@ -69,7 +69,11 @@ export const imageRuntimeRouter = {
     return executeWithFallback("generate", targets, async (target) => {
       const configuredProvider = getRuntimeProviderConfiguration(target.provider.id);
       if (!configuredProvider.configured) {
-        throw new ProviderError(`${target.provider.name} API key is required.`, 401);
+        const message =
+          target.provider.id === "kling"
+            ? `${target.provider.name} access key and secret key are required.`
+            : `${target.provider.name} API key is required.`;
+        throw new ProviderError(message, 401);
       }
 
       const adapter = getPlatformModelAdapter(
@@ -85,7 +89,7 @@ export const imageRuntimeRouter = {
       return adapter.generate({
         target,
         request,
-        apiKey: getRuntimeProviderKey(target.provider.id),
+        credentials: getRuntimeProviderCredentials(target.provider.id),
         options,
       });
     });

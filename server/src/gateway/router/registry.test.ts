@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 const mockConfig = vi.hoisted(() => ({
   arkApiKey: "ark-server-key",
   dashscopeApiKey: "dashscope-server-key",
-  klingApiKey: "kling-server-key",
+  klingApiKey: "",
+  klingAccessKey: "kling-access-key",
+  klingSecretKey: "kling-secret-key",
 }));
 
 vi.mock("../../config", () => ({
@@ -12,12 +14,25 @@ vi.mock("../../config", () => ({
 
 describe("runtime route registry", () => {
   it("maps canonical providers to managed credentials", async () => {
-    const { getRuntimeProviderConfiguration, getRuntimeProviderKey } = await import("./registry");
+    const {
+      getRuntimeProviderConfiguration,
+      getRuntimeProviderCredentials,
+      getRuntimeProviderKey,
+    } = await import("./registry");
 
     expect(getRuntimeProviderKey("ark")).toBe("ark-server-key");
     expect(getRuntimeProviderKey("dashscope")).toBe("dashscope-server-key");
-    expect(getRuntimeProviderKey("kling")).toBe("kling-server-key");
+    expect(getRuntimeProviderKey("kling")).toBe("");
+    expect(getRuntimeProviderCredentials("kling")).toEqual({
+      apiKey: "",
+      accessKey: "kling-access-key",
+      secretKey: "kling-secret-key",
+    });
     expect(getRuntimeProviderConfiguration("ark")).toEqual({
+      configured: true,
+      missingCredential: false,
+    });
+    expect(getRuntimeProviderConfiguration("kling")).toEqual({
       configured: true,
       missingCredential: false,
     });

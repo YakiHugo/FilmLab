@@ -136,7 +136,7 @@ export const generateArkSeedream = async (
     throw new ProviderError(`Unsupported Ark model: ${providerModel}.`, 400);
   }
 
-  const normalizedApiKey = input.apiKey.trim();
+  const normalizedApiKey = input.credentials.apiKey?.trim() ?? "";
   if (!normalizedApiKey) {
     throw new ProviderError("Ark API key is required.", 401);
   }
