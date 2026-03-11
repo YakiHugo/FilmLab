@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 const mockConfig = vi.hoisted(() => ({
   arkApiKey: "ark-server-key",
   dashscopeApiKey: "dashscope-server-key",
-  klingApiKey: "",
   klingAccessKey: "kling-access-key",
   klingSecretKey: "kling-secret-key",
 }));
@@ -24,7 +23,6 @@ describe("runtime route registry", () => {
     expect(getRuntimeProviderKey("dashscope")).toBe("dashscope-server-key");
     expect(getRuntimeProviderKey("kling")).toBe("");
     expect(getRuntimeProviderCredentials("kling")).toEqual({
-      apiKey: "",
       accessKey: "kling-access-key",
       secretKey: "kling-secret-key",
     });

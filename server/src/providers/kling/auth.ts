@@ -43,10 +43,5 @@ export const resolveKlingBearerToken = (
     return generateKlingAuthToken(accessKey, secretKey, now);
   }
 
-  const legacyApiKey = credentials.apiKey?.trim();
-  if (legacyApiKey) {
-    return legacyApiKey;
-  }
-
   throw new ProviderError("Kling access key and secret key are required.", 401);
 };

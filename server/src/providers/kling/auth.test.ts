@@ -22,25 +22,16 @@ describe("kling auth", () => {
     expect(signature).toMatch(/^[A-Za-z0-9_-]+$/);
   });
 
-  it("prefers access key and secret key over a legacy bearer token", () => {
+  it("uses access key and secret key to build the bearer token", () => {
     expect(
       resolveKlingBearerToken({
-        apiKey: "legacy-bearer-token",
         accessKey: "test-access-key",
         secretKey: "test-secret-key",
       }, 1_700_000_000_000)
     ).toBe(generateKlingAuthToken("test-access-key", "test-secret-key", 1_700_000_000_000));
   });
 
-  it("falls back to a legacy bearer token when access key and secret key are absent", () => {
-    expect(
-      resolveKlingBearerToken({
-        apiKey: "legacy-bearer-token",
-      })
-    ).toBe("legacy-bearer-token");
-  });
-
-  it("rejects missing access key and secret key when no legacy token is present", () => {
+  it("rejects missing access key and secret key", () => {
     expect(() => resolveKlingBearerToken({ accessKey: "only-access-key" })).toThrowError(
       new ProviderError("Kling access key and secret key are required.", 401)
     );

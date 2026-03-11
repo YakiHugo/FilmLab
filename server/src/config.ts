@@ -64,7 +64,6 @@ const envSchema = z.object({
   ARK_API_BASE_URL: optionalUrlString().default("https://ark.cn-beijing.volces.com"),
   DASHSCOPE_API_KEY: optionalTrimmedString(),
   DASHSCOPE_API_BASE_URL: optionalUrlString().default("https://dashscope.aliyuncs.com"),
-  KLING_API_KEY: optionalTrimmedString(),
   KLING_ACCESS_KEY: optionalTrimmedString(),
   KLING_SECRET_KEY: optionalTrimmedString(),
   KLING_API_BASE_URL: optionalUrlString().default("https://api-beijing.klingai.com"),
@@ -93,7 +92,6 @@ export interface AppConfig {
   arkApiBaseUrl: string;
   dashscopeApiKey?: string;
   dashscopeApiBaseUrl: string;
-  klingApiKey?: string;
   klingAccessKey?: string;
   klingSecretKey?: string;
   klingApiBaseUrl: string;
@@ -145,7 +143,6 @@ export const getConfig = (): AppConfig => {
     arkApiBaseUrl: env.ARK_API_BASE_URL.replace(/\/+$/, ""),
     dashscopeApiKey: env.DASHSCOPE_API_KEY,
     dashscopeApiBaseUrl: env.DASHSCOPE_API_BASE_URL.replace(/\/+$/, ""),
-    klingApiKey: env.KLING_API_KEY,
     klingAccessKey: env.KLING_ACCESS_KEY,
     klingSecretKey: env.KLING_SECRET_KEY,
     klingApiBaseUrl: env.KLING_API_BASE_URL.replace(/\/+$/, ""),

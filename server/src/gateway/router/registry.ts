@@ -148,7 +148,6 @@ export const getRuntimeProviderCredentials = (
       };
     case "kling":
       return {
-        apiKey: config.klingApiKey?.trim() ?? "",
         accessKey: config.klingAccessKey?.trim() ?? "",
         secretKey: config.klingSecretKey?.trim() ?? "",
       };
@@ -162,7 +161,7 @@ export const getRuntimeProviderConfiguration = (providerId: RuntimeProviderId) =
   const credentials = getRuntimeProviderCredentials(providerId);
   const configured =
     providerId === "kling"
-      ? Boolean(credentials.apiKey || (credentials.accessKey && credentials.secretKey))
+      ? Boolean(credentials.accessKey && credentials.secretKey)
       : Boolean(credentials.apiKey);
   return {
     configured,
