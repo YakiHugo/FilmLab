@@ -1,6 +1,7 @@
 import { getStylePromptHint } from "../shared/imageStyleHints";
 import type { ParsedImageGenerationRequest } from "../shared/imageGenerationSchema";
-import { ProviderError, type ProviderGeneratedImage } from "./types";
+import { ProviderError } from "./base/errors";
+import type { ProviderGeneratedImage } from "./base/types";
 
 const DASHSCOPE_SIZE_BY_ASPECT_RATIO: Record<
   Exclude<ParsedImageGenerationRequest["aspectRatio"], "custom">,

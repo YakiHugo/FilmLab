@@ -1,4 +1,4 @@
-import { ProviderError } from "../providers/types";
+import { ProviderError } from "../providers/base/errors";
 
 export const readResponseBufferWithinLimit = async (
   response: Response,

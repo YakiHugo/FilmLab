@@ -1,5 +1,5 @@
 import { getConfig } from "../config";
-import { ProviderError } from "../providers/types";
+import { ProviderError } from "../providers/base/errors";
 
 const isAbortError = (error: unknown) =>
   error instanceof Error && error.name === "AbortError";

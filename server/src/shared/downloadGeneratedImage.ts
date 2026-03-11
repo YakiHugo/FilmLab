@@ -1,5 +1,5 @@
 import { getConfig } from "../config";
-import { ProviderError } from "../providers/types";
+import { ProviderError } from "../providers/base/errors";
 import { fetchWithTimeout } from "./fetchWithTimeout";
 import {
   getImageContentType,

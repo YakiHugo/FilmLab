@@ -1,6 +1,6 @@
 import type { ParsedImageGenerationRequest } from "../../shared/imageGenerationSchema";
 import type { ParsedImageUpscaleRequest } from "../../shared/imageUpscaleSchema";
-import { getPlatformProviderAdapter } from "../../providers/base/registry";
+import { getPlatformModelAdapter } from "../../providers/base/registry";
 import { ProviderError } from "../../providers/base/errors";
 import { routerHealth } from "./health";
 import { getRuntimeProviderConfiguration, getRuntimeProviderKey } from "./registry";
@@ -72,7 +72,16 @@ export const imageRuntimeRouter = {
         throw new ProviderError(`${target.provider.name} API key is required.`, 401);
       }
 
-      const adapter = getPlatformProviderAdapter(target.provider.id);
+      const adapter = getPlatformModelAdapter(
+        target.provider.id,
+        target.deployment.providerModel
+      );
+      if (!adapter) {
+        throw new ProviderError(
+          `No adapter is registered for ${target.provider.id}/${target.deployment.providerModel}.`,
+          500
+        );
+      }
       return adapter.generate({
         target,
         request,
