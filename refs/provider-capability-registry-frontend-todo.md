@@ -1,137 +1,213 @@
-# Provider Capability Registry 前端联调 TODO
+# Provider Capability Registry 前端 TODO
 
-> 状态：**前端设计完成，等待后端接口先行落地后再联调**。
+> 状态：已按 `catalog -> config sanitize -> generate` 主链路完成一版接入。本文档只保留基于当前实现仍然缺失的前端能力，不再沿用早期“单独 capability facts / health / BYOK 接口”的假设。
 
-## 0. 依赖顺序（必须遵循）
+## 0. 当前已完成
 
-1. **后端先行**：完成 Provider Capability Registry 的查询接口、错误码、健康度计算逻辑并稳定返回字段。
-2. **前端接入**：在 `src/features/image-lab` 中按下述对接点接入接口与状态管理。
-3. **联调验证**：基于真实后端响应联调 UI 与错误提示文案，覆盖正常/降级/不可用路径。
-4. **回归测试**：补充或更新相关单测（hooks / panel）并验证不会破坏现有出图流程。
+- catalog 已经是前端唯一事实入口：
+  - `src/lib/ai/imageModelCatalog.ts`
+  - `src/features/image-lab/hooks/useGenerationConfig.ts`
+- model capability facts 已经通过 catalog 下发到前端：
+  - `constraints`
+  - `parameterDefinitions`
+  - `defaults`
+  - `supportsUpscale`
+  - `defaultProvider`
+  - `health`
+- 本地参数收敛已完成：
+  - `sanitizeGenerationConfigWithCatalog(...)`
+  - `generationConfigStore`
+- 参数面板已经按 catalog 驱动显示/隐藏：
+  - unsupported common params
+  - custom size 开关
+  - reference image 能力
+  - model-specific extra params
+- ProviderApiKeyPanel 已经改成“服务端托管凭证”展示，不再是浏览器本地 BYOK。
 
----
+## 1. 已过时的 TODO 假设
 
-## 1. 需要新增的前端查询接口
+这些不应再作为前端必做项：
 
-> 建议统一放在 `src/features/image-lab` 下的 API 层（例如 `api/providerCapability.ts`），并通过 hooks 暴露给组件。
+- 单独的 `capability facts` 查询接口和 `useProviderCapabilityFacts(...)`
+  - 现在 catalog 已经承载这部分数据，继续拆一套接口会重复。
+- 单独的 `health` 查询接口和 `useProviderModelHealth(...)`
+  - 只要 catalog 继续返回 model health，前端优先直接消费 catalog。
+- `ProviderApiKeyPanel` 的“用户录入/校验 API Key”流程
+  - 现在是 server-managed credentials，不再是前端凭证输入面板。
 
-### 1.1 能力事实（Capability Facts）查询
+保留为可选后续项：
 
-- **用途**：根据 provider + model 拉取可用能力事实（是否支持文生图、图生图、最大尺寸、风格参数支持等）。
-- **建议请求**：
-  - `GET /api/providers/{providerId}/models/{modelId}/capability-facts`
-- **建议响应字段**：
-  - `providerId`, `modelId`, `version`
-  - `supportsTextToImage`, `supportsImageToImage`
-  - `maxResolution`, `allowedAspectRatios`
-  - `supportedStyles`, `supportedOutputFormats`
-  - `updatedAt`
+- 如果未来 health 需要高频刷新，再单独拆 `health` 查询。
+- 如果未来 compatibility 需要服务端给出 explainable issues/fallbacks，再补专门接口。
 
-### 1.2 兼容性（Compatibility）查询
+## 2. 当前真正还缺的前端能力
 
-- **用途**：在用户选择参数时判断当前模型与参数组合是否兼容，提供可执行建议。
-- **建议请求**：
-  - `POST /api/providers/{providerId}/models/{modelId}/compatibility-check`
-- **建议请求体**：
-  - `prompt`, `size`, `style`, `outputFormat`, `referenceImageEnabled` 等当前面板参数。
-- **建议响应字段**：
-  - `compatible: boolean`
-  - `issues: Array<{ code: string; field?: string; message?: string }>`
-  - `fallbacks: Array<{ field: string; suggestedValue: string; reasonCode: string }>`
+### 2.1 模型健康态还没有真正展示
 
-### 1.3 健康度（Health）查询
+问题：
 
-- **用途**：显示 provider/model 健康状态（可用、降级、不可用），用于用户决策与错误前置提示。
-- **建议请求**：
-  - `GET /api/providers/{providerId}/models/{modelId}/health`
-- **建议响应字段**：
-  - `status: 'healthy' | 'degraded' | 'down'`
-  - `latencyP95Ms`, `errorRate`, `windowMinutes`
-  - `lastIncidentAt`, `message`
+- catalog 已经返回 `model.health`，但 UI 没有消费。
+- 模型列表目前只透传了 `id/name/description/providerName`，丢掉了 `health`、`configured`、`modelFamily`、`supportsUpscale`。
 
----
+现状入口：
 
-## 2. UI 入口建议
+- `src/pages/image-lab.tsx`
+- `src/features/image-lab/ImagePromptInput.tsx`
 
-### 2.1 模型选择器（Model Selector）
+需要补齐：
 
-- 在模型列表项追加能力标签与健康状态点（例如：`文生图` / `图生图` / `降级`）。
-- 切换模型时触发：
-  1. capability facts 拉取
-  2. health 拉取
-  3. 根据返回结果刷新参数面板可编辑状态
+- 模型选择器显示：
+  - `healthy / degraded / down / unknown`
+  - provider configured 状态
+  - 必要时显示 `modelFamily`
+- 当前选中模型区域显示健康提示：
+  - `degraded` 给 warning
+  - `down` 给 blocking 提示
 
-### 2.2 参数面板（Parameter Panel）
+### 2.2 参数兼容性只有“静默裁剪”，没有解释型 UX
 
-- 在参数变更（尺寸/风格/输出格式）时做 compatibility check（可做 debounce）。
-- 不兼容参数使用 inline 提示，并提供“一键应用推荐配置（fallback）”按钮。
-- 对不支持的选项直接置灰并附带 tooltip 原因。
+问题：
 
-### 2.3 错误提示（Error Messaging）
+- 当前 `sanitizeGenerationConfigWithCatalog(...)` 会自动裁掉不支持参数。
+- 但用户看不到“为什么被裁”“哪些参数不兼容”“推荐替代值是什么”。
 
-- 优先显示后端 `errorCode` 对应的人类可读文案（见第 4 节映射）。
-- 文案分层：
-  - 顶层 toast：请求失败/服务不可用
-  - 字段级错误：参数不兼容
-  - 空态说明：当前模型暂不支持该能力
+现状入口：
 
-### 2.4 健康状态徽标（Health Badge）
+- `src/lib/ai/imageModelCatalog.ts`
+- `src/stores/generationConfigStore.ts`
+- `src/features/image-lab/ImagePromptInput.tsx`
 
-- 在 provider/model 名称旁展示徽标：
-  - `healthy` → 绿色“可用”
-  - `degraded` → 黄色“降级”
-  - `down` → 红色“不可用”
-- `degraded/down` 状态下默认展开提示详情（`message` + 最近事件时间）。
+需要补齐：
 
----
+- 字段级 incompatibility 提示
+- tooltip 或说明文案：
+  - 为什么某项不可用
+  - 为什么某项被自动清空
+- 若继续走纯前端 compatibility：
+  - 在 sanitize 时产出 warnings/issues 供 UI 使用
+- 若改成服务端 explainable compatibility：
+  - 增加 `issues` / `fallbacks` 响应消费层
 
-## 3. 与 `src/features/image-lab` 的对接点
+### 2.3 提交按钮还没有接 provider/model 状态 gating
 
-### 3.1 `ImageGenerationPanel`
+问题：
 
-- 接入 capability facts + compatibility check 结果，驱动：
-  - 生成按钮禁用条件
-  - 参数项可编辑/只读状态
-  - fallback 建议展示
-- 在提交生成前做一次最终 compatibility check，避免后端可预判错误。
+- 当前 Generate 按钮只看：
+  - prompt 是否为空
+  - 是否正在生成
+- 不看：
+  - provider 是否缺凭证
+  - model health 是否 `down`
+  - 当前配置是否存在已知不兼容
 
-### 3.2 `ProviderApiKeyPanel`
+现状入口：
 
-- API Key 校验成功后，触发 provider 级别健康度预取（默认模型或最近使用模型）。
-- 在 key 无效与 provider 健康异常时，使用不同错误文案，避免用户误以为仅是 key 问题。
+- `src/features/image-lab/ImagePromptInput.tsx`
 
-### 3.3 Hooks 建议
+需要补齐：
 
-- 新增：
-  - `useProviderCapabilityFacts(providerId, modelId)`
-  - `useModelCompatibility(providerId, modelId, config)`
-  - `useProviderModelHealth(providerId, modelId)`
-- 将三类查询结果在 `useImageGeneration` 或独立状态层中聚合，减少组件内重复请求逻辑。
+- provider 未配置时禁用生成，并给出明确原因
+- model `down` 时禁用生成
+- model `degraded` 时允许生成，但给出 warning
+- 若后续接入 explainable compatibility，则把 blocking issue 纳入禁用条件
 
----
+### 2.4 结构化错误码映射还没打通
 
-## 4. 错误码到文案映射（对应后端 `errorCode`）
+问题：
 
-> 以后端最终错误码为准；前端先建立可扩展映射表，未知错误码回退通用提示。
+- 服务端当前只返回 `{ error }`
+- 客户端当前只消费字符串 message
+- TODO 里规划的 `errorCode -> 文案映射` 目前没有真实输入源
 
-| errorCode | 前端文案（建议） | 展示层级 | 处理建议 |
-| --- | --- | --- | --- |
-| `PROVIDER_UNAVAILABLE` | 当前服务暂时不可用，请稍后重试或切换其他模型。 | Toast + Health Badge | 引导切换模型 |
-| `MODEL_DEGRADED` | 当前模型处于降级状态，生成速度或成功率可能受影响。 | Inline + Health Badge | 允许继续，给出风险提示 |
-| `CAPABILITY_UNSUPPORTED` | 所选模型暂不支持该能力，请调整参数或切换模型。 | 字段级错误 | 高亮不支持字段 |
-| `PARAM_INVALID_COMBINATION` | 当前参数组合不兼容，已为你提供推荐配置。 | 字段级错误 | 提供一键应用 fallback |
-| `REFERENCE_IMAGE_NOT_SUPPORTED` | 当前模型不支持参考图，请关闭参考图后重试。 | 字段级错误 | 自动建议关闭 reference image |
-| `RATE_LIMITED` | 请求过于频繁，请稍后再试。 | Toast | 增加重试间隔提示 |
-| `API_KEY_INVALID` | API Key 无效或已过期，请更新后重试。 | Panel 错误区 | 引导前往 `ProviderApiKeyPanel` |
-| `UPSTREAM_TIMEOUT` | 上游响应超时，请稍后重试。 | Toast | 提供重试按钮 |
-| `UNKNOWN_ERROR` | 发生未知错误，请稍后重试。 | Toast | 保留 errorId 便于排查 |
+现状入口：
 
----
+- `server/src/routes/image-generate.ts`
+- `src/lib/ai/imageGeneration.ts`
+- `src/features/image-lab/hooks/useImageGeneration.ts`
 
-## 5. 实施备注
+需要补齐：
 
-- 前端在后端接口完成前可先：
-  - 落地类型定义（TypeScript interfaces）
-  - 落地错误码映射表
-  - 预埋 UI 占位与 loading/skeleton
-- **但联调与默认启用必须等待“后端先行完成后再联调”条件满足。**
+- 服务端返回：
+  - `errorCode`
+  - 可选 `field`
+  - 可选 `details`
+- 前端建立错误映射表：
+  - toast
+  - inline field error
+  - provider/model health 提示
+
+### 2.5 `supportsUpscale` 已入 catalog，但 UI 仍未透传
+
+问题：
+
+- `supportsUpscale` 已经在 catalog/schema 中存在。
+- 但历史流和结果卡片仍然把它硬编码为 `false`。
+
+现状入口：
+
+- `src/features/image-lab/ImageChatFeed.tsx`
+
+需要补齐：
+
+- 从 turn/model metadata 中拿到真实 `supportsUpscale`
+- 结果卡片按模型能力决定是否显示 upscale 入口
+- 在 capability 关闭时不要暴露死按钮或误导性文案
+
+### 2.6 Provider/模型元数据在页面层被过度裁剪
+
+问题：
+
+- `ImageLabPage` 组装 `imageModels` 时只保留少量展示字段。
+- 这会导致后续想加 health badge、capability tag、configured 提示时只能继续回查 catalog。
+
+现状入口：
+
+- `src/pages/image-lab.tsx`
+
+需要补齐：
+
+- 至少保留：
+  - `health`
+  - `configured`
+  - `modelFamily`
+  - `supportsUpscale`
+  - `defaultProvider`
+
+## 3. 建议优先级
+
+### P0
+
+- 模型/Provider 健康态展示
+- Generate gating
+- `supportsUpscale` 真实透传
+
+### P1
+
+- 结构化错误码映射
+- 参数兼容性解释型 UX
+
+### P2
+
+- 如有必要，再拆独立 compatibility / health 查询接口
+
+## 4. 具体改动入口
+
+优先关注这些文件：
+
+- `src/pages/image-lab.tsx`
+- `src/features/image-lab/hooks/useGenerationConfig.ts`
+- `src/features/image-lab/hooks/useImageGeneration.ts`
+- `src/features/image-lab/ImagePromptInput.tsx`
+- `src/features/image-lab/ImageChatFeed.tsx`
+- `src/features/image-lab/ProviderApiKeyPanel.tsx`
+- `src/lib/ai/imageGeneration.ts`
+- `server/src/routes/image-generate.ts`
+
+## 5. 验收标准
+
+- 模型选择器可直接看到 provider configured + model health
+- `down` 模型无法提交生成
+- `degraded` 模型可提交但会提示风险
+- unsupported 参数不再只是静默消失，用户能知道原因
+- `supportsUpscale` 能从 catalog 真实传到结果卡片
+- 生成失败时前端不再只显示裸 `error.message`，而是按错误类型给出对应文案
