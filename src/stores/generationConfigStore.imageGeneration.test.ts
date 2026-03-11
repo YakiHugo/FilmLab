@@ -13,6 +13,7 @@ const createModelFixture = (
   id,
   label: id,
   logicalModel: "image.seedream.v5",
+  modelFamily: "seedream",
   capability: "image.generate",
   visible: true,
   description: `${id} fixture`,
@@ -28,6 +29,7 @@ const createModelFixture = (
     },
     unsupportedFields: [],
   },
+  supportsUpscale: false,
   parameterDefinitions: getImageModelParamDefinitions(id),
   defaults: {
     aspectRatio: "1:1",
@@ -43,7 +45,7 @@ const createModelFixture = (
     sampler: "",
     modelParams: getDefaultImageModelParams(id),
   },
-  primaryProvider: "ark",
+  defaultProvider: "ark",
   deploymentId: "fixture-deployment",
   providerModel: "fixture-model",
   configured: true,
@@ -80,7 +82,8 @@ const seedreamModel = createModelFixture("seedream-v5", {
 
 const qwenModel = createModelFixture("qwen-image-2-pro", {
   logicalModel: "image.qwen.v2.pro",
-  primaryProvider: "dashscope",
+  modelFamily: "qwen",
+  defaultProvider: "dashscope",
   deploymentId: "dashscope-qwen-image-2-pro-primary",
   providerModel: "qwen-image-2.0-pro",
   constraints: {
@@ -113,7 +116,8 @@ const qwenModel = createModelFixture("qwen-image-2-pro", {
 
 const zimageModel = createModelFixture("zimage-turbo", {
   logicalModel: "image.zimage.turbo",
-  primaryProvider: "dashscope",
+  modelFamily: "zimage",
+  defaultProvider: "dashscope",
   deploymentId: "dashscope-zimage-turbo-primary",
   providerModel: "z-image-turbo",
   constraints: {
@@ -132,7 +136,8 @@ const zimageModel = createModelFixture("zimage-turbo", {
 
 const klingModel = createModelFixture("kling-v3", {
   logicalModel: "image.kling.v3",
-  primaryProvider: "kling",
+  modelFamily: "kling",
+  defaultProvider: "kling",
   deploymentId: "kling-kling-v3-primary",
   providerModel: "kling-v3",
   constraints: {

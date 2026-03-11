@@ -100,8 +100,18 @@ const DEPLOYMENTS: DeploymentSpec[] = [
 ];
 
 const providersById = new Map(PROVIDERS.map((provider) => [provider.id, provider]));
-const deploymentsByLogicalCapability = new Map(
-  DEPLOYMENTS.map((deployment) => [`${deployment.logicalModel}:${deployment.capability}`, deployment])
+const deploymentsByLogicalCapability = DEPLOYMENTS.reduce(
+  (accumulator, deployment) => {
+    const key = `${deployment.logicalModel}:${deployment.capability}`;
+    const current = accumulator.get(key) ?? [];
+    current.push(deployment);
+    accumulator.set(
+      key,
+      current.sort((left, right) => right.priority - left.priority)
+    );
+    return accumulator;
+  },
+  new Map<string, DeploymentSpec[]>()
 );
 const deploymentsById = new Map(DEPLOYMENTS.map((deployment) => [deployment.id, deployment]));
 
@@ -113,6 +123,14 @@ export const getRuntimeProviderById = (providerId: RuntimeProviderId) =>
 export const getDeployments = () => DEPLOYMENTS.map((deployment) => ({ ...deployment }));
 
 export const getDeploymentById = (deploymentId: string) => deploymentsById.get(deploymentId) ?? null;
+
+export const getDeploymentsForLogicalModel = (
+  logicalModel: DeploymentSpec["logicalModel"],
+  capability: DeploymentSpec["capability"]
+) =>
+  (deploymentsByLogicalCapability.get(`${logicalModel}:${capability}`) ?? []).map((deployment) => ({
+    ...deployment,
+  }));
 
 export const getRuntimeProviderKey = (providerId: RuntimeProviderId) => {
   const config = getConfig();
@@ -140,10 +158,10 @@ export const resolveRouteTarget = (input: RouterSelectionInput): ResolvedRouteTa
     return null;
   }
 
-  const deployment = deploymentsByLogicalCapability.get(
+  const deployment = (deploymentsByLogicalCapability.get(
     `${frontendModel.logicalModel}:${input.capability}`
-  );
-  if (!deployment || !deployment.enabled) {
+  ) ?? []).find((entry) => entry.enabled);
+  if (!deployment) {
     return null;
   }
 
@@ -159,15 +177,15 @@ export const resolveRouteTarget = (input: RouterSelectionInput): ResolvedRouteTa
   };
 };
 
-export const getPrimaryDeploymentForModel = (modelId: FrontendImageModelId | string) => {
+export const getDefaultDeploymentForModel = (modelId: FrontendImageModelId | string) => {
   const frontendModel = getFrontendImageModelById(modelId);
   if (!frontendModel) {
     return null;
   }
 
   return (
-    deploymentsByLogicalCapability.get(
+    (deploymentsByLogicalCapability.get(
       `${frontendModel.logicalModel}:${frontendModel.capability}`
-    ) ?? null
+    ) ?? []).find((entry) => entry.enabled) ?? null
   );
 };

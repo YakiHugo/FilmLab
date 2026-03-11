@@ -23,8 +23,8 @@ describe("runtime route registry", () => {
     });
   });
 
-  it("resolves a frontend model to a primary deployment and provider", async () => {
-    const { resolveRouteTarget } = await import("./registry");
+  it("resolves a frontend model to a default deployment and provider", async () => {
+    const { getDefaultDeploymentForModel, resolveRouteTarget } = await import("./registry");
 
     expect(
       resolveRouteTarget({
@@ -40,5 +40,8 @@ describe("runtime route registry", () => {
       },
       provider: { id: "dashscope" },
     });
+    expect(getDefaultDeploymentForModel("qwen-image-2-pro")?.id).toBe(
+      "dashscope-qwen-image-2-pro-primary"
+    );
   });
 });

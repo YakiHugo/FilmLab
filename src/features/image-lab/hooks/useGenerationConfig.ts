@@ -45,8 +45,8 @@ export function useGenerationConfig() {
   }, [catalog, config, initializeFromModel, selectedModel, setModelInStore, visibleModels]);
 
   const providerEntry = useMemo(
-    () => getRuntimeProviderEntry(catalog, selectedModel?.primaryProvider),
-    [catalog, selectedModel?.primaryProvider]
+    () => getRuntimeProviderEntry(catalog, selectedModel?.defaultProvider),
+    [catalog, selectedModel?.defaultProvider]
   );
   const providerFeatures = useMemo(
     () => toCatalogFeatureSupport(selectedModel),

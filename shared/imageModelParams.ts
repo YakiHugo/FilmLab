@@ -1,132 +1,12 @@
 import { z } from "zod";
+import { getImageModelCapabilityFactByModelId } from "./imageModelCapabilityFacts";
 import type { FrontendImageModelId } from "./imageModelCatalog";
-
-export type ImageModelParamValue = string | number | boolean | null;
-
-export interface ImageModelParamOption {
-  label: string;
-  value: string;
-}
-
-export interface ImageModelParamDefinition {
-  key: string;
-  label: string;
-  type: "select" | "number" | "boolean";
-  description?: string;
-  min?: number;
-  max?: number;
-  step?: number;
-  options?: ImageModelParamOption[];
-  defaultValue: ImageModelParamValue;
-}
-
-interface ImageModelParamConfig {
-  modelId: FrontendImageModelId;
-  fields: ImageModelParamDefinition[];
-}
-
-const SEEDREAM_COMMON_FIELDS: ImageModelParamDefinition[] = [
-  {
-    key: "responseFormat",
-    label: "Response Format",
-    type: "select",
-    description: "Ark image generation response payload format.",
-    options: [
-      { label: "URL", value: "url" },
-      { label: "Base64", value: "b64_json" },
-    ],
-    defaultValue: "url",
-  },
-  {
-    key: "watermark",
-    label: "Watermark",
-    type: "boolean",
-    description: "Whether to keep provider watermark in generated images.",
-    defaultValue: true,
-  },
-  {
-    key: "sequentialImageGeneration",
-    label: "Sequential Generation",
-    type: "select",
-    description: "Generate batch images sequentially or in parallel when supported.",
-    options: [
-      { label: "Disabled", value: "disabled" },
-      { label: "Enabled", value: "enabled" },
-    ],
-    defaultValue: "disabled",
-  },
-];
-
-const QWEN_FIELDS: ImageModelParamDefinition[] = [
-  {
-    key: "promptExtend",
-    label: "Prompt Rewrite",
-    type: "boolean",
-    description: "Let the provider expand and refine the prompt.",
-    defaultValue: true,
-  },
-];
-
-const Z_IMAGE_FIELDS: ImageModelParamDefinition[] = [
-  {
-    key: "promptExtend",
-    label: "Prompt Rewrite",
-    type: "boolean",
-    description: "Return the rewritten prompt and reasoning alongside the image.",
-    defaultValue: false,
-  },
-];
-
-const KLING_FIELDS: ImageModelParamDefinition[] = [
-  {
-    key: "resolution",
-    label: "Resolution",
-    type: "select",
-    options: [
-      { label: "1K", value: "1k" },
-      { label: "2K", value: "2k" },
-    ],
-    defaultValue: "1k",
-  },
-  {
-    key: "watermark",
-    label: "Watermark",
-    type: "boolean",
-    description: "Also request watermarked result URLs from Kling.",
-    defaultValue: false,
-  },
-];
-
-const MODEL_PARAM_CONFIGS: ImageModelParamConfig[] = [
-  {
-    modelId: "seedream-v5",
-    fields: SEEDREAM_COMMON_FIELDS,
-  },
-  {
-    modelId: "seedream-v4",
-    fields: SEEDREAM_COMMON_FIELDS,
-  },
-  {
-    modelId: "qwen-image-2-pro",
-    fields: QWEN_FIELDS,
-  },
-  {
-    modelId: "qwen-image-2",
-    fields: QWEN_FIELDS,
-  },
-  {
-    modelId: "zimage-turbo",
-    fields: Z_IMAGE_FIELDS,
-  },
-  {
-    modelId: "kling-v2-1",
-    fields: KLING_FIELDS,
-  },
-  {
-    modelId: "kling-v3",
-    fields: KLING_FIELDS,
-  },
-];
+export type {
+  ImageModelParamDefinition,
+  ImageModelParamOption,
+  ImageModelParamValue,
+} from "./imageModelParamTypes";
+import type { ImageModelParamDefinition, ImageModelParamValue } from "./imageModelParamTypes";
 
 const normalizeModelParamValue = (
   definition: ImageModelParamDefinition,
@@ -159,9 +39,7 @@ const normalizeModelParamValue = (
 
 export const getImageModelParamDefinitions = (
   modelId: FrontendImageModelId | string
-): ImageModelParamDefinition[] =>
-  MODEL_PARAM_CONFIGS.find((entry) => entry.modelId === modelId)?.fields ??
-  [];
+): ImageModelParamDefinition[] => getImageModelCapabilityFactByModelId(modelId)?.parameterDefinitions ?? [];
 
 export const getDefaultImageModelParams = (
   modelId: FrontendImageModelId | string

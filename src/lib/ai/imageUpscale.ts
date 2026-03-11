@@ -1,5 +1,5 @@
 import { resolveApiUrl } from "@/lib/api/resolveApiUrl";
-import { normalizeImageRequestProvider } from "@/lib/ai/imageProviders";
+import { getImageProviderCredentialSlot, isImageProviderId } from "@/lib/ai/imageProviders";
 import type { GeneratedImage } from "@/types/imageGeneration";
 import { imageUpscaleRequestSchema, type ImageUpscaleRequest } from "./imageUpscaleSchema";
 
@@ -124,11 +124,10 @@ export async function upscaleImage(
     throw new Error("Invalid image upscale response.");
   }
 
-  const provider = (
-    typeof json.provider === "string"
+  const provider =
+    typeof json.provider === "string" && isImageProviderId(json.provider)
       ? json.provider
-      : normalizeImageRequestProvider(payload.provider, payload.model) ?? "seedream"
-  ) as GeneratedImage["provider"];
+      : (getImageProviderCredentialSlot(payload.provider) ?? "ark");
 
   return {
     imageUrl: resolveApiUrl(json.imageUrl),

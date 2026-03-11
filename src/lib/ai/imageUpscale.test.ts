@@ -22,7 +22,7 @@ describe("upscaleImage", () => {
     fetchMock.mockResolvedValue(
       new Response(
         JSON.stringify({
-          provider: "qwen",
+          provider: "dashscope",
           runtimeProvider: "dashscope",
           modelFamily: "qwen",
           model: "qwen-image-2.0-pro",
@@ -54,7 +54,7 @@ describe("upscaleImage", () => {
       })
     );
     expect(result).toMatchObject({
-      provider: "qwen",
+      provider: "dashscope",
       model: "qwen-image-2.0-pro",
       imageId: "img-upscaled-1",
       imageUrl: "/api/generated-images/img-upscaled-1",

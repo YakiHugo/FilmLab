@@ -25,13 +25,17 @@ describe("image model catalog registry", () => {
         expect.objectContaining({
           id: "seedream-v5",
           logicalModel: "image.seedream.v5",
-          primaryProvider: "ark",
+          modelFamily: "seedream",
+          defaultProvider: "ark",
+          supportsUpscale: false,
           providerModel: "doubao-seedream-5-0-260128",
         }),
         expect.objectContaining({
           id: "qwen-image-2-pro",
           logicalModel: "image.qwen.v2.pro",
-          primaryProvider: "dashscope",
+          modelFamily: "qwen",
+          defaultProvider: "dashscope",
+          supportsUpscale: false,
           providerModel: "qwen-image-2.0-pro",
         }),
       ])

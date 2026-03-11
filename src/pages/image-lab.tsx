@@ -290,10 +290,10 @@ export function ImageLabPage() {
           id: model.id,
           name: model.label,
           description: model.description,
-          providerId: model.primaryProvider,
+          providerId: model.defaultProvider,
           providerName:
-            imageGeneration.providers.find((provider) => provider.id === model.primaryProvider)?.name ??
-            model.primaryProvider,
+            imageGeneration.providers.find((provider) => provider.id === model.defaultProvider)?.name ??
+            model.defaultProvider,
           costPerImage: undefined,
         }))}
         runtimeProviders={imageGeneration.providers}

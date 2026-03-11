@@ -1,21 +1,17 @@
-export const IMAGE_PROVIDER_IDS = ["seedream", "qwen", "zimage", "kling"] as const;
+export const IMAGE_PROVIDER_IDS = ["ark", "dashscope", "kling"] as const;
 export type ImageProviderId = (typeof IMAGE_PROVIDER_IDS)[number];
 
-export const IMAGE_MODEL_FAMILY_IDS = IMAGE_PROVIDER_IDS;
-export type ImageModelFamilyId = ImageProviderId;
+export const IMAGE_RUNTIME_PROVIDER_IDS = IMAGE_PROVIDER_IDS;
+export type RuntimeImageProviderId = ImageProviderId;
 
-export const IMAGE_RUNTIME_PROVIDER_IDS = ["ark", "dashscope", "kling"] as const;
-export type RuntimeImageProviderId = (typeof IMAGE_RUNTIME_PROVIDER_IDS)[number];
+export const IMAGE_MODEL_FAMILY_IDS = ["seedream", "qwen", "zimage", "kling"] as const;
+export type ImageModelFamilyId = (typeof IMAGE_MODEL_FAMILY_IDS)[number];
 
-export const IMAGE_REQUEST_PROVIDER_IDS = [
-  "seedream",
-  "qwen",
-  "zimage",
-  "kling",
-  "ark",
-  "dashscope",
-] as const;
-export type ImageRequestProviderId = (typeof IMAGE_REQUEST_PROVIDER_IDS)[number];
+export const IMAGE_PROVIDER_REF_IDS = ["seedream", "qwen", "zimage", "kling", "ark", "dashscope"] as const;
+export type ImageProviderRefId = (typeof IMAGE_PROVIDER_REF_IDS)[number];
+
+export const IMAGE_REQUEST_PROVIDER_IDS = IMAGE_PROVIDER_REF_IDS;
+export type ImageRequestProviderId = ImageProviderRefId;
 
 export const IMAGE_ASPECT_RATIOS = [
   "1:1",
@@ -79,14 +75,14 @@ export interface ImageGenerationRequest {
 export interface GeneratedImage {
   imageUrl: string;
   imageId?: string;
-  provider: RuntimeImageProviderId;
+  provider: ImageProviderId;
   model: string;
   mimeType?: string;
   revisedPrompt?: string | null;
 }
 
 export interface ImageUpscaleRequest {
-  provider: ImageRequestProviderId;
+  provider: ImageProviderRefId;
   model: string;
   imageId: string;
   scale?: ImageUpscaleScale;
@@ -96,7 +92,7 @@ export interface ImageGenerationResponse {
   modelId: import("./imageModelCatalog").FrontendImageModelId;
   logicalModel: import("./imageModelCatalog").LogicalImageModelId;
   deploymentId: import("./imageModelCatalog").ImageDeploymentId;
-  runtimeProvider: RuntimeImageProviderId;
+  runtimeProvider: ImageProviderId;
   providerModel: string;
   createdAt: string;
   imageId?: string;

@@ -1,4 +1,4 @@
-import type { RuntimeImageProviderId } from "../../../../shared/imageGeneration";
+import type { ImageModelFamilyId, ImageProviderId } from "../../../../shared/imageGeneration";
 import type {
   FrontendImageModelId,
   ImageCapabilityId,
@@ -8,9 +8,9 @@ import type {
   LogicalImageModelId,
   ProviderModelId,
 } from "../../../../shared/imageModelCatalog";
-import type { ImageModelParamDefinition } from "../../../../shared/imageModelParams";
+import type { ImageModelParamDefinition } from "../../../../shared/imageModelParamTypes";
 
-export type RuntimeProviderId = RuntimeImageProviderId;
+export type RuntimeProviderId = ImageProviderId;
 export type RuntimeCredentialSlotId = RuntimeProviderId;
 export type ImageOperation = "generate" | "upscale";
 
@@ -18,13 +18,15 @@ export interface FrontendModelSpec {
   id: FrontendImageModelId;
   label: string;
   logicalModel: LogicalImageModelId;
+  modelFamily: ImageModelFamilyId;
   capability: "image.generate";
-  routingPolicy: "primary";
+  routingPolicy: "default";
   visible: boolean;
   description?: string;
   constraints: ImageGenerationConstraintSummary;
   parameterDefinitions: ImageModelParamDefinition[];
   defaults: ImageModelDefaults;
+  supportsUpscale: boolean;
 }
 
 export interface DeploymentSpec {

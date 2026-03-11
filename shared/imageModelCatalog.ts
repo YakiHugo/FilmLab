@@ -1,5 +1,5 @@
-import type { ImageAspectRatio, RuntimeImageProviderId, ReferenceImageType } from "./imageGeneration";
-import type { ImageModelParamDefinition, ImageModelParamValue } from "./imageModelParams";
+import type { ImageAspectRatio, ImageModelFamilyId, ImageProviderId, ReferenceImageType } from "./imageGeneration";
+import type { ImageModelParamDefinition, ImageModelParamValue } from "./imageModelParamTypes";
 
 export const FRONTEND_IMAGE_MODEL_IDS = [
   "seedream-v5",
@@ -74,7 +74,7 @@ export interface ImageModelHealthSnapshot {
 }
 
 export interface FrontendImageProviderCatalogEntry {
-  id: RuntimeImageProviderId;
+  id: ImageProviderId;
   name: string;
   configured: boolean;
   missingCredential: boolean;
@@ -84,13 +84,15 @@ export interface FrontendImageModelCatalogEntry {
   id: FrontendImageModelId;
   label: string;
   logicalModel: LogicalImageModelId;
+  modelFamily: ImageModelFamilyId;
   capability: "image.generate";
   description?: string;
   visible: boolean;
   constraints: ImageGenerationConstraintSummary;
   parameterDefinitions: ImageModelParamDefinition[];
   defaults: ImageModelDefaults;
-  primaryProvider: RuntimeImageProviderId;
+  supportsUpscale: boolean;
+  defaultProvider: ImageProviderId;
   deploymentId: ImageDeploymentId;
   providerModel: ProviderModelId;
   configured: boolean;

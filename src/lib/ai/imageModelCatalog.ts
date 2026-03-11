@@ -105,7 +105,7 @@ export const toCatalogFeatureSupport = (
     guidanceScale: !unsupported.has("guidanceScale"),
     steps: !unsupported.has("steps"),
     styles: !unsupported.has("style") && !unsupported.has("stylePreset"),
-    supportsUpscale: false,
+    supportsUpscale: model?.supportsUpscale ?? false,
     referenceImages: model?.constraints.referenceImages ?? {
       enabled: false,
       maxImages: 0,

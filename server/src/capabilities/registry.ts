@@ -4,7 +4,7 @@ import type {
 } from "../../../shared/imageModelCatalog";
 import { getFrontendImageModels } from "../models/frontendRegistry";
 import {
-  getPrimaryDeploymentForModel,
+  getDefaultDeploymentForModel,
   getRuntimeProviderConfiguration,
   getRuntimeProviders,
 } from "../gateway/router/registry";
@@ -53,7 +53,7 @@ export const createImageModelCatalogRegistry = (health = routerHealth) => ({
     const models = getFrontendImageModels()
       .filter((model) => model.visible && model.capability === "image.generate")
       .map((model) => {
-        const deployment = getPrimaryDeploymentForModel(model.id);
+        const deployment = getDefaultDeploymentForModel(model.id);
         if (!deployment) {
           throw new Error(`Missing deployment for frontend model ${model.id}.`);
         }
@@ -65,13 +65,15 @@ export const createImageModelCatalogRegistry = (health = routerHealth) => ({
           id: model.id,
           label: model.label,
           logicalModel: model.logicalModel,
+          modelFamily: model.modelFamily,
           capability: model.capability,
           description: model.description,
           visible: model.visible,
           constraints: model.constraints,
           parameterDefinitions: model.parameterDefinitions,
           defaults: model.defaults,
-          primaryProvider: deployment.provider,
+          supportsUpscale: model.supportsUpscale,
+          defaultProvider: deployment.provider,
           deploymentId: deployment.id,
           providerModel: deployment.providerModel,
           configured: configuration.configured,
