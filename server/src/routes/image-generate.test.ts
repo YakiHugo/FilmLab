@@ -1,8 +1,20 @@
+import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const generateMock = vi.fn();
 const downloadGeneratedImageMock = vi.fn();
 const storeGeneratedImageMock = vi.fn();
+const repositoryMock = {
+  getConversationById: vi.fn(),
+  getOrCreateActiveConversation: vi.fn(),
+  getConversationSnapshot: vi.fn(),
+  clearActiveConversation: vi.fn(),
+  deleteTurn: vi.fn(),
+  createGeneration: vi.fn(),
+  completeGenerationSuccess: vi.fn(),
+  completeGenerationFailure: vi.fn(),
+  turnExists: vi.fn(),
+};
 
 vi.mock("../gateway/router/router", () => ({
   imageRuntimeRouter: {
@@ -18,19 +30,93 @@ vi.mock("../shared/generatedImageStore", () => ({
   storeGeneratedImage: (...args: unknown[]) => storeGeneratedImageMock(...args),
 }));
 
+vi.mock("../chat/persistence/repository", () => ({
+  getChatStateRepository: () => repositoryMock,
+}));
+
+const encodeBase64Url = (value: string) =>
+  Buffer.from(value, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+
+const createBearerToken = (userId: string, secret = "test-secret") => {
+  const header = encodeBase64Url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const payload = encodeBase64Url(
+    JSON.stringify({
+      sub: userId,
+      exp: Math.floor(Date.now() / 1000) + 60,
+    })
+  );
+  const signature = createHmac("sha256", secret)
+    .update(`${header}.${payload}`)
+    .digest("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+  return `Bearer ${header}.${payload}.${signature}`;
+};
+
 describe("imageGenerateRoute", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.stubEnv("AUTH_JWT_SECRET", "test-secret");
+    vi.restoreAllMocks();
     generateMock.mockReset();
     downloadGeneratedImageMock.mockReset();
     storeGeneratedImageMock.mockReset();
+    repositoryMock.getConversationById.mockReset();
+    repositoryMock.getOrCreateActiveConversation.mockReset();
+    repositoryMock.getConversationSnapshot.mockReset();
+    repositoryMock.clearActiveConversation.mockReset();
+    repositoryMock.deleteTurn.mockReset();
+    repositoryMock.createGeneration.mockReset();
+    repositoryMock.completeGenerationSuccess.mockReset();
+    repositoryMock.completeGenerationFailure.mockReset();
+    repositoryMock.turnExists.mockReset();
+    repositoryMock.getOrCreateActiveConversation.mockResolvedValue({
+      id: "conversation-1",
+      userId: "user-1",
+      createdAt: "2026-03-12T00:00:00.000Z",
+      updatedAt: "2026-03-12T00:00:00.000Z",
+    });
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 
-  it("normalizes provider outputs to local urls and includes canonical runtime metadata", async () => {
+  it("rejects unauthenticated generation requests", async () => {
+    const { default: Fastify } = await import("fastify");
+    const { imageGenerateRoute } = await import("./image-generate");
+
+    const app = Fastify();
+    await app.register(imageGenerateRoute);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      payload: {
+        prompt: "Studio portrait",
+        modelId: "qwen-image-2-pro",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        referenceImages: [],
+        modelParams: {},
+      },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(generateMock).not.toHaveBeenCalled();
+    expect(repositoryMock.createGeneration).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("normalizes provider outputs, persists chat state, and returns canonical ids", async () => {
     const { default: Fastify } = await import("fastify");
     const { imageGenerateRoute } = await import("./image-generate");
 
@@ -65,6 +151,9 @@ describe("imageGenerateRoute", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/image-generate",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
       payload: {
         prompt: "Studio portrait",
         modelId: "qwen-image-2-pro",
@@ -85,24 +174,59 @@ describe("imageGenerateRoute", () => {
         signal: expect.any(AbortSignal),
       })
     );
+    expect(repositoryMock.createGeneration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: "conversation-1",
+        turn: expect.objectContaining({
+          id: expect.any(String),
+          prompt: "Studio portrait",
+          retryOfTurnId: null,
+        }),
+        job: expect.objectContaining({
+          id: expect.any(String),
+        }),
+      })
+    );
+    expect(repositoryMock.completeGenerationSuccess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: "conversation-1",
+        results: [
+          expect.objectContaining({
+            id: expect.any(String),
+            imageId: "remote-1",
+          }),
+          expect.objectContaining({
+            id: expect.any(String),
+            imageId: "binary-1",
+          }),
+        ],
+      })
+    );
 
     const body = response.json();
-    expect(body.modelId).toBe("qwen-image-2-pro");
-    expect(body.logicalModel).toBe("image.qwen.v2.pro");
-    expect(body.deploymentId).toBe("dashscope-qwen-image-2-pro-primary");
-    expect(body.runtimeProvider).toBe("dashscope");
-    expect(body.providerModel).toBe("qwen-image-2.0-pro");
-    expect(body.imageId).toBe("remote-1");
-    expect(body.imageUrl).toBe("/api/generated-images/remote-1");
-    expect(body.warnings).toEqual(["2 of 4 images completed."]);
+    expect(body).toMatchObject({
+      conversationId: "conversation-1",
+      modelId: "qwen-image-2-pro",
+      logicalModel: "image.qwen.v2.pro",
+      deploymentId: "dashscope-qwen-image-2-pro-primary",
+      runtimeProvider: "dashscope",
+      providerModel: "qwen-image-2.0-pro",
+      imageId: "remote-1",
+      imageUrl: "/api/generated-images/remote-1",
+      warnings: ["2 of 4 images completed."],
+    });
+    expect(body.turnId).toEqual(expect.any(String));
+    expect(body.jobId).toEqual(expect.any(String));
     expect(body.images).toEqual([
       expect.objectContaining({
+        resultId: expect.any(String),
         imageId: "remote-1",
         imageUrl: "/api/generated-images/remote-1",
         provider: "dashscope",
         model: "qwen-image-2.0-pro",
       }),
       expect.objectContaining({
+        resultId: expect.any(String),
         imageId: "binary-1",
         imageUrl: "/api/generated-images/binary-1",
         provider: "dashscope",
@@ -113,7 +237,132 @@ describe("imageGenerateRoute", () => {
     await app.close();
   });
 
-  it("returns provider errors from the runtime router", async () => {
+  it("validates retryOfTurnId within the selected conversation", async () => {
+    const { default: Fastify } = await import("fastify");
+    const { imageGenerateRoute } = await import("./image-generate");
+
+    repositoryMock.getConversationById.mockResolvedValue({
+      id: "conversation-1",
+      userId: "user-1",
+      createdAt: "2026-03-12T00:00:00.000Z",
+      updatedAt: "2026-03-12T00:00:00.000Z",
+    });
+    repositoryMock.turnExists.mockResolvedValue(true);
+    generateMock.mockResolvedValue({
+      modelId: "seedream-v5",
+      logicalModel: "image.seedream.v5",
+      deploymentId: "ark-seedream-v5-primary",
+      runtimeProvider: "ark",
+      providerModel: "doubao-seedream-5-0-260128",
+      images: [
+        {
+          binaryData: Buffer.from([1, 2, 3]),
+          mimeType: "image/png",
+        },
+      ],
+    });
+    storeGeneratedImageMock.mockReturnValue("seedream-1");
+
+    const app = Fastify();
+    await app.register(imageGenerateRoute);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+      payload: {
+        prompt: "Retry this",
+        conversationId: "conversation-1",
+        retryOfTurnId: "turn-previous",
+        modelId: "seedream-v5",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        referenceImages: [],
+        modelParams: {},
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(repositoryMock.turnExists).toHaveBeenCalledWith(
+      "user-1",
+      "conversation-1",
+      "turn-previous"
+    );
+    expect(repositoryMock.createGeneration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        turn: expect.objectContaining({
+          retryOfTurnId: "turn-previous",
+        }),
+      })
+    );
+
+    await app.close();
+  });
+
+  it("reuses client-provided optimistic ids for persisted turns and jobs", async () => {
+    const { default: Fastify } = await import("fastify");
+    const { imageGenerateRoute } = await import("./image-generate");
+
+    generateMock.mockResolvedValue({
+      modelId: "seedream-v5",
+      logicalModel: "image.seedream.v5",
+      deploymentId: "ark-seedream-v5-primary",
+      runtimeProvider: "ark",
+      providerModel: "doubao-seedream-5-0-260128",
+      images: [
+        {
+          binaryData: Buffer.from([1, 2, 3]),
+          mimeType: "image/png",
+        },
+      ],
+    });
+    storeGeneratedImageMock.mockReturnValue("seedream-1");
+
+    const app = Fastify();
+    await app.register(imageGenerateRoute);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+      payload: {
+        prompt: "Client ids",
+        clientTurnId: "client-turn-1",
+        clientJobId: "client-job-1",
+        modelId: "seedream-v5",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        referenceImages: [],
+        modelParams: {},
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(repositoryMock.createGeneration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        turn: expect.objectContaining({
+          id: "client-turn-1",
+        }),
+        job: expect.objectContaining({
+          id: "client-job-1",
+        }),
+      })
+    );
+    expect(response.json()).toMatchObject({
+      turnId: "client-turn-1",
+      jobId: "client-job-1",
+    });
+
+    await app.close();
+  });
+
+  it("persists failed jobs when the provider returns an error", async () => {
     const { default: Fastify } = await import("fastify");
     const { imageGenerateRoute } = await import("./image-generate");
     const { ProviderError } = await import("../providers/base/errors");
@@ -126,6 +375,9 @@ describe("imageGenerateRoute", () => {
     const response = await app.inject({
       method: "POST",
       url: "/api/image-generate",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
       payload: {
         prompt: "Blocked prompt",
         modelId: "seedream-v5",
@@ -140,7 +392,16 @@ describe("imageGenerateRoute", () => {
     expect(response.statusCode).toBe(502);
     expect(response.json()).toEqual({
       error: "policy blocked",
+      conversationId: "conversation-1",
+      turnId: expect.any(String),
+      jobId: expect.any(String),
     });
+    expect(repositoryMock.completeGenerationFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: "conversation-1",
+        error: "policy blocked",
+      })
+    );
 
     await app.close();
   });
@@ -149,27 +410,15 @@ describe("imageGenerateRoute", () => {
     const { default: Fastify } = await import("fastify");
     const { imageGenerateRoute } = await import("./image-generate");
 
-    generateMock.mockResolvedValue({
-      modelId: "qwen-image-2-pro",
-      logicalModel: "image.qwen.v2.pro",
-      deploymentId: "dashscope-qwen-image-2-pro-primary",
-      runtimeProvider: "dashscope",
-      providerModel: "qwen-image-2.0-pro",
-      images: [
-        {
-          binaryData: Buffer.from([1, 2, 3]),
-          mimeType: "image/png",
-        },
-      ],
-    });
-    storeGeneratedImageMock.mockReturnValue("qwen-1");
-
     const app = Fastify();
     await app.register(imageGenerateRoute);
 
     const response = await app.inject({
       method: "POST",
       url: "/api/image-generate",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
       payload: {
         prompt: "Studio portrait",
         modelId: "qwen-image-2-pro",
@@ -178,6 +427,7 @@ describe("imageGenerateRoute", () => {
         style: "none",
         referenceImages: [
           {
+            id: "ref-1",
             url: "data:image/png;base64,abc",
             type: "content",
           },
@@ -190,6 +440,7 @@ describe("imageGenerateRoute", () => {
     expect(response.json()).toEqual({
       error: "Qwen Image 2.0 Pro does not support reference images.",
     });
+    expect(repositoryMock.createGeneration).not.toHaveBeenCalled();
 
     await app.close();
   });

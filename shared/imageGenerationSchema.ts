@@ -33,6 +33,10 @@ export const imageGenerationRequestSchema = z
   .object({
     prompt: z.string().trim().min(1),
     negativePrompt: z.string().trim().optional(),
+    conversationId: z.string().trim().min(1).optional(),
+    retryOfTurnId: z.string().trim().min(1).optional(),
+    clientTurnId: z.string().trim().min(1).optional(),
+    clientJobId: z.string().trim().min(1).optional(),
     modelId: frontendImageModelSchema.default("seedream-v5"),
     aspectRatio: imageAspectRatioSchema.default("1:1"),
     width: z

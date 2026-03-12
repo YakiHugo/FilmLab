@@ -4,6 +4,7 @@ import { registerCors } from "./plugins/cors";
 import { registerRateLimit } from "./plugins/rateLimit";
 import { generatedImageRoute } from "./routes/generated-image";
 import { modelCatalogRoute } from "./routes/model-catalog";
+import { imageConversationRoute } from "./routes/image-conversation";
 import { imageGenerateRoute } from "./routes/image-generate";
 
 export const buildServer = () => {
@@ -46,6 +47,7 @@ const start = async () => {
   await app.register(registerCors);
   await app.register(registerRateLimit);
   await app.register(generatedImageRoute);
+  await app.register(imageConversationRoute);
   await app.register(imageGenerateRoute);
   await app.register(modelCatalogRoute);
 

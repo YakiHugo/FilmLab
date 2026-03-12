@@ -57,6 +57,10 @@ export interface ReferenceImage {
 export interface ImageGenerationRequest {
   prompt: string;
   negativePrompt?: string;
+  conversationId?: string;
+  retryOfTurnId?: string;
+  clientTurnId?: string;
+  clientJobId?: string;
   modelId: import("./imageModelCatalog").FrontendImageModelId;
   aspectRatio: ImageAspectRatio;
   width?: number;
@@ -73,6 +77,7 @@ export interface ImageGenerationRequest {
 }
 
 export interface GeneratedImage {
+  resultId?: string;
   imageUrl: string;
   imageId?: string;
   provider: ImageProviderId;
@@ -89,6 +94,9 @@ export interface ImageUpscaleRequest {
 }
 
 export interface ImageGenerationResponse {
+  conversationId: string;
+  turnId: string;
+  jobId: string;
   modelId: import("./imageModelCatalog").FrontendImageModelId;
   logicalModel: import("./imageModelCatalog").LogicalImageModelId;
   deploymentId: import("./imageModelCatalog").ImageDeploymentId;

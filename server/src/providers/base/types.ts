@@ -19,6 +19,8 @@ export interface RuntimeGenerationResult {
   deploymentId: ImageDeploymentId;
   runtimeProvider: RuntimeProviderId;
   providerModel: string;
+  providerRequestId?: string;
+  providerTaskId?: string;
   images: ProviderGeneratedImage[];
   warnings?: string[];
 }

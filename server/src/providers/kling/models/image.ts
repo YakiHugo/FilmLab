@@ -246,6 +246,7 @@ export const generateKlingImage = async (
     deploymentId: input.target.deployment.id,
     runtimeProvider: input.target.provider.id,
     providerModel,
+    providerTaskId: taskId,
     images,
   };
 };

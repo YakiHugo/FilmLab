@@ -38,6 +38,7 @@ export interface GenerationJobSnapshot {
 }
 
 export interface PersistedResultItem {
+  id: string;
   imageUrl: string;
   imageId: string | null;
   runtimeProvider: string;
@@ -53,6 +54,7 @@ export interface PersistedGenerationTurn {
   id: string;
   prompt: string;
   createdAt: string;
+  retryOfTurnId: string | null;
   modelId: FrontendImageModelId;
   logicalModel: LogicalImageModelId;
   deploymentId: ImageDeploymentId;

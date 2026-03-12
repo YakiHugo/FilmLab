@@ -36,6 +36,25 @@ const optionalTrimmedString = () =>
 const optionalUrlString = () =>
   z.preprocess(emptyStringToUndefined, z.string().trim().url().optional());
 
+const optionalBooleanString = () =>
+  z.preprocess((value) => {
+    if (typeof value !== "string") {
+      return value;
+    }
+
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) {
+      return undefined;
+    }
+    if (normalized === "true") {
+      return true;
+    }
+    if (normalized === "false") {
+      return false;
+    }
+    return value;
+  }, z.boolean().optional());
+
 const envSchema = z.object({
   NODE_ENV: z.string().optional(),
   HOST: z.string().trim().min(1).default("0.0.0.0"),
@@ -67,6 +86,12 @@ const envSchema = z.object({
   KLING_ACCESS_KEY: optionalTrimmedString(),
   KLING_SECRET_KEY: optionalTrimmedString(),
   KLING_API_BASE_URL: optionalUrlString().default("https://api-beijing.klingai.com"),
+  DATABASE_URL: optionalTrimmedString(),
+  AUTH_JWT_SECRET: optionalTrimmedString(),
+  AUTH_JWT_ISSUER: optionalTrimmedString(),
+  AUTH_JWT_AUDIENCE: optionalTrimmedString(),
+  ALLOW_UNSIGNED_DEV_AUTH: optionalBooleanString(),
+  DEV_AUTH_ALLOWED_USER_IDS: optionalTrimmedString(),
 });
 
 export interface AppConfig {
@@ -95,6 +120,12 @@ export interface AppConfig {
   klingAccessKey?: string;
   klingSecretKey?: string;
   klingApiBaseUrl: string;
+  databaseUrl?: string;
+  authJwtSecret?: string;
+  authJwtIssuer?: string;
+  authJwtAudience?: string;
+  allowUnsignedDevAuth: boolean;
+  devAuthAllowedUserIds: string[];
 }
 
 let cachedConfig: AppConfig | null = null;
@@ -146,6 +177,16 @@ export const getConfig = (): AppConfig => {
     klingAccessKey: env.KLING_ACCESS_KEY,
     klingSecretKey: env.KLING_SECRET_KEY,
     klingApiBaseUrl: env.KLING_API_BASE_URL.replace(/\/+$/, ""),
+    databaseUrl: env.DATABASE_URL,
+    authJwtSecret: env.AUTH_JWT_SECRET,
+    authJwtIssuer: env.AUTH_JWT_ISSUER,
+    authJwtAudience: env.AUTH_JWT_AUDIENCE,
+    allowUnsignedDevAuth:
+      env.ALLOW_UNSIGNED_DEV_AUTH ?? ((env.NODE_ENV ?? "development") !== "production"),
+    devAuthAllowedUserIds: (env.DEV_AUTH_ALLOWED_USER_IDS ?? "local-user")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
   };
 
   return cachedConfig;

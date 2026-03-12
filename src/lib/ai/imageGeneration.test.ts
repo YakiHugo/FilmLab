@@ -1,14 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveApiUrlMock = vi.fn((value: string) => value);
+const getClientAuthTokenMock = vi.fn(() => "test-token");
 
 vi.mock("@/lib/api/resolveApiUrl", () => ({
   resolveApiUrl: resolveApiUrlMock,
 }));
 
+vi.mock("@/lib/authToken", () => ({
+  getClientAuthToken: () => getClientAuthTokenMock(),
+}));
+
 describe("generateImage", () => {
   beforeEach(() => {
     resolveApiUrlMock.mockClear();
+    getClientAuthTokenMock.mockClear();
   });
 
   afterEach(() => {
@@ -22,6 +28,9 @@ describe("generateImage", () => {
     fetchMock.mockResolvedValue(
       new Response(
         JSON.stringify({
+          conversationId: "conversation-1",
+          turnId: "turn-1",
+          jobId: "job-1",
           modelId: "seedream-v5",
           logicalModel: "image.seedream.v5",
           deploymentId: "ark-seedream-v5-primary",
@@ -33,6 +42,7 @@ describe("generateImage", () => {
           warnings: ["Seedream returned 1 of 2 requested images."],
           images: [
             {
+              resultId: "result-1",
               imageId: "img-1",
               imageUrl: "/api/generated-images/img-1",
               provider: "ark",
@@ -63,12 +73,23 @@ describe("generateImage", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/image-generate",
       expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-token",
+        }),
         body: expect.stringContaining("\"modelId\":\"seedream-v5\""),
       })
     );
     expect(fetchMock.mock.calls[0]?.[1]?.body).not.toContain("\"provider\"");
+    expect(result).toMatchObject({
+      conversationId: "conversation-1",
+      turnId: "turn-1",
+      jobId: "job-1",
+    });
     expect(result.warnings).toEqual(["Seedream returned 1 of 2 requested images."]);
     expect(result.images).toHaveLength(1);
+    expect(result.images[0]).toMatchObject({
+      resultId: "result-1",
+    });
   });
 
   it("preserves runtime routing metadata from the response", async () => {
@@ -77,6 +98,9 @@ describe("generateImage", () => {
     fetchMock.mockResolvedValue(
       new Response(
         JSON.stringify({
+          conversationId: "conversation-1",
+          turnId: "turn-2",
+          jobId: "job-2",
           modelId: "qwen-image-2-pro",
           logicalModel: "image.qwen.v2.pro",
           deploymentId: "dashscope-qwen-image-2-pro-primary",
@@ -87,6 +111,7 @@ describe("generateImage", () => {
           imageUrl: "/api/generated-images/img-2",
           images: [
             {
+              resultId: "result-2",
               imageId: "img-2",
               imageUrl: "/api/generated-images/img-2",
               provider: "dashscope",
@@ -115,6 +140,9 @@ describe("generateImage", () => {
     });
 
     expect(result).toMatchObject({
+      conversationId: "conversation-1",
+      turnId: "turn-2",
+      jobId: "job-2",
       modelId: "qwen-image-2-pro",
       logicalModel: "image.qwen.v2.pro",
       deploymentId: "dashscope-qwen-image-2-pro-primary",
@@ -122,6 +150,7 @@ describe("generateImage", () => {
       providerModel: "qwen-image-2.0-pro",
     });
     expect(result.images[0]).toMatchObject({
+      resultId: "result-2",
       provider: "dashscope",
       model: "qwen-image-2.0-pro",
     });

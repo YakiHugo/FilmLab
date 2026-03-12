@@ -1,5 +1,6 @@
 import { imageGenerationRequestSchema, type ImageGenerationRequest } from "./imageGenerationSchema";
 import { resolveApiUrl } from "@/lib/api/resolveApiUrl";
+import { getClientAuthToken } from "@/lib/authToken";
 import type { GeneratedImage, ImageGenerationResponse } from "@/types/imageGeneration";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -9,6 +10,19 @@ const GENERATION_REQUEST_TIMEOUT_MS = 125_000;
 
 interface GenerateImageOptions {
   signal?: AbortSignal;
+}
+
+interface ImageGenerationResponseErrorPayload {
+  error?: string;
+  conversationId?: string;
+  turnId?: string;
+  jobId?: string;
+}
+
+export interface ImageGenerationRequestError extends Error {
+  conversationId?: string;
+  turnId?: string;
+  jobId?: string;
 }
 
 const createAbortError = () => {
@@ -115,6 +129,7 @@ const normalizeImages = (
 
     normalized.push({
       imageUrl: resolveApiUrl(item.imageUrl),
+      ...(typeof item.resultId === "string" ? { resultId: item.resultId } : {}),
       ...(typeof item.imageId === "string" ? { imageId: item.imageId } : {}),
       provider:
         typeof item.provider === "string"
@@ -141,6 +156,7 @@ export async function generateImage(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${getClientAuthToken()}`,
       },
       body: JSON.stringify(payload),
     },
@@ -149,15 +165,27 @@ export async function generateImage(
 
   if (!response.ok) {
     let message = "Image generation failed.";
+    let errorPayload: ImageGenerationResponseErrorPayload | null = null;
     try {
-      const errorPayload = (await response.json()) as { error?: string };
+      errorPayload = (await response.json()) as ImageGenerationResponseErrorPayload;
       if (typeof errorPayload.error === "string" && errorPayload.error.trim()) {
         message = errorPayload.error;
       }
     } catch {
       // Keep fallback.
     }
-    throw new Error(message);
+
+    const error = new Error(message) as ImageGenerationRequestError;
+    if (typeof errorPayload?.conversationId === "string") {
+      error.conversationId = errorPayload.conversationId;
+    }
+    if (typeof errorPayload?.turnId === "string") {
+      error.turnId = errorPayload.turnId;
+    }
+    if (typeof errorPayload?.jobId === "string") {
+      error.jobId = errorPayload.jobId;
+    }
+    throw error;
   }
 
   const json = (await response.json()) as unknown;
@@ -166,7 +194,27 @@ export async function generateImage(
   }
 
   const modelId =
-    typeof json.modelId === "string" ? (json.modelId as ImageGenerationResponse["modelId"]) : payload.modelId;
+    typeof json.modelId === "string"
+      ? (json.modelId as ImageGenerationResponse["modelId"])
+      : payload.modelId;
+  const conversationId =
+    typeof json.conversationId === "string"
+      ? json.conversationId
+      : (() => {
+          throw new Error("Missing conversation id in image generation response.");
+        })();
+  const turnId =
+    typeof json.turnId === "string"
+      ? json.turnId
+      : (() => {
+          throw new Error("Missing turn id in image generation response.");
+        })();
+  const jobId =
+    typeof json.jobId === "string"
+      ? json.jobId
+      : (() => {
+          throw new Error("Missing job id in image generation response.");
+        })();
   const logicalModel =
     typeof json.logicalModel === "string"
       ? (json.logicalModel as ImageGenerationResponse["logicalModel"])
@@ -200,6 +248,7 @@ export async function generateImage(
   if (images.length === 0 && fallbackImageUrl) {
     images.push({
       imageUrl: fallbackImageUrl,
+      ...(typeof json.resultId === "string" ? { resultId: json.resultId } : {}),
       ...(typeof json.imageId === "string" ? { imageId: json.imageId } : {}),
       provider: runtimeProvider,
       model: providerModel,
@@ -211,6 +260,9 @@ export async function generateImage(
   }
 
   return {
+    conversationId,
+    turnId,
+    jobId,
     modelId,
     logicalModel,
     deploymentId,
