@@ -3,7 +3,9 @@ import {
   Download,
   Ellipsis,
   Expand,
+  ImagePlus,
   Loader2,
+  PanelTopOpen,
   Shuffle,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -14,14 +16,16 @@ interface ImageResultCardProps {
   provider: string;
   model: string;
   assetId: string | null;
+  threadAssetId?: string | null;
   saved: boolean;
   selected: boolean;
   compact?: boolean;
-  onToggleSelection: () => void;
-  onAddToCanvas: () => void;
+  onToggleSelection?: () => void;
+  onAddToCanvas?: () => void;
   onDownload?: () => void;
   onUpscale?: () => void;
   onVary?: () => void;
+  onUseAsReference?: () => void;
   onFullscreen?: () => void;
   isUpscaling?: boolean;
   upscaleError?: string | null;
@@ -29,10 +33,18 @@ interface ImageResultCardProps {
 
 export function ImageResultCard({
   imageUrl,
+  provider,
+  model,
+  threadAssetId = null,
+  saved,
+  selected,
   compact = false,
+  onToggleSelection,
+  onAddToCanvas,
   onDownload,
   onUpscale,
   onVary,
+  onUseAsReference,
   onFullscreen,
   isUpscaling = false,
   upscaleError = null,
@@ -45,24 +57,32 @@ export function ImageResultCard({
     setHasImageError(false);
   }, [imageUrl]);
 
-  // Close menu on outside click
   useEffect(() => {
-    if (!menuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+    if (!menuOpen) {
+      return;
+    }
+
+    const handler = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setMenuOpen(false);
       }
     };
+
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [menuOpen]);
 
   const iconSm = "h-3.5 w-3.5";
+  const canToggleSelection = Boolean(onToggleSelection && !saved);
+  const canUseAsReference = Boolean(threadAssetId && onUseAsReference);
+  const canAddToCanvas = Boolean(onAddToCanvas);
+  const upscaleTitle = onUpscale ? "Upscale image" : "Upscale is not available for this result";
 
   return (
     <article
       className={cn(
         "group/card overflow-hidden rounded-xl bg-[#0c0e13] transition duration-300",
+        selected && !saved && "ring-2 ring-white/30 ring-offset-2 ring-offset-[#050506]",
         compact ? "h-[227.5px] w-[227.5px]" : "h-[227.5px] w-[227.5px]"
       )}
     >
@@ -87,9 +107,31 @@ export function ImageResultCard({
           />
         )}
 
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,transparent_50%,rgba(4,5,8,0.7))]" />
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,transparent_50%,rgba(4,5,8,0.78))]" />
 
-        {/* Top-right "more" button */}
+        <div className="absolute left-2 top-2 flex items-center gap-2">
+          {canToggleSelection ? (
+            <button
+              type="button"
+              className={cn(
+                "inline-flex h-7 items-center justify-center rounded-full border px-2.5 text-[11px] font-medium transition",
+                selected
+                  ? "border-white/20 bg-white/90 text-zinc-950"
+                  : "border-white/12 bg-black/45 text-white/80 hover:border-white/20 hover:bg-black/60"
+              )}
+              onClick={onToggleSelection}
+              title={selected ? "Deselect result" : "Select result"}
+            >
+              {selected ? "Selected" : "Select"}
+            </button>
+          ) : null}
+          {saved ? (
+            <span className="inline-flex h-7 items-center justify-center rounded-full border border-emerald-300/20 bg-emerald-500/15 px-2.5 text-[11px] font-medium text-emerald-100">
+              Saved
+            </span>
+          ) : null}
+        </div>
+
         <div className="absolute right-2 top-2" ref={menuRef}>
           <button
             type="button"
@@ -106,10 +148,9 @@ export function ImageResultCard({
             <Ellipsis className="h-4 w-4" />
           </button>
 
-          {/* Dropdown panel — same actions as bottom bar + fullscreen */}
-          {menuOpen && (
-            <div className="absolute right-0 top-full z-10 mt-1.5 w-40 overflow-hidden rounded-xl border border-white/10 bg-[#141619]/95 py-1 shadow-[0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl">
-              {onFullscreen && (
+          {menuOpen ? (
+            <div className="absolute right-0 top-full z-10 mt-1.5 w-44 overflow-hidden rounded-xl border border-white/10 bg-[#141619]/95 py-1 shadow-[0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+              {onFullscreen ? (
                 <button
                   type="button"
                   className="flex w-full items-center gap-2.5 px-3 py-2 text-[12px] text-zinc-200 transition hover:bg-white/[0.06]"
@@ -121,7 +162,31 @@ export function ImageResultCard({
                   <Expand className={iconSm} />
                   Fullscreen
                 </button>
-              )}
+              ) : null}
+              <button
+                type="button"
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-[12px] text-zinc-200 transition hover:bg-white/[0.06] disabled:text-zinc-500"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onUseAsReference?.();
+                }}
+                disabled={!canUseAsReference}
+              >
+                <ImagePlus className={iconSm} />
+                Use as ref
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-[12px] text-zinc-200 transition hover:bg-white/[0.06] disabled:text-zinc-500"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onAddToCanvas?.();
+                }}
+                disabled={!canAddToCanvas}
+              >
+                <PanelTopOpen className={iconSm} />
+                Add to canvas
+              </button>
               <button
                 type="button"
                 className="flex w-full items-center gap-2.5 px-3 py-2 text-[12px] text-zinc-200 transition hover:bg-white/[0.06] disabled:text-zinc-500"
@@ -130,6 +195,7 @@ export function ImageResultCard({
                   onUpscale?.();
                 }}
                 disabled={!onUpscale || isUpscaling}
+                title={upscaleTitle}
               >
                 {isUpscaling ? (
                   <Loader2 className={cn("animate-spin", iconSm)} />
@@ -163,17 +229,35 @@ export function ImageResultCard({
                 Download
               </button>
             </div>
-          )}
+          ) : null}
         </div>
 
-        {/* Hover ghost action bar — bottom center, only on card hover */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center pb-2.5 opacity-0 transition-opacity duration-200 group-hover/card:pointer-events-auto group-hover/card:opacity-100">
           <div className="flex items-center gap-1">
             <button
               type="button"
               className="inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[12px] font-medium text-white/80 transition hover:bg-white/10 hover:text-white disabled:text-white/40"
+              onClick={onUseAsReference}
+              disabled={!canUseAsReference}
+            >
+              <ImagePlus className={iconSm} />
+              Ref
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[12px] font-medium text-white/80 transition hover:bg-white/10 hover:text-white disabled:text-white/40"
+              onClick={onAddToCanvas}
+              disabled={!canAddToCanvas}
+            >
+              <PanelTopOpen className={iconSm} />
+              Canvas
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[12px] font-medium text-white/80 transition hover:bg-white/10 hover:text-white disabled:text-white/40"
               onClick={onUpscale}
               disabled={!onUpscale || isUpscaling}
+              title={upscaleTitle}
             >
               {isUpscaling ? (
                 <Loader2 className={cn("animate-spin", iconSm)} />
@@ -203,12 +287,20 @@ export function ImageResultCard({
           </div>
         </div>
 
-        {/* Upscale error — always visible when present */}
-        {upscaleError && (
-          <div className="absolute inset-x-3 bottom-3 rounded-xl bg-rose-500/10 px-3 py-2 text-[11px] text-rose-100 backdrop-blur">
+        {upscaleError ? (
+          <div className="absolute inset-x-3 bottom-14 rounded-xl bg-rose-500/10 px-3 py-2 text-[11px] text-rose-100 backdrop-blur">
             {upscaleError}
           </div>
-        )}
+        ) : null}
+
+        <div className="pointer-events-none absolute inset-x-3 bottom-3 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-zinc-300">
+          <span className="rounded-full border border-white/10 bg-black/35 px-2 py-1">
+            {provider}
+          </span>
+          <span className="max-w-[150px] truncate rounded-full border border-white/10 bg-black/35 px-2 py-1 text-zinc-400">
+            {model}
+          </span>
+        </div>
       </div>
     </article>
   );

@@ -16,6 +16,7 @@ const buildTurn = (): ImageGenerationTurn => ({
     stylePreset: "",
     negativePrompt: "",
     referenceImages: [],
+    assetRefs: [],
     seed: null,
     guidanceScale: null,
     steps: null,
@@ -32,6 +33,10 @@ const buildTurn = (): ImageGenerationTurn => ({
   displayStyleId: "none",
   displayStylePresetId: "",
   displayReferenceImageCount: 0,
+  referencedAssetIds: ["thread-asset-1"],
+  primaryAssetIds: ["thread-asset-1"],
+  executedTargetLabel: "dashscope / qwen-image-2.0-pro",
+  runCount: 1,
   status: "done",
   error: null,
   warnings: [],
@@ -40,6 +45,7 @@ const buildTurn = (): ImageGenerationTurn => ({
     {
       imageUrl: "https://example.com/image.png",
       imageId: "image-1",
+      threadAssetId: "thread-asset-1",
       provider: "dashscope",
       model: "qwen-image-2.0-pro",
       index: 0,
@@ -61,6 +67,7 @@ const renderFeed = () =>
       onToggleResultSelection={noop}
       onSaveSelectedResults={noop}
       onAddToCanvas={noop}
+      onUseResultAsReference={noop}
       onDeleteTurn={noop}
       onRetryTurn={noop}
       onReuseParameters={noop}
@@ -71,12 +78,15 @@ const renderFeed = () =>
   );
 
 describe("ImageChatFeed", () => {
-  it("renders selected model and runtime provider metadata from the turn", () => {
+  it("renders selected model and run metadata from the turn", () => {
     const html = renderFeed();
 
-    expect(html).toContain("Model Qwen Image 2.0 Pro");
+    expect(html).toContain("Qwen Image 2.0 Pro");
     expect(html).toContain("Runtime DashScope");
     expect(html).toContain("qwen-image-2.0-pro");
+    expect(html).toContain("Executed dashscope / qwen-image-2.0-pro");
+    expect(html).toContain("Runs 1");
+    expect(html).toContain("Refs 1");
   });
 
   it("keeps upscale action disabled for image results in the catalog-driven flow", () => {

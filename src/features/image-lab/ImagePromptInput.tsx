@@ -23,6 +23,7 @@ import type {
 } from "@/lib/ai/imageModelCatalog";
 import type {
   ImageAspectRatio,
+  ImageGenerationAssetRef,
   ImageStyleId,
   ReferenceImage,
 } from "@/types/imageGeneration";
@@ -65,6 +66,7 @@ interface ImagePromptInputProps {
   };
   modelParamDefinitions: ImageModelParamDefinition[];
   referenceImages: ReferenceImage[];
+  selectedAssetRefs: ImageGenerationAssetRef[];
   externalPrompt?: string | null;
   onExternalPromptConsumed?: () => void;
   onGenerationSpeedChange: (speed: "fast" | "balanced" | "quality") => void;
@@ -89,6 +91,8 @@ interface ImagePromptInputProps {
   onUpdateReferenceImage: (id: string, patch: Partial<ReferenceImage>) => void;
   onRemoveReferenceImage: (id: string) => void;
   onClearReferenceImages: () => void;
+  onRemoveAssetRef: (assetId: string) => void;
+  onClearAssetRefs: () => void;
   onGenerateImage: (input: { text: string }) => void;
 }
 
@@ -259,6 +263,7 @@ export function ImagePromptInput({
   modelParams,
   modelParamDefinitions,
   referenceImages,
+  selectedAssetRefs,
   externalPrompt = null,
   onExternalPromptConsumed,
   onGenerationSpeedChange,
@@ -272,6 +277,8 @@ export function ImagePromptInput({
   onUpdateReferenceImage,
   onRemoveReferenceImage,
   onClearReferenceImages,
+  onRemoveAssetRef,
+  onClearAssetRefs,
   onGenerateImage,
 }: ImagePromptInputProps) {
   const [promptValue, setPromptValue] = useState("");
@@ -855,6 +862,32 @@ export function ImagePromptInput({
             placeholder="Describe an image and click generate..."
             className="min-h-[108px] max-h-[220px] w-full resize-none overflow-y-auto border-none bg-transparent px-2 py-2 text-[22px] leading-tight text-zinc-50 outline-none placeholder:text-zinc-500 sm:text-[24px]"
           />
+
+          {selectedAssetRefs.length > 0 ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 px-2">
+              <span className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">
+                Referencing
+              </span>
+              {selectedAssetRefs.map((assetRef) => (
+                <button
+                  key={assetRef.assetId}
+                  type="button"
+                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-zinc-200 transition hover:border-white/16 hover:bg-white/[0.08]"
+                  onClick={() => onRemoveAssetRef(assetRef.assetId)}
+                >
+                  <span>{assetRef.role}</span>
+                  <span className="max-w-[140px] truncate text-zinc-400">{assetRef.assetId}</span>
+                </button>
+              ))}
+              <button
+                type="button"
+                className="text-xs text-zinc-500 transition hover:text-zinc-200"
+                onClick={onClearAssetRefs}
+              >
+                Clear
+              </button>
+            </div>
+          ) : null}
 
           <div className="mt-4 flex items-end justify-between gap-4">
             <div className="flex flex-wrap items-center gap-2">

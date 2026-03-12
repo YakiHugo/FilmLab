@@ -1,12 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import {
-  Check,
-  Copy,
-  Download,
-  Loader2,
-  RotateCcw,
-  Trash2,
-} from "lucide-react";
+import { Check, Copy, Download, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IMAGE_STYLE_PRESETS } from "@/lib/ai/imageStylePresets";
 import { IMAGE_STYLES } from "@/lib/ai/imageStyles";
@@ -21,6 +14,7 @@ interface ImageChatFeedProps {
   onToggleResultSelection: (turnId: string, index: number) => void;
   onSaveSelectedResults: (turnId: string) => void;
   onAddToCanvas: (turnId: string, index: number, assetId?: string | null) => void;
+  onUseResultAsReference: (turnId: string, index: number) => void;
   onDeleteTurn: (turnId: string) => void;
   onRetryTurn: (turnId: string) => void;
   onReuseParameters: (turnId: string) => void;
@@ -50,10 +44,6 @@ const resolveTurnMeta = (turn: ImageGenerationTurn) => {
   };
 };
 
-/* ------------------------------------------------------------------ */
-/*  PromptCard — 323px wide, 20px padding, max-h 240px scrollable     */
-/* ------------------------------------------------------------------ */
-
 function PromptCard({
   text,
   time,
@@ -71,14 +61,16 @@ function PromptCard({
   }, [text]);
 
   useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(timer);
+    if (!copied) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => setCopied(false), 1_500);
+    return () => window.clearTimeout(timer);
   }, [copied]);
 
   return (
     <div className="w-[323px] shrink-0">
-      {/* Prompt body — bg card, no border, 20px padding, max 240px with scroll */}
       <div className="max-h-[240px] overflow-y-auto rounded-xl bg-white/[0.04] p-5">
         <button
           type="button"
@@ -110,7 +102,6 @@ function PromptCard({
         </button>
       </div>
 
-      {/* Meta row — outside the card, below */}
       <div className="mt-2 flex items-center justify-between px-1 text-[11px]">
         <span className="text-zinc-500">{time}</span>
         <span className="text-zinc-500">{modelName}</span>
@@ -118,74 +109,6 @@ function PromptCard({
     </div>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/*  TurnActionBar — ghost buttons with text labels, ~12px             */
-/* ------------------------------------------------------------------ */
-
-function TurnActionBar({
-  turn,
-  onRetryTurn,
-  onDownloadAll,
-  onReuseParameters,
-  onDeleteTurn,
-}: {
-  turn: ImageGenerationTurn;
-  onRetryTurn: (turnId: string) => void;
-  onDownloadAll: (turnId: string) => void;
-  onReuseParameters: (turnId: string) => void;
-  onDeleteTurn: (turnId: string) => void;
-}) {
-  const iconSize = "h-3.5 w-3.5";
-  const btnClass =
-    "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:text-zinc-600";
-
-  return (
-    <div className="flex justify-end opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-      <div className="flex items-center gap-0.5">
-        <button
-          type="button"
-          className={btnClass}
-          onClick={() => onRetryTurn(turn.id)}
-          disabled={turn.status === "loading"}
-        >
-          <RotateCcw className={iconSize} />
-          Retry
-        </button>
-        <button
-          type="button"
-          className={btnClass}
-          onClick={() => onReuseParameters(turn.id)}
-        >
-          <Copy className={iconSize} />
-          Reuse params
-        </button>
-        {turn.results.length > 0 && (
-          <button
-            type="button"
-            className={btnClass}
-            onClick={() => onDownloadAll(turn.id)}
-          >
-            <Download className={iconSize} />
-            Download all
-          </button>
-        )}
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-medium text-zinc-400 transition hover:bg-rose-500/10 hover:text-rose-300 disabled:text-zinc-600"
-          onClick={() => onDeleteTurn(turn.id)}
-        >
-          <Trash2 className={iconSize} />
-          Delete
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Shared sub-components                                              */
-/* ------------------------------------------------------------------ */
 
 function TurnWarnings({ warnings }: { warnings: string[] }) {
   if (warnings.length === 0) {
@@ -216,12 +139,111 @@ function LoadingShelf() {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  TurnRow — unified layout for all turns                            */
-/* ------------------------------------------------------------------ */
+function MetaPill({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[11px] text-zinc-300">
+      {label}
+    </span>
+  );
+}
+
+function TurnSummaryBar({
+  turn,
+  providerName,
+  styleLabel,
+}: {
+  turn: ImageGenerationTurn;
+  providerName: string;
+  styleLabel: string | null;
+}) {
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2">
+      <MetaPill label={`Runtime ${providerName}`} />
+      <MetaPill label={turn.providerModel} />
+      {turn.executedTargetLabel ? <MetaPill label={`Executed ${turn.executedTargetLabel}`} /> : null}
+      <MetaPill label={`Runs ${turn.runCount}`} />
+      {turn.referencedAssetIds.length > 0 ? (
+        <MetaPill label={`Refs ${turn.referencedAssetIds.length}`} />
+      ) : null}
+      {styleLabel ? <MetaPill label={`Style ${styleLabel}`} /> : null}
+    </div>
+  );
+}
+
+function TurnActionBar({
+  turn,
+  onRetryTurn,
+  onDownloadAll,
+  onReuseParameters,
+  onSaveSelectedResults,
+  onDeleteTurn,
+}: {
+  turn: ImageGenerationTurn;
+  onRetryTurn: (turnId: string) => void;
+  onDownloadAll: (turnId: string) => void;
+  onReuseParameters: (turnId: string) => void;
+  onSaveSelectedResults: (turnId: string) => void;
+  onDeleteTurn: (turnId: string) => void;
+}) {
+  const iconSize = "h-3.5 w-3.5";
+  const buttonClass =
+    "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-medium text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:text-zinc-600";
+  const hasSelectedUnsavedResults = turn.results.some((entry) => entry.selected && !entry.saved);
+
+  return (
+    <div className="flex justify-end opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+      <div className="flex items-center gap-0.5">
+        <button
+          type="button"
+          className={buttonClass}
+          onClick={() => onRetryTurn(turn.id)}
+          disabled={turn.status === "loading"}
+        >
+          <RotateCcw className={iconSize} />
+          Retry
+        </button>
+        <button type="button" className={buttonClass} onClick={() => onReuseParameters(turn.id)}>
+          <Copy className={iconSize} />
+          Reuse params
+        </button>
+        {turn.results.length > 0 ? (
+          <button type="button" className={buttonClass} onClick={() => onDownloadAll(turn.id)}>
+            <Download className={iconSize} />
+            Download all
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className={buttonClass}
+          onClick={() => onSaveSelectedResults(turn.id)}
+          disabled={!hasSelectedUnsavedResults || turn.isSavingSelection}
+        >
+          {turn.isSavingSelection ? (
+            <Loader2 className={cn(iconSize, "animate-spin")} />
+          ) : (
+            <Check className={iconSize} />
+          )}
+          {turn.isSavingSelection ? "Saving" : "Save selected"}
+        </button>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-medium text-zinc-400 transition hover:bg-rose-500/10 hover:text-rose-300 disabled:text-zinc-600"
+          onClick={() => onDeleteTurn(turn.id)}
+        >
+          <Trash2 className={iconSize} />
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function TurnRow({
   turn,
+  onToggleResultSelection,
+  onSaveSelectedResults,
+  onAddToCanvas,
+  onUseResultAsReference,
   onDeleteTurn,
   onRetryTurn,
   onReuseParameters,
@@ -230,6 +252,10 @@ function TurnRow({
   onUpscaleResult,
 }: {
   turn: ImageGenerationTurn;
+  onToggleResultSelection: (turnId: string, index: number) => void;
+  onSaveSelectedResults: (turnId: string) => void;
+  onAddToCanvas: (turnId: string, index: number, assetId?: string | null) => void;
+  onUseResultAsReference: (turnId: string, index: number) => void;
   onDeleteTurn: (turnId: string) => void;
   onRetryTurn: (turnId: string) => void;
   onReuseParameters: (turnId: string) => void;
@@ -247,21 +273,21 @@ function TurnRow({
       transition={{ duration: 0.22, ease: "easeOut" }}
       className="group flex gap-5 lg:items-start"
     >
-      {/* Prompt card — fixed 323px */}
       <PromptCard
         text={turn.prompt}
         time={formatTurnTime(turn.createdAt)}
         modelName={meta.modelName}
       />
 
-      {/* Results column */}
       <div className="min-w-0 flex-1">
-        {turn.status === "loading" && (
+        <TurnSummaryBar turn={turn} providerName={meta.providerName} styleLabel={meta.styleLabel} />
+
+        {turn.status === "loading" ? (
           <div className="mb-3 inline-flex items-center gap-2 text-sm text-zinc-400">
             <Loader2 className="h-4 w-4 animate-spin" />
             Generating
           </div>
-        )}
+        ) : null}
 
         {turn.status === "loading" && turn.results.length === 0 ? <LoadingShelf /> : null}
 
@@ -282,12 +308,14 @@ function TurnRow({
                   provider={entry.provider}
                   model={entry.model}
                   assetId={entry.assetId}
+                  threadAssetId={entry.threadAssetId}
                   selected={entry.selected}
                   saved={entry.saved}
                   isUpscaling={entry.isUpscaling}
                   upscaleError={entry.upscaleError}
-                  onToggleSelection={() => {}}
-                  onAddToCanvas={() => {}}
+                  onToggleSelection={() => onToggleResultSelection(turn.id, entry.index)}
+                  onAddToCanvas={() => onAddToCanvas(turn.id, entry.index, entry.assetId)}
+                  onUseAsReference={() => onUseResultAsReference(turn.id, entry.index)}
                   onDownload={() => onDownloadResult(turn.id, entry.index)}
                   onUpscale={
                     meta.supportsUpscale
@@ -306,6 +334,7 @@ function TurnRow({
             onRetryTurn={onRetryTurn}
             onDownloadAll={onDownloadAll}
             onReuseParameters={onReuseParameters}
+            onSaveSelectedResults={onSaveSelectedResults}
             onDeleteTurn={onDeleteTurn}
           />
         </div>
@@ -314,17 +343,14 @@ function TurnRow({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  ImageChatFeed (top-level)                                          */
-/* ------------------------------------------------------------------ */
-
 export function ImageChatFeed({
   turns,
   currentModelName,
   onClearHistory,
-  onToggleResultSelection: _onToggleResultSelection,
-  onSaveSelectedResults: _onSaveSelectedResults,
-  onAddToCanvas: _onAddToCanvas,
+  onToggleResultSelection,
+  onSaveSelectedResults,
+  onAddToCanvas,
+  onUseResultAsReference,
   onDeleteTurn,
   onRetryTurn,
   onReuseParameters,
@@ -377,6 +403,10 @@ export function ImageChatFeed({
               <TurnRow
                 key={turn.id}
                 turn={turn}
+                onToggleResultSelection={onToggleResultSelection}
+                onSaveSelectedResults={onSaveSelectedResults}
+                onAddToCanvas={onAddToCanvas}
+                onUseResultAsReference={onUseResultAsReference}
                 onDeleteTurn={onDeleteTurn}
                 onRetryTurn={onRetryTurn}
                 onReuseParameters={onReuseParameters}
@@ -388,7 +418,7 @@ export function ImageChatFeed({
           </AnimatePresence>
         </div>
 
-        {turns.length === 0 && <div className="flex-1" />}
+        {turns.length === 0 ? <div className="flex-1" /> : null}
       </div>
     </div>
   );

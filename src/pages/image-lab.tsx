@@ -63,6 +63,9 @@ export function ImageLabPage() {
     toggleResultSelection,
     saveSelectedResults,
     addToCanvas,
+    useResultAsReference,
+    removeAssetReference,
+    clearAssetReferences,
     clearSession,
   } = imageGeneration;
   const turnsRef = useRef(turns);
@@ -257,6 +260,7 @@ export function ImageLabPage() {
         onToggleResultSelection={toggleResultSelection}
         onSaveSelectedResults={handleSaveSelectedResults}
         onAddToCanvas={handleAddToCanvas}
+        onUseResultAsReference={useResultAsReference}
         onDeleteTurn={deleteTurn}
         onRetryTurn={handleRetryTurn}
         onReuseParameters={handleReuseParameters}
@@ -313,6 +317,7 @@ export function ImageLabPage() {
         }}
         modelParamDefinitions={imageGeneration.modelParamDefinitions}
         referenceImages={imageGeneration.config.referenceImages}
+        selectedAssetRefs={imageGeneration.config.assetRefs}
         externalPrompt={externalPrompt}
         onExternalPromptConsumed={handleExternalPromptConsumed}
         onGenerationSpeedChange={handleGenerationSpeedChange}
@@ -328,6 +333,8 @@ export function ImageLabPage() {
         onUpdateReferenceImage={imageGeneration.updateReferenceImage}
         onRemoveReferenceImage={imageGeneration.removeReferenceImage}
         onClearReferenceImages={imageGeneration.clearReferenceImages}
+        onRemoveAssetRef={removeAssetReference}
+        onClearAssetRefs={clearAssetReferences}
         onGenerateImage={(input) => {
           void imageGeneration.generateFromPromptInput(input);
         }}
