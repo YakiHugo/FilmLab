@@ -29,6 +29,13 @@ export const selectRouteTargets = (input: RouterSelectionInput) => {
     return true;
   });
 
+  if (requestedTarget && filteredDeployments.length === 0) {
+    throw new ProviderError(
+      `No deployment matches requestedTarget for model ${input.modelId}.`,
+      400
+    );
+  }
+
   const candidates = (filteredDeployments.length > 0 ? filteredDeployments : deployments).map(
     (deployment) => {
       const provider = getRuntimeProviderById(deployment.provider);

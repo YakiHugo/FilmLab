@@ -3,6 +3,7 @@ import { ZodError } from "zod";
 import type {
   PersistedAssetEdgeType,
   PersistedImageGenerationRequestSnapshot,
+  PersistedRunOperation,
   PersistedRunTargetSnapshot,
 } from "../../../shared/chatImageTypes";
 import { requireAuthenticatedUser } from "../auth/user";
@@ -49,6 +50,21 @@ const resolveEdgeType = (role: "reference" | "edit" | "variation"): PersistedAss
     default:
       return "referenced_in_turn";
   }
+};
+
+const resolveRequestedOperation = (
+  assetRefs: Array<{ role: "reference" | "edit" | "variation" }> | undefined
+): PersistedRunOperation => {
+  if (!Array.isArray(assetRefs) || assetRefs.length === 0) {
+    return "image.generate";
+  }
+  if (assetRefs.some((assetRef) => assetRef.role === "edit")) {
+    return "image.edit";
+  }
+  if (assetRefs.some((assetRef) => assetRef.role === "variation")) {
+    return "image.variation";
+  }
+  return "image.generate";
 };
 
 const toPersistedRequestSnapshot = (
@@ -181,11 +197,25 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           });
         }
 
-        const conversation = payload.conversationId
-          ? await repository.getConversationById(userId, payload.conversationId)
+        if (payload.threadId && payload.conversationId && payload.threadId !== payload.conversationId) {
+          return reply.code(400).send({
+            error: "threadId and conversationId must match when both are provided.",
+          });
+        }
+
+        const requestedConversationId = payload.threadId ?? payload.conversationId;
+        const conversation = requestedConversationId
+          ? await repository.getConversationById(userId, requestedConversationId)
           : await repository.getOrCreateActiveConversation(userId);
         if (!conversation) {
           return reply.code(404).send({ error: "Conversation not found." });
+        }
+
+        const requestedOperation = resolveRequestedOperation(payload.assetRefs);
+        if (requestedOperation !== "image.generate") {
+          return reply.code(400).send({
+            error: `${requestedOperation} is not available yet.`,
+          });
         }
 
         if (payload.retryOfTurnId) {
@@ -265,7 +295,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             id: runId,
             turnId,
             jobId,
-            operation: "image.generate",
+            operation: requestedOperation,
             status: "processing",
             requestedTarget: createRunTargetSnapshot({
               modelId: payload.modelId,
@@ -497,7 +527,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
               id: runId,
               turnId,
               jobId,
-              operation: "image.generate",
+              operation: requestedOperation,
               status: "completed",
               requestedTarget: createRunTargetSnapshot({
                 modelId: payload.modelId,

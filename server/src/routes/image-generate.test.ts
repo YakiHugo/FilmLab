@@ -407,6 +407,59 @@ describe("imageGenerateRoute", () => {
     await app.close();
   });
 
+  it("uses threadId as the conversation alias when conversationId is omitted", async () => {
+    const { default: Fastify } = await import("fastify");
+    const { imageGenerateRoute } = await import("./image-generate");
+
+    repositoryMock.getConversationById.mockResolvedValue({
+      id: "conversation-1",
+      userId: "user-1",
+      createdAt: "2026-03-12T00:00:00.000Z",
+      updatedAt: "2026-03-12T00:00:00.000Z",
+    });
+    generateMock.mockResolvedValue({
+      modelId: "seedream-v5",
+      logicalModel: "image.seedream.v5",
+      deploymentId: "ark-seedream-v5-primary",
+      runtimeProvider: "ark",
+      providerModel: "doubao-seedream-5-0-260128",
+      images: [
+        {
+          binaryData: Buffer.from([1, 2, 3]),
+          mimeType: "image/png",
+        },
+      ],
+    });
+    storeGeneratedImageMock.mockReturnValue("seedream-1");
+
+    const app = Fastify();
+    await app.register(imageGenerateRoute);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+      payload: {
+        prompt: "Use thread id",
+        threadId: "conversation-1",
+        modelId: "seedream-v5",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        referenceImages: [],
+        modelParams: {},
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(repositoryMock.getConversationById).toHaveBeenCalledWith("user-1", "conversation-1");
+    expect(repositoryMock.getOrCreateActiveConversation).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
   it("persists failed jobs when the provider returns an error", async () => {
     const { default: Fastify } = await import("fastify");
     const { imageGenerateRoute } = await import("./image-generate");
@@ -449,6 +502,46 @@ describe("imageGenerateRoute", () => {
         error: "policy blocked",
       })
     );
+
+    await app.close();
+  });
+
+  it("rejects edit and variation requests until dedicated execution paths are implemented", async () => {
+    const { default: Fastify } = await import("fastify");
+    const { imageGenerateRoute } = await import("./image-generate");
+
+    const app = Fastify();
+    await app.register(imageGenerateRoute);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+      payload: {
+        prompt: "Edit this image",
+        modelId: "seedream-v5",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        referenceImages: [],
+        assetRefs: [
+          {
+            assetId: "asset-1",
+            role: "edit",
+          },
+        ],
+        modelParams: {},
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      error: "image.edit is not available yet.",
+    });
+    expect(repositoryMock.createGeneration).not.toHaveBeenCalled();
+    expect(generateMock).not.toHaveBeenCalled();
 
     await app.close();
   });

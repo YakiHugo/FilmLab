@@ -673,7 +673,16 @@ export class PostgresChatStateRepository implements ChatStateRepository {
         .flatMap((run) => parseStringArray(run.asset_ids)),
       results: resultsByTurnId.get(row.id) ?? [],
     }));
-    const assets = assetsResult.rows.map((row) => ({
+    const visibleTurnIds = new Set(turns.map((turn) => turn.id));
+    const visibleRunIds = new Set(
+      runsResult.rows.filter((run) => visibleTurnIds.has(run.turn_id)).map((run) => run.id)
+    );
+    const visibleAssetRows = assetsResult.rows.filter(
+      (row) =>
+        (row.turn_id ? visibleTurnIds.has(row.turn_id) : false) ||
+        (row.run_id ? visibleRunIds.has(row.run_id) : false)
+    );
+    const assets = visibleAssetRows.map((row) => ({
       id: row.id,
       turnId: row.turn_id,
       runId: row.run_id,
