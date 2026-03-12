@@ -101,6 +101,38 @@ const mergeProjectedResults = (
   });
 };
 
+const collectRequiredAssetIds = (
+  turns: PersistedImageSession["turns"],
+  runs: PersistedImageSession["runs"]
+) => {
+  const requiredAssetIds = new Set<string>();
+
+  for (const turn of turns) {
+    for (const assetId of turn.referencedAssetIds) {
+      requiredAssetIds.add(assetId);
+    }
+    for (const assetId of turn.primaryAssetIds) {
+      requiredAssetIds.add(assetId);
+    }
+    for (const result of turn.results) {
+      if (result.threadAssetId) {
+        requiredAssetIds.add(result.threadAssetId);
+      }
+    }
+  }
+
+  for (const run of runs) {
+    for (const assetId of run.assetIds) {
+      requiredAssetIds.add(assetId);
+    }
+    for (const assetId of run.referencedAssetIds) {
+      requiredAssetIds.add(assetId);
+    }
+  }
+
+  return requiredAssetIds;
+};
+
 export const mergeProjectedSession = (
   previous: PersistedImageSession | null,
   next: PersistedImageSession
@@ -135,8 +167,30 @@ export const trimSession = (session: PersistedImageSession): PersistedImageSessi
   const keptJobIds = new Set(nextJobs.map((job) => job.id));
   const nextRuns = session.runs.filter((run) => keptTurnIds.has(run.turnId));
   const keptRunIds = new Set(nextRuns.map((run) => run.id));
+  const requiredAssetIds = collectRequiredAssetIds(nextTurns, nextRuns);
+
+  let didExpandAssetIds = true;
+  while (didExpandAssetIds) {
+    didExpandAssetIds = false;
+    for (const edge of session.assetEdges) {
+      if (!requiredAssetIds.has(edge.sourceAssetId) && !requiredAssetIds.has(edge.targetAssetId)) {
+        continue;
+      }
+
+      if (!requiredAssetIds.has(edge.sourceAssetId)) {
+        requiredAssetIds.add(edge.sourceAssetId);
+        didExpandAssetIds = true;
+      }
+      if (!requiredAssetIds.has(edge.targetAssetId)) {
+        requiredAssetIds.add(edge.targetAssetId);
+        didExpandAssetIds = true;
+      }
+    }
+  }
+
   const nextAssets = session.assets.filter(
     (asset) =>
+      requiredAssetIds.has(asset.id) ||
       (asset.turnId ? keptTurnIds.has(asset.turnId) : false) ||
       (asset.runId ? keptRunIds.has(asset.runId) : false)
   );
@@ -147,6 +201,23 @@ export const trimSession = (session: PersistedImageSession): PersistedImageSessi
 
   return {
     ...session,
+    thread: {
+      ...session.thread,
+      creativeBrief: {
+        ...session.thread.creativeBrief,
+        acceptedAssetId:
+          session.thread.creativeBrief.acceptedAssetId &&
+          keptAssetIds.has(session.thread.creativeBrief.acceptedAssetId)
+            ? session.thread.creativeBrief.acceptedAssetId
+            : null,
+        selectedAssetIds: session.thread.creativeBrief.selectedAssetIds.filter((assetId) =>
+          keptAssetIds.has(assetId)
+        ),
+        recentAssetRefIds: session.thread.creativeBrief.recentAssetRefIds.filter((assetId) =>
+          keptAssetIds.has(assetId)
+        ),
+      },
+    },
     turns: nextTurns.map((turn) =>
       turn.jobId && !keptJobIds.has(turn.jobId)
         ? {
@@ -192,16 +263,38 @@ export const normalizeRecoveredSession = (
       completedAt: job.completedAt ?? recoveredAt,
     };
   });
+  const nextRuns = session.runs.map((run) => {
+    if (run.status !== "queued" && run.status !== "processing") {
+      return run;
+    }
+
+    didChange = true;
+    return {
+      ...run,
+      status: "failed" as const,
+      error: INTERRUPTED_GENERATION_ERROR,
+      completedAt: run.completedAt ?? recoveredAt,
+    };
+  });
   const trimmedSession = trimSession({
     ...session,
     turns: nextTurns,
+    runs: nextRuns,
     jobs: nextJobs,
   });
 
   if (
     trimmedSession.jobs.length !== session.jobs.length ||
+    trimmedSession.runs.length !== session.runs.length ||
+    trimmedSession.assets.length !== session.assets.length ||
+    trimmedSession.assetEdges.length !== session.assetEdges.length ||
     trimmedSession.turns.length !== session.turns.length ||
-    trimmedSession.turns.some((turn, index) => turn.jobId !== nextTurns[index]?.jobId)
+    trimmedSession.turns.some((turn, index) => turn.jobId !== nextTurns[index]?.jobId) ||
+    trimmedSession.thread.creativeBrief.acceptedAssetId !== session.thread.creativeBrief.acceptedAssetId ||
+    trimmedSession.thread.creativeBrief.selectedAssetIds.join(",") !==
+      session.thread.creativeBrief.selectedAssetIds.join(",") ||
+    trimmedSession.thread.creativeBrief.recentAssetRefIds.join(",") !==
+      session.thread.creativeBrief.recentAssetRefIds.join(",")
   ) {
     didChange = true;
   }
