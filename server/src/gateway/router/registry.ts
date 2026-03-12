@@ -15,22 +15,25 @@ const PROVIDERS: ProviderSpec[] = [
     id: "ark",
     name: "Ark",
     credentialSlot: "ark",
-    operations: ["generate", "upscale"],
+    operations: ["image.generate", "image.upscale"],
     healthScope: "model_operation",
+    family: "http",
   },
   {
     id: "dashscope",
     name: "DashScope",
     credentialSlot: "dashscope",
-    operations: ["generate", "upscale"],
+    operations: ["image.generate", "image.upscale"],
     healthScope: "model_operation",
+    family: "http",
   },
   {
     id: "kling",
     name: "Kling",
     credentialSlot: "kling",
-    operations: ["generate", "upscale"],
+    operations: ["image.generate", "image.upscale"],
     healthScope: "model_operation",
+    family: "http",
   },
 ];
 
@@ -171,12 +174,12 @@ export const getRuntimeProviderConfiguration = (providerId: RuntimeProviderId) =
 
 export const resolveRouteTarget = (input: RouterSelectionInput): ResolvedRouteTarget | null => {
   const frontendModel = getFrontendImageModelById(input.modelId);
-  if (!frontendModel || frontendModel.capability !== input.capability) {
+  if (!frontendModel || frontendModel.capability !== input.operation) {
     return null;
   }
 
   const deployment = (deploymentsByLogicalCapability.get(
-    `${frontendModel.logicalModel}:${input.capability}`
+    `${frontendModel.logicalModel}:${input.operation}`
   ) ?? []).find((entry) => entry.enabled);
   if (!deployment) {
     return null;

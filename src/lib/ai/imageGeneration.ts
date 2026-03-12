@@ -15,14 +15,18 @@ interface GenerateImageOptions {
 interface ImageGenerationResponseErrorPayload {
   error?: string;
   conversationId?: string;
+  threadId?: string;
   turnId?: string;
   jobId?: string;
+  runId?: string;
 }
 
 export interface ImageGenerationRequestError extends Error {
   conversationId?: string;
+  threadId?: string;
   turnId?: string;
   jobId?: string;
+  runId?: string;
 }
 
 const createAbortError = () => {
@@ -179,11 +183,17 @@ export async function generateImage(
     if (typeof errorPayload?.conversationId === "string") {
       error.conversationId = errorPayload.conversationId;
     }
+    if (typeof errorPayload?.threadId === "string") {
+      error.threadId = errorPayload.threadId;
+    }
     if (typeof errorPayload?.turnId === "string") {
       error.turnId = errorPayload.turnId;
     }
     if (typeof errorPayload?.jobId === "string") {
       error.jobId = errorPayload.jobId;
+    }
+    if (typeof errorPayload?.runId === "string") {
+      error.runId = errorPayload.runId;
     }
     throw error;
   }
@@ -203,6 +213,10 @@ export async function generateImage(
       : (() => {
           throw new Error("Missing conversation id in image generation response.");
         })();
+  const threadId =
+    typeof json.threadId === "string"
+      ? json.threadId
+      : conversationId;
   const turnId =
     typeof json.turnId === "string"
       ? json.turnId
@@ -214,6 +228,12 @@ export async function generateImage(
       ? json.jobId
       : (() => {
           throw new Error("Missing job id in image generation response.");
+        })();
+  const runId =
+    typeof json.runId === "string"
+      ? json.runId
+      : (() => {
+          throw new Error("Missing run id in image generation response.");
         })();
   const logicalModel =
     typeof json.logicalModel === "string"
@@ -244,6 +264,13 @@ export async function generateImage(
   const images = normalizeImages(json.images, runtimeProvider, providerModel);
   const fallbackImageUrl =
     typeof json.imageUrl === "string" ? resolveApiUrl(json.imageUrl) : undefined;
+  const runs = Array.isArray(json.runs) ? (json.runs as ImageGenerationResponse["runs"]) : [];
+  const assets = Array.isArray(json.assets)
+    ? (json.assets as ImageGenerationResponse["assets"])
+    : [];
+  const primaryAssetIds = Array.isArray(json.primaryAssetIds)
+    ? json.primaryAssetIds.filter((entry): entry is string => typeof entry === "string")
+    : [];
 
   if (images.length === 0 && fallbackImageUrl) {
     images.push({
@@ -261,8 +288,10 @@ export async function generateImage(
 
   return {
     conversationId,
+    threadId,
     turnId,
     jobId,
+    runId,
     modelId,
     logicalModel,
     deploymentId,
@@ -272,6 +301,9 @@ export async function generateImage(
     ...(typeof json.imageId === "string" ? { imageId: json.imageId } : {}),
     imageUrl: fallbackImageUrl ?? images[0]?.imageUrl,
     images,
+    runs,
+    assets,
+    primaryAssetIds,
     ...(warnings.length > 0 ? { warnings } : {}),
   };
 }

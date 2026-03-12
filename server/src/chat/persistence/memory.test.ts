@@ -5,6 +5,7 @@ const createGenerationInput = (overrides?: {
   conversationId?: string;
   turnId?: string;
   jobId?: string;
+  runId?: string;
   attemptId?: string;
   retryOfTurnId?: string | null;
 }) => ({
@@ -31,11 +32,15 @@ const createGenerationInput = (overrides?: {
     error: null,
     warnings: [],
     jobId: overrides?.jobId ?? "job-1",
+    runIds: [overrides?.runId ?? "run-1"],
+    referencedAssetIds: [],
+    primaryAssetIds: [],
     results: [],
   },
   job: {
     id: overrides?.jobId ?? "job-1",
     turnId: overrides?.turnId ?? "turn-1",
+    runId: overrides?.runId ?? "run-1",
     modelId: "seedream-v5" as const,
     logicalModel: "image.seedream.v5" as const,
     deploymentId: "ark-seedream-v5-primary",
@@ -55,9 +60,51 @@ const createGenerationInput = (overrides?: {
     createdAt: "2026-03-12T00:00:00.000Z",
     completedAt: null,
   },
+  run: {
+    id: overrides?.runId ?? "run-1",
+    turnId: overrides?.turnId ?? "turn-1",
+    jobId: overrides?.jobId ?? "job-1",
+    operation: "image.generate" as const,
+    status: "processing" as const,
+    requestedTarget: {
+      modelId: "seedream-v5" as const,
+      logicalModel: "image.seedream.v5" as const,
+      deploymentId: "ark-seedream-v5-primary",
+      runtimeProvider: "ark",
+      providerModel: "doubao-seedream-5-0-260128",
+      pinned: false,
+    },
+    selectedTarget: {
+      modelId: "seedream-v5" as const,
+      logicalModel: "image.seedream.v5" as const,
+      deploymentId: "ark-seedream-v5-primary",
+      runtimeProvider: "ark",
+      providerModel: "doubao-seedream-5-0-260128",
+      pinned: false,
+    },
+    executedTarget: null,
+    prompt: {
+      originalPrompt: "Studio portrait",
+      compiledPrompt: "Studio portrait",
+      providerTransformedPrompt: null,
+      actualPrompt: null,
+    },
+    error: null,
+    warnings: [],
+    assetIds: [],
+    referencedAssetIds: [],
+    createdAt: "2026-03-12T00:00:00.000Z",
+    completedAt: null,
+    telemetry: {
+      providerRequestId: null,
+      providerTaskId: null,
+      latencyMs: null,
+    },
+  },
   attempt: {
     id: overrides?.attemptId ?? "attempt-1",
     jobId: overrides?.jobId ?? "job-1",
+    runId: overrides?.runId ?? "run-1",
     attemptNo: 1,
     status: "running" as const,
     error: null,
@@ -90,6 +137,7 @@ describe("MemoryChatStateRepository", () => {
         conversationId: conversation.id,
         turnId: "turn-1",
         jobId: "job-1",
+        runId: "run-1",
         attemptId: "attempt-1",
       })
     );
@@ -97,6 +145,7 @@ describe("MemoryChatStateRepository", () => {
       conversationId: conversation.id,
       turnId: "turn-1",
       jobId: "job-1",
+      runId: "run-1",
       attemptId: "attempt-1",
       logicalModel: "image.seedream.v5",
       deploymentId: "ark-seedream-v5-primary",
@@ -105,11 +154,49 @@ describe("MemoryChatStateRepository", () => {
       providerRequestId: "req-1",
       warnings: ["provider warning"],
       completedAt: "2026-03-12T00:00:05.000Z",
+      assets: [
+        {
+          id: "thread-asset-1",
+          turnId: "turn-1",
+          runId: "run-1",
+          assetType: "image",
+          label: "Generated image 1",
+          metadata: {},
+          locators: [],
+          createdAt: "2026-03-12T00:00:05.000Z",
+        },
+      ],
+      assetEdges: [],
+      run: {
+        status: "completed",
+        prompt: {
+          originalPrompt: "Studio portrait",
+          compiledPrompt: "Studio portrait",
+          providerTransformedPrompt: null,
+          actualPrompt: "Studio portrait",
+        },
+        assetIds: ["thread-asset-1"],
+        referencedAssetIds: [],
+        telemetry: {
+          providerRequestId: "req-1",
+          providerTaskId: null,
+          latencyMs: 5000,
+        },
+        executedTarget: {
+          modelId: "seedream-v5",
+          logicalModel: "image.seedream.v5",
+          deploymentId: "ark-seedream-v5-primary",
+          runtimeProvider: "ark",
+          providerModel: "doubao-seedream-5-0-260128",
+          pinned: false,
+        },
+      },
       results: [
         {
           id: "result-1",
           imageUrl: "/api/generated-images/result-1",
           imageId: "result-1",
+          threadAssetId: "thread-asset-1",
           runtimeProvider: "ark",
           providerModel: "doubao-seedream-5-0-260128",
           mimeType: "image/png",
@@ -126,6 +213,7 @@ describe("MemoryChatStateRepository", () => {
         conversationId: conversation.id,
         turnId: "turn-2",
         jobId: "job-2",
+        runId: "run-2",
         attemptId: "attempt-2",
         retryOfTurnId: "turn-1",
       })
@@ -134,6 +222,7 @@ describe("MemoryChatStateRepository", () => {
       conversationId: conversation.id,
       turnId: "turn-2",
       jobId: "job-2",
+      runId: "run-2",
       attemptId: "attempt-2",
       error: "provider blocked",
       completedAt: "2026-03-12T00:01:00.000Z",
@@ -171,6 +260,7 @@ describe("MemoryChatStateRepository", () => {
     await repository.createGeneration(
       createGenerationInput({
         conversationId: current.id,
+        runId: "run-1",
       })
     );
 
@@ -191,6 +281,7 @@ describe("MemoryChatStateRepository", () => {
     await repository.createGeneration(
       createGenerationInput({
         conversationId: conversation.id,
+        runId: "run-1",
       })
     );
 
@@ -201,6 +292,7 @@ describe("MemoryChatStateRepository", () => {
       conversationId: conversation.id,
       turnId: "turn-1",
       jobId: "job-1",
+      runId: "run-1",
       attemptId: "attempt-1",
       error: "provider blocked",
       completedAt: "2026-03-12T00:00:30.000Z",

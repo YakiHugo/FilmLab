@@ -29,8 +29,10 @@ describe("generateImage", () => {
       new Response(
         JSON.stringify({
           conversationId: "conversation-1",
+          threadId: "conversation-1",
           turnId: "turn-1",
           jobId: "job-1",
+          runId: "run-1",
           modelId: "seedream-v5",
           logicalModel: "image.seedream.v5",
           deploymentId: "ark-seedream-v5-primary",
@@ -45,10 +47,14 @@ describe("generateImage", () => {
               resultId: "result-1",
               imageId: "img-1",
               imageUrl: "/api/generated-images/img-1",
+              assetId: "thread-asset-1",
               provider: "ark",
               model: "doubao-seedream-5-0-260128",
             },
           ],
+          runs: [],
+          assets: [],
+          primaryAssetIds: ["thread-asset-1"],
         }),
         {
           status: 200,
@@ -82,8 +88,10 @@ describe("generateImage", () => {
     expect(fetchMock.mock.calls[0]?.[1]?.body).not.toContain("\"provider\"");
     expect(result).toMatchObject({
       conversationId: "conversation-1",
+      threadId: "conversation-1",
       turnId: "turn-1",
       jobId: "job-1",
+      runId: "run-1",
     });
     expect(result.warnings).toEqual(["Seedream returned 1 of 2 requested images."]);
     expect(result.images).toHaveLength(1);
@@ -99,8 +107,10 @@ describe("generateImage", () => {
       new Response(
         JSON.stringify({
           conversationId: "conversation-1",
+          threadId: "conversation-1",
           turnId: "turn-2",
           jobId: "job-2",
+          runId: "run-2",
           modelId: "qwen-image-2-pro",
           logicalModel: "image.qwen.v2.pro",
           deploymentId: "dashscope-qwen-image-2-pro-primary",
@@ -114,10 +124,14 @@ describe("generateImage", () => {
               resultId: "result-2",
               imageId: "img-2",
               imageUrl: "/api/generated-images/img-2",
+              assetId: "thread-asset-2",
               provider: "dashscope",
               model: "qwen-image-2.0-pro",
             },
           ],
+          runs: [],
+          assets: [],
+          primaryAssetIds: ["thread-asset-2"],
         }),
         {
           status: 200,
@@ -141,8 +155,10 @@ describe("generateImage", () => {
 
     expect(result).toMatchObject({
       conversationId: "conversation-1",
+      threadId: "conversation-1",
       turnId: "turn-2",
       jobId: "job-2",
+      runId: "run-2",
       modelId: "qwen-image-2-pro",
       logicalModel: "image.qwen.v2.pro",
       deploymentId: "dashscope-qwen-image-2-pro-primary",

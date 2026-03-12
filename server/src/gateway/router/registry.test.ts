@@ -42,7 +42,7 @@ describe("runtime route registry", () => {
     expect(
       resolveRouteTarget({
         modelId: "qwen-image-2-pro",
-        capability: "image.generate",
+        operation: "image.generate",
       })
     ).toMatchObject({
       frontendModel: { id: "qwen-image-2-pro", logicalModel: "image.qwen.v2.pro" },

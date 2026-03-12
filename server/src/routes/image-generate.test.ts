@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const generateMock = vi.fn();
+const getRouteTargetsMock = vi.fn();
 const downloadGeneratedImageMock = vi.fn();
 const storeGeneratedImageMock = vi.fn();
 const repositoryMock = {
@@ -18,9 +19,46 @@ const repositoryMock = {
 
 vi.mock("../gateway/router/router", () => ({
   imageRuntimeRouter: {
+    getRouteTargets: (...args: unknown[]) => getRouteTargetsMock(...args),
     generate: (...args: unknown[]) => generateMock(...args),
   },
 }));
+
+const resolveRouteSelectionFixture = (modelId: string) => {
+  if (modelId === "qwen-image-2-pro") {
+    return [
+      {
+        frontendModel: {
+          id: "qwen-image-2-pro",
+          logicalModel: "image.qwen.v2.pro",
+        },
+        deployment: {
+          id: "dashscope-qwen-image-2-pro-primary",
+          providerModel: "qwen-image-2.0-pro",
+        },
+        provider: {
+          id: "dashscope",
+        },
+      },
+    ];
+  }
+
+  return [
+    {
+      frontendModel: {
+        id: "seedream-v5",
+        logicalModel: "image.seedream.v5",
+      },
+      deployment: {
+        id: "ark-seedream-v5-primary",
+        providerModel: "doubao-seedream-5-0-260128",
+      },
+      provider: {
+        id: "ark",
+      },
+    },
+  ];
+};
 
 vi.mock("../shared/downloadGeneratedImage", () => ({
   downloadGeneratedImage: (...args: unknown[]) => downloadGeneratedImageMock(...args),
@@ -64,6 +102,7 @@ describe("imageGenerateRoute", () => {
     vi.stubEnv("AUTH_JWT_SECRET", "test-secret");
     vi.restoreAllMocks();
     generateMock.mockReset();
+    getRouteTargetsMock.mockReset();
     downloadGeneratedImageMock.mockReset();
     storeGeneratedImageMock.mockReset();
     repositoryMock.getConversationById.mockReset();
@@ -75,6 +114,9 @@ describe("imageGenerateRoute", () => {
     repositoryMock.completeGenerationSuccess.mockReset();
     repositoryMock.completeGenerationFailure.mockReset();
     repositoryMock.turnExists.mockReset();
+    getRouteTargetsMock.mockImplementation((request: { modelId: string }) =>
+      resolveRouteSelectionFixture(request.modelId)
+    );
     repositoryMock.getOrCreateActiveConversation.mockResolvedValue({
       id: "conversation-1",
       userId: "user-1",
@@ -217,9 +259,11 @@ describe("imageGenerateRoute", () => {
     });
     expect(body.turnId).toEqual(expect.any(String));
     expect(body.jobId).toEqual(expect.any(String));
+    expect(body.runId).toEqual(expect.any(String));
     expect(body.images).toEqual([
       expect.objectContaining({
         resultId: expect.any(String),
+        assetId: expect.any(String),
         imageId: "remote-1",
         imageUrl: "/api/generated-images/remote-1",
         provider: "dashscope",
@@ -357,6 +401,7 @@ describe("imageGenerateRoute", () => {
     expect(response.json()).toMatchObject({
       turnId: "client-turn-1",
       jobId: "client-job-1",
+      runId: expect.any(String),
     });
 
     await app.close();
@@ -393,8 +438,10 @@ describe("imageGenerateRoute", () => {
     expect(response.json()).toEqual({
       error: "policy blocked",
       conversationId: "conversation-1",
+      threadId: "conversation-1",
       turnId: expect.any(String),
       jobId: expect.any(String),
+      runId: expect.any(String),
     });
     expect(repositoryMock.completeGenerationFailure).toHaveBeenCalledWith(
       expect.objectContaining({

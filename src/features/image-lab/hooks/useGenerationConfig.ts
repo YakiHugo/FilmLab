@@ -22,8 +22,9 @@ export function useGenerationConfig() {
   const updateReferenceImageInStore = useGenerationConfigStore((state) => state.updateReferenceImage);
   const removeReferenceImageInStore = useGenerationConfigStore((state) => state.removeReferenceImage);
   const clearReferenceImagesInStore = useGenerationConfigStore((state) => state.clearReferenceImages);
+  const setAssetRefsInStore = useGenerationConfigStore((state) => state.setAssetRefs);
 
-  const visibleModels = catalog?.models ?? [];
+  const visibleModels = useMemo(() => catalog?.models ?? [], [catalog?.models]);
   const selectedModel = useMemo(
     () => getImageModelCatalogEntry(catalog, config?.modelId ?? visibleModels[0]?.id),
     [catalog, config?.modelId, visibleModels]
@@ -89,5 +90,7 @@ export function useGenerationConfig() {
     ) => updateReferenceImageInStore(id, patch, selectedModel),
     removeReferenceImage: (id: string) => removeReferenceImageInStore(id, selectedModel),
     clearReferenceImages: () => clearReferenceImagesInStore(selectedModel),
+    setAssetRefs: (assetRefs: Parameters<typeof setAssetRefsInStore>[0]) =>
+      setAssetRefsInStore(assetRefs, selectedModel),
   };
 }

@@ -1,4 +1,4 @@
-export type ProviderOperation = "generate" | "upscale";
+export type ProviderOperation = "image.generate" | "image.upscale";
 
 export interface ProviderCallResultInput {
   provider: string;

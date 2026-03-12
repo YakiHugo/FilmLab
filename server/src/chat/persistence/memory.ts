@@ -1,7 +1,10 @@
 import type {
+  PersistedAssetEdgeRecord,
+  PersistedAssetRecord,
   GenerationJobSnapshot,
   PersistedGenerationTurn,
   PersistedImageSession,
+  PersistedRunRecord,
   PersistedResultItem,
 } from "../../../../shared/chatImageTypes";
 import { ChatConversationNotFoundError } from "./types";
@@ -25,6 +28,19 @@ interface MemoryJobRecord extends GenerationJobSnapshot {
   updatedAt: string;
 }
 
+interface MemoryRunRecord extends PersistedRunRecord {
+  conversationId: string;
+  updatedAt: string;
+}
+
+interface MemoryAssetRecord extends PersistedAssetRecord {
+  conversationId: string;
+}
+
+interface MemoryAssetEdgeRecord extends PersistedAssetEdgeRecord {
+  conversationId: string;
+}
+
 interface MemoryConversationRecord extends ChatConversationRecord {
   isActive: boolean;
 }
@@ -37,7 +53,10 @@ export class MemoryChatStateRepository implements ChatStateRepository {
   private readonly activeConversationByUserId = new Map<string, string>();
   private readonly turns = new Map<string, MemoryTurnRecord>();
   private readonly jobs = new Map<string, MemoryJobRecord>();
+  private readonly runs = new Map<string, MemoryRunRecord>();
   private readonly attempts = new Map<string, ChatAttemptRecord & { conversationId: string }>();
+  private readonly assets = new Map<string, MemoryAssetRecord>();
+  private readonly assetEdges = new Map<string, MemoryAssetEdgeRecord>();
   private readonly resultsByTurnId = new Map<string, PersistedResultItem[]>();
 
   async getConversationById(userId: string, conversationId: string) {
@@ -93,10 +112,49 @@ export class MemoryChatStateRepository implements ChatStateRepository {
         .filter((job) => job.conversationId === conversation.id && visibleTurnIds.has(job.turnId))
         .map((job) => ({ ...job }))
     );
+    const runs = sortNewestFirst(
+      Array.from(this.runs.values())
+        .filter((run) => run.conversationId === conversation.id && visibleTurnIds.has(run.turnId))
+        .map((run) => ({ ...run }))
+    );
+    const visibleRunIds = new Set(runs.map((run) => run.id));
+    const assets = sortNewestFirst(
+      Array.from(this.assets.values())
+        .filter(
+          (asset) =>
+            asset.conversationId === conversation.id &&
+            ((asset.turnId && visibleTurnIds.has(asset.turnId)) ||
+              (asset.runId && visibleRunIds.has(asset.runId)))
+        )
+        .map((asset) => ({
+          ...asset,
+          locators: asset.locators.map((locator) => ({ ...locator })),
+        }))
+    );
+    const assetIds = new Set(assets.map((asset) => asset.id));
+    const assetEdges = sortNewestFirst(
+      Array.from(this.assetEdges.values())
+        .filter(
+          (edge) =>
+            edge.conversationId === conversation.id &&
+            assetIds.has(edge.sourceAssetId) &&
+            assetIds.has(edge.targetAssetId)
+        )
+        .map((edge) => ({ ...edge }))
+    );
 
     return {
       id: conversation.id,
+      thread: {
+        id: conversation.id,
+        creativeBrief: this.buildCreativeBrief(turns),
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+      },
       turns,
+      runs,
+      assets,
+      assetEdges,
       jobs,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
@@ -120,7 +178,16 @@ export class MemoryChatStateRepository implements ChatStateRepository {
     const nextConversation = await this.getOrCreateActiveConversation(userId);
     return {
       id: nextConversation.id,
+      thread: {
+        id: nextConversation.id,
+        creativeBrief: this.buildCreativeBrief([]),
+        createdAt: nextConversation.createdAt,
+        updatedAt: nextConversation.updatedAt,
+      },
       turns: [],
+      runs: [],
+      assets: [],
+      assetEdges: [],
       jobs: [],
       createdAt: nextConversation.createdAt,
       updatedAt: nextConversation.updatedAt,
@@ -160,6 +227,11 @@ export class MemoryChatStateRepository implements ChatStateRepository {
       conversationId: input.conversationId,
       updatedAt: input.job.createdAt,
     });
+    this.runs.set(input.run.id, {
+      ...input.run,
+      conversationId: input.conversationId,
+      updatedAt: input.run.createdAt,
+    });
     this.attempts.set(input.attempt.id, {
       ...input.attempt,
       conversationId: input.conversationId,
@@ -171,8 +243,9 @@ export class MemoryChatStateRepository implements ChatStateRepository {
   async completeGenerationSuccess(input: CompleteChatGenerationSuccessInput) {
     const turn = this.turns.get(input.turnId);
     const job = this.jobs.get(input.jobId);
+    const run = this.runs.get(input.runId);
     const attempt = this.attempts.get(input.attemptId);
-    if (!turn || !job || !attempt) {
+    if (!turn || !job || !run || !attempt) {
       throw new Error(`Chat generation ${input.turnId} could not be completed.`);
     }
 
@@ -185,11 +258,15 @@ export class MemoryChatStateRepository implements ChatStateRepository {
       status: "done",
       error: null,
       warnings: [...input.warnings],
+      runIds: [...turn.runIds],
+      referencedAssetIds: [...input.run.referencedAssetIds],
+      primaryAssetIds: [...input.run.assetIds],
       results: [...input.results],
       updatedAt: input.completedAt,
     });
     this.jobs.set(input.jobId, {
       ...job,
+      runId: input.runId,
       logicalModel: input.logicalModel as GenerationJobSnapshot["logicalModel"],
       deploymentId: input.deploymentId,
       runtimeProvider: input.runtimeProvider,
@@ -208,6 +285,31 @@ export class MemoryChatStateRepository implements ChatStateRepository {
       completedAt: input.completedAt,
       updatedAt: input.completedAt,
     });
+    this.runs.set(input.runId, {
+      ...run,
+      status: input.run.status,
+      prompt: input.run.prompt,
+      assetIds: [...input.run.assetIds],
+      referencedAssetIds: [...input.run.referencedAssetIds],
+      telemetry: { ...input.run.telemetry },
+      executedTarget: input.run.executedTarget,
+      warnings: [...input.warnings],
+      completedAt: input.completedAt,
+      updatedAt: input.completedAt,
+    });
+    input.assets.forEach((asset) => {
+      this.assets.set(asset.id, {
+        ...asset,
+        conversationId: input.conversationId,
+        locators: asset.locators.map((locator) => ({ ...locator })),
+      });
+    });
+    input.assetEdges.forEach((edge) => {
+      this.assetEdges.set(edge.id, {
+        ...edge,
+        conversationId: input.conversationId,
+      });
+    });
     this.resultsByTurnId.set(input.turnId, [...input.results]);
     this.touchConversation(input.conversationId, input.completedAt);
   }
@@ -215,8 +317,9 @@ export class MemoryChatStateRepository implements ChatStateRepository {
   async completeGenerationFailure(input: CompleteChatGenerationFailureInput) {
     const turn = this.turns.get(input.turnId);
     const job = this.jobs.get(input.jobId);
+    const run = this.runs.get(input.runId);
     const attempt = this.attempts.get(input.attemptId);
-    if (!turn || !job || !attempt) {
+    if (!turn || !job || !run || !attempt) {
       throw new Error(`Chat generation ${input.turnId} could not be failed.`);
     }
 
@@ -229,6 +332,13 @@ export class MemoryChatStateRepository implements ChatStateRepository {
     });
     this.jobs.set(input.jobId, {
       ...job,
+      status: "failed",
+      error: input.error,
+      completedAt: input.completedAt,
+      updatedAt: input.completedAt,
+    });
+    this.runs.set(input.runId, {
+      ...run,
       status: "failed",
       error: input.error,
       completedAt: input.completedAt,
@@ -273,6 +383,20 @@ export class MemoryChatStateRepository implements ChatStateRepository {
       userId: conversation.userId,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
+    };
+  }
+
+  private buildCreativeBrief(turns: PersistedGenerationTurn[]) {
+    const latestTurn = turns[0] ?? null;
+    const latestAcceptedResult =
+      latestTurn?.results.find((result) => result.threadAssetId) ?? null;
+
+    return {
+      latestPrompt: latestTurn?.prompt ?? null,
+      latestModelId: latestTurn?.modelId ?? null,
+      acceptedAssetId: latestAcceptedResult?.threadAssetId ?? null,
+      selectedAssetIds: latestTurn?.primaryAssetIds ?? [],
+      recentAssetRefIds: latestTurn?.referencedAssetIds ?? [],
     };
   }
 }

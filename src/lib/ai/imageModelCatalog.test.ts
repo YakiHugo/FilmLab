@@ -60,6 +60,7 @@ describe("image model catalog capability facts", () => {
         stylePreset: "",
         negativePrompt: "avoid blur",
         referenceImages: [],
+        assetRefs: [],
         seed: 42,
         guidanceScale: 11,
         steps: 30,

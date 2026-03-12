@@ -46,6 +46,13 @@ export type ReferenceImageType = (typeof REFERENCE_IMAGE_TYPES)[number];
 export const IMAGE_UPSCALE_SCALES = ["2x", "4x"] as const;
 export type ImageUpscaleScale = (typeof IMAGE_UPSCALE_SCALES)[number];
 
+export const IMAGE_GENERATION_ASSET_REF_ROLES = [
+  "reference",
+  "edit",
+  "variation",
+] as const;
+export type ImageGenerationAssetRefRole = (typeof IMAGE_GENERATION_ASSET_REF_ROLES)[number];
+
 export interface ReferenceImage {
   id: string;
   url: string;
@@ -54,10 +61,23 @@ export interface ReferenceImage {
   type: ReferenceImageType;
 }
 
+export interface ImageGenerationAssetRef {
+  assetId: string;
+  role: ImageGenerationAssetRefRole;
+}
+
+export interface RequestedImageGenerationTarget {
+  modelId?: import("./imageModelCatalog").FrontendImageModelId;
+  logicalModel?: import("./imageModelCatalog").LogicalImageModelId;
+  deploymentId?: import("./imageModelCatalog").ImageDeploymentId;
+  provider?: ImageProviderId;
+}
+
 export interface ImageGenerationRequest {
   prompt: string;
   negativePrompt?: string;
   conversationId?: string;
+  threadId?: string;
   retryOfTurnId?: string;
   clientTurnId?: string;
   clientJobId?: string;
@@ -74,12 +94,15 @@ export interface ImageGenerationRequest {
   sampler?: string;
   batchSize?: number;
   modelParams?: Record<string, string | number | boolean | null>;
+  assetRefs?: ImageGenerationAssetRef[];
+  requestedTarget?: RequestedImageGenerationTarget;
 }
 
 export interface GeneratedImage {
   resultId?: string;
   imageUrl: string;
   imageId?: string;
+  assetId?: string;
   provider: ImageProviderId;
   model: string;
   mimeType?: string;
@@ -95,8 +118,10 @@ export interface ImageUpscaleRequest {
 
 export interface ImageGenerationResponse {
   conversationId: string;
+  threadId: string;
   turnId: string;
   jobId: string;
+  runId: string;
   modelId: import("./imageModelCatalog").FrontendImageModelId;
   logicalModel: import("./imageModelCatalog").LogicalImageModelId;
   deploymentId: import("./imageModelCatalog").ImageDeploymentId;
@@ -106,5 +131,8 @@ export interface ImageGenerationResponse {
   imageId?: string;
   imageUrl?: string;
   images: GeneratedImage[];
+  runs: import("./chatImageTypes").PersistedRunRecord[];
+  assets: import("./chatImageTypes").PersistedAssetRecord[];
+  primaryAssetIds: string[];
   warnings?: string[];
 }

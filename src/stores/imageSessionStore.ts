@@ -45,19 +45,42 @@ const createSessionId = () => {
 
 const createEmptyImageSession = (): PersistedImageSession => {
   const timestamp = nowIso();
+  const id = createSessionId();
   return {
-    id: createSessionId(),
+    id,
+    thread: {
+      id,
+      creativeBrief: {
+        latestPrompt: null,
+        latestModelId: null,
+        acceptedAssetId: null,
+        selectedAssetIds: [],
+        recentAssetRefIds: [],
+      },
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
     turns: [],
+    runs: [],
+    assets: [],
+    assetEdges: [],
     jobs: [],
     createdAt: timestamp,
     updatedAt: timestamp,
   };
 };
 
-const withUpdatedAt = (session: PersistedImageSession): PersistedImageSession => ({
-  ...session,
-  updatedAt: nowIso(),
-});
+const withUpdatedAt = (session: PersistedImageSession): PersistedImageSession => {
+  const updatedAt = nowIso();
+  return {
+    ...session,
+    updatedAt,
+    thread: {
+      ...session.thread,
+      updatedAt,
+    },
+  };
+};
 
 const mergeProjectedResults = (
   previousResults: PersistedResultItem[],
@@ -110,6 +133,17 @@ export const trimSession = (session: PersistedImageSession): PersistedImageSessi
     .filter((job) => keptTurnIds.has(job.turnId))
     .slice(0, MAX_PERSISTED_IMAGE_JOBS);
   const keptJobIds = new Set(nextJobs.map((job) => job.id));
+  const nextRuns = session.runs.filter((run) => keptTurnIds.has(run.turnId));
+  const keptRunIds = new Set(nextRuns.map((run) => run.id));
+  const nextAssets = session.assets.filter(
+    (asset) =>
+      (asset.turnId ? keptTurnIds.has(asset.turnId) : false) ||
+      (asset.runId ? keptRunIds.has(asset.runId) : false)
+  );
+  const keptAssetIds = new Set(nextAssets.map((asset) => asset.id));
+  const nextAssetEdges = session.assetEdges.filter(
+    (edge) => keptAssetIds.has(edge.sourceAssetId) && keptAssetIds.has(edge.targetAssetId)
+  );
 
   return {
     ...session,
@@ -121,6 +155,9 @@ export const trimSession = (session: PersistedImageSession): PersistedImageSessi
           }
         : turn
     ),
+    runs: nextRuns,
+    assets: nextAssets,
+    assetEdges: nextAssetEdges,
     jobs: nextJobs,
   };
 };

@@ -1,16 +1,21 @@
 import { z } from "zod";
 import {
+  IMAGE_PROVIDER_IDS,
   IMAGE_ASPECT_RATIOS,
+  IMAGE_GENERATION_ASSET_REF_ROLES,
   IMAGE_STYLE_IDS,
   REFERENCE_IMAGE_TYPES,
 } from "./imageGeneration";
-import { FRONTEND_IMAGE_MODEL_IDS } from "./imageModelCatalog";
+import { FRONTEND_IMAGE_MODEL_IDS, LOGICAL_IMAGE_MODEL_IDS } from "./imageModelCatalog";
 import { appendImageModelParamIssues } from "./imageModelParams";
 
 export const frontendImageModelSchema = z.enum(FRONTEND_IMAGE_MODEL_IDS);
+export const logicalImageModelSchema = z.enum(LOGICAL_IMAGE_MODEL_IDS);
+export const imageProviderSchema = z.enum(IMAGE_PROVIDER_IDS);
 export const imageAspectRatioSchema = z.enum(IMAGE_ASPECT_RATIOS);
 export const imageStyleSchema = z.enum(IMAGE_STYLE_IDS);
 export const referenceImageTypeSchema = z.enum(REFERENCE_IMAGE_TYPES);
+export const imageGenerationAssetRefRoleSchema = z.enum(IMAGE_GENERATION_ASSET_REF_ROLES);
 
 export const IMAGE_GENERATION_LIMITS = {
   width: { min: 256, max: 4096 },
@@ -29,11 +34,24 @@ export const referenceImageSchema = z.object({
   type: referenceImageTypeSchema.default("content"),
 });
 
+export const requestedImageGenerationTargetSchema = z.object({
+  modelId: frontendImageModelSchema.optional(),
+  logicalModel: logicalImageModelSchema.optional(),
+  deploymentId: z.string().trim().min(1).optional(),
+  provider: imageProviderSchema.optional(),
+});
+
+export const imageGenerationAssetRefSchema = z.object({
+  assetId: z.string().trim().min(1),
+  role: imageGenerationAssetRefRoleSchema.default("reference"),
+});
+
 export const imageGenerationRequestSchema = z
   .object({
     prompt: z.string().trim().min(1),
     negativePrompt: z.string().trim().optional(),
     conversationId: z.string().trim().min(1).optional(),
+    threadId: z.string().trim().min(1).optional(),
     retryOfTurnId: z.string().trim().min(1).optional(),
     clientTurnId: z.string().trim().min(1).optional(),
     clientJobId: z.string().trim().min(1).optional(),
@@ -81,6 +99,8 @@ export const imageGenerationRequestSchema = z
     modelParams: z
       .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
       .default({}),
+    assetRefs: z.array(imageGenerationAssetRefSchema).max(8).default([]),
+    requestedTarget: requestedImageGenerationTargetSchema.optional(),
   })
   .superRefine((payload, ctx) => {
     const hasExplicitSize =

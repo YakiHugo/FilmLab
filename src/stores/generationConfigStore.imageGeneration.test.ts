@@ -157,23 +157,28 @@ const klingModel = createModelFixture("kling-v3", {
 const createConfig = (
   modelId: FrontendImageModelId,
   patch: Partial<GenerationConfig> = {}
-): GenerationConfig => ({
-  modelId,
-  aspectRatio: "custom",
-  width: 1024,
-  height: 1024,
-  style: "cinematic",
-  stylePreset: "",
-  negativePrompt: "",
-  referenceImages: [],
-  seed: null,
-  guidanceScale: null,
-  steps: null,
-  sampler: "",
-  batchSize: 1,
-  modelParams: getDefaultImageModelParams(modelId),
-  ...patch,
-});
+): GenerationConfig => {
+  const { assetRefs, referenceImages, ...restPatch } = patch;
+
+  return {
+    modelId,
+    aspectRatio: "custom",
+    width: 1024,
+    height: 1024,
+    style: "cinematic",
+    stylePreset: "",
+    negativePrompt: "",
+    referenceImages: referenceImages ?? [],
+    assetRefs: assetRefs ?? [],
+    seed: null,
+    guidanceScale: null,
+    steps: null,
+    sampler: "",
+    batchSize: 1,
+    modelParams: getDefaultImageModelParams(modelId),
+    ...restPatch,
+  };
+};
 
 describe("sanitizeGenerationConfig", () => {
   it("drops unsupported explicit sizes and controls from catalog constraints", () => {

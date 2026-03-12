@@ -53,7 +53,7 @@ describe("image model catalog registry", () => {
     registry.recordProviderCallResult({
       provider: "dashscope",
       model: "qwen-image-2.0-pro",
-      operation: "generate",
+      operation: "image.generate",
       success: false,
       latencyMs: 2500,
       errorType: "provider_error",
@@ -61,7 +61,7 @@ describe("image model catalog registry", () => {
     registry.recordProviderCallResult({
       provider: "dashscope",
       model: "qwen-image-2.0-pro",
-      operation: "generate",
+      operation: "image.generate",
       success: false,
       latencyMs: 3200,
       errorType: "provider_error",

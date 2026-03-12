@@ -4,7 +4,12 @@ import type {
   FrontendImageProviderCatalogEntry,
   ImageModelCatalogResponse,
 } from "../../../shared/imageModelCatalog";
-import type { ImageAspectRatio, ImageStyleId, ReferenceImage } from "@/types/imageGeneration";
+import type {
+  ImageAspectRatio,
+  ImageGenerationAssetRef,
+  ImageStyleId,
+  ReferenceImage,
+} from "@/types/imageGeneration";
 import type { ImageModelParamValue } from "@/lib/ai/imageModelParams";
 import { IMAGE_GENERATION_LIMITS } from "@/lib/ai/imageGenerationSchema";
 
@@ -31,6 +36,7 @@ export interface CatalogDrivenGenerationConfig {
   stylePreset: string;
   negativePrompt: string;
   referenceImages: ReferenceImage[];
+  assetRefs: ImageGenerationAssetRef[];
   seed: number | null;
   guidanceScale: number | null;
   steps: number | null;
@@ -148,6 +154,7 @@ export const createDefaultGenerationConfig = (
   stylePreset: model.defaults.stylePreset,
   negativePrompt: model.defaults.negativePrompt,
   referenceImages: [],
+  assetRefs: [],
   seed: model.defaults.seed,
   guidanceScale: model.defaults.guidanceScale,
   steps: model.defaults.steps,
@@ -214,6 +221,7 @@ export const sanitizeGenerationConfigWithCatalog = (
     negativePrompt: featureSupport.negativePrompt ? config.negativePrompt : "",
     style: featureSupport.styles ? config.style : "none",
     stylePreset: featureSupport.styles ? config.stylePreset : "",
+    assetRefs: [...config.assetRefs],
     modelParams: Object.fromEntries(
       model.parameterDefinitions.map((definition) => [
         definition.key,

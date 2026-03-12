@@ -8,7 +8,12 @@ import {
   type CatalogDrivenGenerationConfig,
   type ImageModelCatalogEntry,
 } from "@/lib/ai/imageModelCatalog";
-import type { ImageAspectRatio, ImageStyleId, ReferenceImage } from "@/types/imageGeneration";
+import type {
+  ImageAspectRatio,
+  ImageGenerationAssetRef,
+  ImageStyleId,
+  ReferenceImage,
+} from "@/types/imageGeneration";
 
 export interface GenerationConfig {
   modelId: FrontendImageModelId;
@@ -19,6 +24,7 @@ export interface GenerationConfig {
   stylePreset: string;
   negativePrompt: string;
   referenceImages: ReferenceImage[];
+  assetRefs: ImageGenerationAssetRef[];
   seed: number | null;
   guidanceScale: number | null;
   steps: number | null;
@@ -41,6 +47,7 @@ interface GenerationConfigState {
   ) => void;
   removeReferenceImage: (id: string, model?: ImageModelCatalogEntry | null) => void;
   clearReferenceImages: (model?: ImageModelCatalogEntry | null) => void;
+  setAssetRefs: (assetRefs: ImageGenerationAssetRef[], model?: ImageModelCatalogEntry | null) => void;
 }
 
 const toGenerationConfig = (
@@ -169,6 +176,21 @@ export const useGenerationConfigStore = create<GenerationConfigState>()(
               {
                 ...state.config,
                 referenceImages: [],
+              },
+              model
+            ),
+          };
+        }),
+      setAssetRefs: (assetRefs, model) =>
+        set((state) => {
+          if (!state.config) {
+            return state;
+          }
+          return {
+            config: sanitizeGenerationConfig(
+              {
+                ...state.config,
+                assetRefs: [...assetRefs],
               },
               model
             ),

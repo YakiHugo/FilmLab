@@ -11,6 +11,18 @@ import {
 
 const createSession = (jobCount = 0, turnCount = 2): PersistedImageSession => ({
   id: "session-1",
+  thread: {
+    id: "session-1",
+    creativeBrief: {
+      latestPrompt: null,
+      latestModelId: null,
+      acceptedAssetId: null,
+      selectedAssetIds: [],
+      recentAssetRefIds: [],
+    },
+    createdAt: "2026-03-09T00:00:00.000Z",
+    updatedAt: "2026-03-09T00:00:00.000Z",
+  },
   createdAt: "2026-03-09T00:00:00.000Z",
   updatedAt: "2026-03-09T00:00:00.000Z",
   turns: Array.from({ length: Math.max(turnCount, 2) }, (_, index) => ({
@@ -33,11 +45,18 @@ const createSession = (jobCount = 0, turnCount = 2): PersistedImageSession => ({
     error: null,
     warnings: [],
     jobId: index === 0 ? "job-loading" : index === 1 ? "job-done" : `job-${index}`,
+    runIds: [],
+    referencedAssetIds: [],
+    primaryAssetIds: [],
     results: [],
   })),
+  runs: [],
+  assets: [],
+  assetEdges: [],
   jobs: Array.from({ length: Math.max(jobCount, 2) }, (_, index) => ({
     id: index === 0 ? "job-loading" : `job-${index}`,
     turnId: index === 0 ? "turn-loading" : `turn-${index}`,
+    runId: null,
     modelId: "seedream-v5",
     logicalModel: "image.seedream.v5",
     deploymentId: "ark-seedream-v5-primary",
@@ -124,6 +143,7 @@ describe("image session store helpers", () => {
           id: "result-1",
           imageUrl: "/api/generated-images/result-1",
           imageId: "image-1",
+          threadAssetId: "thread-asset-1",
           runtimeProvider: "ark",
           providerModel: "doubao-seedream-5-0-260128",
           index: 0,
@@ -144,6 +164,7 @@ describe("image session store helpers", () => {
               id: "result-1",
               imageUrl: "/api/generated-images/result-1",
               imageId: "image-1",
+              threadAssetId: "thread-asset-1",
               runtimeProvider: "ark",
               providerModel: "doubao-seedream-5-0-260128",
               index: 0,

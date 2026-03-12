@@ -15,6 +15,12 @@ const recordResult = (input: HealthRecordInput) => {
 const toErrorType = (error: unknown) =>
   error instanceof ProviderError ? "provider_error" : "internal_error";
 
+const toGenerateSelectionInput = (request: ParsedImageGenerationRequest) => ({
+  modelId: request.modelId,
+  operation: "image.generate" as const,
+  requestedTarget: request.requestedTarget,
+});
+
 const executeWithFallback = async <T>(
   operation: ImageOperation,
   targets: ReturnType<typeof selectRouteTargets>,
@@ -57,16 +63,16 @@ const executeWithFallback = async <T>(
 export const imageRuntimeRouter = {
   getProviderConfiguration: getRuntimeProviderConfiguration,
   getHealthSnapshot: routerHealth.getSnapshot,
+  getRouteTargets(request: ParsedImageGenerationRequest) {
+    return selectRouteTargets(toGenerateSelectionInput(request));
+  },
   async generate(
     request: ParsedImageGenerationRequest,
     options?: { signal?: AbortSignal; timeoutMs?: number; traceId?: string }
   ) {
-    const targets = selectRouteTargets({
-      modelId: request.modelId,
-      capability: "image.generate",
-    });
+    const targets = selectRouteTargets(toGenerateSelectionInput(request));
 
-    return executeWithFallback("generate", targets, async (target) => {
+    return executeWithFallback("image.generate", targets, async (target) => {
       const configuredProvider = getRuntimeProviderConfiguration(target.provider.id);
       if (!configuredProvider.configured) {
         const message =

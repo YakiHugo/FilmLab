@@ -1,8 +1,12 @@
 import type { Pool, PoolClient } from "pg";
 import type {
+  PersistedAssetEdgeRecord,
+  PersistedAssetLocatorRecord,
+  PersistedAssetRecord,
   GenerationJobSnapshot,
   PersistedGenerationTurn,
   PersistedImageSession,
+  PersistedRunRecord,
   PersistedResultItem,
 } from "../../../../shared/chatImageTypes";
 import { ChatConversationNotFoundError } from "./types";
@@ -123,6 +127,85 @@ const MIGRATIONS = [
         WHERE is_hidden = FALSE;
     `,
   },
+  {
+    name: "003_chat_runs_assets",
+    sql: `
+      CREATE TABLE IF NOT EXISTS chat_runs (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+        turn_id TEXT NOT NULL REFERENCES chat_turns(id) ON DELETE CASCADE,
+        job_id TEXT NULL REFERENCES chat_jobs(id) ON DELETE SET NULL,
+        operation TEXT NOT NULL,
+        status TEXT NOT NULL,
+        requested_target JSONB NULL,
+        selected_target JSONB NULL,
+        executed_target JSONB NULL,
+        prompt_snapshot JSONB NULL,
+        error TEXT NULL,
+        warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+        asset_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+        referenced_asset_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+        telemetry JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL,
+        completed_at TIMESTAMPTZ NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS chat_runs_conversation_created_idx
+        ON chat_runs(conversation_id, created_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS chat_runs_job_id_idx
+        ON chat_runs(job_id)
+        WHERE job_id IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS chat_assets (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+        turn_id TEXT NULL REFERENCES chat_turns(id) ON DELETE SET NULL,
+        run_id TEXT NULL REFERENCES chat_runs(id) ON DELETE SET NULL,
+        asset_type TEXT NOT NULL,
+        label TEXT NULL,
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS chat_assets_conversation_created_idx
+        ON chat_assets(conversation_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS chat_assets_run_id_idx
+        ON chat_assets(run_id);
+
+      CREATE TABLE IF NOT EXISTS chat_asset_locators (
+        id TEXT PRIMARY KEY,
+        asset_id TEXT NOT NULL REFERENCES chat_assets(id) ON DELETE CASCADE,
+        locator_type TEXT NOT NULL,
+        locator_value TEXT NOT NULL,
+        mime_type TEXT NULL,
+        expires_at TIMESTAMPTZ NULL,
+        created_at TIMESTAMPTZ NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS chat_asset_locators_asset_idx
+        ON chat_asset_locators(asset_id, created_at ASC);
+
+      CREATE TABLE IF NOT EXISTS chat_asset_edges (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+        source_asset_id TEXT NOT NULL REFERENCES chat_assets(id) ON DELETE CASCADE,
+        target_asset_id TEXT NOT NULL REFERENCES chat_assets(id) ON DELETE CASCADE,
+        edge_type TEXT NOT NULL,
+        turn_id TEXT NULL REFERENCES chat_turns(id) ON DELETE SET NULL,
+        run_id TEXT NULL REFERENCES chat_runs(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS chat_asset_edges_conversation_idx
+        ON chat_asset_edges(conversation_id, created_at DESC);
+
+      ALTER TABLE chat_jobs
+      ADD COLUMN IF NOT EXISTS run_id TEXT NULL;
+
+      ALTER TABLE chat_attempts
+      ADD COLUMN IF NOT EXISTS run_id TEXT NULL;
+
+      ALTER TABLE chat_results
+      ADD COLUMN IF NOT EXISTS thread_asset_id TEXT NULL;
+    `,
+  },
 ] as const;
 
 interface ChatTurnRow {
@@ -145,6 +228,7 @@ interface ChatTurnRow {
 interface ChatJobRow {
   id: string;
   turn_id: string;
+  run_id: string | null;
   model_id: string;
   logical_model: string;
   deployment_id: string;
@@ -163,11 +247,60 @@ interface ChatResultRow {
   turn_id: string;
   image_url: string;
   image_id: string | null;
+  thread_asset_id: string | null;
   runtime_provider: string;
   provider_model: string;
   mime_type: string | null;
   revised_prompt: string | null;
   image_index: number;
+}
+
+interface ChatRunRow {
+  id: string;
+  turn_id: string;
+  job_id: string | null;
+  operation: PersistedRunRecord["operation"];
+  status: PersistedRunRecord["status"];
+  requested_target: PersistedRunRecord["requestedTarget"] | null;
+  selected_target: PersistedRunRecord["selectedTarget"] | null;
+  executed_target: PersistedRunRecord["executedTarget"] | null;
+  prompt_snapshot: PersistedRunRecord["prompt"] | null;
+  error: string | null;
+  warnings: unknown;
+  asset_ids: unknown;
+  referenced_asset_ids: unknown;
+  telemetry: PersistedRunRecord["telemetry"] | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+interface ChatAssetRow {
+  id: string;
+  turn_id: string | null;
+  run_id: string | null;
+  asset_type: PersistedAssetRecord["assetType"];
+  label: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+interface ChatAssetLocatorRow {
+  id: string;
+  asset_id: string;
+  locator_type: PersistedAssetLocatorRecord["locatorType"];
+  locator_value: string;
+  mime_type: string | null;
+  expires_at: string | null;
+}
+
+interface ChatAssetEdgeRow {
+  id: string;
+  source_asset_id: string;
+  target_asset_id: string;
+  edge_type: PersistedAssetEdgeRecord["edgeType"];
+  turn_id: string | null;
+  run_id: string | null;
+  created_at: string;
 }
 
 const parseStringArray = (value: unknown): string[] => {
@@ -185,6 +318,40 @@ const parseStringArray = (value: unknown): string[] => {
     }
   }
   return [];
+};
+
+const parseRunTarget = (value: unknown): PersistedRunRecord["requestedTarget"] => {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  return value as PersistedRunRecord["requestedTarget"];
+};
+
+const parsePromptSnapshot = (value: unknown): PersistedRunRecord["prompt"] => {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  return value as PersistedRunRecord["prompt"];
+};
+
+const parseTelemetry = (value: unknown): PersistedRunRecord["telemetry"] => {
+  if (typeof value !== "object" || value === null) {
+    return {
+      providerRequestId: null,
+      providerTaskId: null,
+      latencyMs: null,
+    };
+  }
+
+  const telemetry = value as Record<string, unknown>;
+  return {
+    providerRequestId:
+      typeof telemetry.providerRequestId === "string" ? telemetry.providerRequestId : null,
+    providerTaskId: typeof telemetry.providerTaskId === "string" ? telemetry.providerTaskId : null,
+    latencyMs: typeof telemetry.latencyMs === "number" ? telemetry.latencyMs : null,
+  };
 };
 
 export class PostgresChatStateRepository implements ChatStateRepository {
@@ -279,7 +446,8 @@ export class PostgresChatStateRepository implements ChatStateRepository {
       throw new ChatConversationNotFoundError(conversationId);
     }
 
-    const [turnsResult, jobsResult, resultsResult] = await Promise.all([
+    const [turnsResult, jobsResult, resultsResult, runsResult, assetsResult, locatorsResult, assetEdgesResult] =
+      await Promise.all([
       this.pool.query<ChatTurnRow>(
         `
           SELECT
@@ -309,6 +477,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
           SELECT
             id,
             turn_id,
+            run_id,
             model_id,
             logical_model,
             deployment_id,
@@ -339,6 +508,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
             turn_id,
             image_url,
             image_id,
+            thread_asset_id,
             runtime_provider,
             provider_model,
             mime_type,
@@ -356,6 +526,88 @@ export class PostgresChatStateRepository implements ChatStateRepository {
         `,
         [conversation.id]
       ),
+      this.pool.query<ChatRunRow>(
+        `
+          SELECT
+            id,
+            turn_id,
+            job_id,
+            operation,
+            status,
+            requested_target,
+            selected_target,
+            executed_target,
+            prompt_snapshot,
+            error,
+            warnings,
+            asset_ids,
+            referenced_asset_ids,
+            telemetry,
+            created_at,
+            completed_at
+          FROM chat_runs
+          WHERE conversation_id = $1
+            AND turn_id IN (
+              SELECT id
+              FROM chat_turns
+              WHERE conversation_id = $1
+                AND is_hidden = FALSE
+            )
+          ORDER BY created_at DESC;
+        `,
+        [conversation.id]
+      ),
+      this.pool.query<ChatAssetRow>(
+        `
+          SELECT
+            id,
+            turn_id,
+            run_id,
+            asset_type,
+            label,
+            metadata,
+            created_at
+          FROM chat_assets
+          WHERE conversation_id = $1
+          ORDER BY created_at DESC;
+        `,
+        [conversation.id]
+      ),
+      this.pool.query<ChatAssetLocatorRow>(
+        `
+          SELECT
+            id,
+            asset_id,
+            locator_type,
+            locator_value,
+            mime_type,
+            expires_at
+          FROM chat_asset_locators
+          WHERE asset_id IN (
+            SELECT id
+            FROM chat_assets
+            WHERE conversation_id = $1
+          )
+          ORDER BY asset_id ASC, created_at ASC;
+        `,
+        [conversation.id]
+      ),
+      this.pool.query<ChatAssetEdgeRow>(
+        `
+          SELECT
+            id,
+            source_asset_id,
+            target_asset_id,
+            edge_type,
+            turn_id,
+            run_id,
+            created_at
+          FROM chat_asset_edges
+          WHERE conversation_id = $1
+          ORDER BY created_at DESC;
+        `,
+        [conversation.id]
+      ),
     ]);
 
     const resultsByTurnId = resultsResult.rows.reduce<Map<string, PersistedResultItem[]>>(
@@ -365,6 +617,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
           id: row.id,
           imageUrl: row.image_url,
           imageId: row.image_id,
+          threadAssetId: row.thread_asset_id,
           runtimeProvider: row.runtime_provider,
           providerModel: row.provider_model,
           mimeType: row.mime_type ?? undefined,
@@ -378,31 +631,106 @@ export class PostgresChatStateRepository implements ChatStateRepository {
       },
       new Map()
     );
+    const locatorsByAssetId = locatorsResult.rows.reduce<Map<string, PersistedAssetLocatorRecord[]>>(
+      (map, row) => {
+        const current = map.get(row.asset_id) ?? [];
+        current.push({
+          id: row.id,
+          assetId: row.asset_id,
+          locatorType: row.locator_type,
+          locatorValue: row.locator_value,
+          mimeType: row.mime_type ?? undefined,
+          expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
+        });
+        map.set(row.asset_id, current);
+        return map;
+      },
+      new Map()
+    );
+    const turns = turnsResult.rows.map((row) => ({
+      id: row.id,
+      prompt: row.prompt,
+      createdAt: new Date(row.created_at).toISOString(),
+      retryOfTurnId: row.retry_of_turn_id,
+      modelId: row.model_id as PersistedGenerationTurn["modelId"],
+      logicalModel: row.logical_model as PersistedGenerationTurn["logicalModel"],
+      deploymentId: row.deployment_id,
+      runtimeProvider: row.runtime_provider,
+      providerModel: row.provider_model,
+      configSnapshot: row.config_snapshot,
+      status: row.status,
+      error: row.error,
+      warnings: parseStringArray(row.warnings),
+      jobId: row.job_id,
+      runIds: runsResult.rows
+        .filter((run) => run.turn_id === row.id)
+        .map((run) => run.id),
+      referencedAssetIds: runsResult.rows
+        .filter((run) => run.turn_id === row.id)
+        .flatMap((run) => parseStringArray(run.referenced_asset_ids)),
+      primaryAssetIds: runsResult.rows
+        .filter((run) => run.turn_id === row.id && run.operation === "image.generate")
+        .flatMap((run) => parseStringArray(run.asset_ids)),
+      results: resultsByTurnId.get(row.id) ?? [],
+    }));
+    const assets = assetsResult.rows.map((row) => ({
+      id: row.id,
+      turnId: row.turn_id,
+      runId: row.run_id,
+      assetType: row.asset_type,
+      label: row.label,
+      metadata: row.metadata,
+      locators: locatorsByAssetId.get(row.id) ?? [],
+      createdAt: new Date(row.created_at).toISOString(),
+    }));
+    const assetIds = new Set(assets.map((asset) => asset.id));
+    const assetEdges = assetEdgesResult.rows
+      .filter((row) => assetIds.has(row.source_asset_id) && assetIds.has(row.target_asset_id))
+      .map((row) => ({
+        id: row.id,
+        sourceAssetId: row.source_asset_id,
+        targetAssetId: row.target_asset_id,
+        edgeType: row.edge_type,
+        turnId: row.turn_id,
+        runId: row.run_id,
+        createdAt: new Date(row.created_at).toISOString(),
+      }));
 
     return {
       id: conversation.id,
+      thread: {
+        id: conversation.id,
+        creativeBrief: this.buildCreativeBrief(turns),
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+      },
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
-      turns: turnsResult.rows.map((row) => ({
+      turns,
+      runs: runsResult.rows.map((row) => ({
         id: row.id,
-        prompt: row.prompt,
-        createdAt: new Date(row.created_at).toISOString(),
-        retryOfTurnId: row.retry_of_turn_id,
-        modelId: row.model_id as PersistedGenerationTurn["modelId"],
-        logicalModel: row.logical_model as PersistedGenerationTurn["logicalModel"],
-        deploymentId: row.deployment_id,
-        runtimeProvider: row.runtime_provider,
-        providerModel: row.provider_model,
-        configSnapshot: row.config_snapshot,
+        turnId: row.turn_id,
+        jobId: row.job_id,
+        operation: row.operation,
         status: row.status,
+        requestedTarget: parseRunTarget(row.requested_target),
+        selectedTarget: parseRunTarget(row.selected_target),
+        executedTarget: parseRunTarget(row.executed_target),
+        prompt: parsePromptSnapshot(row.prompt_snapshot),
         error: row.error,
         warnings: parseStringArray(row.warnings),
-        jobId: row.job_id,
-        results: resultsByTurnId.get(row.id) ?? [],
+        assetIds: parseStringArray(row.asset_ids),
+        referencedAssetIds: parseStringArray(row.referenced_asset_ids),
+        createdAt: new Date(row.created_at).toISOString(),
+        completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
+        telemetry: parseTelemetry(row.telemetry),
       })),
+      assets,
+      assetEdges,
       jobs: jobsResult.rows.map((row) => ({
         id: row.id,
         turnId: row.turn_id,
+        runId: row.run_id,
         modelId: row.model_id as GenerationJobSnapshot["modelId"],
         logicalModel: row.logical_model as GenerationJobSnapshot["logicalModel"],
         deploymentId: row.deployment_id,
@@ -445,7 +773,16 @@ export class PostgresChatStateRepository implements ChatStateRepository {
 
     return {
       id: conversationId,
+      thread: {
+        id: conversationId,
+        creativeBrief: this.buildCreativeBrief([]),
+        createdAt,
+        updatedAt: createdAt,
+      },
       turns: [],
+      runs: [],
+      assets: [],
+      assetEdges: [],
       jobs: [],
       createdAt,
       updatedAt: createdAt,
@@ -533,6 +870,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
             id,
             conversation_id,
             turn_id,
+            run_id,
             model_id,
             logical_model,
             deployment_id,
@@ -547,14 +885,15 @@ export class PostgresChatStateRepository implements ChatStateRepository {
             updated_at
           )
           VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12,
-            $13::timestamptz, $14::timestamptz, $15::timestamptz
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13,
+            $14::timestamptz, $15::timestamptz, $16::timestamptz
           );
         `,
         [
           input.job.id,
           input.conversationId,
           input.job.turnId,
+          input.job.runId,
           input.job.modelId,
           input.job.logicalModel,
           input.job.deploymentId,
@@ -571,9 +910,59 @@ export class PostgresChatStateRepository implements ChatStateRepository {
       );
       await client.query(
         `
+          INSERT INTO chat_runs (
+            id,
+            conversation_id,
+            turn_id,
+            job_id,
+            operation,
+            status,
+            requested_target,
+            selected_target,
+            executed_target,
+            prompt_snapshot,
+            error,
+            warnings,
+            asset_ids,
+            referenced_asset_ids,
+            telemetry,
+            created_at,
+            completed_at,
+            updated_at
+          )
+          VALUES (
+            $1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11,
+            $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb, $16::timestamptz,
+            $17::timestamptz, $18::timestamptz
+          );
+        `,
+        [
+          input.run.id,
+          input.conversationId,
+          input.run.turnId,
+          input.run.jobId,
+          input.run.operation,
+          input.run.status,
+          JSON.stringify(input.run.requestedTarget),
+          JSON.stringify(input.run.selectedTarget),
+          JSON.stringify(input.run.executedTarget),
+          JSON.stringify(input.run.prompt),
+          input.run.error,
+          JSON.stringify(input.run.warnings),
+          JSON.stringify(input.run.assetIds),
+          JSON.stringify(input.run.referencedAssetIds),
+          JSON.stringify(input.run.telemetry),
+          input.run.createdAt,
+          input.run.completedAt,
+          input.run.createdAt,
+        ]
+      );
+      await client.query(
+        `
           INSERT INTO chat_attempts (
             id,
             job_id,
+            run_id,
             attempt_no,
             status,
             error,
@@ -583,11 +972,12 @@ export class PostgresChatStateRepository implements ChatStateRepository {
             completed_at,
             updated_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9::timestamptz, $10::timestamptz);
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz, $11::timestamptz);
         `,
         [
           input.attempt.id,
           input.attempt.jobId,
+          input.attempt.runId,
           input.attempt.attemptNo,
           input.attempt.status,
           input.attempt.error,
@@ -631,18 +1021,20 @@ export class PostgresChatStateRepository implements ChatStateRepository {
       await client.query(
         `
           UPDATE chat_jobs
-          SET logical_model = $2,
-              deployment_id = $3,
-              runtime_provider = $4,
-              provider_model = $5,
+          SET run_id = $2,
+              logical_model = $3,
+              deployment_id = $4,
+              runtime_provider = $5,
+              provider_model = $6,
               status = 'succeeded',
               error = NULL,
-              completed_at = $6::timestamptz,
-              updated_at = $6::timestamptz
+              completed_at = $7::timestamptz,
+              updated_at = $7::timestamptz
           WHERE id = $1;
         `,
         [
           input.jobId,
+          input.runId,
           input.logicalModel,
           input.deploymentId,
           input.runtimeProvider,
@@ -652,17 +1044,46 @@ export class PostgresChatStateRepository implements ChatStateRepository {
       );
       await client.query(
         `
-          UPDATE chat_attempts
-          SET status = 'succeeded',
+          UPDATE chat_runs
+          SET status = $2,
+              executed_target = $3::jsonb,
+              prompt_snapshot = $4::jsonb,
               error = NULL,
-              provider_request_id = $2,
-              provider_task_id = $3,
-              completed_at = $4::timestamptz,
-              updated_at = $4::timestamptz
+              warnings = $5::jsonb,
+              asset_ids = $6::jsonb,
+              referenced_asset_ids = $7::jsonb,
+              telemetry = $8::jsonb,
+              completed_at = $9::timestamptz,
+              updated_at = $9::timestamptz
+          WHERE id = $1;
+        `,
+        [
+          input.runId,
+          input.run.status,
+          JSON.stringify(input.run.executedTarget),
+          JSON.stringify(input.run.prompt),
+          JSON.stringify(input.warnings),
+          JSON.stringify(input.run.assetIds),
+          JSON.stringify(input.run.referencedAssetIds),
+          JSON.stringify(input.run.telemetry),
+          input.completedAt,
+        ]
+      );
+      await client.query(
+        `
+          UPDATE chat_attempts
+          SET run_id = $2,
+              status = 'succeeded',
+              error = NULL,
+              provider_request_id = $3,
+              provider_task_id = $4,
+              completed_at = $5::timestamptz,
+              updated_at = $5::timestamptz
           WHERE id = $1;
         `,
         [
           input.attemptId,
+          input.runId,
           input.providerRequestId ?? null,
           input.providerTaskId ?? null,
           input.completedAt,
@@ -675,6 +1096,113 @@ export class PostgresChatStateRepository implements ChatStateRepository {
         `,
         [input.turnId]
       );
+      await client.query(
+        `
+          DELETE FROM chat_asset_edges
+          WHERE run_id = $1;
+        `,
+        [input.runId]
+      );
+      await client.query(
+        `
+          DELETE FROM chat_asset_locators
+          WHERE asset_id IN (
+            SELECT id
+            FROM chat_assets
+            WHERE run_id = $1
+          );
+        `,
+        [input.runId]
+      );
+      await client.query(
+        `
+          DELETE FROM chat_assets
+          WHERE run_id = $1;
+        `,
+        [input.runId]
+      );
+
+      for (const asset of input.assets) {
+        await client.query(
+          `
+            INSERT INTO chat_assets (
+              id,
+              conversation_id,
+              turn_id,
+              run_id,
+              asset_type,
+              label,
+              metadata,
+              created_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz);
+          `,
+          [
+            asset.id,
+            input.conversationId,
+            asset.turnId,
+            asset.runId,
+            asset.assetType,
+            asset.label,
+            JSON.stringify(asset.metadata),
+            asset.createdAt,
+          ]
+        );
+
+        for (const locator of asset.locators) {
+          await client.query(
+            `
+              INSERT INTO chat_asset_locators (
+                id,
+                asset_id,
+                locator_type,
+                locator_value,
+                mime_type,
+                expires_at,
+                created_at
+              )
+              VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz);
+            `,
+            [
+              locator.id,
+              asset.id,
+              locator.locatorType,
+              locator.locatorValue,
+              locator.mimeType ?? null,
+              locator.expiresAt,
+              asset.createdAt,
+            ]
+          );
+        }
+      }
+
+      for (const edge of input.assetEdges) {
+        await client.query(
+          `
+            INSERT INTO chat_asset_edges (
+              id,
+              conversation_id,
+              source_asset_id,
+              target_asset_id,
+              edge_type,
+              turn_id,
+              run_id,
+              created_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz);
+          `,
+          [
+            edge.id,
+            input.conversationId,
+            edge.sourceAssetId,
+            edge.targetAssetId,
+            edge.edgeType,
+            edge.turnId,
+            edge.runId,
+            edge.createdAt,
+          ]
+        );
+      }
 
       for (const result of input.results) {
         await client.query(
@@ -687,6 +1215,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
               image_index,
               image_url,
               image_id,
+              thread_asset_id,
               runtime_provider,
               provider_model,
               mime_type,
@@ -694,7 +1223,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
               created_at
             )
             VALUES (
-              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::timestamptz
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamptz
             );
           `,
           [
@@ -705,6 +1234,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
             result.index,
             result.imageUrl,
             result.imageId,
+            result.threadAssetId,
             result.runtimeProvider,
             result.providerModel,
             result.mimeType ?? null,
@@ -746,13 +1276,25 @@ export class PostgresChatStateRepository implements ChatStateRepository {
       await client.query(
         `
           UPDATE chat_attempts
+          SET run_id = $2,
+              status = 'failed',
+              error = $3,
+              completed_at = $4::timestamptz,
+              updated_at = $4::timestamptz
+          WHERE id = $1;
+        `,
+        [input.attemptId, input.runId, input.error, input.completedAt]
+      );
+      await client.query(
+        `
+          UPDATE chat_runs
           SET status = 'failed',
               error = $2,
               completed_at = $3::timestamptz,
               updated_at = $3::timestamptz
           WHERE id = $1;
         `,
-        [input.attemptId, input.error, input.completedAt]
+        [input.runId, input.error, input.completedAt]
       );
       await client.query(
         `
@@ -855,5 +1397,19 @@ export class PostgresChatStateRepository implements ChatStateRepository {
     } finally {
       client.release();
     }
+  }
+
+  private buildCreativeBrief(turns: PersistedGenerationTurn[]) {
+    const latestTurn = turns[0] ?? null;
+    const latestAcceptedResult =
+      latestTurn?.results.find((result) => result.threadAssetId) ?? null;
+
+    return {
+      latestPrompt: latestTurn?.prompt ?? null,
+      latestModelId: latestTurn?.modelId ?? null,
+      acceptedAssetId: latestAcceptedResult?.threadAssetId ?? null,
+      selectedAssetIds: latestTurn?.primaryAssetIds ?? [],
+      recentAssetRefIds: latestTurn?.referencedAssetIds ?? [],
+    };
   }
 }

@@ -1,4 +1,8 @@
-import type { ImageModelFamilyId, ImageProviderId } from "../../../../shared/imageGeneration";
+import type {
+  ImageModelFamilyId,
+  ImageProviderId,
+  RequestedImageGenerationTarget,
+} from "../../../../shared/imageGeneration";
 import type {
   FrontendImageModelId,
   ImageCapabilityId,
@@ -12,7 +16,7 @@ import type { ImageModelParamDefinition } from "../../../../shared/imageModelPar
 
 export type RuntimeProviderId = ImageProviderId;
 export type RuntimeCredentialSlotId = RuntimeProviderId;
-export type ImageOperation = "generate" | "upscale";
+export type ImageOperation = "image.generate" | "image.upscale";
 
 export interface FrontendModelSpec {
   id: FrontendImageModelId;
@@ -45,6 +49,7 @@ export interface ProviderSpec {
   credentialSlot: RuntimeCredentialSlotId;
   operations: ImageOperation[];
   healthScope: "model_operation";
+  family: "http";
 }
 
 export interface ResolvedRouteTarget {
@@ -55,7 +60,8 @@ export interface ResolvedRouteTarget {
 
 export interface RouterSelectionInput {
   modelId: FrontendImageModelId;
-  capability: ImageCapabilityId;
+  operation: ImageCapabilityId;
+  requestedTarget?: RequestedImageGenerationTarget;
 }
 
 export interface HealthRecordInput {

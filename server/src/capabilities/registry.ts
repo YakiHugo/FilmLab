@@ -59,7 +59,12 @@ export const createImageModelCatalogRegistry = (health = routerHealth) => ({
         }
 
         const configuration = getRuntimeProviderConfiguration(deployment.provider);
-        const modelHealth = health.getSnapshot(deployment.provider, deployment.providerModel, "generate", now);
+        const modelHealth = health.getSnapshot(
+          deployment.provider,
+          deployment.providerModel,
+          "image.generate",
+          now
+        );
 
         return {
           id: model.id,

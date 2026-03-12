@@ -1,9 +1,14 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ZodError } from "zod";
-import type { PersistedImageGenerationRequestSnapshot } from "../../../shared/chatImageTypes";
+import type {
+  PersistedAssetEdgeType,
+  PersistedImageGenerationRequestSnapshot,
+  PersistedRunTargetSnapshot,
+} from "../../../shared/chatImageTypes";
 import { requireAuthenticatedUser } from "../auth/user";
 import { getChatStateRepository } from "../chat/persistence/repository";
 import { getConfig } from "../config";
+import { compileImagePrompt, withExecutedPrompt } from "../gateway/prompt/compiler";
 import { getDefaultDeploymentForModel } from "../gateway/router/registry";
 import { imageRuntimeRouter } from "../gateway/router/router";
 import { ProviderError } from "../providers/base/errors";
@@ -25,6 +30,26 @@ const createId = (prefix: string) => {
 };
 
 const cloneSnapshot = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+const createRunTargetSnapshot = (input: PersistedRunTargetSnapshot): PersistedRunTargetSnapshot => ({
+  modelId: input.modelId,
+  logicalModel: input.logicalModel,
+  deploymentId: input.deploymentId,
+  runtimeProvider: input.runtimeProvider,
+  providerModel: input.providerModel,
+  pinned: input.pinned,
+});
+
+const resolveEdgeType = (role: "reference" | "edit" | "variation"): PersistedAssetEdgeType => {
+  switch (role) {
+    case "edit":
+      return "edited_from_asset";
+    case "variation":
+      return "variant_of";
+    default:
+      return "referenced_in_turn";
+  }
+};
 
 const toPersistedRequestSnapshot = (
   payload: unknown
@@ -115,6 +140,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             conversationId: string;
             turnId: string;
             jobId: string;
+            runId: string;
             attemptId: string;
           }
         | null = null;
@@ -178,11 +204,22 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         const createdAt = new Date().toISOString();
         const turnId = payload.clientTurnId ?? createId("chat-turn");
         const jobId = payload.clientJobId ?? createId("chat-job");
+        const runId = createId("chat-run");
         const attemptId = createId("chat-attempt");
+        const compiledPrompt = compileImagePrompt(payload);
+        const routedRequest = {
+          ...payload,
+          threadId: payload.threadId ?? payload.conversationId ?? conversation.id,
+          conversationId: payload.conversationId ?? conversation.id,
+          prompt: compiledPrompt.compiledPrompt,
+        };
+        const routeTargets = imageRuntimeRouter.getRouteTargets(routedRequest);
+        const selectedTarget = routeTargets[0];
         persistedGeneration = {
           conversationId: conversation.id,
           turnId,
           jobId,
+          runId,
           attemptId,
         };
 
@@ -203,26 +240,71 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             error: null,
             warnings: [],
             jobId,
+            runIds: [runId],
+            referencedAssetIds: payload.assetRefs?.map((assetRef) => assetRef.assetId) ?? [],
+            primaryAssetIds: [],
             results: [],
           },
           job: {
             id: jobId,
             turnId,
+            runId,
             modelId: payload.modelId,
             logicalModel: frontendModel.logicalModel,
             deploymentId: defaultDeployment.id,
             runtimeProvider: defaultDeployment.provider,
             providerModel: defaultDeployment.providerModel,
-            compiledPrompt: payload.prompt,
+            compiledPrompt: compiledPrompt.compiledPrompt,
             requestSnapshot: toPersistedRequestSnapshot(payload),
             status: "running",
             error: null,
             createdAt,
             completedAt: null,
           },
+          run: {
+            id: runId,
+            turnId,
+            jobId,
+            operation: "image.generate",
+            status: "processing",
+            requestedTarget: createRunTargetSnapshot({
+              modelId: payload.modelId,
+              logicalModel: frontendModel.logicalModel,
+              deploymentId: defaultDeployment.id,
+              runtimeProvider: payload.requestedTarget?.provider ?? defaultDeployment.provider,
+              providerModel: defaultDeployment.providerModel,
+              pinned: Boolean(payload.requestedTarget?.deploymentId || payload.requestedTarget?.provider),
+            }),
+            selectedTarget: selectedTarget
+              ? createRunTargetSnapshot({
+                  modelId: selectedTarget.frontendModel.id,
+                  logicalModel: selectedTarget.frontendModel.logicalModel,
+                  deploymentId: selectedTarget.deployment.id,
+                  runtimeProvider: selectedTarget.provider.id,
+                  providerModel: selectedTarget.deployment.providerModel,
+                  pinned: Boolean(
+                    payload.requestedTarget?.deploymentId || payload.requestedTarget?.provider
+                  ),
+                })
+              : null,
+            executedTarget: null,
+            prompt: compiledPrompt,
+            error: null,
+            warnings: [],
+            assetIds: [],
+            referencedAssetIds: payload.assetRefs?.map((assetRef) => assetRef.assetId) ?? [],
+            createdAt,
+            completedAt: null,
+            telemetry: {
+              providerRequestId: null,
+              providerTaskId: null,
+              latencyMs: null,
+            },
+          },
           attempt: {
             id: attemptId,
             jobId,
+            runId,
             attemptNo: 1,
             status: "running",
             error: null,
@@ -234,7 +316,8 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           },
         });
 
-        const generated = await imageRuntimeRouter.generate(payload, {
+        const startedAt = Date.now();
+        const generated = await imageRuntimeRouter.generate(routedRequest, {
           signal: requestController.signal,
         });
         const capabilityWarnings = getImageGenerationCapabilityWarnings(payload);
@@ -259,6 +342,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         const normalizedImages = normalizedResults.reduce<
           Array<{
             resultId: string;
+            assetId: string;
             imageUrl: string;
             imageId: string;
             provider: string;
@@ -273,6 +357,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
 
           accumulator.push({
             resultId: image.resultId,
+            assetId: createId("thread-asset"),
             imageId: image.imageId,
             imageUrl: image.imageUrl,
             provider: generated.runtimeProvider,
@@ -290,10 +375,61 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         }
 
         const completedAt = new Date().toISOString();
+        const assets = normalizedImages.map((image, index) => ({
+          id: image.assetId,
+          turnId,
+          runId,
+          assetType: "image" as const,
+          label: `Generated image ${index + 1}`,
+          metadata: {
+            imageId: image.imageId,
+            imageUrl: image.imageUrl,
+            mimeType: image.mimeType ?? null,
+            runtimeProvider: image.provider,
+            providerModel: image.model,
+            index,
+            revisedPrompt: image.revisedPrompt ?? null,
+          },
+          locators: [
+            {
+              id: createId("thread-locator"),
+              assetId: image.assetId,
+              locatorType: "generated_image_store" as const,
+              locatorValue: image.imageUrl,
+              mimeType: image.mimeType,
+              expiresAt: null,
+            },
+          ],
+          createdAt: completedAt,
+        }));
+        const assetEdges = (payload.assetRefs ?? []).flatMap((assetRef) =>
+          assets.map((asset) => ({
+            id: createId("thread-edge"),
+            sourceAssetId: assetRef.assetId,
+            targetAssetId: asset.id,
+            edgeType: resolveEdgeType(assetRef.role),
+            turnId,
+            runId,
+            createdAt: completedAt,
+          }))
+        );
+        const executedTarget = createRunTargetSnapshot({
+          modelId: generated.modelId,
+          logicalModel: generated.logicalModel,
+          deploymentId: generated.deploymentId,
+          runtimeProvider: generated.runtimeProvider,
+          providerModel: generated.providerModel,
+          pinned: Boolean(payload.requestedTarget?.deploymentId || payload.requestedTarget?.provider),
+        });
+        const completedPrompt = withExecutedPrompt(
+          compiledPrompt,
+          normalizedImages[0]?.revisedPrompt ?? null
+        );
         await repository.completeGenerationSuccess({
           conversationId: conversation.id,
           turnId,
           jobId,
+          runId,
           attemptId,
           logicalModel: generated.logicalModel,
           deploymentId: generated.deploymentId,
@@ -306,6 +442,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             id: image.resultId,
             imageUrl: image.imageUrl,
             imageId: image.imageId,
+            threadAssetId: image.assetId,
             runtimeProvider: image.provider,
             providerModel: image.model,
             mimeType: image.mimeType,
@@ -314,13 +451,29 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             assetId: null,
             saved: false,
           })),
+          assets,
+          assetEdges,
+          run: {
+            status: "completed",
+            prompt: completedPrompt,
+            assetIds: assets.map((asset) => asset.id),
+            referencedAssetIds: payload.assetRefs?.map((assetRef) => assetRef.assetId) ?? [],
+            telemetry: {
+              providerRequestId: generated.providerRequestId ?? null,
+              providerTaskId: generated.providerTaskId ?? null,
+              latencyMs: Date.now() - startedAt,
+            },
+            executedTarget,
+          },
           completedAt,
         });
 
         return reply.code(200).send({
           conversationId: conversation.id,
+          threadId: conversation.id,
           turnId,
           jobId,
+          runId,
           modelId: generated.modelId,
           logicalModel: generated.logicalModel,
           deploymentId: generated.deploymentId,
@@ -329,7 +482,60 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           createdAt: completedAt,
           imageId: firstImageId,
           imageUrl: firstImageUrl,
-          images: normalizedImages,
+          images: normalizedImages.map((image) => ({
+            resultId: image.resultId,
+            assetId: image.assetId,
+            imageId: image.imageId,
+            imageUrl: image.imageUrl,
+            provider: image.provider,
+            model: image.model,
+            mimeType: image.mimeType,
+            revisedPrompt: image.revisedPrompt,
+          })),
+          runs: [
+            {
+              id: runId,
+              turnId,
+              jobId,
+              operation: "image.generate",
+              status: "completed",
+              requestedTarget: createRunTargetSnapshot({
+                modelId: payload.modelId,
+                logicalModel: frontendModel.logicalModel,
+                deploymentId: defaultDeployment.id,
+                runtimeProvider: payload.requestedTarget?.provider ?? defaultDeployment.provider,
+                providerModel: defaultDeployment.providerModel,
+                pinned: Boolean(payload.requestedTarget?.deploymentId || payload.requestedTarget?.provider),
+              }),
+              selectedTarget: selectedTarget
+                ? createRunTargetSnapshot({
+                    modelId: selectedTarget.frontendModel.id,
+                    logicalModel: selectedTarget.frontendModel.logicalModel,
+                    deploymentId: selectedTarget.deployment.id,
+                    runtimeProvider: selectedTarget.provider.id,
+                    providerModel: selectedTarget.deployment.providerModel,
+                    pinned: Boolean(
+                      payload.requestedTarget?.deploymentId || payload.requestedTarget?.provider
+                    ),
+                  })
+                : null,
+              executedTarget,
+              prompt: completedPrompt,
+              error: null,
+              warnings: mergedWarnings,
+              assetIds: assets.map((asset) => asset.id),
+              referencedAssetIds: payload.assetRefs?.map((assetRef) => assetRef.assetId) ?? [],
+              createdAt,
+              completedAt,
+              telemetry: {
+                providerRequestId: generated.providerRequestId ?? null,
+                providerTaskId: generated.providerTaskId ?? null,
+                latencyMs: Date.now() - startedAt,
+              },
+            },
+          ],
+          assets,
+          primaryAssetIds: assets.map((asset) => asset.id),
           ...(mergedWarnings.length > 0 ? { warnings: mergedWarnings } : {}),
         });
       } catch (error) {
@@ -339,6 +545,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
               conversationId: persistedGeneration.conversationId,
               turnId: persistedGeneration.turnId,
               jobId: persistedGeneration.jobId,
+              runId: persistedGeneration.runId,
               attemptId: persistedGeneration.attemptId,
               error: error instanceof Error ? error.message : "Image generation failed.",
               completedAt: new Date().toISOString(),
@@ -354,8 +561,10 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             ...(persistedGeneration
               ? {
                   conversationId: persistedGeneration.conversationId,
+                  threadId: persistedGeneration.conversationId,
                   turnId: persistedGeneration.turnId,
                   jobId: persistedGeneration.jobId,
+                  runId: persistedGeneration.runId,
                 }
               : {}),
           });
@@ -366,8 +575,10 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           ...(persistedGeneration
             ? {
                 conversationId: persistedGeneration.conversationId,
+                threadId: persistedGeneration.conversationId,
                 turnId: persistedGeneration.turnId,
                 jobId: persistedGeneration.jobId,
+                runId: persistedGeneration.runId,
               }
             : {}),
         });
