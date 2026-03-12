@@ -2,13 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   GenerationJobSnapshot,
   PersistedImageGenerationRequestSnapshot,
+  PersistedImageSession,
   PersistedGenerationTurn,
   PersistedResultItem,
 } from "../../../../shared/chatImageTypes";
 import type { FrontendImageModelId } from "../../../../shared/imageModelCatalog";
 import { importAssetFiles } from "@/lib/assetImport";
+import {
+  clearImageConversation,
+  deleteImageConversationTurn,
+  fetchImageConversation,
+} from "@/lib/ai/imageConversation";
 import type { ImageModelParamValue } from "@/lib/ai/imageModelParams";
-import { generateImage as requestImageGeneration } from "@/lib/ai/imageGeneration";
+import {
+  generateImage as requestImageGeneration,
+  type ImageGenerationRequestError,
+} from "@/lib/ai/imageGeneration";
 import {
   getImageModelCatalogEntry,
   getRuntimeProviderEntry,
@@ -18,7 +27,6 @@ import {
 } from "@/lib/ai/imageModelCatalog";
 import type { Asset, CanvasImageElement } from "@/types";
 import type {
-  GeneratedImage,
   ImageAspectRatio,
   ImageGenerationRequest,
   ImageGenerationResponse,
@@ -355,19 +363,6 @@ export const resolveRetryRequestSnapshot = (
   };
 };
 
-const toPersistedResults = (images: GeneratedImage[]): PersistedResultItem[] =>
-  images.map((image, index) => ({
-    imageUrl: image.imageUrl,
-    imageId: image.imageId ?? null,
-    runtimeProvider: image.provider,
-    providerModel: image.model,
-    mimeType: image.mimeType,
-    revisedPrompt: image.revisedPrompt ?? null,
-    index,
-    assetId: null,
-    saved: false,
-  }));
-
 interface SaveableGeneratedImage {
   imageUrl: string;
   imageId?: string | null;
@@ -412,6 +407,22 @@ const applyImportedAssetsToPersistedResults = (
       saved: true,
     };
   });
+
+const toPersistedResultsFromResponse = (
+  response: ImageGenerationResponse
+): PersistedResultItem[] =>
+  response.images.map((image, index) => ({
+    id: image.resultId ?? `${response.turnId}-result-${index}`,
+    imageUrl: image.imageUrl,
+    imageId: image.imageId ?? null,
+    runtimeProvider: image.provider,
+    providerModel: image.model,
+    mimeType: image.mimeType,
+    revisedPrompt: image.revisedPrompt ?? null,
+    index,
+    assetId: null,
+    saved: false,
+  }));
 
 const toUITurn = (
   turn: PersistedGenerationTurn,
@@ -713,17 +724,19 @@ export function useImageGeneration() {
     clearReferenceImages,
   } = useGenerationConfig();
   const session = useImageSessionStore((state) => state.session);
+  const replaceSession = useImageSessionStore((state) => state.replaceSession);
   const addTurnWithJob = useImageSessionStore((state) => state.addTurnWithJob);
   const updateTurn = useImageSessionStore((state) => state.updateTurn);
-  const deleteTurnFromStore = useImageSessionStore((state) => state.deleteTurn);
   const updateJob = useImageSessionStore((state) => state.updateJob);
-  const clearPersistedSession = useImageSessionStore((state) => state.clearSession);
 
   const [savingTurnIds, setSavingTurnIds] = useState<Record<string, boolean>>({});
   const [runtimeResults, setRuntimeResults] = useState<RuntimeResultStateMap>({});
   const sessionRef = useRef(session);
+  const serverConversationIdRef = useRef<string | null>(null);
   const savingTurnIdsRef = useRef(savingTurnIds);
   const runtimeResultsRef = useRef(runtimeResults);
+  const snapshotVersionRef = useRef(0);
+  const snapshotRequestAbortRef = useRef<AbortController | null>(null);
   const uiTurnCacheRef = useRef(
     new Map<
       string,
@@ -749,8 +762,61 @@ export function useImageGeneration() {
     return () => {
       generationRequestRef.current?.controller.abort();
       generationRequestRef.current = null;
+      snapshotRequestAbortRef.current?.abort();
+      snapshotRequestAbortRef.current = null;
     };
   }, []);
+
+  const invalidateConversationSnapshotRequests = useCallback(() => {
+    snapshotVersionRef.current += 1;
+    snapshotRequestAbortRef.current?.abort();
+    snapshotRequestAbortRef.current = null;
+  }, []);
+
+  const applyConversationSnapshot = useCallback(
+    (snapshot: PersistedImageSession) => {
+      invalidateConversationSnapshotRequests();
+      serverConversationIdRef.current = snapshot.id;
+      replaceSession(snapshot);
+      return snapshot;
+    },
+    [invalidateConversationSnapshotRequests, replaceSession]
+  );
+
+  const refreshConversationSnapshot = useCallback(
+    async (conversationId?: string) => {
+      const requestVersion = snapshotVersionRef.current + 1;
+      snapshotVersionRef.current = requestVersion;
+      snapshotRequestAbortRef.current?.abort();
+      const controller = new AbortController();
+      snapshotRequestAbortRef.current = controller;
+
+      try {
+        const snapshot = await fetchImageConversation(
+          conversationId ?? serverConversationIdRef.current ?? undefined,
+          {
+            signal: controller.signal,
+          }
+        );
+        if (controller.signal.aborted || snapshotVersionRef.current !== requestVersion) {
+          return null;
+        }
+
+        serverConversationIdRef.current = snapshot.id;
+        replaceSession(snapshot);
+        return snapshot;
+      } finally {
+        if (snapshotRequestAbortRef.current === controller) {
+          snapshotRequestAbortRef.current = null;
+        }
+      }
+    },
+    [replaceSession]
+  );
+
+  useEffect(() => {
+    void refreshConversationSnapshot().catch(() => undefined);
+  }, [refreshConversationSnapshot]);
 
   const setTurnSavingState = useCallback((turnId: string, isSaving: boolean) => {
     setSavingTurnIds((previous) => {
@@ -962,24 +1028,29 @@ export function useImageGeneration() {
       prompt: string;
       configSnapshot: GenerationConfig;
       requestSnapshot: ImageGenerationRequest;
-      replaceTurnId?: string;
+      retryOfTurnId?: string;
       localWarnings?: string[];
     }) => {
-      if (!sessionRef.current) {
-        return null;
-      }
-
       const prompt = options.prompt.trim();
       if (!prompt) {
         return null;
       }
-      const requestModel =
-        getImageModelCatalogEntry(catalog, options.requestSnapshot.modelId) ?? modelConfig;
-
+      invalidateConversationSnapshotRequests();
       cancelActiveGeneration("Generation canceled by a newer request.");
 
       const turnId = createTurnId();
       const jobId = createJobId();
+      const requestSnapshot: ImageGenerationRequest = {
+        ...options.requestSnapshot,
+        ...(serverConversationIdRef.current
+          ? { conversationId: serverConversationIdRef.current }
+          : {}),
+        ...(options.retryOfTurnId ? { retryOfTurnId: options.retryOfTurnId } : {}),
+        clientTurnId: turnId,
+        clientJobId: jobId,
+      };
+      const requestModel =
+        getImageModelCatalogEntry(catalog, requestSnapshot.modelId) ?? modelConfig;
       const createdAt = new Date().toISOString();
       const controller = new AbortController();
 
@@ -994,7 +1065,8 @@ export function useImageGeneration() {
           id: turnId,
           prompt,
           createdAt,
-          modelId: options.requestSnapshot.modelId,
+          retryOfTurnId: options.retryOfTurnId ?? null,
+          modelId: requestSnapshot.modelId,
           logicalModel: requestModel?.logicalModel ?? "image.seedream.v5",
           deploymentId: requestModel?.deploymentId ?? "ark-seedream-v5-primary",
           runtimeProvider: requestModel?.defaultProvider ?? "ark",
@@ -1009,13 +1081,13 @@ export function useImageGeneration() {
         {
           id: jobId,
           turnId,
-          modelId: options.requestSnapshot.modelId,
+          modelId: requestSnapshot.modelId,
           logicalModel: requestModel?.logicalModel ?? "image.seedream.v5",
           deploymentId: requestModel?.deploymentId ?? "ark-seedream-v5-primary",
           runtimeProvider: requestModel?.defaultProvider ?? "ark",
           providerModel: requestModel?.providerModel ?? "doubao-seedream-5-0-260128",
           compiledPrompt: prompt,
-          requestSnapshot: toPersistedRequestSnapshot(options.requestSnapshot),
+          requestSnapshot: toPersistedRequestSnapshot(requestSnapshot),
           status: "running",
           error: null,
           createdAt,
@@ -1023,14 +1095,8 @@ export function useImageGeneration() {
         }
       );
 
-      if (options.replaceTurnId) {
-        uiTurnCacheRef.current.delete(options.replaceTurnId);
-        clearRuntimeTurnState(options.replaceTurnId);
-        deleteTurnFromStore(options.replaceTurnId);
-      }
-
       try {
-        const generated = await generateImages(options.requestSnapshot, {
+        const generated = await generateImages(requestSnapshot, {
           signal: controller.signal,
         });
 
@@ -1042,21 +1108,30 @@ export function useImageGeneration() {
           return null;
         }
 
+        serverConversationIdRef.current = generated.conversationId;
         updateTurn(turnId, {
+          status: "done",
+          error: null,
           logicalModel: generated.logicalModel,
           deploymentId: generated.deploymentId,
           runtimeProvider: generated.runtimeProvider,
           providerModel: generated.providerModel,
-          status: "done",
-          error: null,
           warnings: [...(options.localWarnings ?? []), ...(generated.warnings ?? [])],
-          results: toPersistedResults(generated.images),
+          results: toPersistedResultsFromResponse(generated),
         });
         updateJob(jobId, {
           status: "succeeded",
           error: null,
-          completedAt: new Date().toISOString(),
+          modelId: generated.modelId,
+          logicalModel: generated.logicalModel,
+          deploymentId: generated.deploymentId,
+          runtimeProvider: generated.runtimeProvider,
+          providerModel: generated.providerModel,
+          completedAt: generated.createdAt,
         });
+        uiTurnCacheRef.current.delete(turnId);
+        clearRuntimeTurnState(turnId);
+        void refreshConversationSnapshot(generated.conversationId).catch(() => undefined);
 
         return generated.images;
       } catch (error) {
@@ -1064,8 +1139,13 @@ export function useImageGeneration() {
           return null;
         }
 
-        const errorMessage =
-          error instanceof Error ? error.message : "Image generation failed.";
+        const errorMessage = error instanceof Error ? error.message : "Image generation failed.";
+        const requestError = error as ImageGenerationRequestError;
+
+        if (requestError.conversationId) {
+          serverConversationIdRef.current = requestError.conversationId;
+          void refreshConversationSnapshot(requestError.conversationId).catch(() => undefined);
+        }
 
         updateTurn(turnId, {
           status: "error",
@@ -1078,6 +1158,8 @@ export function useImageGeneration() {
           error: errorMessage,
           completedAt: new Date().toISOString(),
         });
+        uiTurnCacheRef.current.delete(turnId);
+        clearRuntimeTurnState(turnId);
         return null;
       } finally {
         if (
@@ -1094,8 +1176,8 @@ export function useImageGeneration() {
       catalog,
       cancelActiveGeneration,
       clearRuntimeTurnState,
-      deleteTurnFromStore,
       modelConfig,
+      refreshConversationSnapshot,
       updateJob,
       updateTurn,
     ]
@@ -1105,7 +1187,7 @@ export function useImageGeneration() {
     async (
       promptInput: string,
       configSnapshot: GenerationConfig,
-      options?: { replaceTurnId?: string }
+      options?: { retryOfTurnId?: string }
     ) => {
       const prompt = promptInput.trim();
       if (!prompt || !catalog) {
@@ -1122,7 +1204,7 @@ export function useImageGeneration() {
         requestSnapshot: toImageRequest(prompt, nextConfigSnapshot, requestSupportedFeatures, {
           supportsCustomSize: Boolean(requestModelConfig?.constraints.supportsCustomSize),
         }),
-        replaceTurnId: options?.replaceTurnId,
+        retryOfTurnId: options?.retryOfTurnId,
       });
     },
     [catalog, runGeneration]
@@ -1152,7 +1234,7 @@ export function useImageGeneration() {
         prompt: originalTurn.prompt,
         configSnapshot: deserializeConfig(originalTurn.configSnapshot, catalog),
         requestSnapshot: retryRequest.request,
-        replaceTurnId: originalTurn.id,
+        retryOfTurnId: originalTurn.id,
         localWarnings: retryRequest.warnings,
       });
     },
@@ -1166,17 +1248,31 @@ export function useImageGeneration() {
   );
 
   const deleteTurn = useCallback(
-    (turnId: string) => {
+    async (turnId: string) => {
+      invalidateConversationSnapshotRequests();
       if (generationRequestRef.current?.turnId === turnId) {
-        generationRequestRef.current.controller.abort();
+        cancelActiveGeneration("Generation canceled while deleting the turn.");
         generationRequestRef.current = null;
       }
 
-      uiTurnCacheRef.current.delete(turnId);
-      clearRuntimeTurnState(turnId);
-      deleteTurnFromStore(turnId);
+      try {
+        const snapshot = await deleteImageConversationTurn(turnId);
+        applyConversationSnapshot(snapshot);
+        uiTurnCacheRef.current.delete(turnId);
+        clearRuntimeTurnState(turnId);
+      } catch (error) {
+        updateTurn(turnId, {
+          error: error instanceof Error ? error.message : "Turn could not be deleted.",
+        });
+      }
     },
-    [clearRuntimeTurnState, deleteTurnFromStore]
+    [
+      applyConversationSnapshot,
+      cancelActiveGeneration,
+      clearRuntimeTurnState,
+      invalidateConversationSnapshotRequests,
+      updateTurn,
+    ]
   );
 
   const retryTurn = useCallback(
@@ -1204,7 +1300,7 @@ export function useImageGeneration() {
       }
 
       return generateWithConfig(turn.prompt, deserializeConfig(turn.configSnapshot, catalog), {
-        replaceTurnId: turn.id,
+        retryOfTurnId: turn.id,
       });
     },
     [catalog, generateWithConfig, getTurnById, retryFromSnapshot, updateTurn]
@@ -1365,14 +1461,17 @@ export function useImageGeneration() {
     [getUiTurnById, persistImportedAssets]
   );
 
-  const clearSession = useCallback(() => {
-    generationRequestRef.current?.controller.abort();
-    generationRequestRef.current = null;
+  const clearSession = useCallback(async () => {
+    invalidateConversationSnapshotRequests();
+    if (generationRequestRef.current) {
+      cancelActiveGeneration("Generation canceled while clearing the conversation.");
+      generationRequestRef.current = null;
+    }
     uiTurnCacheRef.current.clear();
     setSavingTurnIds({});
     setRuntimeResults({});
-    clearPersistedSession();
-  }, [clearPersistedSession]);
+    applyConversationSnapshot(await clearImageConversation());
+  }, [applyConversationSnapshot, cancelActiveGeneration, invalidateConversationSnapshotRequests]);
 
   const turns = useMemo(
     () => {

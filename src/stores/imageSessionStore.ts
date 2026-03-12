@@ -4,6 +4,7 @@ import type {
   GenerationJobSnapshot,
   PersistedGenerationTurn,
   PersistedImageSession,
+  PersistedResultItem,
 } from "../../shared/chatImageTypes";
 import {
   deleteImageGenerationSession,
@@ -15,6 +16,7 @@ interface ImageSessionState {
   session: PersistedImageSession | null;
   isHydrated: boolean;
   hydrateSession: () => Promise<void>;
+  replaceSession: (session: PersistedImageSession) => void;
   addTurnWithJob: (turn: PersistedGenerationTurn, job: GenerationJobSnapshot) => void;
   addTurn: (turn: PersistedGenerationTurn) => void;
   updateTurn: (turnId: string, patch: Partial<PersistedGenerationTurn>) => void;
@@ -56,6 +58,50 @@ const withUpdatedAt = (session: PersistedImageSession): PersistedImageSession =>
   ...session,
   updatedAt: nowIso(),
 });
+
+const mergeProjectedResults = (
+  previousResults: PersistedResultItem[],
+  nextResults: PersistedResultItem[]
+) => {
+  const previousById = new Map(previousResults.map((result) => [result.id, result]));
+  return nextResults.map((result) => {
+    const previous = previousById.get(result.id);
+    if (!previous) {
+      return result;
+    }
+
+    return {
+      ...result,
+      assetId: previous.assetId ?? result.assetId,
+      saved: previous.saved || result.saved,
+    };
+  });
+};
+
+export const mergeProjectedSession = (
+  previous: PersistedImageSession | null,
+  next: PersistedImageSession
+): PersistedImageSession => {
+  if (!previous) {
+    return next;
+  }
+
+  const previousTurnsById = new Map(previous.turns.map((turn) => [turn.id, turn]));
+  return {
+    ...next,
+    turns: next.turns.map((turn) => {
+      const previousTurn = previousTurnsById.get(turn.id);
+      if (!previousTurn) {
+        return turn;
+      }
+
+      return {
+        ...turn,
+        results: mergeProjectedResults(previousTurn.results, turn.results),
+      };
+    }),
+  };
+};
 
 export const trimSession = (session: PersistedImageSession): PersistedImageSession => {
   const nextTurns = session.turns.slice(0, MAX_PERSISTED_IMAGE_TURNS);
@@ -208,6 +254,19 @@ export const useImageSessionStore = create<ImageSessionState>()(
           });
 
           return hydrationPromise;
+        },
+        replaceSession: (session) => {
+          const nextSession = trimSession(
+            mergeProjectedSession(get().session, {
+              ...session,
+            })
+          );
+          set({
+            session: nextSession,
+            isHydrated: true,
+          });
+
+          schedulePersist(nextSession);
         },
         addTurnWithJob: (turn, job) => {
           commitSession((session) => ({

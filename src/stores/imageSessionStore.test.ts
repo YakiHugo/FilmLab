@@ -4,6 +4,7 @@ import {
   INTERRUPTED_GENERATION_ERROR,
   MAX_PERSISTED_IMAGE_JOBS,
   MAX_PERSISTED_IMAGE_TURNS,
+  mergeProjectedSession,
   normalizeRecoveredSession,
   trimSession,
 } from "./imageSessionStore";
@@ -16,6 +17,7 @@ const createSession = (jobCount = 0, turnCount = 2): PersistedImageSession => ({
     id: index === 0 ? "turn-loading" : index === 1 ? "turn-done" : `turn-${index}`,
     prompt: index === 0 ? "loading" : `turn-${index}`,
     createdAt: `2026-03-09T00:${String(index + 1).padStart(2, "0")}:00.000Z`,
+    retryOfTurnId: null,
     modelId: "seedream-v5",
     logicalModel: "image.seedream.v5",
     deploymentId: "ark-seedream-v5-primary",
@@ -109,6 +111,54 @@ describe("image session store helpers", () => {
       modelId: "seedream-v5",
       deploymentId: "ark-seedream-v5-primary",
       runtimeProvider: "ark",
+    });
+  });
+
+  it("preserves locally projected saved assets when a server snapshot replaces the session", () => {
+    const previous = createSession();
+    previous.turns[1] = {
+      ...previous.turns[1],
+      id: "turn-done",
+      results: [
+        {
+          id: "result-1",
+          imageUrl: "/api/generated-images/result-1",
+          imageId: "image-1",
+          runtimeProvider: "ark",
+          providerModel: "doubao-seedream-5-0-260128",
+          index: 0,
+          assetId: "asset-1",
+          saved: true,
+        },
+      ],
+    };
+
+    const merged = mergeProjectedSession(previous, {
+      ...createSession(),
+      turns: [
+        previous.turns[0],
+        {
+          ...previous.turns[1],
+          results: [
+            {
+              id: "result-1",
+              imageUrl: "/api/generated-images/result-1",
+              imageId: "image-1",
+              runtimeProvider: "ark",
+              providerModel: "doubao-seedream-5-0-260128",
+              index: 0,
+              assetId: null,
+              saved: false,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(merged.turns[1]?.results[0]).toMatchObject({
+      id: "result-1",
+      assetId: "asset-1",
+      saved: true,
     });
   });
 });

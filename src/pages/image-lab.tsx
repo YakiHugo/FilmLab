@@ -10,7 +10,6 @@ import {
   downloadImageFromUrl,
   getImageDownloadFilename,
 } from "@/features/image-lab/utils/downloadUtils";
-import { useImageSessionStore } from "@/stores/imageSessionStore";
 import type { ImageStyleId } from "@/types/imageGeneration";
 import { IMAGE_GENERATION_LIMITS } from "@/lib/ai/imageGenerationSchema";
 
@@ -51,7 +50,6 @@ const resolveSpeedFromSteps = (
 };
 
 export function ImageLabPage() {
-  const hydrateSession = useImageSessionStore((state) => state.hydrateSession);
   const imageGeneration = useImageGeneration();
   const [externalPrompt, setExternalPrompt] = useState<string | null>(null);
   const [downloadFeedback, setDownloadFeedback] = useState<string | null>(null);
@@ -73,10 +71,6 @@ export function ImageLabPage() {
     imageGeneration.config?.steps ?? null,
     imageGeneration.modelConfig?.defaults.steps ?? undefined
   );
-
-  useEffect(() => {
-    void hydrateSession();
-  }, [hydrateSession]);
 
   useEffect(() => {
     if (!downloadFeedback) {
