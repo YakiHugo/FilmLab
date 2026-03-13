@@ -72,21 +72,13 @@ interface EditorInspectorPanelProps {
 
 export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
   const { adjustments } = useEditorAdjustmentState();
-  const {
-    previewAdjustmentValue,
-    toggleFlip,
-    updateAdjustments,
-    updateAdjustmentValue,
-  } = useEditorAdjustmentActions();
-  const {
-    clearLayerMask,
-    invertLayerMask,
-    setLayerBlendMode,
-    setLayerMaskMode,
-    setLayerOpacity,
-  } = useEditorLayerActions();
+  const { previewAdjustmentValue, toggleFlip, updateAdjustments, updateAdjustmentValue } =
+    useEditorAdjustmentActions();
+  const { clearLayerMask, invertLayerMask, setLayerBlendMode, setLayerMaskMode, setLayerOpacity } =
+    useEditorLayerActions();
   const { selectedLayer } = useEditorSelectionState();
   const {
+    activeToolPanelId,
     cropGuideMode,
     cropGuideRotation,
     isPanelBypassed,
@@ -94,6 +86,7 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
     requestAutoPerspective,
     rotateCropGuide,
     setCropGuideMode,
+    setActiveToolPanelId,
     toggleBypassPanel,
     toggleSection,
   } = useEditorViewState();
@@ -164,6 +157,24 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
     });
   };
 
+  const syncActiveToolPanel = (eventTarget: EventTarget | null) => {
+    if (!(eventTarget instanceof Element)) {
+      return;
+    }
+    const nextToolPanel = eventTarget.closest<HTMLElement>("[data-tool-panel]")?.dataset.toolPanel;
+    if (
+      (nextToolPanel === "edit" || nextToolPanel === "crop" || nextToolPanel === "mask") &&
+      nextToolPanel !== activeToolPanelId
+    ) {
+      setActiveToolPanelId(nextToolPanel);
+    }
+  };
+
+  const handleToggleCropSection = () => {
+    toggleSection("crop");
+    setActiveToolPanelId(openSections.crop ? "edit" : "crop");
+  };
+
   return (
     <aside
       className={cn(
@@ -171,7 +182,12 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
         className
       )}
     >
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+      <div
+        className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3"
+        data-tool-panel="edit"
+        onPointerDownCapture={(event) => syncActiveToolPanel(event.target)}
+        onFocusCapture={(event) => syncActiveToolPanel(event.target)}
+      >
         <EditorHistogramCard />
 
         <LayerPropertiesPanel
@@ -206,7 +222,7 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
             cropGuideMode={cropGuideMode}
             cropGuideRotation={cropGuideRotation}
             isOpen={openSections.crop}
-            onToggle={() => toggleSection("crop")}
+            onToggle={handleToggleCropSection}
             onSetCropGuideMode={setCropGuideMode}
             onRotateCropGuide={rotateCropGuide}
             onUpdateAdjustments={updateAdjustments}
@@ -265,10 +281,7 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
           />
         )}
 
-        <ExportPanel
-          isOpen={openSections.export}
-          onToggle={() => toggleSection("export")}
-        />
+        <ExportPanel isOpen={openSections.export} onToggle={() => toggleSection("export")} />
       </div>
     </aside>
   );

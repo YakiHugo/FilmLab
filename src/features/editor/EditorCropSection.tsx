@@ -289,7 +289,9 @@ export const EditorCropSection = memo(function EditorCropSection({
   const handlePerspectiveToggle = (enabled: boolean) => {
     onUpdateAdjustments({
       perspectiveEnabled: enabled,
-      perspectiveHorizontal: enabled ? perspectiveHorizontal : DEFAULT_ADJUSTMENTS.perspectiveHorizontal,
+      perspectiveHorizontal: enabled
+        ? perspectiveHorizontal
+        : DEFAULT_ADJUSTMENTS.perspectiveHorizontal,
       perspectiveVertical: enabled ? perspectiveVertical : DEFAULT_ADJUSTMENTS.perspectiveVertical,
     });
   };
@@ -322,242 +324,252 @@ export const EditorCropSection = memo(function EditorCropSection({
   };
 
   return (
-    <EditorSection
-      title="Crop"
-      hint="Ratio / perspective / rotation"
-      isOpen={isOpen}
-      onToggle={onToggle}
-      hasChanges={hasChanges}
-      changesVisible={changesVisible}
-      onToggleVisibility={onToggleVisibility}
-      onResetChanges={onResetChanges}
-    >
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-slate-300">Aspect Ratio</p>
-          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={resetCropSection}>
-            Reset
-          </Button>
-        </div>
-        <div className="flex items-center gap-2">
-          <Select value={ratioOptionId} onValueChange={applyCropRatioOption}>
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Select ratio" />
-            </SelectTrigger>
-            <SelectContent>
-              {CROP_RATIO_OPTIONS.map((option) => (
-                <SelectItem key={option.id} value={option.id}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-8 w-8 px-0"
-            onClick={swapCropRatioOrientation}
-            title="Swap orientation"
-          >
-            <RotateCw className="h-4 w-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant={ratioLocked ? "default" : "secondary"}
-            className="h-8 w-8 px-0"
-            onClick={toggleCropRatioLock}
-            title={ratioLocked ? "Lock ratio" : "Free ratio"}
-          >
-            {ratioLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
-          </Button>
-        </div>
-      </div>
-
-      <div className="space-y-2 rounded-xl border border-white/10 bg-slate-950/45 p-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs text-slate-200">Composition Guide</p>
-            <p className="text-[11px] text-slate-500">O cycle, Shift+O rotate</p>
+    <div data-tool-panel="crop">
+      <EditorSection
+        title="Crop"
+        hint="Ratio / perspective / rotation"
+        isOpen={isOpen}
+        onToggle={onToggle}
+        hasChanges={hasChanges}
+        changesVisible={changesVisible}
+        onToggleVisibility={onToggleVisibility}
+        onResetChanges={onResetChanges}
+      >
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-slate-300">Aspect Ratio</p>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs"
+              onClick={resetCropSection}
+            >
+              Reset
+            </Button>
           </div>
-          <span className="text-[11px] text-slate-500">
-            {resolveCropGuideLabel(cropGuideMode)} · {cropGuideRotation * 90}°
-          </span>
+          <div className="flex items-center gap-2">
+            <Select value={ratioOptionId} onValueChange={applyCropRatioOption}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Select ratio" />
+              </SelectTrigger>
+              <SelectContent>
+                {CROP_RATIO_OPTIONS.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-8 w-8 px-0"
+              onClick={swapCropRatioOrientation}
+              title="Swap orientation"
+            >
+              <RotateCw className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant={ratioLocked ? "default" : "secondary"}
+              className="h-8 w-8 px-0"
+              onClick={toggleCropRatioLock}
+              title={ratioLocked ? "Lock ratio" : "Free ratio"}
+            >
+              {ratioLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Select
-            value={cropGuideMode}
-            onValueChange={(value) => onSetCropGuideMode(value as CropGuideMode)}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Select guide" />
-            </SelectTrigger>
-            <SelectContent>
-              {CROP_GUIDE_OPTIONS.map((option) => (
-                <SelectItem key={option.id} value={option.id}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-8 w-8 px-0"
-            onClick={onRotateCropGuide}
-            title="Rotate guide"
-          >
-            <RotateCw className="h-4 w-4" />
-          </Button>
+
+        <div className="space-y-2 rounded-xl border border-white/10 bg-slate-950/45 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs text-slate-200">Composition Guide</p>
+              <p className="text-[11px] text-slate-500">O cycle, Shift+O rotate</p>
+            </div>
+            <span className="text-[11px] text-slate-500">
+              {resolveCropGuideLabel(cropGuideMode)} · {cropGuideRotation * 90}°
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select
+              value={cropGuideMode}
+              onValueChange={(value) => onSetCropGuideMode(value as CropGuideMode)}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Select guide" />
+              </SelectTrigger>
+              <SelectContent>
+                {CROP_GUIDE_OPTIONS.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-8 w-8 px-0"
+              onClick={onRotateCropGuide}
+              title="Rotate guide"
+            >
+              <RotateCw className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
-      </div>
 
-      {rotateSlider && (
-        <EditorSliderRow
-          label={rotateSlider.label}
-          value={adjustments.rotate}
-          defaultValue={DEFAULT_ADJUSTMENTS.rotate}
-          min={rotateSlider.min}
-          max={rotateSlider.max}
-          step={rotateSlider.step}
-          format={(value) => value.toFixed(2)}
-          onChange={(value) => onPreviewAdjustmentValue("rotate", normalizeRotateAngle(value))}
-          onCommit={(value) => onCommitAdjustmentValue("rotate", normalizeRotateAngle(value))}
-          onReset={() => onCommitAdjustmentValue("rotate", DEFAULT_ADJUSTMENTS.rotate)}
-        />
-      )}
-
-      <div className="space-y-2 rounded-xl border border-white/10 bg-slate-950/45 p-3">
-        <label className="flex cursor-pointer items-center justify-between gap-3 text-xs text-slate-200">
-          <span>Perspective Correction</span>
-          <input
-            type="checkbox"
-            className="h-4 w-4 rounded border-white/20 bg-slate-950 accent-white"
-            checked={Boolean(adjustments.perspectiveEnabled)}
-            onChange={(event) => handlePerspectiveToggle(event.currentTarget.checked)}
+        {rotateSlider && (
+          <EditorSliderRow
+            label={rotateSlider.label}
+            value={adjustments.rotate}
+            defaultValue={DEFAULT_ADJUSTMENTS.rotate}
+            min={rotateSlider.min}
+            max={rotateSlider.max}
+            step={rotateSlider.step}
+            format={(value) => value.toFixed(2)}
+            onChange={(value) => onPreviewAdjustmentValue("rotate", normalizeRotateAngle(value))}
+            onCommit={(value) => onCommitAdjustmentValue("rotate", normalizeRotateAngle(value))}
+            onReset={() => onCommitAdjustmentValue("rotate", DEFAULT_ADJUSTMENTS.rotate)}
           />
-        </label>
-        <div className="grid grid-cols-5 gap-2">
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-7 px-2 text-[11px]"
-            onClick={() => requestAutoPerspective("auto")}
-            disabled={!adjustments.perspectiveEnabled}
-          >
-            Auto
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-7 px-2 text-[11px]"
-            onClick={() => requestAutoPerspective("level")}
-            disabled={!adjustments.perspectiveEnabled}
-          >
-            Level
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-7 px-2 text-[11px]"
-            onClick={() => requestAutoPerspective("vertical")}
-            disabled={!adjustments.perspectiveEnabled}
-          >
-            Vertical
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-7 px-2 text-[11px]"
-            onClick={() => requestAutoPerspective("full")}
-            disabled={!adjustments.perspectiveEnabled}
-          >
-            Full
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-7 px-2 text-[11px]"
-            onClick={() => requestAutoPerspective("guided")}
-            disabled={!adjustments.perspectiveEnabled}
-          >
-            Guided
-          </Button>
-        </div>
-        <EditorSliderRow
-          label="Horizontal"
-          value={perspectiveHorizontal}
-          defaultValue={DEFAULT_ADJUSTMENTS.perspectiveHorizontal ?? 0}
-          min={-100}
-          max={100}
-          step={0.1}
-          disabled={!adjustments.perspectiveEnabled}
-          format={(value) => value.toFixed(1)}
-          onChange={(value) => previewPerspective("perspectiveHorizontal", value)}
-          onCommit={(value) => commitPerspective("perspectiveHorizontal", value)}
-          onReset={() =>
-            commitPerspective("perspectiveHorizontal", DEFAULT_ADJUSTMENTS.perspectiveHorizontal ?? 0)
-          }
-        />
-        <EditorSliderRow
-          label="Vertical"
-          value={perspectiveVertical}
-          defaultValue={DEFAULT_ADJUSTMENTS.perspectiveVertical ?? 0}
-          min={-100}
-          max={100}
-          step={0.1}
-          disabled={!adjustments.perspectiveEnabled}
-          format={(value) => value.toFixed(1)}
-          onChange={(value) => previewPerspective("perspectiveVertical", value)}
-          onCommit={(value) => commitPerspective("perspectiveVertical", value)}
-          onReset={() =>
-            commitPerspective("perspectiveVertical", DEFAULT_ADJUSTMENTS.perspectiveVertical ?? 0)
-          }
-        />
-      </div>
+        )}
 
-      <div className="space-y-2">
-        <p className="text-xs text-slate-300">Rotate & Flip</p>
-        <div className="grid grid-cols-4 gap-2">
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-8 w-full px-0"
-            onClick={() => rotateByRightAngle(90)}
-            title="Rotate left 90°"
-          >
-            <RotateCcw className="h-4 w-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-8 w-full px-0"
-            onClick={() => rotateByRightAngle(-90)}
-            title="Rotate right 90°"
-          >
-            <RotateCw className="h-4 w-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant={adjustments.flipHorizontal ? "default" : "secondary"}
-            className="h-8 w-full px-0"
-            onClick={() => onToggleFlip("flipHorizontal")}
-            aria-pressed={adjustments.flipHorizontal}
-            title="Flip horizontal"
-          >
-            <FlipHorizontal2 className="h-4 w-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant={adjustments.flipVertical ? "default" : "secondary"}
-            className="h-8 w-full px-0"
-            onClick={() => onToggleFlip("flipVertical")}
-            aria-pressed={adjustments.flipVertical}
-            title="Flip vertical"
-          >
-            <FlipVertical2 className="h-4 w-4" />
-          </Button>
+        <div className="space-y-2 rounded-xl border border-white/10 bg-slate-950/45 p-3">
+          <label className="flex cursor-pointer items-center justify-between gap-3 text-xs text-slate-200">
+            <span>Perspective Correction</span>
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-white/20 bg-slate-950 accent-white"
+              checked={Boolean(adjustments.perspectiveEnabled)}
+              onChange={(event) => handlePerspectiveToggle(event.currentTarget.checked)}
+            />
+          </label>
+          <div className="grid grid-cols-5 gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-7 px-2 text-[11px]"
+              onClick={() => requestAutoPerspective("auto")}
+              disabled={!adjustments.perspectiveEnabled}
+            >
+              Auto
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-7 px-2 text-[11px]"
+              onClick={() => requestAutoPerspective("level")}
+              disabled={!adjustments.perspectiveEnabled}
+            >
+              Level
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-7 px-2 text-[11px]"
+              onClick={() => requestAutoPerspective("vertical")}
+              disabled={!adjustments.perspectiveEnabled}
+            >
+              Vertical
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-7 px-2 text-[11px]"
+              onClick={() => requestAutoPerspective("full")}
+              disabled={!adjustments.perspectiveEnabled}
+            >
+              Full
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-7 px-2 text-[11px]"
+              onClick={() => requestAutoPerspective("guided")}
+              disabled={!adjustments.perspectiveEnabled}
+            >
+              Guided
+            </Button>
+          </div>
+          <EditorSliderRow
+            label="Horizontal"
+            value={perspectiveHorizontal}
+            defaultValue={DEFAULT_ADJUSTMENTS.perspectiveHorizontal ?? 0}
+            min={-100}
+            max={100}
+            step={0.1}
+            disabled={!adjustments.perspectiveEnabled}
+            format={(value) => value.toFixed(1)}
+            onChange={(value) => previewPerspective("perspectiveHorizontal", value)}
+            onCommit={(value) => commitPerspective("perspectiveHorizontal", value)}
+            onReset={() =>
+              commitPerspective(
+                "perspectiveHorizontal",
+                DEFAULT_ADJUSTMENTS.perspectiveHorizontal ?? 0
+              )
+            }
+          />
+          <EditorSliderRow
+            label="Vertical"
+            value={perspectiveVertical}
+            defaultValue={DEFAULT_ADJUSTMENTS.perspectiveVertical ?? 0}
+            min={-100}
+            max={100}
+            step={0.1}
+            disabled={!adjustments.perspectiveEnabled}
+            format={(value) => value.toFixed(1)}
+            onChange={(value) => previewPerspective("perspectiveVertical", value)}
+            onCommit={(value) => commitPerspective("perspectiveVertical", value)}
+            onReset={() =>
+              commitPerspective("perspectiveVertical", DEFAULT_ADJUSTMENTS.perspectiveVertical ?? 0)
+            }
+          />
         </div>
-      </div>
-    </EditorSection>
+
+        <div className="space-y-2">
+          <p className="text-xs text-slate-300">Rotate & Flip</p>
+          <div className="grid grid-cols-4 gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-8 w-full px-0"
+              onClick={() => rotateByRightAngle(90)}
+              title="Rotate left 90°"
+            >
+              <RotateCcw className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-8 w-full px-0"
+              onClick={() => rotateByRightAngle(-90)}
+              title="Rotate right 90°"
+            >
+              <RotateCw className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant={adjustments.flipHorizontal ? "default" : "secondary"}
+              className="h-8 w-full px-0"
+              onClick={() => onToggleFlip("flipHorizontal")}
+              aria-pressed={adjustments.flipHorizontal}
+              title="Flip horizontal"
+            >
+              <FlipHorizontal2 className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant={adjustments.flipVertical ? "default" : "secondary"}
+              className="h-8 w-full px-0"
+              onClick={() => onToggleFlip("flipVertical")}
+              aria-pressed={adjustments.flipVertical}
+              title="Flip vertical"
+            >
+              <FlipVertical2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </EditorSection>
+    </div>
   );
 });
