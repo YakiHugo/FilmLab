@@ -2,7 +2,6 @@ import { resolveRenderProfile } from "@/lib/film";
 import { normalizeAdjustments } from "@/lib/adjustments";
 import { applyTimestampOverlay } from "@/lib/timestampOverlay";
 import { clamp } from "@/lib/math";
-import type { PreviewRoi } from "@/lib/previewRoi";
 import { getRendererRuntimeConfig } from "@/lib/renderer/config";
 import { createTilePlan } from "@/lib/renderer/gpu/TiledRenderer";
 import type {
@@ -296,7 +295,6 @@ interface RenderImageOptions {
   canvas: HTMLCanvasElement;
   source: Blob | string;
   adjustments: EditingAdjustments;
-  roi?: PreviewRoi | null;
   filmProfile?: FilmProfileAny;
   timestampText?: string | null;
   targetSize?: RenderTargetSize;
@@ -1989,7 +1987,6 @@ export const renderImageToCanvas = async ({
   canvas,
   source,
   adjustments,
-  roi,
   filmProfile,
   timestampText,
   targetSize,
@@ -2066,37 +2063,16 @@ export const renderImageToCanvas = async ({
     }
     const cropX = (orientedSource.width - cropWidth) / 2;
     const cropY = (orientedSource.height - cropHeight) / 2;
-    let effectiveCropX = cropX;
-    let effectiveCropY = cropY;
-    let effectiveCropWidth = cropWidth;
-    let effectiveCropHeight = cropHeight;
 
-    if (roi && roi.zoom > 1.001) {
-      effectiveCropWidth = Math.max(1, cropWidth / roi.zoom);
-      effectiveCropHeight = Math.max(1, cropHeight / roi.zoom);
-      const roiCenterX = cropX + cropWidth * clamp(roi.centerX, 0, 1);
-      const roiCenterY = cropY + cropHeight * clamp(roi.centerY, 0, 1);
-      effectiveCropX = clamp(
-        roiCenterX - effectiveCropWidth / 2,
-        cropX,
-        cropX + cropWidth - effectiveCropWidth
-      );
-      effectiveCropY = clamp(
-        roiCenterY - effectiveCropHeight / 2,
-        cropY,
-        cropY + cropHeight - effectiveCropHeight
-      );
-    }
-
-    let outputWidth = effectiveCropWidth;
-    let outputHeight = effectiveCropHeight;
+    let outputWidth = cropWidth;
+    let outputHeight = cropHeight;
     if (targetSize?.width && targetSize?.height) {
       outputWidth = targetSize.width;
       outputHeight = targetSize.height;
     } else if (maxDimension) {
-      const scale = Math.min(1, maxDimension / Math.max(effectiveCropWidth, effectiveCropHeight));
-      outputWidth = Math.max(1, Math.round(effectiveCropWidth * scale));
-      outputHeight = Math.max(1, Math.round(effectiveCropHeight * scale));
+      const scale = Math.min(1, maxDimension / Math.max(cropWidth, cropHeight));
+      outputWidth = Math.max(1, Math.round(cropWidth * scale));
+      outputHeight = Math.max(1, Math.round(cropHeight * scale));
     }
 
     let maxTextureSize = resolveMaxTextureSize();
@@ -2151,10 +2127,10 @@ export const renderImageToCanvas = async ({
     const geometryKey = createGeometryKey({
       sourceKey,
       rightAngleRotation: normalizedAdjustments.rightAngleRotation,
-      cropX: effectiveCropX,
-      cropY: effectiveCropY,
-      cropWidth: effectiveCropWidth,
-      cropHeight: effectiveCropHeight,
+      cropX,
+      cropY,
+      cropWidth,
+      cropHeight,
       outputWidth: canvas.width,
       outputHeight: canvas.height,
       rotate: normalizedAdjustments.rotate,

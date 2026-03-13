@@ -246,6 +246,17 @@ export function EditorPreviewCard() {
     [selectedAsset?.createdAt, selectedAsset?.metadata]
   );
 
+  const previewRoi = useMemo(
+    () =>
+      resolvePreviewRoiFromViewport({
+        frameWidth: frameSize.width,
+        frameHeight: frameSize.height,
+        viewScale,
+        viewOffset,
+      }),
+    [frameSize.height, frameSize.width, viewOffset, viewScale]
+  );
+
   const brushMaskPainting = useBrushMaskPainting({
     activeToolPanelId,
     adjustments: previewAdjustments,
@@ -253,6 +264,7 @@ export function EditorPreviewCard() {
     isCropMode,
     performanceSampler: brushPerformanceSamplerRef.current,
     pointColorPicking,
+    previewRoi: isCropMode ? null : previewRoi,
     selectedLocalAdjustmentId,
     showOriginal,
   });
@@ -279,17 +291,6 @@ export function EditorPreviewCard() {
       ...cropInteraction.previewPatch,
     };
   }, [cropInteraction.previewPatch, previewAdjustments]);
-
-  const previewRoi = useMemo(
-    () =>
-      resolvePreviewRoiFromViewport({
-        frameWidth: frameSize.width,
-        frameHeight: frameSize.height,
-        viewScale,
-        viewOffset,
-      }),
-    [frameSize.height, frameSize.width, viewOffset, viewScale]
-  );
 
   const previewRenderPipeline = usePreviewRenderPipeline({
     adjustments: renderedPreviewAdjustments,

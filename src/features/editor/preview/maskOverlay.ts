@@ -4,7 +4,6 @@ import type { LocalAdjustment, LocalAdjustmentMask } from "@/types";
 import type { BrushMaskPreviewState } from "./useBrushMaskPainting";
 
 const OVERLAY_FILL = "rgba(56, 189, 248, 0.22)";
-const OVERLAY_FILL_SOFT = "rgba(56, 189, 248, 0.14)";
 const OVERLAY_STROKE = "rgba(186, 230, 253, 0.88)";
 const OVERLAY_HANDLE = "rgba(255, 255, 255, 0.92)";
 
@@ -111,18 +110,6 @@ const drawLinearMaskOverlay = (
   context.fill();
 }
 
-const drawLuminosityMaskOverlay = (
-  context: CanvasRenderingContext2D,
-  width: number,
-  height: number
-) => {
-  context.fillStyle = OVERLAY_FILL_SOFT;
-  context.fillRect(0, 0, width, height);
-  context.strokeStyle = OVERLAY_STROKE;
-  context.lineWidth = 1.25;
-  context.strokeRect(2, 2, Math.max(0, width - 4), Math.max(0, height - 4));
-}
-
 export interface DrawLocalMaskOverlayOptions {
   canvas: HTMLCanvasElement;
   frameWidth: number;
@@ -184,7 +171,5 @@ export const drawLocalMaskOverlay = ({
   }
   if (transformedMask.mode === "linear") {
     drawLinearMaskOverlay(context, transformedMask, canvas.width, canvas.height);
-    return;
   }
-  drawLuminosityMaskOverlay(context, canvas.width, canvas.height);
 };

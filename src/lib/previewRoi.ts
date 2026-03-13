@@ -1,10 +1,5 @@
 import { clamp } from "@/lib/math";
-import type {
-  EditorLayerMask,
-  EditingAdjustments,
-  LocalAdjustment,
-  LocalAdjustmentMask,
-} from "@/types";
+import type { LocalAdjustmentMask } from "@/types";
 
 export interface PreviewRoi {
   centerX: number;
@@ -59,6 +54,20 @@ export const resolvePreviewRoiFromViewport = ({
   };
 };
 
+export const mapPreviewPointToImageCoordinates = <T extends { x: number; y: number }>(
+  point: T,
+  roi: PreviewRoi | null
+): T => {
+  if (!roi) {
+    return point;
+  }
+  return {
+    ...point,
+    x: roi.left + point.x * roi.width,
+    y: roi.top + point.y * roi.height,
+  };
+};
+
 export const transformLocalAdjustmentMaskForPreviewRoi = (
   mask: LocalAdjustmentMask,
   roi: PreviewRoi
@@ -92,74 +101,4 @@ export const transformLocalAdjustmentMaskForPreviewRoi = (
     endX: transformCoordinate(mask.endX, roi.left, roi.width),
     endY: transformCoordinate(mask.endY, roi.top, roi.height),
   };
-};
-
-export const transformLocalAdjustmentForPreviewRoi = (
-  localAdjustment: LocalAdjustment,
-  roi: PreviewRoi
-): LocalAdjustment => ({
-  ...localAdjustment,
-  mask: transformLocalAdjustmentMaskForPreviewRoi(localAdjustment.mask, roi),
-});
-
-export const transformAdjustmentsForPreviewRoi = (
-  adjustments: EditingAdjustments,
-  roi: PreviewRoi
-): EditingAdjustments => {
-  const localAdjustments = adjustments.localAdjustments ?? [];
-  return {
-    ...adjustments,
-    localAdjustments: localAdjustments.map((localAdjustment) =>
-      transformLocalAdjustmentForPreviewRoi(localAdjustment, roi)
-    ),
-  };
-};
-
-export const transformLayerMaskForPreviewRoi = (
-  mask: EditorLayerMask | undefined,
-  roi: PreviewRoi
-): EditorLayerMask | undefined => {
-  if (!mask?.data) {
-    return mask;
-  }
-  if (mask.mode === "brush" && "points" in mask.data) {
-    const extentScale = resolvePreviewExtentScale(roi);
-    return {
-      ...mask,
-      data: {
-        ...mask.data,
-        points: mask.data.points.map((point) => ({
-          ...point,
-          x: transformCoordinate(point.x, roi.left, roi.width),
-          y: transformCoordinate(point.y, roi.top, roi.height),
-        })),
-        brushSize: mask.data.brushSize * extentScale,
-      },
-    };
-  }
-  if (mask.mode === "radial" && "centerX" in mask.data) {
-    return {
-      ...mask,
-      data: {
-        ...mask.data,
-        centerX: transformCoordinate(mask.data.centerX, roi.left, roi.width),
-        centerY: transformCoordinate(mask.data.centerY, roi.top, roi.height),
-        radiusX: mask.data.radiusX / Math.max(MIN_PREVIEW_EXTENT, roi.width),
-        radiusY: mask.data.radiusY / Math.max(MIN_PREVIEW_EXTENT, roi.height),
-      },
-    };
-  }
-  if (mask.mode === "linear" && "startX" in mask.data) {
-    return {
-      ...mask,
-      data: {
-        ...mask.data,
-        startX: transformCoordinate(mask.data.startX, roi.left, roi.width),
-        startY: transformCoordinate(mask.data.startY, roi.top, roi.height),
-        endX: transformCoordinate(mask.data.endX, roi.left, roi.width),
-        endY: transformCoordinate(mask.data.endY, roi.top, roi.height),
-      },
-    };
-  }
-  return mask;
 };
