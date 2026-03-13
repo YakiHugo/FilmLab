@@ -87,9 +87,13 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
   } = useEditorLayerActions();
   const { selectedLayer } = useEditorSelectionState();
   const {
+    cropGuideMode,
+    cropGuideRotation,
     isPanelBypassed,
     openSections,
     requestAutoPerspective,
+    rotateCropGuide,
+    setCropGuideMode,
     toggleBypassPanel,
     toggleSection,
   } = useEditorViewState();
@@ -199,8 +203,12 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
         {adjustments && (
           <EditorCropSection
             adjustments={adjustments}
+            cropGuideMode={cropGuideMode}
+            cropGuideRotation={cropGuideRotation}
             isOpen={openSections.crop}
             onToggle={() => toggleSection("crop")}
+            onSetCropGuideMode={setCropGuideMode}
+            onRotateCropGuide={rotateCropGuide}
             onUpdateAdjustments={updateAdjustments}
             onPreviewAdjustmentValue={previewAdjustmentValue}
             onCommitAdjustmentValue={updateAdjustmentValue}

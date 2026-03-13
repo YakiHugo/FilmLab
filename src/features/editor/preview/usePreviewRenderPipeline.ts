@@ -3,6 +3,11 @@ import { useEffect, useRef, useState } from "react";
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import { applyMaskToLayerCanvas, generateMaskTexture } from "@/lib/layerMaskTexture";
 import { renderImageToCanvas } from "@/lib/imageProcessing";
+import type { PreviewRoi } from "@/lib/previewRoi";
+import {
+  transformAdjustmentsForPreviewRoi,
+  transformLayerMaskForPreviewRoi,
+} from "@/lib/previewRoi";
 import type { Asset } from "@/types";
 import type { LayerPreviewEntry, PreviewFrameSize } from "./contracts";
 
@@ -32,6 +37,7 @@ export interface UsePreviewRenderPipelineInput {
   layerPreviewEntries: LayerPreviewEntry[];
   orientedSourceAspectRatio: number;
   previewRenderSeed: number;
+  previewRoi: PreviewRoi | null;
   selectedAsset: Asset | null;
   shouldRenderLayerComposite: boolean;
   showOriginal: boolean;
@@ -42,6 +48,7 @@ export interface UsePreviewRenderPipelineOutput {
   canvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
   imageNaturalSize: PreviewFrameSize | null;
   originalImageRef: React.MutableRefObject<HTMLImageElement | null>;
+  overlayCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
   renderedRotate: number;
   renderVersion: number;
 }
@@ -54,12 +61,14 @@ export function usePreviewRenderPipeline({
   layerPreviewEntries,
   orientedSourceAspectRatio,
   previewRenderSeed,
+  previewRoi,
   selectedAsset,
   shouldRenderLayerComposite,
   showOriginal,
   timestampText,
 }: UsePreviewRenderPipelineInput): UsePreviewRenderPipelineOutput {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const originalImageRef = useRef<HTMLImageElement | null>(null);
   const workingCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const layerCanvasByLayerIdRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
@@ -74,6 +83,7 @@ export function usePreviewRenderPipeline({
 
   useEffect(() => {
     const previewCanvas = canvasRef.current;
+    const overlayCanvas = overlayCanvasRef.current;
     const workingCanvas = workingCanvasRef.current;
     const layerCanvasMap = layerCanvasByLayerIdRef.current;
     const layerMaskCanvasMap = layerMaskCanvasByLayerIdRef.current;
@@ -84,6 +94,10 @@ export function usePreviewRenderPipeline({
       if (previewCanvas) {
         previewCanvas.width = 0;
         previewCanvas.height = 0;
+      }
+      if (overlayCanvas) {
+        overlayCanvas.width = 0;
+        overlayCanvas.height = 0;
       }
       if (workingCanvas) {
         workingCanvas.width = 0;
@@ -137,6 +151,8 @@ export function usePreviewRenderPipeline({
     const controller = new AbortController();
     const devicePixelRatio = window.devicePixelRatio || 1;
     const isRapidUpdate = performance.now() - lastAbortTimeRef.current < 100;
+    const targetWidth = Math.round(frameSize.width * devicePixelRatio);
+    const targetHeight = Math.round(frameSize.height * devicePixelRatio);
 
     const renderPreview = async () => {
       if (!workingCanvasRef.current) {
@@ -166,8 +182,6 @@ export function usePreviewRenderPipeline({
         pruneCanvasMap(layerMaskScratchMap);
         pruneCanvasMap(layerBlendCanvasMap);
 
-        const targetWidth = Math.round(frameSize.width * devicePixelRatio);
-        const targetHeight = Math.round(frameSize.height * devicePixelRatio);
         if (workingCanvas.width !== targetWidth || workingCanvas.height !== targetHeight) {
           workingCanvas.width = targetWidth;
           workingCanvas.height = targetHeight;
@@ -189,13 +203,19 @@ export function usePreviewRenderPipeline({
             layerCanvas = document.createElement("canvas");
             layerCanvasMap.set(layerEntry.layer.id, layerCanvas);
           }
-          const layerAdjustments = showOriginal
+
+          const baseLayerAdjustments = showOriginal
             ? createDefaultAdjustments()
             : normalizeAdjustments(layerEntry.adjustments);
+          const layerAdjustments = previewRoi
+            ? transformAdjustmentsForPreviewRoi(baseLayerAdjustments, previewRoi)
+            : baseLayerAdjustments;
+
           await renderImageToCanvas({
             canvas: layerCanvas,
             source: layerEntry.sourceAsset.blob ?? layerEntry.sourceAsset.objectUrl,
             adjustments: layerAdjustments,
+            roi: previewRoi,
             filmProfile: showOriginal ? undefined : layerEntry.sourceAsset.filmProfile,
             timestampText: null,
             targetSize: {
@@ -213,7 +233,10 @@ export function usePreviewRenderPipeline({
           }
 
           let drawSource: CanvasImageSource = layerCanvas;
-          if (layerEntry.layer.mask) {
+          const transformedMask = previewRoi
+            ? transformLayerMaskForPreviewRoi(layerEntry.layer.mask, previewRoi)
+            : layerEntry.layer.mask;
+          if (transformedMask) {
             let maskCanvas = layerMaskCanvasMap.get(layerEntry.layer.id);
             if (!maskCanvas) {
               maskCanvas = document.createElement("canvas");
@@ -224,7 +247,7 @@ export function usePreviewRenderPipeline({
               scratchCanvas = document.createElement("canvas");
               layerMaskScratchMap.set(layerEntry.layer.id, scratchCanvas);
             }
-            const generatedMask = generateMaskTexture(layerEntry.layer.mask, {
+            const generatedMask = generateMaskTexture(transformedMask, {
               width: workingCanvas.width,
               height: workingCanvas.height,
               referenceSource: layerCanvas,
@@ -250,7 +273,7 @@ export function usePreviewRenderPipeline({
           workingContext.restore();
         }
       } else {
-        const renderAdjustments = isCropMode
+        const baseRenderAdjustments = isCropMode
           ? {
               ...adjustments!,
               aspectRatio: "original" as const,
@@ -258,15 +281,20 @@ export function usePreviewRenderPipeline({
               scale: 100,
             }
           : adjustments!;
+        const renderAdjustments = previewRoi
+          ? transformAdjustmentsForPreviewRoi(baseRenderAdjustments, previewRoi)
+          : baseRenderAdjustments;
+
         await renderImageToCanvas({
           canvas: workingCanvas,
           source: selectedAsset.blob ?? selectedAsset.objectUrl,
           adjustments: renderAdjustments,
+          roi: previewRoi,
           filmProfile: filmProfile ?? undefined,
           timestampText,
           targetSize: {
-            width: Math.round(frameSize.width * devicePixelRatio),
-            height: Math.round(frameSize.height * devicePixelRatio),
+            width: targetWidth,
+            height: targetHeight,
           },
           seedKey: selectedAsset.id,
           renderSeed: previewRenderSeed,
@@ -310,6 +338,7 @@ export function usePreviewRenderPipeline({
     layerPreviewEntries,
     orientedSourceAspectRatio,
     previewRenderSeed,
+    previewRoi,
     selectedAsset,
     shouldRenderLayerComposite,
     showOriginal,
@@ -320,6 +349,7 @@ export function usePreviewRenderPipeline({
     canvasRef,
     imageNaturalSize,
     originalImageRef,
+    overlayCanvasRef,
     renderedRotate,
     renderVersion,
   };

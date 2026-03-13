@@ -2,6 +2,7 @@ import { resolveRenderProfile } from "@/lib/film";
 import { normalizeAdjustments } from "@/lib/adjustments";
 import { applyTimestampOverlay } from "@/lib/timestampOverlay";
 import { clamp } from "@/lib/math";
+import type { PreviewRoi } from "@/lib/previewRoi";
 import { getRendererRuntimeConfig } from "@/lib/renderer/config";
 import { createTilePlan } from "@/lib/renderer/gpu/TiledRenderer";
 import type {
@@ -295,6 +296,7 @@ interface RenderImageOptions {
   canvas: HTMLCanvasElement;
   source: Blob | string;
   adjustments: EditingAdjustments;
+  roi?: PreviewRoi | null;
   filmProfile?: FilmProfileAny;
   timestampText?: string | null;
   targetSize?: RenderTargetSize;
@@ -1598,15 +1600,15 @@ const drawLocalMaskShape = (
 ) => {
   if (mask.mode === "brush") {
     const minDimension = Math.max(1, Math.min(width, height));
-    const brushSizePx = Math.max(1, clamp(mask.brushSize, 0.005, 0.25) * minDimension);
+    const brushSizePx = Math.max(1, Math.max(0.005, mask.brushSize) * minDimension);
     const feather = clamp(mask.feather, 0, 1);
     const flow = clamp(mask.flow, 0.05, 1);
     if (mask.points.length === 0) {
       return;
     }
     for (const point of mask.points) {
-      const px = clamp(point.x, 0, 1) * width;
-      const py = clamp(point.y, 0, 1) * height;
+      const px = point.x * width;
+      const py = point.y * height;
       const pressure = clamp(point.pressure ?? 1, 0.1, 1);
       const radius = Math.max(1, brushSizePx * pressure);
       if (feather <= 0.001) {
@@ -1626,10 +1628,10 @@ const drawLocalMaskShape = (
     return;
   }
   if (mask.mode === "radial") {
-    const centerX = clamp(mask.centerX, 0, 1) * width;
-    const centerY = clamp(mask.centerY, 0, 1) * height;
-    const radiusX = Math.max(1, clamp(mask.radiusX, 0.01, 1) * width);
-    const radiusY = Math.max(1, clamp(mask.radiusY, 0.01, 1) * height);
+    const centerX = mask.centerX * width;
+    const centerY = mask.centerY * height;
+    const radiusX = Math.max(1, Math.max(0.01, mask.radiusX) * width);
+    const radiusY = Math.max(1, Math.max(0.01, mask.radiusY) * height);
     const feather = clamp(mask.feather, 0, 1);
 
     context.save();
@@ -1652,10 +1654,10 @@ const drawLocalMaskShape = (
     return;
   }
 
-  const startX = clamp(mask.startX, 0, 1) * width;
-  const startY = clamp(mask.startY, 0, 1) * height;
-  const endX = clamp(mask.endX, 0, 1) * width;
-  let endY = clamp(mask.endY, 0, 1) * height;
+  const startX = mask.startX * width;
+  const startY = mask.startY * height;
+  const endX = mask.endX * width;
+  let endY = mask.endY * height;
   if ((endX - startX) * (endX - startX) + (endY - startY) * (endY - startY) < 1e-6) {
     endY += 1;
   }
@@ -1987,6 +1989,7 @@ export const renderImageToCanvas = async ({
   canvas,
   source,
   adjustments,
+  roi,
   filmProfile,
   timestampText,
   targetSize,
@@ -2063,16 +2066,37 @@ export const renderImageToCanvas = async ({
     }
     const cropX = (orientedSource.width - cropWidth) / 2;
     const cropY = (orientedSource.height - cropHeight) / 2;
+    let effectiveCropX = cropX;
+    let effectiveCropY = cropY;
+    let effectiveCropWidth = cropWidth;
+    let effectiveCropHeight = cropHeight;
 
-    let outputWidth = cropWidth;
-    let outputHeight = cropHeight;
+    if (roi && roi.zoom > 1.001) {
+      effectiveCropWidth = Math.max(1, cropWidth / roi.zoom);
+      effectiveCropHeight = Math.max(1, cropHeight / roi.zoom);
+      const roiCenterX = cropX + cropWidth * clamp(roi.centerX, 0, 1);
+      const roiCenterY = cropY + cropHeight * clamp(roi.centerY, 0, 1);
+      effectiveCropX = clamp(
+        roiCenterX - effectiveCropWidth / 2,
+        cropX,
+        cropX + cropWidth - effectiveCropWidth
+      );
+      effectiveCropY = clamp(
+        roiCenterY - effectiveCropHeight / 2,
+        cropY,
+        cropY + cropHeight - effectiveCropHeight
+      );
+    }
+
+    let outputWidth = effectiveCropWidth;
+    let outputHeight = effectiveCropHeight;
     if (targetSize?.width && targetSize?.height) {
       outputWidth = targetSize.width;
       outputHeight = targetSize.height;
     } else if (maxDimension) {
-      const scale = Math.min(1, maxDimension / Math.max(cropWidth, cropHeight));
-      outputWidth = Math.max(1, Math.round(cropWidth * scale));
-      outputHeight = Math.max(1, Math.round(cropHeight * scale));
+      const scale = Math.min(1, maxDimension / Math.max(effectiveCropWidth, effectiveCropHeight));
+      outputWidth = Math.max(1, Math.round(effectiveCropWidth * scale));
+      outputHeight = Math.max(1, Math.round(effectiveCropHeight * scale));
     }
 
     let maxTextureSize = resolveMaxTextureSize();
@@ -2127,10 +2151,10 @@ export const renderImageToCanvas = async ({
     const geometryKey = createGeometryKey({
       sourceKey,
       rightAngleRotation: normalizedAdjustments.rightAngleRotation,
-      cropX,
-      cropY,
-      cropWidth,
-      cropHeight,
+      cropX: effectiveCropX,
+      cropY: effectiveCropY,
+      cropWidth: effectiveCropWidth,
+      cropHeight: effectiveCropHeight,
       outputWidth: canvas.width,
       outputHeight: canvas.height,
       rotate: normalizedAdjustments.rotate,
@@ -2798,4 +2822,3 @@ export const renderImageToCanvas = async ({
     loaded?.cleanup?.();
   }
 };
-

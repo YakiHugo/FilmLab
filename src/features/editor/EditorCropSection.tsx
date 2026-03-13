@@ -2,6 +2,11 @@
 import { FlipHorizontal2, FlipVertical2, Lock, RotateCcw, RotateCw, Unlock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+  CROP_GUIDE_OPTIONS,
+  resolveCropGuideLabel,
+  type CropGuideMode,
+} from "@/features/editor/cropGuides";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -153,8 +158,12 @@ const resolveCropRatioOptionId = (adjustments: EditingAdjustments) => {
 
 interface EditorCropSectionProps {
   adjustments: EditingAdjustments;
+  cropGuideMode: CropGuideMode;
+  cropGuideRotation: number;
   isOpen: boolean;
   onToggle: () => void;
+  onSetCropGuideMode: (mode: CropGuideMode) => void;
+  onRotateCropGuide: () => void;
   onUpdateAdjustments: (partial: Partial<EditingAdjustments>) => void;
   onPreviewAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
   onCommitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
@@ -168,8 +177,12 @@ interface EditorCropSectionProps {
 
 export const EditorCropSection = memo(function EditorCropSection({
   adjustments,
+  cropGuideMode,
+  cropGuideRotation,
   isOpen,
   onToggle,
+  onSetCropGuideMode,
+  onRotateCropGuide,
   onUpdateAdjustments,
   onPreviewAdjustmentValue,
   onCommitAdjustmentValue,
@@ -356,6 +369,44 @@ export const EditorCropSection = memo(function EditorCropSection({
             title={ratioLocked ? "Lock ratio" : "Free ratio"}
           >
             {ratioLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+          </Button>
+        </div>
+      </div>
+
+      <div className="space-y-2 rounded-xl border border-white/10 bg-slate-950/45 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs text-slate-200">Composition Guide</p>
+            <p className="text-[11px] text-slate-500">O cycle, Shift+O rotate</p>
+          </div>
+          <span className="text-[11px] text-slate-500">
+            {resolveCropGuideLabel(cropGuideMode)} · {cropGuideRotation * 90}°
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select
+            value={cropGuideMode}
+            onValueChange={(value) => onSetCropGuideMode(value as CropGuideMode)}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue placeholder="Select guide" />
+            </SelectTrigger>
+            <SelectContent>
+              {CROP_GUIDE_OPTIONS.map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-8 w-8 px-0"
+            onClick={onRotateCropGuide}
+            title="Rotate guide"
+          >
+            <RotateCw className="h-4 w-4" />
           </Button>
         </div>
       </div>

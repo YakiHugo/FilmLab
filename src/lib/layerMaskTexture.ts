@@ -41,7 +41,7 @@ const drawBrushMask = (
   height: number
 ) => {
   const minDimension = Math.max(1, Math.min(width, height));
-  const brushSizePx = Math.max(1, clamp(maskData.brushSize, 0.005, 0.25) * minDimension);
+  const brushSizePx = Math.max(1, Math.max(0.005, maskData.brushSize) * minDimension);
   const feather = clamp(maskData.feather, 0, 1);
   const flow = clamp(maskData.flow, 0.05, 1);
 
@@ -50,8 +50,8 @@ const drawBrushMask = (
   }
 
   for (const point of maskData.points) {
-    const px = clamp(point.x, 0, 1) * width;
-    const py = clamp(point.y, 0, 1) * height;
+    const px = point.x * width;
+    const py = point.y * height;
     const pressure = clamp(point.pressure ?? 1, 0.1, 1);
     const radius = Math.max(1, brushSizePx * pressure);
     if (feather <= 0.001) {
@@ -76,10 +76,10 @@ const drawRadialMask = (
   width: number,
   height: number
 ) => {
-  const centerX = clamp(maskData.centerX, 0, 1) * width;
-  const centerY = clamp(maskData.centerY, 0, 1) * height;
-  const radiusX = Math.max(1, clamp(maskData.radiusX, 0.01, 1) * width);
-  const radiusY = Math.max(1, clamp(maskData.radiusY, 0.01, 1) * height);
+  const centerX = maskData.centerX * width;
+  const centerY = maskData.centerY * height;
+  const radiusX = Math.max(1, Math.max(0.01, maskData.radiusX) * width);
+  const radiusY = Math.max(1, Math.max(0.01, maskData.radiusY) * height);
   const feather = clamp(maskData.feather, 0, 1);
 
   context.save();
@@ -107,10 +107,10 @@ const drawLinearMask = (
   width: number,
   height: number
 ) => {
-  const startX = clamp(maskData.startX, 0, 1) * width;
-  const startY = clamp(maskData.startY, 0, 1) * height;
-  const endX = clamp(maskData.endX, 0, 1) * width;
-  let endY = clamp(maskData.endY, 0, 1) * height;
+  const startX = maskData.startX * width;
+  const startY = maskData.startY * height;
+  const endX = maskData.endX * width;
+  let endY = maskData.endY * height;
   if ((endX - startX) * (endX - startX) + (endY - startY) * (endY - startY) < 1e-6) {
     endY += 1;
   }
