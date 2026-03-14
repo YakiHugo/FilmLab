@@ -122,6 +122,7 @@ export const parseJwtSub = (token: string): string | null => {
   if (
     header.alg === "none" &&
     signaturePart === "dev" &&
+    config.nodeEnv === "development" &&
     config.allowUnsignedDevAuth &&
     config.devAuthAllowedUserIds.includes(sub)
   ) {

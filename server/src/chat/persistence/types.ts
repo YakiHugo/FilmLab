@@ -40,6 +40,24 @@ export interface ChatAttemptRecord {
   updatedAt: string;
 }
 
+export interface PersistedGeneratedImageRecord {
+  id: string;
+  ownerUserId: string;
+  conversationId: string;
+  turnId: string;
+  mimeType: string;
+  sizeBytes: number;
+  blobData: Buffer;
+  visibility: "private";
+  privateTokenHash: string;
+  createdAt: string;
+}
+
+export interface GeneratedImageContent {
+  buffer: Buffer;
+  mimeType: string;
+}
+
 export interface CreateChatGenerationInput {
   conversationId: string;
   turn: PersistedGenerationTurn;
@@ -61,6 +79,7 @@ export interface CompleteChatGenerationSuccessInput {
   providerRequestId?: string;
   providerTaskId?: string;
   warnings: string[];
+  generatedImages: PersistedGeneratedImageRecord[];
   results: PersistedResultItem[];
   assets: PersistedAssetRecord[];
   assetEdges: PersistedAssetEdgeRecord[];
@@ -82,11 +101,16 @@ export interface CompleteChatGenerationFailureInput {
 }
 
 export interface ChatStateRepository {
+  close(): Promise<void>;
   getConversationById(userId: string, conversationId: string): Promise<ChatConversationRecord | null>;
   getOrCreateActiveConversation(userId: string): Promise<ChatConversationRecord>;
   getConversationSnapshot(userId: string, conversationId?: string): Promise<PersistedImageSession>;
   clearActiveConversation(userId: string): Promise<PersistedImageSession>;
   deleteTurn(userId: string, turnId: string): Promise<PersistedImageSession | null>;
+  getGeneratedImageByCapability(
+    imageId: string,
+    token: string
+  ): Promise<GeneratedImageContent | null>;
   createGeneration(input: CreateChatGenerationInput): Promise<void>;
   completeGenerationSuccess(input: CompleteChatGenerationSuccessInput): Promise<void>;
   completeGenerationFailure(input: CompleteChatGenerationFailureInput): Promise<void>;

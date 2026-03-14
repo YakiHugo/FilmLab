@@ -7,20 +7,21 @@ import type {
   PersistedRunTargetSnapshot,
 } from "../../../shared/chatImageTypes";
 import { requireAuthenticatedUser } from "../auth/user";
-import { getChatStateRepository } from "../chat/persistence/repository";
 import { getConfig } from "../config";
 import { compileImagePrompt, withExecutedPrompt } from "../gateway/prompt/compiler";
 import { getDefaultDeploymentForModel } from "../gateway/router/registry";
 import { imageRuntimeRouter } from "../gateway/router/router";
-import { ProviderError } from "../providers/base/errors";
 import { getFrontendImageModelById } from "../models/frontendRegistry";
+import { ProviderError } from "../providers/base/errors";
 import { downloadGeneratedImage } from "../shared/downloadGeneratedImage";
-import { storeGeneratedImage } from "../shared/generatedImageStore";
+import { createGeneratedImageCapability } from "../shared/generatedImageCapability";
 import { getImageGenerationCapabilityWarnings } from "../shared/imageGenerationCapabilityWarnings";
 import {
   imageGenerationRequestSchema,
   validateImageGenerationRequestAgainstModel,
 } from "../shared/imageGenerationSchema";
+
+const GENERATED_IMAGE_NORMALIZATION_CONCURRENCY = 2;
 
 const createId = (prefix: string) => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -31,6 +32,7 @@ const createId = (prefix: string) => {
 };
 
 const cloneSnapshot = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
 const formatNormalizationWarning = (count: number) =>
   `${count} generated image${count === 1 ? "" : "s"} could not be processed and ${
     count === 1 ? "was" : "were"
@@ -94,9 +96,49 @@ const toPersistedRequestSnapshot = (
   } as PersistedImageGenerationRequestSnapshot;
 };
 
+const assertGeneratedImageSize = (buffer: Buffer, maxBytes: number) => {
+  if (buffer.byteLength > maxBytes) {
+    throw new ProviderError("Generated image is too large to persist.", 413);
+  }
+};
+
+const settleWithConcurrency = async <T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+) => {
+  const results = new Array<PromiseSettledResult<R>>(items.length);
+  let nextIndex = 0;
+
+  const worker = async () => {
+    while (true) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      if (currentIndex >= items.length) {
+        return;
+      }
+
+      try {
+        results[currentIndex] = {
+          status: "fulfilled",
+          value: await mapper(items[currentIndex] as T, currentIndex),
+        };
+      } catch (error) {
+        results[currentIndex] = {
+          status: "rejected",
+          reason: error,
+        };
+      }
+    }
+  };
+
+  const workerCount = Math.min(Math.max(concurrency, 1), items.length || 1);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+};
+
 export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
   const config = getConfig();
-  const repository = getChatStateRepository();
 
   app.post(
     "/api/image-generate",
@@ -126,31 +168,40 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
       request.raw.once("aborted", abortRequest);
       reply.raw.once("close", handleResponseClose);
 
-      const toGeneratedImageUrl = async (image: {
-        binaryData?: Buffer;
-        imageUrl?: string;
-        mimeType?: string;
-      }) => {
+      const normalizeGeneratedImage = async (
+        image: {
+          binaryData?: Buffer;
+          imageUrl?: string;
+          mimeType?: string;
+          revisedPrompt?: string | null;
+        },
+        index: number
+      ) => {
+        let buffer: Buffer | null = null;
+        let mimeType: string | null = null;
+
         if (image.imageUrl) {
           const downloaded = await downloadGeneratedImage(image.imageUrl, {
             signal: requestController.signal,
           });
-          const imageId = storeGeneratedImage(downloaded.buffer, downloaded.mimeType);
-          return {
-            imageId,
-            imageUrl: `/api/generated-images/${imageId}`,
-            mimeType: downloaded.mimeType,
-          };
+          buffer = downloaded.buffer;
+          mimeType = downloaded.mimeType;
+        } else if (image.binaryData && image.mimeType) {
+          buffer = image.binaryData;
+          mimeType = image.mimeType;
         }
-        if (!image.binaryData || !image.mimeType) {
+
+        if (!buffer || !mimeType) {
           return null;
         }
 
-        const imageId = storeGeneratedImage(image.binaryData, image.mimeType);
+        assertGeneratedImageSize(buffer, config.generatedImageDownloadMaxBytes);
+
         return {
-          imageId,
-          imageUrl: `/api/generated-images/${imageId}`,
-          mimeType: image.mimeType,
+          buffer,
+          mimeType,
+          revisedPrompt: image.revisedPrompt ?? null,
+          index,
         };
       };
 
@@ -176,18 +227,17 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
       }
 
       try {
+        const repository = app.chatStateRepository;
         const frontendModel = getFrontendImageModelById(payload.modelId);
         if (!frontendModel) {
           return reply.code(400).send({ error: `Unsupported modelId: ${payload.modelId}.` });
         }
+
         const defaultDeployment = getDefaultDeploymentForModel(payload.modelId);
         if (!defaultDeployment) {
-          return reply.code(500).send({ error: `Missing deployment for modelId: ${payload.modelId}.` });
-        }
-
-        const compatibility = imageGenerationRequestSchema.safeParse(payload);
-        if (!compatibility.success) {
-          return reply.code(400).send({ error: "Invalid request payload." });
+          return reply
+            .code(500)
+            .send({ error: `Missing deployment for modelId: ${payload.modelId}.` });
         }
 
         const compatibilityProbe = imageGenerationRequestSchema.superRefine((nextPayload, ctx) => {
@@ -201,7 +251,11 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           });
         }
 
-        if (payload.threadId && payload.conversationId && payload.threadId !== payload.conversationId) {
+        if (
+          payload.threadId &&
+          payload.conversationId &&
+          payload.threadId !== payload.conversationId
+        ) {
           return reply.code(400).send({
             error: "threadId and conversationId must match when both are provided.",
           });
@@ -307,7 +361,9 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
               deploymentId: defaultDeployment.id,
               runtimeProvider: payload.requestedTarget?.provider ?? defaultDeployment.provider,
               providerModel: defaultDeployment.providerModel,
-              pinned: Boolean(payload.requestedTarget?.deploymentId || payload.requestedTarget?.provider),
+              pinned: Boolean(
+                payload.requestedTarget?.deploymentId || payload.requestedTarget?.provider
+              ),
             }),
             selectedTarget: selectedTarget
               ? createRunTargetSnapshot({
@@ -354,26 +410,20 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         const generated = await imageRuntimeRouter.generate(routedRequest, {
           signal: requestController.signal,
         });
-        const normalizedSettledResults = await Promise.allSettled(
-          generated.images.map(async (image, index) => {
-            const normalized = await toGeneratedImageUrl(image);
-            if (!normalized) {
-              return null;
-            }
-            return {
-              resultId: createId("chat-result"),
-              imageId: normalized.imageId,
-              imageUrl: normalized.imageUrl,
-              mimeType: normalized.mimeType,
-              revisedPrompt: image.revisedPrompt ?? null,
-              index,
-            };
-          })
+        const normalizedSettledResults = await settleWithConcurrency(
+          generated.images,
+          GENERATED_IMAGE_NORMALIZATION_CONCURRENCY,
+          async (image, index) => normalizeGeneratedImage(image, index)
         );
         const normalizedResults: Array<{
           resultId: string;
+          assetId: string;
+          buffer: Buffer;
           imageId: string;
           imageUrl: string;
+          privateTokenHash: string;
+          provider: string;
+          model: string;
           mimeType?: string;
           revisedPrompt: string | null;
           index: number;
@@ -383,7 +433,26 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
 
         normalizedSettledResults.forEach((result, index) => {
           if (result.status === "fulfilled") {
-            normalizedResults.push(result.value);
+            const normalized = result.value;
+            if (!normalized) {
+              normalizedResults.push(null);
+              return;
+            }
+
+            const capability = createGeneratedImageCapability();
+            normalizedResults.push({
+              resultId: createId("chat-result"),
+              assetId: createId("thread-asset"),
+              buffer: normalized.buffer,
+              imageId: capability.imageId,
+              imageUrl: capability.imageUrl,
+              privateTokenHash: capability.privateTokenHash,
+              provider: generated.runtimeProvider,
+              model: generated.providerModel,
+              mimeType: normalized.mimeType,
+              revisedPrompt: normalized.revisedPrompt,
+              index: normalized.index,
+            });
             return;
           }
 
@@ -398,34 +467,30 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             "Generated image result could not be normalized."
           );
         });
+
         const normalizedImages = normalizedResults.reduce<
           Array<{
             resultId: string;
             assetId: string;
-            imageUrl: string;
+            buffer: Buffer;
             imageId: string;
+            imageUrl: string;
+            privateTokenHash: string;
             provider: string;
             model: string;
             mimeType?: string;
             revisedPrompt: string | null;
+            index: number;
           }>
         >((accumulator, image) => {
           if (!image) {
             return accumulator;
           }
 
-          accumulator.push({
-            resultId: image.resultId,
-            assetId: createId("thread-asset"),
-            imageId: image.imageId,
-            imageUrl: image.imageUrl,
-            provider: generated.runtimeProvider,
-            model: generated.providerModel,
-            mimeType: image.mimeType,
-            revisedPrompt: image.revisedPrompt,
-          });
+          accumulator.push(image);
           return accumulator;
         }, []);
+
         const firstImageUrl = normalizedImages[0]?.imageUrl;
         const firstImageId = normalizedImages[0]?.imageId;
 
@@ -487,12 +552,15 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           deploymentId: generated.deploymentId,
           runtimeProvider: generated.runtimeProvider,
           providerModel: generated.providerModel,
-          pinned: Boolean(payload.requestedTarget?.deploymentId || payload.requestedTarget?.provider),
+          pinned: Boolean(
+            payload.requestedTarget?.deploymentId || payload.requestedTarget?.provider
+          ),
         });
         const completedPrompt = withExecutedPrompt(
           compiledPrompt,
           normalizedImages[0]?.revisedPrompt ?? null
         );
+
         await repository.completeGenerationSuccess({
           conversationId: conversation.id,
           turnId,
@@ -506,6 +574,18 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           providerRequestId: generated.providerRequestId,
           providerTaskId: generated.providerTaskId,
           warnings: mergedWarnings,
+          generatedImages: normalizedImages.map((image) => ({
+            id: image.imageId,
+            ownerUserId: userId,
+            conversationId: conversation.id,
+            turnId,
+            mimeType: image.mimeType ?? "image/png",
+            sizeBytes: image.buffer.byteLength,
+            blobData: image.buffer,
+            visibility: "private",
+            privateTokenHash: image.privateTokenHash,
+            createdAt: completedAt,
+          })),
           results: normalizedImages.map((image, index) => ({
             id: image.resultId,
             imageUrl: image.imageUrl,
@@ -573,7 +653,9 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
                 deploymentId: defaultDeployment.id,
                 runtimeProvider: payload.requestedTarget?.provider ?? defaultDeployment.provider,
                 providerModel: defaultDeployment.providerModel,
-                pinned: Boolean(payload.requestedTarget?.deploymentId || payload.requestedTarget?.provider),
+                pinned: Boolean(
+                  payload.requestedTarget?.deploymentId || payload.requestedTarget?.provider
+                ),
               }),
               selectedTarget: selectedTarget
                 ? createRunTargetSnapshot({
@@ -615,7 +697,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
 
         if (persistedGeneration) {
           try {
-            await repository.completeGenerationFailure({
+            await app.chatStateRepository.completeGenerationFailure({
               conversationId: persistedGeneration.conversationId,
               turnId: persistedGeneration.turnId,
               jobId: persistedGeneration.jobId,

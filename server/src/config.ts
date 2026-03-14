@@ -75,8 +75,6 @@ const envSchema = z.object({
     .optional(),
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(1_000).default(20),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(60_000),
-  GENERATED_IMAGE_STORE_MAX_ITEMS: z.coerce.number().int().min(1).max(10_000).default(128),
-  GENERATED_IMAGE_STORE_MAX_MB: z.coerce.number().min(1).max(512).default(64),
   GENERATED_IMAGE_DOWNLOAD_MAX_MB: z.coerce.number().min(1).max(512).default(32),
   REFERENCE_IMAGE_DOWNLOAD_MAX_MB: z.coerce.number().min(1).max(128).default(8),
   ARK_API_KEY: optionalTrimmedString(),
@@ -109,8 +107,6 @@ export interface AppConfig {
   imageUpscaleRateLimitTimeWindowMs: number;
   generatedImageGetRateLimitMax: number;
   generatedImageGetRateLimitTimeWindowMs: number;
-  generatedImageStoreMaxItems: number;
-  generatedImageStoreMaxBytes: number;
   generatedImageDownloadMaxBytes: number;
   referenceImageDownloadMaxBytes: number;
   arkApiKey?: string;
@@ -129,6 +125,9 @@ export interface AppConfig {
 }
 
 let cachedConfig: AppConfig | null = null;
+
+const isDevelopmentLikeNodeEnv = (nodeEnv: string) =>
+  nodeEnv === "development" || nodeEnv === "test";
 
 const toCorsOrigin = (value: string) => {
   const origins = value
@@ -166,8 +165,6 @@ export const getConfig = (): AppConfig => {
       env.GENERATED_IMAGE_GET_RATE_LIMIT_MAX ?? Math.max(env.RATE_LIMIT_MAX * 6, 60),
     generatedImageGetRateLimitTimeWindowMs:
       env.GENERATED_IMAGE_GET_RATE_LIMIT_WINDOW_MS ?? env.RATE_LIMIT_WINDOW_MS,
-    generatedImageStoreMaxItems: env.GENERATED_IMAGE_STORE_MAX_ITEMS,
-    generatedImageStoreMaxBytes: Math.round(env.GENERATED_IMAGE_STORE_MAX_MB * 1024 * 1024),
     generatedImageDownloadMaxBytes: Math.round(env.GENERATED_IMAGE_DOWNLOAD_MAX_MB * 1024 * 1024),
     referenceImageDownloadMaxBytes: Math.round(env.REFERENCE_IMAGE_DOWNLOAD_MAX_MB * 1024 * 1024),
     arkApiKey: env.ARK_API_KEY,
@@ -181,8 +178,7 @@ export const getConfig = (): AppConfig => {
     authJwtSecret: env.AUTH_JWT_SECRET,
     authJwtIssuer: env.AUTH_JWT_ISSUER,
     authJwtAudience: env.AUTH_JWT_AUDIENCE,
-    allowUnsignedDevAuth:
-      env.ALLOW_UNSIGNED_DEV_AUTH ?? ((env.NODE_ENV ?? "development") !== "production"),
+    allowUnsignedDevAuth: env.ALLOW_UNSIGNED_DEV_AUTH ?? ((env.NODE_ENV ?? "development") === "development"),
     devAuthAllowedUserIds: (env.DEV_AUTH_ALLOWED_USER_IDS ?? "local-user")
       .split(",")
       .map((value) => value.trim())
@@ -190,4 +186,24 @@ export const getConfig = (): AppConfig => {
   };
 
   return cachedConfig;
+};
+
+export const assertStartupConfig = (config: AppConfig) => {
+  const developmentLike = isDevelopmentLikeNodeEnv(config.nodeEnv);
+
+  if (!developmentLike && !config.databaseUrl) {
+    throw new Error("DATABASE_URL is required outside development and test.");
+  }
+
+  if (!developmentLike && !config.authJwtSecret) {
+    throw new Error("AUTH_JWT_SECRET is required outside development and test.");
+  }
+
+  if (config.allowUnsignedDevAuth && config.nodeEnv !== "development") {
+    throw new Error("ALLOW_UNSIGNED_DEV_AUTH is only supported when NODE_ENV=development.");
+  }
+};
+
+export const resetConfigForTests = () => {
+  cachedConfig = null;
 };

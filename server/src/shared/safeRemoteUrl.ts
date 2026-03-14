@@ -1,5 +1,6 @@
 import dns from "node:dns/promises";
 import net from "node:net";
+import { getConfig } from "../config";
 import { ProviderError } from "../providers/base/errors";
 
 const IPV4_MAPPED_IPV6_PREFIX = "::ffff:";
@@ -8,12 +9,21 @@ const BLOCKED_HOSTNAME_SUFFIXES = [".local", ".localhost", ".internal"];
 const normalizeHostname = (value: string) =>
   value.trim().replace(/^\[|\]$/g, "").toLowerCase();
 
-const isBlockedIpv4Address = (value: string) => {
+const parseIpv4Octets = (value: string) => {
   const octets = value.split(".").map((segment) => Number(segment));
   if (
     octets.length !== 4 ||
     octets.some((segment) => !Number.isInteger(segment) || segment < 0 || segment > 255)
   ) {
+    return null;
+  }
+
+  return octets as [number, number, number, number];
+};
+
+const isBlockedIpv4Address = (value: string) => {
+  const octets = parseIpv4Octets(value);
+  if (!octets) {
     return true;
   }
 
@@ -32,6 +42,16 @@ const isBlockedIpv4Address = (value: string) => {
     (a === 203 && b === 0 && c === 113) ||
     a >= 224
   );
+};
+
+const isDevelopmentFakeIpv4Address = (value: string) => {
+  const octets = parseIpv4Octets(value);
+  if (!octets) {
+    return false;
+  }
+
+  const [a, b] = octets;
+  return a === 198 && (b === 18 || b === 19);
 };
 
 const isBlockedIpv6Address = (value: string) => {
@@ -66,6 +86,20 @@ const isBlockedIpAddress = (value: string) => {
     return isBlockedIpv6Address(normalized);
   }
   return true;
+};
+
+const isDevelopmentFakeIpAddress = (value: string) => {
+  const normalized = normalizeHostname(value);
+  const family = net.isIP(normalized);
+  if (family === 4) {
+    return isDevelopmentFakeIpv4Address(normalized);
+  }
+
+  if (family === 6 && normalized.startsWith(IPV4_MAPPED_IPV6_PREFIX)) {
+    return isDevelopmentFakeIpv4Address(normalized.slice(IPV4_MAPPED_IPV6_PREFIX.length));
+  }
+
+  return false;
 };
 
 const resolveHostnameAddresses = async (hostname: string) => {
@@ -116,7 +150,16 @@ export const assertSafeRemoteUrl = async (value: string, label: string) => {
     throw new ProviderError(`${label} URL could not be resolved.`, 400);
   }
 
-  if (addresses.some((address) => isBlockedIpAddress(address))) {
+  const effectiveAddresses =
+    getConfig().nodeEnv === "development" && !net.isIP(hostname)
+      ? addresses.filter((address) => !isDevelopmentFakeIpAddress(address))
+      : addresses;
+
+  if (effectiveAddresses.length === 0) {
+    return parsedUrl;
+  }
+
+  if (effectiveAddresses.some((address) => isBlockedIpAddress(address))) {
     throw new ProviderError(
       `${label} URL points to a private or reserved network address.`,
       400
