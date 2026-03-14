@@ -15,7 +15,9 @@ import type {
   CompleteChatGenerationFailureInput,
   CompleteChatGenerationSuccessInput,
   CreateChatGenerationInput,
+  PersistedGeneratedImageRecord,
 } from "./types";
+import { hashGeneratedImageToken } from "../../shared/generatedImageCapability";
 
 interface MemoryTurnRecord extends PersistedGenerationTurn {
   conversationId: string;
@@ -45,6 +47,10 @@ interface MemoryConversationRecord extends ChatConversationRecord {
   isActive: boolean;
 }
 
+interface MemoryGeneratedImageRecord extends PersistedGeneratedImageRecord {
+  deletedAt: string | null;
+}
+
 const sortNewestFirst = <T extends { createdAt: string }>(items: T[]) =>
   [...items].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 
@@ -58,6 +64,11 @@ export class MemoryChatStateRepository implements ChatStateRepository {
   private readonly assets = new Map<string, MemoryAssetRecord>();
   private readonly assetEdges = new Map<string, MemoryAssetEdgeRecord>();
   private readonly resultsByTurnId = new Map<string, PersistedResultItem[]>();
+  private readonly generatedImages = new Map<string, MemoryGeneratedImageRecord>();
+
+  async close() {
+    return Promise.resolve();
+  }
 
   async getConversationById(userId: string, conversationId: string) {
     const conversation = this.conversations.get(conversationId) ?? null;
@@ -210,9 +221,33 @@ export class MemoryChatStateRepository implements ChatStateRepository {
       isHidden: true,
       updatedAt: new Date().toISOString(),
     });
+    for (const [imageId, image] of this.generatedImages.entries()) {
+      if (image.turnId === turnId && image.deletedAt === null) {
+        this.generatedImages.set(imageId, {
+          ...image,
+          deletedAt: new Date().toISOString(),
+        });
+      }
+    }
 
     this.touchConversation(conversation.id);
     return this.getConversationSnapshot(userId, conversation.id);
+  }
+
+  async getGeneratedImageByCapability(imageId: string, token: string) {
+    const image = this.generatedImages.get(imageId);
+    if (!image || image.deletedAt !== null) {
+      return null;
+    }
+
+    if (image.privateTokenHash !== hashGeneratedImageToken(token)) {
+      return null;
+    }
+
+    return {
+      buffer: image.blobData,
+      mimeType: image.mimeType,
+    };
   }
 
   async createGeneration(input: CreateChatGenerationInput) {
@@ -296,6 +331,12 @@ export class MemoryChatStateRepository implements ChatStateRepository {
       warnings: [...input.warnings],
       completedAt: input.completedAt,
       updatedAt: input.completedAt,
+    });
+    input.generatedImages.forEach((image) => {
+      this.generatedImages.set(image.id, {
+        ...image,
+        deletedAt: null,
+      });
     });
     input.assets.forEach((asset) => {
       this.assets.set(asset.id, {

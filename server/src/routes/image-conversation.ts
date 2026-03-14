@@ -1,11 +1,8 @@
 import type { FastifyPluginAsync } from "fastify";
 import { requireAuthenticatedUser } from "../auth/user";
-import { getChatStateRepository } from "../chat/persistence/repository";
 import { ChatConversationNotFoundError } from "../chat/persistence/types";
 
 export const imageConversationRoute: FastifyPluginAsync = async (app) => {
-  const repository = getChatStateRepository();
-
   app.get("/api/image-conversation", async (request, reply) => {
     const userId = requireAuthenticatedUser(request);
     if (!userId) {
@@ -21,7 +18,9 @@ export const imageConversationRoute: FastifyPluginAsync = async (app) => {
         : undefined;
 
     try {
-      return reply.code(200).send(await repository.getConversationSnapshot(userId, conversationId));
+      return reply
+        .code(200)
+        .send(await app.chatStateRepository.getConversationSnapshot(userId, conversationId));
     } catch (error) {
       app.log.error(error);
       if (error instanceof ChatConversationNotFoundError) {
@@ -38,7 +37,7 @@ export const imageConversationRoute: FastifyPluginAsync = async (app) => {
     }
 
     try {
-      return reply.code(200).send(await repository.clearActiveConversation(userId));
+      return reply.code(200).send(await app.chatStateRepository.clearActiveConversation(userId));
     } catch (error) {
       app.log.error(error);
       return reply.code(500).send({ error: "Conversation could not be cleared." });
@@ -54,7 +53,7 @@ export const imageConversationRoute: FastifyPluginAsync = async (app) => {
     const { turnId } = request.params as { turnId: string };
 
     try {
-      const snapshot = await repository.deleteTurn(userId, turnId);
+      const snapshot = await app.chatStateRepository.deleteTurn(userId, turnId);
       if (!snapshot) {
         return reply.code(404).send({ error: "Turn not found." });
       }

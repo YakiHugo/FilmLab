@@ -17,6 +17,7 @@ import type {
   CompleteChatGenerationSuccessInput,
   CreateChatGenerationInput,
 } from "./types";
+import { hashGeneratedImageToken } from "../../shared/generatedImageCapability";
 
 const MIGRATIONS = [
   {
@@ -206,6 +207,31 @@ const MIGRATIONS = [
       ADD COLUMN IF NOT EXISTS thread_asset_id TEXT NULL;
     `,
   },
+  {
+    name: "004_generated_images",
+    sql: `
+      CREATE TABLE IF NOT EXISTS generated_images (
+        id TEXT PRIMARY KEY,
+        owner_user_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+        turn_id TEXT NOT NULL REFERENCES chat_turns(id) ON DELETE CASCADE,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        blob_data BYTEA NOT NULL,
+        visibility TEXT NOT NULL,
+        private_token_hash TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        deleted_at TIMESTAMPTZ NULL
+      );
+      CREATE INDEX IF NOT EXISTS generated_images_turn_idx
+        ON generated_images(turn_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS generated_images_owner_idx
+        ON generated_images(owner_user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS generated_images_active_lookup_idx
+        ON generated_images(id, private_token_hash)
+        WHERE deleted_at IS NULL;
+    `,
+  },
 ] as const;
 
 interface ChatTurnRow {
@@ -358,6 +384,10 @@ export class PostgresChatStateRepository implements ChatStateRepository {
   private initPromise: Promise<void> | null = null;
 
   constructor(private readonly pool: Pool) {}
+
+  async close() {
+    await this.pool.end();
+  }
 
   async getConversationById(userId: string, conversationId: string) {
     await this.ensureReady();
@@ -800,21 +830,64 @@ export class PostgresChatStateRepository implements ChatStateRepository {
 
   async deleteTurn(userId: string, turnId: string) {
     await this.ensureReady();
-    const result = await this.pool.query<{ conversation_id: string }>(
+    const row = await this.withTransaction(async (client) => {
+      const result = await client.query<{ conversation_id: string }>(
+        `
+          UPDATE chat_turns
+          SET is_hidden = TRUE,
+              updated_at = NOW()
+          WHERE id = $1
+            AND is_hidden = FALSE
+            AND conversation_id IN (
+              SELECT id
+              FROM chat_conversations
+              WHERE user_id = $2
+            )
+          RETURNING conversation_id;
+        `,
+        [turnId, userId]
+      );
+
+      const updatedRow = result.rows[0] ?? null;
+      if (!updatedRow) {
+        return null;
+      }
+
+      await client.query(
+        `
+          UPDATE generated_images
+          SET deleted_at = COALESCE(deleted_at, NOW())
+          WHERE turn_id = $1
+            AND conversation_id = $2;
+        `,
+        [turnId, updatedRow.conversation_id]
+      );
+      await this.touchConversation(updatedRow.conversation_id, undefined, client);
+      return updatedRow;
+    });
+
+    if (!row) {
+      return null;
+    }
+
+    return this.getConversationSnapshot(userId, row.conversation_id);
+  }
+
+  async getGeneratedImageByCapability(imageId: string, token: string) {
+    await this.ensureReady();
+    const result = await this.pool.query<{
+      blob_data: Buffer;
+      mime_type: string;
+    }>(
       `
-        UPDATE chat_turns
-        SET is_hidden = TRUE,
-            updated_at = NOW()
+        SELECT blob_data, mime_type
+        FROM generated_images
         WHERE id = $1
-          AND is_hidden = FALSE
-          AND conversation_id IN (
-            SELECT id
-            FROM chat_conversations
-            WHERE user_id = $2
-          )
-        RETURNING conversation_id;
+          AND private_token_hash = $2
+          AND deleted_at IS NULL
+        LIMIT 1;
       `,
-      [turnId, userId]
+      [imageId, hashGeneratedImageToken(token)]
     );
 
     const row = result.rows[0];
@@ -822,8 +895,10 @@ export class PostgresChatStateRepository implements ChatStateRepository {
       return null;
     }
 
-    await this.touchConversation(row.conversation_id);
-    return this.getConversationSnapshot(userId, row.conversation_id);
+    return {
+      buffer: row.blob_data,
+      mimeType: row.mime_type,
+    };
   }
 
   async createGeneration(input: CreateChatGenerationInput) {
@@ -1107,6 +1182,15 @@ export class PostgresChatStateRepository implements ChatStateRepository {
       );
       await client.query(
         `
+          UPDATE generated_images
+          SET deleted_at = COALESCE(deleted_at, $2::timestamptz)
+          WHERE turn_id = $1
+            AND deleted_at IS NULL;
+        `,
+        [input.turnId, input.completedAt]
+      );
+      await client.query(
+        `
           DELETE FROM chat_asset_edges
           WHERE run_id = $1;
         `,
@@ -1130,6 +1214,41 @@ export class PostgresChatStateRepository implements ChatStateRepository {
         `,
         [input.runId]
       );
+
+      for (const image of input.generatedImages) {
+        await client.query(
+          `
+            INSERT INTO generated_images (
+              id,
+              owner_user_id,
+              conversation_id,
+              turn_id,
+              mime_type,
+              size_bytes,
+              blob_data,
+              visibility,
+              private_token_hash,
+              created_at,
+              deleted_at
+            )
+            VALUES (
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, NULL
+            );
+          `,
+          [
+            image.id,
+            image.ownerUserId,
+            image.conversationId,
+            image.turnId,
+            image.mimeType,
+            image.sizeBytes,
+            image.blobData,
+            image.visibility,
+            image.privateTokenHash,
+            image.createdAt,
+          ]
+        );
+      }
 
       for (const asset of input.assets) {
         await client.query(

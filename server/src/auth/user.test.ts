@@ -63,6 +63,7 @@ describe("parseJwtSub", () => {
   });
 
   it("allows unsigned dev tokens only for allowlisted users", async () => {
+    vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("ALLOW_UNSIGNED_DEV_AUTH", "true");
     vi.stubEnv("DEV_AUTH_ALLOWED_USER_IDS", "local-user,review-user");
 
@@ -70,5 +71,23 @@ describe("parseJwtSub", () => {
 
     expect(parseJwtSub(createUnsignedDevToken("review-user"))).toBe("review-user");
     expect(parseJwtSub(createUnsignedDevToken("user-1"))).toBeNull();
+  });
+
+  it("rejects unsigned dev tokens by default", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+
+    const { parseJwtSub } = await import("./user");
+
+    expect(parseJwtSub(createUnsignedDevToken("local-user"))).toBeNull();
+  });
+
+  it("rejects unsigned dev tokens outside development", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("ALLOW_UNSIGNED_DEV_AUTH", "true");
+    vi.stubEnv("DEV_AUTH_ALLOWED_USER_IDS", "local-user");
+
+    const { parseJwtSub } = await import("./user");
+
+    expect(parseJwtSub(createUnsignedDevToken("local-user"))).toBeNull();
   });
 });
