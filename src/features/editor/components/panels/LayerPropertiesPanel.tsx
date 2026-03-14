@@ -64,16 +64,22 @@ export const LayerPropertiesPanel = memo(function LayerPropertiesPanel({
     setLocalOpacity(value);
   }, []);
 
-  const handleOpacityCommit = useCallback((value: number) => {
-    if (!layer) return;
-    setLocalOpacity(null);
-    onSetOpacity(layer.id, value);
-  }, [layer, onSetOpacity]);
+  const handleOpacityCommit = useCallback(
+    (value: number) => {
+      if (!layer) return;
+      setLocalOpacity(null);
+      onSetOpacity(layer.id, value);
+    },
+    [layer, onSetOpacity]
+  );
 
-  const handleBlendModeChange = useCallback((value: string) => {
-    if (!layer) return;
-    onSetBlendMode(layer.id, value as EditorLayerBlendMode);
-  }, [layer, onSetBlendMode]);
+  const handleBlendModeChange = useCallback(
+    (value: string) => {
+      if (!layer) return;
+      onSetBlendMode(layer.id, value as EditorLayerBlendMode);
+    },
+    [layer, onSetBlendMode]
+  );
 
   const displayOpacity = localOpacity ?? layer?.opacity ?? 100;
 
@@ -97,6 +103,7 @@ export const LayerPropertiesPanel = memo(function LayerPropertiesPanel({
           <div className="flex gap-4 border-b border-white/10 text-xs">
             <button
               type="button"
+              data-tool-panel="edit"
               className={cn(
                 "pb-2 transition",
                 activeTab === "properties"
@@ -109,6 +116,7 @@ export const LayerPropertiesPanel = memo(function LayerPropertiesPanel({
             </button>
             <button
               type="button"
+              data-tool-panel="mask"
               className={cn(
                 "pb-2 transition",
                 activeTab === "mask"
@@ -152,12 +160,14 @@ export const LayerPropertiesPanel = memo(function LayerPropertiesPanel({
               </div>
             </div>
           ) : (
-            <LayerMaskTab
-              layer={layer}
-              onSetMaskMode={onSetMaskMode}
-              onInvertMask={onInvertMask}
-              onClearMask={onClearMask}
-            />
+            <div data-tool-panel="mask">
+              <LayerMaskTab
+                layer={layer}
+                onSetMaskMode={onSetMaskMode}
+                onInvertMask={onInvertMask}
+                onClearMask={onClearMask}
+              />
+            </div>
           )}
         </div>
       )}

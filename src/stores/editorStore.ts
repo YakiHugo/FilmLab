@@ -13,10 +13,17 @@ import {
   isEditorAssetSnapshotEqual,
   type EditorAssetSnapshot,
 } from "@/features/editor/history";
+import {
+  DEFAULT_CROP_GUIDE_MODE,
+  cycleCropGuideMode,
+  normalizeCropGuideRotation,
+  type CropGuideMode,
+} from "@/features/editor/cropGuides";
 
 /** Maximum number of assets to keep history for simultaneously. */
 const MAX_HISTORY_ASSETS = 20;
 import type { HistogramData } from "@/features/editor/histogram";
+import type { WaveformData } from "@/features/editor/waveform";
 import { loadCustomPresets, saveCustomPresets } from "@/features/editor/presetUtils";
 import { on } from "@/lib/storeEvents";
 import type { EditingAdjustments, HslColorKey, Preset } from "@/types";
@@ -98,6 +105,9 @@ interface EditorState {
   curveChannel: CurveChannel;
   openSections: Record<SectionId, boolean>;
   previewHistogram: HistogramData | null;
+  previewWaveform: WaveformData | null;
+  cropGuideMode: CropGuideMode;
+  cropGuideRotation: number;
   pointColorPicking: boolean;
   pointColorPickTarget: PointColorPickTarget;
   lastPointColorSample: PointColorSample | null;
@@ -118,6 +128,10 @@ interface EditorState {
   setCustomPresets: (updater: PresetUpdater) => void;
   setActiveHslColor: (color: HslColorKey) => void;
   setCurveChannel: (channel: CurveChannel) => void;
+  setCropGuideMode: (mode: CropGuideMode) => void;
+  cycleCropGuideMode: () => void;
+  setCropGuideRotation: (rotation: number) => void;
+  rotateCropGuide: () => void;
   setPointColorPicking: (picking: boolean) => void;
   setPointColorPickTarget: (target: PointColorPickTarget) => void;
   setLastPointColorSample: (sample: PointColorSample | null) => void;
@@ -128,6 +142,7 @@ interface EditorState {
   toggleBypassPanel: (panelId: string) => void;
   isPanelBypassed: (panelId: string) => boolean;
   setPreviewHistogram: (histogram: HistogramData | null) => void;
+  setPreviewWaveform: (waveform: WaveformData | null) => void;
   canUndo: (assetId: string) => boolean;
   canRedo: (assetId: string) => boolean;
   pushHistory: (assetId: string, before: EditorAssetSnapshot) => void;
@@ -153,6 +168,9 @@ export const useEditorStore = create<EditorState>()(
       curveChannel: "rgb",
       openSections: loadOpenSections(),
       previewHistogram: null,
+      previewWaveform: null,
+      cropGuideMode: DEFAULT_CROP_GUIDE_MODE,
+      cropGuideRotation: 0,
       pointColorPicking: false,
       pointColorPickTarget: "hsl",
       lastPointColorSample: null,
@@ -177,6 +195,17 @@ export const useEditorStore = create<EditorState>()(
         }),
       setActiveHslColor: (activeHslColor) => set({ activeHslColor }),
       setCurveChannel: (curveChannel) => set({ curveChannel }),
+      setCropGuideMode: (cropGuideMode) => set({ cropGuideMode }),
+      cycleCropGuideMode: () =>
+        set((state) => ({
+          cropGuideMode: cycleCropGuideMode(state.cropGuideMode),
+        })),
+      setCropGuideRotation: (cropGuideRotation) =>
+        set({ cropGuideRotation: normalizeCropGuideRotation(cropGuideRotation) }),
+      rotateCropGuide: () =>
+        set((state) => ({
+          cropGuideRotation: normalizeCropGuideRotation(state.cropGuideRotation + 1),
+        })),
       setPointColorPicking: (pointColorPicking) => set({ pointColorPicking }),
       setPointColorPickTarget: (pointColorPickTarget) => set({ pointColorPickTarget }),
       setLastPointColorSample: (lastPointColorSample) => set({ lastPointColorSample }),
@@ -200,6 +229,7 @@ export const useEditorStore = create<EditorState>()(
           };
         }),
       setPreviewHistogram: (previewHistogram) => set({ previewHistogram }),
+      setPreviewWaveform: (previewWaveform) => set({ previewWaveform }),
       toggleBypassPanel: (panelId) =>
         set((state) => {
           const next = new Set(state.bypassedPanels);
@@ -347,6 +377,10 @@ on("assets:deleted", (deletedIds) => {
 
 on("project:reset", () => {
   useEditorStore.setState({
+    cropGuideMode: DEFAULT_CROP_GUIDE_MODE,
+    cropGuideRotation: 0,
+    previewHistogram: null,
+    previewWaveform: null,
     selectedLayerId: null,
     selectedAssetId: null,
     viewportScale: 1,

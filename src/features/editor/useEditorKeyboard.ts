@@ -5,6 +5,8 @@ interface UseEditorKeyboardOptions {
   selectedAsset: { id: string } | null | undefined;
   isCropMode: boolean;
   viewScale: number;
+  cycleCropGuideMode: () => void;
+  rotateCropGuide: () => void;
   toggleOriginal: () => void;
   handleUndo: () => boolean;
   handleRedo: () => boolean;
@@ -16,6 +18,8 @@ export function useEditorKeyboard({
   selectedAsset,
   isCropMode,
   viewScale,
+  cycleCropGuideMode,
+  rotateCropGuide,
   toggleOriginal,
   handleUndo,
   handleRedo,
@@ -59,6 +63,14 @@ export function useEditorKeyboard({
 
       if (key === "o") {
         event.preventDefault();
+        if (isCropMode) {
+          if (event.shiftKey) {
+            rotateCropGuide();
+          } else {
+            cycleCropGuideMode();
+          }
+          return;
+        }
         toggleOriginal();
         return;
       }
@@ -93,7 +105,9 @@ export function useEditorKeyboard({
     handleZoom,
     isCropMode,
     resetView,
+    rotateCropGuide,
     selectedAsset,
+    cycleCropGuideMode,
     toggleOriginal,
     triggerRedo,
     triggerUndo,

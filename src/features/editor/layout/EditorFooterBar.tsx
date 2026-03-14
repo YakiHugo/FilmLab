@@ -31,7 +31,7 @@ const resolveZoomSelectValue = (scale: number) => {
 const resolveZoomLabel = (scale: number) => `${Math.round(scale * 100)}%`;
 
 export function EditorFooterBar() {
-  const { selectedAsset } = useEditorSelectionState();
+  const { assets, selectedAsset, selectedAssetId, setSelectedAssetId } = useEditorSelectionState();
   const { copiedAdjustments, presetLabel } = useEditorPresetState();
   const { handleCopy, handlePaste, handleResetAll } = useEditorPresetActions();
   const { canUndo, handleUndo } = useEditorHistoryState();
@@ -46,9 +46,8 @@ export function EditorFooterBar() {
   );
 
   return (
-    <footer className="flex h-10 shrink-0 items-center justify-between bg-[#121214] px-3">
+    <footer className="flex min-h-14 shrink-0 items-center gap-3 bg-[#121214] px-3 py-2">
       <div className="flex items-center gap-3">
-        {/* Back to Library */}
         <Link
           to="/library"
           className="flex h-7 items-center gap-1 rounded-lg border border-white/10 bg-[#0f1114] px-2 text-[11px] text-zinc-300 transition hover:border-white/20 hover:bg-[#161a1f] hover:text-white"
@@ -66,7 +65,41 @@ export function EditorFooterBar() {
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5">
+      <div className="hidden min-w-0 flex-1 items-center md:flex">
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto rounded-xl border border-white/10 bg-[#0d1014] px-2 py-1.5">
+          {assets.map((asset) => {
+            const isSelected = asset.id === selectedAssetId;
+            return (
+              <button
+                key={asset.id}
+                type="button"
+                className={`group flex shrink-0 items-center gap-2 rounded-lg border px-1.5 py-1 text-left transition ${
+                  isSelected
+                    ? "border-white/30 bg-white/10 text-white"
+                    : "border-white/5 bg-white/[0.03] text-zinc-400 hover:border-white/15 hover:text-white"
+                }`}
+                onClick={() => setSelectedAssetId(asset.id)}
+                title={asset.name}
+              >
+                <span className="relative h-8 w-8 overflow-hidden rounded-md border border-white/10 bg-black/40">
+                  {asset.objectUrl ? (
+                    <img
+                      src={asset.objectUrl}
+                      alt={asset.name}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : null}
+                </span>
+                <span className="max-w-[112px] truncate text-[11px] font-medium">
+                  {asset.name}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="ml-auto flex items-center gap-1.5">
         <Button
           size="sm"
           variant={showOriginal ? "default" : "secondary"}

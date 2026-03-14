@@ -1598,15 +1598,15 @@ const drawLocalMaskShape = (
 ) => {
   if (mask.mode === "brush") {
     const minDimension = Math.max(1, Math.min(width, height));
-    const brushSizePx = Math.max(1, clamp(mask.brushSize, 0.005, 0.25) * minDimension);
+    const brushSizePx = Math.max(1, Math.max(0.005, mask.brushSize) * minDimension);
     const feather = clamp(mask.feather, 0, 1);
     const flow = clamp(mask.flow, 0.05, 1);
     if (mask.points.length === 0) {
       return;
     }
     for (const point of mask.points) {
-      const px = clamp(point.x, 0, 1) * width;
-      const py = clamp(point.y, 0, 1) * height;
+      const px = point.x * width;
+      const py = point.y * height;
       const pressure = clamp(point.pressure ?? 1, 0.1, 1);
       const radius = Math.max(1, brushSizePx * pressure);
       if (feather <= 0.001) {
@@ -1626,10 +1626,10 @@ const drawLocalMaskShape = (
     return;
   }
   if (mask.mode === "radial") {
-    const centerX = clamp(mask.centerX, 0, 1) * width;
-    const centerY = clamp(mask.centerY, 0, 1) * height;
-    const radiusX = Math.max(1, clamp(mask.radiusX, 0.01, 1) * width);
-    const radiusY = Math.max(1, clamp(mask.radiusY, 0.01, 1) * height);
+    const centerX = mask.centerX * width;
+    const centerY = mask.centerY * height;
+    const radiusX = Math.max(1, Math.max(0.01, mask.radiusX) * width);
+    const radiusY = Math.max(1, Math.max(0.01, mask.radiusY) * height);
     const feather = clamp(mask.feather, 0, 1);
 
     context.save();
@@ -1652,10 +1652,10 @@ const drawLocalMaskShape = (
     return;
   }
 
-  const startX = clamp(mask.startX, 0, 1) * width;
-  const startY = clamp(mask.startY, 0, 1) * height;
-  const endX = clamp(mask.endX, 0, 1) * width;
-  let endY = clamp(mask.endY, 0, 1) * height;
+  const startX = mask.startX * width;
+  const startY = mask.startY * height;
+  const endX = mask.endX * width;
+  let endY = mask.endY * height;
   if ((endX - startX) * (endX - startX) + (endY - startY) * (endY - startY) < 1e-6) {
     endY += 1;
   }
@@ -2798,4 +2798,3 @@ export const renderImageToCanvas = async ({
     loaded?.cleanup?.();
   }
 };
-

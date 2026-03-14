@@ -5,6 +5,7 @@ import {
 } from "@/lib/imageProcessing";
 import { resolveLayerAdjustments } from "@/lib/editorLayers";
 import { clamp } from "@/lib/math";
+import { resolvePreviewRoiFromViewport } from "@/lib/previewRoi";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
 import { cn } from "@/lib/utils";
 import { CropOverlay } from "./CropOverlay";
@@ -17,16 +18,17 @@ import {
   useEditorViewState,
 } from "./useEditorSlices";
 import { useViewportZoom } from "./useViewportZoom";
-import { applyBrushPreviewToAdjustments, useBrushMaskPainting } from "./preview/useBrushMaskPainting";
+import { useBrushMaskPainting } from "./preview/useBrushMaskPainting";
 import type { LayerPreviewEntry } from "./preview/contracts";
 import { createPreviewInteractionSampler } from "./preview/interactionPerformance";
+import { drawLocalMaskOverlay } from "./preview/maskOverlay";
 import { useCropInteraction } from "./preview/useCropInteraction";
 import { useHistogramSync } from "./preview/useHistogramSync";
 import { usePerspectiveAssist } from "./preview/usePerspectiveAssist";
 import { usePreviewRenderPipeline } from "./preview/usePreviewRenderPipeline";
 
 export function EditorPreviewCard() {
-  const { assets, layers, selectedAsset, selectedLayer } = useEditorSelectionState();
+  const { assets, layers, selectedAsset } = useEditorSelectionState();
   const {
     previewFilmProfile,
     previewAdjustments,
@@ -45,8 +47,13 @@ export function EditorPreviewCard() {
     activeToolPanelId,
     autoPerspectiveMode,
     autoPerspectiveRequestId,
+    cropGuideMode,
+    cropGuideRotation,
+    cycleCropGuideMode,
     pointColorPickTarget,
     pointColorPicking,
+    rotateCropGuide,
+    setPreviewWaveform,
     selectedLocalAdjustmentId,
     showOriginal,
     toggleOriginal,
@@ -239,6 +246,17 @@ export function EditorPreviewCard() {
     [selectedAsset?.createdAt, selectedAsset?.metadata]
   );
 
+  const previewRoi = useMemo(
+    () =>
+      resolvePreviewRoiFromViewport({
+        frameWidth: frameSize.width,
+        frameHeight: frameSize.height,
+        viewScale,
+        viewOffset,
+      }),
+    [frameSize.height, frameSize.width, viewOffset, viewScale]
+  );
+
   const brushMaskPainting = useBrushMaskPainting({
     activeToolPanelId,
     adjustments: previewAdjustments,
@@ -246,40 +264,10 @@ export function EditorPreviewCard() {
     isCropMode,
     performanceSampler: brushPerformanceSamplerRef.current,
     pointColorPicking,
+    previewRoi: isCropMode ? null : previewRoi,
     selectedLocalAdjustmentId,
     showOriginal,
   });
-
-  const effectivePreviewAdjustments = useMemo(() => {
-    if (!previewAdjustments) {
-      return null;
-    }
-    let nextAdjustments = previewAdjustments;
-    if (brushMaskPainting.previewState) {
-      nextAdjustments = applyBrushPreviewToAdjustments(
-        nextAdjustments,
-        brushMaskPainting.previewState
-      );
-    }
-    return nextAdjustments;
-  }, [brushMaskPainting.previewState, previewAdjustments]);
-
-  const effectiveLayerPreviewEntries = useMemo(() => {
-    if (!brushMaskPainting.previewState || !selectedLayer) {
-      return layerPreviewEntries;
-    }
-    return layerPreviewEntries.map((entry) =>
-      entry.layer.id === selectedLayer.id
-        ? {
-            ...entry,
-            adjustments: applyBrushPreviewToAdjustments(
-              entry.adjustments,
-              brushMaskPainting.previewState
-            ),
-          }
-        : entry
-    );
-  }, [brushMaskPainting.previewState, layerPreviewEntries, selectedLayer]);
 
   const cropInteraction = useCropInteraction({
     adjustments: previewAdjustments,
@@ -292,26 +280,27 @@ export function EditorPreviewCard() {
   });
 
   const renderedPreviewAdjustments = useMemo(() => {
-    if (!effectivePreviewAdjustments) {
+    if (!previewAdjustments) {
       return null;
     }
     if (!cropInteraction.previewPatch) {
-      return effectivePreviewAdjustments;
+      return previewAdjustments;
     }
     return {
-      ...effectivePreviewAdjustments,
+      ...previewAdjustments,
       ...cropInteraction.previewPatch,
     };
-  }, [cropInteraction.previewPatch, effectivePreviewAdjustments]);
+  }, [cropInteraction.previewPatch, previewAdjustments]);
 
   const previewRenderPipeline = usePreviewRenderPipeline({
     adjustments: renderedPreviewAdjustments,
     filmProfile: previewFilmProfile ?? undefined,
     frameSize,
     isCropMode,
-    layerPreviewEntries: effectiveLayerPreviewEntries,
+    layerPreviewEntries,
     orientedSourceAspectRatio,
     previewRenderSeed,
+    previewRoi: isCropMode ? null : previewRoi,
     selectedAsset,
     shouldRenderLayerComposite,
     showOriginal,
@@ -325,10 +314,58 @@ export function EditorPreviewCard() {
   useHistogramSync({
     canvasRef: previewRenderPipeline.canvasRef,
     onHistogramChange: setPreviewHistogram,
+    onWaveformChange: setPreviewWaveform,
     renderVersion: previewRenderPipeline.renderVersion,
     selectedAsset,
     usesOriginalImageElement,
   });
+
+  const activeMaskOverlayAdjustment = useMemo(() => {
+    if (
+      activeToolPanelId !== "mask" ||
+      !previewAdjustments ||
+      showOriginal ||
+      isCropMode
+    ) {
+      return null;
+    }
+    const localAdjustments = previewAdjustments.localAdjustments ?? [];
+    if (localAdjustments.length === 0) {
+      return null;
+    }
+    const targetId = selectedLocalAdjustmentId ?? localAdjustments[0]?.id ?? null;
+    return targetId ? localAdjustments.find((item) => item.id === targetId) ?? null : null;
+  }, [
+    activeToolPanelId,
+    isCropMode,
+    previewAdjustments,
+    selectedLocalAdjustmentId,
+    showOriginal,
+  ]);
+
+  useEffect(() => {
+    const overlayCanvas = previewRenderPipeline.overlayCanvasRef.current;
+    if (!overlayCanvas || frameSize.width <= 0 || frameSize.height <= 0) {
+      return;
+    }
+    drawLocalMaskOverlay({
+      canvas: overlayCanvas,
+      frameWidth: frameSize.width,
+      frameHeight: frameSize.height,
+      localAdjustment: activeMaskOverlayAdjustment,
+      previewRoi: usesOriginalImageElement ? null : previewRoi,
+      previewState: brushMaskPainting.previewState,
+    });
+  }, [
+    activeMaskOverlayAdjustment,
+    brushMaskPainting.previewState,
+    frameSize.height,
+    frameSize.width,
+    previewRenderPipeline.overlayCanvasRef,
+    previewRenderPipeline.renderVersion,
+    previewRoi,
+    usesOriginalImageElement,
+  ]);
 
   const perspectiveAssist = usePerspectiveAssist({
     adjustments: previewAdjustments,
@@ -421,6 +458,8 @@ export function EditorPreviewCard() {
     selectedAsset,
     isCropMode,
     viewScale,
+    cycleCropGuideMode,
+    rotateCropGuide,
     toggleOriginal,
     handleUndo,
     handleRedo,
@@ -516,8 +555,10 @@ export function EditorPreviewCard() {
     event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
-  const previewScale = isCropMode ? 1 : viewScale;
-  const previewOffset = isCropMode ? { x: 0, y: 0 } : viewOffset;
+  const usesRenderedPreviewRoi = Boolean(previewRoi) && !usesOriginalImageElement && !isCropMode;
+  const previewScale = isCropMode || usesRenderedPreviewRoi ? 1 : viewScale;
+  const previewOffset =
+    isCropMode || usesRenderedPreviewRoi ? { x: 0, y: 0 } : viewOffset;
 
   return (
     <div className="relative h-full min-h-[300px] w-full">
@@ -592,7 +633,7 @@ export function EditorPreviewCard() {
             }}
           >
             <div
-              className="h-full w-full"
+              className="relative h-full w-full"
               style={{
                 transform: `translate3d(${previewOffset.x}px, ${previewOffset.y}px, 0) scale(${previewScale})`,
                 transformOrigin: "center",
@@ -615,6 +656,13 @@ export function EditorPreviewCard() {
                   />
                 )
               ) : null}
+              <canvas
+                ref={previewRenderPipeline.overlayCanvasRef}
+                className={cn(
+                  "pointer-events-none absolute inset-0 h-full w-full",
+                  (!activeMaskOverlayAdjustment || usesOriginalImageElement) && "hidden"
+                )}
+              />
             </div>
 
             {perspectiveAssist.guidedOverlayVisible && (
@@ -695,6 +743,8 @@ export function EditorPreviewCard() {
                 frameWidth={frameSize.width}
                 frameHeight={frameSize.height}
                 activeCropDragMode={cropInteraction.activeCropDragMode}
+                cropGuideMode={cropGuideMode}
+                cropGuideRotation={cropGuideRotation}
                 onPointerDown={cropInteraction.handleCropPointerDown}
                 onPointerMove={cropInteraction.handleCropPointerMove}
                 onPointerUp={cropInteraction.handleCropPointerUp}

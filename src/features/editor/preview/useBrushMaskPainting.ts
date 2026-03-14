@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { PreviewRoi } from "@/lib/previewRoi";
+import { mapPreviewPointToImageCoordinates } from "@/lib/previewRoi";
 import type { EditingAdjustments, LocalAdjustment, LocalBrushMask } from "@/types";
 import type { BrushStrokePoint } from "./contracts";
 import type { PreviewInteractionSampler } from "./interactionPerformance";
@@ -17,6 +19,7 @@ export interface UseBrushMaskPaintingInput {
   selectedLocalAdjustmentId: string | null;
   pointColorPicking: boolean;
   isCropMode: boolean;
+  previewRoi: PreviewRoi | null;
   showOriginal: boolean;
   commitAdjustmentPatch: (historyKey: string, partial: Partial<EditingAdjustments>) => boolean;
   performanceSampler: PreviewInteractionSampler;
@@ -68,6 +71,7 @@ export function useBrushMaskPainting({
   selectedLocalAdjustmentId,
   pointColorPicking,
   isCropMode,
+  previewRoi,
   showOriginal,
   commitAdjustmentPatch,
   performanceSampler,
@@ -162,6 +166,7 @@ export function useBrushMaskPainting({
       if (!pointer) {
         return;
       }
+      const mappedPointer = mapPreviewPointToImageCoordinates(pointer, previewRoi);
       performanceSampler.start();
       const basePoints = activeBrushMask.mask.points.map((point) => ({
         x: point.x,
@@ -171,9 +176,9 @@ export function useBrushMaskPainting({
       const nextPoints = [
         ...basePoints,
         {
-          x: pointer.x,
-          y: pointer.y,
-          pressure: pointer.pressure,
+          x: mappedPointer.x,
+          y: mappedPointer.y,
+          pressure: mappedPointer.pressure,
         },
       ];
       brushPaintSessionRef.current = {
@@ -192,7 +197,14 @@ export function useBrushMaskPainting({
       event.stopPropagation();
       event.currentTarget.setPointerCapture(event.pointerId);
     },
-    [activeBrushMask, brushPaintEnabled, flushBrushPreview, performanceSampler, setPreviewState]
+    [
+      activeBrushMask,
+      brushPaintEnabled,
+      flushBrushPreview,
+      performanceSampler,
+      previewRoi,
+      setPreviewState,
+    ]
   );
 
   const handleBrushPointerMove = useCallback(
@@ -205,12 +217,13 @@ export function useBrushMaskPainting({
       if (!pointer) {
         return;
       }
+      const mappedPointer = mapPreviewPointToImageCoordinates(pointer, previewRoi);
       const lastPoint = session.points[session.points.length - 1];
       if (!lastPoint) {
         return;
       }
-      const dx = pointer.x - lastPoint.x;
-      const dy = pointer.y - lastPoint.y;
+      const dx = mappedPointer.x - lastPoint.x;
+      const dy = mappedPointer.y - lastPoint.y;
       const distance = Math.hypot(dx, dy);
       if (distance < 0.0018) {
         return;
@@ -221,7 +234,7 @@ export function useBrushMaskPainting({
         session.points.push({
           x: lastPoint.x + dx * t,
           y: lastPoint.y + dy * t,
-          pressure: pointer.pressure,
+          pressure: mappedPointer.pressure,
         });
       }
       setPreviewState({
@@ -234,7 +247,7 @@ export function useBrushMaskPainting({
       event.preventDefault();
       event.stopPropagation();
     },
-    [flushBrushPreview, setPreviewState]
+    [flushBrushPreview, previewRoi, setPreviewState]
   );
 
   const handleBrushPointerUp = useCallback(
