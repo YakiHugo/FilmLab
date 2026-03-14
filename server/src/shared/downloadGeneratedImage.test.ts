@@ -127,4 +127,32 @@ describe("downloadGeneratedImage", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("allows fake-ip provider image hosts in development", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    lookupMock.mockResolvedValue([
+      {
+        address: "198.18.1.8",
+        family: 4,
+      },
+    ]);
+
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValue(
+      new Response(new Uint8Array([7, 8, 9]), {
+        status: 200,
+        headers: {
+          "content-type": "image/png",
+          "content-length": "3",
+        },
+      })
+    );
+
+    const { downloadGeneratedImage } = await import("./downloadGeneratedImage");
+    const result = await downloadGeneratedImage("https://cdn.example.com/image.png");
+
+    expect(result.mimeType).toBe("image/png");
+    expect(Array.from(result.buffer)).toEqual([7, 8, 9]);
+  });
 });
