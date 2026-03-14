@@ -4,6 +4,10 @@ import { applyTimestampOverlay } from "@/lib/timestampOverlay";
 import { clamp } from "@/lib/math";
 import { getRendererRuntimeConfig } from "@/lib/renderer/config";
 import { createTilePlan } from "@/lib/renderer/gpu/TiledRenderer";
+import {
+  resolveViewportRenderRegion,
+  type ViewportRoi,
+} from "@/lib/renderer/viewportRegion";
 import type {
   EditingAdjustments,
   LocalAdjustment,
@@ -291,7 +295,7 @@ interface RenderTargetSize {
 
 export type RenderQualityProfile = "interactive" | "full";
 
-interface RenderImageOptions {
+export interface RenderImageOptions {
   canvas: HTMLCanvasElement;
   source: Blob | string;
   adjustments: EditingAdjustments;
@@ -309,6 +313,7 @@ interface RenderImageOptions {
   strictErrors?: boolean;
   sourceCacheKey?: string;
   renderSlot?: string;
+  viewportRoi?: ViewportRoi | null;
 }
 
 const hashSeedKey = (seedKey: string) => {
@@ -894,6 +899,10 @@ const createGeometryKey = (params: {
   cropHeight: number;
   outputWidth: number;
   outputHeight: number;
+  fullOutputWidth?: number;
+  fullOutputHeight?: number;
+  outputOffsetX?: number;
+  outputOffsetY?: number;
   rotate: number;
   perspectiveEnabled: boolean;
   perspectiveHorizontal: number;
@@ -922,6 +931,10 @@ const createGeometryKey = (params: {
     toNumberKey(params.cropHeight, 3),
     toNumberKey(params.outputWidth, 0),
     toNumberKey(params.outputHeight, 0),
+    toNumberKey(params.fullOutputWidth ?? params.outputWidth, 0),
+    toNumberKey(params.fullOutputHeight ?? params.outputHeight, 0),
+    toNumberKey(params.outputOffsetX ?? 0, 0),
+    toNumberKey(params.outputOffsetY ?? 0, 0),
     toNumberKey(params.rotate, 3),
     params.perspectiveEnabled ? "p:1" : "p:0",
     toNumberKey(params.perspectiveHorizontal, 3),
@@ -964,13 +977,19 @@ const createGeometryUniforms = (params: {
   sourceHeight: number;
   outputWidth: number;
   outputHeight: number;
+  fullOutputWidth?: number;
+  fullOutputHeight?: number;
+  outputOffsetX?: number;
+  outputOffsetY?: number;
   adjustments: EditingAdjustments;
 }): GeometryUniforms => {
   const sourceWidth = Math.max(1, params.sourceWidth);
   const sourceHeight = Math.max(1, params.sourceHeight);
   const outputWidth = Math.max(1, params.outputWidth);
   const outputHeight = Math.max(1, params.outputHeight);
-  const transform = resolveTransform(params.adjustments, outputWidth, outputHeight);
+  const fullOutputWidth = Math.max(1, params.fullOutputWidth ?? outputWidth);
+  const fullOutputHeight = Math.max(1, params.fullOutputHeight ?? outputHeight);
+  const transform = resolveTransform(params.adjustments, fullOutputWidth, fullOutputHeight);
   const perspectiveHorizontal = params.adjustments.perspectiveHorizontal ?? 0;
   const perspectiveVertical = params.adjustments.perspectiveVertical ?? 0;
   const perspectiveEnabled = Boolean(params.adjustments.perspectiveEnabled);
@@ -1006,7 +1025,10 @@ const createGeometryUniforms = (params: {
     ],
     sourceSize: [sourceWidth, sourceHeight],
     outputSize: [outputWidth, outputHeight],
-    translatePx: [transform.translateX, transform.translateY],
+    translatePx: [
+      transform.translateX - (params.outputOffsetX ?? 0),
+      transform.translateY - (params.outputOffsetY ?? 0),
+    ],
     rotate: transform.rotate,
     perspectiveEnabled,
     homography,
@@ -1125,6 +1147,18 @@ const getRenderManager = async () => {
     _renderManagerInstance = new modules.RenderManager();
   }
   return _renderManagerInstance;
+};
+
+export const releaseRenderSlots = async (
+  mode: RenderMode,
+  slotPrefix?: string
+) => {
+  const renderManager = await getRenderManager();
+  if (slotPrefix?.trim()) {
+    renderManager.disposeBySlotPrefix(mode, slotPrefix);
+    return;
+  }
+  renderManager.dispose(mode);
 };
 
 /**
@@ -1594,19 +1628,30 @@ const drawLocalMaskShape = (
   context: CanvasRenderingContext2D,
   mask: LocalAdjustmentMask,
   width: number,
-  height: number
+  height: number,
+  options?: {
+    fullWidth?: number;
+    fullHeight?: number;
+    offsetX?: number;
+    offsetY?: number;
+  }
 ) => {
+  const fullWidth = Math.max(1, options?.fullWidth ?? width);
+  const fullHeight = Math.max(1, options?.fullHeight ?? height);
+  const offsetX = options?.offsetX ?? 0;
+  const offsetY = options?.offsetY ?? 0;
+
   if (mask.mode === "brush") {
-    const minDimension = Math.max(1, Math.min(width, height));
-    const brushSizePx = Math.max(1, Math.max(0.005, mask.brushSize) * minDimension);
+    const minDimension = Math.max(1, Math.min(fullWidth, fullHeight));
+    const brushSizePx = Math.max(1, clamp(mask.brushSize, 0.005, 0.25) * minDimension);
     const feather = clamp(mask.feather, 0, 1);
     const flow = clamp(mask.flow, 0.05, 1);
     if (mask.points.length === 0) {
       return;
     }
     for (const point of mask.points) {
-      const px = point.x * width;
-      const py = point.y * height;
+      const px = clamp(point.x, 0, 1) * fullWidth - offsetX;
+      const py = clamp(point.y, 0, 1) * fullHeight - offsetY;
       const pressure = clamp(point.pressure ?? 1, 0.1, 1);
       const radius = Math.max(1, brushSizePx * pressure);
       if (feather <= 0.001) {
@@ -1626,10 +1671,10 @@ const drawLocalMaskShape = (
     return;
   }
   if (mask.mode === "radial") {
-    const centerX = mask.centerX * width;
-    const centerY = mask.centerY * height;
-    const radiusX = Math.max(1, Math.max(0.01, mask.radiusX) * width);
-    const radiusY = Math.max(1, Math.max(0.01, mask.radiusY) * height);
+    const centerX = clamp(mask.centerX, 0, 1) * fullWidth - offsetX;
+    const centerY = clamp(mask.centerY, 0, 1) * fullHeight - offsetY;
+    const radiusX = Math.max(1, clamp(mask.radiusX, 0.01, 1) * fullWidth);
+    const radiusY = Math.max(1, clamp(mask.radiusY, 0.01, 1) * fullHeight);
     const feather = clamp(mask.feather, 0, 1);
 
     context.save();
@@ -1652,10 +1697,10 @@ const drawLocalMaskShape = (
     return;
   }
 
-  const startX = mask.startX * width;
-  const startY = mask.startY * height;
-  const endX = mask.endX * width;
-  let endY = mask.endY * height;
+  const startX = clamp(mask.startX, 0, 1) * fullWidth - offsetX;
+  const startY = clamp(mask.startY, 0, 1) * fullHeight - offsetY;
+  const endX = clamp(mask.endX, 0, 1) * fullWidth - offsetX;
+  let endY = clamp(mask.endY, 0, 1) * fullHeight - offsetY;
   if ((endX - startX) * (endX - startX) + (endY - startY) * (endY - startY) < 1e-6) {
     endY += 1;
   }
@@ -1846,7 +1891,13 @@ const buildLocalMask = (
   local: LocalAdjustment,
   width: number,
   height: number,
-  referenceContext?: CanvasRenderingContext2D
+  referenceContext?: CanvasRenderingContext2D,
+  options?: {
+    fullWidth?: number;
+    fullHeight?: number;
+    offsetX?: number;
+    offsetY?: number;
+  }
 ): HTMLCanvasElement => {
   const maskCanvas = getLocalMaskCanvas(frameState);
   ensureCanvasSize(maskCanvas, width, height);
@@ -1865,10 +1916,10 @@ const buildLocalMask = (
     context.fillStyle = "rgba(255,255,255,1)";
     context.fillRect(0, 0, width, height);
     context.globalCompositeOperation = "destination-out";
-    drawLocalMaskShape(context, local.mask, width, height);
+    drawLocalMaskShape(context, local.mask, width, height, options);
     context.globalCompositeOperation = "source-over";
   } else {
-    drawLocalMaskShape(context, local.mask, width, height);
+    drawLocalMaskShape(context, local.mask, width, height, options);
   }
 
   if (amount < 0.999) {
@@ -1891,6 +1942,10 @@ const composeLocalLayer = (params: {
   local: LocalAdjustment;
   width: number;
   height: number;
+  offsetX?: number;
+  offsetY?: number;
+  fullWidth?: number;
+  fullHeight?: number;
 }) => {
   const blendCanvas = getLocalBlendCanvas(params.frameState);
   ensureCanvasSize(blendCanvas, params.width, params.height);
@@ -1904,11 +1959,21 @@ const composeLocalLayer = (params: {
     local: params.local,
     width: params.width,
     height: params.height,
+    offsetX: params.offsetX,
+    offsetY: params.offsetY,
+    fullWidth: params.fullWidth,
+    fullHeight: params.fullHeight,
   });
   blendContext.globalCompositeOperation = "destination-in";
   blendContext.drawImage(maskCanvas, 0, 0, params.width, params.height);
   blendContext.globalCompositeOperation = "source-over";
-  params.outputContext.drawImage(blendCanvas, 0, 0, params.width, params.height);
+  params.outputContext.drawImage(
+    blendCanvas,
+    params.offsetX ?? 0,
+    params.offsetY ?? 0,
+    params.width,
+    params.height
+  );
 };
 
 const prepareLocalMaskCanvas = (params: {
@@ -1917,6 +1982,10 @@ const prepareLocalMaskCanvas = (params: {
   local: LocalAdjustment;
   width: number;
   height: number;
+  offsetX?: number;
+  offsetY?: number;
+  fullWidth?: number;
+  fullHeight?: number;
 }) => {
   const blendCanvas = getLocalBlendCanvas(params.frameState);
   ensureCanvasSize(blendCanvas, params.width, params.height);
@@ -1932,7 +2001,13 @@ const prepareLocalMaskCanvas = (params: {
     params.local,
     params.width,
     params.height,
-    blendContext
+    blendContext,
+    {
+      fullWidth: params.fullWidth,
+      fullHeight: params.fullHeight,
+      offsetX: params.offsetX,
+      offsetY: params.offsetY,
+    }
   );
   return maskCanvas;
 };
@@ -2001,6 +2076,7 @@ export const renderImageToCanvas = async ({
   strictErrors = mode === "export",
   sourceCacheKey,
   renderSlot,
+  viewportRoi,
 }: RenderImageOptions) => {
   const callStartAt = performance.now();
   const runtimeConfig = getRendererRuntimeConfig();
@@ -2024,7 +2100,11 @@ export const renderImageToCanvas = async ({
   const resolvedProfile = resolveRenderProfile(normalizedAdjustments, filmProfile);
   const resolvedSourceCacheKey = resolveSourceCacheKey(source, seedKey, sourceCacheKey);
   const grainSeed = exportSeed ?? renderSeed ?? (seedKey ? hashSeedKey(seedKey) : Date.now());
-  const slotId = mode === "preview" ? "preview-main" : renderSlot ?? "export-main";
+  const slotId = renderSlot?.trim()
+    ? renderSlot
+    : mode === "preview"
+      ? "preview-main"
+      : "export-main";
   const renderManager = await getRenderManager();
   const frameState = renderManager.getFrameState(mode, slotId);
 
@@ -2108,13 +2188,22 @@ export const renderImageToCanvas = async ({
       }
     }
 
-    const nextCanvasWidth = Math.max(1, Math.round(outputWidth));
-    const nextCanvasHeight = Math.max(1, Math.round(outputHeight));
-    if (canvas.width !== nextCanvasWidth) {
-      canvas.width = nextCanvasWidth;
+    const fullOutputWidth = Math.max(1, Math.round(outputWidth));
+    const fullOutputHeight = Math.max(1, Math.round(outputHeight));
+    const viewportRenderRegion =
+      mode === "preview" && !normalizedAdjustments.timestampEnabled
+        ? resolveViewportRenderRegion(fullOutputWidth, fullOutputHeight, viewportRoi)
+        : null;
+    const renderOffsetX = viewportRenderRegion?.x ?? 0;
+    const renderOffsetY = viewportRenderRegion?.y ?? 0;
+    const renderTargetWidth = viewportRenderRegion?.width ?? fullOutputWidth;
+    const renderTargetHeight = viewportRenderRegion?.height ?? fullOutputHeight;
+
+    if (canvas.width !== fullOutputWidth) {
+      canvas.width = fullOutputWidth;
     }
-    if (canvas.height !== nextCanvasHeight) {
-      canvas.height = nextCanvasHeight;
+    if (canvas.height !== fullOutputHeight) {
+      canvas.height = fullOutputHeight;
     }
     const outputContext = canvas.getContext("2d", {
       willReadFrequently: true,
@@ -2131,8 +2220,12 @@ export const renderImageToCanvas = async ({
       cropY,
       cropWidth,
       cropHeight,
-      outputWidth: canvas.width,
-      outputHeight: canvas.height,
+      outputWidth: renderTargetWidth,
+      outputHeight: renderTargetHeight,
+      fullOutputWidth,
+      fullOutputHeight,
+      outputOffsetX: renderOffsetX,
+      outputOffsetY: renderOffsetY,
       rotate: normalizedAdjustments.rotate,
       perspectiveEnabled: Boolean(normalizedAdjustments.perspectiveEnabled),
       perspectiveHorizontal: normalizedAdjustments.perspectiveHorizontal ?? 0,
@@ -2161,7 +2254,8 @@ export const renderImageToCanvas = async ({
       normalizedAdjustments.localAdjustments
     );
     const localAdjustmentsKey = createLocalAdjustmentsKey(activeLocalAdjustments);
-    const useHdrLocalComposition = activeLocalAdjustments.length > 0 && !exportTilePlan;
+    const useHdrLocalComposition =
+      activeLocalAdjustments.length > 0 && !exportTilePlan && !viewportRenderRegion;
 
     const sourceDirty = !incrementalPipeline || frameState.sourceKey !== sourceKey;
     const geometryDirty = !incrementalPipeline || sourceDirty || frameState.geometryKey !== geometryKey;
@@ -2423,28 +2517,32 @@ export const renderImageToCanvas = async ({
       cropHeight,
       sourceWidth: orientedSource.width,
       sourceHeight: orientedSource.height,
-      outputWidth: canvas.width,
-      outputHeight: canvas.height,
+      outputWidth: renderTargetWidth,
+      outputHeight: renderTargetHeight,
+      fullOutputWidth,
+      fullOutputHeight,
+      outputOffsetX: renderOffsetX,
+      outputOffsetY: renderOffsetY,
       adjustments: normalizedAdjustments,
     });
     let uploadKey = createUploadKey({
       sourceKey,
       sourceWidth: orientedSource.width,
       sourceHeight: orientedSource.height,
-      targetWidth: canvas.width,
-      targetHeight: canvas.height,
+      targetWidth: renderTargetWidth,
+      targetHeight: renderTargetHeight,
     });
     let pipelineSource: CanvasImageSource = orientedSource.source;
     let pipelineSourceWidth = orientedSource.width;
     let pipelineSourceHeight = orientedSource.height;
 
-    if (!useGpuGeometryPass) {
+    if (!useGpuGeometryPass || viewportRenderRegion) {
       const geometryCanvas = getGeometryCanvas(frameState);
       const needsCpuGeometryDraw =
         !incrementalPipeline ||
         geometryDirty ||
-        geometryCanvas.width !== canvas.width ||
-        geometryCanvas.height !== canvas.height;
+        geometryCanvas.width !== renderTargetWidth ||
+        geometryCanvas.height !== renderTargetHeight;
       if (needsCpuGeometryDraw) {
         drawGeometryStage({
           geometryCanvas,
@@ -2453,15 +2551,19 @@ export const renderImageToCanvas = async ({
           cropY,
           cropWidth,
           cropHeight,
-          outputWidth: canvas.width,
-          outputHeight: canvas.height,
+          outputWidth: renderTargetWidth,
+          outputHeight: renderTargetHeight,
+          fullOutputWidth,
+          fullOutputHeight,
+          outputOffsetX: renderOffsetX,
+          outputOffsetY: renderOffsetY,
           adjustments: normalizedAdjustments,
           qualityProfile,
         });
       }
       const passthroughGeometryUniforms = createPassthroughGeometryUniforms(
-        canvas.width,
-        canvas.height
+        renderTargetWidth,
+        renderTargetHeight
       );
       applyOpticsToPassthroughGeometryUniforms(passthroughGeometryUniforms, geometryUniforms);
       geometryUniforms = passthroughGeometryUniforms;
@@ -2491,8 +2593,8 @@ export const renderImageToCanvas = async ({
         geometryUniforms,
         sourceWidth: pipelineSourceWidth,
         sourceHeight: pipelineSourceHeight,
-        targetWidth: canvas.width,
-        targetHeight: canvas.height,
+        targetWidth: renderTargetWidth,
+        targetHeight: renderTargetHeight,
         uploadKey,
         sourceKey,
         geometryKey,
@@ -2526,8 +2628,24 @@ export const renderImageToCanvas = async ({
       const composeStartAt = performance.now();
       if (pipelineResult.rendered || outputDirty) {
         const composeLocalWithCanvas = async () => {
-          outputContext.clearRect(0, 0, canvas.width, canvas.height);
-          outputContext.drawImage(pipelineResult.canvas, 0, 0, canvas.width, canvas.height);
+          if (viewportRenderRegion) {
+            outputContext.clearRect(
+              renderOffsetX,
+              renderOffsetY,
+              renderTargetWidth,
+              renderTargetHeight
+            );
+            outputContext.drawImage(
+              pipelineResult.canvas,
+              renderOffsetX,
+              renderOffsetY,
+              renderTargetWidth,
+              renderTargetHeight
+            );
+          } else {
+            outputContext.clearRect(0, 0, canvas.width, canvas.height);
+            outputContext.drawImage(pipelineResult.canvas, 0, 0, canvas.width, canvas.height);
+          }
 
           for (let localIndex = 0; localIndex < activeLocalAdjustments.length; localIndex += 1) {
             const local = activeLocalAdjustments[localIndex]!;
@@ -2549,8 +2667,8 @@ export const renderImageToCanvas = async ({
                 geometryUniforms,
                 sourceWidth: pipelineSourceWidth,
                 sourceHeight: pipelineSourceHeight,
-                targetWidth: canvas.width,
-                targetHeight: canvas.height,
+                targetWidth: renderTargetWidth,
+                targetHeight: renderTargetHeight,
                 uploadKey,
                 sourceKey,
                 geometryKey,
@@ -2573,8 +2691,12 @@ export const renderImageToCanvas = async ({
                 frameState,
                 layerCanvas: localResult.canvas,
                 local,
-                width: canvas.width,
-                height: canvas.height,
+                width: renderTargetWidth,
+                height: renderTargetHeight,
+                offsetX: renderOffsetX,
+                offsetY: renderOffsetY,
+                fullWidth: canvas.width,
+                fullHeight: canvas.height,
               });
             } catch (localRenderError) {
               if (strictErrors) {
@@ -2722,10 +2844,31 @@ export const renderImageToCanvas = async ({
         frameState.outputKey
       ) {
         try {
-          const previewRenderer = renderManager.getRenderer(mode, canvas.width, canvas.height, slotId);
+          const previewRenderer = renderManager.getRenderer(
+            mode,
+            renderTargetWidth,
+            renderTargetHeight,
+            slotId
+          );
           const composeStartAt = performance.now();
-          outputContext.clearRect(0, 0, canvas.width, canvas.height);
-          outputContext.drawImage(previewRenderer.canvas, 0, 0, canvas.width, canvas.height);
+          if (viewportRenderRegion) {
+            outputContext.clearRect(
+              renderOffsetX,
+              renderOffsetY,
+              renderTargetWidth,
+              renderTargetHeight
+            );
+            outputContext.drawImage(
+              previewRenderer.canvas,
+              renderOffsetX,
+              renderOffsetY,
+              renderTargetWidth,
+              renderTargetHeight
+            );
+          } else {
+            outputContext.clearRect(0, 0, canvas.width, canvas.height);
+            outputContext.drawImage(previewRenderer.canvas, 0, 0, canvas.width, canvas.height);
+          }
           applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
           timings.composeMs = performance.now() - composeStartAt;
           timings.totalMs = performance.now() - callStartAt;
@@ -2758,13 +2901,28 @@ export const renderImageToCanvas = async ({
         cropY,
         cropWidth,
         cropHeight,
-        outputWidth: canvas.width,
-        outputHeight: canvas.height,
+        outputWidth: renderTargetWidth,
+        outputHeight: renderTargetHeight,
+        fullOutputWidth,
+        fullOutputHeight,
+        outputOffsetX: renderOffsetX,
+        outputOffsetY: renderOffsetY,
         adjustments: normalizedAdjustments,
         qualityProfile,
       });
-      outputContext.clearRect(0, 0, canvas.width, canvas.height);
-      outputContext.drawImage(fallbackGeometryCanvas, 0, 0, canvas.width, canvas.height);
+      if (viewportRenderRegion) {
+        outputContext.clearRect(renderOffsetX, renderOffsetY, renderTargetWidth, renderTargetHeight);
+        outputContext.drawImage(
+          fallbackGeometryCanvas,
+          renderOffsetX,
+          renderOffsetY,
+          renderTargetWidth,
+          renderTargetHeight
+        );
+      } else {
+        outputContext.clearRect(0, 0, canvas.width, canvas.height);
+        outputContext.drawImage(fallbackGeometryCanvas, 0, 0, canvas.width, canvas.height);
+      }
       applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
       frameState.outputKey = createOutputKey({
         canvas,
