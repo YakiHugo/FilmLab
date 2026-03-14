@@ -332,30 +332,53 @@ const hydrateBrushMaskBlobs = async (
 
   let changed = false;
   const nextLocals = await Promise.all(
-    adjustments.localAdjustments.map(async (local) => {
-      if (
-        local.mask.mode !== "brush" ||
-        !local.mask.pointsBlobId ||
-        (local.mask.points?.length ?? 0) > 0
-      ) {
+    adjustments.localAdjustments.map(async (local, index) => {
+      try {
+        const mask =
+          local &&
+          typeof local === "object" &&
+          "mask" in local &&
+          local.mask &&
+          typeof local.mask === "object"
+            ? (local.mask as {
+                mode?: unknown;
+                pointsBlobId?: unknown;
+                points?: unknown;
+              })
+            : undefined;
+
+        if (
+          mask?.mode !== "brush" ||
+          typeof mask.pointsBlobId !== "string" ||
+          mask.pointsBlobId.length === 0 ||
+          (Array.isArray(mask.points) && mask.points.length > 0)
+        ) {
+          return local;
+        }
+
+        const blobRecord = await db.get("localMaskBlobs", mask.pointsBlobId);
+        if (!blobRecord?.blob) {
+          return local;
+        }
+        const points = await parseBrushPointsFromBlob(blobRecord.blob);
+        if (!points || points.length === 0) {
+          return local;
+        }
+        changed = true;
+        return {
+          ...local,
+          mask: {
+            ...local.mask,
+            points,
+          },
+        };
+      } catch (error) {
+        console.warn(
+          `IndexedDB hydrateBrushMaskBlobs skipped invalid local adjustment at index ${index}.`,
+          error
+        );
         return local;
       }
-      const blobRecord = await db.get("localMaskBlobs", local.mask.pointsBlobId);
-      if (!blobRecord?.blob) {
-        return local;
-      }
-      const points = await parseBrushPointsFromBlob(blobRecord.blob);
-      if (!points || points.length === 0) {
-        return local;
-      }
-      changed = true;
-      return {
-        ...local,
-        mask: {
-          ...local.mask,
-          points,
-        },
-      };
     })
   );
 
@@ -417,10 +440,17 @@ export async function loadAssets() {
   try {
     const assets = await db.getAll("assets");
     return Promise.all(
-      assets.map(async (asset) => ({
-        ...asset,
-        adjustments: await hydrateBrushMaskBlobs(db, asset.adjustments),
-      }))
+      assets.map(async (asset) => {
+        try {
+          return {
+            ...asset,
+            adjustments: await hydrateBrushMaskBlobs(db, asset.adjustments),
+          };
+        } catch (error) {
+          console.warn(`IndexedDB loadAssets skipped hydration for asset ${asset.id}.`, error);
+          return asset;
+        }
+      })
     );
   } catch (error) {
     console.warn("IndexedDB loadAssets failed:", error);
