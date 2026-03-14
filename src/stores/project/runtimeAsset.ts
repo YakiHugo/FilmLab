@@ -64,7 +64,6 @@ export const materializeStoredAsset = (
       metadata: stored.metadata,
       adjustments: resolveBaseAdjustmentsFromLayers(normalizedLayers, normalizedAdjustments),
       layers: normalizedLayers,
-      aiRecommendation: stored.aiRecommendation,
       source: stored.source,
       origin: stored.origin ?? "file",
       contentHash: stored.contentHash,
