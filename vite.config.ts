@@ -46,6 +46,9 @@ function resolveManualChunk(id: string) {
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    entries: ["index.html"],
+  },
   server: {
     proxy: {
       "/api": {
