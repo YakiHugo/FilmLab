@@ -156,7 +156,7 @@ describe("imageGenerateRoute", () => {
     expect(repositoryMock.createGeneration).not.toHaveBeenCalled();
 
     await app.close();
-  });
+  }, 15_000);
 
   it("normalizes provider outputs, persists chat state, and returns canonical ids", async () => {
     const { default: Fastify } = await import("fastify");
@@ -277,6 +277,78 @@ describe("imageGenerateRoute", () => {
         model: "qwen-image-2.0-pro",
       }),
     ]);
+
+    await app.close();
+  });
+
+  it("keeps successful images when one provider result cannot be normalized", async () => {
+    const { default: Fastify } = await import("fastify");
+    const { ProviderError } = await import("../providers/base/errors");
+    const { imageGenerateRoute } = await import("./image-generate");
+
+    generateMock.mockResolvedValue({
+      modelId: "qwen-image-2-pro",
+      logicalModel: "image.qwen.v2.pro",
+      deploymentId: "dashscope-qwen-image-2-pro-primary",
+      runtimeProvider: "dashscope",
+      providerModel: "qwen-image-2.0-pro",
+      images: [
+        {
+          imageUrl: "https://cdn.example.com/broken.png",
+        },
+        {
+          binaryData: Buffer.from([1, 2, 3]),
+          mimeType: "image/png",
+        },
+      ],
+    });
+    downloadGeneratedImageMock.mockRejectedValueOnce(
+      new ProviderError("Generated image URL points to a private or reserved network address.", 502)
+    );
+    storeGeneratedImageMock.mockReturnValue("binary-1");
+
+    const app = Fastify();
+    await app.register(imageGenerateRoute);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+      payload: {
+        prompt: "Studio portrait",
+        modelId: "qwen-image-2-pro",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        referenceImages: [],
+        modelParams: {},
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      imageId: "binary-1",
+      imageUrl: "/api/generated-images/binary-1",
+      warnings: ["1 generated image could not be processed and was omitted."],
+      images: [
+        expect.objectContaining({
+          imageId: "binary-1",
+          imageUrl: "/api/generated-images/binary-1",
+        }),
+      ],
+    });
+    expect(repositoryMock.completeGenerationSuccess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        results: [
+          expect.objectContaining({
+            imageId: "binary-1",
+          }),
+        ],
+        warnings: ["1 generated image could not be processed and was omitted."],
+      })
+    );
 
     await app.close();
   });

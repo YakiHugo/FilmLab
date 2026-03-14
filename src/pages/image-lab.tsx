@@ -215,9 +215,16 @@ export function ImageLabPage() {
       return;
     }
 
-    clearSession();
-    setDownloadFeedback(null);
-    setExternalPrompt(null);
+    void clearSession()
+      .then(() => {
+        setDownloadFeedback(null);
+        setExternalPrompt(null);
+      })
+      .catch((error: unknown) => {
+        setDownloadFeedback(
+          error instanceof Error ? error.message : "Generation history could not be cleared."
+        );
+      });
   }, [clearSession]);
 
   if (imageGeneration.isCatalogLoading) {

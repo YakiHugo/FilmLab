@@ -31,6 +31,10 @@ const createId = (prefix: string) => {
 };
 
 const cloneSnapshot = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+const formatNormalizationWarning = (count: number) =>
+  `${count} generated image${count === 1 ? "" : "s"} could not be processed and ${
+    count === 1 ? "was" : "were"
+  } omitted.`;
 
 const createRunTargetSnapshot = (input: PersistedRunTargetSnapshot): PersistedRunTargetSnapshot => ({
   modelId: input.modelId,
@@ -350,10 +354,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         const generated = await imageRuntimeRouter.generate(routedRequest, {
           signal: requestController.signal,
         });
-        const capabilityWarnings = getImageGenerationCapabilityWarnings(payload);
-        const mergedWarnings = [...capabilityWarnings, ...(generated.warnings ?? [])];
-
-        const normalizedResults = await Promise.all(
+        const normalizedSettledResults = await Promise.allSettled(
           generated.images.map(async (image, index) => {
             const normalized = await toGeneratedImageUrl(image);
             if (!normalized) {
@@ -369,6 +370,34 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             };
           })
         );
+        const normalizedResults: Array<{
+          resultId: string;
+          imageId: string;
+          imageUrl: string;
+          mimeType?: string;
+          revisedPrompt: string | null;
+          index: number;
+        } | null> = [];
+        let normalizationFailureCount = 0;
+        let firstNormalizationError: unknown = null;
+
+        normalizedSettledResults.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            normalizedResults.push(result.value);
+            return;
+          }
+
+          normalizationFailureCount += 1;
+          firstNormalizationError ??= result.reason;
+          app.log.warn(
+            {
+              err: result.reason,
+              imageIndex: index,
+              conversationId: persistedGeneration?.conversationId ?? null,
+            },
+            "Generated image result could not be normalized."
+          );
+        });
         const normalizedImages = normalizedResults.reduce<
           Array<{
             resultId: string;
@@ -401,7 +430,16 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         const firstImageId = normalizedImages[0]?.imageId;
 
         if (!firstImageUrl) {
+          if (firstNormalizationError) {
+            throw firstNormalizationError;
+          }
           throw new ProviderError("Provider did not return any image.");
+        }
+
+        const capabilityWarnings = getImageGenerationCapabilityWarnings(payload);
+        const mergedWarnings = [...capabilityWarnings, ...(generated.warnings ?? [])];
+        if (normalizationFailureCount > 0) {
+          mergedWarnings.push(formatNormalizationWarning(normalizationFailureCount));
         }
 
         const completedAt = new Date().toISOString();
@@ -569,6 +607,12 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           ...(mergedWarnings.length > 0 ? { warnings: mergedWarnings } : {}),
         });
       } catch (error) {
+        const failureMessage = requestController.signal.aborted
+          ? "Image generation was canceled."
+          : error instanceof Error
+            ? error.message
+            : "Image generation failed.";
+
         if (persistedGeneration) {
           try {
             await repository.completeGenerationFailure({
@@ -577,12 +621,16 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
               jobId: persistedGeneration.jobId,
               runId: persistedGeneration.runId,
               attemptId: persistedGeneration.attemptId,
-              error: error instanceof Error ? error.message : "Image generation failed.",
+              error: failureMessage,
               completedAt: new Date().toISOString(),
             });
           } catch (persistenceError) {
             app.log.error(persistenceError);
           }
+        }
+
+        if (requestController.signal.aborted || reply.raw.destroyed) {
+          return reply;
         }
 
         if (error instanceof ProviderError) {

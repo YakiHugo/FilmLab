@@ -6,7 +6,7 @@ export const registerCors: FastifyPluginAsync = async (app) => {
   const config = getConfig();
   await app.register(cors, {
     origin: config.corsOrigin,
-    methods: ["GET", "POST", "OPTIONS"],
+    methods: ["GET", "POST", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   });
 };

@@ -30,4 +30,27 @@ describe("registerCors", () => {
 
     await app.close();
   });
+
+  it("allows DELETE preflight requests for conversation mutation routes", async () => {
+    const { default: Fastify } = await import("fastify");
+    const { registerCors } = await import("./cors");
+
+    const app = Fastify();
+    await app.register(registerCors);
+    app.delete("/probe", async () => ({ ok: true }));
+
+    const response = await app.inject({
+      method: "OPTIONS",
+      url: "/probe",
+      headers: {
+        origin: "http://localhost:5173",
+        "access-control-request-method": "DELETE",
+      },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.headers["access-control-allow-methods"]).toContain("DELETE");
+
+    await app.close();
+  });
 });

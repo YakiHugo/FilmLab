@@ -1,10 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const { lookupMock } = vi.hoisted(() => ({
+  lookupMock: vi.fn(),
+}));
+
+vi.mock("node:dns/promises", () => ({
+  default: {
+    lookup: lookupMock,
+  },
+}));
+
 describe("downloadGeneratedImage", () => {
   beforeEach(() => {
     vi.resetModules();
     process.env.PROVIDER_REQUEST_TIMEOUT_MS = "1000";
     delete process.env.GENERATED_IMAGE_DOWNLOAD_MAX_MB;
+    lookupMock.mockReset();
+    lookupMock.mockResolvedValue([
+      {
+        address: "93.184.216.34",
+        family: 4,
+      },
+    ]);
   });
 
   afterEach(() => {
@@ -72,5 +89,42 @@ describe("downloadGeneratedImage", () => {
       message: "Generated image is too large to cache.",
       statusCode: 413,
     });
+  });
+
+  it("rejects redirect targets that resolve to private network addresses", async () => {
+    lookupMock.mockImplementation(async (hostname: string) =>
+      hostname === "internal.example"
+        ? [
+            {
+              address: "127.0.0.1",
+              family: 4,
+            },
+          ]
+        : [
+            {
+              address: "93.184.216.34",
+              family: 4,
+            },
+          ]
+    );
+
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValue(
+      new Response(null, {
+        status: 302,
+        headers: {
+          location: "https://internal.example/image.png",
+        },
+      })
+    );
+
+    const { downloadGeneratedImage } = await import("./downloadGeneratedImage");
+
+    await expect(downloadGeneratedImage("https://example.com/image.png")).rejects.toMatchObject({
+      message: "Generated image URL points to a private or reserved network address.",
+      statusCode: 502,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

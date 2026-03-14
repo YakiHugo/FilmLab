@@ -133,6 +133,11 @@ const pollKlingTask = async (
   const deadline = Date.now() + context.timeoutMs;
 
   while (Date.now() <= deadline) {
+    const remainingTimeoutMs = deadline - Date.now();
+    if (remainingTimeoutMs <= 0) {
+      break;
+    }
+
     const pollResponse = await fetchProviderResponse(
       `${getKlingImageGenerationUrl()}/${taskId}`,
       {
@@ -142,7 +147,10 @@ const pollKlingTask = async (
         },
       },
       "Kling image generation timed out.",
-      context
+      {
+        ...context,
+        timeoutMs: remainingTimeoutMs,
+      }
     );
 
     if (!pollResponse.ok) {
@@ -172,7 +180,7 @@ const pollKlingTask = async (
       );
     }
 
-    await waitForPoll(context.signal, POLL_INTERVAL_MS);
+    await waitForPoll(context.signal, Math.min(POLL_INTERVAL_MS, remainingTimeoutMs));
   }
 
   throw new ProviderError("Kling image generation timed out.", 504);

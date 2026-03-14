@@ -4,41 +4,26 @@ import { ProviderError } from "../providers/base/errors";
 const isAbortError = (error: unknown) =>
   error instanceof Error && error.name === "AbortError";
 
-const mergeAbortSignals = (signals: Array<AbortSignal | undefined>) => {
-  const activeSignals = signals.filter(Boolean) as AbortSignal[];
-  if (activeSignals.length <= 1) {
-    return {
-      signal: activeSignals[0],
-      cleanup: () => undefined,
-    };
+const wireAbortSignal = (
+  signal: AbortSignal | undefined,
+  onExternalAbort: () => void
+) => {
+  if (!signal) {
+    return () => undefined;
   }
 
-  const controller = new AbortController();
+  if (signal.aborted) {
+    onExternalAbort();
+    return () => undefined;
+  }
+
   const abort = () => {
-    controller.abort();
+    onExternalAbort();
   };
+  signal.addEventListener("abort", abort, { once: true });
 
-  for (const signal of activeSignals) {
-    if (signal.aborted) {
-      controller.abort();
-      return {
-        signal: controller.signal,
-        cleanup: () => undefined,
-      };
-    }
-  }
-
-  for (const signal of activeSignals) {
-    signal.addEventListener("abort", abort, { once: true });
-  }
-
-  return {
-    signal: controller.signal,
-    cleanup: () => {
-      for (const signal of activeSignals) {
-        signal.removeEventListener("abort", abort);
-      }
-    },
+  return () => {
+    signal.removeEventListener("abort", abort);
   };
 };
 
@@ -49,21 +34,30 @@ export const fetchWithTimeout = async (
   options?: { signal?: AbortSignal; timeoutMs?: number }
 ) => {
   const controller = new AbortController();
+  let abortedByTimeout = false;
+  let abortedByExternalSignal = false;
   const timeoutId = setTimeout(() => {
+    abortedByTimeout = true;
     controller.abort();
   }, options?.timeoutMs ?? getConfig().providerRequestTimeoutMs);
-  const { signal, cleanup } = mergeAbortSignals([controller.signal, options?.signal]);
+  const cleanup = wireAbortSignal(options?.signal, () => {
+    abortedByExternalSignal = true;
+    controller.abort();
+  });
 
   try {
     return await fetch(input, {
       ...init,
-      signal,
+      signal: controller.signal,
     });
   } catch (error) {
     if (error instanceof ProviderError) {
       throw error;
     }
     if (isAbortError(error)) {
+      if (abortedByExternalSignal && !abortedByTimeout) {
+        throw error;
+      }
       throw new ProviderError(timeoutMessage, 504, error);
     }
     throw new ProviderError("Provider request failed.", 502, error);
