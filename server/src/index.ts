@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from "fastify";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createChatStateRepository } from "./chat/persistence/repository";
 import { assertStartupConfig, getConfig } from "./config";
@@ -86,7 +87,7 @@ const isEntryPoint = (() => {
     return false;
   }
 
-  return fileURLToPath(import.meta.url) === entryPath;
+  return path.resolve(fileURLToPath(import.meta.url)) === path.resolve(entryPath);
 })();
 
 if (isEntryPoint) {

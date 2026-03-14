@@ -178,7 +178,7 @@ export const getConfig = (): AppConfig => {
     authJwtSecret: env.AUTH_JWT_SECRET,
     authJwtIssuer: env.AUTH_JWT_ISSUER,
     authJwtAudience: env.AUTH_JWT_AUDIENCE,
-    allowUnsignedDevAuth: env.ALLOW_UNSIGNED_DEV_AUTH ?? false,
+    allowUnsignedDevAuth: env.ALLOW_UNSIGNED_DEV_AUTH ?? ((env.NODE_ENV ?? "development") === "development"),
     devAuthAllowedUserIds: (env.DEV_AUTH_ALLOWED_USER_IDS ?? "local-user")
       .split(",")
       .map((value) => value.trim())

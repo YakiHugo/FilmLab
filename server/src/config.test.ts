@@ -37,4 +37,13 @@ describe("server config startup validation", () => {
       "ALLOW_UNSIGNED_DEV_AUTH is only supported when NODE_ENV=development."
     );
   });
+
+  it("enables unsigned dev auth by default in development", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+
+    const { getConfig, resetConfigForTests } = await import("./config");
+    resetConfigForTests();
+
+    expect(getConfig().allowUnsignedDevAuth).toBe(true);
+  });
 });

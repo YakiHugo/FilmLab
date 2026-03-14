@@ -73,12 +73,12 @@ describe("parseJwtSub", () => {
     expect(parseJwtSub(createUnsignedDevToken("user-1"))).toBeNull();
   });
 
-  it("rejects unsigned dev tokens by default", async () => {
+  it("allows unsigned dev tokens by default in development", async () => {
     vi.stubEnv("NODE_ENV", "development");
 
     const { parseJwtSub } = await import("./user");
 
-    expect(parseJwtSub(createUnsignedDevToken("local-user"))).toBeNull();
+    expect(parseJwtSub(createUnsignedDevToken("local-user"))).toBe("local-user");
   });
 
   it("rejects unsigned dev tokens outside development", async () => {

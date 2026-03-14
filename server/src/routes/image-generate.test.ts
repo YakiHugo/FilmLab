@@ -89,6 +89,18 @@ const createBearerToken = (userId: string, secret = "test-secret") => {
   return `Bearer ${header}.${payload}.${signature}`;
 };
 
+const createUnsignedDevBearerToken = (userId: string) => {
+  const header = encodeBase64Url(JSON.stringify({ alg: "none", typ: "JWT" }));
+  const payload = encodeBase64Url(
+    JSON.stringify({
+      sub: userId,
+      exp: Math.floor(Date.now() / 1000) + 60,
+    })
+  );
+
+  return `Bearer ${header}.${payload}.dev`;
+};
+
 const createApp = async () => {
   const { default: Fastify } = await import("fastify");
   const { imageGenerateRoute } = await import("./image-generate");
@@ -148,6 +160,48 @@ describe("imageGenerateRoute", () => {
     expect(response.statusCode).toBe(401);
     expect(generateMock).not.toHaveBeenCalled();
     expect(repositoryMock.createGeneration).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("accepts the default development bearer token flow", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    generateMock.mockResolvedValue({
+      modelId: "qwen-image-2-pro",
+      logicalModel: "image.qwen.v2.pro",
+      deploymentId: "dashscope-qwen-image-2-pro-primary",
+      runtimeProvider: "dashscope",
+      providerModel: "qwen-image-2.0-pro",
+      warnings: [],
+      images: [
+        {
+          binaryData: Buffer.from([1, 2, 3]),
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      headers: {
+        Authorization: createUnsignedDevBearerToken("local-user"),
+      },
+      payload: {
+        prompt: "Studio portrait",
+        modelId: "qwen-image-2-pro",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        referenceImages: [],
+        modelParams: {},
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(repositoryMock.createGeneration).toHaveBeenCalled();
+    expect(repositoryMock.completeGenerationSuccess).toHaveBeenCalled();
 
     await app.close();
   });
