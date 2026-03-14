@@ -50,14 +50,55 @@ export class RenderManager {
   private readonly frameStates = new Map<string, FrameState>();
 
   private resolveSlotId(mode: RenderMode, slotId?: string): string {
-    if (mode === "preview") {
-      return "preview-main";
+    const normalizedSlotId = slotId?.trim();
+    if (normalizedSlotId) {
+      return normalizedSlotId;
     }
-    return slotId?.trim() ? slotId : "export-main";
+    return mode === "preview" ? "preview-main" : "export-main";
   }
 
   private resolveKey(mode: RenderMode, slotId?: string): string {
     return `${mode}:${this.resolveSlotId(mode, slotId)}`;
+  }
+
+  private matchesSlotPrefix(mode: RenderMode, key: string, slotPrefix: string) {
+    const modePrefix = `${mode}:`;
+    if (!key.startsWith(modePrefix)) {
+      return false;
+    }
+    const resolvedSlotId = key.slice(modePrefix.length);
+    return resolvedSlotId === slotPrefix || resolvedSlotId.startsWith(`${slotPrefix}:`);
+  }
+
+  private resetFrameState(state: FrameState) {
+    if (state.geometryCanvas) {
+      state.geometryCanvas.width = 0;
+      state.geometryCanvas.height = 0;
+    }
+    if (state.localMaskCanvas) {
+      state.localMaskCanvas.width = 0;
+      state.localMaskCanvas.height = 0;
+    }
+    if (state.localBlendCanvas) {
+      state.localBlendCanvas.width = 0;
+      state.localBlendCanvas.height = 0;
+    }
+    state.geometryCanvas = null;
+    state.localMaskCanvas = null;
+    state.localBlendCanvas = null;
+    state.sourceKey = null;
+    state.geometryKey = null;
+    state.masterKey = null;
+    state.hslKey = null;
+    state.curveKey = null;
+    state.detailKey = null;
+    state.filmKey = null;
+    state.opticsKey = null;
+    state.pipelineKey = null;
+    state.outputKey = null;
+    state.tilePlanKey = null;
+    state.uploadedGeometryKey = null;
+    state.lastRenderError = null;
   }
 
   private getFrameStateRef(mode: RenderMode, slotId?: string): FrameState {
@@ -184,8 +225,11 @@ export class RenderManager {
         renderer.dispose();
         this.renderers.delete(key);
       }
-      this.releaseLocalScratchCanvases(mode, slotId);
-      this.invalidateGpuState(mode, slotId);
+      const state = this.frameStates.get(key);
+      if (state) {
+        this.resetFrameState(state);
+        this.frameStates.delete(key);
+      }
       return;
     }
 
@@ -197,13 +241,36 @@ export class RenderManager {
       renderer.dispose();
       this.renderers.delete(key);
     }
-    for (const key of Array.from(this.frameStates.keys())) {
+    for (const [key, state] of Array.from(this.frameStates.entries())) {
       if (!key.startsWith(modePrefix)) {
         continue;
       }
-      const resolvedSlotId = key.slice(modePrefix.length);
-      this.releaseLocalScratchCanvases(mode, resolvedSlotId);
-      this.invalidateGpuState(mode, resolvedSlotId);
+      this.resetFrameState(state);
+      this.frameStates.delete(key);
+    }
+  }
+
+  disposeBySlotPrefix(mode: RenderMode, slotPrefix: string): void {
+    const normalizedSlotPrefix = slotPrefix.trim();
+    if (!normalizedSlotPrefix) {
+      this.dispose(mode);
+      return;
+    }
+
+    for (const [key, renderer] of Array.from(this.renderers.entries())) {
+      if (!this.matchesSlotPrefix(mode, key, normalizedSlotPrefix)) {
+        continue;
+      }
+      renderer.dispose();
+      this.renderers.delete(key);
+    }
+
+    for (const [key, state] of Array.from(this.frameStates.entries())) {
+      if (!this.matchesSlotPrefix(mode, key, normalizedSlotPrefix)) {
+        continue;
+      }
+      this.resetFrameState(state);
+      this.frameStates.delete(key);
     }
   }
 
@@ -214,34 +281,8 @@ export class RenderManager {
     this.renderers.clear();
 
     for (const state of this.frameStates.values()) {
-      if (state.geometryCanvas) {
-        state.geometryCanvas.width = 0;
-        state.geometryCanvas.height = 0;
-      }
-      if (state.localMaskCanvas) {
-        state.localMaskCanvas.width = 0;
-        state.localMaskCanvas.height = 0;
-      }
-      if (state.localBlendCanvas) {
-        state.localBlendCanvas.width = 0;
-        state.localBlendCanvas.height = 0;
-      }
-      state.geometryCanvas = null;
-      state.localMaskCanvas = null;
-      state.localBlendCanvas = null;
-      state.sourceKey = null;
-      state.geometryKey = null;
-      state.masterKey = null;
-      state.hslKey = null;
-      state.curveKey = null;
-      state.detailKey = null;
-      state.filmKey = null;
-      state.opticsKey = null;
-      state.pipelineKey = null;
-      state.outputKey = null;
-      state.tilePlanKey = null;
-      state.uploadedGeometryKey = null;
-      state.lastRenderError = null;
+      this.resetFrameState(state);
     }
+    this.frameStates.clear();
   }
 }

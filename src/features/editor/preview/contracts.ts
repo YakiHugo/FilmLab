@@ -7,12 +7,53 @@ export interface PreviewFrameSize {
   height: number;
 }
 
+export type PreviewQuality = "interactive" | "full";
+
+export interface ViewportRoi {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface EditorPreviewDocument {
+  documentKey: string;
+  sourceAssetId: string;
+  adjustments: EditingAdjustments;
+  layers: EditorLayer[];
+  filmProfile: Asset["filmProfile"] | null | undefined;
+  showOriginal: boolean;
+}
+
 export interface LayerPreviewEntry {
   layer: EditorLayer;
   sourceAsset: Asset;
   adjustments: EditingAdjustments;
   opacity: number;
   blendMode: EditorLayerBlendMode;
+}
+
+export interface PreviewRequest {
+  document: EditorPreviewDocument;
+  documentKey: string;
+  quality: PreviewQuality;
+  frameSize: PreviewFrameSize;
+  viewportRoi: ViewportRoi | null;
+  layerEntries: LayerPreviewEntry[];
+  showOriginal: boolean;
+  timestampText: string | null;
+  isCropMode: boolean;
+  orientedSourceAspectRatio: number;
+  previewRenderSeed: number;
+  sourceAsset: Asset;
+  shouldRenderLayerComposite: boolean;
+}
+
+export interface PreviewResult {
+  requestId: number;
+  quality: PreviewQuality;
+  renderedRoi: ViewportRoi | null;
+  renderVersion: number;
 }
 
 export interface BrushStrokePoint {

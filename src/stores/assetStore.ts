@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import pLimit from "p-limit";
 import { presets } from "@/data/presets";
-import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
+import { normalizeAdjustments } from "@/lib/adjustments";
 import {
   completeAssetUpload,
   fetchAssetChanges,
@@ -35,6 +35,7 @@ import {
   saveAssetSyncJobs,
   saveAsset,
   saveProject,
+  type StoredAsset,
 } from "@/lib/db";
 import { emit } from "@/lib/storeEvents";
 import { loadCustomPresets } from "@/features/editor/presetUtils";
@@ -55,6 +56,7 @@ import {
   persistAsset,
   toStoredAsset,
 } from "./project/persistence";
+import { materializeStoredAsset } from "./project/runtimeAsset";
 import { MAX_SYNC_ATTEMPTS, createSyncJob, isSyncJobReady, withSyncJobFailure } from "./project/sync";
 import { selectAssets, selectImportProgress, selectIsImporting, selectIsLoading, selectProject, selectSelectedAssetIds } from "./project/selectors";
 import { mergeTags, normalizeTags, removeTags } from "./project/tagging";
@@ -259,160 +261,143 @@ export const useAssetStore = create<ProjectState>()(
 
       init: async () => {
         set({ isLoading: true });
+        let project = defaultProject();
+        let committed = false;
+        const hydratedAssets: Asset[] = [];
+        const hydratedPairs: Array<{ asset: Asset; stored: StoredAsset }> = [];
 
-        let storedProject = await loadProject(DEFAULT_PROJECT_ID);
-        if (!storedProject) {
-          const legacyProject = await loadProject(LEGACY_PROJECT_ID);
-          if (legacyProject) {
-            storedProject = {
-              ...legacyProject,
-              id: DEFAULT_PROJECT_ID,
-            };
-            await saveProject(storedProject);
+        try {
+          let storedProject = await loadProject(DEFAULT_PROJECT_ID);
+          if (!storedProject) {
+            const legacyProject = await loadProject(LEGACY_PROJECT_ID);
+            if (legacyProject) {
+              storedProject = {
+                ...legacyProject,
+                id: DEFAULT_PROJECT_ID,
+              };
+              await saveProject(storedProject);
+            }
           }
-        }
 
-        const project = storedProject ?? defaultProject();
-        if (!storedProject) {
-          await saveProject(project);
-        }
+          project = storedProject ?? defaultProject();
+          if (!storedProject) {
+            await saveProject(project);
+          }
 
-        const storedAssets = await loadAssets();
-        const assets: Asset[] = storedAssets.map((stored) => {
-          const objectUrl = URL.createObjectURL(stored.blob);
-          const thumbnailUrl = stored.thumbnailBlob
-            ? URL.createObjectURL(stored.thumbnailBlob)
-            : objectUrl;
-          const importDay = resolveAssetImportDay(stored);
-          const tags = normalizeTags(stored.tags ?? []);
-          const normalizedAdjustments = normalizeAdjustments(
-            stored.adjustments ?? createDefaultAdjustments()
-          );
+          const storedAssets = await loadAssets();
+          const fallbackOwnerRef = { userId: getCurrentUserId() };
+          const nowIso = new Date().toISOString();
 
-          const normalizedLayers = ensureAssetLayers({
-            id: stored.id,
-            adjustments: normalizedAdjustments,
-            layers: stored.layers,
+          storedAssets.forEach((stored) => {
+            const asset = materializeStoredAsset(stored, {
+              fallbackOwnerRef,
+              nowIso,
+            });
+            if (!asset) {
+              return;
+            }
+            hydratedAssets.push(asset);
+            hydratedPairs.push({ asset, stored });
           });
 
-          return {
-            id: stored.id,
-            name: stored.name,
-            type: stored.type,
-            size: stored.size,
-            createdAt: stored.createdAt,
-            objectUrl,
-            thumbnailUrl,
-            importDay,
-            tags,
-            presetId: stored.presetId,
-            intensity: stored.intensity,
-            filmProfileId: stored.filmProfileId,
-            filmOverrides: stored.filmOverrides,
-            filmProfile: stored.filmProfile,
-            group: stored.group ?? importDay,
-            blob: stored.blob,
-            thumbnailBlob: stored.thumbnailBlob,
-            metadata: stored.metadata,
-            adjustments: resolveBaseAdjustmentsFromLayers(normalizedLayers, normalizedAdjustments),
-            layers: normalizedLayers,
-            aiRecommendation: stored.aiRecommendation,
-            source: stored.source,
-            origin: stored.origin ?? "file",
-            contentHash: stored.contentHash,
-            remote:
-              stored.remote ??
-              ({
-                status: "local_only",
-                updatedAt: new Date().toISOString(),
-              } as const),
-            ownerRef: stored.ownerRef ?? { userId: getCurrentUserId() },
-          };
-        });
-
-        lastRemoteChangeCursor = assets.reduce<string | undefined>(
-          (cursor, asset) => {
-            if (!asset.remote?.remoteAssetId) {
-              return cursor;
-            }
-            return latestIso(cursor, asset.remote.lastSyncedAt ?? asset.remote.updatedAt);
-          },
-          lastRemoteChangeCursor
-        );
-
-        set((state) => {
-          const nextSelection = state.selectedAssetIds.filter((id) =>
-            assets.some((asset) => asset.id === id)
-          );
-
-          revokeAssetUrls(state.assets);
-
-          return {
-            project,
-            assets,
-            isLoading: false,
-            selectedAssetIds: nextSelection,
-          };
-        });
-
-        const migrationPayloads = assets
-          .filter((asset, index) => {
-            const stored = storedAssets[index];
-            if (!stored) {
-              return false;
-            }
-            const storedImportDay = stored.importDay;
-            const normalizedImportDay = asset.importDay;
-            const storedTags = normalizeTags(stored.tags ?? []);
-            const nextTags = asset.tags ?? [];
-            return (
-              storedImportDay !== normalizedImportDay ||
-              storedTags.join("|") !== nextTags.join("|") ||
-              !Array.isArray(stored.layers) ||
-              stored.layers.length === 0
+          if (hydratedAssets.length !== storedAssets.length) {
+            console.warn(
+              `Skipped ${storedAssets.length - hydratedAssets.length} malformed stored asset(s) during initialization.`
             );
-          })
-          .map((asset) => toStoredAsset(asset))
-          .filter((payload): payload is NonNullable<ReturnType<typeof toStoredAsset>> => Boolean(payload));
+          }
 
-        if (migrationPayloads.length > 0) {
-          void Promise.allSettled(migrationPayloads.map((payload) => saveAsset(payload)));
-        }
-
-        const existingSyncJobs = await loadAssetSyncJobs(5000);
-        const queuedUploadIds = new Set(
-          existingSyncJobs
-            .filter((job) => job.op === "upload")
-            .map((job) => job.localAssetId)
-        );
-        const legacyAssets = assets.filter(
-          (asset) =>
-            (asset.remote?.status === "local_only" || !asset.remote) &&
-            Boolean(asset.blob) &&
-            !queuedUploadIds.has(asset.id)
-        );
-        if (legacyAssets.length > 0) {
-          const queuedAt = syncNowIso();
-          const jobs = legacyAssets.map((asset) =>
-            createSyncJob({
-              localAssetId: asset.id,
-              op: "upload",
-              nextRetryAt: queuedAt,
-            })
+          lastRemoteChangeCursor = hydratedAssets.reduce<string | undefined>(
+            (cursor, asset) => {
+              if (!asset.remote?.remoteAssetId) {
+                return cursor;
+              }
+              return latestIso(cursor, asset.remote.lastSyncedAt ?? asset.remote.updatedAt);
+            },
+            lastRemoteChangeCursor
           );
-          await saveAssetSyncJobs(jobs);
 
-          const updatedIds = new Set(legacyAssets.map((asset) => asset.id));
+          set((state) => {
+            const nextSelection = state.selectedAssetIds.filter((id) =>
+              hydratedAssets.some((asset) => asset.id === id)
+            );
+
+            revokeAssetUrls(state.assets);
+            committed = true;
+
+            return {
+              project,
+              assets: hydratedAssets,
+              isLoading: false,
+              selectedAssetIds: nextSelection,
+            };
+          });
+
+          const migrationPayloads = hydratedPairs
+            .filter(({ asset, stored }) => {
+              const storedImportDay = stored.importDay;
+              const normalizedImportDay = asset.importDay;
+              const storedTags = normalizeTags(stored.tags ?? []);
+              const nextTags = asset.tags ?? [];
+              return (
+                storedImportDay !== normalizedImportDay ||
+                storedTags.join("|") !== nextTags.join("|") ||
+                !Array.isArray(stored.layers) ||
+                stored.layers.length === 0
+              );
+            })
+            .map(({ asset }) => toStoredAsset(asset))
+            .filter(
+              (payload): payload is NonNullable<ReturnType<typeof toStoredAsset>> => Boolean(payload)
+            );
+
+          if (migrationPayloads.length > 0) {
+            void Promise.allSettled(migrationPayloads.map((payload) => saveAsset(payload)));
+          }
+
+          const existingSyncJobs = await loadAssetSyncJobs(5000);
+          const queuedUploadIds = new Set(
+            existingSyncJobs
+              .filter((job) => job.op === "upload")
+              .map((job) => job.localAssetId)
+          );
+          const legacyAssets = hydratedAssets.filter(
+            (asset) =>
+              (asset.remote?.status === "local_only" || !asset.remote) &&
+              Boolean(asset.blob) &&
+              !queuedUploadIds.has(asset.id)
+          );
+          if (legacyAssets.length > 0) {
+            const queuedAt = syncNowIso();
+            const jobs = legacyAssets.map((asset) =>
+              createSyncJob({
+                localAssetId: asset.id,
+                op: "upload",
+                nextRetryAt: queuedAt,
+              })
+            );
+            await saveAssetSyncJobs(jobs);
+
+            const updatedIds = new Set(legacyAssets.map((asset) => asset.id));
+            set((state) => ({
+              assets: state.assets.map((asset) =>
+                updatedIds.has(asset.id)
+                  ? withRemoteStatus(asset, "upload_queued", { lastError: undefined })
+                  : asset
+              ),
+            }));
+            legacyAssets
+              .map((asset) => withRemoteStatus(asset, "upload_queued", { lastError: undefined }))
+              .forEach(persistAsset);
+          }
+        } catch (error) {
+          if (!committed && hydratedAssets.length > 0) {
+            revokeAssetUrls(hydratedAssets);
+          }
+          console.warn("Asset store initialization failed.", error);
           set((state) => ({
-            assets: state.assets.map((asset) =>
-              updatedIds.has(asset.id)
-                ? withRemoteStatus(asset, "upload_queued", { lastError: undefined })
-                : asset
-            ),
+            project: state.project ?? project,
+            isLoading: false,
           }));
-          legacyAssets
-            .map((asset) => withRemoteStatus(asset, "upload_queued", { lastError: undefined }))
-            .forEach(persistAsset);
         }
       },
 

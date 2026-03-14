@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { normalizeAdjustments } from "@/lib/adjustments";
 import {
   resolveAspectRatio,
   resolveOrientedAspectRatio,
@@ -18,8 +19,8 @@ import {
   useEditorViewState,
 } from "./useEditorSlices";
 import { useViewportZoom } from "./useViewportZoom";
-import { useBrushMaskPainting } from "./preview/useBrushMaskPainting";
-import type { LayerPreviewEntry } from "./preview/contracts";
+import { applyBrushPreviewToAdjustments, useBrushMaskPainting } from "./preview/useBrushMaskPainting";
+import type { EditorPreviewDocument, LayerPreviewEntry } from "./preview/contracts";
 import { createPreviewInteractionSampler } from "./preview/interactionPerformance";
 import { drawLocalMaskOverlay } from "./preview/maskOverlay";
 import { useCropInteraction } from "./preview/useCropInteraction";
@@ -28,7 +29,7 @@ import { usePerspectiveAssist } from "./preview/usePerspectiveAssist";
 import { usePreviewRenderPipeline } from "./preview/usePreviewRenderPipeline";
 
 export function EditorPreviewCard() {
-  const { assets, layers, selectedAsset } = useEditorSelectionState();
+  const { assets, layers, selectedAsset, selectedLayer } = useEditorSelectionState();
   const {
     previewFilmProfile,
     previewAdjustments,
@@ -269,6 +270,37 @@ export function EditorPreviewCard() {
     showOriginal,
   });
 
+  const effectivePreviewAdjustments = useMemo(() => {
+    if (!previewAdjustments) {
+      return null;
+    }
+    let nextAdjustments = previewAdjustments;
+    if (brushMaskPainting.previewState) {
+      nextAdjustments = applyBrushPreviewToAdjustments(
+        nextAdjustments,
+        brushMaskPainting.previewState
+      );
+    }
+    return nextAdjustments;
+  }, [brushMaskPainting.previewState, previewAdjustments]);
+
+  const effectiveLayerPreviewEntries = useMemo(() => {
+    if (!brushMaskPainting.previewState || !selectedLayer) {
+      return layerPreviewEntries;
+    }
+    return layerPreviewEntries.map((entry) =>
+      entry.layer.id === selectedLayer.id
+        ? {
+            ...entry,
+            adjustments: applyBrushPreviewToAdjustments(
+              entry.adjustments,
+              brushMaskPainting.previewState
+            ),
+          }
+        : entry
+    );
+  }, [brushMaskPainting.previewState, layerPreviewEntries, selectedLayer]);
+
   const cropInteraction = useCropInteraction({
     adjustments: previewAdjustments,
     commitCropAdjustments,
@@ -280,31 +312,52 @@ export function EditorPreviewCard() {
   });
 
   const renderedPreviewAdjustments = useMemo(() => {
-    if (!previewAdjustments) {
+    if (!effectivePreviewAdjustments) {
       return null;
     }
     if (!cropInteraction.previewPatch) {
-      return previewAdjustments;
+      return effectivePreviewAdjustments;
     }
     return {
-      ...previewAdjustments,
+      ...effectivePreviewAdjustments,
       ...cropInteraction.previewPatch,
     };
-  }, [cropInteraction.previewPatch, previewAdjustments]);
+  }, [cropInteraction.previewPatch, effectivePreviewAdjustments]);
+
+  const previewDocument = useMemo<EditorPreviewDocument | null>(() => {
+    if (!selectedAsset || !renderedPreviewAdjustments) {
+      return null;
+    }
+    return {
+      documentKey: `editor:${selectedAsset.id}`,
+      sourceAssetId: selectedAsset.id,
+      adjustments:
+        renderedPreviewAdjustments ??
+        normalizeAdjustments(selectedAsset.adjustments),
+      layers,
+      filmProfile: previewFilmProfile ?? selectedAsset.filmProfile ?? undefined,
+      showOriginal,
+    };
+  }, [
+    layers,
+    previewFilmProfile,
+    renderedPreviewAdjustments,
+    selectedAsset,
+    showOriginal,
+  ]);
 
   const previewRenderPipeline = usePreviewRenderPipeline({
-    adjustments: renderedPreviewAdjustments,
-    filmProfile: previewFilmProfile ?? undefined,
+    document: previewDocument,
     frameSize,
     isCropMode,
-    layerPreviewEntries,
+    layerPreviewEntries: effectiveLayerPreviewEntries,
     orientedSourceAspectRatio,
     previewRenderSeed,
-    previewRoi: isCropMode ? null : previewRoi,
-    selectedAsset,
     shouldRenderLayerComposite,
-    showOriginal,
+    sourceAsset: selectedAsset,
     timestampText,
+    viewOffset,
+    viewScale,
   });
 
   useEffect(() => {
@@ -315,7 +368,7 @@ export function EditorPreviewCard() {
     canvasRef: previewRenderPipeline.canvasRef,
     onHistogramChange: setPreviewHistogram,
     onWaveformChange: setPreviewWaveform,
-    renderVersion: previewRenderPipeline.renderVersion,
+    previewResult: previewRenderPipeline.previewResult,
     selectedAsset,
     usesOriginalImageElement,
   });
