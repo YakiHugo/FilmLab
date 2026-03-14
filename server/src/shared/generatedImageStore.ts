@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getConfig } from "../config";
-import { ProviderError } from "../providers/types";
+import { ProviderError } from "../providers/base/errors";
 
 interface StoredGeneratedImage {
   buffer: Buffer;

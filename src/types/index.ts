@@ -168,22 +168,6 @@ export type FilmProfileOverrides = {
   [K in FilmModuleId]?: FilmModuleOverride<K>;
 };
 
-export interface AiPresetRecommendation {
-  presetId: string;
-  reason: string;
-  confidence: number;
-}
-
-export interface AssetAiRecommendation {
-  version: 1;
-  model: string;
-  matchedAt: string;
-  attempts: number;
-  topPresets: AiPresetRecommendation[];
-  autoAppliedPresetId?: string;
-  status: "succeeded" | "failed";
-}
-
 export type HslColorKey =
   | "red"
   | "orange"
@@ -503,7 +487,6 @@ export interface Asset {
   metadata?: AssetMetadata;
   adjustments?: EditingAdjustments;
   layers?: EditorLayer[];
-  aiRecommendation?: AssetAiRecommendation;
   source?: "imported" | "ai-generated";
   origin?: AssetOrigin;
   contentHash?: string;
@@ -526,7 +509,6 @@ export type AssetUpdate = Partial<
     | "metadata"
     | "adjustments"
     | "layers"
-    | "aiRecommendation"
     | "source"
     | "origin"
     | "contentHash"

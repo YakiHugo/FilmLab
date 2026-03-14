@@ -1,7 +1,8 @@
 export {
+  IMAGE_GENERATION_LIMITS,
+  frontendImageModelSchema,
   imageAspectRatioSchema,
   imageGenerationRequestSchema,
-  imageProviderSchema,
   imageStyleSchema,
   referenceImageSchema,
   referenceImageTypeSchema,

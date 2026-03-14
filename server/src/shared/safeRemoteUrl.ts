@@ -1,6 +1,6 @@
 import dns from "node:dns/promises";
 import net from "node:net";
-import { ProviderError } from "../providers/types";
+import { ProviderError } from "../providers/base/errors";
 
 const IPV4_MAPPED_IPV6_PREFIX = "::ffff:";
 const BLOCKED_HOSTNAME_SUFFIXES = [".local", ".localhost", ".internal"];

@@ -1,30 +1,25 @@
-import { KeyRound, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import type { ImageProviderId } from "@/types/imageGeneration";
-import { useApiKeyStore } from "@/stores/apiKeyStore";
+import { useEffect } from "react";
+import { KeyRound } from "lucide-react";
+import type { ImageRuntimeProviderEntry } from "@/lib/ai/imageModelCatalog";
 
 interface ProviderApiKeyPanelProps {
-  providers: Array<{
-    id: ImageProviderId;
-    name: string;
-  }>;
-  currentProvider: ImageProviderId;
+  providers: ImageRuntimeProviderEntry[];
+  currentProviderId: string | null;
 }
+
+const LEGACY_IMAGE_PROVIDER_STORAGE_KEY = "filmlab-image-provider-keys";
 
 export function ProviderApiKeyPanel({
   providers,
-  currentProvider,
+  currentProviderId,
 }: ProviderApiKeyPanelProps) {
-  const keys = useApiKeyStore((state) => state.keys);
-  const setKey = useApiKeyStore((state) => state.setKey);
-  const clearKey = useApiKeyStore((state) => state.clearKey);
-  const [draftKeys, setDraftKeys] = useState<Partial<Record<ImageProviderId, string>>>({});
-
   useEffect(() => {
-    setDraftKeys(keys);
-  }, [keys]);
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.removeItem(LEGACY_IMAGE_PROVIDER_STORAGE_KEY);
+  }, []);
 
   return (
     <section className="rounded-xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-3">
@@ -34,18 +29,22 @@ export function ProviderApiKeyPanel({
         </div>
         <div>
           <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-200">
-            API Keys
+            Runtime Credentials
           </p>
           <p className="text-[11px] text-zinc-500">
-            Stored locally. User keys override server keys when present.
+            Image runtime now uses server-configured provider credentials only.
           </p>
         </div>
       </div>
 
+      <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/8 px-3 py-2 text-[11px] text-amber-100/90">
+        Local BYOK overrides are no longer used. Any previously stored browser keys have been
+        cleared from this session.
+      </div>
+
       <div className="mt-3 space-y-2">
         {providers.map((provider) => {
-          const isCurrentProvider = provider.id === currentProvider;
-          const value = draftKeys[provider.id] ?? "";
+          const isCurrentProvider = provider.id === currentProviderId;
 
           return (
             <div
@@ -57,50 +56,17 @@ export function ProviderApiKeyPanel({
                   : "border-white/10 bg-black/25",
               ].join(" ")}
             >
-              <div className="mb-1.5 flex items-center justify-between gap-2">
-                <p className="text-xs font-medium text-zinc-100">{provider.name}</p>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 px-2 text-[11px] text-zinc-400 hover:text-zinc-100"
-                  onClick={() => {
-                    setDraftKeys((previous) => ({
-                      ...previous,
-                      [provider.id]: "",
-                    }));
-                    clearKey(provider.id);
-                  }}
-                  disabled={!keys[provider.id]}
-                >
-                  <Trash2 className="mr-1 h-3.5 w-3.5" />
-                  Clear
-                </Button>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-medium text-zinc-100">{provider.name}</p>
+                  <p className="text-[11px] text-zinc-500">
+                    {provider.configured ? "Configured on server" : "Missing server credential"}
+                  </p>
+                </div>
+                <span className="rounded-full border border-white/10 bg-black/30 px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-zinc-400">
+                  Server managed
+                </span>
               </div>
-
-              <Input
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                value={value}
-                placeholder={`Use a ${provider.name} key or leave blank for server fallback`}
-                className="h-8 border-white/10 bg-black/35 text-xs"
-                onChange={(event) =>
-                  setDraftKeys((previous) => ({
-                    ...previous,
-                    [provider.id]: event.target.value,
-                  }))
-                }
-                onBlur={(event) => setKey(provider.id, event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter") {
-                    return;
-                  }
-                  event.preventDefault();
-                  setKey(provider.id, value);
-                  event.currentTarget.blur();
-                }}
-              />
             </div>
           );
         })}

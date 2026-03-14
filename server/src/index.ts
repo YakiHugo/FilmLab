@@ -3,21 +3,16 @@ import { getConfig } from "./config";
 import { registerCors } from "./plugins/cors";
 import { registerRateLimit } from "./plugins/rateLimit";
 import { generatedImageRoute } from "./routes/generated-image";
+import { modelCatalogRoute } from "./routes/model-catalog";
+import { imageConversationRoute } from "./routes/image-conversation";
 import { imageGenerateRoute } from "./routes/image-generate";
-import { recommendFilmRoute } from "./routes/recommend-film";
 
 export const buildServer = () => {
   const config = getConfig();
   return Fastify({
     logger: {
       redact: {
-        paths: [
-          "req.headers.authorization",
-          "req.headers.x-provider-key-openai",
-          "req.headers.x-provider-key-stability",
-          "req.headers.x-provider-key-flux",
-          "req.headers.x-provider-key-ideogram",
-        ],
+        paths: ["req.headers.authorization"],
         censor: "[REDACTED]",
       },
     },
@@ -52,8 +47,9 @@ const start = async () => {
   await app.register(registerCors);
   await app.register(registerRateLimit);
   await app.register(generatedImageRoute);
+  await app.register(imageConversationRoute);
   await app.register(imageGenerateRoute);
-  await app.register(recommendFilmRoute);
+  await app.register(modelCatalogRoute);
 
   app.get("/health", async () => ({
     status: "ok",

@@ -1,0 +1,66 @@
+import type { PersistedImageSession } from "../../../shared/chatImageTypes";
+import { resolveApiUrl } from "@/lib/api/resolveApiUrl";
+import { getClientAuthToken } from "@/lib/authToken";
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const toAuthorizedHeaders = () => ({
+  Authorization: `Bearer ${getClientAuthToken()}`,
+});
+
+const parseConversationResponse = async (response: Response): Promise<PersistedImageSession> => {
+  if (!response.ok) {
+    let message = "Image conversation request failed.";
+    try {
+      const payload = (await response.json()) as { error?: string };
+      if (typeof payload.error === "string" && payload.error.trim()) {
+        message = payload.error;
+      }
+    } catch {
+      // Keep fallback.
+    }
+    throw new Error(message);
+  }
+
+  const json = (await response.json()) as unknown;
+  if (!isRecord(json)) {
+    throw new Error("Invalid image conversation response.");
+  }
+
+  return json as unknown as PersistedImageSession;
+};
+
+export const fetchImageConversation = async (
+  conversationId?: string,
+  options?: { signal?: AbortSignal }
+): Promise<PersistedImageSession> => {
+  const url = conversationId
+    ? `${resolveApiUrl("/api/image-conversation")}?conversationId=${encodeURIComponent(conversationId)}`
+    : resolveApiUrl("/api/image-conversation");
+
+  return parseConversationResponse(
+    await fetch(url, {
+      headers: toAuthorizedHeaders(),
+      signal: options?.signal,
+    })
+  );
+};
+
+export const clearImageConversation = async (): Promise<PersistedImageSession> =>
+  parseConversationResponse(
+    await fetch(resolveApiUrl("/api/image-conversation"), {
+      method: "DELETE",
+      headers: toAuthorizedHeaders(),
+    })
+  );
+
+export const deleteImageConversationTurn = async (
+  turnId: string
+): Promise<PersistedImageSession> =>
+  parseConversationResponse(
+    await fetch(resolveApiUrl(`/api/image-conversation/turns/${encodeURIComponent(turnId)}`), {
+      method: "DELETE",
+      headers: toAuthorizedHeaders(),
+    })
+  );

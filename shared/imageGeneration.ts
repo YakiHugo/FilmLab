@@ -1,5 +1,17 @@
-export const IMAGE_PROVIDER_IDS = ["openai", "stability", "flux", "ideogram"] as const;
+export const IMAGE_PROVIDER_IDS = ["ark", "dashscope", "kling"] as const;
 export type ImageProviderId = (typeof IMAGE_PROVIDER_IDS)[number];
+
+export const IMAGE_RUNTIME_PROVIDER_IDS = IMAGE_PROVIDER_IDS;
+export type RuntimeImageProviderId = ImageProviderId;
+
+export const IMAGE_MODEL_FAMILY_IDS = ["seedream", "qwen", "zimage", "kling"] as const;
+export type ImageModelFamilyId = (typeof IMAGE_MODEL_FAMILY_IDS)[number];
+
+export const IMAGE_PROVIDER_REF_IDS = ["seedream", "qwen", "zimage", "kling", "ark", "dashscope"] as const;
+export type ImageProviderRefId = (typeof IMAGE_PROVIDER_REF_IDS)[number];
+
+export const IMAGE_REQUEST_PROVIDER_IDS = IMAGE_PROVIDER_REF_IDS;
+export type ImageRequestProviderId = ImageProviderRefId;
 
 export const IMAGE_ASPECT_RATIOS = [
   "1:1",
@@ -9,6 +21,7 @@ export const IMAGE_ASPECT_RATIOS = [
   "3:4",
   "3:2",
   "2:3",
+  "21:9",
   "custom",
 ] as const;
 export type ImageAspectRatio = (typeof IMAGE_ASPECT_RATIOS)[number];
@@ -30,6 +43,16 @@ export type ImageStyleId = (typeof IMAGE_STYLE_IDS)[number];
 export const REFERENCE_IMAGE_TYPES = ["style", "content", "controlnet"] as const;
 export type ReferenceImageType = (typeof REFERENCE_IMAGE_TYPES)[number];
 
+export const IMAGE_UPSCALE_SCALES = ["2x", "4x"] as const;
+export type ImageUpscaleScale = (typeof IMAGE_UPSCALE_SCALES)[number];
+
+export const IMAGE_GENERATION_ASSET_REF_ROLES = [
+  "reference",
+  "edit",
+  "variation",
+] as const;
+export type ImageGenerationAssetRefRole = (typeof IMAGE_GENERATION_ASSET_REF_ROLES)[number];
+
 export interface ReferenceImage {
   id: string;
   url: string;
@@ -38,11 +61,27 @@ export interface ReferenceImage {
   type: ReferenceImageType;
 }
 
+export interface ImageGenerationAssetRef {
+  assetId: string;
+  role: ImageGenerationAssetRefRole;
+}
+
+export interface RequestedImageGenerationTarget {
+  modelId?: import("./imageModelCatalog").FrontendImageModelId;
+  logicalModel?: import("./imageModelCatalog").LogicalImageModelId;
+  deploymentId?: import("./imageModelCatalog").ImageDeploymentId;
+  provider?: ImageProviderId;
+}
+
 export interface ImageGenerationRequest {
   prompt: string;
   negativePrompt?: string;
-  provider: ImageProviderId;
-  model: string;
+  conversationId?: string;
+  threadId?: string;
+  retryOfTurnId?: string;
+  clientTurnId?: string;
+  clientJobId?: string;
+  modelId: import("./imageModelCatalog").FrontendImageModelId;
   aspectRatio: ImageAspectRatio;
   width?: number;
   height?: number;
@@ -55,20 +94,45 @@ export interface ImageGenerationRequest {
   sampler?: string;
   batchSize?: number;
   modelParams?: Record<string, string | number | boolean | null>;
+  assetRefs?: ImageGenerationAssetRef[];
+  requestedTarget?: RequestedImageGenerationTarget;
 }
 
 export interface GeneratedImage {
+  resultId?: string;
   imageUrl: string;
+  imageId?: string;
+  assetId?: string;
   provider: ImageProviderId;
   model: string;
   mimeType?: string;
   revisedPrompt?: string | null;
 }
 
-export interface ImageGenerationResponse {
-  provider: ImageProviderId;
+export interface ImageUpscaleRequest {
+  provider: ImageProviderRefId;
   model: string;
+  imageId: string;
+  scale?: ImageUpscaleScale;
+}
+
+export interface ImageGenerationResponse {
+  conversationId: string;
+  threadId: string;
+  turnId: string;
+  jobId: string;
+  runId: string;
+  modelId: import("./imageModelCatalog").FrontendImageModelId;
+  logicalModel: import("./imageModelCatalog").LogicalImageModelId;
+  deploymentId: import("./imageModelCatalog").ImageDeploymentId;
+  runtimeProvider: ImageProviderId;
+  providerModel: string;
   createdAt: string;
+  imageId?: string;
   imageUrl?: string;
   images: GeneratedImage[];
+  runs: import("./chatImageTypes").PersistedRunRecord[];
+  assets: import("./chatImageTypes").PersistedAssetRecord[];
+  primaryAssetIds: string[];
+  warnings?: string[];
 }

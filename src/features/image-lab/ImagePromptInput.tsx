@@ -13,16 +13,17 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ImageStylePreset } from "@/lib/ai/imageStylePresets";
-import type {
-  ImageModelParamDefinition,
-  ImageModelParamValue,
-} from "@/lib/ai/imageModelParams";
+import type { ImageModelParamDefinition, ImageModelParamValue } from "@/lib/ai/imageModelParams";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type {
+  CatalogDrivenFeatureSupport,
+  ImageRuntimeProviderEntry,
+} from "@/lib/ai/imageModelCatalog";
+import type {
   ImageAspectRatio,
-  ImageProviderId,
+  ImageGenerationAssetRef,
   ImageStyleId,
   ReferenceImage,
 } from "@/types/imageGeneration";
@@ -31,28 +32,22 @@ import { ReferenceImagePicker } from "./ReferenceImagePicker";
 
 interface ImagePromptInputProps {
   isGeneratingImage?: boolean;
-  promptValue: string;
-  onPromptChange: (value: string) => void;
   generationSpeed: "fast" | "balanced" | "quality";
   stylePresets: ImageStylePreset[];
   selectedStylePresetId: string | null;
   styles: Array<{ id: ImageStyleId; label: string; promptHint: string }>;
   selectedStyleId: ImageStyleId;
-  imageProviders: Array<{
-    id: ImageProviderId;
+  imageModels: Array<{
+    id: string;
     name: string;
-    models: Array<{ id: string; name: string; description?: string; costPerImage?: number }>;
+    description?: string;
+    providerId: string;
+    providerName: string;
+    costPerImage?: number;
   }>;
-  imageProvider: ImageProviderId;
   imageModel: string;
-  providerFeatures: {
-    negativePrompt: boolean;
-    referenceImages: boolean;
-    seed: boolean;
-    guidanceScale: boolean;
-    steps: boolean;
-    styles: boolean;
-  };
+  runtimeProviders: ImageRuntimeProviderEntry[];
+  providerFeatures: CatalogDrivenFeatureSupport;
   aspectRatioOptions: ImageAspectRatio[];
   maxBatchSize: number;
   commonParams: {
@@ -71,8 +66,10 @@ interface ImagePromptInputProps {
   };
   modelParamDefinitions: ImageModelParamDefinition[];
   referenceImages: ReferenceImage[];
+  selectedAssetRefs: ImageGenerationAssetRef[];
+  externalPrompt?: string | null;
+  onExternalPromptConsumed?: () => void;
   onGenerationSpeedChange: (speed: "fast" | "balanced" | "quality") => void;
-  onImageProviderChange: (provider: ImageProviderId) => void;
   onImageModelChange: (model: string) => void;
   onStyleChange: (style: ImageStyleId) => void;
   onSelectStylePreset: (preset: ImageStylePreset) => void;
@@ -94,6 +91,8 @@ interface ImagePromptInputProps {
   onUpdateReferenceImage: (id: string, patch: Partial<ReferenceImage>) => void;
   onRemoveReferenceImage: (id: string) => void;
   onClearReferenceImages: () => void;
+  onRemoveAssetRef: (assetId: string) => void;
+  onClearAssetRefs: () => void;
   onGenerateImage: (input: { text: string }) => void;
 }
 
@@ -226,7 +225,15 @@ function PillButton({
   );
 }
 
-function SectionToggle({ title, open, onClick }: { title: string; open: boolean; onClick: () => void }) {
+function SectionToggle({
+  title,
+  open,
+  onClick,
+}: {
+  title: string;
+  open: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"
@@ -241,16 +248,14 @@ function SectionToggle({ title, open, onClick }: { title: string; open: boolean;
 
 export function ImagePromptInput({
   isGeneratingImage = false,
-  promptValue,
-  onPromptChange,
   generationSpeed,
   stylePresets,
   selectedStylePresetId,
   styles,
   selectedStyleId,
-  imageProviders,
-  imageProvider,
+  imageModels,
   imageModel,
+  runtimeProviders,
   providerFeatures,
   aspectRatioOptions,
   maxBatchSize,
@@ -258,8 +263,10 @@ export function ImagePromptInput({
   modelParams,
   modelParamDefinitions,
   referenceImages,
+  selectedAssetRefs,
+  externalPrompt = null,
+  onExternalPromptConsumed,
   onGenerationSpeedChange,
-  onImageProviderChange,
   onImageModelChange,
   onStyleChange,
   onSelectStylePreset,
@@ -270,31 +277,37 @@ export function ImagePromptInput({
   onUpdateReferenceImage,
   onRemoveReferenceImage,
   onClearReferenceImages,
+  onRemoveAssetRef,
+  onClearAssetRefs,
   onGenerateImage,
 }: ImagePromptInputProps) {
+  const [promptValue, setPromptValue] = useState("");
   const [activeHoverPanel, setActiveHoverPanel] = useState<HoverPanelId | null>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showApiKeys, setShowApiKeys] = useState(false);
+  const [isComposing, setIsComposing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<number | null>(null);
 
-  const selectedProvider = useMemo(
-    () => imageProviders.find((provider) => provider.id === imageProvider) ?? imageProviders[0],
-    [imageProvider, imageProviders]
-  );
-  const selectedPreset =
-    stylePresets.find((preset) => preset.id === selectedStylePresetId) ?? null;
+  const selectedPreset = stylePresets.find((preset) => preset.id === selectedStylePresetId) ?? null;
   const selectedStyle = styles.find((style) => style.id === selectedStyleId) ?? null;
-  const selectedModel = selectedProvider?.models.find((model) => model.id === imageModel);
+  const selectedModel = useMemo(
+    () => imageModels.find((model) => model.id === imageModel) ?? imageModels[0],
+    [imageModel, imageModels]
+  );
+  const supportsCustomSize = aspectRatioOptions.includes("custom");
   const resolutionValue = resolveResolutionFromSize(commonParams.width, commonParams.height);
   const modelLabel = selectedModel?.name ?? imageModel;
   const styleLabel =
     selectedPreset?.title ??
     (selectedStyle && selectedStyle.id !== "none" ? selectedStyle.label : "Style");
-  const resolutionLabel = formatResolutionLabel(resolutionValue);
-  const refsLabel = referenceImages.length > 0 ? `Refs ${referenceImages.length}` : "Refs";
+  const resolutionLabel = supportsCustomSize ? formatResolutionLabel(resolutionValue) : "Auto size";
+  const refsLabel =
+    referenceImages.length > 0
+      ? `Refs ${referenceImages.length}/${providerFeatures.referenceImages.maxImages}`
+      : "Refs";
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -331,10 +344,29 @@ export function ImagePromptInput({
   }, []);
 
   useEffect(() => {
-    if (!providerFeatures.referenceImages && activeHoverPanel === "refs") {
-      setActiveHoverPanel(null);
+    if (!providerFeatures.referenceImages.enabled) {
+      setActiveHoverPanel((current) => (current === "refs" ? null : current));
     }
-  }, [activeHoverPanel, providerFeatures.referenceImages]);
+  }, [providerFeatures.referenceImages.enabled]);
+
+  useEffect(() => {
+    if (!externalPrompt) {
+      return;
+    }
+
+    setPromptValue(externalPrompt);
+    onExternalPromptConsumed?.();
+    textareaRef.current?.focus();
+  }, [externalPrompt, onExternalPromptConsumed]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const clearCloseTimer = () => {
     if (closeTimerRef.current) {
@@ -369,15 +401,12 @@ export function ImagePromptInput({
     }
 
     onGenerateImage({ text });
-    onPromptChange("");
+    setPromptValue("");
     setModelMenuOpen(false);
     setActiveHoverPanel(null);
   };
 
-  const selectModel = (providerId: ImageProviderId, modelId: string) => {
-    if (providerId !== imageProvider) {
-      onImageProviderChange(providerId);
-    }
+  const selectModel = (modelId: string) => {
     onImageModelChange(modelId);
     setModelMenuOpen(false);
   };
@@ -458,6 +487,11 @@ export function ImagePromptInput({
                   : "border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/16 hover:bg-white/[0.08]"
               )}
               onClick={() => {
+                if (!supportsCustomSize) {
+                  onCommonParamsChange({ aspectRatio: ratio });
+                  return;
+                }
+
                 const resized = resolveSizeFromAspectAndResolution(
                   ratio,
                   Number(resolutionValue),
@@ -481,56 +515,67 @@ export function ImagePromptInput({
 
   const renderResolutionPanel = () => (
     <PanelShell className="left-1/2 w-[320px] -translate-x-1/2">
-      <div className="space-y-4">
-        <div className="flex gap-2">
-          {RESOLUTION_PRESETS.map((preset) => {
-            const active = Number(resolutionValue) === preset;
-            return (
-              <button
-                key={preset}
-                type="button"
-                className={cn(
-                  "inline-flex h-10 flex-1 items-center justify-center rounded-full border text-sm font-medium transition",
-                  active
-                    ? "border-white/16 bg-white/[0.1] text-zinc-100"
-                    : "border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/16 hover:bg-white/[0.08]"
-                )}
-                onClick={() => {
-                  const resized = resolveSizeFromAspectAndResolution(
-                    commonParams.aspectRatio,
-                    preset,
-                    commonParams.width,
-                    commonParams.height
-                  );
-                  onCommonParamsChange({
-                    width: resized.width,
-                    height: resized.height,
-                  });
-                }}
-              >
-                {formatResolutionLabel(String(preset))}
-              </button>
-            );
-          })}
-        </div>
+      {supportsCustomSize ? (
+        <div className="space-y-4">
+          <div className="flex gap-2">
+            {RESOLUTION_PRESETS.map((preset) => {
+              const active = Number(resolutionValue) === preset;
+              return (
+                <button
+                  key={preset}
+                  type="button"
+                  className={cn(
+                    "inline-flex h-10 flex-1 items-center justify-center rounded-full border text-sm font-medium transition",
+                    active
+                      ? "border-white/16 bg-white/[0.1] text-zinc-100"
+                      : "border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/16 hover:bg-white/[0.08]"
+                  )}
+                  onClick={() => {
+                    const resized = resolveSizeFromAspectAndResolution(
+                      commonParams.aspectRatio,
+                      preset,
+                      commonParams.width,
+                      commonParams.height
+                    );
+                    onCommonParamsChange({
+                      width: resized.width,
+                      height: resized.height,
+                    });
+                  }}
+                >
+                  {formatResolutionLabel(String(preset))}
+                </button>
+              );
+            })}
+          </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <Input
-            type="number"
-            value={commonParams.width ?? ""}
-            onChange={(event) => onCommonParamsChange({ width: toNumberOrNull(event.target.value) })}
-            className="h-11 rounded-[18px] border-white/10 bg-black/30 text-sm"
-            placeholder="Width"
-          />
-          <Input
-            type="number"
-            value={commonParams.height ?? ""}
-            onChange={(event) => onCommonParamsChange({ height: toNumberOrNull(event.target.value) })}
-            className="h-11 rounded-[18px] border-white/10 bg-black/30 text-sm"
-            placeholder="Height"
-          />
+          <div className="grid grid-cols-2 gap-2">
+            <Input
+              type="number"
+              value={commonParams.width ?? ""}
+              onChange={(event) =>
+                onCommonParamsChange({ width: toNumberOrNull(event.target.value) })
+              }
+              className="h-11 rounded-[18px] border-white/10 bg-black/30 text-sm"
+              placeholder="Width"
+            />
+            <Input
+              type="number"
+              value={commonParams.height ?? ""}
+              onChange={(event) =>
+                onCommonParamsChange({ height: toNumberOrNull(event.target.value) })
+              }
+              className="h-11 rounded-[18px] border-white/10 bg-black/30 text-sm"
+              placeholder="Height"
+            />
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="rounded-[18px] border border-white/10 bg-black/30 px-4 py-4 text-sm text-zinc-300">
+          Current model uses provider-managed output sizes.
+          Switch to a model with custom size support to set an explicit resolution.
+        </div>
+      )}
     </PanelShell>
   );
 
@@ -538,6 +583,9 @@ export function ImagePromptInput({
     <PanelShell className="left-1/2 w-[360px] -translate-x-1/2">
       <ReferenceImagePicker
         referenceImages={referenceImages}
+        maxImages={providerFeatures.referenceImages.maxImages}
+        supportedTypes={providerFeatures.referenceImages.supportedTypes}
+        supportsWeight={providerFeatures.referenceImages.supportsWeight}
         onAddFiles={onAddReferenceFiles}
         onUpdateImage={onUpdateReferenceImage}
         onRemoveImage={onRemoveReferenceImage}
@@ -559,7 +607,9 @@ export function ImagePromptInput({
           <div className="space-y-4 rounded-[22px] border border-white/10 bg-white/[0.03] p-4">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="space-y-1.5">
-                <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">Batch</Label>
+                <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">
+                  Batch
+                </Label>
                 <Input
                   type="number"
                   min={1}
@@ -579,7 +629,9 @@ export function ImagePromptInput({
 
               {providerFeatures.seed ? (
                 <div className="space-y-1.5">
-                  <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">Seed</Label>
+                  <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">
+                    Seed
+                  </Label>
                   <Input
                     type="number"
                     value={modelParams.seed ?? ""}
@@ -616,7 +668,9 @@ export function ImagePromptInput({
 
               {providerFeatures.steps ? (
                 <div className="space-y-1.5">
-                  <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">Steps</Label>
+                  <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">
+                    Steps
+                  </Label>
                   <Input
                     type="number"
                     min={1}
@@ -634,7 +688,9 @@ export function ImagePromptInput({
 
             {providerFeatures.steps ? (
               <div className="space-y-2">
-                <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">Speed</Label>
+                <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">
+                  Speed
+                </Label>
                 <div className="flex flex-wrap gap-2">
                   {SPEED_OPTIONS.map((option) => (
                     <button
@@ -673,7 +729,9 @@ export function ImagePromptInput({
                               type="button"
                               className={cn(
                                 "rounded-full border px-3 py-2 text-xs font-medium transition",
-                                (typeof value === "string" ? value : String(field.defaultValue ?? "")) === option.value
+                                (typeof value === "string"
+                                  ? value
+                                  : String(field.defaultValue ?? "")) === option.value
                                   ? "border-white/16 bg-white/[0.1] text-zinc-100"
                                   : "border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/16 hover:bg-white/[0.08]"
                               )}
@@ -735,9 +793,7 @@ export function ImagePromptInput({
                 </Label>
                 <textarea
                   value={modelParams.negativePrompt}
-                  onChange={(event) =>
-                    onModelParamsChange({ negativePrompt: event.target.value })
-                  }
+                  onChange={(event) => onModelParamsChange({ negativePrompt: event.target.value })}
                   placeholder="Describe what to avoid"
                   className="min-h-[88px] w-full resize-y rounded-[18px] border border-white/10 bg-black/30 px-4 py-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
                 />
@@ -754,11 +810,8 @@ export function ImagePromptInput({
 
         {showApiKeys ? (
           <ProviderApiKeyPanel
-            providers={imageProviders.map((provider) => ({
-              id: provider.id,
-              name: provider.name,
-            }))}
-            currentProvider={imageProvider}
+            providers={runtimeProviders}
+            currentProviderId={selectedModel?.providerId ?? null}
           />
         ) : null}
       </div>
@@ -791,9 +844,16 @@ export function ImagePromptInput({
             name="image-prompt"
             ref={textareaRef}
             value={promptValue}
-            onChange={(event) => onPromptChange(event.target.value)}
+            onChange={(event) => setPromptValue(event.target.value)}
+            onCompositionStart={() => setIsComposing(true)}
+            onCompositionEnd={() => setIsComposing(false)}
             onKeyDown={(event) => {
-              if (event.key !== "Enter" || event.shiftKey) {
+              if (
+                event.key !== "Enter" ||
+                event.shiftKey ||
+                isComposing ||
+                event.nativeEvent.isComposing
+              ) {
                 return;
               }
               event.preventDefault();
@@ -802,6 +862,32 @@ export function ImagePromptInput({
             placeholder="Describe an image and click generate..."
             className="min-h-[108px] max-h-[220px] w-full resize-none overflow-y-auto border-none bg-transparent px-2 py-2 text-[22px] leading-tight text-zinc-50 outline-none placeholder:text-zinc-500 sm:text-[24px]"
           />
+
+          {selectedAssetRefs.length > 0 ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 px-2">
+              <span className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">
+                Referencing
+              </span>
+              {selectedAssetRefs.map((assetRef) => (
+                <button
+                  key={assetRef.assetId}
+                  type="button"
+                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-zinc-200 transition hover:border-white/16 hover:bg-white/[0.08]"
+                  onClick={() => onRemoveAssetRef(assetRef.assetId)}
+                >
+                  <span>{assetRef.role}</span>
+                  <span className="max-w-[140px] truncate text-zinc-400">{assetRef.assetId}</span>
+                </button>
+              ))}
+              <button
+                type="button"
+                className="text-xs text-zinc-500 transition hover:text-zinc-200"
+                onClick={onClearAssetRefs}
+              >
+                Clear
+              </button>
+            </div>
+          ) : null}
 
           <div className="mt-4 flex items-end justify-between gap-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -817,55 +903,50 @@ export function ImagePromptInput({
                 <AnimatePresence>
                   {modelMenuOpen ? (
                     <PanelShell className="left-0 max-h-[420px] w-[340px] overflow-y-auto p-2">
-                      <div className="space-y-3">
-                        {imageProviders.map((provider) => (
-                          <div key={provider.id}>
-                            <p className="px-3 pb-1 pt-2 text-[10px] uppercase tracking-[0.26em] text-zinc-500">
-                              {provider.name}
-                            </p>
-                            <div className="space-y-1">
-                              {provider.models.map((model) => {
-                                const active =
-                                  provider.id === imageProvider && model.id === imageModel;
-                                return (
-                                  <button
-                                    key={`${provider.id}-${model.id}`}
-                                    type="button"
-                                    className={cn(
-                                      "flex w-full items-start gap-3 rounded-[18px] px-3 py-3 text-left transition",
-                                      active
-                                        ? "bg-white/[0.1] text-zinc-100"
-                                        : "text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-100"
-                                    )}
-                                    onClick={() => selectModel(provider.id, model.id)}
-                                  >
-                                    <span className="mt-1 h-2.5 w-2.5 rounded-full border border-white/20 bg-white/10" />
-                                    <span className="min-w-0 flex-1">
-                                      <span className="block text-sm font-medium">{model.name}</span>
-                                      {model.description ? (
-                                        <span className="mt-1 block text-xs leading-5 text-zinc-500">
-                                          {model.description}
-                                        </span>
-                                      ) : null}
-                                    </span>
-                                    {active ? (
-                                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-zinc-100" />
-                                    ) : null}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
+                      <div className="space-y-1">
+                        {imageModels.map((model) => {
+                          const active = model.id === imageModel;
+                          return (
+                            <button
+                              key={model.id}
+                              type="button"
+                              className={cn(
+                                "flex w-full items-start gap-3 rounded-[18px] px-3 py-3 text-left transition",
+                                active
+                                  ? "bg-white/[0.1] text-zinc-100"
+                                  : "text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-100"
+                              )}
+                              onClick={() => selectModel(model.id)}
+                            >
+                              <span className="mt-1 h-2.5 w-2.5 rounded-full border border-white/20 bg-white/10" />
+                              <span className="min-w-0 flex-1">
+                                <span className="block text-sm font-medium">{model.name}</span>
+                                <span className="mt-1 block text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                                  {model.providerName}
+                                </span>
+                                {model.description ? (
+                                  <span className="mt-1 block text-xs leading-5 text-zinc-500">
+                                    {model.description}
+                                  </span>
+                                ) : null}
+                              </span>
+                              {active ? (
+                                <Check className="mt-0.5 h-4 w-4 shrink-0 text-zinc-100" />
+                              ) : null}
+                            </button>
+                          );
+                        })}
                       </div>
                     </PanelShell>
                   ) : null}
                 </AnimatePresence>
               </div>
 
-              {([
-                { id: "style", label: styleLabel, icon: <Palette className="h-4 w-4" /> },
-              ] as Array<{ id: HoverPanelId; label: string; icon: ReactNode }>).map((entry) => (
+              {(
+                [
+                  { id: "style", label: styleLabel, icon: <Palette className="h-4 w-4" /> },
+                ] as Array<{ id: HoverPanelId; label: string; icon: ReactNode }>
+              ).map((entry) => (
                 <div
                   key={entry.id}
                   className="relative"
@@ -878,12 +959,16 @@ export function ImagePromptInput({
                     }
                   }}
                 >
-                  <PillButton icon={entry.icon} label={entry.label} active={activeHoverPanel === entry.id} />
+                  <PillButton
+                    icon={entry.icon}
+                    label={entry.label}
+                    active={activeHoverPanel === entry.id}
+                  />
                   <AnimatePresence>{renderHoverPanel(entry.id)}</AnimatePresence>
                 </div>
               ))}
 
-              {providerFeatures.referenceImages ? (
+              {providerFeatures.referenceImages.enabled ? (
                 <div
                   className="relative"
                   onMouseEnter={() => openHoverPanel("refs")}
@@ -904,11 +989,21 @@ export function ImagePromptInput({
                 </div>
               ) : null}
 
-              {([
-                { id: "ratio", label: commonParams.aspectRatio, icon: <Ratio className="h-4 w-4" /> },
-                { id: "resolution", label: resolutionLabel, icon: <SwatchBook className="h-4 w-4" /> },
-                { id: "more", label: "More", icon: <Settings2 className="h-4 w-4" /> },
-              ] as Array<{ id: HoverPanelId; label: string; icon: ReactNode }>).map((entry) => (
+              {(
+                [
+                  {
+                    id: "ratio",
+                    label: commonParams.aspectRatio,
+                    icon: <Ratio className="h-4 w-4" />,
+                  },
+                  {
+                    id: "resolution",
+                    label: resolutionLabel,
+                    icon: <SwatchBook className="h-4 w-4" />,
+                  },
+                  { id: "more", label: "More", icon: <Settings2 className="h-4 w-4" /> },
+                ] as Array<{ id: HoverPanelId; label: string; icon: ReactNode }>
+              ).map((entry) => (
                 <div
                   key={entry.id}
                   className="relative"
@@ -921,7 +1016,11 @@ export function ImagePromptInput({
                     }
                   }}
                 >
-                  <PillButton icon={entry.icon} label={entry.label} active={activeHoverPanel === entry.id} />
+                  <PillButton
+                    icon={entry.icon}
+                    label={entry.label}
+                    active={activeHoverPanel === entry.id}
+                  />
                   <AnimatePresence>{renderHoverPanel(entry.id)}</AnimatePresence>
                 </div>
               ))}
