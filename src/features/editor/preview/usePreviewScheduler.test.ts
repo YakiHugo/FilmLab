@@ -161,6 +161,9 @@ describe("createPreviewSchedulerController", () => {
     const initialFull = deferredByMarker.get("initial-full");
     const dragInteractive = deferredByMarker.get("drag-interactive");
 
+    expect(initialFull?.signal.aborted).toBe(true);
+    expect(dragInteractive?.signal.aborted).toBe(false);
+
     initialFull?.resolve({ marker: "initial-full" });
     dragInteractive?.resolve({ marker: "drag-interactive" });
     await Promise.resolve();

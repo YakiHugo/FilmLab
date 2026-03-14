@@ -65,9 +65,7 @@ export function createPreviewSchedulerController<
     quality: PreviewQuality
   ) => {
     abortQuality(quality);
-    if (quality === "full") {
-      abortQuality("interactive");
-    }
+    abortQuality(quality === "full" ? "interactive" : "full");
     const request = descriptor.createRequest(quality);
     const requestId = latestIssuedRequestId + 1;
     latestIssuedRequestId = requestId;
