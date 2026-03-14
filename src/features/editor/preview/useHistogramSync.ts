@@ -12,12 +12,13 @@ import {
   type WaveformData,
 } from "@/features/editor/waveform";
 import type { Asset } from "@/types";
+import type { PreviewResult } from "./contracts";
 
 export interface UseHistogramSyncInput {
   canvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
   onHistogramChange: (histogram: HistogramData | null) => void;
   onWaveformChange: (waveform: WaveformData | null) => void;
-  renderVersion: number;
+  previewResult: PreviewResult | null;
   selectedAsset: Asset | null;
   usesOriginalImageElement: boolean;
 }
@@ -30,13 +31,14 @@ export function useHistogramSync({
   canvasRef,
   onHistogramChange,
   onWaveformChange,
-  renderVersion,
+  previewResult,
   selectedAsset,
   usesOriginalImageElement,
 }: UseHistogramSyncInput): UseHistogramSyncOutput {
   const histogramDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sourceHistogramRef = useRef<HistogramData | null>(null);
   const sourceWaveformRef = useRef<WaveformData | null>(null);
+  const sourceMonochromeRef = useRef(false);
   const [isSourceMonochrome, setIsSourceMonochrome] = useState(false);
 
   useEffect(() => {
@@ -51,11 +53,16 @@ export function useHistogramSync({
     if (!selectedAsset?.objectUrl) {
       sourceHistogramRef.current = null;
       sourceWaveformRef.current = null;
+      sourceMonochromeRef.current = false;
       setIsSourceMonochrome(false);
       onHistogramChange(null);
       onWaveformChange(null);
       return undefined;
     }
+    sourceHistogramRef.current = null;
+    sourceWaveformRef.current = null;
+    sourceMonochromeRef.current = false;
+    setIsSourceMonochrome(false);
     let cancelled = false;
     const image = new Image();
     image.decoding = "async";
@@ -86,6 +93,7 @@ export function useHistogramSync({
       sourceHistogramRef.current = sourceHistogram;
       sourceWaveformRef.current = sourceWaveform;
       const monochrome = Boolean(sourceHistogram?.analysis.isMonochrome);
+      sourceMonochromeRef.current = monochrome;
       setIsSourceMonochrome(monochrome);
       if (usesOriginalImageElement) {
         onHistogramChange(
@@ -99,6 +107,7 @@ export function useHistogramSync({
       if (!cancelled) {
         sourceHistogramRef.current = null;
         sourceWaveformRef.current = null;
+        sourceMonochromeRef.current = false;
         setIsSourceMonochrome(false);
       }
     });
@@ -115,7 +124,14 @@ export function useHistogramSync({
   ]);
 
   useEffect(() => {
-    if (!selectedAsset) {
+    if (!selectedAsset?.id || usesOriginalImageElement) {
+      return;
+    }
+    onHistogramChange(null);
+  }, [onHistogramChange, selectedAsset?.id, usesOriginalImageElement]);
+
+  useEffect(() => {
+    if (!selectedAsset?.id) {
       onHistogramChange(null);
       onWaveformChange(null);
       return undefined;
@@ -131,6 +147,9 @@ export function useHistogramSync({
       onWaveformChange(sourceWaveform);
       return undefined;
     }
+    if (!previewResult || previewResult.quality !== "full") {
+      return undefined;
+    }
     const previewCanvas = canvasRef.current;
     if (!previewCanvas) {
       return undefined;
@@ -143,7 +162,7 @@ export function useHistogramSync({
       const histogram = buildHistogramFromCanvas(previewCanvas);
       const waveform = buildWaveformFromCanvas(previewCanvas);
       onHistogramChange(
-        isSourceMonochrome ? forceMonochromeHistogramMode(histogram) : histogram
+        sourceMonochromeRef.current ? forceMonochromeHistogramMode(histogram) : histogram
       );
       onWaveformChange(waveform);
     }, 150);
@@ -159,8 +178,8 @@ export function useHistogramSync({
     isSourceMonochrome,
     onHistogramChange,
     onWaveformChange,
-    renderVersion,
-    selectedAsset,
+    previewResult,
+    selectedAsset?.id,
     usesOriginalImageElement,
   ]);
 

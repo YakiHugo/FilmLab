@@ -1,405 +1,535 @@
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
-import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { createDefaultAdjustments } from "@/lib/adjustments";
+import { releaseRenderSlots, renderImageToCanvas } from "@/lib/imageProcessing";
 import { applyMaskToLayerCanvas, generateMaskTexture } from "@/lib/layerMaskTexture";
-import { renderImageToCanvas } from "@/lib/imageProcessing";
-import { clamp } from "@/lib/math";
-import type { PreviewRoi } from "@/lib/previewRoi";
-import type { Asset } from "@/types";
-import type { LayerPreviewEntry, PreviewFrameSize } from "./contracts";
+import { resolveViewportRenderRegion } from "@/lib/renderer/viewportRegion";
+import { applyTimestampOverlay } from "@/lib/timestampOverlay";
+import type { Asset, EditingAdjustments } from "@/types";
+import {
+  compositeRetainedPreviewLayers,
+  copyPreviewCanvas,
+  ensurePreviewCanvasSize,
+  type RetainedPreviewLayerSurface,
+} from "./composite";
+import type {
+  EditorPreviewDocument,
+  LayerPreviewEntry,
+  PreviewFrameSize,
+  PreviewQuality,
+  PreviewRequest,
+  PreviewResult,
+} from "./contracts";
+import {
+  buildPreviewRenderSlot,
+  buildPreviewRenderSlotPrefix,
+} from "./requestUtils";
+import { usePreviewScheduler, type PreviewSchedulerDescriptor } from "./usePreviewScheduler";
+import { calculatePreviewViewportRoi } from "./viewportRoi";
 
-const resolveLayerBlendOperation = (
-  blendMode: LayerPreviewEntry["blendMode"]
-): GlobalCompositeOperation => {
-  if (blendMode === "multiply") {
-    return "multiply";
-  }
-  if (blendMode === "screen") {
-    return "screen";
-  }
-  if (blendMode === "overlay") {
-    return "overlay";
-  }
-  if (blendMode === "softLight") {
-    return "soft-light";
-  }
-  return "source-over";
-};
-
-const ensureCanvasSize = (canvas: HTMLCanvasElement, width: number, height: number) => {
-  const safeWidth = Math.max(1, Math.round(width));
-  const safeHeight = Math.max(1, Math.round(height));
-  if (canvas.width !== safeWidth) {
-    canvas.width = safeWidth;
-  }
-  if (canvas.height !== safeHeight) {
-    canvas.height = safeHeight;
-  }
-};
-
-const resolvePreviewSourceRect = (
-  sourceWidth: number,
-  sourceHeight: number,
-  previewRoi: PreviewRoi | null
-) => {
-  if (!previewRoi) {
-    return {
-      x: 0,
-      y: 0,
-      width: sourceWidth,
-      height: sourceHeight,
-    };
-  }
-  const width = Math.max(1, Math.round(sourceWidth * previewRoi.width));
-  const height = Math.max(1, Math.round(sourceHeight * previewRoi.height));
-  const x = Math.round(
-    clamp(previewRoi.left, 0, 1 - previewRoi.width) * Math.max(0, sourceWidth - width)
-  );
-  const y = Math.round(
-    clamp(previewRoi.top, 0, 1 - previewRoi.height) * Math.max(0, sourceHeight - height)
-  );
-  return { x, y, width, height };
-};
-
-export interface UsePreviewRenderPipelineInput {
-  adjustments: Asset["adjustments"] | null;
-  filmProfile: Asset["filmProfile"] | null | undefined;
+interface UsePreviewRenderPipelineInput {
+  document: EditorPreviewDocument | null;
   frameSize: PreviewFrameSize;
   isCropMode: boolean;
   layerPreviewEntries: LayerPreviewEntry[];
   orientedSourceAspectRatio: number;
   previewRenderSeed: number;
-  previewRoi: PreviewRoi | null;
-  selectedAsset: Asset | null;
   shouldRenderLayerComposite: boolean;
-  showOriginal: boolean;
+  sourceAsset: Asset | null;
   timestampText: string | null;
+  viewOffset: { x: number; y: number };
+  viewScale: number;
 }
 
 export interface UsePreviewRenderPipelineOutput {
   canvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
-  imageNaturalSize: PreviewFrameSize | null;
-  originalImageRef: React.MutableRefObject<HTMLImageElement | null>;
   overlayCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
-  renderedRotate: number;
+  originalImageRef: React.MutableRefObject<HTMLImageElement | null>;
+  previewResult: PreviewResult | null;
   renderVersion: number;
+  renderedRotate: number;
 }
 
+interface PreviewCanvasBucket {
+  outputCanvas: HTMLCanvasElement;
+  layerCanvases: Map<string, HTMLCanvasElement>;
+  layerMaskCanvases: Map<string, HTMLCanvasElement>;
+  layerMaskScratchCanvases: Map<string, HTMLCanvasElement>;
+  maskedLayerCanvases: Map<string, HTMLCanvasElement>;
+}
+
+interface PreviewRenderExecutionResult {
+  outputCanvas: HTMLCanvasElement;
+  renderedRoi: PreviewResult["renderedRoi"];
+  renderVersion: number;
+  renderedRotate: number;
+}
+
+export const MAX_RETAINED_PREVIEW_DOCUMENTS = 2;
+
+const createAbortError = () => new DOMException("Aborted", "AbortError");
+
+const createPreviewCanvasBucket = (): PreviewCanvasBucket => ({
+  outputCanvas: document.createElement("canvas"),
+  layerCanvases: new Map(),
+  layerMaskCanvases: new Map(),
+  layerMaskScratchCanvases: new Map(),
+  maskedLayerCanvases: new Map(),
+});
+
+const releaseCanvas = (canvas: HTMLCanvasElement) => {
+  canvas.width = 0;
+  canvas.height = 0;
+};
+
+const releaseCanvasMap = (map: Map<string, HTMLCanvasElement>) => {
+  for (const canvas of map.values()) {
+    releaseCanvas(canvas);
+  }
+  map.clear();
+};
+
+const releasePreviewCanvasBucket = (bucket: PreviewCanvasBucket) => {
+  releaseCanvas(bucket.outputCanvas);
+  releaseCanvasMap(bucket.layerCanvases);
+  releaseCanvasMap(bucket.layerMaskCanvases);
+  releaseCanvasMap(bucket.layerMaskScratchCanvases);
+  releaseCanvasMap(bucket.maskedLayerCanvases);
+};
+
+const getRetainedCanvas = (map: Map<string, HTMLCanvasElement>, key: string) => {
+  const existing = map.get(key);
+  if (existing) {
+    return existing;
+  }
+  const next = document.createElement("canvas");
+  map.set(key, next);
+  return next;
+};
+
+const pruneRetainedCanvasMap = (
+  map: Map<string, HTMLCanvasElement>,
+  activeKeys: Set<string>
+) => {
+  for (const [key, canvas] of map.entries()) {
+    if (activeKeys.has(key)) {
+      continue;
+    }
+    releaseCanvas(canvas);
+    map.delete(key);
+  }
+};
+
+const resolveRenderSource = (asset: Asset) => asset.blob ?? asset.objectUrl;
+
+const resolvePreviewAdjustments = (
+  request: PreviewRequest,
+  adjustments: EditingAdjustments
+): EditingAdjustments => {
+  if (!request.isCropMode) {
+    return adjustments;
+  }
+  return {
+    ...adjustments,
+    aspectRatio: "original",
+    customAspectRatio: request.orientedSourceAspectRatio,
+  };
+};
+
+export const resolveLayerPreviewAdjustments = (
+  request: PreviewRequest,
+  adjustments: EditingAdjustments
+) =>
+  request.showOriginal
+    ? resolvePreviewAdjustments(request, createDefaultAdjustments())
+    : resolvePreviewAdjustments(request, adjustments);
+
+export const resolveLayerPreviewFilmProfile = (
+  request: PreviewRequest,
+  sourceAsset: Asset
+) => {
+  if (request.showOriginal) {
+    return undefined;
+  }
+  return sourceAsset.id === request.sourceAsset.id
+    ? request.document.filmProfile ?? undefined
+    : sourceAsset.filmProfile ?? undefined;
+};
+
+const resolveCompositeViewportRoi = (request: PreviewRequest) =>
+  request.document.adjustments.timestampEnabled ? null : request.viewportRoi;
+
+const resolvePreviewSourceCacheKey = (
+  documentKey: string,
+  asset: Asset,
+  suffix = "base"
+) => `preview:${documentKey}:${suffix}:${asset.id}:${asset.size}`;
+
+const releaseRetainedPreviewDocument = (documentKey: string, buckets: Record<PreviewQuality, PreviewCanvasBucket>) => {
+  releasePreviewCanvasBucket(buckets.interactive);
+  releasePreviewCanvasBucket(buckets.full);
+  void releaseRenderSlots("preview", buildPreviewRenderSlotPrefix(documentKey));
+};
+
+export const pruneRetainedPreviewDocuments = <T>(
+  bucketsByDocument: Map<string, T>,
+  maxDocuments: number,
+  onEvict: (documentKey: string, value: T) => void
+) => {
+  while (bucketsByDocument.size > maxDocuments) {
+    const oldestEntry = bucketsByDocument.entries().next().value as [string, T] | undefined;
+    if (!oldestEntry) {
+      return;
+    }
+    const [documentKey, value] = oldestEntry;
+    bucketsByDocument.delete(documentKey);
+    onEvict(documentKey, value);
+  }
+};
+
+const buildLayerPreviewSurfaces = (
+  bucket: PreviewCanvasBucket,
+  layerEntries: LayerPreviewEntry[],
+  frameSize: PreviewFrameSize
+): RetainedPreviewLayerSurface[] => {
+  const surfaces: RetainedPreviewLayerSurface[] = [];
+  const layersBottomToTop = [...layerEntries].reverse();
+  for (const entry of layersBottomToTop) {
+    const maskedLayerCanvas = bucket.maskedLayerCanvases.get(entry.layer.id);
+    const layerCanvas = bucket.layerCanvases.get(entry.layer.id);
+    const drawCanvas = entry.layer.mask
+      ? maskedLayerCanvas ?? layerCanvas ?? null
+      : layerCanvas ?? null;
+    if (!drawCanvas) {
+      continue;
+    }
+    ensurePreviewCanvasSize(drawCanvas, frameSize.width, frameSize.height);
+    surfaces.push({
+      canvas: drawCanvas,
+      opacity: entry.opacity,
+      blendMode: entry.blendMode,
+    });
+  }
+  return surfaces;
+};
+
 export function usePreviewRenderPipeline({
-  adjustments,
-  filmProfile,
+  document,
   frameSize,
   isCropMode,
   layerPreviewEntries,
   orientedSourceAspectRatio,
   previewRenderSeed,
-  previewRoi,
-  selectedAsset,
   shouldRenderLayerComposite,
-  showOriginal,
+  sourceAsset,
   timestampText,
+  viewOffset,
+  viewScale,
 }: UsePreviewRenderPipelineInput): UsePreviewRenderPipelineOutput {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const originalImageRef = useRef<HTMLImageElement | null>(null);
-  const outputCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const fullFrameCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const layerCanvasByLayerIdRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
-  const layerMaskCanvasByLayerIdRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
-  const layerMaskScratchByLayerIdRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
-  const layerBlendCanvasByLayerIdRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
-  const lastAbortTimeRef = useRef(0);
+  const documentBucketsRef = useRef<
+    Map<string, Record<PreviewQuality, PreviewCanvasBucket>>
+  >(new Map());
+  const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null);
+  const [renderedRotate, setRenderedRotate] = useState(document?.adjustments.rotate ?? 0);
 
-  const [imageNaturalSize, setImageNaturalSize] = useState<PreviewFrameSize | null>(null);
-  const [renderedRotate, setRenderedRotate] = useState(adjustments?.rotate ?? 0);
-  const [renderVersion, setRenderVersion] = useState(0);
+  const viewportRoi = useMemo(
+    () =>
+      isCropMode
+        ? null
+        : calculatePreviewViewportRoi({
+            frameSize,
+            viewScale,
+            viewOffset,
+          }),
+    [frameSize, isCropMode, viewOffset, viewScale]
+  );
+
+  const canRenderPreview =
+    Boolean(document) &&
+    Boolean(sourceAsset) &&
+    frameSize.width > 0 &&
+    frameSize.height > 0 &&
+    Boolean(resolveRenderSource(sourceAsset as Asset)) &&
+    (!document?.showOriginal || shouldRenderLayerComposite);
+
+  const descriptor = useMemo<PreviewSchedulerDescriptor<PreviewRequest> | null>(() => {
+    if (!document || !sourceAsset || !canRenderPreview) {
+      return null;
+    }
+    return {
+      documentKey: document.documentKey,
+      createRequest: (quality) => ({
+        document,
+        documentKey: document.documentKey,
+        quality,
+        frameSize,
+        viewportRoi,
+        layerEntries: layerPreviewEntries,
+        showOriginal: document.showOriginal,
+        timestampText,
+        isCropMode,
+        orientedSourceAspectRatio,
+        previewRenderSeed,
+        sourceAsset,
+        shouldRenderLayerComposite,
+      }),
+    };
+  }, [
+    canRenderPreview,
+    document,
+    frameSize,
+    isCropMode,
+    layerPreviewEntries,
+    orientedSourceAspectRatio,
+    previewRenderSeed,
+    shouldRenderLayerComposite,
+    sourceAsset,
+    timestampText,
+    viewportRoi,
+  ]);
+
+  const getBucket = (documentKey: string, quality: PreviewQuality) => {
+    const existing = documentBucketsRef.current.get(documentKey);
+    if (existing) {
+      documentBucketsRef.current.delete(documentKey);
+      documentBucketsRef.current.set(documentKey, existing);
+      return existing[quality];
+    }
+    const created = {
+      interactive: createPreviewCanvasBucket(),
+      full: createPreviewCanvasBucket(),
+    } satisfies Record<PreviewQuality, PreviewCanvasBucket>;
+    documentBucketsRef.current.set(documentKey, created);
+    pruneRetainedPreviewDocuments(
+      documentBucketsRef.current,
+      MAX_RETAINED_PREVIEW_DOCUMENTS,
+      releaseRetainedPreviewDocument
+    );
+    return created[quality];
+  };
 
   useEffect(() => {
-    const previewCanvas = canvasRef.current;
+    const bucketsByDocument = documentBucketsRef.current;
     const overlayCanvas = overlayCanvasRef.current;
-    const outputCanvas = outputCanvasRef.current;
-    const fullFrameCanvas = fullFrameCanvasRef.current;
-    const layerCanvasMap = layerCanvasByLayerIdRef.current;
-    const layerMaskCanvasMap = layerMaskCanvasByLayerIdRef.current;
-    const layerMaskScratchMap = layerMaskScratchByLayerIdRef.current;
-    const layerBlendCanvasMap = layerBlendCanvasByLayerIdRef.current;
-
     return () => {
-      for (const canvas of [previewCanvas, overlayCanvas, outputCanvas, fullFrameCanvas]) {
-        if (!canvas) {
-          continue;
-        }
-        canvas.width = 0;
-        canvas.height = 0;
+      for (const [documentKey, buckets] of bucketsByDocument.entries()) {
+        releaseRetainedPreviewDocument(documentKey, buckets);
       }
-      outputCanvasRef.current = null;
-      fullFrameCanvasRef.current = null;
-
-      for (const canvasMap of [
-        layerCanvasMap,
-        layerMaskCanvasMap,
-        layerMaskScratchMap,
-        layerBlendCanvasMap,
-      ]) {
-        for (const layerCanvas of canvasMap.values()) {
-          layerCanvas.width = 0;
-          layerCanvas.height = 0;
-        }
-        canvasMap.clear();
+      bucketsByDocument.clear();
+      if (overlayCanvas) {
+        overlayCanvas.width = 0;
+        overlayCanvas.height = 0;
       }
     };
   }, []);
 
   useEffect(() => {
-    if (!selectedAsset?.objectUrl) {
-      setImageNaturalSize(null);
+    if (document?.documentKey) {
       return;
     }
-    const image = new Image();
-    image.onload = () => {
-      setImageNaturalSize({
-        width: image.naturalWidth,
-        height: image.naturalHeight,
-      });
-    };
-    image.src = selectedAsset.objectUrl;
-  }, [selectedAsset?.objectUrl]);
+    for (const [documentKey, buckets] of documentBucketsRef.current.entries()) {
+      releaseRetainedPreviewDocument(documentKey, buckets);
+    }
+    documentBucketsRef.current.clear();
+  }, [document?.documentKey]);
 
   useEffect(() => {
-    if (!selectedAsset) {
-      return undefined;
-    }
-    if (!adjustments && !shouldRenderLayerComposite) {
-      return undefined;
-    }
-    if (showOriginal && !shouldRenderLayerComposite) {
-      return undefined;
-    }
+    setRenderedRotate(document?.adjustments.rotate ?? 0);
+  }, [document?.adjustments.rotate]);
+
+  useEffect(() => {
+    setPreviewResult(null);
     const previewCanvas = canvasRef.current;
-    if (!previewCanvas || frameSize.width === 0 || frameSize.height === 0) {
-      return undefined;
+    if (!previewCanvas) {
+      return;
     }
-    const controller = new AbortController();
-    const devicePixelRatio = window.devicePixelRatio || 1;
-    const isRapidUpdate = performance.now() - lastAbortTimeRef.current < 100;
-    const targetWidth = Math.round(frameSize.width * devicePixelRatio);
-    const targetHeight = Math.round(frameSize.height * devicePixelRatio);
-    const renderScale = previewRoi?.zoom ?? 1;
-    const renderTargetWidth = Math.max(1, Math.round(targetWidth * renderScale));
-    const renderTargetHeight = Math.max(1, Math.round(targetHeight * renderScale));
+    const context = previewCanvas.getContext("2d", { willReadFrequently: true });
+    context?.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+  }, [document?.documentKey]);
 
-    const renderPreview = async () => {
-      if (!outputCanvasRef.current) {
-        outputCanvasRef.current = document.createElement("canvas");
+  useEffect(() => {
+    if (canRenderPreview) {
+      return;
+    }
+    setPreviewResult(null);
+  }, [canRenderPreview]);
+
+  usePreviewScheduler<PreviewRequest, PreviewRenderExecutionResult>({
+    descriptor,
+    execute: async (request, signal, requestId) => {
+      const bucket = getBucket(request.documentKey, request.quality);
+      const source = resolveRenderSource(request.sourceAsset);
+      if (!source) {
+        throw new Error(`Preview source missing for asset ${request.sourceAsset.id}.`);
       }
-      if (!fullFrameCanvasRef.current) {
-        fullFrameCanvasRef.current = document.createElement("canvas");
-      }
 
-      const outputCanvas = outputCanvasRef.current;
-      const fullFrameCanvas = fullFrameCanvasRef.current;
-      ensureCanvasSize(outputCanvas, targetWidth, targetHeight);
+      const effectiveViewportRoi =
+        request.isCropMode || request.document.adjustments.timestampEnabled
+          ? null
+          : request.viewportRoi;
 
-      if (shouldRenderLayerComposite) {
-        const layerCanvasMap = layerCanvasByLayerIdRef.current;
-        const layerMaskCanvasMap = layerMaskCanvasByLayerIdRef.current;
-        const layerMaskScratchMap = layerMaskScratchByLayerIdRef.current;
-        const layerBlendCanvasMap = layerBlendCanvasByLayerIdRef.current;
-        const activeLayerIds = new Set(layerPreviewEntries.map((entry) => entry.layer.id));
-        const pruneCanvasMap = (canvasMap: Map<string, HTMLCanvasElement>) => {
-          for (const [layerId, layerCanvas] of canvasMap.entries()) {
-            if (activeLayerIds.has(layerId)) {
-              continue;
-            }
-            layerCanvas.width = 0;
-            layerCanvas.height = 0;
-            canvasMap.delete(layerId);
-          }
+      if (!request.shouldRenderLayerComposite || request.layerEntries.length <= 1) {
+        const adjustments = resolvePreviewAdjustments(request, request.document.adjustments);
+        await renderImageToCanvas({
+          canvas: bucket.outputCanvas,
+          source,
+          adjustments,
+          filmProfile: request.document.filmProfile ?? undefined,
+          timestampText: request.timestampText,
+          targetSize: request.frameSize,
+          mode: "preview",
+          qualityProfile: request.quality,
+          renderSeed: request.previewRenderSeed,
+          seedKey: `${request.documentKey}:main`,
+          skipHalationBloom: request.quality === "interactive",
+          signal,
+          sourceCacheKey: resolvePreviewSourceCacheKey(
+            request.documentKey,
+            request.sourceAsset
+          ),
+          renderSlot: buildPreviewRenderSlot(request.documentKey),
+          viewportRoi: effectiveViewportRoi,
+        });
+        if (signal.aborted) {
+          throw createAbortError();
+        }
+        return {
+          outputCanvas: bucket.outputCanvas,
+          renderedRoi: effectiveViewportRoi,
+          renderVersion: requestId,
+          renderedRotate: adjustments.rotate,
         };
+      }
 
-        pruneCanvasMap(layerCanvasMap);
-        pruneCanvasMap(layerMaskCanvasMap);
-        pruneCanvasMap(layerMaskScratchMap);
-        pruneCanvasMap(layerBlendCanvasMap);
-        ensureCanvasSize(fullFrameCanvas, renderTargetWidth, renderTargetHeight);
+      const activeLayerIds = new Set(request.layerEntries.map((entry) => entry.layer.id));
+      pruneRetainedCanvasMap(bucket.layerCanvases, activeLayerIds);
+      pruneRetainedCanvasMap(bucket.layerMaskCanvases, activeLayerIds);
+      pruneRetainedCanvasMap(bucket.layerMaskScratchCanvases, activeLayerIds);
+      pruneRetainedCanvasMap(bucket.maskedLayerCanvases, activeLayerIds);
 
-        const fullFrameContext = fullFrameCanvas.getContext("2d", { willReadFrequently: true });
-        if (!fullFrameContext) {
-          return;
-        }
-        fullFrameContext.clearRect(0, 0, fullFrameCanvas.width, fullFrameCanvas.height);
-
-        const layersBottomToTop = [...layerPreviewEntries].reverse();
-        for (let layerIndex = 0; layerIndex < layersBottomToTop.length; layerIndex += 1) {
-          if (controller.signal.aborted) {
-            return;
-          }
-          const layerEntry = layersBottomToTop[layerIndex]!;
-          let layerCanvas = layerCanvasMap.get(layerEntry.layer.id);
-          if (!layerCanvas) {
-            layerCanvas = document.createElement("canvas");
-            layerCanvasMap.set(layerEntry.layer.id, layerCanvas);
-          }
-
-          const layerAdjustments = showOriginal
-            ? createDefaultAdjustments()
-            : normalizeAdjustments(layerEntry.adjustments);
-
-          await renderImageToCanvas({
-            canvas: layerCanvas,
-            source: layerEntry.sourceAsset.blob ?? layerEntry.sourceAsset.objectUrl,
-            adjustments: layerAdjustments,
-            filmProfile: showOriginal ? undefined : layerEntry.sourceAsset.filmProfile,
-            timestampText: null,
-            targetSize: {
-              width: renderTargetWidth,
-              height: renderTargetHeight,
-            },
-            seedKey: `${selectedAsset.id}:${layerEntry.layer.id}`,
-            renderSeed: (previewRenderSeed ^ ((layerIndex + 1) * 2654435761)) >>> 0,
-            skipHalationBloom: isRapidUpdate,
-            signal: controller.signal,
-            sourceCacheKey: `preview:${layerEntry.sourceAsset.id}:${layerEntry.layer.id}:${layerEntry.sourceAsset.size}`,
-          });
-          if (controller.signal.aborted) {
-            return;
-          }
-
-          let drawSource: CanvasImageSource = layerCanvas;
-          if (layerEntry.layer.mask) {
-            let maskCanvas = layerMaskCanvasMap.get(layerEntry.layer.id);
-            if (!maskCanvas) {
-              maskCanvas = document.createElement("canvas");
-              layerMaskCanvasMap.set(layerEntry.layer.id, maskCanvas);
-            }
-            let scratchCanvas = layerMaskScratchMap.get(layerEntry.layer.id);
-            if (!scratchCanvas) {
-              scratchCanvas = document.createElement("canvas");
-              layerMaskScratchMap.set(layerEntry.layer.id, scratchCanvas);
-            }
-            const generatedMask = generateMaskTexture(layerEntry.layer.mask, {
-              width: fullFrameCanvas.width,
-              height: fullFrameCanvas.height,
-              referenceSource: layerCanvas,
-              targetCanvas: maskCanvas,
-              scratchCanvas,
-            });
-            if (generatedMask) {
-              let blendCanvas = layerBlendCanvasMap.get(layerEntry.layer.id);
-              if (!blendCanvas) {
-                blendCanvas = document.createElement("canvas");
-                layerBlendCanvasMap.set(layerEntry.layer.id, blendCanvas);
-              }
-              drawSource = applyMaskToLayerCanvas(layerCanvas, generatedMask, blendCanvas);
-            }
-          }
-
-          fullFrameContext.save();
-          fullFrameContext.globalAlpha = layerEntry.opacity;
-          fullFrameContext.globalCompositeOperation = resolveLayerBlendOperation(
-            layerEntry.blendMode
-          );
-          fullFrameContext.drawImage(drawSource, 0, 0, fullFrameCanvas.width, fullFrameCanvas.height);
-          fullFrameContext.restore();
-        }
-      } else {
-        const renderAdjustments = isCropMode
-          ? {
-              ...adjustments!,
-              aspectRatio: "original" as const,
-              customAspectRatio: orientedSourceAspectRatio,
-              scale: 100,
-            }
-          : adjustments!;
+      for (const entry of request.layerEntries) {
+        const layerCanvas = getRetainedCanvas(bucket.layerCanvases, entry.layer.id);
+        const layerAdjustments = resolveLayerPreviewAdjustments(request, entry.adjustments);
+        const layerSource = resolveRenderSource(entry.sourceAsset);
+        const layerFilmProfile = resolveLayerPreviewFilmProfile(request, entry.sourceAsset);
 
         await renderImageToCanvas({
-          canvas: fullFrameCanvas,
-          source: selectedAsset.blob ?? selectedAsset.objectUrl,
-          adjustments: renderAdjustments,
-          filmProfile: filmProfile ?? undefined,
-          timestampText,
-          targetSize: {
-            width: renderTargetWidth,
-            height: renderTargetHeight,
-          },
-          seedKey: selectedAsset.id,
-          renderSeed: previewRenderSeed,
-          skipHalationBloom: isRapidUpdate,
-          signal: controller.signal,
+          canvas: layerCanvas,
+          source: layerSource,
+          adjustments: layerAdjustments,
+          filmProfile: layerFilmProfile,
+          timestampText: null,
+          targetSize: request.frameSize,
+          mode: "preview",
+          qualityProfile: request.quality,
+          renderSeed: request.previewRenderSeed + request.layerEntries.indexOf(entry) + 1,
+          seedKey: `${request.documentKey}:${entry.layer.id}`,
+          skipHalationBloom: request.quality === "interactive",
+          signal,
+          sourceCacheKey: resolvePreviewSourceCacheKey(
+            request.documentKey,
+            entry.sourceAsset,
+            `layer:${entry.layer.id}`
+          ),
+          renderSlot: buildPreviewRenderSlot(request.documentKey, `layer:${entry.layer.id}`),
+          viewportRoi: effectiveViewportRoi,
         });
-        if (controller.signal.aborted) {
-          return;
+
+        if (!entry.layer.mask) {
+          continue;
         }
-        setRenderedRotate(renderAdjustments.rotate);
+
+        const maskCanvas = getRetainedCanvas(bucket.layerMaskCanvases, entry.layer.id);
+        const scratchCanvas = getRetainedCanvas(
+          bucket.layerMaskScratchCanvases,
+          entry.layer.id
+        );
+        const maskedLayerCanvas = getRetainedCanvas(bucket.maskedLayerCanvases, entry.layer.id);
+        const generatedMask = generateMaskTexture(entry.layer.mask, {
+          width: request.frameSize.width,
+          height: request.frameSize.height,
+          referenceSource: layerCanvas,
+          targetCanvas: maskCanvas,
+          scratchCanvas,
+        });
+        if (generatedMask) {
+          applyMaskToLayerCanvas(layerCanvas, generatedMask, maskedLayerCanvas);
+        } else {
+          copyPreviewCanvas(maskedLayerCanvas, layerCanvas);
+        }
+
+        if (signal.aborted) {
+          throw createAbortError();
+        }
       }
 
-      const outputContext = outputCanvas.getContext("2d", { willReadFrequently: true });
-      if (!outputContext) {
-        return;
-      }
-      outputContext.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
-
-      const sourceRect = resolvePreviewSourceRect(
-        fullFrameCanvas.width,
-        fullFrameCanvas.height,
-        previewRoi
+      ensurePreviewCanvasSize(bucket.outputCanvas, request.frameSize.width, request.frameSize.height);
+      const compositeRegion = resolveViewportRenderRegion(
+        request.frameSize.width,
+        request.frameSize.height,
+        resolveCompositeViewportRoi(request)
       );
-      outputContext.drawImage(
-        fullFrameCanvas,
-        sourceRect.x,
-        sourceRect.y,
-        sourceRect.width,
-        sourceRect.height,
-        0,
-        0,
-        outputCanvas.width,
-        outputCanvas.height
+      const layerSurfaces = buildLayerPreviewSurfaces(
+        bucket,
+        request.layerEntries,
+        request.frameSize
       );
-
-      const previewContext = previewCanvas.getContext("2d", { willReadFrequently: true });
-      if (!previewContext) {
-        return;
-      }
       if (
-        previewCanvas.width !== outputCanvas.width ||
-        previewCanvas.height !== outputCanvas.height
+        !compositeRetainedPreviewLayers({
+          targetCanvas: bucket.outputCanvas,
+          layerSurfaces,
+          region: compositeRegion,
+        })
       ) {
-        previewCanvas.width = outputCanvas.width;
-        previewCanvas.height = outputCanvas.height;
+        throw new Error("Failed to compose retained preview layers.");
       }
-      previewContext.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-      previewContext.drawImage(outputCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
-      setRenderVersion((current) => current + 1);
-    };
 
-    void renderPreview().catch(() => undefined);
+      await applyTimestampOverlay(
+        bucket.outputCanvas,
+        request.document.adjustments,
+        request.timestampText
+      );
 
-    return () => {
-      controller.abort();
-      lastAbortTimeRef.current = performance.now();
-    };
-  }, [
-    adjustments,
-    filmProfile,
-    frameSize.height,
-    frameSize.width,
-    isCropMode,
-    layerPreviewEntries,
-    orientedSourceAspectRatio,
-    previewRenderSeed,
-    previewRoi,
-    selectedAsset,
-    shouldRenderLayerComposite,
-    showOriginal,
-    timestampText,
-  ]);
+      if (signal.aborted) {
+        throw createAbortError();
+      }
+
+      return {
+        outputCanvas: bucket.outputCanvas,
+        renderedRoi: resolveCompositeViewportRoi(request),
+        renderVersion: requestId,
+        renderedRotate: request.document.adjustments.rotate,
+      };
+    },
+    onError: (error, request) => {
+      console.warn("[FilmLab] Preview render failed.", request.documentKey, request.quality, error);
+    },
+    onResult: (result) => {
+      const previewCanvas = canvasRef.current;
+      if (previewCanvas) {
+        copyPreviewCanvas(previewCanvas, result.outputCanvas);
+      }
+      startTransition(() => {
+        setRenderedRotate(result.renderedRotate);
+        setPreviewResult({
+          requestId: result.requestId,
+          quality: result.quality,
+          renderedRoi: result.renderedRoi,
+          renderVersion: result.renderVersion,
+        });
+      });
+    },
+  });
 
   return {
     canvasRef,
-    imageNaturalSize,
-    originalImageRef,
     overlayCanvasRef,
+    originalImageRef,
+    previewResult,
+    renderVersion: previewResult?.renderVersion ?? 0,
     renderedRotate,
-    renderVersion,
   };
 }
