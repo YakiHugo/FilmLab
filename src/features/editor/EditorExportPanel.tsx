@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import { copyJpegExif } from "@/lib/export/jpegExif";
 import { encodeRgbaToTiff } from "@/lib/export/tiff";
+import { ensureAssetLayers } from "@/lib/editorLayers";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
 import type {
   Asset,
@@ -19,6 +20,7 @@ import type {
   ExportResolutionPreset,
 } from "@/types";
 import { EditorSliderRow } from "./EditorSliderRow";
+import { createRenderDocument } from "./document";
 import { renderDocumentToCanvas } from "./renderDocumentCanvas";
 import {
   useEditorAdjustmentState,
@@ -177,16 +179,16 @@ export function EditorExportPanel() {
       await renderDocumentToCanvas({
         canvas: renderCanvas,
         document:
-          exportRenderDocument ?? {
+          exportRenderDocument ??
+          createRenderDocument({
             key: `editor:${selectedAsset.id}:export-fallback`,
-            documentKey: `editor:${selectedAsset.id}:export-fallback`,
-            sourceAsset: selectedAsset,
-            sourceAssetId: selectedAsset.id,
+            assetById: new Map([[selectedAsset.id, selectedAsset]]),
+            documentAsset: selectedAsset,
+            layers: ensureAssetLayers(selectedAsset),
             adjustments: activeAdjustments,
             filmProfile: previewFilmProfile ?? selectedAsset.filmProfile ?? undefined,
-            layerEntries: [],
             showOriginal: false,
-          },
+          }),
         intent: "export-full",
         targetSize,
         timestampText,

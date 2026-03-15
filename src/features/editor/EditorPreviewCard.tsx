@@ -10,6 +10,10 @@ import { cn } from "@/lib/utils";
 import { CropOverlay } from "./CropOverlay";
 import { useEditorKeyboard } from "./useEditorKeyboard";
 import {
+  buildRenderDocumentDirtyKeys,
+  resolveDirtyReasons,
+} from "./renderGraph";
+import {
   useEditorAdjustmentActions,
   useEditorAdjustmentState,
   useEditorDocumentState,
@@ -19,7 +23,7 @@ import {
 } from "./useEditorSlices";
 import { useViewportZoom } from "./useViewportZoom";
 import { applyBrushPreviewToAdjustments, useBrushMaskPainting } from "./preview/useBrushMaskPainting";
-import type { EditorPreviewDocument, LayerPreviewEntry } from "./preview/contracts";
+import type { EditorPreviewDocument } from "./preview/contracts";
 import { createPreviewInteractionSampler } from "./preview/interactionPerformance";
 import { applySelectedLayerPreviewAdjustments } from "./preview/layerPreviewEntries";
 import { drawLocalMaskOverlay } from "./preview/maskOverlay";
@@ -96,11 +100,6 @@ export function EditorPreviewCard() {
     return hash >>> 0;
   }, [selectedAsset?.id]);
 
-  const layerPreviewEntries = useMemo<LayerPreviewEntry[]>(
-    () => previewRenderDocument?.layerEntries ?? [],
-    [previewRenderDocument]
-  );
-
   useEffect(() => {
     if (!selectedAsset?.objectUrl) {
       setImageNaturalSize(null);
@@ -138,7 +137,8 @@ export function EditorPreviewCard() {
     !pointColorPicking;
   isCropModeRef.current = isCropMode;
 
-  const shouldRenderLayerComposite = layerPreviewEntries.length > 1 && !isCropMode;
+  const shouldRenderLayerComposite =
+    (previewRenderDocument?.renderGraph.layers.length ?? 0) > 1 && !isCropMode;
   const usesOriginalImageElement = (showOriginal && !shouldRenderLayerComposite) || !previewAdjustments;
 
   const previewAspectRatio = useMemo(() => {
@@ -283,26 +283,48 @@ export function EditorPreviewCard() {
     };
   }, [cropInteraction.previewPatch, effectivePreviewAdjustments]);
 
-  const effectiveLayerPreviewEntries = useMemo(() => {
-    return applySelectedLayerPreviewAdjustments(
-      layerPreviewEntries,
-      selectedLayer?.id ?? null,
-      renderedPreviewAdjustments
-    );
-  }, [layerPreviewEntries, renderedPreviewAdjustments, selectedLayer?.id]);
-
-  const previewDocument = useMemo<EditorPreviewDocument | null>(() => {
-    if (!previewRenderDocument || !renderedPreviewAdjustments) {
+  const effectiveRenderGraph = useMemo(() => {
+    if (!previewRenderDocument) {
       return null;
     }
+    return applySelectedLayerPreviewAdjustments(
+      previewRenderDocument.renderGraph,
+      selectedLayer?.id ?? null,
+      renderedPreviewAdjustments,
+      previewFilmProfile ?? previewRenderDocument.filmProfile ?? undefined
+    );
+  }, [
+    previewFilmProfile,
+    previewRenderDocument,
+    renderedPreviewAdjustments,
+    selectedLayer?.id,
+  ]);
+
+  const previewDocument = useMemo<EditorPreviewDocument | null>(() => {
+    if (!previewRenderDocument || !renderedPreviewAdjustments || !effectiveRenderGraph) {
+      return null;
+    }
+    const filmProfile =
+      previewFilmProfile ?? previewRenderDocument.filmProfile ?? undefined;
+    const dirtyKeys = buildRenderDocumentDirtyKeys({
+      documentKey: previewRenderDocument.documentKey,
+      sourceAsset: previewRenderDocument.sourceAsset,
+      adjustments: renderedPreviewAdjustments,
+      filmProfile,
+      showOriginal,
+      renderGraph: effectiveRenderGraph,
+    });
     return {
       ...previewRenderDocument,
       adjustments: renderedPreviewAdjustments,
-      filmProfile:
-        previewFilmProfile ?? previewRenderDocument.filmProfile ?? undefined,
+      filmProfile,
+      renderGraph: effectiveRenderGraph,
+      dirtyKeys,
+      dirtyReasons: resolveDirtyReasons(previewRenderDocument.dirtyKeys, dirtyKeys),
       showOriginal,
     };
   }, [
+    effectiveRenderGraph,
     previewFilmProfile,
     previewRenderDocument,
     renderedPreviewAdjustments,
@@ -313,7 +335,6 @@ export function EditorPreviewCard() {
     document: previewDocument,
     frameSize,
     isCropMode,
-    layerPreviewEntries: effectiveLayerPreviewEntries,
     orientedSourceAspectRatio,
     previewRenderSeed,
     shouldRenderLayerComposite,

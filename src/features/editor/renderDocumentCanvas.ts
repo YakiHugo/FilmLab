@@ -1,10 +1,9 @@
 import { renderImageToCanvas } from "@/lib/imageProcessing";
-import { applyMaskToLayerCanvas, generateMaskTexture } from "@/lib/layerMaskTexture";
 import { applyTimestampOverlay } from "@/lib/timestampOverlay";
 import type { Asset } from "@/types";
-import type { RenderDocument } from "./document";
 import type { RenderIntent } from "@/lib/renderIntent";
-import { resolveLayerBlendOperation } from "./preview/composite";
+import type { RenderDocument } from "./document";
+import { composeRenderGraphToCanvas, type RenderGraphCanvasWorkspace } from "./renderGraphComposition";
 import {
   requiresLayerComposite,
   resolveSingleRenderableLayerEntry,
@@ -31,104 +30,34 @@ const resolveLayerFilmProfile = (document: RenderDocument, sourceAsset: Asset) =
     ? document.filmProfile ?? undefined
     : sourceAsset.filmProfile ?? undefined;
 
-interface RenderSingleLayerEntryOptions {
-  canvas: HTMLCanvasElement;
-  document: RenderDocument;
-  entry: RenderDocument["layerEntries"][number];
-  intent: RenderIntent;
-  targetSize?: RenderTargetSize;
-  timestampText?: string | null;
-  strictErrors: boolean;
-}
+const createTemporaryWorkspace = () => {
+  const layerCanvas = globalThis.document.createElement("canvas");
+  const layerMaskCanvas = globalThis.document.createElement("canvas");
+  const layerMaskScratchCanvas = globalThis.document.createElement("canvas");
+  const maskedLayerCanvas = globalThis.document.createElement("canvas");
 
-const renderSingleLayerEntryToCanvas = async ({
-  canvas,
-  document: renderDocument,
-  entry,
-  intent,
-  targetSize,
-  timestampText,
-  strictErrors,
-}: RenderSingleLayerEntryOptions) => {
-  const needsComposite = requiresLayerComposite(entry);
-  const layerCanvas = needsComposite ? globalThis.document.createElement("canvas") : canvas;
-  const layerMaskCanvas = needsComposite ? globalThis.document.createElement("canvas") : null;
-  const layerMaskScratchCanvas = needsComposite ? globalThis.document.createElement("canvas") : null;
-  const maskedLayerCanvas = needsComposite ? globalThis.document.createElement("canvas") : null;
+  const workspace: RenderGraphCanvasWorkspace = {
+    getLayerCanvas: () => layerCanvas,
+    getLayerMaskCanvas: () => layerMaskCanvas,
+    getLayerMaskScratchCanvas: () => layerMaskScratchCanvas,
+    getMaskedLayerCanvas: () => maskedLayerCanvas,
+  };
 
-  try {
-    await renderImageToCanvas({
-      canvas: layerCanvas,
-      source: resolveAssetRenderSource(entry.sourceAsset),
-      adjustments: entry.adjustments,
-      filmProfile: resolveLayerFilmProfile(renderDocument, entry.sourceAsset),
-      timestampText: needsComposite ? null : timestampText,
-      targetSize,
-      seedKey: `${renderDocument.sourceAssetId}:${entry.layer.id}`,
-      sourceCacheKey: `${intent}:${entry.sourceAsset.id}:${entry.layer.id}:${entry.sourceAsset.size}`,
-      strictErrors,
-      intent,
-      renderSlot: `${intent}:${renderDocument.key}:layer:${entry.layer.id}:single`,
-    });
+  const release = () => {
+    layerCanvas.width = 0;
+    layerCanvas.height = 0;
+    layerMaskCanvas.width = 0;
+    layerMaskCanvas.height = 0;
+    layerMaskScratchCanvas.width = 0;
+    layerMaskScratchCanvas.height = 0;
+    maskedLayerCanvas.width = 0;
+    maskedLayerCanvas.height = 0;
+  };
 
-    if (!needsComposite) {
-      return;
-    }
-
-    if (canvas.width !== layerCanvas.width || canvas.height !== layerCanvas.height) {
-      canvas.width = layerCanvas.width;
-      canvas.height = layerCanvas.height;
-    }
-
-    const renderContext = canvas.getContext("2d", { willReadFrequently: true });
-    if (!renderContext) {
-      throw new Error("Failed to initialize single-layer composite context.");
-    }
-
-    let drawSource: CanvasImageSource = layerCanvas;
-    if (
-      entry.layer.mask &&
-      layerMaskCanvas &&
-      layerMaskScratchCanvas &&
-      maskedLayerCanvas
-    ) {
-      const generatedMask = generateMaskTexture(entry.layer.mask, {
-        width: layerCanvas.width,
-        height: layerCanvas.height,
-        referenceSource: layerCanvas,
-        targetCanvas: layerMaskCanvas,
-        scratchCanvas: layerMaskScratchCanvas,
-      });
-      if (generatedMask) {
-        drawSource = applyMaskToLayerCanvas(layerCanvas, generatedMask, maskedLayerCanvas);
-      }
-    }
-
-    renderContext.clearRect(0, 0, canvas.width, canvas.height);
-    renderContext.save();
-    renderContext.globalAlpha = entry.opacity;
-    renderContext.globalCompositeOperation = resolveLayerBlendOperation(entry.blendMode);
-    renderContext.drawImage(drawSource, 0, 0, canvas.width, canvas.height);
-    renderContext.restore();
-    applyTimestampOverlay(canvas, renderDocument.adjustments, timestampText);
-  } finally {
-    if (needsComposite) {
-      layerCanvas.width = 0;
-      layerCanvas.height = 0;
-      if (layerMaskCanvas) {
-        layerMaskCanvas.width = 0;
-        layerMaskCanvas.height = 0;
-      }
-      if (layerMaskScratchCanvas) {
-        layerMaskScratchCanvas.width = 0;
-        layerMaskScratchCanvas.height = 0;
-      }
-      if (maskedLayerCanvas) {
-        maskedLayerCanvas.width = 0;
-        maskedLayerCanvas.height = 0;
-      }
-    }
-  }
+  return {
+    workspace,
+    release,
+  };
 };
 
 export const renderDocumentToCanvas = async ({
@@ -140,22 +69,26 @@ export const renderDocumentToCanvas = async ({
   strictErrors = intent === "export-full",
 }: RenderDocumentToCanvasOptions) => {
   const source = resolveAssetRenderSource(renderDocument.sourceAsset);
-  const singleLayerEntry = resolveSingleRenderableLayerEntry(renderDocument.layerEntries);
+  const singleLayerNode = resolveSingleRenderableLayerEntry(renderDocument.renderGraph.layers);
 
-  if (singleLayerEntry) {
-    await renderSingleLayerEntryToCanvas({
+  if (singleLayerNode && !requiresLayerComposite(singleLayerNode)) {
+    await renderImageToCanvas({
       canvas,
-      document: renderDocument,
-      entry: singleLayerEntry,
-      intent,
-      targetSize,
+      source: resolveAssetRenderSource(singleLayerNode.sourceAsset),
+      adjustments: singleLayerNode.adjustments,
+      filmProfile: resolveLayerFilmProfile(renderDocument, singleLayerNode.sourceAsset),
       timestampText,
+      targetSize,
+      seedKey: `${renderDocument.renderGraph.key}:${singleLayerNode.id}`,
+      sourceCacheKey: `${intent}:${renderDocument.renderGraph.key}:layer:${singleLayerNode.sourceAsset.id}:${singleLayerNode.id}:${singleLayerNode.sourceAsset.size}`,
       strictErrors,
+      intent,
+      renderSlot: `${intent}:${renderDocument.key}:${renderDocument.renderGraph.key}:layer:${singleLayerNode.id}:single`,
     });
     return;
   }
 
-  if (renderDocument.layerEntries.length === 0) {
+  if (renderDocument.renderGraph.layers.length === 0) {
     await renderImageToCanvas({
       canvas,
       source,
@@ -163,102 +96,59 @@ export const renderDocumentToCanvas = async ({
       filmProfile: renderDocument.filmProfile ?? undefined,
       timestampText,
       targetSize,
-      seedKey: renderDocument.sourceAssetId,
-      sourceCacheKey: `${intent}:${renderDocument.sourceAssetId}:${renderDocument.sourceAsset.size}`,
+      seedKey: `${renderDocument.renderGraph.key}:base`,
+      sourceCacheKey: `${intent}:${renderDocument.renderGraph.key}:${renderDocument.sourceAssetId}:${renderDocument.sourceAsset.size}`,
       strictErrors,
       intent,
-      renderSlot: `${intent}:${renderDocument.key}:base`,
+      renderSlot: `${intent}:${renderDocument.key}:${renderDocument.renderGraph.key}:base`,
     });
     return;
   }
 
-  const compositeCanvas = globalThis.document.createElement("canvas");
-  compositeCanvas.width = targetSize?.width ?? canvas.width;
-  compositeCanvas.height = targetSize?.height ?? canvas.height;
-  const compositeContext = compositeCanvas.getContext("2d", { willReadFrequently: true });
-  if (!compositeContext) {
-    compositeCanvas.width = 0;
-    compositeCanvas.height = 0;
-    throw new Error("Failed to initialize composite render context.");
-  }
-  compositeContext.clearRect(0, 0, compositeCanvas.width, compositeCanvas.height);
-
-  const layerCanvas = globalThis.document.createElement("canvas");
-  const layerMaskCanvas = globalThis.document.createElement("canvas");
-  const layerMaskScratchCanvas = globalThis.document.createElement("canvas");
-  const maskedLayerCanvas = globalThis.document.createElement("canvas");
+  const { workspace, release } = createTemporaryWorkspace();
   const sourceBlobCache = new Map<string, Blob | string>();
-  const layersBottomToTop = [...renderDocument.layerEntries].reverse();
 
   try {
-    for (let layerIndex = 0; layerIndex < layersBottomToTop.length; layerIndex += 1) {
-      const entry = layersBottomToTop[layerIndex]!;
-      let layerSource = sourceBlobCache.get(entry.sourceAsset.id);
-      if (!layerSource) {
-        layerSource = resolveAssetRenderSource(entry.sourceAsset);
-        sourceBlobCache.set(entry.sourceAsset.id, layerSource);
-      }
-
-      await renderImageToCanvas({
-        canvas: layerCanvas,
-        source: layerSource,
-        adjustments: entry.adjustments,
-        filmProfile: resolveLayerFilmProfile(renderDocument, entry.sourceAsset),
-        timestampText: null,
-        targetSize: {
-          width: compositeCanvas.width,
-          height: compositeCanvas.height,
-        },
-        seedKey: `${renderDocument.sourceAssetId}:${entry.layer.id}`,
-        sourceCacheKey: `${intent}:${entry.sourceAsset.id}:${entry.layer.id}:${entry.sourceAsset.size}`,
-        strictErrors,
-        intent,
-        renderSlot: `${intent}:${renderDocument.key}:layer:${entry.layer.id}:${layerIndex}`,
-      });
-
-      let drawSource: CanvasImageSource = layerCanvas;
-      if (entry.layer.mask) {
-        const generatedMask = generateMaskTexture(entry.layer.mask, {
-          width: compositeCanvas.width,
-          height: compositeCanvas.height,
-          referenceSource: layerCanvas,
-          targetCanvas: layerMaskCanvas,
-          scratchCanvas: layerMaskScratchCanvas,
-        });
-        if (generatedMask) {
-          drawSource = applyMaskToLayerCanvas(layerCanvas, generatedMask, maskedLayerCanvas);
+    const didCompose = await composeRenderGraphToCanvas({
+      targetCanvas: canvas,
+      renderGraph: renderDocument.renderGraph,
+      workspace,
+      targetSize: {
+        width: targetSize?.width ?? canvas.width,
+        height: targetSize?.height ?? canvas.height,
+      },
+      renderLayerNode: async (layerNode, layerCanvas, layerIndex) => {
+        let layerSource = sourceBlobCache.get(layerNode.sourceAssetId);
+        if (!layerSource) {
+          layerSource = resolveAssetRenderSource(layerNode.sourceAsset);
+          sourceBlobCache.set(layerNode.sourceAssetId, layerSource);
         }
-      }
 
-      compositeContext.save();
-      compositeContext.globalAlpha = entry.opacity;
-      compositeContext.globalCompositeOperation = resolveLayerBlendOperation(entry.blendMode);
-      compositeContext.drawImage(drawSource, 0, 0, compositeCanvas.width, compositeCanvas.height);
-      compositeContext.restore();
+        await renderImageToCanvas({
+          canvas: layerCanvas,
+          source: layerSource,
+          adjustments: layerNode.adjustments,
+          filmProfile: resolveLayerFilmProfile(renderDocument, layerNode.sourceAsset),
+          timestampText: null,
+          targetSize: {
+            width: targetSize?.width ?? canvas.width,
+            height: targetSize?.height ?? canvas.height,
+          },
+          seedKey: `${renderDocument.renderGraph.key}:${layerNode.id}`,
+          sourceCacheKey: `${intent}:${renderDocument.renderGraph.key}:layer:${layerNode.sourceAsset.id}:${layerNode.id}:${layerNode.sourceAsset.size}`,
+          strictErrors,
+          intent,
+          renderSlot: `${intent}:${renderDocument.key}:${renderDocument.renderGraph.key}:layer:${layerNode.id}:${layerIndex}`,
+        });
+      },
+    });
+
+    if (!didCompose) {
+      throw new Error("Failed to initialize composite render context.");
     }
 
-    if (canvas.width !== compositeCanvas.width || canvas.height !== compositeCanvas.height) {
-      canvas.width = compositeCanvas.width;
-      canvas.height = compositeCanvas.height;
-    }
-
-    const renderContext = canvas.getContext("2d", { willReadFrequently: true });
-    if (!renderContext) {
-      throw new Error("Failed to initialize final render context.");
-    }
-    renderContext.clearRect(0, 0, canvas.width, canvas.height);
-    renderContext.drawImage(compositeCanvas, 0, 0, canvas.width, canvas.height);
     applyTimestampOverlay(canvas, renderDocument.adjustments, timestampText);
   } finally {
-    layerCanvas.width = 0;
-    layerCanvas.height = 0;
-    layerMaskCanvas.width = 0;
-    layerMaskCanvas.height = 0;
-    layerMaskScratchCanvas.width = 0;
-    layerMaskScratchCanvas.height = 0;
-    maskedLayerCanvas.width = 0;
-    maskedLayerCanvas.height = 0;
-    compositeCanvas.width = 0;
-    compositeCanvas.height = 0;
+    release();
   }
 };

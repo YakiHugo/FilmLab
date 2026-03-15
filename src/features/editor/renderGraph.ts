@@ -113,22 +113,36 @@ const resolveLayerFilmProfile = (
   filmProfile: Asset["filmProfile"] | null | undefined
 ) => (sourceAsset.id === sourceAssetId ? filmProfile ?? undefined : sourceAsset.filmProfile ?? undefined);
 
-const buildLayerNode = (
-  entry: EditorLayerRenderEntry,
-  sourceAssetId: string,
-  filmProfile: Asset["filmProfile"] | null | undefined
-): RenderLayerNode => {
-  const scopedLocalAdjustments = resolveLocalAdjustmentNodes(entry.adjustments.localAdjustments);
-  const baseAdjustments = stripLocalAdjustments(entry.adjustments);
-  const resolvedFilmProfile = resolveLayerFilmProfile(entry.sourceAsset, sourceAssetId, filmProfile);
+interface BuildRenderLayerNodeOptions {
+  layer: EditorLayerRenderEntry["layer"];
+  sourceAsset: Asset;
+  sourceAssetId: string;
+  adjustments: EditingAdjustments;
+  opacity: number;
+  blendMode: EditorLayerRenderEntry["blendMode"];
+  filmProfile: Asset["filmProfile"] | null | undefined;
+}
+
+const buildRenderLayerNode = ({
+  layer,
+  sourceAsset,
+  sourceAssetId,
+  adjustments,
+  opacity,
+  blendMode,
+  filmProfile,
+}: BuildRenderLayerNodeOptions): RenderLayerNode => {
+  const scopedLocalAdjustments = resolveLocalAdjustmentNodes(adjustments.localAdjustments);
+  const baseAdjustments = stripLocalAdjustments(adjustments);
+  const resolvedFilmProfile = resolveLayerFilmProfile(sourceAsset, sourceAssetId, filmProfile);
   const sourceFingerprint = hashSerialized({
-    assetId: entry.sourceAsset.id,
-    objectUrl: entry.sourceAsset.objectUrl,
-    contentHash: entry.sourceAsset.contentHash ?? "",
-    size: entry.sourceAsset.size,
+    assetId: sourceAsset.id,
+    objectUrl: sourceAsset.objectUrl,
+    contentHash: sourceAsset.contentHash ?? "",
+    size: sourceAsset.size,
   });
   const developKey = hashSerialized({
-    layerId: entry.layer.id,
+    layerId: layer.id,
     adjustments: baseAdjustments,
     scopedLocalAdjustments: scopedLocalAdjustments.map((local) => ({
       id: local.id,
@@ -137,45 +151,60 @@ const buildLayerNode = (
     })),
   });
   const filmKey = hashSerialized({
-    layerId: entry.layer.id,
-    filmProfileId: entry.sourceAsset.id === sourceAssetId ? "document-film" : entry.sourceAsset.filmProfileId,
+    layerId: layer.id,
+    filmProfileId: sourceAsset.id === sourceAssetId ? "document-film" : sourceAsset.filmProfileId,
     filmProfile: resolvedFilmProfile ?? null,
   });
   const fxKey = hashSerialized({
-    layerId: entry.layer.id,
-    mask: entry.layer.mask ?? null,
-    opacity: entry.opacity,
-    blendMode: entry.blendMode,
+    layerId: layer.id,
+    mask: layer.mask ?? null,
+    opacity,
+    blendMode,
   });
 
   return {
-    id: entry.layer.id,
+    id: layer.id,
     key: hashSerialized({
-      layerId: entry.layer.id,
+      layerId: layer.id,
       sourceFingerprint,
       developKey,
       filmKey,
       fxKey,
     }),
-    layer: entry.layer,
-    sourceAsset: entry.sourceAsset,
-    sourceAssetId: entry.sourceAsset.id,
-    opacity: entry.opacity,
-    blendMode: entry.blendMode,
-    adjustments: entry.adjustments,
-    mask: entry.layer.mask,
+    layer,
+    sourceAsset,
+    sourceAssetId: sourceAsset.id,
+    opacity,
+    blendMode,
+    adjustments,
+    mask: layer.mask,
     scopedLocalAdjustments,
     phaseKeys: {
       develop: developKey,
       film: filmKey,
       fx: fxKey,
       output: hashSerialized({
-        layerId: entry.layer.id,
+        layerId: layer.id,
         sourceFingerprint,
       }),
     },
   };
 };
+
+const buildLayerNode = (
+  entry: EditorLayerRenderEntry,
+  sourceAssetId: string,
+  filmProfile: Asset["filmProfile"] | null | undefined
+): RenderLayerNode =>
+  buildRenderLayerNode({
+    layer: entry.layer,
+    sourceAsset: entry.sourceAsset,
+    sourceAssetId,
+    adjustments: entry.adjustments,
+    opacity: entry.opacity,
+    blendMode: entry.blendMode,
+    filmProfile,
+  });
 
 export const buildRenderGraph = ({
   documentKey,
@@ -202,6 +231,47 @@ export const buildRenderGraph = ({
     sourceAsset,
     sourceAssetId: sourceAsset.id,
     showOriginal,
+    layers,
+  };
+};
+
+export const withRenderGraphLayerAdjustments = (
+  renderGraph: RenderGraph,
+  layerId: string,
+  adjustments: EditingAdjustments,
+  filmProfile: Asset["filmProfile"] | null | undefined
+): RenderGraph => {
+  let changed = false;
+  const layers = renderGraph.layers.map((layer) => {
+    if (layer.id !== layerId) {
+      return layer;
+    }
+    changed = true;
+    return buildRenderLayerNode({
+      layer: layer.layer,
+      sourceAsset: layer.sourceAsset,
+      sourceAssetId: renderGraph.sourceAssetId,
+      adjustments,
+      opacity: layer.opacity,
+      blendMode: layer.blendMode,
+      filmProfile: renderGraph.sourceAssetId === layer.sourceAssetId ? filmProfile : undefined,
+    });
+  });
+
+  if (!changed) {
+    return renderGraph;
+  }
+
+  return {
+    ...renderGraph,
+    key: hashSerialized({
+      documentKey: renderGraph.documentKey,
+      showOriginal: renderGraph.showOriginal,
+      layers: layers.map((layer) => ({
+        id: layer.id,
+        key: layer.key,
+      })),
+    }),
     layers,
   };
 };

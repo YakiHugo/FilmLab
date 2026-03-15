@@ -1,9 +1,10 @@
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import { buildRenderGraph } from "../renderGraph";
 import { describe, expect, it } from "vitest";
 import { applySelectedLayerPreviewAdjustments } from "./layerPreviewEntries";
 
 describe("layerPreviewEntries helpers", () => {
-  it("applies preview-only adjustments to the selected layer entry", () => {
+  it("applies preview-only adjustments to the selected layer node", () => {
     const baseAdjustments = createDefaultAdjustments();
     const previewAdjustments = {
       ...baseAdjustments,
@@ -55,13 +56,22 @@ describe("layerPreviewEntries helpers", () => {
       },
     ];
 
-    const nextEntries = applySelectedLayerPreviewAdjustments(
-      entries,
+    const renderGraph = buildRenderGraph({
+      documentKey: "editor:asset-a",
+      sourceAsset: entries[0]!.sourceAsset,
+      filmProfile: undefined,
+      layerEntries: entries,
+      showOriginal: false,
+    });
+
+    const nextRenderGraph = applySelectedLayerPreviewAdjustments(
+      renderGraph,
       "layer-b",
-      previewAdjustments
+      previewAdjustments,
+      undefined
     );
 
-    expect(nextEntries[0]).toBe(entries[0]);
-    expect(nextEntries[1]?.adjustments).toBe(previewAdjustments);
+    expect(nextRenderGraph.layers[0]).toBe(renderGraph.layers[0]);
+    expect(nextRenderGraph.layers[1]?.adjustments).toBe(previewAdjustments);
   });
 });

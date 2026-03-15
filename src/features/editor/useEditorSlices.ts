@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import {
@@ -378,6 +378,8 @@ export function useEditorDocumentState() {
   const selection = useEditorSelectionModel();
   const adjustmentState = useEditorAdjustmentState();
   const { selectedLocalAdjustmentId, showOriginal } = useEditorViewState();
+  const previousPreviewDocumentRef = useRef<ReturnType<typeof createRenderDocument> | null>(null);
+  const previousExportDocumentRef = useRef<ReturnType<typeof createRenderDocument> | null>(null);
 
   const document = useMemo(() => {
     if (!selection.selectedAsset || !selection.selectedLayerAdjustments) {
@@ -404,9 +406,10 @@ export function useEditorDocumentState() {
 
   const previewRenderDocument = useMemo(() => {
     if (!document || !adjustmentState.previewAdjustments) {
+      previousPreviewDocumentRef.current = null;
       return null;
     }
-    return createRenderDocument({
+    const nextDocument = createRenderDocument({
       key: document.key,
       assetById: document.assetById,
       documentAsset: document.asset,
@@ -414,7 +417,10 @@ export function useEditorDocumentState() {
       adjustments: adjustmentState.previewAdjustments,
       filmProfile: adjustmentState.previewFilmProfile ?? document.asset.filmProfile ?? undefined,
       showOriginal,
+      previousDocument: previousPreviewDocumentRef.current,
     });
+    previousPreviewDocumentRef.current = nextDocument;
+    return nextDocument;
   }, [
     adjustmentState.previewAdjustments,
     adjustmentState.previewFilmProfile,
@@ -424,9 +430,10 @@ export function useEditorDocumentState() {
 
   const exportRenderDocument = useMemo(() => {
     if (!document || !adjustmentState.renderAdjustments) {
+      previousExportDocumentRef.current = null;
       return null;
     }
-    return createRenderDocument({
+    const nextDocument = createRenderDocument({
       key: `${document.key}:export`,
       assetById: document.assetById,
       documentAsset: document.asset,
@@ -434,7 +441,10 @@ export function useEditorDocumentState() {
       adjustments: adjustmentState.renderAdjustments,
       filmProfile: adjustmentState.previewFilmProfile ?? document.asset.filmProfile ?? undefined,
       showOriginal: false,
+      previousDocument: previousExportDocumentRef.current,
     });
+    previousExportDocumentRef.current = nextDocument;
+    return nextDocument;
   }, [
     adjustmentState.previewFilmProfile,
     adjustmentState.renderAdjustments,

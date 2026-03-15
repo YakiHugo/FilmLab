@@ -1,6 +1,7 @@
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import type { Asset } from "@/types";
 import { describe, expect, it } from "vitest";
+import { buildRenderGraph } from "../renderGraph";
 import type { PreviewRequest } from "./contracts";
 import {
   MAX_RETAINED_PREVIEW_DOCUMENTS,
@@ -23,6 +24,13 @@ const createAsset = (id: string, filmProfile?: Asset["filmProfile"]) =>
 const createRequest = (overrides?: Partial<PreviewRequest>): PreviewRequest => {
   const baseAdjustments = createDefaultAdjustments();
   const sourceAsset = createAsset("asset-a", { id: "source-film" } as Asset["filmProfile"]);
+  const renderGraph = buildRenderGraph({
+    documentKey: "editor:asset-a",
+    sourceAsset,
+    filmProfile: { id: "document-film" } as Asset["filmProfile"],
+    layerEntries: [],
+    showOriginal: false,
+  });
   return {
     document: {
       documentKey: "editor:asset-a",
@@ -31,17 +39,30 @@ const createRequest = (overrides?: Partial<PreviewRequest>): PreviewRequest => {
       sourceAssetId: sourceAsset.id,
       adjustments: baseAdjustments,
       filmProfile: { id: "document-film" } as Asset["filmProfile"],
+      renderGraph,
+      dirtyKeys: {
+        source: "source",
+        "layer-stack": "",
+        "layer-adjustments": "",
+        "layer-mask": "",
+        "document-adjustments": "document",
+        "film-profile": "film",
+        "local-adjustments": "",
+        roi: "",
+      },
+      dirtyReasons: ["source", "document-adjustments", "film-profile"],
       layerEntries: [],
       showOriginal: false,
     },
     documentKey: "editor:asset-a",
+    graphKey: renderGraph.key,
     quality: "full",
     frameSize: {
       width: 800,
       height: 600,
     },
     viewportRoi: null,
-    layerEntries: [],
+    renderGraph,
     showOriginal: false,
     timestampText: null,
     isCropMode: false,
@@ -49,6 +70,7 @@ const createRequest = (overrides?: Partial<PreviewRequest>): PreviewRequest => {
     previewRenderSeed: 1,
     sourceAsset,
     shouldRenderLayerComposite: true,
+    dirtyReasons: ["source", "document-adjustments", "film-profile"],
     ...overrides,
   };
 };
