@@ -48,6 +48,8 @@ describe("editor document helpers", () => {
     });
 
     expect(document.documentKey).toBe("editor:asset-1");
+    expect(document.sourceAssetId).toBe("asset-1");
+    expect(document.dependencyKeys["local-adjustments"]).not.toBe("");
     expect(document.selectedLocalAdjustment?.id).toBe("local-1");
   });
 
@@ -75,6 +77,8 @@ describe("editor document helpers", () => {
 
     expect(document.documentKey).toBe("editor:asset-1:export");
     expect(document.sourceAssetId).toBe(asset.id);
+    expect(document.renderGraph.documentKey).toBe("editor:asset-1:export");
+    expect(document.dirtyReasons).toContain("document-adjustments");
     expect(document.layerEntries).toEqual([]);
   });
 
@@ -153,5 +157,46 @@ describe("editor document helpers", () => {
 
     expect(firstDocument.documentKey).not.toBe("editor:asset-1");
     expect(secondDocument.documentKey).not.toBe(firstDocument.documentKey);
+  });
+
+  it("derives dirty reasons from the previous render document", () => {
+    const asset = {
+      id: "asset-1",
+      name: "asset.jpg",
+      type: "image/jpeg" as const,
+      size: 10,
+      createdAt: "2026-03-15T00:00:00.000Z",
+      objectUrl: "blob:asset-1",
+      adjustments: createDefaultAdjustments(),
+      layers: [],
+    };
+    const baseAdjustments = createDefaultAdjustments();
+    const previous = createRenderDocument({
+      key: "editor:asset-1",
+      assetById: new Map([[asset.id, asset]]),
+      documentAsset: asset,
+      layers: [],
+      adjustments: baseAdjustments,
+      filmProfile: undefined,
+      showOriginal: false,
+    });
+
+    const nextAdjustments = {
+      ...baseAdjustments,
+      exposure: 12,
+    };
+
+    const next = createRenderDocument({
+      key: "editor:asset-1",
+      assetById: new Map([[asset.id, asset]]),
+      documentAsset: asset,
+      layers: [],
+      adjustments: nextAdjustments,
+      filmProfile: undefined,
+      showOriginal: false,
+      previousDocument: previous,
+    });
+
+    expect(next.dirtyReasons).toEqual(["document-adjustments"]);
   });
 });
