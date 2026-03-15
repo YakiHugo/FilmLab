@@ -10,7 +10,7 @@ import {
   downloadImageFromUrl,
   getImageDownloadFilename,
 } from "@/features/image-lab/utils/downloadUtils";
-import type { ImageStyleId } from "@/types/imageGeneration";
+import { validateImageAssetRefs, type ImageStyleId } from "@/types/imageGeneration";
 import { IMAGE_GENERATION_LIMITS } from "@/lib/ai/imageGenerationSchema";
 
 const resolveStepsForSpeed = (
@@ -65,7 +65,10 @@ export function ImageLabPage() {
     saveSelectedResults,
     addToCanvas,
     useResultAsReference,
+    editFromResult,
+    varyFromResult,
     removeAssetReference,
+    updateAssetRefRole,
     clearAssetReferences,
     clearSession,
   } = imageGeneration;
@@ -100,6 +103,11 @@ export function ImageLabPage() {
   const currentModelName = useMemo(
     () => imageGeneration.modelConfig?.label ?? imageGeneration.config?.modelId ?? "Model",
     [imageGeneration.config?.modelId, imageGeneration.modelConfig?.label]
+  );
+  const assetRefValidationMessage = useMemo(
+    () =>
+      validateImageAssetRefs(imageGeneration.config?.assetRefs)[0]?.message ?? null,
+    [imageGeneration.config?.assetRefs]
   );
 
   const selectStylePreset = (preset: ImageStylePreset) => {
@@ -276,6 +284,8 @@ export function ImageLabPage() {
         onSaveSelectedResults={handleSaveSelectedResults}
         onAddToCanvas={handleAddToCanvas}
         onUseResultAsReference={useResultAsReference}
+        onEditFromResult={editFromResult}
+        onVaryResult={varyFromResult}
         onAcceptResult={handleAcceptResult}
         onDeleteTurn={deleteTurn}
         onRetryTurn={handleRetryTurn}
@@ -343,6 +353,7 @@ export function ImageLabPage() {
         modelParamDefinitions={imageGeneration.modelParamDefinitions}
         referenceImages={imageGeneration.config.referenceImages}
         selectedAssetRefs={imageGeneration.config.assetRefs}
+        assetRefValidationMessage={assetRefValidationMessage}
         externalPrompt={externalPrompt}
         onExternalPromptConsumed={handleExternalPromptConsumed}
         onGenerationSpeedChange={handleGenerationSpeedChange}
@@ -373,6 +384,7 @@ export function ImageLabPage() {
         onRemoveReferenceImage={imageGeneration.removeReferenceImage}
         onClearReferenceImages={imageGeneration.clearReferenceImages}
         onRemoveAssetRef={removeAssetReference}
+        onUpdateAssetRefRole={updateAssetRefRole}
         onClearAssetRefs={clearAssetReferences}
         onGenerateImage={(input) => {
           void imageGeneration.generateFromPromptInput(input);

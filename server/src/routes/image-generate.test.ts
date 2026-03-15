@@ -4,6 +4,41 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const generateMock = vi.fn();
 const getRouteTargetsMock = vi.fn();
 const downloadGeneratedImageMock = vi.fn();
+const createPromptCompilerFixture = (input?: {
+  negativePromptStrategy?: "native" | "merge_into_main";
+  sourceImageExecution?: "native" | "reference_guided" | "unsupported";
+  referenceRoleHandling?: {
+    reference: "native" | "compiled_to_reference" | "compiled_to_text";
+    edit: "native" | "compiled_to_reference" | "compiled_to_text";
+    variation: "native" | "compiled_to_reference" | "compiled_to_text";
+  };
+  continuityStrength?: {
+    subject: "strong" | "moderate" | "weak";
+    style: "strong" | "moderate" | "weak";
+    composition: "strong" | "moderate" | "weak";
+    text: "strong" | "moderate" | "weak";
+  };
+}) => ({
+  acceptedOperations: ["image.generate", "image.edit", "image.variation"],
+  executableOperations: ["image.generate"],
+  negativePromptStrategy: input?.negativePromptStrategy ?? "merge_into_main",
+  sourceImageExecution: input?.sourceImageExecution ?? "unsupported",
+  referenceRoleHandling:
+    input?.referenceRoleHandling ?? {
+      reference: "compiled_to_text",
+      edit: "compiled_to_text",
+      variation: "compiled_to_text",
+    },
+  continuityStrength:
+    input?.continuityStrength ?? {
+      subject: "weak",
+      style: "weak",
+      composition: "weak",
+      text: "weak",
+    },
+  promptSurface: "natural_language" as const,
+});
+
 const repositoryMock = {
   close: vi.fn(),
   getConversationById: vi.fn(),
@@ -41,6 +76,21 @@ const resolveRouteSelectionFixture = (modelId: string) => {
         frontendModel: {
           id: "qwen-image-2-pro",
           logicalModel: "image.qwen.v2.pro",
+          promptCompiler: createPromptCompilerFixture({
+            negativePromptStrategy: "native",
+            sourceImageExecution: "reference_guided",
+            referenceRoleHandling: {
+              reference: "native",
+              edit: "compiled_to_reference",
+              variation: "compiled_to_reference",
+            },
+            continuityStrength: {
+              subject: "strong",
+              style: "strong",
+              composition: "strong",
+              text: "strong",
+            },
+          }),
         },
         deployment: {
           id: "dashscope-qwen-image-2-pro-primary",
@@ -58,6 +108,7 @@ const resolveRouteSelectionFixture = (modelId: string) => {
       frontendModel: {
         id: "seedream-v5",
         logicalModel: "image.seedream.v5",
+        promptCompiler: createPromptCompilerFixture(),
       },
       deployment: {
         id: "ark-seedream-v5-primary",
@@ -403,6 +454,92 @@ describe("imageGenerateRoute", () => {
     await app.close();
   });
 
+  it("accepts edit turns as semantic operations and persists degraded prompt artifacts", async () => {
+    generateMock.mockResolvedValue({
+      modelId: "qwen-image-2-pro",
+      logicalModel: "image.qwen.v2.pro",
+      deploymentId: "dashscope-qwen-image-2-pro-primary",
+      runtimeProvider: "dashscope",
+      providerModel: "qwen-image-2.0-pro",
+      warnings: [],
+      images: [
+        {
+          binaryData: Buffer.from([1, 2, 3]),
+          mimeType: "image/png",
+          revisedPrompt: "provider revised edit prompt",
+        },
+      ],
+    });
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+      payload: {
+        prompt: "Remove the coffee cup from the poster",
+        modelId: "qwen-image-2-pro",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        referenceImages: [],
+        assetRefs: [{ assetId: "thread-asset-1", role: "edit" }],
+        modelParams: {
+          promptExtend: true,
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    const createdGeneration = repositoryMock.createGeneration.mock.calls[0]?.[0] as {
+      run: {
+        operation: string;
+      };
+    };
+    expect(createdGeneration.run.operation).toBe("image.edit");
+
+    const promptVersions = repositoryMock.createPromptVersions.mock.calls.flatMap(
+      ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
+    );
+    const compileArtifact = promptVersions.find(
+      (version) => version.stage === "compile" && version.targetKey === "dashscope:qwen-image-2.0-pro"
+    );
+    const finalDispatchArtifact = promptVersions.find(
+      (version) =>
+        version.stage === "dispatch" &&
+        version.providerEffectivePrompt === "provider revised edit prompt"
+    );
+
+    expect(compileArtifact).toMatchObject({
+      stage: "compile",
+      semanticLosses: expect.arrayContaining([
+        expect.objectContaining({ code: "OPERATION_DEGRADED_TO_IMAGE_GENERATE" }),
+        expect.objectContaining({ code: "APPROXIMATED_AS_REGENERATION" }),
+        expect.objectContaining({ code: "ASSET_ROLE_DEGRADED_TO_REFERENCE_GUIDANCE" }),
+      ]),
+    });
+    expect(finalDispatchArtifact).toMatchObject({
+      stage: "dispatch",
+      targetKey: "dashscope:qwen-image-2.0-pro",
+      providerEffectivePrompt: "provider revised edit prompt",
+    });
+    expect(repositoryMock.completeGenerationSuccess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assetEdges: [
+          expect.objectContaining({
+            sourceAssetId: "thread-asset-1",
+            edgeType: "referenced_in_turn",
+          }),
+        ],
+      })
+    );
+
+    await app.close();
+  });
+
   it("reuses the prior executable request snapshot for exact retries", async () => {
     repositoryMock.turnExists.mockResolvedValue(true);
     repositoryMock.getConversationSnapshot.mockResolvedValue({
@@ -436,6 +573,35 @@ describe("imageGenerateRoute", () => {
       },
       turns: [],
       runs: [
+        {
+          id: "run-moderation-1",
+          turnId: "turn-1",
+          jobId: "job-moderation-1",
+          operation: "moderation",
+          status: "completed",
+          requestedTarget: null,
+          selectedTarget: null,
+          executedTarget: null,
+          prompt: {
+            originalPrompt: "Original skyline",
+            compiledPrompt: "Moderation prompt",
+            dispatchedPrompt: "Moderation prompt",
+            providerEffectivePrompt: null,
+            semanticLosses: [],
+            warnings: [],
+          },
+          error: null,
+          warnings: [],
+          assetIds: [],
+          referencedAssetIds: [],
+          createdAt: "2026-03-12T00:00:00.000Z",
+          completedAt: "2026-03-12T00:00:02.000Z",
+          telemetry: {
+            providerRequestId: null,
+            providerTaskId: null,
+            latencyMs: 2000,
+          },
+        },
         {
           id: "run-1",
           turnId: "turn-1",
@@ -490,6 +656,30 @@ describe("imageGenerateRoute", () => {
       assets: [],
       assetEdges: [],
       jobs: [
+        {
+          id: "job-moderation-1",
+          turnId: "turn-1",
+          runId: "run-moderation-1",
+          modelId: "qwen-image-2-pro",
+          logicalModel: "image.qwen.v2.pro",
+          deploymentId: "dashscope-qwen-image-2-pro-primary",
+          runtimeProvider: "dashscope",
+          providerModel: "qwen-image-2.0-pro",
+          compiledPrompt: "Moderation prompt",
+          requestSnapshot: {
+            prompt: "Original skyline",
+            modelId: "seedream-v5",
+            aspectRatio: "1:1",
+            batchSize: 1,
+            style: "none",
+            referenceImages: [],
+            modelParams: {},
+          },
+          status: "succeeded",
+          error: null,
+          createdAt: "2026-03-12T00:00:00.000Z",
+          completedAt: "2026-03-12T00:00:02.000Z",
+        },
         {
           id: "job-1",
           turnId: "turn-1",
@@ -620,6 +810,241 @@ describe("imageGenerateRoute", () => {
       retryOfTurnId: "turn-1",
       retryMode: "exact",
     });
+    const promptVersions = repositoryMock.createPromptVersions.mock.calls.flatMap(
+      ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
+    );
+    expect(promptVersions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stage: "dispatch",
+          committedStateBefore: null,
+          candidateStateAfter: null,
+          promptIR: null,
+        }),
+      ])
+    );
+    expect(
+      promptVersions.some(
+        (version) =>
+          version.stage === "rewrite" || version.stage === "compile"
+      )
+    ).toBe(false);
+
+    await app.close();
+  });
+
+  it("reuses degraded edit artifacts for exact retries instead of recompiling", async () => {
+    repositoryMock.turnExists.mockResolvedValue(true);
+    repositoryMock.getConversationSnapshot.mockResolvedValue({
+      id: "conversation-1",
+      thread: {
+        id: "conversation-1",
+        creativeBrief: {
+          latestPrompt: "Remove the coffee cup",
+          latestModelId: "qwen-image-2-pro",
+          acceptedAssetId: null,
+          selectedAssetIds: [],
+          recentAssetRefIds: [],
+        },
+        promptState: {
+          committed: {
+            prompt: "Remove the coffee cup",
+            preserve: [],
+            avoid: [],
+            styleDirectives: [],
+            continuityTargets: [],
+            editOps: [],
+            referenceAssetIds: [],
+          },
+          candidate: null,
+          baseAssetId: null,
+          candidateTurnId: null,
+          revision: 0,
+        },
+        createdAt: "2026-03-12T00:00:00.000Z",
+        updatedAt: "2026-03-12T00:00:00.000Z",
+      },
+      turns: [],
+      runs: [
+        {
+          id: "run-1",
+          turnId: "turn-1",
+          jobId: "job-1",
+          operation: "image.edit",
+          status: "completed",
+          requestedTarget: {
+            modelId: "qwen-image-2-pro",
+            logicalModel: "image.qwen.v2.pro",
+            deploymentId: "dashscope-qwen-image-2-pro-primary",
+            runtimeProvider: "dashscope",
+            providerModel: "qwen-image-2.0-pro",
+            pinned: false,
+          },
+          selectedTarget: {
+            modelId: "qwen-image-2-pro",
+            logicalModel: "image.qwen.v2.pro",
+            deploymentId: "dashscope-qwen-image-2-pro-primary",
+            runtimeProvider: "dashscope",
+            providerModel: "qwen-image-2.0-pro",
+            pinned: false,
+          },
+          executedTarget: {
+            modelId: "qwen-image-2-pro",
+            logicalModel: "image.qwen.v2.pro",
+            deploymentId: "dashscope-qwen-image-2-pro-primary",
+            runtimeProvider: "dashscope",
+            providerModel: "qwen-image-2.0-pro",
+            pinned: false,
+          },
+          prompt: {
+            originalPrompt: "Remove the coffee cup",
+            compiledPrompt: "Compiled edit",
+            dispatchedPrompt: "Dispatched degraded edit",
+            providerEffectivePrompt: null,
+            semanticLosses: [
+              {
+                code: "OPERATION_DEGRADED_TO_IMAGE_GENERATE",
+                severity: "warn",
+                fieldPath: "promptIR.operation",
+                degradeMode: "approximated",
+                userMessage: "This edit request was degraded.",
+              },
+            ],
+            warnings: ["This edit request was degraded."],
+          },
+          error: null,
+          warnings: [],
+          assetIds: [],
+          referencedAssetIds: ["thread-asset-1"],
+          createdAt: "2026-03-12T00:00:00.000Z",
+          completedAt: "2026-03-12T00:00:05.000Z",
+          telemetry: {
+            providerRequestId: null,
+            providerTaskId: null,
+            latencyMs: 5000,
+          },
+        },
+      ],
+      assets: [],
+      assetEdges: [],
+      jobs: [
+        {
+          id: "job-1",
+          turnId: "turn-1",
+          runId: "run-1",
+          modelId: "qwen-image-2-pro",
+          logicalModel: "image.qwen.v2.pro",
+          deploymentId: "dashscope-qwen-image-2-pro-primary",
+          runtimeProvider: "dashscope",
+          providerModel: "qwen-image-2.0-pro",
+          compiledPrompt: "Compiled edit",
+          requestSnapshot: {
+            prompt: "Remove the coffee cup",
+            modelId: "qwen-image-2-pro",
+            aspectRatio: "1:1",
+            batchSize: 1,
+            style: "none",
+            referenceImages: [],
+            assetRefs: [{ assetId: "thread-asset-1", role: "edit" }],
+            modelParams: {
+              promptExtend: true,
+            },
+          },
+          status: "succeeded",
+          error: null,
+          createdAt: "2026-03-12T00:00:00.000Z",
+          completedAt: "2026-03-12T00:00:05.000Z",
+        },
+      ],
+      createdAt: "2026-03-12T00:00:00.000Z",
+      updatedAt: "2026-03-12T00:00:05.000Z",
+    });
+    generateMock.mockResolvedValue({
+      modelId: "qwen-image-2-pro",
+      logicalModel: "image.qwen.v2.pro",
+      deploymentId: "dashscope-qwen-image-2-pro-primary",
+      runtimeProvider: "dashscope",
+      providerModel: "qwen-image-2.0-pro",
+      warnings: [],
+      images: [
+        {
+          binaryData: Buffer.from([1, 2, 3]),
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+      payload: {
+        prompt: "This should be ignored",
+        modelId: "seedream-v5",
+        aspectRatio: "16:9",
+        batchSize: 4,
+        style: "none",
+        referenceImages: [],
+        modelParams: {},
+        retryOfTurnId: "turn-1",
+        retryMode: "exact",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    const [requestArg, optionsArg] = generateMock.mock.calls[0] as [
+      {
+        prompt: string;
+        modelId: string;
+      },
+      {
+        resolveRequest: (
+          target: ReturnType<typeof resolveRouteSelectionFixture>[number]
+        ) => Promise<Record<string, unknown>>;
+      },
+    ];
+    expect(requestArg).toMatchObject({
+      prompt: "Remove the coffee cup",
+      modelId: "qwen-image-2-pro",
+    });
+    const resolvedRequest = await optionsArg.resolveRequest(
+      resolveRouteSelectionFixture("qwen-image-2-pro")[0]
+    );
+    expect(resolvedRequest).toMatchObject({
+      prompt: "Dispatched degraded edit",
+      retryOfTurnId: "turn-1",
+      retryMode: "exact",
+    });
+
+    const createdGeneration = repositoryMock.createGeneration.mock.calls[0]?.[0] as {
+      run: {
+        operation: string;
+      };
+    };
+    expect(createdGeneration.run.operation).toBe("image.edit");
+    const promptVersions = repositoryMock.createPromptVersions.mock.calls.flatMap(
+      ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
+    );
+    expect(
+      promptVersions.some(
+        (version) =>
+          version.stage === "rewrite" || version.stage === "compile"
+      )
+    ).toBe(false);
+    expect(promptVersions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stage: "dispatch",
+          committedStateBefore: null,
+          candidateStateAfter: null,
+          promptIR: null,
+        }),
+      ])
+    );
 
     await app.close();
   });

@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { GenerationConfig } from "@/stores/generationConfigStore";
 import type { ReferenceImage } from "@/types/imageGeneration";
 import {
+  bindResultAssetToConfig,
   bindResultReferenceToConfig,
   clearBoundResultReferencesFromConfig,
   clearReferenceInputsForUnsupportedModel,
   removeBoundResultReferenceFromConfig,
+  updateAssetRefRoleInConfig,
 } from "./referenceImages";
 
 const createConfig = (): GenerationConfig => ({
@@ -115,6 +117,77 @@ describe("reference image config helpers", () => {
 
     expect(removedReferenceImageCount).toBe(2);
     expect(nextConfig.referenceImages).toEqual([]);
-    expect(nextConfig.assetRefs).toEqual([]);
+    expect(nextConfig.assetRefs).toEqual([{ assetId: "thread-asset-1", role: "reference" }]);
+  });
+
+  it("binds edit and variation roles without materializing reference images when native refs are unavailable", () => {
+    const editBinding = bindResultAssetToConfig(createConfig(), {
+      assetId: "thread-asset-1",
+      role: "edit",
+      includeReferenceImage: false,
+      referenceImage: createReferenceImage("ref-1"),
+    });
+    const variationBinding = bindResultAssetToConfig(createConfig(), {
+      assetId: "thread-asset-2",
+      role: "variation",
+      includeReferenceImage: false,
+      referenceImage: createReferenceImage("ref-2"),
+    });
+
+    expect(editBinding.error).toBeNull();
+    expect(editBinding.nextConfig.referenceImages).toEqual([]);
+    expect(editBinding.nextConfig.assetRefs).toEqual([
+      { assetId: "thread-asset-1", role: "edit" },
+    ]);
+    expect(variationBinding.error).toBeNull();
+    expect(variationBinding.nextConfig.referenceImages).toEqual([]);
+    expect(variationBinding.nextConfig.assetRefs).toEqual([
+      { assetId: "thread-asset-2", role: "variation" },
+    ]);
+  });
+
+  it("rejects multiple source asset roles in the same turn", () => {
+    const firstBinding = bindResultAssetToConfig(createConfig(), {
+      assetId: "thread-asset-1",
+      role: "edit",
+      includeReferenceImage: false,
+      referenceImage: createReferenceImage("ref-1"),
+    });
+    const nextBinding = bindResultAssetToConfig(firstBinding.nextConfig, {
+      assetId: "thread-asset-2",
+      role: "variation",
+      includeReferenceImage: false,
+      referenceImage: createReferenceImage("ref-2"),
+    });
+
+    expect(firstBinding.error).toBeNull();
+    expect(nextBinding.error).toContain("Only one source asset is allowed");
+    expect(nextBinding.nextConfig.assetRefs).toEqual([
+      { assetId: "thread-asset-1", role: "edit" },
+    ]);
+  });
+
+  it("updates an existing asset ref role while preserving the bound reference image when available", () => {
+    const baseConfig = bindResultReferenceToConfig(createConfig(), {
+      assetId: "thread-asset-1",
+      referenceImage: createReferenceImage("ref-1"),
+    });
+
+    const nextBinding = updateAssetRefRoleInConfig(baseConfig, {
+      assetId: "thread-asset-1",
+      role: "variation",
+      includeReferenceImage: true,
+    });
+
+    expect(nextBinding.error).toBeNull();
+    expect(nextBinding.nextConfig.assetRefs).toEqual([
+      { assetId: "thread-asset-1", role: "variation" },
+    ]);
+    expect(nextBinding.nextConfig.referenceImages).toEqual([
+      expect.objectContaining({
+        id: "ref-1",
+        sourceAssetId: "thread-asset-1",
+      }),
+    ]);
   });
 });

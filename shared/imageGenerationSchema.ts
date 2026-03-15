@@ -8,6 +8,7 @@ import {
   IMAGE_PROMPT_EDIT_OPS,
   IMAGE_STYLE_IDS,
   REFERENCE_IMAGE_TYPES,
+  validateImageAssetRefs,
 } from "./imageGeneration";
 import { FRONTEND_IMAGE_MODEL_IDS, LOGICAL_IMAGE_MODEL_IDS } from "./imageModelCatalog";
 import { appendImageModelParamIssues } from "./imageModelParams";
@@ -167,6 +168,14 @@ export const imageGenerationRequestSchema = z
     }
 
     appendImageModelParamIssues(payload.modelId, payload.modelParams, ctx);
+
+    for (const issue of validateImageAssetRefs(payload.assetRefs)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: issue.message,
+        path: issue.path,
+      });
+    }
   });
 
 export type ParsedImageGenerationRequest = z.infer<typeof imageGenerationRequestSchema>;

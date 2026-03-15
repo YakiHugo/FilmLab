@@ -27,6 +27,7 @@ interface ImageResultCardProps {
   onUpscale?: () => void;
   onVary?: () => void;
   onUseAsReference?: () => void;
+  onEditFromThis?: () => void;
   onAccept?: () => void;
   onFullscreen?: () => void;
   isUpscaling?: boolean;
@@ -47,6 +48,7 @@ export function ImageResultCard({
   onUpscale,
   onVary,
   onUseAsReference,
+  onEditFromThis,
   onAccept,
   onFullscreen,
   isUpscaling = false,
@@ -196,6 +198,18 @@ export function ImageResultCard({
                 className="flex w-full items-center gap-2.5 px-3 py-2 text-[12px] text-zinc-200 transition hover:bg-white/[0.06] disabled:text-zinc-500"
                 onClick={() => {
                   setMenuOpen(false);
+                  onEditFromThis?.();
+                }}
+                disabled={!threadAssetId || !onEditFromThis}
+              >
+                <ImagePlus className={iconSm} />
+                Edit from this
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-[12px] text-zinc-200 transition hover:bg-white/[0.06] disabled:text-zinc-500"
+                onClick={() => {
+                  setMenuOpen(false);
                   onAddToCanvas?.();
                 }}
                 disabled={!canAddToCanvas}
@@ -267,6 +281,15 @@ export function ImageResultCard({
             >
               <ImagePlus className={iconSm} />
               Ref
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[12px] font-medium text-white/80 transition hover:bg-white/10 hover:text-white disabled:text-white/40"
+              onClick={onEditFromThis}
+              disabled={!threadAssetId || !onEditFromThis}
+            >
+              <ImagePlus className={iconSm} />
+              Edit
             </button>
             <button
               type="button"

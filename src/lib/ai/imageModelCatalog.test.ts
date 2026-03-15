@@ -22,6 +22,7 @@ const createCatalogModelFixture = (
     constraints: fact.constraints,
     parameterDefinitions: fact.parameterDefinitions,
     defaults: fact.defaults,
+    promptCompiler: fact.promptCompiler,
     supportsUpscale: fact.supportsUpscale,
     defaultProvider: fact.modelFamily === "seedream" ? "ark" : fact.modelFamily === "kling" ? "kling" : "dashscope",
     deploymentId: `${fact.modelId}-fixture`,

@@ -101,4 +101,15 @@ describe("imageGenerationRequestSchema", () => {
 
     expect(result.success).toBe(true);
   });
+
+  it("rejects multiple source asset roles in the same turn", () => {
+    const issuePaths = getIssuePaths({
+      assetRefs: [
+        { assetId: "asset-edit-1", role: "edit" },
+        { assetId: "asset-var-1", role: "variation" },
+      ],
+    });
+
+    expect(issuePaths).toContain("assetRefs");
+  });
 });

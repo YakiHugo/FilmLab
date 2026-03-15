@@ -7,7 +7,6 @@ import type {
   PersistedGenerationTurn,
   PersistedResultItem,
 } from "../../../../shared/chatImageTypes";
-import type { FrontendImageModelId } from "../../../../shared/imageModelCatalog";
 import { importAssetFiles } from "@/lib/assetImport";
 import {
   acceptImageConversationTurn,
@@ -30,6 +29,7 @@ import {
 import type { Asset, CanvasImageElement } from "@/types";
 import type {
   ImageAspectRatio,
+  ImageGenerationAssetRefRole,
   ImagePromptIntentInput,
   ImageGenerationRequest,
   ImageGenerationResponse,
@@ -41,6 +41,7 @@ import {
   IMAGE_ASPECT_RATIOS,
   IMAGE_STYLE_IDS,
   REFERENCE_IMAGE_TYPES,
+  validateImageAssetRefs,
 } from "@/types/imageGeneration";
 import { useAssetStore } from "@/stores/assetStore";
 import {
@@ -50,10 +51,11 @@ import {
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useImageSessionStore } from "@/stores/imageSessionStore";
 import {
-  bindResultReferenceToConfig,
+  bindResultAssetToConfig,
   clearBoundResultReferencesFromConfig,
   clearReferenceInputsForUnsupportedModel,
   removeBoundResultReferenceFromConfig,
+  updateAssetRefRoleInConfig,
 } from "../referenceImages";
 import { useGenerationConfig } from "./useGenerationConfig";
 
@@ -123,7 +125,6 @@ interface RuntimeResultState {
 }
 
 type RuntimeResultStateMap = Record<string, Record<number, RuntimeResultState>>;
-const IMAGE_GUIDED_REFERENCE_MODEL_ID: FrontendImageModelId = "qwen-image-2-pro";
 
 const createElementId = () => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -411,14 +412,11 @@ const resolveSnapshotDisplayMeta = (
 
 const isRetryableModel = (
   catalog: ImageModelCatalog | null | undefined,
-  modelId: FrontendImageModelId | string
+  modelId: string
 ) => Boolean(getImageModelCatalogEntry(catalog, modelId));
 
 const buildUnavailableModelError = (modelLabel: string) =>
   `${modelLabel} is no longer available. Choose a current model and run the prompt again.`;
-
-const getImageGuidedReferenceModel = (catalog: ImageModelCatalog | null | undefined) =>
-  getImageModelCatalogEntry(catalog, IMAGE_GUIDED_REFERENCE_MODEL_ID);
 
 const cloneImageRequest = (
   request: ImageGenerationRequest
@@ -765,6 +763,34 @@ const createReferenceImageFromGeneratedResult = async (
   });
 
   return toReferenceImageEntry(file, "content", options);
+};
+
+const resolveAssetRoleNotice = (
+  role: ImageGenerationAssetRefRole,
+  supportedFeatures: CatalogDrivenFeatureSupport
+) => {
+  if (
+    role === "reference" &&
+    supportedFeatures.promptCompiler.referenceRoleHandling.reference !== "native"
+  ) {
+    return "Current model will treat this asset as prompt-guided reference guidance.";
+  }
+
+  if (
+    role === "edit" &&
+    !supportedFeatures.promptCompiler.executableOperations.includes("image.edit")
+  ) {
+    return "Current model will approximate this edit as prompt-guided generate.";
+  }
+
+  if (
+    role === "variation" &&
+    !supportedFeatures.promptCompiler.executableOperations.includes("image.variation")
+  ) {
+    return "Current model will approximate this variation as prompt-guided generate.";
+  }
+
+  return null;
 };
 
 const toImageRequest = (
@@ -1456,6 +1482,11 @@ export function useImageGeneration() {
       }
 
       const nextConfigSnapshot = cloneGenerationConfig(configSnapshot);
+      const assetRefIssues = validateImageAssetRefs(nextConfigSnapshot.assetRefs);
+      if (assetRefIssues.length > 0) {
+        setNotice(assetRefIssues[0]?.message ?? "Asset roles are incompatible for this turn.");
+        return null;
+      }
       const requestModelConfig = getImageModelCatalogEntry(catalog, nextConfigSnapshot.modelId);
       const requestSupportedFeatures = toCatalogFeatureSupport(requestModelConfig);
 
@@ -1673,78 +1704,100 @@ export function useImageGeneration() {
     [getUiTurnById, updateRuntimeResultState]
   );
 
-  const useResultAsReference = useCallback(
-    async (turnId: string, index: number) => {
+  const bindResultAsAssetRole = useCallback(
+    async (
+      turnId: string,
+      index: number,
+      role: ImageGenerationAssetRefRole
+    ) => {
       const turn = getUiTurnById(turnId);
       const result = turn?.results.find((entry) => entry.index === index);
-      if (!result?.threadAssetId || !config) {
-        return;
-      }
-
-      const targetModel =
-        supportedFeatures.referenceImages.enabled && modelConfig
-          ? modelConfig
-          : getImageGuidedReferenceModel(catalog);
-      if (!targetModel) {
-        updateTurn(turnId, {
-          error: "No image-guided model is available for reference-based generation.",
-        });
+      if (!result?.threadAssetId || !config || !modelConfig) {
         return;
       }
 
       try {
-        const referenceImage = await createReferenceImageFromGeneratedResult(
-          {
-            imageUrl: result.imageUrl,
-            fileNamePrefix: `result-ref-${turnId}-${index + 1}`,
-          },
-          {
-            maxFileSizeBytes: targetModel.constraints.referenceImages.maxFileSizeBytes,
-          }
-        );
+        const includeReferenceImage = supportedFeatures.referenceImages.enabled;
+        const referenceImage = includeReferenceImage
+          ? await createReferenceImageFromGeneratedResult(
+              {
+                imageUrl: result.imageUrl,
+                fileNamePrefix: `${role}-asset-${turnId}-${index + 1}`,
+              },
+              {
+                maxFileSizeBytes: modelConfig.constraints.referenceImages.maxFileSizeBytes,
+              }
+            )
+          : null;
 
-        const nextConfigBase =
-          targetModel.id === config.modelId
-            ? cloneGenerationConfig(config)
-            : sanitizeGenerationConfig(
-                {
-                  ...config,
-                  modelId: targetModel.id,
-                  modelParams: { ...targetModel.defaults.modelParams },
-                },
-                targetModel
-              );
+        const binding = bindResultAssetToConfig(cloneGenerationConfig(config), {
+          assetId: result.threadAssetId,
+          role,
+          includeReferenceImage,
+          referenceImage,
+        });
+        if (binding.error) {
+          setNotice(binding.error);
+          return;
+        }
 
-        setConfig(
-          bindResultReferenceToConfig(nextConfigBase, {
-            assetId: result.threadAssetId,
-            referenceImage,
-          })
-        );
-
-        if (targetModel.id !== config.modelId) {
-          setNotice(
-            `Switched to ${targetModel.label} to continue with image-guided generation.`
-          );
+        setConfig(binding.nextConfig);
+        const notice = resolveAssetRoleNotice(role, supportedFeatures);
+        if (notice) {
+          setNotice(notice);
         }
       } catch (error) {
-        updateTurn(turnId, {
-          error:
-            error instanceof Error
-              ? error.message
-              : "Generated image could not be reused as a reference.",
-        });
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "Generated image could not be reused for prompt-guided generation."
+        );
       }
     },
-    [
-      catalog,
-      config,
-      getUiTurnById,
-      modelConfig,
-      setConfig,
-      supportedFeatures.referenceImages.enabled,
-      updateTurn,
-    ]
+    [config, getUiTurnById, modelConfig, setConfig, setNotice, supportedFeatures]
+  );
+
+  const useResultAsReference = useCallback(
+    async (turnId: string, index: number) =>
+      bindResultAsAssetRole(turnId, index, "reference"),
+    [bindResultAsAssetRole]
+  );
+
+  const editFromResult = useCallback(
+    async (turnId: string, index: number) =>
+      bindResultAsAssetRole(turnId, index, "edit"),
+    [bindResultAsAssetRole]
+  );
+
+  const varyFromResult = useCallback(
+    async (turnId: string, index: number) =>
+      bindResultAsAssetRole(turnId, index, "variation"),
+    [bindResultAsAssetRole]
+  );
+
+  const updateAssetRefRole = useCallback(
+    (assetId: string, role: ImageGenerationAssetRefRole) => {
+      if (!config) {
+        return;
+      }
+
+      const binding = updateAssetRefRoleInConfig(config, {
+        assetId,
+        role,
+        includeReferenceImage: supportedFeatures.referenceImages.enabled,
+      });
+      if (binding.error) {
+        setNotice(binding.error);
+        return;
+      }
+
+      setConfig(binding.nextConfig);
+      const notice = resolveAssetRoleNotice(role, supportedFeatures);
+      if (notice) {
+        setNotice(notice);
+      }
+    },
+    [config, setConfig, supportedFeatures]
   );
 
   const removeAssetReference = useCallback(
@@ -1940,8 +1993,11 @@ export function useImageGeneration() {
     removeReferenceImage,
     clearReferenceImages,
     removeAssetReference,
+    updateAssetRefRole,
     clearAssetReferences,
     useResultAsReference,
+    editFromResult,
+    varyFromResult,
     generateFromPromptInput,
     deleteTurn,
     acceptTurnResult,

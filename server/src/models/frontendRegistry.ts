@@ -20,6 +20,7 @@ const createFrontendModel = (
     constraints: capabilityFact.constraints,
     parameterDefinitions: capabilityFact.parameterDefinitions,
     defaults: capabilityFact.defaults,
+    promptCompiler: capabilityFact.promptCompiler,
     visible: input.visible ?? true,
   };
 };

@@ -77,6 +77,7 @@ export const createImageModelCatalogRegistry = (health = routerHealth) => ({
           constraints: model.constraints,
           parameterDefinitions: model.parameterDefinitions,
           defaults: model.defaults,
+          promptCompiler: model.promptCompiler,
           supportsUpscale: model.supportsUpscale,
           defaultProvider: deployment.provider,
           deploymentId: deployment.id,

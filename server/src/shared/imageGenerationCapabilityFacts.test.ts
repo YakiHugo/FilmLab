@@ -22,6 +22,7 @@ describe("image generation capability facts", () => {
       constraints: frontendModel?.constraints,
       parameterDefinitions: frontendModel?.parameterDefinitions,
       defaults: frontendModel?.defaults,
+      promptCompiler: frontendModel?.promptCompiler,
       supportsUpscale: frontendModel?.supportsUpscale,
     });
     expect(frontendModel?.constraints.referenceImages).toMatchObject({
@@ -61,6 +62,7 @@ describe("image generation capability facts", () => {
         modelParams: {
           promptExtend: true,
         },
+        assetRefs: [{ assetId: "thread-asset-1", role: "edit" }],
       });
 
     expect(validationResult.success).toBe(false);

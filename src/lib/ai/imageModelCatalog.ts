@@ -26,6 +26,7 @@ export interface CatalogDrivenFeatureSupport {
   styles: boolean;
   supportsUpscale: boolean;
   referenceImages: ImageModelCatalogEntry["constraints"]["referenceImages"];
+  promptCompiler: ImageModelCatalogEntry["promptCompiler"];
 }
 
 export interface CatalogDrivenGenerationConfig {
@@ -114,6 +115,24 @@ export const toCatalogFeatureSupport = (
     steps: !unsupported.has("steps"),
     styles: !unsupported.has("style") && !unsupported.has("stylePreset"),
     supportsUpscale: model?.supportsUpscale ?? false,
+    promptCompiler: model?.promptCompiler ?? {
+      acceptedOperations: ["image.generate"],
+      executableOperations: ["image.generate"],
+      negativePromptStrategy: "merge_into_main",
+      sourceImageExecution: "unsupported",
+      referenceRoleHandling: {
+        reference: "compiled_to_text",
+        edit: "compiled_to_text",
+        variation: "compiled_to_text",
+      },
+      continuityStrength: {
+        subject: "weak",
+        style: "weak",
+        composition: "weak",
+        text: "weak",
+      },
+      promptSurface: "natural_language",
+    },
     referenceImages: model?.constraints.referenceImages ?? {
       enabled: false,
       maxImages: 0,

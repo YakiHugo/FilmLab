@@ -75,6 +75,8 @@ const renderFeed = () =>
       onSaveSelectedResults={noop}
       onAddToCanvas={noop}
       onUseResultAsReference={noop}
+      onEditFromResult={noop}
+      onVaryResult={noop}
       onAcceptResult={noop}
       onDeleteTurn={noop}
       onRetryTurn={noop}

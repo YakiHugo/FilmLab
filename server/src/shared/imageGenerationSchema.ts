@@ -13,7 +13,11 @@ import type {
   ImageGenerationRequest,
   ParsedImageGenerationRequest,
 } from "../../../shared/imageGenerationSchema";
-import type { ImageAspectRatio, ReferenceImageType } from "../../../shared/imageGeneration";
+import {
+  resolveImagePromptCompilerOperation,
+  type ImageAspectRatio,
+  type ReferenceImageType,
+} from "../../../shared/imageGeneration";
 
 const appendIssue = (
   ctx: z.RefinementCtx,
@@ -47,6 +51,7 @@ export const validateImageGenerationRequestAgainstModel = (
   const capability = frontendModel.constraints;
   const label = frontendModel.label;
   const unsupportedFields = new Set(capability.unsupportedFields);
+  const operation = resolveImagePromptCompilerOperation(payload.assetRefs);
 
   if (!capability.supportedAspectRatios.includes(payload.aspectRatio)) {
     appendIssue(
@@ -182,6 +187,10 @@ export const validateImageGenerationRequestAgainstModel = (
       ["batchSize"],
       `${label} supports batch size ${capability.maxBatchSize} at most.`
     );
+  }
+
+  if (!frontendModel.promptCompiler.acceptedOperations.includes(operation)) {
+    appendIssue(ctx, ["assetRefs"], `${label} does not accept ${operation} requests.`);
   }
 };
 

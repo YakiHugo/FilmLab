@@ -5,6 +5,7 @@ import type {
 } from "../../../../shared/chatImageTypes";
 import type {
   ImageGenerationAssetRef,
+  ImagePromptCompilerOperationId,
   ImagePromptIntentInput,
   ReferenceImage,
 } from "../../../../shared/imageGeneration";
@@ -25,13 +26,15 @@ export type CreativeState = PersistedCreativeState;
 export type ConversationCreativeState = PersistedConversationCreativeState;
 
 export interface PromptIR {
-  operation: "image.generate";
+  operation: ImagePromptCompilerOperationId;
   goal: string;
   preserve: string[];
   negativeConstraints: string[];
   styleDirectives: string[];
   continuityTargets: PersistedCreativeState["continuityTargets"];
   editOps: PersistedCreativeState["editOps"];
+  sourceAssets: ImageGenerationAssetRef[];
+  referenceAssets: ImageGenerationAssetRef[];
   assetRefs: ImageGenerationAssetRef[];
   referenceImages: Array<Pick<ReferenceImage, "id" | "type" | "sourceAssetId">>;
   output: {
@@ -49,7 +52,7 @@ export interface PromptCompilationContext {
   capabilityVersion: string;
   stateBaseRevision: number;
   rewriteModel: string;
-  operation: "image.generate";
+  operation: ImagePromptCompilerOperationId;
   retryMode: "exact" | "recompile";
 }
 

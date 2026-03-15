@@ -6,7 +6,6 @@ import type {
   GenerationJobSnapshot,
   PersistedImageGenerationRequestSnapshot,
   PersistedPromptSnapshot,
-  PersistedRunOperation,
   PersistedRunRecord,
   PersistedRunTargetSnapshot,
 } from "../../../shared/chatImageTypes";
@@ -36,6 +35,11 @@ import {
   type ParsedImageGenerationRequest,
   validateImageGenerationRequestAgainstModel,
 } from "../shared/imageGenerationSchema";
+import {
+  resolveImagePromptCompilerOperation,
+  type ImageGenerationAssetRef,
+  type ImagePromptCompilerOperationId,
+} from "../../../shared/imageGeneration";
 
 const GENERATED_IMAGE_NORMALIZATION_CONCURRENCY = 2;
 
@@ -93,10 +97,33 @@ const createRewriteTargetSnapshot = (
     deploymentId: rewriteModel,
     runtimeProvider: degraded ? "deterministic-fallback" : "internal-rewrite",
     providerModel: rewriteModel,
-    pinned: true,
-  });
+      pinned: true,
+    });
 
-const resolveEdgeType = (role: "reference" | "edit" | "variation"): PersistedAssetEdgeType => {
+const IMAGE_GENERATION_RUN_OPERATIONS = new Set<PersistedRunRecord["operation"]>([
+  "image.generate",
+  "image.edit",
+  "image.variation",
+]);
+
+const SOURCE_ASSET_DEGRADATION_CODES = new Set<string>([
+  "OPERATION_DEGRADED_TO_IMAGE_GENERATE",
+  "ASSET_ROLE_DEGRADED_TO_REFERENCE_GUIDANCE",
+  "SOURCE_IMAGE_NOT_EXECUTABLE",
+  "STYLE_REFERENCE_ROLE_COLLAPSED",
+]);
+
+const resolveEdgeType = (
+  role: "reference" | "edit" | "variation",
+  prompt: PersistedPromptSnapshot | null
+): PersistedAssetEdgeType => {
+  if (
+    role !== "reference" &&
+    prompt?.semanticLosses.some((loss) => SOURCE_ASSET_DEGRADATION_CODES.has(loss.code))
+  ) {
+    return "referenced_in_turn";
+  }
+
   switch (role) {
     case "edit":
       return "edited_from_asset";
@@ -108,19 +135,8 @@ const resolveEdgeType = (role: "reference" | "edit" | "variation"): PersistedAss
 };
 
 const resolveRequestedOperation = (
-  assetRefs: Array<{ role: "reference" | "edit" | "variation" }> | undefined
-): PersistedRunOperation => {
-  if (!Array.isArray(assetRefs) || assetRefs.length === 0) {
-    return "image.generate";
-  }
-  if (assetRefs.some((assetRef) => assetRef.role === "edit")) {
-    return "image.edit";
-  }
-  if (assetRefs.some((assetRef) => assetRef.role === "variation")) {
-    return "image.variation";
-  }
-  return "image.generate";
-};
+  assetRefs: ImageGenerationAssetRef[] | undefined
+): ImagePromptCompilerOperationId => resolveImagePromptCompilerOperation(assetRefs);
 
 const toPersistedRequestSnapshot = (
   payload: unknown
@@ -218,13 +234,21 @@ const findRetryRun = (
   runs: PersistedRunRecord[],
   turnId: string
 ): PersistedRunRecord | null =>
-  runs.find((run) => run.turnId === turnId && run.operation === "image.generate" && run.prompt) ??
+  runs.find(
+    (run) =>
+      run.turnId === turnId &&
+      IMAGE_GENERATION_RUN_OPERATIONS.has(run.operation) &&
+      run.prompt
+  ) ??
   null;
 
 const findRetryJob = (
   jobs: GenerationJobSnapshot[],
-  turnId: string
-): GenerationJobSnapshot | null => jobs.find((job) => job.turnId === turnId) ?? null;
+  run: PersistedRunRecord
+): GenerationJobSnapshot | null =>
+  jobs.find((job) =>
+    run.jobId ? job.id === run.jobId : job.turnId === run.turnId
+  ) ?? null;
 
 const toExactRetryPayload = (input: {
   requestSnapshot: PersistedImageGenerationRequestSnapshot;
@@ -440,11 +464,6 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         const imageRunId = createId("chat-run");
         const attemptId = createId("chat-attempt");
         const rewriteModel = config.promptRewriteModel?.trim() || "deterministic-fallback";
-        const promptContext = createPromptCompilationContext(
-          conversation.promptState,
-          rewriteModel,
-          effectiveRetryMode
-        );
         let effectivePayload: ParsedImageGenerationRequest = {
           ...payload,
           threadId: payload.threadId ?? payload.conversationId ?? conversation.id,
@@ -455,7 +474,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         if (effectiveRetryMode === "exact" && payload.retryOfTurnId) {
           const snapshot = await repository.getConversationSnapshot(userId, conversation.id);
           const retryRun = findRetryRun(snapshot.runs, payload.retryOfTurnId);
-          const retryJob = findRetryJob(snapshot.jobs, payload.retryOfTurnId);
+          const retryJob = retryRun ? findRetryJob(snapshot.jobs, retryRun) : null;
           if (!retryRun?.prompt || !retryJob?.requestSnapshot) {
             return reply.code(400).send({
               error:
@@ -478,6 +497,14 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           return reply.code(400).send({ error: `Unsupported modelId: ${effectivePayload.modelId}.` });
         }
 
+        const requestedOperation = resolveRequestedOperation(effectivePayload.assetRefs);
+        const promptContext = createPromptCompilationContext(
+          conversation.promptState,
+          rewriteModel,
+          requestedOperation,
+          effectiveRetryMode
+        );
+
         const compatibilityProbe = imageGenerationRequestSchema.superRefine((nextPayload, ctx) => {
           validateImageGenerationRequestAgainstModel(nextPayload, frontendModel, ctx);
         });
@@ -486,13 +513,6 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           const firstIssue = validationResult.error.issues[0];
           return reply.code(400).send({
             error: firstIssue?.message ?? "Request is incompatible with selected model.",
-          });
-        }
-
-        const requestedOperation = resolveRequestedOperation(effectivePayload.assetRefs);
-        if (requestedOperation !== "image.generate") {
-          return reply.code(400).send({
-            error: `${requestedOperation} is not available yet.`,
           });
         }
 
@@ -544,64 +564,8 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             semanticLosses: exactRetryPrompt.semanticLosses,
             warnings: uniqueWarnings([rewriteWarning]),
           });
-          rewritePromptVersion = buildPromptVersionRecord({
-            runId: rewriteRunId,
-            turnId,
-            version: 1,
-            stage: "rewrite",
-            compilerVersion: promptContext.compilerVersion,
-            capabilityVersion: promptContext.capabilityVersion,
-            originalPrompt: effectivePayload.prompt,
-            promptIntent: persistedRequestSnapshot.promptIntent ?? null,
-            committedStateBefore: conversation.promptState.committed,
-            candidateStateAfter: conversation.promptState.candidate,
-            compiledPrompt: exactRetryPrompt.compiledPrompt,
-            dispatchedPrompt: exactRetryPrompt.dispatchedPrompt,
-            semanticLosses: exactRetryPrompt.semanticLosses,
-            warnings: uniqueWarnings([rewriteWarning]),
-            hashes: createPromptHashes({
-              committedStateBefore: conversation.promptState.committed,
-              candidateStateAfter: conversation.promptState.candidate,
-              promptIR: null,
-              prefix: null,
-              payload: {
-                mode: "exact-retry",
-                prompt: exactRetryPrompt,
-                retryOfTurnId: effectivePayload.retryOfTurnId,
-              },
-            }),
-            createdAt,
-          });
-          compilePromptVersions = [
-            buildPromptVersionRecord({
-              runId: imageRunId,
-              turnId,
-              version: 1,
-              stage: "compile",
-              targetKey: `${exactTarget.provider.id}:${exactTarget.deployment.providerModel}`,
-              compilerVersion: promptContext.compilerVersion,
-              capabilityVersion: promptContext.capabilityVersion,
-              originalPrompt: effectivePayload.prompt,
-              promptIntent: persistedRequestSnapshot.promptIntent ?? null,
-              committedStateBefore: conversation.promptState.committed,
-              candidateStateAfter: conversation.promptState.candidate,
-              compiledPrompt: exactRetryPrompt.compiledPrompt,
-              dispatchedPrompt: exactRetryPrompt.dispatchedPrompt,
-              semanticLosses: exactRetryPrompt.semanticLosses,
-              warnings: exactRetryPrompt.warnings,
-              hashes: createPromptHashes({
-                committedStateBefore: conversation.promptState.committed,
-                candidateStateAfter: conversation.promptState.candidate,
-                promptIR: null,
-                prefix: exactRetryPrompt.compiledPrompt,
-                payload: {
-                  targetKey: `${exactTarget.provider.id}:${exactTarget.deployment.providerModel}`,
-                  prompt: exactRetryPrompt.dispatchedPrompt ?? exactRetryPrompt.compiledPrompt,
-                },
-              }),
-              createdAt,
-            }),
-          ];
+          rewritePromptVersion = null;
+          compilePromptVersions = [];
           initialPromptSnapshot = exactRetryPrompt;
         } else {
           const rewriteResult = await rewriteTurn(
@@ -894,15 +858,15 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
                   capabilityVersion: promptContext.capabilityVersion,
                     originalPrompt: effectivePayload.prompt,
                     promptIntent: persistedRequestSnapshot.promptIntent ?? null,
-                    committedStateBefore: conversation.promptState.committed,
-                    candidateStateAfter: conversation.promptState.candidate,
+                    committedStateBefore: null,
+                    candidateStateAfter: null,
                     compiledPrompt: exactRetryPrompt.compiledPrompt,
                     dispatchedPrompt,
                     semanticLosses: exactRetryPrompt.semanticLosses,
                     warnings: uniqueWarnings([rewriteWarning, ...exactRetryPrompt.warnings]),
                     hashes: createPromptHashes({
-                      committedStateBefore: conversation.promptState.committed,
-                      candidateStateAfter: conversation.promptState.candidate,
+                      committedStateBefore: null,
+                      candidateStateAfter: null,
                       promptIR: null,
                       prefix: exactRetryPrompt.compiledPrompt,
                       payload: {
@@ -1103,6 +1067,10 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         ]);
 
         const completedAt = new Date().toISOString();
+        const completedPrompt = withProviderEffectivePrompt(
+          finalPromptSnapshot,
+          normalizedImages[0]?.revisedPrompt ?? null
+        );
         const assets = normalizedImages.map((image, index) => ({
           id: image.assetId,
           turnId,
@@ -1135,7 +1103,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             id: createId("thread-edge"),
             sourceAssetId: assetRef.assetId,
             targetAssetId: asset.id,
-            edgeType: resolveEdgeType(assetRef.role),
+            edgeType: resolveEdgeType(assetRef.role, completedPrompt),
             turnId,
             runId: imageRunId,
             createdAt: completedAt,
@@ -1153,10 +1121,52 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
                 effectivePayload.requestedTarget?.provider
             ) || effectiveRetryMode === "exact",
         });
-        const completedPrompt = withProviderEffectivePrompt(
-          finalPromptSnapshot,
-          normalizedImages[0]?.revisedPrompt ?? null
-        );
+        await repository.createPromptVersions({
+          conversationId: conversation.id,
+          versions: [
+            buildPromptVersionRecord({
+              runId: imageRunId,
+              turnId,
+              version: compilePromptVersions.length + dispatchAttempt + 1,
+              stage: "dispatch",
+              targetKey: `${generated.runtimeProvider}:${generated.providerModel}`,
+              attempt: dispatchAttempt,
+              compilerVersion: promptContext.compilerVersion,
+              capabilityVersion: promptContext.capabilityVersion,
+              originalPrompt: effectivePayload.prompt,
+              promptIntent: persistedRequestSnapshot.promptIntent ?? null,
+              committedStateBefore:
+                effectiveRetryMode === "exact" ? null : conversation.promptState.committed,
+              candidateStateAfter:
+                effectiveRetryMode === "exact"
+                  ? null
+                  : nextPromptState?.candidate ?? conversation.promptState.candidate,
+              promptIR: effectiveRetryMode === "exact" ? null : promptIR,
+              compiledPrompt: completedPrompt.compiledPrompt,
+              dispatchedPrompt: completedPrompt.dispatchedPrompt,
+              providerEffectivePrompt: completedPrompt.providerEffectivePrompt,
+              semanticLosses: completedPrompt.semanticLosses,
+              warnings: finalDispatchWarnings,
+              hashes: createPromptHashes({
+                committedStateBefore:
+                  effectiveRetryMode === "exact" ? null : conversation.promptState.committed,
+                candidateStateAfter:
+                  effectiveRetryMode === "exact"
+                    ? null
+                    : nextPromptState?.candidate ?? conversation.promptState.candidate,
+                promptIR: effectiveRetryMode === "exact" ? null : promptIR,
+                prefix: completedPrompt.compiledPrompt,
+                payload: {
+                  prompt: completedPrompt.dispatchedPrompt,
+                  providerEffectivePrompt: completedPrompt.providerEffectivePrompt,
+                  targetKey: `${generated.runtimeProvider}:${generated.providerModel}`,
+                  attempt: dispatchAttempt,
+                },
+              }),
+              createdAt: completedAt,
+            }),
+          ],
+        });
         const rewriteRunRecord: PersistedRunRecord = {
           id: rewriteRunId,
           turnId,

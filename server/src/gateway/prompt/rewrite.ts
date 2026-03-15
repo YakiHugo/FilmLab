@@ -48,7 +48,11 @@ const buildDeterministicTurnDelta = (
   styleDirectives: dedupe(request.promptIntent?.styleDirectives ?? []),
   continuityTargets: [...(request.promptIntent?.continuityTargets ?? [])],
   editOps: (request.promptIntent?.editOps ?? []).map((entry) => ({ ...entry })),
-  referenceAssetIds: dedupe(request.assetRefs.map((entry) => entry.assetId)),
+  referenceAssetIds: dedupe(
+    request.assetRefs
+      .filter((entry) => entry.role === "reference")
+      .map((entry) => entry.assetId)
+  ),
 });
 
 const createRewriteSystemPrompt = (state: ConversationCreativeState) => `
@@ -62,6 +66,8 @@ You are a prompt normalizer for a multi-turn image generation compiler.
 - Do not invent assets that were not provided.
 - Keep arrays short and deduplicated.
 - Use continuityTargets only when continuity is explicitly requested.
+- Use referenceAssetIds only for assets that should persist as generic reference guidance across turns.
+- Do not put edit or variation source assets into referenceAssetIds unless the user is explicitly converting them into reusable references.
 
 ## Committed State
 ${JSON.stringify(state.committed, null, 2)}

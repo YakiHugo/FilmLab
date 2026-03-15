@@ -66,6 +66,8 @@ export interface PersistedConversationCreativeState {
 export interface PersistedSemanticLoss {
   code:
     | "APPROXIMATED_AS_REGENERATION"
+    | "OPERATION_DEGRADED_TO_IMAGE_GENERATE"
+    | "ASSET_ROLE_DEGRADED_TO_REFERENCE_GUIDANCE"
     | "SOURCE_IMAGE_NOT_EXECUTABLE"
     | "EXACT_TEXT_CONTINUITY_AT_RISK"
     | "NEGATIVE_PROMPT_DEGRADED_TO_TEXT"
