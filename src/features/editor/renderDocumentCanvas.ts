@@ -31,28 +31,47 @@ const resolveLayerFilmProfile = (document: RenderDocument, sourceAsset: Asset) =
     ? document.filmProfile ?? undefined
     : sourceAsset.filmProfile ?? undefined;
 
+const getWorkspaceCanvas = (
+  map: Map<string, HTMLCanvasElement>,
+  layerId: string
+) => {
+  const existing = map.get(layerId);
+  if (existing) {
+    return existing;
+  }
+
+  const created = globalThis.document.createElement("canvas");
+  map.set(layerId, created);
+  return created;
+};
+
 const createTemporaryWorkspace = () => {
-  const layerCanvas = globalThis.document.createElement("canvas");
-  const layerMaskCanvas = globalThis.document.createElement("canvas");
-  const layerMaskScratchCanvas = globalThis.document.createElement("canvas");
-  const maskedLayerCanvas = globalThis.document.createElement("canvas");
+  const layerCanvases = new Map<string, HTMLCanvasElement>();
+  const layerMaskCanvases = new Map<string, HTMLCanvasElement>();
+  const layerMaskScratchCanvases = new Map<string, HTMLCanvasElement>();
+  const maskedLayerCanvases = new Map<string, HTMLCanvasElement>();
 
   const workspace: RenderGraphCanvasWorkspace = {
-    getLayerCanvas: () => layerCanvas,
-    getLayerMaskCanvas: () => layerMaskCanvas,
-    getLayerMaskScratchCanvas: () => layerMaskScratchCanvas,
-    getMaskedLayerCanvas: () => maskedLayerCanvas,
+    getLayerCanvas: (layerId) => getWorkspaceCanvas(layerCanvases, layerId),
+    getLayerMaskCanvas: (layerId) => getWorkspaceCanvas(layerMaskCanvases, layerId),
+    getLayerMaskScratchCanvas: (layerId) =>
+      getWorkspaceCanvas(layerMaskScratchCanvases, layerId),
+    getMaskedLayerCanvas: (layerId) => getWorkspaceCanvas(maskedLayerCanvases, layerId),
   };
 
   const release = () => {
-    layerCanvas.width = 0;
-    layerCanvas.height = 0;
-    layerMaskCanvas.width = 0;
-    layerMaskCanvas.height = 0;
-    layerMaskScratchCanvas.width = 0;
-    layerMaskScratchCanvas.height = 0;
-    maskedLayerCanvas.width = 0;
-    maskedLayerCanvas.height = 0;
+    const releaseCanvasMap = (map: Map<string, HTMLCanvasElement>) => {
+      for (const canvas of map.values()) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+      map.clear();
+    };
+
+    releaseCanvasMap(layerCanvases);
+    releaseCanvasMap(layerMaskCanvases);
+    releaseCanvasMap(layerMaskScratchCanvases);
+    releaseCanvasMap(maskedLayerCanvases);
   };
 
   return {

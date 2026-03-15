@@ -104,6 +104,87 @@ describe("renderDocumentToCanvas", () => {
     expect(renderImageToCanvasMock).not.toHaveBeenCalled();
   });
 
+  it("provides distinct layer surfaces to deferred multi-layer composition", async () => {
+    const asset = createAsset("asset-a");
+    const renderDocument = createRenderDocument({
+      key: "editor:asset-a:export",
+      assetById: new Map([[asset.id, asset]]),
+      documentAsset: asset,
+      layers: [
+        {
+          id: "top",
+          name: "Top",
+          type: "adjustment",
+          visible: true,
+          opacity: 75,
+          blendMode: "screen",
+          adjustments: createDefaultAdjustments(),
+        },
+        {
+          id: "base",
+          name: "Base",
+          type: "base",
+          visible: true,
+          opacity: 100,
+          blendMode: "normal",
+          adjustments: createDefaultAdjustments(),
+        },
+      ],
+      adjustments: createDefaultAdjustments(),
+      filmProfile: undefined,
+    });
+    const canvas = globalThis.document.createElement("canvas");
+    const renderedLayerCanvases: HTMLCanvasElement[] = [];
+
+    composeRenderGraphToCanvasMock.mockImplementationOnce(
+      async ({
+        renderGraph,
+        workspace,
+        targetSize,
+        renderLayerNode,
+      }: {
+        renderGraph: typeof renderDocument.renderGraph;
+        workspace: {
+          getLayerCanvas: (layerId: string) => HTMLCanvasElement;
+        };
+        targetSize: {
+          width: number;
+          height: number;
+        };
+        renderLayerNode: (
+          node: (typeof renderDocument.renderGraph.layers)[number],
+          canvas: HTMLCanvasElement,
+          layerIndex: number
+        ) => Promise<void>;
+      }) => {
+        const layersBottomToTop = [...renderGraph.layers].reverse();
+        for (let layerIndex = 0; layerIndex < layersBottomToTop.length; layerIndex += 1) {
+          const layerNode = layersBottomToTop[layerIndex]!;
+          const layerCanvas = workspace.getLayerCanvas(layerNode.id);
+          layerCanvas.width = targetSize.width;
+          layerCanvas.height = targetSize.height;
+          renderedLayerCanvases.push(layerCanvas);
+          await renderLayerNode(layerNode, layerCanvas, layerIndex);
+        }
+        return true;
+      }
+    );
+
+    await renderDocumentToCanvas({
+      canvas,
+      document: renderDocument,
+      intent: "export-full",
+      targetSize: {
+        width: 800,
+        height: 600,
+      },
+    });
+
+    expect(renderedLayerCanvases).toHaveLength(2);
+    expect(renderedLayerCanvases[0]).not.toBe(renderedLayerCanvases[1]);
+    expect(renderImageToCanvasMock).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps single-layer documents on the direct render fast path", async () => {
     const asset = createAsset("asset-a");
     const renderDocument = createRenderDocument({
