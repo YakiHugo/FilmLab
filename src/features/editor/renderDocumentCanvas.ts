@@ -5,6 +5,10 @@ import type { Asset } from "@/types";
 import type { RenderDocument } from "./document";
 import type { RenderIntent } from "@/lib/renderIntent";
 import { resolveLayerBlendOperation } from "./preview/composite";
+import {
+  requiresLayerComposite,
+  resolveSingleRenderableLayerEntry,
+} from "./rendering";
 
 interface RenderTargetSize {
   width: number;
@@ -27,6 +31,106 @@ const resolveLayerFilmProfile = (document: RenderDocument, sourceAsset: Asset) =
     ? document.filmProfile ?? undefined
     : sourceAsset.filmProfile ?? undefined;
 
+interface RenderSingleLayerEntryOptions {
+  canvas: HTMLCanvasElement;
+  document: RenderDocument;
+  entry: RenderDocument["layerEntries"][number];
+  intent: RenderIntent;
+  targetSize?: RenderTargetSize;
+  timestampText?: string | null;
+  strictErrors: boolean;
+}
+
+const renderSingleLayerEntryToCanvas = async ({
+  canvas,
+  document: renderDocument,
+  entry,
+  intent,
+  targetSize,
+  timestampText,
+  strictErrors,
+}: RenderSingleLayerEntryOptions) => {
+  const needsComposite = requiresLayerComposite(entry);
+  const layerCanvas = needsComposite ? globalThis.document.createElement("canvas") : canvas;
+  const layerMaskCanvas = needsComposite ? globalThis.document.createElement("canvas") : null;
+  const layerMaskScratchCanvas = needsComposite ? globalThis.document.createElement("canvas") : null;
+  const maskedLayerCanvas = needsComposite ? globalThis.document.createElement("canvas") : null;
+
+  try {
+    await renderImageToCanvas({
+      canvas: layerCanvas,
+      source: resolveAssetRenderSource(entry.sourceAsset),
+      adjustments: entry.adjustments,
+      filmProfile: resolveLayerFilmProfile(renderDocument, entry.sourceAsset),
+      timestampText: needsComposite ? null : timestampText,
+      targetSize,
+      seedKey: `${renderDocument.sourceAssetId}:${entry.layer.id}`,
+      sourceCacheKey: `${intent}:${entry.sourceAsset.id}:${entry.layer.id}:${entry.sourceAsset.size}`,
+      strictErrors,
+      intent,
+      renderSlot: `${intent}:${renderDocument.key}:layer:${entry.layer.id}:single`,
+    });
+
+    if (!needsComposite) {
+      return;
+    }
+
+    if (canvas.width !== layerCanvas.width || canvas.height !== layerCanvas.height) {
+      canvas.width = layerCanvas.width;
+      canvas.height = layerCanvas.height;
+    }
+
+    const renderContext = canvas.getContext("2d", { willReadFrequently: true });
+    if (!renderContext) {
+      throw new Error("Failed to initialize single-layer composite context.");
+    }
+
+    let drawSource: CanvasImageSource = layerCanvas;
+    if (
+      entry.layer.mask &&
+      layerMaskCanvas &&
+      layerMaskScratchCanvas &&
+      maskedLayerCanvas
+    ) {
+      const generatedMask = generateMaskTexture(entry.layer.mask, {
+        width: layerCanvas.width,
+        height: layerCanvas.height,
+        referenceSource: layerCanvas,
+        targetCanvas: layerMaskCanvas,
+        scratchCanvas: layerMaskScratchCanvas,
+      });
+      if (generatedMask) {
+        drawSource = applyMaskToLayerCanvas(layerCanvas, generatedMask, maskedLayerCanvas);
+      }
+    }
+
+    renderContext.clearRect(0, 0, canvas.width, canvas.height);
+    renderContext.save();
+    renderContext.globalAlpha = entry.opacity;
+    renderContext.globalCompositeOperation = resolveLayerBlendOperation(entry.blendMode);
+    renderContext.drawImage(drawSource, 0, 0, canvas.width, canvas.height);
+    renderContext.restore();
+    applyTimestampOverlay(canvas, renderDocument.adjustments, timestampText);
+  } finally {
+    if (needsComposite) {
+      layerCanvas.width = 0;
+      layerCanvas.height = 0;
+      if (layerMaskCanvas) {
+        layerMaskCanvas.width = 0;
+        layerMaskCanvas.height = 0;
+      }
+      if (layerMaskScratchCanvas) {
+        layerMaskScratchCanvas.width = 0;
+        layerMaskScratchCanvas.height = 0;
+      }
+      if (maskedLayerCanvas) {
+        maskedLayerCanvas.width = 0;
+        maskedLayerCanvas.height = 0;
+      }
+    }
+  }
+};
+
 export const renderDocumentToCanvas = async ({
   canvas,
   document: renderDocument,
@@ -36,8 +140,22 @@ export const renderDocumentToCanvas = async ({
   strictErrors = intent === "export-full",
 }: RenderDocumentToCanvasOptions) => {
   const source = resolveAssetRenderSource(renderDocument.sourceAsset);
+  const singleLayerEntry = resolveSingleRenderableLayerEntry(renderDocument.layerEntries);
 
-  if (renderDocument.layerEntries.length <= 1) {
+  if (singleLayerEntry) {
+    await renderSingleLayerEntryToCanvas({
+      canvas,
+      document: renderDocument,
+      entry: singleLayerEntry,
+      intent,
+      targetSize,
+      timestampText,
+      strictErrors,
+    });
+    return;
+  }
+
+  if (renderDocument.layerEntries.length === 0) {
     await renderImageToCanvas({
       canvas,
       source,

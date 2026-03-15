@@ -21,6 +21,7 @@ import { useViewportZoom } from "./useViewportZoom";
 import { applyBrushPreviewToAdjustments, useBrushMaskPainting } from "./preview/useBrushMaskPainting";
 import type { EditorPreviewDocument, LayerPreviewEntry } from "./preview/contracts";
 import { createPreviewInteractionSampler } from "./preview/interactionPerformance";
+import { applySelectedLayerPreviewAdjustments } from "./preview/layerPreviewEntries";
 import { drawLocalMaskOverlay } from "./preview/maskOverlay";
 import { useCropInteraction } from "./preview/useCropInteraction";
 import { useHistogramSync } from "./preview/useHistogramSync";
@@ -259,23 +260,6 @@ export function EditorPreviewCard() {
     return nextAdjustments;
   }, [brushMaskPainting.previewState, previewAdjustments]);
 
-  const effectiveLayerPreviewEntries = useMemo(() => {
-    if (!brushMaskPainting.previewState || !selectedLayer) {
-      return layerPreviewEntries;
-    }
-    return layerPreviewEntries.map((entry) =>
-      entry.layer.id === selectedLayer.id
-        ? {
-            ...entry,
-            adjustments: applyBrushPreviewToAdjustments(
-              entry.adjustments,
-              brushMaskPainting.previewState
-            ),
-          }
-        : entry
-    );
-  }, [brushMaskPainting.previewState, layerPreviewEntries, selectedLayer]);
-
   const cropInteraction = useCropInteraction({
     adjustments: previewAdjustments,
     commitCropAdjustments,
@@ -298,6 +282,14 @@ export function EditorPreviewCard() {
       ...cropInteraction.previewPatch,
     };
   }, [cropInteraction.previewPatch, effectivePreviewAdjustments]);
+
+  const effectiveLayerPreviewEntries = useMemo(() => {
+    return applySelectedLayerPreviewAdjustments(
+      layerPreviewEntries,
+      selectedLayer?.id ?? null,
+      renderedPreviewAdjustments
+    );
+  }, [layerPreviewEntries, renderedPreviewAdjustments, selectedLayer?.id]);
 
   const previewDocument = useMemo<EditorPreviewDocument | null>(() => {
     if (!previewRenderDocument || !renderedPreviewAdjustments) {
