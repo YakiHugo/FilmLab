@@ -1,5 +1,4 @@
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
-import { prepareAssetPayload } from "@/lib/assetMetadata";
 import { DEFAULT_EDITOR_ADJUSTMENT_GROUP_VISIBILITY } from "@/lib/editorAdjustmentVisibility";
 import { ensureAssetLayers, resolveBaseLayer } from "@/lib/editorLayers";
 import { sha256FromBlob } from "@/lib/hash";
@@ -37,7 +36,7 @@ export interface RenderMaterializationOutput {
   metadata: NonNullable<Asset["metadata"]>;
   thumbnailBlob?: Blob;
   type: Asset["type"];
-  name: string;
+  extension: string;
 }
 
 interface ResolveRenderMaterializationOptions {
@@ -56,6 +55,9 @@ const MATERIALIZATION_INTENT = "export-full" as const;
 const MATERIALIZATION_KEY_PREFIX = "materialize";
 const MATERIALIZATION_OUTPUT_QUALITY = 0.95;
 const FALLBACK_OUTPUT_TYPE = "image/png";
+const THUMBNAIL_MAX_DIMENSION = 480;
+const THUMBNAIL_TYPE = "image/jpeg";
+const THUMBNAIL_QUALITY = 0.82;
 
 const MATERIALIZATION_OUTPUTS = {
   "image/jpeg": { extension: "jpg", quality: MATERIALIZATION_OUTPUT_QUALITY },
@@ -94,11 +96,6 @@ const resolveMaterializationOutput = (asset: Asset) =>
     quality: number | undefined;
     type: Asset["type"] | undefined;
   };
-
-const replaceFileExtension = (fileName: string, extension: string) => {
-  const baseName = fileName.replace(/\.[^/.]+$/, "");
-  return `${baseName}.${extension}`;
-};
 
 const createMaterializedBaseLayer = (
   assetId: string,
@@ -157,14 +154,14 @@ const resolveSourceSize = async (asset: Asset) => {
     };
   }
 
-  const sourceBlob =
-    asset.blob ??
-    (await fetch(asset.objectUrl).then(async (response) => {
-      if (!response.ok) {
-        throw new Error("Failed to load source asset for render-backed materialization.");
-      }
-      return response.blob();
-    }));
+  const sourceBlob: Blob = asset.blob
+    ? asset.blob
+    : await fetch(asset.objectUrl).then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Failed to load source asset for render-backed materialization.");
+        }
+        return response.blob();
+      });
 
   const bitmap = await createImageBitmap(sourceBlob, {
     imageOrientation: "from-image",
@@ -228,6 +225,31 @@ const canvasToBlob = (
     );
   });
 
+const createThumbnailBlobFromCanvas = async (sourceCanvas: HTMLCanvasElement) => {
+  const maxDimension = Math.max(sourceCanvas.width, sourceCanvas.height);
+  const scale =
+    maxDimension > THUMBNAIL_MAX_DIMENSION
+      ? THUMBNAIL_MAX_DIMENSION / Math.max(1, maxDimension)
+      : 1;
+  const thumbnailCanvas = globalThis.document.createElement("canvas");
+  thumbnailCanvas.width = Math.max(1, Math.round(sourceCanvas.width * scale));
+  thumbnailCanvas.height = Math.max(1, Math.round(sourceCanvas.height * scale));
+
+  try {
+    const context = thumbnailCanvas.getContext("2d");
+    if (!context) {
+      throw new Error("Failed to acquire thumbnail canvas context.");
+    }
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(sourceCanvas, 0, 0, thumbnailCanvas.width, thumbnailCanvas.height);
+    return await canvasToBlob(thumbnailCanvas, THUMBNAIL_TYPE, THUMBNAIL_QUALITY);
+  } finally {
+    thumbnailCanvas.width = 0;
+    thumbnailCanvas.height = 0;
+  }
+};
+
 export const createFlattenMaterializationPlan = (
   document: RenderDocument
 ): RenderMaterializationPlan => ({
@@ -235,7 +257,7 @@ export const createFlattenMaterializationPlan = (
   assetId: document.sourceAssetId,
   documentKey: document.documentKey,
   renderGraphKey: document.renderGraph.key,
-  layerIds: document.renderGraph.layers.map((layer) => layer.id),
+  layerIds: document.layerStack.map((layer) => layer.id),
   targetLayerId: null,
 });
 
@@ -243,11 +265,11 @@ export const createMergeDownMaterializationPlan = (
   document: RenderDocument,
   layerId: string
 ): RenderMaterializationPlan | null => {
-  const layerIndex = document.renderGraph.layers.findIndex((layer) => layer.id === layerId);
+  const layerIndex = document.layerStack.findIndex((layer) => layer.id === layerId);
   if (layerIndex < 0) {
     return null;
   }
-  const targetLayer = document.renderGraph.layers[layerIndex + 1] ?? null;
+  const targetLayer = document.layerStack[layerIndex + 1] ?? null;
   if (!targetLayer) {
     return null;
   }
@@ -408,8 +430,8 @@ export const executeRenderMaterialization = async ({
 
     const outputType = (type ?? asset.type) as Asset["type"];
     const blob = await canvasToBlob(renderCanvas, outputType, quality);
-    const [{ metadata, thumbnailBlob }, contentHash] = await Promise.all([
-      prepareAssetPayload(blob),
+    const [thumbnailBlob, contentHash] = await Promise.all([
+      createThumbnailBlobFromCanvas(renderCanvas),
       sha256FromBlob(blob),
     ]);
 
@@ -418,16 +440,12 @@ export const executeRenderMaterialization = async ({
       contentHash,
       metadata: {
         ...asset.metadata,
-        ...metadata,
         width: renderCanvas.width,
         height: renderCanvas.height,
       },
-      thumbnailBlob: thumbnailBlob ?? undefined,
+      thumbnailBlob,
       type: outputType,
-      name:
-        outputType === asset.type
-          ? asset.name
-          : replaceFileExtension(asset.name, extension),
+      extension,
     };
   } finally {
     renderCanvas.width = 0;

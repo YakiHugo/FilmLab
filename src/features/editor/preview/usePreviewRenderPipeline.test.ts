@@ -38,6 +38,7 @@ const createRequest = (overrides?: Partial<PreviewRequest>): PreviewRequest => {
       key: "editor:asset-a",
       sourceAsset,
       sourceAssetId: sourceAsset.id,
+      layerStack: [],
       adjustments: baseAdjustments,
       filmProfile: { id: "document-film" } as Asset["filmProfile"],
       renderGraph,

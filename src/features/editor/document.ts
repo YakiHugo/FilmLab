@@ -44,6 +44,7 @@ export interface RenderDocument {
   documentKey: string;
   sourceAsset: Asset;
   sourceAssetId: string;
+  layerStack: EditorLayer[];
   adjustments: EditingAdjustments;
   filmProfile: Asset["filmProfile"] | null | undefined;
   renderGraph: RenderGraph;
@@ -175,6 +176,7 @@ export const createRenderDocument = ({
     documentKey,
     sourceAsset: documentAsset,
     sourceAssetId: documentAsset.id,
+    layerStack: [...layers],
     adjustments,
     filmProfile,
     renderGraph,

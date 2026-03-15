@@ -16,13 +16,6 @@ vi.mock("./renderDocumentCanvas", () => ({
   }),
 }));
 
-vi.mock("@/lib/assetMetadata", () => ({
-  prepareAssetPayload: vi.fn(async () => ({
-    metadata: { width: 1, height: 1 },
-    thumbnailBlob: new Blob(["thumb"], { type: "image/jpeg" }),
-  })),
-}));
-
 vi.mock("@/lib/hash", () => ({
   sha256FromBlob: vi.fn(async () => "hash-rendered"),
 }));
@@ -31,6 +24,11 @@ const createMockCanvas = () =>
   ({
     width: 0,
     height: 0,
+    getContext: vi.fn(() => ({
+      imageSmoothingEnabled: false,
+      imageSmoothingQuality: "low",
+      drawImage: vi.fn(),
+    })),
     toBlob: (
       callback: BlobCallback,
       type?: string
@@ -166,7 +164,7 @@ describe("renderMaterialization", () => {
     expect(resolved.value.plan.intent).toBe("flatten");
   });
 
-  it("only supports merge-down when the target layer is the base layer", () => {
+  it("does not skip hidden layers when resolving merge-down targets", () => {
     const asset = createAsset("asset-a");
     const layers = [
       {
@@ -182,7 +180,7 @@ describe("renderMaterialization", () => {
         id: "middle",
         name: "Middle",
         type: "duplicate" as const,
-        visible: true,
+        visible: false,
         opacity: 100,
         blendMode: "normal" as const,
         adjustments: createDefaultAdjustments(),
@@ -217,16 +215,40 @@ describe("renderMaterialization", () => {
       supported: false,
       reason: "target-not-base",
     });
+  });
+
+  it("only supports merge-down when the immediate target layer is the base layer", () => {
+    const asset = createAsset("asset-a");
+    const layers = [
+      {
+        id: "middle",
+        name: "Middle",
+        type: "duplicate" as const,
+        visible: true,
+        opacity: 100,
+        blendMode: "normal" as const,
+        adjustments: createDefaultAdjustments(),
+      },
+      {
+        id: "base",
+        name: "Base",
+        type: "base" as const,
+        visible: true,
+        opacity: 100,
+        blendMode: "normal" as const,
+        adjustments: createDefaultAdjustments(),
+      },
+    ];
 
     const supported = resolveRenderMaterialization({
       asset: {
         ...asset,
-        layers: [layers[1]!, layers[2]!],
+        layers,
       },
       assets: [
         {
           ...asset,
-          layers: [layers[1]!, layers[2]!],
+          layers,
         },
       ],
       intent: "merge-down",
@@ -326,7 +348,7 @@ describe("renderMaterialization", () => {
 
     expect(result.contentHash).toBe("hash-rendered");
     expect(result.type).toBe("image/jpeg");
-    expect(result.name).toBe("asset-a.jpg");
+    expect(result.extension).toBe("jpg");
     expect(result.metadata.width).toBe(2000);
     expect(result.metadata.height).toBe(2000);
     expect(result.thumbnailBlob).toBeInstanceOf(Blob);

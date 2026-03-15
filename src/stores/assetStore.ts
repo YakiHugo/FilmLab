@@ -36,6 +36,10 @@ import {
 } from "@/lib/db";
 import { createRenderedThumbnailBlob } from "@/features/editor/thumbnail";
 import {
+  createEditorAssetSnapshot,
+  isEditorAssetSnapshotEqual,
+} from "@/features/editor/history";
+import {
   describeRenderMaterializationUnsupportedReason,
   executeRenderMaterialization,
   isRenderMaterializationPlanCurrent,
@@ -67,6 +71,7 @@ import { MAX_SYNC_ATTEMPTS, createSyncJob, isSyncJobReady, withSyncJobFailure } 
 import { selectAssets, selectImportProgress, selectIsImporting, selectIsLoading, selectProject, selectSelectedAssetIds } from "./project/selectors";
 import { mergeTags, normalizeTags, removeTags } from "./project/tagging";
 import type { AddAssetsResult, ProjectState } from "./project/types";
+import { useEditorStore } from "./editorStore";
 
 const findPresetById = (presetId: string) => {
   const builtIn = presets.find((preset) => preset.id === presetId);
@@ -358,6 +363,11 @@ const enqueueUploadJobs = (assets: Asset[]) => {
   );
 };
 
+const replaceAssetFileExtension = (fileName: string, extension: string) => {
+  const baseName = fileName.replace(/\.[^/.]+$/, "");
+  return `${baseName}.${extension}`;
+};
+
 ensurePersistFlushOnUnload();
 
 export const useAssetStore = create<ProjectState>()(
@@ -373,6 +383,7 @@ export const useAssetStore = create<ProjectState>()(
         if (!asset) {
           return false;
         }
+        const initialSnapshot = createEditorAssetSnapshot(asset);
 
         const resolved = resolveRenderMaterialization({
           asset,
@@ -408,6 +419,19 @@ export const useAssetStore = create<ProjectState>()(
         const currentState = get();
         const currentAsset = currentState.assets.find((entry) => entry.id === assetId) ?? null;
         if (!currentAsset) {
+          return false;
+        }
+        const currentSnapshot = createEditorAssetSnapshot(currentAsset);
+
+        if (
+          currentAsset.name !== asset.name ||
+          !isEditorAssetSnapshotEqual(initialSnapshot, currentSnapshot)
+        ) {
+          console.warn("Skipped render-backed materialization because the authoring state changed.", {
+            assetId,
+            intent,
+            layerId,
+          });
           return false;
         }
 
@@ -457,7 +481,10 @@ export const useAssetStore = create<ProjectState>()(
 
             queuedAsset = toQueuedUploadAsset({
               ...entry,
-              name: rendered.name,
+              name:
+                rendered.type === entry.type
+                  ? entry.name
+                  : replaceAssetFileExtension(entry.name, rendered.extension),
               type: rendered.type,
               size: rendered.blob.size,
               blob: rendered.blob,
@@ -491,6 +518,7 @@ export const useAssetStore = create<ProjectState>()(
 
         persistAsset(queuedAsset);
         enqueueUploadJobs([queuedAsset]);
+        useEditorStore.getState().clearHistory(assetId);
         scheduleReferencedThumbnailRefreshes(assetId, set, get);
         return true;
       };
