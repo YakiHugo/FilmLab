@@ -1,20 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { buildPreviewRenderSlot, buildPreviewRenderSlotPrefix } from "./requestUtils";
+import {
+  buildPreviewLayerRenderSlot,
+  buildPreviewMainRenderSlot,
+  buildPreviewRenderSlotPrefix,
+} from "./requestUtils";
 
-describe("buildPreviewRenderSlot", () => {
-  it("builds a stable slot prefix per document", () => {
-    expect(buildPreviewRenderSlotPrefix("editor:asset-a")).toBe("preview:editor:asset-a");
-  });
+describe("preview request utils", () => {
+  it("builds stable document-scoped preview slots", () => {
+    const documentKey = "editor:asset-a";
+    const prefix = buildPreviewRenderSlotPrefix(documentKey);
 
-  it("isolates preview slots by document key", () => {
-    expect(buildPreviewRenderSlot("editor:asset-a")).not.toBe(
-      buildPreviewRenderSlot("editor:asset-b")
+    expect(buildPreviewMainRenderSlot(documentKey)).toBe(`${prefix}:main`);
+    expect(buildPreviewLayerRenderSlot(documentKey, "layer-a")).toBe(
+      `${prefix}:layer:layer-a`
     );
-  });
-
-  it("keeps suffixes stable for layer previews", () => {
-    expect(buildPreviewRenderSlot("editor:asset-a", "layer:base")).toBe(
-      "preview:editor:asset-a:layer:base"
+    expect(buildPreviewLayerRenderSlot(documentKey, "layer-a", "single")).toBe(
+      `${prefix}:layer:layer-a:single`
+    );
+    expect(buildPreviewLayerRenderSlot(documentKey, "layer-a", "composite")).toBe(
+      `${prefix}:layer:layer-a:composite`
     );
   });
 });

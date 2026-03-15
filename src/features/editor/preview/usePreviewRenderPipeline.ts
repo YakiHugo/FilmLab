@@ -29,7 +29,8 @@ import type {
   PreviewResult,
 } from "./contracts";
 import {
-  buildPreviewRenderSlot,
+  buildPreviewLayerRenderSlot,
+  buildPreviewMainRenderSlot,
   buildPreviewRenderSlotPrefix,
 } from "./requestUtils";
 import { usePreviewScheduler, type PreviewSchedulerDescriptor } from "./usePreviewScheduler";
@@ -290,10 +291,7 @@ const renderSinglePreviewLayer = async (
       seedKey: `${request.graphKey}:${node.id}`,
       signal,
       sourceCacheKey: resolvePreviewSourceCacheKey(node.sourceAsset, `layer:${node.id}`),
-      renderSlot: buildPreviewRenderSlot(
-        request.documentKey,
-        `${request.graphKey}:layer:${node.id}`
-      ),
+        renderSlot: buildPreviewLayerRenderSlot(request.documentKey, node.id, "single"),
       viewportRoi,
     });
     return {
@@ -341,9 +339,10 @@ const renderSinglePreviewLayer = async (
           layerNode.sourceAsset,
           `layer:${layerNode.id}`
         ),
-        renderSlot: buildPreviewRenderSlot(
+        renderSlot: buildPreviewLayerRenderSlot(
           request.documentKey,
-          `${request.graphKey}:layer:${layerNode.id}:composite`
+          layerNode.id,
+          "composite"
         ),
         viewportRoi,
       });
@@ -557,7 +556,7 @@ export function usePreviewRenderPipeline({
           seedKey: `${request.graphKey}:main`,
           signal,
           sourceCacheKey: resolvePreviewSourceCacheKey(request.sourceAsset),
-          renderSlot: buildPreviewRenderSlot(request.documentKey, `${request.graphKey}:main`),
+          renderSlot: buildPreviewMainRenderSlot(request.documentKey),
           viewportRoi: effectiveViewportRoi,
         });
         if (signal.aborted) {
@@ -613,10 +612,7 @@ export function usePreviewRenderPipeline({
               layerNode.sourceAsset,
               `layer:${layerNode.id}`
             ),
-            renderSlot: buildPreviewRenderSlot(
-              request.documentKey,
-              `${request.graphKey}:layer:${layerNode.id}`
-            ),
+            renderSlot: buildPreviewLayerRenderSlot(request.documentKey, layerNode.id),
             viewportRoi: effectiveViewportRoi,
           });
 
