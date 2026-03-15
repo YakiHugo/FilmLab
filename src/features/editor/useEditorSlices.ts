@@ -1159,9 +1159,11 @@ export function useEditorLayerActions() {
     addTextureLayer,
     clearLayerMask,
     duplicateLayer: (layerId: string) => selectedAsset && duplicateLayer(selectedAsset.id, layerId),
-    flattenLayers: () => selectedAsset && flattenLayers(selectedAsset.id),
+    flattenLayers: () =>
+      selectedAsset ? flattenLayers(selectedAsset.id) : Promise.resolve(false),
     invertLayerMask,
-    mergeLayerDown: (layerId: string) => selectedAsset && mergeLayerDown(selectedAsset.id, layerId),
+    mergeLayerDown: (layerId: string) =>
+      selectedAsset ? mergeLayerDown(selectedAsset.id, layerId) : Promise.resolve(false),
     moveLayer: (layerId: string, direction: "up" | "down") =>
       selectedAsset && moveLayer(selectedAsset.id, layerId, direction),
     removeLayer: (layerId: string) => selectedAsset && removeLayer(selectedAsset.id, layerId),

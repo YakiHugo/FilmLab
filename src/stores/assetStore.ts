@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import pLimit from "p-limit";
 import { presets } from "@/data/presets";
-import { normalizeAdjustments } from "@/lib/adjustments";
+import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import {
   completeAssetUpload,
   fetchAssetChanges,
@@ -35,6 +35,13 @@ import {
   type StoredAsset,
 } from "@/lib/db";
 import { createRenderedThumbnailBlob } from "@/features/editor/thumbnail";
+import {
+  describeRenderMaterializationUnsupportedReason,
+  executeRenderMaterialization,
+  isRenderMaterializationPlanCurrent,
+  resolveRenderMaterialization,
+  type RenderMaterializationIntent,
+} from "@/features/editor/renderMaterialization";
 import { findAssetsReferencingTextureAsset } from "@/features/editor/renderDependencies";
 import { emit } from "@/lib/storeEvents";
 import { loadCustomPresets } from "@/features/editor/presetUtils";
@@ -355,13 +362,146 @@ ensurePersistFlushOnUnload();
 
 export const useAssetStore = create<ProjectState>()(
   devtools(
-    (set, get) => ({
-      project: null,
-      assets: [],
-      isLoading: true,
-      isImporting: false,
-      importProgress: null,
-      selectedAssetIds: [],
+    (set, get) => {
+      const runRenderMaterialization = async (
+        intent: RenderMaterializationIntent,
+        assetId: string,
+        layerId?: string
+      ) => {
+        const initialState = get();
+        const asset = initialState.assets.find((entry) => entry.id === assetId) ?? null;
+        if (!asset) {
+          return false;
+        }
+
+        const resolved = resolveRenderMaterialization({
+          asset,
+          assets: initialState.assets,
+          intent,
+          layerId,
+        });
+        if (!resolved.supported) {
+          console.warn(describeRenderMaterializationUnsupportedReason(resolved.reason), {
+            assetId,
+            intent,
+            layerId,
+          });
+          return false;
+        }
+
+        let rendered;
+        try {
+          rendered = await executeRenderMaterialization({
+            asset,
+            resolved: resolved.value,
+          });
+        } catch (error) {
+          console.warn("Render-backed materialization failed.", {
+            assetId,
+            intent,
+            layerId,
+            error,
+          });
+          return false;
+        }
+
+        const currentState = get();
+        const currentAsset = currentState.assets.find((entry) => entry.id === assetId) ?? null;
+        if (!currentAsset) {
+          return false;
+        }
+
+        if (
+          !isRenderMaterializationPlanCurrent(resolved.value.plan, {
+            asset: currentAsset,
+            assets: currentState.assets,
+            intent,
+            layerId,
+          })
+        ) {
+          console.warn("Skipped stale render-backed materialization plan.", {
+            assetId,
+            intent,
+            layerId,
+            renderGraphKey: resolved.value.plan.renderGraphKey,
+          });
+          return false;
+        }
+
+        const resetAdjustments = createDefaultAdjustments();
+        const normalizedLayers = ensureAssetLayers({
+          id: currentAsset.id,
+          adjustments: resetAdjustments,
+          layers: resolved.value.nextLayers,
+        });
+
+        let previousObjectUrl: string | null = null;
+        let previousThumbnailUrl: string | null = null;
+        let queuedAsset: Asset | null = null;
+
+        set((state) => ({
+          assets: state.assets.map((entry) => {
+            if (entry.id !== assetId) {
+              return entry;
+            }
+
+            const nextObjectUrl = URL.createObjectURL(rendered.blob);
+            const nextThumbnailUrl = rendered.thumbnailBlob
+              ? URL.createObjectURL(rendered.thumbnailBlob)
+              : nextObjectUrl;
+            previousObjectUrl = entry.objectUrl;
+            previousThumbnailUrl =
+              entry.thumbnailUrl && entry.thumbnailUrl !== entry.objectUrl
+                ? entry.thumbnailUrl
+                : null;
+
+            queuedAsset = toQueuedUploadAsset({
+              ...entry,
+              name: rendered.name,
+              type: rendered.type,
+              size: rendered.blob.size,
+              blob: rendered.blob,
+              objectUrl: nextObjectUrl,
+              thumbnailBlob: rendered.thumbnailBlob,
+              thumbnailUrl: nextThumbnailUrl,
+              contentHash: rendered.contentHash,
+              metadata: rendered.metadata,
+              presetId: undefined,
+              intensity: undefined,
+              filmProfileId: undefined,
+              filmProfile: undefined,
+              filmOverrides: undefined,
+              adjustments: resetAdjustments,
+              layers: normalizedLayers,
+            });
+
+            return queuedAsset;
+          }),
+        }));
+
+        if (previousObjectUrl) {
+          URL.revokeObjectURL(previousObjectUrl);
+        }
+        if (previousThumbnailUrl) {
+          URL.revokeObjectURL(previousThumbnailUrl);
+        }
+        if (!queuedAsset) {
+          return false;
+        }
+
+        persistAsset(queuedAsset);
+        enqueueUploadJobs([queuedAsset]);
+        scheduleReferencedThumbnailRefreshes(assetId, set, get);
+        return true;
+      };
+
+      return {
+        project: null,
+        assets: [],
+        isLoading: true,
+        isImporting: false,
+        importProgress: null,
+        selectedAssetIds: [],
 
       init: async () => {
         set({ isLoading: true });
@@ -1190,18 +1330,11 @@ export const useAssetStore = create<ProjectState>()(
         }
       },
 
-      mergeLayerDown: (assetId, layerId) => {
-        console.warn("mergeLayerDown is disabled until render-backed flattening is implemented.", {
-          assetId,
-          layerId,
-        });
-      },
+      mergeLayerDown: (assetId, layerId) =>
+        runRenderMaterialization("merge-down", assetId, layerId),
 
-      flattenLayers: (assetId) => {
-        console.warn("flattenLayers is disabled until render-backed flattening is implemented.", {
-          assetId,
-        });
-      },
+      flattenLayers: (assetId) =>
+        runRenderMaterialization("flatten", assetId),
 
       setSelectedAssetIds: (assetIds) => {
         const unique = Array.from(new Set(assetIds));
@@ -1397,7 +1530,8 @@ export const useAssetStore = create<ProjectState>()(
 
         emit("project:reset");
       },
-    }),
+      };
+    },
     { name: "AssetStore", enabled: process.env.NODE_ENV === "development" }
   )
 );
