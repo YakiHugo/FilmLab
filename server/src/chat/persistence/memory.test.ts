@@ -87,8 +87,10 @@ const createGenerationInput = (overrides?: {
     prompt: {
       originalPrompt: "Studio portrait",
       compiledPrompt: "Studio portrait",
-      providerTransformedPrompt: null,
-      actualPrompt: null,
+      dispatchedPrompt: "Studio portrait",
+      providerEffectivePrompt: null,
+      semanticLosses: [],
+      warnings: [],
     },
     error: null,
     warnings: [],
@@ -187,8 +189,10 @@ describe("MemoryChatStateRepository", () => {
         prompt: {
           originalPrompt: "Studio portrait",
           compiledPrompt: "Studio portrait",
-          providerTransformedPrompt: null,
-          actualPrompt: "Studio portrait",
+          dispatchedPrompt: "Studio portrait",
+          providerEffectivePrompt: "Studio portrait",
+          semanticLosses: [],
+          warnings: [],
         },
         assetIds: ["thread-asset-1"],
         referencedAssetIds: [],
@@ -268,6 +272,194 @@ describe("MemoryChatStateRepository", () => {
     });
   });
 
+  it("accepts an older turn by restoring its compiler state as the committed base", async () => {
+    const repository = new MemoryChatStateRepository();
+    const conversation = await repository.getOrCreateActiveConversation("user-1");
+
+    await repository.createGeneration(
+      createGenerationInput({
+        conversationId: conversation.id,
+        turnId: "turn-1",
+        jobId: "job-1",
+        runId: "run-1",
+        attemptId: "attempt-1",
+      })
+    );
+    await repository.completeGenerationSuccess({
+      conversationId: conversation.id,
+      turnId: "turn-1",
+      jobId: "job-1",
+      runId: "run-1",
+      attemptId: "attempt-1",
+      logicalModel: "image.seedream.v5",
+      deploymentId: "ark-seedream-v5-primary",
+      runtimeProvider: "ark",
+      providerModel: "doubao-seedream-5-0-260128",
+      warnings: [],
+      completedAt: "2026-03-12T00:00:05.000Z",
+      generatedImages: [
+        {
+          id: "result-1",
+          ownerUserId: "user-1",
+          conversationId: conversation.id,
+          turnId: "turn-1",
+          mimeType: "image/png",
+          sizeBytes: 3,
+          blobData: Buffer.from([1, 2, 3]),
+          visibility: "private",
+          privateTokenHash: hashGeneratedImageToken("secret-token"),
+          createdAt: "2026-03-12T00:00:05.000Z",
+        },
+      ],
+      assets: [
+        {
+          id: "thread-asset-1",
+          turnId: "turn-1",
+          runId: "run-1",
+          assetType: "image",
+          label: "Generated image 1",
+          metadata: {},
+          locators: [],
+          createdAt: "2026-03-12T00:00:05.000Z",
+        },
+      ],
+      assetEdges: [],
+      run: {
+        status: "completed",
+        prompt: {
+          originalPrompt: "Prompt one",
+          compiledPrompt: "Prompt one",
+          dispatchedPrompt: "Prompt one",
+          providerEffectivePrompt: "Prompt one",
+          semanticLosses: [],
+          warnings: [],
+        },
+        assetIds: ["thread-asset-1"],
+        referencedAssetIds: [],
+        telemetry: {
+          providerRequestId: null,
+          providerTaskId: null,
+          latencyMs: 5000,
+        },
+        executedTarget: {
+          modelId: "seedream-v5",
+          logicalModel: "image.seedream.v5",
+          deploymentId: "ark-seedream-v5-primary",
+          runtimeProvider: "ark",
+          providerModel: "doubao-seedream-5-0-260128",
+          pinned: false,
+        },
+      },
+      results: [
+        {
+          id: "result-1",
+          imageUrl: "/api/generated-images/result-1?token=secret-token",
+          imageId: "result-1",
+          threadAssetId: "thread-asset-1",
+          runtimeProvider: "ark",
+          providerModel: "doubao-seedream-5-0-260128",
+          mimeType: "image/png",
+          revisedPrompt: null,
+          index: 0,
+          assetId: null,
+          saved: false,
+        },
+      ],
+    });
+    await repository.createPromptVersions({
+      conversationId: conversation.id,
+      versions: [
+        {
+          id: "prompt-version-1",
+          runId: "run-1",
+          turnId: "turn-1",
+          version: 1,
+          stage: "dispatch",
+          targetKey: "ark:doubao-seedream-5-0-260128",
+          attempt: 1,
+          compilerVersion: "prompt-compiler.v1.1",
+          capabilityVersion: "prompt-capabilities.v1",
+          originalPrompt: "Prompt one",
+          promptIntent: null,
+          turnDelta: null,
+          committedStateBefore: null,
+          candidateStateAfter: {
+            prompt: "Prompt one",
+            preserve: ["keep face"],
+            avoid: ["extra text"],
+            styleDirectives: ["watercolor"],
+            continuityTargets: ["subject"],
+            editOps: [],
+            referenceAssetIds: ["thread-asset-1"],
+          },
+          promptIR: null,
+          compiledPrompt: "Prompt one",
+          dispatchedPrompt: "Prompt one",
+          providerEffectivePrompt: null,
+          semanticLosses: [],
+          warnings: [],
+          hashes: {
+            stateHash: "state-1",
+            irHash: "ir-1",
+            prefixHash: "prefix-1",
+            payloadHash: "payload-1",
+          },
+          createdAt: "2026-03-12T00:00:05.000Z",
+        },
+      ],
+    });
+    await repository.updateConversationPromptState({
+      conversationId: conversation.id,
+      promptState: {
+        committed: {
+          prompt: "Later prompt",
+          preserve: ["later preserve"],
+          avoid: [],
+          styleDirectives: [],
+          continuityTargets: ["style"],
+          editOps: [],
+          referenceAssetIds: [],
+        },
+        candidate: {
+          prompt: "Unaccepted candidate",
+          preserve: ["candidate preserve"],
+          avoid: [],
+          styleDirectives: [],
+          continuityTargets: ["composition"],
+          editOps: [],
+          referenceAssetIds: [],
+        },
+        baseAssetId: "later-asset",
+        candidateTurnId: "turn-2",
+        revision: 1,
+      },
+      expectedRevision: 0,
+      updatedAt: "2026-03-12T00:01:00.000Z",
+    });
+
+    const accepted = await repository.acceptConversationTurn({
+      userId: "user-1",
+      turnId: "turn-1",
+      assetId: "thread-asset-1",
+      acceptedAt: "2026-03-12T00:02:00.000Z",
+    });
+
+    expect(accepted.thread.promptState).toMatchObject({
+      committed: {
+        prompt: "Prompt one",
+        preserve: ["keep face"],
+        avoid: ["extra text"],
+        styleDirectives: ["watercolor"],
+        continuityTargets: ["subject"],
+        editOps: [],
+        referenceAssetIds: ["thread-asset-1"],
+      },
+      candidate: null,
+      candidateTurnId: null,
+      baseAssetId: "thread-asset-1",
+    });
+  });
+
   it("revokes generated image capabilities when a turn is deleted", async () => {
     const repository = new MemoryChatStateRepository();
     const conversation = await repository.getOrCreateActiveConversation("user-1");
@@ -311,8 +503,10 @@ describe("MemoryChatStateRepository", () => {
         prompt: {
           originalPrompt: "Studio portrait",
           compiledPrompt: "Studio portrait",
-          providerTransformedPrompt: null,
-          actualPrompt: "Studio portrait",
+          dispatchedPrompt: "Studio portrait",
+          providerEffectivePrompt: "Studio portrait",
+          semanticLosses: [],
+          warnings: [],
         },
         assetIds: [],
         referencedAssetIds: [],

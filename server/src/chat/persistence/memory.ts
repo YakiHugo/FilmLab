@@ -1,21 +1,35 @@
 import type {
   PersistedAssetEdgeRecord,
   PersistedAssetRecord,
+  PersistedConversationCreativeState,
   GenerationJobSnapshot,
   PersistedGenerationTurn,
   PersistedImageSession,
   PersistedRunRecord,
   PersistedResultItem,
 } from "../../../../shared/chatImageTypes";
-import { ChatConversationNotFoundError } from "./types";
+import {
+  cloneConversationCreativeState,
+  cloneCreativeState,
+  createInitialConversationCreativeState,
+} from "../../gateway/prompt/types";
+import type { PromptVersionRecord } from "../../gateway/prompt/types";
+import {
+  ChatConversationNotFoundError,
+  ChatPromptStateConflictError,
+} from "./types";
 import type {
+  AcceptConversationTurnInput,
   ChatAttemptRecord,
   ChatConversationRecord,
   ChatStateRepository,
   CompleteChatGenerationFailureInput,
   CompleteChatGenerationSuccessInput,
+  CreateChatRunInput,
+  CreatePromptVersionsInput,
   CreateChatGenerationInput,
   PersistedGeneratedImageRecord,
+  UpdateConversationPromptStateInput,
 } from "./types";
 import { hashGeneratedImageToken } from "../../shared/generatedImageCapability";
 
@@ -54,6 +68,12 @@ interface MemoryGeneratedImageRecord extends PersistedGeneratedImageRecord {
 const sortNewestFirst = <T extends { createdAt: string }>(items: T[]) =>
   [...items].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 
+const PROMPT_STAGE_PRIORITY = {
+  rewrite: 0,
+  compile: 1,
+  dispatch: 2,
+} as const;
+
 export class MemoryChatStateRepository implements ChatStateRepository {
   private readonly conversations = new Map<string, MemoryConversationRecord>();
   private readonly activeConversationByUserId = new Map<string, string>();
@@ -65,6 +85,7 @@ export class MemoryChatStateRepository implements ChatStateRepository {
   private readonly assetEdges = new Map<string, MemoryAssetEdgeRecord>();
   private readonly resultsByTurnId = new Map<string, PersistedResultItem[]>();
   private readonly generatedImages = new Map<string, MemoryGeneratedImageRecord>();
+  private readonly promptVersions = new Map<string, PromptVersionRecord[]>();
 
   async close() {
     return Promise.resolve();
@@ -91,6 +112,7 @@ export class MemoryChatStateRepository implements ChatStateRepository {
     const conversation: MemoryConversationRecord = {
       id: crypto.randomUUID(),
       userId,
+      promptState: createInitialConversationCreativeState(),
       isActive: true,
       createdAt,
       updatedAt: createdAt,
@@ -158,7 +180,8 @@ export class MemoryChatStateRepository implements ChatStateRepository {
       id: conversation.id,
       thread: {
         id: conversation.id,
-        creativeBrief: this.buildCreativeBrief(turns),
+        creativeBrief: this.buildCreativeBrief(turns, conversation.promptState),
+        promptState: cloneConversationCreativeState(conversation.promptState),
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,
       },
@@ -191,7 +214,8 @@ export class MemoryChatStateRepository implements ChatStateRepository {
       id: nextConversation.id,
       thread: {
         id: nextConversation.id,
-        creativeBrief: this.buildCreativeBrief([]),
+        creativeBrief: this.buildCreativeBrief([], nextConversation.promptState),
+        promptState: cloneConversationCreativeState(nextConversation.promptState),
         createdAt: nextConversation.createdAt,
         updatedAt: nextConversation.updatedAt,
       },
@@ -251,12 +275,14 @@ export class MemoryChatStateRepository implements ChatStateRepository {
   }
 
   async createGeneration(input: CreateChatGenerationInput) {
-    this.turns.set(input.turn.id, {
-      ...input.turn,
-      conversationId: input.conversationId,
-      isHidden: false,
-      updatedAt: input.turn.createdAt,
-    });
+    if (!this.turns.has(input.turn.id)) {
+      this.turns.set(input.turn.id, {
+        ...input.turn,
+        conversationId: input.conversationId,
+        isHidden: false,
+        updatedAt: input.turn.createdAt,
+      });
+    }
     this.jobs.set(input.job.id, {
       ...input.job,
       conversationId: input.conversationId,
@@ -273,6 +299,165 @@ export class MemoryChatStateRepository implements ChatStateRepository {
     });
     this.resultsByTurnId.set(input.turn.id, [...input.turn.results]);
     this.touchConversation(input.conversationId, input.turn.createdAt);
+  }
+
+  async createTurn(input: { conversationId: string; turn: PersistedGenerationTurn }) {
+    if (this.turns.has(input.turn.id)) {
+      return;
+    }
+    this.turns.set(input.turn.id, {
+      ...input.turn,
+      conversationId: input.conversationId,
+      isHidden: false,
+      updatedAt: input.turn.createdAt,
+    });
+    this.resultsByTurnId.set(input.turn.id, [...input.turn.results]);
+    this.touchConversation(input.conversationId, input.turn.createdAt);
+  }
+
+  async createRun(input: CreateChatRunInput) {
+    this.runs.set(input.run.id, {
+      ...input.run,
+      conversationId: input.conversationId,
+      updatedAt: input.run.createdAt,
+    });
+    if (input.attempt) {
+      this.attempts.set(input.attempt.id, {
+        ...input.attempt,
+        conversationId: input.conversationId,
+      });
+    }
+    this.touchConversation(input.conversationId, input.run.createdAt);
+  }
+
+  async createPromptVersions(input: CreatePromptVersionsInput) {
+    const existing = this.promptVersions.get(input.conversationId) ?? [];
+    this.promptVersions.set(input.conversationId, [
+      ...existing,
+      ...input.versions.map((version) => structuredClone(version)),
+    ]);
+  }
+
+  async updateConversationPromptState(input: UpdateConversationPromptStateInput) {
+    const conversation = this.conversations.get(input.conversationId);
+    if (!conversation) {
+      throw new ChatConversationNotFoundError(input.conversationId);
+    }
+
+    if (conversation.promptState.revision !== input.expectedRevision) {
+      throw new ChatPromptStateConflictError(input.conversationId);
+    }
+
+    this.conversations.set(input.conversationId, {
+      ...conversation,
+      promptState: cloneConversationCreativeState(input.promptState),
+      updatedAt: input.updatedAt,
+    });
+  }
+
+  private resolveAcceptedCreativeState(
+    conversationId: string,
+    turnId: string
+  ): PersistedConversationCreativeState["committed"] | null {
+    const initialTurn = this.turns.get(turnId);
+    if (!initialTurn) {
+      return null;
+    }
+
+    const promptVersions = this.promptVersions.get(conversationId) ?? [];
+    const visited = new Set<string>();
+    let semanticTurnId: string | null = initialTurn.retryOfTurnId ?? turnId;
+
+    while (semanticTurnId && !visited.has(semanticTurnId)) {
+      visited.add(semanticTurnId);
+
+      const matchedVersion = [...promptVersions]
+        .filter(
+          (version) => version.turnId === semanticTurnId && version.candidateStateAfter !== null
+        )
+        .sort((left, right) => {
+          const stageDelta =
+            PROMPT_STAGE_PRIORITY[right.stage] - PROMPT_STAGE_PRIORITY[left.stage];
+          if (stageDelta !== 0) {
+            return stageDelta;
+          }
+          const attemptDelta = (right.attempt ?? 0) - (left.attempt ?? 0);
+          if (attemptDelta !== 0) {
+            return attemptDelta;
+          }
+          const versionDelta = right.version - left.version;
+          if (versionDelta !== 0) {
+            return versionDelta;
+          }
+          return right.createdAt.localeCompare(left.createdAt);
+        })[0];
+
+      if (matchedVersion?.candidateStateAfter) {
+        return cloneCreativeState(matchedVersion.candidateStateAfter);
+      }
+
+      semanticTurnId = this.turns.get(semanticTurnId)?.retryOfTurnId ?? null;
+    }
+
+    return null;
+  }
+
+  async acceptConversationTurn(input: AcceptConversationTurnInput) {
+    const turn = this.turns.get(input.turnId);
+    if (!turn) {
+      throw new ChatConversationNotFoundError();
+    }
+
+    const conversation = this.conversations.get(turn.conversationId);
+    if (!conversation || conversation.userId !== input.userId) {
+      throw new ChatConversationNotFoundError(turn.conversationId);
+    }
+
+    const asset = this.assets.get(input.assetId);
+    if (!asset || asset.conversationId !== conversation.id) {
+      throw new Error(`Asset ${input.assetId} was not found in conversation ${conversation.id}.`);
+    }
+
+    const previousBaseAssetId = conversation.promptState.baseAssetId;
+    const nextPromptState = cloneConversationCreativeState(conversation.promptState);
+    const acceptedCreativeState =
+      nextPromptState.candidate && nextPromptState.candidateTurnId === input.turnId
+        ? cloneCreativeState(nextPromptState.candidate)
+        : this.resolveAcceptedCreativeState(conversation.id, input.turnId);
+
+    if (!acceptedCreativeState) {
+      throw new Error(`Turn ${input.turnId} is missing prompt compiler state.`);
+    }
+
+    nextPromptState.committed = acceptedCreativeState;
+    nextPromptState.candidate = null;
+    nextPromptState.candidateTurnId = null;
+    nextPromptState.baseAssetId = input.assetId;
+    nextPromptState.revision += 1;
+
+    this.conversations.set(conversation.id, {
+      ...conversation,
+      promptState: nextPromptState,
+      updatedAt: input.acceptedAt,
+    });
+
+    const edgeId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `accepted-edge-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    this.assetEdges.set(edgeId, {
+      id: edgeId,
+      conversationId: conversation.id,
+      sourceAssetId: previousBaseAssetId ?? input.assetId,
+      targetAssetId: input.assetId,
+      edgeType: "accepted_as_final",
+      turnId: input.turnId,
+      runId: asset.runId,
+      createdAt: input.acceptedAt,
+    });
+
+    this.touchConversation(conversation.id, input.acceptedAt);
+    return this.getConversationSnapshot(input.userId, conversation.id);
   }
 
   async completeGenerationSuccess(input: CompleteChatGenerationSuccessInput) {
@@ -422,20 +607,22 @@ export class MemoryChatStateRepository implements ChatStateRepository {
     return {
       id: conversation.id,
       userId: conversation.userId,
+      promptState: cloneConversationCreativeState(conversation.promptState),
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
     };
   }
 
-  private buildCreativeBrief(turns: PersistedGenerationTurn[]) {
+  private buildCreativeBrief(
+    turns: PersistedGenerationTurn[],
+    promptState: PersistedConversationCreativeState
+  ) {
     const latestTurn = turns[0] ?? null;
-    const latestAcceptedResult =
-      latestTurn?.results.find((result) => result.threadAssetId) ?? null;
 
     return {
       latestPrompt: latestTurn?.prompt ?? null,
       latestModelId: latestTurn?.modelId ?? null,
-      acceptedAssetId: latestAcceptedResult?.threadAssetId ?? null,
+      acceptedAssetId: promptState.baseAssetId ?? null,
       selectedAssetIds: latestTurn?.primaryAssetIds ?? [],
       recentAssetRefIds: latestTurn?.referencedAssetIds ?? [],
     };

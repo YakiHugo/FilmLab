@@ -9,7 +9,12 @@ const repositoryMock = {
   clearActiveConversation: vi.fn(),
   deleteTurn: vi.fn(),
   getGeneratedImageByCapability: vi.fn(),
+  createTurn: vi.fn(),
   createGeneration: vi.fn(),
+  createRun: vi.fn(),
+  createPromptVersions: vi.fn(),
+  updateConversationPromptState: vi.fn(),
+  acceptConversationTurn: vi.fn(),
   completeGenerationSuccess: vi.fn(),
   completeGenerationFailure: vi.fn(),
   turnExists: vi.fn(),
@@ -186,6 +191,69 @@ describe("imageConversationRoute", () => {
     expect(deleted.statusCode).toBe(200);
     expect(repositoryMock.deleteTurn).toHaveBeenNthCalledWith(1, "user-1", "turn-1");
     expect(repositoryMock.deleteTurn).toHaveBeenNthCalledWith(2, "user-1", "turn-2");
+
+    await app.close();
+  });
+
+  it("accepts a generated result as the conversation base asset", async () => {
+    repositoryMock.acceptConversationTurn.mockResolvedValue({
+      id: "conversation-1",
+      createdAt: "2026-03-12T00:00:00.000Z",
+      updatedAt: "2026-03-12T00:05:00.000Z",
+      thread: {
+        id: "conversation-1",
+        creativeBrief: {
+          latestPrompt: "Studio portrait",
+          latestModelId: "seedream-v5",
+          acceptedAssetId: "thread-asset-1",
+          selectedAssetIds: ["thread-asset-1"],
+          recentAssetRefIds: [],
+        },
+        promptState: {
+          committed: {
+            prompt: "Studio portrait",
+            preserve: [],
+            avoid: [],
+            styleDirectives: [],
+            continuityTargets: [],
+            editOps: [],
+            referenceAssetIds: [],
+          },
+          candidate: null,
+          baseAssetId: "thread-asset-1",
+          candidateTurnId: null,
+          revision: 2,
+        },
+        createdAt: "2026-03-12T00:00:00.000Z",
+        updatedAt: "2026-03-12T00:05:00.000Z",
+      },
+      turns: [],
+      runs: [],
+      assets: [],
+      assetEdges: [],
+      jobs: [],
+    });
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-conversation/turns/turn-1/accept",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+      payload: {
+        assetId: "thread-asset-1",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(repositoryMock.acceptConversationTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user-1",
+        turnId: "turn-1",
+        assetId: "thread-asset-1",
+      })
+    );
 
     await app.close();
   });

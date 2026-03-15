@@ -1,13 +1,11 @@
 import type {
   ImageGenerationAssetRef,
   ImageGenerationRequest,
+  ImagePromptContinuityTarget,
+  ImagePromptIntentEditOp,
   ReferenceImage,
 } from "./imageGeneration";
-import type {
-  FrontendImageModelId,
-  ImageDeploymentId,
-  LogicalImageModelId,
-} from "./imageModelCatalog";
+import type { FrontendImageModelId } from "./imageModelCatalog";
 
 export type GenerationJobStatus = "running" | "succeeded" | "failed";
 export type PersistedGenerationTurnStatus = "loading" | "done" | "error";
@@ -47,13 +45,45 @@ export interface PersistedImageGenerationRequestSnapshot
   referenceImages?: PersistedReferenceImageSnapshot[];
 }
 
+export interface PersistedCreativeState {
+  prompt: string | null;
+  preserve: string[];
+  avoid: string[];
+  styleDirectives: string[];
+  continuityTargets: ImagePromptContinuityTarget[];
+  editOps: ImagePromptIntentEditOp[];
+  referenceAssetIds: string[];
+}
+
+export interface PersistedConversationCreativeState {
+  committed: PersistedCreativeState;
+  candidate: PersistedCreativeState | null;
+  baseAssetId: string | null;
+  candidateTurnId: string | null;
+  revision: number;
+}
+
+export interface PersistedSemanticLoss {
+  code:
+    | "APPROXIMATED_AS_REGENERATION"
+    | "SOURCE_IMAGE_NOT_EXECUTABLE"
+    | "EXACT_TEXT_CONTINUITY_AT_RISK"
+    | "NEGATIVE_PROMPT_DEGRADED_TO_TEXT"
+    | "STYLE_REFERENCE_ROLE_COLLAPSED";
+  severity: "info" | "warn" | "error";
+  fieldPath: string;
+  degradeMode: "dropped" | "approximated" | "merged" | "softened";
+  userMessage: string;
+  internalDetail?: string;
+}
+
 export interface GenerationJobSnapshot {
   id: string;
   turnId: string;
   runId: string | null;
   modelId: FrontendImageModelId;
-  logicalModel: LogicalImageModelId;
-  deploymentId: ImageDeploymentId;
+  logicalModel: string;
+  deploymentId: string;
   runtimeProvider: string;
   providerModel: string;
   compiledPrompt: string;
@@ -84,8 +114,8 @@ export interface PersistedGenerationTurn {
   createdAt: string;
   retryOfTurnId: string | null;
   modelId: FrontendImageModelId;
-  logicalModel: LogicalImageModelId;
-  deploymentId: ImageDeploymentId;
+  logicalModel: string;
+  deploymentId: string;
   runtimeProvider: string;
   providerModel: string;
   configSnapshot: Record<string, unknown>;
@@ -110,14 +140,15 @@ export interface PersistedThreadCreativeBrief {
 export interface PersistedThreadRecord {
   id: string;
   creativeBrief: PersistedThreadCreativeBrief;
+  promptState: PersistedConversationCreativeState;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface PersistedRunTargetSnapshot {
-  modelId: FrontendImageModelId;
-  logicalModel: LogicalImageModelId;
-  deploymentId: ImageDeploymentId;
+  modelId: string | null;
+  logicalModel: string | null;
+  deploymentId: string | null;
   runtimeProvider: string;
   providerModel: string;
   pinned: boolean;
@@ -126,8 +157,10 @@ export interface PersistedRunTargetSnapshot {
 export interface PersistedPromptSnapshot {
   originalPrompt: string;
   compiledPrompt: string;
-  providerTransformedPrompt: string | null;
-  actualPrompt: string | null;
+  dispatchedPrompt: string | null;
+  providerEffectivePrompt: string | null;
+  semanticLosses: PersistedSemanticLoss[];
+  warnings: string[];
 }
 
 export interface PersistedRunTelemetry {

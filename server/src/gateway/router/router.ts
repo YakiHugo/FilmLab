@@ -6,7 +6,7 @@ import { routerHealth } from "./health";
 import { getRuntimeProviderConfiguration, getRuntimeProviderCredentials } from "./registry";
 import { isRetriableProviderError } from "./retry";
 import { selectRouteTargets } from "./selection";
-import type { HealthRecordInput, ImageOperation } from "./types";
+import type { HealthRecordInput, ImageOperation, ResolvedRouteTarget } from "./types";
 
 const recordResult = (input: HealthRecordInput) => {
   routerHealth.record(input);
@@ -68,9 +68,17 @@ export const imageRuntimeRouter = {
   },
   async generate(
     request: ParsedImageGenerationRequest,
-    options?: { signal?: AbortSignal; timeoutMs?: number; traceId?: string }
+    options?: {
+      signal?: AbortSignal;
+      timeoutMs?: number;
+      traceId?: string;
+      targets?: ResolvedRouteTarget[];
+      resolveRequest?: (
+        target: ResolvedRouteTarget
+      ) => ParsedImageGenerationRequest | Promise<ParsedImageGenerationRequest>;
+    }
   ) {
-    const targets = selectRouteTargets(toGenerateSelectionInput(request));
+    const targets = options?.targets ?? selectRouteTargets(toGenerateSelectionInput(request));
 
     return executeWithFallback("image.generate", targets, async (target) => {
       const configuredProvider = getRuntimeProviderConfiguration(target.provider.id);
@@ -94,7 +102,7 @@ export const imageRuntimeRouter = {
       }
       return adapter.generate({
         target,
-        request,
+        request: options?.resolveRequest ? await options.resolveRequest(target) : request,
         credentials: getRuntimeProviderCredentials(target.provider.id),
         options,
       });

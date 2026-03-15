@@ -53,6 +53,42 @@ export const IMAGE_GENERATION_ASSET_REF_ROLES = [
 ] as const;
 export type ImageGenerationAssetRefRole = (typeof IMAGE_GENERATION_ASSET_REF_ROLES)[number];
 
+export const IMAGE_PROMPT_CONTINUITY_TARGETS = [
+  "subject",
+  "style",
+  "composition",
+  "text",
+] as const;
+export type ImagePromptContinuityTarget =
+  (typeof IMAGE_PROMPT_CONTINUITY_TARGETS)[number];
+
+export const IMAGE_PROMPT_EDIT_OPS = [
+  "add",
+  "remove",
+  "replace",
+  "emphasize",
+  "deemphasize",
+] as const;
+export type ImagePromptEditOperation = (typeof IMAGE_PROMPT_EDIT_OPS)[number];
+
+export const IMAGE_GENERATION_RETRY_MODES = ["exact", "recompile"] as const;
+export type ImageGenerationRetryMode =
+  (typeof IMAGE_GENERATION_RETRY_MODES)[number];
+
+export interface ImagePromptIntentEditOp {
+  op: ImagePromptEditOperation;
+  target: string;
+  value?: string;
+}
+
+export interface ImagePromptIntentInput {
+  preserve: string[];
+  avoid: string[];
+  styleDirectives: string[];
+  continuityTargets: ImagePromptContinuityTarget[];
+  editOps: ImagePromptIntentEditOp[];
+}
+
 export interface ReferenceImage {
   id: string;
   url: string;
@@ -76,10 +112,12 @@ export interface RequestedImageGenerationTarget {
 
 export interface ImageGenerationRequest {
   prompt: string;
+  promptIntent?: ImagePromptIntentInput;
   negativePrompt?: string;
   conversationId?: string;
   threadId?: string;
   retryOfTurnId?: string;
+  retryMode?: ImageGenerationRetryMode;
   clientTurnId?: string;
   clientJobId?: string;
   modelId: import("./imageModelCatalog").FrontendImageModelId;

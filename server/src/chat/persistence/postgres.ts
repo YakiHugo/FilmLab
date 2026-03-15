@@ -3,19 +3,33 @@ import type {
   PersistedAssetEdgeRecord,
   PersistedAssetLocatorRecord,
   PersistedAssetRecord,
+  PersistedConversationCreativeState,
   GenerationJobSnapshot,
   PersistedGenerationTurn,
   PersistedImageSession,
   PersistedRunRecord,
   PersistedResultItem,
 } from "../../../../shared/chatImageTypes";
-import { ChatConversationNotFoundError } from "./types";
+import {
+  cloneConversationCreativeState,
+  createInitialConversationCreativeState,
+} from "../../gateway/prompt/types";
+import type { PromptVersionRecord } from "../../gateway/prompt/types";
+import {
+  ChatConversationNotFoundError,
+  ChatPromptStateConflictError,
+} from "./types";
 import type {
+  AcceptConversationTurnInput,
   ChatConversationRecord,
   ChatStateRepository,
   CompleteChatGenerationFailureInput,
   CompleteChatGenerationSuccessInput,
+  CreateChatRunInput,
+  CreatePromptVersionsInput,
   CreateChatGenerationInput,
+  CreateChatTurnInput,
+  UpdateConversationPromptStateInput,
 } from "./types";
 import { hashGeneratedImageToken } from "../../shared/generatedImageCapability";
 
@@ -232,6 +246,57 @@ const MIGRATIONS = [
         WHERE deleted_at IS NULL;
     `,
   },
+  {
+    name: "005_prompt_compiler_state",
+    sql: `
+      ALTER TABLE chat_conversations
+      ADD COLUMN IF NOT EXISTS prompt_state JSONB NOT NULL DEFAULT '{
+        "committed": {
+          "prompt": null,
+          "preserve": [],
+          "avoid": [],
+          "styleDirectives": [],
+          "continuityTargets": [],
+          "editOps": [],
+          "referenceAssetIds": []
+        },
+        "candidate": null,
+        "baseAssetId": null,
+        "candidateTurnId": null,
+        "revision": 0
+      }'::jsonb;
+
+      CREATE TABLE IF NOT EXISTS chat_prompt_versions (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL REFERENCES chat_runs(id) ON DELETE CASCADE,
+        turn_id TEXT NOT NULL REFERENCES chat_turns(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL,
+        stage TEXT NOT NULL,
+        target_key TEXT NULL,
+        attempt INTEGER NULL,
+        compiler_version TEXT NOT NULL,
+        capability_version TEXT NOT NULL,
+        original_prompt TEXT NOT NULL,
+        prompt_intent JSONB NULL,
+        turn_delta JSONB NULL,
+        committed_state_before JSONB NULL,
+        candidate_state_after JSONB NULL,
+        prompt_ir JSONB NULL,
+        compiled_prompt TEXT NULL,
+        dispatched_prompt TEXT NULL,
+        provider_effective_prompt TEXT NULL,
+        semantic_losses JSONB NOT NULL DEFAULT '[]'::jsonb,
+        warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+        hashes JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS chat_prompt_versions_run_idx
+        ON chat_prompt_versions(run_id, version ASC, created_at ASC);
+      CREATE INDEX IF NOT EXISTS chat_prompt_versions_conversation_idx
+        ON chat_prompt_versions(conversation_id, created_at DESC);
+    `,
+  },
 ] as const;
 
 interface ChatTurnRow {
@@ -329,6 +394,14 @@ interface ChatAssetEdgeRow {
   created_at: string;
 }
 
+interface ChatConversationRow {
+  id: string;
+  user_id: string;
+  prompt_state: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
 const parseStringArray = (value: unknown): string[] => {
   if (Array.isArray(value)) {
     return value.filter((entry): entry is string => typeof entry === "string");
@@ -380,6 +453,68 @@ const parseTelemetry = (value: unknown): PersistedRunRecord["telemetry"] => {
   };
 };
 
+const parseCreativeState = (
+  value: unknown,
+  fallback = createInitialConversationCreativeState().committed
+): PersistedConversationCreativeState["committed"] => {
+  if (typeof value !== "object" || value === null) {
+    return fallback;
+  }
+
+  const state = value as Partial<PersistedConversationCreativeState["committed"]>;
+  return {
+    prompt: typeof state.prompt === "string" || state.prompt === null ? state.prompt : null,
+    preserve: parseStringArray(state.preserve),
+    avoid: parseStringArray(state.avoid),
+    styleDirectives: parseStringArray(state.styleDirectives),
+    continuityTargets: parseStringArray(state.continuityTargets).filter(
+      (entry): entry is PersistedConversationCreativeState["committed"]["continuityTargets"][number] =>
+        entry === "subject" ||
+        entry === "style" ||
+        entry === "composition" ||
+        entry === "text"
+    ),
+    editOps: Array.isArray(state.editOps)
+      ? state.editOps
+          .filter(
+            (
+              entry
+            ): entry is PersistedConversationCreativeState["committed"]["editOps"][number] =>
+              typeof entry === "object" &&
+              entry !== null &&
+              typeof (entry as { op?: unknown }).op === "string" &&
+              typeof (entry as { target?: unknown }).target === "string"
+          )
+          .map((entry) => ({
+            op: entry.op,
+            target: entry.target,
+            ...(typeof entry.value === "string" ? { value: entry.value } : {}),
+          }))
+      : [],
+    referenceAssetIds: parseStringArray(state.referenceAssetIds),
+  };
+};
+
+const parsePromptState = (value: unknown): PersistedConversationCreativeState => {
+  const fallback = createInitialConversationCreativeState();
+  if (typeof value !== "object" || value === null) {
+    return fallback;
+  }
+
+  const state = value as Partial<PersistedConversationCreativeState>;
+  return {
+    committed: parseCreativeState(state.committed, fallback.committed),
+    candidate:
+      typeof state.candidate === "object" && state.candidate !== null
+        ? parseCreativeState(state.candidate, fallback.committed)
+        : null,
+    baseAssetId: typeof state.baseAssetId === "string" ? state.baseAssetId : null,
+    candidateTurnId:
+      typeof state.candidateTurnId === "string" ? state.candidateTurnId : null,
+    revision: typeof state.revision === "number" ? state.revision : 0,
+  };
+};
+
 export class PostgresChatStateRepository implements ChatStateRepository {
   private initPromise: Promise<void> | null = null;
 
@@ -391,14 +526,9 @@ export class PostgresChatStateRepository implements ChatStateRepository {
 
   async getConversationById(userId: string, conversationId: string) {
     await this.ensureReady();
-    const result = await this.pool.query<{
-      id: string;
-      user_id: string;
-      created_at: string;
-      updated_at: string;
-    }>(
+    const result = await this.pool.query<ChatConversationRow>(
       `
-        SELECT id, user_id, created_at, updated_at
+        SELECT id, user_id, prompt_state, created_at, updated_at
         FROM chat_conversations
         WHERE id = $1
           AND user_id = $2
@@ -415,6 +545,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
     return {
       id: row.id,
       userId: row.user_id,
+      promptState: parsePromptState(row.prompt_state),
       createdAt: new Date(row.created_at).toISOString(),
       updatedAt: new Date(row.updated_at).toISOString(),
     } satisfies ChatConversationRecord;
@@ -422,14 +553,9 @@ export class PostgresChatStateRepository implements ChatStateRepository {
 
   async getOrCreateActiveConversation(userId: string) {
     await this.ensureReady();
-    const existing = await this.pool.query<{
-      id: string;
-      user_id: string;
-      created_at: string;
-      updated_at: string;
-    }>(
+    const existing = await this.pool.query<ChatConversationRow>(
       `
-        SELECT id, user_id, created_at, updated_at
+        SELECT id, user_id, prompt_state, created_at, updated_at
         FROM chat_conversations
         WHERE user_id = $1
           AND is_active = TRUE
@@ -444,6 +570,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
       return {
         id: row.id,
         userId: row.user_id,
+        promptState: parsePromptState(row.prompt_state),
         createdAt: new Date(row.created_at).toISOString(),
         updatedAt: new Date(row.updated_at).toISOString(),
       } satisfies ChatConversationRecord;
@@ -453,15 +580,23 @@ export class PostgresChatStateRepository implements ChatStateRepository {
     const conversationId = crypto.randomUUID();
     await this.pool.query(
       `
-        INSERT INTO chat_conversations (id, user_id, is_active, created_at, updated_at)
-        VALUES ($1, $2, TRUE, $3::timestamptz, $4::timestamptz);
+        INSERT INTO chat_conversations (
+          id,
+          user_id,
+          is_active,
+          prompt_state,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, TRUE, $3::jsonb, $4::timestamptz, $5::timestamptz);
       `,
-      [conversationId, userId, createdAt, createdAt]
+      [conversationId, userId, JSON.stringify(createInitialConversationCreativeState()), createdAt, createdAt]
     );
 
     return {
       id: conversationId,
       userId,
+      promptState: createInitialConversationCreativeState(),
       createdAt,
       updatedAt: createdAt,
     } satisfies ChatConversationRecord;
@@ -739,7 +874,8 @@ export class PostgresChatStateRepository implements ChatStateRepository {
       id: conversation.id,
       thread: {
         id: conversation.id,
-        creativeBrief: this.buildCreativeBrief(turns),
+        creativeBrief: this.buildCreativeBrief(turns, conversation.promptState),
+        promptState: cloneConversationCreativeState(conversation.promptState),
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,
       },
@@ -803,10 +939,23 @@ export class PostgresChatStateRepository implements ChatStateRepository {
       );
       await client.query(
         `
-          INSERT INTO chat_conversations (id, user_id, is_active, created_at, updated_at)
-          VALUES ($1, $2, TRUE, $3::timestamptz, $4::timestamptz);
+          INSERT INTO chat_conversations (
+            id,
+            user_id,
+            is_active,
+            prompt_state,
+            created_at,
+            updated_at
+          )
+          VALUES ($1, $2, TRUE, $3::jsonb, $4::timestamptz, $5::timestamptz);
         `,
-        [conversationId, userId, createdAt, createdAt]
+        [
+          conversationId,
+          userId,
+          JSON.stringify(createInitialConversationCreativeState()),
+          createdAt,
+          createdAt,
+        ]
       );
     });
 
@@ -814,7 +963,8 @@ export class PostgresChatStateRepository implements ChatStateRepository {
       id: conversationId,
       thread: {
         id: conversationId,
-        creativeBrief: this.buildCreativeBrief([]),
+        creativeBrief: this.buildCreativeBrief([], createInitialConversationCreativeState()),
+        promptState: createInitialConversationCreativeState(),
         createdAt,
         updatedAt: createdAt,
       },
@@ -927,7 +1077,8 @@ export class PostgresChatStateRepository implements ChatStateRepository {
           VALUES (
             $1, $2, $3, $4::timestamptz, $5::timestamptz, $6, $7, $8, $9, $10, $11,
             $12::jsonb, $13, $14, $15::jsonb, $16
-          );
+          )
+          ON CONFLICT (id) DO NOTHING;
         `,
         [
           input.turn.id,
@@ -1074,6 +1225,418 @@ export class PostgresChatStateRepository implements ChatStateRepository {
       );
       await this.touchConversation(input.conversationId, input.turn.createdAt, client);
     });
+  }
+
+  async createTurn(input: CreateChatTurnInput) {
+    await this.ensureReady();
+    await this.withTransaction(async (client) => {
+      await client.query(
+        `
+          INSERT INTO chat_turns (
+            id,
+            conversation_id,
+            prompt,
+            created_at,
+            updated_at,
+            retry_of_turn_id,
+            model_id,
+            logical_model,
+            deployment_id,
+            runtime_provider,
+            provider_model,
+            config_snapshot,
+            status,
+            error,
+            warnings,
+            job_id
+          )
+          VALUES (
+            $1, $2, $3, $4::timestamptz, $5::timestamptz, $6, $7, $8, $9, $10, $11,
+            $12::jsonb, $13, $14, $15::jsonb, $16
+          )
+          ON CONFLICT (id) DO NOTHING;
+        `,
+        [
+          input.turn.id,
+          input.conversationId,
+          input.turn.prompt,
+          input.turn.createdAt,
+          input.turn.createdAt,
+          input.turn.retryOfTurnId,
+          input.turn.modelId,
+          input.turn.logicalModel,
+          input.turn.deploymentId,
+          input.turn.runtimeProvider,
+          input.turn.providerModel,
+          JSON.stringify(input.turn.configSnapshot),
+          input.turn.status,
+          input.turn.error,
+          JSON.stringify(input.turn.warnings),
+          input.turn.jobId,
+        ]
+      );
+      await this.touchConversation(input.conversationId, input.turn.createdAt, client);
+    });
+  }
+
+  async createRun(input: CreateChatRunInput) {
+    await this.ensureReady();
+    await this.withTransaction(async (client) => {
+      await client.query(
+        `
+          INSERT INTO chat_runs (
+            id,
+            conversation_id,
+            turn_id,
+            job_id,
+            operation,
+            status,
+            requested_target,
+            selected_target,
+            executed_target,
+            prompt_snapshot,
+            error,
+            warnings,
+            asset_ids,
+            referenced_asset_ids,
+            telemetry,
+            created_at,
+            completed_at,
+            updated_at
+          )
+          VALUES (
+            $1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11,
+            $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb, $16::timestamptz,
+            $17::timestamptz, $18::timestamptz
+          );
+        `,
+        [
+          input.run.id,
+          input.conversationId,
+          input.run.turnId,
+          input.run.jobId,
+          input.run.operation,
+          input.run.status,
+          JSON.stringify(input.run.requestedTarget),
+          JSON.stringify(input.run.selectedTarget),
+          JSON.stringify(input.run.executedTarget),
+          JSON.stringify(input.run.prompt),
+          input.run.error,
+          JSON.stringify(input.run.warnings),
+          JSON.stringify(input.run.assetIds),
+          JSON.stringify(input.run.referencedAssetIds),
+          JSON.stringify(input.run.telemetry),
+          input.run.createdAt,
+          input.run.completedAt,
+          input.run.createdAt,
+        ]
+      );
+
+      if (input.attempt) {
+        await client.query(
+          `
+            INSERT INTO chat_attempts (
+              id,
+              job_id,
+              run_id,
+              attempt_no,
+              status,
+              error,
+              provider_request_id,
+              provider_task_id,
+              created_at,
+              completed_at,
+              updated_at
+            )
+            VALUES (
+              $1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz, $11::timestamptz
+            );
+          `,
+          [
+            input.attempt.id,
+            input.attempt.jobId,
+            input.attempt.runId,
+            input.attempt.attemptNo,
+            input.attempt.status,
+            input.attempt.error,
+            input.attempt.providerRequestId,
+            input.attempt.providerTaskId,
+            input.attempt.createdAt,
+            input.attempt.completedAt,
+            input.attempt.updatedAt,
+          ]
+        );
+      }
+
+      await this.touchConversation(input.conversationId, input.run.createdAt, client);
+    });
+  }
+
+  async createPromptVersions(input: CreatePromptVersionsInput) {
+    await this.ensureReady();
+    await this.withTransaction(async (client) => {
+      for (const version of input.versions) {
+        await client.query(
+          `
+            INSERT INTO chat_prompt_versions (
+              id,
+              conversation_id,
+              run_id,
+              turn_id,
+              version,
+              stage,
+              target_key,
+              attempt,
+              compiler_version,
+              capability_version,
+              original_prompt,
+              prompt_intent,
+              turn_delta,
+              committed_state_before,
+              candidate_state_after,
+              prompt_ir,
+              compiled_prompt,
+              dispatched_prompt,
+              provider_effective_prompt,
+              semantic_losses,
+              warnings,
+              hashes,
+              created_at
+            )
+            VALUES (
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb,
+              $14::jsonb, $15::jsonb, $16::jsonb, $17, $18, $19, $20::jsonb, $21::jsonb,
+              $22::jsonb, $23::timestamptz
+            );
+          `,
+          [
+            version.id,
+            input.conversationId,
+            version.runId,
+            version.turnId,
+            version.version,
+            version.stage,
+            version.targetKey,
+            version.attempt,
+            version.compilerVersion,
+            version.capabilityVersion,
+            version.originalPrompt,
+            JSON.stringify(version.promptIntent),
+            JSON.stringify(version.turnDelta),
+            JSON.stringify(version.committedStateBefore),
+            JSON.stringify(version.candidateStateAfter),
+            JSON.stringify(version.promptIR),
+            version.compiledPrompt,
+            version.dispatchedPrompt,
+            version.providerEffectivePrompt,
+            JSON.stringify(version.semanticLosses),
+            JSON.stringify(version.warnings),
+            JSON.stringify(version.hashes),
+            version.createdAt,
+          ]
+        );
+      }
+    });
+  }
+
+  async updateConversationPromptState(input: UpdateConversationPromptStateInput) {
+    await this.ensureReady();
+    const result = await this.pool.query(
+      `
+        UPDATE chat_conversations
+        SET prompt_state = $2::jsonb,
+            updated_at = $4::timestamptz
+        WHERE id = $1
+          AND COALESCE((prompt_state->>'revision')::integer, 0) = $3
+        RETURNING id;
+      `,
+      [
+        input.conversationId,
+        JSON.stringify(input.promptState),
+        input.expectedRevision,
+        input.updatedAt,
+      ]
+    );
+
+    if ((result.rowCount ?? 0) > 0) {
+      return;
+    }
+
+    const exists = await this.pool.query(
+      `
+        SELECT 1
+        FROM chat_conversations
+        WHERE id = $1
+        LIMIT 1;
+      `,
+      [input.conversationId]
+    );
+    if ((exists.rowCount ?? 0) === 0) {
+      throw new ChatConversationNotFoundError(input.conversationId);
+    }
+    throw new ChatPromptStateConflictError(input.conversationId);
+  }
+
+  private async resolveAcceptedCreativeState(
+    client: PoolClient,
+    conversationId: string,
+    startingTurnId: string
+  ): Promise<PersistedConversationCreativeState["committed"] | null> {
+    const visited = new Set<string>();
+    let semanticTurnId: string | null = startingTurnId;
+
+    while (semanticTurnId && !visited.has(semanticTurnId)) {
+      visited.add(semanticTurnId);
+
+      const versionResult = await client.query<{
+        candidate_state_after: unknown;
+      }>(
+        `
+          SELECT candidate_state_after
+          FROM chat_prompt_versions
+          WHERE conversation_id = $1
+            AND turn_id = $2
+            AND candidate_state_after IS NOT NULL
+          ORDER BY
+            CASE stage
+              WHEN 'dispatch' THEN 2
+              WHEN 'compile' THEN 1
+              ELSE 0
+            END DESC,
+            COALESCE(attempt, 0) DESC,
+            version DESC,
+            created_at DESC
+          LIMIT 1;
+        `,
+        [conversationId, semanticTurnId]
+      );
+      const versionRow = versionResult.rows[0];
+      if (versionRow?.candidate_state_after) {
+        return parseCreativeState(versionRow.candidate_state_after);
+      }
+
+      semanticTurnId =
+        (
+          await client.query<{ retry_of_turn_id: string | null }>(
+            `
+              SELECT retry_of_turn_id
+              FROM chat_turns
+              WHERE id = $1
+                AND conversation_id = $2
+              LIMIT 1;
+            `,
+            [semanticTurnId, conversationId]
+          )
+        ).rows[0]?.retry_of_turn_id ?? null;
+    }
+
+    return null;
+  }
+
+  async acceptConversationTurn(input: AcceptConversationTurnInput) {
+    await this.ensureReady();
+    const conversationId = await this.withTransaction(async (client) => {
+      const turnResult = await client.query<{
+        conversation_id: string;
+        prompt_state: unknown;
+        retry_of_turn_id: string | null;
+      }>(
+        `
+          SELECT t.conversation_id, t.retry_of_turn_id, c.prompt_state
+          FROM chat_turns t
+          INNER JOIN chat_conversations c
+            ON c.id = t.conversation_id
+          WHERE t.id = $1
+            AND c.user_id = $2
+          LIMIT 1;
+        `,
+        [input.turnId, input.userId]
+      );
+      const turnRow = turnResult.rows[0];
+      if (!turnRow) {
+        throw new ChatConversationNotFoundError();
+      }
+
+      const assetResult = await client.query<{
+        id: string;
+        run_id: string | null;
+      }>(
+        `
+          SELECT id, run_id
+          FROM chat_assets
+          WHERE id = $1
+            AND conversation_id = $2
+          LIMIT 1;
+        `,
+        [input.assetId, turnRow.conversation_id]
+      );
+      const assetRow = assetResult.rows[0];
+      if (!assetRow) {
+        throw new Error(
+          `Asset ${input.assetId} was not found in conversation ${turnRow.conversation_id}.`
+        );
+      }
+
+      const nextPromptState = parsePromptState(turnRow.prompt_state);
+      const previousBaseAssetId = nextPromptState.baseAssetId;
+      const acceptedCreativeState =
+        nextPromptState.candidate && nextPromptState.candidateTurnId === input.turnId
+          ? parseCreativeState(nextPromptState.candidate)
+          : await this.resolveAcceptedCreativeState(
+              client,
+              turnRow.conversation_id,
+              turnRow.retry_of_turn_id ?? input.turnId
+            );
+
+      if (!acceptedCreativeState) {
+        throw new Error(`Turn ${input.turnId} is missing prompt compiler state.`);
+      }
+
+      nextPromptState.committed = acceptedCreativeState;
+      nextPromptState.candidate = null;
+      nextPromptState.candidateTurnId = null;
+      nextPromptState.baseAssetId = input.assetId;
+      nextPromptState.revision += 1;
+
+      await client.query(
+        `
+          UPDATE chat_conversations
+          SET prompt_state = $2::jsonb,
+              updated_at = $3::timestamptz
+          WHERE id = $1;
+        `,
+        [turnRow.conversation_id, JSON.stringify(nextPromptState), input.acceptedAt]
+      );
+
+      await client.query(
+        `
+          INSERT INTO chat_asset_edges (
+            id,
+            conversation_id,
+            source_asset_id,
+            target_asset_id,
+            edge_type,
+            turn_id,
+            run_id,
+            created_at
+          )
+          VALUES ($1, $2, $3, $4, 'accepted_as_final', $5, $6, $7::timestamptz);
+        `,
+        [
+          crypto.randomUUID(),
+          turnRow.conversation_id,
+          previousBaseAssetId ?? input.assetId,
+          input.assetId,
+          input.turnId,
+          assetRow.run_id,
+          input.acceptedAt,
+        ]
+      );
+
+      return turnRow.conversation_id;
+    });
+
+    return this.getConversationSnapshot(input.userId, conversationId);
   }
 
   async completeGenerationSuccess(input: CompleteChatGenerationSuccessInput) {
@@ -1527,15 +2090,16 @@ export class PostgresChatStateRepository implements ChatStateRepository {
     }
   }
 
-  private buildCreativeBrief(turns: PersistedGenerationTurn[]) {
+  private buildCreativeBrief(
+    turns: PersistedGenerationTurn[],
+    promptState: PersistedConversationCreativeState
+  ) {
     const latestTurn = turns[0] ?? null;
-    const latestAcceptedResult =
-      latestTurn?.results.find((result) => result.threadAssetId) ?? null;
 
     return {
       latestPrompt: latestTurn?.prompt ?? null,
       latestModelId: latestTurn?.modelId ?? null,
-      acceptedAssetId: latestAcceptedResult?.threadAssetId ?? null,
+      acceptedAssetId: promptState.baseAssetId ?? null,
       selectedAssetIds: latestTurn?.primaryAssetIds ?? [],
       recentAssetRefIds: latestTurn?.referencedAssetIds ?? [],
     };

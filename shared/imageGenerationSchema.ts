@@ -3,6 +3,9 @@ import {
   IMAGE_PROVIDER_IDS,
   IMAGE_ASPECT_RATIOS,
   IMAGE_GENERATION_ASSET_REF_ROLES,
+  IMAGE_GENERATION_RETRY_MODES,
+  IMAGE_PROMPT_CONTINUITY_TARGETS,
+  IMAGE_PROMPT_EDIT_OPS,
   IMAGE_STYLE_IDS,
   REFERENCE_IMAGE_TYPES,
 } from "./imageGeneration";
@@ -16,6 +19,9 @@ export const imageAspectRatioSchema = z.enum(IMAGE_ASPECT_RATIOS);
 export const imageStyleSchema = z.enum(IMAGE_STYLE_IDS);
 export const referenceImageTypeSchema = z.enum(REFERENCE_IMAGE_TYPES);
 export const imageGenerationAssetRefRoleSchema = z.enum(IMAGE_GENERATION_ASSET_REF_ROLES);
+export const imageGenerationRetryModeSchema = z.enum(IMAGE_GENERATION_RETRY_MODES);
+export const imagePromptContinuityTargetSchema = z.enum(IMAGE_PROMPT_CONTINUITY_TARGETS);
+export const imagePromptEditOperationSchema = z.enum(IMAGE_PROMPT_EDIT_OPS);
 
 export const IMAGE_GENERATION_LIMITS = {
   width: { min: 256, max: 4096 },
@@ -47,13 +53,29 @@ export const imageGenerationAssetRefSchema = z.object({
   role: imageGenerationAssetRefRoleSchema.default("reference"),
 });
 
+export const imagePromptIntentEditOpSchema = z.object({
+  op: imagePromptEditOperationSchema,
+  target: z.string().trim().min(1),
+  value: z.string().trim().optional(),
+});
+
+export const imagePromptIntentSchema = z.object({
+  preserve: z.array(z.string().trim().min(1)).max(16).default([]),
+  avoid: z.array(z.string().trim().min(1)).max(16).default([]),
+  styleDirectives: z.array(z.string().trim().min(1)).max(16).default([]),
+  continuityTargets: z.array(imagePromptContinuityTargetSchema).max(8).default([]),
+  editOps: z.array(imagePromptIntentEditOpSchema).max(16).default([]),
+});
+
 export const imageGenerationRequestSchema = z
   .object({
     prompt: z.string().trim().min(1),
+    promptIntent: imagePromptIntentSchema.optional(),
     negativePrompt: z.string().trim().optional(),
     conversationId: z.string().trim().min(1).optional(),
     threadId: z.string().trim().min(1).optional(),
     retryOfTurnId: z.string().trim().min(1).optional(),
+    retryMode: imageGenerationRetryModeSchema.default("exact"),
     clientTurnId: z.string().trim().min(1).optional(),
     clientJobId: z.string().trim().min(1).optional(),
     modelId: frontendImageModelSchema.default("seedream-v5"),

@@ -77,6 +77,10 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(60_000),
   GENERATED_IMAGE_DOWNLOAD_MAX_MB: z.coerce.number().min(1).max(512).default(32),
   REFERENCE_IMAGE_DOWNLOAD_MAX_MB: z.coerce.number().min(1).max(128).default(8),
+  PROMPT_REWRITE_MODEL: optionalTrimmedString(),
+  PROMPT_REWRITE_API_KEY: optionalTrimmedString(),
+  PROMPT_REWRITE_BASE_URL: optionalUrlString(),
+  PROMPT_REWRITE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(15_000),
   ARK_API_KEY: optionalTrimmedString(),
   ARK_API_BASE_URL: optionalUrlString().default("https://ark.cn-beijing.volces.com"),
   DASHSCOPE_API_KEY: optionalTrimmedString(),
@@ -109,6 +113,10 @@ export interface AppConfig {
   generatedImageGetRateLimitTimeWindowMs: number;
   generatedImageDownloadMaxBytes: number;
   referenceImageDownloadMaxBytes: number;
+  promptRewriteModel?: string;
+  promptRewriteApiKey?: string;
+  promptRewriteBaseUrl?: string;
+  promptRewriteTimeoutMs: number;
   arkApiKey?: string;
   arkApiBaseUrl: string;
   dashscopeApiKey?: string;
@@ -167,6 +175,10 @@ export const getConfig = (): AppConfig => {
       env.GENERATED_IMAGE_GET_RATE_LIMIT_WINDOW_MS ?? env.RATE_LIMIT_WINDOW_MS,
     generatedImageDownloadMaxBytes: Math.round(env.GENERATED_IMAGE_DOWNLOAD_MAX_MB * 1024 * 1024),
     referenceImageDownloadMaxBytes: Math.round(env.REFERENCE_IMAGE_DOWNLOAD_MAX_MB * 1024 * 1024),
+    promptRewriteModel: env.PROMPT_REWRITE_MODEL,
+    promptRewriteApiKey: env.PROMPT_REWRITE_API_KEY,
+    promptRewriteBaseUrl: env.PROMPT_REWRITE_BASE_URL?.replace(/\/+$/, ""),
+    promptRewriteTimeoutMs: env.PROMPT_REWRITE_TIMEOUT_MS,
     arkApiKey: env.ARK_API_KEY,
     arkApiBaseUrl: env.ARK_API_BASE_URL.replace(/\/+$/, ""),
     dashscopeApiKey: env.DASHSCOPE_API_KEY,

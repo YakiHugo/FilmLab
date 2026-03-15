@@ -12,7 +12,12 @@ const repositoryMock = {
   clearActiveConversation: vi.fn(),
   deleteTurn: vi.fn(),
   getGeneratedImageByCapability: vi.fn(),
+  createTurn: vi.fn(),
   createGeneration: vi.fn(),
+  createRun: vi.fn(),
+  createPromptVersions: vi.fn(),
+  updateConversationPromptState: vi.fn(),
+  acceptConversationTurn: vi.fn(),
   completeGenerationSuccess: vi.fn(),
   completeGenerationFailure: vi.fn(),
   turnExists: vi.fn(),
@@ -130,6 +135,21 @@ describe("imageGenerateRoute", () => {
     repositoryMock.getOrCreateActiveConversation.mockResolvedValue({
       id: "conversation-1",
       userId: "user-1",
+      promptState: {
+        committed: {
+          prompt: null,
+          preserve: [],
+          avoid: [],
+          styleDirectives: [],
+          continuityTargets: [],
+          editOps: [],
+          referenceAssetIds: [],
+        },
+        candidate: null,
+        baseAssetId: null,
+        candidateTurnId: null,
+        revision: 0,
+      },
       createdAt: "2026-03-12T00:00:00.000Z",
       updatedAt: "2026-03-12T00:00:00.000Z",
     });
@@ -379,6 +399,227 @@ describe("imageGenerateRoute", () => {
         sourceAssetId: "thread-asset-1",
       }),
     ]);
+
+    await app.close();
+  });
+
+  it("reuses the prior executable request snapshot for exact retries", async () => {
+    repositoryMock.turnExists.mockResolvedValue(true);
+    repositoryMock.getConversationSnapshot.mockResolvedValue({
+      id: "conversation-1",
+      thread: {
+        id: "conversation-1",
+        creativeBrief: {
+          latestPrompt: "Original skyline",
+          latestModelId: "qwen-image-2-pro",
+          acceptedAssetId: null,
+          selectedAssetIds: [],
+          recentAssetRefIds: [],
+        },
+        promptState: {
+          committed: {
+            prompt: "Original skyline",
+            preserve: [],
+            avoid: [],
+            styleDirectives: [],
+            continuityTargets: [],
+            editOps: [],
+            referenceAssetIds: [],
+          },
+          candidate: null,
+          baseAssetId: null,
+          candidateTurnId: null,
+          revision: 0,
+        },
+        createdAt: "2026-03-12T00:00:00.000Z",
+        updatedAt: "2026-03-12T00:00:00.000Z",
+      },
+      turns: [],
+      runs: [
+        {
+          id: "run-1",
+          turnId: "turn-1",
+          jobId: "job-1",
+          operation: "image.generate",
+          status: "completed",
+          requestedTarget: {
+            modelId: "qwen-image-2-pro",
+            logicalModel: "image.qwen.v2.pro",
+            deploymentId: "dashscope-qwen-image-2-pro-primary",
+            runtimeProvider: "dashscope",
+            providerModel: "qwen-image-2.0-pro",
+            pinned: false,
+          },
+          selectedTarget: {
+            modelId: "qwen-image-2-pro",
+            logicalModel: "image.qwen.v2.pro",
+            deploymentId: "dashscope-qwen-image-2-pro-primary",
+            runtimeProvider: "dashscope",
+            providerModel: "qwen-image-2.0-pro",
+            pinned: false,
+          },
+          executedTarget: {
+            modelId: "qwen-image-2-pro",
+            logicalModel: "image.qwen.v2.pro",
+            deploymentId: "dashscope-qwen-image-2-pro-primary",
+            runtimeProvider: "dashscope",
+            providerModel: "qwen-image-2.0-pro",
+            pinned: false,
+          },
+          prompt: {
+            originalPrompt: "Original skyline",
+            compiledPrompt: "Compiled skyline",
+            dispatchedPrompt: "Dispatched skyline",
+            providerEffectivePrompt: null,
+            semanticLosses: [],
+            warnings: [],
+          },
+          error: null,
+          warnings: [],
+          assetIds: [],
+          referencedAssetIds: [],
+          createdAt: "2026-03-12T00:00:00.000Z",
+          completedAt: "2026-03-12T00:00:05.000Z",
+          telemetry: {
+            providerRequestId: null,
+            providerTaskId: null,
+            latencyMs: 5000,
+          },
+        },
+      ],
+      assets: [],
+      assetEdges: [],
+      jobs: [
+        {
+          id: "job-1",
+          turnId: "turn-1",
+          runId: "run-1",
+          modelId: "qwen-image-2-pro",
+          logicalModel: "image.qwen.v2.pro",
+          deploymentId: "dashscope-qwen-image-2-pro-primary",
+          runtimeProvider: "dashscope",
+          providerModel: "qwen-image-2.0-pro",
+          compiledPrompt: "Compiled skyline",
+          requestSnapshot: {
+            prompt: "Original skyline",
+            modelId: "qwen-image-2-pro",
+            aspectRatio: "16:9",
+            batchSize: 2,
+            style: "none",
+            referenceImages: [],
+            seed: 17,
+            modelParams: {
+              promptExtend: true,
+            },
+          },
+          status: "succeeded",
+          error: null,
+          createdAt: "2026-03-12T00:00:00.000Z",
+          completedAt: "2026-03-12T00:00:05.000Z",
+        },
+      ],
+      createdAt: "2026-03-12T00:00:00.000Z",
+      updatedAt: "2026-03-12T00:00:05.000Z",
+    });
+    generateMock.mockResolvedValue({
+      modelId: "qwen-image-2-pro",
+      logicalModel: "image.qwen.v2.pro",
+      deploymentId: "dashscope-qwen-image-2-pro-primary",
+      runtimeProvider: "dashscope",
+      providerModel: "qwen-image-2.0-pro",
+      warnings: [],
+      images: [
+        {
+          binaryData: Buffer.from([1, 2, 3]),
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+      payload: {
+        prompt: "New prompt should be ignored",
+        modelId: "seedream-v5",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        referenceImages: [],
+        modelParams: {},
+        retryOfTurnId: "turn-1",
+        retryMode: "exact",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const [requestArg, optionsArg] = generateMock.mock.calls[0] as [
+      {
+        prompt: string;
+        modelId: string;
+        aspectRatio: string;
+        batchSize: number;
+        seed: number;
+        conversationId: string;
+        threadId: string;
+      },
+      {
+        resolveRequest: (
+          target: ReturnType<typeof resolveRouteSelectionFixture>[number]
+        ) => Promise<Record<string, unknown>>;
+      },
+    ];
+    expect(requestArg).toMatchObject({
+      prompt: "Original skyline",
+      modelId: "qwen-image-2-pro",
+      aspectRatio: "16:9",
+      batchSize: 2,
+      seed: 17,
+      conversationId: "conversation-1",
+      threadId: "conversation-1",
+    });
+    const resolvedRequest = await optionsArg.resolveRequest(
+      resolveRouteSelectionFixture("qwen-image-2-pro")[0]
+    );
+    expect(resolvedRequest).toMatchObject({
+      prompt: "Dispatched skyline",
+      modelId: "qwen-image-2-pro",
+      aspectRatio: "16:9",
+      batchSize: 2,
+      seed: 17,
+      retryOfTurnId: "turn-1",
+      retryMode: "exact",
+      requestedTarget: {
+        deploymentId: "dashscope-qwen-image-2-pro-primary",
+        provider: "dashscope",
+      },
+    });
+    const createdGeneration = repositoryMock.createGeneration.mock.calls[0]?.[0] as {
+      turn: { prompt: string };
+      job: {
+        requestSnapshot: {
+          prompt: string;
+          modelId: string;
+          aspectRatio: string;
+          batchSize: number;
+          seed: number;
+        };
+      };
+    };
+    expect(createdGeneration.turn.prompt).toBe("Original skyline");
+    expect(createdGeneration.job.requestSnapshot).toMatchObject({
+      prompt: "Original skyline",
+      modelId: "qwen-image-2-pro",
+      aspectRatio: "16:9",
+      batchSize: 2,
+      seed: 17,
+      retryOfTurnId: "turn-1",
+      retryMode: "exact",
+    });
 
     await app.close();
   });
