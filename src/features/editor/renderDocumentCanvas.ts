@@ -2,6 +2,7 @@ import { renderImageToCanvas } from "@/lib/imageProcessing";
 import { applyTimestampOverlay } from "@/lib/timestampOverlay";
 import type { Asset } from "@/types";
 import type { RenderIntent } from "@/lib/renderIntent";
+import { defaultCompositeBackend } from "./canvas2dCompositeBackend";
 import type { RenderDocument } from "./document";
 import { composeRenderGraphToCanvas, type RenderGraphCanvasWorkspace } from "./renderGraphComposition";
 import {
@@ -112,6 +113,7 @@ export const renderDocumentToCanvas = async ({
     const didCompose = await composeRenderGraphToCanvas({
       targetCanvas: canvas,
       renderGraph: renderDocument.renderGraph,
+      backend: defaultCompositeBackend,
       workspace,
       targetSize: {
         width: targetSize?.width ?? canvas.width,

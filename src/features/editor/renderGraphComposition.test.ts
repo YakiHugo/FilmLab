@@ -1,5 +1,6 @@
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import { describe, expect, it, vi } from "vitest";
+import { canvas2dCompositeBackend } from "./canvas2dCompositeBackend";
 import { composeRenderGraphToCanvas } from "./renderGraphComposition";
 import type { RenderGraph } from "./renderGraph";
 
@@ -13,7 +14,11 @@ vi.mock("@/lib/layerMaskTexture", () => ({
 
 interface FakeCanvasContext {
   clearRectCalls: Array<[number, number, number, number]>;
-  drawImageCalls: unknown[][];
+  drawCalls: Array<{
+    args: unknown[];
+    alpha: number;
+    compositeOperation: GlobalCompositeOperation;
+  }>;
   globalAlpha: number;
   globalCompositeOperation: GlobalCompositeOperation;
   save: () => void;
@@ -24,7 +29,7 @@ interface FakeCanvasContext {
 
 const createFakeCanvasContext = (): FakeCanvasContext => ({
   clearRectCalls: [],
-  drawImageCalls: [],
+  drawCalls: [],
   globalAlpha: 1,
   globalCompositeOperation: "source-over",
   save: () => undefined,
@@ -33,7 +38,11 @@ const createFakeCanvasContext = (): FakeCanvasContext => ({
     fakeContext.clearRectCalls.push([x, y, width, height]);
   },
   drawImage: (...args) => {
-    fakeContext.drawImageCalls.push(args);
+    fakeContext.drawCalls.push({
+      args,
+      alpha: fakeContext.globalAlpha,
+      compositeOperation: fakeContext.globalCompositeOperation,
+    });
   },
 });
 
@@ -140,6 +149,7 @@ describe("renderGraphComposition", () => {
     const didCompose = await composeRenderGraphToCanvas({
       targetCanvas,
       renderGraph,
+      backend: canvas2dCompositeBackend,
       workspace: {
         getLayerCanvas: (layerId) => (layerId === "top" ? topCanvas : bottomCanvas),
         getLayerMaskCanvas: () => maskCanvas,
@@ -154,9 +164,17 @@ describe("renderGraphComposition", () => {
     });
 
     expect(didCompose).toBe(true);
-    expect(fakeContext.drawImageCalls).toEqual([
-      [bottomCanvas, 0, 0, 800, 600],
-      [topCanvas, 0, 0, 800, 600],
+    expect(fakeContext.drawCalls).toEqual([
+      {
+        args: [bottomCanvas, 0, 0, 800, 600],
+        alpha: 1,
+        compositeOperation: "source-over",
+      },
+      {
+        args: [topCanvas, 0, 0, 800, 600],
+        alpha: 0.75,
+        compositeOperation: "screen",
+      },
     ]);
   });
 
@@ -186,6 +204,7 @@ describe("renderGraphComposition", () => {
     const didCompose = await composeRenderGraphToCanvas({
       targetCanvas,
       renderGraph,
+      backend: canvas2dCompositeBackend,
       workspace: {
         getLayerCanvas: () =>
           ({ id: "layer-canvas", width: 800, height: 600 } as HTMLCanvasElement),
@@ -201,6 +220,53 @@ describe("renderGraphComposition", () => {
     });
 
     expect(didCompose).toBe(true);
-    expect(fakeContext.drawImageCalls).toEqual([[maskedCanvas, 0, 0, 800, 600]]);
+    expect(fakeContext.drawCalls).toEqual([
+      {
+        args: [maskedCanvas, 0, 0, 800, 600],
+        alpha: 0.75,
+        compositeOperation: "screen",
+      },
+    ]);
+  });
+
+  it("limits canvas2d composite redraws to the requested ROI", async () => {
+    const targetCanvas = createFakeCanvas(800, 600);
+    const bottomCanvas = { id: "bottom-canvas", width: 800, height: 600 } as HTMLCanvasElement;
+
+    const didCompose = await composeRenderGraphToCanvas({
+      targetCanvas,
+      renderGraph: {
+        ...createRenderGraph(),
+        layers: [createRenderGraph().layers[1]!],
+      },
+      backend: canvas2dCompositeBackend,
+      workspace: {
+        getLayerCanvas: () => bottomCanvas,
+        getLayerMaskCanvas: () => maskCanvas,
+        getLayerMaskScratchCanvas: () => maskCanvas,
+        getMaskedLayerCanvas: () => maskedCanvas,
+      },
+      region: {
+        x: 120,
+        y: 80,
+        width: 300,
+        height: 200,
+      },
+      targetSize: {
+        width: 800,
+        height: 600,
+      },
+      renderLayerNode: async () => undefined,
+    });
+
+    expect(didCompose).toBe(true);
+    expect(fakeContext.clearRectCalls).toEqual([[120, 80, 300, 200]]);
+    expect(fakeContext.drawCalls).toEqual([
+      {
+        args: [bottomCanvas, 120, 80, 300, 200, 120, 80, 300, 200],
+        alpha: 1,
+        compositeOperation: "source-over",
+      },
+    ]);
   });
 });

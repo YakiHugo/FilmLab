@@ -5,6 +5,7 @@ import { releaseRenderSlots, renderImageToCanvas } from "@/lib/imageProcessing";
 import { resolveViewportRenderRegion } from "@/lib/renderer/viewportRegion";
 import { applyTimestampOverlay } from "@/lib/timestampOverlay";
 import type { Asset, EditingAdjustments } from "@/types";
+import { defaultCompositeBackend } from "../canvas2dCompositeBackend";
 import {
   copyPreviewCanvas,
 } from "./composite";
@@ -58,7 +59,7 @@ export interface UsePreviewRenderPipelineOutput {
   renderedRotate: number;
 }
 
-interface PreviewCanvasBucket {
+export interface PreviewCanvasBucket {
   outputCanvas: HTMLCanvasElement;
   layerCanvases: Map<string, HTMLCanvasElement>;
   layerMaskCanvases: Map<string, HTMLCanvasElement>;
@@ -77,7 +78,7 @@ export const MAX_RETAINED_PREVIEW_DOCUMENTS = 2;
 
 const createAbortError = () => new DOMException("Aborted", "AbortError");
 
-const createPreviewCanvasBucket = (): PreviewCanvasBucket => ({
+export const createPreviewCanvasBucket = (): PreviewCanvasBucket => ({
   outputCanvas: document.createElement("canvas"),
   layerCanvases: new Map(),
   layerMaskCanvases: new Map(),
@@ -313,6 +314,7 @@ const renderSinglePreviewLayer = async (
       ...request.renderGraph,
       layers: [node],
     },
+    backend: defaultCompositeBackend,
     workspace: createPreviewWorkspace(bucket),
     region: compositeRegion,
     targetSize: request.frameSize,
@@ -363,6 +365,143 @@ const renderSinglePreviewLayer = async (
     renderedRoi: resolveCompositeViewportRoi(request),
     renderVersion: requestId,
     renderedRotate: layerAdjustments.rotate,
+  };
+};
+
+export const executePreviewRenderRequest = async ({
+  bucket,
+  request,
+  signal,
+  requestId,
+}: {
+  bucket: PreviewCanvasBucket;
+  request: PreviewRequest;
+  signal: AbortSignal;
+  requestId: number;
+}): Promise<PreviewRenderExecutionResult> => {
+  const source = resolveRenderSource(request.sourceAsset);
+  if (!source) {
+    throw new Error(`Preview source missing for asset ${request.sourceAsset.id}.`);
+  }
+
+  const effectiveViewportRoi =
+    request.isCropMode || request.document.adjustments.timestampEnabled
+      ? null
+      : request.viewportRoi;
+  const singleLayerNode = resolveSingleRenderableLayerEntry(request.renderGraph.layers);
+
+  if (singleLayerNode) {
+    return renderSinglePreviewLayer(
+      bucket,
+      request,
+      signal,
+      requestId,
+      effectiveViewportRoi
+    );
+  }
+
+  if (!request.shouldRenderLayerComposite) {
+    const adjustments = resolvePreviewAdjustments(request, request.document.adjustments);
+    await renderImageToCanvas({
+      canvas: bucket.outputCanvas,
+      source,
+      adjustments,
+      filmProfile: request.document.filmProfile ?? undefined,
+      timestampText: request.timestampText,
+      targetSize: request.frameSize,
+      intent:
+        request.quality === "interactive"
+          ? "preview-interactive"
+          : "preview-full",
+      renderSeed: request.previewRenderSeed,
+      seedKey: `${request.graphKey}:main`,
+      signal,
+      sourceCacheKey: resolvePreviewSourceCacheKey(request.sourceAsset),
+      renderSlot: buildPreviewMainRenderSlot(request.documentKey),
+      viewportRoi: effectiveViewportRoi,
+    });
+    if (signal.aborted) {
+      throw createAbortError();
+    }
+    return {
+      outputCanvas: bucket.outputCanvas,
+      renderedRoi: effectiveViewportRoi,
+      renderVersion: requestId,
+      renderedRotate: adjustments.rotate,
+    };
+  }
+
+  const activeLayerIds = new Set(request.renderGraph.layers.map((layer) => layer.id));
+  pruneRetainedCanvasMap(bucket.layerCanvases, activeLayerIds);
+  pruneRetainedCanvasMap(bucket.layerMaskCanvases, activeLayerIds);
+  pruneRetainedCanvasMap(bucket.layerMaskScratchCanvases, activeLayerIds);
+  pruneRetainedCanvasMap(bucket.maskedLayerCanvases, activeLayerIds);
+  resetRetainedCanvasesForDirtyReasons(bucket, activeLayerIds, request.dirtyReasons);
+
+  const compositeRegion = resolveViewportRenderRegion(
+    request.frameSize.width,
+    request.frameSize.height,
+    resolveCompositeViewportRoi(request)
+  );
+  const didCompose = await composeRenderGraphToCanvas({
+    targetCanvas: bucket.outputCanvas,
+    renderGraph: request.renderGraph,
+    backend: defaultCompositeBackend,
+    workspace: createPreviewWorkspace(bucket),
+    region: compositeRegion,
+    targetSize: request.frameSize,
+    renderLayerNode: async (layerNode: RenderLayerNode, layerCanvas, layerIndex) => {
+      const layerSource = resolveRenderSource(layerNode.sourceAsset);
+      if (!layerSource) {
+        throw new Error(`Preview source missing for asset ${layerNode.sourceAsset.id}.`);
+      }
+
+      await renderImageToCanvas({
+        canvas: layerCanvas,
+        source: layerSource,
+        adjustments: resolveLayerPreviewAdjustments(request, layerNode.adjustments),
+        filmProfile: resolveLayerPreviewFilmProfile(request, layerNode.sourceAsset),
+        timestampText: null,
+        targetSize: request.frameSize,
+        intent:
+          request.quality === "interactive"
+            ? "preview-interactive"
+            : "preview-full",
+        renderSeed: request.previewRenderSeed + layerIndex + 1,
+        seedKey: `${request.graphKey}:${layerNode.id}`,
+        signal,
+        sourceCacheKey: resolvePreviewSourceCacheKey(
+          layerNode.sourceAsset,
+          `layer:${layerNode.id}`
+        ),
+        renderSlot: buildPreviewLayerRenderSlot(request.documentKey, layerNode.id),
+        viewportRoi: effectiveViewportRoi,
+      });
+
+      if (signal.aborted) {
+        throw createAbortError();
+      }
+    },
+  });
+  if (!didCompose) {
+    throw new Error("Failed to compose retained preview layers.");
+  }
+
+  await applyTimestampOverlay(
+    bucket.outputCanvas,
+    request.document.adjustments,
+    request.timestampText
+  );
+
+  if (signal.aborted) {
+    throw createAbortError();
+  }
+
+  return {
+    outputCanvas: bucket.outputCanvas,
+    renderedRoi: resolveCompositeViewportRoi(request),
+    renderVersion: requestId,
+    renderedRotate: request.document.adjustments.rotate,
   };
 };
 
@@ -516,132 +655,13 @@ export function usePreviewRenderPipeline({
 
   usePreviewScheduler<PreviewRequest, PreviewRenderExecutionResult>({
     descriptor,
-    execute: async (request, signal, requestId) => {
-      const bucket = getBucket(request.documentKey, request.quality);
-      const source = resolveRenderSource(request.sourceAsset);
-      if (!source) {
-        throw new Error(`Preview source missing for asset ${request.sourceAsset.id}.`);
-      }
-
-      const effectiveViewportRoi =
-        request.isCropMode || request.document.adjustments.timestampEnabled
-          ? null
-          : request.viewportRoi;
-      const singleLayerNode = resolveSingleRenderableLayerEntry(request.renderGraph.layers);
-
-      if (singleLayerNode) {
-        return renderSinglePreviewLayer(
-          bucket,
-          request,
-          signal,
-          requestId,
-          effectiveViewportRoi
-        );
-      }
-
-      if (!request.shouldRenderLayerComposite) {
-        const adjustments = resolvePreviewAdjustments(request, request.document.adjustments);
-        await renderImageToCanvas({
-          canvas: bucket.outputCanvas,
-          source,
-          adjustments,
-          filmProfile: request.document.filmProfile ?? undefined,
-          timestampText: request.timestampText,
-          targetSize: request.frameSize,
-          intent:
-            request.quality === "interactive"
-              ? "preview-interactive"
-              : "preview-full",
-          renderSeed: request.previewRenderSeed,
-          seedKey: `${request.graphKey}:main`,
-          signal,
-          sourceCacheKey: resolvePreviewSourceCacheKey(request.sourceAsset),
-          renderSlot: buildPreviewMainRenderSlot(request.documentKey),
-          viewportRoi: effectiveViewportRoi,
-        });
-        if (signal.aborted) {
-          throw createAbortError();
-        }
-        return {
-          outputCanvas: bucket.outputCanvas,
-          renderedRoi: effectiveViewportRoi,
-          renderVersion: requestId,
-          renderedRotate: adjustments.rotate,
-        };
-      }
-
-      const activeLayerIds = new Set(request.renderGraph.layers.map((layer) => layer.id));
-      pruneRetainedCanvasMap(bucket.layerCanvases, activeLayerIds);
-      pruneRetainedCanvasMap(bucket.layerMaskCanvases, activeLayerIds);
-      pruneRetainedCanvasMap(bucket.layerMaskScratchCanvases, activeLayerIds);
-      pruneRetainedCanvasMap(bucket.maskedLayerCanvases, activeLayerIds);
-      resetRetainedCanvasesForDirtyReasons(bucket, activeLayerIds, request.dirtyReasons);
-
-      const compositeRegion = resolveViewportRenderRegion(
-        request.frameSize.width,
-        request.frameSize.height,
-        resolveCompositeViewportRoi(request)
-      );
-      const didCompose = await composeRenderGraphToCanvas({
-        targetCanvas: bucket.outputCanvas,
-        renderGraph: request.renderGraph,
-        workspace: createPreviewWorkspace(bucket),
-        region: compositeRegion,
-        targetSize: request.frameSize,
-        renderLayerNode: async (layerNode: RenderLayerNode, layerCanvas, layerIndex) => {
-          const layerSource = resolveRenderSource(layerNode.sourceAsset);
-          if (!layerSource) {
-            throw new Error(`Preview source missing for asset ${layerNode.sourceAsset.id}.`);
-          }
-
-          await renderImageToCanvas({
-            canvas: layerCanvas,
-            source: layerSource,
-            adjustments: resolveLayerPreviewAdjustments(request, layerNode.adjustments),
-            filmProfile: resolveLayerPreviewFilmProfile(request, layerNode.sourceAsset),
-            timestampText: null,
-            targetSize: request.frameSize,
-            intent:
-              request.quality === "interactive"
-                ? "preview-interactive"
-                : "preview-full",
-            renderSeed: request.previewRenderSeed + layerIndex + 1,
-            seedKey: `${request.graphKey}:${layerNode.id}`,
-            signal,
-            sourceCacheKey: resolvePreviewSourceCacheKey(
-              layerNode.sourceAsset,
-              `layer:${layerNode.id}`
-            ),
-            renderSlot: buildPreviewLayerRenderSlot(request.documentKey, layerNode.id),
-            viewportRoi: effectiveViewportRoi,
-          });
-
-          if (signal.aborted) {
-            throw createAbortError();
-          }
-        },
-      });
-      if (!didCompose) {
-        throw new Error("Failed to compose retained preview layers.");
-      }
-
-      await applyTimestampOverlay(
-        bucket.outputCanvas,
-        request.document.adjustments,
-        request.timestampText
-      );
-
-      if (signal.aborted) {
-        throw createAbortError();
-      }
-
-      return {
-        outputCanvas: bucket.outputCanvas,
-        renderedRoi: resolveCompositeViewportRoi(request),
-        renderVersion: requestId,
-        renderedRotate: request.document.adjustments.rotate,
-      };
-    },
+    execute: async (request, signal, requestId) =>
+      executePreviewRenderRequest({
+        bucket: getBucket(request.documentKey, request.quality),
+        request,
+        signal,
+        requestId,
+      }),
     onError: (error, request) => {
       console.warn("[FilmLab] Preview render failed.", request.documentKey, request.quality, error);
     },
