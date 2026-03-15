@@ -284,6 +284,14 @@ export function ImageLabPage() {
           {downloadFeedback}
         </div>
       ) : null}
+      {imageGeneration.notice ? (
+        <div
+          role="alert"
+          className="border-t border-white/6 bg-[#090b10] px-6 py-2 text-sm text-sky-200 lg:px-8"
+        >
+          {imageGeneration.notice}
+        </div>
+      ) : null}
       <ImagePromptInput
         isGeneratingImage={imageGeneration.isGenerating}
         generationSpeed={generationSpeed}

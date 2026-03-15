@@ -47,6 +47,12 @@ import {
 } from "@/stores/generationConfigStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useImageSessionStore } from "@/stores/imageSessionStore";
+import {
+  bindResultReferenceToConfig,
+  clearBoundResultReferencesFromConfig,
+  clearReferenceInputsForUnsupportedModel,
+  removeBoundResultReferenceFromConfig,
+} from "../referenceImages";
 import { useGenerationConfig } from "./useGenerationConfig";
 
 export interface GeneratedResultItem {
@@ -115,6 +121,7 @@ interface RuntimeResultState {
 }
 
 type RuntimeResultStateMap = Record<string, Record<number, RuntimeResultState>>;
+const IMAGE_GUIDED_REFERENCE_MODEL_ID: FrontendImageModelId = "qwen-image-2-pro";
 
 const createElementId = () => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -179,11 +186,12 @@ const createFallbackGenerationConfig = (): GenerationConfig => ({
 
 const serializeConfig = (config: GenerationConfig): Record<string, unknown> => ({
   ...config,
-  referenceImages: config.referenceImages.map(({ id, fileName, type, weight }) => ({
+  referenceImages: config.referenceImages.map(({ id, fileName, type, weight, sourceAssetId }) => ({
     id,
     fileName,
     type,
     weight,
+    sourceAssetId,
   })),
   assetRefs: config.assetRefs.map((assetRef) => ({ ...assetRef })),
   modelParams: { ...config.modelParams },
@@ -225,10 +233,12 @@ const deserializeReferenceImages = (value: unknown): ReferenceImage[] => {
         typeof entry.id === "string" && entry.id.trim()
           ? entry.id
           : `persisted-ref-${index}`,
-      url: "",
+      url: typeof entry.url === "string" ? entry.url : "",
       fileName: typeof entry.fileName === "string" ? entry.fileName : undefined,
       type: isReferenceImageType(entry.type) ? entry.type : "content",
       weight: typeof entry.weight === "number" ? entry.weight : 1,
+      sourceAssetId:
+        typeof entry.sourceAssetId === "string" ? entry.sourceAssetId : undefined,
     });
     return next;
   }, []);
@@ -334,6 +344,9 @@ const isRetryableModel = (
 const buildUnavailableModelError = (modelLabel: string) =>
   `${modelLabel} is no longer available. Choose a current model and run the prompt again.`;
 
+const getImageGuidedReferenceModel = (catalog: ImageModelCatalog | null | undefined) =>
+  getImageModelCatalogEntry(catalog, IMAGE_GUIDED_REFERENCE_MODEL_ID);
+
 const cloneImageRequest = (
   request: ImageGenerationRequest
 ): ImageGenerationRequest & Record<string, unknown> =>
@@ -349,12 +362,16 @@ export const toPersistedRequestSnapshot = (
 
   return {
     ...snapshot,
-    referenceImages: snapshot.referenceImages.map(({ id, fileName, type, weight }) => ({
-      id,
-      fileName,
-      type,
-      weight,
-    })),
+    referenceImages: snapshot.referenceImages.map(
+      ({ id, url, fileName, type, weight, sourceAssetId }, index) => ({
+        id: typeof id === "string" && id.trim() ? id : `persisted-ref-${index}`,
+        url,
+        fileName,
+        type,
+        weight,
+        sourceAssetId,
+      })
+    ),
   };
 };
 
@@ -383,6 +400,42 @@ export const resolveRetryRequestSnapshot = (
       usableReferenceImages.length === snapshot.referenceImages.length
         ? []
         : [RETRY_REFERENCE_IMAGES_OMITTED_WARNING],
+  };
+};
+
+export const omitUnavailableReferenceImages = (
+  config: GenerationConfig
+): { config: GenerationConfig; warnings: string[] } => {
+  const unavailableReferenceImages = config.referenceImages.filter(
+    (referenceImage) => typeof referenceImage.url !== "string" || referenceImage.url.trim().length === 0
+  );
+
+  if (unavailableReferenceImages.length === 0) {
+    return {
+      config,
+      warnings: [],
+    };
+  }
+
+  const omittedSourceAssetIds = new Set(
+    unavailableReferenceImages
+      .map((referenceImage) => referenceImage.sourceAssetId)
+      .filter((assetId): assetId is string => typeof assetId === "string" && assetId.trim().length > 0)
+  );
+
+  return {
+    config: {
+      ...config,
+      referenceImages: config.referenceImages.filter(
+        (referenceImage) =>
+          typeof referenceImage.url === "string" && referenceImage.url.trim().length > 0
+      ),
+      assetRefs: config.assetRefs.filter(
+        (assetRef) =>
+          assetRef.role !== "reference" || !omittedSourceAssetIds.has(assetRef.assetId)
+      ),
+    },
+    warnings: [RETRY_REFERENCE_IMAGES_OMITTED_WARNING],
   };
 };
 
@@ -619,6 +672,28 @@ export const filesToReferenceImages = async (
   return entries;
 };
 
+const createReferenceImageFromGeneratedResult = async (
+  input: {
+    imageUrl: string;
+    fileNamePrefix: string;
+  },
+  options?: { maxFileSizeBytes?: number }
+) => {
+  const imageResponse = await fetch(input.imageUrl);
+  if (!imageResponse.ok) {
+    throw new Error("Generated image could not be reused as a reference.");
+  }
+
+  const blob = await imageResponse.blob();
+  const mimeType = blob.type || "image/png";
+  const extension = blobToFileExtension(mimeType);
+  const file = new File([blob], `${input.fileNamePrefix}.${extension}`, {
+    type: mimeType,
+  });
+
+  return toReferenceImageEntry(file, "content", options);
+};
+
 const toImageRequest = (
   prompt: string,
   config: GenerationConfig,
@@ -751,13 +826,12 @@ export function useImageGeneration() {
     modelParamDefinitions,
     supportedFeatures,
     setConfig,
-    setModel,
+    setModel: setModelInConfig,
     updateConfig,
-    setAssetRefs,
     addReferenceImages,
     updateReferenceImage,
-    removeReferenceImage,
-    clearReferenceImages,
+    removeReferenceImage: removeReferenceImageInConfig,
+    clearReferenceImages: clearReferenceImagesInConfig,
   } = useGenerationConfig();
   const session = useImageSessionStore((state) => state.session);
   const replaceSession = useImageSessionStore((state) => state.replaceSession);
@@ -767,6 +841,7 @@ export function useImageGeneration() {
 
   const [savingTurnIds, setSavingTurnIds] = useState<Record<string, boolean>>({});
   const [runtimeResults, setRuntimeResults] = useState<RuntimeResultStateMap>({});
+  const [notice, setNotice] = useState<string | null>(null);
   const sessionRef = useRef(session);
   const serverConversationIdRef = useRef<string | null>(null);
   const savingTurnIdsRef = useRef(savingTurnIds);
@@ -854,6 +929,20 @@ export function useImageGeneration() {
   useEffect(() => {
     void refreshConversationSnapshot().catch(() => undefined);
   }, [refreshConversationSnapshot]);
+
+  useEffect(() => {
+    if (!notice) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setNotice(null);
+    }, 4_000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [notice]);
 
   const setTurnSavingState = useCallback((turnId: string, isSaving: boolean) => {
     setSavingTurnIds((previous) => {
@@ -1065,6 +1154,44 @@ export function useImageGeneration() {
     [addReferenceImages, supportedFeatures.referenceImages.maxFileSizeBytes]
   );
 
+  const setModel = useCallback(
+    (modelId: string) => {
+      const nextModel = getImageModelCatalogEntry(catalog, modelId);
+      if (!nextModel) {
+        return;
+      }
+
+      if (!config) {
+        setModelInConfig(modelId);
+        return;
+      }
+
+      const nextConfigBase: GenerationConfig = {
+        ...config,
+        modelId: nextModel.id,
+        modelParams: { ...nextModel.defaults.modelParams },
+      };
+
+      if (
+        !toCatalogFeatureSupport(nextModel).referenceImages.enabled &&
+        config.referenceImages.length > 0
+      ) {
+        const { nextConfig, removedReferenceImageCount } =
+          clearReferenceInputsForUnsupportedModel(nextConfigBase);
+        setConfig(nextConfig);
+        setNotice(
+          `Switched to ${nextModel.label}. Removed ${removedReferenceImageCount} reference image${
+            removedReferenceImageCount === 1 ? "" : "s"
+          } because this model does not support image-guided generation.`
+        );
+        return;
+      }
+
+      setConfig(nextConfigBase);
+    },
+    [catalog, config, setConfig, setModelInConfig]
+  );
+
   const runGeneration = useCallback(
     async (options: {
       prompt: string;
@@ -1239,7 +1366,7 @@ export function useImageGeneration() {
     async (
       promptInput: string,
       configSnapshot: GenerationConfig,
-      options?: { retryOfTurnId?: string }
+      options?: { retryOfTurnId?: string; localWarnings?: string[] }
     ) => {
       const prompt = promptInput.trim();
       if (!prompt || !catalog) {
@@ -1257,6 +1384,7 @@ export function useImageGeneration() {
           supportsCustomSize: Boolean(requestModelConfig?.constraints.supportsCustomSize),
         }),
         retryOfTurnId: options?.retryOfTurnId,
+        localWarnings: options?.localWarnings,
       });
     },
     [catalog, runGeneration]
@@ -1351,8 +1479,13 @@ export function useImageGeneration() {
         return null;
       }
 
-      return generateWithConfig(turn.prompt, deserializeConfig(turn.configSnapshot, catalog), {
+      const retryConfig = omitUnavailableReferenceImages(
+        deserializeConfig(turn.configSnapshot, catalog)
+      );
+
+      return generateWithConfig(turn.prompt, retryConfig.config, {
         retryOfTurnId: turn.id,
+        localWarnings: retryConfig.warnings,
       });
     },
     [catalog, generateWithConfig, getTurnById, retryFromSnapshot, updateTurn]
@@ -1436,23 +1569,77 @@ export function useImageGeneration() {
   );
 
   const useResultAsReference = useCallback(
-    (turnId: string, index: number) => {
+    async (turnId: string, index: number) => {
       const turn = getUiTurnById(turnId);
       const result = turn?.results.find((entry) => entry.index === index);
       if (!result?.threadAssetId || !config) {
         return;
       }
 
-      const nextAssetRefs = [
-        ...config.assetRefs.filter((assetRef) => assetRef.assetId !== result.threadAssetId),
-        {
-          assetId: result.threadAssetId,
-          role: "reference" as const,
-        },
-      ];
-      setAssetRefs(nextAssetRefs);
+      const targetModel =
+        supportedFeatures.referenceImages.enabled && modelConfig
+          ? modelConfig
+          : getImageGuidedReferenceModel(catalog);
+      if (!targetModel) {
+        updateTurn(turnId, {
+          error: "No image-guided model is available for reference-based generation.",
+        });
+        return;
+      }
+
+      try {
+        const referenceImage = await createReferenceImageFromGeneratedResult(
+          {
+            imageUrl: result.imageUrl,
+            fileNamePrefix: `result-ref-${turnId}-${index + 1}`,
+          },
+          {
+            maxFileSizeBytes: targetModel.constraints.referenceImages.maxFileSizeBytes,
+          }
+        );
+
+        const nextConfigBase =
+          targetModel.id === config.modelId
+            ? cloneGenerationConfig(config)
+            : sanitizeGenerationConfig(
+                {
+                  ...config,
+                  modelId: targetModel.id,
+                  modelParams: { ...targetModel.defaults.modelParams },
+                },
+                targetModel
+              );
+
+        setConfig(
+          bindResultReferenceToConfig(nextConfigBase, {
+            assetId: result.threadAssetId,
+            referenceImage,
+          })
+        );
+
+        if (targetModel.id !== config.modelId) {
+          setNotice(
+            `Switched to ${targetModel.label} to continue with image-guided generation.`
+          );
+        }
+      } catch (error) {
+        updateTurn(turnId, {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Generated image could not be reused as a reference.",
+        });
+      }
     },
-    [config, getUiTurnById, setAssetRefs]
+    [
+      catalog,
+      config,
+      getUiTurnById,
+      modelConfig,
+      setConfig,
+      supportedFeatures.referenceImages.enabled,
+      updateTurn,
+    ]
   );
 
   const removeAssetReference = useCallback(
@@ -1461,14 +1648,48 @@ export function useImageGeneration() {
         return;
       }
 
-      setAssetRefs(config.assetRefs.filter((assetRef) => assetRef.assetId !== assetId));
+      setConfig(removeBoundResultReferenceFromConfig(config, assetId));
     },
-    [config, setAssetRefs]
+    [config, setConfig]
   );
 
   const clearAssetReferences = useCallback(() => {
-    setAssetRefs([]);
-  }, [setAssetRefs]);
+    if (!config) {
+      return;
+    }
+
+    setConfig(clearBoundResultReferencesFromConfig(config));
+  }, [config, setConfig]);
+
+  const removeReferenceImage = useCallback(
+    (id: string) => {
+      if (!config) {
+        return;
+      }
+
+      const referenceImage = config.referenceImages.find((entry) => entry.id === id);
+      if (referenceImage?.sourceAssetId) {
+        setConfig(removeBoundResultReferenceFromConfig(config, referenceImage.sourceAssetId));
+        return;
+      }
+
+      removeReferenceImageInConfig(id);
+    },
+    [config, removeReferenceImageInConfig, setConfig]
+  );
+
+  const clearReferenceImages = useCallback(() => {
+    if (!config) {
+      return;
+    }
+
+    if (config.referenceImages.some((referenceImage) => referenceImage.sourceAssetId)) {
+      setConfig(clearReferenceInputsForUnsupportedModel(config).nextConfig);
+      return;
+    }
+
+    clearReferenceImagesInConfig();
+  }, [clearReferenceImagesInConfig, config, setConfig]);
 
   const upscaleResult = useCallback(
     async (turnId: string, index: number) => {
@@ -1595,6 +1816,7 @@ export function useImageGeneration() {
 
   return {
     turns,
+    notice,
     isGenerating,
     isCatalogLoading,
     catalogError,
