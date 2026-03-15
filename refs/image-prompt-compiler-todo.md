@@ -117,7 +117,11 @@ This means:
 - [x] Added compiler-focused tests
 - [x] Expanded route tests for degraded edit/variation and exact retry
 - [x] Expanded route tests for multi-target fallback dispatch / target snapshot consistency
+- [x] Tightened fallback route tests so they must use router-supplied `options.targets`
+- [x] Tightened fallback route tests to assert exact compile / dispatch artifact counts and sequence
+- [x] Tightened fallback route tests to assert `requestedTarget` as distinct from `selectedTarget` / `executedTarget`
 - [x] Added runtime router fallback unit tests
+- [x] Tightened runtime router tests to assert per-target adapter lookup arguments
 - [x] Expanded frontend helper tests for role-aware binding
 - [x] Verified targeted tests
 - [x] Verified `pnpm build`
@@ -245,6 +249,28 @@ Previously verified in the original v1.2 implementation pass and retained here a
 
 - `pnpm vitest run shared/imageGeneration.test.ts shared/imageGenerationSchema.test.ts server/src/shared/imageGenerationCapabilityFacts.test.ts server/src/gateway/prompt/compiler.test.ts server/src/routes/image-generate.test.ts src/lib/ai/imageModelCatalog.test.ts src/stores/generationConfigStore.imageGeneration.test.ts src/features/image-lab/ImageChatFeed.test.tsx src/features/image-lab/referenceImages.test.ts`
 - `pnpm build`
+
+## Notes For The Next Agent
+
+These are not just TODOs. They are the main handoff constraints from the latest follow-up and review pass.
+
+- `refs/` is gitignored in this repo. If you update this handoff note, you must stage it with `git add -f refs/image-prompt-compiler-todo.md`.
+- The fallback coverage added in this follow-up is intentionally fixture-level only. It does not prove production-like multi-deployment behavior.
+- Do not weaken the new fallback route assertions back to `arrayContaining`-only checks. The current tests intentionally pin:
+  - router-supplied target order via `options.targets`
+  - exact compile artifact count for fallback candidates
+  - exact dispatch artifact sequence across attempts
+  - `requestedTarget` vs `selectedTarget` vs `executedTarget`
+- Do not change the route fallback tests back to calling `resolveRequest` with locally constructed targets. That pattern was specifically fixed because it could hide a regression where the route only forwarded one target to the router.
+- The runtime router tests now assert per-target adapter lookup arguments. If fallback behavior changes, keep those assertions aligned with real adapter-selection behavior instead of replacing them with a generic shared adapter stub.
+- The validation section above is split on purpose:
+  - `Re-run in this follow-up` means commands actually rerun after the review hardening pass
+  - `Previously verified...` is historical context from the original v1.2 implementation pass
+- Recent commits relevant to this handoff:
+  - `8cbc4f5` `test(ai): cover image fallback orchestration`
+  - `cef781e` `docs(ai): sync prompt compiler todo`
+  - `085cb83` `test(ai): tighten fallback validation`
+  - `66c2a05` `docs(ai): clarify prompt compiler validation history`
 
 ## Git State / Handoff Notes
 
