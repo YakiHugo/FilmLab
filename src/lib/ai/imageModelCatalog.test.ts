@@ -66,6 +66,13 @@ describe("image model catalog capability facts", () => {
         style: "cinematic",
         stylePreset: "",
         negativePrompt: "avoid blur",
+        promptIntent: {
+          preserve: [],
+          avoid: [],
+          styleDirectives: [],
+          continuityTargets: [],
+          editOps: [],
+        },
         referenceImages: [],
         assetRefs: [],
         seed: 42,

@@ -57,6 +57,7 @@ export function ImageLabPage() {
   const {
     turns,
     deleteTurn,
+    acceptTurnResult,
     retryTurn,
     reuseParameters,
     upscaleResult,
@@ -203,6 +204,13 @@ export function ImageLabPage() {
     [saveSelectedResults]
   );
 
+  const handleAcceptResult = useCallback(
+    (turnId: string, index: number) => {
+      void acceptTurnResult(turnId, index);
+    },
+    [acceptTurnResult]
+  );
+
   const handleAddToCanvas = useCallback(
     (turnId: string, index: number, assetId?: string | null) => {
       void addToCanvas(turnId, index, assetId);
@@ -268,6 +276,7 @@ export function ImageLabPage() {
         onSaveSelectedResults={handleSaveSelectedResults}
         onAddToCanvas={handleAddToCanvas}
         onUseResultAsReference={useResultAsReference}
+        onAcceptResult={handleAcceptResult}
         onDeleteTurn={deleteTurn}
         onRetryTurn={handleRetryTurn}
         onReuseParameters={handleReuseParameters}
@@ -330,6 +339,7 @@ export function ImageLabPage() {
           negativePrompt: imageGeneration.config.negativePrompt,
           extra: imageGeneration.config.modelParams,
         }}
+        promptIntent={imageGeneration.config.promptIntent}
         modelParamDefinitions={imageGeneration.modelParamDefinitions}
         referenceImages={imageGeneration.config.referenceImages}
         selectedAssetRefs={imageGeneration.config.assetRefs}
@@ -341,6 +351,20 @@ export function ImageLabPage() {
         onSelectStylePreset={selectStylePreset}
         onCommonParamsChange={imageGeneration.updateConfig}
         onModelParamsChange={imageGeneration.updateConfig}
+        onPromptIntentChange={(patch) => {
+          imageGeneration.updateConfig({
+            promptIntent: {
+              ...(imageGeneration.config?.promptIntent ?? {
+                preserve: [],
+                avoid: [],
+                styleDirectives: [],
+                continuityTargets: [],
+                editOps: [],
+              }),
+              ...patch,
+            },
+          });
+        }}
         onModelExtraParamChange={updateModelExtraParam}
         onAddReferenceFiles={(files) => {
           void imageGeneration.addReferenceFiles(files);

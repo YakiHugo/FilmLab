@@ -10,6 +10,7 @@ import type {
 import type { FrontendImageModelId } from "../../../../shared/imageModelCatalog";
 import { importAssetFiles } from "@/lib/assetImport";
 import {
+  acceptImageConversationTurn,
   clearImageConversation,
   deleteImageConversationTurn,
   fetchImageConversation,
@@ -29,6 +30,7 @@ import {
 import type { Asset, CanvasImageElement } from "@/types";
 import type {
   ImageAspectRatio,
+  ImagePromptIntentInput,
   ImageGenerationRequest,
   ImageGenerationResponse,
   ImageStyleId,
@@ -149,6 +151,13 @@ export const RETRY_REFERENCE_IMAGES_OMITTED_WARNING =
 
 const cloneGenerationConfig = (config: GenerationConfig): GenerationConfig => ({
   ...config,
+  promptIntent: {
+    preserve: [...config.promptIntent.preserve],
+    avoid: [...config.promptIntent.avoid],
+    styleDirectives: [...config.promptIntent.styleDirectives],
+    continuityTargets: [...config.promptIntent.continuityTargets],
+    editOps: config.promptIntent.editOps.map((entry) => ({ ...entry })),
+  },
   referenceImages: config.referenceImages.map((entry) => ({ ...entry })),
   assetRefs: config.assetRefs.map((entry) => ({ ...entry })),
   modelParams: { ...config.modelParams },
@@ -174,6 +183,13 @@ const createFallbackGenerationConfig = (): GenerationConfig => ({
   style: "none",
   stylePreset: "",
   negativePrompt: "",
+  promptIntent: {
+    preserve: [],
+    avoid: [],
+    styleDirectives: [],
+    continuityTargets: [],
+    editOps: [],
+  },
   referenceImages: [],
   assetRefs: [],
   seed: null,
@@ -186,6 +202,13 @@ const createFallbackGenerationConfig = (): GenerationConfig => ({
 
 const serializeConfig = (config: GenerationConfig): Record<string, unknown> => ({
   ...config,
+  promptIntent: {
+    preserve: [...config.promptIntent.preserve],
+    avoid: [...config.promptIntent.avoid],
+    styleDirectives: [...config.promptIntent.styleDirectives],
+    continuityTargets: [...config.promptIntent.continuityTargets],
+    editOps: config.promptIntent.editOps.map((entry) => ({ ...entry })),
+  },
   referenceImages: config.referenceImages.map(({ id, fileName, type, weight, sourceAssetId }) => ({
     id,
     fileName,
@@ -244,6 +267,55 @@ const deserializeReferenceImages = (value: unknown): ReferenceImage[] => {
   }, []);
 };
 
+const deserializePromptIntent = (value: unknown): ImagePromptIntentInput => {
+  if (!isRecord(value)) {
+    return {
+      preserve: [],
+      avoid: [],
+      styleDirectives: [],
+      continuityTargets: [],
+      editOps: [],
+    };
+  }
+
+  const toStringArray = (entry: unknown) =>
+    Array.isArray(entry)
+      ? entry.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      : [];
+
+  const continuityTargets = Array.isArray(value.continuityTargets)
+    ? value.continuityTargets.filter(
+        (entry): entry is ImagePromptIntentInput["continuityTargets"][number] =>
+          entry === "subject" ||
+          entry === "style" ||
+          entry === "composition" ||
+          entry === "text"
+      )
+    : [];
+  const editOps = Array.isArray(value.editOps)
+    ? value.editOps
+        .filter(
+          (entry): entry is ImagePromptIntentInput["editOps"][number] =>
+            isRecord(entry) &&
+            typeof entry.op === "string" &&
+            typeof entry.target === "string"
+        )
+        .map((entry) => ({
+          op: entry.op,
+          target: entry.target,
+          ...(typeof entry.value === "string" ? { value: entry.value } : {}),
+        }))
+    : [];
+
+  return {
+    preserve: toStringArray(value.preserve),
+    avoid: toStringArray(value.avoid),
+    styleDirectives: toStringArray(value.styleDirectives),
+    continuityTargets,
+    editOps,
+  };
+};
+
 const deserializedConfigCache = new WeakMap<Record<string, unknown>, GenerationConfig>();
 
 const deserializeConfig = (
@@ -277,6 +349,7 @@ const deserializeConfig = (
       typeof snapshot.negativePrompt === "string"
         ? snapshot.negativePrompt
         : fallbackConfig.negativePrompt,
+    promptIntent: deserializePromptIntent(snapshot.promptIntent),
     referenceImages: deserializeReferenceImages(snapshot.referenceImages),
     assetRefs: Array.isArray(snapshot.assetRefs)
       ? snapshot.assetRefs.reduce<GenerationConfig["assetRefs"]>((next, entry) => {
@@ -701,6 +774,13 @@ const toImageRequest = (
   options?: { supportsCustomSize?: boolean }
 ): ImageGenerationRequest => ({
   prompt,
+  promptIntent: {
+    preserve: [...config.promptIntent.preserve],
+    avoid: [...config.promptIntent.avoid],
+    styleDirectives: [...config.promptIntent.styleDirectives],
+    continuityTargets: [...config.promptIntent.continuityTargets],
+    editOps: config.promptIntent.editOps.map((entry) => ({ ...entry })),
+  },
   modelId: config.modelId,
   aspectRatio: config.aspectRatio,
   width: options?.supportsCustomSize ? (config.width ?? undefined) : undefined,
@@ -1214,7 +1294,9 @@ export function useImageGeneration() {
         ...(serverConversationIdRef.current
           ? { conversationId: serverConversationIdRef.current }
           : {}),
-        ...(options.retryOfTurnId ? { retryOfTurnId: options.retryOfTurnId } : {}),
+        ...(options.retryOfTurnId
+          ? { retryOfTurnId: options.retryOfTurnId, retryMode: "exact" as const }
+          : {}),
         clientTurnId: turnId,
         clientJobId: jobId,
       };
@@ -1453,6 +1535,29 @@ export function useImageGeneration() {
       invalidateConversationSnapshotRequests,
       updateTurn,
     ]
+  );
+
+  const acceptTurnResult = useCallback(
+    async (turnId: string, index: number) => {
+      const turn = getUiTurnById(turnId);
+      const result = turn?.results.find((entry) => entry.index === index);
+      if (!result?.threadAssetId) {
+        return null;
+      }
+
+      invalidateConversationSnapshotRequests();
+      try {
+        const snapshot = await acceptImageConversationTurn(turnId, result.threadAssetId);
+        applyConversationSnapshot(snapshot);
+        return snapshot;
+      } catch (error) {
+        updateTurn(turnId, {
+          error: error instanceof Error ? error.message : "Result could not be accepted.",
+        });
+        return null;
+      }
+    },
+    [applyConversationSnapshot, getUiTurnById, invalidateConversationSnapshotRequests, updateTurn]
   );
 
   const retryTurn = useCallback(
@@ -1839,6 +1944,7 @@ export function useImageGeneration() {
     useResultAsReference,
     generateFromPromptInput,
     deleteTurn,
+    acceptTurnResult,
     retryTurn,
     reuseParameters,
     upscaleResult,

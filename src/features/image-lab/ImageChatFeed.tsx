@@ -15,6 +15,7 @@ interface ImageChatFeedProps {
   onSaveSelectedResults: (turnId: string) => void;
   onAddToCanvas: (turnId: string, index: number, assetId?: string | null) => void;
   onUseResultAsReference: (turnId: string, index: number) => void;
+  onAcceptResult: (turnId: string, index: number) => void;
   onDeleteTurn: (turnId: string) => void;
   onRetryTurn: (turnId: string) => void;
   onReuseParameters: (turnId: string) => void;
@@ -244,6 +245,7 @@ function TurnRow({
   onSaveSelectedResults,
   onAddToCanvas,
   onUseResultAsReference,
+  onAcceptResult,
   onDeleteTurn,
   onRetryTurn,
   onReuseParameters,
@@ -256,6 +258,7 @@ function TurnRow({
   onSaveSelectedResults: (turnId: string) => void;
   onAddToCanvas: (turnId: string, index: number, assetId?: string | null) => void;
   onUseResultAsReference: (turnId: string, index: number) => void;
+  onAcceptResult: (turnId: string, index: number) => void;
   onDeleteTurn: (turnId: string) => void;
   onRetryTurn: (turnId: string) => void;
   onReuseParameters: (turnId: string) => void;
@@ -316,6 +319,7 @@ function TurnRow({
                   onToggleSelection={() => onToggleResultSelection(turn.id, entry.index)}
                   onAddToCanvas={() => onAddToCanvas(turn.id, entry.index, entry.assetId)}
                   onUseAsReference={() => onUseResultAsReference(turn.id, entry.index)}
+                  onAccept={() => onAcceptResult(turn.id, entry.index)}
                   onDownload={() => onDownloadResult(turn.id, entry.index)}
                   onUpscale={
                     meta.supportsUpscale
@@ -351,6 +355,7 @@ export function ImageChatFeed({
   onSaveSelectedResults,
   onAddToCanvas,
   onUseResultAsReference,
+  onAcceptResult,
   onDeleteTurn,
   onRetryTurn,
   onReuseParameters,
@@ -407,6 +412,7 @@ export function ImageChatFeed({
                 onSaveSelectedResults={onSaveSelectedResults}
                 onAddToCanvas={onAddToCanvas}
                 onUseResultAsReference={onUseResultAsReference}
+                onAcceptResult={onAcceptResult}
                 onDeleteTurn={onDeleteTurn}
                 onRetryTurn={onRetryTurn}
                 onReuseParameters={onReuseParameters}

@@ -24,6 +24,7 @@ import type {
 import type {
   ImageAspectRatio,
   ImageGenerationAssetRef,
+  ImagePromptIntentInput,
   ImageStyleId,
   ReferenceImage,
 } from "@/types/imageGeneration";
@@ -64,6 +65,7 @@ interface ImagePromptInputProps {
     negativePrompt: string;
     extra: Record<string, ImageModelParamValue>;
   };
+  promptIntent: Pick<ImagePromptIntentInput, "preserve" | "avoid" | "styleDirectives">;
   modelParamDefinitions: ImageModelParamDefinition[];
   referenceImages: ReferenceImage[];
   selectedAssetRefs: ImageGenerationAssetRef[];
@@ -86,6 +88,9 @@ interface ImagePromptInputProps {
     sampler?: string;
     negativePrompt?: string;
   }) => void;
+  onPromptIntentChange: (
+    patch: Partial<Pick<ImagePromptIntentInput, "preserve" | "avoid" | "styleDirectives">>
+  ) => void;
   onModelExtraParamChange: (key: string, value: ImageModelParamValue) => void;
   onAddReferenceFiles: (files: FileList) => void;
   onUpdateReferenceImage: (id: string, patch: Partial<ReferenceImage>) => void;
@@ -115,6 +120,12 @@ const toNumberOrNull = (value: string): number | null => {
   const next = Number(trimmedValue);
   return Number.isFinite(next) ? next : null;
 };
+
+const splitPromptIntentInput = (value: string) =>
+  value
+    .split(/[\n,]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 
 const parseAspectRatio = (ratio: ImageAspectRatio): number => {
   if (ratio === "custom") {
@@ -261,6 +272,7 @@ export function ImagePromptInput({
   maxBatchSize,
   commonParams,
   modelParams,
+  promptIntent,
   modelParamDefinitions,
   referenceImages,
   selectedAssetRefs,
@@ -272,6 +284,7 @@ export function ImagePromptInput({
   onSelectStylePreset,
   onCommonParamsChange,
   onModelParamsChange,
+  onPromptIntentChange,
   onModelExtraParamChange,
   onAddReferenceFiles,
   onUpdateReferenceImage,
@@ -785,6 +798,56 @@ export function ImagePromptInput({
                 })}
               </div>
             ) : null}
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">
+                  Preserve
+                </Label>
+                <textarea
+                  value={promptIntent.preserve.join(", ")}
+                  onChange={(event) =>
+                    onPromptIntentChange({
+                      preserve: splitPromptIntentInput(event.target.value),
+                    })
+                  }
+                  placeholder="face, composition, lighting"
+                  className="min-h-[88px] w-full resize-y rounded-[18px] border border-white/10 bg-black/30 px-4 py-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">
+                  Avoid
+                </Label>
+                <textarea
+                  value={promptIntent.avoid.join(", ")}
+                  onChange={(event) =>
+                    onPromptIntentChange({
+                      avoid: splitPromptIntentInput(event.target.value),
+                    })
+                  }
+                  placeholder="extra limbs, clutter, blur"
+                  className="min-h-[88px] w-full resize-y rounded-[18px] border border-white/10 bg-black/30 px-4 py-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">
+                  Style direction
+                </Label>
+                <textarea
+                  value={promptIntent.styleDirectives.join(", ")}
+                  onChange={(event) =>
+                    onPromptIntentChange({
+                      styleDirectives: splitPromptIntentInput(event.target.value),
+                    })
+                  }
+                  placeholder="premium, soft film grain, minimal"
+                  className="min-h-[88px] w-full resize-y rounded-[18px] border border-white/10 bg-black/30 px-4 py-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
+                />
+              </div>
+            </div>
 
             {providerFeatures.negativePrompt ? (
               <div className="space-y-1.5">

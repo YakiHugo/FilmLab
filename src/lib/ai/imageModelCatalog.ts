@@ -7,6 +7,7 @@ import type {
 import type {
   ImageAspectRatio,
   ImageGenerationAssetRef,
+  ImagePromptIntentInput,
   ImageStyleId,
   ReferenceImage,
 } from "@/types/imageGeneration";
@@ -35,6 +36,7 @@ export interface CatalogDrivenGenerationConfig {
   style: ImageStyleId;
   stylePreset: string;
   negativePrompt: string;
+  promptIntent: ImagePromptIntentInput;
   referenceImages: ReferenceImage[];
   assetRefs: ImageGenerationAssetRef[];
   seed: number | null;
@@ -153,6 +155,13 @@ export const createDefaultGenerationConfig = (
   style: (model.defaults.style as ImageStyleId) ?? "none",
   stylePreset: model.defaults.stylePreset,
   negativePrompt: model.defaults.negativePrompt,
+  promptIntent: {
+    preserve: [],
+    avoid: [],
+    styleDirectives: [],
+    continuityTargets: [],
+    editOps: [],
+  },
   referenceImages: [],
   assetRefs: [],
   seed: model.defaults.seed,
@@ -219,6 +228,13 @@ export const sanitizeGenerationConfigWithCatalog = (
         )
       : null,
     negativePrompt: featureSupport.negativePrompt ? config.negativePrompt : "",
+    promptIntent: {
+      preserve: [...config.promptIntent.preserve],
+      avoid: [...config.promptIntent.avoid],
+      styleDirectives: [...config.promptIntent.styleDirectives],
+      continuityTargets: [...config.promptIntent.continuityTargets],
+      editOps: config.promptIntent.editOps.map((entry) => ({ ...entry })),
+    },
     style: featureSupport.styles ? config.style : "none",
     stylePreset: featureSupport.styles ? config.stylePreset : "",
     assetRefs: [...config.assetRefs],

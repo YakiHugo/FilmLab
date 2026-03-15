@@ -168,6 +168,13 @@ const createConfig = (
     style: "cinematic",
     stylePreset: "",
     negativePrompt: "",
+    promptIntent: {
+      preserve: [],
+      avoid: [],
+      styleDirectives: [],
+      continuityTargets: [],
+      editOps: [],
+    },
     referenceImages: referenceImages ?? [],
     assetRefs: assetRefs ?? [],
     seed: null,

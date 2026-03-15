@@ -15,6 +15,13 @@ const buildTurn = (): ImageGenerationTurn => ({
     style: "none",
     stylePreset: "",
     negativePrompt: "",
+    promptIntent: {
+      preserve: [],
+      avoid: [],
+      styleDirectives: [],
+      continuityTargets: [],
+      editOps: [],
+    },
     referenceImages: [],
     assetRefs: [],
     seed: null,
@@ -68,6 +75,7 @@ const renderFeed = () =>
       onSaveSelectedResults={noop}
       onAddToCanvas={noop}
       onUseResultAsReference={noop}
+      onAcceptResult={noop}
       onDeleteTurn={noop}
       onRetryTurn={noop}
       onReuseParameters={noop}

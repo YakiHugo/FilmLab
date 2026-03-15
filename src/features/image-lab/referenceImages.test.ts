@@ -16,6 +16,13 @@ const createConfig = (): GenerationConfig => ({
   style: "none",
   stylePreset: "",
   negativePrompt: "",
+  promptIntent: {
+    preserve: [],
+    avoid: [],
+    styleDirectives: [],
+    continuityTargets: [],
+    editOps: [],
+  },
   referenceImages: [],
   assetRefs: [],
   seed: null,

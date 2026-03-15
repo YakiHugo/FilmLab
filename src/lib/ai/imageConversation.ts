@@ -64,3 +64,21 @@ export const deleteImageConversationTurn = async (
       headers: toAuthorizedHeaders(),
     })
   );
+
+export const acceptImageConversationTurn = async (
+  turnId: string,
+  assetId: string
+): Promise<PersistedImageSession> =>
+  parseConversationResponse(
+    await fetch(
+      resolveApiUrl(`/api/image-conversation/turns/${encodeURIComponent(turnId)}/accept`),
+      {
+        method: "POST",
+        headers: {
+          ...toAuthorizedHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ assetId }),
+      }
+    )
+  );

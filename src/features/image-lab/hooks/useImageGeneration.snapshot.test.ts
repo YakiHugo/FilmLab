@@ -14,6 +14,13 @@ describe("image generation request snapshots", () => {
       aspectRatio: "1:1",
       style: "none",
       batchSize: 1,
+      promptIntent: {
+        preserve: [],
+        avoid: [],
+        styleDirectives: [],
+        continuityTargets: [],
+        editOps: [],
+      },
       modelParams: {
         promptExtend: true,
       },
@@ -54,6 +61,13 @@ describe("image generation request snapshots", () => {
       aspectRatio: "1:1",
       style: "none",
       batchSize: 1,
+      promptIntent: {
+        preserve: [],
+        avoid: [],
+        styleDirectives: [],
+        continuityTargets: [],
+        editOps: [],
+      },
       modelParams: {
         promptExtend: true,
       },
@@ -79,6 +93,13 @@ describe("image generation request snapshots", () => {
       style: "none",
       stylePreset: "",
       negativePrompt: "",
+      promptIntent: {
+        preserve: [],
+        avoid: [],
+        styleDirectives: [],
+        continuityTargets: [],
+        editOps: [],
+      },
       referenceImages: [
         {
           id: "missing-ref",

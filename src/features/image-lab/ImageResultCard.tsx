@@ -1,5 +1,6 @@
 import {
   ArrowUpFromLine,
+  Check,
   Download,
   Ellipsis,
   Expand,
@@ -26,6 +27,7 @@ interface ImageResultCardProps {
   onUpscale?: () => void;
   onVary?: () => void;
   onUseAsReference?: () => void;
+  onAccept?: () => void;
   onFullscreen?: () => void;
   isUpscaling?: boolean;
   upscaleError?: string | null;
@@ -45,6 +47,7 @@ export function ImageResultCard({
   onUpscale,
   onVary,
   onUseAsReference,
+  onAccept,
   onFullscreen,
   isUpscaling = false,
   upscaleError = null,
@@ -75,6 +78,7 @@ export function ImageResultCard({
   const iconSm = "h-3.5 w-3.5";
   const canToggleSelection = Boolean(onToggleSelection && !saved);
   const canUseAsReference = Boolean(threadAssetId && onUseAsReference);
+  const canAccept = Boolean(threadAssetId && onAccept);
   const canAddToCanvas = Boolean(onAddToCanvas);
   const upscaleTitle = onUpscale ? "Upscale image" : "Upscale is not available for this result";
 
@@ -168,6 +172,18 @@ export function ImageResultCard({
                 className="flex w-full items-center gap-2.5 px-3 py-2 text-[12px] text-zinc-200 transition hover:bg-white/[0.06] disabled:text-zinc-500"
                 onClick={() => {
                   setMenuOpen(false);
+                  onAccept?.();
+                }}
+                disabled={!canAccept}
+              >
+                <Check className={iconSm} />
+                Set base
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-[12px] text-zinc-200 transition hover:bg-white/[0.06] disabled:text-zinc-500"
+                onClick={() => {
+                  setMenuOpen(false);
                   onUseAsReference?.();
                 }}
                 disabled={!canUseAsReference}
@@ -234,6 +250,15 @@ export function ImageResultCard({
 
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center pb-2.5 opacity-0 transition-opacity duration-200 group-hover/card:pointer-events-auto group-hover/card:opacity-100">
           <div className="flex items-center gap-1">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[12px] font-medium text-white/80 transition hover:bg-white/10 hover:text-white disabled:text-white/40"
+              onClick={onAccept}
+              disabled={!canAccept}
+            >
+              <Check className={iconSm} />
+              Base
+            </button>
             <button
               type="button"
               className="inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[12px] font-medium text-white/80 transition hover:bg-white/10 hover:text-white disabled:text-white/40"
