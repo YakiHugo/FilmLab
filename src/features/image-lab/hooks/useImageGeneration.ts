@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   GenerationJobSnapshot,
+  PersistedPromptArtifactRecord,
   PersistedRunRecord,
   PersistedImageGenerationRequestSnapshot,
   PersistedImageSession,
@@ -13,6 +14,7 @@ import {
   clearImageConversation,
   deleteImageConversationTurn,
   fetchImageConversation,
+  fetchImagePromptArtifacts,
 } from "@/lib/ai/imageConversation";
 import type { ImageModelParamValue } from "@/lib/ai/imageModelParams";
 import {
@@ -97,6 +99,9 @@ export interface ImageGenerationTurn {
   error: string | null;
   warnings: string[];
   isSavingSelection: boolean;
+  promptArtifactsStatus: "idle" | "loading" | "loaded" | "error";
+  promptArtifactsError: string | null;
+  promptArtifacts: PersistedPromptArtifactRecord[] | null;
   results: GeneratedResultItem[];
 }
 
@@ -126,6 +131,16 @@ interface RuntimeResultState {
 
 type RuntimeResultStateMap = Record<string, Record<number, RuntimeResultState>>;
 
+type PromptArtifactLoadStatus = "idle" | "loading" | "loaded" | "error";
+
+interface PromptArtifactTurnState {
+  status: PromptArtifactLoadStatus;
+  error: string | null;
+  versions: PersistedPromptArtifactRecord[] | null;
+}
+
+type PromptArtifactTurnStateMap = Record<string, PromptArtifactTurnState>;
+
 const createElementId = () => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -146,6 +161,23 @@ const createJobId = () => {
   }
   return `image-job-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 };
+
+const createPromptArtifactTurnState = (
+  overrides?: Partial<PromptArtifactTurnState>
+): PromptArtifactTurnState => ({
+  status: "idle",
+  error: null,
+  versions: null,
+  ...overrides,
+});
+
+export const shouldFetchPromptArtifacts = (
+  turnStatus: PersistedGenerationTurn["status"],
+  currentState?: Pick<PromptArtifactTurnState, "status"> | null
+) =>
+  turnStatus !== "loading" &&
+  currentState?.status !== "loaded" &&
+  currentState?.status !== "loading";
 
 export const RETRY_REFERENCE_IMAGES_OMITTED_WARNING =
   "Reference images from history are no longer available and were omitted. This retry will run without them, so re-upload the reference images if you need the same result.";
@@ -577,6 +609,7 @@ const toUITurn = (
   relatedRuns: PersistedRunRecord[],
   runtimeResults: Record<number, RuntimeResultState> | undefined,
   isSavingSelection: boolean,
+  promptArtifactState: PromptArtifactTurnState | undefined,
   catalog: ImageModelCatalog | null | undefined
 ): ImageGenerationTurn => {
   const displayMeta = resolveSnapshotDisplayMeta(turn.configSnapshot, catalog);
@@ -609,6 +642,9 @@ const toUITurn = (
     error: turn.error,
     warnings: turn.warnings,
     isSavingSelection,
+    promptArtifactsStatus: promptArtifactState?.status ?? "idle",
+    promptArtifactsError: promptArtifactState?.error ?? null,
+    promptArtifacts: promptArtifactState?.versions ?? null,
     results: turn.results.map((result) => {
       const runtimeState = runtimeResults?.[result.index];
       return {
@@ -947,13 +983,16 @@ export function useImageGeneration() {
 
   const [savingTurnIds, setSavingTurnIds] = useState<Record<string, boolean>>({});
   const [runtimeResults, setRuntimeResults] = useState<RuntimeResultStateMap>({});
+  const [promptArtifacts, setPromptArtifacts] = useState<PromptArtifactTurnStateMap>({});
   const [notice, setNotice] = useState<string | null>(null);
   const sessionRef = useRef(session);
   const serverConversationIdRef = useRef<string | null>(null);
   const savingTurnIdsRef = useRef(savingTurnIds);
   const runtimeResultsRef = useRef(runtimeResults);
+  const promptArtifactsRef = useRef(promptArtifacts);
   const snapshotVersionRef = useRef(0);
   const snapshotRequestAbortRef = useRef<AbortController | null>(null);
+  const promptArtifactAbortRef = useRef(new Map<string, AbortController>());
   const uiTurnCacheRef = useRef(
     new Map<
       string,
@@ -962,6 +1001,7 @@ export function useImageGeneration() {
         runs: PersistedRunRecord[];
         runtimeResults: Record<number, RuntimeResultState> | undefined;
         isSavingSelection: boolean;
+        promptArtifacts: PromptArtifactTurnState | undefined;
         uiTurn: ImageGenerationTurn;
       }
     >()
@@ -975,6 +1015,7 @@ export function useImageGeneration() {
   sessionRef.current = session;
   savingTurnIdsRef.current = savingTurnIds;
   runtimeResultsRef.current = runtimeResults;
+  promptArtifactsRef.current = promptArtifacts;
 
   useEffect(() => {
     return () => {
@@ -982,6 +1023,8 @@ export function useImageGeneration() {
       generationRequestRef.current = null;
       snapshotRequestAbortRef.current?.abort();
       snapshotRequestAbortRef.current = null;
+      promptArtifactAbortRef.current.forEach((controller) => controller.abort());
+      promptArtifactAbortRef.current.clear();
     };
   }, []);
 
@@ -1131,9 +1174,95 @@ export function useImageGeneration() {
     });
   }, []);
 
+  const clearPromptArtifactState = useCallback((turnId: string) => {
+    promptArtifactAbortRef.current.get(turnId)?.abort();
+    promptArtifactAbortRef.current.delete(turnId);
+    setPromptArtifacts((previous) => {
+      if (!previous[turnId]) {
+        return previous;
+      }
+      const next = { ...previous };
+      delete next[turnId];
+      return next;
+    });
+  }, []);
+
+  const clearAllPromptArtifactState = useCallback(() => {
+    promptArtifactAbortRef.current.forEach((controller) => controller.abort());
+    promptArtifactAbortRef.current.clear();
+    setPromptArtifacts({});
+  }, []);
+
   const getTurnById = useCallback(
     (turnId: string) => sessionRef.current?.turns.find((entry) => entry.id === turnId) ?? null,
     []
+  );
+
+  const loadPromptArtifacts = useCallback(
+    async (turnId: string) => {
+      const turn = getTurnById(turnId);
+      if (!turn || turn.status === "loading") {
+        return null;
+      }
+
+      const cachedState = promptArtifactsRef.current[turnId];
+      if (!shouldFetchPromptArtifacts(turn.status, cachedState)) {
+        return cachedState?.versions ?? null;
+      }
+
+      promptArtifactAbortRef.current.get(turnId)?.abort();
+      const controller = new AbortController();
+      promptArtifactAbortRef.current.set(turnId, controller);
+      setPromptArtifacts((previous) => ({
+        ...previous,
+        [turnId]: createPromptArtifactTurnState({
+          status: "loading",
+          versions: previous[turnId]?.versions ?? null,
+        }),
+      }));
+
+      try {
+        const response = await fetchImagePromptArtifacts(turnId, {
+          signal: controller.signal,
+        });
+        if (
+          controller.signal.aborted ||
+          promptArtifactAbortRef.current.get(turnId) !== controller
+        ) {
+          return null;
+        }
+
+        setPromptArtifacts((previous) => ({
+          ...previous,
+          [turnId]: createPromptArtifactTurnState({
+            status: "loaded",
+            versions: response.versions,
+          }),
+        }));
+        return response.versions;
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return null;
+        }
+
+        const message =
+          error instanceof Error ? error.message : "Prompt artifacts could not be loaded.";
+        setPromptArtifacts((previous) => ({
+          ...previous,
+          [turnId]: createPromptArtifactTurnState({
+            status: "error",
+            error: message,
+            versions: previous[turnId]?.versions ?? null,
+          }),
+        }));
+        return null;
+      } finally {
+        if (promptArtifactAbortRef.current.get(turnId) === controller) {
+          promptArtifactAbortRef.current.delete(turnId);
+        }
+      }
+    },
+    [getTurnById]
   );
 
   const getCachedUiTurn = useCallback(
@@ -1141,7 +1270,8 @@ export function useImageGeneration() {
       turn: PersistedGenerationTurn,
       runs: PersistedRunRecord[],
       runtimeState: Record<number, RuntimeResultState> | undefined,
-      isSavingSelection: boolean
+      isSavingSelection: boolean,
+      promptArtifactState: PromptArtifactTurnState | undefined
     ) => {
       const cached = uiTurnCacheRef.current.get(turn.id);
       if (
@@ -1149,17 +1279,26 @@ export function useImageGeneration() {
         cached.turn === turn &&
         cached.runs === runs &&
         cached.runtimeResults === runtimeState &&
-        cached.isSavingSelection === isSavingSelection
+        cached.isSavingSelection === isSavingSelection &&
+        cached.promptArtifacts === promptArtifactState
       ) {
         return cached.uiTurn;
       }
 
-      const uiTurn = toUITurn(turn, runs, runtimeState, isSavingSelection, catalog);
+      const uiTurn = toUITurn(
+        turn,
+        runs,
+        runtimeState,
+        isSavingSelection,
+        promptArtifactState,
+        catalog
+      );
       uiTurnCacheRef.current.set(turn.id, {
         turn,
         runs,
         runtimeResults: runtimeState,
         isSavingSelection,
+        promptArtifacts: promptArtifactState,
         uiTurn,
       });
       return uiTurn;
@@ -1179,7 +1318,8 @@ export function useImageGeneration() {
         turn,
         runs,
         runtimeResultsRef.current[turnId],
-        Boolean(savingTurnIdsRef.current[turnId])
+        Boolean(savingTurnIdsRef.current[turnId]),
+        promptArtifactsRef.current[turnId]
       );
     },
     [getCachedUiTurn, getTurnById]
@@ -1416,6 +1556,7 @@ export function useImageGeneration() {
         });
         uiTurnCacheRef.current.delete(turnId);
         clearRuntimeTurnState(turnId);
+        clearPromptArtifactState(turnId);
         void refreshConversationSnapshot(generated.conversationId).catch(() => undefined);
 
         return generated.images;
@@ -1446,6 +1587,7 @@ export function useImageGeneration() {
         });
         uiTurnCacheRef.current.delete(turnId);
         clearRuntimeTurnState(turnId);
+        clearPromptArtifactState(turnId);
         return null;
       } finally {
         if (
@@ -1461,6 +1603,7 @@ export function useImageGeneration() {
       addTurnWithJob,
       catalog,
       cancelActiveGeneration,
+      clearPromptArtifactState,
       clearRuntimeTurnState,
       invalidateConversationSnapshotRequests,
       modelConfig,
@@ -1553,6 +1696,7 @@ export function useImageGeneration() {
         applyConversationSnapshot(snapshot);
         uiTurnCacheRef.current.delete(turnId);
         clearRuntimeTurnState(turnId);
+        clearPromptArtifactState(turnId);
       } catch (error) {
         updateTurn(turnId, {
           error: error instanceof Error ? error.message : "Turn could not be deleted.",
@@ -1562,6 +1706,7 @@ export function useImageGeneration() {
     [
       applyConversationSnapshot,
       cancelActiveGeneration,
+      clearPromptArtifactState,
       clearRuntimeTurnState,
       invalidateConversationSnapshotRequests,
       updateTurn,
@@ -1937,8 +2082,14 @@ export function useImageGeneration() {
     uiTurnCacheRef.current.clear();
     setSavingTurnIds({});
     setRuntimeResults({});
+    clearAllPromptArtifactState();
     applyConversationSnapshot(await clearImageConversation());
-  }, [applyConversationSnapshot, cancelActiveGeneration, invalidateConversationSnapshotRequests]);
+  }, [
+    applyConversationSnapshot,
+    cancelActiveGeneration,
+    clearAllPromptArtifactState,
+    invalidateConversationSnapshotRequests,
+  ]);
 
   const turns = useMemo(
     () => {
@@ -1955,11 +2106,12 @@ export function useImageGeneration() {
           turn,
           (session?.runs ?? []).filter((entry) => entry.turnId === turn.id),
           runtimeResults[turn.id],
-          Boolean(savingTurnIds[turn.id])
+          Boolean(savingTurnIds[turn.id]),
+          promptArtifacts[turn.id]
         )
       );
     },
-    [getCachedUiTurn, runtimeResults, savingTurnIds, session?.runs, session?.turns]
+    [getCachedUiTurn, promptArtifacts, runtimeResults, savingTurnIds, session?.runs, session?.turns]
   );
 
   const aspectRatioOptions = useMemo<ImageAspectRatio[]>(
@@ -1998,6 +2150,7 @@ export function useImageGeneration() {
     useResultAsReference,
     editFromResult,
     varyFromResult,
+    loadPromptArtifacts,
     generateFromPromptInput,
     deleteTurn,
     acceptTurnResult,

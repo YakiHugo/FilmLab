@@ -3,6 +3,7 @@ import {
   RETRY_REFERENCE_IMAGES_OMITTED_WARNING,
   omitUnavailableReferenceImages,
   resolveRetryRequestSnapshot,
+  shouldFetchPromptArtifacts,
   toPersistedRequestSnapshot,
 } from "./useImageGeneration";
 
@@ -141,5 +142,13 @@ describe("image generation request snapshots", () => {
       { assetId: "thread-asset-2", role: "reference" },
       { assetId: "thread-asset-edit", role: "edit" },
     ]);
+  });
+
+  it("only fetches prompt artifacts lazily when they are not already cached", () => {
+    expect(shouldFetchPromptArtifacts("done", null)).toBe(true);
+    expect(shouldFetchPromptArtifacts("done", { status: "error" })).toBe(true);
+    expect(shouldFetchPromptArtifacts("done", { status: "loaded" })).toBe(false);
+    expect(shouldFetchPromptArtifacts("done", { status: "loading" })).toBe(false);
+    expect(shouldFetchPromptArtifacts("loading", null)).toBe(false);
   });
 });

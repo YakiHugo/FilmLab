@@ -71,6 +71,7 @@ export function ImageLabPage() {
     updateAssetRefRole,
     clearAssetReferences,
     clearSession,
+    loadPromptArtifacts,
   } = imageGeneration;
   const turnsRef = useRef(turns);
   turnsRef.current = turns;
@@ -286,6 +287,7 @@ export function ImageLabPage() {
         onUseResultAsReference={useResultAsReference}
         onEditFromResult={editFromResult}
         onVaryResult={varyFromResult}
+        onLoadPromptArtifacts={loadPromptArtifacts}
         onAcceptResult={handleAcceptResult}
         onDeleteTurn={deleteTurn}
         onRetryTurn={handleRetryTurn}

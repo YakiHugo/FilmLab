@@ -1,4 +1,7 @@
-import type { PersistedImageSession } from "../../../shared/chatImageTypes";
+import type {
+  PersistedImageSession,
+  TurnPromptArtifactsResponse,
+} from "../../../shared/chatImageTypes";
 import { resolveApiUrl } from "@/lib/api/resolveApiUrl";
 import { getClientAuthToken } from "@/lib/authToken";
 
@@ -29,6 +32,30 @@ const parseConversationResponse = async (response: Response): Promise<PersistedI
   }
 
   return json as unknown as PersistedImageSession;
+};
+
+const parsePromptArtifactsResponse = async (
+  response: Response
+): Promise<TurnPromptArtifactsResponse> => {
+  if (!response.ok) {
+    let message = "Image conversation request failed.";
+    try {
+      const payload = (await response.json()) as { error?: string };
+      if (typeof payload.error === "string" && payload.error.trim()) {
+        message = payload.error;
+      }
+    } catch {
+      // Keep fallback.
+    }
+    throw new Error(message);
+  }
+
+  const json = (await response.json()) as unknown;
+  if (!isRecord(json)) {
+    throw new Error("Invalid prompt artifact response.");
+  }
+
+  return json as unknown as TurnPromptArtifactsResponse;
 };
 
 export const fetchImageConversation = async (
@@ -79,6 +106,20 @@ export const acceptImageConversationTurn = async (
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ assetId }),
+      }
+    )
+  );
+
+export const fetchImagePromptArtifacts = async (
+  turnId: string,
+  options?: { signal?: AbortSignal }
+): Promise<TurnPromptArtifactsResponse> =>
+  parsePromptArtifactsResponse(
+    await fetch(
+      resolveApiUrl(`/api/image-conversation/turns/${encodeURIComponent(turnId)}/prompt-artifacts`),
+      {
+        headers: toAuthorizedHeaders(),
+        signal: options?.signal,
       }
     )
   );
