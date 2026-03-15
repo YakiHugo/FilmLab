@@ -1,6 +1,7 @@
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import { describe, expect, it, vi } from "vitest";
 import { canvas2dCompositeBackend } from "./canvas2dCompositeBackend";
+import { createCanvasBackedCompositeLayerSurface } from "./compositeBackend";
 import { composeRenderGraphToCanvas } from "./renderGraphComposition";
 import type { RenderGraph } from "./renderGraph";
 
@@ -151,7 +152,10 @@ describe("renderGraphComposition", () => {
       renderGraph,
       backend: canvas2dCompositeBackend,
       workspace: {
-        getLayerCanvas: (layerId) => (layerId === "top" ? topCanvas : bottomCanvas),
+        getLayerSurface: (layerId) =>
+          createCanvasBackedCompositeLayerSurface(
+            layerId === "top" ? topCanvas : bottomCanvas
+          ),
         getLayerMaskCanvas: () => maskCanvas,
         getLayerMaskScratchCanvas: () => maskCanvas,
         getMaskedLayerCanvas: () => maskedCanvas,
@@ -206,8 +210,10 @@ describe("renderGraphComposition", () => {
       renderGraph,
       backend: canvas2dCompositeBackend,
       workspace: {
-        getLayerCanvas: () =>
-          ({ id: "layer-canvas", width: 800, height: 600 } as HTMLCanvasElement),
+        getLayerSurface: () =>
+          createCanvasBackedCompositeLayerSurface(
+            { id: "layer-canvas", width: 800, height: 600 } as HTMLCanvasElement
+          ),
         getLayerMaskCanvas: () => maskCanvas,
         getLayerMaskScratchCanvas: () => maskCanvas,
         getMaskedLayerCanvas: () => maskedCanvas,
@@ -241,7 +247,7 @@ describe("renderGraphComposition", () => {
       },
       backend: canvas2dCompositeBackend,
       workspace: {
-        getLayerCanvas: () => bottomCanvas,
+        getLayerSurface: () => createCanvasBackedCompositeLayerSurface(bottomCanvas),
         getLayerMaskCanvas: () => maskCanvas,
         getLayerMaskScratchCanvas: () => maskCanvas,
         getMaskedLayerCanvas: () => maskedCanvas,

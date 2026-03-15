@@ -25,25 +25,29 @@ const resolveLayerDrawSource = (
   options: Pick<CompositeBackendComposeOptions, "targetSize" | "workspace">
 ): CanvasImageSource => {
   if (!layer.mask) {
-    return layer.surface.canvas;
+    return layer.surface.drawSource;
   }
 
   const generatedMask = generateMaskTexture(layer.mask.value, {
     width: options.targetSize.width,
     height: options.targetSize.height,
-    referenceSource: layer.mask.referenceSource ?? layer.surface.canvas,
+    referenceSource: layer.mask.referenceSource ?? layer.surface.drawSource,
     targetCanvas: options.workspace.getLayerMaskCanvas(layer.layerId),
     scratchCanvas: options.workspace.getLayerMaskScratchCanvas(layer.layerId),
   });
 
   if (!generatedMask) {
-    return layer.surface.canvas;
+    return layer.surface.drawSource;
   }
 
   return applyMaskToLayerCanvas(
-    layer.surface.canvas,
+    layer.surface.drawSource,
     generatedMask,
-    options.workspace.getMaskedLayerCanvas(layer.layerId)
+    {
+      width: layer.surface.width,
+      height: layer.surface.height,
+      targetCanvas: options.workspace.getMaskedLayerCanvas(layer.layerId),
+    }
   );
 };
 

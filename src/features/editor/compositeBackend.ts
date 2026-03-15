@@ -2,10 +2,27 @@ import type { EditorLayerBlendMode, EditorLayerMask } from "@/types";
 import type { CanvasCompositeRegion } from "./composition";
 
 export interface CompositeLayerSurface {
-  canvas: HTMLCanvasElement;
+  kind: string;
+  drawSource: CanvasImageSource;
   width: number;
   height: number;
 }
+
+export interface CanvasBackedCompositeLayerSurface extends CompositeLayerSurface {
+  kind: "canvas";
+  drawSource: HTMLCanvasElement;
+  renderTarget: HTMLCanvasElement;
+}
+
+export const createCanvasBackedCompositeLayerSurface = (
+  canvas: HTMLCanvasElement
+): CanvasBackedCompositeLayerSurface => ({
+  kind: "canvas",
+  drawSource: canvas,
+  renderTarget: canvas,
+  width: canvas.width,
+  height: canvas.height,
+});
 
 export interface CompositeLayerRequest {
   layerId: string;

@@ -1,20 +1,21 @@
 import { ensureCanvasSize, type CanvasCompositeRegion } from "./composition";
 import type {
   CompositeBackend,
+  CanvasBackedCompositeLayerSurface,
   CompositeBackendWorkspace,
   CompositeLayerRequest,
 } from "./compositeBackend";
 import type { RenderGraph, RenderLayerNode } from "./renderGraph";
 
-export interface RenderGraphCanvasWorkspace extends CompositeBackendWorkspace {
-  getLayerCanvas: (layerId: string) => HTMLCanvasElement;
+export interface RenderGraphLayerWorkspace extends CompositeBackendWorkspace {
+  getLayerSurface: (layerId: string) => CanvasBackedCompositeLayerSurface;
 }
 
 interface ComposeRenderGraphToCanvasOptions {
   targetCanvas: HTMLCanvasElement;
   renderGraph: RenderGraph;
   backend: CompositeBackend;
-  workspace: RenderGraphCanvasWorkspace;
+  workspace: RenderGraphLayerWorkspace;
   region?: CanvasCompositeRegion | null;
   targetSize: {
     width: number;
@@ -22,7 +23,7 @@ interface ComposeRenderGraphToCanvasOptions {
   };
   renderLayerNode: (
     node: RenderLayerNode,
-    canvas: HTMLCanvasElement,
+    surface: CanvasBackedCompositeLayerSurface,
     layerIndex: number
   ) => Promise<void>;
 }
@@ -45,22 +46,20 @@ export const composeRenderGraphToCanvas = async ({
 
   for (let layerIndex = 0; layerIndex < layersBottomToTop.length; layerIndex += 1) {
     const node = layersBottomToTop[layerIndex]!;
-    const layerCanvas = workspace.getLayerCanvas(node.id);
-    ensureCanvasSize(layerCanvas, targetSize.width, targetSize.height);
-    await renderLayerNode(node, layerCanvas, layerIndex);
+    const layerSurface = workspace.getLayerSurface(node.id);
+    ensureCanvasSize(layerSurface.renderTarget, targetSize.width, targetSize.height);
+    layerSurface.width = layerSurface.renderTarget.width;
+    layerSurface.height = layerSurface.renderTarget.height;
+    await renderLayerNode(node, layerSurface, layerIndex);
     layerRequests.push({
       layerId: node.id,
-      surface: {
-        canvas: layerCanvas,
-        width: layerCanvas.width,
-        height: layerCanvas.height,
-      },
+      surface: layerSurface,
       opacity: node.opacity,
       blendMode: node.blendMode,
       mask: node.mask
         ? {
             value: node.mask,
-            referenceSource: layerCanvas,
+            referenceSource: layerSurface.drawSource,
           }
         : undefined,
     });

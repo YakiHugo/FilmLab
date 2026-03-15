@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import { createCanvasBackedCompositeLayerSurface } from "./compositeBackend";
 import { createRenderDocument } from "./document";
 import { renderDocumentToCanvas } from "./renderDocumentCanvas";
 
@@ -145,7 +146,7 @@ describe("renderDocumentToCanvas", () => {
       }: {
         renderGraph: typeof renderDocument.renderGraph;
         workspace: {
-          getLayerCanvas: (layerId: string) => HTMLCanvasElement;
+          getLayerSurface: (layerId: string) => ReturnType<typeof createCanvasBackedCompositeLayerSurface>;
         };
         targetSize: {
           width: number;
@@ -153,18 +154,20 @@ describe("renderDocumentToCanvas", () => {
         };
         renderLayerNode: (
           node: (typeof renderDocument.renderGraph.layers)[number],
-          canvas: HTMLCanvasElement,
+          surface: ReturnType<typeof createCanvasBackedCompositeLayerSurface>,
           layerIndex: number
         ) => Promise<void>;
       }) => {
         const layersBottomToTop = [...renderGraph.layers].reverse();
         for (let layerIndex = 0; layerIndex < layersBottomToTop.length; layerIndex += 1) {
           const layerNode = layersBottomToTop[layerIndex]!;
-          const layerCanvas = workspace.getLayerCanvas(layerNode.id);
-          layerCanvas.width = targetSize.width;
-          layerCanvas.height = targetSize.height;
-          renderedLayerCanvases.push(layerCanvas);
-          await renderLayerNode(layerNode, layerCanvas, layerIndex);
+          const layerSurface = workspace.getLayerSurface(layerNode.id);
+          layerSurface.renderTarget.width = targetSize.width;
+          layerSurface.renderTarget.height = targetSize.height;
+          layerSurface.width = targetSize.width;
+          layerSurface.height = targetSize.height;
+          renderedLayerCanvases.push(layerSurface.renderTarget);
+          await renderLayerNode(layerNode, layerSurface, layerIndex);
         }
         return true;
       }

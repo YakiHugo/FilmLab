@@ -8,7 +8,7 @@ export interface CanvasCompositeRegion {
 }
 
 export interface CanvasCompositeLayerSurface {
-  canvas: CanvasImageSource;
+  drawSource: CanvasImageSource;
   opacity: number;
   blendMode: EditorLayerBlendMode;
 }
@@ -100,7 +100,7 @@ export const compositeCanvasLayers = ({
     );
     if (drawRegion) {
       context.drawImage(
-        layerSurface.canvas,
+        layerSurface.drawSource,
         drawRegion.x,
         drawRegion.y,
         drawRegion.width,
@@ -111,7 +111,7 @@ export const compositeCanvasLayers = ({
         drawRegion.height
       );
     } else {
-      context.drawImage(layerSurface.canvas, 0, 0, targetCanvas.width, targetCanvas.height);
+      context.drawImage(layerSurface.drawSource, 0, 0, targetCanvas.width, targetCanvas.height);
     }
     context.restore();
   }
