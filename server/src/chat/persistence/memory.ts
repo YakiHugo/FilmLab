@@ -5,6 +5,7 @@ import type {
   GenerationJobSnapshot,
   PersistedGenerationTurn,
   PersistedImageSession,
+  PromptObservabilitySummaryResponse,
   TurnPromptArtifactsResponse,
   PersistedRunRecord,
   PersistedResultItem,
@@ -33,6 +34,7 @@ import type {
   UpdateConversationPromptStateInput,
 } from "./types";
 import { hashGeneratedImageToken } from "../../shared/generatedImageCapability";
+import { buildPromptObservabilitySummary } from "./promptObservability";
 
 interface MemoryTurnRecord extends PersistedGenerationTurn {
   conversationId: string;
@@ -225,6 +227,51 @@ export class MemoryChatStateRepository implements ChatStateRepository {
       turnId,
       versions,
     };
+  }
+
+  async getPromptObservabilityForConversation(
+    userId: string,
+    conversationId?: string
+  ): Promise<PromptObservabilitySummaryResponse | null> {
+    const conversation = conversationId
+      ? await this.getConversationById(userId, conversationId)
+      : await this.getOrCreateActiveConversation(userId);
+    if (!conversation) {
+      return null;
+    }
+
+    const turns = sortNewestFirst(
+      Array.from(this.turns.values())
+        .filter((turn) => turn.conversationId === conversation.id && !turn.isHidden)
+        .map((turn) => ({
+          id: turn.id,
+          prompt: turn.prompt,
+          createdAt: turn.createdAt,
+        }))
+    );
+    const visibleTurnIds = new Set(turns.map((turn) => turn.id));
+    const runs = sortNewestFirst(
+      Array.from(this.runs.values()).filter(
+        (run) => run.conversationId === conversation.id && visibleTurnIds.has(run.turnId)
+      )
+    );
+    const artifacts = [...(this.promptVersions.get(conversation.id) ?? [])]
+      .filter((version) => visibleTurnIds.has(version.turnId))
+      .sort((left, right) => {
+        const versionDelta = left.version - right.version;
+        if (versionDelta !== 0) {
+          return versionDelta;
+        }
+        return left.createdAt.localeCompare(right.createdAt);
+      })
+      .map((version) => structuredClone(version));
+
+    return buildPromptObservabilitySummary({
+      conversationId: conversation.id,
+      turns,
+      runs,
+      artifacts,
+    });
   }
 
   async clearActiveConversation(userId: string) {

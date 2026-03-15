@@ -315,6 +315,48 @@ export interface TurnPromptArtifactsResponse {
   versions: PersistedPromptArtifactRecord[];
 }
 
+export interface PromptObservabilityOverview {
+  totalTurns: number;
+  turnsWithArtifacts: number;
+  degradedTurns: number;
+  fallbackTurns: number;
+}
+
+export interface PromptObservabilityLossSummary {
+  code: PersistedSemanticLoss["code"];
+  occurrenceCount: number;
+  turnCount: number;
+  latestCreatedAt: string;
+}
+
+export interface PromptObservabilityTargetSummary {
+  targetKey: string;
+  compileArtifactCount: number;
+  dispatchArtifactCount: number;
+  degradedDispatchCount: number;
+  latestCreatedAt: string;
+}
+
+export interface PromptObservabilityTurnSummary {
+  turnId: string;
+  prompt: string;
+  createdAt: string;
+  artifactCount: number;
+  semanticLossCodes: PersistedSemanticLoss["code"][];
+  degraded: boolean;
+  fallback: boolean;
+  selectedTargetKey: string | null;
+  executedTargetKey: string | null;
+}
+
+export interface PromptObservabilitySummaryResponse {
+  conversationId: string;
+  overview: PromptObservabilityOverview;
+  semanticLosses: PromptObservabilityLossSummary[];
+  targets: PromptObservabilityTargetSummary[];
+  turns: PromptObservabilityTurnSummary[];
+}
+
 export interface PreparedGenerationContext {
   assetRefs: ImageGenerationAssetRef[];
   referencedAssetIds: string[];

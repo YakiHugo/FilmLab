@@ -593,6 +593,176 @@ describe("MemoryChatStateRepository", () => {
     expect(await repository.getPromptArtifactsForTurn("user-1", "turn-1")).toBeNull();
   });
 
+  it("returns zeroed observability for an empty visible conversation", async () => {
+    const repository = new MemoryChatStateRepository();
+    const conversation = await repository.getOrCreateActiveConversation("user-1");
+
+    await repository.createGeneration(
+      createGenerationInput({
+        conversationId: conversation.id,
+        turnId: "turn-hidden",
+        jobId: "job-hidden",
+        runId: "run-hidden",
+        attemptId: "attempt-hidden",
+      })
+    );
+    await repository.deleteTurn("user-1", "turn-hidden");
+
+    const summary = await repository.getPromptObservabilityForConversation(
+      "user-1",
+      conversation.id
+    );
+
+    expect(summary).toEqual({
+      conversationId: conversation.id,
+      overview: {
+        totalTurns: 0,
+        turnsWithArtifacts: 0,
+        degradedTurns: 0,
+        fallbackTurns: 0,
+      },
+      semanticLosses: [],
+      targets: [],
+      turns: [],
+    });
+  });
+
+  it("aggregates artifact-level semantic loss occurrences separately from turn counts", async () => {
+    const repository = new MemoryChatStateRepository();
+    const conversation = await repository.getOrCreateActiveConversation("user-1");
+
+    await repository.createGeneration(
+      createGenerationInput({
+        conversationId: conversation.id,
+        turnId: "turn-1",
+        jobId: "job-1",
+        runId: "run-1",
+        attemptId: "attempt-1",
+      })
+    );
+    await repository.createPromptVersions({
+      conversationId: conversation.id,
+      versions: [
+        {
+          id: "artifact-compile",
+          runId: "run-1",
+          turnId: "turn-1",
+          version: 1,
+          stage: "compile",
+          targetKey: "dashscope:qwen-image-2.0-pro",
+          attempt: null,
+          compilerVersion: "prompt-compiler.v1.3",
+          capabilityVersion: "prompt-compiler-facts.v1",
+          originalPrompt: "Studio portrait",
+          promptIntent: null,
+          turnDelta: null,
+          committedStateBefore: null,
+          candidateStateAfter: null,
+          promptIR: null,
+          compiledPrompt: null,
+          dispatchedPrompt: null,
+          providerEffectivePrompt: null,
+          semanticLosses: [
+            {
+              code: "NEGATIVE_PROMPT_DEGRADED_TO_TEXT",
+              severity: "warn",
+              fieldPath: "promptIR.negativeConstraints",
+              degradeMode: "merged",
+              userMessage: "Negative constraints were merged.",
+            },
+          ],
+          warnings: [],
+          hashes: {
+            stateHash: "state-1",
+            irHash: "ir-1",
+            prefixHash: "prefix-1",
+            payloadHash: "payload-1",
+          },
+          createdAt: "2026-03-12T00:00:01.000Z",
+        },
+        {
+          id: "artifact-dispatch",
+          runId: "run-1",
+          turnId: "turn-1",
+          version: 2,
+          stage: "dispatch",
+          targetKey: "dashscope:qwen-image-2.0-pro",
+          attempt: 1,
+          compilerVersion: "prompt-compiler.v1.3",
+          capabilityVersion: "prompt-compiler-facts.v1",
+          originalPrompt: "Studio portrait",
+          promptIntent: null,
+          turnDelta: null,
+          committedStateBefore: null,
+          candidateStateAfter: null,
+          promptIR: null,
+          compiledPrompt: null,
+          dispatchedPrompt: null,
+          providerEffectivePrompt: null,
+          semanticLosses: [
+            {
+              code: "NEGATIVE_PROMPT_DEGRADED_TO_TEXT",
+              severity: "warn",
+              fieldPath: "promptIR.negativeConstraints",
+              degradeMode: "merged",
+              userMessage: "Negative constraints were merged.",
+            },
+          ],
+          warnings: [],
+          hashes: {
+            stateHash: "state-2",
+            irHash: "ir-2",
+            prefixHash: "prefix-2",
+            payloadHash: "payload-2",
+          },
+          createdAt: "2026-03-12T00:00:02.000Z",
+        },
+      ],
+    });
+
+    const summary = await repository.getPromptObservabilityForConversation(
+      "user-1",
+      conversation.id
+    );
+
+    expect(summary?.overview).toEqual({
+      totalTurns: 1,
+      turnsWithArtifacts: 1,
+      degradedTurns: 1,
+      fallbackTurns: 0,
+    });
+    expect(summary?.semanticLosses).toEqual([
+      {
+        code: "NEGATIVE_PROMPT_DEGRADED_TO_TEXT",
+        occurrenceCount: 2,
+        turnCount: 1,
+        latestCreatedAt: "2026-03-12T00:00:02.000Z",
+      },
+    ]);
+    expect(summary?.targets).toEqual([
+      {
+        targetKey: "dashscope:qwen-image-2.0-pro",
+        compileArtifactCount: 1,
+        dispatchArtifactCount: 1,
+        degradedDispatchCount: 1,
+        latestCreatedAt: "2026-03-12T00:00:02.000Z",
+      },
+    ]);
+    expect(summary?.turns).toEqual([
+      {
+        turnId: "turn-1",
+        prompt: "Studio portrait",
+        createdAt: "2026-03-12T00:00:00.000Z",
+        artifactCount: 2,
+        semanticLossCodes: ["NEGATIVE_PROMPT_DEGRADED_TO_TEXT"],
+        degraded: true,
+        fallback: false,
+        selectedTargetKey: "ark:doubao-seedream-5-0-260128",
+        executedTargetKey: null,
+      },
+    ]);
+  });
+
   it("revokes generated image capabilities when a turn is deleted", async () => {
     const repository = new MemoryChatStateRepository();
     const conversation = await repository.getOrCreateActiveConversation("user-1");

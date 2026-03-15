@@ -8,6 +8,7 @@ import type {
   PersistedPromptArtifactRecord,
   PersistedGenerationTurn,
   PersistedImageSession,
+  PromptObservabilitySummaryResponse,
   PersistedRunRecord,
   PersistedResultItem,
   TurnPromptArtifactsResponse,
@@ -34,6 +35,7 @@ import type {
   UpdateConversationPromptStateInput,
 } from "./types";
 import { hashGeneratedImageToken } from "../../shared/generatedImageCapability";
+import { buildPromptObservabilitySummary } from "./promptObservability";
 
 const MIGRATIONS = [
   {
@@ -1213,6 +1215,114 @@ export class PostgresChatStateRepository implements ChatStateRepository {
       turnId,
       versions: versionsResult.rows.map(toPromptArtifactRecord),
     };
+  }
+
+  async getPromptObservabilityForConversation(
+    userId: string,
+    conversationId?: string
+  ): Promise<PromptObservabilitySummaryResponse | null> {
+    await this.ensureReady();
+    const conversation = conversationId
+      ? await this.getConversationById(userId, conversationId)
+      : await this.getOrCreateActiveConversation(userId);
+    if (!conversation) {
+      return null;
+    }
+
+    const [turnsResult, runsResult, versionsResult] = await Promise.all([
+      this.pool.query<Pick<ChatTurnRow, "id" | "prompt" | "created_at">>(
+        `
+          SELECT
+            id,
+            prompt,
+            created_at
+          FROM chat_turns
+          WHERE conversation_id = $1
+            AND is_hidden = FALSE
+          ORDER BY created_at DESC;
+        `,
+        [conversation.id]
+      ),
+      this.pool.query<
+        Pick<
+          ChatRunRow,
+          "turn_id" | "operation" | "selected_target" | "executed_target" | "created_at"
+        >
+      >(
+        `
+          SELECT
+            turn_id,
+            operation,
+            selected_target,
+            executed_target,
+            created_at
+          FROM chat_runs
+          WHERE conversation_id = $1
+            AND turn_id IN (
+              SELECT id
+              FROM chat_turns
+              WHERE conversation_id = $1
+                AND is_hidden = FALSE
+            )
+          ORDER BY created_at DESC;
+        `,
+        [conversation.id]
+      ),
+      this.pool.query<ChatPromptArtifactRow>(
+        `
+          SELECT
+            id,
+            run_id,
+            turn_id,
+            version,
+            stage,
+            target_key,
+            attempt,
+            compiler_version,
+            capability_version,
+            original_prompt,
+            prompt_intent,
+            turn_delta,
+            committed_state_before,
+            candidate_state_after,
+            prompt_ir,
+            compiled_prompt,
+            dispatched_prompt,
+            provider_effective_prompt,
+            semantic_losses,
+            warnings,
+            hashes,
+            created_at
+          FROM chat_prompt_versions
+          WHERE conversation_id = $1
+            AND turn_id IN (
+              SELECT id
+              FROM chat_turns
+              WHERE conversation_id = $1
+                AND is_hidden = FALSE
+            )
+          ORDER BY version ASC, created_at ASC;
+        `,
+        [conversation.id]
+      ),
+    ]);
+
+    return buildPromptObservabilitySummary({
+      conversationId: conversation.id,
+      turns: turnsResult.rows.map((row) => ({
+        id: row.id,
+        prompt: row.prompt,
+        createdAt: new Date(row.created_at).toISOString(),
+      })),
+      runs: runsResult.rows.map((row) => ({
+        turnId: row.turn_id,
+        operation: row.operation,
+        selectedTarget: parseRunTarget(row.selected_target),
+        executedTarget: parseRunTarget(row.executed_target),
+        createdAt: new Date(row.created_at).toISOString(),
+      })),
+      artifacts: versionsResult.rows.map(toPromptArtifactRecord),
+    });
   }
 
   async clearActiveConversation(userId: string) {
