@@ -78,6 +78,9 @@ vite.config.d.ts
 # test-assets/images/
 test-assets/.env
 
+# Local references
+refs/**
+
 # Misc
 *.pid
 *.seed
