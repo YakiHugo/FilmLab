@@ -133,6 +133,7 @@ describe("imageRuntimeRouter.generate", () => {
     const { imageRuntimeRouter } = await import("./router");
     const { ProviderError } = await import("../../providers/base/errors");
     const adapterGenerateMock = vi.fn();
+    const adapterLookupCalls: Array<[string, string]> = [];
     const seenDeployments: string[] = [];
     const resolvedPrompts: string[] = [];
     const resolveRequestMock = vi.fn(async (target: ResolvedRouteTarget) => ({
@@ -147,12 +148,15 @@ describe("imageRuntimeRouter.generate", () => {
       },
     }));
 
-    getPlatformModelAdapterMock.mockImplementation(() => ({
-      provider: "dashscope",
-      providerModel: "qwen-image-2.0-pro",
-      transport: "http",
-      generate: adapterGenerateMock,
-    }));
+    getPlatformModelAdapterMock.mockImplementation((provider: string, providerModel: string) => {
+      adapterLookupCalls.push([provider, providerModel]);
+      return {
+        provider,
+        providerModel,
+        transport: "http",
+        generate: adapterGenerateMock,
+      };
+    });
     adapterGenerateMock.mockImplementation(async (input: { target: ResolvedRouteTarget; request: { prompt: string } }) => {
       seenDeployments.push(input.target.deployment.id);
       resolvedPrompts.push(input.request.prompt);
@@ -195,6 +199,10 @@ describe("imageRuntimeRouter.generate", () => {
       "dashscope-qwen-image-2-pro-primary",
       "dashscope-qwen-image-2-pro-fallback",
     ]);
+    expect(adapterLookupCalls).toEqual([
+      ["dashscope", "qwen-image-2.0-pro"],
+      ["dashscope", "qwen-image-2.0-pro-fallback"],
+    ]);
     expect(resolvedPrompts).toEqual([
       "Primary compiled prompt",
       "Fallback compiled prompt",
@@ -209,6 +217,7 @@ describe("imageRuntimeRouter.generate", () => {
     const { imageRuntimeRouter } = await import("./router");
     const { ProviderError } = await import("../../providers/base/errors");
     const adapterGenerateMock = vi.fn();
+    const adapterLookupCalls: Array<[string, string]> = [];
     const seenDeployments: string[] = [];
     const resolveRequestMock = vi.fn(async (target: ResolvedRouteTarget) => ({
       ...createRequest(),
@@ -219,12 +228,15 @@ describe("imageRuntimeRouter.generate", () => {
       },
     }));
 
-    getPlatformModelAdapterMock.mockImplementation(() => ({
-      provider: "dashscope",
-      providerModel: "qwen-image-2.0-pro",
-      transport: "http",
-      generate: adapterGenerateMock,
-    }));
+    getPlatformModelAdapterMock.mockImplementation((provider: string, providerModel: string) => {
+      adapterLookupCalls.push([provider, providerModel]);
+      return {
+        provider,
+        providerModel,
+        transport: "http",
+        generate: adapterGenerateMock,
+      };
+    });
     adapterGenerateMock.mockImplementation(async (input: { target: ResolvedRouteTarget }) => {
       seenDeployments.push(input.target.deployment.id);
       throw new ProviderError("Invalid request.", 400);
@@ -251,5 +263,6 @@ describe("imageRuntimeRouter.generate", () => {
 
     expect(resolveRequestMock).toHaveBeenCalledTimes(1);
     expect(seenDeployments).toEqual(["dashscope-qwen-image-2-pro-primary"]);
+    expect(adapterLookupCalls).toEqual([["dashscope", "qwen-image-2.0-pro"]]);
   });
 });
