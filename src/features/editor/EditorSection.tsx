@@ -12,6 +12,8 @@ interface EditorSectionProps {
   badge?: ReactNode;
   hasChanges?: boolean;
   changesVisible?: boolean;
+  canToggleVisibility?: boolean;
+  canResetChanges?: boolean;
   onToggleVisibility?: () => void;
   onResetChanges?: () => void;
 }
@@ -26,6 +28,8 @@ export const EditorSection = memo(function EditorSection({
   badge,
   hasChanges,
   changesVisible = true,
+  canToggleVisibility,
+  canResetChanges,
   onToggleVisibility,
   onResetChanges,
 }: EditorSectionProps) {
@@ -33,6 +37,8 @@ export const EditorSection = memo(function EditorSection({
 
   const showActionButtons = isOpen && (onToggleVisibility || onResetChanges);
   const hasActualChanges = Boolean(hasChanges);
+  const visibilityToggleEnabled = canToggleVisibility ?? hasActualChanges;
+  const resetEnabled = canResetChanges ?? hasActualChanges;
 
   return (
     <div
@@ -65,12 +71,12 @@ export const EditorSection = memo(function EditorSection({
                   type="button"
                   className={cn(
                     "rounded p-1.5 transition",
-                    hasActualChanges
+                    visibilityToggleEnabled
                       ? "text-slate-400 hover:bg-white/10 hover:text-slate-200"
                       : "cursor-not-allowed text-slate-600"
                   )}
-                  onClick={hasActualChanges ? onToggleVisibility : undefined}
-                  disabled={!hasActualChanges}
+                  onClick={visibilityToggleEnabled ? onToggleVisibility : undefined}
+                  disabled={!visibilityToggleEnabled}
                   title={changesVisible ? "隐藏改动" : "显示改动"}
                 >
                   {changesVisible ? (
@@ -85,12 +91,12 @@ export const EditorSection = memo(function EditorSection({
                   type="button"
                   className={cn(
                     "rounded p-1.5 transition",
-                    hasActualChanges
+                    resetEnabled
                       ? "text-slate-400 hover:bg-white/10 hover:text-slate-200"
                       : "cursor-not-allowed text-slate-600"
                   )}
-                  onClick={hasActualChanges ? onResetChanges : undefined}
-                  disabled={!hasActualChanges}
+                  onClick={resetEnabled ? onResetChanges : undefined}
+                  disabled={!resetEnabled}
                   title="撤销改动"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />

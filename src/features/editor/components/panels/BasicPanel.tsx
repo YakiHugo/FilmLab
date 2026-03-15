@@ -33,6 +33,8 @@ interface BasicPanelProps {
   onCommitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
   hasChanges?: boolean;
   changesVisible?: boolean;
+  canToggleVisibility?: boolean;
+  canResetChanges?: boolean;
   onToggleVisibility?: () => void;
   onResetChanges?: () => void;
 }
@@ -75,6 +77,8 @@ export const BasicPanel = memo(function BasicPanel({
   onCommitAdjustmentValue,
   hasChanges,
   changesVisible,
+  canToggleVisibility,
+  canResetChanges,
   onToggleVisibility,
   onResetChanges,
 }: BasicPanelProps) {
@@ -133,6 +137,8 @@ export const BasicPanel = memo(function BasicPanel({
       onToggle={onToggle}
       hasChanges={hasChanges}
       changesVisible={changesVisible}
+      canToggleVisibility={canToggleVisibility}
+      canResetChanges={canResetChanges}
       onToggleVisibility={onToggleVisibility}
       onResetChanges={onResetChanges}
     >
@@ -225,4 +231,3 @@ export const BasicPanel = memo(function BasicPanel({
     </EditorSection>
   );
 });
-

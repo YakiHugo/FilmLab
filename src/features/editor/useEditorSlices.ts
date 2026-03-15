@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import {
-  applyAdjustmentGroupVisibility,
   resolveLayerAdjustmentVisibility,
 } from "@/lib/editorAdjustmentVisibility";
 import { createDefaultLayerMask, createDefaultLayerMaskData } from "@/lib/editorLayerMasks";
@@ -280,21 +279,14 @@ export function useEditorAdjustmentState() {
     copiedAdjustments,
     customPresetName,
     customPresets,
+    documentAdjustments: renderAdjustments,
     filmProfileLabel,
     presetLabel,
     previewAdjustments: resolvedAdjustments,
     previewFilmProfile,
-  } = useEditorFilmProfile(selectedAsset, adjustments, history);
-
-  const renderAdjustments = useMemo(() => {
-    if (!resolvedAdjustments) {
-      return null;
-    }
-    return applyAdjustmentGroupVisibility(
-      resolvedAdjustments,
-      selectedLayerAdjustmentVisibility
-    );
-  }, [resolvedAdjustments, selectedLayerAdjustmentVisibility]);
+  } = useEditorFilmProfile(selectedAsset, adjustments, history, {
+    adjustmentVisibility: selectedLayerAdjustmentVisibility,
+  });
 
   const previewAdjustments = useMemo(() => {
     if (!renderAdjustments) {
@@ -531,7 +523,13 @@ export function useEditorColorGradingActions() {
 }
 
 export function useEditorPresetActions() {
-  const { layers, selectedAsset, selectedLayer, selectedLayerAdjustments } =
+  const {
+    layers,
+    selectedAsset,
+    selectedLayer,
+    selectedLayerAdjustments,
+    selectedLayerAdjustmentVisibility,
+  } =
     useEditorSelectionModel();
   const { applyEditorPatch, commitEditorPatch, stageEditorPatch } = useEditorHistoryActions(
     selectedAsset,
@@ -544,11 +542,18 @@ export function useEditorPresetActions() {
     }
     return normalizeAdjustments(selectedLayerAdjustments);
   }, [selectedLayerAdjustments]);
-  const filmProfile = useEditorFilmProfile(selectedAsset, adjustments, {
-    applyEditorPatch,
-    commitEditorPatch,
-    stageEditorPatch,
-  });
+  const filmProfile = useEditorFilmProfile(
+    selectedAsset,
+    adjustments,
+    {
+      applyEditorPatch,
+      commitEditorPatch,
+      stageEditorPatch,
+    },
+    {
+      adjustmentVisibility: selectedLayerAdjustmentVisibility,
+    }
+  );
   return {
     handleCopy: filmProfile.handleCopy,
     handleExportFilmProfile: filmProfile.handleExportFilmProfile,

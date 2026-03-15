@@ -21,6 +21,8 @@ interface EffectsPanelProps {
   onCommitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
   hasChanges?: boolean;
   changesVisible?: boolean;
+  canToggleVisibility?: boolean;
+  canResetChanges?: boolean;
   onToggleVisibility?: () => void;
   onResetChanges?: () => void;
 }
@@ -56,6 +58,8 @@ export const EffectsPanel = memo(function EffectsPanel({
   onCommitAdjustmentValue,
   hasChanges,
   changesVisible,
+  canToggleVisibility,
+  canResetChanges,
   onToggleVisibility,
   onResetChanges,
 }: EffectsPanelProps) {
@@ -74,6 +78,8 @@ export const EffectsPanel = memo(function EffectsPanel({
       onToggle={onToggle}
       hasChanges={hasChanges}
       changesVisible={changesVisible}
+      canToggleVisibility={canToggleVisibility}
+      canResetChanges={canResetChanges}
       onToggleVisibility={onToggleVisibility}
       onResetChanges={onResetChanges}
     >
@@ -196,5 +202,4 @@ export const EffectsPanel = memo(function EffectsPanel({
     </EditorSection>
   );
 });
-
 

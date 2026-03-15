@@ -6,6 +6,48 @@ import type {
   EditorLayer,
 } from "@/types";
 
+const EDITOR_ADJUSTMENT_GROUP_KEYS = {
+  basic: [
+    "exposure",
+    "contrast",
+    "highlights",
+    "shadows",
+    "whites",
+    "blacks",
+    "temperature",
+    "tint",
+    "temperatureKelvin",
+    "tintMG",
+    "vibrance",
+    "saturation",
+  ],
+  effects: [
+    "texture",
+    "clarity",
+    "dehaze",
+    "vignette",
+    "grain",
+    "grainSize",
+    "grainRoughness",
+    "glowIntensity",
+    "glowMidtoneFocus",
+    "glowBias",
+    "glowRadius",
+    "customLut",
+  ],
+  detail: [
+    "sharpening",
+    "sharpenRadius",
+    "sharpenDetail",
+    "masking",
+    "noiseReduction",
+    "colorNoiseReduction",
+  ],
+} as const satisfies Record<EditorAdjustmentGroupId, readonly (keyof EditingAdjustments)[]>;
+
+type EditorAdjustmentGroupKey =
+  (typeof EDITOR_ADJUSTMENT_GROUP_KEYS)[EditorAdjustmentGroupId][number];
+
 export const DEFAULT_EDITOR_ADJUSTMENT_GROUP_VISIBILITY: EditorAdjustmentGroupVisibility = {
   basic: true,
   effects: true,
@@ -31,49 +73,50 @@ export const resolveLayerAdjustmentVisibility = (
   layer: Pick<EditorLayer, "adjustmentVisibility"> | null | undefined
 ) => normalizeEditorAdjustmentGroupVisibility(layer?.adjustmentVisibility);
 
+const cloneAdjustmentGroupValue = (
+  key: EditorAdjustmentGroupKey,
+  value: EditingAdjustments[EditorAdjustmentGroupKey]
+) => {
+  if (key === "customLut") {
+    return value ? { ...value } : undefined;
+  }
+  return value;
+};
+
+const assignDefaultAdjustmentGroupValue = (
+  adjustments: EditingAdjustments,
+  defaults: EditingAdjustments,
+  key: EditorAdjustmentGroupKey
+) => {
+  const nextRecord = adjustments as Pick<EditingAdjustments, EditorAdjustmentGroupKey>;
+  const defaultRecord = defaults as Pick<EditingAdjustments, EditorAdjustmentGroupKey>;
+  nextRecord[key] = cloneAdjustmentGroupValue(key, defaultRecord[key]);
+};
+
 const resetAdjustmentGroup = (
   adjustments: EditingAdjustments,
   defaults: EditingAdjustments,
   groupId: EditorAdjustmentGroupId
 ) => {
-  if (groupId === "basic") {
-    adjustments.exposure = defaults.exposure;
-    adjustments.contrast = defaults.contrast;
-    adjustments.highlights = defaults.highlights;
-    adjustments.shadows = defaults.shadows;
-    adjustments.whites = defaults.whites;
-    adjustments.blacks = defaults.blacks;
-    adjustments.temperature = defaults.temperature;
-    adjustments.tint = defaults.tint;
-    adjustments.temperatureKelvin = defaults.temperatureKelvin;
-    adjustments.tintMG = defaults.tintMG;
-    adjustments.vibrance = defaults.vibrance;
-    adjustments.saturation = defaults.saturation;
-    return;
-  }
+  EDITOR_ADJUSTMENT_GROUP_KEYS[groupId].forEach((key) => {
+    assignDefaultAdjustmentGroupValue(adjustments, defaults, key);
+  });
+};
 
-  if (groupId === "effects") {
-    adjustments.texture = defaults.texture;
-    adjustments.clarity = defaults.clarity;
-    adjustments.dehaze = defaults.dehaze;
-    adjustments.vignette = defaults.vignette;
-    adjustments.grain = defaults.grain;
-    adjustments.grainSize = defaults.grainSize;
-    adjustments.grainRoughness = defaults.grainRoughness;
-    adjustments.glowIntensity = defaults.glowIntensity;
-    adjustments.glowMidtoneFocus = defaults.glowMidtoneFocus;
-    adjustments.glowBias = defaults.glowBias;
-    adjustments.glowRadius = defaults.glowRadius;
-    adjustments.customLut = defaults.customLut;
-    return;
+const hasChangedAdjustmentGroupValue = (
+  adjustments: EditingAdjustments,
+  defaults: EditingAdjustments,
+  key: EditorAdjustmentGroupKey
+) => {
+  if (key === "customLut") {
+    return (
+      adjustments.customLut?.enabled !== defaults.customLut?.enabled ||
+      adjustments.customLut?.path !== defaults.customLut?.path ||
+      adjustments.customLut?.size !== defaults.customLut?.size ||
+      adjustments.customLut?.intensity !== defaults.customLut?.intensity
+    );
   }
-
-  adjustments.sharpening = defaults.sharpening;
-  adjustments.sharpenRadius = defaults.sharpenRadius;
-  adjustments.sharpenDetail = defaults.sharpenDetail;
-  adjustments.masking = defaults.masking;
-  adjustments.noiseReduction = defaults.noiseReduction;
-  adjustments.colorNoiseReduction = defaults.colorNoiseReduction;
+  return adjustments[key] !== defaults[key];
 };
 
 export const applyAdjustmentGroupVisibility = (
@@ -102,4 +145,15 @@ export const applyAdjustmentGroupVisibility = (
   });
 
   return nextAdjustments;
+};
+
+export const hasAdjustmentGroupChanges = (
+  adjustments: EditingAdjustments,
+  groupId: EditorAdjustmentGroupId
+) => {
+  const normalized = normalizeAdjustments(adjustments);
+  const defaults = createDefaultAdjustments();
+  return EDITOR_ADJUSTMENT_GROUP_KEYS[groupId].some((key) =>
+    hasChangedAdjustmentGroupValue(normalized, defaults, key)
+  );
 };

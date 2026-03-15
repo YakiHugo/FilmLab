@@ -2,12 +2,14 @@ import { useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { presets as basePresets } from "@/data/presets";
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import { applyAdjustmentGroupVisibility } from "@/lib/editorAdjustmentVisibility";
 import { listBuiltInFilmProfiles, normalizeFilmProfile } from "@/lib/film";
 import { useEditorStore } from "@/stores/editorStore";
 import type {
   Asset,
   AssetUpdate,
   EditingAdjustments,
+  EditorAdjustmentGroupVisibility,
   FilmModuleId,
   FilmNumericParamKey,
   Preset,
@@ -30,10 +32,15 @@ interface EditorPatchActions {
   commitEditorPatch: (historyKey: string, patch: AssetUpdate) => boolean;
 }
 
+interface EditorFilmProfileOptions {
+  adjustmentVisibility?: EditorAdjustmentGroupVisibility | null;
+}
+
 export function useEditorFilmProfile(
   selectedAsset: Asset | null,
   adjustments: EditingAdjustments | null,
-  actions: EditorPatchActions
+  actions: EditorPatchActions,
+  options?: EditorFilmProfileOptions
 ) {
   const { applyEditorPatch, stageEditorPatch, commitEditorPatch } = actions;
 
@@ -70,12 +77,22 @@ export function useEditorFilmProfile(
     );
   }, [adjustments, allPresets, selectedAsset]);
 
+  const documentAdjustments = useMemo(() => {
+    if (!previewAdjustments) {
+      return null;
+    }
+    return applyAdjustmentGroupVisibility(
+      previewAdjustments,
+      options?.adjustmentVisibility
+    );
+  }, [options?.adjustmentVisibility, previewAdjustments]);
+
   const previewFilmProfile = useMemo(() => {
-    if (!selectedAsset || !previewAdjustments) {
+    if (!selectedAsset || !documentAdjustments) {
       return null;
     }
     return resolveFilmProfile(
-      previewAdjustments,
+      documentAdjustments,
       selectedAsset.presetId,
       selectedAsset.filmProfileId,
       selectedAsset.filmProfile,
@@ -83,7 +100,7 @@ export function useEditorFilmProfile(
       allPresets,
       selectedAsset.filmOverrides
     );
-  }, [allPresets, previewAdjustments, selectedAsset]);
+  }, [allPresets, documentAdjustments, selectedAsset]);
 
   const presetLabel = useMemo(() => {
     if (!selectedAsset?.presetId) {
@@ -296,7 +313,7 @@ export function useEditorFilmProfile(
   );
 
   const handleSaveCustomPreset = useCallback(() => {
-    if (!previewAdjustments) {
+    if (!documentAdjustments) {
       return false;
     }
     const name = customPresetName.trim();
@@ -309,7 +326,7 @@ export function useEditorFilmProfile(
       tags: (basePresets[0]?.tags ?? []) as Preset["tags"],
       intensity: 100,
       description: "自定义胶片档案",
-      adjustments: buildCustomAdjustments(previewAdjustments),
+      adjustments: buildCustomAdjustments(documentAdjustments),
       filmProfile: previewFilmProfile ?? undefined,
     };
     setCustomPresets((prev) => [custom, ...prev]);
@@ -327,7 +344,7 @@ export function useEditorFilmProfile(
   }, [
     applyEditorPatch,
     customPresetName,
-    previewAdjustments,
+    documentAdjustments,
     previewFilmProfile,
     selectedAsset,
     setCustomPresetName,
@@ -414,6 +431,7 @@ export function useEditorFilmProfile(
     allPresets,
     builtInFilmProfiles,
     previewAdjustments,
+    documentAdjustments,
     previewFilmProfile,
     presetLabel,
     filmProfileLabel,

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { hasAdjustmentGroupChanges } from "@/lib/editorAdjustmentVisibility";
 import type { EditingAdjustments } from "@/types";
 import { EditorCropSection } from "../EditorCropSection";
 import { EditorHistogramCard } from "../EditorHistogramCard";
@@ -16,40 +17,6 @@ import { DetailPanel } from "../components/panels/DetailPanel";
 import { EffectsPanel } from "../components/panels/EffectsPanel";
 import { ExportPanel } from "../components/panels/ExportPanel";
 import { LayerPropertiesPanel } from "../components/panels/LayerPropertiesPanel";
-
-function hasBasicChanges(adjustments: EditingAdjustments): boolean {
-  return (
-    adjustments.exposure !== 0 ||
-    adjustments.contrast !== 0 ||
-    adjustments.highlights !== 0 ||
-    adjustments.shadows !== 0 ||
-    adjustments.whites !== 0 ||
-    adjustments.blacks !== 0 ||
-    adjustments.temperature !== 0 ||
-    adjustments.tint !== 0 ||
-    adjustments.vibrance !== 0 ||
-    adjustments.saturation !== 0
-  );
-}
-
-function hasEffectsChanges(adjustments: EditingAdjustments): boolean {
-  return (
-    adjustments.texture !== 0 ||
-    adjustments.clarity !== 0 ||
-    adjustments.dehaze !== 0 ||
-    adjustments.grain !== 0 ||
-    adjustments.vignette !== 0 ||
-    adjustments.glowIntensity !== 0
-  );
-}
-
-function hasDetailChanges(adjustments: EditingAdjustments): boolean {
-  return (
-    adjustments.sharpening !== 0 ||
-    adjustments.noiseReduction !== 0 ||
-    adjustments.colorNoiseReduction !== 0
-  );
-}
 
 function hasCropChanges(adjustments: EditingAdjustments): boolean {
   return (
@@ -71,7 +38,7 @@ interface EditorInspectorPanelProps {
 }
 
 export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
-  const { adjustments } = useEditorAdjustmentState();
+  const { adjustments, resolvedAdjustments } = useEditorAdjustmentState();
   const {
     previewAdjustmentValue,
     toggleAdjustmentGroupVisibility,
@@ -98,9 +65,24 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
 
   const [layerChangesVisible, setLayerChangesVisible] = useState(true);
 
-  const basicHasChanges = adjustments ? hasBasicChanges(adjustments) : false;
-  const effectsHasChanges = adjustments ? hasEffectsChanges(adjustments) : false;
-  const detailHasChanges = adjustments ? hasDetailChanges(adjustments) : false;
+  const basicHasChanges = adjustments ? hasAdjustmentGroupChanges(adjustments, "basic") : false;
+  const effectsHasChanges = adjustments ? hasAdjustmentGroupChanges(adjustments, "effects") : false;
+  const detailHasChanges = adjustments ? hasAdjustmentGroupChanges(adjustments, "detail") : false;
+  const basicHasVisibleChanges = resolvedAdjustments
+    ? hasAdjustmentGroupChanges(resolvedAdjustments, "basic")
+    : false;
+  const effectsHasVisibleChanges = resolvedAdjustments
+    ? hasAdjustmentGroupChanges(resolvedAdjustments, "effects")
+    : false;
+  const detailHasVisibleChanges = resolvedAdjustments
+    ? hasAdjustmentGroupChanges(resolvedAdjustments, "detail")
+    : false;
+  const canToggleBasicVisibility =
+    basicHasVisibleChanges || !selectedLayerAdjustmentVisibility.basic;
+  const canToggleEffectsVisibility =
+    effectsHasVisibleChanges || !selectedLayerAdjustmentVisibility.effects;
+  const canToggleDetailVisibility =
+    detailHasVisibleChanges || !selectedLayerAdjustmentVisibility.detail;
   const cropHasChanges = adjustments ? hasCropChanges(adjustments) : false;
 
   const resetBasicPanel = () => {
@@ -252,6 +234,8 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
             onCommitAdjustmentValue={updateAdjustmentValue}
             hasChanges={basicHasChanges}
             changesVisible={selectedLayerAdjustmentVisibility.basic}
+            canToggleVisibility={canToggleBasicVisibility}
+            canResetChanges={basicHasChanges}
             onToggleVisibility={() => toggleAdjustmentGroupVisibility("basic")}
             onResetChanges={resetBasicPanel}
           />
@@ -267,6 +251,8 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
             onCommitAdjustmentValue={updateAdjustmentValue}
             hasChanges={effectsHasChanges}
             changesVisible={selectedLayerAdjustmentVisibility.effects}
+            canToggleVisibility={canToggleEffectsVisibility}
+            canResetChanges={effectsHasChanges}
             onToggleVisibility={() => toggleAdjustmentGroupVisibility("effects")}
             onResetChanges={resetEffectsPanel}
           />
@@ -281,6 +267,8 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
             onCommitAdjustmentValue={updateAdjustmentValue}
             hasChanges={detailHasChanges}
             changesVisible={selectedLayerAdjustmentVisibility.detail}
+            canToggleVisibility={canToggleDetailVisibility}
+            canResetChanges={detailHasChanges}
             onToggleVisibility={() => toggleAdjustmentGroupVisibility("detail")}
             onResetChanges={resetDetailPanel}
           />

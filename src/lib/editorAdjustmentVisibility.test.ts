@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import {
   applyAdjustmentGroupVisibility,
+  hasAdjustmentGroupChanges,
   normalizeEditorAdjustmentGroupVisibility,
 } from "./editorAdjustmentVisibility";
 
@@ -50,5 +51,48 @@ describe("editorAdjustmentVisibility", () => {
     expect(next.sharpening).toBe(70);
     expect(next.hsl.red.hue).toBe(12);
     expect(next.pointCurve).toEqual(defaults.pointCurve);
+  });
+
+  it("detects grouped changes using the same field mapping as visibility", () => {
+    const defaults = createDefaultAdjustments();
+
+    expect(hasAdjustmentGroupChanges(defaults, "basic")).toBe(false);
+    expect(hasAdjustmentGroupChanges(defaults, "effects")).toBe(false);
+    expect(hasAdjustmentGroupChanges(defaults, "detail")).toBe(false);
+
+    expect(
+      hasAdjustmentGroupChanges(
+        {
+          ...defaults,
+          temperatureKelvin: 7200,
+        },
+        "basic"
+      )
+    ).toBe(true);
+
+    expect(
+      hasAdjustmentGroupChanges(
+        {
+          ...defaults,
+          customLut: {
+            enabled: true,
+            path: "/luts/demo.cube",
+            size: 16,
+            intensity: 0.8,
+          },
+        },
+        "effects"
+      )
+    ).toBe(true);
+
+    expect(
+      hasAdjustmentGroupChanges(
+        {
+          ...defaults,
+          sharpenRadius: 60,
+        },
+        "detail"
+      )
+    ).toBe(true);
   });
 });
