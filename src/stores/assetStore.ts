@@ -35,6 +35,7 @@ import {
   type StoredAsset,
 } from "@/lib/db";
 import { createRenderedThumbnailBlob } from "@/features/editor/thumbnail";
+import { findAssetsReferencingTextureAsset } from "@/features/editor/renderDependencies";
 import { emit } from "@/lib/storeEvents";
 import { loadCustomPresets } from "@/features/editor/presetUtils";
 import type { Asset, AssetRemoteSyncStatus, EditorLayer } from "@/types";
@@ -202,6 +203,18 @@ const shouldRefreshRenderedThumbnail = (
       update.intensity !== undefined
   );
 
+const shouldRefreshReferencedRenderedThumbnails = (
+  update: ReturnType<typeof normalizeAssetUpdate>
+) =>
+  Boolean(
+    update.filmProfile ||
+      update.filmOverrides ||
+      update.filmProfileId !== undefined ||
+      update.presetId !== undefined ||
+      update.intensity !== undefined ||
+      update.contentHash !== undefined
+  );
+
 const scheduleRenderedThumbnailRefresh = (
   assetId: string,
   set: (updater: (state: ProjectState) => Partial<ProjectState>) => void,
@@ -266,6 +279,17 @@ const scheduleRenderedThumbnailRefresh = (
       });
     }, THUMBNAIL_REFRESH_DEBOUNCE_MS)
   );
+};
+
+const scheduleReferencedThumbnailRefreshes = (
+  assetId: string,
+  set: (updater: (state: ProjectState) => Partial<ProjectState>) => void,
+  get: () => ProjectState
+) => {
+  const dependentAssetIds = findAssetsReferencingTextureAsset(get().assets, assetId);
+  dependentAssetIds.forEach((dependentAssetId) => {
+    scheduleRenderedThumbnailRefresh(dependentAssetId, set, get);
+  });
 };
 
 const withRemoteStatus = (
@@ -961,6 +985,10 @@ export const useAssetStore = create<ProjectState>()(
           }));
           queued.forEach(persistAsset);
           enqueueUploadJobs(queued);
+          queued.forEach((asset) => {
+            scheduleRenderedThumbnailRefresh(asset.id, set, get);
+            scheduleReferencedThumbnailRefreshes(asset.id, set, get);
+          });
         }
       },
 
@@ -985,6 +1013,10 @@ export const useAssetStore = create<ProjectState>()(
           }));
           queued.forEach(persistAsset);
           enqueueUploadJobs(queued);
+          queued.forEach((asset) => {
+            scheduleRenderedThumbnailRefresh(asset.id, set, get);
+            scheduleReferencedThumbnailRefreshes(asset.id, set, get);
+          });
         }
       },
 
@@ -1004,6 +1036,9 @@ export const useAssetStore = create<ProjectState>()(
         });
         if (shouldRefreshRenderedThumbnail(normalizedUpdate)) {
           scheduleRenderedThumbnailRefresh(assetId, set, get);
+        }
+        if (shouldRefreshReferencedRenderedThumbnails(normalizedUpdate)) {
+          scheduleReferencedThumbnailRefreshes(assetId, set, get);
         }
       },
 

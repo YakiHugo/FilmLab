@@ -1,4 +1,5 @@
 import { buildEditorLayerRenderEntries, type EditorLayerRenderEntry } from "./renderPreparation";
+import { buildRenderDocumentDependencyKey } from "./renderDependencies";
 import { resolveSelectedLocalAdjustment } from "./localAdjustments";
 import type { RenderIntent as EditorRenderIntent } from "@/lib/renderIntent";
 import type {
@@ -96,7 +97,7 @@ export const createRenderDocument = ({
   showOriginal = false,
 }: CreateRenderDocumentInput): RenderDocument => ({
   key,
-  documentKey: key,
+  documentKey: buildRenderDocumentDependencyKey(key, assetById, layers),
   sourceAsset: documentAsset,
   sourceAssetId: documentAsset.id,
   adjustments,
