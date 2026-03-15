@@ -59,25 +59,21 @@ const repositoryMock = {
   turnExists: vi.fn(),
 };
 
-vi.mock("../gateway/router/router", () => ({
-  imageRuntimeRouter: {
-    getRouteTargets: (...args: unknown[]) => getRouteTargetsMock(...args),
-    generate: (...args: unknown[]) => generateMock(...args),
-  },
-}));
-
-vi.mock("../shared/downloadGeneratedImage", () => ({
-  downloadGeneratedImage: (...args: unknown[]) => downloadGeneratedImageMock(...args),
-}));
-
-const resolveRouteSelectionFixture = (modelId: string) => {
-  if (modelId === "qwen-image-2-pro") {
-    return [
-      {
-        frontendModel: {
-          id: "qwen-image-2-pro",
-          logicalModel: "image.qwen.v2.pro",
-          promptCompiler: createPromptCompilerFixture({
+const createRouteTargetFixture = (input: {
+  modelId: "qwen-image-2-pro" | "seedream-v5";
+  deploymentId?: string;
+  providerId?: "dashscope" | "ark" | "kling";
+  providerModel?: string;
+  promptCompiler?: ReturnType<typeof createPromptCompilerFixture>;
+}) => {
+  if (input.modelId === "qwen-image-2-pro") {
+    return {
+      frontendModel: {
+        id: "qwen-image-2-pro",
+        logicalModel: "image.qwen.v2.pro",
+        promptCompiler:
+          input.promptCompiler ??
+          createPromptCompilerFixture({
             negativePromptStrategy: "native",
             sourceImageExecution: "reference_guided",
             referenceRoleHandling: {
@@ -92,34 +88,50 @@ const resolveRouteSelectionFixture = (modelId: string) => {
               text: "strong",
             },
           }),
-        },
-        deployment: {
-          id: "dashscope-qwen-image-2-pro-primary",
-          providerModel: "qwen-image-2.0-pro",
-        },
-        provider: {
-          id: "dashscope",
-        },
-      },
-    ];
-  }
-
-  return [
-    {
-      frontendModel: {
-        id: "seedream-v5",
-        logicalModel: "image.seedream.v5",
-        promptCompiler: createPromptCompilerFixture(),
       },
       deployment: {
-        id: "ark-seedream-v5-primary",
-        providerModel: "doubao-seedream-5-0-260128",
+        id: input.deploymentId ?? "dashscope-qwen-image-2-pro-primary",
+        providerModel: input.providerModel ?? "qwen-image-2.0-pro",
       },
       provider: {
-        id: "ark",
+        id: input.providerId ?? "dashscope",
       },
+    };
+  }
+
+  return {
+    frontendModel: {
+      id: "seedream-v5",
+      logicalModel: "image.seedream.v5",
+      promptCompiler: input.promptCompiler ?? createPromptCompilerFixture(),
     },
-  ];
+    deployment: {
+      id: input.deploymentId ?? "ark-seedream-v5-primary",
+      providerModel: input.providerModel ?? "doubao-seedream-5-0-260128",
+    },
+    provider: {
+      id: input.providerId ?? "ark",
+    },
+  };
+};
+
+vi.mock("../gateway/router/router", () => ({
+  imageRuntimeRouter: {
+    getRouteTargets: (...args: unknown[]) => getRouteTargetsMock(...args),
+    generate: (...args: unknown[]) => generateMock(...args),
+  },
+}));
+
+vi.mock("../shared/downloadGeneratedImage", () => ({
+  downloadGeneratedImage: (...args: unknown[]) => downloadGeneratedImageMock(...args),
+}));
+
+const resolveRouteSelectionFixture = (modelId: string) => {
+  if (modelId === "qwen-image-2-pro") {
+    return [createRouteTargetFixture({ modelId: "qwen-image-2-pro" })];
+  }
+
+  return [createRouteTargetFixture({ modelId: "seedream-v5" })];
 };
 
 const encodeBase64Url = (value: string) =>
@@ -1046,6 +1058,272 @@ describe("imageGenerateRoute", () => {
         }),
       ])
     );
+
+    await app.close();
+  });
+
+  it("replays dispatch artifacts and target snapshots when a retriable fallback succeeds", async () => {
+    const { ProviderError } = await import("../providers/base/errors");
+    const dualRouteTargets = [
+      createRouteTargetFixture({
+        modelId: "qwen-image-2-pro",
+        deploymentId: "dashscope-qwen-image-2-pro-primary",
+        providerModel: "qwen-image-2.0-pro",
+      }),
+      createRouteTargetFixture({
+        modelId: "qwen-image-2-pro",
+        deploymentId: "dashscope-qwen-image-2-pro-fallback",
+        providerModel: "qwen-image-2.0-pro-fallback",
+        promptCompiler: createPromptCompilerFixture({
+          negativePromptStrategy: "merge_into_main",
+          sourceImageExecution: "unsupported",
+          referenceRoleHandling: {
+            reference: "compiled_to_text",
+            edit: "compiled_to_text",
+            variation: "compiled_to_text",
+          },
+          continuityStrength: {
+            subject: "moderate",
+            style: "moderate",
+            composition: "weak",
+            text: "weak",
+          },
+        }),
+      }),
+    ];
+    const resolvedRequests: Array<Record<string, unknown>> = [];
+
+    getRouteTargetsMock.mockReturnValue(dualRouteTargets);
+    generateMock.mockImplementation(async (_request, options) => {
+      const firstResolvedRequest = await options.resolveRequest?.(dualRouteTargets[0]);
+      if (!firstResolvedRequest) {
+        throw new Error("Expected primary dispatch request.");
+      }
+      resolvedRequests.push(firstResolvedRequest);
+
+      try {
+        throw new ProviderError("Primary target timed out.", 503);
+      } catch (error) {
+        if (!(error instanceof ProviderError) || error.statusCode !== 503) {
+          throw error;
+        }
+      }
+
+      const secondResolvedRequest = await options.resolveRequest?.(dualRouteTargets[1]);
+      if (!secondResolvedRequest) {
+        throw new Error("Expected fallback dispatch request.");
+      }
+      resolvedRequests.push(secondResolvedRequest);
+
+      return {
+        modelId: "qwen-image-2-pro",
+        logicalModel: "image.qwen.v2.pro",
+        deploymentId: "dashscope-qwen-image-2-pro-fallback",
+        runtimeProvider: "dashscope",
+        providerModel: "qwen-image-2.0-pro-fallback",
+        warnings: ["Fallback target executed."],
+        images: [
+          {
+            binaryData: Buffer.from([1, 2, 3]),
+            mimeType: "image/png",
+            revisedPrompt: "provider revised fallback prompt",
+          },
+        ],
+      };
+    });
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+      payload: {
+        prompt: "Remove the coffee cup while preserving the poster text",
+        modelId: "qwen-image-2-pro",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        negativePrompt: "blurry text, watermark",
+        referenceImages: [],
+        assetRefs: [{ assetId: "thread-asset-1", role: "edit" }],
+        promptIntent: {
+          preserve: [],
+          avoid: [],
+          styleDirectives: [],
+          continuityTargets: ["text"],
+          editOps: [],
+        },
+        modelParams: {
+          promptExtend: true,
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(resolvedRequests).toHaveLength(2);
+    expect(resolvedRequests[0]).toMatchObject({
+      requestedTarget: {
+        deploymentId: "dashscope-qwen-image-2-pro-primary",
+        provider: "dashscope",
+      },
+      negativePrompt: "blurry text, watermark",
+    });
+    expect(resolvedRequests[1]).toMatchObject({
+      requestedTarget: {
+        deploymentId: "dashscope-qwen-image-2-pro-fallback",
+        provider: "dashscope",
+      },
+    });
+    expect(resolvedRequests[1]?.negativePrompt).toBeUndefined();
+
+    const promptVersions = repositoryMock.createPromptVersions.mock.calls.flatMap(
+      ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
+    );
+    const compileArtifacts = promptVersions.filter((version) => version.stage === "compile");
+    const dispatchArtifacts = promptVersions.filter((version) => version.stage === "dispatch");
+
+    expect(compileArtifacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          targetKey: "dashscope:qwen-image-2.0-pro",
+          semanticLosses: expect.arrayContaining([
+            expect.objectContaining({ code: "ASSET_ROLE_DEGRADED_TO_REFERENCE_GUIDANCE" }),
+          ]),
+        }),
+        expect.objectContaining({
+          targetKey: "dashscope:qwen-image-2.0-pro-fallback",
+          semanticLosses: expect.arrayContaining([
+            expect.objectContaining({ code: "SOURCE_IMAGE_NOT_EXECUTABLE" }),
+            expect.objectContaining({ code: "EXACT_TEXT_CONTINUITY_AT_RISK" }),
+            expect.objectContaining({ code: "NEGATIVE_PROMPT_DEGRADED_TO_TEXT" }),
+          ]),
+        }),
+      ])
+    );
+    expect(dispatchArtifacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          attempt: 1,
+          targetKey: "dashscope:qwen-image-2.0-pro",
+          providerEffectivePrompt: null,
+        }),
+        expect.objectContaining({
+          attempt: 2,
+          targetKey: "dashscope:qwen-image-2.0-pro-fallback",
+          providerEffectivePrompt: null,
+        }),
+        expect.objectContaining({
+          attempt: 2,
+          targetKey: "dashscope:qwen-image-2.0-pro-fallback",
+          providerEffectivePrompt: "provider revised fallback prompt",
+        }),
+      ])
+    );
+
+    expect(repositoryMock.completeGenerationSuccess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtimeProvider: "dashscope",
+        providerModel: "qwen-image-2.0-pro-fallback",
+        run: expect.objectContaining({
+          executedTarget: expect.objectContaining({
+            deploymentId: "dashscope-qwen-image-2-pro-fallback",
+            providerModel: "qwen-image-2.0-pro-fallback",
+          }),
+        }),
+      })
+    );
+    expect(response.json()).toMatchObject({
+      runtimeProvider: "dashscope",
+      providerModel: "qwen-image-2.0-pro-fallback",
+      runs: [
+        expect.any(Object),
+        expect.objectContaining({
+          selectedTarget: expect.objectContaining({
+            deploymentId: "dashscope-qwen-image-2-pro-primary",
+            providerModel: "qwen-image-2.0-pro",
+          }),
+          executedTarget: expect.objectContaining({
+            deploymentId: "dashscope-qwen-image-2-pro-fallback",
+            providerModel: "qwen-image-2.0-pro-fallback",
+          }),
+        }),
+      ],
+    });
+
+    await app.close();
+  });
+
+  it("stops fallback after a non-retriable provider failure", async () => {
+    const { ProviderError } = await import("../providers/base/errors");
+    const dualRouteTargets = [
+      createRouteTargetFixture({
+        modelId: "qwen-image-2-pro",
+        deploymentId: "dashscope-qwen-image-2-pro-primary",
+        providerModel: "qwen-image-2.0-pro",
+      }),
+      createRouteTargetFixture({
+        modelId: "qwen-image-2-pro",
+        deploymentId: "dashscope-qwen-image-2-pro-fallback",
+        providerModel: "qwen-image-2.0-pro-fallback",
+      }),
+    ];
+    const resolvedRequests: Array<Record<string, unknown>> = [];
+
+    getRouteTargetsMock.mockReturnValue(dualRouteTargets);
+    generateMock.mockImplementation(async (_request, options) => {
+      const firstResolvedRequest = await options.resolveRequest?.(dualRouteTargets[0]);
+      if (!firstResolvedRequest) {
+        throw new Error("Expected primary dispatch request.");
+      }
+      resolvedRequests.push(firstResolvedRequest);
+      throw new ProviderError("Primary target rejected request.", 400);
+    });
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+      payload: {
+        prompt: "Poster cleanup",
+        modelId: "qwen-image-2-pro",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        referenceImages: [],
+        modelParams: {
+          promptExtend: true,
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "Primary target rejected request.",
+      conversationId: "conversation-1",
+      threadId: "conversation-1",
+      turnId: expect.any(String),
+      jobId: expect.any(String),
+      runId: expect.any(String),
+    });
+    expect(resolvedRequests).toHaveLength(1);
+
+    const promptVersions = repositoryMock.createPromptVersions.mock.calls.flatMap(
+      ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
+    );
+    const dispatchArtifacts = promptVersions.filter((version) => version.stage === "dispatch");
+
+    expect(dispatchArtifacts).toEqual([
+      expect.objectContaining({
+        attempt: 1,
+        targetKey: "dashscope:qwen-image-2.0-pro",
+      }),
+    ]);
+    expect(repositoryMock.completeGenerationFailure).toHaveBeenCalled();
 
     await app.close();
   });
