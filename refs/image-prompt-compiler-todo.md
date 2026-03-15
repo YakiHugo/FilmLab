@@ -236,10 +236,13 @@ These were found during post-implementation review and are already fixed:
 
 ## Validation Performed
 
-Verified in this round:
+Re-run in this follow-up:
 
 - `pnpm vitest run server/src/routes/image-generate.test.ts server/src/gateway/router/router.test.ts`
 - `pnpm vitest run server/src/gateway/prompt/compiler.test.ts src/features/image-lab/ImageChatFeed.test.tsx`
+
+Previously verified in the original v1.2 implementation pass and retained here as historical context (not re-run in this follow-up):
+
 - `pnpm vitest run shared/imageGeneration.test.ts shared/imageGenerationSchema.test.ts server/src/shared/imageGenerationCapabilityFacts.test.ts server/src/gateway/prompt/compiler.test.ts server/src/routes/image-generate.test.ts src/lib/ai/imageModelCatalog.test.ts src/stores/generationConfigStore.imageGeneration.test.ts src/features/image-lab/ImageChatFeed.test.tsx src/features/image-lab/referenceImages.test.ts`
 - `pnpm build`
 
