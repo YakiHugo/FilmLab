@@ -166,11 +166,13 @@ export const resolveLayerPreviewFilmProfile = (
 const resolveCompositeViewportRoi = (request: PreviewRequest) =>
   request.document.adjustments.timestampEnabled ? null : request.viewportRoi;
 
-const resolvePreviewSourceCacheKey = (
-  graphKey: string,
+const resolvePreviewSourceCacheToken = (asset: Asset) =>
+  asset.contentHash?.trim() || asset.objectUrl || `${asset.id}:${asset.size}`;
+
+export const resolvePreviewSourceCacheKey = (
   asset: Asset,
   suffix = "base"
-) => `preview:${graphKey}:${suffix}:${asset.id}:${asset.size}`;
+) => `preview:source:${suffix}:${asset.id}:${asset.size}:${resolvePreviewSourceCacheToken(asset)}`;
 
 const releaseRetainedPreviewDocument = (documentKey: string, buckets: Record<PreviewQuality, PreviewCanvasBucket>) => {
   releasePreviewCanvasBucket(buckets.interactive);
@@ -287,11 +289,7 @@ const renderSinglePreviewLayer = async (
       renderSeed: request.previewRenderSeed + 1,
       seedKey: `${request.graphKey}:${node.id}`,
       signal,
-      sourceCacheKey: resolvePreviewSourceCacheKey(
-        request.graphKey,
-        node.sourceAsset,
-        `layer:${node.id}`
-      ),
+      sourceCacheKey: resolvePreviewSourceCacheKey(node.sourceAsset, `layer:${node.id}`),
       renderSlot: buildPreviewRenderSlot(
         request.documentKey,
         `${request.graphKey}:layer:${node.id}`
@@ -340,7 +338,6 @@ const renderSinglePreviewLayer = async (
         seedKey: `${request.graphKey}:${layerNode.id}`,
         signal,
         sourceCacheKey: resolvePreviewSourceCacheKey(
-          request.graphKey,
           layerNode.sourceAsset,
           `layer:${layerNode.id}`
         ),
@@ -559,10 +556,7 @@ export function usePreviewRenderPipeline({
           renderSeed: request.previewRenderSeed,
           seedKey: `${request.graphKey}:main`,
           signal,
-          sourceCacheKey: resolvePreviewSourceCacheKey(
-            request.graphKey,
-            request.sourceAsset
-          ),
+          sourceCacheKey: resolvePreviewSourceCacheKey(request.sourceAsset),
           renderSlot: buildPreviewRenderSlot(request.documentKey, `${request.graphKey}:main`),
           viewportRoi: effectiveViewportRoi,
         });
@@ -616,7 +610,6 @@ export function usePreviewRenderPipeline({
             seedKey: `${request.graphKey}:${layerNode.id}`,
             signal,
             sourceCacheKey: resolvePreviewSourceCacheKey(
-              request.graphKey,
               layerNode.sourceAsset,
               `layer:${layerNode.id}`
             ),

@@ -8,6 +8,7 @@ import {
   pruneRetainedPreviewDocuments,
   resolveLayerPreviewAdjustments,
   resolveLayerPreviewFilmProfile,
+  resolvePreviewSourceCacheKey,
 } from "./usePreviewRenderPipeline";
 
 const createAsset = (id: string, filmProfile?: Asset["filmProfile"]) =>
@@ -102,6 +103,32 @@ describe("usePreviewRenderPipeline helpers", () => {
     );
     expect(resolveLayerPreviewFilmProfile(request, externalLayerAsset)).toBe(
       externalLayerAsset.filmProfile
+    );
+  });
+
+  it("keeps preview source cache keys stable across render graph revisions", () => {
+    const sourceAsset = createAsset("asset-a");
+
+    expect(resolvePreviewSourceCacheKey(sourceAsset, "layer:base")).toBe(
+      resolvePreviewSourceCacheKey(
+        {
+          ...sourceAsset,
+          objectUrl: sourceAsset.objectUrl,
+        },
+        "layer:base"
+      )
+    );
+  });
+
+  it("changes the preview source cache key when the source asset changes", () => {
+    const sourceAsset = createAsset("asset-a");
+    const updatedAsset = {
+      ...sourceAsset,
+      objectUrl: "blob:asset-a-v2",
+    };
+
+    expect(resolvePreviewSourceCacheKey(updatedAsset, "layer:base")).not.toBe(
+      resolvePreviewSourceCacheKey(sourceAsset, "layer:base")
     );
   });
 
