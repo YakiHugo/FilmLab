@@ -14,6 +14,30 @@ const getDashScopeGenerationUrl = () =>
 
 const resolvePromptExtend = (value: unknown) => (typeof value === "boolean" ? value : true);
 
+const buildQwenMessageContent = (input: PlatformProviderGenerateInput) => {
+  const referenceImages = input.request.referenceImages
+    .filter((referenceImage) => typeof referenceImage.url === "string" && referenceImage.url.trim())
+    .slice(0, 3)
+    .map((referenceImage) => ({
+      image: referenceImage.url.trim(),
+    }));
+
+  if (referenceImages.length === 0) {
+    return [
+      {
+        text: buildDashScopePrompt(input.request),
+      },
+    ];
+  }
+
+  return [
+    ...referenceImages,
+    {
+      text: buildDashScopePrompt(input.request),
+    },
+  ];
+};
+
 export const generateDashscopeQwen = async (
   input: PlatformProviderGenerateInput
 ): Promise<RuntimeGenerationResult> => {
@@ -42,11 +66,7 @@ export const generateDashscopeQwen = async (
           messages: [
             {
               role: "user",
-              content: [
-                {
-                  text: buildDashScopePrompt(input.request),
-                },
-              ],
+              content: buildQwenMessageContent(input),
             },
           ],
         },

@@ -59,6 +59,7 @@ export interface ReferenceImage {
   fileName?: string;
   weight?: number;
   type: ReferenceImageType;
+  sourceAssetId?: string;
 }
 
 export interface ImageGenerationAssetRef {

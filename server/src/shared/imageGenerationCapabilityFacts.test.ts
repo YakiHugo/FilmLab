@@ -6,6 +6,9 @@ import {
   validateImageGenerationRequestAgainstModel,
 } from "./imageGenerationSchema";
 
+const createDataUrl = (byteLength: number) =>
+  `data:image/png;base64,${Buffer.alloc(byteLength, 1).toString("base64")}`;
+
 describe("image generation capability facts", () => {
   it("stay aligned across frontend model registry, catalog, and server validation", () => {
     const frontendModel = getFrontendImageModelById("qwen-image-2-pro");
@@ -20,6 +23,13 @@ describe("image generation capability facts", () => {
       parameterDefinitions: frontendModel?.parameterDefinitions,
       defaults: frontendModel?.defaults,
       supportsUpscale: frontendModel?.supportsUpscale,
+    });
+    expect(frontendModel?.constraints.referenceImages).toMatchObject({
+      enabled: true,
+      maxImages: 3,
+      supportedTypes: ["content"],
+      supportsWeight: false,
+      maxFileSizeBytes: 10 * 1024 * 1024,
     });
 
     const validationResult = imageGenerationRequestSchema
@@ -36,7 +46,13 @@ describe("image generation capability facts", () => {
         width: 2048,
         height: 1024,
         style: "cinematic",
-        referenceImages: [],
+        referenceImages: [
+          {
+            id: "ref-1",
+            url: createDataUrl(1024),
+            type: "content",
+          },
+        ],
         negativePrompt: "avoid blur",
         seed: 42,
         guidanceScale: 11,
@@ -55,5 +71,48 @@ describe("image generation capability facts", () => {
     const issuePaths = validationResult.error.issues.map((issue) => issue.path.join("."));
     expect(issuePaths).toContain("guidanceScale");
     expect(issuePaths).toContain("steps");
+  });
+
+  it("rejects oversized qwen reference images during compatibility validation", () => {
+    const frontendModel = getFrontendImageModelById("qwen-image-2-pro");
+    expect(frontendModel).not.toBeNull();
+    if (!frontendModel) {
+      return;
+    }
+
+    const validationResult = imageGenerationRequestSchema
+      .superRefine((payload, ctx) => {
+        validateImageGenerationRequestAgainstModel(payload, frontendModel, ctx);
+      })
+      .safeParse({
+        prompt: "Rainy alley",
+        modelId: "qwen-image-2-pro",
+        aspectRatio: "1:1",
+        style: "none",
+        referenceImages: [
+          {
+            id: "ref-oversized",
+            url: createDataUrl(10 * 1024 * 1024 + 1),
+            type: "content",
+          },
+        ],
+        batchSize: 1,
+        modelParams: {
+          promptExtend: true,
+        },
+      });
+
+    expect(validationResult.success).toBe(false);
+    if (validationResult.success) {
+      return;
+    }
+
+    expect(validationResult.error.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: ["referenceImages", 0, "url"],
+        }),
+      ])
+    );
   });
 });

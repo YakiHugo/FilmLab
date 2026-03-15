@@ -49,6 +49,13 @@ describe("image model catalog capability facts", () => {
     expect(featureSupport.guidanceScale).toBe(false);
     expect(featureSupport.steps).toBe(false);
     expect(featureSupport.seed).toBe(true);
+    expect(featureSupport.referenceImages).toMatchObject({
+      enabled: true,
+      maxImages: 3,
+      supportedTypes: ["content"],
+      supportsWeight: false,
+      maxFileSizeBytes: 10 * 1024 * 1024,
+    });
 
     const sanitized = sanitizeGenerationConfigWithCatalog(
       {

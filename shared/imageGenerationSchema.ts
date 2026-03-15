@@ -32,6 +32,7 @@ export const referenceImageSchema = z.object({
   fileName: z.string().optional(),
   weight: z.number().min(0).max(1).optional(),
   type: referenceImageTypeSchema.default("content"),
+  sourceAssetId: z.string().trim().min(1).optional(),
 });
 
 export const requestedImageGenerationTargetSchema = z.object({

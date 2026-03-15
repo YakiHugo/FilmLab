@@ -92,7 +92,7 @@ const qwenModel = createModelFixture("qwen-image-2-pro", {
     maxBatchSize: 6,
     referenceImages: {
       enabled: true,
-      maxImages: 2,
+      maxImages: 3,
       supportedTypes: ["content"],
       supportsWeight: false,
     },
@@ -305,10 +305,11 @@ describe("sanitizeGenerationConfig", () => {
       qwenModel
     );
 
-    expect(sanitized.referenceImages).toHaveLength(2);
+    expect(sanitized.referenceImages).toHaveLength(3);
     expect(sanitized.referenceImages).toEqual([
       expect.objectContaining({ id: "ref-1", type: "content", weight: 1 }),
       expect.objectContaining({ id: "ref-2", type: "content", weight: 1 }),
+      expect.objectContaining({ id: "ref-3", type: "content", weight: 1 }),
     ]);
   });
 });

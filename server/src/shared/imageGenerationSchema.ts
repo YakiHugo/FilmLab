@@ -27,6 +27,18 @@ const appendIssue = (
   });
 };
 
+const estimateDataUrlBytes = (value: string): number | null => {
+  const trimmedValue = value.trim();
+  const match = /^data:[^;,]+;base64,([A-Za-z0-9+/=]+)$/i.exec(trimmedValue);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const encoded = match[1];
+  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((encoded.length * 3) / 4) - padding);
+};
+
 export const validateImageGenerationRequestAgainstModel = (
   payload: ParsedImageGenerationRequest,
   frontendModel: FrontendModelSpec,
@@ -138,6 +150,22 @@ export const validateImageGenerationRequestAgainstModel = (
           ["referenceImages", index, "weight"],
           `${label} does not support reference image weights.`
         );
+      }
+
+      if (typeof capability.referenceImages.maxFileSizeBytes === "number") {
+        const estimatedBytes = estimateDataUrlBytes(referenceImage.url);
+        if (
+          typeof estimatedBytes === "number" &&
+          estimatedBytes > capability.referenceImages.maxFileSizeBytes
+        ) {
+          appendIssue(
+            ctx,
+            ["referenceImages", index, "url"],
+            `${label} reference images must be ${Math.round(
+              capability.referenceImages.maxFileSizeBytes / 1024 / 1024
+            )} MB or smaller.`
+          );
+        }
       }
     });
   } else if (payload.referenceImages.length > 0) {
