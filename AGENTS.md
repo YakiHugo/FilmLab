@@ -24,10 +24,7 @@ Follow Conventional Commit style: `feat(scope): ...`, `fix(scope): ...`, `refact
 - Only flag issues that are real bugs, security vulnerabilities, or logic errors. Do not nitpick style, hypothetical edge cases that cannot happen, or
   "improvements" that change nothing meaningful.
 - If a review finds nothing wrong, say "no issues found". Do not invent problems to appear thorough.
-
-## Coding Standards
-
-- When working with TypeScript projects, always use the typescript skill.
+- After running tests, dispatch multiple sub-agents to review the code for architecture issues, missing implementation, code bugs, dead code cleanup opportunities, and performance problems.
 
 ## Using GitHub
 
