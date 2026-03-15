@@ -1,7 +1,9 @@
 import type {
   ImageGenerationAssetRef,
   ImageGenerationRequest,
+  ImagePromptCompilerOperationId,
   ImagePromptContinuityTarget,
+  ImagePromptIntentInput,
   ImagePromptIntentEditOp,
   ReferenceImage,
 } from "./imageGeneration";
@@ -63,6 +65,40 @@ export interface PersistedConversationCreativeState {
   revision: number;
 }
 
+export type PersistedPromptArtifactStage = "rewrite" | "compile" | "dispatch";
+
+export interface PersistedPromptArtifactTurnDelta {
+  prompt: string;
+  preserve: string[];
+  avoid: string[];
+  styleDirectives: string[];
+  continuityTargets: PersistedCreativeState["continuityTargets"];
+  editOps: PersistedCreativeState["editOps"];
+  referenceAssetIds: string[];
+}
+
+export interface PersistedPromptArtifactPromptIR {
+  operation: ImagePromptCompilerOperationId;
+  goal: string;
+  preserve: string[];
+  negativeConstraints: string[];
+  styleDirectives: string[];
+  continuityTargets: PersistedCreativeState["continuityTargets"];
+  editOps: PersistedCreativeState["editOps"];
+  sourceAssets: ImageGenerationAssetRef[];
+  referenceAssets: ImageGenerationAssetRef[];
+  assetRefs: ImageGenerationAssetRef[];
+  referenceImages: Array<Pick<ReferenceImage, "id" | "type" | "sourceAssetId">>;
+  output: {
+    aspectRatio: string;
+    width: number | null;
+    height: number | null;
+    batchSize: number;
+    style: string;
+    stylePreset: string | null;
+  };
+}
+
 export interface PersistedSemanticLoss {
   code:
     | "APPROXIMATED_AS_REGENERATION"
@@ -77,6 +113,38 @@ export interface PersistedSemanticLoss {
   degradeMode: "dropped" | "approximated" | "merged" | "softened";
   userMessage: string;
   internalDetail?: string;
+}
+
+export interface PersistedPromptArtifactHashes {
+  stateHash: string;
+  irHash: string;
+  prefixHash: string;
+  payloadHash: string;
+}
+
+export interface PersistedPromptArtifactRecord {
+  id: string;
+  runId: string;
+  turnId: string;
+  version: number;
+  stage: PersistedPromptArtifactStage;
+  targetKey: string | null;
+  attempt: number | null;
+  compilerVersion: string;
+  capabilityVersion: string;
+  originalPrompt: string;
+  promptIntent: ImagePromptIntentInput | null;
+  turnDelta: PersistedPromptArtifactTurnDelta | null;
+  committedStateBefore: PersistedCreativeState | null;
+  candidateStateAfter: PersistedCreativeState | null;
+  promptIR: PersistedPromptArtifactPromptIR | null;
+  compiledPrompt: string | null;
+  dispatchedPrompt: string | null;
+  providerEffectivePrompt: string | null;
+  semanticLosses: PersistedSemanticLoss[];
+  warnings: string[];
+  hashes: PersistedPromptArtifactHashes;
+  createdAt: string;
 }
 
 export interface GenerationJobSnapshot {
@@ -240,6 +308,11 @@ export interface ThreadSnapshotGenerateResponse {
   primaryAssetIds: string[];
   runs: PersistedRunRecord[];
   assets: PersistedAssetRecord[];
+}
+
+export interface TurnPromptArtifactsResponse {
+  turnId: string;
+  versions: PersistedPromptArtifactRecord[];
 }
 
 export interface PreparedGenerationContext {

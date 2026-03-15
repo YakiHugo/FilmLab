@@ -5,6 +5,7 @@ const repositoryMock = {
   getConversationById: vi.fn(),
   getOrCreateActiveConversation: vi.fn(),
   getConversationSnapshot: vi.fn(),
+  getPromptArtifactsForTurn: vi.fn(),
   clearActiveConversation: vi.fn(),
   deleteTurn: vi.fn(),
   getGeneratedImageByCapability: vi.fn(),

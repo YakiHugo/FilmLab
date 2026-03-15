@@ -5,6 +5,7 @@ import type {
   GenerationJobSnapshot,
   PersistedGenerationTurn,
   PersistedImageSession,
+  TurnPromptArtifactsResponse,
   PersistedRunRecord,
   PersistedResultItem,
 } from "../../../../shared/chatImageTypes";
@@ -193,6 +194,37 @@ export class MemoryChatStateRepository implements ChatStateRepository {
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
     } satisfies PersistedImageSession;
+  }
+
+  async getPromptArtifactsForTurn(
+    userId: string,
+    turnId: string
+  ): Promise<TurnPromptArtifactsResponse | null> {
+    const turn = this.turns.get(turnId);
+    if (!turn || turn.isHidden) {
+      return null;
+    }
+
+    const conversation = await this.getConversationById(userId, turn.conversationId);
+    if (!conversation) {
+      return null;
+    }
+
+    const versions = [...(this.promptVersions.get(turn.conversationId) ?? [])]
+      .filter((version) => version.turnId === turnId)
+      .sort((left, right) => {
+        const versionDelta = left.version - right.version;
+        if (versionDelta !== 0) {
+          return versionDelta;
+        }
+        return left.createdAt.localeCompare(right.createdAt);
+      })
+      .map((version) => structuredClone(version));
+
+    return {
+      turnId,
+      versions,
+    };
   }
 
   async clearActiveConversation(userId: string) {

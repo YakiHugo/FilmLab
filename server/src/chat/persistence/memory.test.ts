@@ -460,6 +460,139 @@ describe("MemoryChatStateRepository", () => {
     });
   });
 
+  it("returns ordered prompt artifacts only for visible turns owned by the caller", async () => {
+    const repository = new MemoryChatStateRepository();
+    const conversation = await repository.getOrCreateActiveConversation("user-1");
+    const otherConversation = await repository.getOrCreateActiveConversation("user-2");
+
+    await repository.createGeneration(
+      createGenerationInput({
+        conversationId: conversation.id,
+        turnId: "turn-1",
+        runId: "run-1",
+      })
+    );
+    await repository.createPromptVersions({
+      conversationId: conversation.id,
+      versions: [
+        {
+          id: "artifact-2",
+          runId: "run-1",
+          turnId: "turn-1",
+          version: 2,
+          stage: "dispatch",
+          targetKey: "dashscope:qwen-image-2.0-pro",
+          attempt: 1,
+          compilerVersion: "prompt-compiler.v1.2",
+          capabilityVersion: "prompt-capabilities.v1.2",
+          originalPrompt: "Studio portrait",
+          promptIntent: null,
+          turnDelta: null,
+          committedStateBefore: null,
+          candidateStateAfter: null,
+          promptIR: null,
+          compiledPrompt: "dispatch prompt",
+          dispatchedPrompt: "dispatch prompt",
+          providerEffectivePrompt: null,
+          semanticLosses: [],
+          warnings: [],
+          hashes: {
+            stateHash: "state-2",
+            irHash: "ir-2",
+            prefixHash: "prefix-2",
+            payloadHash: "payload-2",
+          },
+          createdAt: "2026-03-12T00:00:02.000Z",
+        },
+        {
+          id: "artifact-1",
+          runId: "run-1",
+          turnId: "turn-1",
+          version: 1,
+          stage: "rewrite",
+          targetKey: null,
+          attempt: null,
+          compilerVersion: "prompt-compiler.v1.2",
+          capabilityVersion: "prompt-capabilities.v1.2",
+          originalPrompt: "Studio portrait",
+          promptIntent: null,
+          turnDelta: null,
+          committedStateBefore: null,
+          candidateStateAfter: null,
+          promptIR: null,
+          compiledPrompt: null,
+          dispatchedPrompt: null,
+          providerEffectivePrompt: null,
+          semanticLosses: [],
+          warnings: [],
+          hashes: {
+            stateHash: "state-1",
+            irHash: "ir-1",
+            prefixHash: "prefix-1",
+            payloadHash: "payload-1",
+          },
+          createdAt: "2026-03-12T00:00:01.000Z",
+        },
+      ],
+    });
+
+    await repository.createGeneration(
+      createGenerationInput({
+        conversationId: otherConversation.id,
+        turnId: "turn-2",
+        runId: "run-2",
+      })
+    );
+    await repository.createPromptVersions({
+      conversationId: otherConversation.id,
+      versions: [
+        {
+          id: "artifact-other",
+          runId: "run-2",
+          turnId: "turn-2",
+          version: 1,
+          stage: "rewrite",
+          targetKey: null,
+          attempt: null,
+          compilerVersion: "prompt-compiler.v1.2",
+          capabilityVersion: "prompt-capabilities.v1.2",
+          originalPrompt: "Other prompt",
+          promptIntent: null,
+          turnDelta: null,
+          committedStateBefore: null,
+          candidateStateAfter: null,
+          promptIR: null,
+          compiledPrompt: null,
+          dispatchedPrompt: null,
+          providerEffectivePrompt: null,
+          semanticLosses: [],
+          warnings: [],
+          hashes: {
+            stateHash: "state-other",
+            irHash: "ir-other",
+            prefixHash: "prefix-other",
+            payloadHash: "payload-other",
+          },
+          createdAt: "2026-03-12T00:00:03.000Z",
+        },
+      ],
+    });
+
+    const artifacts = await repository.getPromptArtifactsForTurn("user-1", "turn-1");
+    expect(artifacts).toEqual({
+      turnId: "turn-1",
+      versions: [
+        expect.objectContaining({ id: "artifact-1", version: 1, stage: "rewrite" }),
+        expect.objectContaining({ id: "artifact-2", version: 2, stage: "dispatch" }),
+      ],
+    });
+
+    expect(await repository.getPromptArtifactsForTurn("user-1", "turn-2")).toBeNull();
+
+    await repository.deleteTurn("user-1", "turn-1");
+    expect(await repository.getPromptArtifactsForTurn("user-1", "turn-1")).toBeNull();
+  });
+
   it("revokes generated image capabilities when a turn is deleted", async () => {
     const repository = new MemoryChatStateRepository();
     const conversation = await repository.getOrCreateActiveConversation("user-1");

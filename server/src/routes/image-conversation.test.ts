@@ -6,6 +6,7 @@ const repositoryMock = {
   getConversationById: vi.fn(),
   getOrCreateActiveConversation: vi.fn(),
   getConversationSnapshot: vi.fn(),
+  getPromptArtifactsForTurn: vi.fn(),
   clearActiveConversation: vi.fn(),
   deleteTurn: vi.fn(),
   getGeneratedImageByCapability: vi.fn(),
@@ -108,6 +109,127 @@ describe("imageConversationRoute", () => {
       id: "conversation-1",
       turns: [],
       jobs: [],
+    });
+
+    await app.close();
+  });
+
+  it("requires auth to read prompt artifacts", async () => {
+    const app = await createApp();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/image-conversation/turns/turn-1/prompt-artifacts",
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(repositoryMock.getPromptArtifactsForTurn).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("returns ordered prompt artifacts for an owned turn", async () => {
+    repositoryMock.getPromptArtifactsForTurn.mockResolvedValue({
+      turnId: "turn-1",
+      versions: [
+        {
+          id: "artifact-1",
+          runId: "run-1",
+          turnId: "turn-1",
+          version: 1,
+          stage: "rewrite",
+          targetKey: null,
+          attempt: null,
+          compilerVersion: "prompt-compiler.v1.2",
+          capabilityVersion: "prompt-capabilities.v1.2",
+          originalPrompt: "Studio portrait",
+          promptIntent: null,
+          turnDelta: null,
+          committedStateBefore: null,
+          candidateStateAfter: null,
+          promptIR: null,
+          compiledPrompt: null,
+          dispatchedPrompt: null,
+          providerEffectivePrompt: null,
+          semanticLosses: [],
+          warnings: [],
+          hashes: {
+            stateHash: "state-1",
+            irHash: "ir-1",
+            prefixHash: "prefix-1",
+            payloadHash: "payload-1",
+          },
+          createdAt: "2026-03-15T00:00:00.000Z",
+        },
+        {
+          id: "artifact-2",
+          runId: "run-1",
+          turnId: "turn-1",
+          version: 2,
+          stage: "dispatch",
+          targetKey: "dashscope:qwen-image-2.0-pro",
+          attempt: 1,
+          compilerVersion: "prompt-compiler.v1.2",
+          capabilityVersion: "prompt-capabilities.v1.2",
+          originalPrompt: "Studio portrait",
+          promptIntent: null,
+          turnDelta: null,
+          committedStateBefore: null,
+          candidateStateAfter: null,
+          promptIR: null,
+          compiledPrompt: "compiled prompt",
+          dispatchedPrompt: "dispatch prompt",
+          providerEffectivePrompt: "provider prompt",
+          semanticLosses: [],
+          warnings: [],
+          hashes: {
+            stateHash: "state-2",
+            irHash: "ir-2",
+            prefixHash: "prefix-2",
+            payloadHash: "payload-2",
+          },
+          createdAt: "2026-03-15T00:00:01.000Z",
+        },
+      ],
+    });
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/image-conversation/turns/turn-1/prompt-artifacts",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(repositoryMock.getPromptArtifactsForTurn).toHaveBeenCalledWith("user-1", "turn-1");
+    expect(response.json()).toMatchObject({
+      turnId: "turn-1",
+      versions: [
+        { id: "artifact-1", stage: "rewrite", version: 1 },
+        { id: "artifact-2", stage: "dispatch", version: 2 },
+      ],
+    });
+
+    await app.close();
+  });
+
+  it("returns 404 when prompt artifacts are requested for a missing turn", async () => {
+    repositoryMock.getPromptArtifactsForTurn.mockResolvedValue(null);
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/image-conversation/turns/missing-turn/prompt-artifacts",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({
+      error: "Turn not found.",
     });
 
     await app.close();

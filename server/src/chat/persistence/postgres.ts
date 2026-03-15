@@ -5,10 +5,12 @@ import type {
   PersistedAssetRecord,
   PersistedConversationCreativeState,
   GenerationJobSnapshot,
+  PersistedPromptArtifactRecord,
   PersistedGenerationTurn,
   PersistedImageSession,
   PersistedRunRecord,
   PersistedResultItem,
+  TurnPromptArtifactsResponse,
 } from "../../../../shared/chatImageTypes";
 import {
   cloneConversationCreativeState,
@@ -402,6 +404,34 @@ interface ChatConversationRow {
   updated_at: string;
 }
 
+interface ChatPromptArtifactRow {
+  id: string;
+  run_id: string;
+  turn_id: string;
+  version: number;
+  stage: PersistedPromptArtifactRecord["stage"];
+  target_key: string | null;
+  attempt: number | null;
+  compiler_version: string;
+  capability_version: string;
+  original_prompt: string;
+  prompt_intent: unknown;
+  turn_delta: unknown;
+  committed_state_before: unknown;
+  candidate_state_after: unknown;
+  prompt_ir: unknown;
+  compiled_prompt: string | null;
+  dispatched_prompt: string | null;
+  provider_effective_prompt: string | null;
+  semantic_losses: unknown;
+  warnings: unknown;
+  hashes: unknown;
+  created_at: string;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
 const parseStringArray = (value: unknown): string[] => {
   if (Array.isArray(value)) {
     return value.filter((entry): entry is string => typeof entry === "string");
@@ -453,11 +483,40 @@ const parseTelemetry = (value: unknown): PersistedRunRecord["telemetry"] => {
   };
 };
 
+const parsePromptEditOps = (
+  value: unknown
+): PersistedConversationCreativeState["committed"]["editOps"] =>
+  Array.isArray(value)
+    ? value
+        .filter(
+          (entry): entry is PersistedConversationCreativeState["committed"]["editOps"][number] =>
+            isRecord(entry) &&
+            typeof entry.op === "string" &&
+            typeof entry.target === "string"
+        )
+        .map((entry) => ({
+          op: entry.op,
+          target: entry.target,
+          ...(typeof entry.value === "string" ? { value: entry.value } : {}),
+        }))
+    : [];
+
+const parseContinuityTargets = (
+  value: unknown
+): PersistedConversationCreativeState["committed"]["continuityTargets"] =>
+  parseStringArray(value).filter(
+    (entry): entry is PersistedConversationCreativeState["committed"]["continuityTargets"][number] =>
+      entry === "subject" ||
+      entry === "style" ||
+      entry === "composition" ||
+      entry === "text"
+  );
+
 const parseCreativeState = (
   value: unknown,
   fallback = createInitialConversationCreativeState().committed
 ): PersistedConversationCreativeState["committed"] => {
-  if (typeof value !== "object" || value === null) {
+  if (!isRecord(value)) {
     return fallback;
   }
 
@@ -467,33 +526,204 @@ const parseCreativeState = (
     preserve: parseStringArray(state.preserve),
     avoid: parseStringArray(state.avoid),
     styleDirectives: parseStringArray(state.styleDirectives),
-    continuityTargets: parseStringArray(state.continuityTargets).filter(
-      (entry): entry is PersistedConversationCreativeState["committed"]["continuityTargets"][number] =>
-        entry === "subject" ||
-        entry === "style" ||
-        entry === "composition" ||
-        entry === "text"
-    ),
-    editOps: Array.isArray(state.editOps)
-      ? state.editOps
-          .filter(
-            (
-              entry
-            ): entry is PersistedConversationCreativeState["committed"]["editOps"][number] =>
-              typeof entry === "object" &&
-              entry !== null &&
-              typeof (entry as { op?: unknown }).op === "string" &&
-              typeof (entry as { target?: unknown }).target === "string"
-          )
-          .map((entry) => ({
-            op: entry.op,
-            target: entry.target,
-            ...(typeof entry.value === "string" ? { value: entry.value } : {}),
-          }))
-      : [],
+    continuityTargets: parseContinuityTargets(state.continuityTargets),
+    editOps: parsePromptEditOps(state.editOps),
     referenceAssetIds: parseStringArray(state.referenceAssetIds),
   };
 };
+
+const parsePromptIntent = (
+  value: unknown
+): PersistedPromptArtifactRecord["promptIntent"] => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  return {
+    preserve: parseStringArray(value.preserve),
+    avoid: parseStringArray(value.avoid),
+    styleDirectives: parseStringArray(value.styleDirectives),
+    continuityTargets: parseContinuityTargets(value.continuityTargets),
+    editOps: parsePromptEditOps(value.editOps),
+  };
+};
+
+const parseAssetRefs = (
+  value: unknown
+): PersistedPromptArtifactRecord["promptIR"] extends infer T
+  ? T extends { assetRefs: infer TAssetRefs }
+    ? TAssetRefs
+    : never
+  : never =>
+  Array.isArray(value)
+    ? value
+        .filter(
+          (
+            entry
+          ): entry is NonNullable<PersistedPromptArtifactRecord["promptIR"]>["assetRefs"][number] =>
+            isRecord(entry) &&
+            typeof entry.assetId === "string" &&
+            (entry.role === "reference" || entry.role === "edit" || entry.role === "variation")
+        )
+        .map((entry) => ({
+          assetId: entry.assetId,
+          role: entry.role,
+        }))
+    : [];
+
+const parsePromptArtifactSemanticLosses = (
+  value: unknown
+): PersistedPromptArtifactRecord["semanticLosses"] =>
+  Array.isArray(value)
+    ? value
+        .filter(
+          (entry): entry is PersistedPromptArtifactRecord["semanticLosses"][number] =>
+            isRecord(entry) &&
+            typeof entry.code === "string" &&
+            typeof entry.severity === "string" &&
+            typeof entry.fieldPath === "string" &&
+            typeof entry.degradeMode === "string" &&
+            typeof entry.userMessage === "string"
+        )
+        .map((entry) => ({
+          code: entry.code,
+          severity: entry.severity,
+          fieldPath: entry.fieldPath,
+          degradeMode: entry.degradeMode,
+          userMessage: entry.userMessage,
+          ...(typeof entry.internalDetail === "string"
+            ? { internalDetail: entry.internalDetail }
+            : {}),
+        }))
+    : [];
+
+const parsePromptArtifactHashes = (
+  value: unknown
+): PersistedPromptArtifactRecord["hashes"] => {
+  if (!isRecord(value)) {
+    return {
+      stateHash: "",
+      irHash: "",
+      prefixHash: "",
+      payloadHash: "",
+    };
+  }
+
+  return {
+    stateHash: typeof value.stateHash === "string" ? value.stateHash : "",
+    irHash: typeof value.irHash === "string" ? value.irHash : "",
+    prefixHash: typeof value.prefixHash === "string" ? value.prefixHash : "",
+    payloadHash: typeof value.payloadHash === "string" ? value.payloadHash : "",
+  };
+};
+
+const parsePromptArtifactTurnDelta = (
+  value: unknown
+): PersistedPromptArtifactRecord["turnDelta"] => {
+  if (!isRecord(value) || typeof value.prompt !== "string") {
+    return null;
+  }
+
+  return {
+    prompt: value.prompt,
+    preserve: parseStringArray(value.preserve),
+    avoid: parseStringArray(value.avoid),
+    styleDirectives: parseStringArray(value.styleDirectives),
+    continuityTargets: parseContinuityTargets(value.continuityTargets),
+    editOps: parsePromptEditOps(value.editOps),
+    referenceAssetIds: parseStringArray(value.referenceAssetIds),
+  };
+};
+
+const parsePromptArtifactPromptIR = (
+  value: unknown
+): PersistedPromptArtifactRecord["promptIR"] => {
+  if (!isRecord(value) || typeof value.operation !== "string" || typeof value.goal !== "string") {
+    return null;
+  }
+
+  const operation =
+    value.operation === "image.generate" ||
+    value.operation === "image.edit" ||
+    value.operation === "image.variation"
+      ? value.operation
+      : null;
+  if (!operation) {
+    return null;
+  }
+
+  const output = isRecord(value.output) ? value.output : {};
+
+  return {
+    operation,
+    goal: value.goal,
+    preserve: parseStringArray(value.preserve),
+    negativeConstraints: parseStringArray(value.negativeConstraints),
+    styleDirectives: parseStringArray(value.styleDirectives),
+    continuityTargets: parseContinuityTargets(value.continuityTargets),
+    editOps: parsePromptEditOps(value.editOps),
+    sourceAssets: parseAssetRefs(value.sourceAssets),
+    referenceAssets: parseAssetRefs(value.referenceAssets),
+    assetRefs: parseAssetRefs(value.assetRefs),
+    referenceImages: Array.isArray(value.referenceImages)
+      ? value.referenceImages
+          .filter(
+            (
+              entry
+            ): entry is NonNullable<PersistedPromptArtifactRecord["promptIR"]>["referenceImages"][number] =>
+              isRecord(entry) &&
+              typeof entry.id === "string" &&
+              typeof entry.type === "string"
+          )
+          .map((entry) => ({
+            id: entry.id,
+            type: entry.type,
+            ...(typeof entry.sourceAssetId === "string"
+              ? { sourceAssetId: entry.sourceAssetId }
+              : {}),
+          }))
+      : [],
+    output: {
+      aspectRatio: typeof output.aspectRatio === "string" ? output.aspectRatio : "1:1",
+      width: typeof output.width === "number" ? output.width : null,
+      height: typeof output.height === "number" ? output.height : null,
+      batchSize: typeof output.batchSize === "number" ? output.batchSize : 1,
+      style: typeof output.style === "string" ? output.style : "none",
+      stylePreset: typeof output.stylePreset === "string" ? output.stylePreset : null,
+    },
+  };
+};
+
+const toPromptArtifactRecord = (
+  row: ChatPromptArtifactRow
+): PersistedPromptArtifactRecord => ({
+  id: row.id,
+  runId: row.run_id,
+  turnId: row.turn_id,
+  version: row.version,
+  stage: row.stage,
+  targetKey: row.target_key,
+  attempt: row.attempt,
+  compilerVersion: row.compiler_version,
+  capabilityVersion: row.capability_version,
+  originalPrompt: row.original_prompt,
+  promptIntent: parsePromptIntent(row.prompt_intent),
+  turnDelta: parsePromptArtifactTurnDelta(row.turn_delta),
+  committedStateBefore: row.committed_state_before
+    ? parseCreativeState(row.committed_state_before)
+    : null,
+  candidateStateAfter: row.candidate_state_after
+    ? parseCreativeState(row.candidate_state_after)
+    : null,
+  promptIR: parsePromptArtifactPromptIR(row.prompt_ir),
+  compiledPrompt: row.compiled_prompt,
+  dispatchedPrompt: row.dispatched_prompt,
+  providerEffectivePrompt: row.provider_effective_prompt,
+  semanticLosses: parsePromptArtifactSemanticLosses(row.semantic_losses),
+  warnings: parseStringArray(row.warnings),
+  hashes: parsePromptArtifactHashes(row.hashes),
+  createdAt: new Date(row.created_at).toISOString(),
+});
 
 const parsePromptState = (value: unknown): PersistedConversationCreativeState => {
   const fallback = createInitialConversationCreativeState();
@@ -919,6 +1149,70 @@ export class PostgresChatStateRepository implements ChatStateRepository {
         completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
       })),
     } satisfies PersistedImageSession;
+  }
+
+  async getPromptArtifactsForTurn(
+    userId: string,
+    turnId: string
+  ): Promise<TurnPromptArtifactsResponse | null> {
+    await this.ensureReady();
+    const turnResult = await this.pool.query<{
+      conversation_id: string;
+    }>(
+      `
+        SELECT t.conversation_id
+        FROM chat_turns t
+        INNER JOIN chat_conversations c
+          ON c.id = t.conversation_id
+        WHERE t.id = $1
+          AND t.is_hidden = FALSE
+          AND c.user_id = $2
+        LIMIT 1;
+      `,
+      [turnId, userId]
+    );
+    const turnRow = turnResult.rows[0];
+    if (!turnRow) {
+      return null;
+    }
+
+    const versionsResult = await this.pool.query<ChatPromptArtifactRow>(
+      `
+        SELECT
+          id,
+          run_id,
+          turn_id,
+          version,
+          stage,
+          target_key,
+          attempt,
+          compiler_version,
+          capability_version,
+          original_prompt,
+          prompt_intent,
+          turn_delta,
+          committed_state_before,
+          candidate_state_after,
+          prompt_ir,
+          compiled_prompt,
+          dispatched_prompt,
+          provider_effective_prompt,
+          semantic_losses,
+          warnings,
+          hashes,
+          created_at
+        FROM chat_prompt_versions
+        WHERE conversation_id = $1
+          AND turn_id = $2
+        ORDER BY version ASC, created_at ASC;
+      `,
+      [turnRow.conversation_id, turnId]
+    );
+
+    return {
+      turnId,
+      versions: versionsResult.rows.map(toPromptArtifactRecord),
+    };
   }
 
   async clearActiveConversation(userId: string) {

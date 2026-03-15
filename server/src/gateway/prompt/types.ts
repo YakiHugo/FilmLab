@@ -1,92 +1,31 @@
 import type {
   PersistedConversationCreativeState,
   PersistedCreativeState,
+  PersistedPromptArtifactPromptIR,
+  PersistedPromptArtifactRecord,
+  PersistedPromptArtifactStage,
+  PersistedPromptArtifactTurnDelta,
   PersistedSemanticLoss,
 } from "../../../../shared/chatImageTypes";
-import type {
-  ImageGenerationAssetRef,
-  ImagePromptCompilerOperationId,
-  ImagePromptIntentInput,
-  ReferenceImage,
-} from "../../../../shared/imageGeneration";
 
 export type SemanticLoss = PersistedSemanticLoss;
-
-export interface TurnDelta {
-  prompt: string;
-  preserve: string[];
-  avoid: string[];
-  styleDirectives: string[];
-  continuityTargets: PersistedCreativeState["continuityTargets"];
-  editOps: PersistedCreativeState["editOps"];
-  referenceAssetIds: string[];
-}
+export type TurnDelta = PersistedPromptArtifactTurnDelta;
 
 export type CreativeState = PersistedCreativeState;
 export type ConversationCreativeState = PersistedConversationCreativeState;
-
-export interface PromptIR {
-  operation: ImagePromptCompilerOperationId;
-  goal: string;
-  preserve: string[];
-  negativeConstraints: string[];
-  styleDirectives: string[];
-  continuityTargets: PersistedCreativeState["continuityTargets"];
-  editOps: PersistedCreativeState["editOps"];
-  sourceAssets: ImageGenerationAssetRef[];
-  referenceAssets: ImageGenerationAssetRef[];
-  assetRefs: ImageGenerationAssetRef[];
-  referenceImages: Array<Pick<ReferenceImage, "id" | "type" | "sourceAssetId">>;
-  output: {
-    aspectRatio: string;
-    width: number | null;
-    height: number | null;
-    batchSize: number;
-    style: string;
-    stylePreset: string | null;
-  };
-}
+export type PromptIR = PersistedPromptArtifactPromptIR;
 
 export interface PromptCompilationContext {
   compilerVersion: string;
   capabilityVersion: string;
   stateBaseRevision: number;
   rewriteModel: string;
-  operation: ImagePromptCompilerOperationId;
+  operation: PromptIR["operation"];
   retryMode: "exact" | "recompile";
 }
 
-export type PromptVersionStage = "rewrite" | "compile" | "dispatch";
-
-export interface PromptVersionRecord {
-  id: string;
-  runId: string;
-  turnId: string;
-  version: number;
-  stage: PromptVersionStage;
-  targetKey: string | null;
-  attempt: number | null;
-  compilerVersion: string;
-  capabilityVersion: string;
-  originalPrompt: string;
-  promptIntent: ImagePromptIntentInput | null;
-  turnDelta: TurnDelta | null;
-  committedStateBefore: CreativeState | null;
-  candidateStateAfter: CreativeState | null;
-  promptIR: PromptIR | null;
-  compiledPrompt: string | null;
-  dispatchedPrompt: string | null;
-  providerEffectivePrompt: string | null;
-  semanticLosses: SemanticLoss[];
-  warnings: string[];
-  hashes: {
-    stateHash: string;
-    irHash: string;
-    prefixHash: string;
-    payloadHash: string;
-  };
-  createdAt: string;
-}
+export type PromptVersionStage = PersistedPromptArtifactStage;
+export type PromptVersionRecord = PersistedPromptArtifactRecord;
 
 export const createEmptyCreativeState = (): CreativeState => ({
   prompt: null,

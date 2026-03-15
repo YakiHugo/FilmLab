@@ -30,6 +30,27 @@ export const imageConversationRoute: FastifyPluginAsync = async (app) => {
     }
   });
 
+  app.get("/api/image-conversation/turns/:turnId/prompt-artifacts", async (request, reply) => {
+    const userId = requireAuthenticatedUser(request);
+    if (!userId) {
+      return reply.code(401).send({ error: "Unauthorized." });
+    }
+
+    const { turnId } = request.params as { turnId: string };
+
+    try {
+      const artifacts = await app.chatStateRepository.getPromptArtifactsForTurn(userId, turnId);
+      if (!artifacts) {
+        return reply.code(404).send({ error: "Turn not found." });
+      }
+
+      return reply.code(200).send(artifacts);
+    } catch (error) {
+      app.log.error(error);
+      return reply.code(500).send({ error: "Prompt artifacts could not be loaded." });
+    }
+  });
+
   app.delete("/api/image-conversation", async (request, reply) => {
     const userId = requireAuthenticatedUser(request);
     if (!userId) {

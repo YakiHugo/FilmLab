@@ -5,6 +5,7 @@ import type {
   GenerationJobSnapshot,
   PersistedGenerationTurn,
   PersistedImageSession,
+  TurnPromptArtifactsResponse,
   PersistedRunRecord,
   PersistedResultItem,
 } from "../../../../shared/chatImageTypes";
@@ -145,6 +146,7 @@ export interface ChatStateRepository {
   getConversationById(userId: string, conversationId: string): Promise<ChatConversationRecord | null>;
   getOrCreateActiveConversation(userId: string): Promise<ChatConversationRecord>;
   getConversationSnapshot(userId: string, conversationId?: string): Promise<PersistedImageSession>;
+  getPromptArtifactsForTurn(userId: string, turnId: string): Promise<TurnPromptArtifactsResponse | null>;
   clearActiveConversation(userId: string): Promise<PersistedImageSession>;
   deleteTurn(userId: string, turnId: string): Promise<PersistedImageSession | null>;
   getGeneratedImageByCapability(
