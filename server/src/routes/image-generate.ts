@@ -96,6 +96,34 @@ const toPersistedRequestSnapshot = (
   } as PersistedImageGenerationRequestSnapshot;
 };
 
+const toPersistedConfigSnapshot = (payload: unknown): Record<string, unknown> => {
+  const snapshot = cloneSnapshot(payload) as Record<string, unknown> & {
+    referenceImages?: Array<Record<string, unknown>>;
+  };
+
+  if (!Array.isArray(snapshot.referenceImages)) {
+    return snapshot;
+  }
+
+  return {
+    ...snapshot,
+    referenceImages: snapshot.referenceImages.map((referenceImage, index) => ({
+      id:
+        typeof referenceImage.id === "string" && referenceImage.id.trim()
+          ? referenceImage.id
+          : createId(`ref-${index}`),
+      fileName:
+        typeof referenceImage.fileName === "string" ? referenceImage.fileName : undefined,
+      type: referenceImage.type,
+      weight: referenceImage.weight,
+      sourceAssetId:
+        typeof referenceImage.sourceAssetId === "string"
+          ? referenceImage.sourceAssetId
+          : undefined,
+    })),
+  };
+};
+
 const assertGeneratedImageSize = (buffer: Buffer, maxBytes: number) => {
   if (buffer.byteLength > maxBytes) {
     throw new ProviderError("Generated image is too large to persist.", 413);
@@ -323,7 +351,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             deploymentId: defaultDeployment.id,
             runtimeProvider: defaultDeployment.provider,
             providerModel: defaultDeployment.providerModel,
-            configSnapshot: toPersistedRequestSnapshot(payload),
+            configSnapshot: toPersistedConfigSnapshot(payload),
             status: "loading",
             error: null,
             warnings: [],

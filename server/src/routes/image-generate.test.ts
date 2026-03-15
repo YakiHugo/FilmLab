@@ -300,6 +300,89 @@ describe("imageGenerateRoute", () => {
     await app.close();
   });
 
+  it("stores lightweight turn snapshots and replayable request snapshots for reference-guided turns", async () => {
+    generateMock.mockResolvedValue({
+      modelId: "qwen-image-2-pro",
+      logicalModel: "image.qwen.v2.pro",
+      deploymentId: "dashscope-qwen-image-2-pro-primary",
+      runtimeProvider: "dashscope",
+      providerModel: "qwen-image-2.0-pro",
+      warnings: [],
+      images: [
+        {
+          binaryData: Buffer.from([1, 2, 3]),
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+      payload: {
+        prompt: "Refine this composition",
+        modelId: "qwen-image-2-pro",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        referenceImages: [
+          {
+            id: "ref-1",
+            url: "data:image/png;base64,AAA",
+            fileName: "turn-result.png",
+            type: "content",
+            sourceAssetId: "thread-asset-1",
+          },
+        ],
+        assetRefs: [{ assetId: "thread-asset-1", role: "reference" }],
+        modelParams: {
+          promptExtend: true,
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    const createdGeneration = repositoryMock.createGeneration.mock.calls[0]?.[0] as {
+      turn: {
+        configSnapshot: {
+          referenceImages?: Array<Record<string, unknown>>;
+        };
+      };
+      job: {
+        requestSnapshot: {
+          referenceImages?: Array<Record<string, unknown>>;
+        };
+      };
+    };
+
+    expect(createdGeneration.turn.configSnapshot.referenceImages).toEqual([
+      expect.objectContaining({
+        id: "ref-1",
+        fileName: "turn-result.png",
+        type: "content",
+        sourceAssetId: "thread-asset-1",
+      }),
+    ]);
+    expect(createdGeneration.turn.configSnapshot.referenceImages?.[0]).not.toHaveProperty("url");
+
+    expect(createdGeneration.job.requestSnapshot.referenceImages).toEqual([
+      expect.objectContaining({
+        id: "ref-1",
+        url: "data:image/png;base64,AAA",
+        fileName: "turn-result.png",
+        type: "content",
+        sourceAssetId: "thread-asset-1",
+      }),
+    ]);
+
+    await app.close();
+  });
+
   it("fails the generation when binary output exceeds the persistence limit", async () => {
     vi.stubEnv("GENERATED_IMAGE_DOWNLOAD_MAX_MB", "1");
     generateMock.mockResolvedValue({
