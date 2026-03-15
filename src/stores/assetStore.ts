@@ -14,13 +14,10 @@ import { getCurrentUserId } from "@/lib/authToken";
 import { sha256FromBlob } from "@/lib/hash";
 import {
   cloneEditorLayers,
-  createBaseLayer,
   createEditorLayerId,
   ensureAssetLayers,
   moveLayerByDirection,
   resolveBaseAdjustmentsFromLayers,
-  resolveLayerAdjustments,
-  resolveBaseLayer,
 } from "@/lib/editorLayers";
 import {
   clearAssets,
@@ -1068,91 +1065,16 @@ export const useAssetStore = create<ProjectState>()(
       },
 
       mergeLayerDown: (assetId, layerId) => {
-        let changed: Asset | null = null;
-        set((state) => ({
-          assets: state.assets.map((asset) => {
-            if (asset.id !== assetId) {
-              return asset;
-            }
-            changed = withLayerMutation(asset, (layers) => {
-              const index = layers.findIndex((layer) => layer.id === layerId);
-              if (index < 0 || index >= layers.length - 1) {
-                return layers;
-              }
-              const current = layers[index]!;
-              const below = layers[index + 1]!;
-              if (current.type === "base") {
-                return layers;
-              }
-
-              const mergedAdjustments = {
-                ...resolveLayerAdjustments(below, asset.adjustments),
-                ...(current.adjustments ?? {}),
-              };
-
-              const nextLayers = cloneEditorLayers(layers);
-              nextLayers[index + 1] = {
-                ...below,
-                adjustments: mergedAdjustments,
-              };
-              nextLayers.splice(index, 1);
-              return nextLayers;
-            });
-            return changed;
-          }),
-        }));
-        if (changed) {
-          const queued = toQueuedUploadAsset(changed);
-          set((state) => ({
-            assets: state.assets.map((asset) => (asset.id === queued.id ? queued : asset)),
-          }));
-          persistAsset(queued);
-          enqueueUploadJobs([queued]);
-        }
+        console.warn("mergeLayerDown is disabled until render-backed flattening is implemented.", {
+          assetId,
+          layerId,
+        });
       },
 
       flattenLayers: (assetId) => {
-        let changed: Asset | null = null;
-        set((state) => ({
-          assets: state.assets.map((asset) => {
-            if (asset.id !== assetId) {
-              return asset;
-            }
-            changed = withLayerMutation(asset, (layers) => {
-              const base = resolveBaseLayer(layers) ?? createBaseLayer(asset);
-              let flattenedAdjustments = resolveLayerAdjustments(base, asset.adjustments);
-              for (const layer of [...layers].reverse()) {
-                if (layer.id === base.id || !layer.visible || !layer.adjustments) {
-                  continue;
-                }
-                flattenedAdjustments = {
-                  ...flattenedAdjustments,
-                  ...layer.adjustments,
-                };
-              }
-              return [
-                {
-                  ...base,
-                  name: "Background",
-                  type: "base",
-                  visible: true,
-                  opacity: 100,
-                  blendMode: "normal",
-                  adjustments: flattenedAdjustments,
-                },
-              ];
-            });
-            return changed;
-          }),
-        }));
-        if (changed) {
-          const queued = toQueuedUploadAsset(changed);
-          set((state) => ({
-            assets: state.assets.map((asset) => (asset.id === queued.id ? queued : asset)),
-          }));
-          persistAsset(queued);
-          enqueueUploadJobs([queued]);
-        }
+        console.warn("flattenLayers is disabled until render-backed flattening is implemented.", {
+          assetId,
+        });
       },
 
       setSelectedAssetIds: (assetIds) => {

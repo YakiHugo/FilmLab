@@ -323,6 +323,12 @@ const editorLayerEqual = (a: EditorLayer, b: EditorLayer): boolean => {
   ) {
     return false;
   }
+  if (
+    JSON.stringify(a.adjustmentVisibility ?? null) !==
+    JSON.stringify(b.adjustmentVisibility ?? null)
+  ) {
+    return false;
+  }
   if (JSON.stringify(a.mask ?? null) !== JSON.stringify(b.mask ?? null)) {
     return false;
   }

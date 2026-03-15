@@ -4,11 +4,11 @@ import {
   resolveAspectRatio,
   resolveOrientedAspectRatio,
 } from "@/lib/imageProcessing";
-import { resolveLayerAdjustments } from "@/lib/editorLayers";
 import { clamp } from "@/lib/math";
 import { resolvePreviewRoiFromViewport } from "@/lib/previewRoi";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
 import { cn } from "@/lib/utils";
+import { buildEditorLayerRenderEntries } from "./renderPreparation";
 import { CropOverlay } from "./CropOverlay";
 import { useEditorKeyboard } from "./useEditorKeyboard";
 import {
@@ -101,28 +101,11 @@ export function EditorPreviewCard() {
     if (!selectedAsset || layers.length === 0) {
       return [];
     }
-    return layers
-      .map((layer) => {
-        const sourceAsset =
-          layer.type === "texture" && layer.textureAssetId
-            ? assetById.get(layer.textureAssetId) ?? null
-            : selectedAsset;
-        if (!sourceAsset || !layer.visible) {
-          return null;
-        }
-        const opacity = clamp(layer.opacity / 100, 0, 1);
-        if (opacity <= 0.0001) {
-          return null;
-        }
-        return {
-          layer,
-          sourceAsset,
-          adjustments: resolveLayerAdjustments(layer, selectedAsset.adjustments),
-          opacity,
-          blendMode: layer.blendMode,
-        };
-      })
-      .filter((entry): entry is LayerPreviewEntry => Boolean(entry));
+    return buildEditorLayerRenderEntries({
+      assetById,
+      documentAsset: selectedAsset,
+      layers,
+    });
   }, [assetById, layers, selectedAsset]);
 
   useEffect(() => {

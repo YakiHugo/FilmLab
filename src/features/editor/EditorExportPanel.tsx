@@ -9,22 +9,23 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { normalizeAdjustments } from "@/lib/adjustments";
-import { resolveLayerAdjustments } from "@/lib/editorLayers";
 import { renderImageToCanvas } from "@/lib/imageProcessing";
 import { applyMaskToLayerCanvas, generateMaskTexture } from "@/lib/layerMaskTexture";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
+import { applyTimestampOverlay } from "@/lib/timestampOverlay";
 import { copyJpegExif } from "@/lib/export/jpegExif";
 import { encodeRgbaToTiff } from "@/lib/export/tiff";
 import type {
   Asset,
   EditingAdjustments,
-  EditorLayerBlendMode,
   ExportColorSpace,
   ExportFormat,
   ExportMetadataMode,
   ExportResolutionPreset,
 } from "@/types";
 import { EditorSliderRow } from "./EditorSliderRow";
+import { resolveLayerBlendOperation } from "./preview/composite";
+import { buildEditorLayerRenderEntries } from "./renderPreparation";
 import { useEditorAdjustmentState, useEditorSelectionState } from "./useEditorSlices";
 
 interface ExportFormatOption {
@@ -47,24 +48,6 @@ const CUBE_LUT_OPTIONS: ReadonlyArray<{ label: string; value: CubeLutSize }> = [
   { label: "17 (Fast)", value: 17 },
   { label: "33 (High Quality)", value: 33 },
 ];
-
-const resolveLayerBlendOperation = (
-  blendMode: EditorLayerBlendMode
-): GlobalCompositeOperation => {
-  if (blendMode === "multiply") {
-    return "multiply";
-  }
-  if (blendMode === "screen") {
-    return "screen";
-  }
-  if (blendMode === "overlay") {
-    return "overlay";
-  }
-  if (blendMode === "softLight") {
-    return "soft-light";
-  }
-  return "source-over";
-};
 
 const clampInt = (value: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(value)));
 
@@ -133,7 +116,7 @@ const resolveTargetSize = (
 
 export function EditorExportPanel() {
   const { assets, layers, selectedAsset } = useEditorSelectionState();
-  const { adjustments, previewAdjustments, previewFilmProfile } = useEditorAdjustmentState();
+  const { adjustments, renderAdjustments, previewFilmProfile } = useEditorAdjustmentState();
   const [format, setFormat] = useState<ExportFormat>("jpeg");
   const [quality, setQuality] = useState(92);
   const [pngCompression, setPngCompression] = useState(6);
@@ -146,7 +129,7 @@ export function EditorExportPanel() {
   const [isExportingLut, setIsExportingLut] = useState(false);
   const [cubeLutSize, setCubeLutSize] = useState<CubeLutSize>(33);
 
-  const activeAdjustments = (previewAdjustments ?? adjustments) as EditingAdjustments | null;
+  const activeAdjustments = (renderAdjustments ?? adjustments) as EditingAdjustments | null;
 
   useEffect(() => {
     if (!selectedAsset) {
@@ -172,28 +155,11 @@ export function EditorExportPanel() {
       if (!selectedAsset) {
         return [];
       }
-      return layers
-        .map((layer) => {
-          const sourceAsset =
-            layer.type === "texture" && layer.textureAssetId
-              ? assetById.get(layer.textureAssetId) ?? null
-              : selectedAsset;
-          if (!sourceAsset || !layer.visible) {
-            return null;
-          }
-          const opacity = Math.max(0, Math.min(1, layer.opacity / 100));
-          if (opacity <= 0.0001) {
-            return null;
-          }
-          return {
-            layer,
-            sourceAsset,
-            opacity,
-            blendMode: layer.blendMode,
-            adjustments: resolveLayerAdjustments(layer, selectedAsset.adjustments),
-          };
-        })
-        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+      return buildEditorLayerRenderEntries({
+        assetById,
+        documentAsset: selectedAsset,
+        layers,
+      });
     },
     [assetById, layers, selectedAsset]
   );
@@ -299,6 +265,7 @@ export function EditorExportPanel() {
         }
         renderContext.clearRect(0, 0, renderCanvas.width, renderCanvas.height);
         renderContext.drawImage(compositeCanvas, 0, 0, renderCanvas.width, renderCanvas.height);
+        applyTimestampOverlay(renderCanvas, activeAdjustments, timestampText);
         layerCanvas.width = 0;
         layerCanvas.height = 0;
         layerMaskCanvas.width = 0;

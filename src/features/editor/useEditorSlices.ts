@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
+import {
+  applyAdjustmentGroupVisibility,
+  resolveLayerAdjustmentVisibility,
+} from "@/lib/editorAdjustmentVisibility";
 import { createDefaultLayerMask, createDefaultLayerMaskData } from "@/lib/editorLayerMasks";
 import {
   createEditorLayerId,
@@ -13,6 +17,9 @@ import { useAssetStore } from "@/stores/assetStore";
 import { useEditorStore } from "@/stores/editorStore";
 import type {
   AssetUpdate,
+  EditingAdjustments,
+  EditorAdjustmentGroupId,
+  EditorAdjustmentGroupVisibility,
   EditorLayer,
   EditorLayerBlendMode,
   EditorLayerMask,
@@ -30,7 +37,8 @@ interface EditorSelectionModel {
   assets: ReturnType<typeof useAssetStore.getState>["assets"];
   layers: EditorLayer[];
   selectedAsset: ReturnType<typeof useAssetStore.getState>["assets"][number] | null;
-  selectedAssetForEditing: ReturnType<typeof useAssetStore.getState>["assets"][number] | null;
+  selectedLayerAdjustments: EditingAdjustments | null;
+  selectedLayerAdjustmentVisibility: EditorAdjustmentGroupVisibility;
   selectedAssetId: string | null;
   selectedLayer: EditorLayer | null;
   selectedLayerId: string | null;
@@ -95,22 +103,24 @@ const useEditorSelectionModel = (): EditorSelectionModel => {
     return layers[0]!;
   }, [layers, selectedLayerId]);
 
-  const selectedAssetForEditing = useMemo(() => {
+  const selectedLayerAdjustments = useMemo(() => {
     if (!selectedAsset) {
       return null;
     }
-    return {
-      ...selectedAsset,
-      layers,
-      adjustments: resolveLayerAdjustments(selectedLayer, selectedAsset.adjustments),
-    };
-  }, [layers, selectedAsset, selectedLayer]);
+    return resolveLayerAdjustments(selectedLayer, selectedAsset.adjustments);
+  }, [selectedAsset, selectedLayer]);
+
+  const selectedLayerAdjustmentVisibility = useMemo(
+    () => resolveLayerAdjustmentVisibility(selectedLayer),
+    [selectedLayer]
+  );
 
   return {
     assets,
     layers,
     selectedAsset,
-    selectedAssetForEditing,
+    selectedLayerAdjustments,
+    selectedLayerAdjustmentVisibility,
     selectedAssetId,
     selectedLayer,
     selectedLayerId,
@@ -120,12 +130,11 @@ const useEditorSelectionModel = (): EditorSelectionModel => {
 };
 
 const useEditorHistoryActions = (
-  selectedAssetForEditing: EditorSelectionModel["selectedAssetForEditing"],
-  layers: EditorLayer[],
   selectedAsset: EditorSelectionModel["selectedAsset"],
+  layers: EditorLayer[],
   selectedLayer: EditorLayer | null
 ) => {
-  const history = useEditorHistory(selectedAssetForEditing);
+  const history = useEditorHistory(selectedAsset);
 
   const normalizeLayerAwarePatch = useCallback(
     (patch: AssetUpdate): AssetUpdate => {
@@ -190,6 +199,8 @@ export function useEditorSelectionState() {
     selectedAsset: selection.selectedAsset,
     selectedAssetId: selection.selectedAssetId,
     selectedLayer: selection.selectedLayer,
+    selectedLayerAdjustments: selection.selectedLayerAdjustments,
+    selectedLayerAdjustmentVisibility: selection.selectedLayerAdjustmentVisibility,
     selectedLayerId: selection.selectedLayerId,
     setSelectedAssetId: selection.setSelectedAssetId,
     setSelectedLayerId: selection.setSelectedLayerId,
@@ -202,12 +213,11 @@ export function useEditorViewState() {
       activeToolPanelId: state.activeToolPanelId,
       autoPerspectiveMode: state.autoPerspectiveMode,
       autoPerspectiveRequestId: state.autoPerspectiveRequestId,
-      bypassedPanels: state.bypassedPanels,
+      cropPreviewBypassed: state.cropPreviewBypassed,
       cropGuideMode: state.cropGuideMode,
       cropGuideRotation: state.cropGuideRotation,
       curveChannel: state.curveChannel,
       cycleCropGuideMode: state.cycleCropGuideMode,
-      isPanelBypassed: state.isPanelBypassed,
       mobilePanelExpanded: state.mobilePanelExpanded,
       openSections: state.openSections,
       pointColorPickTarget: state.pointColorPickTarget,
@@ -228,7 +238,7 @@ export function useEditorViewState() {
       setViewportScale: state.setViewportScale,
       rotateCropGuide: state.rotateCropGuide,
       showOriginal: state.showOriginal,
-      toggleBypassPanel: state.toggleBypassPanel,
+      toggleCropPreviewBypassed: state.toggleCropPreviewBypassed,
       toggleOriginal: state.toggleOriginal,
       toggleSection: state.toggleSection,
       viewportScale: state.viewportScale,
@@ -237,13 +247,8 @@ export function useEditorViewState() {
 }
 
 export function useEditorHistoryState() {
-  const { layers, selectedAsset, selectedAssetForEditing, selectedLayer } = useEditorSelectionModel();
-  const { history } = useEditorHistoryActions(
-    selectedAssetForEditing,
-    layers,
-    selectedAsset,
-    selectedLayer
-  );
+  const { layers, selectedAsset, selectedLayer } = useEditorSelectionModel();
+  const { history } = useEditorHistoryActions(selectedAsset, layers, selectedLayer);
   return {
     canRedo: history.canRedo,
     canUndo: history.canUndo,
@@ -253,21 +258,22 @@ export function useEditorHistoryState() {
 }
 
 export function useEditorAdjustmentState() {
-  const { bypassedPanels } = useEditorViewState();
-  const { layers, selectedAsset, selectedAssetForEditing, selectedLayer } = useEditorSelectionModel();
-  const { history } = useEditorHistoryActions(
-    selectedAssetForEditing,
+  const { cropPreviewBypassed } = useEditorViewState();
+  const {
     layers,
     selectedAsset,
-    selectedLayer
-  );
+    selectedLayer,
+    selectedLayerAdjustments,
+    selectedLayerAdjustmentVisibility,
+  } = useEditorSelectionModel();
+  const { history } = useEditorHistoryActions(selectedAsset, layers, selectedLayer);
 
   const adjustments = useMemo(() => {
-    if (!selectedAssetForEditing) {
+    if (!selectedLayerAdjustments) {
       return null;
     }
-    return normalizeAdjustments(selectedAssetForEditing.adjustments);
-  }, [selectedAssetForEditing]);
+    return normalizeAdjustments(selectedLayerAdjustments);
+  }, [selectedLayerAdjustments]);
 
   const {
     builtInFilmProfiles,
@@ -276,82 +282,44 @@ export function useEditorAdjustmentState() {
     customPresets,
     filmProfileLabel,
     presetLabel,
-    previewAdjustments: resolvedPreviewAdjustments,
+    previewAdjustments: resolvedAdjustments,
     previewFilmProfile,
-  } = useEditorFilmProfile(selectedAssetForEditing, adjustments, history);
+  } = useEditorFilmProfile(selectedAsset, adjustments, history);
 
-  const previewAdjustments = useMemo(() => {
-    if (!resolvedPreviewAdjustments) {
+  const renderAdjustments = useMemo(() => {
+    if (!resolvedAdjustments) {
       return null;
     }
+    return applyAdjustmentGroupVisibility(
+      resolvedAdjustments,
+      selectedLayerAdjustmentVisibility
+    );
+  }, [resolvedAdjustments, selectedLayerAdjustmentVisibility]);
+
+  const previewAdjustments = useMemo(() => {
+    if (!renderAdjustments) {
+      return null;
+    }
+    if (!cropPreviewBypassed) {
+      return renderAdjustments;
+    }
     const defaults = createDefaultAdjustments();
-    let result = { ...resolvedPreviewAdjustments };
-
-    if (bypassedPanels.has("basic")) {
-      result = {
-        ...result,
-        exposure: defaults.exposure,
-        contrast: defaults.contrast,
-        highlights: defaults.highlights,
-        shadows: defaults.shadows,
-        whites: defaults.whites,
-        blacks: defaults.blacks,
-        temperature: defaults.temperature,
-        tint: defaults.tint,
-        vibrance: defaults.vibrance,
-        saturation: defaults.saturation,
-      };
-    }
-
-    if (bypassedPanels.has("effects")) {
-      result = {
-        ...result,
-        texture: defaults.texture,
-        clarity: defaults.clarity,
-        dehaze: defaults.dehaze,
-        grain: defaults.grain,
-        grainSize: defaults.grainSize,
-        grainRoughness: defaults.grainRoughness,
-        vignette: defaults.vignette,
-        glowIntensity: defaults.glowIntensity,
-        glowMidtoneFocus: defaults.glowMidtoneFocus,
-        glowBias: defaults.glowBias,
-        glowRadius: defaults.glowRadius,
-      };
-    }
-
-    if (bypassedPanels.has("detail")) {
-      result = {
-        ...result,
-        sharpening: defaults.sharpening,
-        sharpenRadius: defaults.sharpenRadius,
-        sharpenDetail: defaults.sharpenDetail,
-        masking: defaults.masking,
-        noiseReduction: defaults.noiseReduction,
-        colorNoiseReduction: defaults.colorNoiseReduction,
-      };
-    }
-
-    if (bypassedPanels.has("crop")) {
-      result = {
-        ...result,
-        rotate: defaults.rotate,
-        rightAngleRotation: defaults.rightAngleRotation,
-        perspectiveEnabled: defaults.perspectiveEnabled,
-        perspectiveHorizontal: defaults.perspectiveHorizontal,
-        perspectiveVertical: defaults.perspectiveVertical,
-        horizontal: defaults.horizontal,
-        vertical: defaults.vertical,
-        scale: defaults.scale,
-        flipHorizontal: defaults.flipHorizontal,
-        flipVertical: defaults.flipVertical,
-        aspectRatio: defaults.aspectRatio,
-        customAspectRatio: defaults.customAspectRatio,
-      };
-    }
-
-    return result;
-  }, [bypassedPanels, resolvedPreviewAdjustments]);
+    return {
+      ...renderAdjustments,
+      rotate: defaults.rotate,
+      rightAngleRotation: defaults.rightAngleRotation,
+      perspectiveEnabled: defaults.perspectiveEnabled,
+      perspectiveHorizontal: defaults.perspectiveHorizontal,
+      perspectiveVertical: defaults.perspectiveVertical,
+      horizontal: defaults.horizontal,
+      vertical: defaults.vertical,
+      scale: defaults.scale,
+      flipHorizontal: defaults.flipHorizontal,
+      flipVertical: defaults.flipVertical,
+      aspectRatio: defaults.aspectRatio,
+      customAspectRatio: defaults.customAspectRatio,
+    };
+  }, [cropPreviewBypassed, renderAdjustments]);
 
   return {
     adjustments,
@@ -361,8 +329,11 @@ export function useEditorAdjustmentState() {
     customPresets,
     filmProfileLabel,
     presetLabel,
+    resolvedAdjustments,
+    renderAdjustments,
     previewAdjustments,
     previewFilmProfile,
+    selectedLayerAdjustmentVisibility,
   };
 }
 
@@ -370,25 +341,25 @@ export function useEditorAdjustmentActions() {
   const {
     layers,
     selectedAsset,
-    selectedAssetForEditing,
     selectedLayer,
+    selectedLayerAdjustments,
   } = useEditorSelectionModel();
   const viewState = useEditorViewState();
   const { applyEditorPatch, commitEditorPatch, stageEditorPatch } = useEditorHistoryActions(
-    selectedAssetForEditing,
-    layers,
     selectedAsset,
+    layers,
     selectedLayer
   );
 
-  const adjustmentActions = useEditorAdjustments(selectedAssetForEditing, {
+  const adjustmentActions = useEditorAdjustments(selectedAsset, selectedLayerAdjustments, {
     applyEditorPatch,
     commitEditorPatch,
     stageEditorPatch,
   });
 
   const { commitPointColorSample, cancelPointColorPick } = useEditorColorGrading(
-    selectedAssetForEditing,
+    selectedAsset,
+    selectedLayerAdjustments,
     {
       applyEditorPatch,
       commitEditorPatch,
@@ -396,15 +367,49 @@ export function useEditorAdjustmentActions() {
     }
   );
 
+  const setAdjustmentGroupVisibility = useCallback(
+    (groupId: EditorAdjustmentGroupId, visible: boolean) => {
+      if (!selectedLayer) {
+        return false;
+      }
+      const nextLayers = layers.map((layer) =>
+        layer.id === selectedLayer.id
+          ? {
+              ...layer,
+              adjustmentVisibility: {
+                ...resolveLayerAdjustmentVisibility(layer),
+                [groupId]: visible,
+              },
+            }
+          : layer
+      );
+      return commitEditorPatch(`layer:${selectedLayer.id}:visibility:${groupId}`, {
+        layers: nextLayers,
+      });
+    },
+    [commitEditorPatch, layers, selectedLayer]
+  );
+
+  const toggleAdjustmentGroupVisibility = useCallback(
+    (groupId: EditorAdjustmentGroupId) => {
+      if (!selectedLayer) {
+        return false;
+      }
+      const visibility = resolveLayerAdjustmentVisibility(selectedLayer);
+      return setAdjustmentGroupVisibility(groupId, !visibility[groupId]);
+    },
+    [selectedLayer, setAdjustmentGroupVisibility]
+  );
+
   const commitLocalMaskColorSample = useCallback(
     (sample: { red: number; green: number; blue: number }) => {
-      if (!selectedAssetForEditing) {
+      if (!selectedLayerAdjustments) {
         useEditorStore.getState().setPointColorPicking(false);
         useEditorStore.getState().setPointColorPickTarget("hsl");
         return null;
       }
 
-      const currentAdjustments = normalizeAdjustments(selectedAssetForEditing.adjustments);
+      const currentAdjustments = normalizeAdjustments(selectedLayerAdjustments);
       const localAdjustments = currentAdjustments.localAdjustments ?? [];
       const targetLocalId =
         viewState.selectedLocalAdjustmentId ?? localAdjustments[0]?.id ?? null;
@@ -460,7 +465,7 @@ export function useEditorAdjustmentActions() {
     },
     [
       adjustmentActions,
-      selectedAssetForEditing,
+      selectedLayerAdjustments,
       viewState,
     ]
   );
@@ -470,19 +475,21 @@ export function useEditorAdjustmentActions() {
     cancelPointColorPick,
     commitLocalMaskColorSample,
     commitPointColorSample,
+    setAdjustmentGroupVisibility,
     setPreviewHistogram: viewState.setPreviewHistogram,
+    toggleAdjustmentGroupVisibility,
   };
 }
 
 export function useEditorColorGradingState() {
-  const { layers, selectedAsset, selectedAssetForEditing, selectedLayer } = useEditorSelectionModel();
+  const { layers, selectedAsset, selectedLayer, selectedLayerAdjustments } =
+    useEditorSelectionModel();
   const { applyEditorPatch, commitEditorPatch, stageEditorPatch } = useEditorHistoryActions(
-    selectedAssetForEditing,
-    layers,
     selectedAsset,
+    layers,
     selectedLayer
   );
-  const colorGrading = useEditorColorGrading(selectedAssetForEditing, {
+  const colorGrading = useEditorColorGrading(selectedAsset, selectedLayerAdjustments, {
     applyEditorPatch,
     commitEditorPatch,
     stageEditorPatch,
@@ -496,14 +503,14 @@ export function useEditorColorGradingState() {
 }
 
 export function useEditorColorGradingActions() {
-  const { layers, selectedAsset, selectedAssetForEditing, selectedLayer } = useEditorSelectionModel();
+  const { layers, selectedAsset, selectedLayer, selectedLayerAdjustments } =
+    useEditorSelectionModel();
   const { applyEditorPatch, commitEditorPatch, stageEditorPatch } = useEditorHistoryActions(
-    selectedAssetForEditing,
-    layers,
     selectedAsset,
+    layers,
     selectedLayer
   );
-  const colorGrading = useEditorColorGrading(selectedAssetForEditing, {
+  const colorGrading = useEditorColorGrading(selectedAsset, selectedLayerAdjustments, {
     applyEditorPatch,
     commitEditorPatch,
     stageEditorPatch,
@@ -524,20 +531,20 @@ export function useEditorColorGradingActions() {
 }
 
 export function useEditorPresetActions() {
-  const { layers, selectedAsset, selectedAssetForEditing, selectedLayer } = useEditorSelectionModel();
+  const { layers, selectedAsset, selectedLayer, selectedLayerAdjustments } =
+    useEditorSelectionModel();
   const { applyEditorPatch, commitEditorPatch, stageEditorPatch } = useEditorHistoryActions(
-    selectedAssetForEditing,
-    layers,
     selectedAsset,
+    layers,
     selectedLayer
   );
   const adjustments = useMemo(() => {
-    if (!selectedAssetForEditing) {
+    if (!selectedLayerAdjustments) {
       return null;
     }
-    return normalizeAdjustments(selectedAssetForEditing.adjustments);
-  }, [selectedAssetForEditing]);
-  const filmProfile = useEditorFilmProfile(selectedAssetForEditing, adjustments, {
+    return normalizeAdjustments(selectedLayerAdjustments);
+  }, [selectedLayerAdjustments]);
+  const filmProfile = useEditorFilmProfile(selectedAsset, adjustments, {
     applyEditorPatch,
     commitEditorPatch,
     stageEditorPatch,
@@ -807,6 +814,7 @@ export function useEditorPresetState() {
     customPresets: adjustmentState.customPresets,
     filmProfileLabel: adjustmentState.filmProfileLabel,
     presetLabel: adjustmentState.presetLabel,
+    resolvedAdjustments: adjustmentState.resolvedAdjustments,
     previewAdjustments: adjustmentState.previewAdjustments,
     previewFilmProfile: adjustmentState.previewFilmProfile,
   };

@@ -72,22 +72,27 @@ interface EditorInspectorPanelProps {
 
 export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
   const { adjustments } = useEditorAdjustmentState();
-  const { previewAdjustmentValue, toggleFlip, updateAdjustments, updateAdjustmentValue } =
-    useEditorAdjustmentActions();
+  const {
+    previewAdjustmentValue,
+    toggleAdjustmentGroupVisibility,
+    toggleFlip,
+    updateAdjustments,
+    updateAdjustmentValue,
+  } = useEditorAdjustmentActions();
   const { clearLayerMask, invertLayerMask, setLayerBlendMode, setLayerMaskMode, setLayerOpacity } =
     useEditorLayerActions();
-  const { selectedLayer } = useEditorSelectionState();
+  const { selectedLayer, selectedLayerAdjustmentVisibility } = useEditorSelectionState();
   const {
     activeToolPanelId,
+    cropPreviewBypassed,
     cropGuideMode,
     cropGuideRotation,
-    isPanelBypassed,
     openSections,
     requestAutoPerspective,
     rotateCropGuide,
     setCropGuideMode,
     setActiveToolPanelId,
-    toggleBypassPanel,
+    toggleCropPreviewBypassed,
     toggleSection,
   } = useEditorViewState();
 
@@ -231,8 +236,8 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
             onToggleFlip={toggleFlip}
             onRequestAutoPerspective={requestAutoPerspective}
             hasChanges={cropHasChanges}
-            changesVisible={!isPanelBypassed("crop")}
-            onToggleVisibility={() => toggleBypassPanel("crop")}
+            changesVisible={!cropPreviewBypassed}
+            onToggleVisibility={toggleCropPreviewBypassed}
             onResetChanges={resetCropPanel}
           />
         )}
@@ -246,8 +251,8 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
             onPreviewAdjustmentValue={previewAdjustmentValue}
             onCommitAdjustmentValue={updateAdjustmentValue}
             hasChanges={basicHasChanges}
-            changesVisible={!isPanelBypassed("basic")}
-            onToggleVisibility={() => toggleBypassPanel("basic")}
+            changesVisible={selectedLayerAdjustmentVisibility.basic}
+            onToggleVisibility={() => toggleAdjustmentGroupVisibility("basic")}
             onResetChanges={resetBasicPanel}
           />
         )}
@@ -261,8 +266,8 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
             onPreviewAdjustmentValue={previewAdjustmentValue}
             onCommitAdjustmentValue={updateAdjustmentValue}
             hasChanges={effectsHasChanges}
-            changesVisible={!isPanelBypassed("effects")}
-            onToggleVisibility={() => toggleBypassPanel("effects")}
+            changesVisible={selectedLayerAdjustmentVisibility.effects}
+            onToggleVisibility={() => toggleAdjustmentGroupVisibility("effects")}
             onResetChanges={resetEffectsPanel}
           />
         )}
@@ -275,8 +280,8 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
             onPreviewAdjustmentValue={previewAdjustmentValue}
             onCommitAdjustmentValue={updateAdjustmentValue}
             hasChanges={detailHasChanges}
-            changesVisible={!isPanelBypassed("detail")}
-            onToggleVisibility={() => toggleBypassPanel("detail")}
+            changesVisible={selectedLayerAdjustmentVisibility.detail}
+            onToggleVisibility={() => toggleAdjustmentGroupVisibility("detail")}
             onResetChanges={resetDetailPanel}
           />
         )}

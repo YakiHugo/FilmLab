@@ -2,6 +2,8 @@ export type EditorSurfacePanel = "preset" | "edit" | "crop" | "mask" | "remove" 
 export type EditorLayerBlendMode = "normal" | "multiply" | "screen" | "overlay" | "softLight";
 export type EditorLayerType = "base" | "adjustment" | "duplicate" | "texture";
 export type EditorLayerMaskMode = "brush" | "radial" | "linear" | "luminosity";
+export type EditorAdjustmentGroupId = "basic" | "effects" | "detail";
+export type EditorAdjustmentGroupVisibility = Record<EditorAdjustmentGroupId, boolean>;
 
 export interface EditorUiState {
   activePanel: EditorSurfacePanel;
@@ -68,6 +70,7 @@ export interface EditorLayerDefinition {
   opacity: number; // [0, 100]
   blendMode: EditorLayerBlendMode;
   adjustments?: Record<string, unknown>;
+  adjustmentVisibility?: EditorAdjustmentGroupVisibility;
   textureAssetId?: string;
   mask?: EditorLayerMask;
 }

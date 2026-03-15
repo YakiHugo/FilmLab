@@ -23,7 +23,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
     builtInFilmProfiles,
     customPresetName,
     customPresets,
-    previewAdjustments,
+    resolvedAdjustments,
   } = useEditorAdjustmentState();
   const {
     setCustomPresetName,
@@ -41,7 +41,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
   const filmImportRef = useRef<HTMLInputElement | null>(null);
 
   const selectedPresetId = selectedAsset?.presetId;
-  const canSaveCustomPreset = Boolean(previewAdjustments);
+  const canSaveCustomPreset = Boolean(resolvedAdjustments);
   const sortedPresets = useMemo(
     () => [...basePresets, ...customPresets].sort((a, b) => presetCollator.compare(a.name, b.name)),
     [customPresets]

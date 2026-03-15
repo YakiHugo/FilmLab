@@ -3,7 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import { useEditorStore, type PointColorPickTarget } from "@/stores/editorStore";
 import type { Asset, AssetUpdate, EditingAdjustments, HslColorKey } from "@/types";
-import { rgbToHue, mapHueToHslColor, toHex } from "./colorUtils";
+import { mapHueToHslColor, rgbToHue, toHex } from "./colorUtils";
 
 interface EditorPatchActions {
   applyEditorPatch: (patch: AssetUpdate) => boolean;
@@ -11,7 +11,11 @@ interface EditorPatchActions {
   commitEditorPatch: (historyKey: string, patch: AssetUpdate) => boolean;
 }
 
-export function useEditorColorGrading(selectedAsset: Asset | null, actions: EditorPatchActions) {
+export function useEditorColorGrading(
+  selectedAsset: Asset | null,
+  adjustments: EditingAdjustments | null,
+  actions: EditorPatchActions
+) {
   const { applyEditorPatch, stageEditorPatch, commitEditorPatch } = actions;
 
   const {
@@ -36,12 +40,19 @@ export function useEditorColorGrading(selectedAsset: Asset | null, actions: Edit
     }))
   );
 
+  const resolveCurrentAdjustments = useCallback(() => {
+    if (!adjustments) {
+      return null;
+    }
+    return normalizeAdjustments(adjustments);
+  }, [adjustments]);
+
   const previewHslValue = useCallback(
     (color: HslColorKey, channel: "hue" | "saturation" | "luminance", value: number) => {
-      if (!selectedAsset) {
+      const currentAdjustments = resolveCurrentAdjustments();
+      if (!selectedAsset || !currentAdjustments) {
         return;
       }
-      const currentAdjustments = normalizeAdjustments(selectedAsset.adjustments);
       stageEditorPatch(`hsl:${color}:${channel}`, {
         adjustments: {
           ...currentAdjustments,
@@ -55,15 +66,15 @@ export function useEditorColorGrading(selectedAsset: Asset | null, actions: Edit
         },
       });
     },
-    [selectedAsset, stageEditorPatch]
+    [resolveCurrentAdjustments, selectedAsset, stageEditorPatch]
   );
 
   const updateHslValue = useCallback(
     (color: HslColorKey, channel: "hue" | "saturation" | "luminance", value: number) => {
-      if (!selectedAsset) {
+      const currentAdjustments = resolveCurrentAdjustments();
+      if (!selectedAsset || !currentAdjustments) {
         return;
       }
-      const currentAdjustments = normalizeAdjustments(selectedAsset.adjustments);
       void commitEditorPatch(`hsl:${color}:${channel}`, {
         adjustments: {
           ...currentAdjustments,
@@ -77,7 +88,7 @@ export function useEditorColorGrading(selectedAsset: Asset | null, actions: Edit
         },
       });
     },
-    [commitEditorPatch, selectedAsset]
+    [commitEditorPatch, resolveCurrentAdjustments, selectedAsset]
   );
 
   const previewColorGradingZone = useCallback(
@@ -85,10 +96,10 @@ export function useEditorColorGrading(selectedAsset: Asset | null, actions: Edit
       zone: "shadows" | "midtones" | "highlights",
       value: EditingAdjustments["colorGrading"]["shadows"]
     ) => {
-      if (!selectedAsset) {
+      const currentAdjustments = resolveCurrentAdjustments();
+      if (!selectedAsset || !currentAdjustments) {
         return;
       }
-      const currentAdjustments = normalizeAdjustments(selectedAsset.adjustments);
       stageEditorPatch(`grading:${zone}`, {
         adjustments: {
           ...currentAdjustments,
@@ -99,7 +110,7 @@ export function useEditorColorGrading(selectedAsset: Asset | null, actions: Edit
         },
       });
     },
-    [selectedAsset, stageEditorPatch]
+    [resolveCurrentAdjustments, selectedAsset, stageEditorPatch]
   );
 
   const updateColorGradingZone = useCallback(
@@ -107,10 +118,10 @@ export function useEditorColorGrading(selectedAsset: Asset | null, actions: Edit
       zone: "shadows" | "midtones" | "highlights",
       value: EditingAdjustments["colorGrading"]["shadows"]
     ) => {
-      if (!selectedAsset) {
+      const currentAdjustments = resolveCurrentAdjustments();
+      if (!selectedAsset || !currentAdjustments) {
         return;
       }
-      const currentAdjustments = normalizeAdjustments(selectedAsset.adjustments);
       void commitEditorPatch(`grading:${zone}`, {
         adjustments: {
           ...currentAdjustments,
@@ -121,15 +132,15 @@ export function useEditorColorGrading(selectedAsset: Asset | null, actions: Edit
         },
       });
     },
-    [commitEditorPatch, selectedAsset]
+    [commitEditorPatch, resolveCurrentAdjustments, selectedAsset]
   );
 
   const previewColorGradingValue = useCallback(
     (key: "blend" | "balance", value: number) => {
-      if (!selectedAsset) {
+      const currentAdjustments = resolveCurrentAdjustments();
+      if (!selectedAsset || !currentAdjustments) {
         return;
       }
-      const currentAdjustments = normalizeAdjustments(selectedAsset.adjustments);
       stageEditorPatch(`grading:${key}`, {
         adjustments: {
           ...currentAdjustments,
@@ -140,15 +151,15 @@ export function useEditorColorGrading(selectedAsset: Asset | null, actions: Edit
         },
       });
     },
-    [selectedAsset, stageEditorPatch]
+    [resolveCurrentAdjustments, selectedAsset, stageEditorPatch]
   );
 
   const updateColorGradingValue = useCallback(
     (key: "blend" | "balance", value: number) => {
-      if (!selectedAsset) {
+      const currentAdjustments = resolveCurrentAdjustments();
+      if (!selectedAsset || !currentAdjustments) {
         return;
       }
-      const currentAdjustments = normalizeAdjustments(selectedAsset.adjustments);
       void commitEditorPatch(`grading:${key}`, {
         adjustments: {
           ...currentAdjustments,
@@ -159,14 +170,14 @@ export function useEditorColorGrading(selectedAsset: Asset | null, actions: Edit
         },
       });
     },
-    [commitEditorPatch, selectedAsset]
+    [commitEditorPatch, resolveCurrentAdjustments, selectedAsset]
   );
 
   const resetColorGrading = useCallback(() => {
-    if (!selectedAsset) {
+    const currentAdjustments = resolveCurrentAdjustments();
+    if (!selectedAsset || !currentAdjustments) {
       return false;
     }
-    const currentAdjustments = normalizeAdjustments(selectedAsset.adjustments);
     const defaults = createDefaultAdjustments().colorGrading;
     return applyEditorPatch({
       adjustments: {
@@ -180,12 +191,15 @@ export function useEditorColorGrading(selectedAsset: Asset | null, actions: Edit
         },
       },
     });
-  }, [applyEditorPatch, selectedAsset]);
+  }, [applyEditorPatch, resolveCurrentAdjustments, selectedAsset]);
 
-  const startPointColorPick = useCallback((target: PointColorPickTarget = "hsl") => {
-    setPointColorPickTarget(target);
-    setPointColorPicking(true);
-  }, [setPointColorPickTarget, setPointColorPicking]);
+  const startPointColorPick = useCallback(
+    (target: PointColorPickTarget = "hsl") => {
+      setPointColorPickTarget(target);
+      setPointColorPicking(true);
+    },
+    [setPointColorPickTarget, setPointColorPicking]
+  );
 
   const cancelPointColorPick = useCallback(() => {
     setPointColorPicking(false);

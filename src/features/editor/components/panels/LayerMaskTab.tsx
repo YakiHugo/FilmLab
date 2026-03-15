@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from "react";
-import { Circle, Paintbrush, Pipette, Square } from "lucide-react";
+import { Circle, Paintbrush, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { EditorLayerDefinition, EditorLayerMaskMode } from "@/types";
@@ -55,40 +55,6 @@ export const LayerMaskTab = memo(function LayerMaskTab({
           );
         })}
       </div>
-
-      <div className="h-px bg-white/10" />
-
-      <div className="space-y-1">
-        <button
-          type="button"
-          className={cn(
-            "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs transition",
-            activeMaskMode === "luminosity"
-              ? "bg-white/10 text-white"
-              : "text-slate-300 hover:bg-white/5 hover:text-white"
-          )}
-          onClick={() => onSetMaskMode(layer.id, "luminosity")}
-        >
-          <Pipette className="h-4 w-4" />
-          <span>Color Range</span>
-        </button>
-        <button
-          type="button"
-          className={cn(
-            "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs transition",
-            activeMaskMode === "luminosity"
-              ? "bg-white/10 text-white"
-              : "text-slate-300 hover:bg-white/5 hover:text-white"
-          )}
-          onClick={() => onSetMaskMode(layer.id, "luminosity")}
-        >
-          <Pipette className="h-4 w-4" />
-          <span>Luma Range</span>
-        </button>
-      </div>
-
-      <div className="h-px bg-white/10" />
-
       <div className="flex gap-2">
         <Button
           type="button"

@@ -28,7 +28,7 @@ export const ensurePreviewCanvasSize = (
   }
 };
 
-export const resolvePreviewLayerBlendOperation = (
+export const resolveLayerBlendOperation = (
   blendMode: EditorLayerBlendMode
 ): GlobalCompositeOperation => {
   if (blendMode === "multiply") {
@@ -45,6 +45,8 @@ export const resolvePreviewLayerBlendOperation = (
   }
   return "source-over";
 };
+
+export const resolvePreviewLayerBlendOperation = resolveLayerBlendOperation;
 
 export const copyPreviewCanvas = (
   targetCanvas: HTMLCanvasElement,
@@ -95,7 +97,7 @@ export const compositeRetainedPreviewLayers = ({
   for (const layerSurface of layerSurfaces) {
     context.save();
     context.globalAlpha = layerSurface.opacity;
-    context.globalCompositeOperation = resolvePreviewLayerBlendOperation(
+    context.globalCompositeOperation = resolveLayerBlendOperation(
       layerSurface.blendMode
     );
     if (drawRegion) {

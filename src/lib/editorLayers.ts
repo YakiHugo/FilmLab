@@ -1,4 +1,8 @@
 ﻿import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
+import {
+  DEFAULT_EDITOR_ADJUSTMENT_GROUP_VISIBILITY,
+  normalizeEditorAdjustmentGroupVisibility,
+} from "@/lib/editorAdjustmentVisibility";
 import type { Asset, EditingAdjustments, EditorLayer, EditorLayerBlendMode } from "@/types";
 
 const LAYER_BLEND_MODES: EditorLayerBlendMode[] = [
@@ -39,6 +43,7 @@ export const createBaseLayer = (asset: Pick<Asset, "id" | "adjustments">): Edito
   opacity: 100,
   blendMode: "normal",
   adjustments: normalizeAdjustments(asset.adjustments ?? createDefaultAdjustments()),
+  adjustmentVisibility: { ...DEFAULT_EDITOR_ADJUSTMENT_GROUP_VISIBILITY },
 });
 
 export const normalizeEditorLayer = (
@@ -58,6 +63,7 @@ export const normalizeEditorLayer = (
   opacity: clampOpacity(layer.opacity),
   blendMode: hasBlendMode(layer.blendMode) ? layer.blendMode : "normal",
   adjustments: layer.adjustments ? normalizeAdjustments(layer.adjustments) : undefined,
+  adjustmentVisibility: normalizeEditorAdjustmentGroupVisibility(layer.adjustmentVisibility),
   textureAssetId: layer.textureAssetId,
   mask: layer.mask,
 });
