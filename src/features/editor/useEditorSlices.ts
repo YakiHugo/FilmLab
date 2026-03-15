@@ -14,6 +14,21 @@ import {
 } from "@/lib/editorLayers";
 import { useAssetStore } from "@/stores/assetStore";
 import { useEditorStore } from "@/stores/editorStore";
+import {
+  createEditorDocument,
+  createRenderDocument,
+} from "./document";
+import {
+  cloneLocalAdjustment,
+  createDefaultLocalMask,
+  createLocalAdjustment,
+  insertLocalAdjustmentAfter,
+  moveLocalAdjustmentByDirection,
+  removeLocalAdjustmentById,
+  resolveSelectedLocalAdjustment,
+  updateLocalAdjustmentById,
+  updateLocalAdjustmentDelta as applyLocalAdjustmentDeltaPatch,
+} from "./localAdjustments";
 import type {
   AssetUpdate,
   EditingAdjustments,
@@ -24,6 +39,8 @@ import type {
   EditorLayerMask,
   EditorLayerMaskData,
   EditorLayerMaskMode,
+  LocalAdjustment,
+  LocalAdjustmentMask,
 } from "@/types";
 import { rgbToHue } from "./colorUtils";
 import type { HistogramData } from "./histogram";
@@ -329,6 +346,108 @@ export function useEditorAdjustmentState() {
   };
 }
 
+export function useEditorLocalAdjustmentState() {
+  const { adjustments, selectedLayerAdjustmentVisibility } = useEditorAdjustmentState();
+  const { selectedLocalAdjustmentId, setSelectedLocalAdjustmentId } = useEditorViewState();
+
+  const localAdjustments = useMemo(
+    () => adjustments?.localAdjustments ?? [],
+    [adjustments]
+  );
+  const selectedLocalAdjustment = useMemo(
+    () => resolveSelectedLocalAdjustment(localAdjustments, selectedLocalAdjustmentId),
+    [localAdjustments, selectedLocalAdjustmentId]
+  );
+
+  useEffect(() => {
+    const resolvedId = selectedLocalAdjustment?.id ?? null;
+    if (resolvedId !== selectedLocalAdjustmentId) {
+      setSelectedLocalAdjustmentId(resolvedId);
+    }
+  }, [selectedLocalAdjustment?.id, selectedLocalAdjustmentId, setSelectedLocalAdjustmentId]);
+
+  return {
+    localAdjustments,
+    selectedLocalAdjustment,
+    selectedLocalAdjustmentId: selectedLocalAdjustment?.id ?? null,
+    selectedLayerAdjustmentVisibility,
+  };
+}
+
+export function useEditorDocumentState() {
+  const selection = useEditorSelectionModel();
+  const adjustmentState = useEditorAdjustmentState();
+  const { selectedLocalAdjustmentId, showOriginal } = useEditorViewState();
+
+  const document = useMemo(() => {
+    if (!selection.selectedAsset || !selection.selectedLayerAdjustments) {
+      return null;
+    }
+    return createEditorDocument({
+      assets: selection.assets,
+      selectedAsset: selection.selectedAsset,
+      layers: selection.layers,
+      selectedLayer: selection.selectedLayer,
+      selectedLayerAdjustments: selection.selectedLayerAdjustments,
+      selectedLayerAdjustmentVisibility: selection.selectedLayerAdjustmentVisibility,
+      selectedLocalAdjustmentId,
+    });
+  }, [
+    selectedLocalAdjustmentId,
+    selection.assets,
+    selection.layers,
+    selection.selectedAsset,
+    selection.selectedLayer,
+    selection.selectedLayerAdjustments,
+    selection.selectedLayerAdjustmentVisibility,
+  ]);
+
+  const previewRenderDocument = useMemo(() => {
+    if (!document || !adjustmentState.previewAdjustments) {
+      return null;
+    }
+    return createRenderDocument({
+      key: document.key,
+      assetById: document.assetById,
+      documentAsset: document.asset,
+      layers: document.layers,
+      adjustments: adjustmentState.previewAdjustments,
+      filmProfile: adjustmentState.previewFilmProfile ?? document.asset.filmProfile ?? undefined,
+      showOriginal,
+    });
+  }, [
+    adjustmentState.previewAdjustments,
+    adjustmentState.previewFilmProfile,
+    document,
+    showOriginal,
+  ]);
+
+  const exportRenderDocument = useMemo(() => {
+    if (!document || !adjustmentState.renderAdjustments) {
+      return null;
+    }
+    return createRenderDocument({
+      key: `${document.key}:export`,
+      assetById: document.assetById,
+      documentAsset: document.asset,
+      layers: document.layers,
+      adjustments: adjustmentState.renderAdjustments,
+      filmProfile: adjustmentState.previewFilmProfile ?? document.asset.filmProfile ?? undefined,
+      showOriginal: false,
+    });
+  }, [
+    adjustmentState.previewFilmProfile,
+    adjustmentState.renderAdjustments,
+    document,
+  ]);
+
+  return {
+    document,
+    exportRenderDocument,
+    previewRenderDocument,
+  };
+}
+
 export function useEditorAdjustmentActions() {
   const {
     layers,
@@ -462,14 +581,250 @@ export function useEditorAdjustmentActions() {
     ]
   );
 
+  const resolveCurrentLocalAdjustments = useCallback(() => {
+    if (!selectedLayerAdjustments) {
+      return [] as LocalAdjustment[];
+    }
+    return normalizeAdjustments(selectedLayerAdjustments).localAdjustments ?? [];
+  }, [selectedLayerAdjustments]);
+
+  const previewLocalAdjustments = useCallback(
+    (historyKey: string, localAdjustments: LocalAdjustment[]) => {
+      adjustmentActions.previewAdjustmentPatch(`local:${historyKey}`, {
+        localAdjustments,
+      });
+    },
+    [adjustmentActions]
+  );
+
+  const commitLocalAdjustments = useCallback(
+    (historyKey: string, localAdjustments: LocalAdjustment[]) =>
+      adjustmentActions.commitAdjustmentPatch(`local:${historyKey}`, {
+        localAdjustments,
+      }),
+    [adjustmentActions]
+  );
+
+  const selectLocalAdjustment = useCallback(
+    (localId: string | null) => {
+      viewState.setSelectedLocalAdjustmentId(localId);
+      const selected = localId
+        ? resolveCurrentLocalAdjustments().find((item) => item.id === localId) ?? null
+        : null;
+      if (selected?.mask.mode === "brush") {
+        viewState.setActiveToolPanelId("mask");
+      }
+    },
+    [resolveCurrentLocalAdjustments, viewState]
+  );
+
+  const addLocalAdjustment = useCallback(
+    (mode: LocalAdjustmentMask["mode"] = "radial") => {
+      const nextLocal = createLocalAdjustment(mode);
+      const nextLocalAdjustments = insertLocalAdjustmentAfter(
+        resolveCurrentLocalAdjustments(),
+        viewState.selectedLocalAdjustmentId,
+        nextLocal
+      );
+      const committed = commitLocalAdjustments(`${nextLocal.id}:add`, nextLocalAdjustments);
+      if (committed) {
+        viewState.setSelectedLocalAdjustmentId(nextLocal.id);
+        viewState.setActiveToolPanelId(mode === "brush" ? "mask" : "edit");
+      }
+      return committed;
+    },
+    [commitLocalAdjustments, resolveCurrentLocalAdjustments, viewState]
+  );
+
+  const duplicateLocalAdjustment = useCallback(
+    (localId: string) => {
+      const currentLocalAdjustments = resolveCurrentLocalAdjustments();
+      const source = currentLocalAdjustments.find((item) => item.id === localId);
+      if (!source) {
+        return false;
+      }
+      const duplicate = cloneLocalAdjustment(source);
+      const nextLocalAdjustments = insertLocalAdjustmentAfter(
+        currentLocalAdjustments,
+        localId,
+        duplicate
+      );
+      const committed = commitLocalAdjustments(`${localId}:duplicate`, nextLocalAdjustments);
+      if (committed) {
+        viewState.setSelectedLocalAdjustmentId(duplicate.id);
+        viewState.setActiveToolPanelId(source.mask.mode === "brush" ? "mask" : "edit");
+      }
+      return committed;
+    },
+    [commitLocalAdjustments, resolveCurrentLocalAdjustments, viewState]
+  );
+
+  const removeLocalAdjustment = useCallback(
+    (localId: string) => {
+      const nextLocalAdjustments = removeLocalAdjustmentById(
+        resolveCurrentLocalAdjustments(),
+        localId
+      );
+      const committed = commitLocalAdjustments(`${localId}:remove`, nextLocalAdjustments);
+      if (committed) {
+        const nextSelected = resolveSelectedLocalAdjustment(nextLocalAdjustments, null);
+        viewState.setSelectedLocalAdjustmentId(nextSelected?.id ?? null);
+        if (!nextSelected) {
+          viewState.setActiveToolPanelId("edit");
+        }
+      }
+      return committed;
+    },
+    [commitLocalAdjustments, resolveCurrentLocalAdjustments, viewState]
+  );
+
+  const reorderLocalAdjustment = useCallback(
+    (localId: string, direction: "up" | "down") => {
+      const nextLocalAdjustments = moveLocalAdjustmentByDirection(
+        resolveCurrentLocalAdjustments(),
+        localId,
+        direction
+      );
+      return commitLocalAdjustments(`${localId}:move:${direction}`, nextLocalAdjustments);
+    },
+    [commitLocalAdjustments, resolveCurrentLocalAdjustments]
+  );
+
+  const setLocalAdjustmentEnabled = useCallback(
+    (localId: string, enabled: boolean) => {
+      const nextLocalAdjustments = updateLocalAdjustmentById(
+        resolveCurrentLocalAdjustments(),
+        localId,
+        (local) => ({
+          ...local,
+          enabled,
+        })
+      );
+      return commitLocalAdjustments(`${localId}:enabled`, nextLocalAdjustments);
+    },
+    [commitLocalAdjustments, resolveCurrentLocalAdjustments]
+  );
+
+  const setLocalMaskMode = useCallback(
+    (localId: string, mode: LocalAdjustmentMask["mode"]) => {
+      const nextLocalAdjustments = updateLocalAdjustmentById(
+        resolveCurrentLocalAdjustments(),
+        localId,
+        (local) => ({
+          ...local,
+          mask: createDefaultLocalMask(mode),
+        })
+      );
+      const committed = commitLocalAdjustments(`${localId}:mask-mode`, nextLocalAdjustments);
+      if (committed) {
+        viewState.setActiveToolPanelId(mode === "brush" ? "mask" : "edit");
+      }
+      return committed;
+    },
+    [commitLocalAdjustments, resolveCurrentLocalAdjustments, viewState]
+  );
+
+  const updateLocalMask = useCallback(
+    (
+      localId: string,
+      updater: LocalAdjustmentMask | ((currentMask: LocalAdjustmentMask) => LocalAdjustmentMask),
+      options?: { historyKey?: string; mode?: "preview" | "commit" }
+    ) => {
+      const historyKey = options?.historyKey ?? `${localId}:mask`;
+      const nextLocalAdjustments = updateLocalAdjustmentById(
+        resolveCurrentLocalAdjustments(),
+        localId,
+        (local) => ({
+          ...local,
+          mask:
+            typeof updater === "function"
+              ? updater(local.mask)
+              : updater,
+        })
+      );
+      if (options?.mode === "preview") {
+        previewLocalAdjustments(historyKey, nextLocalAdjustments);
+        return;
+      }
+      return commitLocalAdjustments(historyKey, nextLocalAdjustments);
+    },
+    [commitLocalAdjustments, previewLocalAdjustments, resolveCurrentLocalAdjustments]
+  );
+
+  const previewLocalAdjustmentAmount = useCallback(
+    (localId: string, amount: number) => {
+      const nextLocalAdjustments = updateLocalAdjustmentById(
+        resolveCurrentLocalAdjustments(),
+        localId,
+        (local) => ({
+          ...local,
+          amount,
+        })
+      );
+      previewLocalAdjustments(`${localId}:amount`, nextLocalAdjustments);
+    },
+    [previewLocalAdjustments, resolveCurrentLocalAdjustments]
+  );
+
+  const updateLocalAdjustmentAmount = useCallback(
+    (localId: string, amount: number) => {
+      const nextLocalAdjustments = updateLocalAdjustmentById(
+        resolveCurrentLocalAdjustments(),
+        localId,
+        (local) => ({
+          ...local,
+          amount,
+        })
+      );
+      return commitLocalAdjustments(`${localId}:amount`, nextLocalAdjustments);
+    },
+    [commitLocalAdjustments, resolveCurrentLocalAdjustments]
+  );
+
+  const previewLocalAdjustmentDelta = useCallback(
+    (localId: string, patch: Partial<LocalAdjustment["adjustments"]>) => {
+      const nextLocalAdjustments = applyLocalAdjustmentDeltaPatch(
+        resolveCurrentLocalAdjustments(),
+        localId,
+        patch
+      );
+      previewLocalAdjustments(`${localId}:delta`, nextLocalAdjustments);
+    },
+    [previewLocalAdjustments, resolveCurrentLocalAdjustments]
+  );
+
+  const updateLocalAdjustmentDelta = useCallback(
+    (localId: string, patch: Partial<LocalAdjustment["adjustments"]>) => {
+      const nextLocalAdjustments = applyLocalAdjustmentDeltaPatch(
+        resolveCurrentLocalAdjustments(),
+        localId,
+        patch
+      );
+      return commitLocalAdjustments(`${localId}:delta`, nextLocalAdjustments);
+    },
+    [commitLocalAdjustments, resolveCurrentLocalAdjustments]
+  );
+
   return {
     ...adjustmentActions,
+    addLocalAdjustment,
     cancelPointColorPick,
     commitLocalMaskColorSample,
     commitPointColorSample,
+    duplicateLocalAdjustment,
+    previewLocalAdjustmentAmount,
+    previewLocalAdjustmentDelta,
+    removeLocalAdjustment,
+    reorderLocalAdjustment,
+    selectLocalAdjustment,
     setAdjustmentGroupVisibility,
+    setLocalAdjustmentEnabled,
+    setLocalMaskMode,
     setPreviewHistogram: viewState.setPreviewHistogram,
     toggleAdjustmentGroupVisibility,
+    updateLocalAdjustmentAmount,
+    updateLocalAdjustmentDelta,
+    updateLocalMask,
   };
 }
 

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { normalizeAdjustments } from "@/lib/adjustments";
 import {
   resolveAspectRatio,
   resolveOrientedAspectRatio,
@@ -8,12 +7,12 @@ import { clamp } from "@/lib/math";
 import { resolvePreviewRoiFromViewport } from "@/lib/previewRoi";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
 import { cn } from "@/lib/utils";
-import { buildEditorLayerRenderEntries } from "./renderPreparation";
 import { CropOverlay } from "./CropOverlay";
 import { useEditorKeyboard } from "./useEditorKeyboard";
 import {
   useEditorAdjustmentActions,
   useEditorAdjustmentState,
+  useEditorDocumentState,
   useEditorHistoryState,
   useEditorSelectionState,
   useEditorViewState,
@@ -29,7 +28,8 @@ import { usePerspectiveAssist } from "./preview/usePerspectiveAssist";
 import { usePreviewRenderPipeline } from "./preview/usePreviewRenderPipeline";
 
 export function EditorPreviewCard() {
-  const { assets, layers, selectedAsset, selectedLayer } = useEditorSelectionState();
+  const { selectedAsset, selectedLayer } = useEditorSelectionState();
+  const { previewRenderDocument } = useEditorDocumentState();
   const {
     previewFilmProfile,
     previewAdjustments,
@@ -95,18 +95,10 @@ export function EditorPreviewCard() {
     return hash >>> 0;
   }, [selectedAsset?.id]);
 
-  const assetById = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
-
-  const layerPreviewEntries = useMemo<LayerPreviewEntry[]>(() => {
-    if (!selectedAsset || layers.length === 0) {
-      return [];
-    }
-    return buildEditorLayerRenderEntries({
-      assetById,
-      documentAsset: selectedAsset,
-      layers,
-    });
-  }, [assetById, layers, selectedAsset]);
+  const layerPreviewEntries = useMemo<LayerPreviewEntry[]>(
+    () => previewRenderDocument?.layerEntries ?? [],
+    [previewRenderDocument]
+  );
 
   useEffect(() => {
     if (!selectedAsset?.objectUrl) {
@@ -308,24 +300,20 @@ export function EditorPreviewCard() {
   }, [cropInteraction.previewPatch, effectivePreviewAdjustments]);
 
   const previewDocument = useMemo<EditorPreviewDocument | null>(() => {
-    if (!selectedAsset || !renderedPreviewAdjustments) {
+    if (!previewRenderDocument || !renderedPreviewAdjustments) {
       return null;
     }
     return {
-      documentKey: `editor:${selectedAsset.id}`,
-      sourceAssetId: selectedAsset.id,
-      adjustments:
-        renderedPreviewAdjustments ??
-        normalizeAdjustments(selectedAsset.adjustments),
-      layers,
-      filmProfile: previewFilmProfile ?? selectedAsset.filmProfile ?? undefined,
+      ...previewRenderDocument,
+      adjustments: renderedPreviewAdjustments,
+      filmProfile:
+        previewFilmProfile ?? previewRenderDocument.filmProfile ?? undefined,
       showOriginal,
     };
   }, [
-    layers,
     previewFilmProfile,
+    previewRenderDocument,
     renderedPreviewAdjustments,
-    selectedAsset,
     showOriginal,
   ]);
 

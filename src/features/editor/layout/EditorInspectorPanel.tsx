@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { cn } from "@/lib/utils";
+import { createDefaultAdjustments } from "@/lib/adjustments";
 import { hasAdjustmentGroupChanges } from "@/lib/editorAdjustmentVisibility";
+import { cn } from "@/lib/utils";
 import type { EditingAdjustments } from "@/types";
 import { EditorCropSection } from "../EditorCropSection";
 import { EditorHistogramCard } from "../EditorHistogramCard";
@@ -8,15 +9,25 @@ import { EditorPresetCard } from "../EditorPresetCard";
 import {
   useEditorAdjustmentActions,
   useEditorAdjustmentState,
+  useEditorColorGradingActions,
+  useEditorColorGradingState,
+  useEditorLocalAdjustmentState,
   useEditorLayerActions,
   useEditorSelectionState,
   useEditorViewState,
 } from "../useEditorSlices";
 import { BasicPanel } from "../components/panels/BasicPanel";
+import { ColorGradingPanel } from "../components/panels/ColorGradingPanel";
+import { CurvePanel } from "../components/panels/CurvePanel";
 import { DetailPanel } from "../components/panels/DetailPanel";
 import { EffectsPanel } from "../components/panels/EffectsPanel";
 import { ExportPanel } from "../components/panels/ExportPanel";
+import { HslPanel } from "../components/panels/HslPanel";
 import { LayerPropertiesPanel } from "../components/panels/LayerPropertiesPanel";
+import { LocalAdjustmentsPanel } from "../components/panels/LocalAdjustmentsPanel";
+import { OpticsPanel } from "../components/panels/OpticsPanel";
+
+const DEFAULT_ADJUSTMENTS = createDefaultAdjustments();
 
 function hasCropChanges(adjustments: EditingAdjustments): boolean {
   return (
@@ -33,6 +44,47 @@ function hasCropChanges(adjustments: EditingAdjustments): boolean {
   );
 }
 
+const hasHslChanges = (adjustments: EditingAdjustments) =>
+  Object.values(adjustments.hsl).some(
+    (channel) =>
+      channel.hue !== 0 || channel.saturation !== 0 || channel.luminance !== 0
+  );
+
+const hasCurveChanges = (adjustments: EditingAdjustments) =>
+  adjustments.curveHighlights !== 0 ||
+  adjustments.curveLights !== 0 ||
+  adjustments.curveDarks !== 0 ||
+  adjustments.curveShadows !== 0;
+
+const hasColorGradingChanges = (adjustments: EditingAdjustments) => {
+  const grading = adjustments.colorGrading;
+  return (
+    grading.blend !== DEFAULT_ADJUSTMENTS.colorGrading.blend ||
+    grading.balance !== DEFAULT_ADJUSTMENTS.colorGrading.balance ||
+    grading.shadows.hue !== 0 ||
+    grading.shadows.saturation !== 0 ||
+    grading.shadows.luminance !== 0 ||
+    grading.midtones.hue !== 0 ||
+    grading.midtones.saturation !== 0 ||
+    grading.midtones.luminance !== 0 ||
+    grading.highlights.hue !== 0 ||
+    grading.highlights.saturation !== 0 ||
+    grading.highlights.luminance !== 0
+  );
+};
+
+const hasOpticsChanges = (adjustments: EditingAdjustments) =>
+  adjustments.opticsProfile ||
+  adjustments.opticsCA ||
+  (adjustments.opticsDistortionK1 ?? 0) !== 0 ||
+  (adjustments.opticsDistortionK2 ?? 0) !== 0 ||
+  (adjustments.opticsCaAmount ?? 0) !== 0 ||
+  adjustments.opticsVignette !== 0 ||
+  (adjustments.opticsVignetteMidpoint ?? 50) !== 50;
+
+const hasLocalChanges = (adjustments: EditingAdjustments) =>
+  (adjustments.localAdjustments?.length ?? 0) > 0;
+
 interface EditorInspectorPanelProps {
   className?: string;
 }
@@ -40,14 +92,45 @@ interface EditorInspectorPanelProps {
 export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
   const { adjustments, resolvedAdjustments } = useEditorAdjustmentState();
   const {
+    addLocalAdjustment,
+    duplicateLocalAdjustment,
     previewAdjustmentValue,
+    previewLocalAdjustmentAmount,
+    previewLocalAdjustmentDelta,
+    removeLocalAdjustment,
+    reorderLocalAdjustment,
+    selectLocalAdjustment,
+    setLocalAdjustmentEnabled,
+    setLocalMaskMode,
     toggleAdjustmentGroupVisibility,
     toggleFlip,
     updateAdjustments,
     updateAdjustmentValue,
+    updateLocalAdjustmentAmount,
+    updateLocalAdjustmentDelta,
+    updateLocalMask,
   } = useEditorAdjustmentActions();
-  const { clearLayerMask, invertLayerMask, setLayerBlendMode, setLayerMaskMode, setLayerOpacity } =
-    useEditorLayerActions();
+  const {
+    previewColorGradingValue,
+    previewColorGradingZone,
+    previewHslValue,
+    resetColorGrading,
+    setActiveHslColor,
+    startPointColorPick,
+    updateColorGradingValue,
+    updateColorGradingZone,
+    updateHslValue,
+  } = useEditorColorGradingActions();
+  const { activeHslColor, pointColorPicking } = useEditorColorGradingState();
+  const { localAdjustments, selectedLocalAdjustment, selectedLocalAdjustmentId } =
+    useEditorLocalAdjustmentState();
+  const {
+    clearLayerMask,
+    invertLayerMask,
+    setLayerBlendMode,
+    setLayerMaskMode,
+    setLayerOpacity,
+  } = useEditorLayerActions();
   const { selectedLayer, selectedLayerAdjustmentVisibility } = useEditorSelectionState();
   const {
     activeToolPanelId,
@@ -68,6 +151,11 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
   const basicHasChanges = adjustments ? hasAdjustmentGroupChanges(adjustments, "basic") : false;
   const effectsHasChanges = adjustments ? hasAdjustmentGroupChanges(adjustments, "effects") : false;
   const detailHasChanges = adjustments ? hasAdjustmentGroupChanges(adjustments, "detail") : false;
+  const hslHasChanges = adjustments ? hasHslChanges(adjustments) : false;
+  const curveHasChanges = adjustments ? hasCurveChanges(adjustments) : false;
+  const gradingHasChanges = adjustments ? hasColorGradingChanges(adjustments) : false;
+  const opticsHasChanges = adjustments ? hasOpticsChanges(adjustments) : false;
+  const localHasChanges = adjustments ? hasLocalChanges(adjustments) : false;
   const basicHasVisibleChanges = resolvedAdjustments
     ? hasAdjustmentGroupChanges(resolvedAdjustments, "basic")
     : false;
@@ -97,6 +185,8 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
       tint: 0,
       vibrance: 0,
       saturation: 0,
+      temperatureKelvin: undefined,
+      tintMG: undefined,
     });
   };
 
@@ -144,6 +234,40 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
     });
   };
 
+  const resetCurvePanel = () => {
+    updateAdjustments({
+      curveHighlights: 0,
+      curveLights: 0,
+      curveDarks: 0,
+      curveShadows: 0,
+    });
+  };
+
+  const resetHslPanel = () => {
+    updateAdjustments({
+      hsl: { ...DEFAULT_ADJUSTMENTS.hsl },
+    });
+  };
+
+  const resetOpticsPanel = () => {
+    updateAdjustments({
+      opticsProfile: false,
+      opticsCA: false,
+      opticsDistortionK1: 0,
+      opticsDistortionK2: 0,
+      opticsCaAmount: 0,
+      opticsVignette: 0,
+      opticsVignetteMidpoint: 50,
+    });
+  };
+
+  const resetLocalPanel = () => {
+    updateAdjustments({
+      localAdjustments: [],
+    });
+    selectLocalAdjustment(null);
+  };
+
   const syncActiveToolPanel = (eventTarget: EventTarget | null) => {
     if (!(eventTarget instanceof Element)) {
       return;
@@ -179,8 +303,8 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
 
         <LayerPropertiesPanel
           layer={selectedLayer}
-          isOpen={openSections.local}
-          onToggle={() => toggleSection("local")}
+          isOpen={openSections.layers}
+          onToggle={() => toggleSection("layers")}
           onSetOpacity={setLayerOpacity}
           onSetBlendMode={setLayerBlendMode}
           onSetMaskMode={setLayerMaskMode}
@@ -201,79 +325,144 @@ export function EditorInspectorPanel({ className }: EditorInspectorPanelProps) {
           }}
         />
 
+        {adjustments && (
+          <>
+            <BasicPanel
+              adjustments={adjustments}
+              isOpen={openSections.basic}
+              onToggle={() => toggleSection("basic")}
+              onUpdateAdjustments={updateAdjustments}
+              onPreviewAdjustmentValue={previewAdjustmentValue}
+              onCommitAdjustmentValue={updateAdjustmentValue}
+              hasChanges={basicHasChanges}
+              changesVisible={selectedLayerAdjustmentVisibility.basic}
+              canToggleVisibility={canToggleBasicVisibility}
+              canResetChanges={basicHasChanges}
+              onToggleVisibility={() => toggleAdjustmentGroupVisibility("basic")}
+              onResetChanges={resetBasicPanel}
+            />
+
+            <HslPanel
+              adjustments={adjustments}
+              activeColor={activeHslColor}
+              pointColorPicking={pointColorPicking}
+              isOpen={openSections.hsl}
+              onToggle={() => toggleSection("hsl")}
+              onSetActiveColor={setActiveHslColor}
+              onStartPointColorPick={() => startPointColorPick("hsl")}
+              onPreviewValue={previewHslValue}
+              onCommitValue={updateHslValue}
+              hasChanges={hslHasChanges}
+              onResetChanges={resetHslPanel}
+            />
+
+            <CurvePanel
+              adjustments={adjustments}
+              isOpen={openSections.curve}
+              onToggle={() => toggleSection("curve")}
+              onPreviewAdjustmentValue={previewAdjustmentValue}
+              onCommitAdjustmentValue={updateAdjustmentValue}
+              hasChanges={curveHasChanges}
+              onResetChanges={resetCurvePanel}
+            />
+
+            <ColorGradingPanel
+              adjustments={adjustments}
+              isOpen={openSections.grading}
+              onToggle={() => toggleSection("grading")}
+              onPreviewZone={previewColorGradingZone}
+              onCommitZone={updateColorGradingZone}
+              onPreviewValue={previewColorGradingValue}
+              onCommitValue={updateColorGradingValue}
+              hasChanges={gradingHasChanges}
+              onResetChanges={resetColorGrading}
+            />
+
+            <EffectsPanel
+              adjustments={adjustments}
+              isOpen={openSections.effects}
+              onToggle={() => toggleSection("effects")}
+              onUpdateAdjustments={updateAdjustments}
+              onPreviewAdjustmentValue={previewAdjustmentValue}
+              onCommitAdjustmentValue={updateAdjustmentValue}
+              hasChanges={effectsHasChanges}
+              changesVisible={selectedLayerAdjustmentVisibility.effects}
+              canToggleVisibility={canToggleEffectsVisibility}
+              canResetChanges={effectsHasChanges}
+              onToggleVisibility={() => toggleAdjustmentGroupVisibility("effects")}
+              onResetChanges={resetEffectsPanel}
+            />
+
+            <DetailPanel
+              adjustments={adjustments}
+              isOpen={openSections.detail}
+              onToggle={() => toggleSection("detail")}
+              onPreviewAdjustmentValue={previewAdjustmentValue}
+              onCommitAdjustmentValue={updateAdjustmentValue}
+              hasChanges={detailHasChanges}
+              changesVisible={selectedLayerAdjustmentVisibility.detail}
+              canToggleVisibility={canToggleDetailVisibility}
+              canResetChanges={detailHasChanges}
+              onToggleVisibility={() => toggleAdjustmentGroupVisibility("detail")}
+              onResetChanges={resetDetailPanel}
+            />
+
+            <OpticsPanel
+              adjustments={adjustments}
+              isOpen={openSections.optics}
+              onToggle={() => toggleSection("optics")}
+              onUpdateAdjustments={updateAdjustments}
+              onPreviewAdjustmentValue={previewAdjustmentValue}
+              onCommitAdjustmentValue={updateAdjustmentValue}
+              hasChanges={opticsHasChanges}
+              onResetChanges={resetOpticsPanel}
+            />
+
+            <EditorCropSection
+              adjustments={adjustments}
+              cropGuideMode={cropGuideMode}
+              cropGuideRotation={cropGuideRotation}
+              isOpen={openSections.crop}
+              onToggle={handleToggleCropSection}
+              onSetCropGuideMode={setCropGuideMode}
+              onRotateCropGuide={rotateCropGuide}
+              onUpdateAdjustments={updateAdjustments}
+              onPreviewAdjustmentValue={previewAdjustmentValue}
+              onCommitAdjustmentValue={updateAdjustmentValue}
+              onToggleFlip={toggleFlip}
+              onRequestAutoPerspective={requestAutoPerspective}
+              hasChanges={cropHasChanges}
+              changesVisible={!cropPreviewBypassed}
+              onToggleVisibility={toggleCropPreviewBypassed}
+              onResetChanges={resetCropPanel}
+            />
+
+            <LocalAdjustmentsPanel
+              localAdjustments={localAdjustments}
+              selectedLocalAdjustment={selectedLocalAdjustment}
+              selectedLocalAdjustmentId={selectedLocalAdjustmentId}
+              isOpen={openSections.local}
+              onToggle={() => toggleSection("local")}
+              onAddLocalAdjustment={addLocalAdjustment}
+              onDuplicateLocalAdjustment={duplicateLocalAdjustment}
+              onRemoveLocalAdjustment={removeLocalAdjustment}
+              onSelectLocalAdjustment={selectLocalAdjustment}
+              onReorderLocalAdjustment={reorderLocalAdjustment}
+              onSetLocalAdjustmentEnabled={setLocalAdjustmentEnabled}
+              onSetLocalMaskMode={setLocalMaskMode}
+              onPreviewLocalAdjustmentAmount={previewLocalAdjustmentAmount}
+              onCommitLocalAdjustmentAmount={updateLocalAdjustmentAmount}
+              onPreviewLocalAdjustmentDelta={previewLocalAdjustmentDelta}
+              onCommitLocalAdjustmentDelta={updateLocalAdjustmentDelta}
+              onUpdateLocalMask={updateLocalMask}
+              onActivateMaskTool={() => setActiveToolPanelId("mask")}
+              hasChanges={localHasChanges}
+              onResetChanges={resetLocalPanel}
+            />
+          </>
+        )}
+
         <EditorPresetCard />
-
-        {adjustments && (
-          <EditorCropSection
-            adjustments={adjustments}
-            cropGuideMode={cropGuideMode}
-            cropGuideRotation={cropGuideRotation}
-            isOpen={openSections.crop}
-            onToggle={handleToggleCropSection}
-            onSetCropGuideMode={setCropGuideMode}
-            onRotateCropGuide={rotateCropGuide}
-            onUpdateAdjustments={updateAdjustments}
-            onPreviewAdjustmentValue={previewAdjustmentValue}
-            onCommitAdjustmentValue={updateAdjustmentValue}
-            onToggleFlip={toggleFlip}
-            onRequestAutoPerspective={requestAutoPerspective}
-            hasChanges={cropHasChanges}
-            changesVisible={!cropPreviewBypassed}
-            onToggleVisibility={toggleCropPreviewBypassed}
-            onResetChanges={resetCropPanel}
-          />
-        )}
-
-        {adjustments && (
-          <BasicPanel
-            adjustments={adjustments}
-            isOpen={openSections.basic}
-            onToggle={() => toggleSection("basic")}
-            onUpdateAdjustments={updateAdjustments}
-            onPreviewAdjustmentValue={previewAdjustmentValue}
-            onCommitAdjustmentValue={updateAdjustmentValue}
-            hasChanges={basicHasChanges}
-            changesVisible={selectedLayerAdjustmentVisibility.basic}
-            canToggleVisibility={canToggleBasicVisibility}
-            canResetChanges={basicHasChanges}
-            onToggleVisibility={() => toggleAdjustmentGroupVisibility("basic")}
-            onResetChanges={resetBasicPanel}
-          />
-        )}
-
-        {adjustments && (
-          <EffectsPanel
-            adjustments={adjustments}
-            isOpen={openSections.effects}
-            onToggle={() => toggleSection("effects")}
-            onUpdateAdjustments={updateAdjustments}
-            onPreviewAdjustmentValue={previewAdjustmentValue}
-            onCommitAdjustmentValue={updateAdjustmentValue}
-            hasChanges={effectsHasChanges}
-            changesVisible={selectedLayerAdjustmentVisibility.effects}
-            canToggleVisibility={canToggleEffectsVisibility}
-            canResetChanges={effectsHasChanges}
-            onToggleVisibility={() => toggleAdjustmentGroupVisibility("effects")}
-            onResetChanges={resetEffectsPanel}
-          />
-        )}
-
-        {adjustments && (
-          <DetailPanel
-            adjustments={adjustments}
-            isOpen={openSections.detail}
-            onToggle={() => toggleSection("detail")}
-            onPreviewAdjustmentValue={previewAdjustmentValue}
-            onCommitAdjustmentValue={updateAdjustmentValue}
-            hasChanges={detailHasChanges}
-            changesVisible={selectedLayerAdjustmentVisibility.detail}
-            canToggleVisibility={canToggleDetailVisibility}
-            canResetChanges={detailHasChanges}
-            onToggleVisibility={() => toggleAdjustmentGroupVisibility("detail")}
-            onResetChanges={resetDetailPanel}
-          />
-        )}
-
         <ExportPanel isOpen={openSections.export} onToggle={() => toggleSection("export")} />
       </div>
     </aside>

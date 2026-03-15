@@ -1,5 +1,5 @@
 import { createDefaultAdjustments } from "@/lib/adjustments";
-import type { Asset, EditorLayer } from "@/types";
+import type { Asset } from "@/types";
 import { describe, expect, it } from "vitest";
 import type { PreviewRequest } from "./contracts";
 import {
@@ -26,10 +26,12 @@ const createRequest = (overrides?: Partial<PreviewRequest>): PreviewRequest => {
   return {
     document: {
       documentKey: "editor:asset-a",
+      key: "editor:asset-a",
+      sourceAsset,
       sourceAssetId: sourceAsset.id,
       adjustments: baseAdjustments,
-      layers: [] as EditorLayer[],
       filmProfile: { id: "document-film" } as Asset["filmProfile"],
+      layerEntries: [],
       showOriginal: false,
     },
     documentKey: "editor:asset-a",

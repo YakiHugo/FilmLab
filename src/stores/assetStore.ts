@@ -34,6 +34,7 @@ import {
   saveProject,
   type StoredAsset,
 } from "@/lib/db";
+import { createRenderedThumbnailBlob } from "@/features/editor/thumbnail";
 import { emit } from "@/lib/storeEvents";
 import { loadCustomPresets } from "@/features/editor/presetUtils";
 import type { Asset, AssetRemoteSyncStatus, EditorLayer } from "@/types";
@@ -184,6 +185,88 @@ const createEmptyImportResult = (): AddAssetsResult => ({
 const syncNowIso = () => new Date().toISOString();
 let isSyncRunning = false;
 let lastRemoteChangeCursor: string | undefined;
+const THUMBNAIL_REFRESH_DEBOUNCE_MS = 220;
+const pendingThumbnailRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const thumbnailRefreshVersions = new Map<string, number>();
+
+const shouldRefreshRenderedThumbnail = (
+  update: ReturnType<typeof normalizeAssetUpdate>
+) =>
+  Boolean(
+    update.adjustments ||
+      update.layers ||
+      update.filmProfile ||
+      update.filmOverrides ||
+      update.filmProfileId !== undefined ||
+      update.presetId !== undefined ||
+      update.intensity !== undefined
+  );
+
+const scheduleRenderedThumbnailRefresh = (
+  assetId: string,
+  set: (updater: (state: ProjectState) => Partial<ProjectState>) => void,
+  get: () => ProjectState
+) => {
+  const pending = pendingThumbnailRefreshTimers.get(assetId);
+  if (pending) {
+    clearTimeout(pending);
+  }
+  const version = (thumbnailRefreshVersions.get(assetId) ?? 0) + 1;
+  thumbnailRefreshVersions.set(assetId, version);
+
+  pendingThumbnailRefreshTimers.set(
+    assetId,
+    setTimeout(() => {
+      pendingThumbnailRefreshTimers.delete(assetId);
+      void (async () => {
+        const currentState = get();
+        const currentAsset = currentState.assets.find((asset) => asset.id === assetId);
+        if (!currentAsset?.blob) {
+          return;
+        }
+
+        const thumbnailBlob = await createRenderedThumbnailBlob(
+          currentAsset,
+          currentState.assets
+        );
+        if (!thumbnailBlob || thumbnailRefreshVersions.get(assetId) !== version) {
+          return;
+        }
+
+        let previousThumbnailUrl: string | null = null;
+        let persistedAsset: Asset | null = null;
+        const nextThumbnailUrl = URL.createObjectURL(thumbnailBlob);
+
+        set((state) => ({
+          assets: state.assets.map((asset) => {
+            if (asset.id !== assetId) {
+              return asset;
+            }
+            previousThumbnailUrl =
+              asset.thumbnailUrl && asset.thumbnailUrl !== asset.objectUrl
+                ? asset.thumbnailUrl
+                : null;
+            persistedAsset = {
+              ...asset,
+              thumbnailBlob,
+              thumbnailUrl: nextThumbnailUrl,
+            };
+            return persistedAsset;
+          }),
+        }));
+
+        if (previousThumbnailUrl) {
+          URL.revokeObjectURL(previousThumbnailUrl);
+        }
+        if (persistedAsset) {
+          persistAsset(persistedAsset);
+        }
+      })().catch((error) => {
+        console.warn("Failed to refresh rendered thumbnail", assetId, error);
+      });
+    }, THUMBNAIL_REFRESH_DEBOUNCE_MS)
+  );
+};
 
 const withRemoteStatus = (
   asset: Asset,
@@ -919,6 +1002,9 @@ export const useAssetStore = create<ProjectState>()(
         set({
           assets: nextAssets.map((asset) => (queued && asset.id === assetId ? queued : asset)),
         });
+        if (shouldRefreshRenderedThumbnail(normalizedUpdate)) {
+          scheduleRenderedThumbnailRefresh(assetId, set, get);
+        }
       },
 
       updateAssetOnly: (assetId, update) => {
@@ -949,6 +1035,7 @@ export const useAssetStore = create<ProjectState>()(
           }));
           persistAsset(queued);
           enqueueUploadJobs([queued]);
+          scheduleRenderedThumbnailRefresh(assetId, set, get);
         }
       },
 
@@ -979,6 +1066,7 @@ export const useAssetStore = create<ProjectState>()(
           }));
           persistAsset(queued);
           enqueueUploadJobs([queued]);
+          scheduleRenderedThumbnailRefresh(assetId, set, get);
         }
       },
 
@@ -1002,6 +1090,7 @@ export const useAssetStore = create<ProjectState>()(
           }));
           persistAsset(queued);
           enqueueUploadJobs([queued]);
+          scheduleRenderedThumbnailRefresh(assetId, set, get);
         }
       },
 
@@ -1025,6 +1114,7 @@ export const useAssetStore = create<ProjectState>()(
           }));
           persistAsset(queued);
           enqueueUploadJobs([queued]);
+          scheduleRenderedThumbnailRefresh(assetId, set, get);
         }
       },
 
@@ -1061,6 +1151,7 @@ export const useAssetStore = create<ProjectState>()(
           }));
           persistAsset(queued);
           enqueueUploadJobs([queued]);
+          scheduleRenderedThumbnailRefresh(assetId, set, get);
         }
       },
 

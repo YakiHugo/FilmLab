@@ -1,3 +1,4 @@
+import type { RenderDocument } from "@/features/editor/document";
 import type React from "react";
 import { clamp } from "@/lib/math";
 import type { Asset, EditorLayer, EditingAdjustments, EditorLayerBlendMode } from "@/types";
@@ -16,14 +17,7 @@ export interface ViewportRoi {
   height: number;
 }
 
-export interface EditorPreviewDocument {
-  documentKey: string;
-  sourceAssetId: string;
-  adjustments: EditingAdjustments;
-  layers: EditorLayer[];
-  filmProfile: Asset["filmProfile"] | null | undefined;
-  showOriginal: boolean;
-}
+export type EditorPreviewDocument = RenderDocument;
 
 export interface LayerPreviewEntry {
   layer: EditorLayer;

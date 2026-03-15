@@ -380,11 +380,12 @@ export function usePreviewRenderPipeline({
           filmProfile: request.document.filmProfile ?? undefined,
           timestampText: request.timestampText,
           targetSize: request.frameSize,
-          mode: "preview",
-          qualityProfile: request.quality,
+          intent:
+            request.quality === "interactive"
+              ? "preview-interactive"
+              : "preview-full",
           renderSeed: request.previewRenderSeed,
           seedKey: `${request.documentKey}:main`,
-          skipHalationBloom: request.quality === "interactive",
           signal,
           sourceCacheKey: resolvePreviewSourceCacheKey(
             request.documentKey,
@@ -423,11 +424,12 @@ export function usePreviewRenderPipeline({
           filmProfile: layerFilmProfile,
           timestampText: null,
           targetSize: request.frameSize,
-          mode: "preview",
-          qualityProfile: request.quality,
+          intent:
+            request.quality === "interactive"
+              ? "preview-interactive"
+              : "preview-full",
           renderSeed: request.previewRenderSeed + request.layerEntries.indexOf(entry) + 1,
           seedKey: `${request.documentKey}:${entry.layer.id}`,
-          skipHalationBloom: request.quality === "interactive",
           signal,
           sourceCacheKey: resolvePreviewSourceCacheKey(
             request.documentKey,

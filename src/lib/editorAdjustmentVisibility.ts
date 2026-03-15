@@ -78,7 +78,7 @@ const cloneAdjustmentGroupValue = (
   value: EditingAdjustments[EditorAdjustmentGroupKey]
 ) => {
   if (key === "customLut") {
-    return value ? { ...value } : undefined;
+    return value && typeof value === "object" ? { ...value } : undefined;
   }
   return value;
 };
@@ -88,9 +88,15 @@ const assignDefaultAdjustmentGroupValue = (
   defaults: EditingAdjustments,
   key: EditorAdjustmentGroupKey
 ) => {
-  const nextRecord = adjustments as Pick<EditingAdjustments, EditorAdjustmentGroupKey>;
-  const defaultRecord = defaults as Pick<EditingAdjustments, EditorAdjustmentGroupKey>;
-  nextRecord[key] = cloneAdjustmentGroupValue(key, defaultRecord[key]);
+  const nextRecord = adjustments as Record<
+    EditorAdjustmentGroupKey,
+    EditingAdjustments[EditorAdjustmentGroupKey] | undefined
+  >;
+  const defaultRecord = defaults as Record<
+    EditorAdjustmentGroupKey,
+    EditingAdjustments[EditorAdjustmentGroupKey] | undefined
+  >;
+  nextRecord[key] = cloneAdjustmentGroupValue(key, defaultRecord[key]) as EditingAdjustments[EditorAdjustmentGroupKey];
 };
 
 const resetAdjustmentGroup = (
