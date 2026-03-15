@@ -69,10 +69,10 @@ const buildTurn = (overrides?: Partial<ImageGenerationTurn>): ImageGenerationTur
 
 const noop = () => {};
 
-const renderFeed = () =>
+const renderFeed = (turns: ImageGenerationTurn[] = [buildTurn()]) =>
   renderToStaticMarkup(
     <ImageChatFeed
-      turns={[buildTurn()]}
+      turns={turns}
       currentModelName="Qwen Image 2.0 Pro"
       onClearHistory={noop}
       onToggleResultSelection={noop}
@@ -112,6 +112,20 @@ describe("ImageChatFeed", () => {
 
     expect(html).toContain('title="Upscale is not available for this result"');
     expect(html).not.toContain('title="Upscale image"');
+  });
+
+  it("disables the Artifacts action while a turn is still loading", () => {
+    const html = renderFeed([
+      buildTurn({
+        status: "loading",
+        results: [],
+      }),
+    ]);
+    const buttonBlocks = html.match(/<button[\s\S]*?<\/button>/g) ?? [];
+    const artifactsButton = buttonBlocks.find((block) => block.includes("Artifacts"));
+
+    expect(artifactsButton).toBeDefined();
+    expect(artifactsButton).toContain('disabled=""');
   });
 
   it("renders loading and error states for prompt artifacts", () => {

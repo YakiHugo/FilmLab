@@ -167,4 +167,29 @@ describe("PostgresChatStateRepository#getPromptArtifactsForTurn", () => {
       ],
     });
   });
+
+  it("returns null for hidden turns without loading prompt versions", async () => {
+    const pool = {
+      query: vi.fn().mockResolvedValueOnce({
+        rows: [],
+      }),
+      end: vi.fn(),
+    };
+
+    const repository = new PostgresChatStateRepository(pool as never);
+    (
+      repository as unknown as {
+        ensureReady: ReturnType<typeof vi.fn>;
+      }
+    ).ensureReady = vi.fn().mockResolvedValue(undefined);
+
+    const artifacts = await repository.getPromptArtifactsForTurn("user-1", "turn-hidden");
+
+    expect(artifacts).toBeNull();
+    expect(pool.query).toHaveBeenCalledTimes(1);
+    expect(pool.query).toHaveBeenCalledWith(
+      expect.stringContaining("AND t.is_hidden = FALSE"),
+      ["turn-hidden", "user-1"]
+    );
+  });
 });

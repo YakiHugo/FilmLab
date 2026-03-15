@@ -215,6 +215,30 @@ describe("imageConversationRoute", () => {
     await app.close();
   });
 
+  it("returns an empty artifact list for an owned turn without stored compiler records", async () => {
+    repositoryMock.getPromptArtifactsForTurn.mockResolvedValue({
+      turnId: "turn-1",
+      versions: [],
+    });
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/image-conversation/turns/turn-1/prompt-artifacts",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      turnId: "turn-1",
+      versions: [],
+    });
+
+    await app.close();
+  });
+
   it("returns 404 when prompt artifacts are requested for a missing turn", async () => {
     repositoryMock.getPromptArtifactsForTurn.mockResolvedValue(null);
 
