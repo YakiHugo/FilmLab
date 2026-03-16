@@ -7,7 +7,7 @@ export interface GlowAdjustments {
 
 export type ExportFormat = "jpeg" | "png" | "webp" | "tiff";
 export type ExportResolutionPreset = "original" | "half" | "quarter" | "custom";
-export type ExportColorSpace = "srgb" | "display-p3" | "adobe-rgb";
+export type ExportColorSpace = "srgb";
 export type ExportMetadataMode = "strip" | "preserve";
 
 export interface ExportSettings {
@@ -20,4 +20,3 @@ export interface ExportSettings {
   colorSpace: ExportColorSpace;
   metadataMode: ExportMetadataMode;
 }
-

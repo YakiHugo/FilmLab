@@ -261,20 +261,27 @@ export const generateMaskTexture = (
 };
 
 export const applyMaskToLayerCanvas = (
-  sourceCanvas: HTMLCanvasElement,
+  source: CanvasImageSource,
   maskCanvas: HTMLCanvasElement,
-  targetCanvas?: HTMLCanvasElement
+  options: {
+    width: number;
+    height: number;
+    targetCanvas?: HTMLCanvasElement;
+  }
 ): HTMLCanvasElement => {
-  const width = Math.max(1, sourceCanvas.width);
-  const height = Math.max(1, sourceCanvas.height);
-  const output = targetCanvas ?? document.createElement("canvas");
+  const width = Math.max(1, Math.round(options.width));
+  const height = Math.max(1, Math.round(options.height));
+  const output = options.targetCanvas ?? document.createElement("canvas");
   ensureCanvasSize(output, width, height);
   const context = output.getContext("2d", { willReadFrequently: true });
   if (!context) {
-    return sourceCanvas;
+    if (typeof HTMLCanvasElement !== "undefined" && source instanceof HTMLCanvasElement) {
+      return source;
+    }
+    return output;
   }
   context.clearRect(0, 0, width, height);
-  context.drawImage(sourceCanvas, 0, 0, width, height);
+  context.drawImage(source, 0, 0, width, height);
   context.globalCompositeOperation = "destination-in";
   context.drawImage(maskCanvas, 0, 0, width, height);
   context.globalCompositeOperation = "source-over";

@@ -7,6 +7,7 @@ import type {
 import type {
   ImageAspectRatio,
   ImageGenerationAssetRef,
+  ImagePromptIntentInput,
   ImageStyleId,
   ReferenceImage,
 } from "@/types/imageGeneration";
@@ -25,6 +26,7 @@ export interface CatalogDrivenFeatureSupport {
   styles: boolean;
   supportsUpscale: boolean;
   referenceImages: ImageModelCatalogEntry["constraints"]["referenceImages"];
+  promptCompiler: ImageModelCatalogEntry["promptCompiler"];
 }
 
 export interface CatalogDrivenGenerationConfig {
@@ -35,6 +37,7 @@ export interface CatalogDrivenGenerationConfig {
   style: ImageStyleId;
   stylePreset: string;
   negativePrompt: string;
+  promptIntent: ImagePromptIntentInput;
   referenceImages: ReferenceImage[];
   assetRefs: ImageGenerationAssetRef[];
   seed: number | null;
@@ -112,6 +115,24 @@ export const toCatalogFeatureSupport = (
     steps: !unsupported.has("steps"),
     styles: !unsupported.has("style") && !unsupported.has("stylePreset"),
     supportsUpscale: model?.supportsUpscale ?? false,
+    promptCompiler: model?.promptCompiler ?? {
+      acceptedOperations: ["image.generate"],
+      executableOperations: ["image.generate"],
+      negativePromptStrategy: "merge_into_main",
+      sourceImageExecution: "unsupported",
+      referenceRoleHandling: {
+        reference: "compiled_to_text",
+        edit: "compiled_to_text",
+        variation: "compiled_to_text",
+      },
+      continuityStrength: {
+        subject: "weak",
+        style: "weak",
+        composition: "weak",
+        text: "weak",
+      },
+      promptSurface: "natural_language",
+    },
     referenceImages: model?.constraints.referenceImages ?? {
       enabled: false,
       maxImages: 0,
@@ -153,6 +174,13 @@ export const createDefaultGenerationConfig = (
   style: (model.defaults.style as ImageStyleId) ?? "none",
   stylePreset: model.defaults.stylePreset,
   negativePrompt: model.defaults.negativePrompt,
+  promptIntent: {
+    preserve: [],
+    avoid: [],
+    styleDirectives: [],
+    continuityTargets: [],
+    editOps: [],
+  },
   referenceImages: [],
   assetRefs: [],
   seed: model.defaults.seed,
@@ -219,6 +247,13 @@ export const sanitizeGenerationConfigWithCatalog = (
         )
       : null,
     negativePrompt: featureSupport.negativePrompt ? config.negativePrompt : "",
+    promptIntent: {
+      preserve: [...config.promptIntent.preserve],
+      avoid: [...config.promptIntent.avoid],
+      styleDirectives: [...config.promptIntent.styleDirectives],
+      continuityTargets: [...config.promptIntent.continuityTargets],
+      editOps: config.promptIntent.editOps.map((entry) => ({ ...entry })),
+    },
     style: featureSupport.styles ? config.style : "none",
     stylePreset: featureSupport.styles ? config.stylePreset : "",
     assetRefs: [...config.assetRefs],

@@ -1,11 +1,13 @@
 import { useEffect, useRef } from "react";
+import type { DirtyKeyMap, DirtyReason } from "../renderGraph";
 import type { PreviewQuality } from "./contracts";
 
 export const PREVIEW_FULL_QUALITY_DELAY_MS = 200;
 
 export interface PreviewSchedulerDescriptor<Request> {
   documentKey: string;
-  createRequest: (quality: PreviewQuality) => Request;
+  dirtyKeys?: Partial<DirtyKeyMap>;
+  createRequest: (quality: PreviewQuality, dirtyReasons: DirtyReason[]) => Request;
   immediateFull?: boolean;
 }
 
@@ -33,6 +35,7 @@ export function createPreviewSchedulerController<
   onResult,
 }: CreatePreviewSchedulerControllerOptions<Request, ExecutionResult>) {
   const abortControllers = new Map<PreviewQuality, AbortController>();
+  const dirtyKeysByDocument = new Map<string, Partial<DirtyKeyMap>>();
   let fullTimer: ReturnType<typeof setTimeout> | null = null;
   let lastDocumentKey: string | null = null;
   let latestIssuedRequestId = 0;
@@ -57,16 +60,18 @@ export function createPreviewSchedulerController<
     clearPendingFullTimer();
     abortQuality("interactive");
     abortQuality("full");
+    dirtyKeysByDocument.clear();
     lastDocumentKey = null;
   };
 
   const startRequest = (
     descriptor: PreviewSchedulerDescriptor<Request>,
-    quality: PreviewQuality
+    quality: PreviewQuality,
+    dirtyReasons: DirtyReason[] = []
   ) => {
     abortQuality(quality);
     abortQuality(quality === "full" ? "interactive" : "full");
-    const request = descriptor.createRequest(quality);
+    const request = descriptor.createRequest(quality, dirtyReasons);
     const requestId = latestIssuedRequestId + 1;
     latestIssuedRequestId = requestId;
     const controller = new AbortController();
@@ -98,20 +103,38 @@ export function createPreviewSchedulerController<
 
   const schedule = (descriptor: PreviewSchedulerDescriptor<Request>) => {
     const documentChanged = descriptor.documentKey !== lastDocumentKey;
+    const previousDirtyKeys = dirtyKeysByDocument.get(descriptor.documentKey);
+    const nextDirtyKeys = descriptor.dirtyKeys ?? null;
+    const dirtyReasons = nextDirtyKeys
+      ? (Object.entries(nextDirtyKeys)
+          .filter(([reason, value]) => {
+            if (!value) {
+              return false;
+            }
+            if (documentChanged || !previousDirtyKeys) {
+              return true;
+            }
+            return previousDirtyKeys[reason as keyof DirtyKeyMap] !== value;
+          })
+          .map(([reason]) => reason as DirtyReason))
+      : [];
     lastDocumentKey = descriptor.documentKey;
     clearPendingFullTimer();
+    if (nextDirtyKeys) {
+      dirtyKeysByDocument.set(descriptor.documentKey, nextDirtyKeys);
+    }
 
     if (descriptor.immediateFull || documentChanged) {
       abortQuality("interactive");
       abortQuality("full");
-      startRequest(descriptor, "full");
+      startRequest(descriptor, "full", dirtyReasons);
       return;
     }
 
-    startRequest(descriptor, "interactive");
+    startRequest(descriptor, "interactive", dirtyReasons);
     fullTimer = setTimeout(() => {
       fullTimer = null;
-      startRequest(descriptor, "full");
+      startRequest(descriptor, "full", dirtyReasons);
     }, fullDelayMs);
   };
 

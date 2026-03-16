@@ -24,6 +24,7 @@ import type {
 import type {
   ImageAspectRatio,
   ImageGenerationAssetRef,
+  ImagePromptIntentInput,
   ImageStyleId,
   ReferenceImage,
 } from "@/types/imageGeneration";
@@ -64,9 +65,11 @@ interface ImagePromptInputProps {
     negativePrompt: string;
     extra: Record<string, ImageModelParamValue>;
   };
+  promptIntent: ImagePromptIntentInput;
   modelParamDefinitions: ImageModelParamDefinition[];
   referenceImages: ReferenceImage[];
   selectedAssetRefs: ImageGenerationAssetRef[];
+  assetRefValidationMessage?: string | null;
   externalPrompt?: string | null;
   onExternalPromptConsumed?: () => void;
   onGenerationSpeedChange: (speed: "fast" | "balanced" | "quality") => void;
@@ -86,12 +89,14 @@ interface ImagePromptInputProps {
     sampler?: string;
     negativePrompt?: string;
   }) => void;
+  onPromptIntentChange: (patch: Partial<ImagePromptIntentInput>) => void;
   onModelExtraParamChange: (key: string, value: ImageModelParamValue) => void;
   onAddReferenceFiles: (files: FileList) => void;
   onUpdateReferenceImage: (id: string, patch: Partial<ReferenceImage>) => void;
   onRemoveReferenceImage: (id: string) => void;
   onClearReferenceImages: () => void;
   onRemoveAssetRef: (assetId: string) => void;
+  onUpdateAssetRefRole: (assetId: string, role: ImageGenerationAssetRef["role"]) => void;
   onClearAssetRefs: () => void;
   onGenerateImage: (input: { text: string }) => void;
 }
@@ -105,6 +110,33 @@ const SPEED_OPTIONS = [
   { id: "balanced", label: "Balanced" },
   { id: "quality", label: "Quality" },
 ] as const;
+const CONTINUITY_OPTIONS: Array<{
+  id: ImagePromptIntentInput["continuityTargets"][number];
+  label: string;
+}> = [
+  { id: "subject", label: "Subject" },
+  { id: "style", label: "Style" },
+  { id: "composition", label: "Composition" },
+  { id: "text", label: "Text" },
+];
+const EDIT_OP_OPTIONS: Array<{
+  id: ImagePromptIntentInput["editOps"][number]["op"];
+  label: string;
+}> = [
+  { id: "add", label: "Add" },
+  { id: "remove", label: "Remove" },
+  { id: "replace", label: "Replace" },
+  { id: "emphasize", label: "Emphasize" },
+  { id: "deemphasize", label: "De-emphasize" },
+];
+const ASSET_ROLE_OPTIONS: Array<{
+  id: ImageGenerationAssetRef["role"];
+  label: string;
+}> = [
+  { id: "reference", label: "Ref" },
+  { id: "edit", label: "Edit" },
+  { id: "variation", label: "Vary" },
+];
 
 const toNumberOrNull = (value: string): number | null => {
   const trimmedValue = value.trim();
@@ -115,6 +147,12 @@ const toNumberOrNull = (value: string): number | null => {
   const next = Number(trimmedValue);
   return Number.isFinite(next) ? next : null;
 };
+
+const splitPromptIntentInput = (value: string) =>
+  value
+    .split(/[\n,]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 
 const parseAspectRatio = (ratio: ImageAspectRatio): number => {
   if (ratio === "custom") {
@@ -261,9 +299,11 @@ export function ImagePromptInput({
   maxBatchSize,
   commonParams,
   modelParams,
+  promptIntent,
   modelParamDefinitions,
   referenceImages,
   selectedAssetRefs,
+  assetRefValidationMessage = null,
   externalPrompt = null,
   onExternalPromptConsumed,
   onGenerationSpeedChange,
@@ -272,12 +312,14 @@ export function ImagePromptInput({
   onSelectStylePreset,
   onCommonParamsChange,
   onModelParamsChange,
+  onPromptIntentChange,
   onModelExtraParamChange,
   onAddReferenceFiles,
   onUpdateReferenceImage,
   onRemoveReferenceImage,
   onClearReferenceImages,
   onRemoveAssetRef,
+  onUpdateAssetRefRole,
   onClearAssetRefs,
   onGenerateImage,
 }: ImagePromptInputProps) {
@@ -396,7 +438,7 @@ export function ImagePromptInput({
 
   const submit = () => {
     const text = promptValue.trim();
-    if (!text || isGeneratingImage) {
+    if (!text || isGeneratingImage || assetRefValidationMessage) {
       return;
     }
 
@@ -404,6 +446,45 @@ export function ImagePromptInput({
     setPromptValue("");
     setModelMenuOpen(false);
     setActiveHoverPanel(null);
+  };
+
+  const toggleContinuityTarget = (
+    target: ImagePromptIntentInput["continuityTargets"][number]
+  ) => {
+    onPromptIntentChange({
+      continuityTargets: promptIntent.continuityTargets.includes(target)
+        ? promptIntent.continuityTargets.filter((entry) => entry !== target)
+        : [...promptIntent.continuityTargets, target],
+    });
+  };
+
+  const updateEditOp = (
+    index: number,
+    patch: Partial<ImagePromptIntentInput["editOps"][number]>
+  ) => {
+    onPromptIntentChange({
+      editOps: promptIntent.editOps.map((entry, entryIndex) =>
+        entryIndex === index ? { ...entry, ...patch } : entry
+      ),
+    });
+  };
+
+  const removeEditOp = (index: number) => {
+    onPromptIntentChange({
+      editOps: promptIntent.editOps.filter((_, entryIndex) => entryIndex !== index),
+    });
+  };
+
+  const addEditOp = () => {
+    onPromptIntentChange({
+      editOps: [
+        ...promptIntent.editOps,
+        {
+          op: "add",
+          target: "",
+        },
+      ],
+    });
   };
 
   const selectModel = (modelId: string) => {
@@ -786,6 +867,154 @@ export function ImagePromptInput({
               </div>
             ) : null}
 
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">
+                  Preserve
+                </Label>
+                <textarea
+                  value={promptIntent.preserve.join(", ")}
+                  onChange={(event) =>
+                    onPromptIntentChange({
+                      preserve: splitPromptIntentInput(event.target.value),
+                    })
+                  }
+                  placeholder="face, composition, lighting"
+                  className="min-h-[88px] w-full resize-y rounded-[18px] border border-white/10 bg-black/30 px-4 py-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">
+                  Avoid
+                </Label>
+                <textarea
+                  value={promptIntent.avoid.join(", ")}
+                  onChange={(event) =>
+                    onPromptIntentChange({
+                      avoid: splitPromptIntentInput(event.target.value),
+                    })
+                  }
+                  placeholder="extra limbs, clutter, blur"
+                  className="min-h-[88px] w-full resize-y rounded-[18px] border border-white/10 bg-black/30 px-4 py-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">
+                  Style direction
+                </Label>
+                <textarea
+                  value={promptIntent.styleDirectives.join(", ")}
+                  onChange={(event) =>
+                    onPromptIntentChange({
+                      styleDirectives: splitPromptIntentInput(event.target.value),
+                    })
+                  }
+                  placeholder="premium, soft film grain, minimal"
+                  className="min-h-[88px] w-full resize-y rounded-[18px] border border-white/10 bg-black/30 px-4 py-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">
+                  Continuity targets
+                </Label>
+                <div className="flex flex-wrap gap-2">
+                  {CONTINUITY_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={cn(
+                        "rounded-full border px-3 py-2 text-xs font-medium transition",
+                        promptIntent.continuityTargets.includes(option.id)
+                          ? "border-white/16 bg-white/[0.1] text-zinc-100"
+                          : "border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/16 hover:bg-white/[0.08]"
+                      )}
+                      onClick={() => toggleContinuityTarget(option.id)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">
+                    Edit ops
+                  </Label>
+                  <button
+                    type="button"
+                    className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-zinc-200 transition hover:border-white/16 hover:bg-white/[0.08]"
+                    onClick={addEditOp}
+                  >
+                    Add op
+                  </button>
+                </div>
+
+                {promptIntent.editOps.length > 0 ? (
+                  <div className="space-y-2">
+                    {promptIntent.editOps.map((entry, index) => (
+                      <div
+                        key={`${entry.op}-${entry.target}-${index}`}
+                        className="grid gap-2 rounded-[18px] border border-white/10 bg-black/30 p-3 lg:grid-cols-[140px_minmax(0,1fr)_minmax(0,1fr)_auto]"
+                      >
+                        <select
+                          value={entry.op}
+                          onChange={(event) =>
+                            updateEditOp(index, {
+                              op: event.target.value as ImagePromptIntentInput["editOps"][number]["op"],
+                            })
+                          }
+                          className="h-10 rounded-[14px] border border-white/10 bg-[#111318] px-3 text-sm text-zinc-100 outline-none"
+                        >
+                          {EDIT_OP_OPTIONS.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <Input
+                          value={entry.target}
+                          onChange={(event) =>
+                            updateEditOp(index, {
+                              target: event.target.value,
+                            })
+                          }
+                          className="h-10 rounded-[14px] border-white/10 bg-[#111318] text-sm"
+                          placeholder="Target"
+                        />
+                        <Input
+                          value={entry.value ?? ""}
+                          onChange={(event) =>
+                            updateEditOp(index, {
+                              value: event.target.value || undefined,
+                            })
+                          }
+                          className="h-10 rounded-[14px] border-white/10 bg-[#111318] text-sm"
+                          placeholder="Value (optional)"
+                        />
+                        <button
+                          type="button"
+                          className="h-10 rounded-[14px] border border-white/10 px-3 text-xs font-medium text-zinc-300 transition hover:border-white/16 hover:bg-white/[0.08]"
+                          onClick={() => removeEditOp(index)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-[18px] border border-dashed border-white/10 bg-black/20 px-4 py-4 text-sm text-zinc-400">
+                    Add structured edit instructions when you want the compiler to preserve intent across retries and model changes.
+                  </div>
+                )}
+              </div>
+            </div>
+
             {providerFeatures.negativePrompt ? (
               <div className="space-y-1.5">
                 <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">
@@ -864,28 +1093,60 @@ export function ImagePromptInput({
           />
 
           {selectedAssetRefs.length > 0 ? (
-            <div className="mt-3 flex flex-wrap items-center gap-2 px-2">
-              <span className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">
-                Referencing
-              </span>
-              {selectedAssetRefs.map((assetRef) => (
+            <div className="mt-3 space-y-2 px-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">
+                  Referencing
+                </span>
                 <button
-                  key={assetRef.assetId}
                   type="button"
-                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-zinc-200 transition hover:border-white/16 hover:bg-white/[0.08]"
-                  onClick={() => onRemoveAssetRef(assetRef.assetId)}
+                  className="text-xs text-zinc-500 transition hover:text-zinc-200"
+                  onClick={onClearAssetRefs}
                 >
-                  <span>{assetRef.role}</span>
-                  <span className="max-w-[140px] truncate text-zinc-400">{assetRef.assetId}</span>
+                  Clear
                 </button>
-              ))}
-              <button
-                type="button"
-                className="text-xs text-zinc-500 transition hover:text-zinc-200"
-                onClick={onClearAssetRefs}
-              >
-                Clear
-              </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {selectedAssetRefs.map((assetRef) => (
+                  <div
+                    key={assetRef.assetId}
+                    className="flex items-center gap-2 rounded-[18px] border border-white/10 bg-white/[0.04] px-3 py-2"
+                  >
+                    <span className="max-w-[140px] truncate text-xs text-zinc-300">
+                      {assetRef.assetId}
+                    </span>
+                    <div className="flex items-center gap-1 rounded-full border border-white/10 bg-black/20 p-1">
+                      {ASSET_ROLE_OPTIONS.map((option) => (
+                        <button
+                          key={`${assetRef.assetId}-${option.id}`}
+                          type="button"
+                          className={cn(
+                            "rounded-full px-2 py-1 text-[10px] font-medium transition",
+                            assetRef.role === option.id
+                              ? "bg-white text-zinc-950"
+                              : "text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-100"
+                          )}
+                          onClick={() => onUpdateAssetRefRole(assetRef.assetId, option.id)}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      className="text-[11px] text-zinc-500 transition hover:text-zinc-200"
+                      onClick={() => onRemoveAssetRef(assetRef.assetId)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {assetRefValidationMessage ? (
+                <div className="rounded-[18px] border border-rose-300/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+                  {assetRefValidationMessage}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -1029,7 +1290,7 @@ export function ImagePromptInput({
             <button
               type="submit"
               className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#f5f1e6] text-zinc-950 shadow-[0_18px_40px_rgba(245,241,230,0.14)] transition hover:scale-[1.02] hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
-              disabled={!promptValue.trim() || isGeneratingImage}
+              disabled={!promptValue.trim() || isGeneratingImage || Boolean(assetRefValidationMessage)}
               aria-label="Generate image"
             >
               {isGeneratingImage ? (

@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   GenerationJobSnapshot,
+  PersistedPromptArtifactRecord,
   PersistedRunRecord,
   PersistedImageGenerationRequestSnapshot,
   PersistedImageSession,
   PersistedGenerationTurn,
   PersistedResultItem,
 } from "../../../../shared/chatImageTypes";
-import type { FrontendImageModelId } from "../../../../shared/imageModelCatalog";
 import { importAssetFiles } from "@/lib/assetImport";
 import {
+  acceptImageConversationTurn,
   clearImageConversation,
   deleteImageConversationTurn,
   fetchImageConversation,
+  fetchImagePromptArtifacts,
 } from "@/lib/ai/imageConversation";
 import type { ImageModelParamValue } from "@/lib/ai/imageModelParams";
 import {
@@ -29,6 +31,8 @@ import {
 import type { Asset, CanvasImageElement } from "@/types";
 import type {
   ImageAspectRatio,
+  ImageGenerationAssetRefRole,
+  ImagePromptIntentInput,
   ImageGenerationRequest,
   ImageGenerationResponse,
   ImageStyleId,
@@ -39,6 +43,7 @@ import {
   IMAGE_ASPECT_RATIOS,
   IMAGE_STYLE_IDS,
   REFERENCE_IMAGE_TYPES,
+  validateImageAssetRefs,
 } from "@/types/imageGeneration";
 import { useAssetStore } from "@/stores/assetStore";
 import {
@@ -47,6 +52,13 @@ import {
 } from "@/stores/generationConfigStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useImageSessionStore } from "@/stores/imageSessionStore";
+import {
+  bindResultAssetToConfig,
+  clearBoundResultReferencesFromConfig,
+  clearReferenceInputsForUnsupportedModel,
+  removeBoundResultReferenceFromConfig,
+  updateAssetRefRoleInConfig,
+} from "../referenceImages";
 import { useGenerationConfig } from "./useGenerationConfig";
 
 export interface GeneratedResultItem {
@@ -87,6 +99,9 @@ export interface ImageGenerationTurn {
   error: string | null;
   warnings: string[];
   isSavingSelection: boolean;
+  promptArtifactsStatus: "idle" | "loading" | "loaded" | "error";
+  promptArtifactsError: string | null;
+  promptArtifacts: PersistedPromptArtifactRecord[] | null;
   results: GeneratedResultItem[];
 }
 
@@ -116,6 +131,16 @@ interface RuntimeResultState {
 
 type RuntimeResultStateMap = Record<string, Record<number, RuntimeResultState>>;
 
+type PromptArtifactLoadStatus = "idle" | "loading" | "loaded" | "error";
+
+interface PromptArtifactTurnState {
+  status: PromptArtifactLoadStatus;
+  error: string | null;
+  versions: PersistedPromptArtifactRecord[] | null;
+}
+
+type PromptArtifactTurnStateMap = Record<string, PromptArtifactTurnState>;
+
 const createElementId = () => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -137,11 +162,35 @@ const createJobId = () => {
   return `image-job-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 };
 
+const createPromptArtifactTurnState = (
+  overrides?: Partial<PromptArtifactTurnState>
+): PromptArtifactTurnState => ({
+  status: "idle",
+  error: null,
+  versions: null,
+  ...overrides,
+});
+
+export const shouldFetchPromptArtifacts = (
+  turnStatus: PersistedGenerationTurn["status"],
+  currentState?: Pick<PromptArtifactTurnState, "status"> | null
+) =>
+  turnStatus !== "loading" &&
+  currentState?.status !== "loaded" &&
+  currentState?.status !== "loading";
+
 export const RETRY_REFERENCE_IMAGES_OMITTED_WARNING =
   "Reference images from history are no longer available and were omitted. This retry will run without them, so re-upload the reference images if you need the same result.";
 
 const cloneGenerationConfig = (config: GenerationConfig): GenerationConfig => ({
   ...config,
+  promptIntent: {
+    preserve: [...config.promptIntent.preserve],
+    avoid: [...config.promptIntent.avoid],
+    styleDirectives: [...config.promptIntent.styleDirectives],
+    continuityTargets: [...config.promptIntent.continuityTargets],
+    editOps: config.promptIntent.editOps.map((entry) => ({ ...entry })),
+  },
   referenceImages: config.referenceImages.map((entry) => ({ ...entry })),
   assetRefs: config.assetRefs.map((entry) => ({ ...entry })),
   modelParams: { ...config.modelParams },
@@ -167,6 +216,13 @@ const createFallbackGenerationConfig = (): GenerationConfig => ({
   style: "none",
   stylePreset: "",
   negativePrompt: "",
+  promptIntent: {
+    preserve: [],
+    avoid: [],
+    styleDirectives: [],
+    continuityTargets: [],
+    editOps: [],
+  },
   referenceImages: [],
   assetRefs: [],
   seed: null,
@@ -179,11 +235,19 @@ const createFallbackGenerationConfig = (): GenerationConfig => ({
 
 const serializeConfig = (config: GenerationConfig): Record<string, unknown> => ({
   ...config,
-  referenceImages: config.referenceImages.map(({ id, fileName, type, weight }) => ({
+  promptIntent: {
+    preserve: [...config.promptIntent.preserve],
+    avoid: [...config.promptIntent.avoid],
+    styleDirectives: [...config.promptIntent.styleDirectives],
+    continuityTargets: [...config.promptIntent.continuityTargets],
+    editOps: config.promptIntent.editOps.map((entry) => ({ ...entry })),
+  },
+  referenceImages: config.referenceImages.map(({ id, fileName, type, weight, sourceAssetId }) => ({
     id,
     fileName,
     type,
     weight,
+    sourceAssetId,
   })),
   assetRefs: config.assetRefs.map((assetRef) => ({ ...assetRef })),
   modelParams: { ...config.modelParams },
@@ -225,13 +289,64 @@ const deserializeReferenceImages = (value: unknown): ReferenceImage[] => {
         typeof entry.id === "string" && entry.id.trim()
           ? entry.id
           : `persisted-ref-${index}`,
-      url: "",
+      url: typeof entry.url === "string" ? entry.url : "",
       fileName: typeof entry.fileName === "string" ? entry.fileName : undefined,
       type: isReferenceImageType(entry.type) ? entry.type : "content",
       weight: typeof entry.weight === "number" ? entry.weight : 1,
+      sourceAssetId:
+        typeof entry.sourceAssetId === "string" ? entry.sourceAssetId : undefined,
     });
     return next;
   }, []);
+};
+
+const deserializePromptIntent = (value: unknown): ImagePromptIntentInput => {
+  if (!isRecord(value)) {
+    return {
+      preserve: [],
+      avoid: [],
+      styleDirectives: [],
+      continuityTargets: [],
+      editOps: [],
+    };
+  }
+
+  const toStringArray = (entry: unknown) =>
+    Array.isArray(entry)
+      ? entry.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      : [];
+
+  const continuityTargets = Array.isArray(value.continuityTargets)
+    ? value.continuityTargets.filter(
+        (entry): entry is ImagePromptIntentInput["continuityTargets"][number] =>
+          entry === "subject" ||
+          entry === "style" ||
+          entry === "composition" ||
+          entry === "text"
+      )
+    : [];
+  const editOps = Array.isArray(value.editOps)
+    ? value.editOps
+        .filter(
+          (entry): entry is ImagePromptIntentInput["editOps"][number] =>
+            isRecord(entry) &&
+            typeof entry.op === "string" &&
+            typeof entry.target === "string"
+        )
+        .map((entry) => ({
+          op: entry.op,
+          target: entry.target,
+          ...(typeof entry.value === "string" ? { value: entry.value } : {}),
+        }))
+    : [];
+
+  return {
+    preserve: toStringArray(value.preserve),
+    avoid: toStringArray(value.avoid),
+    styleDirectives: toStringArray(value.styleDirectives),
+    continuityTargets,
+    editOps,
+  };
 };
 
 const deserializedConfigCache = new WeakMap<Record<string, unknown>, GenerationConfig>();
@@ -267,6 +382,7 @@ const deserializeConfig = (
       typeof snapshot.negativePrompt === "string"
         ? snapshot.negativePrompt
         : fallbackConfig.negativePrompt,
+    promptIntent: deserializePromptIntent(snapshot.promptIntent),
     referenceImages: deserializeReferenceImages(snapshot.referenceImages),
     assetRefs: Array.isArray(snapshot.assetRefs)
       ? snapshot.assetRefs.reduce<GenerationConfig["assetRefs"]>((next, entry) => {
@@ -328,7 +444,7 @@ const resolveSnapshotDisplayMeta = (
 
 const isRetryableModel = (
   catalog: ImageModelCatalog | null | undefined,
-  modelId: FrontendImageModelId | string
+  modelId: string
 ) => Boolean(getImageModelCatalogEntry(catalog, modelId));
 
 const buildUnavailableModelError = (modelLabel: string) =>
@@ -349,12 +465,16 @@ export const toPersistedRequestSnapshot = (
 
   return {
     ...snapshot,
-    referenceImages: snapshot.referenceImages.map(({ id, fileName, type, weight }) => ({
-      id,
-      fileName,
-      type,
-      weight,
-    })),
+    referenceImages: snapshot.referenceImages.map(
+      ({ id, url, fileName, type, weight, sourceAssetId }, index) => ({
+        id: typeof id === "string" && id.trim() ? id : `persisted-ref-${index}`,
+        url,
+        fileName,
+        type,
+        weight,
+        sourceAssetId,
+      })
+    ),
   };
 };
 
@@ -383,6 +503,42 @@ export const resolveRetryRequestSnapshot = (
       usableReferenceImages.length === snapshot.referenceImages.length
         ? []
         : [RETRY_REFERENCE_IMAGES_OMITTED_WARNING],
+  };
+};
+
+export const omitUnavailableReferenceImages = (
+  config: GenerationConfig
+): { config: GenerationConfig; warnings: string[] } => {
+  const unavailableReferenceImages = config.referenceImages.filter(
+    (referenceImage) => typeof referenceImage.url !== "string" || referenceImage.url.trim().length === 0
+  );
+
+  if (unavailableReferenceImages.length === 0) {
+    return {
+      config,
+      warnings: [],
+    };
+  }
+
+  const omittedSourceAssetIds = new Set(
+    unavailableReferenceImages
+      .map((referenceImage) => referenceImage.sourceAssetId)
+      .filter((assetId): assetId is string => typeof assetId === "string" && assetId.trim().length > 0)
+  );
+
+  return {
+    config: {
+      ...config,
+      referenceImages: config.referenceImages.filter(
+        (referenceImage) =>
+          typeof referenceImage.url === "string" && referenceImage.url.trim().length > 0
+      ),
+      assetRefs: config.assetRefs.filter(
+        (assetRef) =>
+          assetRef.role !== "reference" || !omittedSourceAssetIds.has(assetRef.assetId)
+      ),
+    },
+    warnings: [RETRY_REFERENCE_IMAGES_OMITTED_WARNING],
   };
 };
 
@@ -453,6 +609,7 @@ const toUITurn = (
   relatedRuns: PersistedRunRecord[],
   runtimeResults: Record<number, RuntimeResultState> | undefined,
   isSavingSelection: boolean,
+  promptArtifactState: PromptArtifactTurnState | undefined,
   catalog: ImageModelCatalog | null | undefined
 ): ImageGenerationTurn => {
   const displayMeta = resolveSnapshotDisplayMeta(turn.configSnapshot, catalog);
@@ -485,6 +642,9 @@ const toUITurn = (
     error: turn.error,
     warnings: turn.warnings,
     isSavingSelection,
+    promptArtifactsStatus: promptArtifactState?.status ?? "idle",
+    promptArtifactsError: promptArtifactState?.error ?? null,
+    promptArtifacts: promptArtifactState?.versions ?? null,
     results: turn.results.map((result) => {
       const runtimeState = runtimeResults?.[result.index];
       return {
@@ -619,6 +779,56 @@ export const filesToReferenceImages = async (
   return entries;
 };
 
+const createReferenceImageFromGeneratedResult = async (
+  input: {
+    imageUrl: string;
+    fileNamePrefix: string;
+  },
+  options?: { maxFileSizeBytes?: number }
+) => {
+  const imageResponse = await fetch(input.imageUrl);
+  if (!imageResponse.ok) {
+    throw new Error("Generated image could not be reused as a reference.");
+  }
+
+  const blob = await imageResponse.blob();
+  const mimeType = blob.type || "image/png";
+  const extension = blobToFileExtension(mimeType);
+  const file = new File([blob], `${input.fileNamePrefix}.${extension}`, {
+    type: mimeType,
+  });
+
+  return toReferenceImageEntry(file, "content", options);
+};
+
+const resolveAssetRoleNotice = (
+  role: ImageGenerationAssetRefRole,
+  supportedFeatures: CatalogDrivenFeatureSupport
+) => {
+  if (
+    role === "reference" &&
+    supportedFeatures.promptCompiler.referenceRoleHandling.reference !== "native"
+  ) {
+    return "Current model will treat this asset as prompt-guided reference guidance.";
+  }
+
+  if (
+    role === "edit" &&
+    !supportedFeatures.promptCompiler.executableOperations.includes("image.edit")
+  ) {
+    return "Current model will approximate this edit as prompt-guided generate.";
+  }
+
+  if (
+    role === "variation" &&
+    !supportedFeatures.promptCompiler.executableOperations.includes("image.variation")
+  ) {
+    return "Current model will approximate this variation as prompt-guided generate.";
+  }
+
+  return null;
+};
+
 const toImageRequest = (
   prompt: string,
   config: GenerationConfig,
@@ -626,6 +836,13 @@ const toImageRequest = (
   options?: { supportsCustomSize?: boolean }
 ): ImageGenerationRequest => ({
   prompt,
+  promptIntent: {
+    preserve: [...config.promptIntent.preserve],
+    avoid: [...config.promptIntent.avoid],
+    styleDirectives: [...config.promptIntent.styleDirectives],
+    continuityTargets: [...config.promptIntent.continuityTargets],
+    editOps: config.promptIntent.editOps.map((entry) => ({ ...entry })),
+  },
   modelId: config.modelId,
   aspectRatio: config.aspectRatio,
   width: options?.supportsCustomSize ? (config.width ?? undefined) : undefined,
@@ -751,13 +968,12 @@ export function useImageGeneration() {
     modelParamDefinitions,
     supportedFeatures,
     setConfig,
-    setModel,
+    setModel: setModelInConfig,
     updateConfig,
-    setAssetRefs,
     addReferenceImages,
     updateReferenceImage,
-    removeReferenceImage,
-    clearReferenceImages,
+    removeReferenceImage: removeReferenceImageInConfig,
+    clearReferenceImages: clearReferenceImagesInConfig,
   } = useGenerationConfig();
   const session = useImageSessionStore((state) => state.session);
   const replaceSession = useImageSessionStore((state) => state.replaceSession);
@@ -767,12 +983,16 @@ export function useImageGeneration() {
 
   const [savingTurnIds, setSavingTurnIds] = useState<Record<string, boolean>>({});
   const [runtimeResults, setRuntimeResults] = useState<RuntimeResultStateMap>({});
+  const [promptArtifacts, setPromptArtifacts] = useState<PromptArtifactTurnStateMap>({});
+  const [notice, setNotice] = useState<string | null>(null);
   const sessionRef = useRef(session);
   const serverConversationIdRef = useRef<string | null>(null);
   const savingTurnIdsRef = useRef(savingTurnIds);
   const runtimeResultsRef = useRef(runtimeResults);
+  const promptArtifactsRef = useRef(promptArtifacts);
   const snapshotVersionRef = useRef(0);
   const snapshotRequestAbortRef = useRef<AbortController | null>(null);
+  const promptArtifactAbortRef = useRef(new Map<string, AbortController>());
   const uiTurnCacheRef = useRef(
     new Map<
       string,
@@ -781,6 +1001,7 @@ export function useImageGeneration() {
         runs: PersistedRunRecord[];
         runtimeResults: Record<number, RuntimeResultState> | undefined;
         isSavingSelection: boolean;
+        promptArtifacts: PromptArtifactTurnState | undefined;
         uiTurn: ImageGenerationTurn;
       }
     >()
@@ -794,6 +1015,7 @@ export function useImageGeneration() {
   sessionRef.current = session;
   savingTurnIdsRef.current = savingTurnIds;
   runtimeResultsRef.current = runtimeResults;
+  promptArtifactsRef.current = promptArtifacts;
 
   useEffect(() => {
     return () => {
@@ -801,6 +1023,8 @@ export function useImageGeneration() {
       generationRequestRef.current = null;
       snapshotRequestAbortRef.current?.abort();
       snapshotRequestAbortRef.current = null;
+      promptArtifactAbortRef.current.forEach((controller) => controller.abort());
+      promptArtifactAbortRef.current.clear();
     };
   }, []);
 
@@ -854,6 +1078,20 @@ export function useImageGeneration() {
   useEffect(() => {
     void refreshConversationSnapshot().catch(() => undefined);
   }, [refreshConversationSnapshot]);
+
+  useEffect(() => {
+    if (!notice) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setNotice(null);
+    }, 4_000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [notice]);
 
   const setTurnSavingState = useCallback((turnId: string, isSaving: boolean) => {
     setSavingTurnIds((previous) => {
@@ -936,9 +1174,95 @@ export function useImageGeneration() {
     });
   }, []);
 
+  const clearPromptArtifactState = useCallback((turnId: string) => {
+    promptArtifactAbortRef.current.get(turnId)?.abort();
+    promptArtifactAbortRef.current.delete(turnId);
+    setPromptArtifacts((previous) => {
+      if (!previous[turnId]) {
+        return previous;
+      }
+      const next = { ...previous };
+      delete next[turnId];
+      return next;
+    });
+  }, []);
+
+  const clearAllPromptArtifactState = useCallback(() => {
+    promptArtifactAbortRef.current.forEach((controller) => controller.abort());
+    promptArtifactAbortRef.current.clear();
+    setPromptArtifacts({});
+  }, []);
+
   const getTurnById = useCallback(
     (turnId: string) => sessionRef.current?.turns.find((entry) => entry.id === turnId) ?? null,
     []
+  );
+
+  const loadPromptArtifacts = useCallback(
+    async (turnId: string) => {
+      const turn = getTurnById(turnId);
+      if (!turn || turn.status === "loading") {
+        return null;
+      }
+
+      const cachedState = promptArtifactsRef.current[turnId];
+      if (!shouldFetchPromptArtifacts(turn.status, cachedState)) {
+        return cachedState?.versions ?? null;
+      }
+
+      promptArtifactAbortRef.current.get(turnId)?.abort();
+      const controller = new AbortController();
+      promptArtifactAbortRef.current.set(turnId, controller);
+      setPromptArtifacts((previous) => ({
+        ...previous,
+        [turnId]: createPromptArtifactTurnState({
+          status: "loading",
+          versions: previous[turnId]?.versions ?? null,
+        }),
+      }));
+
+      try {
+        const response = await fetchImagePromptArtifacts(turnId, {
+          signal: controller.signal,
+        });
+        if (
+          controller.signal.aborted ||
+          promptArtifactAbortRef.current.get(turnId) !== controller
+        ) {
+          return null;
+        }
+
+        setPromptArtifacts((previous) => ({
+          ...previous,
+          [turnId]: createPromptArtifactTurnState({
+            status: "loaded",
+            versions: response.versions,
+          }),
+        }));
+        return response.versions;
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return null;
+        }
+
+        const message =
+          error instanceof Error ? error.message : "Prompt artifacts could not be loaded.";
+        setPromptArtifacts((previous) => ({
+          ...previous,
+          [turnId]: createPromptArtifactTurnState({
+            status: "error",
+            error: message,
+            versions: previous[turnId]?.versions ?? null,
+          }),
+        }));
+        return null;
+      } finally {
+        if (promptArtifactAbortRef.current.get(turnId) === controller) {
+          promptArtifactAbortRef.current.delete(turnId);
+        }
+      }
+    },
+    [getTurnById]
   );
 
   const getCachedUiTurn = useCallback(
@@ -946,7 +1270,8 @@ export function useImageGeneration() {
       turn: PersistedGenerationTurn,
       runs: PersistedRunRecord[],
       runtimeState: Record<number, RuntimeResultState> | undefined,
-      isSavingSelection: boolean
+      isSavingSelection: boolean,
+      promptArtifactState: PromptArtifactTurnState | undefined
     ) => {
       const cached = uiTurnCacheRef.current.get(turn.id);
       if (
@@ -954,17 +1279,26 @@ export function useImageGeneration() {
         cached.turn === turn &&
         cached.runs === runs &&
         cached.runtimeResults === runtimeState &&
-        cached.isSavingSelection === isSavingSelection
+        cached.isSavingSelection === isSavingSelection &&
+        cached.promptArtifacts === promptArtifactState
       ) {
         return cached.uiTurn;
       }
 
-      const uiTurn = toUITurn(turn, runs, runtimeState, isSavingSelection, catalog);
+      const uiTurn = toUITurn(
+        turn,
+        runs,
+        runtimeState,
+        isSavingSelection,
+        promptArtifactState,
+        catalog
+      );
       uiTurnCacheRef.current.set(turn.id, {
         turn,
         runs,
         runtimeResults: runtimeState,
         isSavingSelection,
+        promptArtifacts: promptArtifactState,
         uiTurn,
       });
       return uiTurn;
@@ -984,7 +1318,8 @@ export function useImageGeneration() {
         turn,
         runs,
         runtimeResultsRef.current[turnId],
-        Boolean(savingTurnIdsRef.current[turnId])
+        Boolean(savingTurnIdsRef.current[turnId]),
+        promptArtifactsRef.current[turnId]
       );
     },
     [getCachedUiTurn, getTurnById]
@@ -1065,6 +1400,44 @@ export function useImageGeneration() {
     [addReferenceImages, supportedFeatures.referenceImages.maxFileSizeBytes]
   );
 
+  const setModel = useCallback(
+    (modelId: string) => {
+      const nextModel = getImageModelCatalogEntry(catalog, modelId);
+      if (!nextModel) {
+        return;
+      }
+
+      if (!config) {
+        setModelInConfig(modelId);
+        return;
+      }
+
+      const nextConfigBase: GenerationConfig = {
+        ...config,
+        modelId: nextModel.id,
+        modelParams: { ...nextModel.defaults.modelParams },
+      };
+
+      if (
+        !toCatalogFeatureSupport(nextModel).referenceImages.enabled &&
+        config.referenceImages.length > 0
+      ) {
+        const { nextConfig, removedReferenceImageCount } =
+          clearReferenceInputsForUnsupportedModel(nextConfigBase);
+        setConfig(nextConfig);
+        setNotice(
+          `Switched to ${nextModel.label}. Removed ${removedReferenceImageCount} reference image${
+            removedReferenceImageCount === 1 ? "" : "s"
+          } because this model does not support image-guided generation.`
+        );
+        return;
+      }
+
+      setConfig(nextConfigBase);
+    },
+    [catalog, config, setConfig, setModelInConfig]
+  );
+
   const runGeneration = useCallback(
     async (options: {
       prompt: string;
@@ -1087,7 +1460,9 @@ export function useImageGeneration() {
         ...(serverConversationIdRef.current
           ? { conversationId: serverConversationIdRef.current }
           : {}),
-        ...(options.retryOfTurnId ? { retryOfTurnId: options.retryOfTurnId } : {}),
+        ...(options.retryOfTurnId
+          ? { retryOfTurnId: options.retryOfTurnId, retryMode: "exact" as const }
+          : {}),
         clientTurnId: turnId,
         clientJobId: jobId,
       };
@@ -1181,6 +1556,7 @@ export function useImageGeneration() {
         });
         uiTurnCacheRef.current.delete(turnId);
         clearRuntimeTurnState(turnId);
+        clearPromptArtifactState(turnId);
         void refreshConversationSnapshot(generated.conversationId).catch(() => undefined);
 
         return generated.images;
@@ -1211,6 +1587,7 @@ export function useImageGeneration() {
         });
         uiTurnCacheRef.current.delete(turnId);
         clearRuntimeTurnState(turnId);
+        clearPromptArtifactState(turnId);
         return null;
       } finally {
         if (
@@ -1226,6 +1603,7 @@ export function useImageGeneration() {
       addTurnWithJob,
       catalog,
       cancelActiveGeneration,
+      clearPromptArtifactState,
       clearRuntimeTurnState,
       invalidateConversationSnapshotRequests,
       modelConfig,
@@ -1239,7 +1617,7 @@ export function useImageGeneration() {
     async (
       promptInput: string,
       configSnapshot: GenerationConfig,
-      options?: { retryOfTurnId?: string }
+      options?: { retryOfTurnId?: string; localWarnings?: string[] }
     ) => {
       const prompt = promptInput.trim();
       if (!prompt || !catalog) {
@@ -1247,6 +1625,11 @@ export function useImageGeneration() {
       }
 
       const nextConfigSnapshot = cloneGenerationConfig(configSnapshot);
+      const assetRefIssues = validateImageAssetRefs(nextConfigSnapshot.assetRefs);
+      if (assetRefIssues.length > 0) {
+        setNotice(assetRefIssues[0]?.message ?? "Asset roles are incompatible for this turn.");
+        return null;
+      }
       const requestModelConfig = getImageModelCatalogEntry(catalog, nextConfigSnapshot.modelId);
       const requestSupportedFeatures = toCatalogFeatureSupport(requestModelConfig);
 
@@ -1257,6 +1640,7 @@ export function useImageGeneration() {
           supportsCustomSize: Boolean(requestModelConfig?.constraints.supportsCustomSize),
         }),
         retryOfTurnId: options?.retryOfTurnId,
+        localWarnings: options?.localWarnings,
       });
     },
     [catalog, runGeneration]
@@ -1312,6 +1696,7 @@ export function useImageGeneration() {
         applyConversationSnapshot(snapshot);
         uiTurnCacheRef.current.delete(turnId);
         clearRuntimeTurnState(turnId);
+        clearPromptArtifactState(turnId);
       } catch (error) {
         updateTurn(turnId, {
           error: error instanceof Error ? error.message : "Turn could not be deleted.",
@@ -1321,10 +1706,34 @@ export function useImageGeneration() {
     [
       applyConversationSnapshot,
       cancelActiveGeneration,
+      clearPromptArtifactState,
       clearRuntimeTurnState,
       invalidateConversationSnapshotRequests,
       updateTurn,
     ]
+  );
+
+  const acceptTurnResult = useCallback(
+    async (turnId: string, index: number) => {
+      const turn = getUiTurnById(turnId);
+      const result = turn?.results.find((entry) => entry.index === index);
+      if (!result?.threadAssetId) {
+        return null;
+      }
+
+      invalidateConversationSnapshotRequests();
+      try {
+        const snapshot = await acceptImageConversationTurn(turnId, result.threadAssetId);
+        applyConversationSnapshot(snapshot);
+        return snapshot;
+      } catch (error) {
+        updateTurn(turnId, {
+          error: error instanceof Error ? error.message : "Result could not be accepted.",
+        });
+        return null;
+      }
+    },
+    [applyConversationSnapshot, getUiTurnById, invalidateConversationSnapshotRequests, updateTurn]
   );
 
   const retryTurn = useCallback(
@@ -1351,8 +1760,13 @@ export function useImageGeneration() {
         return null;
       }
 
-      return generateWithConfig(turn.prompt, deserializeConfig(turn.configSnapshot, catalog), {
+      const retryConfig = omitUnavailableReferenceImages(
+        deserializeConfig(turn.configSnapshot, catalog)
+      );
+
+      return generateWithConfig(turn.prompt, retryConfig.config, {
         retryOfTurnId: turn.id,
+        localWarnings: retryConfig.warnings,
       });
     },
     [catalog, generateWithConfig, getTurnById, retryFromSnapshot, updateTurn]
@@ -1435,24 +1849,100 @@ export function useImageGeneration() {
     [getUiTurnById, updateRuntimeResultState]
   );
 
-  const useResultAsReference = useCallback(
-    (turnId: string, index: number) => {
+  const bindResultAsAssetRole = useCallback(
+    async (
+      turnId: string,
+      index: number,
+      role: ImageGenerationAssetRefRole
+    ) => {
       const turn = getUiTurnById(turnId);
       const result = turn?.results.find((entry) => entry.index === index);
-      if (!result?.threadAssetId || !config) {
+      if (!result?.threadAssetId || !config || !modelConfig) {
         return;
       }
 
-      const nextAssetRefs = [
-        ...config.assetRefs.filter((assetRef) => assetRef.assetId !== result.threadAssetId),
-        {
+      try {
+        const includeReferenceImage = supportedFeatures.referenceImages.enabled;
+        const referenceImage = includeReferenceImage
+          ? await createReferenceImageFromGeneratedResult(
+              {
+                imageUrl: result.imageUrl,
+                fileNamePrefix: `${role}-asset-${turnId}-${index + 1}`,
+              },
+              {
+                maxFileSizeBytes: modelConfig.constraints.referenceImages.maxFileSizeBytes,
+              }
+            )
+          : null;
+
+        const binding = bindResultAssetToConfig(cloneGenerationConfig(config), {
           assetId: result.threadAssetId,
-          role: "reference" as const,
-        },
-      ];
-      setAssetRefs(nextAssetRefs);
+          role,
+          includeReferenceImage,
+          referenceImage,
+        });
+        if (binding.error) {
+          setNotice(binding.error);
+          return;
+        }
+
+        setConfig(binding.nextConfig);
+        const notice = resolveAssetRoleNotice(role, supportedFeatures);
+        if (notice) {
+          setNotice(notice);
+        }
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "Generated image could not be reused for prompt-guided generation."
+        );
+      }
     },
-    [config, getUiTurnById, setAssetRefs]
+    [config, getUiTurnById, modelConfig, setConfig, setNotice, supportedFeatures]
+  );
+
+  const useResultAsReference = useCallback(
+    async (turnId: string, index: number) =>
+      bindResultAsAssetRole(turnId, index, "reference"),
+    [bindResultAsAssetRole]
+  );
+
+  const editFromResult = useCallback(
+    async (turnId: string, index: number) =>
+      bindResultAsAssetRole(turnId, index, "edit"),
+    [bindResultAsAssetRole]
+  );
+
+  const varyFromResult = useCallback(
+    async (turnId: string, index: number) =>
+      bindResultAsAssetRole(turnId, index, "variation"),
+    [bindResultAsAssetRole]
+  );
+
+  const updateAssetRefRole = useCallback(
+    (assetId: string, role: ImageGenerationAssetRefRole) => {
+      if (!config) {
+        return;
+      }
+
+      const binding = updateAssetRefRoleInConfig(config, {
+        assetId,
+        role,
+        includeReferenceImage: supportedFeatures.referenceImages.enabled,
+      });
+      if (binding.error) {
+        setNotice(binding.error);
+        return;
+      }
+
+      setConfig(binding.nextConfig);
+      const notice = resolveAssetRoleNotice(role, supportedFeatures);
+      if (notice) {
+        setNotice(notice);
+      }
+    },
+    [config, setConfig, supportedFeatures]
   );
 
   const removeAssetReference = useCallback(
@@ -1461,14 +1951,48 @@ export function useImageGeneration() {
         return;
       }
 
-      setAssetRefs(config.assetRefs.filter((assetRef) => assetRef.assetId !== assetId));
+      setConfig(removeBoundResultReferenceFromConfig(config, assetId));
     },
-    [config, setAssetRefs]
+    [config, setConfig]
   );
 
   const clearAssetReferences = useCallback(() => {
-    setAssetRefs([]);
-  }, [setAssetRefs]);
+    if (!config) {
+      return;
+    }
+
+    setConfig(clearBoundResultReferencesFromConfig(config));
+  }, [config, setConfig]);
+
+  const removeReferenceImage = useCallback(
+    (id: string) => {
+      if (!config) {
+        return;
+      }
+
+      const referenceImage = config.referenceImages.find((entry) => entry.id === id);
+      if (referenceImage?.sourceAssetId) {
+        setConfig(removeBoundResultReferenceFromConfig(config, referenceImage.sourceAssetId));
+        return;
+      }
+
+      removeReferenceImageInConfig(id);
+    },
+    [config, removeReferenceImageInConfig, setConfig]
+  );
+
+  const clearReferenceImages = useCallback(() => {
+    if (!config) {
+      return;
+    }
+
+    if (config.referenceImages.some((referenceImage) => referenceImage.sourceAssetId)) {
+      setConfig(clearReferenceInputsForUnsupportedModel(config).nextConfig);
+      return;
+    }
+
+    clearReferenceImagesInConfig();
+  }, [clearReferenceImagesInConfig, config, setConfig]);
 
   const upscaleResult = useCallback(
     async (turnId: string, index: number) => {
@@ -1558,8 +2082,14 @@ export function useImageGeneration() {
     uiTurnCacheRef.current.clear();
     setSavingTurnIds({});
     setRuntimeResults({});
+    clearAllPromptArtifactState();
     applyConversationSnapshot(await clearImageConversation());
-  }, [applyConversationSnapshot, cancelActiveGeneration, invalidateConversationSnapshotRequests]);
+  }, [
+    applyConversationSnapshot,
+    cancelActiveGeneration,
+    clearAllPromptArtifactState,
+    invalidateConversationSnapshotRequests,
+  ]);
 
   const turns = useMemo(
     () => {
@@ -1576,11 +2106,12 @@ export function useImageGeneration() {
           turn,
           (session?.runs ?? []).filter((entry) => entry.turnId === turn.id),
           runtimeResults[turn.id],
-          Boolean(savingTurnIds[turn.id])
+          Boolean(savingTurnIds[turn.id]),
+          promptArtifacts[turn.id]
         )
       );
     },
-    [getCachedUiTurn, runtimeResults, savingTurnIds, session?.runs, session?.turns]
+    [getCachedUiTurn, promptArtifacts, runtimeResults, savingTurnIds, session?.runs, session?.turns]
   );
 
   const aspectRatioOptions = useMemo<ImageAspectRatio[]>(
@@ -1595,6 +2126,7 @@ export function useImageGeneration() {
 
   return {
     turns,
+    notice,
     isGenerating,
     isCatalogLoading,
     catalogError,
@@ -1613,10 +2145,15 @@ export function useImageGeneration() {
     removeReferenceImage,
     clearReferenceImages,
     removeAssetReference,
+    updateAssetRefRole,
     clearAssetReferences,
     useResultAsReference,
+    editFromResult,
+    varyFromResult,
+    loadPromptArtifacts,
     generateFromPromptInput,
     deleteTurn,
+    acceptTurnResult,
     retryTurn,
     reuseParameters,
     upscaleResult,

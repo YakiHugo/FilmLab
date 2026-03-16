@@ -11,6 +11,7 @@ import {
 import type {
   ImageAspectRatio,
   ImageGenerationAssetRef,
+  ImagePromptIntentInput,
   ImageStyleId,
   ReferenceImage,
 } from "@/types/imageGeneration";
@@ -23,6 +24,7 @@ export interface GenerationConfig {
   style: ImageStyleId;
   stylePreset: string;
   negativePrompt: string;
+  promptIntent: ImagePromptIntentInput;
   referenceImages: ReferenceImage[];
   assetRefs: ImageGenerationAssetRef[];
   seed: number | null;

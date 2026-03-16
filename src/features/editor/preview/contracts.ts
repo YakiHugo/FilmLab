@@ -1,6 +1,8 @@
+import type { RenderDocument } from "@/features/editor/document";
 import type React from "react";
 import { clamp } from "@/lib/math";
 import type { Asset, EditorLayer, EditingAdjustments, EditorLayerBlendMode } from "@/types";
+import type { DirtyReason, RenderGraph } from "../renderGraph";
 
 export interface PreviewFrameSize {
   width: number;
@@ -16,14 +18,7 @@ export interface ViewportRoi {
   height: number;
 }
 
-export interface EditorPreviewDocument {
-  documentKey: string;
-  sourceAssetId: string;
-  adjustments: EditingAdjustments;
-  layers: EditorLayer[];
-  filmProfile: Asset["filmProfile"] | null | undefined;
-  showOriginal: boolean;
-}
+export type EditorPreviewDocument = RenderDocument;
 
 export interface LayerPreviewEntry {
   layer: EditorLayer;
@@ -36,10 +31,11 @@ export interface LayerPreviewEntry {
 export interface PreviewRequest {
   document: EditorPreviewDocument;
   documentKey: string;
+  graphKey: string;
   quality: PreviewQuality;
   frameSize: PreviewFrameSize;
   viewportRoi: ViewportRoi | null;
-  layerEntries: LayerPreviewEntry[];
+  renderGraph: RenderGraph;
   showOriginal: boolean;
   timestampText: string | null;
   isCropMode: boolean;
@@ -47,6 +43,7 @@ export interface PreviewRequest {
   previewRenderSeed: number;
   sourceAsset: Asset;
   shouldRenderLayerComposite: boolean;
+  dirtyReasons: DirtyReason[];
 }
 
 export interface PreviewResult {

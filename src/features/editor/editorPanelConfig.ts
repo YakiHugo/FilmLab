@@ -1,6 +1,7 @@
 import type { NumericAdjustmentKey } from "./types";
 
 export type SectionId =
+  | "layers"
   | "basic"
   | "effects"
   | "detail"
@@ -46,6 +47,7 @@ interface WhiteBalancePreset {
 const formatSigned = (value: number) => (value > 0 ? `+${value}` : `${value}`);
 
 export const DEFAULT_OPEN_SECTIONS: Record<SectionId, boolean> = {
+  layers: true,
   basic: true,
   effects: true,
   detail: true,
@@ -128,3 +130,29 @@ export const CROP_SLIDERS: SliderDefinition[] = [
     format: (value) => value.toFixed(2),
   },
 ];
+
+export const CURVE_TONE_SLIDERS: SliderDefinition[] = [
+  { key: "curveHighlights", label: "Highlights", min: -100, max: 100, format: formatSigned },
+  { key: "curveLights", label: "Lights", min: -100, max: 100, format: formatSigned },
+  { key: "curveDarks", label: "Darks", min: -100, max: 100, format: formatSigned },
+  { key: "curveShadows", label: "Shadows", min: -100, max: 100, format: formatSigned },
+];
+
+export const OPTICS_SLIDERS: SliderDefinition[] = [
+  { key: "opticsDistortionK1", label: "Distortion K1", min: -100, max: 100, format: formatSigned },
+  { key: "opticsDistortionK2", label: "Distortion K2", min: -100, max: 100, format: formatSigned },
+  { key: "opticsCaAmount", label: "Chromatic Aberration", min: 0, max: 100 },
+  { key: "opticsVignette", label: "Lens Vignette", min: 0, max: 100 },
+  { key: "opticsVignetteMidpoint", label: "Vignette Midpoint", min: 0, max: 100 },
+];
+
+export const HSL_COLOR_OPTIONS = [
+  { id: "red", label: "Red" },
+  { id: "orange", label: "Orange" },
+  { id: "yellow", label: "Yellow" },
+  { id: "green", label: "Green" },
+  { id: "aqua", label: "Aqua" },
+  { id: "blue", label: "Blue" },
+  { id: "purple", label: "Purple" },
+  { id: "magenta", label: "Magenta" },
+] as const;

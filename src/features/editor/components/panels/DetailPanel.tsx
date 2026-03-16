@@ -16,6 +16,8 @@ interface DetailPanelProps {
   onCommitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
   hasChanges?: boolean;
   changesVisible?: boolean;
+  canToggleVisibility?: boolean;
+  canResetChanges?: boolean;
   onToggleVisibility?: () => void;
   onResetChanges?: () => void;
 }
@@ -50,6 +52,8 @@ export const DetailPanel = memo(function DetailPanel({
   onCommitAdjustmentValue,
   hasChanges,
   changesVisible,
+  canToggleVisibility,
+  canResetChanges,
   onToggleVisibility,
   onResetChanges,
 }: DetailPanelProps) {
@@ -61,6 +65,8 @@ export const DetailPanel = memo(function DetailPanel({
       onToggle={onToggle}
       hasChanges={hasChanges}
       changesVisible={changesVisible}
+      canToggleVisibility={canToggleVisibility}
+      canResetChanges={canResetChanges}
       onToggleVisibility={onToggleVisibility}
       onResetChanges={onResetChanges}
     >
@@ -68,4 +74,3 @@ export const DetailPanel = memo(function DetailPanel({
     </EditorSection>
   );
 });
-

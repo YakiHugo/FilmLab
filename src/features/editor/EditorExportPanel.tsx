@@ -8,24 +8,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { normalizeAdjustments } from "@/lib/adjustments";
-import { resolveLayerAdjustments } from "@/lib/editorLayers";
-import { renderImageToCanvas } from "@/lib/imageProcessing";
-import { applyMaskToLayerCanvas, generateMaskTexture } from "@/lib/layerMaskTexture";
-import { resolveAssetTimestampText } from "@/lib/timestamp";
 import { copyJpegExif } from "@/lib/export/jpegExif";
 import { encodeRgbaToTiff } from "@/lib/export/tiff";
+import { ensureAssetLayers } from "@/lib/editorLayers";
+import { resolveAssetTimestampText } from "@/lib/timestamp";
 import type {
   Asset,
   EditingAdjustments,
-  EditorLayerBlendMode,
-  ExportColorSpace,
   ExportFormat,
   ExportMetadataMode,
   ExportResolutionPreset,
 } from "@/types";
 import { EditorSliderRow } from "./EditorSliderRow";
-import { useEditorAdjustmentState, useEditorSelectionState } from "./useEditorSlices";
+import { createRenderDocument } from "./document";
+import { renderDocumentToCanvas } from "./renderDocumentCanvas";
+import {
+  useEditorAdjustmentState,
+  useEditorDocumentState,
+  useEditorSelectionState,
+} from "./useEditorSlices";
 
 interface ExportFormatOption {
   id: ExportFormat;
@@ -47,24 +48,6 @@ const CUBE_LUT_OPTIONS: ReadonlyArray<{ label: string; value: CubeLutSize }> = [
   { label: "17 (Fast)", value: 17 },
   { label: "33 (High Quality)", value: 33 },
 ];
-
-const resolveLayerBlendOperation = (
-  blendMode: EditorLayerBlendMode
-): GlobalCompositeOperation => {
-  if (blendMode === "multiply") {
-    return "multiply";
-  }
-  if (blendMode === "screen") {
-    return "screen";
-  }
-  if (blendMode === "overlay") {
-    return "overlay";
-  }
-  if (blendMode === "softLight") {
-    return "soft-light";
-  }
-  return "source-over";
-};
 
 const clampInt = (value: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(value)));
 
@@ -132,21 +115,21 @@ const resolveTargetSize = (
 };
 
 export function EditorExportPanel() {
-  const { assets, layers, selectedAsset } = useEditorSelectionState();
-  const { adjustments, previewAdjustments, previewFilmProfile } = useEditorAdjustmentState();
+  const { selectedAsset } = useEditorSelectionState();
+  const { adjustments, renderAdjustments, previewFilmProfile } = useEditorAdjustmentState();
+  const { exportRenderDocument } = useEditorDocumentState();
   const [format, setFormat] = useState<ExportFormat>("jpeg");
   const [quality, setQuality] = useState(92);
   const [pngCompression, setPngCompression] = useState(6);
   const [resolutionPreset, setResolutionPreset] = useState<ExportResolutionPreset>("original");
   const [customWidth, setCustomWidth] = useState(0);
   const [customHeight, setCustomHeight] = useState(0);
-  const [colorSpace, setColorSpace] = useState<ExportColorSpace>("srgb");
   const [metadataMode, setMetadataMode] = useState<ExportMetadataMode>("strip");
   const [isExporting, setIsExporting] = useState(false);
   const [isExportingLut, setIsExportingLut] = useState(false);
   const [cubeLutSize, setCubeLutSize] = useState<CubeLutSize>(33);
 
-  const activeAdjustments = (previewAdjustments ?? adjustments) as EditingAdjustments | null;
+  const activeAdjustments = (renderAdjustments ?? adjustments) as EditingAdjustments | null;
 
   useEffect(() => {
     if (!selectedAsset) {
@@ -163,39 +146,6 @@ export function EditorExportPanel() {
   const selectedFormat = useMemo(
     () => EXPORT_FORMATS.find((item) => item.id === format) ?? EXPORT_FORMATS[0]!,
     [format]
-  );
-
-  const assetById = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
-
-  const exportLayers = useMemo(
-    () => {
-      if (!selectedAsset) {
-        return [];
-      }
-      return layers
-        .map((layer) => {
-          const sourceAsset =
-            layer.type === "texture" && layer.textureAssetId
-              ? assetById.get(layer.textureAssetId) ?? null
-              : selectedAsset;
-          if (!sourceAsset || !layer.visible) {
-            return null;
-          }
-          const opacity = Math.max(0, Math.min(1, layer.opacity / 100));
-          if (opacity <= 0.0001) {
-            return null;
-          }
-          return {
-            layer,
-            sourceAsset,
-            opacity,
-            blendMode: layer.blendMode,
-            adjustments: resolveLayerAdjustments(layer, selectedAsset.adjustments),
-          };
-        })
-        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
-    },
-    [assetById, layers, selectedAsset]
   );
 
   const canExportImage = Boolean(selectedAsset && activeAdjustments && !isExporting && !isExportingLut);
@@ -221,110 +171,29 @@ export function EditorExportPanel() {
         height: customHeight || sourceSize.height,
       });
 
-      const timestampText = resolveAssetTimestampText(selectedAsset.metadata, selectedAsset.createdAt);
-      const shouldCompositeExport = exportLayers.length > 1;
+      const timestampText = resolveAssetTimestampText(
+        selectedAsset.metadata,
+        selectedAsset.createdAt
+      );
 
-      if (shouldCompositeExport) {
-        const compositeCanvas = document.createElement("canvas");
-        compositeCanvas.width = targetSize.width;
-        compositeCanvas.height = targetSize.height;
-        const compositeContext = compositeCanvas.getContext("2d", { willReadFrequently: true });
-        if (!compositeContext) {
-          throw new Error("Failed to initialize composite export context.");
-        }
-        compositeContext.clearRect(0, 0, compositeCanvas.width, compositeCanvas.height);
-
-        const layerCanvas = document.createElement("canvas");
-        const layerMaskCanvas = document.createElement("canvas");
-        const layerMaskScratchCanvas = document.createElement("canvas");
-        const maskedLayerCanvas = document.createElement("canvas");
-        const sourceBlobCache = new Map<string, Blob>();
-        const layersBottomToTop = [...exportLayers].reverse();
-        for (let layerIndex = 0; layerIndex < layersBottomToTop.length; layerIndex += 1) {
-          const layer = layersBottomToTop[layerIndex]!;
-          let layerSourceBlob = sourceBlobCache.get(layer.sourceAsset.id);
-          if (!layerSourceBlob) {
-            layerSourceBlob = await resolveAssetSourceBlob(layer.sourceAsset);
-            sourceBlobCache.set(layer.sourceAsset.id, layerSourceBlob);
-          }
-          const layerAdjustments = normalizeAdjustments(layer.adjustments);
-          const layerFilmProfile =
-            layer.sourceAsset.id === selectedAsset.id
-              ? previewFilmProfile ?? layer.sourceAsset.filmProfile
-              : layer.sourceAsset.filmProfile;
-
-          await renderImageToCanvas({
-            canvas: layerCanvas,
-            source: layerSourceBlob,
-            adjustments: layerAdjustments,
-            filmProfile: layerFilmProfile ?? undefined,
-            timestampText: null,
-            targetSize,
-            seedKey: `${selectedAsset.id}:${layer.layer.id}`,
-            sourceCacheKey: `export:${layer.sourceAsset.id}:${layer.layer.id}:${layer.sourceAsset.size}`,
-            mode: "export",
-            qualityProfile: "full",
-            strictErrors: true,
-            renderSlot: `export-panel:layer:${layer.layer.id}:${layerIndex}`,
-          });
-
-          let drawSource: CanvasImageSource = layerCanvas;
-          if (layer.layer.mask) {
-            const generatedMask = generateMaskTexture(layer.layer.mask, {
-              width: compositeCanvas.width,
-              height: compositeCanvas.height,
-              referenceSource: layerCanvas,
-              targetCanvas: layerMaskCanvas,
-              scratchCanvas: layerMaskScratchCanvas,
-            });
-            if (generatedMask) {
-              drawSource = applyMaskToLayerCanvas(layerCanvas, generatedMask, maskedLayerCanvas);
-            }
-          }
-
-          compositeContext.save();
-          compositeContext.globalAlpha = layer.opacity;
-          compositeContext.globalCompositeOperation = resolveLayerBlendOperation(layer.blendMode);
-          compositeContext.drawImage(drawSource, 0, 0, compositeCanvas.width, compositeCanvas.height);
-          compositeContext.restore();
-        }
-
-        if (renderCanvas.width !== compositeCanvas.width || renderCanvas.height !== compositeCanvas.height) {
-          renderCanvas.width = compositeCanvas.width;
-          renderCanvas.height = compositeCanvas.height;
-        }
-        const renderContext = renderCanvas.getContext("2d", { willReadFrequently: true });
-        if (!renderContext) {
-          throw new Error("Failed to initialize final export context.");
-        }
-        renderContext.clearRect(0, 0, renderCanvas.width, renderCanvas.height);
-        renderContext.drawImage(compositeCanvas, 0, 0, renderCanvas.width, renderCanvas.height);
-        layerCanvas.width = 0;
-        layerCanvas.height = 0;
-        layerMaskCanvas.width = 0;
-        layerMaskCanvas.height = 0;
-        layerMaskScratchCanvas.width = 0;
-        layerMaskScratchCanvas.height = 0;
-        maskedLayerCanvas.width = 0;
-        maskedLayerCanvas.height = 0;
-        compositeCanvas.width = 0;
-        compositeCanvas.height = 0;
-      } else {
-        await renderImageToCanvas({
-          canvas: renderCanvas,
-          source: sourceBlob,
-          adjustments: activeAdjustments,
-          filmProfile: previewFilmProfile ?? undefined,
-          timestampText,
-          targetSize,
-          seedKey: selectedAsset.id,
-          sourceCacheKey: `export:${selectedAsset.id}:${selectedAsset.size}`,
-          mode: "export",
-          qualityProfile: "full",
-          strictErrors: true,
-          renderSlot: `export-panel:${selectedAsset.id}`,
-        });
-      }
+      await renderDocumentToCanvas({
+        canvas: renderCanvas,
+        document:
+          exportRenderDocument ??
+          createRenderDocument({
+            key: `editor:${selectedAsset.id}:export-fallback`,
+            assetById: new Map([[selectedAsset.id, selectedAsset]]),
+            documentAsset: selectedAsset,
+            layers: ensureAssetLayers(selectedAsset),
+            adjustments: activeAdjustments,
+            filmProfile: previewFilmProfile ?? selectedAsset.filmProfile ?? undefined,
+            showOriginal: false,
+          }),
+        intent: "export-full",
+        targetSize,
+        timestampText,
+        strictErrors: true,
+      });
 
       let blob: Blob;
       if (format === "tiff") {
@@ -355,8 +224,6 @@ export function EditorExportPanel() {
 
       if (metadataMode === "preserve" && format !== "jpeg") {
         console.warn("Metadata preservation currently applies to JPEG only.");
-      } else if (colorSpace !== "srgb") {
-        console.warn("Current renderer outputs sRGB; custom color space is a UI preference.");
       }
     } catch (error) {
       console.error("Export failed.", error);
@@ -515,16 +382,12 @@ export function EditorExportPanel() {
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-2">
           <p className="text-xs text-zinc-300">Color Space</p>
-          <Select value={colorSpace} onValueChange={(value: ExportColorSpace) => setColorSpace(value)}>
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="srgb">sRGB</SelectItem>
-              <SelectItem value="display-p3">Display P3</SelectItem>
-              <SelectItem value="adobe-rgb">Adobe RGB</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex h-8 items-center rounded-md border border-white/10 bg-[#0f1114]/80 px-2 text-xs text-zinc-200">
+            sRGB
+          </div>
+          <p className="text-[11px] text-zinc-500">
+            Export is currently locked to the renderer&apos;s real output transform.
+          </p>
         </div>
         <div className="space-y-2">
           <p className="text-xs text-zinc-300">Metadata</p>

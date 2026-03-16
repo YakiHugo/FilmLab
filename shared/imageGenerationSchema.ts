@@ -3,8 +3,12 @@ import {
   IMAGE_PROVIDER_IDS,
   IMAGE_ASPECT_RATIOS,
   IMAGE_GENERATION_ASSET_REF_ROLES,
+  IMAGE_GENERATION_RETRY_MODES,
+  IMAGE_PROMPT_CONTINUITY_TARGETS,
+  IMAGE_PROMPT_EDIT_OPS,
   IMAGE_STYLE_IDS,
   REFERENCE_IMAGE_TYPES,
+  validateImageAssetRefs,
 } from "./imageGeneration";
 import { FRONTEND_IMAGE_MODEL_IDS, LOGICAL_IMAGE_MODEL_IDS } from "./imageModelCatalog";
 import { appendImageModelParamIssues } from "./imageModelParams";
@@ -16,6 +20,9 @@ export const imageAspectRatioSchema = z.enum(IMAGE_ASPECT_RATIOS);
 export const imageStyleSchema = z.enum(IMAGE_STYLE_IDS);
 export const referenceImageTypeSchema = z.enum(REFERENCE_IMAGE_TYPES);
 export const imageGenerationAssetRefRoleSchema = z.enum(IMAGE_GENERATION_ASSET_REF_ROLES);
+export const imageGenerationRetryModeSchema = z.enum(IMAGE_GENERATION_RETRY_MODES);
+export const imagePromptContinuityTargetSchema = z.enum(IMAGE_PROMPT_CONTINUITY_TARGETS);
+export const imagePromptEditOperationSchema = z.enum(IMAGE_PROMPT_EDIT_OPS);
 
 export const IMAGE_GENERATION_LIMITS = {
   width: { min: 256, max: 4096 },
@@ -32,6 +39,7 @@ export const referenceImageSchema = z.object({
   fileName: z.string().optional(),
   weight: z.number().min(0).max(1).optional(),
   type: referenceImageTypeSchema.default("content"),
+  sourceAssetId: z.string().trim().min(1).optional(),
 });
 
 export const requestedImageGenerationTargetSchema = z.object({
@@ -46,13 +54,29 @@ export const imageGenerationAssetRefSchema = z.object({
   role: imageGenerationAssetRefRoleSchema.default("reference"),
 });
 
+export const imagePromptIntentEditOpSchema = z.object({
+  op: imagePromptEditOperationSchema,
+  target: z.string().trim().min(1),
+  value: z.string().trim().optional(),
+});
+
+export const imagePromptIntentSchema = z.object({
+  preserve: z.array(z.string().trim().min(1)).max(16).default([]),
+  avoid: z.array(z.string().trim().min(1)).max(16).default([]),
+  styleDirectives: z.array(z.string().trim().min(1)).max(16).default([]),
+  continuityTargets: z.array(imagePromptContinuityTargetSchema).max(8).default([]),
+  editOps: z.array(imagePromptIntentEditOpSchema).max(16).default([]),
+});
+
 export const imageGenerationRequestSchema = z
   .object({
     prompt: z.string().trim().min(1),
+    promptIntent: imagePromptIntentSchema.optional(),
     negativePrompt: z.string().trim().optional(),
     conversationId: z.string().trim().min(1).optional(),
     threadId: z.string().trim().min(1).optional(),
     retryOfTurnId: z.string().trim().min(1).optional(),
+    retryMode: imageGenerationRetryModeSchema.default("exact"),
     clientTurnId: z.string().trim().min(1).optional(),
     clientJobId: z.string().trim().min(1).optional(),
     modelId: frontendImageModelSchema.default("seedream-v5"),
@@ -144,6 +168,14 @@ export const imageGenerationRequestSchema = z
     }
 
     appendImageModelParamIssues(payload.modelId, payload.modelParams, ctx);
+
+    for (const issue of validateImageAssetRefs(payload.assetRefs)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: issue.message,
+        path: issue.path,
+      });
+    }
   });
 
 export type ParsedImageGenerationRequest = z.infer<typeof imageGenerationRequestSchema>;

@@ -9,6 +9,7 @@ import type {
   ImageDeploymentId,
   ImageGenerationConstraintSummary,
   ImageModelDefaults,
+  ImageModelPromptCompilerCapabilities,
   LogicalImageModelId,
   ProviderModelId,
 } from "../../../../shared/imageModelCatalog";
@@ -30,6 +31,7 @@ export interface FrontendModelSpec {
   constraints: ImageGenerationConstraintSummary;
   parameterDefinitions: ImageModelParamDefinition[];
   defaults: ImageModelDefaults;
+  promptCompiler: ImageModelPromptCompilerCapabilities;
   supportsUpscale: boolean;
 }
 

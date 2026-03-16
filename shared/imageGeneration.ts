@@ -53,18 +53,109 @@ export const IMAGE_GENERATION_ASSET_REF_ROLES = [
 ] as const;
 export type ImageGenerationAssetRefRole = (typeof IMAGE_GENERATION_ASSET_REF_ROLES)[number];
 
+export const IMAGE_PROMPT_COMPILER_OPERATION_IDS = [
+  "image.generate",
+  "image.edit",
+  "image.variation",
+] as const;
+export type ImagePromptCompilerOperationId =
+  (typeof IMAGE_PROMPT_COMPILER_OPERATION_IDS)[number];
+
+export const IMAGE_PROMPT_CONTINUITY_TARGETS = [
+  "subject",
+  "style",
+  "composition",
+  "text",
+] as const;
+export type ImagePromptContinuityTarget =
+  (typeof IMAGE_PROMPT_CONTINUITY_TARGETS)[number];
+
+export const IMAGE_PROMPT_EDIT_OPS = [
+  "add",
+  "remove",
+  "replace",
+  "emphasize",
+  "deemphasize",
+] as const;
+export type ImagePromptEditOperation = (typeof IMAGE_PROMPT_EDIT_OPS)[number];
+
+export const IMAGE_GENERATION_RETRY_MODES = ["exact", "recompile"] as const;
+export type ImageGenerationRetryMode =
+  (typeof IMAGE_GENERATION_RETRY_MODES)[number];
+
+export interface ImagePromptIntentEditOp {
+  op: ImagePromptEditOperation;
+  target: string;
+  value?: string;
+}
+
+export interface ImagePromptIntentInput {
+  preserve: string[];
+  avoid: string[];
+  styleDirectives: string[];
+  continuityTargets: ImagePromptContinuityTarget[];
+  editOps: ImagePromptIntentEditOp[];
+}
+
 export interface ReferenceImage {
   id: string;
   url: string;
   fileName?: string;
   weight?: number;
   type: ReferenceImageType;
+  sourceAssetId?: string;
 }
 
 export interface ImageGenerationAssetRef {
   assetId: string;
   role: ImageGenerationAssetRefRole;
 }
+
+export interface ImageAssetRefValidationIssue {
+  path: Array<string | number>;
+  message: string;
+}
+
+export const getImageAssetSourceRefs = (
+  assetRefs: ImageGenerationAssetRef[] | undefined
+) =>
+  (assetRefs ?? []).filter(
+    (assetRef) => assetRef.role === "edit" || assetRef.role === "variation"
+  );
+
+export const resolveImagePromptCompilerOperation = (
+  assetRefs: ImageGenerationAssetRef[] | undefined
+): ImagePromptCompilerOperationId => {
+  const sourceRefs = getImageAssetSourceRefs(assetRefs);
+  if (sourceRefs.some((assetRef) => assetRef.role === "edit")) {
+    return "image.edit";
+  }
+  if (sourceRefs.some((assetRef) => assetRef.role === "variation")) {
+    return "image.variation";
+  }
+  return "image.generate";
+};
+
+export const validateImageAssetRefs = (
+  assetRefs: ImageGenerationAssetRef[] | undefined
+): ImageAssetRefValidationIssue[] => {
+  if (!Array.isArray(assetRefs) || assetRefs.length === 0) {
+    return [];
+  }
+
+  const sourceRefs = getImageAssetSourceRefs(assetRefs);
+  if (sourceRefs.length <= 1) {
+    return [];
+  }
+
+  return [
+    {
+      path: ["assetRefs"],
+      message:
+        "Only one source asset is allowed. Use either one edit asset or one variation asset, and keep all other asset refs as reference.",
+    },
+  ];
+};
 
 export interface RequestedImageGenerationTarget {
   modelId?: import("./imageModelCatalog").FrontendImageModelId;
@@ -75,10 +166,12 @@ export interface RequestedImageGenerationTarget {
 
 export interface ImageGenerationRequest {
   prompt: string;
+  promptIntent?: ImagePromptIntentInput;
   negativePrompt?: string;
   conversationId?: string;
   threadId?: string;
   retryOfTurnId?: string;
+  retryMode?: ImageGenerationRetryMode;
   clientTurnId?: string;
   clientJobId?: string;
   modelId: import("./imageModelCatalog").FrontendImageModelId;

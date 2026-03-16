@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FrontendImageModelId } from "../../shared/imageModelCatalog";
+import { getImageModelCapabilityFactByModelId } from "../../shared/imageModelCapabilityFacts";
 import { getDefaultImageModelParams, getImageModelParamDefinitions } from "@/lib/ai/imageModelParams";
 import type { ImageModelCatalogEntry } from "@/lib/ai/imageModelCatalog";
 import type { ReferenceImage } from "@/types/imageGeneration";
@@ -9,58 +10,55 @@ import { sanitizeGenerationConfig } from "./generationConfigStore";
 const createModelFixture = (
   id: FrontendImageModelId,
   overrides: Partial<ImageModelCatalogEntry>
-): ImageModelCatalogEntry => ({
-  id,
-  label: id,
-  logicalModel: "image.seedream.v5",
-  modelFamily: "seedream",
-  capability: "image.generate",
-  visible: true,
-  description: `${id} fixture`,
-  constraints: {
-    supportsCustomSize: false,
-    supportedAspectRatios: ["1:1"],
-    maxBatchSize: 1,
-    referenceImages: {
-      enabled: false,
-      maxImages: 0,
-      supportedTypes: [],
-      supportsWeight: false,
+): ImageModelCatalogEntry => {
+  const fact = getImageModelCapabilityFactByModelId(id);
+  if (!fact) {
+    throw new Error(`Missing capability fact for ${id}.`);
+  }
+
+  return {
+    id,
+    label: id,
+    logicalModel: fact.logicalModel,
+    modelFamily: fact.modelFamily,
+    capability: "image.generate",
+    visible: true,
+    description: `${id} fixture`,
+    constraints: fact.constraints,
+    parameterDefinitions: getImageModelParamDefinitions(id),
+    defaults: {
+      aspectRatio: "1:1",
+      width: null,
+      height: null,
+      batchSize: 1,
+      negativePrompt: "",
+      style: "none",
+      stylePreset: "",
+      seed: null,
+      guidanceScale: null,
+      steps: null,
+      sampler: "",
+      modelParams: getDefaultImageModelParams(id),
     },
-    unsupportedFields: [],
-  },
-  supportsUpscale: false,
-  parameterDefinitions: getImageModelParamDefinitions(id),
-  defaults: {
-    aspectRatio: "1:1",
-    width: null,
-    height: null,
-    batchSize: 1,
-    negativePrompt: "",
-    style: "none",
-    stylePreset: "",
-    seed: null,
-    guidanceScale: null,
-    steps: null,
-    sampler: "",
-    modelParams: getDefaultImageModelParams(id),
-  },
-  defaultProvider: "ark",
-  deploymentId: "fixture-deployment",
-  providerModel: "fixture-model",
-  configured: true,
-  health: {
-    state: "healthy",
-    score: 1,
-    successRate: 1,
-    latencyP95Ms: 100,
-    sampleSize: 1,
-    circuitOpen: false,
-    lastErrorType: null,
-    updatedAt: "2026-03-11T00:00:00.000Z",
-  },
-  ...overrides,
-});
+    promptCompiler: fact.promptCompiler,
+    supportsUpscale: false,
+    defaultProvider: "ark",
+    deploymentId: "fixture-deployment",
+    providerModel: "fixture-model",
+    configured: true,
+    health: {
+      state: "healthy",
+      score: 1,
+      successRate: 1,
+      latencyP95Ms: 100,
+      sampleSize: 1,
+      circuitOpen: false,
+      lastErrorType: null,
+      updatedAt: "2026-03-11T00:00:00.000Z",
+    },
+    ...overrides,
+  };
+};
 
 const seedreamModel = createModelFixture("seedream-v5", {
   logicalModel: "image.seedream.v5",
@@ -92,7 +90,7 @@ const qwenModel = createModelFixture("qwen-image-2-pro", {
     maxBatchSize: 6,
     referenceImages: {
       enabled: true,
-      maxImages: 2,
+      maxImages: 3,
       supportedTypes: ["content"],
       supportsWeight: false,
     },
@@ -168,6 +166,13 @@ const createConfig = (
     style: "cinematic",
     stylePreset: "",
     negativePrompt: "",
+    promptIntent: {
+      preserve: [],
+      avoid: [],
+      styleDirectives: [],
+      continuityTargets: [],
+      editOps: [],
+    },
     referenceImages: referenceImages ?? [],
     assetRefs: assetRefs ?? [],
     seed: null,
@@ -305,10 +310,11 @@ describe("sanitizeGenerationConfig", () => {
       qwenModel
     );
 
-    expect(sanitized.referenceImages).toHaveLength(2);
+    expect(sanitized.referenceImages).toHaveLength(3);
     expect(sanitized.referenceImages).toEqual([
       expect.objectContaining({ id: "ref-1", type: "content", weight: 1 }),
       expect.objectContaining({ id: "ref-2", type: "content", weight: 1 }),
+      expect.objectContaining({ id: "ref-3", type: "content", weight: 1 }),
     ]);
   });
 });

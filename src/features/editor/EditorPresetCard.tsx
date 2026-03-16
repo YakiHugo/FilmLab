@@ -23,7 +23,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
     builtInFilmProfiles,
     customPresetName,
     customPresets,
-    previewAdjustments,
+    resolvedAdjustments,
   } = useEditorAdjustmentState();
   const {
     setCustomPresetName,
@@ -41,7 +41,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
   const filmImportRef = useRef<HTMLInputElement | null>(null);
 
   const selectedPresetId = selectedAsset?.presetId;
-  const canSaveCustomPreset = Boolean(previewAdjustments);
+  const canSaveCustomPreset = Boolean(resolvedAdjustments);
   const sortedPresets = useMemo(
     () => [...basePresets, ...customPresets].sort((a, b) => presetCollator.compare(a.name, b.name)),
     [customPresets]
@@ -70,11 +70,11 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
   return (
     <Card className="bg-[#121316]">
       <CardHeader>
-        <CardTitle>Presets</CardTitle>
+        <CardTitle>Advanced Film</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
-          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">All Presets</p>
+          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Look Presets</p>
           <div className="grid max-h-56 gap-2 overflow-y-auto pr-1">
             {sortedPresets.map((preset) => (
               <Button
@@ -104,7 +104,7 @@ export const EditorPresetCard = memo(function EditorPresetCard() {
 
         <div className="rounded-2xl border border-white/10 bg-[#0f1114]/70 p-3">
           <div className="flex items-center justify-between text-xs text-slate-400">
-            <span className="text-slate-300">Preset Intensity</span>
+            <span className="text-slate-300">Look Intensity</span>
             <span>{selectedAsset?.intensity ?? 0}</span>
           </div>
           <Slider

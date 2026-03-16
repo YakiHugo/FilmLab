@@ -71,7 +71,7 @@ describe("preview composite utilities", () => {
         targetCanvas,
         layerSurfaces: [
           {
-            canvas: layerCanvas,
+            drawSource: layerCanvas,
             opacity: 0.5,
             blendMode: "screen",
           },

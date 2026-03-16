@@ -2,6 +2,7 @@ import { resolveRenderProfile } from "@/lib/film";
 import { normalizeAdjustments } from "@/lib/adjustments";
 import { applyTimestampOverlay } from "@/lib/timestampOverlay";
 import { clamp } from "@/lib/math";
+import { resolveRenderIntent, type RenderIntent } from "@/lib/renderIntent";
 import { getRendererRuntimeConfig } from "@/lib/renderer/config";
 import { createTilePlan } from "@/lib/renderer/gpu/TiledRenderer";
 import {
@@ -308,6 +309,7 @@ export interface RenderImageOptions {
   exportSeed?: number;
   skipHalationBloom?: boolean;
   signal?: AbortSignal;
+  intent?: RenderIntent;
   mode?: RenderMode;
   qualityProfile?: RenderQualityProfile;
   strictErrors?: boolean;
@@ -2069,16 +2071,24 @@ export const renderImageToCanvas = async ({
   seedKey,
   renderSeed,
   exportSeed,
-  skipHalationBloom,
+  skipHalationBloom: skipHalationBloomOption,
   signal,
-  mode = "preview",
-  qualityProfile = "interactive",
-  strictErrors = mode === "export",
+  intent,
+  mode: modeOption,
+  qualityProfile: qualityProfileOption,
+  strictErrors: strictErrorsOption,
   sourceCacheKey,
   renderSlot,
   viewportRoi,
 }: RenderImageOptions) => {
   const callStartAt = performance.now();
+  const intentConfig = intent ? resolveRenderIntent(intent) : null;
+  const mode = intentConfig?.mode ?? modeOption ?? "preview";
+  const qualityProfile =
+    intentConfig?.qualityProfile ?? qualityProfileOption ?? "interactive";
+  const strictErrors = strictErrorsOption ?? mode === "export";
+  const skipHalationBloom =
+    skipHalationBloomOption ?? intentConfig?.skipHalationBloom ?? false;
   const runtimeConfig = getRendererRuntimeConfig();
   const featureFlags = runtimeConfig.features;
   const incrementalPipeline = featureFlags.incrementalPipeline;

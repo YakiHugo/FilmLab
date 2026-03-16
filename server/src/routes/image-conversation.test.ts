@@ -6,10 +6,16 @@ const repositoryMock = {
   getConversationById: vi.fn(),
   getOrCreateActiveConversation: vi.fn(),
   getConversationSnapshot: vi.fn(),
+  getPromptArtifactsForTurn: vi.fn(),
   clearActiveConversation: vi.fn(),
   deleteTurn: vi.fn(),
   getGeneratedImageByCapability: vi.fn(),
+  createTurn: vi.fn(),
   createGeneration: vi.fn(),
+  createRun: vi.fn(),
+  createPromptVersions: vi.fn(),
+  updateConversationPromptState: vi.fn(),
+  acceptConversationTurn: vi.fn(),
   completeGenerationSuccess: vi.fn(),
   completeGenerationFailure: vi.fn(),
   turnExists: vi.fn(),
@@ -108,6 +114,151 @@ describe("imageConversationRoute", () => {
     await app.close();
   });
 
+  it("requires auth to read prompt artifacts", async () => {
+    const app = await createApp();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/image-conversation/turns/turn-1/prompt-artifacts",
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(repositoryMock.getPromptArtifactsForTurn).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("returns ordered prompt artifacts for an owned turn", async () => {
+    repositoryMock.getPromptArtifactsForTurn.mockResolvedValue({
+      turnId: "turn-1",
+      versions: [
+        {
+          id: "artifact-1",
+          runId: "run-1",
+          turnId: "turn-1",
+          version: 1,
+          stage: "rewrite",
+          targetKey: null,
+          attempt: null,
+          compilerVersion: "prompt-compiler.v1.2",
+          capabilityVersion: "prompt-capabilities.v1.2",
+          originalPrompt: "Studio portrait",
+          promptIntent: null,
+          turnDelta: null,
+          committedStateBefore: null,
+          candidateStateAfter: null,
+          promptIR: null,
+          compiledPrompt: null,
+          dispatchedPrompt: null,
+          providerEffectivePrompt: null,
+          semanticLosses: [],
+          warnings: [],
+          hashes: {
+            stateHash: "state-1",
+            irHash: "ir-1",
+            prefixHash: "prefix-1",
+            payloadHash: "payload-1",
+          },
+          createdAt: "2026-03-15T00:00:00.000Z",
+        },
+        {
+          id: "artifact-2",
+          runId: "run-1",
+          turnId: "turn-1",
+          version: 2,
+          stage: "dispatch",
+          targetKey: "dashscope:qwen-image-2.0-pro",
+          attempt: 1,
+          compilerVersion: "prompt-compiler.v1.2",
+          capabilityVersion: "prompt-capabilities.v1.2",
+          originalPrompt: "Studio portrait",
+          promptIntent: null,
+          turnDelta: null,
+          committedStateBefore: null,
+          candidateStateAfter: null,
+          promptIR: null,
+          compiledPrompt: "compiled prompt",
+          dispatchedPrompt: "dispatch prompt",
+          providerEffectivePrompt: "provider prompt",
+          semanticLosses: [],
+          warnings: [],
+          hashes: {
+            stateHash: "state-2",
+            irHash: "ir-2",
+            prefixHash: "prefix-2",
+            payloadHash: "payload-2",
+          },
+          createdAt: "2026-03-15T00:00:01.000Z",
+        },
+      ],
+    });
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/image-conversation/turns/turn-1/prompt-artifacts",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(repositoryMock.getPromptArtifactsForTurn).toHaveBeenCalledWith("user-1", "turn-1");
+    expect(response.json()).toMatchObject({
+      turnId: "turn-1",
+      versions: [
+        { id: "artifact-1", stage: "rewrite", version: 1 },
+        { id: "artifact-2", stage: "dispatch", version: 2 },
+      ],
+    });
+
+    await app.close();
+  });
+
+  it("returns an empty artifact list for an owned turn without stored compiler records", async () => {
+    repositoryMock.getPromptArtifactsForTurn.mockResolvedValue({
+      turnId: "turn-1",
+      versions: [],
+    });
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/image-conversation/turns/turn-1/prompt-artifacts",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      turnId: "turn-1",
+      versions: [],
+    });
+
+    await app.close();
+  });
+
+  it("returns 404 when prompt artifacts are requested for a missing turn", async () => {
+    repositoryMock.getPromptArtifactsForTurn.mockResolvedValue(null);
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/image-conversation/turns/missing-turn/prompt-artifacts",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({
+      error: "Turn not found.",
+    });
+
+    await app.close();
+  });
+
   it("clears and recreates the active conversation", async () => {
     repositoryMock.clearActiveConversation.mockResolvedValue({
       id: "conversation-2",
@@ -186,6 +337,69 @@ describe("imageConversationRoute", () => {
     expect(deleted.statusCode).toBe(200);
     expect(repositoryMock.deleteTurn).toHaveBeenNthCalledWith(1, "user-1", "turn-1");
     expect(repositoryMock.deleteTurn).toHaveBeenNthCalledWith(2, "user-1", "turn-2");
+
+    await app.close();
+  });
+
+  it("accepts a generated result as the conversation base asset", async () => {
+    repositoryMock.acceptConversationTurn.mockResolvedValue({
+      id: "conversation-1",
+      createdAt: "2026-03-12T00:00:00.000Z",
+      updatedAt: "2026-03-12T00:05:00.000Z",
+      thread: {
+        id: "conversation-1",
+        creativeBrief: {
+          latestPrompt: "Studio portrait",
+          latestModelId: "seedream-v5",
+          acceptedAssetId: "thread-asset-1",
+          selectedAssetIds: ["thread-asset-1"],
+          recentAssetRefIds: [],
+        },
+        promptState: {
+          committed: {
+            prompt: "Studio portrait",
+            preserve: [],
+            avoid: [],
+            styleDirectives: [],
+            continuityTargets: [],
+            editOps: [],
+            referenceAssetIds: [],
+          },
+          candidate: null,
+          baseAssetId: "thread-asset-1",
+          candidateTurnId: null,
+          revision: 2,
+        },
+        createdAt: "2026-03-12T00:00:00.000Z",
+        updatedAt: "2026-03-12T00:05:00.000Z",
+      },
+      turns: [],
+      runs: [],
+      assets: [],
+      assetEdges: [],
+      jobs: [],
+    });
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-conversation/turns/turn-1/accept",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+      payload: {
+        assetId: "thread-asset-1",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(repositoryMock.acceptConversationTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user-1",
+        turnId: "turn-1",
+        assetId: "thread-asset-1",
+      })
+    );
 
     await app.close();
   });

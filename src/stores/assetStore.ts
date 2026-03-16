@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 import pLimit from "p-limit";
 import { presets } from "@/data/presets";
-import { normalizeAdjustments } from "@/lib/adjustments";
+import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import {
   completeAssetUpload,
   fetchAssetChanges,
@@ -14,13 +14,10 @@ import { getCurrentUserId } from "@/lib/authToken";
 import { sha256FromBlob } from "@/lib/hash";
 import {
   cloneEditorLayers,
-  createBaseLayer,
   createEditorLayerId,
   ensureAssetLayers,
   moveLayerByDirection,
   resolveBaseAdjustmentsFromLayers,
-  resolveLayerAdjustments,
-  resolveBaseLayer,
 } from "@/lib/editorLayers";
 import {
   clearAssets,
@@ -37,6 +34,19 @@ import {
   saveProject,
   type StoredAsset,
 } from "@/lib/db";
+import { createRenderedThumbnailBlob } from "@/features/editor/thumbnail";
+import {
+  createEditorAssetSnapshot,
+  isEditorAssetSnapshotEqual,
+} from "@/features/editor/history";
+import {
+  describeRenderMaterializationUnsupportedReason,
+  executeRenderMaterialization,
+  isRenderMaterializationPlanCurrent,
+  resolveRenderMaterialization,
+  type RenderMaterializationIntent,
+} from "@/features/editor/renderMaterialization";
+import { findAssetsReferencingTextureAsset } from "@/features/editor/renderDependencies";
 import { emit } from "@/lib/storeEvents";
 import { loadCustomPresets } from "@/features/editor/presetUtils";
 import type { Asset, AssetRemoteSyncStatus, EditorLayer } from "@/types";
@@ -61,6 +71,7 @@ import { MAX_SYNC_ATTEMPTS, createSyncJob, isSyncJobReady, withSyncJobFailure } 
 import { selectAssets, selectImportProgress, selectIsImporting, selectIsLoading, selectProject, selectSelectedAssetIds } from "./project/selectors";
 import { mergeTags, normalizeTags, removeTags } from "./project/tagging";
 import type { AddAssetsResult, ProjectState } from "./project/types";
+import { useEditorStore } from "./editorStore";
 
 const findPresetById = (presetId: string) => {
   const builtIn = presets.find((preset) => preset.id === presetId);
@@ -187,6 +198,111 @@ const createEmptyImportResult = (): AddAssetsResult => ({
 const syncNowIso = () => new Date().toISOString();
 let isSyncRunning = false;
 let lastRemoteChangeCursor: string | undefined;
+const THUMBNAIL_REFRESH_DEBOUNCE_MS = 220;
+const pendingThumbnailRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const thumbnailRefreshVersions = new Map<string, number>();
+
+const shouldRefreshRenderedThumbnail = (
+  update: ReturnType<typeof normalizeAssetUpdate>
+) =>
+  Boolean(
+    update.adjustments ||
+      update.layers ||
+      update.filmProfile ||
+      update.filmOverrides ||
+      update.filmProfileId !== undefined ||
+      update.presetId !== undefined ||
+      update.intensity !== undefined
+  );
+
+const shouldRefreshReferencedRenderedThumbnails = (
+  update: ReturnType<typeof normalizeAssetUpdate>
+) =>
+  Boolean(
+    update.filmProfile ||
+      update.filmOverrides ||
+      update.filmProfileId !== undefined ||
+      update.presetId !== undefined ||
+      update.intensity !== undefined ||
+      update.contentHash !== undefined
+  );
+
+const scheduleRenderedThumbnailRefresh = (
+  assetId: string,
+  set: (updater: (state: ProjectState) => Partial<ProjectState>) => void,
+  get: () => ProjectState
+) => {
+  const pending = pendingThumbnailRefreshTimers.get(assetId);
+  if (pending) {
+    clearTimeout(pending);
+  }
+  const version = (thumbnailRefreshVersions.get(assetId) ?? 0) + 1;
+  thumbnailRefreshVersions.set(assetId, version);
+
+  pendingThumbnailRefreshTimers.set(
+    assetId,
+    setTimeout(() => {
+      pendingThumbnailRefreshTimers.delete(assetId);
+      void (async () => {
+        const currentState = get();
+        const currentAsset = currentState.assets.find((asset) => asset.id === assetId);
+        if (!currentAsset?.blob) {
+          return;
+        }
+
+        const thumbnailBlob = await createRenderedThumbnailBlob(
+          currentAsset,
+          currentState.assets
+        );
+        if (!thumbnailBlob || thumbnailRefreshVersions.get(assetId) !== version) {
+          return;
+        }
+
+        let previousThumbnailUrl: string | null = null;
+        let persistedAsset: Asset | null = null;
+        const nextThumbnailUrl = URL.createObjectURL(thumbnailBlob);
+
+        set((state) => ({
+          assets: state.assets.map((asset) => {
+            if (asset.id !== assetId) {
+              return asset;
+            }
+            previousThumbnailUrl =
+              asset.thumbnailUrl && asset.thumbnailUrl !== asset.objectUrl
+                ? asset.thumbnailUrl
+                : null;
+            persistedAsset = {
+              ...asset,
+              thumbnailBlob,
+              thumbnailUrl: nextThumbnailUrl,
+            };
+            return persistedAsset;
+          }),
+        }));
+
+        if (previousThumbnailUrl) {
+          URL.revokeObjectURL(previousThumbnailUrl);
+        }
+        if (persistedAsset) {
+          persistAsset(persistedAsset);
+        }
+      })().catch((error) => {
+        console.warn("Failed to refresh rendered thumbnail", assetId, error);
+      });
+    }, THUMBNAIL_REFRESH_DEBOUNCE_MS)
+  );
+};
+
+const scheduleReferencedThumbnailRefreshes = (
+  assetId: string,
+  set: (updater: (state: ProjectState) => Partial<ProjectState>) => void,
+  get: () => ProjectState
+) => {
+  const dependentAssetIds = findAssetsReferencingTextureAsset(get().assets, assetId);
+  dependentAssetIds.forEach((dependentAssetId) => {
+    scheduleRenderedThumbnailRefresh(dependentAssetId, set, get);
+  });
+};
 
 const withRemoteStatus = (
   asset: Asset,
@@ -247,17 +363,173 @@ const enqueueUploadJobs = (assets: Asset[]) => {
   );
 };
 
+const replaceAssetFileExtension = (fileName: string, extension: string) => {
+  const baseName = fileName.replace(/\.[^/.]+$/, "");
+  return `${baseName}.${extension}`;
+};
+
 ensurePersistFlushOnUnload();
 
 export const useAssetStore = create<ProjectState>()(
   devtools(
-    (set, get) => ({
-      project: null,
-      assets: [],
-      isLoading: true,
-      isImporting: false,
-      importProgress: null,
-      selectedAssetIds: [],
+    (set, get) => {
+      const runRenderMaterialization = async (
+        intent: RenderMaterializationIntent,
+        assetId: string,
+        layerId?: string
+      ) => {
+        const initialState = get();
+        const asset = initialState.assets.find((entry) => entry.id === assetId) ?? null;
+        if (!asset) {
+          return false;
+        }
+        const initialSnapshot = createEditorAssetSnapshot(asset);
+
+        const resolved = resolveRenderMaterialization({
+          asset,
+          assets: initialState.assets,
+          intent,
+          layerId,
+        });
+        if (!resolved.supported) {
+          console.warn(describeRenderMaterializationUnsupportedReason(resolved.reason), {
+            assetId,
+            intent,
+            layerId,
+          });
+          return false;
+        }
+
+        let rendered;
+        try {
+          rendered = await executeRenderMaterialization({
+            asset,
+            resolved: resolved.value,
+          });
+        } catch (error) {
+          console.warn("Render-backed materialization failed.", {
+            assetId,
+            intent,
+            layerId,
+            error,
+          });
+          return false;
+        }
+
+        const currentState = get();
+        const currentAsset = currentState.assets.find((entry) => entry.id === assetId) ?? null;
+        if (!currentAsset) {
+          return false;
+        }
+        const currentSnapshot = createEditorAssetSnapshot(currentAsset);
+
+        if (
+          currentAsset.name !== asset.name ||
+          !isEditorAssetSnapshotEqual(initialSnapshot, currentSnapshot)
+        ) {
+          console.warn("Skipped render-backed materialization because the authoring state changed.", {
+            assetId,
+            intent,
+            layerId,
+          });
+          return false;
+        }
+
+        if (
+          !isRenderMaterializationPlanCurrent(resolved.value.plan, {
+            asset: currentAsset,
+            assets: currentState.assets,
+            intent,
+            layerId,
+          })
+        ) {
+          console.warn("Skipped stale render-backed materialization plan.", {
+            assetId,
+            intent,
+            layerId,
+            renderGraphKey: resolved.value.plan.renderGraphKey,
+          });
+          return false;
+        }
+
+        const resetAdjustments = createDefaultAdjustments();
+        const normalizedLayers = ensureAssetLayers({
+          id: currentAsset.id,
+          adjustments: resetAdjustments,
+          layers: resolved.value.nextLayers,
+        });
+
+        let previousObjectUrl: string | null = null;
+        let previousThumbnailUrl: string | null = null;
+        let queuedAsset: Asset | null = null;
+
+        set((state) => ({
+          assets: state.assets.map((entry) => {
+            if (entry.id !== assetId) {
+              return entry;
+            }
+
+            const nextObjectUrl = URL.createObjectURL(rendered.blob);
+            const nextThumbnailUrl = rendered.thumbnailBlob
+              ? URL.createObjectURL(rendered.thumbnailBlob)
+              : nextObjectUrl;
+            previousObjectUrl = entry.objectUrl;
+            previousThumbnailUrl =
+              entry.thumbnailUrl && entry.thumbnailUrl !== entry.objectUrl
+                ? entry.thumbnailUrl
+                : null;
+
+            queuedAsset = toQueuedUploadAsset({
+              ...entry,
+              name:
+                rendered.type === entry.type
+                  ? entry.name
+                  : replaceAssetFileExtension(entry.name, rendered.extension),
+              type: rendered.type,
+              size: rendered.blob.size,
+              blob: rendered.blob,
+              objectUrl: nextObjectUrl,
+              thumbnailBlob: rendered.thumbnailBlob,
+              thumbnailUrl: nextThumbnailUrl,
+              contentHash: rendered.contentHash,
+              metadata: rendered.metadata,
+              presetId: undefined,
+              intensity: undefined,
+              filmProfileId: undefined,
+              filmProfile: undefined,
+              filmOverrides: undefined,
+              adjustments: resetAdjustments,
+              layers: normalizedLayers,
+            });
+
+            return queuedAsset;
+          }),
+        }));
+
+        if (previousObjectUrl) {
+          URL.revokeObjectURL(previousObjectUrl);
+        }
+        if (previousThumbnailUrl) {
+          URL.revokeObjectURL(previousThumbnailUrl);
+        }
+        if (!queuedAsset) {
+          return false;
+        }
+
+        persistAsset(queuedAsset);
+        enqueueUploadJobs([queuedAsset]);
+        useEditorStore.getState().clearHistory(assetId);
+        scheduleReferencedThumbnailRefreshes(assetId, set, get);
+        return true;
+      };
+
+      return {
+        project: null,
+        assets: [],
+        isLoading: true,
+        isImporting: false,
+        importProgress: null,
+        selectedAssetIds: [],
 
       init: async () => {
         set({ isLoading: true });
@@ -881,6 +1153,10 @@ export const useAssetStore = create<ProjectState>()(
           }));
           queued.forEach(persistAsset);
           enqueueUploadJobs(queued);
+          queued.forEach((asset) => {
+            scheduleRenderedThumbnailRefresh(asset.id, set, get);
+            scheduleReferencedThumbnailRefreshes(asset.id, set, get);
+          });
         }
       },
 
@@ -905,6 +1181,10 @@ export const useAssetStore = create<ProjectState>()(
           }));
           queued.forEach(persistAsset);
           enqueueUploadJobs(queued);
+          queued.forEach((asset) => {
+            scheduleRenderedThumbnailRefresh(asset.id, set, get);
+            scheduleReferencedThumbnailRefreshes(asset.id, set, get);
+          });
         }
       },
 
@@ -922,6 +1202,12 @@ export const useAssetStore = create<ProjectState>()(
         set({
           assets: nextAssets.map((asset) => (queued && asset.id === assetId ? queued : asset)),
         });
+        if (shouldRefreshRenderedThumbnail(normalizedUpdate)) {
+          scheduleRenderedThumbnailRefresh(assetId, set, get);
+        }
+        if (shouldRefreshReferencedRenderedThumbnails(normalizedUpdate)) {
+          scheduleReferencedThumbnailRefreshes(assetId, set, get);
+        }
       },
 
       updateAssetOnly: (assetId, update) => {
@@ -952,6 +1238,7 @@ export const useAssetStore = create<ProjectState>()(
           }));
           persistAsset(queued);
           enqueueUploadJobs([queued]);
+          scheduleRenderedThumbnailRefresh(assetId, set, get);
         }
       },
 
@@ -982,6 +1269,7 @@ export const useAssetStore = create<ProjectState>()(
           }));
           persistAsset(queued);
           enqueueUploadJobs([queued]);
+          scheduleRenderedThumbnailRefresh(assetId, set, get);
         }
       },
 
@@ -1005,6 +1293,7 @@ export const useAssetStore = create<ProjectState>()(
           }));
           persistAsset(queued);
           enqueueUploadJobs([queued]);
+          scheduleRenderedThumbnailRefresh(assetId, set, get);
         }
       },
 
@@ -1028,6 +1317,7 @@ export const useAssetStore = create<ProjectState>()(
           }));
           persistAsset(queued);
           enqueueUploadJobs([queued]);
+          scheduleRenderedThumbnailRefresh(assetId, set, get);
         }
       },
 
@@ -1064,96 +1354,15 @@ export const useAssetStore = create<ProjectState>()(
           }));
           persistAsset(queued);
           enqueueUploadJobs([queued]);
+          scheduleRenderedThumbnailRefresh(assetId, set, get);
         }
       },
 
-      mergeLayerDown: (assetId, layerId) => {
-        let changed: Asset | null = null;
-        set((state) => ({
-          assets: state.assets.map((asset) => {
-            if (asset.id !== assetId) {
-              return asset;
-            }
-            changed = withLayerMutation(asset, (layers) => {
-              const index = layers.findIndex((layer) => layer.id === layerId);
-              if (index < 0 || index >= layers.length - 1) {
-                return layers;
-              }
-              const current = layers[index]!;
-              const below = layers[index + 1]!;
-              if (current.type === "base") {
-                return layers;
-              }
+      mergeLayerDown: (assetId, layerId) =>
+        runRenderMaterialization("merge-down", assetId, layerId),
 
-              const mergedAdjustments = {
-                ...resolveLayerAdjustments(below, asset.adjustments),
-                ...(current.adjustments ?? {}),
-              };
-
-              const nextLayers = cloneEditorLayers(layers);
-              nextLayers[index + 1] = {
-                ...below,
-                adjustments: mergedAdjustments,
-              };
-              nextLayers.splice(index, 1);
-              return nextLayers;
-            });
-            return changed;
-          }),
-        }));
-        if (changed) {
-          const queued = toQueuedUploadAsset(changed);
-          set((state) => ({
-            assets: state.assets.map((asset) => (asset.id === queued.id ? queued : asset)),
-          }));
-          persistAsset(queued);
-          enqueueUploadJobs([queued]);
-        }
-      },
-
-      flattenLayers: (assetId) => {
-        let changed: Asset | null = null;
-        set((state) => ({
-          assets: state.assets.map((asset) => {
-            if (asset.id !== assetId) {
-              return asset;
-            }
-            changed = withLayerMutation(asset, (layers) => {
-              const base = resolveBaseLayer(layers) ?? createBaseLayer(asset);
-              let flattenedAdjustments = resolveLayerAdjustments(base, asset.adjustments);
-              for (const layer of [...layers].reverse()) {
-                if (layer.id === base.id || !layer.visible || !layer.adjustments) {
-                  continue;
-                }
-                flattenedAdjustments = {
-                  ...flattenedAdjustments,
-                  ...layer.adjustments,
-                };
-              }
-              return [
-                {
-                  ...base,
-                  name: "Background",
-                  type: "base",
-                  visible: true,
-                  opacity: 100,
-                  blendMode: "normal",
-                  adjustments: flattenedAdjustments,
-                },
-              ];
-            });
-            return changed;
-          }),
-        }));
-        if (changed) {
-          const queued = toQueuedUploadAsset(changed);
-          set((state) => ({
-            assets: state.assets.map((asset) => (asset.id === queued.id ? queued : asset)),
-          }));
-          persistAsset(queued);
-          enqueueUploadJobs([queued]);
-        }
-      },
+      flattenLayers: (assetId) =>
+        runRenderMaterialization("flatten", assetId),
 
       setSelectedAssetIds: (assetIds) => {
         const unique = Array.from(new Set(assetIds));
@@ -1349,7 +1558,8 @@ export const useAssetStore = create<ProjectState>()(
 
         emit("project:reset");
       },
-    }),
+      };
+    },
     { name: "AssetStore", enabled: process.env.NODE_ENV === "development" }
   )
 );

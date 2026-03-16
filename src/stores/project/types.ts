@@ -56,8 +56,8 @@ export interface ProjectState {
   updateLayer: (assetId: string, layerId: string, patch: Partial<EditorLayer>) => void;
   moveLayer: (assetId: string, layerId: string, direction: "up" | "down") => void;
   duplicateLayer: (assetId: string, layerId: string) => void;
-  mergeLayerDown: (assetId: string, layerId: string) => void;
-  flattenLayers: (assetId: string) => void;
+  mergeLayerDown: (assetId: string, layerId: string) => Promise<boolean>;
+  flattenLayers: (assetId: string) => Promise<boolean>;
 
   setSelectedAssetIds: (assetIds: string[]) => void;
   clearAssetSelection: () => void;

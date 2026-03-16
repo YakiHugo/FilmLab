@@ -1,5 +1,15 @@
-import type { FrontendImageModelId, ImageGenerationConstraintSummary, ImageModelDefaults, LogicalImageModelId } from "./imageModelCatalog";
-import type { ImageAspectRatio, ImageModelFamilyId, ImageStyleId } from "./imageGeneration";
+import type {
+  FrontendImageModelId,
+  ImageGenerationConstraintSummary,
+  ImageModelDefaults,
+  ImageModelPromptCompilerCapabilities,
+  LogicalImageModelId,
+} from "./imageModelCatalog";
+import type {
+  ImageAspectRatio,
+  ImageModelFamilyId,
+  ImageStyleId,
+} from "./imageGeneration";
 import type { ImageModelParamDefinition, ImageModelParamValue } from "./imageModelParamTypes";
 
 export interface ImageModelCapabilityFact {
@@ -9,8 +19,11 @@ export interface ImageModelCapabilityFact {
   constraints: ImageGenerationConstraintSummary;
   parameterDefinitions: ImageModelParamDefinition[];
   defaults: ImageModelDefaults;
+  promptCompiler: ImageModelPromptCompilerCapabilities;
   supportsUpscale: boolean;
 }
+
+export const PROMPT_COMPILER_CAPABILITY_VERSION = "prompt-compiler-facts.v1";
 
 const NO_REFERENCE_SUPPORT = {
   enabled: false,
@@ -95,6 +108,29 @@ const KLING_FIELDS: ImageModelParamDefinition[] = [
   },
 ];
 
+const DEFAULT_ACCEPTED_OPERATIONS: ImageModelPromptCompilerCapabilities["acceptedOperations"] = [
+  "image.generate",
+  "image.edit",
+  "image.variation",
+];
+
+const buildContinuityStrength = (
+  strength: ImageModelPromptCompilerCapabilities["continuityStrength"][keyof ImageModelPromptCompilerCapabilities["continuityStrength"]]
+): ImageModelPromptCompilerCapabilities["continuityStrength"] => ({
+  subject: strength,
+  style: strength,
+  composition: strength,
+  text: strength,
+});
+
+const buildReferenceRoleHandling = (
+  handling: ImageModelPromptCompilerCapabilities["referenceRoleHandling"][keyof ImageModelPromptCompilerCapabilities["referenceRoleHandling"]]
+): ImageModelPromptCompilerCapabilities["referenceRoleHandling"] => ({
+  reference: handling,
+  edit: handling,
+  variation: handling,
+});
+
 const cloneParameterDefinitions = (definitions: ImageModelParamDefinition[]) =>
   definitions.map((definition) => ({
     ...definition,
@@ -113,6 +149,7 @@ const createCapabilityFact = (input: {
   modelFamily: ImageModelFamilyId;
   constraints: ImageGenerationConstraintSummary;
   parameterDefinitions: ImageModelParamDefinition[];
+  promptCompiler: ImageModelPromptCompilerCapabilities;
   defaultAspectRatio?: ImageAspectRatio;
   defaultStyle?: ImageStyleId;
   supportsUpscale?: boolean;
@@ -148,6 +185,13 @@ const createCapabilityFact = (input: {
     },
     parameterDefinitions,
     defaults,
+    promptCompiler: {
+      ...input.promptCompiler,
+      acceptedOperations: [...input.promptCompiler.acceptedOperations],
+      executableOperations: [...input.promptCompiler.executableOperations],
+      referenceRoleHandling: { ...input.promptCompiler.referenceRoleHandling },
+      continuityStrength: { ...input.promptCompiler.continuityStrength },
+    },
     supportsUpscale: input.supportsUpscale ?? false,
   } satisfies ImageModelCapabilityFact;
 };
@@ -158,6 +202,15 @@ const CAPABILITY_FACTS: ImageModelCapabilityFact[] = [
     logicalModel: "image.seedream.v5",
     modelFamily: "seedream",
     parameterDefinitions: SEEDREAM_COMMON_FIELDS,
+    promptCompiler: {
+      acceptedOperations: DEFAULT_ACCEPTED_OPERATIONS,
+      executableOperations: ["image.generate"],
+      negativePromptStrategy: "merge_into_main",
+      sourceImageExecution: "unsupported",
+      referenceRoleHandling: buildReferenceRoleHandling("compiled_to_text"),
+      continuityStrength: buildContinuityStrength("weak"),
+      promptSurface: "natural_language",
+    },
     constraints: {
       supportsCustomSize: false,
       supportedAspectRatios: COMMON_ASPECT_RATIOS,
@@ -171,6 +224,15 @@ const CAPABILITY_FACTS: ImageModelCapabilityFact[] = [
     logicalModel: "image.seedream.v4",
     modelFamily: "seedream",
     parameterDefinitions: SEEDREAM_COMMON_FIELDS,
+    promptCompiler: {
+      acceptedOperations: DEFAULT_ACCEPTED_OPERATIONS,
+      executableOperations: ["image.generate"],
+      negativePromptStrategy: "merge_into_main",
+      sourceImageExecution: "unsupported",
+      referenceRoleHandling: buildReferenceRoleHandling("compiled_to_text"),
+      continuityStrength: buildContinuityStrength("weak"),
+      promptSurface: "natural_language",
+    },
     constraints: {
       supportsCustomSize: false,
       supportedAspectRatios: COMMON_ASPECT_RATIOS,
@@ -184,11 +246,30 @@ const CAPABILITY_FACTS: ImageModelCapabilityFact[] = [
     logicalModel: "image.qwen.v2.pro",
     modelFamily: "qwen",
     parameterDefinitions: QWEN_FIELDS,
+    promptCompiler: {
+      acceptedOperations: DEFAULT_ACCEPTED_OPERATIONS,
+      executableOperations: ["image.generate"],
+      negativePromptStrategy: "native",
+      sourceImageExecution: "reference_guided",
+      referenceRoleHandling: {
+        reference: "native",
+        edit: "compiled_to_reference",
+        variation: "compiled_to_reference",
+      },
+      continuityStrength: buildContinuityStrength("strong"),
+      promptSurface: "natural_language",
+    },
     constraints: {
       supportsCustomSize: true,
       supportedAspectRatios: CUSTOM_WIDESCREEN_ASPECT_RATIOS,
       maxBatchSize: 6,
-      referenceImages: { ...NO_REFERENCE_SUPPORT, supportedTypes: [] },
+      referenceImages: {
+        enabled: true,
+        maxImages: 3,
+        supportedTypes: ["content"],
+        supportsWeight: false,
+        maxFileSizeBytes: 10 * 1024 * 1024,
+      },
       unsupportedFields: ["guidanceScale", "steps"],
     },
   }),
@@ -197,6 +278,15 @@ const CAPABILITY_FACTS: ImageModelCapabilityFact[] = [
     logicalModel: "image.qwen.v2",
     modelFamily: "qwen",
     parameterDefinitions: QWEN_FIELDS,
+    promptCompiler: {
+      acceptedOperations: DEFAULT_ACCEPTED_OPERATIONS,
+      executableOperations: ["image.generate"],
+      negativePromptStrategy: "native",
+      sourceImageExecution: "unsupported",
+      referenceRoleHandling: buildReferenceRoleHandling("compiled_to_text"),
+      continuityStrength: buildContinuityStrength("moderate"),
+      promptSurface: "natural_language",
+    },
     constraints: {
       supportsCustomSize: true,
       supportedAspectRatios: CUSTOM_WIDESCREEN_ASPECT_RATIOS,
@@ -210,6 +300,15 @@ const CAPABILITY_FACTS: ImageModelCapabilityFact[] = [
     logicalModel: "image.zimage.turbo",
     modelFamily: "zimage",
     parameterDefinitions: Z_IMAGE_FIELDS,
+    promptCompiler: {
+      acceptedOperations: DEFAULT_ACCEPTED_OPERATIONS,
+      executableOperations: ["image.generate"],
+      negativePromptStrategy: "merge_into_main",
+      sourceImageExecution: "unsupported",
+      referenceRoleHandling: buildReferenceRoleHandling("compiled_to_text"),
+      continuityStrength: buildContinuityStrength("moderate"),
+      promptSurface: "natural_language",
+    },
     constraints: {
       supportsCustomSize: true,
       supportedAspectRatios: CUSTOM_WIDESCREEN_ASPECT_RATIOS,
@@ -223,6 +322,15 @@ const CAPABILITY_FACTS: ImageModelCapabilityFact[] = [
     logicalModel: "image.kling.v2_1",
     modelFamily: "kling",
     parameterDefinitions: KLING_FIELDS,
+    promptCompiler: {
+      acceptedOperations: DEFAULT_ACCEPTED_OPERATIONS,
+      executableOperations: ["image.generate"],
+      negativePromptStrategy: "native",
+      sourceImageExecution: "unsupported",
+      referenceRoleHandling: buildReferenceRoleHandling("compiled_to_text"),
+      continuityStrength: buildContinuityStrength("moderate"),
+      promptSurface: "natural_language",
+    },
     constraints: {
       supportsCustomSize: false,
       supportedAspectRatios: WIDESCREEN_ASPECT_RATIOS,
@@ -236,6 +344,15 @@ const CAPABILITY_FACTS: ImageModelCapabilityFact[] = [
     logicalModel: "image.kling.v3",
     modelFamily: "kling",
     parameterDefinitions: KLING_FIELDS,
+    promptCompiler: {
+      acceptedOperations: DEFAULT_ACCEPTED_OPERATIONS,
+      executableOperations: ["image.generate"],
+      negativePromptStrategy: "native",
+      sourceImageExecution: "unsupported",
+      referenceRoleHandling: buildReferenceRoleHandling("compiled_to_text"),
+      continuityStrength: buildContinuityStrength("moderate"),
+      promptSurface: "natural_language",
+    },
     constraints: {
       supportsCustomSize: false,
       supportedAspectRatios: WIDESCREEN_ASPECT_RATIOS,
@@ -268,6 +385,13 @@ const cloneCapabilityFact = (fact: ImageModelCapabilityFact): ImageModelCapabili
   defaults: {
     ...fact.defaults,
     modelParams: { ...fact.defaults.modelParams },
+  },
+  promptCompiler: {
+    ...fact.promptCompiler,
+    acceptedOperations: [...fact.promptCompiler.acceptedOperations],
+    executableOperations: [...fact.promptCompiler.executableOperations],
+    referenceRoleHandling: { ...fact.promptCompiler.referenceRoleHandling },
+    continuityStrength: { ...fact.promptCompiler.continuityStrength },
   },
 });
 

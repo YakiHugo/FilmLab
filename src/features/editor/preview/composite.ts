@@ -1,122 +1,36 @@
-import type { EditorLayerBlendMode } from "@/types";
+import type {
+  CanvasCompositeLayerSurface,
+  CanvasCompositeRegion,
+} from "../composition";
+import {
+  compositeCanvasLayers,
+  copyCanvas,
+  ensureCanvasSize,
+  resolveLayerBlendOperation,
+} from "../composition";
 
-export interface PreviewCompositeRegion {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+export type PreviewCompositeRegion = CanvasCompositeRegion;
+export type RetainedPreviewLayerSurface = CanvasCompositeLayerSurface;
 
-export interface RetainedPreviewLayerSurface {
-  canvas: CanvasImageSource;
-  opacity: number;
-  blendMode: EditorLayerBlendMode;
-}
+export const ensurePreviewCanvasSize = ensureCanvasSize;
 
-export const ensurePreviewCanvasSize = (
-  canvas: HTMLCanvasElement,
-  width: number,
-  height: number
-) => {
-  const safeWidth = Math.max(1, Math.round(width));
-  const safeHeight = Math.max(1, Math.round(height));
-  if (canvas.width !== safeWidth) {
-    canvas.width = safeWidth;
-  }
-  if (canvas.height !== safeHeight) {
-    canvas.height = safeHeight;
-  }
-};
+export const resolvePreviewLayerBlendOperation = resolveLayerBlendOperation;
 
-export const resolvePreviewLayerBlendOperation = (
-  blendMode: EditorLayerBlendMode
-): GlobalCompositeOperation => {
-  if (blendMode === "multiply") {
-    return "multiply";
-  }
-  if (blendMode === "screen") {
-    return "screen";
-  }
-  if (blendMode === "overlay") {
-    return "overlay";
-  }
-  if (blendMode === "softLight") {
-    return "soft-light";
-  }
-  return "source-over";
-};
+export { resolveLayerBlendOperation };
 
-export const copyPreviewCanvas = (
-  targetCanvas: HTMLCanvasElement,
-  sourceCanvas: HTMLCanvasElement
-) => {
-  ensurePreviewCanvasSize(targetCanvas, sourceCanvas.width, sourceCanvas.height);
-  const context = targetCanvas.getContext("2d", { willReadFrequently: true });
-  if (!context) {
-    return false;
-  }
-  context.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-  context.drawImage(sourceCanvas, 0, 0, targetCanvas.width, targetCanvas.height);
-  return true;
-};
-
-interface CompositeRetainedPreviewLayersOptions {
-  targetCanvas: HTMLCanvasElement;
-  layerSurfaces: RetainedPreviewLayerSurface[];
-  region?: PreviewCompositeRegion | null;
-}
+export const copyPreviewCanvas = copyCanvas;
 
 export const compositeRetainedPreviewLayers = ({
   targetCanvas,
   layerSurfaces,
   region,
-}: CompositeRetainedPreviewLayersOptions) => {
-  const context = targetCanvas.getContext("2d", { willReadFrequently: true });
-  if (!context) {
-    return false;
-  }
-
-  const drawRegion =
-    region && region.width > 0 && region.height > 0
-      ? {
-          x: Math.max(0, Math.round(region.x)),
-          y: Math.max(0, Math.round(region.y)),
-          width: Math.max(1, Math.round(region.width)),
-          height: Math.max(1, Math.round(region.height)),
-        }
-      : null;
-
-  if (drawRegion) {
-    context.clearRect(drawRegion.x, drawRegion.y, drawRegion.width, drawRegion.height);
-  } else {
-    context.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-  }
-
-  for (const layerSurface of layerSurfaces) {
-    context.save();
-    context.globalAlpha = layerSurface.opacity;
-    context.globalCompositeOperation = resolvePreviewLayerBlendOperation(
-      layerSurface.blendMode
-    );
-    if (drawRegion) {
-      context.drawImage(
-        layerSurface.canvas,
-        drawRegion.x,
-        drawRegion.y,
-        drawRegion.width,
-        drawRegion.height,
-        drawRegion.x,
-        drawRegion.y,
-        drawRegion.width,
-        drawRegion.height
-      );
-    } else {
-      context.drawImage(layerSurface.canvas, 0, 0, targetCanvas.width, targetCanvas.height);
-    }
-    context.restore();
-  }
-
-  context.globalCompositeOperation = "source-over";
-  context.globalAlpha = 1;
-  return true;
-};
+}: {
+  targetCanvas: HTMLCanvasElement;
+  layerSurfaces: RetainedPreviewLayerSurface[];
+  region?: PreviewCompositeRegion | null;
+}) =>
+  compositeCanvasLayers({
+    targetCanvas,
+    layerSurfaces,
+    region,
+  });

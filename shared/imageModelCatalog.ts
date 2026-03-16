@@ -1,4 +1,12 @@
-import type { ImageAspectRatio, ImageModelFamilyId, ImageProviderId, ReferenceImageType } from "./imageGeneration";
+import type {
+  ImageAspectRatio,
+  ImageGenerationAssetRefRole,
+  ImageModelFamilyId,
+  ImagePromptCompilerOperationId,
+  ImagePromptContinuityTarget,
+  ImageProviderId,
+  ReferenceImageType,
+} from "./imageGeneration";
 import type { ImageModelParamDefinition, ImageModelParamValue } from "./imageModelParamTypes";
 
 export const FRONTEND_IMAGE_MODEL_IDS = [
@@ -62,6 +70,22 @@ export interface ImageModelDefaults {
   modelParams: Record<string, ImageModelParamValue>;
 }
 
+export interface ImageModelPromptCompilerCapabilities {
+  acceptedOperations: ImagePromptCompilerOperationId[];
+  executableOperations: ImagePromptCompilerOperationId[];
+  negativePromptStrategy: "native" | "merge_into_main";
+  sourceImageExecution: "native" | "reference_guided" | "unsupported";
+  referenceRoleHandling: Record<
+    ImageGenerationAssetRefRole,
+    "native" | "compiled_to_reference" | "compiled_to_text"
+  >;
+  continuityStrength: Record<
+    ImagePromptContinuityTarget,
+    "strong" | "moderate" | "weak"
+  >;
+  promptSurface: "natural_language";
+}
+
 export interface ImageModelHealthSnapshot {
   state: "healthy" | "degraded" | "down" | "unknown";
   score: number;
@@ -91,6 +115,7 @@ export interface FrontendImageModelCatalogEntry {
   constraints: ImageGenerationConstraintSummary;
   parameterDefinitions: ImageModelParamDefinition[];
   defaults: ImageModelDefaults;
+  promptCompiler: ImageModelPromptCompilerCapabilities;
   supportsUpscale: boolean;
   defaultProvider: ImageProviderId;
   deploymentId: ImageDeploymentId;

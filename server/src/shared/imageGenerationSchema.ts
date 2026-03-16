@@ -13,7 +13,11 @@ import type {
   ImageGenerationRequest,
   ParsedImageGenerationRequest,
 } from "../../../shared/imageGenerationSchema";
-import type { ImageAspectRatio, ReferenceImageType } from "../../../shared/imageGeneration";
+import {
+  resolveImagePromptCompilerOperation,
+  type ImageAspectRatio,
+  type ReferenceImageType,
+} from "../../../shared/imageGeneration";
 
 const appendIssue = (
   ctx: z.RefinementCtx,
@@ -27,6 +31,18 @@ const appendIssue = (
   });
 };
 
+const estimateDataUrlBytes = (value: string): number | null => {
+  const trimmedValue = value.trim();
+  const match = /^data:[^;,]+;base64,([A-Za-z0-9+/=]+)$/i.exec(trimmedValue);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const encoded = match[1];
+  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((encoded.length * 3) / 4) - padding);
+};
+
 export const validateImageGenerationRequestAgainstModel = (
   payload: ParsedImageGenerationRequest,
   frontendModel: FrontendModelSpec,
@@ -35,6 +51,7 @@ export const validateImageGenerationRequestAgainstModel = (
   const capability = frontendModel.constraints;
   const label = frontendModel.label;
   const unsupportedFields = new Set(capability.unsupportedFields);
+  const operation = resolveImagePromptCompilerOperation(payload.assetRefs);
 
   if (!capability.supportedAspectRatios.includes(payload.aspectRatio)) {
     appendIssue(
@@ -139,6 +156,22 @@ export const validateImageGenerationRequestAgainstModel = (
           `${label} does not support reference image weights.`
         );
       }
+
+      if (typeof capability.referenceImages.maxFileSizeBytes === "number") {
+        const estimatedBytes = estimateDataUrlBytes(referenceImage.url);
+        if (
+          typeof estimatedBytes === "number" &&
+          estimatedBytes > capability.referenceImages.maxFileSizeBytes
+        ) {
+          appendIssue(
+            ctx,
+            ["referenceImages", index, "url"],
+            `${label} reference images must be ${Math.round(
+              capability.referenceImages.maxFileSizeBytes / 1024 / 1024
+            )} MB or smaller.`
+          );
+        }
+      }
     });
   } else if (payload.referenceImages.length > 0) {
     appendIssue(
@@ -154,6 +187,10 @@ export const validateImageGenerationRequestAgainstModel = (
       ["batchSize"],
       `${label} supports batch size ${capability.maxBatchSize} at most.`
     );
+  }
+
+  if (!frontendModel.promptCompiler.acceptedOperations.includes(operation)) {
+    appendIssue(ctx, ["assetRefs"], `${label} does not accept ${operation} requests.`);
   }
 };
 

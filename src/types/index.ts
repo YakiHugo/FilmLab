@@ -1,4 +1,5 @@
 import type {
+  EditorAdjustmentGroupVisibility,
   EditorLayerBlendMode,
   EditorLayerMask,
   EditorLayerMaskData,
@@ -317,6 +318,7 @@ export interface EditorLayer {
   opacity: number; // [0, 100]
   blendMode: EditorLayerBlendMode;
   adjustments?: Partial<EditingAdjustments>;
+  adjustmentVisibility?: EditorAdjustmentGroupVisibility;
   textureAssetId?: string;
   mask?: Omit<EditorLayerMask, "data"> & { data?: EditorLayerMaskData };
 }
