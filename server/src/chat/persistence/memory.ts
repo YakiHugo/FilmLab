@@ -102,13 +102,24 @@ export class MemoryChatStateRepository implements ChatStateRepository {
     return this.toConversationRecord(conversation);
   }
 
-  async getOrCreateActiveConversation(userId: string) {
+  private async getActiveConversation(userId: string) {
     const activeConversationId = this.activeConversationByUserId.get(userId);
-    if (activeConversationId) {
-      const existing = this.conversations.get(activeConversationId);
-      if (existing) {
-        return this.toConversationRecord(existing);
-      }
+    if (!activeConversationId) {
+      return null;
+    }
+
+    const existing = this.conversations.get(activeConversationId) ?? null;
+    if (!existing || existing.userId !== userId) {
+      return null;
+    }
+
+    return this.toConversationRecord(existing);
+  }
+
+  async getOrCreateActiveConversation(userId: string) {
+    const existing = await this.getActiveConversation(userId);
+    if (existing) {
+      return existing;
     }
 
     const createdAt = new Date().toISOString();
@@ -235,7 +246,7 @@ export class MemoryChatStateRepository implements ChatStateRepository {
   ): Promise<PromptObservabilitySummaryResponse | null> {
     const conversation = conversationId
       ? await this.getConversationById(userId, conversationId)
-      : await this.getOrCreateActiveConversation(userId);
+      : await this.getActiveConversation(userId);
     if (!conversation) {
       return null;
     }

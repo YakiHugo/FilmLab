@@ -5,10 +5,13 @@ import { releaseRenderSlots, renderImageToCanvas } from "@/lib/imageProcessing";
 import { resolveViewportRenderRegion } from "@/lib/renderer/viewportRegion";
 import { applyTimestampOverlay } from "@/lib/timestampOverlay";
 import type { Asset, EditingAdjustments } from "@/types";
-import { defaultCompositeBackend } from "../canvas2dCompositeBackend";
 import {
-  createCanvasBackedCompositeLayerSurface,
-  type CanvasBackedCompositeLayerSurface,
+  defaultCompositeBackend,
+  type Canvas2dCompositeBackendWorkspace,
+} from "../canvas2dCompositeBackend";
+import {
+  createCanvasCompositeLayerSurface,
+  type CompositeLayerSurface,
 } from "../compositeBackend";
 import {
   copyPreviewCanvas,
@@ -65,7 +68,8 @@ export interface UsePreviewRenderPipelineOutput {
 
 export interface PreviewCanvasBucket {
   outputCanvas: HTMLCanvasElement;
-  layerSurfaces: Map<string, CanvasBackedCompositeLayerSurface>;
+  layerCanvases: Map<string, HTMLCanvasElement>;
+  layerSurfaces: Map<string, CompositeLayerSurface>;
   layerMaskCanvases: Map<string, HTMLCanvasElement>;
   layerMaskScratchCanvases: Map<string, HTMLCanvasElement>;
   maskedLayerCanvases: Map<string, HTMLCanvasElement>;
@@ -84,6 +88,7 @@ const createAbortError = () => new DOMException("Aborted", "AbortError");
 
 export const createPreviewCanvasBucket = (): PreviewCanvasBucket => ({
   outputCanvas: document.createElement("canvas"),
+  layerCanvases: new Map(),
   layerSurfaces: new Map(),
   layerMaskCanvases: new Map(),
   layerMaskScratchCanvases: new Map(),
@@ -95,12 +100,6 @@ const releaseCanvas = (canvas: HTMLCanvasElement) => {
   canvas.height = 0;
 };
 
-const releaseLayerSurface = (surface: CanvasBackedCompositeLayerSurface) => {
-  surface.width = 0;
-  surface.height = 0;
-  releaseCanvas(surface.renderTarget);
-};
-
 const releaseCanvasMap = (map: Map<string, HTMLCanvasElement>) => {
   for (const canvas of map.values()) {
     releaseCanvas(canvas);
@@ -108,15 +107,17 @@ const releaseCanvasMap = (map: Map<string, HTMLCanvasElement>) => {
   map.clear();
 };
 
-const releaseLayerSurfaceMap = (map: Map<string, CanvasBackedCompositeLayerSurface>) => {
+const releaseLayerSurfaceMap = (map: Map<string, CompositeLayerSurface>) => {
   for (const surface of map.values()) {
-    releaseLayerSurface(surface);
+    surface.width = 0;
+    surface.height = 0;
   }
   map.clear();
 };
 
 const releasePreviewCanvasBucket = (bucket: PreviewCanvasBucket) => {
   releaseCanvas(bucket.outputCanvas);
+  releaseCanvasMap(bucket.layerCanvases);
   releaseLayerSurfaceMap(bucket.layerSurfaces);
   releaseCanvasMap(bucket.layerMaskCanvases);
   releaseCanvasMap(bucket.layerMaskScratchCanvases);
@@ -134,14 +135,17 @@ const getRetainedCanvas = (map: Map<string, HTMLCanvasElement>, key: string) => 
 };
 
 const getRetainedLayerSurface = (
-  map: Map<string, CanvasBackedCompositeLayerSurface>,
+  map: Map<string, CompositeLayerSurface>,
+  layerCanvases: Map<string, HTMLCanvasElement>,
   key: string
 ) => {
   const existing = map.get(key);
   if (existing) {
     return existing;
   }
-  const next = createCanvasBackedCompositeLayerSurface(document.createElement("canvas"));
+  const next = createCanvasCompositeLayerSurface(
+    getRetainedCanvas(layerCanvases, key)
+  );
   map.set(key, next);
   return next;
 };
@@ -160,14 +164,15 @@ const pruneRetainedCanvasMap = (
 };
 
 const pruneRetainedLayerSurfaceMap = (
-  map: Map<string, CanvasBackedCompositeLayerSurface>,
+  map: Map<string, CompositeLayerSurface>,
   activeKeys: Set<string>
 ) => {
   for (const [key, surface] of map.entries()) {
     if (activeKeys.has(key)) {
       continue;
     }
-    releaseLayerSurface(surface);
+    surface.width = 0;
+    surface.height = 0;
     map.delete(key);
   }
 };
@@ -241,8 +246,12 @@ export const pruneRetainedPreviewDocuments = <T>(
   }
 };
 
-const createPreviewWorkspace = (bucket: PreviewCanvasBucket): RenderGraphLayerWorkspace => ({
-  getLayerSurface: (layerId) => getRetainedLayerSurface(bucket.layerSurfaces, layerId),
+const createPreviewWorkspace = (
+  bucket: PreviewCanvasBucket
+): RenderGraphLayerWorkspace & Canvas2dCompositeBackendWorkspace => ({
+  getLayerSurface: (layerId) =>
+    getRetainedLayerSurface(bucket.layerSurfaces, bucket.layerCanvases, layerId),
+  getLayerRenderTarget: (layerId) => getRetainedCanvas(bucket.layerCanvases, layerId),
   getLayerMaskCanvas: (layerId) => getRetainedCanvas(bucket.layerMaskCanvases, layerId),
   getLayerMaskScratchCanvas: (layerId) =>
     getRetainedCanvas(bucket.layerMaskScratchCanvases, layerId),
@@ -262,14 +271,15 @@ const clearRetainedCanvasEntries = (
 };
 
 const clearRetainedLayerSurfaceEntries = (
-  map: Map<string, CanvasBackedCompositeLayerSurface>,
+  map: Map<string, CompositeLayerSurface>,
   activeKeys: Set<string>
 ) => {
   for (const [key, surface] of map.entries()) {
     if (!activeKeys.has(key)) {
       continue;
     }
-    releaseLayerSurface(surface);
+    surface.width = 0;
+    surface.height = 0;
   }
 };
 
@@ -290,6 +300,7 @@ const resetRetainedCanvasesForDirtyReasons = (
       ].includes(reason)
     )
   ) {
+    clearRetainedCanvasEntries(bucket.layerCanvases, activeLayerIds);
     clearRetainedLayerSurfaceEntries(bucket.layerSurfaces, activeLayerIds);
   }
 
@@ -317,6 +328,7 @@ const renderSinglePreviewLayer = async (
   }
 
   const activeLayerIds = new Set([node.id]);
+  pruneRetainedCanvasMap(bucket.layerCanvases, activeLayerIds);
   pruneRetainedLayerSurfaceMap(bucket.layerSurfaces, activeLayerIds);
   pruneRetainedCanvasMap(bucket.layerMaskCanvases, activeLayerIds);
   pruneRetainedCanvasMap(bucket.layerMaskScratchCanvases, activeLayerIds);
@@ -373,13 +385,13 @@ const renderSinglePreviewLayer = async (
     workspace: createPreviewWorkspace(bucket),
     region: compositeRegion,
     targetSize: request.frameSize,
-    renderLayerNode: async (layerNode, retainedSurface) => {
+    renderLayerNode: async (layerNode, retainedCanvas) => {
       const retainedSource = resolveRenderSource(layerNode.sourceAsset);
       if (!retainedSource) {
         throw new Error(`Preview source missing for asset ${layerNode.sourceAsset.id}.`);
       }
       await renderImageToCanvas({
-        canvas: retainedSurface.renderTarget,
+        canvas: retainedCanvas,
         source: retainedSource,
         adjustments: resolveLayerPreviewAdjustments(request, layerNode.adjustments),
         filmProfile: resolveLayerPreviewFilmProfile(request, layerNode.sourceAsset),
@@ -487,6 +499,7 @@ export const executePreviewRenderRequest = async ({
   }
 
   const activeLayerIds = new Set(request.renderGraph.layers.map((layer) => layer.id));
+  pruneRetainedCanvasMap(bucket.layerCanvases, activeLayerIds);
   pruneRetainedLayerSurfaceMap(bucket.layerSurfaces, activeLayerIds);
   pruneRetainedCanvasMap(bucket.layerMaskCanvases, activeLayerIds);
   pruneRetainedCanvasMap(bucket.layerMaskScratchCanvases, activeLayerIds);
@@ -505,14 +518,14 @@ export const executePreviewRenderRequest = async ({
     workspace: createPreviewWorkspace(bucket),
     region: compositeRegion,
     targetSize: request.frameSize,
-    renderLayerNode: async (layerNode: RenderLayerNode, layerSurface, layerIndex) => {
+    renderLayerNode: async (layerNode: RenderLayerNode, layerCanvas, layerIndex) => {
       const layerSource = resolveRenderSource(layerNode.sourceAsset);
       if (!layerSource) {
         throw new Error(`Preview source missing for asset ${layerNode.sourceAsset.id}.`);
       }
 
       await renderImageToCanvas({
-        canvas: layerSurface.renderTarget,
+        canvas: layerCanvas,
         source: layerSource,
         adjustments: resolveLayerPreviewAdjustments(request, layerNode.adjustments),
         filmProfile: resolveLayerPreviewFilmProfile(request, layerNode.sourceAsset),

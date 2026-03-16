@@ -6,6 +6,7 @@ import type {
   PersistedImageGenerationRequestSnapshot,
   PersistedImageSession,
   PersistedGenerationTurn,
+  PromptObservabilitySummaryResponse,
   PersistedResultItem,
 } from "../../../../shared/chatImageTypes";
 import { importAssetFiles } from "@/lib/assetImport";
@@ -15,6 +16,7 @@ import {
   deleteImageConversationTurn,
   fetchImageConversation,
   fetchImagePromptArtifacts,
+  fetchImagePromptObservability,
 } from "@/lib/ai/imageConversation";
 import type { ImageModelParamValue } from "@/lib/ai/imageModelParams";
 import {
@@ -141,6 +143,13 @@ interface PromptArtifactTurnState {
 
 type PromptArtifactTurnStateMap = Record<string, PromptArtifactTurnState>;
 
+export interface PromptObservabilityState {
+  conversationId: string;
+  status: PromptArtifactLoadStatus;
+  error: string | null;
+  summary: PromptObservabilitySummaryResponse | null;
+}
+
 const createElementId = () => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -178,6 +187,49 @@ export const shouldFetchPromptArtifacts = (
   turnStatus !== "loading" &&
   currentState?.status !== "loaded" &&
   currentState?.status !== "loading";
+
+const createPromptObservabilityState = (
+  conversationId: string,
+  overrides?: Partial<PromptObservabilityState>
+): PromptObservabilityState => ({
+  conversationId,
+  status: "idle",
+  error: null,
+  summary: null,
+  ...overrides,
+});
+
+export const invalidatePromptObservabilityState = (
+  conversationId: string | null | undefined,
+  currentState: PromptObservabilityState | null
+): PromptObservabilityState | null => {
+  if (!currentState) {
+    return null;
+  }
+
+  if (!conversationId || currentState.conversationId !== conversationId) {
+    return null;
+  }
+
+  return createPromptObservabilityState(conversationId, {
+    summary: currentState.summary,
+  });
+};
+
+export const shouldFetchPromptObservability = (
+  conversationId: string | null | undefined,
+  currentState?: Pick<PromptObservabilityState, "conversationId" | "status"> | null
+) => {
+  if (!conversationId) {
+    return false;
+  }
+
+  if (!currentState || currentState.conversationId !== conversationId) {
+    return true;
+  }
+
+  return currentState.status !== "loaded" && currentState.status !== "loading";
+};
 
 export const RETRY_REFERENCE_IMAGES_OMITTED_WARNING =
   "Reference images from history are no longer available and were omitted. This retry will run without them, so re-upload the reference images if you need the same result.";
@@ -984,15 +1036,20 @@ export function useImageGeneration() {
   const [savingTurnIds, setSavingTurnIds] = useState<Record<string, boolean>>({});
   const [runtimeResults, setRuntimeResults] = useState<RuntimeResultStateMap>({});
   const [promptArtifacts, setPromptArtifacts] = useState<PromptArtifactTurnStateMap>({});
+  const [promptObservability, setPromptObservability] = useState<PromptObservabilityState | null>(
+    null
+  );
   const [notice, setNotice] = useState<string | null>(null);
   const sessionRef = useRef(session);
   const serverConversationIdRef = useRef<string | null>(null);
   const savingTurnIdsRef = useRef(savingTurnIds);
   const runtimeResultsRef = useRef(runtimeResults);
   const promptArtifactsRef = useRef(promptArtifacts);
+  const promptObservabilityRef = useRef(promptObservability);
   const snapshotVersionRef = useRef(0);
   const snapshotRequestAbortRef = useRef<AbortController | null>(null);
   const promptArtifactAbortRef = useRef(new Map<string, AbortController>());
+  const promptObservabilityAbortRef = useRef<AbortController | null>(null);
   const uiTurnCacheRef = useRef(
     new Map<
       string,
@@ -1016,6 +1073,7 @@ export function useImageGeneration() {
   savingTurnIdsRef.current = savingTurnIds;
   runtimeResultsRef.current = runtimeResults;
   promptArtifactsRef.current = promptArtifacts;
+  promptObservabilityRef.current = promptObservability;
 
   useEffect(() => {
     return () => {
@@ -1025,6 +1083,8 @@ export function useImageGeneration() {
       snapshotRequestAbortRef.current = null;
       promptArtifactAbortRef.current.forEach((controller) => controller.abort());
       promptArtifactAbortRef.current.clear();
+      promptObservabilityAbortRef.current?.abort();
+      promptObservabilityAbortRef.current = null;
     };
   }, []);
 
@@ -1034,14 +1094,23 @@ export function useImageGeneration() {
     snapshotRequestAbortRef.current = null;
   }, []);
 
+  const resetPromptObservabilityState = useCallback((conversationId?: string | null) => {
+    promptObservabilityAbortRef.current?.abort();
+    promptObservabilityAbortRef.current = null;
+    setPromptObservability((previous) =>
+      invalidatePromptObservabilityState(conversationId ?? null, previous)
+    );
+  }, []);
+
   const applyConversationSnapshot = useCallback(
     (snapshot: PersistedImageSession) => {
       invalidateConversationSnapshotRequests();
       serverConversationIdRef.current = snapshot.id;
+      resetPromptObservabilityState(snapshot.id);
       replaceSession(snapshot);
       return snapshot;
     },
-    [invalidateConversationSnapshotRequests, replaceSession]
+    [invalidateConversationSnapshotRequests, replaceSession, resetPromptObservabilityState]
   );
 
   const refreshConversationSnapshot = useCallback(
@@ -1064,6 +1133,7 @@ export function useImageGeneration() {
         }
 
         serverConversationIdRef.current = snapshot.id;
+        resetPromptObservabilityState(snapshot.id);
         replaceSession(snapshot);
         return snapshot;
       } finally {
@@ -1072,12 +1142,23 @@ export function useImageGeneration() {
         }
       }
     },
-    [replaceSession]
+    [replaceSession, resetPromptObservabilityState]
   );
 
   useEffect(() => {
     void refreshConversationSnapshot().catch(() => undefined);
   }, [refreshConversationSnapshot]);
+
+  useEffect(() => {
+    const currentState = promptObservabilityRef.current;
+    const nextConversationId = session?.id ?? null;
+    if (!currentState) {
+      return;
+    }
+    if (currentState.conversationId !== nextConversationId) {
+      resetPromptObservabilityState(nextConversationId);
+    }
+  }, [resetPromptObservabilityState, session?.id]);
 
   useEffect(() => {
     if (!notice) {
@@ -1191,6 +1272,67 @@ export function useImageGeneration() {
     promptArtifactAbortRef.current.forEach((controller) => controller.abort());
     promptArtifactAbortRef.current.clear();
     setPromptArtifacts({});
+  }, []);
+
+  const loadPromptObservability = useCallback(async () => {
+    const conversationId = sessionRef.current?.id ?? serverConversationIdRef.current;
+    const cachedState = promptObservabilityRef.current;
+    if (!shouldFetchPromptObservability(conversationId, cachedState)) {
+      return cachedState?.summary ?? null;
+    }
+    if (!conversationId) {
+      return null;
+    }
+
+    promptObservabilityAbortRef.current?.abort();
+    const controller = new AbortController();
+    promptObservabilityAbortRef.current = controller;
+    setPromptObservability((previous) =>
+      createPromptObservabilityState(conversationId, {
+        status: "loading",
+        summary:
+          previous?.conversationId === conversationId ? previous.summary : null,
+      })
+    );
+
+    try {
+      const response = await fetchImagePromptObservability(conversationId, {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted || promptObservabilityAbortRef.current !== controller) {
+        return null;
+      }
+
+      setPromptObservability(
+        createPromptObservabilityState(response.conversationId, {
+          status: "loaded",
+          summary: response,
+        })
+      );
+      return response;
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return null;
+      }
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Prompt observability could not be loaded.";
+      setPromptObservability((previous) =>
+        createPromptObservabilityState(conversationId, {
+          status: "error",
+          error: message,
+          summary:
+            previous?.conversationId === conversationId ? previous.summary : null,
+        })
+      );
+      return null;
+    } finally {
+      if (promptObservabilityAbortRef.current === controller) {
+        promptObservabilityAbortRef.current = null;
+      }
+    }
   }, []);
 
   const getTurnById = useCallback(
@@ -2130,6 +2272,9 @@ export function useImageGeneration() {
     isGenerating,
     isCatalogLoading,
     catalogError,
+    promptObservabilityStatus: promptObservability?.status ?? "idle",
+    promptObservabilityError: promptObservability?.error ?? null,
+    promptObservability: promptObservability?.summary ?? null,
     config,
     models,
     providers,
@@ -2151,6 +2296,7 @@ export function useImageGeneration() {
     editFromResult,
     varyFromResult,
     loadPromptArtifacts,
+    loadPromptObservability,
     generateFromPromptInput,
     deleteTurn,
     acceptTurnResult,

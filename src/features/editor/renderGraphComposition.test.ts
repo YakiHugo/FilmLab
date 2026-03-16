@@ -1,7 +1,7 @@
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import { describe, expect, it, vi } from "vitest";
 import { canvas2dCompositeBackend } from "./canvas2dCompositeBackend";
-import { createCanvasBackedCompositeLayerSurface } from "./compositeBackend";
+import { createCanvasCompositeLayerSurface } from "./compositeBackend";
 import { composeRenderGraphToCanvas } from "./renderGraphComposition";
 import type { RenderGraph } from "./renderGraph";
 
@@ -153,9 +153,10 @@ describe("renderGraphComposition", () => {
       backend: canvas2dCompositeBackend,
       workspace: {
         getLayerSurface: (layerId) =>
-          createCanvasBackedCompositeLayerSurface(
+          createCanvasCompositeLayerSurface(
             layerId === "top" ? topCanvas : bottomCanvas
           ),
+        getLayerRenderTarget: (layerId) => (layerId === "top" ? topCanvas : bottomCanvas),
         getLayerMaskCanvas: () => maskCanvas,
         getLayerMaskScratchCanvas: () => maskCanvas,
         getMaskedLayerCanvas: () => maskedCanvas,
@@ -184,6 +185,7 @@ describe("renderGraphComposition", () => {
 
   it("uses masked layer output when a layer mask is present", async () => {
     const targetCanvas = createFakeCanvas(800, 600);
+    const layerCanvas = { id: "layer-canvas", width: 800, height: 600 } as HTMLCanvasElement;
     const renderGraph = {
       ...createRenderGraph(),
       layers: [
@@ -211,9 +213,8 @@ describe("renderGraphComposition", () => {
       backend: canvas2dCompositeBackend,
       workspace: {
         getLayerSurface: () =>
-          createCanvasBackedCompositeLayerSurface(
-            { id: "layer-canvas", width: 800, height: 600 } as HTMLCanvasElement
-          ),
+          createCanvasCompositeLayerSurface(layerCanvas),
+        getLayerRenderTarget: () => layerCanvas,
         getLayerMaskCanvas: () => maskCanvas,
         getLayerMaskScratchCanvas: () => maskCanvas,
         getMaskedLayerCanvas: () => maskedCanvas,
@@ -247,7 +248,8 @@ describe("renderGraphComposition", () => {
       },
       backend: canvas2dCompositeBackend,
       workspace: {
-        getLayerSurface: () => createCanvasBackedCompositeLayerSurface(bottomCanvas),
+        getLayerSurface: () => createCanvasCompositeLayerSurface(bottomCanvas),
+        getLayerRenderTarget: () => bottomCanvas,
         getLayerMaskCanvas: () => maskCanvas,
         getLayerMaskScratchCanvas: () => maskCanvas,
         getMaskedLayerCanvas: () => maskedCanvas,

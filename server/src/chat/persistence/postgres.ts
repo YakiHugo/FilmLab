@@ -783,7 +783,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
     } satisfies ChatConversationRecord;
   }
 
-  async getOrCreateActiveConversation(userId: string) {
+  private async getActiveConversation(userId: string) {
     await this.ensureReady();
     const existing = await this.pool.query<ChatConversationRow>(
       `
@@ -798,14 +798,23 @@ export class PostgresChatStateRepository implements ChatStateRepository {
     );
 
     const row = existing.rows[0];
-    if (row) {
-      return {
-        id: row.id,
-        userId: row.user_id,
-        promptState: parsePromptState(row.prompt_state),
-        createdAt: new Date(row.created_at).toISOString(),
-        updatedAt: new Date(row.updated_at).toISOString(),
-      } satisfies ChatConversationRecord;
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      userId: row.user_id,
+      promptState: parsePromptState(row.prompt_state),
+      createdAt: new Date(row.created_at).toISOString(),
+      updatedAt: new Date(row.updated_at).toISOString(),
+    } satisfies ChatConversationRecord;
+  }
+
+  async getOrCreateActiveConversation(userId: string) {
+    const existing = await this.getActiveConversation(userId);
+    if (existing) {
+      return existing;
     }
 
     const createdAt = new Date().toISOString();
@@ -1224,7 +1233,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
     await this.ensureReady();
     const conversation = conversationId
       ? await this.getConversationById(userId, conversationId)
-      : await this.getOrCreateActiveConversation(userId);
+      : await this.getActiveConversation(userId);
     if (!conversation) {
       return null;
     }

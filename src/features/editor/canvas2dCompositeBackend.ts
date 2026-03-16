@@ -6,9 +6,16 @@ import {
 } from "./composition";
 import type {
   CompositeBackend,
+  CompositeBackendWorkspace,
   CompositeBackendComposeOptions,
   CompositeLayerRequest,
 } from "./compositeBackend";
+
+export interface Canvas2dCompositeBackendWorkspace extends CompositeBackendWorkspace {
+  getLayerMaskCanvas: (layerId: string) => HTMLCanvasElement;
+  getLayerMaskScratchCanvas: (layerId: string) => HTMLCanvasElement;
+  getMaskedLayerCanvas: (layerId: string) => HTMLCanvasElement;
+}
 
 const normalizeCompositeRegion = (region?: CanvasCompositeRegion | null) =>
   region && region.width > 0 && region.height > 0
@@ -22,7 +29,10 @@ const normalizeCompositeRegion = (region?: CanvasCompositeRegion | null) =>
 
 const resolveLayerDrawSource = (
   layer: CompositeLayerRequest,
-  options: Pick<CompositeBackendComposeOptions, "targetSize" | "workspace">
+  options: Pick<
+    CompositeBackendComposeOptions<Canvas2dCompositeBackendWorkspace>,
+    "targetSize" | "workspace"
+  >
 ): CanvasImageSource => {
   if (!layer.mask) {
     return layer.surface.drawSource;
@@ -51,7 +61,7 @@ const resolveLayerDrawSource = (
   );
 };
 
-export const canvas2dCompositeBackend: CompositeBackend = {
+export const canvas2dCompositeBackend: CompositeBackend<Canvas2dCompositeBackendWorkspace> = {
   id: "canvas2d",
   compose: ({
     targetCanvas,
@@ -59,7 +69,7 @@ export const canvas2dCompositeBackend: CompositeBackend = {
     region,
     layers,
     workspace,
-  }: CompositeBackendComposeOptions) => {
+  }: CompositeBackendComposeOptions<Canvas2dCompositeBackendWorkspace>) => {
     ensureCanvasSize(targetCanvas, targetSize.width, targetSize.height);
     const context = targetCanvas.getContext("2d", { willReadFrequently: true });
     if (!context) {

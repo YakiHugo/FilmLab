@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
-import { createCanvasBackedCompositeLayerSurface } from "./compositeBackend";
+import { createCanvasCompositeLayerSurface } from "./compositeBackend";
 import { createRenderDocument } from "./document";
 import { renderDocumentToCanvas } from "./renderDocumentCanvas";
 
@@ -146,7 +146,8 @@ describe("renderDocumentToCanvas", () => {
       }: {
         renderGraph: typeof renderDocument.renderGraph;
         workspace: {
-          getLayerSurface: (layerId: string) => ReturnType<typeof createCanvasBackedCompositeLayerSurface>;
+          getLayerSurface: (layerId: string) => ReturnType<typeof createCanvasCompositeLayerSurface>;
+          getLayerRenderTarget: (layerId: string) => HTMLCanvasElement;
         };
         targetSize: {
           width: number;
@@ -154,7 +155,7 @@ describe("renderDocumentToCanvas", () => {
         };
         renderLayerNode: (
           node: (typeof renderDocument.renderGraph.layers)[number],
-          surface: ReturnType<typeof createCanvasBackedCompositeLayerSurface>,
+          canvas: HTMLCanvasElement,
           layerIndex: number
         ) => Promise<void>;
       }) => {
@@ -162,12 +163,13 @@ describe("renderDocumentToCanvas", () => {
         for (let layerIndex = 0; layerIndex < layersBottomToTop.length; layerIndex += 1) {
           const layerNode = layersBottomToTop[layerIndex]!;
           const layerSurface = workspace.getLayerSurface(layerNode.id);
-          layerSurface.renderTarget.width = targetSize.width;
-          layerSurface.renderTarget.height = targetSize.height;
+          const layerCanvas = workspace.getLayerRenderTarget(layerNode.id);
+          layerCanvas.width = targetSize.width;
+          layerCanvas.height = targetSize.height;
           layerSurface.width = targetSize.width;
           layerSurface.height = targetSize.height;
-          renderedLayerCanvases.push(layerSurface.renderTarget);
-          await renderLayerNode(layerNode, layerSurface, layerIndex);
+          renderedLayerCanvases.push(layerCanvas);
+          await renderLayerNode(layerNode, layerCanvas, layerIndex);
         }
         return true;
       }

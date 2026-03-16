@@ -7,6 +7,7 @@ const repositoryMock = {
   getOrCreateActiveConversation: vi.fn(),
   getConversationSnapshot: vi.fn(),
   getPromptArtifactsForTurn: vi.fn(),
+  getPromptObservabilityForConversation: vi.fn(),
   clearActiveConversation: vi.fn(),
   deleteTurn: vi.fn(),
   getGeneratedImageByCapability: vi.fn(),
@@ -254,6 +255,130 @@ describe("imageConversationRoute", () => {
     expect(response.statusCode).toBe(404);
     expect(response.json()).toEqual({
       error: "Turn not found.",
+    });
+
+    await app.close();
+  });
+
+  it("requires auth to read prompt observability", async () => {
+    const app = await createApp();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/image-conversation/observability",
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(repositoryMock.getPromptObservabilityForConversation).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("returns conversation-scoped prompt observability", async () => {
+    repositoryMock.getPromptObservabilityForConversation.mockResolvedValue({
+      conversationId: "conversation-1",
+      overview: {
+        totalTurns: 2,
+        turnsWithArtifacts: 2,
+        degradedTurns: 1,
+        fallbackTurns: 1,
+      },
+      semanticLosses: [
+        {
+          code: "NEGATIVE_PROMPT_DEGRADED_TO_TEXT",
+          occurrenceCount: 2,
+          turnCount: 1,
+          latestCreatedAt: "2026-03-15T00:00:03.000Z",
+        },
+      ],
+      targets: [
+        {
+          targetKey: "dashscope:qwen-image-2.0-pro",
+          compileArtifactCount: 1,
+          dispatchArtifactCount: 2,
+          degradedDispatchCount: 1,
+          latestCreatedAt: "2026-03-15T00:00:04.000Z",
+        },
+      ],
+      turns: [
+        {
+          turnId: "turn-1",
+          prompt: "Studio portrait",
+          createdAt: "2026-03-15T00:00:00.000Z",
+          artifactCount: 2,
+          semanticLossCodes: ["NEGATIVE_PROMPT_DEGRADED_TO_TEXT"],
+          degraded: true,
+          fallback: true,
+          selectedTargetKey: "dashscope:qwen-image-2.0-pro",
+          executedTargetKey: "dashscope:qwen-image-2.0-pro-fallback",
+        },
+      ],
+    });
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/image-conversation/observability?conversationId=conversation-1",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(repositoryMock.getPromptObservabilityForConversation).toHaveBeenCalledWith(
+      "user-1",
+      "conversation-1"
+    );
+    expect(response.json()).toMatchObject({
+      conversationId: "conversation-1",
+      overview: {
+        degradedTurns: 1,
+        fallbackTurns: 1,
+      },
+    });
+
+    await app.close();
+  });
+
+  it("returns 404 when prompt observability is requested for a missing conversation", async () => {
+    repositoryMock.getPromptObservabilityForConversation.mockResolvedValue(null);
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/image-conversation/observability?conversationId=conversation-missing",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({
+      error: "Conversation not found.",
+    });
+
+    await app.close();
+  });
+
+  it("returns 404 when prompt observability is requested without an active conversation", async () => {
+    repositoryMock.getPromptObservabilityForConversation.mockResolvedValue(null);
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/image-conversation/observability",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(repositoryMock.getPromptObservabilityForConversation).toHaveBeenCalledWith(
+      "user-1",
+      undefined
+    );
+    expect(response.json()).toEqual({
+      error: "Conversation not found.",
     });
 
     await app.close();

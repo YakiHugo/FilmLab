@@ -627,6 +627,13 @@ describe("MemoryChatStateRepository", () => {
     });
   });
 
+  it("does not create an active conversation when observability is requested without a conversation id", async () => {
+    const repository = new MemoryChatStateRepository();
+
+    await expect(repository.getPromptObservabilityForConversation("user-1")).resolves.toBeNull();
+    await expect(repository.getPromptObservabilityForConversation("user-1")).resolves.toBeNull();
+  });
+
   it("aggregates artifact-level semantic loss occurrences separately from turn counts", async () => {
     const repository = new MemoryChatStateRepository();
     const conversation = await repository.getOrCreateActiveConversation("user-1");

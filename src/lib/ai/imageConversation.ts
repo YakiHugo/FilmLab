@@ -1,5 +1,6 @@
 import type {
   PersistedImageSession,
+  PromptObservabilitySummaryResponse,
   TurnPromptArtifactsResponse,
 } from "../../../shared/chatImageTypes";
 import { resolveApiUrl } from "@/lib/api/resolveApiUrl";
@@ -56,6 +57,30 @@ const parsePromptArtifactsResponse = async (
   }
 
   return json as unknown as TurnPromptArtifactsResponse;
+};
+
+const parsePromptObservabilityResponse = async (
+  response: Response
+): Promise<PromptObservabilitySummaryResponse> => {
+  if (!response.ok) {
+    let message = "Image conversation request failed.";
+    try {
+      const payload = (await response.json()) as { error?: string };
+      if (typeof payload.error === "string" && payload.error.trim()) {
+        message = payload.error;
+      }
+    } catch {
+      // Keep fallback.
+    }
+    throw new Error(message);
+  }
+
+  const json = (await response.json()) as unknown;
+  if (!isRecord(json)) {
+    throw new Error("Invalid prompt observability response.");
+  }
+
+  return json as unknown as PromptObservabilitySummaryResponse;
 };
 
 export const fetchImageConversation = async (
@@ -123,3 +148,19 @@ export const fetchImagePromptArtifacts = async (
       }
     )
   );
+
+export const fetchImagePromptObservability = async (
+  conversationId?: string,
+  options?: { signal?: AbortSignal }
+): Promise<PromptObservabilitySummaryResponse> => {
+  const url = conversationId
+    ? `${resolveApiUrl("/api/image-conversation/observability")}?conversationId=${encodeURIComponent(conversationId)}`
+    : resolveApiUrl("/api/image-conversation/observability");
+
+  return parsePromptObservabilityResponse(
+    await fetch(url, {
+      headers: toAuthorizedHeaders(),
+      signal: options?.signal,
+    })
+  );
+};

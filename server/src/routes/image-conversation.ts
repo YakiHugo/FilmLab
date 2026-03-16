@@ -51,6 +51,36 @@ export const imageConversationRoute: FastifyPluginAsync = async (app) => {
     }
   });
 
+  app.get("/api/image-conversation/observability", async (request, reply) => {
+    const userId = requireAuthenticatedUser(request);
+    if (!userId) {
+      return reply.code(401).send({ error: "Unauthorized." });
+    }
+
+    const conversationId =
+      typeof request.query === "object" &&
+      request.query !== null &&
+      "conversationId" in request.query &&
+      typeof (request.query as Record<string, unknown>).conversationId === "string"
+        ? ((request.query as Record<string, unknown>).conversationId as string)
+        : undefined;
+
+    try {
+      const summary = await app.chatStateRepository.getPromptObservabilityForConversation(
+        userId,
+        conversationId
+      );
+      if (!summary) {
+        return reply.code(404).send({ error: "Conversation not found." });
+      }
+
+      return reply.code(200).send(summary);
+    } catch (error) {
+      app.log.error(error);
+      return reply.code(500).send({ error: "Prompt observability could not be loaded." });
+    }
+  });
+
   app.delete("/api/image-conversation", async (request, reply) => {
     const userId = requireAuthenticatedUser(request);
     if (!userId) {
