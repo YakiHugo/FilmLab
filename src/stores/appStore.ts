@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 
-export type AppModule = "images" | "library" | "editor" | "canvas";
+export type AppModule = "studio" | "library" | "editor" | "assist" | "canvas";
 
 interface AppState {
   activeModule: AppModule;
@@ -13,7 +13,7 @@ interface AppState {
 export const useAppStore = create<AppState>()(
   devtools(
     (set) => ({
-      activeModule: "images",
+      activeModule: "studio",
       mobileNavOpen: false,
       setActiveModule: (activeModule) => set({ activeModule }),
       setMobileNavOpen: (mobileNavOpen) => set({ mobileNavOpen }),

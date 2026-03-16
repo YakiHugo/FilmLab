@@ -12,10 +12,13 @@ const resolveModuleFromPath = (pathname: string) => {
   if (pathname === "/editor") {
     return "editor";
   }
+  if (pathname === "/assist") {
+    return "assist";
+  }
   if (pathname.startsWith("/canvas")) {
     return "canvas";
   }
-  return "images";
+  return "studio";
 };
 
 function App() {

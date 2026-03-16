@@ -9,9 +9,10 @@ interface AppShellProps {
 
 export function AppShell({ children }: AppShellProps) {
   const pathname = useLocation({ select: (state) => state.pathname });
-  const isImageRoute = pathname === "/";
+  const isStudioRoute = pathname === "/";
   const isLibraryRoute = pathname === "/library";
   const isEditorRoute = pathname === "/editor";
+  const isAssistRoute = pathname === "/assist";
 
   return (
     <div className="relative h-screen w-full overflow-hidden bg-[#121214] text-zinc-100">
@@ -21,7 +22,7 @@ export function AppShell({ children }: AppShellProps) {
         <main
           className={cn(
             "w-full flex-1 min-w-0 min-h-0",
-            (isImageRoute || isLibraryRoute || isEditorRoute)
+            (isStudioRoute || isLibraryRoute || isEditorRoute || isAssistRoute)
               ? "px-0 pb-0 pt-0"
               : "mx-auto max-w-[1600px] px-3 pb-4 pt-4 lg:px-5"
           )}

@@ -5,19 +5,21 @@ import { CanvasPage } from "@/pages/canvas";
 import { EditorPage } from "@/pages/editor";
 import { ImageLabPage } from "@/pages/image-lab";
 import { LibraryPage } from "@/pages/library";
+import { StudioPage } from "@/pages/studio";
 
 const editorSearchSchema = z.object({
   assetId: z.string().optional().catch(undefined),
+  mode: z.enum(["advanced"]).optional().catch(undefined),
 });
 
 const rootRoute = createRootRoute({
   component: App,
 });
 
-const imageLabRoute = createRoute({
+const studioRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: ImageLabPage,
+  component: StudioPage,
 });
 
 const libraryRoute = createRoute({
@@ -33,6 +35,12 @@ const editorRoute = createRoute({
   component: EditorPage,
 });
 
+const assistRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/assist",
+  component: ImageLabPage,
+});
+
 const canvasRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/canvas",
@@ -46,9 +54,10 @@ const canvasDocumentRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
-  imageLabRoute,
+  studioRoute,
   libraryRoute,
   editorRoute,
+  assistRoute,
   canvasRoute,
   canvasDocumentRoute,
 ]);
