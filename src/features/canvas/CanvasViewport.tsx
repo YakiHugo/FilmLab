@@ -1,6 +1,6 @@
 import type Konva from "konva";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Circle, Layer, Line, Rect, Stage, Transformer } from "react-konva";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Circle, Layer, Line, Rect, Stage, Text as KonvaText, Transformer } from "react-konva";
 import type { CanvasElement, CanvasShapeElement, CanvasTextElement } from "@/types";
 import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
@@ -12,6 +12,7 @@ import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
 
 interface CanvasViewportProps {
   stageRef: React.RefObject<Konva.Stage>;
+  selectedSliceId?: string | null;
 }
 
 interface ShapeDraft {
@@ -40,7 +41,7 @@ const isInputLikeElement = (target: EventTarget | null) => {
   return tagName === "input" || tagName === "textarea" || tagName === "select" || target.isContentEditable;
 };
 
-export function CanvasViewport({ stageRef }: CanvasViewportProps) {
+export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProps) {
   const documents = useCanvasStore((state) => state.documents);
   const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
   const upsertElement = useCanvasStore((state) => state.upsertElement);
@@ -88,6 +89,28 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
     const element = elementById.get(editingTextId);
     return element?.type === "text" ? element : null;
   }, [editingTextId, elementById]);
+
+  const thirdsGuideLines = useMemo(() => {
+    if (!activeDocument || !activeDocument.guides.showThirds) {
+      return [];
+    }
+    return [
+      [activeDocument.width / 3, 0, activeDocument.width / 3, activeDocument.height],
+      [(activeDocument.width * 2) / 3, 0, (activeDocument.width * 2) / 3, activeDocument.height],
+      [0, activeDocument.height / 3, activeDocument.width, activeDocument.height / 3],
+      [0, (activeDocument.height * 2) / 3, activeDocument.width, (activeDocument.height * 2) / 3],
+    ];
+  }, [activeDocument]);
+
+  const centerGuideLines = useMemo(() => {
+    if (!activeDocument || !activeDocument.guides.showCenter) {
+      return [];
+    }
+    return [
+      [activeDocument.width / 2, 0, activeDocument.width / 2, activeDocument.height],
+      [0, activeDocument.height / 2, activeDocument.width, activeDocument.height / 2],
+    ];
+  }, [activeDocument]);
 
   useEffect(() => {
     const transformer = transformerRef.current;
@@ -382,6 +405,47 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
               onClick={() => clearSelection()}
               onTap={() => clearSelection()}
             />
+
+            {activeDocument.guides.showSafeArea ? (
+              <Rect
+                x={activeDocument.safeArea.left}
+                y={activeDocument.safeArea.top}
+                width={Math.max(
+                  1,
+                  activeDocument.width - activeDocument.safeArea.left - activeDocument.safeArea.right
+                )}
+                height={Math.max(
+                  1,
+                  activeDocument.height - activeDocument.safeArea.top - activeDocument.safeArea.bottom
+                )}
+                stroke="rgba(255,255,255,0.22)"
+                strokeWidth={1}
+                dash={[10, 10]}
+                listening={false}
+              />
+            ) : null}
+
+            {thirdsGuideLines.map((points, index) => (
+              <Line
+                key={`thirds-${index}`}
+                points={points}
+                stroke="rgba(255,255,255,0.14)"
+                strokeWidth={1}
+                dash={[10, 10]}
+                listening={false}
+              />
+            ))}
+
+            {centerGuideLines.map((points, index) => (
+              <Line
+                key={`center-${index}`}
+                points={points}
+                stroke="rgba(251,191,36,0.22)"
+                strokeWidth={1}
+                dash={[14, 10]}
+                listening={false}
+              />
+            ))}
           </Layer>
 
           <Layer>
@@ -553,6 +617,35 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
                 }
               }}
             />
+          </Layer>
+
+          <Layer listening={false}>
+            {activeDocument.slices.map((slice) => {
+              const selected = slice.id === selectedSliceId;
+              return (
+                <Fragment key={slice.id}>
+                  <Rect
+                    x={slice.x}
+                    y={slice.y}
+                    width={slice.width}
+                    height={slice.height}
+                    stroke={selected ? "#f5c97a" : "rgba(255,255,255,0.28)"}
+                    strokeWidth={selected ? 2 : 1}
+                    dash={selected ? [18, 10] : [10, 10]}
+                    fill={selected ? "rgba(245, 201, 122, 0.06)" : "rgba(255,255,255,0.015)"}
+                  />
+                  <KonvaText
+                    x={slice.x + 16}
+                    y={slice.y + 16}
+                    text={`${String(slice.order).padStart(2, "0")}  ${slice.name}`}
+                    fontFamily="Manrope"
+                    fontSize={18}
+                    fill={selected ? "#f7e0b2" : "rgba(255,255,255,0.68)"}
+                    padding={8}
+                  />
+                </Fragment>
+              );
+            })}
           </Layer>
         </Stage>
       </div>

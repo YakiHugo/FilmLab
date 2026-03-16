@@ -1,5 +1,9 @@
 ﻿import { create } from "zustand";
 import { devtools } from "zustand/middleware";
+import {
+  createDefaultCanvasDocumentFields,
+  normalizeCanvasDocument,
+} from "@/features/canvas/studioPresets";
 import { deleteCanvasDocument, loadCanvasDocuments, saveCanvasDocument } from "@/lib/db";
 import type { CanvasDocument, CanvasElement } from "@/types";
 
@@ -97,13 +101,13 @@ const elementsSignature = (elements: CanvasElement[]) =>
     )
     .join("|");
 
-const makeDefaultDocument = (name = "Untitled board"): CanvasDocument => {
+const makeDefaultDocument = (name = "Untitled story"): CanvasDocument => {
   const now = nowIso();
+  const defaults = createDefaultCanvasDocumentFields();
   return {
     id: createDocumentId(),
     name,
-    width: 1080,
-    height: 1350,
+    ...defaults,
     backgroundColor: "#050505",
     elements: [],
     createdAt: now,
@@ -177,7 +181,9 @@ export const useCanvasStore = create<CanvasState>()(
         historyByDocumentId: {},
         init: async () => {
           set({ isLoading: true });
-          const documents = await loadCanvasDocuments();
+          const documents = (await loadCanvasDocuments()).map((document) =>
+            normalizeCanvasDocument(document)
+          );
           set({
             documents,
             activeDocumentId: documents[0]?.id ?? null,
@@ -208,11 +214,12 @@ export const useCanvasStore = create<CanvasState>()(
         setZoom: (zoom) => set({ zoom }),
         setViewport: (viewport) => set({ viewport }),
         upsertDocument: async (document) => {
-          await saveCanvasDocument(document);
+          const normalized = normalizeCanvasDocument(document);
+          await saveCanvasDocument(normalized);
           set((state) => ({
-            documents: state.documents.some((item) => item.id === document.id)
-              ? state.documents.map((item) => (item.id === document.id ? document : item))
-              : [document, ...state.documents],
+            documents: state.documents.some((item) => item.id === normalized.id)
+              ? state.documents.map((item) => (item.id === normalized.id ? normalized : item))
+              : [normalized, ...state.documents],
           }));
         },
         upsertElement: async (documentId, element) => {

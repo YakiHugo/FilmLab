@@ -1,6 +1,30 @@
 import type { EditingAdjustments } from "./index";
 
 export type CanvasElementType = "image" | "text" | "shape";
+export type CanvasPresetId = "social-square" | "social-portrait" | "social-story" | "social-landscape" | "custom";
+
+export interface CanvasSlice {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  order: number;
+}
+
+export interface CanvasGuideSettings {
+  showCenter: boolean;
+  showThirds: boolean;
+  showSafeArea: boolean;
+}
+
+export interface CanvasSafeArea {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
 
 export interface CanvasElementBase {
   id: string;
@@ -47,8 +71,12 @@ export interface CanvasDocument {
   name: string;
   width: number;
   height: number;
+  presetId: CanvasPresetId;
   backgroundColor: string;
   elements: CanvasElement[];
+  slices: CanvasSlice[];
+  guides: CanvasGuideSettings;
+  safeArea: CanvasSafeArea;
   createdAt: string;
   updatedAt: string;
   thumbnailBlob?: Blob;
