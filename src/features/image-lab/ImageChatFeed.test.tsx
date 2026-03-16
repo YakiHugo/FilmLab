@@ -1,6 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { ImageChatFeed, TurnPromptArtifactsPanel } from "./ImageChatFeed";
+import type { PromptObservabilitySummaryResponse } from "../../../shared/chatImageTypes";
+import {
+  ImageChatFeed,
+  PromptObservabilityPanel,
+  TurnPromptArtifactsPanel,
+} from "./ImageChatFeed";
 import type { ImageGenerationTurn } from "./hooks/useImageGeneration";
 
 const buildTurn = (overrides?: Partial<ImageGenerationTurn>): ImageGenerationTurn => ({
@@ -74,6 +79,9 @@ const renderFeed = (turns: ImageGenerationTurn[] = [buildTurn()]) =>
     <ImageChatFeed
       turns={turns}
       currentModelName="Qwen Image 2.0 Pro"
+      promptObservabilityStatus="idle"
+      promptObservabilityError={null}
+      promptObservability={null}
       onClearHistory={noop}
       onToggleResultSelection={noop}
       onSaveSelectedResults={noop}
@@ -89,17 +97,88 @@ const renderFeed = (turns: ImageGenerationTurn[] = [buildTurn()]) =>
       onDownloadAll={noop}
       onDownloadResult={noop}
       onUpscaleResult={noop}
+      onLoadPromptObservability={noop}
     />
   );
 
 const renderPromptArtifactsPanel = (turn: ImageGenerationTurn) =>
   renderToStaticMarkup(<TurnPromptArtifactsPanel turn={turn} />);
 
+const renderPromptObservabilityPanel = (
+  status: "idle" | "loading" | "loaded" | "error",
+  summary: PromptObservabilitySummaryResponse | null,
+  error: string | null = null
+) =>
+  renderToStaticMarkup(
+    <PromptObservabilityPanel status={status} summary={summary} error={error} />
+  );
+
+const buildObservabilitySummary = (
+  overrides?: Partial<PromptObservabilitySummaryResponse>
+): PromptObservabilitySummaryResponse => ({
+  conversationId: "conversation-1",
+  overview: {
+    totalTurns: 3,
+    turnsWithArtifacts: 2,
+    degradedTurns: 2,
+    fallbackTurns: 1,
+  },
+  semanticLosses: [
+    {
+      code: "STYLE_REFERENCE_ROLE_COLLAPSED",
+      occurrenceCount: 3,
+      turnCount: 2,
+      latestCreatedAt: "2026-03-15T10:05:00.000Z",
+    },
+    {
+      code: "EXACT_TEXT_CONTINUITY_AT_RISK",
+      occurrenceCount: 1,
+      turnCount: 1,
+      latestCreatedAt: "2026-03-15T10:01:00.000Z",
+    },
+  ],
+  targets: [
+    {
+      targetKey: "dashscope:qwen-image-2.0-pro",
+      compileArtifactCount: 2,
+      dispatchArtifactCount: 2,
+      degradedDispatchCount: 1,
+      latestCreatedAt: "2026-03-15T10:05:00.000Z",
+    },
+  ],
+  turns: [
+    {
+      turnId: "turn-2",
+      prompt: "Rework the style reference",
+      createdAt: "2026-03-15T10:05:00.000Z",
+      artifactCount: 2,
+      semanticLossCodes: ["STYLE_REFERENCE_ROLE_COLLAPSED"],
+      degraded: true,
+      fallback: false,
+      selectedTargetKey: "dashscope:qwen-image-2.0-pro",
+      executedTargetKey: "dashscope:qwen-image-2.0-pro",
+    },
+    {
+      turnId: "turn-3",
+      prompt: "Keep the poster text exactly aligned",
+      createdAt: "2026-03-15T10:06:00.000Z",
+      artifactCount: 3,
+      semanticLossCodes: ["EXACT_TEXT_CONTINUITY_AT_RISK"],
+      degraded: true,
+      fallback: true,
+      selectedTargetKey: "dashscope:qwen-image-2.0-pro",
+      executedTargetKey: "openai:gpt-image-1",
+    },
+  ],
+  ...overrides,
+});
+
 describe("ImageChatFeed", () => {
   it("renders selected model and run metadata from the turn", () => {
     const html = renderFeed();
 
     expect(html).toContain("Qwen Image 2.0 Pro");
+    expect(html).toContain("Insights");
     expect(html).toContain("Runtime DashScope");
     expect(html).toContain("qwen-image-2.0-pro");
     expect(html).toContain("Executed dashscope / qwen-image-2.0-pro");
@@ -226,5 +305,40 @@ describe("ImageChatFeed", () => {
     expect(html).toContain("EXACT_TEXT_CONTINUITY_AT_RISK");
     expect(html).toContain("Provider Effective Prompt");
     expect(html).toContain("provider prompt");
+  });
+
+  it("renders the empty state for prompt observability summaries", () => {
+    const html = renderPromptObservabilityPanel(
+      "loaded",
+      buildObservabilitySummary({
+        overview: {
+          totalTurns: 0,
+          turnsWithArtifacts: 0,
+          degradedTurns: 0,
+          fallbackTurns: 0,
+        },
+        semanticLosses: [],
+        turns: [],
+      })
+    );
+
+    expect(html).toContain("No prompt observability data is available for this conversation yet.");
+  });
+
+  it("renders sorted semantic losses and recent degraded turns in the observability panel", () => {
+    const html = renderPromptObservabilityPanel("loaded", buildObservabilitySummary());
+
+    expect(html).toContain("Prompt Observability");
+    expect(html).toContain("Total Turns");
+    expect(html).toContain("Fallback Turns");
+    expect(html).toContain("Rework the style reference");
+    expect(html).toContain("Keep the poster text exactly aligned");
+    expect(html).toContain("Selected dashscope:qwen-image-2.0-pro");
+    expect(html).toContain("Executed openai:gpt-image-1");
+    expect(html).toContain("STYLE_REFERENCE_ROLE_COLLAPSED");
+    expect(html).toContain("EXACT_TEXT_CONTINUITY_AT_RISK");
+    expect(html.indexOf("STYLE_REFERENCE_ROLE_COLLAPSED")).toBeLessThan(
+      html.indexOf("EXACT_TEXT_CONTINUITY_AT_RISK")
+    );
   });
 });

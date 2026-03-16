@@ -1,7 +1,10 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, Copy, Download, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PersistedPromptArtifactRecord } from "../../../shared/chatImageTypes";
+import type {
+  PersistedPromptArtifactRecord,
+  PromptObservabilitySummaryResponse,
+} from "../../../shared/chatImageTypes";
 import { IMAGE_STYLE_PRESETS } from "@/lib/ai/imageStylePresets";
 import { IMAGE_STYLES } from "@/lib/ai/imageStyles";
 import { cn } from "@/lib/utils";
@@ -11,6 +14,9 @@ import { ImageResultCard } from "./ImageResultCard";
 interface ImageChatFeedProps {
   turns: ImageGenerationTurn[];
   currentModelName: string;
+  promptObservabilityStatus: "idle" | "loading" | "loaded" | "error";
+  promptObservabilityError: string | null;
+  promptObservability: PromptObservabilitySummaryResponse | null;
   onClearHistory: () => void;
   onToggleResultSelection: (turnId: string, index: number) => void;
   onSaveSelectedResults: (turnId: string) => void;
@@ -26,6 +32,7 @@ interface ImageChatFeedProps {
   onDownloadAll: (turnId: string) => void;
   onDownloadResult: (turnId: string, index: number) => void;
   onUpscaleResult: (turnId: string, index: number) => void;
+  onLoadPromptObservability: () => void | Promise<unknown>;
 }
 
 const formatTurnTime = (value: string) =>
@@ -149,6 +156,15 @@ function MetaPill({ label }: { label: string }) {
     <span className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[11px] text-zinc-300">
       {label}
     </span>
+  );
+}
+
+function SummaryPill({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3">
+      <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">{label}</p>
+      <p className="mt-2 text-2xl font-semibold text-zinc-100">{value}</p>
+    </div>
   );
 }
 
@@ -280,6 +296,173 @@ export function TurnPromptArtifactsPanel({ turn }: { turn: ImageGenerationTurn }
           ))}
         </section>
       ))}
+    </div>
+  );
+}
+
+export function PromptObservabilityPanel({
+  status,
+  error,
+  summary,
+}: {
+  status: "idle" | "loading" | "loaded" | "error";
+  error: string | null;
+  summary: PromptObservabilitySummaryResponse | null;
+}) {
+  if (status === "idle" || status === "loading") {
+    return (
+      <div className="rounded-3xl border border-white/8 bg-white/[0.03] px-5 py-4 text-sm text-zinc-300">
+        <div className="inline-flex items-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading prompt observability
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <div className="rounded-3xl border border-rose-300/20 bg-rose-500/10 px-5 py-4 text-sm text-rose-100">
+        {error ?? "Prompt observability could not be loaded."}
+      </div>
+    );
+  }
+
+  if (!summary || summary.overview.totalTurns === 0) {
+    return (
+      <div className="rounded-3xl border border-white/8 bg-white/[0.03] px-5 py-4 text-sm text-zinc-400">
+        No prompt observability data is available for this conversation yet.
+      </div>
+    );
+  }
+
+  const semanticLosses = [...summary.semanticLosses].sort(
+    (left, right) =>
+      right.occurrenceCount - left.occurrenceCount ||
+      right.turnCount - left.turnCount ||
+      right.latestCreatedAt.localeCompare(left.latestCreatedAt)
+  );
+  const recentDegradedTurns = [...summary.turns]
+    .filter((turn) => turn.degraded || turn.fallback)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
+  return (
+    <div className="space-y-5 rounded-3xl border border-white/8 bg-[linear-gradient(180deg,rgba(18,20,25,0.94),rgba(10,11,15,0.98))] p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+            Prompt Observability
+          </p>
+          <p className="mt-1 text-sm text-zinc-300">
+            Conversation-level degradation, fallback, and semantic loss summary.
+          </p>
+        </div>
+        <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] text-zinc-300">
+          {summary.conversationId}
+        </span>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryPill label="Total Turns" value={summary.overview.totalTurns} />
+        <SummaryPill label="With Artifacts" value={summary.overview.turnsWithArtifacts} />
+        <SummaryPill label="Degraded Turns" value={summary.overview.degradedTurns} />
+        <SummaryPill label="Fallback Turns" value={summary.overview.fallbackTurns} />
+      </div>
+
+      <section className="space-y-3">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">Semantic Losses</p>
+          <p className="mt-1 text-sm text-zinc-400">
+            Ranked by artifact-level frequency across this conversation.
+          </p>
+        </div>
+        {semanticLosses.length === 0 ? (
+          <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-sm text-zinc-400">
+            No semantic losses were recorded.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {semanticLosses.map((loss) => (
+              <div
+                key={loss.code}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/8 bg-black/20 px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-zinc-100">{loss.code}</p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Last seen {formatTurnTime(loss.latestCreatedAt)}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <MetaPill label={`Occurrences ${loss.occurrenceCount}`} />
+                  <MetaPill label={`Turns ${loss.turnCount}`} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+            Recent Degraded Turns
+          </p>
+          <p className="mt-1 text-sm text-zinc-400">
+            Turns with degradation or fallback based on artifacts and executed targets.
+          </p>
+        </div>
+        {recentDegradedTurns.length === 0 ? (
+          <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-sm text-zinc-400">
+            No degraded or fallback turns were recorded.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {recentDegradedTurns.map((turn) => (
+              <div
+                key={turn.turnId}
+                className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-zinc-100">{turn.prompt}</p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {formatTurnTime(turn.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {turn.degraded ? <MetaPill label="Degraded" /> : null}
+                    {turn.fallback ? <MetaPill label="Fallback" /> : null}
+                    <MetaPill label={`Artifacts ${turn.artifactCount}`} />
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-400">
+                  <span>
+                    Selected {turn.selectedTargetKey ?? "unknown"}
+                  </span>
+                  <span>
+                    Executed {turn.executedTargetKey ?? "unknown"}
+                  </span>
+                </div>
+
+                {turn.semanticLossCodes.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {turn.semanticLossCodes.map((code) => (
+                      <span
+                        key={`${turn.turnId}-${code}`}
+                        className="rounded-full border border-sky-300/20 bg-sky-500/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-sky-100"
+                      >
+                        {code}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -581,6 +764,9 @@ function TurnRow({
 export function ImageChatFeed({
   turns,
   currentModelName,
+  promptObservabilityStatus,
+  promptObservabilityError,
+  promptObservability,
   onClearHistory,
   onToggleResultSelection,
   onSaveSelectedResults,
@@ -596,9 +782,11 @@ export function ImageChatFeed({
   onDownloadAll,
   onDownloadResult,
   onUpscaleResult,
+  onLoadPromptObservability,
 }: ImageChatFeedProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const latestTurnIdRef = useRef<string | null>(null);
+  const [promptObservabilityOpen, setPromptObservabilityOpen] = useState(false);
 
   useEffect(() => {
     const nextLatestTurnId = turns[0]?.id ?? null;
@@ -614,6 +802,22 @@ export function ImageChatFeed({
     latestTurnIdRef.current = nextLatestTurnId;
   }, [turns]);
 
+  useEffect(() => {
+    if (turns.length === 0) {
+      setPromptObservabilityOpen(false);
+    }
+  }, [turns.length]);
+
+  const handleTogglePromptObservability = useCallback(() => {
+    setPromptObservabilityOpen((current) => {
+      const next = !current;
+      if (next && turns.length > 0) {
+        void onLoadPromptObservability();
+      }
+      return next;
+    });
+  }, [onLoadPromptObservability, turns.length]);
+
   return (
     <div
       ref={scrollRef}
@@ -625,16 +829,39 @@ export function ImageChatFeed({
             <span className="text-zinc-500">Model</span>
             <span>{currentModelName}</span>
           </div>
-          <button
-            type="button"
-            className="inline-flex h-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-4 text-sm font-medium text-zinc-300 transition hover:border-white/16 hover:bg-white/[0.08] hover:text-zinc-100 disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/[0.02] disabled:text-zinc-600"
-            onClick={onClearHistory}
-            disabled={turns.length === 0}
-          >
-            <Trash2 className="mr-1.5 h-4 w-4" />
-            Clear history
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="inline-flex h-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-4 text-sm font-medium text-zinc-300 transition hover:border-white/16 hover:bg-white/[0.08] hover:text-zinc-100 disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/[0.02] disabled:text-zinc-600"
+              onClick={handleTogglePromptObservability}
+              disabled={turns.length === 0}
+            >
+              {promptObservabilityOpen && promptObservabilityStatus === "loading" ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : null}
+              {promptObservabilityOpen ? "Hide insights" : "Insights"}
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-4 text-sm font-medium text-zinc-300 transition hover:border-white/16 hover:bg-white/[0.08] hover:text-zinc-100 disabled:cursor-not-allowed disabled:border-white/8 disabled:bg-white/[0.02] disabled:text-zinc-600"
+              onClick={onClearHistory}
+              disabled={turns.length === 0}
+            >
+              <Trash2 className="mr-1.5 h-4 w-4" />
+              Clear history
+            </button>
+          </div>
         </div>
+
+        {promptObservabilityOpen ? (
+          <div className="mb-6">
+            <PromptObservabilityPanel
+              status={promptObservabilityStatus}
+              error={promptObservabilityError}
+              summary={promptObservability}
+            />
+          </div>
+        ) : null}
 
         <div className="space-y-6">
           <AnimatePresence initial={false}>

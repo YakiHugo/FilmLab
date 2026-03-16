@@ -280,6 +280,9 @@ export function ImageLabPage() {
       <ImageChatFeed
         turns={turns}
         currentModelName={currentModelName}
+        promptObservabilityStatus={imageGeneration.promptObservabilityStatus}
+        promptObservabilityError={imageGeneration.promptObservabilityError}
+        promptObservability={imageGeneration.promptObservability}
         onClearHistory={handleClearHistory}
         onToggleResultSelection={toggleResultSelection}
         onSaveSelectedResults={handleSaveSelectedResults}
@@ -295,6 +298,7 @@ export function ImageLabPage() {
         onDownloadAll={handleDownloadAll}
         onDownloadResult={handleDownloadResult}
         onUpscaleResult={handleUpscaleResult}
+        onLoadPromptObservability={imageGeneration.loadPromptObservability}
       />
 
       {downloadFeedback ? (
