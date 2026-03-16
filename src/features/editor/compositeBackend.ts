@@ -8,18 +8,11 @@ export interface CompositeLayerSurface {
   height: number;
 }
 
-export interface CanvasBackedCompositeLayerSurface extends CompositeLayerSurface {
-  kind: "canvas";
-  drawSource: HTMLCanvasElement;
-  renderTarget: HTMLCanvasElement;
-}
-
-export const createCanvasBackedCompositeLayerSurface = (
+export const createCanvasCompositeLayerSurface = (
   canvas: HTMLCanvasElement
-): CanvasBackedCompositeLayerSurface => ({
+): CompositeLayerSurface => ({
   kind: "canvas",
   drawSource: canvas,
-  renderTarget: canvas,
   width: canvas.width,
   height: canvas.height,
 });
@@ -35,13 +28,11 @@ export interface CompositeLayerRequest {
   };
 }
 
-export interface CompositeBackendWorkspace {
-  getLayerMaskCanvas: (layerId: string) => HTMLCanvasElement;
-  getLayerMaskScratchCanvas: (layerId: string) => HTMLCanvasElement;
-  getMaskedLayerCanvas: (layerId: string) => HTMLCanvasElement;
-}
+export interface CompositeBackendWorkspace {}
 
-export interface CompositeBackendComposeOptions {
+export interface CompositeBackendComposeOptions<
+  Workspace extends CompositeBackendWorkspace = CompositeBackendWorkspace,
+> {
   targetCanvas: HTMLCanvasElement;
   targetSize: {
     width: number;
@@ -49,10 +40,12 @@ export interface CompositeBackendComposeOptions {
   };
   region?: CanvasCompositeRegion | null;
   layers: CompositeLayerRequest[];
-  workspace: CompositeBackendWorkspace;
+  workspace: Workspace;
 }
 
-export interface CompositeBackend {
+export interface CompositeBackend<
+  Workspace extends CompositeBackendWorkspace = CompositeBackendWorkspace,
+> {
   id: string;
-  compose: (options: CompositeBackendComposeOptions) => Promise<boolean> | boolean;
+  compose: (options: CompositeBackendComposeOptions<Workspace>) => Promise<boolean> | boolean;
 }

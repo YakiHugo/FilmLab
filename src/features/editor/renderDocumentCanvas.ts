@@ -2,10 +2,13 @@ import { renderImageToCanvas } from "@/lib/imageProcessing";
 import { applyTimestampOverlay } from "@/lib/timestampOverlay";
 import type { Asset } from "@/types";
 import type { RenderIntent } from "@/lib/renderIntent";
-import { defaultCompositeBackend } from "./canvas2dCompositeBackend";
 import {
-  createCanvasBackedCompositeLayerSurface,
-  type CanvasBackedCompositeLayerSurface,
+  defaultCompositeBackend,
+  type Canvas2dCompositeBackendWorkspace,
+} from "./canvas2dCompositeBackend";
+import {
+  createCanvasCompositeLayerSurface,
+  type CompositeLayerSurface,
 } from "./compositeBackend";
 import type { RenderDocument } from "./document";
 import {
@@ -53,7 +56,8 @@ const getWorkspaceCanvas = (
 };
 
 const getWorkspaceLayerSurface = (
-  map: Map<string, CanvasBackedCompositeLayerSurface>,
+  map: Map<string, CompositeLayerSurface>,
+  layerCanvases: Map<string, HTMLCanvasElement>,
   layerId: string
 ) => {
   const existing = map.get(layerId);
@@ -61,21 +65,24 @@ const getWorkspaceLayerSurface = (
     return existing;
   }
 
-  const created = createCanvasBackedCompositeLayerSurface(
-    globalThis.document.createElement("canvas")
+  const created = createCanvasCompositeLayerSurface(
+    getWorkspaceCanvas(layerCanvases, layerId)
   );
   map.set(layerId, created);
   return created;
 };
 
 const createTemporaryWorkspace = () => {
-  const layerSurfaces = new Map<string, CanvasBackedCompositeLayerSurface>();
+  const layerCanvases = new Map<string, HTMLCanvasElement>();
+  const layerSurfaces = new Map<string, CompositeLayerSurface>();
   const layerMaskCanvases = new Map<string, HTMLCanvasElement>();
   const layerMaskScratchCanvases = new Map<string, HTMLCanvasElement>();
   const maskedLayerCanvases = new Map<string, HTMLCanvasElement>();
 
-  const workspace: RenderGraphLayerWorkspace = {
-    getLayerSurface: (layerId) => getWorkspaceLayerSurface(layerSurfaces, layerId),
+  const workspace: RenderGraphLayerWorkspace & Canvas2dCompositeBackendWorkspace = {
+    getLayerSurface: (layerId) =>
+      getWorkspaceLayerSurface(layerSurfaces, layerCanvases, layerId),
+    getLayerRenderTarget: (layerId) => getWorkspaceCanvas(layerCanvases, layerId),
     getLayerMaskCanvas: (layerId) => getWorkspaceCanvas(layerMaskCanvases, layerId),
     getLayerMaskScratchCanvas: (layerId) =>
       getWorkspaceCanvas(layerMaskScratchCanvases, layerId),
@@ -86,8 +93,6 @@ const createTemporaryWorkspace = () => {
     for (const surface of layerSurfaces.values()) {
       surface.width = 0;
       surface.height = 0;
-      surface.renderTarget.width = 0;
-      surface.renderTarget.height = 0;
     }
     layerSurfaces.clear();
 
@@ -99,6 +104,7 @@ const createTemporaryWorkspace = () => {
       map.clear();
     };
 
+    releaseCanvasMap(layerCanvases);
     releaseCanvasMap(layerMaskCanvases);
     releaseCanvasMap(layerMaskScratchCanvases);
     releaseCanvasMap(maskedLayerCanvases);
@@ -168,7 +174,7 @@ export const renderDocumentToCanvas = async ({
         width: targetSize?.width ?? canvas.width,
         height: targetSize?.height ?? canvas.height,
       },
-      renderLayerNode: async (layerNode, layerSurface, layerIndex) => {
+      renderLayerNode: async (layerNode, layerCanvas, layerIndex) => {
         let layerSource = sourceBlobCache.get(layerNode.sourceAssetId);
         if (!layerSource) {
           layerSource = resolveAssetRenderSource(layerNode.sourceAsset);
@@ -176,7 +182,7 @@ export const renderDocumentToCanvas = async ({
         }
 
         await renderImageToCanvas({
-          canvas: layerSurface.renderTarget,
+          canvas: layerCanvas,
           source: layerSource,
           adjustments: layerNode.adjustments,
           filmProfile: resolveLayerFilmProfile(renderDocument, layerNode.sourceAsset),

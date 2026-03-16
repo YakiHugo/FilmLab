@@ -1,21 +1,24 @@
 import { ensureCanvasSize, type CanvasCompositeRegion } from "./composition";
 import type {
   CompositeBackend,
-  CanvasBackedCompositeLayerSurface,
   CompositeBackendWorkspace,
   CompositeLayerRequest,
+  CompositeLayerSurface,
 } from "./compositeBackend";
 import type { RenderGraph, RenderLayerNode } from "./renderGraph";
 
 export interface RenderGraphLayerWorkspace extends CompositeBackendWorkspace {
-  getLayerSurface: (layerId: string) => CanvasBackedCompositeLayerSurface;
+  getLayerSurface: (layerId: string) => CompositeLayerSurface;
+  getLayerRenderTarget: (layerId: string) => HTMLCanvasElement;
 }
 
-interface ComposeRenderGraphToCanvasOptions {
+interface ComposeRenderGraphToCanvasOptions<
+  Workspace extends RenderGraphLayerWorkspace & CompositeBackendWorkspace,
+> {
   targetCanvas: HTMLCanvasElement;
   renderGraph: RenderGraph;
-  backend: CompositeBackend;
-  workspace: RenderGraphLayerWorkspace;
+  backend: CompositeBackend<any>;
+  workspace: Workspace;
   region?: CanvasCompositeRegion | null;
   targetSize: {
     width: number;
@@ -23,7 +26,7 @@ interface ComposeRenderGraphToCanvasOptions {
   };
   renderLayerNode: (
     node: RenderLayerNode,
-    surface: CanvasBackedCompositeLayerSurface,
+    renderTarget: HTMLCanvasElement,
     layerIndex: number
   ) => Promise<void>;
 }
@@ -31,7 +34,9 @@ interface ComposeRenderGraphToCanvasOptions {
 export const resolveRenderGraphLayerNodesBottomToTop = (renderGraph: RenderGraph) =>
   [...renderGraph.layers].reverse();
 
-export const composeRenderGraphToCanvas = async ({
+export const composeRenderGraphToCanvas = async <
+  Workspace extends RenderGraphLayerWorkspace & CompositeBackendWorkspace,
+>({
   targetCanvas,
   renderGraph,
   backend,
@@ -39,18 +44,19 @@ export const composeRenderGraphToCanvas = async ({
   region,
   targetSize,
   renderLayerNode,
-}: ComposeRenderGraphToCanvasOptions) => {
+}: ComposeRenderGraphToCanvasOptions<Workspace>) => {
   ensureCanvasSize(targetCanvas, targetSize.width, targetSize.height);
   const layersBottomToTop = resolveRenderGraphLayerNodesBottomToTop(renderGraph);
   const layerRequests: CompositeLayerRequest[] = [];
 
   for (let layerIndex = 0; layerIndex < layersBottomToTop.length; layerIndex += 1) {
     const node = layersBottomToTop[layerIndex]!;
+    const renderTarget = workspace.getLayerRenderTarget(node.id);
     const layerSurface = workspace.getLayerSurface(node.id);
-    ensureCanvasSize(layerSurface.renderTarget, targetSize.width, targetSize.height);
-    layerSurface.width = layerSurface.renderTarget.width;
-    layerSurface.height = layerSurface.renderTarget.height;
-    await renderLayerNode(node, layerSurface, layerIndex);
+    ensureCanvasSize(renderTarget, targetSize.width, targetSize.height);
+    await renderLayerNode(node, renderTarget, layerIndex);
+    layerSurface.width = renderTarget.width;
+    layerSurface.height = renderTarget.height;
     layerRequests.push({
       layerId: node.id,
       surface: layerSurface,
