@@ -63,7 +63,7 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
       <AlertDialogContent className="max-w-lg">
         <AlertDialogTitle>Export Canvas</AlertDialogTitle>
         <AlertDialogDescription>
-          Choose format, dimensions, and quality before downloading.
+          Choose format, dimensions, and quality before downloading the active board or its export frames.
         </AlertDialogDescription>
 
         <div className="mt-4 space-y-3">
@@ -75,7 +75,7 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
               <SelectContent>
                 <SelectItem value="whole">Whole Board</SelectItem>
                 <SelectItem value="slices" disabled={!activeDocument?.slices.length}>
-                  Slices ({activeDocument?.slices.length ?? 0})
+                  Frames ({activeDocument?.slices.length ?? 0})
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -123,20 +123,20 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
             <div className="rounded-lg border border-white/10 bg-black/35 px-3 py-3 text-sm text-slate-300">
               {activeDocument?.slices.length ? (
                 <div className="space-y-2">
-                  <p>{activeDocument.slices.length} slices will be exported in sequence.</p>
+                  <p>{activeDocument.slices.length} frames will be exported in sequence.</p>
                   <div className="max-h-[120px] space-y-1 overflow-y-auto text-xs text-slate-400">
                     {activeDocument.slices
                       .slice()
                       .sort((left, right) => left.order - right.order)
                       .map((slice) => (
                         <p key={slice.id}>
-                          {String(slice.order).padStart(2, "0")} {slice.name} ({slice.width} × {slice.height})
+                          {String(slice.order).padStart(2, "0")} {slice.name} ({slice.width} x {slice.height})
                         </p>
                       ))}
                   </div>
                 </div>
               ) : (
-                <p>Create slices in Studio before using slice export.</p>
+                <p>Create export frames in Canvas before using sequence export.</p>
               )}
             </div>
           )}
@@ -172,7 +172,7 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
                   format,
                   quality,
                   pixelRatio,
-                  filePrefix: activeDocument?.name ?? "filmlab-story",
+                  filePrefix: activeDocument?.name ?? "filmlab-board",
                 });
                 return;
               }
@@ -183,7 +183,7 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
                 height,
                 quality,
                 pixelRatio,
-                fileName: `${activeDocument?.name ?? "filmlab-story"}.${format === "jpeg" ? "jpg" : "png"}`,
+                fileName: `${activeDocument?.name ?? "filmlab-board"}.${format === "jpeg" ? "jpg" : "png"}`,
               });
             }}
           >
