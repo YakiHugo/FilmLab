@@ -9,7 +9,7 @@ interface AppShellProps {
 
 export function AppShell({ children }: AppShellProps) {
   const pathname = useLocation({ select: (state) => state.pathname });
-  const isStudioRoute = pathname === "/";
+  const isProjectRoute = pathname === "/" || pathname.startsWith("/canvas");
   const isLibraryRoute = pathname === "/library";
   const isEditorRoute = pathname === "/editor";
   const isAssistRoute = pathname === "/assist";
@@ -22,7 +22,7 @@ export function AppShell({ children }: AppShellProps) {
         <main
           className={cn(
             "w-full flex-1 min-w-0 min-h-0",
-            (isStudioRoute || isLibraryRoute || isEditorRoute || isAssistRoute)
+            (isProjectRoute || isLibraryRoute || isEditorRoute || isAssistRoute)
               ? "px-0 pb-0 pt-0"
               : "mx-auto max-w-[1600px] px-3 pb-4 pt-4 lg:px-5"
           )}

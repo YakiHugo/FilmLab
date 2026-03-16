@@ -6,8 +6,9 @@ import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvasStore";
 
 const NAV_ITEMS = [
-  { label: "Studio", to: "/" as const, matches: ["/", "/canvas"] },
-  { label: "Assets", to: "/library" as const, matches: ["/library", "/editor"] },
+  { label: "Project", to: "/" as const, matches: ["/", "/canvas"] },
+  { label: "Library", to: "/library" as const, matches: ["/library"] },
+  { label: "Editor", to: "/editor" as const, matches: ["/editor"] },
 ];
 const controlClass =
   "h-7 rounded-sm border border-white/10 bg-black/45 text-zinc-200 hover:border-white/20 hover:bg-white/[0.08] focus-visible:border-yellow-500/60 focus-visible:ring-0";
@@ -22,7 +23,7 @@ function ContextActions() {
     return (
       <div className="flex items-center gap-2">
         <span className="max-w-[200px] truncate rounded-sm border border-white/10 bg-black/40 px-2.5 py-1 text-xs text-zinc-300">
-          {activeDocument?.name ?? "Untitled story"}
+          {activeDocument?.name ?? "Untitled board"}
         </span>
         <Button
           size="sm"
@@ -33,31 +34,39 @@ function ContextActions() {
           }}
         >
           <CirclePlus className="h-3.5 w-3.5" />
-          New Story
+          New Board
         </Button>
       </div>
     );
   }
 
-  if (pathname === "/assist") {
+  if (pathname === "/editor") {
+    return (
+      <div className="flex items-center gap-2">
+        <Link
+          to="/assist"
+          className="inline-flex items-center gap-1 rounded-sm border border-white/10 bg-black/35 px-2.5 py-1 text-xs text-zinc-300 transition hover:bg-white/10"
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          AI Tools
+        </Link>
+        <Link
+          to="/"
+          className="rounded-sm border border-white/10 bg-black/35 px-2.5 py-1 text-xs text-zinc-300 transition hover:bg-white/10"
+        >
+          Back to Project
+        </Link>
+      </div>
+    );
+  }
+
+  if (pathname === "/library" || pathname === "/assist") {
     return (
       <Link
         to="/"
         className="rounded-sm border border-white/10 bg-black/35 px-2.5 py-1 text-xs text-zinc-300 transition hover:bg-white/10"
       >
-        Back to Studio
-      </Link>
-    );
-  }
-
-  if (pathname === "/library" || pathname === "/editor") {
-    return (
-      <Link
-        to="/assist"
-        className="inline-flex items-center gap-1 rounded-sm border border-white/10 bg-black/35 px-2.5 py-1 text-xs text-zinc-300 transition hover:bg-white/10"
-      >
-        <Sparkles className="h-3.5 w-3.5" />
-        AI Assist
+        Back to Project
       </Link>
     );
   }
@@ -86,7 +95,7 @@ export function Header() {
           item.matches.some((match) =>
             match === "/" ? pathname === "/" : pathname.startsWith(match)
           )
-        )?.label ?? "Studio"
+        )?.label ?? "Project"
       );
     },
     [pathname]
@@ -103,7 +112,7 @@ export function Header() {
             <Film className="h-3.5 w-3.5" />
           </Link>
           <p className="truncate text-xs font-semibold tracking-wide text-zinc-200">
-            FilmLab Studio
+            FilmLab Canvas
           </p>
         </div>
 
