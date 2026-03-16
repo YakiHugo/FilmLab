@@ -1,5 +1,6 @@
 import type Konva from "konva";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Crosshair, Minus, Plus } from "lucide-react";
 import { Circle, Layer, Line, Rect, Stage, Text as KonvaText, Transformer } from "react-konva";
 import type { CanvasElement, CanvasShapeElement, CanvasTextElement } from "@/types";
 import { useAssetStore } from "@/stores/assetStore";
@@ -63,6 +64,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const panningAnchorRef = useRef<{ x: number; y: number } | null>(null);
   const viewportAnchorRef = useRef<{ x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
 
   const activeDocument = useMemo(
     () => documents.find((document) => document.id === activeDocumentId) ?? null,
@@ -134,6 +136,26 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   }, [stageRef, activeDocumentId]);
 
   useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        setStageSize({
+          width: Math.round(entry.contentRect.width),
+          height: Math.round(entry.contentRect.height),
+        });
+      }
+    });
+    observer.observe(container);
+    setStageSize({
+      width: container.clientWidth,
+      height: container.clientHeight,
+    });
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.code === "Space" && !isInputLikeElement(event.target)) {
         event.preventDefault();
@@ -185,10 +207,21 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     setEditingTextId(null);
   };
 
+  const adjustZoom = (direction: "in" | "out") => {
+    const scaleBy = 1.08;
+    const nextZoom = clamp(direction === "in" ? zoom * scaleBy : zoom / scaleBy, 0.2, 4);
+    setZoom(nextZoom);
+  };
+
+  const resetView = () => {
+    setZoom(1);
+    setViewport({ x: 0, y: 0 });
+  };
+
   if (!activeDocument) {
     return (
-      <div className="flex h-[620px] items-center justify-center rounded-2xl border border-white/10 bg-black/35 text-sm text-zinc-500">
-        Create or open a canvas document.
+      <div className="absolute inset-0 flex items-center justify-center text-sm text-zinc-500">
+        Create or open a board to start composing on canvas.
       </div>
     );
   }
@@ -198,202 +231,196 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   return (
     <div
       ref={containerRef}
-      className="relative overflow-auto rounded-2xl border border-white/10 bg-[#242426] p-6"
+      className="absolute inset-0"
       style={{ cursor: shouldPan ? (isPanning ? "grabbing" : "grab") : "default" }}
     >
-      <div className="mx-auto w-fit">
-        <Stage
-          ref={stageRef}
-          width={activeDocument.width}
-          height={activeDocument.height}
-          x={viewport.x}
-          y={viewport.y}
-          scaleX={zoom}
-          scaleY={zoom}
-          onWheel={(event) => {
-            event.evt.preventDefault();
-            const stage = stageRef.current;
-            if (!stage) {
-              return;
-            }
-            const pointer = stage.getPointerPosition();
-            if (!pointer) {
-              return;
-            }
-            const scaleBy = 1.08;
-            const direction = event.evt.deltaY > 0 ? -1 : 1;
-            const nextZoom = clamp(
-              direction > 0 ? zoom * scaleBy : zoom / scaleBy,
-              0.2,
-              4
-            );
-            const worldPoint = {
-              x: (pointer.x - viewport.x) / zoom,
-              y: (pointer.y - viewport.y) / zoom,
-            };
-            setZoom(nextZoom);
-            setViewport({
-              x: pointer.x - worldPoint.x * nextZoom,
-              y: pointer.y - worldPoint.y * nextZoom,
-            });
-          }}
-          onMouseDown={(event) => {
-            const stage = stageRef.current;
-            if (!stage) {
-              return;
-            }
-            const isBackgroundTarget =
-              event.target === stage || event.target.id() === BACKGROUND_NODE_ID;
-            const point = toCanvasPoint(stage);
-
-            if (shouldPan && isBackgroundTarget) {
+      <Stage
+        ref={stageRef}
+        width={stageSize.width}
+        height={stageSize.height}
+        x={viewport.x}
+        y={viewport.y}
+        scaleX={zoom}
+        scaleY={zoom}
+            onWheel={(event) => {
+              event.evt.preventDefault();
+              const stage = stageRef.current;
+              if (!stage) {
+                return;
+              }
               const pointer = stage.getPointerPosition();
               if (!pointer) {
                 return;
               }
-              setIsPanning(true);
-              panningAnchorRef.current = pointer;
-              viewportAnchorRef.current = viewport;
-              return;
-            }
-
-            if (!isBackgroundTarget || !point) {
-              return;
-            }
-
-            if (tool === "select") {
-              clearSelection();
-              return;
-            }
-
-            if (tool === "text") {
-              const elementId = createElementId();
-              const textElement: CanvasTextElement = {
-                id: elementId,
-                type: "text",
-                content: "Double-click to edit",
-                x: point.x,
-                y: point.y,
-                width: 260,
-                height: 72,
-                rotation: 0,
-                opacity: 1,
-                locked: false,
-                visible: true,
-                zIndex: activeDocument.elements.length + 1,
-                fontFamily: "Georgia",
-                fontSize: 36,
-                color: "#f5f5f5",
-                textAlign: "left",
+              const scaleBy = 1.08;
+              const direction = event.evt.deltaY > 0 ? -1 : 1;
+              const nextZoom = clamp(direction > 0 ? zoom * scaleBy : zoom / scaleBy, 0.2, 4);
+              const worldPoint = {
+                x: (pointer.x - viewport.x) / zoom,
+                y: (pointer.y - viewport.y) / zoom,
               };
-              void upsertElement(activeDocument.id, textElement);
-              selectElement(elementId);
-              setEditingTextId(elementId);
-              setEditingTextValue(textElement.content);
-              return;
-            }
-
-            if (tool === "shape") {
-              setShapeDraft({
-                startX: point.x,
-                startY: point.y,
-                currentX: point.x,
-                currentY: point.y,
+              setZoom(nextZoom);
+              setViewport({
+                x: pointer.x - worldPoint.x * nextZoom,
+                y: pointer.y - worldPoint.y * nextZoom,
               });
-            }
-          }}
-          onMouseMove={() => {
-            const stage = stageRef.current;
-            if (!stage) {
-              return;
-            }
-            if (isPanning && shouldPan) {
-              const pointer = stage.getPointerPosition();
-              if (!pointer || !panningAnchorRef.current || !viewportAnchorRef.current) {
+            }}
+            onMouseDown={(event) => {
+              const stage = stageRef.current;
+              if (!stage) {
                 return;
               }
-              setViewport({
-                x: viewportAnchorRef.current.x + (pointer.x - panningAnchorRef.current.x),
-                y: viewportAnchorRef.current.y + (pointer.y - panningAnchorRef.current.y),
-              });
-              return;
-            }
+              const isBackgroundTarget = event.target === stage || event.target.id() === BACKGROUND_NODE_ID;
+              const point = toCanvasPoint(stage);
 
-            if (!shapeDraft || tool !== "shape") {
-              return;
-            }
-            const point = toCanvasPoint(stage);
-            if (!point) {
-              return;
-            }
-            setShapeDraft((previous) =>
-              previous
-                ? {
-                    ...previous,
-                    currentX: point.x,
-                    currentY: point.y,
-                  }
-                : null
-            );
-          }}
-          onMouseUp={() => {
-            if (isPanning) {
-              setIsPanning(false);
-            }
-            if (!shapeDraft || tool !== "shape") {
-              return;
-            }
+              if (shouldPan && isBackgroundTarget) {
+                const pointer = stage.getPointerPosition();
+                if (!pointer) {
+                  return;
+                }
+                setIsPanning(true);
+                panningAnchorRef.current = pointer;
+                viewportAnchorRef.current = viewport;
+                return;
+              }
 
-            const dx = shapeDraft.currentX - shapeDraft.startX;
-            const dy = shapeDraft.currentY - shapeDraft.startY;
-            if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
+              if (!isBackgroundTarget || !point) {
+                return;
+              }
+
+              if (tool === "select") {
+                clearSelection();
+                return;
+              }
+
+              if (tool === "text") {
+                const elementId = createElementId();
+                const textElement: CanvasTextElement = {
+                  id: elementId,
+                  type: "text",
+                  content: "Double-click to edit",
+                  x: point.x,
+                  y: point.y,
+                  width: 260,
+                  height: 72,
+                  rotation: 0,
+                  opacity: 1,
+                  locked: false,
+                  visible: true,
+                  zIndex: activeDocument.elements.length + 1,
+                  fontFamily: "Georgia",
+                  fontSize: 36,
+                  color: "#f5f5f5",
+                  textAlign: "left",
+                };
+                void upsertElement(activeDocument.id, textElement);
+                selectElement(elementId);
+                setEditingTextId(elementId);
+                setEditingTextValue(textElement.content);
+                return;
+              }
+
+              if (tool === "shape") {
+                setShapeDraft({
+                  startX: point.x,
+                  startY: point.y,
+                  currentX: point.x,
+                  currentY: point.y,
+                });
+              }
+            }}
+            onMouseMove={() => {
+              const stage = stageRef.current;
+              if (!stage) {
+                return;
+              }
+              if (isPanning && shouldPan) {
+                const pointer = stage.getPointerPosition();
+                if (!pointer || !panningAnchorRef.current || !viewportAnchorRef.current) {
+                  return;
+                }
+                setViewport({
+                  x: viewportAnchorRef.current.x + (pointer.x - panningAnchorRef.current.x),
+                  y: viewportAnchorRef.current.y + (pointer.y - panningAnchorRef.current.y),
+                });
+                return;
+              }
+
+              if (!shapeDraft || tool !== "shape") {
+                return;
+              }
+              const point = toCanvasPoint(stage);
+              if (!point) {
+                return;
+              }
+              setShapeDraft((previous) =>
+                previous
+                  ? {
+                      ...previous,
+                      currentX: point.x,
+                      currentY: point.y,
+                    }
+                  : null
+              );
+            }}
+            onMouseUp={() => {
+              if (isPanning) {
+                setIsPanning(false);
+              }
+              if (!shapeDraft || tool !== "shape") {
+                return;
+              }
+
+              const dx = shapeDraft.currentX - shapeDraft.startX;
+              const dy = shapeDraft.currentY - shapeDraft.startY;
+              if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
+                setShapeDraft(null);
+                return;
+              }
+
+              const nextElement: CanvasShapeElement =
+                shapeType === "line"
+                  ? {
+                      id: createElementId(),
+                      type: "shape",
+                      shape: "line",
+                      x: shapeDraft.startX,
+                      y: shapeDraft.startY,
+                      width: dx,
+                      height: dy,
+                      rotation: 0,
+                      opacity: 1,
+                      locked: false,
+                      visible: true,
+                      zIndex: activeDocument.elements.length + 1,
+                      fill: "#f59e0b",
+                      stroke: "#f59e0b",
+                      strokeWidth: 4,
+                    }
+                  : {
+                      id: createElementId(),
+                      type: "shape",
+                      shape: shapeType,
+                      x: Math.min(shapeDraft.startX, shapeDraft.currentX),
+                      y: Math.min(shapeDraft.startY, shapeDraft.currentY),
+                      width: Math.max(1, Math.abs(dx)),
+                      height: Math.max(1, Math.abs(dy)),
+                      rotation: 0,
+                      opacity: 1,
+                      locked: false,
+                      visible: true,
+                      zIndex: activeDocument.elements.length + 1,
+                      fill:
+                        shapeType === "rect" ? "rgba(245, 158, 11, 0.2)" : "rgba(245, 158, 11, 0.35)",
+                      stroke: "#f59e0b",
+                      strokeWidth: 2,
+                    };
+
+              void upsertElement(activeDocument.id, nextElement);
+              selectElement(nextElement.id);
               setShapeDraft(null);
-              return;
-            }
-
-            const nextElement: CanvasShapeElement =
-              shapeType === "line"
-                ? {
-                    id: createElementId(),
-                    type: "shape",
-                    shape: "line",
-                    x: shapeDraft.startX,
-                    y: shapeDraft.startY,
-                    width: dx,
-                    height: dy,
-                    rotation: 0,
-                    opacity: 1,
-                    locked: false,
-                    visible: true,
-                    zIndex: activeDocument.elements.length + 1,
-                    fill: "#f59e0b",
-                    stroke: "#f59e0b",
-                    strokeWidth: 4,
-                  }
-                : {
-                    id: createElementId(),
-                    type: "shape",
-                    shape: shapeType,
-                    x: Math.min(shapeDraft.startX, shapeDraft.currentX),
-                    y: Math.min(shapeDraft.startY, shapeDraft.currentY),
-                    width: Math.max(1, Math.abs(dx)),
-                    height: Math.max(1, Math.abs(dy)),
-                    rotation: 0,
-                    opacity: 1,
-                    locked: false,
-                    visible: true,
-                    zIndex: activeDocument.elements.length + 1,
-                    fill:
-                      shapeType === "rect" ? "rgba(245, 158, 11, 0.2)" : "rgba(245, 158, 11, 0.35)",
-                    stroke: "#f59e0b",
-                    strokeWidth: 2,
-                  };
-
-            void upsertElement(activeDocument.id, nextElement);
-            selectElement(nextElement.id);
-            setShapeDraft(null);
-          }}
-        >
+            }}
+          >
           <Layer>
             <Rect
               id={BACKGROUND_NODE_ID}
@@ -647,7 +674,36 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
               );
             })}
           </Layer>
-        </Stage>
+          </Stage>
+
+      <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-[24px] border border-white/10 bg-black/65 px-2 py-2 shadow-[0_20px_60px_-32px_rgba(0,0,0,0.95)] backdrop-blur-xl">
+        <button
+          type="button"
+          onClick={() => adjustZoom("out")}
+          className="flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-300 transition hover:bg-white/10"
+          aria-label="Zoom out"
+        >
+          <Minus className="h-4 w-4" />
+        </button>
+        <div className="min-w-[64px] rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-center text-xs text-zinc-200">
+          {Math.round(zoom * 100)}%
+        </div>
+        <button
+          type="button"
+          onClick={() => adjustZoom("in")}
+          className="flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-300 transition hover:bg-white/10"
+          aria-label="Zoom in"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={resetView}
+          className="ml-1 flex h-10 items-center justify-center gap-2 rounded-2xl border border-white/10 px-3 text-xs text-zinc-200 transition hover:bg-white/10"
+        >
+          <Crosshair className="h-4 w-4" />
+          100%
+        </button>
       </div>
 
       {editingTextElement && (
@@ -667,8 +723,8 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
           autoFocus
           className="absolute resize-none rounded-lg border border-amber-300/40 bg-slate-950/85 p-2 text-sm text-zinc-100 outline-none"
           style={{
-            left: editingTextElement.x * zoom + viewport.x + 24,
-            top: editingTextElement.y * zoom + viewport.y + 24,
+            left: editingTextElement.x * zoom + viewport.x,
+            top: editingTextElement.y * zoom + viewport.y,
             width: Math.max(120, editingTextElement.width * zoom),
             height: Math.max(48, editingTextElement.height * zoom),
             fontFamily: editingTextElement.fontFamily,
