@@ -668,15 +668,13 @@ function TurnRow({
 
   const handleTogglePromptArtifacts = useCallback(
     (turnId: string) => {
-      setPromptArtifactsOpen((current) => {
-        const next = !current;
-        if (next && turn.status !== "loading") {
-          void onLoadPromptArtifacts(turnId);
-        }
-        return next;
-      });
+      const next = !promptArtifactsOpen;
+      setPromptArtifactsOpen(next);
+      if (next && turn.status !== "loading") {
+        void onLoadPromptArtifacts(turnId);
+      }
     },
-    [onLoadPromptArtifacts, turn.status]
+    [onLoadPromptArtifacts, promptArtifactsOpen, turn.status]
   );
 
   return (
@@ -834,15 +832,14 @@ export function ImageChatFeed({
   ]);
 
   const handleTogglePromptObservability = useCallback(() => {
-    setPromptObservabilityOpen((current) => {
-      const next = !current;
-      if (next && turns.length > 0 && promptObservabilityStatus === "error") {
-        void onLoadPromptObservability();
-      }
-      return next;
-    });
+    const next = !promptObservabilityOpen;
+    setPromptObservabilityOpen(next);
+    if (next && turns.length > 0 && promptObservabilityStatus === "error") {
+      void onLoadPromptObservability();
+    }
   }, [
     onLoadPromptObservability,
+    promptObservabilityOpen,
     promptObservabilityStatus,
     turns.length,
   ]);
