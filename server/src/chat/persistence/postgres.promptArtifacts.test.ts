@@ -397,4 +397,29 @@ describe("PostgresChatStateRepository#getPromptObservabilityForConversation", ()
     expect(summary).toBeNull();
     expect(pool.query).toHaveBeenCalledTimes(1);
   });
+
+  it("does not create an active conversation when observability is requested without a conversation id", async () => {
+    const pool = {
+      query: vi.fn().mockResolvedValueOnce({
+        rows: [],
+      }),
+      end: vi.fn(),
+    };
+
+    const repository = new PostgresChatStateRepository(pool as never);
+    (
+      repository as unknown as {
+        ensureReady: ReturnType<typeof vi.fn>;
+      }
+    ).ensureReady = vi.fn().mockResolvedValue(undefined);
+
+    const summary = await repository.getPromptObservabilityForConversation("user-1");
+
+    expect(summary).toBeNull();
+    expect(pool.query).toHaveBeenCalledTimes(1);
+    expect(pool.query).toHaveBeenCalledWith(
+      expect.stringContaining("AND is_active = TRUE"),
+      ["user-1"]
+    );
+  });
 });

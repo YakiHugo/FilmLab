@@ -360,6 +360,30 @@ describe("imageConversationRoute", () => {
     await app.close();
   });
 
+  it("returns 404 when prompt observability is requested without an active conversation", async () => {
+    repositoryMock.getPromptObservabilityForConversation.mockResolvedValue(null);
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/image-conversation/observability",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(repositoryMock.getPromptObservabilityForConversation).toHaveBeenCalledWith(
+      "user-1",
+      undefined
+    );
+    expect(response.json()).toEqual({
+      error: "Conversation not found.",
+    });
+
+    await app.close();
+  });
+
   it("clears and recreates the active conversation", async () => {
     repositoryMock.clearActiveConversation.mockResolvedValue({
       id: "conversation-2",
