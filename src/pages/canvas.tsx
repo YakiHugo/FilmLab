@@ -1,17 +1,17 @@
 import type Konva from "konva";
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "@tanstack/react-router";
-import { useCanvasStore } from "@/stores/canvasStore";
-import { CanvasAssetPicker } from "@/features/canvas/CanvasAssetPicker";
-import { CanvasLayerPanel } from "@/features/canvas/CanvasLayerPanel";
-import { CanvasPropertiesPanel } from "@/features/canvas/CanvasPropertiesPanel";
-import { CanvasStoryPanel } from "@/features/canvas/CanvasStoryPanel";
-import { CanvasToolbar } from "@/features/canvas/CanvasToolbar";
+import { CanvasAppBar } from "@/features/canvas/CanvasAppBar";
+import { CanvasExportDialog } from "@/features/canvas/CanvasExportDialog";
+import { CanvasFloatingPanel } from "@/features/canvas/CanvasFloatingPanel";
+import { CanvasToolRail } from "@/features/canvas/CanvasToolRail";
 import { CanvasViewport } from "@/features/canvas/CanvasViewport";
+import { useCanvasStore } from "@/stores/canvasStore";
 
 export function CanvasPage() {
   const stageRef = useRef<Konva.Stage>(null);
   const [selectedSliceId, setSelectedSliceId] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
   const params = useParams({ from: "/canvas/$documentId", shouldThrow: false });
   const documentId = params?.documentId;
   const documents = useCanvasStore((state) => state.documents);
@@ -20,15 +20,15 @@ export function CanvasPage() {
   const init = useCanvasStore((state) => state.init);
   const createDocument = useCanvasStore((state) => state.createDocument);
   const setActiveDocumentId = useCanvasStore((state) => state.setActiveDocumentId);
+  const selectedElementIds = useCanvasStore((state) => state.selectedElementIds);
+  const setActivePanel = useCanvasStore((state) => state.setActivePanel);
 
   useEffect(() => {
     void init();
   }, [init]);
 
   useEffect(() => {
-    if (isLoading) {
-      return;
-    }
+    if (isLoading) return;
     if (!documentId) {
       if (documents.length === 0 && !activeDocumentId) {
         void createDocument();
@@ -41,57 +41,45 @@ export function CanvasPage() {
   }, [documentId, activeDocumentId, documents.length, createDocument, isLoading, setActiveDocumentId]);
 
   useEffect(() => {
-    const activeDocument = documents.find((document) => document.id === activeDocumentId);
+    const activeDocument = documents.find((d) => d.id === activeDocumentId);
     const nextSlices = activeDocument?.slices ?? [];
     if (!selectedSliceId) {
-      if (nextSlices[0]) {
-        setSelectedSliceId(nextSlices[0].id);
-      }
+      if (nextSlices[0]) setSelectedSliceId(nextSlices[0].id);
       return;
     }
-    if (!nextSlices.some((slice) => slice.id === selectedSliceId)) {
+    if (!nextSlices.some((s) => s.id === selectedSliceId)) {
       setSelectedSliceId(nextSlices[0]?.id ?? null);
     }
   }, [activeDocumentId, documents, selectedSliceId]);
 
+  // Auto-open edit panel when an image element is selected
+  useEffect(() => {
+    if (selectedElementIds.length === 0) return;
+    const activeDocument = documents.find((d) => d.id === activeDocumentId);
+    if (!activeDocument) return;
+    const hasImage = selectedElementIds.some((id) => {
+      const el = activeDocument.elements.find((e) => e.id === id);
+      return el?.type === "image";
+    });
+    if (hasImage) {
+      setActivePanel("edit");
+    }
+  }, [selectedElementIds, documents, activeDocumentId, setActivePanel]);
+
   return (
-    <div className="flex h-[calc(100dvh-44px)] min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(248,190,74,0.08),transparent_30%),linear-gradient(180deg,#14110e_0%,#0b0908_100%)]">
-      <div className="border-b border-white/6 px-4 py-4 lg:px-6">
-        <div className="mx-auto flex max-w-[1680px] items-end justify-between gap-6">
-          <div className="space-y-2">
-            <p className="text-[11px] uppercase tracking-[0.34em] text-stone-500">Social Creation Studio</p>
-            <h1 className="font-['Syne'] text-3xl leading-none text-stone-100">Compose once, export as a set.</h1>
-            <p className="max-w-2xl text-sm leading-6 text-stone-400">
-              Build cover posts, carousel stories, and moodboard-like layouts without dropping into a
-              heavy editing workflow. Keep it loose, calm, and share-ready.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="mx-auto grid min-h-0 w-full max-w-[1680px] flex-1 gap-4 overflow-hidden px-4 py-4 lg:grid-cols-[320px_minmax(0,1fr)_320px] lg:px-6">
-        <div className="hidden min-h-0 space-y-4 overflow-y-auto pr-1 lg:block">
-          <CanvasAssetPicker />
-          <CanvasLayerPanel />
-        </div>
-
-        <section className="flex min-h-0 flex-col gap-4">
-          <CanvasToolbar stageRef={stageRef} />
-          <CanvasViewport stageRef={stageRef} selectedSliceId={selectedSliceId} />
-        </section>
-
-        <div className="hidden min-h-0 space-y-4 overflow-y-auto pl-1 lg:block">
-          <CanvasStoryPanel selectedSliceId={selectedSliceId} onSelectSlice={setSelectedSliceId} />
-          <CanvasPropertiesPanel />
-        </div>
-
-        <div className="space-y-4 lg:hidden">
-          <CanvasStoryPanel selectedSliceId={selectedSliceId} onSelectSlice={setSelectedSliceId} />
-          <CanvasAssetPicker />
-          <CanvasLayerPanel />
-          <CanvasPropertiesPanel />
-        </div>
-      </div>
+    <div className="relative h-[calc(100dvh-44px)] w-full overflow-hidden bg-[#0a0a0b]">
+      <CanvasViewport stageRef={stageRef} selectedSliceId={selectedSliceId} />
+      <CanvasAppBar onExport={() => setExportOpen(true)} />
+      <CanvasToolRail />
+      <CanvasFloatingPanel
+        selectedSliceId={selectedSliceId}
+        onSelectSlice={setSelectedSliceId}
+      />
+      <CanvasExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        stage={stageRef.current}
+      />
     </div>
   );
 }
