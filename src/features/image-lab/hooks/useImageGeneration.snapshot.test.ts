@@ -4,6 +4,7 @@ import {
   omitUnavailableReferenceImages,
   resolveRetryRequestSnapshot,
   shouldFetchPromptArtifacts,
+  shouldFetchPromptObservability,
   toPersistedRequestSnapshot,
 } from "./useImageGeneration";
 
@@ -150,5 +151,34 @@ describe("image generation request snapshots", () => {
     expect(shouldFetchPromptArtifacts("done", { status: "loaded" })).toBe(false);
     expect(shouldFetchPromptArtifacts("done", { status: "loading" })).toBe(false);
     expect(shouldFetchPromptArtifacts("loading", null)).toBe(false);
+  });
+
+  it("only re-fetches prompt observability when cache is missing, stale, or failed", () => {
+    expect(shouldFetchPromptObservability(null, null)).toBe(false);
+    expect(shouldFetchPromptObservability("conversation-1", null)).toBe(true);
+    expect(
+      shouldFetchPromptObservability("conversation-1", {
+        conversationId: "conversation-1",
+        status: "loaded",
+      })
+    ).toBe(false);
+    expect(
+      shouldFetchPromptObservability("conversation-1", {
+        conversationId: "conversation-1",
+        status: "loading",
+      })
+    ).toBe(false);
+    expect(
+      shouldFetchPromptObservability("conversation-1", {
+        conversationId: "conversation-1",
+        status: "error",
+      })
+    ).toBe(true);
+    expect(
+      shouldFetchPromptObservability("conversation-2", {
+        conversationId: "conversation-1",
+        status: "loaded",
+      })
+    ).toBe(true);
   });
 });

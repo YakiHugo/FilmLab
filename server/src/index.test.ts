@@ -9,6 +9,7 @@ vi.mock("./chat/persistence/repository", () => ({
     getOrCreateActiveConversation: vi.fn(),
     getConversationSnapshot: vi.fn(),
     getPromptArtifactsForTurn: vi.fn(),
+    getPromptObservabilityForConversation: vi.fn(),
     clearActiveConversation: vi.fn(),
     deleteTurn: vi.fn(),
     getGeneratedImageByCapability: vi.fn(),
