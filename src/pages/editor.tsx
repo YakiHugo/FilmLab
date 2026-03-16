@@ -6,6 +6,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { EditorFooterBar } from "@/features/editor/layout/EditorFooterBar";
 import { EditorInspectorPanel } from "@/features/editor/layout/EditorInspectorPanel";
 import { EditorLayerPopover } from "@/features/editor/layout/EditorLayerPopover";
+import { QuickAdjustPanel } from "@/features/editor/layout/QuickAdjustPanel";
 import { EditorPreviewCard } from "@/features/editor/EditorPreviewCard";
 import { resolveEditorSelectedAssetId } from "@/features/editor/selection";
 import { useAssetStore } from "@/stores/assetStore";
@@ -15,7 +16,8 @@ export function EditorPage() {
   const assets = useAssetStore((state) => state.assets);
   const selectedAssetId = useEditorStore((state) => state.selectedAssetId);
   const setSelectedAssetId = useEditorStore((state) => state.setSelectedAssetId);
-  const { assetId } = useSearch({ from: "/editor" });
+  const { assetId, mode } = useSearch({ from: "/editor" });
+  const isAdvancedMode = mode === "advanced";
 
   const resolvedSelectedAssetId = useMemo(
     () =>
@@ -73,21 +75,53 @@ export function EditorPage() {
         </div>
       ) : (
         <ErrorBoundary>
-          <div className="flex min-w-0 flex-1 flex-col overflow-hidden md:flex-row">
-            {/* Layer Panel - fixed on the left */}
-            <EditorLayerPopover />
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="border-b border-white/8 px-4 py-4 lg:px-6">
+              <div className="flex items-end justify-between gap-4">
+                <div className="space-y-1">
+                  <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">
+                    {isAdvancedMode ? "Advanced Edit" : "Quick Adjust"}
+                  </p>
+                  <h1 className="font-['Syne'] text-2xl text-slate-100">
+                    {isAdvancedMode ? "Refine with full control." : "Adjust fast, keep the feeling."}
+                  </h1>
+                  <p className="max-w-xl text-sm text-slate-400">
+                    {isAdvancedMode
+                      ? "All professional controls remain available here when you need them."
+                      : "This editing view stays intentionally compact so you can shape tone and crop without getting buried in analysis tools."}
+                  </p>
+                </div>
 
-            <div className="flex min-w-0 flex-1 flex-col">
-              {/* Top bar */}
-              <div className="h-8 shrink-0 bg-[#121214]" />
-
-              <section className="min-h-0 flex-1 overflow-hidden">
-                <EditorPreviewCard />
-              </section>
-              <EditorFooterBar />
+                <Button asChild variant="secondary" className="rounded-xl border border-white/10 bg-black/35">
+                  <Link
+                    to="/editor"
+                    search={{
+                      assetId: resolvedSelectedAssetId ?? undefined,
+                      mode: isAdvancedMode ? undefined : "advanced",
+                    }}
+                  >
+                    {isAdvancedMode ? "Back to Quick Adjust" : "Open Advanced Edit"}
+                  </Link>
+                </Button>
+              </div>
             </div>
 
-            <EditorInspectorPanel className="max-h-[44vh] md:max-h-none" />
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden md:flex-row">
+              {isAdvancedMode ? <EditorLayerPopover /> : null}
+
+              <div className="flex min-w-0 flex-1 flex-col">
+                <section className="min-h-0 flex-1 overflow-hidden">
+                  <EditorPreviewCard />
+                </section>
+                <EditorFooterBar />
+              </div>
+
+              {isAdvancedMode ? (
+                <EditorInspectorPanel className="max-h-[44vh] md:max-h-none" />
+              ) : (
+                <QuickAdjustPanel />
+              )}
+            </div>
           </div>
         </ErrorBoundary>
       )}
