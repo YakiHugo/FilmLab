@@ -143,7 +143,7 @@ interface PromptArtifactTurnState {
 
 type PromptArtifactTurnStateMap = Record<string, PromptArtifactTurnState>;
 
-interface PromptObservabilityState {
+export interface PromptObservabilityState {
   conversationId: string;
   status: PromptArtifactLoadStatus;
   error: string | null;
@@ -198,6 +198,23 @@ const createPromptObservabilityState = (
   summary: null,
   ...overrides,
 });
+
+export const invalidatePromptObservabilityState = (
+  conversationId: string | null | undefined,
+  currentState: PromptObservabilityState | null
+): PromptObservabilityState | null => {
+  if (!currentState) {
+    return null;
+  }
+
+  if (!conversationId || currentState.conversationId !== conversationId) {
+    return null;
+  }
+
+  return createPromptObservabilityState(conversationId, {
+    summary: currentState.summary,
+  });
+};
 
 export const shouldFetchPromptObservability = (
   conversationId: string | null | undefined,
@@ -1077,21 +1094,23 @@ export function useImageGeneration() {
     snapshotRequestAbortRef.current = null;
   }, []);
 
-  const clearPromptObservabilityState = useCallback(() => {
+  const resetPromptObservabilityState = useCallback((conversationId?: string | null) => {
     promptObservabilityAbortRef.current?.abort();
     promptObservabilityAbortRef.current = null;
-    setPromptObservability(null);
+    setPromptObservability((previous) =>
+      invalidatePromptObservabilityState(conversationId ?? null, previous)
+    );
   }, []);
 
   const applyConversationSnapshot = useCallback(
     (snapshot: PersistedImageSession) => {
       invalidateConversationSnapshotRequests();
       serverConversationIdRef.current = snapshot.id;
-      clearPromptObservabilityState();
+      resetPromptObservabilityState(snapshot.id);
       replaceSession(snapshot);
       return snapshot;
     },
-    [clearPromptObservabilityState, invalidateConversationSnapshotRequests, replaceSession]
+    [invalidateConversationSnapshotRequests, replaceSession, resetPromptObservabilityState]
   );
 
   const refreshConversationSnapshot = useCallback(
@@ -1114,7 +1133,7 @@ export function useImageGeneration() {
         }
 
         serverConversationIdRef.current = snapshot.id;
-        clearPromptObservabilityState();
+        resetPromptObservabilityState(snapshot.id);
         replaceSession(snapshot);
         return snapshot;
       } finally {
@@ -1123,7 +1142,7 @@ export function useImageGeneration() {
         }
       }
     },
-    [clearPromptObservabilityState, replaceSession]
+    [replaceSession, resetPromptObservabilityState]
   );
 
   useEffect(() => {
@@ -1137,9 +1156,9 @@ export function useImageGeneration() {
       return;
     }
     if (currentState.conversationId !== nextConversationId) {
-      clearPromptObservabilityState();
+      resetPromptObservabilityState(nextConversationId);
     }
-  }, [clearPromptObservabilityState, session?.id]);
+  }, [resetPromptObservabilityState, session?.id]);
 
   useEffect(() => {
     if (!notice) {

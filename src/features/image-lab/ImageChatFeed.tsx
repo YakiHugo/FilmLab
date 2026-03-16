@@ -168,6 +168,12 @@ function SummaryPill({ label, value }: { label: string; value: number }) {
   );
 }
 
+export const shouldAutoLoadPromptObservability = (
+  isOpen: boolean,
+  turnCount: number,
+  status: "idle" | "loading" | "loaded" | "error"
+) => isOpen && turnCount > 0 && status === "idle";
+
 const PROMPT_ARTIFACT_STAGE_ORDER = ["rewrite", "compile", "dispatch"] as const;
 const PROMPT_ARTIFACT_STAGE_LABELS: Record<
   (typeof PROMPT_ARTIFACT_STAGE_ORDER)[number],
@@ -808,15 +814,38 @@ export function ImageChatFeed({
     }
   }, [turns.length]);
 
+  useEffect(() => {
+    if (
+      !shouldAutoLoadPromptObservability(
+        promptObservabilityOpen,
+        turns.length,
+        promptObservabilityStatus
+      )
+    ) {
+      return;
+    }
+
+    void onLoadPromptObservability();
+  }, [
+    onLoadPromptObservability,
+    promptObservabilityOpen,
+    promptObservabilityStatus,
+    turns.length,
+  ]);
+
   const handleTogglePromptObservability = useCallback(() => {
     setPromptObservabilityOpen((current) => {
       const next = !current;
-      if (next && turns.length > 0) {
+      if (next && turns.length > 0 && promptObservabilityStatus === "error") {
         void onLoadPromptObservability();
       }
       return next;
     });
-  }, [onLoadPromptObservability, turns.length]);
+  }, [
+    onLoadPromptObservability,
+    promptObservabilityStatus,
+    turns.length,
+  ]);
 
   return (
     <div

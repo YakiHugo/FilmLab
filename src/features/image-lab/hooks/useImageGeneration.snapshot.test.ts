@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { PromptObservabilitySummaryResponse } from "../../../../shared/chatImageTypes";
 import {
+  invalidatePromptObservabilityState,
   RETRY_REFERENCE_IMAGES_OMITTED_WARNING,
   omitUnavailableReferenceImages,
   resolveRetryRequestSnapshot,
@@ -180,5 +182,43 @@ describe("image generation request snapshots", () => {
         status: "loaded",
       })
     ).toBe(true);
+  });
+
+  it("invalidates prompt observability for the same conversation without discarding the last summary", () => {
+    const summary: PromptObservabilitySummaryResponse = {
+      conversationId: "conversation-1",
+      overview: {
+        totalTurns: 1,
+        turnsWithArtifacts: 1,
+        degradedTurns: 0,
+        fallbackTurns: 0,
+      },
+      semanticLosses: [],
+      targets: [],
+      turns: [],
+    };
+
+    expect(
+      invalidatePromptObservabilityState("conversation-1", {
+        conversationId: "conversation-1",
+        status: "loaded",
+        error: null,
+        summary,
+      })
+    ).toEqual({
+      conversationId: "conversation-1",
+      status: "idle",
+      error: null,
+      summary,
+    });
+    expect(
+      invalidatePromptObservabilityState("conversation-2", {
+        conversationId: "conversation-1",
+        status: "loaded",
+        error: null,
+        summary,
+      })
+    ).toBeNull();
+    expect(invalidatePromptObservabilityState(null, null)).toBeNull();
   });
 });

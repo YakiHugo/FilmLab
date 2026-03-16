@@ -4,6 +4,7 @@ import type { PromptObservabilitySummaryResponse } from "../../../shared/chatIma
 import {
   ImageChatFeed,
   PromptObservabilityPanel,
+  shouldAutoLoadPromptObservability,
   TurnPromptArtifactsPanel,
 } from "./ImageChatFeed";
 import type { ImageGenerationTurn } from "./hooks/useImageGeneration";
@@ -174,6 +175,15 @@ const buildObservabilitySummary = (
 });
 
 describe("ImageChatFeed", () => {
+  it("auto-loads prompt observability only for open panels with turns and idle state", () => {
+    expect(shouldAutoLoadPromptObservability(true, 1, "idle")).toBe(true);
+    expect(shouldAutoLoadPromptObservability(false, 1, "idle")).toBe(false);
+    expect(shouldAutoLoadPromptObservability(true, 0, "idle")).toBe(false);
+    expect(shouldAutoLoadPromptObservability(true, 1, "loading")).toBe(false);
+    expect(shouldAutoLoadPromptObservability(true, 1, "loaded")).toBe(false);
+    expect(shouldAutoLoadPromptObservability(true, 1, "error")).toBe(false);
+  });
+
   it("renders selected model and run metadata from the turn", () => {
     const html = renderFeed();
 
