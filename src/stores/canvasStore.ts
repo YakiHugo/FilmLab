@@ -9,6 +9,7 @@ import type { CanvasDocument, CanvasElement } from "@/types";
 
 export type CanvasTool = "select" | "text" | "shape" | "hand";
 export type CanvasShapeType = "rect" | "circle" | "line";
+export type CanvasFloatingPanel = "edit" | "layers" | "library" | "story" | "properties" | "project" | null;
 
 interface CanvasHistoryState {
   past: CanvasElement[][];
@@ -23,6 +24,7 @@ interface CanvasState {
   shapeType: CanvasShapeType;
   zoom: number;
   viewport: { x: number; y: number };
+  activePanel: CanvasFloatingPanel;
   isLoading: boolean;
   historyByDocumentId: Record<string, CanvasHistoryState>;
   init: () => Promise<void>;
@@ -33,6 +35,8 @@ interface CanvasState {
   setShapeType: (shapeType: CanvasShapeType) => void;
   setZoom: (zoom: number) => void;
   setViewport: (viewport: { x: number; y: number }) => void;
+  setActivePanel: (panel: CanvasFloatingPanel) => void;
+  togglePanel: (panel: CanvasFloatingPanel) => void;
   upsertDocument: (document: CanvasDocument) => Promise<void>;
   upsertElement: (documentId: string, element: CanvasElement) => Promise<void>;
   upsertElements: (documentId: string, elements: CanvasElement[]) => Promise<void>;
@@ -101,7 +105,7 @@ const elementsSignature = (elements: CanvasElement[]) =>
     )
     .join("|");
 
-const makeDefaultDocument = (name = "Untitled story"): CanvasDocument => {
+const makeDefaultDocument = (name = "Untitled board"): CanvasDocument => {
   const now = nowIso();
   const defaults = createDefaultCanvasDocumentFields();
   return {
@@ -177,6 +181,7 @@ export const useCanvasStore = create<CanvasState>()(
         shapeType: "rect",
         zoom: 1,
         viewport: { x: 0, y: 0 },
+        activePanel: null,
         isLoading: false,
         historyByDocumentId: {},
         init: async () => {
@@ -213,6 +218,8 @@ export const useCanvasStore = create<CanvasState>()(
         setShapeType: (shapeType) => set({ shapeType }),
         setZoom: (zoom) => set({ zoom }),
         setViewport: (viewport) => set({ viewport }),
+        setActivePanel: (activePanel) => set({ activePanel }),
+        togglePanel: (panel) => set((state) => ({ activePanel: state.activePanel === panel ? null : panel })),
         upsertDocument: async (document) => {
           const normalized = normalizeCanvasDocument(document);
           await saveCanvasDocument(normalized);
