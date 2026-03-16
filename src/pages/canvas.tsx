@@ -84,6 +84,13 @@ export function CanvasPage() {
           <CanvasStoryPanel selectedSliceId={selectedSliceId} onSelectSlice={setSelectedSliceId} />
           <CanvasPropertiesPanel />
         </div>
+
+        <div className="space-y-4 lg:hidden">
+          <CanvasStoryPanel selectedSliceId={selectedSliceId} onSelectSlice={setSelectedSliceId} />
+          <CanvasAssetPicker />
+          <CanvasLayerPanel />
+          <CanvasPropertiesPanel />
+        </div>
       </div>
     </div>
   );

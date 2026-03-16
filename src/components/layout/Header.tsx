@@ -77,12 +77,18 @@ export function Header() {
   const pathname = useLocation({ select: (state) => state.pathname });
 
   const activeTab = useMemo(
-    () =>
-      NAV_ITEMS.find((item) =>
-        item.matches.some((match) =>
-          match === "/" ? pathname === "/" : pathname.startsWith(match)
-        )
-      )?.label ?? "Studio",
+    () => {
+      if (pathname === "/assist") {
+        return null;
+      }
+      return (
+        NAV_ITEMS.find((item) =>
+          item.matches.some((match) =>
+            match === "/" ? pathname === "/" : pathname.startsWith(match)
+          )
+        )?.label ?? "Studio"
+      );
+    },
     [pathname]
   );
 
