@@ -1,6 +1,7 @@
-import { Eye, EyeOff, GripVertical, Lock, Trash2, Unlock } from "lucide-react";
+import { Eye, EyeOff, GripVertical, Layers3, Lock, Trash2, Unlock } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
 import { useCanvasLayers } from "./hooks/useCanvasLayers";
 
@@ -27,9 +28,23 @@ export function CanvasLayerPanel() {
   };
 
   return (
-    <aside className="rounded-2xl border border-white/10 bg-black/35 p-3">
-      <h3 className="mb-3 text-xs uppercase tracking-[0.2em] text-zinc-500">Layers</h3>
-      <div className="space-y-1">
+    <div className="flex min-h-0 flex-col p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.28em] text-zinc-500">Layer Stack</p>
+          <h3 className="mt-1 font-['Syne'] text-xl text-zinc-100">Arrange the board with intent.</h3>
+        </div>
+        <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
+          <Layers3 className="h-4 w-4 text-zinc-400" />
+        </div>
+      </div>
+
+      <p className="mt-3 text-sm leading-6 text-zinc-400">
+        Reorder by dragging. Visibility and lock states stay on the layer, so you can stage a board
+        without losing alternates.
+      </p>
+
+      <div className="mt-4 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
         {layers.map((layer) => {
           const selected = selectedElementIds.includes(layer.id);
           const asset = layer.type === "image" ? assetById.get(layer.assetId) : null;
@@ -54,12 +69,12 @@ export function CanvasLayerPanel() {
                 }
                 setDraggingId(null);
               }}
-              className={[
-                "flex items-center gap-2 rounded-lg border px-2 py-1.5",
+              className={cn(
+                "flex items-center gap-3 rounded-[22px] border px-3 py-3 transition",
                 selected
-                  ? "border-amber-400/40 bg-amber-400/10 text-zinc-100"
-                  : "border-white/10 bg-white/[0.02] text-zinc-300",
-              ].join(" ")}
+                  ? "border-amber-300/30 bg-amber-200/10 text-zinc-100"
+                  : "border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.05]"
+              )}
             >
               <button
                 type="button"
@@ -68,17 +83,25 @@ export function CanvasLayerPanel() {
                   selectElement(layer.id, { additive: event.shiftKey });
                 }}
               >
-                <GripVertical className="h-3.5 w-3.5 text-zinc-500" />
+                <GripVertical className="h-4 w-4 shrink-0 text-zinc-500" />
                 {layer.type === "image" && (
                   <img
                     src={asset?.thumbnailUrl || asset?.objectUrl}
                     alt={asset?.name ?? "layer"}
-                    className="h-8 w-8 rounded border border-white/10 object-cover"
+                    className="h-10 w-10 rounded-xl border border-white/10 object-cover"
                   />
                 )}
-                <div className="min-w-0">
-                  <p className="truncate text-[11px] font-medium">{layer.type.toUpperCase()}</p>
-                  <p className="truncate text-[10px] text-zinc-500">{previewText}</p>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-sm font-medium text-zinc-100">{previewText}</p>
+                    <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                      {layer.type}
+                    </span>
+                  </div>
+                  <p className="mt-1 truncate text-xs text-zinc-500">
+                    {Math.round(layer.width)} x {Math.round(layer.height)} - x {Math.round(layer.x)}, y{" "}
+                    {Math.round(layer.y)}
+                  </p>
                 </div>
               </button>
 
@@ -86,7 +109,7 @@ export function CanvasLayerPanel() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-7 w-7 rounded-md p-0"
+                  className="h-8 w-8 rounded-xl p-0"
                   onClick={() => {
                     if (activeDocumentId) {
                       void toggleElementVisibility(activeDocumentId, layer.id);
@@ -98,7 +121,7 @@ export function CanvasLayerPanel() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-7 w-7 rounded-md p-0"
+                  className="h-8 w-8 rounded-xl p-0"
                   onClick={() => {
                     if (activeDocumentId) {
                       void toggleElementLock(activeDocumentId, layer.id);
@@ -110,7 +133,7 @@ export function CanvasLayerPanel() {
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-7 w-7 rounded-md p-0 text-rose-300 hover:text-rose-200"
+                  className="h-8 w-8 rounded-xl p-0 text-rose-300 hover:text-rose-200"
                   onClick={() => {
                     if (activeDocumentId) {
                       void deleteElements(activeDocumentId, [layer.id]);
@@ -123,8 +146,12 @@ export function CanvasLayerPanel() {
             </div>
           );
         })}
-        {layers.length === 0 && <p className="text-xs text-zinc-500">No layers yet.</p>}
+        {layers.length === 0 ? (
+          <div className="rounded-[22px] border border-dashed border-white/10 bg-white/[0.02] px-3 py-4 text-sm text-zinc-500">
+            No layers yet. Add an image, text, or shape to start composing the board.
+          </div>
+        ) : null}
       </div>
-    </aside>
+    </div>
   );
 }
