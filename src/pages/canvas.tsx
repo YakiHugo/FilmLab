@@ -67,7 +67,7 @@ export function CanvasPage() {
   }, [selectedElementIds, documents, activeDocumentId, setActivePanel]);
 
   return (
-    <div className="relative h-[calc(100dvh-44px)] w-full overflow-hidden bg-[#0a0a0b]">
+    <div className="relative h-full w-full overflow-hidden">
       <CanvasViewport stageRef={stageRef} selectedSliceId={selectedSliceId} />
       <CanvasAppBar onExport={() => setExportOpen(true)} />
       <CanvasToolRail />
