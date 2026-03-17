@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 
-export type AppModule = "studio" | "library" | "editor" | "assist" | "canvas";
+export type AppModule = "studio" | "library" | "assist" | "canvas";
 
 interface AppState {
   activeModule: AppModule;

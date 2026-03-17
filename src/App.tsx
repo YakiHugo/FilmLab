@@ -9,9 +9,6 @@ const resolveModuleFromPath = (pathname: string) => {
   if (pathname === "/library") {
     return "library";
   }
-  if (pathname === "/editor") {
-    return "editor";
-  }
   if (pathname === "/assist") {
     return "assist";
   }

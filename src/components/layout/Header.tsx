@@ -8,7 +8,6 @@ import { useCanvasStore } from "@/stores/canvasStore";
 const NAV_ITEMS = [
   { label: "Project", to: "/" as const, matches: ["/", "/canvas"] },
   { label: "Library", to: "/library" as const, matches: ["/library"] },
-  { label: "Editor", to: "/editor" as const, matches: ["/editor"] },
 ];
 const controlClass =
   "h-7 rounded-sm border border-white/10 bg-black/45 text-zinc-200 hover:border-white/20 hover:bg-white/[0.08] focus-visible:border-yellow-500/60 focus-visible:ring-0";
@@ -40,26 +39,6 @@ function ContextActions() {
     );
   }
 
-  if (pathname === "/editor") {
-    return (
-      <div className="flex items-center gap-2">
-        <Link
-          to="/assist"
-          className="inline-flex items-center gap-1 rounded-sm border border-white/10 bg-black/35 px-2.5 py-1 text-xs text-zinc-300 transition hover:bg-white/10"
-        >
-          <Sparkles className="h-3.5 w-3.5" />
-          AI Tools
-        </Link>
-        <Link
-          to="/"
-          className="rounded-sm border border-white/10 bg-black/35 px-2.5 py-1 text-xs text-zinc-300 transition hover:bg-white/10"
-        >
-          Back to Project
-        </Link>
-      </div>
-    );
-  }
-
   if (pathname === "/library" || pathname === "/assist") {
     return (
       <Link
@@ -85,21 +64,18 @@ function ContextActions() {
 export function Header() {
   const pathname = useLocation({ select: (state) => state.pathname });
 
-  const activeTab = useMemo(
-    () => {
-      if (pathname === "/assist") {
-        return null;
-      }
-      return (
-        NAV_ITEMS.find((item) =>
-          item.matches.some((match) =>
-            match === "/" ? pathname === "/" : pathname.startsWith(match)
-          )
-        )?.label ?? "Project"
-      );
-    },
-    [pathname]
-  );
+  const activeTab = useMemo(() => {
+    if (pathname === "/assist") {
+      return null;
+    }
+    return (
+      NAV_ITEMS.find((item) =>
+        item.matches.some((match) =>
+          match === "/" ? pathname === "/" : pathname.startsWith(match)
+        )
+      )?.label ?? "Project"
+    );
+  }, [pathname]);
 
   return (
     <header className="sticky top-0 z-40 bg-[#121214]/80 backdrop-blur-xl">
