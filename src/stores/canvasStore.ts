@@ -87,23 +87,52 @@ const normalizeElements = (elements: CanvasElement[]) =>
 
 const MAX_CANVAS_HISTORY = 50;
 
+const serializeCanvasElementForSignature = (element: CanvasElement) => {
+  const base = {
+    height: element.height,
+    id: element.id,
+    locked: element.locked,
+    opacity: element.opacity,
+    rotation: element.rotation,
+    type: element.type,
+    visible: element.visible,
+    width: element.width,
+    x: element.x,
+    y: element.y,
+    zIndex: element.zIndex,
+  };
+
+  if (element.type === "image") {
+    return {
+      ...base,
+      adjustments: element.adjustments ?? null,
+      assetId: element.assetId,
+      filmProfileId: element.filmProfileId ?? null,
+    };
+  }
+
+  if (element.type === "text") {
+    return {
+      ...base,
+      color: element.color,
+      content: element.content,
+      fontFamily: element.fontFamily,
+      fontSize: element.fontSize,
+      textAlign: element.textAlign,
+    };
+  }
+
+  return {
+    ...base,
+    fill: element.fill,
+    shape: element.shape,
+    stroke: element.stroke ?? null,
+    strokeWidth: element.strokeWidth ?? null,
+  };
+};
+
 const elementsSignature = (elements: CanvasElement[]) =>
-  elements
-    .map((element) =>
-      [
-        element.id,
-        element.x,
-        element.y,
-        element.width,
-        element.height,
-        element.rotation,
-        element.opacity,
-        element.visible,
-        element.locked,
-        element.zIndex,
-      ].join(":")
-    )
-    .join("|");
+  JSON.stringify(elements.map((element) => serializeCanvasElementForSignature(element)));
 
 const makeDefaultDocument = (name = "Untitled board"): CanvasDocument => {
   const now = nowIso();

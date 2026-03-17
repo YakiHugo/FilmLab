@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Circle, Group, Line, Rect } from "react-konva";
 import type { CanvasShapeElement } from "@/types";
 
@@ -8,7 +9,12 @@ interface ShapeElementProps {
   onDragEnd: (x: number, y: number) => void;
 }
 
-export function ShapeElement({ element, isSelected, onSelect, onDragEnd }: ShapeElementProps) {
+export const ShapeElement = memo(function ShapeElement({
+  element,
+  isSelected,
+  onSelect,
+  onDragEnd,
+}: ShapeElementProps) {
   return (
     <Group
       id={element.id}
@@ -52,4 +58,4 @@ export function ShapeElement({ element, isSelected, onSelect, onDragEnd }: Shape
       )}
     </Group>
   );
-}
+});

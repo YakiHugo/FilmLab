@@ -32,6 +32,8 @@ interface RenderDocumentToCanvasOptions {
   targetSize?: RenderTargetSize;
   timestampText?: string | null;
   strictErrors?: boolean;
+  signal?: AbortSignal;
+  renderSlotPrefix?: string;
 }
 
 const resolveAssetRenderSource = (asset: Asset) => asset.blob ?? asset.objectUrl;
@@ -123,7 +125,12 @@ export const renderDocumentToCanvas = async ({
   targetSize,
   timestampText,
   strictErrors = intent === "export-full",
+  signal,
+  renderSlotPrefix,
 }: RenderDocumentToCanvasOptions) => {
+  const normalizedRenderSlotPrefix = renderSlotPrefix?.trim();
+  const resolveRenderSlot = (suffix: string, fallback: string) =>
+    normalizedRenderSlotPrefix ? `${normalizedRenderSlotPrefix}:${suffix}` : fallback;
   const source = resolveAssetRenderSource(renderDocument.sourceAsset);
   const singleLayerNode = resolveSingleRenderableLayerEntry(renderDocument.renderGraph.layers);
 
@@ -139,7 +146,11 @@ export const renderDocumentToCanvas = async ({
       sourceCacheKey: `${intent}:${renderDocument.renderGraph.key}:layer:${singleLayerNode.sourceAsset.id}:${singleLayerNode.id}:${singleLayerNode.sourceAsset.size}`,
       strictErrors,
       intent,
-      renderSlot: `${intent}:${renderDocument.key}:${renderDocument.renderGraph.key}:layer:${singleLayerNode.id}:single`,
+      signal,
+      renderSlot: resolveRenderSlot(
+        `layer:${singleLayerNode.id}:single`,
+        `${intent}:${renderDocument.key}:${renderDocument.renderGraph.key}:layer:${singleLayerNode.id}:single`
+      ),
     });
     return;
   }
@@ -156,7 +167,11 @@ export const renderDocumentToCanvas = async ({
       sourceCacheKey: `${intent}:${renderDocument.renderGraph.key}:${renderDocument.sourceAssetId}:${renderDocument.sourceAsset.size}`,
       strictErrors,
       intent,
-      renderSlot: `${intent}:${renderDocument.key}:${renderDocument.renderGraph.key}:base`,
+      signal,
+      renderSlot: resolveRenderSlot(
+        "base",
+        `${intent}:${renderDocument.key}:${renderDocument.renderGraph.key}:base`
+      ),
     });
     return;
   }
@@ -192,13 +207,17 @@ export const renderDocumentToCanvas = async ({
             height: targetSize?.height ?? canvas.height,
           },
           seedKey: `${renderDocument.renderGraph.key}:${layerNode.id}`,
-          sourceCacheKey: `${intent}:${renderDocument.renderGraph.key}:layer:${layerNode.sourceAsset.id}:${layerNode.id}:${layerNode.sourceAsset.size}`,
-          strictErrors,
-          intent,
-          renderSlot: `${intent}:${renderDocument.key}:${renderDocument.renderGraph.key}:layer:${layerNode.id}:${layerIndex}`,
-        });
-      },
-    });
+        sourceCacheKey: `${intent}:${renderDocument.renderGraph.key}:layer:${layerNode.sourceAsset.id}:${layerNode.id}:${layerNode.sourceAsset.size}`,
+        strictErrors,
+        intent,
+        signal,
+        renderSlot: resolveRenderSlot(
+          `layer:${layerNode.id}:${layerIndex}`,
+          `${intent}:${renderDocument.key}:${renderDocument.renderGraph.key}:layer:${layerNode.id}:${layerIndex}`
+        ),
+      });
+    },
+  });
 
     if (!didCompose) {
       throw new Error("Failed to initialize composite render context.");

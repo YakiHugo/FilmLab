@@ -1,8 +1,9 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import { PROJECT_EDIT_SLIDERS } from "@/features/editor/editorPanelConfig";
 import { EditorSliderRow } from "@/features/editor/EditorSliderRow";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { useCanvasRuntimeStore } from "@/stores/canvasRuntimeStore";
 import type { NumericAdjustmentKey } from "@/features/editor/types";
 import type { CanvasImageElement } from "@/types/canvas";
 
@@ -13,6 +14,9 @@ export function ProjectEditPanel() {
   const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
   const selectedElementIds = useCanvasStore((state) => state.selectedElementIds);
   const upsertElement = useCanvasStore((state) => state.upsertElement);
+  const setElementDraftAdjustments = useCanvasRuntimeStore((state) => state.setElementDraftAdjustments);
+  const clearElementDraftAdjustments = useCanvasRuntimeStore((state) => state.clearElementDraftAdjustments);
+  const requestBoardPreview = useCanvasRuntimeStore((state) => state.requestBoardPreview);
 
   const activeDocument = useMemo(
     () => documents.find((d) => d.id === activeDocumentId) ?? null,
@@ -28,16 +32,52 @@ export function ProjectEditPanel() {
     return null;
   }, [activeDocument, selectedElementIds]);
 
-  const adjustments = imageElement?.adjustments ?? defaults;
+  const draftAdjustments = useCanvasRuntimeStore((state) =>
+    imageElement ? state.draftAdjustmentsByElementId[imageElement.id] : undefined
+  );
+
+  const adjustments = draftAdjustments ?? imageElement?.adjustments ?? defaults;
   const disabled = !imageElement;
+
+  useEffect(() => {
+    return () => {
+      if (imageElement?.id) {
+        clearElementDraftAdjustments(imageElement.id);
+      }
+    };
+  }, [clearElementDraftAdjustments, imageElement?.id]);
 
   const handleChange = useCallback(
     (key: NumericAdjustmentKey, value: number) => {
-      if (!imageElement || !activeDocumentId) return;
-      const next = { ...imageElement, adjustments: { ...adjustments, [key]: value } };
-      void upsertElement(activeDocumentId, next);
+      if (!imageElement) return;
+      const nextAdjustments = { ...adjustments, [key]: value };
+      setElementDraftAdjustments(imageElement.id, nextAdjustments);
+      void requestBoardPreview(imageElement.id, "interactive");
     },
-    [imageElement, activeDocumentId, adjustments, upsertElement],
+    [adjustments, imageElement, requestBoardPreview, setElementDraftAdjustments],
+  );
+
+  const handleCommit = useCallback(
+    async (key: NumericAdjustmentKey, value: number) => {
+      if (!imageElement || !activeDocumentId) {
+        return;
+      }
+      const nextAdjustments = { ...adjustments, [key]: value };
+      setElementDraftAdjustments(imageElement.id, nextAdjustments);
+      await upsertElement(activeDocumentId, {
+        ...imageElement,
+        adjustments: nextAdjustments,
+      });
+      clearElementDraftAdjustments(imageElement.id);
+    },
+    [
+      activeDocumentId,
+      adjustments,
+      clearElementDraftAdjustments,
+      imageElement,
+      setElementDraftAdjustments,
+      upsertElement,
+    ],
   );
 
   return (
@@ -65,6 +105,7 @@ export function ProjectEditPanel() {
               format={slider.format}
               disabled={disabled}
               onChange={(v) => handleChange(slider.key, v)}
+              onCommit={(v) => void handleCommit(slider.key, v)}
             />
           ))}
         </div>

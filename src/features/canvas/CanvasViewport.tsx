@@ -4,7 +4,6 @@ import { Crosshair, Hand, Minus, MousePointer2, Plus } from "lucide-react";
 import { Circle, Layer, Line, Rect, Stage, Text as KonvaText, Transformer } from "react-konva";
 import type { CanvasElement, CanvasShapeElement, CanvasTextElement } from "@/types";
 import { cn } from "@/lib/utils";
-import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { ImageElement } from "./elements/ImageElement";
 import { ShapeElement } from "./elements/ShapeElement";
@@ -55,8 +54,12 @@ const isInputLikeElement = (target: EventTarget | null) => {
 };
 
 export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProps) {
-  const documents = useCanvasStore((state) => state.documents);
   const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
+  const activeDocument = useCanvasStore((state) =>
+    state.activeDocumentId
+      ? state.documents.find((document) => document.id === state.activeDocumentId) ?? null
+      : null
+  );
   const upsertElement = useCanvasStore((state) => state.upsertElement);
   const upsertElements = useCanvasStore((state) => state.upsertElements);
   const tool = useCanvasStore((state) => state.tool);
@@ -66,7 +69,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const setZoom = useCanvasStore((state) => state.setZoom);
   const viewport = useCanvasStore((state) => state.viewport);
   const setViewport = useCanvasStore((state) => state.setViewport);
-  const assets = useAssetStore((state) => state.assets);
   const { selectedElementIds, selectElement, clearSelection } = useCanvasInteraction();
   const transformerRef = useRef<Konva.Transformer>(null);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
@@ -82,23 +84,10 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     height: typeof window === "undefined" ? 0 : window.innerHeight,
   }));
 
-  const activeDocument = useMemo(
-    () => documents.find((document) => document.id === activeDocumentId) ?? null,
-    [documents, activeDocumentId]
-  );
-
   const elementById = useMemo(
     () => new Map((activeDocument?.elements ?? []).map((element) => [element.id, element])),
     [activeDocument?.elements]
   );
-
-  const assetUrlById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const asset of assets) {
-      map.set(asset.id, asset.objectUrl);
-    }
-    return map;
-  }, [assets]);
 
   const editingTextElement = useMemo(() => {
     if (!editingTextId) {
@@ -541,7 +530,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
                 <ImageElement
                   key={element.id}
                   element={element}
-                  src={assetUrlById.get(element.assetId)}
                   isSelected={isSelected}
                   onSelect={(additive) => {
                     if (!element.locked) {

@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Text } from "react-konva";
 import type { CanvasTextElement } from "@/types";
 
@@ -9,7 +10,13 @@ interface TextElementProps {
   onDoubleClick: () => void;
 }
 
-export function TextElement({ element, isSelected, onSelect, onDragEnd, onDoubleClick }: TextElementProps) {
+export const TextElement = memo(function TextElement({
+  element,
+  isSelected,
+  onSelect,
+  onDragEnd,
+  onDoubleClick,
+}: TextElementProps) {
   return (
     <Text
       id={element.id}
@@ -35,4 +42,4 @@ export function TextElement({ element, isSelected, onSelect, onDragEnd, onDouble
       strokeWidth={isSelected ? 1 : 0}
     />
   );
-}
+});
