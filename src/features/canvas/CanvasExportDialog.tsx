@@ -168,7 +168,7 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
           <AlertDialogAction
             onClick={() => {
               if (mode === "slices") {
-                downloadSlices(stage, activeDocument?.slices ?? [], {
+                void downloadSlices(stage, activeDocument?.slices ?? [], {
                   format,
                   quality,
                   pixelRatio,
@@ -177,7 +177,7 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
                 return;
               }
 
-              download(stage, {
+              void download(stage, {
                 format,
                 width,
                 height,

@@ -1,6 +1,9 @@
 import type Konva from "konva";
 import { useCallback } from "react";
 import type { CanvasSlice } from "@/types";
+import { useAssetStore } from "@/stores/assetStore";
+import { useCanvasStore } from "@/stores/canvasStore";
+import { cropRenderedCanvasSlice, renderCanvasDocumentToCanvas } from "../renderCanvasDocument";
 
 export type CanvasExportFormat = "png" | "jpeg";
 
@@ -27,6 +30,13 @@ const defaultExportOptions = (stage: Konva.Stage): CanvasExportOptions => ({
 });
 
 export function useCanvasExport() {
+  const assets = useAssetStore((state) => state.assets);
+  const activeDocument = useCanvasStore((state) =>
+    state.activeDocumentId
+      ? state.documents.find((document) => document.id === state.activeDocumentId) ?? null
+      : null
+  );
+
   const exportDataUrl = useCallback(
     (
       stage: Konva.Stage | null,
@@ -53,15 +63,37 @@ export function useCanvasExport() {
   );
 
   const download = useCallback(
-    (
+    async (
       stage: Konva.Stage | null,
       options?: Partial<CanvasExportOptions> & { fileName?: string }
     ) => {
-      if (!stage) {
-        return null;
+      const merged = {
+        ...(stage ? defaultExportOptions(stage) : defaultExportOptionsFromDocument(activeDocument)),
+        ...options,
+      };
+      let dataUrl: string | null = null;
+      if (activeDocument) {
+        const exportCanvas = document.createElement("canvas");
+        try {
+          await renderCanvasDocumentToCanvas({
+            assets,
+            canvas: exportCanvas,
+            document: activeDocument,
+            height: merged.height,
+            pixelRatio: merged.pixelRatio,
+            width: merged.width,
+          });
+          dataUrl = exportCanvas.toDataURL(
+            merged.format === "jpeg" ? "image/jpeg" : "image/png",
+            merged.quality
+          );
+        } finally {
+          exportCanvas.width = 0;
+          exportCanvas.height = 0;
+        }
+      } else if (stage) {
+        dataUrl = exportDataUrl(stage, merged);
       }
-      const merged = { ...defaultExportOptions(stage), ...options };
-      const dataUrl = exportDataUrl(stage, merged);
       if (!dataUrl) {
         return null;
       }
@@ -72,57 +104,79 @@ export function useCanvasExport() {
       link.click();
       return dataUrl;
     },
-    [exportDataUrl]
+    [activeDocument, assets, exportDataUrl]
   );
 
   const exportSlices = useCallback(
-    (
+    async (
       stage: Konva.Stage | null,
       slices: CanvasSlice[],
       options?: Partial<CanvasExportOptions> & { filePrefix?: string }
-    ): CanvasSliceExportResult[] => {
-      if (!stage || slices.length === 0) {
+    ): Promise<CanvasSliceExportResult[]> => {
+      if (slices.length === 0 || !activeDocument) {
         return [];
       }
 
-      const merged = { ...defaultExportOptions(stage), ...options };
+      const merged = {
+        ...(stage ? defaultExportOptions(stage) : defaultExportOptionsFromDocument(activeDocument)),
+        ...options,
+      };
       const extension = merged.format === "jpeg" ? "jpg" : "png";
+      const fullCanvas = document.createElement("canvas");
 
-      return slices
-        .slice()
-        .sort((left, right) => left.order - right.order)
-        .map((slice) => {
-          const dataUrl = exportDataUrl(stage, {
-            ...merged,
-            width: slice.width,
-            height: slice.height,
-            crop: slice,
+      try {
+        await renderCanvasDocumentToCanvas({
+          assets,
+          canvas: fullCanvas,
+          document: activeDocument,
+          height: activeDocument.height,
+          pixelRatio: merged.pixelRatio,
+          width: activeDocument.width,
+        });
+
+        return slices
+          .slice()
+          .sort((left, right) => left.order - right.order)
+          .map((slice) => {
+            const sliceCanvas = cropRenderedCanvasSlice({
+              canvas: fullCanvas,
+              document: activeDocument,
+              pixelRatio: merged.pixelRatio,
+              slice,
+            });
+            try {
+              const dataUrl = sliceCanvas.toDataURL(
+                merged.format === "jpeg" ? "image/jpeg" : "image/png",
+                merged.quality
+              );
+              return {
+                slice,
+                dataUrl,
+                fileName: `${options?.filePrefix ?? "filmlab-story"}-${String(slice.order).padStart(2, "0")}-${slice.name
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]+/g, "-")
+                  .replace(/^-+|-+$/g, "") || "slice"}.${extension}`,
+              };
+            } finally {
+              sliceCanvas.width = 0;
+              sliceCanvas.height = 0;
+            }
           });
-          if (!dataUrl) {
-            return null;
-          }
-
-          return {
-            slice,
-            dataUrl,
-            fileName: `${options?.filePrefix ?? "filmlab-story"}-${String(slice.order).padStart(2, "0")}-${slice.name
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, "-")
-              .replace(/^-+|-+$/g, "") || "slice"}.${extension}`,
-          };
-        })
-        .filter((entry): entry is CanvasSliceExportResult => Boolean(entry));
+      } finally {
+        fullCanvas.width = 0;
+        fullCanvas.height = 0;
+      }
     },
-    [exportDataUrl]
+    [activeDocument, assets]
   );
 
   const downloadSlices = useCallback(
-    (
+    async (
       stage: Konva.Stage | null,
       slices: CanvasSlice[],
       options?: Partial<CanvasExportOptions> & { filePrefix?: string }
     ) => {
-      const results = exportSlices(stage, slices, options);
+      const results = await exportSlices(stage, slices, options);
       results.forEach((result) => {
         const link = document.createElement("a");
         link.href = result.dataUrl;
@@ -141,3 +195,16 @@ export function useCanvasExport() {
     downloadSlices,
   };
 }
+
+const defaultExportOptionsFromDocument = (
+  activeDocument: {
+    height: number;
+    width: number;
+  } | null
+): CanvasExportOptions => ({
+  format: "png",
+  width: activeDocument?.width ?? 1080,
+  height: activeDocument?.height ?? 1080,
+  quality: 0.92,
+  pixelRatio: 2,
+});
