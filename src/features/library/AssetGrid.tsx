@@ -9,7 +9,6 @@ interface AssetGridProps {
   assets: Asset[];
   selectedSet: Set<string>;
   view: LibraryView;
-  onOpenInEditor?: (assetId: string) => void;
   onSelectAsset: (
     assetId: string,
     options: {
@@ -40,13 +39,11 @@ const toKb = (size: number) => `${Math.max(1, Math.round(size / 1024))} KB`;
 const MasonryAssetCard = memo(function MasonryAssetCard({
   asset,
   isSelected,
-  onOpenInEditor,
   onSelectAsset,
   onToggleLike,
 }: {
   asset: Asset;
   isSelected: boolean;
-  onOpenInEditor?: AssetGridProps["onOpenInEditor"];
   onSelectAsset: AssetGridProps["onSelectAsset"];
   onToggleLike: AssetGridProps["onToggleLike"];
 }) {
@@ -68,9 +65,6 @@ const MasonryAssetCard = memo(function MasonryAssetCard({
             range: event.shiftKey,
           })
         }
-        onDoubleClick={() => {
-          onOpenInEditor?.(asset.id);
-        }}
       >
         <p className="truncate pb-1.5 text-[11px] font-medium tracking-wide text-zinc-300">
           {asset.name}
@@ -110,14 +104,12 @@ const AssetCard = memo(function AssetCard({
   asset,
   isSelected,
   view,
-  onOpenInEditor,
   onSelectAsset,
   onToggleLike,
 }: {
   asset: Asset;
   isSelected: boolean;
   view: CompactOrListView;
-  onOpenInEditor?: AssetGridProps["onOpenInEditor"];
   onSelectAsset: AssetGridProps["onSelectAsset"];
   onToggleLike: AssetGridProps["onToggleLike"];
 }) {
@@ -142,9 +134,6 @@ const AssetCard = memo(function AssetCard({
               range: event.shiftKey,
             })
           }
-          onDoubleClick={() => {
-            onOpenInEditor?.(asset.id);
-          }}
         >
           <img
             src={src}
@@ -194,9 +183,6 @@ const AssetCard = memo(function AssetCard({
             range: event.shiftKey,
           })
         }
-        onDoubleClick={() => {
-          onOpenInEditor?.(asset.id);
-        }}
       >
         <p className="truncate pb-1.5 text-[11px] font-medium tracking-wide text-zinc-300">
           {asset.name}
@@ -237,7 +223,6 @@ export function AssetGrid({
   assets,
   selectedSet,
   view,
-  onOpenInEditor,
   onSelectAsset,
   onImport,
   onToggleLike,
@@ -333,7 +318,6 @@ export function AssetGrid({
               key={asset.id}
               asset={asset}
               isSelected={selectedSet.has(asset.id)}
-              onOpenInEditor={onOpenInEditor}
               onSelectAsset={onSelectAsset}
               onToggleLike={onToggleLike}
             />
@@ -342,7 +326,10 @@ export function AssetGrid({
       )}
 
       {assets.length > 0 && isCompact && (
-        <div className="relative w-full" style={{ height: `${compactVirtualizer.getTotalSize()}px` }}>
+        <div
+          className="relative w-full"
+          style={{ height: `${compactVirtualizer.getTotalSize()}px` }}
+        >
           {compactVirtualRows.map((virtualRow) => {
             const from = virtualRow.index * compactColumns;
             const rowAssets = assets.slice(from, from + compactColumns);
@@ -361,7 +348,6 @@ export function AssetGrid({
                     asset={asset}
                     isSelected={selectedSet.has(asset.id)}
                     view="grid-compact"
-                    onOpenInEditor={onOpenInEditor}
                     onSelectAsset={onSelectAsset}
                     onToggleLike={onToggleLike}
                   />
@@ -401,7 +387,6 @@ export function AssetGrid({
                   asset={asset}
                   isSelected={selectedSet.has(asset.id)}
                   view="list"
-                  onOpenInEditor={onOpenInEditor}
                   onSelectAsset={onSelectAsset}
                   onToggleLike={onToggleLike}
                 />

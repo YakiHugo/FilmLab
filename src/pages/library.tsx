@@ -1,5 +1,4 @@
 import { motion } from "framer-motion";
-import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { importAssetFiles } from "@/lib/assetImport";
 import { useAssetStore } from "@/stores/assetStore";
@@ -12,7 +11,6 @@ import { useLibraryFilters } from "@/features/library/hooks/useLibraryFilters";
 import type { LibraryView } from "@/features/library/types";
 
 export function LibraryPage() {
-  const navigate = useNavigate();
   const isLoading = useAssetStore((state) => state.isLoading);
   const assets = useAssetStore((state) => state.assets);
   const importAssetFromUrl = useAssetStore((state) => state.importAssetFromUrl);
@@ -83,12 +81,6 @@ export function LibraryPage() {
             assets={filteredAssets}
             selectedSet={selectedSet}
             view={filters.view}
-            onOpenInEditor={(assetId) => {
-              void navigate({
-                to: "/editor",
-                search: { assetId },
-              });
-            }}
             onSelectAsset={(assetId, options) =>
               toggleAsset(assetId, {
                 additive: options.additive,
