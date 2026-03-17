@@ -47,6 +47,8 @@ const BOARD_PREVIEW_PRIORITY_ORDER: Record<BoardPreviewPriority, number> = {
   background: 1,
 };
 
+const shouldRetainBoardPreview = (priority: BoardPreviewPriority) => priority === "interactive";
+
 const createEmptyPreviewEntry = (): CanvasPreviewEntry => ({
   errorMessage: null,
   lastRequestedAt: 0,
@@ -213,7 +215,7 @@ const pumpPreviewQueue = () => {
           lastRequestedAt: Date.now(),
           previewCacheKey: task.cacheKey,
           renderStatus: "rendering",
-          retained: true,
+          retained: shouldRetainBoardPreview(task.priority),
         },
       },
     }));
@@ -253,7 +255,7 @@ const pumpPreviewQueue = () => {
                 previewSource: renderCanvas,
                 previewVersion: previousEntry.previewVersion + 1,
                 renderStatus: "ready",
-                retained: true,
+                retained: shouldRetainBoardPreview(task.priority),
               },
             },
           };
@@ -273,7 +275,7 @@ const pumpPreviewQueue = () => {
               lastRequestedAt: Date.now(),
               previewCacheKey: task.cacheKey,
               renderStatus: "error",
-              retained: true,
+              retained: shouldRetainBoardPreview(task.priority),
             },
           },
         }));
@@ -376,7 +378,7 @@ export const useCanvasRuntimeStore = create<CanvasRuntimeState>((set, get) => ({
           [elementId]: {
             ...(state.previewEntries[elementId] ?? createEmptyPreviewEntry()),
             lastRequestedAt: Date.now(),
-            retained: true,
+            retained: shouldRetainBoardPreview(priority),
           },
         },
       }));
@@ -398,7 +400,7 @@ export const useCanvasRuntimeStore = create<CanvasRuntimeState>((set, get) => ({
           lastRequestedAt: Date.now(),
           previewCacheKey: taskInput.cacheKey,
           renderStatus: "queued",
-          retained: true,
+          retained: shouldRetainBoardPreview(priority),
         },
       },
     }));
