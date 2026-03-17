@@ -477,10 +477,20 @@ const normalizeAdjustmentsUncached = (
     typeof merged.temperatureKelvin === "number" && Number.isFinite(merged.temperatureKelvin)
       ? clampValue(merged.temperatureKelvin, 1800, 50000)
       : undefined;
+  merged.brightness = clampValue(
+    Number.isFinite(merged.brightness) ? (merged.brightness as number) : defaults.brightness ?? 0,
+    -100,
+    100
+  );
   merged.tintMG =
     typeof merged.tintMG === "number" && Number.isFinite(merged.tintMG)
       ? clampValue(merged.tintMG, -100, 100)
       : undefined;
+  merged.hue = clampValue(
+    Number.isFinite(merged.hue) ? (merged.hue as number) : defaults.hue ?? 0,
+    -100,
+    100
+  );
   merged.localAdjustments = normalizeLocalAdjustments(merged.localAdjustments);
   merged.customLut = {
     enabled: Boolean(merged.customLut?.enabled),
@@ -517,6 +527,16 @@ const normalizeAdjustmentsUncached = (
   );
   merged.glowRadius = clampValue(
     Number.isFinite(merged.glowRadius) ? merged.glowRadius : defaults.glowRadius,
+    0,
+    100
+  );
+  merged.blur = clampValue(
+    Number.isFinite(merged.blur) ? (merged.blur as number) : defaults.blur ?? 0,
+    0,
+    100
+  );
+  merged.dilate = clampValue(
+    Number.isFinite(merged.dilate) ? (merged.dilate as number) : defaults.dilate ?? 0,
     0,
     100
   );
@@ -614,6 +634,7 @@ const normalizeAdjustmentsUncached = (
 
 export function createDefaultAdjustments(): EditingAdjustments {
   return {
+    brightness: 0,
     exposure: 0,
     contrast: 0,
     highlights: 0,
@@ -622,6 +643,7 @@ export function createDefaultAdjustments(): EditingAdjustments {
     blacks: 0,
     temperature: 0,
     tint: 0,
+    hue: 0,
     vibrance: 0,
     saturation: 0,
     texture: 0,
@@ -666,6 +688,8 @@ export function createDefaultAdjustments(): EditingAdjustments {
     colorNoiseReduction: 0,
     vignette: 0,
     grain: 0,
+    blur: 0,
+    dilate: 0,
     grainSize: 50,
     grainRoughness: 50,
     glowIntensity: 0,
@@ -758,4 +782,3 @@ export const applyPresetAdjustments = (
   });
   return next;
 };
-

@@ -360,6 +360,7 @@ export const ASPECT_RATIOS = [
 export type AspectRatio = (typeof ASPECT_RATIOS)[number];
 
 export interface EditingAdjustments {
+  brightness?: number;
   exposure: number;
   contrast: number;
   highlights: number;
@@ -368,6 +369,7 @@ export interface EditingAdjustments {
   blacks: number;
   temperature: number;
   tint: number;
+  hue?: number;
   temperatureKelvin?: number;
   tintMG?: number;
   vibrance: number;
@@ -394,6 +396,8 @@ export interface EditingAdjustments {
   colorNoiseReduction: number;
   vignette: number;
   grain: number;
+  blur?: number;
+  dilate?: number;
   grainSize: number;
   grainRoughness: number;
   glowIntensity: number;

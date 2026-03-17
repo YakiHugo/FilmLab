@@ -9,6 +9,7 @@ import type {
   CanvasTextElement,
 } from "@/types";
 import { createCanvasImageDocumentRenderContext } from "./boardImageRendering";
+import { applyCanvasImagePostProcessing } from "./canvasImagePostProcessing";
 
 interface RenderCanvasDocumentOptions {
   assets: Asset[];
@@ -181,6 +182,7 @@ const drawImageElement = async ({
       strictErrors: true,
       renderSlotPrefix: EXPORT_RENDER_SLOT_PREFIX,
     });
+    applyCanvasImagePostProcessing(imageCanvas, renderContext.adjustments);
 
     withElementTransform(context, element, () => {
       context.drawImage(imageCanvas, 0, 0, element.width, element.height);

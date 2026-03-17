@@ -6,6 +6,7 @@ import { resolveAssetTimestampText } from "@/lib/timestamp";
 import type { Asset, CanvasImageElement, EditingAdjustments } from "@/types";
 import { createRenderDocument, type RenderDocument } from "@/features/editor/document";
 import { renderDocumentToCanvas } from "@/features/editor/renderDocumentCanvas";
+import { applyCanvasImagePostProcessing } from "./canvasImagePostProcessing";
 
 export type BoardPreviewPriority = "interactive" | "background";
 
@@ -196,6 +197,8 @@ export const renderCanvasImageElementToCanvas = async ({
     signal,
     renderSlotPrefix,
   });
+
+  applyCanvasImagePostProcessing(canvas, context.adjustments);
 
   return context;
 };

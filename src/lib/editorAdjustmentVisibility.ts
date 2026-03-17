@@ -8,6 +8,7 @@ import type {
 
 const EDITOR_ADJUSTMENT_GROUP_KEYS = {
   basic: [
+    "brightness",
     "exposure",
     "contrast",
     "highlights",
@@ -16,6 +17,7 @@ const EDITOR_ADJUSTMENT_GROUP_KEYS = {
     "blacks",
     "temperature",
     "tint",
+    "hue",
     "temperatureKelvin",
     "tintMG",
     "vibrance",
@@ -27,6 +29,8 @@ const EDITOR_ADJUSTMENT_GROUP_KEYS = {
     "dehaze",
     "vignette",
     "grain",
+    "blur",
+    "dilate",
     "grainSize",
     "grainRoughness",
     "glowIntensity",

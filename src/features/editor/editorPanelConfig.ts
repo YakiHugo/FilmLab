@@ -146,20 +146,6 @@ export const OPTICS_SLIDERS: SliderDefinition[] = [
   { key: "opticsVignetteMidpoint", label: "Vignette Midpoint", min: 0, max: 100 },
 ];
 
-export const PROJECT_EDIT_SLIDERS: SliderDefinition[] = [
-  { key: "tint", label: "Tint", min: -100, max: 100, format: formatSigned },
-  { key: "saturation", label: "Saturation", min: -100, max: 100, format: formatSigned },
-  { key: "vibrance", label: "Vibrance", min: -100, max: 100, format: formatSigned },
-  { key: "temperature", label: "Hue", min: -100, max: 100, format: formatSigned },
-  { key: "highlights", label: "Highlights", min: -100, max: 100, format: formatSigned },
-  { key: "shadows", label: "Shadows", min: -100, max: 100, format: formatSigned },
-  { key: "whites", label: "White Level", min: -100, max: 100, format: formatSigned },
-  { key: "blacks", label: "Black Level", min: -100, max: 100, format: formatSigned },
-  { key: "grain", label: "Grain", min: 0, max: 100 },
-  { key: "clarity", label: "Blur", min: -100, max: 100, format: formatSigned },
-  { key: "dehaze", label: "Dilate", min: -100, max: 100, format: formatSigned },
-];
-
 export const HSL_COLOR_OPTIONS = [
   { id: "red", label: "Red" },
   { id: "orange", label: "Orange" },
