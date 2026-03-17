@@ -38,7 +38,14 @@ export function CanvasPage() {
     if (documentId !== activeDocumentId) {
       setActiveDocumentId(documentId);
     }
-  }, [documentId, activeDocumentId, documents.length, createDocument, isLoading, setActiveDocumentId]);
+  }, [
+    documentId,
+    activeDocumentId,
+    documents.length,
+    createDocument,
+    isLoading,
+    setActiveDocumentId,
+  ]);
 
   useEffect(() => {
     const activeDocument = documents.find((d) => d.id === activeDocumentId);
@@ -67,19 +74,12 @@ export function CanvasPage() {
   }, [selectedElementIds, documents, activeDocumentId, setActivePanel]);
 
   return (
-    <div className="relative h-full w-full overflow-hidden">
+    <div className="absolute inset-0 overflow-hidden">
       <CanvasViewport stageRef={stageRef} selectedSliceId={selectedSliceId} />
       <CanvasAppBar onExport={() => setExportOpen(true)} />
       <CanvasToolRail />
-      <CanvasFloatingPanel
-        selectedSliceId={selectedSliceId}
-        onSelectSlice={setSelectedSliceId}
-      />
-      <CanvasExportDialog
-        open={exportOpen}
-        onOpenChange={setExportOpen}
-        stage={stageRef.current}
-      />
+      <CanvasFloatingPanel selectedSliceId={selectedSliceId} onSelectSlice={setSelectedSliceId} />
+      <CanvasExportDialog open={exportOpen} onOpenChange={setExportOpen} stage={stageRef.current} />
     </div>
   );
 }
