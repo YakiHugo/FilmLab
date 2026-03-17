@@ -153,6 +153,7 @@ export const createRenderDocument = ({
   const layerEntries = buildEditorLayerRenderEntries({
     assetById,
     documentAsset,
+    documentAdjustments: adjustments,
     layers,
   });
   const renderGraph = buildRenderGraph({
