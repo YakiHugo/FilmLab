@@ -48,7 +48,7 @@ const createElement = (overrides?: Partial<CanvasImageElement>): CanvasImageElem
 });
 
 describe("boardImageRendering", () => {
-  it("scales interactive previews above background previews while keeping a stable cache key", () => {
+  it("keeps interactive and settled previews on distinct cache variants", () => {
     const asset = createAsset();
     const assetById = new Map([[asset.id, asset]]);
     const element = createElement({
@@ -69,9 +69,37 @@ describe("boardImageRendering", () => {
       priority: "background",
     });
 
-    expect(interactive.targetSize.width).toBeGreaterThan(background.targetSize.width);
-    expect(interactive.targetSize.height).toBeGreaterThan(background.targetSize.height);
+    expect(background.targetSize.width).toBeGreaterThanOrEqual(interactive.targetSize.width);
+    expect(background.targetSize.height).toBeGreaterThanOrEqual(interactive.targetSize.height);
     expect(interactive.cacheKey).not.toBe(background.cacheKey);
+  });
+
+  it("scales preview targets with the current viewport zoom bucket", () => {
+    const asset = createAsset();
+    const assetById = new Map([[asset.id, asset]]);
+    const element = createElement({
+      width: 800,
+      height: 600,
+    });
+
+    const zoomedOut = createCanvasImageRenderContext({
+      asset,
+      assetById,
+      element,
+      priority: "background",
+      viewportScale: 0.5,
+    });
+    const zoomedIn = createCanvasImageRenderContext({
+      asset,
+      assetById,
+      element,
+      priority: "background",
+      viewportScale: 2,
+    });
+
+    expect(zoomedIn.targetSize.width).toBeGreaterThan(zoomedOut.targetSize.width);
+    expect(zoomedIn.targetSize.height).toBeGreaterThan(zoomedOut.targetSize.height);
+    expect(zoomedIn.cacheKey).not.toBe(zoomedOut.cacheKey);
   });
 
   it("folds draft adjustments and per-element film profiles into the render context", () => {

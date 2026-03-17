@@ -33,6 +33,7 @@ interface ResolvedPreviewTaskInput {
   draftAdjustments: EditingAdjustments | undefined;
   element: CanvasImageElement;
   priority: BoardPreviewPriority;
+  viewportScale: number;
 }
 
 interface PreviewTask extends ResolvedPreviewTaskInput {
@@ -42,6 +43,7 @@ interface PreviewTask extends ResolvedPreviewTaskInput {
 
 const BOARD_PREVIEW_SLOT_COUNT = 3;
 const MAX_CACHED_BOARD_PREVIEWS = 24;
+const BOARD_PREVIEW_SETTLE_DELAY_MS = 140;
 const BOARD_PREVIEW_PRIORITY_ORDER: Record<BoardPreviewPriority, number> = {
   interactive: 0,
   background: 1,
@@ -95,6 +97,7 @@ const resolvePreviewTaskInput = (
   }
 
   const draftAdjustments = runtimeState.draftAdjustmentsByElementId[elementId];
+  const viewportScale = useCanvasStore.getState().zoom;
   const assetById = new Map(assets.map((candidate) => [candidate.id, candidate]));
   const renderContext = createCanvasImageRenderContext({
     asset,
@@ -102,6 +105,7 @@ const resolvePreviewTaskInput = (
     draftAdjustments,
     element,
     priority,
+    viewportScale,
   });
 
   return {
@@ -111,10 +115,12 @@ const resolvePreviewTaskInput = (
     draftAdjustments,
     element,
     priority,
+    viewportScale,
   };
 };
 
 const queuedTasksByElementId = new Map<string, PreviewTask>();
+const settledPreviewTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const activeRenderRequests = new Map<
   string,
   {
@@ -125,6 +131,15 @@ const activeRenderRequests = new Map<
 >();
 const slotBusy = Array.from({ length: BOARD_PREVIEW_SLOT_COUNT }, () => false);
 let nextPreviewRequestId = 0;
+
+const clearSettledPreviewTimer = (elementId: string) => {
+  const timer = settledPreviewTimers.get(elementId);
+  if (!timer) {
+    return;
+  }
+  clearTimeout(timer);
+  settledPreviewTimers.delete(elementId);
+};
 
 const pruneCanvasPreviewCache = () => {
   const { previewEntries } = useCanvasRuntimeStore.getState();
@@ -159,6 +174,7 @@ const pruneCanvasPreviewCache = () => {
 };
 
 const cancelPreviewWork = (elementId: string) => {
+  clearSettledPreviewTimer(elementId);
   const queuedTask = queuedTasksByElementId.get(elementId);
   if (queuedTask) {
     queuedTasksByElementId.delete(elementId);
@@ -170,6 +186,76 @@ const cancelPreviewWork = (elementId: string) => {
   }
   activeRequest.controller.abort();
   activeRenderRequests.delete(elementId);
+};
+
+const queueBoardPreviewRequest = (
+  elementId: string,
+  priority: BoardPreviewPriority
+) => {
+  const taskInput = resolvePreviewTaskInput(elementId, priority);
+  if (!taskInput || !taskInput.element.visible) {
+    useCanvasRuntimeStore.getState().releaseBoardPreview(elementId);
+    return;
+  }
+
+  const runtimeState = useCanvasRuntimeStore.getState();
+  const nextRequestId = nextPreviewRequestId + 1;
+  nextPreviewRequestId = nextRequestId;
+  const previousEntry = runtimeState.previewEntries[elementId] ?? createEmptyPreviewEntry();
+  const isCached = previousEntry.previewCacheKey === taskInput.cacheKey;
+  const activeRequest = activeRenderRequests.get(elementId);
+  const queuedTask = queuedTasksByElementId.get(elementId);
+
+  if (
+    isCached &&
+    (previousEntry.renderStatus === "ready" ||
+      previousEntry.renderStatus === "queued" ||
+      previousEntry.renderStatus === "rendering") &&
+    (!queuedTask || queuedTask.cacheKey === taskInput.cacheKey) &&
+    (!activeRequest || activeRequest.requestId <= nextRequestId)
+  ) {
+    useCanvasRuntimeStore.setState((state) => ({
+      previewEntries: {
+        ...state.previewEntries,
+        [elementId]: {
+          ...(state.previewEntries[elementId] ?? createEmptyPreviewEntry()),
+          lastRequestedAt: Date.now(),
+          retained: shouldRetainBoardPreview(priority),
+        },
+      },
+    }));
+    return;
+  }
+
+  cancelPreviewWork(elementId);
+  queuedTasksByElementId.set(elementId, {
+    ...taskInput,
+    enqueuedAt: Date.now(),
+    requestId: nextRequestId,
+  });
+  useCanvasRuntimeStore.setState((state) => ({
+    previewEntries: {
+      ...state.previewEntries,
+      [elementId]: {
+        ...(state.previewEntries[elementId] ?? createEmptyPreviewEntry()),
+        errorMessage: null,
+        lastRequestedAt: Date.now(),
+        previewCacheKey: taskInput.cacheKey,
+        renderStatus: "queued",
+        retained: shouldRetainBoardPreview(priority),
+      },
+    },
+  }));
+  pumpPreviewQueue();
+};
+
+const scheduleSettledBoardPreview = (elementId: string) => {
+  clearSettledPreviewTimer(elementId);
+  const timer = setTimeout(() => {
+    settledPreviewTimers.delete(elementId);
+    queueBoardPreviewRequest(elementId, "background");
+  }, BOARD_PREVIEW_SETTLE_DELAY_MS);
+  settledPreviewTimers.set(elementId, timer);
 };
 
 const getNextQueuedTask = () => {
@@ -229,6 +315,7 @@ const pumpPreviewQueue = () => {
       element: task.element,
       intent: task.priority === "interactive" ? "preview-interactive" : "preview-full",
       priority: task.priority,
+      viewportScale: task.viewportScale,
       renderSlotPrefix: slotId,
       signal: controller.signal,
     })
@@ -293,7 +380,7 @@ const pumpPreviewQueue = () => {
   }
 };
 
-export const useCanvasRuntimeStore = create<CanvasRuntimeState>((set, get) => ({
+export const useCanvasRuntimeStore = create<CanvasRuntimeState>((set) => ({
   draftAdjustmentsByElementId: {},
   previewEntries: {},
   clearElementDraftAdjustments: (elementId) =>
@@ -351,60 +438,12 @@ export const useCanvasRuntimeStore = create<CanvasRuntimeState>((set, get) => ({
     pumpPreviewQueue();
   },
   requestBoardPreview: async (elementId, priority) => {
-    const taskInput = resolvePreviewTaskInput(elementId, priority);
-    if (!taskInput || !taskInput.element.visible) {
-      get().releaseBoardPreview(elementId);
-      return;
+    queueBoardPreviewRequest(elementId, priority);
+    if (priority === "interactive") {
+      scheduleSettledBoardPreview(elementId);
+    } else {
+      clearSettledPreviewTimer(elementId);
     }
-
-    const nextRequestId = nextPreviewRequestId + 1;
-    nextPreviewRequestId = nextRequestId;
-    const previousEntry = get().previewEntries[elementId] ?? createEmptyPreviewEntry();
-    const isCached = previousEntry.previewCacheKey === taskInput.cacheKey;
-    const activeRequest = activeRenderRequests.get(elementId);
-    const queuedTask = queuedTasksByElementId.get(elementId);
-
-    if (
-      isCached &&
-      (previousEntry.renderStatus === "ready" ||
-        previousEntry.renderStatus === "queued" ||
-        previousEntry.renderStatus === "rendering") &&
-      (!queuedTask || queuedTask.cacheKey === taskInput.cacheKey) &&
-      (!activeRequest || activeRequest.requestId <= nextRequestId)
-    ) {
-      set((state) => ({
-        previewEntries: {
-          ...state.previewEntries,
-          [elementId]: {
-            ...(state.previewEntries[elementId] ?? createEmptyPreviewEntry()),
-            lastRequestedAt: Date.now(),
-            retained: shouldRetainBoardPreview(priority),
-          },
-        },
-      }));
-      return;
-    }
-
-    cancelPreviewWork(elementId);
-    queuedTasksByElementId.set(elementId, {
-      ...taskInput,
-      enqueuedAt: Date.now(),
-      requestId: nextRequestId,
-    });
-    set((state) => ({
-      previewEntries: {
-        ...state.previewEntries,
-        [elementId]: {
-          ...(state.previewEntries[elementId] ?? createEmptyPreviewEntry()),
-          errorMessage: null,
-          lastRequestedAt: Date.now(),
-          previewCacheKey: taskInput.cacheKey,
-          renderStatus: "queued",
-          retained: shouldRetainBoardPreview(priority),
-        },
-      },
-    }));
-    pumpPreviewQueue();
   },
   setElementDraftAdjustments: (elementId, adjustments) =>
     set((state) => ({

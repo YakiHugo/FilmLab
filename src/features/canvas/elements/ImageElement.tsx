@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { Image as KonvaImage, Rect } from "react-konva";
 import type { CanvasImageElement } from "@/types";
 import { useAssetStore } from "@/stores/assetStore";
+import { useCanvasStore } from "@/stores/canvasStore";
 import { useCanvasRuntimeStore } from "@/stores/canvasRuntimeStore";
 
 interface ImageElementProps {
@@ -59,6 +60,7 @@ export const ImageElement = memo(function ImageElement({
   onDragEnd,
 }: ImageElementProps) {
   const asset = useAssetStore((state) => state.assets.find((candidate) => candidate.id === element.assetId) ?? null);
+  const zoom = useCanvasStore((state) => state.zoom);
   const previewEntry = useCanvasRuntimeStore((state) => state.previewEntries[element.id]);
   const requestBoardPreview = useCanvasRuntimeStore((state) => state.requestBoardPreview);
   const releaseBoardPreview = useCanvasRuntimeStore((state) => state.releaseBoardPreview);
@@ -72,8 +74,9 @@ export const ImageElement = memo(function ImageElement({
         filmProfileId: element.filmProfileId ?? null,
         height: Math.round(element.height),
         width: Math.round(element.width),
+        zoom: Number(zoom.toFixed(3)),
       }),
-    [element.adjustments, element.assetId, element.filmProfileId, element.height, element.width]
+    [element.adjustments, element.assetId, element.filmProfileId, element.height, element.width, zoom]
   );
 
   useEffect(() => {
@@ -94,6 +97,7 @@ export const ImageElement = memo(function ImageElement({
     element.id,
     element.visible,
     isSelected,
+    zoom,
     previewKey,
     releaseBoardPreview,
     requestBoardPreview,

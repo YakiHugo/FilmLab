@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import type { Asset, CanvasDocument, CanvasImageElement } from "@/types";
 
@@ -9,8 +9,9 @@ const assetStoreState: { assets: Asset[] } = {
   assets: [],
 };
 
-const canvasStoreState: { documents: CanvasDocument[] } = {
+const canvasStoreState: { documents: CanvasDocument[]; zoom: number } = {
   documents: [],
+  zoom: 1,
 };
 
 vi.mock("@/features/canvas/boardImageRendering", () => ({
@@ -109,6 +110,7 @@ const flushAsyncWork = async () => {
 
 describe("canvasRuntimeStore", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.stubGlobal("document", {
       createElement: vi.fn((tagName: string) => {
         if (tagName !== "canvas") {
@@ -119,17 +121,20 @@ describe("canvasRuntimeStore", () => {
     });
     assetStoreState.assets = [createAsset()];
     canvasStoreState.documents = [createDocument(createImageElement())];
+    canvasStoreState.zoom = 1;
     createCanvasImageRenderContextMock.mockReset();
     renderCanvasImageElementToCanvasMock.mockReset();
     createCanvasImageRenderContextMock.mockImplementation(
       ({
         element,
         priority,
+        viewportScale,
       }: {
         element: CanvasImageElement;
         priority: "background" | "interactive";
+        viewportScale?: number;
       }) => ({
-        cacheKey: `${priority}:${element.id}`,
+        cacheKey: `${priority}:${element.id}:${viewportScale ?? 1}`,
       })
     );
     renderCanvasImageElementToCanvasMock.mockImplementation(
@@ -142,10 +147,10 @@ describe("canvasRuntimeStore", () => {
         element: CanvasImageElement;
         priority: "background" | "interactive";
       }) => {
-        canvas.width = priority === "interactive" ? 480 : 240;
-        canvas.height = priority === "interactive" ? 320 : 160;
+        canvas.width = priority === "interactive" ? 480 : 720;
+        canvas.height = priority === "interactive" ? 320 : 480;
         return {
-          cacheKey: `${priority}:${element.id}`,
+          cacheKey: `${priority}:${element.id}:${canvasStoreState.zoom}`,
         };
       }
     );
@@ -155,6 +160,11 @@ describe("canvasRuntimeStore", () => {
     });
   });
 
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+  });
+
   it("keeps background previews evictable after render completes", async () => {
     await useCanvasRuntimeStore.getState().requestBoardPreview("image-1", "background");
     await flushAsyncWork();
@@ -162,17 +172,25 @@ describe("canvasRuntimeStore", () => {
     const entry = useCanvasRuntimeStore.getState().previewEntries["image-1"];
     expect(entry?.renderStatus).toBe("ready");
     expect(entry?.retained).toBe(false);
-    expect(entry?.previewSource?.width).toBe(240);
+    expect(entry?.previewSource?.width).toBe(720);
   });
 
-  it("retains interactive previews while the selected image is active", async () => {
+  it("renders an interactive preview first and upgrades it after the interaction settles", async () => {
     await useCanvasRuntimeStore.getState().requestBoardPreview("image-1", "interactive");
     await flushAsyncWork();
 
-    const entry = useCanvasRuntimeStore.getState().previewEntries["image-1"];
-    expect(entry?.renderStatus).toBe("ready");
-    expect(entry?.retained).toBe(true);
-    expect(entry?.previewSource?.width).toBe(480);
+    const interactiveEntry = useCanvasRuntimeStore.getState().previewEntries["image-1"];
+    expect(interactiveEntry?.renderStatus).toBe("ready");
+    expect(interactiveEntry?.retained).toBe(true);
+    expect(interactiveEntry?.previewSource?.width).toBe(480);
+
+    await vi.advanceTimersByTimeAsync(160);
+    await flushAsyncWork();
+
+    const settledEntry = useCanvasRuntimeStore.getState().previewEntries["image-1"];
+    expect(settledEntry?.renderStatus).toBe("ready");
+    expect(settledEntry?.retained).toBe(false);
+    expect(settledEntry?.previewSource?.width).toBe(720);
   });
 
   it("prunes the oldest evictable previews back to the cache budget", () => {

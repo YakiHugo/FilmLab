@@ -20,6 +20,7 @@ export interface CanvasImageRenderContext {
   cacheKey: string;
   filmProfile: Asset["filmProfile"] | undefined;
   renderDocument: RenderDocument;
+  renderVariant: BoardPreviewPriority;
   targetSize: CanvasImageRenderTargetSize;
   timestampText: string | null;
 }
@@ -33,15 +34,26 @@ export interface CanvasImageDocumentRenderContext {
 
 const DEFAULT_ADJUSTMENTS = createDefaultAdjustments();
 const PREVIEW_TARGET_LIMITS: Record<BoardPreviewPriority, number> = {
-  interactive: 1600,
-  background: 1024,
+  interactive: 2560,
+  background: 3072,
 };
 const PREVIEW_PIXEL_RATIO_CAP: Record<BoardPreviewPriority, number> = {
   interactive: 2,
-  background: 1.5,
+  background: 2.5,
 };
+const PREVIEW_SCALE_MULTIPLIER: Record<BoardPreviewPriority, number> = {
+  interactive: 0.9,
+  background: 1,
+};
+const PREVIEW_TARGET_BUCKETS = [256, 384, 512, 640, 768, 896, 1024, 1280, 1536, 1792, 2048, 2560, 3072] as const;
 
-const clampPreviewDimension = (value: number) => Math.max(64, Math.round(value));
+const clampPreviewDimension = (value: number) => Math.max(128, Math.round(value));
+
+const resolveBucketedPreviewDimension = (value: number, maxDimension: number) => {
+  const clamped = Math.max(128, Math.min(maxDimension, value));
+  const bucket = PREVIEW_TARGET_BUCKETS.find((candidate) => candidate >= clamped);
+  return Math.min(maxDimension, bucket ?? maxDimension);
+};
 
 const hashString = (value: string) => {
   let hash = 2166136261;
@@ -73,22 +85,26 @@ export const resolveCanvasImageAdjustments = (
 
 export const resolveCanvasImagePreviewTargetSize = (
   element: Pick<CanvasImageElement, "width" | "height">,
-  priority: BoardPreviewPriority
+  priority: BoardPreviewPriority,
+  viewportScale = 1
 ): CanvasImageRenderTargetSize => {
   const devicePixelRatio =
     typeof window === "undefined" ? 1 : Math.max(1, window.devicePixelRatio || 1);
   const previewPixelRatio = Math.min(devicePixelRatio, PREVIEW_PIXEL_RATIO_CAP[priority]);
   const maxDimension = PREVIEW_TARGET_LIMITS[priority];
-  const requestedWidth = clampPreviewDimension(element.width * previewPixelRatio);
-  const requestedHeight = clampPreviewDimension(element.height * previewPixelRatio);
+  const scaleMultiplier = PREVIEW_SCALE_MULTIPLIER[priority];
+  const displayedWidth = Math.max(1, element.width * Math.max(viewportScale, 0.2));
+  const displayedHeight = Math.max(1, element.height * Math.max(viewportScale, 0.2));
+  const requestedWidth = clampPreviewDimension(displayedWidth * previewPixelRatio * scaleMultiplier);
+  const requestedHeight = clampPreviewDimension(displayedHeight * previewPixelRatio * scaleMultiplier);
   const scale =
     Math.max(requestedWidth, requestedHeight) > maxDimension
       ? maxDimension / Math.max(requestedWidth, requestedHeight)
       : 1;
 
   return {
-    width: Math.max(64, Math.round(requestedWidth * scale)),
-    height: Math.max(64, Math.round(requestedHeight * scale)),
+    width: resolveBucketedPreviewDimension(Math.round(requestedWidth * scale), maxDimension),
+    height: resolveBucketedPreviewDimension(Math.round(requestedHeight * scale), maxDimension),
   };
 };
 
@@ -129,12 +145,14 @@ export const createCanvasImageRenderContext = ({
   draftAdjustments,
   element,
   priority,
+  viewportScale = 1,
 }: {
   asset: Asset;
   assetById: Map<string, Asset>;
   draftAdjustments?: EditingAdjustments;
   element: CanvasImageElement;
   priority: BoardPreviewPriority;
+  viewportScale?: number;
 }): CanvasImageRenderContext => {
   const documentContext = createCanvasImageDocumentRenderContext({
     asset,
@@ -142,8 +160,9 @@ export const createCanvasImageRenderContext = ({
     draftAdjustments,
     element,
   });
-  const targetSize = resolveCanvasImagePreviewTargetSize(element, priority);
+  const targetSize = resolveCanvasImagePreviewTargetSize(element, priority, viewportScale);
   const cacheKey = [
+    `variant:${priority}`,
     documentContext.renderDocument.documentKey,
     documentContext.renderDocument.renderGraph.key,
     `${targetSize.width}x${targetSize.height}`,
@@ -154,6 +173,7 @@ export const createCanvasImageRenderContext = ({
   return {
     ...documentContext,
     cacheKey,
+    renderVariant: priority,
     targetSize,
   };
 };
@@ -166,6 +186,7 @@ export const renderCanvasImageElementToCanvas = async ({
   element,
   intent,
   priority,
+  viewportScale = 1,
   renderSlotPrefix,
   signal,
 }: {
@@ -176,6 +197,7 @@ export const renderCanvasImageElementToCanvas = async ({
   element: CanvasImageElement;
   intent: RenderIntent;
   priority: BoardPreviewPriority;
+  viewportScale?: number;
   renderSlotPrefix?: string;
   signal?: AbortSignal;
 }) => {
@@ -185,6 +207,7 @@ export const renderCanvasImageElementToCanvas = async ({
     draftAdjustments,
     element,
     priority,
+    viewportScale,
   });
 
   await renderDocumentToCanvas({
