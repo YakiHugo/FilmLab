@@ -28,7 +28,7 @@ export interface CompositeLayerRequest {
   };
 }
 
-export interface CompositeBackendWorkspace {}
+export type CompositeBackendWorkspace = object;
 
 export interface CompositeBackendComposeOptions<
   Workspace extends CompositeBackendWorkspace = CompositeBackendWorkspace,
