@@ -1,8 +1,9 @@
 import type Konva from "konva";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Crosshair, Minus, Plus } from "lucide-react";
+import { Crosshair, Hand, Minus, MousePointer2, Plus } from "lucide-react";
 import { Circle, Layer, Line, Rect, Stage, Text as KonvaText, Transformer } from "react-konva";
 import type { CanvasElement, CanvasShapeElement, CanvasTextElement } from "@/types";
+import { cn } from "@/lib/utils";
 import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { ImageElement } from "./elements/ImageElement";
@@ -24,6 +25,12 @@ interface ShapeDraft {
 }
 
 const BACKGROUND_NODE_ID = "canvas-background";
+const VIEWPORT_INSETS = {
+  top: 88,
+  right: 32,
+  bottom: 104,
+  left: 112,
+};
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -39,7 +46,12 @@ const isInputLikeElement = (target: EventTarget | null) => {
     return false;
   }
   const tagName = target.tagName.toLowerCase();
-  return tagName === "input" || tagName === "textarea" || tagName === "select" || target.isContentEditable;
+  return (
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
+    target.isContentEditable
+  );
 };
 
 export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProps) {
@@ -48,6 +60,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const upsertElement = useCanvasStore((state) => state.upsertElement);
   const upsertElements = useCanvasStore((state) => state.upsertElements);
   const tool = useCanvasStore((state) => state.tool);
+  const setTool = useCanvasStore((state) => state.setTool);
   const shapeType = useCanvasStore((state) => state.shapeType);
   const zoom = useCanvasStore((state) => state.zoom);
   const setZoom = useCanvasStore((state) => state.setZoom);
@@ -63,8 +76,11 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const [editingTextValue, setEditingTextValue] = useState("");
   const panningAnchorRef = useRef<{ x: number; y: number } | null>(null);
   const viewportAnchorRef = useRef<{ x: number; y: number } | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
+  const initializedDocumentIdsRef = useRef<Set<string>>(new Set());
+  const [stageSize, setStageSize] = useState(() => ({
+    width: typeof window === "undefined" ? 0 : window.innerWidth,
+    height: typeof window === "undefined" ? 0 : window.innerHeight,
+  }));
 
   const activeDocument = useMemo(
     () => documents.find((document) => document.id === activeDocumentId) ?? null,
@@ -114,6 +130,22 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     ];
   }, [activeDocument]);
 
+  const fitZoom = useMemo(() => {
+    if (!activeDocument || stageSize.width <= 0 || stageSize.height <= 0) {
+      return 1;
+    }
+    const usableWidth = Math.max(1, stageSize.width - VIEWPORT_INSETS.left - VIEWPORT_INSETS.right);
+    const usableHeight = Math.max(
+      1,
+      stageSize.height - VIEWPORT_INSETS.top - VIEWPORT_INSETS.bottom
+    );
+    return clamp(
+      Math.min(usableWidth / activeDocument.width, usableHeight / activeDocument.height, 1),
+      0.2,
+      1
+    );
+  }, [activeDocument, stageSize.height, stageSize.width]);
+
   useEffect(() => {
     const transformer = transformerRef.current;
     const stage = stageRef.current;
@@ -136,24 +168,38 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   }, [stageRef, activeDocumentId]);
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) {
-        setStageSize({
-          width: Math.round(entry.contentRect.width),
-          height: Math.round(entry.contentRect.height),
-        });
-      }
-    });
-    observer.observe(container);
-    setStageSize({
-      width: container.clientWidth,
-      height: container.clientHeight,
-    });
-    return () => observer.disconnect();
+    const updateStageSize = () => {
+      setStageSize({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+    updateStageSize();
+    window.addEventListener("resize", updateStageSize);
+    return () => {
+      window.removeEventListener("resize", updateStageSize);
+    };
   }, []);
+
+  useEffect(() => {
+    if (!activeDocument || stageSize.width <= 0 || stageSize.height <= 0) {
+      return;
+    }
+    if (initializedDocumentIdsRef.current.has(activeDocument.id)) {
+      return;
+    }
+    initializedDocumentIdsRef.current.add(activeDocument.id);
+    const usableWidth = Math.max(1, stageSize.width - VIEWPORT_INSETS.left - VIEWPORT_INSETS.right);
+    const usableHeight = Math.max(
+      1,
+      stageSize.height - VIEWPORT_INSETS.top - VIEWPORT_INSETS.bottom
+    );
+    setZoom(fitZoom);
+    setViewport({
+      x: Math.round(VIEWPORT_INSETS.left + (usableWidth - activeDocument.width * fitZoom) / 2),
+      y: Math.round(VIEWPORT_INSETS.top + (usableHeight - activeDocument.height * fitZoom) / 2),
+    });
+  }, [activeDocument, fitZoom, setViewport, setZoom, stageSize.height, stageSize.width]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -214,8 +260,19 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   };
 
   const resetView = () => {
-    setZoom(1);
-    setViewport({ x: 0, y: 0 });
+    if (!activeDocument) {
+      return;
+    }
+    const usableWidth = Math.max(1, stageSize.width - VIEWPORT_INSETS.left - VIEWPORT_INSETS.right);
+    const usableHeight = Math.max(
+      1,
+      stageSize.height - VIEWPORT_INSETS.top - VIEWPORT_INSETS.bottom
+    );
+    setZoom(fitZoom);
+    setViewport({
+      x: Math.round(VIEWPORT_INSETS.left + (usableWidth - activeDocument.width * fitZoom) / 2),
+      y: Math.round(VIEWPORT_INSETS.top + (usableHeight - activeDocument.height * fitZoom) / 2),
+    });
   };
 
   if (!activeDocument) {
@@ -230,308 +287,261 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
   return (
     <div
-      ref={containerRef}
       className="absolute inset-0"
       style={{ cursor: shouldPan ? (isPanning ? "grabbing" : "grab") : "default" }}
     >
       <Stage
         ref={stageRef}
-        width={stageSize.width}
-        height={stageSize.height}
+        width={Math.max(stageSize.width, 1)}
+        height={Math.max(stageSize.height, 1)}
         x={viewport.x}
         y={viewport.y}
         scaleX={zoom}
         scaleY={zoom}
-            onWheel={(event) => {
-              event.evt.preventDefault();
-              const stage = stageRef.current;
-              if (!stage) {
-                return;
-              }
-              const pointer = stage.getPointerPosition();
-              if (!pointer) {
-                return;
-              }
-              const scaleBy = 1.08;
-              const direction = event.evt.deltaY > 0 ? -1 : 1;
-              const nextZoom = clamp(direction > 0 ? zoom * scaleBy : zoom / scaleBy, 0.2, 4);
-              const worldPoint = {
-                x: (pointer.x - viewport.x) / zoom,
-                y: (pointer.y - viewport.y) / zoom,
-              };
-              setZoom(nextZoom);
-              setViewport({
-                x: pointer.x - worldPoint.x * nextZoom,
-                y: pointer.y - worldPoint.y * nextZoom,
-              });
-            }}
-            onMouseDown={(event) => {
-              const stage = stageRef.current;
-              if (!stage) {
-                return;
-              }
-              const isBackgroundTarget = event.target === stage || event.target.id() === BACKGROUND_NODE_ID;
-              const point = toCanvasPoint(stage);
+        onWheel={(event) => {
+          event.evt.preventDefault();
+          const stage = stageRef.current;
+          if (!stage) {
+            return;
+          }
+          const pointer = stage.getPointerPosition();
+          if (!pointer) {
+            return;
+          }
+          const scaleBy = 1.08;
+          const direction = event.evt.deltaY > 0 ? -1 : 1;
+          const nextZoom = clamp(direction > 0 ? zoom * scaleBy : zoom / scaleBy, 0.2, 4);
+          const worldPoint = {
+            x: (pointer.x - viewport.x) / zoom,
+            y: (pointer.y - viewport.y) / zoom,
+          };
+          setZoom(nextZoom);
+          setViewport({
+            x: pointer.x - worldPoint.x * nextZoom,
+            y: pointer.y - worldPoint.y * nextZoom,
+          });
+        }}
+        onMouseDown={(event) => {
+          const stage = stageRef.current;
+          if (!stage) {
+            return;
+          }
+          const isBackgroundTarget =
+            event.target === stage || event.target.id() === BACKGROUND_NODE_ID;
+          const point = toCanvasPoint(stage);
 
-              if (shouldPan && isBackgroundTarget) {
-                const pointer = stage.getPointerPosition();
-                if (!pointer) {
-                  return;
+          if (shouldPan && isBackgroundTarget) {
+            const pointer = stage.getPointerPosition();
+            if (!pointer) {
+              return;
+            }
+            setIsPanning(true);
+            panningAnchorRef.current = pointer;
+            viewportAnchorRef.current = viewport;
+            return;
+          }
+
+          if (!isBackgroundTarget || !point) {
+            return;
+          }
+
+          if (tool === "select") {
+            clearSelection();
+            return;
+          }
+
+          if (tool === "text") {
+            const elementId = createElementId();
+            const textElement: CanvasTextElement = {
+              id: elementId,
+              type: "text",
+              content: "Double-click to edit",
+              x: point.x,
+              y: point.y,
+              width: 260,
+              height: 72,
+              rotation: 0,
+              opacity: 1,
+              locked: false,
+              visible: true,
+              zIndex: activeDocument.elements.length + 1,
+              fontFamily: "Georgia",
+              fontSize: 36,
+              color: "#f5f5f5",
+              textAlign: "left",
+            };
+            void upsertElement(activeDocument.id, textElement);
+            selectElement(elementId);
+            setEditingTextId(elementId);
+            setEditingTextValue(textElement.content);
+            return;
+          }
+
+          if (tool === "shape") {
+            setShapeDraft({
+              startX: point.x,
+              startY: point.y,
+              currentX: point.x,
+              currentY: point.y,
+            });
+          }
+        }}
+        onMouseMove={() => {
+          const stage = stageRef.current;
+          if (!stage) {
+            return;
+          }
+          if (isPanning && shouldPan) {
+            const pointer = stage.getPointerPosition();
+            if (!pointer || !panningAnchorRef.current || !viewportAnchorRef.current) {
+              return;
+            }
+            setViewport({
+              x: viewportAnchorRef.current.x + (pointer.x - panningAnchorRef.current.x),
+              y: viewportAnchorRef.current.y + (pointer.y - panningAnchorRef.current.y),
+            });
+            return;
+          }
+
+          if (!shapeDraft || tool !== "shape") {
+            return;
+          }
+          const point = toCanvasPoint(stage);
+          if (!point) {
+            return;
+          }
+          setShapeDraft((previous) =>
+            previous
+              ? {
+                  ...previous,
+                  currentX: point.x,
+                  currentY: point.y,
                 }
-                setIsPanning(true);
-                panningAnchorRef.current = pointer;
-                viewportAnchorRef.current = viewport;
-                return;
-              }
+              : null
+          );
+        }}
+        onMouseUp={() => {
+          if (isPanning) {
+            setIsPanning(false);
+          }
+          if (!shapeDraft || tool !== "shape") {
+            return;
+          }
 
-              if (!isBackgroundTarget || !point) {
-                return;
-              }
+          const dx = shapeDraft.currentX - shapeDraft.startX;
+          const dy = shapeDraft.currentY - shapeDraft.startY;
+          if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
+            setShapeDraft(null);
+            return;
+          }
 
-              if (tool === "select") {
-                clearSelection();
-                return;
-              }
-
-              if (tool === "text") {
-                const elementId = createElementId();
-                const textElement: CanvasTextElement = {
-                  id: elementId,
-                  type: "text",
-                  content: "Double-click to edit",
-                  x: point.x,
-                  y: point.y,
-                  width: 260,
-                  height: 72,
+          const nextElement: CanvasShapeElement =
+            shapeType === "line"
+              ? {
+                  id: createElementId(),
+                  type: "shape",
+                  shape: "line",
+                  x: shapeDraft.startX,
+                  y: shapeDraft.startY,
+                  width: dx,
+                  height: dy,
                   rotation: 0,
                   opacity: 1,
                   locked: false,
                   visible: true,
                   zIndex: activeDocument.elements.length + 1,
-                  fontFamily: "Georgia",
-                  fontSize: 36,
-                  color: "#f5f5f5",
-                  textAlign: "left",
-                };
-                void upsertElement(activeDocument.id, textElement);
-                selectElement(elementId);
-                setEditingTextId(elementId);
-                setEditingTextValue(textElement.content);
-                return;
-              }
-
-              if (tool === "shape") {
-                setShapeDraft({
-                  startX: point.x,
-                  startY: point.y,
-                  currentX: point.x,
-                  currentY: point.y,
-                });
-              }
-            }}
-            onMouseMove={() => {
-              const stage = stageRef.current;
-              if (!stage) {
-                return;
-              }
-              if (isPanning && shouldPan) {
-                const pointer = stage.getPointerPosition();
-                if (!pointer || !panningAnchorRef.current || !viewportAnchorRef.current) {
-                  return;
+                  fill: "#f59e0b",
+                  stroke: "#f59e0b",
+                  strokeWidth: 4,
                 }
-                setViewport({
-                  x: viewportAnchorRef.current.x + (pointer.x - panningAnchorRef.current.x),
-                  y: viewportAnchorRef.current.y + (pointer.y - panningAnchorRef.current.y),
-                });
-                return;
-              }
+              : {
+                  id: createElementId(),
+                  type: "shape",
+                  shape: shapeType,
+                  x: Math.min(shapeDraft.startX, shapeDraft.currentX),
+                  y: Math.min(shapeDraft.startY, shapeDraft.currentY),
+                  width: Math.max(1, Math.abs(dx)),
+                  height: Math.max(1, Math.abs(dy)),
+                  rotation: 0,
+                  opacity: 1,
+                  locked: false,
+                  visible: true,
+                  zIndex: activeDocument.elements.length + 1,
+                  fill:
+                    shapeType === "rect" ? "rgba(245, 158, 11, 0.2)" : "rgba(245, 158, 11, 0.35)",
+                  stroke: "#f59e0b",
+                  strokeWidth: 2,
+                };
 
-              if (!shapeDraft || tool !== "shape") {
-                return;
-              }
-              const point = toCanvasPoint(stage);
-              if (!point) {
-                return;
-              }
-              setShapeDraft((previous) =>
-                previous
-                  ? {
-                      ...previous,
-                      currentX: point.x,
-                      currentY: point.y,
-                    }
-                  : null
-              );
-            }}
-            onMouseUp={() => {
-              if (isPanning) {
-                setIsPanning(false);
-              }
-              if (!shapeDraft || tool !== "shape") {
-                return;
-              }
+          void upsertElement(activeDocument.id, nextElement);
+          selectElement(nextElement.id);
+          setShapeDraft(null);
+        }}
+      >
+        <Layer>
+          <Rect
+            id={BACKGROUND_NODE_ID}
+            x={0}
+            y={0}
+            width={activeDocument.width}
+            height={activeDocument.height}
+            fill={activeDocument.backgroundColor}
+            onClick={() => clearSelection()}
+            onTap={() => clearSelection()}
+          />
 
-              const dx = shapeDraft.currentX - shapeDraft.startX;
-              const dy = shapeDraft.currentY - shapeDraft.startY;
-              if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
-                setShapeDraft(null);
-                return;
-              }
-
-              const nextElement: CanvasShapeElement =
-                shapeType === "line"
-                  ? {
-                      id: createElementId(),
-                      type: "shape",
-                      shape: "line",
-                      x: shapeDraft.startX,
-                      y: shapeDraft.startY,
-                      width: dx,
-                      height: dy,
-                      rotation: 0,
-                      opacity: 1,
-                      locked: false,
-                      visible: true,
-                      zIndex: activeDocument.elements.length + 1,
-                      fill: "#f59e0b",
-                      stroke: "#f59e0b",
-                      strokeWidth: 4,
-                    }
-                  : {
-                      id: createElementId(),
-                      type: "shape",
-                      shape: shapeType,
-                      x: Math.min(shapeDraft.startX, shapeDraft.currentX),
-                      y: Math.min(shapeDraft.startY, shapeDraft.currentY),
-                      width: Math.max(1, Math.abs(dx)),
-                      height: Math.max(1, Math.abs(dy)),
-                      rotation: 0,
-                      opacity: 1,
-                      locked: false,
-                      visible: true,
-                      zIndex: activeDocument.elements.length + 1,
-                      fill:
-                        shapeType === "rect" ? "rgba(245, 158, 11, 0.2)" : "rgba(245, 158, 11, 0.35)",
-                      stroke: "#f59e0b",
-                      strokeWidth: 2,
-                    };
-
-              void upsertElement(activeDocument.id, nextElement);
-              selectElement(nextElement.id);
-              setShapeDraft(null);
-            }}
-          >
-          <Layer>
+          {activeDocument.guides.showSafeArea ? (
             <Rect
-              id={BACKGROUND_NODE_ID}
-              x={0}
-              y={0}
-              width={activeDocument.width}
-              height={activeDocument.height}
-              fill={activeDocument.backgroundColor}
-              onClick={() => clearSelection()}
-              onTap={() => clearSelection()}
+              x={activeDocument.safeArea.left}
+              y={activeDocument.safeArea.top}
+              width={Math.max(
+                1,
+                activeDocument.width - activeDocument.safeArea.left - activeDocument.safeArea.right
+              )}
+              height={Math.max(
+                1,
+                activeDocument.height - activeDocument.safeArea.top - activeDocument.safeArea.bottom
+              )}
+              stroke="rgba(255,255,255,0.22)"
+              strokeWidth={1}
+              dash={[10, 10]}
+              listening={false}
             />
+          ) : null}
 
-            {activeDocument.guides.showSafeArea ? (
-              <Rect
-                x={activeDocument.safeArea.left}
-                y={activeDocument.safeArea.top}
-                width={Math.max(
-                  1,
-                  activeDocument.width - activeDocument.safeArea.left - activeDocument.safeArea.right
-                )}
-                height={Math.max(
-                  1,
-                  activeDocument.height - activeDocument.safeArea.top - activeDocument.safeArea.bottom
-                )}
-                stroke="rgba(255,255,255,0.22)"
-                strokeWidth={1}
-                dash={[10, 10]}
-                listening={false}
-              />
-            ) : null}
+          {thirdsGuideLines.map((points, index) => (
+            <Line
+              key={`thirds-${index}`}
+              points={points}
+              stroke="rgba(255,255,255,0.14)"
+              strokeWidth={1}
+              dash={[10, 10]}
+              listening={false}
+            />
+          ))}
 
-            {thirdsGuideLines.map((points, index) => (
-              <Line
-                key={`thirds-${index}`}
-                points={points}
-                stroke="rgba(255,255,255,0.14)"
-                strokeWidth={1}
-                dash={[10, 10]}
-                listening={false}
-              />
-            ))}
+          {centerGuideLines.map((points, index) => (
+            <Line
+              key={`center-${index}`}
+              points={points}
+              stroke="rgba(251,191,36,0.22)"
+              strokeWidth={1}
+              dash={[14, 10]}
+              listening={false}
+            />
+          ))}
+        </Layer>
 
-            {centerGuideLines.map((points, index) => (
-              <Line
-                key={`center-${index}`}
-                points={points}
-                stroke="rgba(251,191,36,0.22)"
-                strokeWidth={1}
-                dash={[14, 10]}
-                listening={false}
-              />
-            ))}
-          </Layer>
+        <Layer>
+          {activeDocument.elements.map((element) => {
+            const isSelected = selectedElementIds.includes(element.id);
 
-          <Layer>
-            {activeDocument.elements.map((element) => {
-              const isSelected = selectedElementIds.includes(element.id);
-
-              if (element.type === "image") {
-                return (
-                  <ImageElement
-                    key={element.id}
-                    element={element}
-                    src={assetUrlById.get(element.assetId)}
-                    isSelected={isSelected}
-                    onSelect={(additive) => {
-                      if (!element.locked) {
-                        selectElement(element.id, { additive });
-                      }
-                    }}
-                    onDragEnd={(x, y) => {
-                      void upsertElement(activeDocument.id, {
-                        ...element,
-                        x,
-                        y,
-                      });
-                    }}
-                  />
-                );
-              }
-
-              if (element.type === "text") {
-                return (
-                  <TextElement
-                    key={element.id}
-                    element={element}
-                    isSelected={isSelected}
-                    onSelect={(additive) => {
-                      if (!element.locked) {
-                        selectElement(element.id, { additive });
-                      }
-                    }}
-                    onDoubleClick={() => {
-                      setEditingTextId(element.id);
-                      setEditingTextValue(element.content);
-                    }}
-                    onDragEnd={(x, y) => {
-                      void upsertElement(activeDocument.id, {
-                        ...element,
-                        x,
-                        y,
-                      });
-                    }}
-                  />
-                );
-              }
-
+            if (element.type === "image") {
               return (
-                <ShapeElement
+                <ImageElement
                   key={element.id}
                   element={element}
+                  src={assetUrlById.get(element.assetId)}
                   isSelected={isSelected}
                   onSelect={(additive) => {
                     if (!element.locked) {
@@ -547,162 +557,238 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
                   }}
                 />
               );
-            })}
+            }
 
-            {shapeDraft && tool === "shape" && (
-              <>
-                {shapeType === "line" && (
-                  <Line
-                    points={[
-                      shapeDraft.startX,
-                      shapeDraft.startY,
-                      shapeDraft.currentX,
-                      shapeDraft.currentY,
-                    ]}
-                    stroke="#f59e0b"
-                    strokeWidth={3}
-                    dash={[8, 6]}
-                  />
-                )}
-                {shapeType === "rect" && (
-                  <Rect
-                    x={Math.min(shapeDraft.startX, shapeDraft.currentX)}
-                    y={Math.min(shapeDraft.startY, shapeDraft.currentY)}
-                    width={Math.abs(shapeDraft.currentX - shapeDraft.startX)}
-                    height={Math.abs(shapeDraft.currentY - shapeDraft.startY)}
-                    fill="rgba(245, 158, 11, 0.18)"
-                    stroke="#f59e0b"
-                    strokeWidth={2}
-                    dash={[8, 6]}
-                  />
-                )}
-                {shapeType === "circle" && (
-                  <Circle
-                    x={(shapeDraft.startX + shapeDraft.currentX) / 2}
-                    y={(shapeDraft.startY + shapeDraft.currentY) / 2}
-                    radius={
-                      Math.min(
-                        Math.abs(shapeDraft.currentX - shapeDraft.startX),
-                        Math.abs(shapeDraft.currentY - shapeDraft.startY)
-                      ) / 2
-                    }
-                    fill="rgba(245, 158, 11, 0.22)"
-                    stroke="#f59e0b"
-                    strokeWidth={2}
-                    dash={[8, 6]}
-                  />
-                )}
-              </>
-            )}
-
-            <Transformer
-              ref={transformerRef}
-              rotateEnabled
-              borderStroke="#f59e0b"
-              anchorStroke="#f59e0b"
-              anchorFill="#111111"
-              onTransformEnd={() => {
-                const stage = stageRef.current;
-                if (!stage || !activeDocumentId || selectedElementIds.length === 0) {
-                  return;
-                }
-                const updates: CanvasElement[] = [];
-                for (const selectedId of selectedElementIds) {
-                  const element = elementById.get(selectedId);
-                  const node = stage.findOne(`#${selectedId}`);
-                  if (!element || !node) {
-                    continue;
-                  }
-                  const scaleX = node.scaleX();
-                  const scaleY = node.scaleY();
-                  const baseWidth = element.width;
-                  const baseHeight = element.height;
-
-                  const nextWidth =
-                    element.type === "shape" && element.shape === "line"
-                      ? baseWidth * scaleX
-                      : Math.max(1, Math.abs(baseWidth * scaleX));
-                  const nextHeight =
-                    element.type === "shape" && element.shape === "line"
-                      ? baseHeight * scaleY
-                      : Math.max(1, Math.abs(baseHeight * scaleY));
-
-                  updates.push({
-                    ...element,
-                    x: node.x(),
-                    y: node.y(),
-                    width: nextWidth,
-                    height: nextHeight,
-                    rotation: node.rotation(),
-                  });
-
-                  node.scaleX(1);
-                  node.scaleY(1);
-                }
-                if (updates.length > 0) {
-                  void upsertElements(activeDocumentId, updates);
-                }
-              }}
-            />
-          </Layer>
-
-          <Layer listening={false}>
-            {activeDocument.slices.map((slice) => {
-              const selected = slice.id === selectedSliceId;
+            if (element.type === "text") {
               return (
-                <Fragment key={slice.id}>
-                  <Rect
-                    x={slice.x}
-                    y={slice.y}
-                    width={slice.width}
-                    height={slice.height}
-                    stroke={selected ? "#f5c97a" : "rgba(255,255,255,0.28)"}
-                    strokeWidth={selected ? 2 : 1}
-                    dash={selected ? [18, 10] : [10, 10]}
-                    fill={selected ? "rgba(245, 201, 122, 0.06)" : "rgba(255,255,255,0.015)"}
-                  />
-                  <KonvaText
-                    x={slice.x + 16}
-                    y={slice.y + 16}
-                    text={`${String(slice.order).padStart(2, "0")}  ${slice.name}`}
-                    fontFamily="Manrope"
-                    fontSize={18}
-                    fill={selected ? "#f7e0b2" : "rgba(255,255,255,0.68)"}
-                    padding={8}
-                  />
-                </Fragment>
+                <TextElement
+                  key={element.id}
+                  element={element}
+                  isSelected={isSelected}
+                  onSelect={(additive) => {
+                    if (!element.locked) {
+                      selectElement(element.id, { additive });
+                    }
+                  }}
+                  onDoubleClick={() => {
+                    setEditingTextId(element.id);
+                    setEditingTextValue(element.content);
+                  }}
+                  onDragEnd={(x, y) => {
+                    void upsertElement(activeDocument.id, {
+                      ...element,
+                      x,
+                      y,
+                    });
+                  }}
+                />
               );
-            })}
-          </Layer>
-          </Stage>
+            }
+
+            return (
+              <ShapeElement
+                key={element.id}
+                element={element}
+                isSelected={isSelected}
+                onSelect={(additive) => {
+                  if (!element.locked) {
+                    selectElement(element.id, { additive });
+                  }
+                }}
+                onDragEnd={(x, y) => {
+                  void upsertElement(activeDocument.id, {
+                    ...element,
+                    x,
+                    y,
+                  });
+                }}
+              />
+            );
+          })}
+
+          {shapeDraft && tool === "shape" && (
+            <>
+              {shapeType === "line" && (
+                <Line
+                  points={[
+                    shapeDraft.startX,
+                    shapeDraft.startY,
+                    shapeDraft.currentX,
+                    shapeDraft.currentY,
+                  ]}
+                  stroke="#f59e0b"
+                  strokeWidth={3}
+                  dash={[8, 6]}
+                />
+              )}
+              {shapeType === "rect" && (
+                <Rect
+                  x={Math.min(shapeDraft.startX, shapeDraft.currentX)}
+                  y={Math.min(shapeDraft.startY, shapeDraft.currentY)}
+                  width={Math.abs(shapeDraft.currentX - shapeDraft.startX)}
+                  height={Math.abs(shapeDraft.currentY - shapeDraft.startY)}
+                  fill="rgba(245, 158, 11, 0.18)"
+                  stroke="#f59e0b"
+                  strokeWidth={2}
+                  dash={[8, 6]}
+                />
+              )}
+              {shapeType === "circle" && (
+                <Circle
+                  x={(shapeDraft.startX + shapeDraft.currentX) / 2}
+                  y={(shapeDraft.startY + shapeDraft.currentY) / 2}
+                  radius={
+                    Math.min(
+                      Math.abs(shapeDraft.currentX - shapeDraft.startX),
+                      Math.abs(shapeDraft.currentY - shapeDraft.startY)
+                    ) / 2
+                  }
+                  fill="rgba(245, 158, 11, 0.22)"
+                  stroke="#f59e0b"
+                  strokeWidth={2}
+                  dash={[8, 6]}
+                />
+              )}
+            </>
+          )}
+
+          <Transformer
+            ref={transformerRef}
+            rotateEnabled
+            borderStroke="#f59e0b"
+            anchorStroke="#f59e0b"
+            anchorFill="#111111"
+            onTransformEnd={() => {
+              const stage = stageRef.current;
+              if (!stage || !activeDocumentId || selectedElementIds.length === 0) {
+                return;
+              }
+              const updates: CanvasElement[] = [];
+              for (const selectedId of selectedElementIds) {
+                const element = elementById.get(selectedId);
+                const node = stage.findOne(`#${selectedId}`);
+                if (!element || !node) {
+                  continue;
+                }
+                const scaleX = node.scaleX();
+                const scaleY = node.scaleY();
+                const baseWidth = element.width;
+                const baseHeight = element.height;
+
+                const nextWidth =
+                  element.type === "shape" && element.shape === "line"
+                    ? baseWidth * scaleX
+                    : Math.max(1, Math.abs(baseWidth * scaleX));
+                const nextHeight =
+                  element.type === "shape" && element.shape === "line"
+                    ? baseHeight * scaleY
+                    : Math.max(1, Math.abs(baseHeight * scaleY));
+
+                updates.push({
+                  ...element,
+                  x: node.x(),
+                  y: node.y(),
+                  width: nextWidth,
+                  height: nextHeight,
+                  rotation: node.rotation(),
+                });
+
+                node.scaleX(1);
+                node.scaleY(1);
+              }
+              if (updates.length > 0) {
+                void upsertElements(activeDocumentId, updates);
+              }
+            }}
+          />
+        </Layer>
+
+        <Layer listening={false}>
+          {activeDocument.slices.map((slice) => {
+            const selected = slice.id === selectedSliceId;
+            return (
+              <Fragment key={slice.id}>
+                <Rect
+                  x={slice.x}
+                  y={slice.y}
+                  width={slice.width}
+                  height={slice.height}
+                  stroke={selected ? "#f5c97a" : "rgba(255,255,255,0.28)"}
+                  strokeWidth={selected ? 2 : 1}
+                  dash={selected ? [18, 10] : [10, 10]}
+                  fill={selected ? "rgba(245, 201, 122, 0.06)" : "rgba(255,255,255,0.015)"}
+                />
+                <KonvaText
+                  x={slice.x + 16}
+                  y={slice.y + 16}
+                  text={`${String(slice.order).padStart(2, "0")}  ${slice.name}`}
+                  fontFamily="Manrope"
+                  fontSize={18}
+                  fill={selected ? "#f7e0b2" : "rgba(255,255,255,0.68)"}
+                  padding={8}
+                />
+              </Fragment>
+            );
+          })}
+        </Layer>
+      </Stage>
 
       <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-[24px] border border-white/10 bg-black/65 px-2 py-2 shadow-[0_20px_60px_-32px_rgba(0,0,0,0.95)] backdrop-blur-xl">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setTool("select")}
+            className={cn(
+              "flex h-10 w-10 items-center justify-center rounded-2xl transition",
+              !shouldPan && tool === "select"
+                ? "bg-white text-zinc-950"
+                : "text-zinc-300 hover:bg-white/10"
+            )}
+            aria-label="Pointer tool"
+            title="Pointer"
+          >
+            <MousePointer2 className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setTool("hand")}
+            className={cn(
+              "flex h-10 w-10 items-center justify-center rounded-2xl transition",
+              shouldPan ? "bg-white text-zinc-950" : "text-zinc-300 hover:bg-white/10"
+            )}
+            aria-label="Drag canvas tool"
+            title="Drag"
+          >
+            <Hand className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="mx-1 h-8 w-px bg-white/10" />
         <button
           type="button"
           onClick={() => adjustZoom("out")}
           className="flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-300 transition hover:bg-white/10"
           aria-label="Zoom out"
+          title="Zoom out"
         >
           <Minus className="h-4 w-4" />
         </button>
-        <div className="min-w-[64px] rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 text-center text-xs text-zinc-200">
-          {Math.round(zoom * 100)}%
-        </div>
+        <button
+          type="button"
+          onClick={resetView}
+          className="flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-300 transition hover:bg-white/10"
+          aria-label="Center board"
+          title="Center board"
+        >
+          <Crosshair className="h-4 w-4" />
+        </button>
         <button
           type="button"
           onClick={() => adjustZoom("in")}
           className="flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-300 transition hover:bg-white/10"
           aria-label="Zoom in"
+          title="Zoom in"
         >
           <Plus className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          onClick={resetView}
-          className="ml-1 flex h-10 items-center justify-center gap-2 rounded-2xl border border-white/10 px-3 text-xs text-zinc-200 transition hover:bg-white/10"
-        >
-          <Crosshair className="h-4 w-4" />
-          100%
         </button>
       </div>
 
