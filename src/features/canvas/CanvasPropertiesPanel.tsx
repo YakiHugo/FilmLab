@@ -1,10 +1,14 @@
 import { useMemo } from "react";
-import { Link } from "@tanstack/react-router";
-import { ImageUp, SlidersHorizontal } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { SlidersHorizontal } from "lucide-react";
 import { filmProfiles } from "@/data/filmProfiles";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAssetStore } from "@/stores/assetStore";
 import type { CanvasElement } from "@/types";
 import { useCanvasStore } from "@/stores/canvasStore";
@@ -116,10 +120,12 @@ export function CanvasPropertiesPanel() {
           <div className="rounded-[24px] border border-white/10 bg-white/[0.03] px-4 py-3">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Selected Layer</p>
+                <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">
+                  Selected Layer
+                </p>
                 <p className="mt-1 text-sm font-medium text-zinc-100">
                   {selected.type === "image"
-                    ? selectedAsset?.name ?? "Image layer"
+                    ? (selectedAsset?.name ?? "Image layer")
                     : selected.type === "text"
                       ? "Text layer"
                       : `${selected.shape} shape`}
@@ -134,8 +140,16 @@ export function CanvasPropertiesPanel() {
           <div className="rounded-[24px] border border-white/10 bg-black/25 p-4">
             <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Transform</p>
             <div className="mt-3 grid grid-cols-2 gap-3">
-              <NumberInput label="X" value={selected.x} onChange={(value) => update({ x: value })} />
-              <NumberInput label="Y" value={selected.y} onChange={(value) => update({ y: value })} />
+              <NumberInput
+                label="X"
+                value={selected.x}
+                onChange={(value) => update({ x: value })}
+              />
+              <NumberInput
+                label="Y"
+                value={selected.y}
+                onChange={(value) => update({ y: value })}
+              />
               <NumberInput
                 label="Width"
                 value={selected.width}
@@ -167,27 +181,22 @@ export function CanvasPropertiesPanel() {
 
           {selected.type === "image" && (
             <div className="space-y-3 rounded-[24px] border border-white/10 bg-black/25 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Image</p>
-                  <p className="mt-1 truncate text-sm text-zinc-100">{selectedAsset?.name ?? selected.assetId}</p>
-                </div>
-                <Button size="sm" variant="secondary" className="rounded-2xl" asChild>
-                  <Link
-                    to="/editor"
-                    search={{
-                      assetId: selected.assetId,
-                    }}
-                  >
-                    <ImageUp className="mr-2 h-4 w-4" />
-                    Open Editor
-                  </Link>
-                </Button>
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Image</p>
+                <p className="mt-1 truncate text-sm text-zinc-100">
+                  {selectedAsset?.name ?? selected.assetId}
+                </p>
+                <p className="mt-2 text-xs leading-5 text-zinc-500">
+                  Fine-tune placed images from the board-side edit panel to keep layout and tone in
+                  one workflow.
+                </p>
               </div>
 
               <Select
                 value={selected.filmProfileId ?? "none"}
-                onValueChange={(value) => update({ filmProfileId: value === "none" ? undefined : value })}
+                onValueChange={(value) =>
+                  update({ filmProfileId: value === "none" ? undefined : value })
+                }
               >
                 <SelectTrigger className="h-10 rounded-2xl border-white/10 bg-black/35 text-sm">
                   <SelectValue placeholder="Film profile" />
@@ -222,7 +231,9 @@ export function CanvasPropertiesPanel() {
                   type="number"
                   min={8}
                   value={selected.fontSize}
-                  onChange={(event) => update({ fontSize: Math.max(8, Number(event.target.value) || 8) })}
+                  onChange={(event) =>
+                    update({ fontSize: Math.max(8, Number(event.target.value) || 8) })
+                  }
                   className="h-10 rounded-2xl border-white/10 bg-black/35 px-3 text-sm"
                 />
                 <Input
@@ -232,7 +243,9 @@ export function CanvasPropertiesPanel() {
                 />
                 <Select
                   value={selected.textAlign}
-                  onValueChange={(value) => update({ textAlign: value as "left" | "center" | "right" })}
+                  onValueChange={(value) =>
+                    update({ textAlign: value as "left" | "center" | "right" })
+                  }
                 >
                   <SelectTrigger className="h-10 rounded-2xl border-white/10 bg-black/35 text-sm">
                     <SelectValue placeholder="Align" />
@@ -265,7 +278,9 @@ export function CanvasPropertiesPanel() {
                   type="number"
                   min={0}
                   value={selected.strokeWidth ?? 0}
-                  onChange={(event) => update({ strokeWidth: Math.max(0, Number(event.target.value) || 0) })}
+                  onChange={(event) =>
+                    update({ strokeWidth: Math.max(0, Number(event.target.value) || 0) })
+                  }
                   className="h-10 rounded-2xl border-white/10 bg-black/35 px-3 text-sm"
                 />
               </div>

@@ -44,8 +44,8 @@ export function CanvasProjectPanel() {
             <div className="space-y-1">
               <h2 className="font-['Syne'] text-2xl text-stone-100">Canvas-first workspace.</h2>
               <p className="text-sm leading-6 text-stone-400">
-                Keep the project centered here. Library feeds source material, Editor handles
-                single-image refinement, and AI stays contextual.
+                Keep the project centered here. Library feeds source material, image refinement
+                stays attached to placed assets, and AI remains contextual.
               </p>
             </div>
           </div>
@@ -99,7 +99,9 @@ export function CanvasProjectPanel() {
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3">
                 <p className="text-[10px] uppercase tracking-[0.22em] text-zinc-500">Updated</p>
-                <p className="mt-2 font-medium text-zinc-100">{formatUpdatedAt(activeDocument.updatedAt)}</p>
+                <p className="mt-2 font-medium text-zinc-100">
+                  {formatUpdatedAt(activeDocument.updatedAt)}
+                </p>
               </div>
             </div>
 
@@ -119,7 +121,9 @@ export function CanvasProjectPanel() {
             </div>
           </div>
         ) : (
-          <p className="mt-4 text-sm text-zinc-500">Create a board to start building the project canvas.</p>
+          <p className="mt-4 text-sm text-zinc-500">
+            Create a board to start building the project canvas.
+          </p>
         )}
       </section>
 

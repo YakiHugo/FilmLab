@@ -14,7 +14,13 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { CanvasExportDialog } from "./CanvasExportDialog";
 import { useCanvasHistory } from "./hooks/useCanvasHistory";
@@ -41,8 +47,12 @@ export function CanvasToolbar({ stageRef }: CanvasToolbarProps) {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-3">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.28em] text-zinc-500">Canvas Controls</p>
-              <h3 className="mt-1 font-['Syne'] text-xl text-zinc-100">Compose on canvas, branch when needed.</h3>
+              <p className="text-[11px] uppercase tracking-[0.28em] text-zinc-500">
+                Canvas Controls
+              </p>
+              <h3 className="mt-1 font-['Syne'] text-xl text-zinc-100">
+                Compose and refine in one canvas workflow.
+              </h3>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -164,8 +174,8 @@ export function CanvasToolbar({ stageRef }: CanvasToolbarProps) {
         </div>
 
         <p className="mt-3 text-xs leading-6 text-zinc-500">
-          V1 keeps AI contextual and non-destructive. Use Canvas for layout, Library for source
-          collection, and Editor when a single image needs deeper correction.
+          V1 keeps AI contextual and non-destructive. Use Canvas for layout and placed-image
+          refinement, and Library for source collection.
         </p>
       </div>
 
