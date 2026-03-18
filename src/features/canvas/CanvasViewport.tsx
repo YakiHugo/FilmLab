@@ -45,12 +45,14 @@ interface CanvasViewportProps {
   selectedSliceId?: string | null;
 }
 
+type EditingTextMode = "existing" | "create";
+
 const BOARD_SURFACE_NODE_ID = "canvas-background";
 const WORKSPACE_BACKGROUND_NODE_ID = "canvas-workspace-background";
 const WORKSPACE_DOT_GRID_NODE_ID = "canvas-workspace-grid";
 const DOT_RADIUS = 0.72;
-const WORKSPACE_BACKGROUND_FILL = "#2b2b2b";
-const WORKSPACE_DOT_FILL = "rgba(255,255,255,0.16)";
+const WORKSPACE_BACKGROUND_FILL = "rgb(38, 38, 38)";
+const WORKSPACE_DOT_FILL = "rgb(68, 68, 68)";
 const VIEWPORT_INSETS = {
   top: 88,
   right: 32,
@@ -262,6 +264,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       ? (state.documents.find((document) => document.id === state.activeDocumentId) ?? null)
       : null
   );
+  const deleteElements = useCanvasStore((state) => state.deleteElements);
   const upsertElement = useCanvasStore((state) => state.upsertElement);
   const upsertElements = useCanvasStore((state) => state.upsertElements);
   const tool = useCanvasStore((state) => state.tool);
@@ -279,6 +282,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [editingTextMode, setEditingTextMode] = useState<EditingTextMode | null>(null);
   const [editingTextValue, setEditingTextValue] = useState("");
   const [editingTextDraft, setEditingTextDraft] = useState<CanvasTextElement | null>(null);
   const [selectionOverlay, setSelectionOverlay] = useState<CanvasSelectionOverlayMetrics | null>(
@@ -293,6 +297,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const initializedDocumentIdsRef = useRef<Set<string>>(new Set());
   const textMutationQueueRef = useRef<ReturnType<typeof createTextMutationQueue> | null>(null);
   const textElementDraftRef = useRef<CanvasTextElement | null>(null);
+  const createdTextElementRef = useRef(false);
   const [stageSize, setStageSize] = useState(() => ({
     width: 0,
     height: 0,
@@ -351,6 +356,12 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     }
   }, [editingTextDraft, editingTextElement, editingTextId, singleSelectedTextElement]);
 
+  useEffect(() => {
+    if (editingTextMode === "create" && editingTextElement) {
+      createdTextElementRef.current = true;
+    }
+  }, [editingTextElement, editingTextMode]);
+
   const thirdsGuideLines = useMemo(() => {
     if (!activeDocument || !activeDocument.guides.showThirds) {
       return [];
@@ -401,13 +412,19 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
   const shouldPan = tool === "hand" || isSpacePressed;
 
-  const beginTextEdit = useCallback((element: CanvasTextElement) => {
-    const nextElement = fitCanvasTextElementToContent(element);
-    textElementDraftRef.current = nextElement;
-    setEditingTextDraft(nextElement);
-    setEditingTextId(nextElement.id);
-    setEditingTextValue(nextElement.content);
-  }, []);
+  const beginTextEdit = useCallback(
+    (element: CanvasTextElement, options?: { mode?: EditingTextMode }) => {
+      const mode = options?.mode ?? "existing";
+      const nextElement = fitCanvasTextElementToContent(element);
+      createdTextElementRef.current = mode === "existing";
+      textElementDraftRef.current = nextElement;
+      setEditingTextDraft(nextElement);
+      setEditingTextId(nextElement.id);
+      setEditingTextMode(mode);
+      setEditingTextValue(nextElement.content);
+    },
+    []
+  );
 
   const toCanvasPoint = useCallback(
     (stage: Konva.Stage) => {
@@ -459,11 +476,10 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
       if (tool === "text") {
         const snappedPoint = snapPoint(point);
-        const elementId = createElementId();
         const textElement = fitCanvasTextElementToContent({
-          id: elementId,
+          id: createElementId(),
           type: "text",
-          content: "Double-click to edit",
+          content: "",
           x: snappedPoint.x,
           y: snappedPoint.y,
           width: 1,
@@ -479,9 +495,9 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
           color: DEFAULT_CANVAS_TEXT_COLOR,
           textAlign: "left",
         });
-        void upsertElement(activeDocument.id, textElement);
-        selectElement(elementId);
-        beginTextEdit(textElement);
+        clearSelection();
+        setTool("select");
+        beginTextEdit(textElement, { mode: "create" });
       }
     },
     [
@@ -489,12 +505,11 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       beginTextEdit,
       clearSelection,
       shouldPan,
-      selectElement,
       setIsPanning,
+      setTool,
       stageRef,
       toCanvasPoint,
       tool,
-      upsertElement,
       viewport,
     ]
   );
@@ -612,9 +627,11 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   }, [activeDocument, fitZoom, setViewport, setZoom, stageSize.height, stageSize.width]);
 
   const cancelTextEdit = useCallback(() => {
+    setEditingTextMode(null);
     setEditingTextId(null);
     setEditingTextValue("");
     setEditingTextDraft(null);
+    createdTextElementRef.current = false;
     textElementDraftRef.current = null;
   }, []);
 
@@ -636,14 +653,26 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       void textMutationQueueRef.current!.enqueue(() =>
         upsertElement(activeDocumentId, nextElement)
       );
+      selectElement(nextElement.id);
+    } else if (editingTextMode === "create") {
+      clearSelection();
+      if (createdTextElementRef.current) {
+        void textMutationQueueRef.current!.enqueue(() =>
+          deleteElements(activeDocumentId, [currentTextElement.id])
+        );
+      }
     }
 
     cancelTextEdit();
   }, [
     activeDocumentId,
     cancelTextEdit,
+    clearSelection,
+    deleteElements,
+    editingTextMode,
     editingTextValue,
     activeTextElement,
+    selectElement,
     upsertElement,
   ]);
 
@@ -708,11 +737,14 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       if (editingTextId === currentTextElement.id) {
         setEditingTextDraft(nextElement);
       }
+      if (editingTextMode === "create" && !createdTextElementRef.current) {
+        return;
+      }
       void textMutationQueueRef.current!.enqueue(() =>
         upsertElement(activeDocumentId, nextElement)
       );
     },
-    [activeDocumentId, activeTextElement, editingTextId, upsertElement]
+    [activeDocumentId, activeTextElement, editingTextId, editingTextMode, upsertElement]
   );
 
   useLayoutEffect(() => {
@@ -1222,6 +1254,19 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
               });
               textElementDraftRef.current = nextElement;
               setEditingTextDraft(nextElement);
+
+              if (
+                editingTextMode === "create" &&
+                !createdTextElementRef.current &&
+                nextValue.trim().length > 0 &&
+                activeDocumentId
+              ) {
+                createdTextElementRef.current = true;
+                selectElement(nextElement.id);
+                void textMutationQueueRef.current!.enqueue(() =>
+                  upsertElement(activeDocumentId, nextElement)
+                );
+              }
             }}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
@@ -1234,6 +1279,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
               }
             }}
             autoFocus
+            placeholder="Add Text"
             spellCheck={false}
             wrap="off"
             className="absolute inset-0 m-0 w-full resize-none border-0 bg-transparent p-0 outline-none"
