@@ -1,7 +1,10 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { Text } from "react-konva";
 import type { CanvasTextElement } from "@/types";
-import { CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER } from "../textStyle";
+import {
+  CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER,
+  fitCanvasTextElementToContent,
+} from "../textStyle";
 
 interface TextElementProps {
   element: CanvasTextElement;
@@ -20,23 +23,26 @@ export const TextElement = memo(function TextElement({
   onDragEnd,
   onDoubleClick,
 }: TextElementProps) {
+  const layoutElement = useMemo(() => fitCanvasTextElementToContent(element), [element]);
+
   return (
     <Text
-      id={element.id}
-      text={element.content}
-      x={element.x}
-      y={element.y}
-      width={element.width}
-      height={element.height}
-      rotation={element.rotation}
-      opacity={isEditing ? 0 : element.opacity}
-      visible={element.visible}
-      fontFamily={element.fontFamily}
-      fontSize={element.fontSize}
+      id={layoutElement.id}
+      text={layoutElement.content}
+      x={layoutElement.x}
+      y={layoutElement.y}
+      width={layoutElement.width}
+      height={layoutElement.height}
+      rotation={layoutElement.rotation}
+      opacity={isEditing ? 0 : layoutElement.opacity}
+      visible={layoutElement.visible}
+      fontFamily={layoutElement.fontFamily}
+      fontSize={layoutElement.fontSize}
       lineHeight={CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER}
-      fill={element.color}
-      align={element.textAlign}
-      draggable={!element.locked}
+      fill={layoutElement.color}
+      align={layoutElement.textAlign}
+      wrap="none"
+      draggable={!layoutElement.locked}
       dragBoundFunc={dragBoundFunc}
       onClick={(event) => onSelect(Boolean(event.evt.shiftKey))}
       onTap={() => onSelect(false)}

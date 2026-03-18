@@ -11,6 +11,11 @@ export interface CanvasTextOption<TValue extends string> {
   value: TValue;
 }
 
+export interface CanvasTextContentSize {
+  width: number;
+  height: number;
+}
+
 export const CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER = 1.2;
 export const DEFAULT_CANVAS_TEXT_FONT_FAMILY = "Georgia";
 export const DEFAULT_CANVAS_TEXT_FONT_SIZE_TIER: CanvasTextFontSizeTier = "medium";
@@ -59,6 +64,64 @@ export const DEFAULT_CANVAS_TEXT_FONT_SIZE =
   CANVAS_TEXT_TIER_BASE_FONT_SIZES[DEFAULT_CANVAS_TEXT_FONT_SIZE_TIER];
 
 const roundFontSize = (value: number) => Math.round(Math.max(8, value) * 1000) / 1000;
+const TEXT_WIDTH_PADDING = 2;
+const FALLBACK_TEXT_WIDTH_RATIO = 0.6;
+
+let canvasTextMeasurementContext: CanvasRenderingContext2D | null | undefined;
+
+const getCanvasTextMeasurementContext = () => {
+  if (canvasTextMeasurementContext !== undefined) {
+    return canvasTextMeasurementContext;
+  }
+  if (typeof document === "undefined") {
+    canvasTextMeasurementContext = null;
+    return canvasTextMeasurementContext;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvasTextMeasurementContext = canvas.getContext("2d");
+  return canvasTextMeasurementContext;
+};
+
+const getCanvasTextMinimumWidth = (fontSize: number) =>
+  Math.max(1, Math.ceil(fontSize * FALLBACK_TEXT_WIDTH_RATIO));
+
+export const splitCanvasTextLines = (content: string) => content.split(/\r?\n/);
+
+export const measureCanvasTextContentSize = (
+  element: Pick<CanvasTextElement, "content" | "fontFamily" | "fontSize">,
+  options?: {
+    measureText?: (line: string, font: { fontFamily: string; fontSize: number }) => number;
+  }
+): CanvasTextContentSize => {
+  const lines = splitCanvasTextLines(element.content);
+  const lineHeight = Math.max(1, Math.ceil(element.fontSize * CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER));
+  const context = getCanvasTextMeasurementContext();
+
+  const measureLineWidth = (line: string) => {
+    if (options?.measureText) {
+      return options.measureText(line, {
+        fontFamily: element.fontFamily,
+        fontSize: element.fontSize,
+      });
+    }
+    if (context) {
+      context.font = `${element.fontSize}px ${element.fontFamily}`;
+      return context.measureText(line).width;
+    }
+    return line.length * element.fontSize * FALLBACK_TEXT_WIDTH_RATIO;
+  };
+
+  const maxLineWidth = lines.reduce((width, line) => Math.max(width, measureLineWidth(line)), 0);
+
+  return {
+    width: Math.max(
+      getCanvasTextMinimumWidth(element.fontSize),
+      Math.ceil(maxLineWidth + TEXT_WIDTH_PADDING)
+    ),
+    height: Math.max(lineHeight, lineHeight * Math.max(lines.length, 1)),
+  };
+};
 
 export const getCanvasTextBaseFontSize = (tier: CanvasTextFontSizeTier) =>
   CANVAS_TEXT_TIER_BASE_FONT_SIZES[tier];
@@ -130,6 +193,20 @@ export const scaleCanvasTextFontSize = (fontSize: number, scale: number) => {
     return roundFontSize(fontSize);
   }
   return roundFontSize(fontSize * scale);
+};
+
+export const fitCanvasTextElementToContent = <TElement extends CanvasTextElement>(
+  element: TElement,
+  options?: {
+    measureText?: (line: string, font: { fontFamily: string; fontSize: number }) => number;
+  }
+): TElement => {
+  const size = measureCanvasTextContentSize(element, options);
+  return {
+    ...element,
+    width: size.width,
+    height: size.height,
+  };
 };
 
 export const getCanvasTextColorOption = (value: string) =>

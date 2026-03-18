@@ -32,6 +32,7 @@ import {
   DEFAULT_CANVAS_TEXT_FONT_FAMILY,
   DEFAULT_CANVAS_TEXT_FONT_SIZE,
   DEFAULT_CANVAS_TEXT_FONT_SIZE_TIER,
+  fitCanvasTextElementToContent,
   scaleCanvasTextFontSize,
 } from "./textStyle";
 import { createTextMutationQueue } from "./textMutationQueue";
@@ -132,12 +133,16 @@ const getDraftTextOverlayRect = (
   element: CanvasTextElement,
   viewport: { x: number; y: number },
   zoom: number
-): CanvasOverlayRect => ({
-  x: element.x * zoom + viewport.x,
-  y: element.y * zoom + viewport.y,
-  width: Math.max(1, element.width * zoom),
-  height: Math.max(1, element.height * zoom),
-});
+): CanvasOverlayRect => {
+  const layoutElement = fitCanvasTextElementToContent(element);
+
+  return {
+    x: layoutElement.x * zoom + viewport.x,
+    y: layoutElement.y * zoom + viewport.y,
+    width: Math.max(1, layoutElement.width * zoom),
+    height: Math.max(1, layoutElement.height * zoom),
+  };
+};
 
 interface CanvasTextEditorLayout {
   left: number;
@@ -150,28 +155,23 @@ interface CanvasTextEditorLayout {
 
 const getTextEditorLayout = ({
   element,
-  measuredHeight,
   transform,
   viewport,
   zoom,
 }: {
   element: CanvasTextElement;
-  measuredHeight: number;
   transform: string | null;
   viewport: { x: number; y: number };
   zoom: number;
 }): CanvasTextEditorLayout => {
-  const nextHeight = Math.max(
-    1,
-    Math.ceil(Math.max(element.height, measuredHeight || element.height))
-  );
+  const layoutElement = fitCanvasTextElementToContent(element);
 
   if (transform) {
     return {
       left: 0,
       top: 0,
-      width: element.width,
-      height: nextHeight,
+      width: layoutElement.width,
+      height: layoutElement.height,
       transform,
       transformOrigin: "top left",
     };
@@ -180,9 +180,9 @@ const getTextEditorLayout = ({
   return {
     left: 0,
     top: 0,
-    width: element.width,
-    height: nextHeight,
-    transform: `translate(${element.x * zoom + viewport.x}px, ${element.y * zoom + viewport.y}px) scale(${zoom}) rotate(${element.rotation}deg)`,
+    width: layoutElement.width,
+    height: layoutElement.height,
+    transform: `translate(${layoutElement.x * zoom + viewport.x}px, ${layoutElement.y * zoom + viewport.y}px) scale(${zoom}) rotate(${layoutElement.rotation}deg)`,
     transformOrigin: "top left",
   };
 };
@@ -281,7 +281,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [editingTextValue, setEditingTextValue] = useState("");
   const [editingTextDraft, setEditingTextDraft] = useState<CanvasTextElement | null>(null);
-  const [editingTextBoxHeight, setEditingTextBoxHeight] = useState(0);
   const [selectionOverlay, setSelectionOverlay] = useState<CanvasSelectionOverlayMetrics | null>(
     null
   );
@@ -403,11 +402,11 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const shouldPan = tool === "hand" || isSpacePressed;
 
   const beginTextEdit = useCallback((element: CanvasTextElement) => {
-    textElementDraftRef.current = element;
-    setEditingTextDraft(element);
-    setEditingTextBoxHeight(element.height);
-    setEditingTextId(element.id);
-    setEditingTextValue(element.content);
+    const nextElement = fitCanvasTextElementToContent(element);
+    textElementDraftRef.current = nextElement;
+    setEditingTextDraft(nextElement);
+    setEditingTextId(nextElement.id);
+    setEditingTextValue(nextElement.content);
   }, []);
 
   const toCanvasPoint = useCallback(
@@ -461,14 +460,14 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       if (tool === "text") {
         const snappedPoint = snapPoint(point);
         const elementId = createElementId();
-        const textElement: CanvasTextElement = {
+        const textElement = fitCanvasTextElementToContent({
           id: elementId,
           type: "text",
           content: "Double-click to edit",
           x: snappedPoint.x,
           y: snappedPoint.y,
-          width: 260,
-          height: 72,
+          width: 1,
+          height: 1,
           rotation: 0,
           opacity: 1,
           locked: false,
@@ -479,7 +478,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
           fontSizeTier: DEFAULT_CANVAS_TEXT_FONT_SIZE_TIER,
           color: DEFAULT_CANVAS_TEXT_COLOR,
           textAlign: "left",
-        };
+        });
         void upsertElement(activeDocument.id, textElement);
         selectElement(elementId);
         beginTextEdit(textElement);
@@ -616,7 +615,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     setEditingTextId(null);
     setEditingTextValue("");
     setEditingTextDraft(null);
-    setEditingTextBoxHeight(0);
     textElementDraftRef.current = null;
   }, []);
 
@@ -628,14 +626,13 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     }
 
     const nextContent = editingTextValue.trim();
-    if (nextContent && nextContent !== currentTextElement.content) {
-      const nextElement = {
+    if (nextContent) {
+      const nextElement = fitCanvasTextElementToContent({
         ...currentTextElement,
         content: nextContent,
-      };
+      });
       textElementDraftRef.current = nextElement;
       setEditingTextDraft(nextElement);
-      setEditingTextBoxHeight(nextElement.height);
       void textMutationQueueRef.current!.enqueue(() =>
         upsertElement(activeDocumentId, nextElement)
       );
@@ -706,11 +703,10 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       if (!activeDocumentId || !currentTextElement) {
         return;
       }
-      const nextElement = updater(currentTextElement);
+      const nextElement = fitCanvasTextElementToContent(updater(currentTextElement));
       textElementDraftRef.current = nextElement;
       if (editingTextId === currentTextElement.id) {
         setEditingTextDraft(nextElement);
-        setEditingTextBoxHeight(nextElement.height);
       }
       void textMutationQueueRef.current!.enqueue(() =>
         upsertElement(activeDocumentId, nextElement)
@@ -751,28 +747,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       node.off("dragmove transform dragend transformend", handleNodeChange);
     };
   }, [editingTextId, selectedElementIds, stageRef, syncSelectionOverlay]);
-
-  useLayoutEffect(() => {
-    if (!editingTextId || !activeTextElement || activeTextElement.type !== "text") {
-      setEditingTextBoxHeight(0);
-      return;
-    }
-
-    const textarea = textEditorInputRef.current;
-    if (!textarea) {
-      return;
-    }
-
-    textarea.style.height = "auto";
-    const nextHeight = Math.max(textarea.scrollHeight, activeTextElement.height);
-    setEditingTextBoxHeight((current) => (Math.abs(current - nextHeight) < 1 ? current : nextHeight));
-  }, [
-    activeTextElement,
-    editingTextId,
-    editingTextValue,
-    selectionOverlay?.rect.width,
-    selectionOverlay?.rect.height,
-  ]);
 
   useLayoutEffect(() => {
     if (
@@ -879,7 +853,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const editingTextLayout = editingTextRenderElement
     ? getTextEditorLayout({
         element: editingTextRenderElement,
-        measuredHeight: editingTextBoxHeight,
         transform: selectionOverlay?.textMatrix ?? null,
         viewport,
         zoom,
@@ -1039,23 +1012,27 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
         <Layer>
           {activeDocument.elements.map((element) => {
-            const isSelected = selectedElementIds.includes(element.id);
+            const liveTextElement =
+              element.type === "text" && editingTextDraft?.id === element.id
+                ? editingTextDraft
+                : element;
+            const isSelected = selectedElementIds.includes(liveTextElement.id);
 
-            if (element.type === "image") {
+            if (liveTextElement.type === "image") {
               return (
                 <ImageElement
-                  key={element.id}
-                  element={element}
+                  key={liveTextElement.id}
+                  element={liveTextElement}
                   isSelected={isSelected}
                   dragBoundFunc={dragBoundFunc}
                   onSelect={(additive) => {
-                    if (!element.locked) {
-                      selectElement(element.id, { additive });
+                    if (!liveTextElement.locked) {
+                      selectElement(liveTextElement.id, { additive });
                     }
                   }}
                   onDragEnd={(x, y) => {
                     void upsertElement(activeDocument.id, {
-                      ...element,
+                      ...liveTextElement,
                       x,
                       y,
                     });
@@ -1066,21 +1043,21 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
             return (
               <TextElement
-                key={element.id}
-                element={element}
-                isEditing={editingTextId === element.id}
+                key={liveTextElement.id}
+                element={liveTextElement}
+                isEditing={editingTextId === liveTextElement.id}
                 dragBoundFunc={dragBoundFunc}
                 onSelect={(additive) => {
-                  if (!element.locked) {
-                    selectElement(element.id, { additive });
+                  if (!liveTextElement.locked) {
+                    selectElement(liveTextElement.id, { additive });
                   }
                 }}
                 onDoubleClick={() => {
-                  beginTextEdit(element);
+                  beginTextEdit(liveTextElement);
                 }}
                 onDragEnd={(x, y) => {
                   void upsertElement(activeDocument.id, {
-                    ...element,
+                    ...liveTextElement,
                     x,
                     y,
                   });
@@ -1091,7 +1068,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
           <Transformer
             ref={transformerRef}
-            rotateEnabled
+            rotateEnabled={!singleSelectedTextElement}
             borderStroke="#f59e0b"
             anchorStroke="#f59e0b"
             anchorFill="#111111"
@@ -1125,15 +1102,15 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
                 if (element.type === "text") {
                   const textScale = Math.max(Math.abs(node.scaleX()), Math.abs(node.scaleY()));
-                  updates.push({
-                    ...element,
-                    x: snappedRect.x,
-                    y: snappedRect.y,
-                    width: Math.max(GRID_SIZE, snappedRect.width),
-                    height: Math.max(GRID_SIZE, snappedRect.height),
-                    fontSize: scaleCanvasTextFontSize(element.fontSize, textScale),
-                    rotation: node.rotation(),
-                  });
+                  updates.push(
+                    fitCanvasTextElementToContent({
+                      ...element,
+                      x: snappedRect.x,
+                      y: snappedRect.y,
+                      fontSize: scaleCanvasTextFontSize(element.fontSize, textScale),
+                      rotation: node.rotation(),
+                    })
+                  );
                 } else {
                   updates.push({
                     ...element,
@@ -1229,7 +1206,23 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
           <textarea
             ref={textEditorInputRef}
             value={editingTextValue}
-            onChange={(event) => setEditingTextValue(event.target.value)}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              setEditingTextValue(nextValue);
+
+              const sourceElement =
+                textElementDraftRef.current ?? editingTextRenderElement ?? activeTextElement;
+              if (!sourceElement) {
+                return;
+              }
+
+              const nextElement = fitCanvasTextElementToContent({
+                ...sourceElement,
+                content: nextValue,
+              });
+              textElementDraftRef.current = nextElement;
+              setEditingTextDraft(nextElement);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
                 event.preventDefault();
@@ -1242,6 +1235,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
             }}
             autoFocus
             spellCheck={false}
+            wrap="off"
             className="absolute inset-0 m-0 w-full resize-none border-0 bg-transparent p-0 outline-none"
             style={{
               boxSizing: "border-box",

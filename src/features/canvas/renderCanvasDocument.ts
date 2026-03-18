@@ -9,7 +9,11 @@ import type {
 } from "@/types";
 import { createCanvasImageDocumentRenderContext } from "./boardImageRendering";
 import { applyCanvasImagePostProcessing } from "./canvasImagePostProcessing";
-import { CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER } from "./textStyle";
+import {
+  CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER,
+  fitCanvasTextElementToContent,
+  splitCanvasTextLines,
+} from "./textStyle";
 
 interface RenderCanvasDocumentOptions {
   assets: Asset[];
@@ -46,51 +50,31 @@ const withElementTransform = (
   context.restore();
 };
 
-const wrapTextToWidth = (context: CanvasRenderingContext2D, text: string, maxWidth: number) => {
-  const paragraphs = text.split(/\r?\n/);
-  const lines: string[] = [];
-
-  for (const paragraph of paragraphs) {
-    if (!paragraph.trim()) {
-      lines.push("");
-      continue;
-    }
-
-    const words = paragraph.split(/\s+/);
-    let currentLine = words[0] ?? "";
-    for (let index = 1; index < words.length; index += 1) {
-      const nextLine = `${currentLine} ${words[index]}`;
-      if (context.measureText(nextLine).width <= maxWidth) {
-        currentLine = nextLine;
-        continue;
-      }
-      lines.push(currentLine);
-      currentLine = words[index] ?? "";
-    }
-    lines.push(currentLine);
-  }
-
-  return lines;
-};
-
 const drawTextElement = (context: CanvasRenderingContext2D, element: CanvasTextElement) => {
+  const layoutElement = fitCanvasTextElementToContent(element, {
+    measureText: (line, font) => {
+      context.font = `${font.fontSize}px ${font.fontFamily}`;
+      return context.measureText(line).width;
+    },
+  });
+
   withElementTransform(context, element, () => {
-    context.fillStyle = element.color;
-    context.font = `${element.fontSize}px ${element.fontFamily}`;
-    context.textAlign = element.textAlign;
+    context.fillStyle = layoutElement.color;
+    context.font = `${layoutElement.fontSize}px ${layoutElement.fontFamily}`;
+    context.textAlign = layoutElement.textAlign;
     context.textBaseline = "top";
 
-    const lines = wrapTextToWidth(context, element.content, Math.max(1, element.width));
-    const lineHeight = element.fontSize * CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER;
+    const lines = splitCanvasTextLines(layoutElement.content);
+    const lineHeight = layoutElement.fontSize * CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER;
     const anchorX =
-      element.textAlign === "center"
-        ? element.width / 2
-        : element.textAlign === "right"
-          ? element.width
+      layoutElement.textAlign === "center"
+        ? layoutElement.width / 2
+        : layoutElement.textAlign === "right"
+          ? layoutElement.width
           : 0;
 
     lines.forEach((line, index) => {
-      context.fillText(line, anchorX, index * lineHeight, element.width);
+      context.fillText(line, anchorX, index * lineHeight);
     });
   });
 };

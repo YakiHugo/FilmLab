@@ -171,13 +171,43 @@ describe("renderCanvasDocument", () => {
       },
     });
     expect(mainContext.drawImage).toHaveBeenCalled();
-    expect(mainContext.fillText).toHaveBeenCalledWith("Board export", 0, 0, 180);
+    expect(mainContext.fillText).toHaveBeenCalledWith("Board export", 0, 0);
     expect(mainContext.fillRect).toHaveBeenCalledWith(0, 0, 1000, 800);
     expect(releaseRenderSlotsMock).toHaveBeenCalledWith("export", "board-export");
     createdCanvases.forEach((canvas) => {
       expect(canvas.width).toBe(0);
       expect(canvas.height).toBe(0);
     });
+  });
+
+  it("renders explicit text line breaks without width-based wrapping", async () => {
+    vi.stubGlobal("document", {
+      createElement: vi.fn(() => createCanvas()),
+    });
+
+    const mainContext = createContext();
+    const mainCanvas = createCanvas(mainContext);
+    const canvasDocument = createCanvasDocument();
+    const textElement = canvasDocument.elements[1];
+    if (!textElement || textElement.type !== "text") {
+      throw new Error("Expected text element.");
+    }
+
+    textElement.content = "first line\nsecond";
+    textElement.width = 40;
+
+    await renderCanvasDocumentToCanvas({
+      assets: [createAsset()],
+      canvas: mainCanvas as unknown as HTMLCanvasElement,
+      document: canvasDocument,
+      height: 1600,
+      pixelRatio: 1,
+      width: 2000,
+    });
+
+    expect(mainContext.fillText).toHaveBeenNthCalledWith(1, "first line", 0, 0);
+    expect(mainContext.fillText).toHaveBeenNthCalledWith(2, "second", 0, 28.799999999999997);
+    expect(mainContext.fillText).toHaveBeenCalledTimes(2);
   });
 
   it("crops rendered slice regions using the board export scale", () => {
