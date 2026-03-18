@@ -9,7 +9,14 @@ import { deleteCanvasDocument, loadCanvasDocuments, saveCanvasDocument } from "@
 import type { CanvasDocument, CanvasElement } from "@/types";
 
 export type CanvasTool = "select" | "text" | "hand";
-export type CanvasFloatingPanel = "edit" | "layers" | "library" | "story" | "properties" | "project" | null;
+export type CanvasFloatingPanel =
+  | "edit"
+  | "layers"
+  | "library"
+  | "story"
+  | "properties"
+  | "project"
+  | null;
 
 interface CanvasHistoryState {
   past: CanvasElement[][];
@@ -116,6 +123,7 @@ const serializeCanvasElementForSignature = (element: CanvasElement) => {
       content: element.content,
       fontFamily: element.fontFamily,
       fontSize: element.fontSize,
+      fontSizeTier: element.fontSizeTier,
       textAlign: element.textAlign,
     };
   }
@@ -235,7 +243,8 @@ export const useCanvasStore = create<CanvasState>()(
           }));
           return document;
         },
-        setActiveDocumentId: (activeDocumentId) => set({ activeDocumentId, selectedElementIds: [] }),
+        setActiveDocumentId: (activeDocumentId) =>
+          set({ activeDocumentId, selectedElementIds: [] }),
         setSelectedElementIds: (selectedElementIds) =>
           set({ selectedElementIds: Array.from(new Set(selectedElementIds)) }),
         setTool: (tool) =>
@@ -285,7 +294,9 @@ export const useCanvasStore = create<CanvasState>()(
           if (removing.size === 0) {
             return;
           }
-          await commitElements(documentId, (elements) => elements.filter((element) => !removing.has(element.id)));
+          await commitElements(documentId, (elements) =>
+            elements.filter((element) => !removing.has(element.id))
+          );
           set((state) => ({
             selectedElementIds: state.selectedElementIds.filter((id) => !removing.has(id)),
           }));
@@ -302,7 +313,10 @@ export const useCanvasStore = create<CanvasState>()(
           }
 
           const selected = existing.elements.filter((element) => duplicating.has(element.id));
-          const baseZIndex = existing.elements.reduce((max, element) => Math.max(max, element.zIndex), 0);
+          const baseZIndex = existing.elements.reduce(
+            (max, element) => Math.max(max, element.zIndex),
+            0
+          );
           const duplicates = selected.map((element, index) => ({
             ...cloneElements([element])[0],
             id: createElementId(),
@@ -322,7 +336,9 @@ export const useCanvasStore = create<CanvasState>()(
           }
           await commitElements(documentId, (elements) => {
             const byId = new Map(elements.map((element) => [element.id, element]));
-            const ordered = orderedIds.map((id) => byId.get(id)).filter((element): element is CanvasElement => Boolean(element));
+            const ordered = orderedIds
+              .map((id) => byId.get(id))
+              .filter((element): element is CanvasElement => Boolean(element));
             const orderedSet = new Set(ordered.map((element) => element.id));
             const rest = elements.filter((element) => !orderedSet.has(element.id));
             const mergedTopToBottom = [...ordered, ...rest];
@@ -394,7 +410,10 @@ export const useCanvasStore = create<CanvasState>()(
           }
 
           const nextPast = history.past.slice(0, -1);
-          const nextFuture = [cloneElements(existing.elements), ...history.future].slice(0, MAX_CANVAS_HISTORY);
+          const nextFuture = [cloneElements(existing.elements), ...history.future].slice(
+            0,
+            MAX_CANVAS_HISTORY
+          );
 
           const nextDocument: CanvasDocument = {
             ...existing,
@@ -429,7 +448,9 @@ export const useCanvasStore = create<CanvasState>()(
             return false;
           }
 
-          const nextPast = [...history.past, cloneElements(existing.elements)].slice(-MAX_CANVAS_HISTORY);
+          const nextPast = [...history.past, cloneElements(existing.elements)].slice(
+            -MAX_CANVAS_HISTORY
+          );
           const nextFuture = history.future.slice(1);
 
           const nextDocument: CanvasDocument = {
@@ -459,7 +480,7 @@ export const useCanvasStore = create<CanvasState>()(
           set((state) => {
             const documents = state.documents.filter((item) => item.id !== id);
             const activeDocumentId =
-              state.activeDocumentId === id ? documents[0]?.id ?? null : state.activeDocumentId;
+              state.activeDocumentId === id ? (documents[0]?.id ?? null) : state.activeDocumentId;
             const nextHistory = { ...state.historyByDocumentId };
             delete nextHistory[id];
             return {

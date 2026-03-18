@@ -9,6 +9,7 @@ import type {
 } from "@/types";
 import { createCanvasImageDocumentRenderContext } from "./boardImageRendering";
 import { applyCanvasImagePostProcessing } from "./canvasImagePostProcessing";
+import { CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER } from "./textStyle";
 
 interface RenderCanvasDocumentOptions {
   assets: Asset[];
@@ -45,11 +46,7 @@ const withElementTransform = (
   context.restore();
 };
 
-const wrapTextToWidth = (
-  context: CanvasRenderingContext2D,
-  text: string,
-  maxWidth: number
-) => {
+const wrapTextToWidth = (context: CanvasRenderingContext2D, text: string, maxWidth: number) => {
   const paragraphs = text.split(/\r?\n/);
   const lines: string[] = [];
 
@@ -76,10 +73,7 @@ const wrapTextToWidth = (
   return lines;
 };
 
-const drawTextElement = (
-  context: CanvasRenderingContext2D,
-  element: CanvasTextElement
-) => {
+const drawTextElement = (context: CanvasRenderingContext2D, element: CanvasTextElement) => {
   withElementTransform(context, element, () => {
     context.fillStyle = element.color;
     context.font = `${element.fontSize}px ${element.fontFamily}`;
@@ -87,9 +81,13 @@ const drawTextElement = (
     context.textBaseline = "top";
 
     const lines = wrapTextToWidth(context, element.content, Math.max(1, element.width));
-    const lineHeight = element.fontSize * 1.2;
+    const lineHeight = element.fontSize * CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER;
     const anchorX =
-      element.textAlign === "center" ? element.width / 2 : element.textAlign === "right" ? element.width : 0;
+      element.textAlign === "center"
+        ? element.width / 2
+        : element.textAlign === "right"
+          ? element.width
+          : 0;
 
     lines.forEach((line, index) => {
       context.fillText(line, anchorX, index * lineHeight, element.width);

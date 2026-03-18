@@ -39,9 +39,12 @@ const useLoadedImage = (src?: string) => {
     };
     nextImage.addEventListener("load", handleLoad);
     nextImage.addEventListener("error", handleError);
-    void nextImage.decode().then(handleLoad).catch(() => {
-      // Some browsers reject decode() for object URLs before `load`.
-    });
+    void nextImage
+      .decode()
+      .then(handleLoad)
+      .catch(() => {
+        // Some browsers reject decode() for object URLs before `load`.
+      });
 
     return () => {
       cancelled = true;
@@ -61,7 +64,9 @@ export const ImageElement = memo(function ImageElement({
   onSelect,
   onDragEnd,
 }: ImageElementProps) {
-  const asset = useAssetStore((state) => state.assets.find((candidate) => candidate.id === element.assetId) ?? null);
+  const asset = useAssetStore(
+    (state) => state.assets.find((candidate) => candidate.id === element.assetId) ?? null
+  );
   const zoom = useCanvasStore((state) => state.zoom);
   const previewEntry = useCanvasRuntimeStore((state) => state.previewEntries[element.id]);
   const requestBoardPreview = useCanvasRuntimeStore((state) => state.requestBoardPreview);
@@ -78,7 +83,14 @@ export const ImageElement = memo(function ImageElement({
         width: Math.round(element.width),
         zoom: Number(zoom.toFixed(3)),
       }),
-    [element.adjustments, element.assetId, element.filmProfileId, element.height, element.width, zoom]
+    [
+      element.adjustments,
+      element.assetId,
+      element.filmProfileId,
+      element.height,
+      element.width,
+      zoom,
+    ]
   );
 
   useEffect(() => {
@@ -118,9 +130,9 @@ export const ImageElement = memo(function ImageElement({
         rotation={element.rotation}
         opacity={element.opacity}
         visible={element.visible}
-        fill={isSelected ? "#3f3120" : "#27272a"}
-        stroke={isSelected ? "#f59e0b" : "#52525b"}
-        strokeWidth={isSelected ? 2 : 1}
+        fill="#27272a"
+        stroke="#52525b"
+        strokeWidth={1}
         draggable={!element.locked}
         dragBoundFunc={dragBoundFunc}
         onClick={(event) => onSelect(Boolean(event.evt.shiftKey))}
@@ -146,8 +158,6 @@ export const ImageElement = memo(function ImageElement({
       onClick={(event) => onSelect(Boolean(event.evt.shiftKey))}
       onTap={() => onSelect(false)}
       onDragEnd={(event) => onDragEnd(event.target.x(), event.target.y())}
-      stroke={isSelected ? "#f59e0b" : undefined}
-      strokeWidth={isSelected ? 2 : 0}
     />
   );
 });

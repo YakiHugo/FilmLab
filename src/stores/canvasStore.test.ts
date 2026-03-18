@@ -41,6 +41,7 @@ const createDocument = (): CanvasDocument => ({
       content: "Hello",
       fontFamily: "Georgia",
       fontSize: 24,
+      fontSizeTier: "small",
       color: "#ffffff",
       textAlign: "left",
       x: 40,
@@ -74,7 +75,13 @@ const createLegacyShapeDocument = () =>
   ({
     ...createDocument(),
     elements: [
-      ...createDocument().elements,
+      {
+        ...(createDocument().elements[0] as CanvasDocument["elements"][number]),
+      },
+      {
+        ...(createDocument().elements[1] as CanvasDocument["elements"][number]),
+        fontSizeTier: undefined,
+      },
       {
         id: "shape-1",
         type: "shape",
@@ -173,6 +180,11 @@ describe("canvasStore", () => {
     expect(documents).toHaveLength(1);
     expect(documents[0]?.elements).toHaveLength(2);
     expect(documents[0]?.elements.map((element) => element.type)).toEqual(["image", "text"]);
+    expect(documents[0]?.elements[1]).toMatchObject({
+      id: "text-1",
+      type: "text",
+      fontSizeTier: "small",
+    });
     expect(saveCanvasDocumentMock).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "doc-1",

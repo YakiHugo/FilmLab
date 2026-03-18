@@ -101,6 +101,7 @@ const createCanvasDocument = (): CanvasDocument => ({
       content: "Board export",
       fontFamily: "Georgia",
       fontSize: 24,
+      fontSizeTier: "small",
       color: "#ffffff",
       textAlign: "left",
       x: 200,

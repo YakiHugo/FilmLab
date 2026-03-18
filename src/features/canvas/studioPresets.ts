@@ -1,11 +1,28 @@
-import type { CanvasDocument, CanvasGuideSettings, CanvasPresetId, CanvasSafeArea } from "@/types";
+import type {
+  CanvasDocument,
+  CanvasGuideSettings,
+  CanvasImageElement,
+  CanvasPresetId,
+  CanvasSafeArea,
+  CanvasTextElement,
+  CanvasTextFontSizeTier,
+} from "@/types";
+import { normalizeCanvasTextElement } from "./textStyle";
 
 interface LegacyCanvasShapeElement {
   id: string;
   type: "shape";
 }
 
-type NormalizableCanvasElement = CanvasDocument["elements"][number] | LegacyCanvasShapeElement;
+type LegacyCanvasTextElement = Omit<CanvasTextElement, "fontSizeTier"> & {
+  type: "text";
+  fontSizeTier?: CanvasTextFontSizeTier;
+};
+
+type NormalizableCanvasElement =
+  | CanvasImageElement
+  | LegacyCanvasTextElement
+  | LegacyCanvasShapeElement;
 
 type NormalizableCanvasDocument = Omit<
   CanvasDocument,
@@ -134,6 +151,12 @@ const normalizeCanvasElements = (
       removedLegacyShapeIds.push(element.id);
       continue;
     }
+
+    if (element.type === "text") {
+      normalizedElements.push(normalizeCanvasTextElement(element));
+      continue;
+    }
+
     normalizedElements.push(element);
   }
 

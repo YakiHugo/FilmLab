@@ -1,10 +1,11 @@
 import { memo } from "react";
 import { Text } from "react-konva";
 import type { CanvasTextElement } from "@/types";
+import { CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER } from "../textStyle";
 
 interface TextElementProps {
   element: CanvasTextElement;
-  isSelected: boolean;
+  isEditing: boolean;
   dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
   onSelect: (additive: boolean) => void;
   onDragEnd: (x: number, y: number) => void;
@@ -13,7 +14,7 @@ interface TextElementProps {
 
 export const TextElement = memo(function TextElement({
   element,
-  isSelected,
+  isEditing,
   dragBoundFunc,
   onSelect,
   onDragEnd,
@@ -28,10 +29,11 @@ export const TextElement = memo(function TextElement({
       width={element.width}
       height={element.height}
       rotation={element.rotation}
-      opacity={element.opacity}
+      opacity={isEditing ? 0 : element.opacity}
       visible={element.visible}
       fontFamily={element.fontFamily}
       fontSize={element.fontSize}
+      lineHeight={CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER}
       fill={element.color}
       align={element.textAlign}
       draggable={!element.locked}
@@ -41,8 +43,6 @@ export const TextElement = memo(function TextElement({
       onDblClick={onDoubleClick}
       onDblTap={onDoubleClick}
       onDragEnd={(event) => onDragEnd(event.target.x(), event.target.y())}
-      stroke={isSelected ? "#f59e0b" : undefined}
-      strokeWidth={isSelected ? 1 : 0}
     />
   );
 });

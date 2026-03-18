@@ -13,6 +13,14 @@ import { useAssetStore } from "@/stores/assetStore";
 import type { CanvasElement } from "@/types";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
+import {
+  applyCanvasTextFontSizeTier,
+  CANVAS_TEXT_COLOR_OPTIONS,
+  CANVAS_TEXT_FONT_OPTIONS,
+  CANVAS_TEXT_SIZE_TIER_OPTIONS,
+  getCanvasTextColorOption,
+  getCanvasTextFontOption,
+} from "./textStyle";
 
 const NumberInput = ({
   label,
@@ -80,6 +88,26 @@ export function CanvasPropertiesPanel() {
     [documents, activeDocumentId]
   );
 
+  const textFontOptions = useMemo(() => {
+    if (!selected || selected.type !== "text") {
+      return CANVAS_TEXT_FONT_OPTIONS;
+    }
+    const current = getCanvasTextFontOption(selected.fontFamily);
+    return CANVAS_TEXT_FONT_OPTIONS.some((option) => option.value === current.value)
+      ? CANVAS_TEXT_FONT_OPTIONS
+      : [...CANVAS_TEXT_FONT_OPTIONS, current];
+  }, [selected]);
+
+  const textColorOptions = useMemo(() => {
+    if (!selected || selected.type !== "text") {
+      return CANVAS_TEXT_COLOR_OPTIONS;
+    }
+    const current = getCanvasTextColorOption(selected.color);
+    return CANVAS_TEXT_COLOR_OPTIONS.some((option) => option.value === current.value)
+      ? CANVAS_TEXT_COLOR_OPTIONS
+      : [...CANVAS_TEXT_COLOR_OPTIONS, current];
+  }, [selected]);
+
   return (
     <div className="p-4">
       <div className="flex items-start justify-between gap-3">
@@ -124,7 +152,9 @@ export function CanvasPropertiesPanel() {
                   Selected Layer
                 </p>
                 <p className="mt-1 text-sm font-medium text-zinc-100">
-                  {selected.type === "image" ? (selectedAsset?.name ?? "Image layer") : "Text layer"}
+                  {selected.type === "image"
+                    ? (selectedAsset?.name ?? "Image layer")
+                    : "Text layer"}
                 </p>
               </div>
               <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.24em] text-zinc-400">
@@ -218,25 +248,52 @@ export function CanvasPropertiesPanel() {
                 className="h-10 rounded-2xl border-white/10 bg-black/35 px-3 text-sm"
               />
               <div className="grid grid-cols-2 gap-3">
-                <Input
+                <Select
                   value={selected.fontFamily}
-                  onChange={(event) => update({ fontFamily: event.target.value })}
-                  className="h-10 rounded-2xl border-white/10 bg-black/35 px-3 text-sm"
-                />
-                <Input
-                  type="number"
-                  min={8}
-                  value={selected.fontSize}
-                  onChange={(event) =>
-                    update({ fontSize: Math.max(8, Number(event.target.value) || 8) })
+                  onValueChange={(value) => update({ fontFamily: value })}
+                >
+                  <SelectTrigger className="h-10 rounded-2xl border-white/10 bg-black/35 text-sm">
+                    <SelectValue placeholder="Font" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {textFontOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={selected.fontSizeTier}
+                  onValueChange={(value) =>
+                    update(
+                      applyCanvasTextFontSizeTier(selected, value as typeof selected.fontSizeTier)
+                    )
                   }
-                  className="h-10 rounded-2xl border-white/10 bg-black/35 px-3 text-sm"
-                />
-                <Input
-                  value={selected.color}
-                  onChange={(event) => update({ color: event.target.value })}
-                  className="h-10 rounded-2xl border-white/10 bg-black/35 px-3 text-sm"
-                />
+                >
+                  <SelectTrigger className="h-10 rounded-2xl border-white/10 bg-black/35 text-sm">
+                    <SelectValue placeholder="Size tier" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CANVAS_TEXT_SIZE_TIER_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={selected.color} onValueChange={(value) => update({ color: value })}>
+                  <SelectTrigger className="h-10 rounded-2xl border-white/10 bg-black/35 text-sm">
+                    <SelectValue placeholder="Color" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {textColorOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Select
                   value={selected.textAlign}
                   onValueChange={(value) =>
@@ -255,7 +312,6 @@ export function CanvasPropertiesPanel() {
               </div>
             </div>
           )}
-
         </div>
       )}
     </div>
