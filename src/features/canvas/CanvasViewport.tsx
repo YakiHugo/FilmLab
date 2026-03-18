@@ -216,6 +216,130 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     []
   );
 
+  const shouldPan = tool === "hand" || isSpacePressed;
+
+  const toCanvasPoint = useCallback(
+    (stage: Konva.Stage) => {
+      const pointer = stage.getPointerPosition();
+      if (!pointer) {
+        return null;
+      }
+      return {
+        x: (pointer.x - viewport.x) / zoom,
+        y: (pointer.y - viewport.y) / zoom,
+      };
+    },
+    [viewport.x, viewport.y, zoom]
+  );
+
+  const handleWorkspacePointerDown = useCallback(
+    (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+      const stage = stageRef.current;
+      if (!stage || !activeDocument) {
+        return;
+      }
+
+      const isBackgroundTarget =
+        event.target === stage || event.target.id() === WORKSPACE_BACKGROUND_NODE_ID;
+      const point = toCanvasPoint(stage);
+
+      if (shouldPan && isBackgroundTarget) {
+        const pointer = stage.getPointerPosition();
+        if (!pointer) {
+          return;
+        }
+        event.evt.preventDefault();
+        setIsPanning(true);
+        panningAnchorRef.current = pointer;
+        viewportAnchorRef.current = viewport;
+        return;
+      }
+
+      if (!isBackgroundTarget || !point) {
+        return;
+      }
+
+      event.evt.preventDefault();
+
+      if (tool === "select") {
+        clearSelection();
+        return;
+      }
+
+      if (tool === "text") {
+        const snappedPoint = snapPoint(point);
+        const elementId = createElementId();
+        const textElement: CanvasTextElement = {
+          id: elementId,
+          type: "text",
+          content: "Double-click to edit",
+          x: snappedPoint.x,
+          y: snappedPoint.y,
+          width: 260,
+          height: 72,
+          rotation: 0,
+          opacity: 1,
+          locked: false,
+          visible: true,
+          zIndex: activeDocument.elements.length + 1,
+          fontFamily: "Georgia",
+          fontSize: 36,
+          color: "#f5f5f5",
+          textAlign: "left",
+        };
+        void upsertElement(activeDocument.id, textElement);
+        selectElement(elementId);
+        setEditingTextId(elementId);
+        setEditingTextValue(textElement.content);
+      }
+    },
+    [
+      activeDocument,
+      clearSelection,
+      shouldPan,
+      selectElement,
+      setEditingTextId,
+      setEditingTextValue,
+      setIsPanning,
+      stageRef,
+      toCanvasPoint,
+      tool,
+      upsertElement,
+      viewport,
+    ]
+  );
+
+  const handleWorkspacePointerMove = useCallback(
+    (event?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+      const stage = stageRef.current;
+      if (!stage || !isPanning || !shouldPan) {
+        return;
+      }
+      event?.evt.preventDefault();
+      const pointer = stage.getPointerPosition();
+      if (!pointer || !panningAnchorRef.current || !viewportAnchorRef.current) {
+        return;
+      }
+      setViewport({
+        x: viewportAnchorRef.current.x + (pointer.x - panningAnchorRef.current.x),
+        y: viewportAnchorRef.current.y + (pointer.y - panningAnchorRef.current.y),
+      });
+    },
+    [isPanning, setViewport, shouldPan, stageRef]
+  );
+
+  const handleWorkspacePointerUp = useCallback(
+    (event?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+      event?.evt.preventDefault();
+      if (isPanning) {
+        setIsPanning(false);
+      }
+      panningAnchorRef.current = null;
+      viewportAnchorRef.current = null;
+    },
+    [isPanning]
+  );
+
   useEffect(() => {
     const transformer = transformerRef.current;
     const stage = stageRef.current;
@@ -326,17 +450,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     };
   }, []);
 
-  const toCanvasPoint = (stage: Konva.Stage) => {
-    const pointer = stage.getPointerPosition();
-    if (!pointer) {
-      return null;
-    }
-    return {
-      x: (pointer.x - viewport.x) / zoom,
-      y: (pointer.y - viewport.y) / zoom,
-    };
-  };
-
   const commitTextEdit = () => {
     if (!editingTextElement || !activeDocumentId) {
       setEditingTextId(null);
@@ -382,13 +495,14 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     );
   }
 
-  const shouldPan = tool === "hand" || isSpacePressed;
-
   return (
     <div
       ref={viewportContainerRef}
       className="absolute inset-0"
-      style={{ cursor: shouldPan ? (isPanning ? "grabbing" : "grab") : "default" }}
+      style={{
+        cursor: shouldPan ? (isPanning ? "grabbing" : "grab") : "default",
+        touchAction: "none",
+      }}
     >
       <Stage
         ref={stageRef}
@@ -421,80 +535,35 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
             y: pointer.y - worldPoint.y * nextZoom,
           });
         }}
-        onMouseDown={(event) => {
+        onMouseDown={(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
           const stage = stageRef.current;
           if (!stage) {
             return;
           }
           const isBackgroundTarget =
             event.target === stage || event.target.id() === WORKSPACE_BACKGROUND_NODE_ID;
-          const point = toCanvasPoint(stage);
-
-          if (shouldPan && isBackgroundTarget) {
-            const pointer = stage.getPointerPosition();
-            if (!pointer) {
-              return;
-            }
-            setIsPanning(true);
-            panningAnchorRef.current = pointer;
-            viewportAnchorRef.current = viewport;
+          if (!isBackgroundTarget) {
             return;
           }
-
-          if (!isBackgroundTarget || !point) {
-            return;
-          }
-
-          if (tool === "select") {
-            clearSelection();
-            return;
-          }
-
-          if (tool === "text") {
-            const snappedPoint = snapPoint(point);
-            const elementId = createElementId();
-            const textElement: CanvasTextElement = {
-              id: elementId,
-              type: "text",
-              content: "Double-click to edit",
-              x: snappedPoint.x,
-              y: snappedPoint.y,
-              width: 260,
-              height: 72,
-              rotation: 0,
-              opacity: 1,
-              locked: false,
-              visible: true,
-              zIndex: activeDocument.elements.length + 1,
-              fontFamily: "Georgia",
-              fontSize: 36,
-              color: "#f5f5f5",
-              textAlign: "left",
-            };
-            void upsertElement(activeDocument.id, textElement);
-            selectElement(elementId);
-            setEditingTextId(elementId);
-            setEditingTextValue(textElement.content);
-          }
+          handleWorkspacePointerDown(event);
         }}
-        onMouseMove={() => {
-          const stage = stageRef.current;
-          if (!stage || !isPanning || !shouldPan) {
-            return;
-          }
-          const pointer = stage.getPointerPosition();
-          if (!pointer || !panningAnchorRef.current || !viewportAnchorRef.current) {
-            return;
-          }
-          setViewport({
-            x: viewportAnchorRef.current.x + (pointer.x - panningAnchorRef.current.x),
-            y: viewportAnchorRef.current.y + (pointer.y - panningAnchorRef.current.y),
-          });
+        onTouchStart={(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+          handleWorkspacePointerDown(event);
         }}
-        onMouseUp={() => {
-          if (isPanning) {
-            setIsPanning(false);
-          }
+        onMouseMove={(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+          handleWorkspacePointerMove(event);
+        }}
+        onTouchMove={(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+          handleWorkspacePointerMove(event);
+        }}
+        onMouseUp={(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+          handleWorkspacePointerUp(event);
+        }}
+        onTouchEnd={(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+          handleWorkspacePointerUp(event);
+        }}
+        onTouchCancel={(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+          handleWorkspacePointerUp(event);
         }}
       >
         <Layer>
