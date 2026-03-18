@@ -21,6 +21,8 @@ export interface CanvasSliceExportResult {
   fileName: string;
 }
 
+const EDITOR_GRID_FILL = "rgba(255,255,255,0.18)";
+
 const defaultExportOptions = (stage: Konva.Stage): CanvasExportOptions => ({
   format: "png",
   width: stage.width(),
@@ -28,6 +30,64 @@ const defaultExportOptions = (stage: Konva.Stage): CanvasExportOptions => ({
   quality: 0.92,
   pixelRatio: 2,
 });
+
+const hideEditorOverlayNodes = (stage: Konva.Stage) => {
+  const hiddenNodes: Konva.Node[] = [];
+  const candidates = [...stage.find("Rect"), ...stage.find("Shape")];
+  const seenNodes = new Set<Konva.Node>();
+
+  for (const node of candidates) {
+    if (seenNodes.has(node)) {
+      continue;
+    }
+    seenNodes.add(node);
+
+    if (node.id()) {
+      continue;
+    }
+
+    const hasPatternFill = Boolean(node.getAttr("fillPatternImage"));
+    const hasEditorGridFill = node.getAttr("fill") === EDITOR_GRID_FILL;
+    if (!hasPatternFill && !hasEditorGridFill) {
+      continue;
+    }
+
+    if (!node.visible()) {
+      continue;
+    }
+
+    node.visible(false);
+    hiddenNodes.push(node);
+  }
+
+  return hiddenNodes;
+};
+
+export const exportStageDataUrl = (
+  stage: Konva.Stage,
+  options: Partial<CanvasExportOptions> & {
+    crop?: Pick<CanvasSlice, "x" | "y" | "width" | "height">;
+  }
+) => {
+  const mimeType = options.format === "jpeg" ? "image/jpeg" : "image/png";
+  const hiddenNodes = hideEditorOverlayNodes(stage);
+
+  try {
+    return stage.toDataURL({
+      mimeType,
+      quality: options.quality,
+      x: options.crop?.x,
+      y: options.crop?.y,
+      width: options.width,
+      height: options.height,
+      pixelRatio: options.pixelRatio,
+    });
+  } finally {
+    for (const node of hiddenNodes) {
+      node.visible(true);
+    }
+  }
+};
 
 export function useCanvasExport() {
   const assets = useAssetStore((state) => state.assets);
@@ -48,16 +108,7 @@ export function useCanvasExport() {
         return null;
       }
       const merged = { ...defaultExportOptions(stage), ...options };
-      const mimeType = merged.format === "jpeg" ? "image/jpeg" : "image/png";
-      return stage.toDataURL({
-        mimeType,
-        quality: merged.quality,
-        x: merged.crop?.x,
-        y: merged.crop?.y,
-        width: merged.width,
-        height: merged.height,
-        pixelRatio: merged.pixelRatio,
-      });
+      return exportStageDataUrl(stage, merged);
     },
     []
   );
