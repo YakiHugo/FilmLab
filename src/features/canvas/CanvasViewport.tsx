@@ -34,6 +34,7 @@ import {
   DEFAULT_CANVAS_TEXT_FONT_SIZE_TIER,
   scaleCanvasTextFontSize,
 } from "./textStyle";
+import { createTextMutationQueue } from "./textMutationQueue";
 import { TextElement } from "./elements/TextElement";
 import { registerCanvasStage } from "./hooks/canvasStageRegistry";
 import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
@@ -127,6 +128,65 @@ const selectionOverlayEqual = (
   );
 };
 
+const getDraftTextOverlayRect = (
+  element: CanvasTextElement,
+  viewport: { x: number; y: number },
+  zoom: number
+): CanvasOverlayRect => ({
+  x: element.x * zoom + viewport.x,
+  y: element.y * zoom + viewport.y,
+  width: Math.max(1, element.width * zoom),
+  height: Math.max(1, element.height * zoom),
+});
+
+interface CanvasTextEditorLayout {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  transform: string;
+  transformOrigin: "top left";
+}
+
+const getTextEditorLayout = ({
+  element,
+  measuredHeight,
+  transform,
+  viewport,
+  zoom,
+}: {
+  element: CanvasTextElement;
+  measuredHeight: number;
+  transform: string | null;
+  viewport: { x: number; y: number };
+  zoom: number;
+}): CanvasTextEditorLayout => {
+  const nextHeight = Math.max(
+    1,
+    Math.ceil(Math.max(element.height, measuredHeight || element.height))
+  );
+
+  if (transform) {
+    return {
+      left: 0,
+      top: 0,
+      width: element.width,
+      height: nextHeight,
+      transform,
+      transformOrigin: "top left",
+    };
+  }
+
+  return {
+    left: 0,
+    top: 0,
+    width: element.width,
+    height: nextHeight,
+    transform: `translate(${element.x * zoom + viewport.x}px, ${element.y * zoom + viewport.y}px) scale(${zoom}) rotate(${element.rotation}deg)`,
+    transformOrigin: "top left",
+  };
+};
+
 function DotGrid({
   bounds,
 }: {
@@ -215,10 +275,13 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const transformerRef = useRef<Konva.Transformer>(null);
   const textToolbarRef = useRef<HTMLDivElement>(null);
   const textEditorRef = useRef<HTMLDivElement>(null);
+  const textEditorInputRef = useRef<HTMLTextAreaElement>(null);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [editingTextValue, setEditingTextValue] = useState("");
+  const [editingTextDraft, setEditingTextDraft] = useState<CanvasTextElement | null>(null);
+  const [editingTextBoxHeight, setEditingTextBoxHeight] = useState(0);
   const [selectionOverlay, setSelectionOverlay] = useState<CanvasSelectionOverlayMetrics | null>(
     null
   );
@@ -229,6 +292,8 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const panningAnchorRef = useRef<{ x: number; y: number } | null>(null);
   const viewportAnchorRef = useRef<{ x: number; y: number } | null>(null);
   const initializedDocumentIdsRef = useRef<Set<string>>(new Set());
+  const textMutationQueueRef = useRef<ReturnType<typeof createTextMutationQueue> | null>(null);
+  const textElementDraftRef = useRef<CanvasTextElement | null>(null);
   const [stageSize, setStageSize] = useState(() => ({
     width: 0,
     height: 0,
@@ -258,6 +323,34 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     () => (singleSelectedElement?.type === "text" ? singleSelectedElement : null),
     [singleSelectedElement]
   );
+
+  const activeTextElement =
+    editingTextDraft ??
+    editingTextElement ??
+    (editingTextId ? textElementDraftRef.current : null) ??
+    singleSelectedTextElement;
+
+  if (!textMutationQueueRef.current) {
+    textMutationQueueRef.current = createTextMutationQueue();
+  }
+
+  useEffect(() => {
+    if (editingTextDraft) {
+      textElementDraftRef.current = editingTextDraft;
+      return;
+    }
+    if (editingTextElement) {
+      textElementDraftRef.current = editingTextElement;
+      return;
+    }
+    if (singleSelectedTextElement) {
+      textElementDraftRef.current = singleSelectedTextElement;
+      return;
+    }
+    if (!editingTextId) {
+      textElementDraftRef.current = null;
+    }
+  }, [editingTextDraft, editingTextElement, editingTextId, singleSelectedTextElement]);
 
   const thirdsGuideLines = useMemo(() => {
     if (!activeDocument || !activeDocument.guides.showThirds) {
@@ -310,6 +403,9 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const shouldPan = tool === "hand" || isSpacePressed;
 
   const beginTextEdit = useCallback((element: CanvasTextElement) => {
+    textElementDraftRef.current = element;
+    setEditingTextDraft(element);
+    setEditingTextBoxHeight(element.height);
     setEditingTextId(element.id);
     setEditingTextValue(element.content);
   }, []);
@@ -519,26 +615,115 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const cancelTextEdit = useCallback(() => {
     setEditingTextId(null);
     setEditingTextValue("");
+    setEditingTextDraft(null);
+    setEditingTextBoxHeight(0);
+    textElementDraftRef.current = null;
   }, []);
 
   const commitTextEdit = useCallback(() => {
-    if (!editingTextElement || !activeDocumentId) {
+    const currentTextElement = textElementDraftRef.current ?? activeTextElement;
+    if (!currentTextElement || !activeDocumentId) {
       cancelTextEdit();
       return;
     }
 
     const nextContent = editingTextValue.trim();
-    if (nextContent && nextContent !== editingTextElement.content) {
-      void upsertElement(activeDocumentId, {
-        ...editingTextElement,
+    if (nextContent && nextContent !== currentTextElement.content) {
+      const nextElement = {
+        ...currentTextElement,
         content: nextContent,
-      });
+      };
+      textElementDraftRef.current = nextElement;
+      setEditingTextDraft(nextElement);
+      setEditingTextBoxHeight(nextElement.height);
+      void textMutationQueueRef.current!.enqueue(() =>
+        upsertElement(activeDocumentId, nextElement)
+      );
     }
 
     cancelTextEdit();
-  }, [activeDocumentId, cancelTextEdit, editingTextElement, editingTextValue, upsertElement]);
+  }, [
+    activeDocumentId,
+    cancelTextEdit,
+    editingTextValue,
+    activeTextElement,
+    upsertElement,
+  ]);
 
   const syncSelectionOverlay = useCallback(() => {
+    const stage = stageRef.current;
+    const trackedId = editingTextId ?? (selectedElementIds.length === 1 ? selectedElementIds[0]! : null);
+
+    if (!stage || !trackedId) {
+      setSelectionOverlay((current) => (current ? null : current));
+      return;
+    }
+
+    const node = stage.findOne(`#${trackedId}`);
+    const trackedTextElement = editingTextId
+      ? textElementDraftRef.current ?? activeTextElement
+      : singleSelectedTextElement;
+
+    if (!node && !trackedTextElement) {
+      setSelectionOverlay((current) => (current ? null : current));
+      return;
+    }
+
+    const rect = node
+      ? getSelectionOverlayRect(node)
+      : trackedTextElement
+        ? getDraftTextOverlayRect(trackedTextElement, viewport, zoom)
+        : null;
+    if (!rect) {
+      setSelectionOverlay((current) => (current ? null : current));
+      return;
+    }
+
+    const nextOverlay: CanvasSelectionOverlayMetrics = {
+      rect,
+      textMatrix:
+        node && trackedTextElement && trackedId === trackedTextElement.id
+          ? createTransformMatrix(node)
+          : null,
+    };
+
+    setSelectionOverlay((current) =>
+      selectionOverlayEqual(current, nextOverlay) ? current : nextOverlay
+    );
+  }, [
+    activeTextElement,
+    editingTextId,
+    selectedElementIds,
+    stageRef,
+    singleSelectedTextElement,
+    viewport,
+    zoom,
+  ]);
+
+  const updateSelectedTextElement = useCallback(
+    (updater: (element: CanvasTextElement) => CanvasTextElement) => {
+      const currentTextElement = textElementDraftRef.current ?? activeTextElement;
+      if (!activeDocumentId || !currentTextElement) {
+        return;
+      }
+      const nextElement = updater(currentTextElement);
+      textElementDraftRef.current = nextElement;
+      if (editingTextId === currentTextElement.id) {
+        setEditingTextDraft(nextElement);
+        setEditingTextBoxHeight(nextElement.height);
+      }
+      void textMutationQueueRef.current!.enqueue(() =>
+        upsertElement(activeDocumentId, nextElement)
+      );
+    },
+    [activeDocumentId, activeTextElement, editingTextId, upsertElement]
+  );
+
+  useLayoutEffect(() => {
+    syncSelectionOverlay();
+  }, [syncSelectionOverlay, activeDocument?.updatedAt, zoom, viewport.x, viewport.y]);
+
+  useEffect(() => {
     const stage = stageRef.current;
     const trackedId =
       editingTextId ?? (selectedElementIds.length === 1 ? selectedElementIds[0]! : null);
@@ -548,62 +733,52 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       return;
     }
 
-    const node = stage.findOne(`#${trackedId}`);
-    if (!node) {
+    const trackedNode = stage.findOne(`#${trackedId}`);
+    if (!trackedNode) {
       setSelectionOverlay((current) => (current ? null : current));
       return;
     }
+    const node = trackedNode as Konva.Node;
 
-    const nextOverlay: CanvasSelectionOverlayMetrics = {
-      rect: getSelectionOverlayRect(node),
-      textMatrix:
-        editingTextElement && trackedId === editingTextElement.id
-          ? createTransformMatrix(node)
-          : null,
+    const handleNodeChange = () => {
+      syncSelectionOverlay();
     };
 
-    setSelectionOverlay((current) =>
-      selectionOverlayEqual(current, nextOverlay) ? current : nextOverlay
-    );
-  }, [editingTextElement, editingTextId, selectedElementIds, stageRef]);
+    node.on("dragmove transform dragend transformend", handleNodeChange);
+    syncSelectionOverlay();
 
-  const updateSelectedTextElement = useCallback(
-    (updater: (element: CanvasTextElement) => CanvasTextElement) => {
-      if (!activeDocumentId || !singleSelectedTextElement) {
-        return;
-      }
-      void upsertElement(activeDocumentId, updater(singleSelectedTextElement));
-    },
-    [activeDocumentId, singleSelectedTextElement, upsertElement]
-  );
+    return () => {
+      node.off("dragmove transform dragend transformend", handleNodeChange);
+    };
+  }, [editingTextId, selectedElementIds, stageRef, syncSelectionOverlay]);
 
   useLayoutEffect(() => {
-    syncSelectionOverlay();
-  }, [syncSelectionOverlay, activeDocument?.updatedAt, zoom, viewport.x, viewport.y]);
-
-  useEffect(() => {
-    if (!editingTextId && selectedElementIds.length !== 1) {
+    if (!editingTextId || !activeTextElement || activeTextElement.type !== "text") {
+      setEditingTextBoxHeight(0);
       return;
     }
 
-    let frameId = 0;
+    const textarea = textEditorInputRef.current;
+    if (!textarea) {
+      return;
+    }
 
-    const sync = () => {
-      syncSelectionOverlay();
-      frameId = window.requestAnimationFrame(sync);
-    };
-
-    frameId = window.requestAnimationFrame(sync);
-
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, [editingTextId, selectedElementIds.length, syncSelectionOverlay]);
+    textarea.style.height = "auto";
+    const nextHeight = Math.max(textarea.scrollHeight, activeTextElement.height);
+    setEditingTextBoxHeight((current) => (Math.abs(current - nextHeight) < 1 ? current : nextHeight));
+  }, [
+    activeTextElement,
+    editingTextId,
+    editingTextValue,
+    selectionOverlay?.rect.width,
+    selectionOverlay?.rect.height,
+  ]);
 
   useLayoutEffect(() => {
     if (
       !selectionOverlay ||
-      !singleSelectedTextElement ||
+      !activeTextElement ||
+      activeTextElement.type !== "text" ||
       stageSize.width <= 0 ||
       stageSize.height <= 0
     ) {
@@ -626,7 +801,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
         ? current
         : nextPosition
     );
-  }, [selectionOverlay, singleSelectedTextElement, stageSize.height, stageSize.width]);
+  }, [activeTextElement, selectionOverlay, stageSize.height, stageSize.width]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -698,14 +873,24 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     });
   };
 
-  const showTextToolbar = Boolean(selectionOverlay && singleSelectedTextElement);
-  const showTextEditor = Boolean(editingTextElement && selectionOverlay?.textMatrix);
+  const showTextToolbar = Boolean(selectionOverlay && activeTextElement?.type === "text");
+  const editingTextRenderElement = activeTextElement?.type === "text" ? activeTextElement : null;
+  const showTextEditor = Boolean(editingTextId && editingTextRenderElement);
+  const editingTextLayout = editingTextRenderElement
+    ? getTextEditorLayout({
+        element: editingTextRenderElement,
+        measuredHeight: editingTextBoxHeight,
+        transform: selectionOverlay?.textMatrix ?? null,
+        viewport,
+        zoom,
+      })
+    : null;
 
   useEffect(() => {
-    if (editingTextId && !editingTextElement) {
+    if (editingTextId && !activeTextElement) {
       cancelTextEdit();
     }
-  }, [cancelTextEdit, editingTextElement, editingTextId]);
+  }, [activeTextElement, cancelTextEdit, editingTextId]);
 
   if (!activeDocument) {
     return (
@@ -1000,10 +1185,10 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
         </Layer>
       </Stage>
 
-      {showTextToolbar && singleSelectedTextElement && selectionOverlay ? (
+      {showTextToolbar && editingTextRenderElement && selectionOverlay ? (
         <CanvasTextToolbar
           ref={textToolbarRef}
-          element={singleSelectedTextElement}
+          element={editingTextRenderElement}
           position={toolbarPosition}
           onColorChange={(color) => {
             updateSelectedTextElement((element) => ({
@@ -1025,21 +1210,24 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
         />
       ) : null}
 
-      {showTextEditor && editingTextElement && selectionOverlay ? (
+      {showTextEditor && editingTextRenderElement && editingTextLayout ? (
         <div
           ref={textEditorRef}
           className="absolute z-20"
           style={{
-            width: editingTextElement.width,
-            height: editingTextElement.height,
-            transform: selectionOverlay.textMatrix ?? undefined,
-            transformOrigin: "top left",
+            left: editingTextLayout.left,
+            top: editingTextLayout.top,
+            width: editingTextLayout.width,
+            height: editingTextLayout.height,
+            transform: editingTextLayout.transform,
+            transformOrigin: editingTextLayout.transformOrigin,
           }}
           onPointerDown={(event) => {
             event.stopPropagation();
           }}
         >
           <textarea
+            ref={textEditorInputRef}
             value={editingTextValue}
             onChange={(event) => setEditingTextValue(event.target.value)}
             onKeyDown={(event) => {
@@ -1054,16 +1242,15 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
             }}
             autoFocus
             spellCheck={false}
-            className="absolute inset-0 m-0 h-full w-full resize-none border-0 bg-transparent p-0 outline-none"
+            className="absolute inset-0 m-0 w-full resize-none border-0 bg-transparent p-0 outline-none"
             style={{
               boxSizing: "border-box",
-              color: editingTextElement.color,
-              fontFamily: editingTextElement.fontFamily,
-              fontSize: editingTextElement.fontSize,
+              color: editingTextRenderElement.color,
+              fontFamily: editingTextRenderElement.fontFamily,
+              fontSize: editingTextRenderElement.fontSize,
               lineHeight: CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER,
-              opacity: 1,
               overflow: "hidden",
-              textAlign: editingTextElement.textAlign,
+              textAlign: editingTextRenderElement.textAlign,
             }}
           />
         </div>

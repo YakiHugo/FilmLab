@@ -14,6 +14,13 @@ export interface CanvasTextOption<TValue extends string> {
 export const CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER = 1.2;
 export const DEFAULT_CANVAS_TEXT_FONT_FAMILY = "Georgia";
 export const DEFAULT_CANVAS_TEXT_FONT_SIZE_TIER: CanvasTextFontSizeTier = "medium";
+export const CANVAS_TEXT_MENU_ITEM_HEIGHT = 38;
+export const CANVAS_TEXT_MENU_PADDING = 8;
+export const CANVAS_TEXT_MENU_WIDTHS = {
+  color: 180,
+  font: 160,
+  size: 160,
+} as const;
 
 export const CANVAS_TEXT_FONT_OPTIONS: CanvasTextOption<string>[] = [
   { label: "Manrope", value: "Manrope" },

@@ -2,6 +2,7 @@ import {
   useCallback,
   forwardRef,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -13,13 +14,18 @@ import { cn } from "@/lib/utils";
 import {
   CANVAS_TEXT_COLOR_OPTIONS,
   CANVAS_TEXT_FONT_OPTIONS,
+  CANVAS_TEXT_MENU_ITEM_HEIGHT,
+  CANVAS_TEXT_MENU_PADDING,
+  CANVAS_TEXT_MENU_WIDTHS,
   CANVAS_TEXT_SIZE_TIER_OPTIONS,
   getCanvasTextColorOption,
   getCanvasTextFontOption,
   getCanvasTextSizeTierOption,
 } from "./textStyle";
+import { resolveToolbarMenuPlacement } from "./overlayGeometry";
 
 type ToolbarMenu = "color" | "font" | "size" | null;
+const TOOLBAR_MENU_GAP = 10;
 
 export interface CanvasTextToolbarProps {
   element: CanvasTextElement;
@@ -39,6 +45,12 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
   ) {
     const rootRef = useRef<HTMLDivElement | null>(null);
     const [openMenu, setOpenMenu] = useState<ToolbarMenu>(null);
+    const [metrics, setMetrics] = useState({
+      containerHeight: 0,
+      containerWidth: 0,
+      height: 0,
+      width: 0,
+    });
 
     const setRootRef = useCallback(
       (node: HTMLDivElement | null) => {
@@ -53,6 +65,66 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
       },
       [forwardedRef]
     );
+
+    useLayoutEffect(() => {
+      const measure = () => {
+        const node = rootRef.current;
+        if (!node) {
+          return;
+        }
+
+        const parent = node.offsetParent as HTMLElement | null;
+        if (!parent) {
+          return;
+        }
+
+        const rootRect = node.getBoundingClientRect();
+        const parentRect = parent.getBoundingClientRect();
+        setMetrics((current) => {
+          const next = {
+            containerHeight: Math.round(parentRect.height),
+            containerWidth: Math.round(parentRect.width),
+            height: Math.round(rootRect.height),
+            width: Math.round(rootRect.width),
+          };
+
+          return current.containerHeight === next.containerHeight &&
+            current.containerWidth === next.containerWidth &&
+            current.height === next.height &&
+            current.width === next.width
+            ? current
+            : next;
+        });
+      };
+
+      measure();
+
+      const node = rootRef.current;
+      const parent = node?.offsetParent as HTMLElement | null;
+      if (!node || !parent) {
+        return;
+      }
+
+      const handleResize = () => measure();
+      window.addEventListener("resize", handleResize);
+
+      if (typeof ResizeObserver === "undefined") {
+        return () => {
+          window.removeEventListener("resize", handleResize);
+        };
+      }
+
+      const observer = new ResizeObserver(() => {
+        measure();
+      });
+      observer.observe(node);
+      observer.observe(parent);
+
+      return () => {
+        window.removeEventListener("resize", handleResize);
+        observer.disconnect();
+      };
+    }, [position.left, position.top, openMenu]);
 
     useEffect(() => {
       if (!openMenu) {
@@ -72,16 +144,18 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
 
       const handleKeyDown = (event: KeyboardEvent) => {
         if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopImmediatePropagation();
           setOpenMenu(null);
         }
       };
 
       document.addEventListener("pointerdown", handlePointerDown, true);
-      window.addEventListener("keydown", handleKeyDown);
+      document.addEventListener("keydown", handleKeyDown, true);
 
       return () => {
         document.removeEventListener("pointerdown", handlePointerDown, true);
-        window.removeEventListener("keydown", handleKeyDown);
+        document.removeEventListener("keydown", handleKeyDown, true);
       };
     }, [openMenu]);
 
@@ -94,6 +168,96 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
       () => getCanvasTextSizeTierOption(element.fontSizeTier),
       [element.fontSizeTier]
     );
+    const selectedFontOptions = useMemo(() => {
+      const current = getCanvasTextFontOption(element.fontFamily);
+      return CANVAS_TEXT_FONT_OPTIONS.some((option) => option.value === current.value)
+        ? CANVAS_TEXT_FONT_OPTIONS
+        : [...CANVAS_TEXT_FONT_OPTIONS, current];
+    }, [element.fontFamily]);
+
+    const menuPlacement = useMemo(() => {
+      if (!openMenu) {
+        return null;
+      }
+
+      const toolbarRect = {
+        height: metrics.height || 48,
+        width: metrics.width || 196,
+        x: position.left,
+        y: position.top,
+      };
+
+      if (openMenu === "color") {
+        return resolveToolbarMenuPlacement({
+          containerHeight: metrics.containerHeight || window.innerHeight,
+          containerWidth: metrics.containerWidth || window.innerWidth,
+          gap: TOOLBAR_MENU_GAP,
+          menuHeight:
+            CANVAS_TEXT_COLOR_OPTIONS.length * CANVAS_TEXT_MENU_ITEM_HEIGHT +
+            CANVAS_TEXT_MENU_PADDING * 2,
+          menuWidth: CANVAS_TEXT_MENU_WIDTHS.color,
+          padding: 8,
+          toolbarRect,
+        });
+      }
+
+      if (openMenu === "font") {
+        return resolveToolbarMenuPlacement({
+          containerHeight: metrics.containerHeight || window.innerHeight,
+          containerWidth: metrics.containerWidth || window.innerWidth,
+          gap: TOOLBAR_MENU_GAP,
+          menuHeight:
+            selectedFontOptions.length * CANVAS_TEXT_MENU_ITEM_HEIGHT +
+            CANVAS_TEXT_MENU_PADDING * 2,
+          menuWidth: CANVAS_TEXT_MENU_WIDTHS.font,
+          padding: 8,
+          toolbarRect,
+        });
+      }
+
+      return resolveToolbarMenuPlacement({
+        containerHeight: metrics.containerHeight || window.innerHeight,
+        containerWidth: metrics.containerWidth || window.innerWidth,
+        gap: TOOLBAR_MENU_GAP,
+        menuHeight:
+          CANVAS_TEXT_SIZE_TIER_OPTIONS.length * CANVAS_TEXT_MENU_ITEM_HEIGHT +
+          CANVAS_TEXT_MENU_PADDING * 2,
+        menuWidth: CANVAS_TEXT_MENU_WIDTHS.size,
+        padding: 8,
+        toolbarRect,
+      });
+    }, [
+      metrics.containerHeight,
+      metrics.containerWidth,
+      metrics.height,
+      metrics.width,
+      openMenu,
+      position.left,
+      position.top,
+      selectedFontOptions,
+    ]);
+    const menuPositionStyle = useMemo(() => {
+      if (!menuPlacement) {
+        return {};
+      }
+
+      return {
+        ...(menuPlacement.align === "right" ? { right: 0 } : { left: 0 }),
+        ...(menuPlacement.side === "top"
+          ? { bottom: `calc(100% + ${TOOLBAR_MENU_GAP}px)` }
+          : { top: `calc(100% + ${TOOLBAR_MENU_GAP}px)` }),
+      } as const;
+    }, [menuPlacement]);
+
+    const menuScrollStyle = useMemo(() => {
+      if (!menuPlacement) {
+        return {};
+      }
+
+      return {
+        maxHeight: `${menuPlacement.maxHeight}px`,
+      } as const;
+    }, [menuPlacement]);
 
     return (
       <div
@@ -112,8 +276,11 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
             active={openMenu === "color"}
             menu={
               openMenu === "color" ? (
-                <div className="absolute left-0 top-[calc(100%+10px)] w-[180px] overflow-hidden rounded-2xl border border-white/10 bg-black/95 shadow-[0_24px_80px_-36px_rgba(0,0,0,0.98)] backdrop-blur-xl">
-                  <div className="p-1">
+                <div
+                  className="absolute w-[180px] overflow-hidden rounded-2xl border border-white/10 bg-black/95 shadow-[0_24px_80px_-36px_rgba(0,0,0,0.98)] backdrop-blur-xl"
+                  style={menuPositionStyle}
+                >
+                  <div className="overflow-y-auto p-1" style={menuScrollStyle}>
                     {CANVAS_TEXT_COLOR_OPTIONS.map((option) => {
                       const selected = option.value === selectedColor.value;
                       return (
@@ -150,16 +317,12 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
             active={openMenu === "font"}
             menu={
               openMenu === "font" ? (
-                <div className="absolute left-0 top-[calc(100%+10px)] min-w-[160px] overflow-hidden rounded-2xl border border-white/10 bg-black/95 shadow-[0_24px_80px_-36px_rgba(0,0,0,0.98)] backdrop-blur-xl">
-                  <div className="p-1">
-                    {[
-                      ...CANVAS_TEXT_FONT_OPTIONS,
-                      ...(CANVAS_TEXT_FONT_OPTIONS.some(
-                        (option) => option.value === selectedFont.value
-                      )
-                        ? []
-                        : [selectedFont]),
-                    ].map((option) => {
+                <div
+                  className="absolute min-w-[160px] overflow-hidden rounded-2xl border border-white/10 bg-black/95 shadow-[0_24px_80px_-36px_rgba(0,0,0,0.98)] backdrop-blur-xl"
+                  style={menuPositionStyle}
+                >
+                  <div className="overflow-y-auto p-1" style={menuScrollStyle}>
+                    {selectedFontOptions.map((option) => {
                       const selected = option.value === selectedFont.value;
                       return (
                         <button
@@ -196,8 +359,11 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
             active={openMenu === "size"}
             menu={
               openMenu === "size" ? (
-                <div className="absolute right-0 top-[calc(100%+10px)] min-w-[160px] overflow-hidden rounded-2xl border border-white/10 bg-black/95 shadow-[0_24px_80px_-36px_rgba(0,0,0,0.98)] backdrop-blur-xl">
-                  <div className="p-1">
+                <div
+                  className="absolute min-w-[160px] overflow-hidden rounded-2xl border border-white/10 bg-black/95 shadow-[0_24px_80px_-36px_rgba(0,0,0,0.98)] backdrop-blur-xl"
+                  style={menuPositionStyle}
+                >
+                  <div className="overflow-y-auto p-1" style={menuScrollStyle}>
                     {CANVAS_TEXT_SIZE_TIER_OPTIONS.map((option) => {
                       const selected = option.value === selectedSizeTier.value;
                       return (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveFloatingOverlayPosition } from "./overlayGeometry";
+import { resolveFloatingOverlayPosition, resolveToolbarMenuPlacement } from "./overlayGeometry";
 
 describe("overlay geometry", () => {
   it("centers the floating overlay above the selection when space allows", () => {
@@ -29,6 +29,42 @@ describe("overlay geometry", () => {
     ).toEqual({
       left: 0,
       top: 64,
+    });
+  });
+
+  it("flips the menu to the left when there is not enough room on the right", () => {
+    expect(
+      resolveToolbarMenuPlacement({
+        containerHeight: 600,
+        containerWidth: 900,
+        gap: 10,
+        menuHeight: 280,
+        menuWidth: 180,
+        padding: 8,
+        toolbarRect: { x: 760, y: 100, width: 196, height: 48 },
+      })
+    ).toEqual({
+      align: "right",
+      maxHeight: 434,
+      side: "bottom",
+    });
+  });
+
+  it("limits menu height and opens upward when the viewport is short", () => {
+    expect(
+      resolveToolbarMenuPlacement({
+        containerHeight: 220,
+        containerWidth: 400,
+        gap: 10,
+        menuHeight: 280,
+        menuWidth: 180,
+        padding: 8,
+        toolbarRect: { x: 120, y: 140, width: 196, height: 48 },
+      })
+    ).toEqual({
+      align: "left",
+      maxHeight: 122,
+      side: "top",
     });
   });
 });
