@@ -271,13 +271,13 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
           event.stopPropagation();
         }}
       >
-        <div className="flex items-center gap-1 rounded-2xl border border-white/10 bg-black/90 p-1.5 shadow-[0_20px_48px_-32px_rgba(0,0,0,0.95)] backdrop-blur-xl">
+        <div className="flex items-center gap-1 rounded-[6px] border border-white/10 bg-black/90 p-1.5 shadow-[0_20px_48px_-32px_rgba(0,0,0,0.95)] backdrop-blur-xl">
           <ToolbarMenuButton
             active={openMenu === "color"}
             menu={
               openMenu === "color" ? (
                 <div
-                  className="absolute w-[180px] overflow-hidden rounded-2xl border border-white/10 bg-black/95 shadow-[0_24px_80px_-36px_rgba(0,0,0,0.98)] backdrop-blur-xl"
+                  className="absolute w-[180px] overflow-hidden rounded-[6px] border border-white/10 bg-black/95 shadow-[0_24px_80px_-36px_rgba(0,0,0,0.98)] backdrop-blur-xl"
                   style={menuPositionStyle}
                 >
                   <div className="overflow-y-auto p-1" style={menuScrollStyle}>
@@ -288,7 +288,7 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
                           key={option.id}
                           type="button"
                           className={cn(
-                            "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-zinc-200 transition hover:bg-white/10",
+                            "flex w-full items-center gap-3 rounded-[6px] px-3 py-2.5 text-left text-sm font-medium text-zinc-200 transition hover:bg-white/10",
                             selected && "bg-amber-200/12 text-zinc-50"
                           )}
                           onClick={() => {
@@ -296,11 +296,11 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
                             setOpenMenu(null);
                           }}
                         >
-                          <span className="flex h-4 w-4 items-center justify-center text-zinc-50">
-                            {selected ? <Check className="h-3.5 w-3.5" /> : null}
-                          </span>
                           <ColorSwatch value={option.value} />
                           <span>{option.label}</span>
+                          <span className="ml-auto flex h-4 w-4 items-center justify-center text-zinc-50">
+                            {selected ? <Check className="h-3.5 w-3.5" /> : null}
+                          </span>
                         </button>
                       );
                     })}
@@ -318,7 +318,7 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
             menu={
               openMenu === "font" ? (
                 <div
-                  className="absolute min-w-[160px] overflow-hidden rounded-2xl border border-white/10 bg-black/95 shadow-[0_24px_80px_-36px_rgba(0,0,0,0.98)] backdrop-blur-xl"
+                  className="absolute min-w-[160px] overflow-hidden rounded-[6px] border border-white/10 bg-black/95 shadow-[0_24px_80px_-36px_rgba(0,0,0,0.98)] backdrop-blur-xl"
                   style={menuPositionStyle}
                 >
                   <div className="overflow-y-auto p-1" style={menuScrollStyle}>
@@ -329,7 +329,7 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
                           key={option.value}
                           type="button"
                           className={cn(
-                            "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-zinc-200 transition hover:bg-white/10",
+                            "flex w-full items-center gap-3 rounded-[6px] px-3 py-2.5 text-left text-sm font-medium text-zinc-200 transition hover:bg-white/10",
                             selected && "bg-amber-200/12 text-zinc-50"
                           )}
                           onClick={() => {
@@ -337,10 +337,10 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
                             setOpenMenu(null);
                           }}
                         >
-                          <span className="flex h-4 w-4 items-center justify-center text-zinc-50">
+                          <span style={{ fontFamily: option.value }}>{option.label}</span>
+                          <span className="ml-auto flex h-4 w-4 items-center justify-center text-zinc-50">
                             {selected ? <Check className="h-3.5 w-3.5" /> : null}
                           </span>
-                          <span style={{ fontFamily: option.value }}>{option.label}</span>
                         </button>
                       );
                     })}
@@ -360,7 +360,7 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
             menu={
               openMenu === "size" ? (
                 <div
-                  className="absolute min-w-[160px] overflow-hidden rounded-2xl border border-white/10 bg-black/95 shadow-[0_24px_80px_-36px_rgba(0,0,0,0.98)] backdrop-blur-xl"
+                  className="absolute min-w-[160px] overflow-hidden rounded-[6px] border border-white/10 bg-black/95 shadow-[0_24px_80px_-36px_rgba(0,0,0,0.98)] backdrop-blur-xl"
                   style={menuPositionStyle}
                 >
                   <div className="overflow-y-auto p-1" style={menuScrollStyle}>
@@ -371,7 +371,7 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
                           key={option.value}
                           type="button"
                           className={cn(
-                            "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-zinc-200 transition hover:bg-white/10",
+                            "flex w-full items-center gap-3 rounded-[6px] px-3 py-2.5 text-left text-sm font-medium text-zinc-200 transition hover:bg-white/10",
                             selected && "bg-amber-200/12 text-zinc-50"
                           )}
                           onClick={() => {
@@ -379,10 +379,10 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
                             setOpenMenu(null);
                           }}
                         >
-                          <span className="flex h-4 w-4 items-center justify-center text-zinc-50">
+                          <span>{option.label}</span>
+                          <span className="ml-auto flex h-4 w-4 items-center justify-center text-zinc-50">
                             {selected ? <Check className="h-3.5 w-3.5" /> : null}
                           </span>
-                          <span>{option.label}</span>
                         </button>
                       );
                     })}
@@ -415,7 +415,7 @@ function ToolbarMenuButton({ active, children, menu, onToggle }: ToolbarMenuButt
       <button
         type="button"
         className={cn(
-          "flex h-9 min-w-9 items-center justify-center gap-1 rounded-xl px-2 text-zinc-100 transition hover:bg-white/10",
+          "flex h-9 min-w-9 items-center justify-center gap-1 rounded-[6px] px-2 text-zinc-100 transition hover:bg-white/10",
           active && "bg-white/10"
         )}
         onClick={onToggle}
