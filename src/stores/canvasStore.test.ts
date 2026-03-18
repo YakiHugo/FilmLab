@@ -3,11 +3,12 @@ import { createDefaultAdjustments } from "@/lib/adjustments";
 import type { CanvasDocument } from "@/types";
 import { useCanvasStore } from "./canvasStore";
 
+const loadCanvasDocumentsMock = vi.fn();
 const saveCanvasDocumentMock = vi.fn();
 
 vi.mock("@/lib/db", () => ({
   deleteCanvasDocument: vi.fn(),
-  loadCanvasDocuments: vi.fn(async () => []),
+  loadCanvasDocuments: (...args: unknown[]) => loadCanvasDocumentsMock(...args),
   saveCanvasDocument: (...args: unknown[]) => saveCanvasDocumentMock(...args),
 }));
 
@@ -69,15 +70,44 @@ const createDocument = (): CanvasDocument => ({
   updatedAt: "2026-03-17T00:00:00.000Z",
 });
 
+const createLegacyShapeDocument = () =>
+  ({
+    ...createDocument(),
+    elements: [
+      ...createDocument().elements,
+      {
+        id: "shape-1",
+        type: "shape",
+        shape: "rect",
+        fill: "#ffcc00",
+        stroke: "#000000",
+        strokeWidth: 2,
+        x: 32,
+        y: 48,
+        width: 96,
+        height: 64,
+        rotation: 0,
+        opacity: 1,
+        locked: false,
+        visible: true,
+        zIndex: 3,
+      },
+    ],
+  }) as unknown as CanvasDocument;
+
 describe("canvasStore", () => {
   beforeEach(() => {
+    loadCanvasDocumentsMock.mockReset();
+    loadCanvasDocumentsMock.mockResolvedValue([]);
     saveCanvasDocumentMock.mockClear();
     saveCanvasDocumentMock.mockResolvedValue(true);
     useCanvasStore.setState({
       activeDocumentId: "doc-1",
       documents: [createDocument()],
       historyByDocumentId: {},
+      activePanel: null,
       selectedElementIds: [],
+      tool: "select",
     });
   });
 
@@ -132,5 +162,56 @@ describe("canvasStore", () => {
     }
     expect(updated.content).toBe("Updated copy");
     expect(saveCanvasDocumentMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("filters legacy shape elements during init and persists the cleaned document", async () => {
+    loadCanvasDocumentsMock.mockResolvedValue([createLegacyShapeDocument()]);
+
+    await useCanvasStore.getState().init();
+
+    const documents = useCanvasStore.getState().documents;
+    expect(documents).toHaveLength(1);
+    expect(documents[0]?.elements).toHaveLength(2);
+    expect(documents[0]?.elements.map((element) => element.type)).toEqual(["image", "text"]);
+    expect(saveCanvasDocumentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "doc-1",
+        elements: expect.arrayContaining([
+          expect.objectContaining({ id: "image-1", type: "image" }),
+          expect.objectContaining({ id: "text-1", type: "text" }),
+        ]),
+      })
+    );
+  });
+
+  it("keeps the left rail exclusive between text mode and panels", () => {
+    useCanvasStore.setState({
+      activePanel: "library",
+      tool: "select",
+    });
+
+    useCanvasStore.getState().setTool("text");
+    expect(useCanvasStore.getState().tool).toBe("text");
+    expect(useCanvasStore.getState().activePanel).toBeNull();
+
+    useCanvasStore.getState().setActivePanel("edit");
+    expect(useCanvasStore.getState().tool).toBe("select");
+    expect(useCanvasStore.getState().activePanel).toBe("edit");
+
+    useCanvasStore.getState().togglePanel("edit");
+    expect(useCanvasStore.getState().tool).toBe("select");
+    expect(useCanvasStore.getState().activePanel).toBeNull();
+  });
+
+  it("returns to select when a floating panel is closed through setActivePanel(null)", () => {
+    useCanvasStore.setState({
+      activePanel: "edit",
+      tool: "hand",
+    });
+
+    useCanvasStore.getState().setActivePanel(null);
+
+    expect(useCanvasStore.getState().activePanel).toBeNull();
+    expect(useCanvasStore.getState().tool).toBe("select");
   });
 });

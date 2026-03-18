@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { Asset, CanvasImageElement } from "@/types";
 import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { snapPoint } from "../grid";
 
 const INITIAL_CANVAS_IMAGE_LONG_EDGE = 320;
 
@@ -126,12 +127,16 @@ export function useCanvasEngine() {
     const index = activeDocument.elements.length + 1;
     const asset = assets.find((candidate) => candidate.id === assetId);
     const initialSize = await resolveCanvasImageInsertionSize(asset);
+    const initialPosition = snapPoint({
+      x: 120 + index * 18,
+      y: 100 + index * 18,
+    });
     const element: CanvasImageElement = {
       id: createElementId(),
       type: "image",
       assetId,
-      x: 120 + index * 18,
-      y: 100 + index * 18,
+      x: initialPosition.x,
+      y: initialPosition.y,
       width: initialSize.width,
       height: initialSize.height,
       rotation: 0,

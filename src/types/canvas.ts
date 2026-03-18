@@ -1,6 +1,6 @@
 import type { EditingAdjustments } from "./index";
 
-export type CanvasElementType = "image" | "text" | "shape";
+export type CanvasElementType = "image" | "text";
 export type CanvasPresetId = "social-square" | "social-portrait" | "social-story" | "social-landscape" | "custom";
 
 export interface CanvasSlice {
@@ -56,15 +56,7 @@ export interface CanvasTextElement extends CanvasElementBase {
   textAlign: "left" | "center" | "right";
 }
 
-export interface CanvasShapeElement extends CanvasElementBase {
-  type: "shape";
-  shape: "rect" | "circle" | "line";
-  fill: string;
-  stroke?: string;
-  strokeWidth?: number;
-}
-
-export type CanvasElement = CanvasImageElement | CanvasTextElement | CanvasShapeElement;
+export type CanvasElement = CanvasImageElement | CanvasTextElement;
 
 export interface CanvasDocument {
   id: string;

@@ -1,29 +1,23 @@
 import type Konva from "konva";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Crosshair, Hand, Minus, MousePointer2, Plus } from "lucide-react";
-import { Circle, Layer, Line, Rect, Stage, Text as KonvaText, Transformer } from "react-konva";
-import type { CanvasElement, CanvasShapeElement, CanvasTextElement } from "@/types";
+import { Layer, Line, Rect, Stage, Text as KonvaText, Transformer } from "react-konva";
+import type { CanvasElement, CanvasTextElement } from "@/types";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { ImageElement } from "./elements/ImageElement";
-import { ShapeElement } from "./elements/ShapeElement";
+import { GRID_SIZE, snapPoint, snapRect } from "./grid";
 import { TextElement } from "./elements/TextElement";
 import { registerCanvasStage } from "./hooks/canvasStageRegistry";
 import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
 
 interface CanvasViewportProps {
-  stageRef: React.RefObject<Konva.Stage>;
+  stageRef: RefObject<Konva.Stage>;
   selectedSliceId?: string | null;
 }
 
-interface ShapeDraft {
-  startX: number;
-  startY: number;
-  currentX: number;
-  currentY: number;
-}
-
 const BACKGROUND_NODE_ID = "canvas-background";
+const DOT_RADIUS = 0.72;
 const VIEWPORT_INSETS = {
   top: 88,
   right: 32,
@@ -53,6 +47,70 @@ const isInputLikeElement = (target: EventTarget | null) => {
   );
 };
 
+function DotGrid({
+  documentHeight,
+  documentWidth,
+}: {
+  documentHeight: number;
+  documentWidth: number;
+}) {
+  const [dotGridPattern, setDotGridPattern] = useState<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = GRID_SIZE;
+    canvas.height = GRID_SIZE;
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return;
+    }
+
+    context.clearRect(0, 0, GRID_SIZE, GRID_SIZE);
+    context.fillStyle = "rgba(255,255,255,0.18)";
+    context.beginPath();
+    context.arc(0, 0, DOT_RADIUS, 0, Math.PI * 2, false);
+    context.fill();
+
+    const patternImage = new Image();
+    let isActive = true;
+    patternImage.onload = () => {
+      if (isActive) {
+        setDotGridPattern(patternImage);
+      }
+    };
+    patternImage.src = canvas.toDataURL("image/png");
+
+    return () => {
+      isActive = false;
+      patternImage.onload = null;
+    };
+  }, []);
+
+  if (!dotGridPattern) {
+    return null;
+  }
+
+  return (
+    <Rect
+      listening={false}
+      perfectDrawEnabled={false}
+      x={0}
+      y={0}
+      width={documentWidth}
+      height={documentHeight}
+      fillPatternImage={dotGridPattern}
+      fillPatternRepeat="repeat"
+      fillPatternX={0}
+      fillPatternY={0}
+    />
+  );
+}
+
 export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProps) {
   const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
   const activeDocument = useCanvasStore((state) =>
@@ -64,7 +122,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const upsertElements = useCanvasStore((state) => state.upsertElements);
   const tool = useCanvasStore((state) => state.tool);
   const setTool = useCanvasStore((state) => state.setTool);
-  const shapeType = useCanvasStore((state) => state.shapeType);
   const zoom = useCanvasStore((state) => state.zoom);
   const setZoom = useCanvasStore((state) => state.setZoom);
   const viewport = useCanvasStore((state) => state.viewport);
@@ -73,7 +130,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const transformerRef = useRef<Konva.Transformer>(null);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
-  const [shapeDraft, setShapeDraft] = useState<ShapeDraft | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [editingTextValue, setEditingTextValue] = useState("");
   const panningAnchorRef = useRef<{ x: number; y: number } | null>(null);
@@ -340,13 +396,14 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
           }
 
           if (tool === "text") {
+            const snappedPoint = snapPoint(point);
             const elementId = createElementId();
             const textElement: CanvasTextElement = {
               id: elementId,
               type: "text",
               content: "Double-click to edit",
-              x: point.x,
-              y: point.y,
+              x: snappedPoint.x,
+              y: snappedPoint.y,
               width: 260,
               height: 72,
               rotation: 0,
@@ -363,108 +420,26 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
             selectElement(elementId);
             setEditingTextId(elementId);
             setEditingTextValue(textElement.content);
-            return;
-          }
-
-          if (tool === "shape") {
-            setShapeDraft({
-              startX: point.x,
-              startY: point.y,
-              currentX: point.x,
-              currentY: point.y,
-            });
           }
         }}
         onMouseMove={() => {
           const stage = stageRef.current;
-          if (!stage) {
+          if (!stage || !isPanning || !shouldPan) {
             return;
           }
-          if (isPanning && shouldPan) {
-            const pointer = stage.getPointerPosition();
-            if (!pointer || !panningAnchorRef.current || !viewportAnchorRef.current) {
-              return;
-            }
-            setViewport({
-              x: viewportAnchorRef.current.x + (pointer.x - panningAnchorRef.current.x),
-              y: viewportAnchorRef.current.y + (pointer.y - panningAnchorRef.current.y),
-            });
+          const pointer = stage.getPointerPosition();
+          if (!pointer || !panningAnchorRef.current || !viewportAnchorRef.current) {
             return;
           }
-
-          if (!shapeDraft || tool !== "shape") {
-            return;
-          }
-          const point = toCanvasPoint(stage);
-          if (!point) {
-            return;
-          }
-          setShapeDraft((previous) =>
-            previous
-              ? {
-                  ...previous,
-                  currentX: point.x,
-                  currentY: point.y,
-                }
-              : null
-          );
+          setViewport({
+            x: viewportAnchorRef.current.x + (pointer.x - panningAnchorRef.current.x),
+            y: viewportAnchorRef.current.y + (pointer.y - panningAnchorRef.current.y),
+          });
         }}
         onMouseUp={() => {
           if (isPanning) {
             setIsPanning(false);
           }
-          if (!shapeDraft || tool !== "shape") {
-            return;
-          }
-
-          const dx = shapeDraft.currentX - shapeDraft.startX;
-          const dy = shapeDraft.currentY - shapeDraft.startY;
-          if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
-            setShapeDraft(null);
-            return;
-          }
-
-          const nextElement: CanvasShapeElement =
-            shapeType === "line"
-              ? {
-                  id: createElementId(),
-                  type: "shape",
-                  shape: "line",
-                  x: shapeDraft.startX,
-                  y: shapeDraft.startY,
-                  width: dx,
-                  height: dy,
-                  rotation: 0,
-                  opacity: 1,
-                  locked: false,
-                  visible: true,
-                  zIndex: activeDocument.elements.length + 1,
-                  fill: "#f59e0b",
-                  stroke: "#f59e0b",
-                  strokeWidth: 4,
-                }
-              : {
-                  id: createElementId(),
-                  type: "shape",
-                  shape: shapeType,
-                  x: Math.min(shapeDraft.startX, shapeDraft.currentX),
-                  y: Math.min(shapeDraft.startY, shapeDraft.currentY),
-                  width: Math.max(1, Math.abs(dx)),
-                  height: Math.max(1, Math.abs(dy)),
-                  rotation: 0,
-                  opacity: 1,
-                  locked: false,
-                  visible: true,
-                  zIndex: activeDocument.elements.length + 1,
-                  fill:
-                    shapeType === "rect" ? "rgba(245, 158, 11, 0.2)" : "rgba(245, 158, 11, 0.35)",
-                  stroke: "#f59e0b",
-                  strokeWidth: 2,
-                };
-
-          void upsertElement(activeDocument.id, nextElement);
-          selectElement(nextElement.id);
-          setShapeDraft(null);
         }}
       >
         <Layer>
@@ -477,6 +452,11 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
             fill={activeDocument.backgroundColor}
             onClick={() => clearSelection()}
             onTap={() => clearSelection()}
+          />
+
+          <DotGrid
+            documentWidth={activeDocument.width}
+            documentHeight={activeDocument.height}
           />
 
           {activeDocument.guides.showSafeArea ? (
@@ -537,36 +517,11 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
                     }
                   }}
                   onDragEnd={(x, y) => {
+                    const snappedPosition = snapPoint({ x, y });
                     void upsertElement(activeDocument.id, {
                       ...element,
-                      x,
-                      y,
-                    });
-                  }}
-                />
-              );
-            }
-
-            if (element.type === "text") {
-              return (
-                <TextElement
-                  key={element.id}
-                  element={element}
-                  isSelected={isSelected}
-                  onSelect={(additive) => {
-                    if (!element.locked) {
-                      selectElement(element.id, { additive });
-                    }
-                  }}
-                  onDoubleClick={() => {
-                    setEditingTextId(element.id);
-                    setEditingTextValue(element.content);
-                  }}
-                  onDragEnd={(x, y) => {
-                    void upsertElement(activeDocument.id, {
-                      ...element,
-                      x,
-                      y,
+                      x: snappedPosition.x,
+                      y: snappedPosition.y,
                     });
                   }}
                 />
@@ -574,7 +529,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
             }
 
             return (
-              <ShapeElement
+              <TextElement
                 key={element.id}
                 element={element}
                 isSelected={isSelected}
@@ -583,62 +538,21 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
                     selectElement(element.id, { additive });
                   }
                 }}
+                onDoubleClick={() => {
+                  setEditingTextId(element.id);
+                  setEditingTextValue(element.content);
+                }}
                 onDragEnd={(x, y) => {
+                  const snappedPosition = snapPoint({ x, y });
                   void upsertElement(activeDocument.id, {
                     ...element,
-                    x,
-                    y,
+                    x: snappedPosition.x,
+                    y: snappedPosition.y,
                   });
                 }}
               />
             );
           })}
-
-          {shapeDraft && tool === "shape" && (
-            <>
-              {shapeType === "line" && (
-                <Line
-                  points={[
-                    shapeDraft.startX,
-                    shapeDraft.startY,
-                    shapeDraft.currentX,
-                    shapeDraft.currentY,
-                  ]}
-                  stroke="#f59e0b"
-                  strokeWidth={3}
-                  dash={[8, 6]}
-                />
-              )}
-              {shapeType === "rect" && (
-                <Rect
-                  x={Math.min(shapeDraft.startX, shapeDraft.currentX)}
-                  y={Math.min(shapeDraft.startY, shapeDraft.currentY)}
-                  width={Math.abs(shapeDraft.currentX - shapeDraft.startX)}
-                  height={Math.abs(shapeDraft.currentY - shapeDraft.startY)}
-                  fill="rgba(245, 158, 11, 0.18)"
-                  stroke="#f59e0b"
-                  strokeWidth={2}
-                  dash={[8, 6]}
-                />
-              )}
-              {shapeType === "circle" && (
-                <Circle
-                  x={(shapeDraft.startX + shapeDraft.currentX) / 2}
-                  y={(shapeDraft.startY + shapeDraft.currentY) / 2}
-                  radius={
-                    Math.min(
-                      Math.abs(shapeDraft.currentX - shapeDraft.startX),
-                      Math.abs(shapeDraft.currentY - shapeDraft.startY)
-                    ) / 2
-                  }
-                  fill="rgba(245, 158, 11, 0.22)"
-                  stroke="#f59e0b"
-                  strokeWidth={2}
-                  dash={[8, 6]}
-                />
-              )}
-            </>
-          )}
 
           <Transformer
             ref={transformerRef}
@@ -658,26 +572,20 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
                 if (!element || !node) {
                   continue;
                 }
-                const scaleX = node.scaleX();
-                const scaleY = node.scaleY();
-                const baseWidth = element.width;
-                const baseHeight = element.height;
 
-                const nextWidth =
-                  element.type === "shape" && element.shape === "line"
-                    ? baseWidth * scaleX
-                    : Math.max(1, Math.abs(baseWidth * scaleX));
-                const nextHeight =
-                  element.type === "shape" && element.shape === "line"
-                    ? baseHeight * scaleY
-                    : Math.max(1, Math.abs(baseHeight * scaleY));
+                const snappedRect = snapRect({
+                  x: node.x(),
+                  y: node.y(),
+                  width: Math.max(1, Math.abs(element.width * node.scaleX())),
+                  height: Math.max(1, Math.abs(element.height * node.scaleY())),
+                });
 
                 updates.push({
                   ...element,
-                  x: node.x(),
-                  y: node.y(),
-                  width: nextWidth,
-                  height: nextHeight,
+                  x: snappedRect.x,
+                  y: snappedRect.y,
+                  width: Math.max(GRID_SIZE, snappedRect.width),
+                  height: Math.max(GRID_SIZE, snappedRect.height),
                   rotation: node.rotation(),
                 });
 

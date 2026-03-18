@@ -4,7 +4,6 @@ import type {
   Asset,
   CanvasDocument,
   CanvasImageElement,
-  CanvasShapeElement,
   CanvasSlice,
   CanvasTextElement,
 } from "@/types";
@@ -35,7 +34,7 @@ const ensureCanvasSize = (canvas: HTMLCanvasElement, width: number, height: numb
 
 const withElementTransform = (
   context: CanvasRenderingContext2D,
-  element: Pick<CanvasImageElement | CanvasTextElement | CanvasShapeElement, "opacity" | "rotation" | "x" | "y">,
+  element: Pick<CanvasImageElement | CanvasTextElement, "opacity" | "rotation" | "x" | "y">,
   draw: () => void
 ) => {
   context.save();
@@ -95,54 +94,6 @@ const drawTextElement = (
     lines.forEach((line, index) => {
       context.fillText(line, anchorX, index * lineHeight, element.width);
     });
-  });
-};
-
-const drawShapeElement = (
-  context: CanvasRenderingContext2D,
-  element: CanvasShapeElement
-) => {
-  withElementTransform(context, element, () => {
-    if (element.shape === "rect") {
-      if (element.fill) {
-        context.fillStyle = element.fill;
-        context.fillRect(0, 0, element.width, element.height);
-      }
-      if (element.stroke && element.strokeWidth) {
-        context.strokeStyle = element.stroke;
-        context.lineWidth = element.strokeWidth;
-        context.strokeRect(0, 0, element.width, element.height);
-      }
-      return;
-    }
-
-    if (element.shape === "circle") {
-      context.beginPath();
-      context.arc(
-        element.width / 2,
-        element.height / 2,
-        Math.min(element.width, element.height) / 2,
-        0,
-        Math.PI * 2
-      );
-      if (element.fill) {
-        context.fillStyle = element.fill;
-        context.fill();
-      }
-      if (element.stroke && element.strokeWidth) {
-        context.strokeStyle = element.stroke;
-        context.lineWidth = element.strokeWidth;
-        context.stroke();
-      }
-      return;
-    }
-
-    context.beginPath();
-    context.moveTo(0, 0);
-    context.lineTo(element.width, element.height);
-    context.strokeStyle = element.stroke || element.fill;
-    context.lineWidth = element.strokeWidth || 2;
-    context.stroke();
   });
 };
 
@@ -239,10 +190,7 @@ export const renderCanvasDocumentToCanvas = async ({
 
       if (element.type === "text") {
         drawTextElement(context, element);
-        continue;
       }
-
-      drawShapeElement(context, element);
     }
   } finally {
     context.restore();

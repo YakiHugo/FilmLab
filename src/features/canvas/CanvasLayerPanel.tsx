@@ -51,9 +51,7 @@ export function CanvasLayerPanel() {
           const previewText =
             layer.type === "text"
               ? layer.content
-              : layer.type === "shape"
-                ? `${layer.shape.toUpperCase()} ${Math.round(layer.width)}x${Math.round(layer.height)}`
-                : asset?.name ?? "Image";
+              : asset?.name ?? "Image";
 
           return (
             <div
@@ -148,7 +146,7 @@ export function CanvasLayerPanel() {
         })}
         {layers.length === 0 ? (
           <div className="rounded-[22px] border border-dashed border-white/10 bg-white/[0.02] px-3 py-4 text-sm text-zinc-500">
-            No layers yet. Add an image, text, or shape to start composing the board.
+            No layers yet. Add an image or text layer to start composing the board.
           </div>
         ) : null}
       </div>

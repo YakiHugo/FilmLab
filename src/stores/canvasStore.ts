@@ -3,12 +3,12 @@ import { devtools } from "zustand/middleware";
 import {
   createDefaultCanvasDocumentFields,
   normalizeCanvasDocument,
+  normalizeCanvasDocumentWithCleanup,
 } from "@/features/canvas/studioPresets";
 import { deleteCanvasDocument, loadCanvasDocuments, saveCanvasDocument } from "@/lib/db";
 import type { CanvasDocument, CanvasElement } from "@/types";
 
-export type CanvasTool = "select" | "text" | "shape" | "hand";
-export type CanvasShapeType = "rect" | "circle" | "line";
+export type CanvasTool = "select" | "text" | "hand";
 export type CanvasFloatingPanel = "edit" | "layers" | "library" | "story" | "properties" | "project" | null;
 
 interface CanvasHistoryState {
@@ -21,7 +21,6 @@ interface CanvasState {
   activeDocumentId: string | null;
   selectedElementIds: string[];
   tool: CanvasTool;
-  shapeType: CanvasShapeType;
   zoom: number;
   viewport: { x: number; y: number };
   activePanel: CanvasFloatingPanel;
@@ -32,7 +31,6 @@ interface CanvasState {
   setActiveDocumentId: (id: string | null) => void;
   setSelectedElementIds: (ids: string[]) => void;
   setTool: (tool: CanvasTool) => void;
-  setShapeType: (shapeType: CanvasShapeType) => void;
   setZoom: (zoom: number) => void;
   setViewport: (viewport: { x: number; y: number }) => void;
   setActivePanel: (panel: CanvasFloatingPanel) => void;
@@ -121,14 +119,6 @@ const serializeCanvasElementForSignature = (element: CanvasElement) => {
       textAlign: element.textAlign,
     };
   }
-
-  return {
-    ...base,
-    fill: element.fill,
-    shape: element.shape,
-    stroke: element.stroke ?? null,
-    strokeWidth: element.strokeWidth ?? null,
-  };
 };
 
 const elementsSignature = (elements: CanvasElement[]) =>
@@ -207,7 +197,6 @@ export const useCanvasStore = create<CanvasState>()(
         activeDocumentId: null,
         selectedElementIds: [],
         tool: "select",
-        shapeType: "rect",
         zoom: 1,
         viewport: { x: 0, y: 0 },
         activePanel: null,
@@ -215,8 +204,14 @@ export const useCanvasStore = create<CanvasState>()(
         historyByDocumentId: {},
         init: async () => {
           set({ isLoading: true });
-          const documents = (await loadCanvasDocuments()).map((document) =>
-            normalizeCanvasDocument(document)
+          const normalizedDocuments = (await loadCanvasDocuments()).map((document) =>
+            normalizeCanvasDocumentWithCleanup(document)
+          );
+          const documents = normalizedDocuments.map((entry) => entry.document);
+          await Promise.all(
+            normalizedDocuments
+              .filter((entry) => entry.removedLegacyShapeIds.length > 0)
+              .map((entry) => saveCanvasDocument(entry.document))
           );
           set({
             documents,
@@ -243,12 +238,23 @@ export const useCanvasStore = create<CanvasState>()(
         setActiveDocumentId: (activeDocumentId) => set({ activeDocumentId, selectedElementIds: [] }),
         setSelectedElementIds: (selectedElementIds) =>
           set({ selectedElementIds: Array.from(new Set(selectedElementIds)) }),
-        setTool: (tool) => set({ tool }),
-        setShapeType: (shapeType) => set({ shapeType }),
+        setTool: (tool) =>
+          set((state) => ({
+            tool,
+            activePanel: tool === "text" ? null : state.activePanel,
+          })),
         setZoom: (zoom) => set({ zoom }),
         setViewport: (viewport) => set({ viewport }),
-        setActivePanel: (activePanel) => set({ activePanel }),
-        togglePanel: (panel) => set((state) => ({ activePanel: state.activePanel === panel ? null : panel })),
+        setActivePanel: (activePanel) =>
+          set({
+            activePanel,
+            tool: "select",
+          }),
+        togglePanel: (panel) =>
+          set((state) => ({
+            activePanel: state.activePanel === panel ? null : panel,
+            tool: "select",
+          })),
         upsertDocument: async (document) => {
           const normalized = normalizeCanvasDocument(document);
           await saveCanvasDocument(normalized);

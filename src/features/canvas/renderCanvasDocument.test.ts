@@ -96,23 +96,6 @@ const createCanvasDocument = (): CanvasDocument => ({
       zIndex: 1,
     },
     {
-      id: "shape-1",
-      type: "shape",
-      shape: "rect",
-      fill: "#ffcc00",
-      stroke: "#000000",
-      strokeWidth: 3,
-      x: 40,
-      y: 50,
-      width: 80,
-      height: 60,
-      rotation: 0,
-      opacity: 1,
-      locked: false,
-      visible: true,
-      zIndex: 2,
-    },
-    {
       id: "text-1",
       type: "text",
       content: "Board export",
@@ -128,7 +111,7 @@ const createCanvasDocument = (): CanvasDocument => ({
       opacity: 1,
       locked: false,
       visible: true,
-      zIndex: 3,
+      zIndex: 2,
     },
   ],
   slices: [],
@@ -154,7 +137,7 @@ describe("renderCanvasDocument", () => {
     releaseRenderSlotsMock.mockResolvedValue(undefined);
   });
 
-  it("renders image elements through the editor pipeline and overlays vector elements locally", async () => {
+  it("renders image and text elements without including editor-only overlays", async () => {
     const createdCanvases: Array<ReturnType<typeof createCanvas>> = [];
     vi.stubGlobal("document", {
       createElement: vi.fn(() => {
