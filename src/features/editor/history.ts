@@ -1,3 +1,4 @@
+import { asciiAdjustmentsEqual } from "@/lib/asciiRaster";
 import type {
   Asset,
   AssetUpdate,
@@ -304,6 +305,7 @@ const adjustmentsEqual = (
     (a.opticsCaAmount ?? 0) === (b.opticsCaAmount ?? 0) &&
     a.opticsVignette === b.opticsVignette &&
     (a.opticsVignetteMidpoint ?? 50) === (b.opticsVignetteMidpoint ?? 50) &&
+    asciiAdjustmentsEqual(a.ascii, b.ascii) &&
     localAdjustmentsEqual(a.localAdjustments, b.localAdjustments) &&
     pointCurveEqual(a.pointCurve, b.pointCurve) &&
     hslEqual(a.hsl, b.hsl) &&

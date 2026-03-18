@@ -1,17 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
+import { asciiAdjustmentsEqual } from "@/lib/asciiRaster";
 import { EditorSection } from "@/features/editor/EditorSection";
 import { SliderControl } from "@/features/editor/components/controls/SliderControl";
 import type { NumericAdjustmentKey } from "@/features/editor/types";
 import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useCanvasRuntimeStore } from "@/stores/canvasRuntimeStore";
-import type { EditingAdjustments } from "@/types";
+import type { AsciiAdjustments, EditingAdjustments } from "@/types";
 import type { CanvasImageElement } from "@/types/canvas";
 
 const DEFAULT_ADJUSTMENTS = createDefaultAdjustments();
 
-type CanvasEditSectionId = "light" | "color" | "tones" | "effects";
+type CanvasEditSectionId = "light" | "color" | "tones" | "effects" | "ascii";
 
 interface ProjectSliderDefinition {
   key: NumericAdjustmentKey;
@@ -52,11 +61,37 @@ const EFFECTS_AND_FILTERS_SLIDERS: ProjectSliderDefinition[] = [
   { key: "dilate", label: "Dilate", min: 0, max: 100 },
 ];
 
+const ASCII_CHARSET_OPTIONS: Array<{
+  label: string;
+  value: AsciiAdjustments["charsetPreset"];
+}> = [
+  { label: "Standard", value: "standard" },
+  { label: "Blocks", value: "blocks" },
+  { label: "Detailed", value: "detailed" },
+];
+
+const ASCII_COLOR_MODE_OPTIONS: Array<{
+  label: string;
+  value: AsciiAdjustments["colorMode"];
+}> = [
+  { label: "Grayscale", value: "grayscale" },
+  { label: "Full Color", value: "full-color" },
+];
+
+const ASCII_DITHER_OPTIONS: Array<{
+  label: string;
+  value: AsciiAdjustments["dither"];
+}> = [
+  { label: "None", value: "none" },
+  { label: "Floyd-Steinberg", value: "floyd-steinberg" },
+];
+
 const createInitialOpenSections = (): Record<CanvasEditSectionId, boolean> => ({
   light: true,
   color: true,
   tones: true,
   effects: true,
+  ascii: false,
 });
 
 const renderSliderRows = (
@@ -77,7 +112,9 @@ const renderSliderRows = (
       format={slider.format}
       onChange={(value) => onPreviewAdjustmentValue(slider.key, value)}
       onCommit={(value) => onCommitAdjustmentValue(slider.key, value)}
-      onReset={() => onCommitAdjustmentValue(slider.key, Number(DEFAULT_ADJUSTMENTS[slider.key] ?? 0))}
+      onReset={() =>
+        onCommitAdjustmentValue(slider.key, Number(DEFAULT_ADJUSTMENTS[slider.key] ?? 0))
+      }
     />
   ));
 
@@ -85,11 +122,12 @@ const hasSliderSectionChanges = (
   adjustments: EditingAdjustments,
   sliders: ProjectSliderDefinition[]
 ) =>
-  sliders.some((slider) => Number(adjustments[slider.key] ?? 0) !== Number(DEFAULT_ADJUSTMENTS[slider.key] ?? 0));
+  sliders.some(
+    (slider) =>
+      Number(adjustments[slider.key] ?? 0) !== Number(DEFAULT_ADJUSTMENTS[slider.key] ?? 0)
+  );
 
-const createResetPatch = (
-  sliders: ProjectSliderDefinition[]
-): Partial<EditingAdjustments> =>
+const createResetPatch = (sliders: ProjectSliderDefinition[]): Partial<EditingAdjustments> =>
   sliders.reduce<Partial<EditingAdjustments>>((patch, slider) => {
     patch[slider.key] = DEFAULT_ADJUSTMENTS[slider.key] as EditingAdjustments[typeof slider.key];
     return patch;
@@ -100,8 +138,12 @@ export function ProjectEditPanel() {
   const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
   const selectedElementIds = useCanvasStore((state) => state.selectedElementIds);
   const upsertElement = useCanvasStore((state) => state.upsertElement);
-  const setElementDraftAdjustments = useCanvasRuntimeStore((state) => state.setElementDraftAdjustments);
-  const clearElementDraftAdjustments = useCanvasRuntimeStore((state) => state.clearElementDraftAdjustments);
+  const setElementDraftAdjustments = useCanvasRuntimeStore(
+    (state) => state.setElementDraftAdjustments
+  );
+  const clearElementDraftAdjustments = useCanvasRuntimeStore(
+    (state) => state.clearElementDraftAdjustments
+  );
   const requestBoardPreview = useCanvasRuntimeStore((state) => state.requestBoardPreview);
   const [openSections, setOpenSections] = useState(createInitialOpenSections);
 
@@ -124,7 +166,9 @@ export function ProjectEditPanel() {
   }, [activeDocument, selectedElementIds]);
 
   const asset = useAssetStore((state) =>
-    imageElement ? state.assets.find((candidate) => candidate.id === imageElement.assetId) ?? null : null
+    imageElement
+      ? (state.assets.find((candidate) => candidate.id === imageElement.assetId) ?? null)
+      : null
   );
 
   const draftAdjustments = useCanvasRuntimeStore((state) =>
@@ -229,6 +273,26 @@ export function ProjectEditPanel() {
   const colorHasChanges = hasSliderSectionChanges(adjustments, COLOR_AND_WHITE_BALANCE_SLIDERS);
   const tonesHasChanges = hasSliderSectionChanges(adjustments, HIGHLIGHTS_AND_SHADOWS_SLIDERS);
   const effectsHasChanges = hasSliderSectionChanges(adjustments, EFFECTS_AND_FILTERS_SLIDERS);
+  const asciiAdjustments = adjustments.ascii ?? DEFAULT_ADJUSTMENTS.ascii!;
+  const asciiHasChanges = !asciiAdjustmentsEqual(asciiAdjustments, DEFAULT_ADJUSTMENTS.ascii);
+
+  const updateAsciiAdjustments = useCallback(
+    (partial: Partial<AsciiAdjustments>, mode: "preview" | "commit" = "commit") => {
+      const nextAdjustments = normalizeAdjustments({
+        ...adjustments,
+        ascii: {
+          ...asciiAdjustments,
+          ...partial,
+        },
+      });
+      if (mode === "preview") {
+        previewAdjustments(nextAdjustments);
+        return;
+      }
+      void commitAdjustments(nextAdjustments);
+    },
+    [adjustments, asciiAdjustments, commitAdjustments, previewAdjustments]
+  );
 
   return (
     <div className="flex flex-col gap-3">
@@ -310,6 +374,144 @@ export function ProjectEditPanel() {
               previewAdjustmentValue,
               (key, value) => void commitAdjustmentValue(key, value)
             )}
+          </EditorSection>
+
+          <EditorSection
+            title="ASCII Raster"
+            isOpen={openSections.ascii}
+            onToggle={() => toggleSection("ascii")}
+            hasChanges={asciiHasChanges}
+            canResetChanges={asciiHasChanges}
+            onResetChanges={() =>
+              void commitAdjustments(
+                normalizeAdjustments({
+                  ...adjustments,
+                  ascii: { ...DEFAULT_ADJUSTMENTS.ascii! },
+                })
+              )
+            }
+          >
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={asciiAdjustments.enabled ? "default" : "secondary"}
+                  size="sm"
+                  onClick={() => updateAsciiAdjustments({ enabled: !asciiAdjustments.enabled })}
+                >
+                  {asciiAdjustments.enabled ? "ASCII On" : "ASCII Off"}
+                </Button>
+                <Button
+                  type="button"
+                  variant={asciiAdjustments.invert ? "default" : "secondary"}
+                  size="sm"
+                  disabled={!asciiAdjustments.enabled}
+                  onClick={() => updateAsciiAdjustments({ invert: !asciiAdjustments.invert })}
+                >
+                  Invert
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2">
+                <Select
+                  value={asciiAdjustments.charsetPreset}
+                  onValueChange={(value) =>
+                    updateAsciiAdjustments({
+                      charsetPreset: value as AsciiAdjustments["charsetPreset"],
+                    })
+                  }
+                  disabled={!asciiAdjustments.enabled}
+                >
+                  <SelectTrigger className="h-10 rounded-2xl border-white/10 bg-black/35 text-sm">
+                    <SelectValue placeholder="Character set" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ASCII_CHARSET_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Select
+                  value={asciiAdjustments.colorMode}
+                  onValueChange={(value) =>
+                    updateAsciiAdjustments({
+                      colorMode: value as AsciiAdjustments["colorMode"],
+                    })
+                  }
+                  disabled={!asciiAdjustments.enabled}
+                >
+                  <SelectTrigger className="h-10 rounded-2xl border-white/10 bg-black/35 text-sm">
+                    <SelectValue placeholder="Color mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ASCII_COLOR_MODE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Select
+                  value={asciiAdjustments.dither}
+                  onValueChange={(value) =>
+                    updateAsciiAdjustments({
+                      dither: value as AsciiAdjustments["dither"],
+                    })
+                  }
+                  disabled={!asciiAdjustments.enabled}
+                >
+                  <SelectTrigger className="h-10 rounded-2xl border-white/10 bg-black/35 text-sm">
+                    <SelectValue placeholder="Dither" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ASCII_DITHER_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <SliderControl
+                label="Cell Size"
+                value={asciiAdjustments.cellSize}
+                defaultValue={DEFAULT_ADJUSTMENTS.ascii?.cellSize ?? 12}
+                min={6}
+                max={24}
+                disabled={!asciiAdjustments.enabled}
+                onChange={(value) => updateAsciiAdjustments({ cellSize: value }, "preview")}
+                onCommit={(value) => updateAsciiAdjustments({ cellSize: value })}
+              />
+              <SliderControl
+                label="Character Spacing"
+                value={asciiAdjustments.characterSpacing}
+                defaultValue={DEFAULT_ADJUSTMENTS.ascii?.characterSpacing ?? 1}
+                min={0.7}
+                max={1.6}
+                step={0.05}
+                disabled={!asciiAdjustments.enabled}
+                format={(value) => value.toFixed(2)}
+                onChange={(value) => updateAsciiAdjustments({ characterSpacing: value }, "preview")}
+                onCommit={(value) => updateAsciiAdjustments({ characterSpacing: value })}
+              />
+              <SliderControl
+                label="ASCII Contrast"
+                value={asciiAdjustments.contrast}
+                defaultValue={DEFAULT_ADJUSTMENTS.ascii?.contrast ?? 1}
+                min={0.5}
+                max={2.5}
+                step={0.05}
+                disabled={!asciiAdjustments.enabled}
+                format={(value) => value.toFixed(2)}
+                onChange={(value) => updateAsciiAdjustments({ contrast: value }, "preview")}
+                onCommit={(value) => updateAsciiAdjustments({ contrast: value })}
+              />
+            </div>
           </EditorSection>
         </div>
       </section>
