@@ -102,6 +102,25 @@ const createLegacyShapeDocument = () =>
     ],
   }) as unknown as CanvasDocument;
 
+const createLegacyTextTierDocument = () => {
+  const document = createDocument();
+  const textElement = document.elements[1];
+  if (!textElement || textElement.type !== "text") {
+    throw new Error("Expected text element.");
+  }
+
+  return {
+    ...document,
+    elements: [
+      document.elements[0],
+      {
+        ...textElement,
+        fontSizeTier: undefined,
+      },
+    ],
+  } as unknown as CanvasDocument;
+};
+
 describe("canvasStore", () => {
   beforeEach(() => {
     loadCanvasDocumentsMock.mockReset();
@@ -191,6 +210,33 @@ describe("canvasStore", () => {
         elements: expect.arrayContaining([
           expect.objectContaining({ id: "image-1", type: "image" }),
           expect.objectContaining({ id: "text-1", type: "text" }),
+        ]),
+      })
+    );
+  });
+
+  it("persists legacy text tier normalization during init", async () => {
+    loadCanvasDocumentsMock.mockResolvedValue([createLegacyTextTierDocument()]);
+
+    await useCanvasStore.getState().init();
+
+    const documents = useCanvasStore.getState().documents;
+    expect(documents).toHaveLength(1);
+    expect(documents[0]?.elements[1]).toMatchObject({
+      id: "text-1",
+      type: "text",
+      fontSizeTier: "small",
+    });
+    expect(saveCanvasDocumentMock).toHaveBeenCalledTimes(1);
+    expect(saveCanvasDocumentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "doc-1",
+        elements: expect.arrayContaining([
+          expect.objectContaining({
+            id: "text-1",
+            type: "text",
+            fontSizeTier: "small",
+          }),
         ]),
       })
     );

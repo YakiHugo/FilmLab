@@ -212,13 +212,23 @@ export const useCanvasStore = create<CanvasState>()(
         historyByDocumentId: {},
         init: async () => {
           set({ isLoading: true });
-          const normalizedDocuments = (await loadCanvasDocuments()).map((document) =>
+          const loadedDocuments = await loadCanvasDocuments();
+          const normalizedDocuments = loadedDocuments.map((document) =>
             normalizeCanvasDocumentWithCleanup(document)
           );
           const documents = normalizedDocuments.map((entry) => entry.document);
           await Promise.all(
             normalizedDocuments
-              .filter((entry) => entry.removedLegacyShapeIds.length > 0)
+              .filter((entry, index) => {
+                const original = loadedDocuments[index];
+                if (!original) {
+                  return false;
+                }
+                return (
+                  entry.removedLegacyShapeIds.length > 0 ||
+                  elementsSignature(original.elements) !== elementsSignature(entry.document.elements)
+                );
+              })
               .map((entry) => saveCanvasDocument(entry.document))
           );
           set({
