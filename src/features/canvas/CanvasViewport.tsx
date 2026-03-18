@@ -1,12 +1,18 @@
 import type Konva from "konva";
-import { Fragment, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Crosshair, Hand, Minus, MousePointer2, Plus } from "lucide-react";
 import { Layer, Line, Rect, Stage, Text as KonvaText, Transformer } from "react-konva";
 import type { CanvasElement, CanvasTextElement } from "@/types";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { ImageElement } from "./elements/ImageElement";
-import { GRID_SIZE, snapPoint, snapRect } from "./grid";
+import {
+  getVisibleWorldGridBounds,
+  GRID_SIZE,
+  quantizeDragPosition,
+  snapPoint,
+  snapRect,
+} from "./grid";
 import { TextElement } from "./elements/TextElement";
 import { registerCanvasStage } from "./hooks/canvasStageRegistry";
 import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
@@ -16,8 +22,12 @@ interface CanvasViewportProps {
   selectedSliceId?: string | null;
 }
 
-const BACKGROUND_NODE_ID = "canvas-background";
+const BOARD_SURFACE_NODE_ID = "canvas-background";
+const WORKSPACE_BACKGROUND_NODE_ID = "canvas-workspace-background";
+const WORKSPACE_DOT_GRID_NODE_ID = "canvas-workspace-grid";
 const DOT_RADIUS = 0.72;
+const WORKSPACE_BACKGROUND_FILL = "#2b2b2b";
+const WORKSPACE_DOT_FILL = "rgba(255,255,255,0.16)";
 const VIEWPORT_INSETS = {
   top: 88,
   right: 32,
@@ -48,11 +58,14 @@ const isInputLikeElement = (target: EventTarget | null) => {
 };
 
 function DotGrid({
-  documentHeight,
-  documentWidth,
+  bounds,
 }: {
-  documentHeight: number;
-  documentWidth: number;
+  bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }) {
   const [dotGridPattern, setDotGridPattern] = useState<HTMLImageElement | null>(null);
 
@@ -71,7 +84,7 @@ function DotGrid({
     }
 
     context.clearRect(0, 0, GRID_SIZE, GRID_SIZE);
-    context.fillStyle = "rgba(255,255,255,0.18)";
+    context.fillStyle = WORKSPACE_DOT_FILL;
     context.beginPath();
     context.arc(0, 0, DOT_RADIUS, 0, Math.PI * 2, false);
     context.fill();
@@ -91,18 +104,19 @@ function DotGrid({
     };
   }, []);
 
-  if (!dotGridPattern) {
+  if (!dotGridPattern || bounds.width <= 0 || bounds.height <= 0) {
     return null;
   }
 
   return (
     <Rect
+      id={WORKSPACE_DOT_GRID_NODE_ID}
       listening={false}
       perfectDrawEnabled={false}
-      x={0}
-      y={0}
-      width={documentWidth}
-      height={documentHeight}
+      x={bounds.x}
+      y={bounds.y}
+      width={bounds.width}
+      height={bounds.height}
       fillPatternImage={dotGridPattern}
       fillPatternRepeat="repeat"
       fillPatternX={0}
@@ -127,6 +141,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const viewport = useCanvasStore((state) => state.viewport);
   const setViewport = useCanvasStore((state) => state.setViewport);
   const { selectedElementIds, selectElement, clearSelection } = useCanvasInteraction();
+  const viewportContainerRef = useRef<HTMLDivElement>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
@@ -136,8 +151,8 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const viewportAnchorRef = useRef<{ x: number; y: number } | null>(null);
   const initializedDocumentIdsRef = useRef<Set<string>>(new Set());
   const [stageSize, setStageSize] = useState(() => ({
-    width: typeof window === "undefined" ? 0 : window.innerWidth,
-    height: typeof window === "undefined" ? 0 : window.innerHeight,
+    width: 0,
+    height: 0,
   }));
 
   const elementById = useMemo(
@@ -191,6 +206,16 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     );
   }, [activeDocument, stageSize.height, stageSize.width]);
 
+  const workspaceGridBounds = useMemo(
+    () => getVisibleWorldGridBounds(viewport, zoom, stageSize),
+    [stageSize, viewport, zoom]
+  );
+
+  const dragBoundFunc = useCallback(
+    (position: { x: number; y: number }) => quantizeDragPosition(position),
+    []
+  );
+
   useEffect(() => {
     const transformer = transformerRef.current;
     const stage = stageRef.current;
@@ -213,16 +238,45 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   }, [stageRef, activeDocumentId]);
 
   useEffect(() => {
-    const updateStageSize = () => {
-      setStageSize({
-        width: window.innerWidth,
-        height: window.innerHeight,
-      });
+    const container = viewportContainerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const updateStageSize = (width: number, height: number) => {
+      setStageSize((current) =>
+        current.width === width && current.height === height ? current : { width, height }
+      );
     };
-    updateStageSize();
-    window.addEventListener("resize", updateStageSize);
+
+    const measure = () => {
+      const rect = container.getBoundingClientRect();
+      updateStageSize(Math.round(rect.width), Math.round(rect.height));
+    };
+
+    measure();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => {
+        window.removeEventListener("resize", measure);
+      };
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) {
+        return;
+      }
+      updateStageSize(
+        Math.round(entry.contentRect.width),
+        Math.round(entry.contentRect.height)
+      );
+    });
+    observer.observe(container);
+
     return () => {
-      window.removeEventListener("resize", updateStageSize);
+      observer.disconnect();
     };
   }, []);
 
@@ -332,6 +386,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
   return (
     <div
+      ref={viewportContainerRef}
       className="absolute inset-0"
       style={{ cursor: shouldPan ? (isPanning ? "grabbing" : "grab") : "default" }}
     >
@@ -372,7 +427,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
             return;
           }
           const isBackgroundTarget =
-            event.target === stage || event.target.id() === BACKGROUND_NODE_ID;
+            event.target === stage || event.target.id() === WORKSPACE_BACKGROUND_NODE_ID;
           const point = toCanvasPoint(stage);
 
           if (shouldPan && isBackgroundTarget) {
@@ -444,19 +499,26 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       >
         <Layer>
           <Rect
-            id={BACKGROUND_NODE_ID}
+            id={WORKSPACE_BACKGROUND_NODE_ID}
+            x={workspaceGridBounds.x}
+            y={workspaceGridBounds.y}
+            width={workspaceGridBounds.width}
+            height={workspaceGridBounds.height}
+            fill={WORKSPACE_BACKGROUND_FILL}
+            perfectDrawEnabled={false}
+          />
+
+          <DotGrid bounds={workspaceGridBounds} />
+
+          <Rect
+            id={BOARD_SURFACE_NODE_ID}
             x={0}
             y={0}
             width={activeDocument.width}
             height={activeDocument.height}
             fill={activeDocument.backgroundColor}
-            onClick={() => clearSelection()}
-            onTap={() => clearSelection()}
-          />
-
-          <DotGrid
-            documentWidth={activeDocument.width}
-            documentHeight={activeDocument.height}
+            listening={false}
+            perfectDrawEnabled={false}
           />
 
           {activeDocument.guides.showSafeArea ? (
@@ -511,17 +573,17 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
                   key={element.id}
                   element={element}
                   isSelected={isSelected}
+                  dragBoundFunc={dragBoundFunc}
                   onSelect={(additive) => {
                     if (!element.locked) {
                       selectElement(element.id, { additive });
                     }
                   }}
                   onDragEnd={(x, y) => {
-                    const snappedPosition = snapPoint({ x, y });
                     void upsertElement(activeDocument.id, {
                       ...element,
-                      x: snappedPosition.x,
-                      y: snappedPosition.y,
+                      x,
+                      y,
                     });
                   }}
                 />
@@ -533,6 +595,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
                 key={element.id}
                 element={element}
                 isSelected={isSelected}
+                dragBoundFunc={dragBoundFunc}
                 onSelect={(additive) => {
                   if (!element.locked) {
                     selectElement(element.id, { additive });
@@ -543,11 +606,10 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
                   setEditingTextValue(element.content);
                 }}
                 onDragEnd={(x, y) => {
-                  const snappedPosition = snapPoint({ x, y });
                   void upsertElement(activeDocument.id, {
                     ...element,
-                    x: snappedPosition.x,
-                    y: snappedPosition.y,
+                    x,
+                    y,
                   });
                 }}
               />

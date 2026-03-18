@@ -22,6 +22,8 @@ export interface CanvasSliceExportResult {
 }
 
 const EDITOR_GRID_FILL = "rgba(255,255,255,0.18)";
+const WORKSPACE_BACKGROUND_NODE_ID = "canvas-workspace-background";
+const WORKSPACE_GRID_NODE_ID = "canvas-workspace-grid";
 
 const defaultExportOptions = (stage: Konva.Stage): CanvasExportOptions => ({
   format: "png",
@@ -42,13 +44,16 @@ const hideEditorOverlayNodes = (stage: Konva.Stage) => {
     }
     seenNodes.add(node);
 
-    if (node.id()) {
+    const nodeId = node.id();
+    const hasPatternFill = Boolean(node.getAttr("fillPatternImage"));
+    const hasEditorGridFill = node.getAttr("fill") === EDITOR_GRID_FILL;
+    const isWorkspaceOverlayNode =
+      nodeId === WORKSPACE_BACKGROUND_NODE_ID || nodeId === WORKSPACE_GRID_NODE_ID;
+    if (!isWorkspaceOverlayNode && nodeId) {
       continue;
     }
 
-    const hasPatternFill = Boolean(node.getAttr("fillPatternImage"));
-    const hasEditorGridFill = node.getAttr("fill") === EDITOR_GRID_FILL;
-    if (!hasPatternFill && !hasEditorGridFill) {
+    if (!isWorkspaceOverlayNode && !hasPatternFill && !hasEditorGridFill) {
       continue;
     }
 

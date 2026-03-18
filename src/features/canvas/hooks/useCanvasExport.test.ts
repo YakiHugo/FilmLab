@@ -31,8 +31,14 @@ const createNode = (options: {
 
 describe("exportStageDataUrl", () => {
   it("hides editor grid overlay nodes from the preview snapshot and restores them afterward", () => {
+    const workspaceBackgroundNode = createNode({
+      fill: "#2b2b2b",
+      id: "canvas-workspace-background",
+      visible: true,
+    });
     const gridNode = createNode({
       fillPatternImage: {},
+      id: "canvas-workspace-grid",
       visible: true,
     });
     const backgroundNode = createNode({
@@ -47,7 +53,7 @@ describe("exportStageDataUrl", () => {
     const stage = {
       find: vi.fn((selector: string) => {
         if (selector === "Rect") {
-          return [backgroundNode, gridNode, contentNode];
+          return [workspaceBackgroundNode, backgroundNode, gridNode, contentNode];
         }
         return [];
       }),
@@ -69,6 +75,8 @@ describe("exportStageDataUrl", () => {
     });
 
     expect(result).toBe("data:image/png;base64,preview");
+    expect(workspaceBackgroundNode.visible).toHaveBeenCalledWith(false);
+    expect(workspaceBackgroundNode.visible).toHaveBeenCalledWith(true);
     expect(gridNode.visible).toHaveBeenCalledWith(false);
     expect(gridNode.visible).toHaveBeenCalledWith(true);
     expect(backgroundNode.visible).not.toHaveBeenCalledWith(false);

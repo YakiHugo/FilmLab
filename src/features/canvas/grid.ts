@@ -1,4 +1,5 @@
 export const GRID_SIZE = 16;
+export const GRID_OVERSCAN_SCREEN_PX = 256;
 
 export interface CanvasPoint {
   x: number;
@@ -33,6 +34,10 @@ export function snapPoint(point: CanvasPoint, grid = GRID_SIZE): CanvasPoint {
   };
 }
 
+export function quantizeDragPosition(position: CanvasPoint, grid = GRID_SIZE): CanvasPoint {
+  return snapPoint(position, grid);
+}
+
 export function snapSize(size: CanvasSize, grid = GRID_SIZE): CanvasSize {
   return {
     width: snap(size.width, grid),
@@ -53,28 +58,28 @@ export function getVisibleWorldGridBounds(
   viewport: CanvasPoint,
   zoom: number,
   stageSize: CanvasSize,
-  documentSize: CanvasSize,
+  overscanScreenPx = GRID_OVERSCAN_SCREEN_PX,
   grid = GRID_SIZE
 ): VisibleWorldGridBounds {
-  const safeZoom = zoom || 1;
-  const rawMinX = (0 - viewport.x) / safeZoom;
-  const rawMinY = (0 - viewport.y) / safeZoom;
-  const rawMaxX = (stageSize.width - viewport.x) / safeZoom;
-  const rawMaxY = (stageSize.height - viewport.y) / safeZoom;
-
-  const minX = Math.max(0, rawMinX);
-  const minY = Math.max(0, rawMinY);
-  const maxX = Math.min(documentSize.width, rawMaxX);
-  const maxY = Math.min(documentSize.height, rawMaxY);
+  const safeZoom = zoom > 0 ? zoom : 1;
+  const worldOverscan = overscanScreenPx / safeZoom;
+  const rawMinX = (0 - viewport.x) / safeZoom - worldOverscan;
+  const rawMinY = (0 - viewport.y) / safeZoom - worldOverscan;
+  const rawMaxX = (stageSize.width - viewport.x) / safeZoom + worldOverscan;
+  const rawMaxY = (stageSize.height - viewport.y) / safeZoom + worldOverscan;
+  const startX = alignGridStart(rawMinX, grid);
+  const endX = alignGridEnd(rawMaxX, grid);
+  const startY = alignGridStart(rawMinY, grid);
+  const endY = alignGridEnd(rawMaxY, grid);
 
   return {
-    x: minX,
-    y: minY,
-    width: Math.max(0, maxX - minX),
-    height: Math.max(0, maxY - minY),
-    startX: Math.max(0, alignGridStart(minX, grid) - grid),
-    endX: Math.min(documentSize.width, alignGridEnd(maxX, grid) + grid),
-    startY: Math.max(0, alignGridStart(minY, grid) - grid),
-    endY: Math.min(documentSize.height, alignGridEnd(maxY, grid) + grid),
+    x: startX,
+    y: startY,
+    width: Math.max(0, endX - startX),
+    height: Math.max(0, endY - startY),
+    startX,
+    endX,
+    startY,
+    endY,
   };
 }

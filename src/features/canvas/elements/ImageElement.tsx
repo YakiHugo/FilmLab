@@ -8,6 +8,7 @@ import { useCanvasRuntimeStore } from "@/stores/canvasRuntimeStore";
 interface ImageElementProps {
   element: CanvasImageElement;
   isSelected: boolean;
+  dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
   onSelect: (additive: boolean) => void;
   onDragEnd: (x: number, y: number) => void;
 }
@@ -56,6 +57,7 @@ const useLoadedImage = (src?: string) => {
 export const ImageElement = memo(function ImageElement({
   element,
   isSelected,
+  dragBoundFunc,
   onSelect,
   onDragEnd,
 }: ImageElementProps) {
@@ -120,6 +122,7 @@ export const ImageElement = memo(function ImageElement({
         stroke={isSelected ? "#f59e0b" : "#52525b"}
         strokeWidth={isSelected ? 2 : 1}
         draggable={!element.locked}
+        dragBoundFunc={dragBoundFunc}
         onClick={(event) => onSelect(Boolean(event.evt.shiftKey))}
         onTap={() => onSelect(false)}
         onDragEnd={(event) => onDragEnd(event.target.x(), event.target.y())}
@@ -139,6 +142,7 @@ export const ImageElement = memo(function ImageElement({
       opacity={element.opacity}
       visible={element.visible}
       draggable={!element.locked}
+      dragBoundFunc={dragBoundFunc}
       onClick={(event) => onSelect(Boolean(event.evt.shiftKey))}
       onTap={() => onSelect(false)}
       onDragEnd={(event) => onDragEnd(event.target.x(), event.target.y())}
