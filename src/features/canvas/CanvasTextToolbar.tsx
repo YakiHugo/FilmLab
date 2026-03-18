@@ -262,7 +262,7 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
     return (
       <div
         ref={setRootRef}
-        className="absolute z-20"
+        className="absolute z-30"
         style={{
           left: position.left,
           top: position.top,
