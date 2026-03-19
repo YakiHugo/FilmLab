@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import type { CanvasDocument } from "@/types";
+import { normalizeCanvasDocument } from "@/features/canvas/studioPresets";
 import { useCanvasStore } from "./canvasStore";
 
 const loadCanvasDocumentsMock = vi.fn();
@@ -12,8 +13,10 @@ vi.mock("@/lib/db", () => ({
   saveCanvasDocument: (...args: unknown[]) => saveCanvasDocumentMock(...args),
 }));
 
-const createDocument = (): CanvasDocument => ({
+const createDocument = (): CanvasDocument =>
+  normalizeCanvasDocument({
   id: "doc-1",
+  version: 2,
   name: "Board",
   width: 1200,
   height: 800,
@@ -24,20 +27,28 @@ const createDocument = (): CanvasDocument => ({
       id: "image-1",
       type: "image",
       assetId: "asset-1",
+      parentId: null,
       x: 10,
       y: 20,
       width: 300,
       height: 200,
       rotation: 0,
+      transform: {
+        x: 10,
+        y: 20,
+        width: 300,
+        height: 200,
+        rotation: 0,
+      },
       opacity: 1,
       locked: false,
       visible: true,
-      zIndex: 1,
       adjustments: createDefaultAdjustments(),
     },
     {
       id: "text-1",
       type: "text",
+      parentId: null,
       content: "Hello",
       fontFamily: "Georgia",
       fontSize: 24,
@@ -49,10 +60,16 @@ const createDocument = (): CanvasDocument => ({
       width: 180,
       height: 80,
       rotation: 0,
+      transform: {
+        x: 40,
+        y: 60,
+        width: 180,
+        height: 80,
+        rotation: 0,
+      },
       opacity: 1,
       locked: false,
       visible: true,
-      zIndex: 2,
     },
   ],
   slices: [],
@@ -73,7 +90,12 @@ const createDocument = (): CanvasDocument => ({
 
 const createLegacyShapeDocument = () =>
   ({
-    ...createDocument(),
+    id: "doc-1",
+    name: "Board",
+    width: 1200,
+    height: 800,
+    presetId: "custom",
+    backgroundColor: "#000000",
     elements: [
       {
         ...(createDocument().elements[0] as CanvasDocument["elements"][number]),
@@ -85,21 +107,41 @@ const createLegacyShapeDocument = () =>
       {
         id: "shape-1",
         type: "shape",
-        shape: "rect",
         fill: "#ffcc00",
         stroke: "#000000",
         strokeWidth: 2,
+        parentId: null,
         x: 32,
         y: 48,
         width: 96,
         height: 64,
         rotation: 0,
+        transform: {
+          x: 32,
+          y: 48,
+          width: 96,
+          height: 64,
+          rotation: 0,
+        },
         opacity: 1,
         locked: false,
         visible: true,
-        zIndex: 3,
       },
     ],
+    slices: [],
+    guides: {
+      showCenter: false,
+      showThirds: false,
+      showSafeArea: false,
+    },
+    safeArea: {
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+    },
+    createdAt: "2026-03-17T00:00:00.000Z",
+    updatedAt: "2026-03-17T00:00:00.000Z",
   }) as unknown as CanvasDocument;
 
 const createLegacyTextTierDocument = () => {
@@ -110,7 +152,12 @@ const createLegacyTextTierDocument = () => {
   }
 
   return {
-    ...document,
+    id: "doc-1",
+    name: "Board",
+    width: 1200,
+    height: 800,
+    presetId: "custom",
+    backgroundColor: "#000000",
     elements: [
       document.elements[0],
       {
@@ -118,6 +165,20 @@ const createLegacyTextTierDocument = () => {
         fontSizeTier: undefined,
       },
     ],
+    slices: [],
+    guides: {
+      showCenter: false,
+      showThirds: false,
+      showSafeArea: false,
+    },
+    safeArea: {
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+    },
+    createdAt: "2026-03-17T00:00:00.000Z",
+    updatedAt: "2026-03-17T00:00:00.000Z",
   } as unknown as CanvasDocument;
 };
 
@@ -192,27 +253,32 @@ describe("canvasStore", () => {
     expect(saveCanvasDocumentMock).toHaveBeenCalledTimes(1);
   });
 
-  it("filters legacy shape elements during init and persists the cleaned document", async () => {
+  it("migrates legacy shape elements into v2 nodes during init", async () => {
     loadCanvasDocumentsMock.mockResolvedValue([createLegacyShapeDocument()]);
 
     await useCanvasStore.getState().init();
 
     const documents = useCanvasStore.getState().documents;
     expect(documents).toHaveLength(1);
-    expect(documents[0]?.elements).toHaveLength(2);
-    expect(documents[0]?.elements.map((element) => element.type)).toEqual(["image", "text"]);
-    expect(documents[0]?.elements[1]).toMatchObject({
-      id: "text-1",
-      type: "text",
-      fontSizeTier: "small",
+    expect(documents[0]?.elements).toHaveLength(3);
+    expect(documents[0]?.elements.map((element) => element.type)).toEqual([
+      "image",
+      "text",
+      "shape",
+    ]);
+    expect(documents[0]?.nodes["shape-1"]).toMatchObject({
+      id: "shape-1",
+      type: "shape",
+      shapeType: "rect",
     });
     expect(saveCanvasDocumentMock).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "doc-1",
-        elements: expect.arrayContaining([
-          expect.objectContaining({ id: "image-1", type: "image" }),
-          expect.objectContaining({ id: "text-1", type: "text" }),
-        ]),
+        nodes: expect.objectContaining({
+          "image-1": expect.objectContaining({ id: "image-1", type: "image" }),
+          "shape-1": expect.objectContaining({ id: "shape-1", type: "shape" }),
+          "text-1": expect.objectContaining({ id: "text-1", type: "text" }),
+        }),
       })
     );
   });
@@ -233,13 +299,13 @@ describe("canvasStore", () => {
     expect(saveCanvasDocumentMock).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "doc-1",
-        elements: expect.arrayContaining([
-          expect.objectContaining({
+        nodes: expect.objectContaining({
+          "text-1": expect.objectContaining({
             id: "text-1",
             type: "text",
             fontSizeTier: "small",
           }),
-        ]),
+        }),
       })
     );
   });

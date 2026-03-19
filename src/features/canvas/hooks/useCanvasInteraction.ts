@@ -20,6 +20,8 @@ export function useCanvasInteraction() {
   const duplicateElements = useCanvasStore((state) => state.duplicateElements);
   const deleteElements = useCanvasStore((state) => state.deleteElements);
   const nudgeElements = useCanvasStore((state) => state.nudgeElements);
+  const groupElements = useCanvasStore((state) => state.groupElements);
+  const ungroupElement = useCanvasStore((state) => state.ungroupElement);
   const undo = useCanvasStore((state) => state.undo);
   const redo = useCanvasStore((state) => state.redo);
 
@@ -68,7 +70,7 @@ export function useCanvasInteraction() {
     if (!activeDocument) {
       return;
     }
-    setSelectedElementIds(activeDocument.elements.map((element) => element.id));
+    setSelectedElementIds(activeDocument.allNodes.map((node) => node.id));
   }, [activeDocument, setSelectedElementIds]);
 
   useEffect(() => {
@@ -122,6 +124,20 @@ export function useCanvasInteraction() {
         return;
       }
 
+      if (metaOrCtrl && event.key.toLowerCase() === "g") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          if (selectedElementIds.length === 1) {
+            void ungroupElement(activeDocumentId, selectedElementIds[0]!);
+          }
+          return;
+        }
+        if (selectedElementIds.length > 1) {
+          void groupElements(activeDocumentId, selectedElementIds);
+        }
+        return;
+      }
+
       if (event.key === "Delete" || event.key === "Backspace") {
         if (selectedElementIds.length > 0) {
           event.preventDefault();
@@ -159,10 +175,12 @@ export function useCanvasInteraction() {
     activeDocumentId,
     deleteElements,
     duplicateElements,
+    groupElements,
     nudgeElements,
     redo,
     selectAll,
     selectedElementIds,
+    ungroupElement,
     undo,
   ]);
 

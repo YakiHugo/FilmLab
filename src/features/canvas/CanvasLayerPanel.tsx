@@ -2,14 +2,16 @@ import { Eye, EyeOff, GripVertical, Layers3, Lock, Trash2, Unlock } from "lucide
 import { memo, useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { Asset, CanvasElement } from "@/types";
+import { useCanvasStore } from "@/stores/canvasStore";
+import type { Asset, CanvasRenderableNode } from "@/types";
+import { getCanvasDescendantIds } from "./documentGraph";
 import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
 import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
 import { useCanvasLayers } from "./hooks/useCanvasLayers";
 
 interface LayerRowProps {
   asset: Asset | null;
-  layer: CanvasElement;
+  layer: CanvasRenderableNode;
   onDelete: (layerId: string) => void;
   onDrop: (layerId: string) => void;
   onDragStart: (layerId: string) => void;
@@ -30,7 +32,14 @@ const LayerRow = memo(function LayerRow({
   onToggleVisibility,
   selected,
 }: LayerRowProps) {
-  const previewText = layer.type === "text" ? layer.content : (asset?.name ?? "Image");
+  const previewText =
+    layer.type === "text"
+      ? layer.content
+      : layer.type === "image"
+        ? (asset?.name ?? "Image")
+        : layer.type === "group"
+          ? layer.name
+          : `${layer.shapeType} shape`;
 
   return (
     <div
@@ -48,6 +57,9 @@ const LayerRow = memo(function LayerRow({
           ? "border-amber-300/30 bg-amber-200/10 text-zinc-100"
           : "border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.05]"
       )}
+      style={{
+        paddingLeft: 12 + layer.depth * 18,
+      }}
     >
       <button
         type="button"
@@ -68,7 +80,7 @@ const LayerRow = memo(function LayerRow({
           <div className="flex items-center gap-2">
             <p className="truncate text-sm font-medium text-zinc-100">{previewText}</p>
             <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
-              {layer.type}
+              {layer.type === "shape" ? layer.shapeType : layer.type}
             </span>
           </div>
           <p className="mt-1 truncate text-xs text-zinc-500">
@@ -116,15 +128,20 @@ const LayerRow = memo(function LayerRow({
 
 export function CanvasLayerPanel() {
   const {
+    activeDocument,
     layers,
     assetById,
     activeDocumentId,
+    reparentNodes,
     reorderElements,
     toggleElementVisibility,
     toggleElementLock,
     deleteElements,
   } = useCanvasLayers();
-  const { displaySelectedElementIdSet } = useCanvasSelectionModel();
+  const groupElements = useCanvasStore((state) => state.groupElements);
+  const ungroupElement = useCanvasStore((state) => state.ungroupElement);
+  const { displaySelectedElementIdSet, displaySelectedElementIds, primarySelectedElement } =
+    useCanvasSelectionModel();
   const { selectElement } = useCanvasInteraction();
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
@@ -133,18 +150,54 @@ export function CanvasLayerPanel() {
       if (!activeDocumentId || fromId === toId) {
         return;
       }
-      const ids = layers.map((layer) => layer.id);
-      const fromIndex = ids.indexOf(fromId);
-      const toIndex = ids.indexOf(toId);
+      const fromLayer = layers.find((layer) => layer.id === fromId);
+      const toLayer = layers.find((layer) => layer.id === toId);
+      if (!fromLayer || !toLayer) {
+        return;
+      }
+
+      const targetParentId = toLayer.type === "group" ? toLayer.id : (toLayer.parentId ?? null);
+      if (targetParentId === fromId) {
+        return;
+      }
+      if (
+        fromLayer.type === "group" &&
+        activeDocument &&
+        targetParentId &&
+        getCanvasDescendantIds(activeDocument, fromLayer.id).includes(targetParentId)
+      ) {
+        return;
+      }
+
+      if (fromLayer.parentId !== targetParentId) {
+        const targetSiblingIds = layers
+          .filter((layer) => layer.parentId === targetParentId)
+          .map((layer) => layer.id);
+        const targetIndex =
+          toLayer.type === "group" ? targetSiblingIds.length : targetSiblingIds.indexOf(toLayer.id);
+        void reparentNodes(
+          activeDocumentId,
+          [fromId],
+          targetParentId,
+          targetIndex < 0 ? undefined : targetIndex
+        );
+        return;
+      }
+
+      const siblingIds = layers
+        .filter((layer) => layer.parentId === targetParentId)
+        .map((layer) => layer.id);
+      const fromIndex = siblingIds.indexOf(fromId);
+      const toIndex = siblingIds.indexOf(toId);
       if (fromIndex < 0 || toIndex < 0) {
         return;
       }
-      const ordered = ids.slice();
+      const ordered = siblingIds.slice();
       const [moved] = ordered.splice(fromIndex, 1);
       ordered.splice(toIndex, 0, moved);
-      void reorderElements(activeDocumentId, ordered);
+      void reorderElements(activeDocumentId, ordered.reverse(), targetParentId);
     },
-    [activeDocumentId, layers, reorderElements]
+    [activeDocument, activeDocumentId, layers, reorderElements, reparentNodes]
   );
 
   const handleSelect = useCallback(
@@ -198,6 +251,20 @@ export function CanvasLayerPanel() {
     [draggingId, reorder]
   );
 
+  const handleGroup = useCallback(() => {
+    if (!activeDocumentId || displaySelectedElementIds.length < 2) {
+      return;
+    }
+    void groupElements(activeDocumentId, displaySelectedElementIds);
+  }, [activeDocumentId, displaySelectedElementIds, groupElements]);
+
+  const handleUngroup = useCallback(() => {
+    if (!activeDocumentId || primarySelectedElement?.type !== "group") {
+      return;
+    }
+    void ungroupElement(activeDocumentId, primarySelectedElement.id);
+  }, [activeDocumentId, primarySelectedElement, ungroupElement]);
+
   return (
     <div className="flex min-h-0 flex-col p-4">
       <div className="flex items-start justify-between gap-3">
@@ -205,8 +272,30 @@ export function CanvasLayerPanel() {
           <p className="text-[11px] uppercase tracking-[0.28em] text-zinc-500">Layer Stack</p>
           <h3 className="mt-1 font-['Syne'] text-xl text-zinc-100">Arrange the board with intent.</h3>
         </div>
-        <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
-          <Layers3 className="h-4 w-4 text-zinc-400" />
+        <div className="flex items-center gap-2">
+          {displaySelectedElementIds.length > 1 ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-9 rounded-2xl border border-white/10 bg-white/[0.06] px-3 text-xs"
+              onClick={handleGroup}
+            >
+              Group
+            </Button>
+          ) : null}
+          {primarySelectedElement?.type === "group" ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-9 rounded-2xl border border-white/10 bg-white/[0.06] px-3 text-xs"
+              onClick={handleUngroup}
+            >
+              Ungroup
+            </Button>
+          ) : null}
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
+            <Layers3 className="h-4 w-4 text-zinc-400" />
+          </div>
         </div>
       </div>
 

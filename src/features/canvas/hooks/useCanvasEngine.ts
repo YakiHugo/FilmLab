@@ -2,16 +2,10 @@ import { useMemo } from "react";
 import type { Asset, CanvasImageElement } from "@/types";
 import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { createCanvasNodeId } from "../documentGraph";
 import { snapPoint } from "../grid";
 
 const INITIAL_CANVAS_IMAGE_LONG_EDGE = 320;
-
-const createElementId = () => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `el-${Date.now()}`;
-};
 
 const isPositiveDimension = (value?: number) =>
   typeof value === "number" && Number.isFinite(value) && value > 0;
@@ -124,7 +118,7 @@ export function useCanvasEngine() {
     if (!activeDocument) {
       return;
     }
-    const index = activeDocument.elements.length + 1;
+    const index = activeDocument.rootIds.length + 1;
     const asset = assets.find((candidate) => candidate.id === assetId);
     const initialSize = await resolveCanvasImageInsertionSize(asset);
     const initialPosition = snapPoint({
@@ -132,18 +126,25 @@ export function useCanvasEngine() {
       y: 100 + index * 18,
     });
     const element: CanvasImageElement = {
-      id: createElementId(),
+      id: createCanvasNodeId("canvas-image"),
       type: "image",
+      parentId: null,
       assetId,
       x: initialPosition.x,
       y: initialPosition.y,
       width: initialSize.width,
       height: initialSize.height,
       rotation: 0,
+      transform: {
+        x: initialPosition.x,
+        y: initialPosition.y,
+        width: initialSize.width,
+        height: initialSize.height,
+        rotation: 0,
+      },
       opacity: 1,
       locked: false,
       visible: true,
-      zIndex: index,
     };
     await upsertElement(activeDocument.id, element);
   };

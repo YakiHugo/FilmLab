@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import type { CanvasDocument } from "@/types";
+import { normalizeCanvasDocument } from "./studioPresets";
 import {
   createCanvasSelectionModel,
   hasSelectedImageElement,
@@ -10,8 +11,10 @@ import {
   selectionIdsEqual,
 } from "./selectionModel";
 
-const createDocument = (): CanvasDocument => ({
+const createDocument = (): CanvasDocument =>
+  normalizeCanvasDocument({
   id: "doc-1",
+  version: 2,
   name: "Board",
   width: 1200,
   height: 800,
@@ -22,20 +25,28 @@ const createDocument = (): CanvasDocument => ({
       id: "image-1",
       type: "image",
       assetId: "asset-1",
+      parentId: null,
       x: 10,
       y: 20,
       width: 300,
       height: 200,
       rotation: 0,
+      transform: {
+        x: 10,
+        y: 20,
+        width: 300,
+        height: 200,
+        rotation: 0,
+      },
       opacity: 1,
       locked: false,
       visible: true,
-      zIndex: 1,
       adjustments: createDefaultAdjustments(),
     },
     {
       id: "text-1",
       type: "text",
+      parentId: null,
       content: "Hello",
       fontFamily: "Georgia",
       fontSize: 24,
@@ -47,24 +58,37 @@ const createDocument = (): CanvasDocument => ({
       width: 180,
       height: 80,
       rotation: 0,
+      transform: {
+        x: 40,
+        y: 60,
+        width: 180,
+        height: 80,
+        rotation: 0,
+      },
       opacity: 1,
       locked: false,
       visible: true,
-      zIndex: 2,
     },
     {
       id: "image-2",
       type: "image",
       assetId: "asset-2",
+      parentId: null,
       x: 80,
       y: 100,
       width: 360,
       height: 220,
       rotation: 0,
+      transform: {
+        x: 80,
+        y: 100,
+        width: 360,
+        height: 220,
+        rotation: 0,
+      },
       opacity: 1,
       locked: false,
       visible: true,
-      zIndex: 3,
       adjustments: createDefaultAdjustments(),
     },
   ],

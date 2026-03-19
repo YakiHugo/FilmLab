@@ -1,9 +1,17 @@
-import { Frame, Images, Layers3, SlidersHorizontal, Type } from "lucide-react";
+import { ArrowRight, Circle, Frame, Images, Layers3, Slash, SlidersHorizontal, Square, Type } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvasStore";
 
 const toolButtons = [
   { tool: "text" as const, icon: Type, label: "Text" },
+  { tool: "shape" as const, icon: Square, label: "Shape" },
+] as const;
+
+const shapeButtons = [
+  { shapeType: "rect" as const, icon: Square, label: "Rectangle" },
+  { shapeType: "ellipse" as const, icon: Circle, label: "Ellipse" },
+  { shapeType: "line" as const, icon: Slash, label: "Line" },
+  { shapeType: "arrow" as const, icon: ArrowRight, label: "Arrow" },
 ] as const;
 
 const panelButtons = [
@@ -16,6 +24,8 @@ const panelButtons = [
 export function CanvasToolRail() {
   const tool = useCanvasStore((s) => s.tool);
   const setTool = useCanvasStore((s) => s.setTool);
+  const activeShapeType = useCanvasStore((s) => s.activeShapeType);
+  const setActiveShapeType = useCanvasStore((s) => s.setActiveShapeType);
   const activePanel = useCanvasStore((s) => s.activePanel);
   const togglePanel = useCanvasStore((s) => s.togglePanel);
 
@@ -44,6 +54,35 @@ export function CanvasToolRail() {
             </div>
           );
         })}
+
+        {tool === "shape" ? (
+          <div className="mt-1 flex flex-col items-center gap-0.5">
+            {shapeButtons.map((btn) => {
+              const Icon = btn.icon;
+              const active = activeShapeType === btn.shapeType;
+              return (
+                <button
+                  key={btn.shapeType}
+                  type="button"
+                  onClick={() => {
+                    setActiveShapeType(btn.shapeType);
+                    setTool("shape");
+                  }}
+                  className={cn(
+                    "flex h-8 w-8 items-center justify-center rounded-lg transition",
+                    active
+                      ? "bg-amber-200 text-zinc-950"
+                      : "text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
+                  )}
+                  aria-label={btn.label}
+                  title={btn.label}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
 
         <div className="mx-2 my-1 h-px w-6 bg-white/10" />
 

@@ -110,7 +110,7 @@ export function CanvasPropertiesPanel() {
         <div className="mt-4 rounded-[24px] border border-dashed border-white/10 bg-white/[0.02] p-4">
           <p className="text-sm font-medium text-zinc-100">Nothing selected yet.</p>
           <p className="mt-2 text-sm leading-6 text-zinc-500">
-            Click any image or text layer on the board to edit its transform and style here.
+            Click any image, text, shape, or group layer on the board to edit it here.
           </p>
           {activeDocument ? (
             <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-zinc-300">
@@ -138,7 +138,11 @@ export function CanvasPropertiesPanel() {
                 <p className="mt-1 text-sm font-medium text-zinc-100">
                   {selected.type === "image"
                     ? (selectedAsset?.name ?? "Image layer")
-                    : "Text layer"}
+                    : selected.type === "text"
+                      ? "Text layer"
+                      : selected.type === "shape"
+                        ? `${selected.shapeType} shape`
+                        : (selected.name || "Group")}
                 </p>
               </div>
               <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.24em] text-zinc-400">
@@ -286,6 +290,41 @@ export function CanvasPropertiesPanel() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+          ) : null}
+
+          {selected.type === "shape" ? (
+            <div className="space-y-3 rounded-[24px] border border-white/10 bg-black/25 p-4">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Shape</p>
+              <label className="space-y-1.5">
+                <span className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">Fill</span>
+                <Input
+                  type="text"
+                  value={selected.fill}
+                  onChange={(event) => update({ fill: event.target.value } as Partial<CanvasElement>)}
+                  className="h-10 rounded-2xl border-white/10 bg-black/35 px-3 text-sm"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">Stroke</span>
+                <Input
+                  type="text"
+                  value={selected.stroke}
+                  onChange={(event) =>
+                    update({ stroke: event.target.value } as Partial<CanvasElement>)
+                  }
+                  className="h-10 rounded-2xl border-white/10 bg-black/35 px-3 text-sm"
+                />
+              </label>
+              <NumberInput
+                label="Stroke Width"
+                value={selected.strokeWidth}
+                min={0}
+                step={0.5}
+                onChange={(value) =>
+                  update({ strokeWidth: Math.max(0, value) } as Partial<CanvasElement>)
+                }
+              />
             </div>
           ) : null}
         </div>

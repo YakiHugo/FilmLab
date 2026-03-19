@@ -2191,21 +2191,30 @@ export function useImageGeneration() {
 
       const { width, height } = resolveCanvasImageSize(asset);
       const document = canvas.documents.find((item) => item.id === documentId);
-      const zIndex = (document?.elements.length ?? 0) + 1;
+      const insertionIndex = (document?.rootIds.length ?? 0) + 1;
+      const x = 140 + insertionIndex * 24;
+      const y = 120 + insertionIndex * 24;
 
       const element: CanvasImageElement = {
         id: createElementId(),
         type: "image",
+        parentId: null,
         assetId: finalAssetId,
-        x: 140 + zIndex * 24,
-        y: 120 + zIndex * 24,
+        x,
+        y,
         width,
         height,
         rotation: 0,
+        transform: {
+          x,
+          y,
+          width,
+          height,
+          rotation: 0,
+        },
         opacity: 1,
         locked: false,
         visible: true,
-        zIndex,
       };
 
       await canvas.upsertElement(documentId, element);

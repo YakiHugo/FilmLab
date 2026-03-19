@@ -13,13 +13,20 @@ import {
 import { unstable_batchedUpdates } from "react-dom";
 import { Crosshair, Hand, Minus, MousePointer2, Plus } from "lucide-react";
 import { Layer, Line, Rect, Stage, Text as KonvaText } from "react-konva";
-import type { CanvasElement, CanvasTextElement } from "@/types";
+import type {
+  CanvasRenderableElement,
+  CanvasRenderableNode,
+  CanvasRenderableTextElement,
+  CanvasShapeElement,
+  CanvasTextElement,
+} from "@/types";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useCanvasRuntimeStore } from "@/stores/canvasRuntimeStore";
 import { CanvasTextToolbar } from "./CanvasTextToolbar";
 import { ImageElement } from "./elements/ImageElement";
-import { getVisibleWorldGridBounds, GRID_SIZE, quantizeDragPosition, snapPoint } from "./grid";
+import { ShapeElement } from "./elements/ShapeElement";
+import { getVisibleWorldGridBounds, GRID_SIZE, quantizeDragPosition } from "./grid";
 import type { CanvasOverlayRect } from "./overlayGeometry";
 import { resolveFloatingOverlayPosition } from "./overlayGeometry";
 import {
@@ -35,10 +42,6 @@ import {
 import {
   applyCanvasTextFontSizeTier,
   CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER,
-  DEFAULT_CANVAS_TEXT_COLOR,
-  DEFAULT_CANVAS_TEXT_FONT_FAMILY,
-  DEFAULT_CANVAS_TEXT_FONT_SIZE,
-  DEFAULT_CANVAS_TEXT_FONT_SIZE_TIER,
   fitCanvasTextElementToContent,
 } from "./textStyle";
 import { createTextMutationQueue } from "./textMutationQueue";
@@ -47,6 +50,7 @@ import { registerCanvasStage } from "./hooks/canvasStageRegistry";
 import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
 import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
 import { selectionIdsEqual } from "./selectionModel";
+import { resolveCanvasToolController } from "./tools/toolControllers";
 
 interface CanvasViewportProps {
   stageRef: RefObject<Konva.Stage>;
@@ -81,13 +85,6 @@ const CANVAS_SELECTION_ACCENT = "#f59e0b";
 const CANVAS_SELECTION_ACCENT_FILL = "rgba(245,158,11,0.12)";
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-
-const createElementId = () => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `canvas-el-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-};
 
 const isInputLikeElement = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
@@ -147,7 +144,7 @@ const selectionOverlayEqual = (
 };
 
 const getDraftTextOverlayRect = (
-  element: CanvasTextElement,
+  element: CanvasTextElement | CanvasRenderableTextElement,
   viewport: { x: number; y: number },
   zoom: number
 ): CanvasOverlayRect => {
@@ -221,7 +218,7 @@ const getTextEditorLayout = ({
   viewport,
   zoom,
 }: {
-  element: CanvasTextElement;
+  element: CanvasTextElement | CanvasRenderableTextElement;
   transform: string | null;
   viewport: { x: number; y: number };
   zoom: number;
@@ -321,7 +318,7 @@ interface CanvasElementsLayerProps {
   dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
   editingTextDraft: CanvasTextElement | null;
   editingTextId: string | null;
-  elements: CanvasElement[];
+  elements: CanvasRenderableElement[];
   interactivePreviewElementId: string | null;
   onElementDragEnd: (elementId: string, x: number, y: number) => void;
   onElementSelect: (elementId: string, additive: boolean) => void;
@@ -341,18 +338,13 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
   return (
     <>
       {elements.map((element) => {
-        const liveTextElement =
-          element.type === "text" && editingTextDraft?.id === element.id
-            ? editingTextDraft
-            : element;
-
-        if (liveTextElement.type === "image") {
+        if (element.type === "image") {
           return (
             <ImageElement
-              key={liveTextElement.id}
-              element={liveTextElement}
+              key={element.id}
+              element={element}
               previewPriority={
-                liveTextElement.id === interactivePreviewElementId ? "interactive" : "background"
+                element.id === interactivePreviewElementId ? "interactive" : "background"
               }
               dragBoundFunc={dragBoundFunc}
               onSelect={onElementSelect}
@@ -361,6 +353,19 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
           );
         }
 
+        if (element.type === "shape") {
+          return (
+            <ShapeElement
+              key={element.id}
+              element={element}
+              dragBoundFunc={dragBoundFunc}
+              onSelect={onElementSelect}
+              onDragEnd={onElementDragEnd}
+            />
+          );
+        }
+
+        const liveTextElement = editingTextDraft?.id === element.id ? editingTextDraft : element;
         return (
           <TextElement
             key={liveTextElement.id}
@@ -378,7 +383,7 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
 });
 
 interface CanvasSelectionOutlineLayerProps {
-  selectedElements: CanvasElement[];
+  selectedElements: Array<CanvasRenderableNode | CanvasTextElement>;
 }
 
 const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
@@ -388,7 +393,18 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
     <>
       {selectedElements.map((element) => {
         const outlineElement =
-          element.type === "text" ? fitCanvasTextElementToContent(element) : element;
+          element.type === "group"
+            ? {
+                id: element.id,
+                rotation: 0,
+                x: element.bounds.x,
+                y: element.bounds.y,
+                width: element.bounds.width,
+                height: element.bounds.height,
+              }
+            : element.type === "text"
+              ? fitCanvasTextElementToContent(element)
+              : element;
 
         return (
           <Rect
@@ -419,6 +435,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const deleteElements = useCanvasStore((state) => state.deleteElements);
   const upsertElement = useCanvasStore((state) => state.upsertElement);
   const tool = useCanvasStore((state) => state.tool);
+  const activeShapeType = useCanvasStore((state) => state.activeShapeType);
   const setTool = useCanvasStore((state) => state.setTool);
   const zoom = useCanvasStore((state) => state.zoom);
   const setZoom = useCanvasStore((state) => state.setZoom);
@@ -472,8 +489,8 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   }));
 
   const elementById = useMemo(
-    () => new Map((activeDocument?.elements ?? []).map((element) => [element.id, element])),
-    [activeDocument?.elements]
+    () => new Map((activeDocument?.allNodes ?? []).map((element) => [element.id, element])),
+    [activeDocument?.allNodes]
   );
   const elementByIdRef = useRef(elementById);
   const interactivePreviewElementId = useMemo(
@@ -492,7 +509,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
             ? editingTextDraft
             : element;
         })
-        .filter((element): element is CanvasElement => Boolean(element)),
+        .filter((element): element is CanvasRenderableNode | CanvasTextElement => Boolean(element)),
     [displaySelectedElementIds, editingTextDraft, elementById]
   );
 
@@ -777,6 +794,215 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     });
   }, [resolveMarqueeStateSelectionIds, setSelectionPreviewElementIds]);
 
+  const beginPanInteraction = useCallback(
+    (screenPoint: CanvasSelectionPoint) => {
+      setIsPanning(true);
+      panningAnchorRef.current = screenPoint;
+      viewportAnchorRef.current = viewport;
+    },
+    [viewport]
+  );
+
+  const updatePanInteraction = useCallback(
+    (screenPoint: CanvasSelectionPoint) => {
+      if (!isPanning || !panningAnchorRef.current || !viewportAnchorRef.current) {
+        return;
+      }
+
+      setViewport({
+        x: viewportAnchorRef.current.x + (screenPoint.x - panningAnchorRef.current.x),
+        y: viewportAnchorRef.current.y + (screenPoint.y - panningAnchorRef.current.y),
+      });
+    },
+    [isPanning, setViewport]
+  );
+
+  const endPanInteraction = useCallback(() => {
+    if (isPanning) {
+      setIsPanning(false);
+    }
+    panningAnchorRef.current = null;
+    viewportAnchorRef.current = null;
+  }, [isPanning]);
+
+  const beginMarqueeInteraction = useCallback(
+    ({
+      additive,
+      canvasPoint,
+      screenPoint,
+    }: {
+      additive: boolean;
+      canvasPoint: CanvasSelectionPoint;
+      screenPoint: CanvasSelectionPoint;
+    }) => {
+      const baseSelectedIds = additive ? selectedElementIdsRef.current : [];
+      const nextSelection: MarqueeSelectionState = {
+        additive,
+        baseSelectedIds,
+        currentCanvas: canvasPoint,
+        currentScreen: screenPoint,
+        hasActivated: false,
+        startCanvas: canvasPoint,
+        startScreen: screenPoint,
+      };
+      cancelQueuedMarqueeSelection();
+      marqueeSelectionRef.current = nextSelection;
+      marqueeSelectionTargetsRef.current = [];
+      unstable_batchedUpdates(() => {
+        clearSelectionPreview();
+        setMarqueeRenderState((current) => {
+          const nextRenderState: MarqueeSelectionRenderState = {
+            hasSession: true,
+            isDragging: false,
+            rect: null,
+          };
+          return marqueeRenderStateEqual(current, nextRenderState) ? current : nextRenderState;
+        });
+      });
+    },
+    [cancelQueuedMarqueeSelection, clearSelectionPreview]
+  );
+
+  const updateMarqueeInteraction = useCallback(
+    ({
+      canvasPoint,
+      screenPoint,
+    }: {
+      canvasPoint: CanvasSelectionPoint;
+      screenPoint: CanvasSelectionPoint;
+    }) => {
+      const currentSelection = marqueeSelectionRef.current;
+      if (!currentSelection) {
+        return;
+      }
+
+      const nextSelectionDraft: MarqueeSelectionState = {
+        ...currentSelection,
+        currentCanvas: canvasPoint,
+        currentScreen: screenPoint,
+      };
+      const nextSelection: MarqueeSelectionState = {
+        ...nextSelectionDraft,
+        hasActivated:
+          currentSelection.hasActivated || isDraggingMarqueeSelection(nextSelectionDraft),
+      };
+      marqueeSelectionRef.current = nextSelection;
+      if (!nextSelection.hasActivated) {
+        return;
+      }
+
+      queueMarqueeRenderState();
+      if (marqueeSelectionTargetsRef.current.length === 0) {
+        marqueeSelectionTargetsRef.current = buildMarqueeSelectionTargets();
+      }
+    },
+    [buildMarqueeSelectionTargets, isDraggingMarqueeSelection, queueMarqueeRenderState]
+  );
+
+  const commitMarqueeInteraction = useCallback(
+    ({
+      canvasPoint,
+      screenPoint,
+    }: {
+      canvasPoint: CanvasSelectionPoint | null;
+      screenPoint: CanvasSelectionPoint | null;
+    }) => {
+      const currentSelection = marqueeSelectionRef.current;
+      if (!currentSelection) {
+        return;
+      }
+
+      let nextSelection = currentSelection;
+      if (canvasPoint && screenPoint) {
+        nextSelection = {
+          ...currentSelection,
+          currentCanvas: canvasPoint,
+          currentScreen: screenPoint,
+        };
+      }
+
+      cancelQueuedMarqueeSelection();
+      const nextPreviewSelectedIds = nextSelection.hasActivated
+        ? resolveMarqueeStateSelectionIds(nextSelection)
+        : nextSelection.baseSelectedIds;
+      const nextSelectedIds = resolveCompletedMarqueeSelectionIds({
+        additive: nextSelection.additive,
+        baseSelectedIds: nextSelection.baseSelectedIds,
+        hasActivated: nextSelection.hasActivated,
+        nextSelectedIds: nextPreviewSelectedIds,
+      });
+
+      unstable_batchedUpdates(() => {
+        commitSelectedElementIds(nextSelectedIds);
+        clearSelectionPreview();
+        setMarqueeRenderState((current) =>
+          marqueeRenderStateEqual(current, EMPTY_MARQUEE_RENDER_STATE)
+            ? current
+            : EMPTY_MARQUEE_RENDER_STATE
+        );
+      });
+
+      marqueeSelectionRef.current = null;
+      marqueeSelectionTargetsRef.current = [];
+    },
+    [
+      cancelQueuedMarqueeSelection,
+      clearSelectionPreview,
+      commitSelectedElementIds,
+      resolveMarqueeStateSelectionIds,
+    ]
+  );
+
+  const insertShapeElement = useCallback(
+    (element: CanvasShapeElement) => {
+      if (!activeDocumentId) {
+        return;
+      }
+      void upsertElement(activeDocumentId, element);
+    },
+    [activeDocumentId, upsertElement]
+  );
+
+  const activeToolController = useMemo(
+    () => resolveCanvasToolController(tool, shouldPan),
+    [shouldPan, tool]
+  );
+
+  const activeToolContext = useMemo(
+    () => ({
+      activeDocumentId,
+      activeShapeType,
+      beginMarqueeSelection: beginMarqueeInteraction,
+      beginPan: beginPanInteraction,
+      beginTextEdit,
+      clearSelection,
+      commitMarqueeSelection: commitMarqueeInteraction,
+      endPan: endPanInteraction,
+      insertShape: insertShapeElement,
+      selectElement: (elementId: string) => {
+        selectElement(elementId);
+      },
+      setTool,
+      updateMarqueeSelection: updateMarqueeInteraction,
+      updatePan: updatePanInteraction,
+    }),
+    [
+      activeDocumentId,
+      activeShapeType,
+      beginMarqueeInteraction,
+      beginPanInteraction,
+      beginTextEdit,
+      clearSelection,
+      commitMarqueeInteraction,
+      endPanInteraction,
+      insertShapeElement,
+      selectElement,
+      setTool,
+      updateMarqueeInteraction,
+      updatePanInteraction,
+    ]
+  );
+
   useEffect(() => {
     if (tool === "select") {
       return;
@@ -811,226 +1037,66 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
       const isBackgroundTarget =
         event.target === stage || event.target.id() === WORKSPACE_BACKGROUND_NODE_ID;
-      const point = toCanvasPoint(stage);
-
-      if (shouldPan && isBackgroundTarget) {
-        const pointer = toScreenPoint(stage);
-        if (!pointer) {
-          return;
-        }
-        event.evt.preventDefault();
-        setIsPanning(true);
-        panningAnchorRef.current = pointer;
-        viewportAnchorRef.current = viewport;
-        return;
-      }
-
-      if (!isBackgroundTarget || !point) {
+      if (!isBackgroundTarget) {
         return;
       }
 
       event.evt.preventDefault();
-
-      if (tool === "select") {
-        const screenPoint = toScreenPoint(stage);
-        if (!screenPoint) {
-          return;
-        }
-        const additive = Boolean(event.evt.shiftKey);
-        const baseSelectedIds = additive ? selectedElementIdsRef.current : [];
-        const nextSelection: MarqueeSelectionState = {
-          additive,
-          baseSelectedIds,
-          currentCanvas: point,
-          currentScreen: screenPoint,
-          hasActivated: false,
-          startCanvas: point,
-          startScreen: screenPoint,
-        };
-        cancelQueuedMarqueeSelection();
-        marqueeSelectionRef.current = nextSelection;
-        marqueeSelectionTargetsRef.current = [];
-        unstable_batchedUpdates(() => {
-          clearSelectionPreview();
-          setMarqueeRenderState((current) => {
-            const nextRenderState: MarqueeSelectionRenderState = {
-              hasSession: true,
-              isDragging: false,
-              rect: null,
-            };
-            return marqueeRenderStateEqual(current, nextRenderState) ? current : nextRenderState;
-          });
-        });
-        return;
-      }
-
-      if (tool === "text") {
-        const snappedPoint = snapPoint(point);
-        const textElement = fitCanvasTextElementToContent({
-          id: createElementId(),
-          type: "text",
-          content: "",
-          x: snappedPoint.x,
-          y: snappedPoint.y,
-          width: 1,
-          height: 1,
-          rotation: 0,
-          opacity: 1,
-          locked: false,
-          visible: true,
-          zIndex: activeDocument.elements.length + 1,
-          fontFamily: DEFAULT_CANVAS_TEXT_FONT_FAMILY,
-          fontSize: DEFAULT_CANVAS_TEXT_FONT_SIZE,
-          fontSizeTier: DEFAULT_CANVAS_TEXT_FONT_SIZE_TIER,
-          color: DEFAULT_CANVAS_TEXT_COLOR,
-          textAlign: "left",
-        });
-        clearSelection();
-        setTool("select");
-        beginTextEdit(textElement, { mode: "create" });
-      }
+      activeToolController.onPointerDown(activeToolContext, {
+        additive: Boolean(event.evt.shiftKey),
+        canvasPoint: toCanvasPoint(stage),
+        isBackgroundTarget,
+        screenPoint: toScreenPoint(stage),
+      });
     },
     [
       activeDocument,
-      beginTextEdit,
-      clearSelection,
-      shouldPan,
-      setIsPanning,
-      setTool,
+      activeToolController,
+      activeToolContext,
       stageRef,
-      cancelQueuedMarqueeSelection,
-      toScreenPoint,
       toCanvasPoint,
-      tool,
-      viewport,
-      clearSelectionPreview,
+      toScreenPoint,
     ]
   );
 
   const handleWorkspacePointerMove = useCallback(
     (event?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
       const stage = stageRef.current;
-      if (!stage) {
-        return;
-      }
-
-      if (isPanning && shouldPan) {
-        event?.evt.preventDefault();
-        const pointer = toScreenPoint(stage);
-        if (!pointer || !panningAnchorRef.current || !viewportAnchorRef.current) {
-          return;
-        }
-        setViewport({
-          x: viewportAnchorRef.current.x + (pointer.x - panningAnchorRef.current.x),
-          y: viewportAnchorRef.current.y + (pointer.y - panningAnchorRef.current.y),
-        });
-        return;
-      }
-
-      const currentSelection = marqueeSelectionRef.current;
-      if (!currentSelection || tool !== "select" || shouldPan) {
-        return;
-      }
-
-      const currentCanvas = toCanvasPoint(stage);
-      const currentScreen = toScreenPoint(stage);
-      if (!currentCanvas || !currentScreen) {
+      if (!stage || !activeToolController.onPointerMove) {
         return;
       }
 
       event?.evt.preventDefault();
-      const nextSelectionDraft: MarqueeSelectionState = {
-        ...currentSelection,
-        currentCanvas,
-        currentScreen,
-      };
-      const nextSelection: MarqueeSelectionState = {
-        ...nextSelectionDraft,
-        hasActivated:
-          currentSelection.hasActivated || isDraggingMarqueeSelection(nextSelectionDraft),
-      };
-      marqueeSelectionRef.current = nextSelection;
-      if (!nextSelection.hasActivated) {
-        return;
-      }
-
-      queueMarqueeRenderState();
-      if (marqueeSelectionTargetsRef.current.length === 0) {
-        marqueeSelectionTargetsRef.current = buildMarqueeSelectionTargets();
-      }
+      activeToolController.onPointerMove(activeToolContext, {
+        canvasPoint: toCanvasPoint(stage),
+        screenPoint: toScreenPoint(stage),
+      });
     },
     [
-      buildMarqueeSelectionTargets,
-      isDraggingMarqueeSelection,
-      isPanning,
-      queueMarqueeRenderState,
-      setViewport,
-      shouldPan,
+      activeToolController,
+      activeToolContext,
       stageRef,
       toCanvasPoint,
       toScreenPoint,
-      tool,
     ]
   );
 
   const handleWorkspacePointerUp = useCallback(
     (event?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
-      event?.evt.preventDefault();
-      if (isPanning) {
-        setIsPanning(false);
-      }
-      panningAnchorRef.current = null;
-      viewportAnchorRef.current = null;
-
-      const currentSelection = marqueeSelectionRef.current;
-      if (!currentSelection) {
+      if (!activeToolController.onPointerUp && !shouldPan) {
         return;
       }
-
-      let nextSelection = currentSelection;
+      event?.evt.preventDefault();
       const stage = stageRef.current;
-      if (stage) {
-        const currentCanvas = toCanvasPoint(stage);
-        const currentScreen = toScreenPoint(stage);
-        if (currentCanvas && currentScreen) {
-          nextSelection = {
-            ...currentSelection,
-            currentCanvas,
-            currentScreen,
-          };
-        }
-      }
-
-      cancelQueuedMarqueeSelection();
-      const nextPreviewSelectedIds = nextSelection.hasActivated
-        ? resolveMarqueeStateSelectionIds(nextSelection)
-        : nextSelection.baseSelectedIds;
-      const nextSelectedIds = resolveCompletedMarqueeSelectionIds({
-        additive: nextSelection.additive,
-        baseSelectedIds: nextSelection.baseSelectedIds,
-        hasActivated: nextSelection.hasActivated,
-        nextSelectedIds: nextPreviewSelectedIds,
+      activeToolController.onPointerUp?.(activeToolContext, {
+        canvasPoint: stage ? toCanvasPoint(stage) : null,
+        screenPoint: stage ? toScreenPoint(stage) : null,
       });
-
-      unstable_batchedUpdates(() => {
-        commitSelectedElementIds(nextSelectedIds);
-        clearSelectionPreview();
-        setMarqueeRenderState((current) =>
-          marqueeRenderStateEqual(current, EMPTY_MARQUEE_RENDER_STATE)
-            ? current
-            : EMPTY_MARQUEE_RENDER_STATE
-        );
-      });
-
-      marqueeSelectionRef.current = null;
-      marqueeSelectionTargetsRef.current = [];
     },
     [
-      cancelQueuedMarqueeSelection,
-      clearSelectionPreview,
-      commitSelectedElementIds,
-      isPanning,
-      resolveMarqueeStateSelectionIds,
+      activeToolController,
+      activeToolContext,
+      shouldPan,
       stageRef,
       toCanvasPoint,
       toScreenPoint,
@@ -1669,8 +1735,17 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
             top: dimensionsBadgePosition.top,
           }}
         >
-          {Math.round(singleSelectedNonTextElement.width)} x{" "}
-          {Math.round(singleSelectedNonTextElement.height)}
+          {Math.round(
+            singleSelectedNonTextElement.type === "group"
+              ? singleSelectedNonTextElement.bounds.width
+              : singleSelectedNonTextElement.width
+          )}{" "}
+          x{" "}
+          {Math.round(
+            singleSelectedNonTextElement.type === "group"
+              ? singleSelectedNonTextElement.bounds.height
+              : singleSelectedNonTextElement.height
+          )}
         </div>
       ) : null}
 

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import type { Asset, CanvasDocument } from "@/types";
+import { normalizeCanvasDocument } from "./studioPresets";
 import { cropRenderedCanvasSlice, renderCanvasDocumentToCanvas } from "./renderCanvasDocument";
 
 const renderDocumentToCanvasMock = vi.fn();
@@ -73,63 +74,78 @@ const createCanvas = (context = createContext()) => ({
   toDataURL: vi.fn(() => "data:image/png;base64,rendered"),
 });
 
-const createCanvasDocument = (): CanvasDocument => ({
-  id: "doc-1",
-  name: "Board",
-  width: 1000,
-  height: 800,
-  presetId: "custom",
-  backgroundColor: "#101010",
-  elements: [
-    {
-      id: "image-1",
-      type: "image",
-      assetId: "asset-1",
-      x: 100,
-      y: 120,
-      width: 200,
-      height: 100,
-      rotation: 10,
-      opacity: 0.9,
-      locked: false,
-      visible: true,
-      zIndex: 1,
+const createCanvasDocument = (): CanvasDocument =>
+  normalizeCanvasDocument({
+    id: "doc-1",
+    name: "Board",
+    width: 1000,
+    height: 800,
+    presetId: "custom",
+    backgroundColor: "#101010",
+    elements: [
+      {
+        id: "image-1",
+        type: "image",
+        parentId: null,
+        assetId: "asset-1",
+        x: 100,
+        y: 120,
+        width: 200,
+        height: 100,
+        rotation: 10,
+        transform: {
+          x: 100,
+          y: 120,
+          width: 200,
+          height: 100,
+          rotation: 10,
+        },
+        opacity: 0.9,
+        locked: false,
+        visible: true,
+      },
+      {
+        id: "text-1",
+        type: "text",
+        parentId: null,
+        content: "Board export",
+        fontFamily: "Georgia",
+        fontSize: 24,
+        fontSizeTier: "small",
+        color: "#ffffff",
+        textAlign: "left",
+        x: 200,
+        y: 260,
+        width: 180,
+        height: 50,
+        rotation: 0,
+        transform: {
+          x: 200,
+          y: 260,
+          width: 180,
+          height: 50,
+          rotation: 0,
+        },
+        opacity: 1,
+        locked: false,
+        visible: true,
+      },
+    ],
+    slices: [],
+    guides: {
+      showCenter: false,
+      showThirds: false,
+      showSafeArea: false,
     },
-    {
-      id: "text-1",
-      type: "text",
-      content: "Board export",
-      fontFamily: "Georgia",
-      fontSize: 24,
-      fontSizeTier: "small",
-      color: "#ffffff",
-      textAlign: "left",
-      x: 200,
-      y: 260,
-      width: 180,
-      height: 50,
-      rotation: 0,
-      opacity: 1,
-      locked: false,
-      visible: true,
-      zIndex: 2,
+    safeArea: {
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
     },
-  ],
-  slices: [],
-  guides: {
-    showCenter: false,
-    showThirds: false,
-    showSafeArea: false,
-  },
-  safeArea: {
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-  },
-  createdAt: "2026-03-17T00:00:00.000Z",
-  updatedAt: "2026-03-17T00:00:00.000Z",
-});
+    createdAt: "2026-03-17T00:00:00.000Z",
+    updatedAt: "2026-03-17T00:00:00.000Z",
+  });
 
 describe("renderCanvasDocument", () => {
   beforeEach(() => {

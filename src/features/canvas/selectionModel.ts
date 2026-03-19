@@ -1,4 +1,8 @@
-import type { CanvasDocument, CanvasElement, CanvasImageElement } from "@/types";
+import type {
+  CanvasDocument,
+  CanvasRenderableElement,
+  CanvasRenderableNode,
+} from "@/types";
 
 export interface CanvasSelectionModel {
   activeDocument: CanvasDocument | null;
@@ -6,30 +10,34 @@ export interface CanvasSelectionModel {
   displaySelectedElementIdSet: Set<string>;
   displaySelectedElementIds: string[];
   hasPreviewSelection: boolean;
-  primarySelectedElement: CanvasElement | null;
-  primarySelectedImageElement: CanvasImageElement | null;
+  primarySelectedElement: CanvasRenderableNode | null;
+  primarySelectedImageElement: Extract<CanvasRenderableElement, { type: "image" }> | null;
 }
 
-const createElementById = (activeDocument: CanvasDocument | null) =>
-  new Map((activeDocument?.elements ?? []).map((element) => [element.id, element]));
+const createNodeById = (activeDocument: CanvasDocument | null) =>
+  new Map(
+    (((activeDocument as CanvasDocument | null)?.allNodes ??
+      ((activeDocument as unknown as { elements?: CanvasRenderableNode[] } | null)?.elements ?? [])) as CanvasRenderableNode[]
+    ).map((node) => [node.id, node])
+  );
 
-const resolvePrimarySelectedElementFromLookup = (
-  elementById: Map<string, CanvasElement>,
+const resolvePrimarySelectedNodeFromLookup = (
+  nodeById: Map<string, CanvasRenderableNode>,
   selectedElementIds: string[]
 ) => {
   if (selectedElementIds.length === 0) {
     return null;
   }
 
-  return elementById.get(selectedElementIds[0]!) ?? null;
+  return nodeById.get(selectedElementIds[0]!) ?? null;
 };
 
-const resolvePrimarySelectedImageElementFromLookup = (
-  elementById: Map<string, CanvasElement>,
+const resolvePrimarySelectedImageNodeFromLookup = (
+  nodeById: Map<string, CanvasRenderableNode>,
   selectedElementIds: string[]
-): CanvasImageElement | null => {
+): Extract<CanvasRenderableElement, { type: "image" }> | null => {
   for (const elementId of selectedElementIds) {
-    const element = elementById.get(elementId);
+    const element = nodeById.get(elementId);
     if (element?.type === "image") {
       return element;
     }
@@ -65,19 +73,25 @@ export const resolvePrimarySelectedElement = (
     return null;
   }
 
-  return activeDocument.elements.find((element) => element.id === selectedElementIds[0]) ?? null;
+  const nodes =
+    activeDocument.allNodes ??
+    ((activeDocument as unknown as { elements?: CanvasRenderableNode[] }).elements ?? []);
+  return nodes.find((node) => node.id === selectedElementIds[0]) ?? null;
 };
 
 export const resolvePrimarySelectedImageElement = (
   activeDocument: CanvasDocument | null,
   selectedElementIds: string[]
-): CanvasImageElement | null => {
+): Extract<CanvasRenderableElement, { type: "image" }> | null => {
   if (!activeDocument || selectedElementIds.length === 0) {
     return null;
   }
 
+  const elements =
+    activeDocument.elements ??
+    ((activeDocument as unknown as { elements?: CanvasRenderableElement[] }).elements ?? []);
   for (const elementId of selectedElementIds) {
-    const element = activeDocument.elements.find((candidate) => candidate.id === elementId);
+    const element = elements.find((candidate) => candidate.id === elementId);
     if (element?.type === "image") {
       return element;
     }
@@ -95,16 +109,16 @@ export const createCanvasSelectionModel = ({
   activeDocument,
   committedSelectedElementIds,
   displaySelectedElementIds,
-  elementById,
+  nodeById,
   hasPreviewSelection,
 }: {
   activeDocument: CanvasDocument | null;
   committedSelectedElementIds: string[];
   displaySelectedElementIds: string[];
-  elementById?: Map<string, CanvasElement>;
+  nodeById?: Map<string, CanvasRenderableNode>;
   hasPreviewSelection: boolean;
 }): CanvasSelectionModel => {
-  const resolvedElementById = elementById ?? createElementById(activeDocument);
+  const resolvedNodeById = nodeById ?? createNodeById(activeDocument);
 
   return {
     activeDocument,
@@ -112,12 +126,12 @@ export const createCanvasSelectionModel = ({
     displaySelectedElementIdSet: new Set(displaySelectedElementIds),
     displaySelectedElementIds,
     hasPreviewSelection,
-    primarySelectedElement: resolvePrimarySelectedElementFromLookup(
-      resolvedElementById,
+    primarySelectedElement: resolvePrimarySelectedNodeFromLookup(
+      resolvedNodeById,
       displaySelectedElementIds
     ),
-    primarySelectedImageElement: resolvePrimarySelectedImageElementFromLookup(
-      resolvedElementById,
+    primarySelectedImageElement: resolvePrimarySelectedImageNodeFromLookup(
+      resolvedNodeById,
       displaySelectedElementIds
     ),
   };

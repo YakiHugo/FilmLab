@@ -8,26 +8,46 @@ import {
   normalizeCanvasTextElement,
 } from "./textStyle";
 
+const createTextElement = (
+  overrides: Partial<Parameters<typeof normalizeCanvasTextElement>[0]> = {}
+) => {
+  const x = overrides.x ?? 0;
+  const y = overrides.y ?? 0;
+  const width = overrides.width ?? 240;
+  const height = overrides.height ?? 96;
+  const rotation = overrides.rotation ?? 0;
+
+  return {
+    id: overrides.id ?? "text-1",
+    type: "text" as const,
+    parentId: overrides.parentId ?? null,
+    content: overrides.content ?? "Hello",
+    fontFamily: overrides.fontFamily ?? "Georgia",
+    fontSize: overrides.fontSize ?? 50,
+    fontSizeTier: overrides.fontSizeTier,
+    color: overrides.color ?? "#ffffff",
+    textAlign: overrides.textAlign ?? "left",
+    x,
+    y,
+    width,
+    height,
+    rotation,
+    transform: overrides.transform ?? {
+      x,
+      y,
+      width,
+      height,
+      rotation,
+    },
+    opacity: overrides.opacity ?? 1,
+    locked: overrides.locked ?? false,
+    visible: overrides.visible ?? true,
+  };
+};
+
 describe("canvas text style helpers", () => {
   it("normalizes missing tiers from the closest base font size", () => {
-    const normalized = normalizeCanvasTextElement({
-      id: "text-1",
-      type: "text",
-      content: "Hello",
-      fontFamily: "Georgia",
-      fontSize: 50,
-      color: "#ffffff",
-      textAlign: "left",
-      x: 0,
-      y: 0,
-      width: 240,
-      height: 96,
-      rotation: 0,
-      opacity: 1,
-      locked: false,
-      visible: true,
-      zIndex: 1,
-    });
+    const normalized = normalizeCanvasTextElement(createTextElement());
 
     expect(normalized.fontSizeTier).toBe("large");
     expect(getClosestCanvasTextFontSizeTier(50)).toBe("large");
@@ -35,25 +55,12 @@ describe("canvas text style helpers", () => {
 
   it("preserves text scale when switching tiers", () => {
     const next = applyCanvasTextFontSizeTier(
-      normalizeCanvasTextElement({
-        id: "text-1",
-        type: "text",
-        content: "Hello",
-        fontFamily: "Georgia",
-        fontSize: 54,
-        fontSizeTier: "medium",
-        color: "#ffffff",
-        textAlign: "left",
-        x: 0,
-        y: 0,
-        width: 240,
-        height: 96,
-        rotation: 0,
-        opacity: 1,
-        locked: false,
-        visible: true,
-        zIndex: 1,
-      }),
+      normalizeCanvasTextElement(
+        createTextElement({
+          fontSize: 54,
+          fontSizeTier: "medium",
+        })
+      ),
       "xl"
     );
 
@@ -84,25 +91,15 @@ describe("canvas text style helpers", () => {
 
   it("fits text elements back to their content width and height", () => {
     const fitted = fitCanvasTextElementToContent(
-      {
-        id: "text-1",
-        type: "text",
-        content: "abc",
-        fontFamily: "Georgia",
-        fontSize: 18,
-        fontSizeTier: "small",
-        color: "#ffffff",
-        textAlign: "left",
-        x: 0,
-        y: 0,
-        width: 320,
-        height: 120,
-        rotation: 0,
-        opacity: 1,
-        locked: false,
-        visible: true,
-        zIndex: 1,
-      },
+      normalizeCanvasTextElement(
+        createTextElement({
+          content: "abc",
+          fontSize: 18,
+          fontSizeTier: "small",
+          width: 320,
+          height: 120,
+        })
+      ),
       {
         measureText: (line) => line.length * 9,
       }

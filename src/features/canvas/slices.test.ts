@@ -1,30 +1,33 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDocument } from "@/types";
+import { normalizeCanvasDocument } from "./studioPresets";
 import { appendCanvasSlice, buildStripSlices, clearCanvasSlices, updateCanvasSlice } from "./slices";
 
-const createDocument = (): CanvasDocument => ({
-  id: "doc-1",
-  name: "Test Story",
-  width: 1080,
-  height: 1350,
-  presetId: "social-portrait",
-  backgroundColor: "#050505",
-  elements: [],
-  slices: [],
-  guides: {
-    showCenter: false,
-    showThirds: true,
-    showSafeArea: true,
-  },
-  safeArea: {
-    top: 72,
-    right: 72,
-    bottom: 72,
-    left: 72,
-  },
-  createdAt: "2026-03-16T00:00:00.000Z",
-  updatedAt: "2026-03-16T00:00:00.000Z",
-});
+const createDocument = (): CanvasDocument =>
+  normalizeCanvasDocument({
+    id: "doc-1",
+    name: "Test Story",
+    width: 1080,
+    height: 1350,
+    presetId: "social-portrait",
+    backgroundColor: "#050505",
+    nodes: {},
+    rootIds: [],
+    slices: [],
+    guides: {
+      showCenter: false,
+      showThirds: true,
+      showSafeArea: true,
+    },
+    safeArea: {
+      top: 72,
+      right: 72,
+      bottom: 72,
+      left: 72,
+    },
+    createdAt: "2026-03-16T00:00:00.000Z",
+    updatedAt: "2026-03-16T00:00:00.000Z",
+  });
 
 describe("canvas slice helpers", () => {
   it("builds strip slices using the active preset dimensions", () => {

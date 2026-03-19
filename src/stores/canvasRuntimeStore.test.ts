@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import type { Asset, CanvasDocument, CanvasImageElement } from "@/types";
+import { normalizeCanvasDocument } from "@/features/canvas/studioPresets";
 
 const createCanvasImageRenderContextMock = vi.fn();
 const renderCanvasImageElementToCanvasMock = vi.fn();
@@ -66,42 +67,54 @@ const createAsset = (): Asset => ({
 const createImageElement = (): CanvasImageElement => ({
   id: "image-1",
   type: "image",
+  parentId: null,
   assetId: "asset-1",
   x: 24,
   y: 32,
   width: 320,
   height: 180,
   rotation: 0,
+  transform: {
+    x: 24,
+    y: 32,
+    width: 320,
+    height: 180,
+    rotation: 0,
+  },
   opacity: 1,
   locked: false,
   visible: true,
-  zIndex: 1,
   adjustments: createDefaultAdjustments(),
 });
 
-const createDocument = (element: CanvasImageElement): CanvasDocument => ({
-  id: "doc-1",
-  name: "Board",
-  width: 1200,
-  height: 800,
-  presetId: "custom",
-  backgroundColor: "#000000",
-  elements: [element],
-  slices: [],
-  guides: {
-    showCenter: false,
-    showThirds: false,
-    showSafeArea: false,
-  },
-  safeArea: {
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-  },
-  createdAt: "2026-03-17T00:00:00.000Z",
-  updatedAt: "2026-03-17T00:00:00.000Z",
-});
+const createDocument = (element: CanvasImageElement): CanvasDocument =>
+  normalizeCanvasDocument({
+    id: "doc-1",
+    name: "Board",
+    width: 1200,
+    height: 800,
+    presetId: "custom",
+    backgroundColor: "#000000",
+    version: 2,
+    nodes: {
+      [element.id]: element,
+    },
+    rootIds: [element.id],
+    slices: [],
+    guides: {
+      showCenter: false,
+      showThirds: false,
+      showSafeArea: false,
+    },
+    safeArea: {
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+    },
+    createdAt: "2026-03-17T00:00:00.000Z",
+    updatedAt: "2026-03-17T00:00:00.000Z",
+  });
 
 const flushAsyncWork = async () => {
   await Promise.resolve();

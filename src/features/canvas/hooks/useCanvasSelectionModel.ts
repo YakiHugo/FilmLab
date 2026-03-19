@@ -25,9 +25,9 @@ export function useCanvasSelectionModel() {
     selectionIdsEqual
   );
   const stabilizedDisplaySelectedElementIdsRef = useRef<string[]>(EMPTY_SELECTED_ELEMENT_IDS);
-  const elementById = useMemo(
-    () => new Map((activeDocument?.elements ?? []).map((element) => [element.id, element])),
-    [activeDocument?.elements]
+  const nodeById = useMemo(
+    () => new Map((activeDocument?.allNodes ?? []).map((node) => [node.id, node])),
+    [activeDocument?.allNodes]
   );
 
   const rawDisplaySelectedElementIds = useMemo(
@@ -52,14 +52,14 @@ export function useCanvasSelectionModel() {
         activeDocument,
         committedSelectedElementIds,
         displaySelectedElementIds,
-        elementById,
+        nodeById,
         hasPreviewSelection: selectionPreviewElementIds !== null,
       }),
     [
       activeDocument,
       committedSelectedElementIds,
       displaySelectedElementIds,
-      elementById,
+      nodeById,
       selectionPreviewElementIds,
     ]
   );

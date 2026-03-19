@@ -6,7 +6,7 @@ import type {
   AssetMetadata,
   AssetRemoteState,
   AssetSyncJobOperation,
-  CanvasDocument,
+  CanvasDocumentSnapshot,
   EditorLayer,
   EditingAdjustments,
   FilmProfile,
@@ -66,7 +66,7 @@ interface FilmLabDB extends DBSchema {
   };
   canvasDocuments: {
     key: string;
-    value: CanvasDocument;
+    value: CanvasDocumentSnapshot;
   };
   assetSyncJobs: {
     key: string;

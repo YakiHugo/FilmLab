@@ -4,6 +4,7 @@ import type {
   Asset,
   CanvasDocument,
   CanvasImageElement,
+  CanvasShapeElement,
   CanvasSlice,
   CanvasTextElement,
 } from "@/types";
@@ -39,7 +40,10 @@ const ensureCanvasSize = (canvas: HTMLCanvasElement, width: number, height: numb
 
 const withElementTransform = (
   context: CanvasRenderingContext2D,
-  element: Pick<CanvasImageElement | CanvasTextElement, "opacity" | "rotation" | "x" | "y">,
+  element: Pick<
+    CanvasImageElement | CanvasTextElement | CanvasShapeElement,
+    "opacity" | "rotation" | "x" | "y"
+  >,
   draw: () => void
 ) => {
   context.save();
@@ -76,6 +80,99 @@ const drawTextElement = (context: CanvasRenderingContext2D, element: CanvasTextE
     lines.forEach((line, index) => {
       context.fillText(line, anchorX, index * lineHeight);
     });
+  });
+};
+
+const getShapePoints = (element: CanvasShapeElement) =>
+  element.points && element.points.length > 0
+    ? element.points
+    : [
+        { x: 0, y: element.height / 2 },
+        { x: element.width, y: element.height / 2 },
+      ];
+
+const drawArrowHead = (
+  context: CanvasRenderingContext2D,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  size: number
+) => {
+  const angle = Math.atan2(to.y - from.y, to.x - from.x);
+  const left = {
+    x: to.x - Math.cos(angle - Math.PI / 6) * size,
+    y: to.y - Math.sin(angle - Math.PI / 6) * size,
+  };
+  const right = {
+    x: to.x - Math.cos(angle + Math.PI / 6) * size,
+    y: to.y - Math.sin(angle + Math.PI / 6) * size,
+  };
+  context.moveTo(left.x, left.y);
+  context.lineTo(to.x, to.y);
+  context.lineTo(right.x, right.y);
+};
+
+const drawShapeElement = (context: CanvasRenderingContext2D, element: CanvasShapeElement) => {
+  withElementTransform(context, element, () => {
+    context.beginPath();
+
+    if (element.shapeType === "rect") {
+      if (element.fill && element.fill !== "transparent") {
+        context.fillStyle = element.fill;
+        context.fillRect(0, 0, element.width, element.height);
+      }
+      if (element.strokeWidth > 0) {
+        context.lineWidth = element.strokeWidth;
+        context.strokeStyle = element.stroke;
+        context.strokeRect(0, 0, element.width, element.height);
+      }
+      return;
+    }
+
+    if (element.shapeType === "ellipse") {
+      context.save();
+      context.translate(element.width / 2, element.height / 2);
+      context.scale(Math.max(element.width / 2, 1), Math.max(element.height / 2, 1));
+      context.arc(0, 0, 1, 0, Math.PI * 2);
+      context.restore();
+      if (element.fill && element.fill !== "transparent") {
+        context.fillStyle = element.fill;
+        context.fill();
+      }
+      if (element.strokeWidth > 0) {
+        context.lineWidth = element.strokeWidth;
+        context.strokeStyle = element.stroke;
+        context.stroke();
+      }
+      return;
+    }
+
+    const points = getShapePoints(element);
+    const [firstPoint, ...restPoints] = points;
+    if (!firstPoint) {
+      return;
+    }
+
+    context.moveTo(firstPoint.x, firstPoint.y);
+    for (const point of restPoints) {
+      context.lineTo(point.x, point.y);
+    }
+    context.lineWidth = element.strokeWidth;
+    context.strokeStyle = element.stroke;
+    context.stroke();
+
+    if (element.shapeType === "arrow" && points.length >= 2) {
+      const headSize = Math.max(10, element.strokeWidth * 4);
+      context.beginPath();
+      if (element.arrowHead?.start) {
+        drawArrowHead(context, points[1]!, points[0]!, headSize);
+      }
+      if (element.arrowHead?.end ?? true) {
+        drawArrowHead(context, points[points.length - 2]!, points[points.length - 1]!, headSize);
+      }
+      context.lineWidth = element.strokeWidth;
+      context.strokeStyle = element.stroke;
+      context.stroke();
+    }
   });
 };
 
@@ -145,10 +242,9 @@ export const renderCanvasDocumentToCanvas = async ({
     y: canvas.height / Math.max(1, document.height),
   };
   const assetById = new Map(assets.map((asset) => [asset.id, asset]));
-  const orderedElements = document.elements
-    .filter((element) => element.visible)
-    .slice()
-    .sort((left, right) => left.zIndex - right.zIndex);
+  const orderedElements = document.elements.filter(
+    (element) => element.effectiveVisible && element.visible
+  );
 
   context.save();
   context.clearRect(0, 0, canvas.width, canvas.height);
@@ -172,6 +268,11 @@ export const renderCanvasDocumentToCanvas = async ({
 
       if (element.type === "text") {
         drawTextElement(context, element);
+        continue;
+      }
+
+      if (element.type === "shape") {
+        drawShapeElement(context, element);
       }
     }
   } finally {

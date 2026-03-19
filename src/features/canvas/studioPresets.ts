@@ -1,40 +1,15 @@
 import type {
   CanvasDocument,
   CanvasGuideSettings,
-  CanvasImageElement,
   CanvasPresetId,
   CanvasSafeArea,
-  CanvasTextElement,
-  CanvasTextFontSizeTier,
 } from "@/types";
-import { normalizeCanvasTextElement } from "./textStyle";
-
-interface LegacyCanvasShapeElement {
-  id: string;
-  type: "shape";
-}
-
-type LegacyCanvasTextElement = Omit<CanvasTextElement, "fontSizeTier"> & {
-  type: "text";
-  fontSizeTier?: CanvasTextFontSizeTier;
-};
-
-type NormalizableCanvasElement =
-  | CanvasImageElement
-  | LegacyCanvasTextElement
-  | LegacyCanvasShapeElement;
-
-type NormalizableCanvasDocument = Omit<
-  CanvasDocument,
-  "elements" | "presetId" | "slices" | "guides" | "safeArea"
-> & {
-  elements?: NormalizableCanvasElement[];
-} & Partial<Pick<CanvasDocument, "presetId" | "slices" | "guides" | "safeArea">>;
-
-export interface NormalizedCanvasDocumentResult {
-  document: CanvasDocument;
-  removedLegacyShapeIds: string[];
-}
+import {
+  normalizeCanvasDocument as normalizeCanvasDocumentRuntime,
+  normalizeCanvasDocumentWithCleanup as normalizeCanvasDocumentWithCleanupRuntime,
+  type NormalizableCanvasDocument,
+  type NormalizedCanvasDocumentResult,
+} from "./documentGraph";
 
 export interface StudioCanvasPreset {
   id: CanvasPresetId;
@@ -140,65 +115,52 @@ export const applyCanvasPresetToDocument = (
   };
 };
 
-const normalizeCanvasElements = (
-  elements: NormalizableCanvasElement[] | undefined
-): { elements: CanvasDocument["elements"]; removedLegacyShapeIds: string[] } => {
-  const removedLegacyShapeIds: string[] = [];
-  const normalizedElements: CanvasDocument["elements"] = [];
-
-  for (const element of elements ?? []) {
-    if (element.type === "shape") {
-      removedLegacyShapeIds.push(element.id);
-      continue;
-    }
-
-    if (element.type === "text") {
-      normalizedElements.push(normalizeCanvasTextElement(element));
-      continue;
-    }
-
-    normalizedElements.push(element);
-  }
-
-  return {
-    elements: normalizedElements,
-    removedLegacyShapeIds,
-  };
-};
-
 export const normalizeCanvasDocumentWithCleanup = (
   document: NormalizableCanvasDocument
-): NormalizedCanvasDocumentResult => {
-  const preset = getStudioCanvasPreset(document.presetId);
-  const { elements, removedLegacyShapeIds } = normalizeCanvasElements(document.elements);
-
-  return {
-    document: {
-      ...document,
-      elements,
-      width: document.width || preset.width,
-      height: document.height || preset.height,
-      presetId: document.presetId ?? preset.id,
-      slices: Array.isArray(document.slices)
-        ? document.slices
-            .map((slice, index) => ({
-              ...slice,
-              order: Number.isFinite(slice.order) ? slice.order : index + 1,
-            }))
-            .sort((left, right) => left.order - right.order)
-        : [],
-      guides: {
-        ...DEFAULT_CANVAS_GUIDES,
-        ...(document.guides ?? {}),
-      },
-      safeArea: {
-        ...DEFAULT_CANVAS_SAFE_AREA,
-        ...(document.safeArea ?? {}),
-      },
+): NormalizedCanvasDocumentResult =>
+  normalizeCanvasDocumentWithCleanupRuntime({
+    ...document,
+    width: document.width || getStudioCanvasPreset(document.presetId).width,
+    height: document.height || getStudioCanvasPreset(document.presetId).height,
+    presetId: document.presetId ?? getStudioCanvasPreset(document.presetId).id,
+    slices: Array.isArray(document.slices)
+      ? document.slices
+          .map((slice, index) => ({
+            ...slice,
+            order: Number.isFinite(slice.order) ? slice.order : index + 1,
+          }))
+          .sort((left, right) => left.order - right.order)
+      : [],
+    guides: {
+      ...DEFAULT_CANVAS_GUIDES,
+      ...(document.guides ?? {}),
     },
-    removedLegacyShapeIds,
-  };
-};
+    safeArea: {
+      ...DEFAULT_CANVAS_SAFE_AREA,
+      ...(document.safeArea ?? {}),
+    },
+  });
 
 export const normalizeCanvasDocument = (document: NormalizableCanvasDocument): CanvasDocument =>
-  normalizeCanvasDocumentWithCleanup(document).document;
+  normalizeCanvasDocumentRuntime({
+    ...document,
+    width: document.width || getStudioCanvasPreset(document.presetId).width,
+    height: document.height || getStudioCanvasPreset(document.presetId).height,
+    presetId: document.presetId ?? getStudioCanvasPreset(document.presetId).id,
+    slices: Array.isArray(document.slices)
+      ? document.slices
+          .map((slice, index) => ({
+            ...slice,
+            order: Number.isFinite(slice.order) ? slice.order : index + 1,
+          }))
+          .sort((left, right) => left.order - right.order)
+      : [],
+    guides: {
+      ...DEFAULT_CANVAS_GUIDES,
+      ...(document.guides ?? {}),
+    },
+    safeArea: {
+      ...DEFAULT_CANVAS_SAFE_AREA,
+      ...(document.safeArea ?? {}),
+    },
+  });
