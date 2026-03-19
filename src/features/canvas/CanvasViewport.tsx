@@ -1395,14 +1395,15 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
                   }
                   showSelectionOutline={showSelectionOutline}
                   dragBoundFunc={dragBoundFunc}
-                  onSelect={(additive) => {
+                  onSelect={(elementId, additive) => {
                     if (!liveTextElement.locked) {
-                      selectElement(liveTextElement.id, { additive });
+                      selectElement(elementId, { additive });
                     }
                   }}
-                  onDragEnd={(x, y) => {
+                  onDragEnd={(elementId, x, y) => {
                     void upsertElement(activeDocument.id, {
                       ...liveTextElement,
+                      id: elementId,
                       x,
                       y,
                     });
@@ -1419,17 +1420,18 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
                 isSelected={isSelected}
                 showSelectionOutline={showSelectionOutline}
                 dragBoundFunc={dragBoundFunc}
-                onSelect={(additive) => {
+                onSelect={(elementId, additive) => {
                   if (!liveTextElement.locked) {
-                    selectElement(liveTextElement.id, { additive });
+                    selectElement(elementId, { additive });
                   }
                 }}
                 onDoubleClick={() => {
                   beginTextEdit(liveTextElement);
                 }}
-                onDragEnd={(x, y) => {
+                onDragEnd={(elementId, x, y) => {
                   void upsertElement(activeDocument.id, {
                     ...liveTextElement,
+                    id: elementId,
                     x,
                     y,
                   });
