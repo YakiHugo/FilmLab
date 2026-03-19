@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { Check } from "lucide-react";
 import type { CanvasTextElement, CanvasTextFontSizeTier } from "@/types";
 import { cn } from "@/lib/utils";
 import {
@@ -236,6 +236,7 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
       position.top,
       selectedFontOptions,
     ]);
+
     const menuPositionStyle = useMemo(() => {
       if (!menuPlacement) {
         return {};
@@ -271,7 +272,7 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
           event.stopPropagation();
         }}
       >
-        <div className="flex items-center gap-1 rounded-[6px] border border-white/10 bg-black/90 p-1.5 shadow-[0_20px_48px_-32px_rgba(0,0,0,0.95)] backdrop-blur-xl">
+        <div className="flex items-center gap-0.5 rounded-[6px] border border-white/10 bg-black/90 p-1 shadow-[0_20px_48px_-32px_rgba(0,0,0,0.95)] backdrop-blur-xl">
           <ToolbarMenuButton
             active={openMenu === "color"}
             menu={
@@ -350,7 +351,7 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
             }
             onToggle={() => setOpenMenu((current) => (current === "font" ? null : "font"))}
           >
-            <span className="min-w-[1.75rem] text-center text-sm font-semibold tracking-[0.02em]">
+            <span className="min-w-[1.5rem] text-center text-sm font-semibold tracking-[0.02em]">
               Aa
             </span>
           </ToolbarMenuButton>
@@ -392,8 +393,8 @@ export const CanvasTextToolbar = forwardRef<HTMLDivElement, CanvasTextToolbarPro
             }
             onToggle={() => setOpenMenu((current) => (current === "size" ? null : "size"))}
           >
-            <span className="min-w-[1.75rem] text-center text-sm font-semibold tracking-[0.02em]">
-              A↑
+            <span className="min-w-[1.25rem] text-center text-[15px] font-semibold tracking-[0.02em]">
+              A
             </span>
           </ToolbarMenuButton>
         </div>
@@ -415,13 +416,12 @@ function ToolbarMenuButton({ active, children, menu, onToggle }: ToolbarMenuButt
       <button
         type="button"
         className={cn(
-          "flex h-9 min-w-9 items-center justify-center gap-1 rounded-[6px] px-2 text-zinc-100 transition hover:bg-white/10",
+          "flex h-8 min-w-8 items-center justify-center rounded-[6px] px-1.5 text-zinc-100 transition hover:bg-white/10",
           active && "bg-white/10"
         )}
         onClick={onToggle}
       >
         {children}
-        <ChevronDown className="h-3 w-3 text-zinc-400" />
       </button>
       {menu}
     </div>
@@ -433,7 +433,10 @@ function ColorSwatch({ value }: { value: string }) {
 
   return (
     <span
-      className={cn("h-4 w-4 rounded-full border", isBlack ? "border-white/25" : "border-black/10")}
+      className={cn(
+        "h-4 w-4 rounded-full border",
+        isBlack ? "border-white/25" : "border-black/10"
+      )}
       style={{ backgroundColor: value }}
     />
   );

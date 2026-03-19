@@ -10,8 +10,8 @@ import {
   type RefObject,
 } from "react";
 import { Crosshair, Hand, Minus, MousePointer2, Plus } from "lucide-react";
-import { Layer, Line, Rect, Stage, Text as KonvaText, Transformer } from "react-konva";
-import type { CanvasElement, CanvasTextElement } from "@/types";
+import { Layer, Line, Rect, Stage, Text as KonvaText } from "react-konva";
+import type { CanvasTextElement } from "@/types";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { CanvasTextToolbar } from "./CanvasTextToolbar";
@@ -21,10 +21,18 @@ import {
   GRID_SIZE,
   quantizeDragPosition,
   snapPoint,
-  snapRect,
 } from "./grid";
 import type { CanvasOverlayRect } from "./overlayGeometry";
 import { resolveFloatingOverlayPosition } from "./overlayGeometry";
+import {
+  mergeSelectionIds,
+  normalizeSelectionRect,
+  resolveIntersectingSelectionIds,
+  screenRectToWorldRect,
+  selectionDistanceExceedsThreshold,
+  type CanvasSelectionTarget,
+  type CanvasSelectionPoint,
+} from "./selectionGeometry";
 import {
   applyCanvasTextFontSizeTier,
   CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER,
@@ -33,7 +41,6 @@ import {
   DEFAULT_CANVAS_TEXT_FONT_SIZE,
   DEFAULT_CANVAS_TEXT_FONT_SIZE_TIER,
   fitCanvasTextElementToContent,
-  scaleCanvasTextFontSize,
 } from "./textStyle";
 import { createTextMutationQueue } from "./textMutationQueue";
 import { TextElement } from "./elements/TextElement";
@@ -64,6 +71,13 @@ const DEFAULT_TEXT_TOOLBAR_SIZE = {
   width: 196,
   height: 48,
 };
+const DEFAULT_DIMENSIONS_BADGE_SIZE = {
+  width: 116,
+  height: 40,
+};
+const MARQUEE_DRAG_THRESHOLD_PX = 4;
+const CANVAS_SELECTION_ACCENT = "#f59e0b";
+const CANVAS_SELECTION_ACCENT_FILL = "rgba(245,158,11,0.12)";
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -154,6 +168,24 @@ interface CanvasTextEditorLayout {
   transform: string;
   transformOrigin: "top left";
 }
+
+interface MarqueeSelectionState {
+  additive: boolean;
+  baseSelectedIds: string[];
+  currentCanvas: CanvasSelectionPoint;
+  currentScreen: CanvasSelectionPoint;
+  hasActivated: boolean;
+  startCanvas: CanvasSelectionPoint;
+  startScreen: CanvasSelectionPoint;
+}
+
+interface MarqueeSelectionFrameState {
+  isDragging: boolean;
+  selection: MarqueeSelectionState;
+}
+
+const elementIdsEqual = (left: string[], right: string[]) =>
+  left.length === right.length && left.every((id, index) => id === right[index]);
 
 const getTextEditorLayout = ({
   element,
@@ -266,21 +298,22 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   );
   const deleteElements = useCanvasStore((state) => state.deleteElements);
   const upsertElement = useCanvasStore((state) => state.upsertElement);
-  const upsertElements = useCanvasStore((state) => state.upsertElements);
   const tool = useCanvasStore((state) => state.tool);
   const setTool = useCanvasStore((state) => state.setTool);
   const zoom = useCanvasStore((state) => state.zoom);
   const setZoom = useCanvasStore((state) => state.setZoom);
   const viewport = useCanvasStore((state) => state.viewport);
   const setViewport = useCanvasStore((state) => state.setViewport);
-  const { selectedElementIds, selectElement, clearSelection } = useCanvasInteraction();
+  const { selectedElementIds, setSelectedElementIds, selectElement, clearSelection } =
+    useCanvasInteraction();
   const viewportContainerRef = useRef<HTMLDivElement>(null);
-  const transformerRef = useRef<Konva.Transformer>(null);
   const textToolbarRef = useRef<HTMLDivElement>(null);
+  const dimensionsBadgeRef = useRef<HTMLDivElement>(null);
   const textEditorRef = useRef<HTMLDivElement>(null);
   const textEditorInputRef = useRef<HTMLTextAreaElement>(null);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
+  const [marqueeSelection, setMarqueeSelection] = useState<MarqueeSelectionState | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [editingTextMode, setEditingTextMode] = useState<EditingTextMode | null>(null);
   const [editingTextValue, setEditingTextValue] = useState("");
@@ -292,12 +325,20 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     left: 0,
     top: 0,
   });
+  const [dimensionsBadgePosition, setDimensionsBadgePosition] = useState({
+    left: 0,
+    top: 0,
+  });
   const panningAnchorRef = useRef<{ x: number; y: number } | null>(null);
   const viewportAnchorRef = useRef<{ x: number; y: number } | null>(null);
   const initializedDocumentIdsRef = useRef<Set<string>>(new Set());
   const textMutationQueueRef = useRef<ReturnType<typeof createTextMutationQueue> | null>(null);
   const textElementDraftRef = useRef<CanvasTextElement | null>(null);
   const createdTextElementRef = useRef(false);
+  const marqueeFrameRef = useRef<number | null>(null);
+  const marqueeSelectionTargetsRef = useRef<CanvasSelectionTarget[]>([]);
+  const marqueeLatestSelectionRef = useRef<MarqueeSelectionFrameState | null>(null);
+  const selectedElementIdsRef = useRef(selectedElementIds);
   const [stageSize, setStageSize] = useState(() => ({
     width: 0,
     height: 0,
@@ -307,6 +348,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     () => new Map((activeDocument?.elements ?? []).map((element) => [element.id, element])),
     [activeDocument?.elements]
   );
+  const selectedElementIdSet = useMemo(() => new Set(selectedElementIds), [selectedElementIds]);
 
   const editingTextElement = useMemo(() => {
     if (!editingTextId) {
@@ -327,6 +369,34 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     () => (singleSelectedElement?.type === "text" ? singleSelectedElement : null),
     [singleSelectedElement]
   );
+  const singleSelectedNonTextElement = useMemo(
+    () =>
+      singleSelectedElement && singleSelectedElement.type !== "text" ? singleSelectedElement : null,
+    [singleSelectedElement]
+  );
+  const marqueeSelectionRect = useMemo(
+    () =>
+      marqueeSelection
+        ? normalizeSelectionRect(marqueeSelection.startCanvas, marqueeSelection.currentCanvas)
+        : null,
+    [marqueeSelection]
+  );
+  const isDraggingMarqueeSelection = useCallback(
+    (state: MarqueeSelectionState) =>
+      selectionDistanceExceedsThreshold(
+        state.startScreen,
+        state.currentScreen,
+        MARQUEE_DRAG_THRESHOLD_PX
+      ),
+    []
+  );
+  const isMarqueeDragging = useMemo(() => {
+    if (!marqueeSelection) {
+      return false;
+    }
+    return marqueeSelection.hasActivated;
+  }, [marqueeSelection]);
+  const showSelectionOutline = selectedElementIds.length > 0;
 
   const activeTextElement =
     editingTextDraft ??
@@ -337,6 +407,10 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   if (!textMutationQueueRef.current) {
     textMutationQueueRef.current = createTextMutationQueue();
   }
+
+  useEffect(() => {
+    selectedElementIdsRef.current = selectedElementIds;
+  }, [selectedElementIds]);
 
   useEffect(() => {
     if (editingTextDraft) {
@@ -440,6 +514,123 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     [viewport.x, viewport.y, zoom]
   );
 
+  const toScreenPoint = useCallback((stage: Konva.Stage) => {
+    const pointer = stage.getPointerPosition();
+    if (!pointer) {
+      return null;
+    }
+    return {
+      x: pointer.x,
+      y: pointer.y,
+    };
+  }, []);
+
+  const buildMarqueeSelectionTargets = useCallback(() => {
+    const stage = stageRef.current;
+    if (!activeDocument || !stage) {
+      return [];
+    }
+
+    const nextTargets: CanvasSelectionTarget[] = [];
+    for (const element of activeDocument.elements) {
+      if (element.locked || !element.visible) {
+        continue;
+      }
+
+      const node = stage.findOne(`#${element.id}`);
+      if (!node) {
+        continue;
+      }
+
+      nextTargets.push({
+        id: element.id,
+        rect: screenRectToWorldRect(getSelectionOverlayRect(node), viewport, zoom),
+      });
+    }
+
+    return nextTargets;
+  }, [activeDocument, stageRef, viewport, zoom]);
+
+  const cancelQueuedMarqueeSelection = useCallback(() => {
+    if (marqueeFrameRef.current === null) {
+      return;
+    }
+
+    cancelAnimationFrame(marqueeFrameRef.current);
+    marqueeFrameRef.current = null;
+  }, []);
+
+  const applyMarqueeSelection = useCallback(
+    (state: MarqueeSelectionState) => {
+      if (!state.hasActivated) {
+        return;
+      }
+
+      const selectionRect = normalizeSelectionRect(state.startCanvas, state.currentCanvas);
+      const targets =
+        marqueeSelectionTargetsRef.current.length > 0
+          ? marqueeSelectionTargetsRef.current
+          : buildMarqueeSelectionTargets();
+      if (marqueeSelectionTargetsRef.current.length === 0) {
+        marqueeSelectionTargetsRef.current = targets;
+      }
+
+      const intersectingIds = resolveIntersectingSelectionIds(selectionRect, targets);
+      const nextSelectedIds = mergeSelectionIds(
+        state.baseSelectedIds,
+        intersectingIds,
+        state.additive
+      );
+
+      if (elementIdsEqual(selectedElementIdsRef.current, nextSelectedIds)) {
+        return;
+      }
+
+      selectedElementIdsRef.current = nextSelectedIds;
+      setSelectedElementIds(nextSelectedIds);
+    },
+    [buildMarqueeSelectionTargets, setSelectedElementIds]
+  );
+
+  const queueMarqueeSelection = useCallback(
+    (state: MarqueeSelectionState) => {
+      marqueeLatestSelectionRef.current = {
+        isDragging: state.hasActivated,
+        selection: state,
+      };
+
+      if (marqueeFrameRef.current !== null) {
+        return;
+      }
+
+      marqueeFrameRef.current = requestAnimationFrame(() => {
+        marqueeFrameRef.current = null;
+        const nextFrame = marqueeLatestSelectionRef.current;
+        if (!nextFrame?.isDragging) {
+          return;
+        }
+        applyMarqueeSelection(nextFrame.selection);
+      });
+    },
+    [applyMarqueeSelection]
+  );
+
+  useEffect(() => {
+    if (tool !== "select" && marqueeSelection) {
+      cancelQueuedMarqueeSelection();
+      marqueeSelectionTargetsRef.current = [];
+      marqueeLatestSelectionRef.current = null;
+      setMarqueeSelection(null);
+    }
+  }, [cancelQueuedMarqueeSelection, marqueeSelection, tool]);
+
+  useEffect(
+    () => () => {
+      cancelQueuedMarqueeSelection();
+    },
+    [cancelQueuedMarqueeSelection]
+  );
+
   const handleWorkspacePointerDown = useCallback(
     (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
       const stage = stageRef.current;
@@ -452,7 +643,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       const point = toCanvasPoint(stage);
 
       if (shouldPan && isBackgroundTarget) {
-        const pointer = stage.getPointerPosition();
+        const pointer = toScreenPoint(stage);
         if (!pointer) {
           return;
         }
@@ -470,7 +661,24 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       event.evt.preventDefault();
 
       if (tool === "select") {
-        clearSelection();
+        const screenPoint = toScreenPoint(stage);
+        if (!screenPoint) {
+          return;
+        }
+        const additive = Boolean(event.evt.shiftKey);
+        const baseSelectedIds = additive ? selectedElementIds : [];
+        cancelQueuedMarqueeSelection();
+        marqueeSelectionTargetsRef.current = [];
+        marqueeLatestSelectionRef.current = null;
+        setMarqueeSelection({
+          additive,
+          baseSelectedIds,
+          currentCanvas: point,
+          currentScreen: screenPoint,
+          hasActivated: false,
+          startCanvas: point,
+          startScreen: screenPoint,
+        });
         return;
       }
 
@@ -504,10 +712,14 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       activeDocument,
       beginTextEdit,
       clearSelection,
+      selectedElementIds,
       shouldPan,
       setIsPanning,
+      setMarqueeSelection,
       setTool,
       stageRef,
+      cancelQueuedMarqueeSelection,
+      toScreenPoint,
       toCanvasPoint,
       tool,
       viewport,
@@ -517,20 +729,68 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const handleWorkspacePointerMove = useCallback(
     (event?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
       const stage = stageRef.current;
-      if (!stage || !isPanning || !shouldPan) {
+      if (!stage) {
         return;
       }
+
+      if (isPanning && shouldPan) {
+        event?.evt.preventDefault();
+        const pointer = toScreenPoint(stage);
+        if (!pointer || !panningAnchorRef.current || !viewportAnchorRef.current) {
+          return;
+        }
+        setViewport({
+          x: viewportAnchorRef.current.x + (pointer.x - panningAnchorRef.current.x),
+          y: viewportAnchorRef.current.y + (pointer.y - panningAnchorRef.current.y),
+        });
+        return;
+      }
+
+      if (!marqueeSelection || tool !== "select" || shouldPan) {
+        return;
+      }
+
+      const currentCanvas = toCanvasPoint(stage);
+      const currentScreen = toScreenPoint(stage);
+      if (!currentCanvas || !currentScreen) {
+        return;
+      }
+
       event?.evt.preventDefault();
-      const pointer = stage.getPointerPosition();
-      if (!pointer || !panningAnchorRef.current || !viewportAnchorRef.current) {
+      const nextSelectionDraft: MarqueeSelectionState = {
+        ...marqueeSelection,
+        currentCanvas,
+        currentScreen,
+      };
+      const nextSelection: MarqueeSelectionState = {
+        ...nextSelectionDraft,
+        hasActivated:
+          marqueeSelection.hasActivated || isDraggingMarqueeSelection(nextSelectionDraft),
+      };
+      setMarqueeSelection(nextSelection);
+      if (!nextSelection.hasActivated) {
         return;
       }
-      setViewport({
-        x: viewportAnchorRef.current.x + (pointer.x - panningAnchorRef.current.x),
-        y: viewportAnchorRef.current.y + (pointer.y - panningAnchorRef.current.y),
-      });
+
+      if (marqueeSelectionTargetsRef.current.length === 0) {
+        marqueeSelectionTargetsRef.current = buildMarqueeSelectionTargets();
+      }
+      queueMarqueeSelection(nextSelection);
     },
-    [isPanning, setViewport, shouldPan, stageRef]
+    [
+      buildMarqueeSelectionTargets,
+      isDraggingMarqueeSelection,
+      isPanning,
+      marqueeSelection,
+      queueMarqueeSelection,
+      setMarqueeSelection,
+      setViewport,
+      shouldPan,
+      stageRef,
+      toCanvasPoint,
+      toScreenPoint,
+      tool,
+    ]
   );
 
   const handleWorkspacePointerUp = useCallback(
@@ -541,23 +801,56 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       }
       panningAnchorRef.current = null;
       viewportAnchorRef.current = null;
+
+      if (!marqueeSelection) {
+        return;
+      }
+
+      let nextSelection = marqueeSelection;
+      const stage = stageRef.current;
+      if (stage) {
+        const currentCanvas = toCanvasPoint(stage);
+        const currentScreen = toScreenPoint(stage);
+        if (currentCanvas && currentScreen) {
+          nextSelection = {
+            ...marqueeSelection,
+            currentCanvas,
+            currentScreen,
+          };
+        }
+      }
+
+      cancelQueuedMarqueeSelection();
+
+      if (nextSelection.hasActivated) {
+        applyMarqueeSelection(nextSelection);
+      } else if (!marqueeSelection.additive) {
+        if (selectedElementIdsRef.current.length > 0) {
+          selectedElementIdsRef.current = [];
+          setSelectedElementIds([]);
+        }
+      } else if (marqueeSelection.additive) {
+        if (!elementIdsEqual(selectedElementIdsRef.current, marqueeSelection.baseSelectedIds)) {
+          selectedElementIdsRef.current = marqueeSelection.baseSelectedIds;
+          setSelectedElementIds(marqueeSelection.baseSelectedIds);
+        }
+      }
+
+      marqueeSelectionTargetsRef.current = [];
+      marqueeLatestSelectionRef.current = null;
+      setMarqueeSelection(null);
     },
-    [isPanning]
+    [
+      applyMarqueeSelection,
+      cancelQueuedMarqueeSelection,
+      isPanning,
+      marqueeSelection,
+      setSelectedElementIds,
+      stageRef,
+      toCanvasPoint,
+      toScreenPoint,
+    ]
   );
-
-  useEffect(() => {
-    const transformer = transformerRef.current;
-    const stage = stageRef.current;
-    if (!transformer || !stage) {
-      return;
-    }
-
-    const nodes = selectedElementIds
-      .map((id) => stage.findOne(`#${id}`))
-      .filter((node): node is Konva.Node => Boolean(node));
-    transformer.nodes(nodes);
-    transformer.getLayer()?.batchDraw();
-  }, [selectedElementIds, stageRef, activeDocument?.updatedAt]);
 
   useEffect(() => {
     registerCanvasStage(stageRef.current);
@@ -753,8 +1046,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
   useEffect(() => {
     const stage = stageRef.current;
-    const trackedId =
-      editingTextId ?? (selectedElementIds.length === 1 ? selectedElementIds[0]! : null);
+    const trackedId = editingTextId ?? (selectedElementIds.length === 1 ? selectedElementIds[0]! : null);
 
     if (!stage || !trackedId) {
       setSelectionOverlay((current) => (current ? null : current));
@@ -808,6 +1100,39 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
         : nextPosition
     );
   }, [activeTextElement, selectionOverlay, stageSize.height, stageSize.width]);
+
+  useLayoutEffect(() => {
+    if (
+      !selectionOverlay ||
+      !singleSelectedNonTextElement ||
+      stageSize.width <= 0 ||
+      stageSize.height <= 0
+    ) {
+      return;
+    }
+
+    const badgeRect = dimensionsBadgeRef.current?.getBoundingClientRect();
+    const nextPosition = resolveFloatingOverlayPosition({
+      anchorRect: selectionOverlay.rect,
+      containerHeight: stageSize.height,
+      containerWidth: stageSize.width,
+      gap: FLOATING_TOOLBAR_GAP,
+      overlayHeight: Math.round(badgeRect?.height ?? DEFAULT_DIMENSIONS_BADGE_SIZE.height),
+      overlayWidth: Math.round(badgeRect?.width ?? DEFAULT_DIMENSIONS_BADGE_SIZE.width),
+    });
+
+    setDimensionsBadgePosition((current) =>
+      Math.abs(current.left - nextPosition.left) < 0.5 &&
+      Math.abs(current.top - nextPosition.top) < 0.5
+        ? current
+        : nextPosition
+    );
+  }, [
+    selectionOverlay,
+    singleSelectedNonTextElement,
+    stageSize.height,
+    stageSize.width,
+  ]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -879,9 +1204,16 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     });
   };
 
-  const showTextToolbar = Boolean(selectionOverlay && activeTextElement?.type === "text");
+  const showTextToolbar = Boolean(
+    selectionOverlay && activeTextElement?.type === "text" && selectedElementIds.length === 1
+  );
   const editingTextRenderElement = activeTextElement?.type === "text" ? activeTextElement : null;
-  const showTextEditor = Boolean(editingTextId && editingTextRenderElement);
+  const showTextEditor = Boolean(
+    !marqueeSelection && !isMarqueeDragging && editingTextId && editingTextRenderElement
+  );
+  const showDimensionsBadge = Boolean(
+    selectionOverlay && singleSelectedNonTextElement && selectedElementIds.length === 1
+  );
   const editingTextLayout = editingTextRenderElement
     ? getTextEditorLayout({
         element: editingTextRenderElement,
@@ -1048,7 +1380,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
               element.type === "text" && editingTextDraft?.id === element.id
                 ? editingTextDraft
                 : element;
-            const isSelected = selectedElementIds.includes(liveTextElement.id);
+            const isSelected = selectedElementIdSet.has(liveTextElement.id);
 
             if (liveTextElement.type === "image") {
               return (
@@ -1056,6 +1388,12 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
                   key={liveTextElement.id}
                   element={liveTextElement}
                   isSelected={isSelected}
+                  previewPriority={
+                    isSelected && selectedElementIds.length === 1 && !marqueeSelection
+                      ? "interactive"
+                      : "background"
+                  }
+                  showSelectionOutline={showSelectionOutline}
                   dragBoundFunc={dragBoundFunc}
                   onSelect={(additive) => {
                     if (!liveTextElement.locked) {
@@ -1078,6 +1416,8 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
                 key={liveTextElement.id}
                 element={liveTextElement}
                 isEditing={editingTextId === liveTextElement.id}
+                isSelected={isSelected}
+                showSelectionOutline={showSelectionOutline}
                 dragBoundFunc={dragBoundFunc}
                 onSelect={(additive) => {
                   if (!liveTextElement.locked) {
@@ -1098,70 +1438,20 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
             );
           })}
 
-          <Transformer
-            ref={transformerRef}
-            rotateEnabled={!singleSelectedTextElement}
-            borderStroke="#f59e0b"
-            anchorStroke="#f59e0b"
-            anchorFill="#111111"
-            anchorSize={9}
-            borderStrokeWidth={1.5}
-            keepRatio={Boolean(singleSelectedTextElement)}
-            enabledAnchors={
-              singleSelectedTextElement
-                ? ["top-left", "top-right", "bottom-left", "bottom-right"]
-                : undefined
-            }
-            onTransformEnd={() => {
-              const stage = stageRef.current;
-              if (!stage || !activeDocumentId || selectedElementIds.length === 0) {
-                return;
-              }
-              const updates: CanvasElement[] = [];
-              for (const selectedId of selectedElementIds) {
-                const element = elementById.get(selectedId);
-                const node = stage.findOne(`#${selectedId}`);
-                if (!element || !node) {
-                  continue;
-                }
-
-                const snappedRect = snapRect({
-                  x: node.x(),
-                  y: node.y(),
-                  width: Math.max(1, Math.abs(element.width * node.scaleX())),
-                  height: Math.max(1, Math.abs(element.height * node.scaleY())),
-                });
-
-                if (element.type === "text") {
-                  const textScale = Math.max(Math.abs(node.scaleX()), Math.abs(node.scaleY()));
-                  updates.push(
-                    fitCanvasTextElementToContent({
-                      ...element,
-                      x: snappedRect.x,
-                      y: snappedRect.y,
-                      fontSize: scaleCanvasTextFontSize(element.fontSize, textScale),
-                      rotation: node.rotation(),
-                    })
-                  );
-                } else {
-                  updates.push({
-                    ...element,
-                    x: snappedRect.x,
-                    y: snappedRect.y,
-                    width: Math.max(GRID_SIZE, snappedRect.width),
-                    height: Math.max(GRID_SIZE, snappedRect.height),
-                    rotation: node.rotation(),
-                  });
-                }
-
-                node.scaleX(1);
-                node.scaleY(1);
-              }
-              if (updates.length > 0) {
-                void upsertElements(activeDocumentId, updates);
-              }
-            }}
-          />
+          {isMarqueeDragging && marqueeSelectionRect ? (
+            <Rect
+              listening={false}
+              x={marqueeSelectionRect.x}
+              y={marqueeSelectionRect.y}
+              width={Math.max(1, marqueeSelectionRect.width)}
+              height={Math.max(1, marqueeSelectionRect.height)}
+              fill={CANVAS_SELECTION_ACCENT_FILL}
+              stroke={CANVAS_SELECTION_ACCENT}
+              strokeWidth={1.5}
+              dash={[8, 5]}
+              strokeScaleEnabled={false}
+            />
+          ) : null}
         </Layer>
 
         <Layer listening={false}>
@@ -1193,6 +1483,20 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
           })}
         </Layer>
       </Stage>
+
+      {showDimensionsBadge && singleSelectedNonTextElement ? (
+        <div
+          ref={dimensionsBadgeRef}
+          className="absolute z-20 rounded-[12px] border border-white/10 bg-black/90 px-3 py-2 text-sm font-semibold text-zinc-50 shadow-[0_20px_48px_-32px_rgba(0,0,0,0.95)] backdrop-blur-xl"
+          style={{
+            left: dimensionsBadgePosition.left,
+            top: dimensionsBadgePosition.top,
+          }}
+        >
+          {Math.round(singleSelectedNonTextElement.width)} x{" "}
+          {Math.round(singleSelectedNonTextElement.height)}
+        </div>
+      ) : null}
 
       {showTextToolbar && editingTextRenderElement && selectionOverlay ? (
         <CanvasTextToolbar
