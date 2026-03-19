@@ -10,6 +10,9 @@ export interface CanvasSelectionTarget {
   rect: CanvasOverlayRect;
 }
 
+export const isSelectableSelectionTarget = (target: { locked: boolean; visible: boolean }) =>
+  !target.locked && target.visible;
+
 export const normalizeSelectionRect = (
   start: CanvasSelectionPoint,
   end: CanvasSelectionPoint
@@ -46,6 +49,36 @@ export const mergeSelectionIds = (
   intersectingIds: string[],
   additive: boolean
 ) => (additive ? Array.from(new Set([...baseSelectedIds, ...intersectingIds])) : intersectingIds);
+
+export const resolveMarqueeSelectionIds = (
+  selectionRect: CanvasOverlayRect,
+  targets: CanvasSelectionTarget[],
+  baseSelectedIds: string[],
+  additive: boolean
+) =>
+  mergeSelectionIds(
+    baseSelectedIds,
+    resolveIntersectingSelectionIds(selectionRect, targets),
+    additive
+  );
+
+export const resolveCompletedMarqueeSelectionIds = ({
+  additive,
+  baseSelectedIds,
+  hasActivated,
+  nextSelectedIds,
+}: {
+  additive: boolean;
+  baseSelectedIds: string[];
+  hasActivated: boolean;
+  nextSelectedIds: string[];
+}) => {
+  if (hasActivated) {
+    return nextSelectedIds;
+  }
+
+  return additive ? baseSelectedIds : [];
+};
 
 export const selectionDistanceExceedsThreshold = (
   start: CanvasSelectionPoint,

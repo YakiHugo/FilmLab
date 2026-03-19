@@ -7,9 +7,7 @@ import { useCanvasRuntimeStore } from "@/stores/canvasRuntimeStore";
 
 interface ImageElementProps {
   element: CanvasImageElement;
-  isSelected: boolean;
   previewPriority: "interactive" | "background";
-  showSelectionOutline: boolean;
   dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
   onSelect: (elementId: string, additive: boolean) => void;
   onDragEnd: (elementId: string, x: number, y: number) => void;
@@ -61,9 +59,7 @@ const useLoadedImage = (src?: string) => {
 
 export const ImageElement = memo(function ImageElement({
   element,
-  isSelected,
   previewPriority,
-  showSelectionOutline,
   dragBoundFunc,
   onSelect,
   onDragEnd,
@@ -125,48 +121,8 @@ export const ImageElement = memo(function ImageElement({
 
   if (!renderSource) {
     return (
-      <>
-        <Rect
-          id={element.id}
-          x={element.x}
-          y={element.y}
-          width={element.width}
-          height={element.height}
-          rotation={element.rotation}
-          opacity={element.opacity}
-          visible={element.visible}
-          fill="#27272a"
-          stroke="#52525b"
-          strokeWidth={1}
-          draggable={!element.locked}
-          dragBoundFunc={dragBoundFunc}
-          onClick={(event) => onSelect(element.id, Boolean(event.evt.shiftKey))}
-          onTap={() => onSelect(element.id, false)}
-          onDragEnd={(event) => onDragEnd(element.id, event.target.x(), event.target.y())}
-        />
-        {isSelected && showSelectionOutline ? (
-          <Rect
-            listening={false}
-            x={element.x}
-            y={element.y}
-            width={element.width}
-            height={element.height}
-            rotation={element.rotation}
-            stroke="#f59e0b"
-            strokeWidth={1.5}
-            dash={[6, 4]}
-            strokeScaleEnabled={false}
-          />
-        ) : null}
-      </>
-    );
-  }
-
-  return (
-    <>
-      <KonvaImage
+      <Rect
         id={element.id}
-        image={renderSource}
         x={element.x}
         y={element.y}
         width={element.width}
@@ -174,26 +130,34 @@ export const ImageElement = memo(function ImageElement({
         rotation={element.rotation}
         opacity={element.opacity}
         visible={element.visible}
+        fill="#27272a"
+        stroke="#52525b"
+        strokeWidth={1}
         draggable={!element.locked}
         dragBoundFunc={dragBoundFunc}
         onClick={(event) => onSelect(element.id, Boolean(event.evt.shiftKey))}
         onTap={() => onSelect(element.id, false)}
         onDragEnd={(event) => onDragEnd(element.id, event.target.x(), event.target.y())}
       />
-      {isSelected && showSelectionOutline ? (
-        <Rect
-          listening={false}
-          x={element.x}
-          y={element.y}
-          width={element.width}
-          height={element.height}
-          rotation={element.rotation}
-          stroke="#f59e0b"
-          strokeWidth={1.5}
-          dash={[6, 4]}
-          strokeScaleEnabled={false}
-        />
-      ) : null}
-    </>
+    );
+  }
+
+  return (
+    <KonvaImage
+      id={element.id}
+      image={renderSource}
+      x={element.x}
+      y={element.y}
+      width={element.width}
+      height={element.height}
+      rotation={element.rotation}
+      opacity={element.opacity}
+      visible={element.visible}
+      draggable={!element.locked}
+      dragBoundFunc={dragBoundFunc}
+      onClick={(event) => onSelect(element.id, Boolean(event.evt.shiftKey))}
+      onTap={() => onSelect(element.id, false)}
+      onDragEnd={(event) => onDragEnd(element.id, event.target.x(), event.target.y())}
+    />
   );
 });
