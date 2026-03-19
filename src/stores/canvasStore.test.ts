@@ -134,6 +134,8 @@ describe("canvasStore", () => {
       activePanel: null,
       selectedElementIds: [],
       tool: "select",
+      viewport: { x: 0, y: 0 },
+      zoom: 1,
     });
   });
 
@@ -271,5 +273,14 @@ describe("canvasStore", () => {
 
     expect(useCanvasStore.getState().activePanel).toBeNull();
     expect(useCanvasStore.getState().tool).toBe("select");
+  });
+
+  it("short-circuits committed selection updates when ids are unchanged", () => {
+    useCanvasStore.getState().setSelectedElementIds(["image-1", "text-1"]);
+    const firstSelectedElementIds = useCanvasStore.getState().selectedElementIds;
+
+    useCanvasStore.getState().setSelectedElementIds(["image-1", "text-1"]);
+
+    expect(useCanvasStore.getState().selectedElementIds).toBe(firstSelectedElementIds);
   });
 });

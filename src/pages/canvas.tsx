@@ -6,6 +6,7 @@ import { CanvasExportDialog } from "@/features/canvas/CanvasExportDialog";
 import { CanvasFloatingPanel } from "@/features/canvas/CanvasFloatingPanel";
 import { CanvasToolRail } from "@/features/canvas/CanvasToolRail";
 import { CanvasViewport } from "@/features/canvas/CanvasViewport";
+import { hasSelectedImageElement } from "@/features/canvas/selectionModel";
 import { useCanvasStore } from "@/stores/canvasStore";
 
 export function CanvasPage() {
@@ -21,7 +22,13 @@ export function CanvasPage() {
   const createDocument = useCanvasStore((state) => state.createDocument);
   const setActiveDocumentId = useCanvasStore((state) => state.setActiveDocumentId);
   const selectedElementIds = useCanvasStore((state) => state.selectedElementIds);
+  const activePanel = useCanvasStore((state) => state.activePanel);
   const setActivePanel = useCanvasStore((state) => state.setActivePanel);
+  const activeDocument = useCanvasStore((state) =>
+    state.activeDocumentId
+      ? (state.documents.find((document) => document.id === state.activeDocumentId) ?? null)
+      : null
+  );
 
   useEffect(() => {
     void init();
@@ -61,17 +68,13 @@ export function CanvasPage() {
 
   // Auto-open edit panel when an image element is selected
   useEffect(() => {
-    if (selectedElementIds.length === 0) return;
-    const activeDocument = documents.find((d) => d.id === activeDocumentId);
-    if (!activeDocument) return;
-    const hasImage = selectedElementIds.some((id) => {
-      const el = activeDocument.elements.find((e) => e.id === id);
-      return el?.type === "image";
-    });
-    if (hasImage) {
+    if (activePanel === "edit" || !activeDocument || selectedElementIds.length === 0) {
+      return;
+    }
+    if (hasSelectedImageElement(activeDocument, selectedElementIds)) {
       setActivePanel("edit");
     }
-  }, [selectedElementIds, documents, activeDocumentId, setActivePanel]);
+  }, [activeDocument, activePanel, selectedElementIds, setActivePanel]);
 
   return (
     <div className="absolute inset-0 overflow-hidden">

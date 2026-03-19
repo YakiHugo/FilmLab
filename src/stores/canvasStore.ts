@@ -1,5 +1,6 @@
 ﻿import { create } from "zustand";
 import { devtools } from "zustand/middleware";
+import { selectionIdsEqual } from "@/features/canvas/selectionModel";
 import {
   createDefaultCanvasDocumentFields,
   normalizeCanvasDocument,
@@ -256,7 +257,12 @@ export const useCanvasStore = create<CanvasState>()(
         setActiveDocumentId: (activeDocumentId) =>
           set({ activeDocumentId, selectedElementIds: [] }),
         setSelectedElementIds: (selectedElementIds) =>
-          set({ selectedElementIds: Array.from(new Set(selectedElementIds)) }),
+          set((state) => {
+            const nextSelectedElementIds = Array.from(new Set(selectedElementIds));
+            return selectionIdsEqual(state.selectedElementIds, nextSelectedElementIds)
+              ? state
+              : { selectedElementIds: nextSelectedElementIds };
+          }),
         setTool: (tool) =>
           set((state) => ({
             tool,

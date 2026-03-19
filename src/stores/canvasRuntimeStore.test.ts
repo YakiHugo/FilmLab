@@ -157,6 +157,7 @@ describe("canvasRuntimeStore", () => {
     useCanvasRuntimeStore.setState({
       draftAdjustmentsByElementId: {},
       previewEntries: {},
+      selectionPreviewElementIds: null,
     });
   });
 
@@ -217,6 +218,7 @@ describe("canvasRuntimeStore", () => {
     useCanvasRuntimeStore.setState({
       draftAdjustmentsByElementId: {},
       previewEntries,
+      selectionPreviewElementIds: null,
     });
 
     useCanvasRuntimeStore.getState().releaseBoardPreview("image-25");
@@ -228,5 +230,19 @@ describe("canvasRuntimeStore", () => {
     expect(nextEntries["image-2"]).toBeDefined();
     expect((previewEntries["image-0"]?.previewSource as HTMLCanvasElement).width).toBe(0);
     expect((previewEntries["image-1"]?.previewSource as HTMLCanvasElement).height).toBe(0);
+  });
+
+  it("short-circuits preview selection updates when ids are unchanged", () => {
+    useCanvasRuntimeStore.getState().setSelectionPreviewElementIds(["image-1"]);
+    const firstPreviewSelectionIds = useCanvasRuntimeStore.getState().selectionPreviewElementIds;
+
+    useCanvasRuntimeStore.getState().setSelectionPreviewElementIds(["image-1"]);
+
+    expect(useCanvasRuntimeStore.getState().selectionPreviewElementIds).toBe(
+      firstPreviewSelectionIds
+    );
+
+    useCanvasRuntimeStore.getState().clearSelectionPreview();
+    expect(useCanvasRuntimeStore.getState().selectionPreviewElementIds).toBeNull();
   });
 });

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createCanvasImageRenderContext, renderCanvasImageElementToCanvas, type BoardPreviewPriority } from "@/features/canvas/boardImageRendering";
+import { selectionIdsEqual } from "@/features/canvas/selectionModel";
 import type { Asset, CanvasImageElement, EditingAdjustments } from "@/types";
 import { useAssetStore } from "./assetStore";
 import { useCanvasStore } from "./canvasStore";
@@ -19,11 +20,14 @@ export interface CanvasPreviewEntry {
 interface CanvasRuntimeState {
   draftAdjustmentsByElementId: Record<string, EditingAdjustments | undefined>;
   previewEntries: Record<string, CanvasPreviewEntry | undefined>;
+  selectionPreviewElementIds: string[] | null;
   clearElementDraftAdjustments: (elementId: string) => void;
+  clearSelectionPreview: () => void;
   invalidateBoardPreview: (elementId: string, reason?: string) => void;
   releaseBoardPreview: (elementId: string) => void;
   requestBoardPreview: (elementId: string, priority: BoardPreviewPriority) => Promise<void>;
   setElementDraftAdjustments: (elementId: string, adjustments: EditingAdjustments | undefined) => void;
+  setSelectionPreviewElementIds: (ids: string[] | null) => void;
 }
 
 interface ResolvedPreviewTaskInput {
@@ -383,6 +387,7 @@ const pumpPreviewQueue = () => {
 export const useCanvasRuntimeStore = create<CanvasRuntimeState>((set) => ({
   draftAdjustmentsByElementId: {},
   previewEntries: {},
+  selectionPreviewElementIds: null,
   clearElementDraftAdjustments: (elementId) =>
     set((state) => {
       if (!(elementId in state.draftAdjustmentsByElementId)) {
@@ -394,6 +399,14 @@ export const useCanvasRuntimeStore = create<CanvasRuntimeState>((set) => ({
         draftAdjustmentsByElementId: nextDrafts,
       };
     }),
+  clearSelectionPreview: () =>
+    set((state) =>
+      state.selectionPreviewElementIds === null
+        ? state
+        : {
+            selectionPreviewElementIds: null,
+          }
+    ),
   invalidateBoardPreview: (elementId) => {
     cancelPreviewWork(elementId);
     set((state) => {
@@ -452,4 +465,17 @@ export const useCanvasRuntimeStore = create<CanvasRuntimeState>((set) => ({
         [elementId]: adjustments,
       },
     })),
+  setSelectionPreviewElementIds: (ids) =>
+    set((state) => {
+      const nextSelectionPreviewElementIds =
+        ids === null ? null : Array.from(new Set(ids));
+      return selectionIdsEqual(
+        state.selectionPreviewElementIds,
+        nextSelectionPreviewElementIds
+      )
+        ? state
+        : {
+            selectionPreviewElementIds: nextSelectionPreviewElementIds,
+          };
+    }),
 }));

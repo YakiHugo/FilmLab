@@ -10,9 +10,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAssetStore } from "@/stores/assetStore";
-import type { CanvasElement } from "@/types";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
+import type { CanvasElement } from "@/types";
+import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
 import {
   applyCanvasTextFontSizeTier,
   CANVAS_TEXT_COLOR_OPTIONS,
@@ -52,19 +52,10 @@ const NumberInput = ({
 );
 
 export function CanvasPropertiesPanel() {
-  const documents = useCanvasStore((state) => state.documents);
   const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
   const upsertElement = useCanvasStore((state) => state.upsertElement);
   const assets = useAssetStore((state) => state.assets);
-  const { selectedElementIds } = useCanvasInteraction();
-
-  const selected = useMemo(() => {
-    const active = documents.find((document) => document.id === activeDocumentId);
-    if (!active || selectedElementIds.length === 0) {
-      return null;
-    }
-    return active.elements.find((element) => element.id === selectedElementIds[0]) ?? null;
-  }, [documents, activeDocumentId, selectedElementIds]);
+  const { activeDocument, primarySelectedElement: selected } = useCanvasSelectionModel();
 
   const update = (patch: Partial<CanvasElement>) => {
     if (!selected || !activeDocumentId) {
@@ -82,11 +73,6 @@ export function CanvasPropertiesPanel() {
     }
     return assets.find((asset) => asset.id === selected.assetId) ?? null;
   }, [assets, selected]);
-
-  const activeDocument = useMemo(
-    () => documents.find((document) => document.id === activeDocumentId) ?? null,
-    [documents, activeDocumentId]
-  );
 
   const textFontOptions = useMemo(() => {
     if (!selected || selected.type !== "text") {
@@ -120,7 +106,7 @@ export function CanvasPropertiesPanel() {
         </div>
       </div>
 
-      {!selected && (
+      {!selected ? (
         <div className="mt-4 rounded-[24px] border border-dashed border-white/10 bg-white/[0.02] p-4">
           <p className="text-sm font-medium text-zinc-100">Nothing selected yet.</p>
           <p className="mt-2 text-sm leading-6 text-zinc-500">
@@ -141,9 +127,7 @@ export function CanvasPropertiesPanel() {
             </div>
           ) : null}
         </div>
-      )}
-
-      {selected && (
+      ) : (
         <div className="mt-4 space-y-4">
           <div className="rounded-[24px] border border-white/10 bg-white/[0.03] px-4 py-3">
             <div className="flex items-center justify-between gap-3">
@@ -166,16 +150,8 @@ export function CanvasPropertiesPanel() {
           <div className="rounded-[24px] border border-white/10 bg-black/25 p-4">
             <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Transform</p>
             <div className="mt-3 grid grid-cols-2 gap-3">
-              <NumberInput
-                label="X"
-                value={selected.x}
-                onChange={(value) => update({ x: value })}
-              />
-              <NumberInput
-                label="Y"
-                value={selected.y}
-                onChange={(value) => update({ y: value })}
-              />
+              <NumberInput label="X" value={selected.x} onChange={(value) => update({ x: value })} />
+              <NumberInput label="Y" value={selected.y} onChange={(value) => update({ y: value })} />
               <NumberInput
                 label="Width"
                 value={selected.width}
@@ -205,7 +181,7 @@ export function CanvasPropertiesPanel() {
             </div>
           </div>
 
-          {selected.type === "image" && (
+          {selected.type === "image" ? (
             <div className="space-y-3 rounded-[24px] border border-white/10 bg-black/25 p-4">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Image</p>
@@ -237,9 +213,9 @@ export function CanvasPropertiesPanel() {
                 </SelectContent>
               </Select>
             </div>
-          )}
+          ) : null}
 
-          {selected.type === "text" && (
+          {selected.type === "text" ? (
             <div className="space-y-3 rounded-[24px] border border-white/10 bg-black/25 p-4">
               <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Text</p>
               <Input
@@ -311,7 +287,7 @@ export function CanvasPropertiesPanel() {
                 </Select>
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       )}
     </div>

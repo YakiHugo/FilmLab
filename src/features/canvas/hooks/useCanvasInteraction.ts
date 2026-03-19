@@ -36,17 +36,18 @@ export function useCanvasInteraction() {
 
   const selectElement = useCallback(
     (id: string, options?: { additive?: boolean }) => {
+      const { selectedElementIds: currentSelectedIds } = useCanvasStore.getState();
       if (!options?.additive) {
         setSelectedElementIds([id]);
         return;
       }
-      if (selectedElementIds.includes(id)) {
-        setSelectedElementIds(selectedElementIds.filter((selectedId) => selectedId !== id));
+      if (currentSelectedIds.includes(id)) {
+        setSelectedElementIds(currentSelectedIds.filter((selectedId) => selectedId !== id));
         return;
       }
-      setSelectedElementIds([...selectedElementIds, id]);
+      setSelectedElementIds([...currentSelectedIds, id]);
     },
-    [selectedElementIds, setSelectedElementIds]
+    [setSelectedElementIds]
   );
 
   const deleteSelection = useCallback(async () => {
@@ -153,7 +154,17 @@ export function useCanvasInteraction() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [activeDocument, activeDocumentId, deleteElements, duplicateElements, nudgeElements, redo, selectAll, selectedElementIds, undo]);
+  }, [
+    activeDocument,
+    activeDocumentId,
+    deleteElements,
+    duplicateElements,
+    nudgeElements,
+    redo,
+    selectAll,
+    selectedElementIds,
+    undo,
+  ]);
 
   return {
     activeDocument,
