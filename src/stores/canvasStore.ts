@@ -369,6 +369,9 @@ export const useCanvasStore = create<CanvasState>()(
         }
 
         const result = executeCanvasCommand(existing, command);
+        if (!result.didChange) {
+          return existing;
+        }
         await saveCanvasDocument(getCanvasDocumentSnapshot(result.document));
 
         set((state) => {
@@ -568,19 +571,25 @@ export const useCanvasStore = create<CanvasState>()(
           return null;
         }
         const groupId = createNodeId();
-        await get().executeCommand(documentId, {
+        const result = await get().executeCommand(documentId, {
           type: "GROUP_NODES",
           ids: uniqueIds,
           groupId,
         });
+        if (result?.nodes[groupId]?.type !== "group") {
+          return null;
+        }
         set({ selectedElementIds: [groupId] });
         return groupId;
       },
       ungroupElement: async (documentId, id) => {
-        await get().executeCommand(documentId, {
+        const result = await get().executeCommand(documentId, {
           type: "UNGROUP_NODE",
           id,
         });
+        if (!result || result.nodes[id]) {
+          return;
+        }
         set({ selectedElementIds: [] });
       },
       canUndo: (documentId) => {

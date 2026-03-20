@@ -113,8 +113,14 @@ describe("selection geometry", () => {
   });
 
   it("only treats unlocked and visible targets as marquee-selectable", () => {
-    expect(isSelectableSelectionTarget({ locked: false, visible: true })).toBe(true);
-    expect(isSelectableSelectionTarget({ locked: true, visible: true })).toBe(false);
-    expect(isSelectableSelectionTarget({ locked: false, visible: false })).toBe(false);
+    expect(isSelectableSelectionTarget({ effectiveLocked: false, effectiveVisible: true })).toBe(
+      true
+    );
+    expect(isSelectableSelectionTarget({ effectiveLocked: true, effectiveVisible: true })).toBe(
+      false
+    );
+    expect(isSelectableSelectionTarget({ effectiveLocked: false, effectiveVisible: false })).toBe(
+      false
+    );
   });
 });

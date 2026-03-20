@@ -1,9 +1,14 @@
 import { memo, useMemo } from "react";
 import { Arrow, Ellipse, Group, Line, Rect } from "react-konva";
-import type { CanvasShapeElement } from "@/types";
+import type { CanvasRenderableElement, CanvasShapeElement } from "@/types";
+
+type CanvasShapeRenderState = CanvasShapeElement &
+  Partial<
+    Pick<Extract<CanvasRenderableElement, { type: "shape" }>, "effectiveLocked" | "effectiveVisible" | "worldOpacity">
+  >;
 
 interface ShapeElementProps {
-  element: CanvasShapeElement;
+  element: CanvasShapeRenderState;
   dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
   onSelect: (elementId: string, additive: boolean) => void;
   onDragEnd: (elementId: string, x: number, y: number) => void;
@@ -21,6 +26,9 @@ export const ShapeElement = memo(function ShapeElement({
     }
     return [0, element.height / 2, element.width, element.height / 2];
   }, [element.height, element.points, element.width]);
+  const effectiveLocked = element.effectiveLocked ?? element.locked;
+  const effectiveVisible = element.effectiveVisible ?? element.visible;
+  const renderOpacity = element.worldOpacity ?? element.opacity;
 
   return (
     <Group
@@ -28,9 +36,9 @@ export const ShapeElement = memo(function ShapeElement({
       x={element.x}
       y={element.y}
       rotation={element.rotation}
-      opacity={element.opacity}
-      visible={element.visible}
-      draggable={!element.locked}
+      opacity={renderOpacity}
+      visible={effectiveVisible}
+      draggable={!effectiveLocked}
       dragBoundFunc={dragBoundFunc}
       onClick={(event) => onSelect(element.id, Boolean(event.evt.shiftKey))}
       onTap={() => onSelect(element.id, false)}

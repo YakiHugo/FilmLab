@@ -10,8 +10,9 @@ export interface CanvasSelectionTarget {
   rect: CanvasOverlayRect;
 }
 
-export const isSelectableSelectionTarget = (target: { locked: boolean; visible: boolean }) =>
-  !target.locked && target.visible;
+export const isSelectableSelectionTarget = (
+  target: { effectiveLocked: boolean; effectiveVisible: boolean }
+) => !target.effectiveLocked && target.effectiveVisible;
 
 export const normalizeSelectionRect = (
   start: CanvasSelectionPoint,

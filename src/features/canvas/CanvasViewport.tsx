@@ -1106,7 +1106,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const handleElementSelect = useCallback(
     (elementId: string, additive: boolean) => {
       const element = elementByIdRef.current.get(elementId);
-      if (!element || element.locked) {
+      if (!element || element.effectiveLocked || !element.effectiveVisible) {
         return;
       }
 
@@ -1118,7 +1118,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const handleElementDragEnd = useCallback(
     (elementId: string, x: number, y: number) => {
       const element = elementByIdRef.current.get(elementId);
-      if (!activeDocumentId || !element) {
+      if (!activeDocumentId || !element || element.effectiveLocked || !element.effectiveVisible) {
         return;
       }
 

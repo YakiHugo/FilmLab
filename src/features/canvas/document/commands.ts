@@ -17,10 +17,18 @@ import {
   rotatePoint,
   worldPointToLocalPoint,
 } from "./geometry";
-import { createCanvasNodeId, getCanvasDocumentSnapshot, getCanvasRenderableNode } from "./model";
+import {
+  createCanvasNodeId,
+  getCanvasDescendantIds,
+  getCanvasDocumentSnapshot,
+  getCanvasRenderableNode,
+  normalizeNode,
+} from "./model";
 import { createCanvasDocumentPatch } from "./patches";
 import { resolveCanvasDocument } from "./resolve";
-import { clone, toNodeTransform, withSyncedTransformFields } from "./shared";
+import { areEqual, clone, toNodeTransform, withSyncedTransformFields } from "./shared";
+
+const EMPTY_PATCH: CanvasDocumentPatch = { operations: [] };
 
 const moveIdsInOrder = (ids: CanvasNodeId[], movingIds: CanvasNodeId[], index: number) => {
   const remaining = ids.filter((entry) => !movingIds.includes(entry));
@@ -52,6 +60,27 @@ const getChildOrder = (snapshot: CanvasDocumentSnapshot, parentId: CanvasNodeId 
   const parent = snapshot.nodes[parentId];
   return parent?.type === "group" ? parent.childIds.slice() : [];
 };
+
+const isValidParentTarget = (
+  snapshot: CanvasDocumentSnapshot,
+  parentId: CanvasNodeId | null
+) => !parentId || snapshot.nodes[parentId]?.type === "group";
+
+const insertIdsAtIndex = (ids: CanvasNodeId[], insertIds: CanvasNodeId[], index: number) => {
+  const insertIndex = Math.max(0, Math.min(index, ids.length));
+  const next = ids.slice();
+  next.splice(insertIndex, 0, ...insertIds);
+  return next;
+};
+
+const filterSelectedRoots = (snapshot: Pick<CanvasDocumentSnapshot, "nodes">, ids: CanvasNodeId[]) =>
+  ids.filter(
+    (nodeId) =>
+      !ids.some(
+        (candidateId) =>
+          candidateId !== nodeId && getCanvasDescendantIds(snapshot, candidateId).includes(nodeId)
+      )
+  );
 
 const deleteNodeRecursive = (snapshot: CanvasDocumentSnapshot, nodeId: CanvasNodeId) => {
   const node = snapshot.nodes[nodeId];
@@ -143,21 +172,24 @@ const applyNodePropertyPatch = (node: CanvasNode, patch: CanvasNodePropertyPatch
   });
 };
 
-export const executeCanvasCommand = (
-  document: CanvasDocument,
-  command: CanvasCommand
-): {
+export interface ExecuteCanvasCommandResult {
+  didChange: boolean;
   document: CanvasDocument;
   forwardPatch: CanvasDocumentPatch;
   inversePatch: CanvasDocumentPatch;
-} => {
+}
+
+export const executeCanvasCommand = (
+  document: CanvasDocument,
+  command: CanvasCommand
+): ExecuteCanvasCommandResult => {
   const before = getCanvasDocumentSnapshot(document);
   const next = clone(before);
 
   if (command.type === "PATCH_DOCUMENT") {
-    Object.assign(next, clone(command.patch), { updatedAt: new Date().toISOString() });
+    Object.assign(next, clone(command.patch));
   } else if (command.type === "INSERT_NODES") {
-    const nodes = command.nodes.map((node) => clone(node));
+    const nodes = command.nodes.map((node) => normalizeNode(node));
     const targetParentId = command.parentId ?? nodes[0]?.parentId ?? null;
     for (const node of nodes) {
       next.nodes[node.id] = withSyncedTransformFields({
@@ -207,14 +239,21 @@ export const executeCanvasCommand = (
     }
   } else if (command.type === "GROUP_NODES") {
     const uniqueIds = Array.from(new Set(command.ids)).filter((nodeId) => next.nodes[nodeId]);
-    if (uniqueIds.length > 0) {
+    const selectedParentIds = Array.from(
+      new Set(uniqueIds.map((nodeId) => next.nodes[nodeId]?.parentId ?? null))
+    );
+
+    if (uniqueIds.length >= 2 && selectedParentIds.length === 1) {
+      const targetParentId = selectedParentIds[0] ?? null;
+      const siblingOrder = getChildOrder(next, targetParentId);
+      const orderedSelectedIds = siblingOrder.filter((nodeId) => uniqueIds.includes(nodeId));
       const runtime = resolveCanvasDocument(next);
-      const worldTransforms = collectWorldTransformById(runtime, uniqueIds);
-      const renderables = uniqueIds
+      const worldTransforms = collectWorldTransformById(runtime, orderedSelectedIds);
+      const renderables = orderedSelectedIds
         .map((nodeId) => getCanvasRenderableNode(runtime, nodeId))
         .filter((node): node is CanvasRenderableNode => Boolean(node));
 
-      if (renderables.length > 0) {
+      if (renderables.length === orderedSelectedIds.length && renderables.length >= 2) {
         const points = renderables.flatMap((node) => [
           { x: node.bounds.x, y: node.bounds.y },
           { x: node.bounds.x + node.bounds.width, y: node.bounds.y },
@@ -223,13 +262,20 @@ export const executeCanvasCommand = (
         ]);
         const bounds = getBoundsFromPoints(points);
         const groupId = command.groupId ?? createCanvasNodeId("canvas-group");
+        const groupLocalOrigin = worldPointToLocalPoint(runtime, targetParentId, {
+          x: bounds.x,
+          y: bounds.y,
+        });
+        const targetParentTransform =
+          targetParentId ? getCanvasNodeWorldTransform(runtime, targetParentId) : null;
+        const groupWorldRotation = targetParentTransform?.rotation ?? 0;
         next.nodes[groupId] = withSyncedTransformFields({
           id: groupId,
           type: "group",
-          parentId: null,
+          parentId: targetParentId,
           transform: toNodeTransform({
-            x: bounds.x,
-            y: bounds.y,
+            x: groupLocalOrigin.x,
+            y: groupLocalOrigin.y,
             width: bounds.width,
             height: bounds.height,
             rotation: 0,
@@ -237,30 +283,48 @@ export const executeCanvasCommand = (
           opacity: 1,
           locked: false,
           visible: true,
-          childIds: uniqueIds.slice(),
+          childIds: orderedSelectedIds.slice(),
           name: command.name ?? "Group",
         });
 
-        for (const nodeId of uniqueIds) {
+        for (const nodeId of orderedSelectedIds) {
           const currentNode = next.nodes[nodeId];
           const worldTransform = worldTransforms.get(nodeId);
           if (!currentNode || !worldTransform) {
             continue;
           }
+          const localPosition = rotatePoint(
+            {
+              x: worldTransform.x - bounds.x,
+              y: worldTransform.y - bounds.y,
+            },
+            -groupWorldRotation
+          );
           next.nodes[nodeId] = withSyncedTransformFields({
             ...currentNode,
             parentId: groupId,
             transform: toNodeTransform({
               ...currentNode.transform,
-              x: worldTransform.x - bounds.x,
-              y: worldTransform.y - bounds.y,
-              rotation: worldTransform.rotation,
+              x: localPosition.x,
+              y: localPosition.y,
+              rotation: worldTransform.rotation - groupWorldRotation,
             }),
           });
         }
 
-        next.rootIds = next.rootIds.filter((nodeId) => !uniqueIds.includes(nodeId));
-        next.rootIds.push(groupId);
+        const remainingSiblingIds = siblingOrder.filter(
+          (nodeId) => !orderedSelectedIds.includes(nodeId)
+        );
+        const insertIndex = siblingOrder.indexOf(orderedSelectedIds[0]!);
+        setChildOrder(
+          next,
+          targetParentId,
+          insertIdsAtIndex(
+            remainingSiblingIds,
+            [groupId],
+            insertIndex >= 0 ? insertIndex : remainingSiblingIds.length
+          )
+        );
       }
     }
   } else if (command.type === "UNGROUP_NODE") {
@@ -295,33 +359,43 @@ export const executeCanvasCommand = (
             y: local.y,
             rotation: childWorld.rotation - (targetParentTransform?.rotation ?? 0),
           }),
+          locked: child.locked || group.locked,
+          opacity: child.opacity * group.opacity,
+          visible: child.visible && group.visible,
         });
       }
 
       delete next.nodes[group.id];
-      if (targetParentId) {
-        const parent = next.nodes[targetParentId];
-        if (parent?.type === "group") {
-          parent.childIds = parent.childIds.filter((childId) => childId !== group.id);
-          parent.childIds.splice(
-            insertIndex >= 0 ? insertIndex : parent.childIds.length,
-            0,
-            ...childIds
-          );
-        }
-      } else {
-        const remainingRoots = next.rootIds.filter((nodeId) => nodeId !== group.id);
-        remainingRoots.splice(
-          insertIndex >= 0 ? insertIndex : remainingRoots.length,
-          0,
-          ...childIds
-        );
-        next.rootIds = remainingRoots;
-      }
+      const remainingSiblingIds = targetOrder.filter((nodeId) => nodeId !== group.id);
+      setChildOrder(
+        next,
+        targetParentId,
+        insertIdsAtIndex(
+          remainingSiblingIds,
+          childIds,
+          insertIndex >= 0 ? insertIndex : remainingSiblingIds.length
+        )
+      );
     }
   } else if (command.type === "REPARENT_NODES") {
-    const uniqueIds = Array.from(new Set(command.ids)).filter((nodeId) => next.nodes[nodeId]);
-    if (uniqueIds.length > 0) {
+    const uniqueIds = filterSelectedRoots(
+      next,
+      Array.from(new Set(command.ids)).filter((nodeId) => next.nodes[nodeId])
+    );
+    const targetParentId = command.parentId;
+    const createsCycle =
+      targetParentId !== null &&
+      uniqueIds.some(
+        (nodeId) =>
+          nodeId === targetParentId ||
+          getCanvasDescendantIds(next, nodeId).includes(targetParentId)
+      );
+
+    if (
+      uniqueIds.length > 0 &&
+      isValidParentTarget(next, targetParentId) &&
+      !createsCycle
+    ) {
       const runtime = resolveCanvasDocument(next);
       const worldTransforms = collectWorldTransformById(runtime, uniqueIds);
       for (const nodeId of uniqueIds) {
@@ -339,28 +413,28 @@ export const executeCanvasCommand = (
         }
       }
 
-      const currentOrder = getChildOrder(next, command.parentId);
+      const currentOrder = getChildOrder(next, targetParentId);
       setChildOrder(
         next,
-        command.parentId,
+        targetParentId,
         moveIdsInOrder(currentOrder, uniqueIds, command.index ?? currentOrder.length)
       );
 
       const parentWorldTransform =
-        command.parentId ? getCanvasNodeWorldTransform(runtime, command.parentId) : null;
+        targetParentId ? getCanvasNodeWorldTransform(runtime, targetParentId) : null;
       for (const nodeId of uniqueIds) {
         const currentNode = next.nodes[nodeId];
         const world = worldTransforms.get(nodeId);
         if (!currentNode || !world) {
           continue;
         }
-        const local = worldPointToLocalPoint(runtime, command.parentId, {
+        const local = worldPointToLocalPoint(runtime, targetParentId, {
           x: world.x,
           y: world.y,
         });
         next.nodes[nodeId] = withSyncedTransformFields({
           ...currentNode,
-          parentId: command.parentId,
+          parentId: targetParentId,
           transform: toNodeTransform({
             ...currentNode.transform,
             x: local.x,
@@ -393,9 +467,19 @@ export const executeCanvasCommand = (
     }
   }
 
+  if (areEqual(before, next)) {
+    return {
+      didChange: false,
+      document,
+      forwardPatch: EMPTY_PATCH,
+      inversePatch: EMPTY_PATCH,
+    };
+  }
+
   next.updatedAt = new Date().toISOString();
   const nextDocument = resolveCanvasDocument(next);
   return {
+    didChange: true,
     document: nextDocument,
     forwardPatch: createCanvasDocumentPatch(before, getCanvasDocumentSnapshot(nextDocument)),
     inversePatch: createCanvasDocumentPatch(getCanvasDocumentSnapshot(nextDocument), before),

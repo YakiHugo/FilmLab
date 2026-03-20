@@ -73,6 +73,10 @@ const releasePreviewSource = (source: HTMLCanvasElement | null) => {
   source.height = 0;
 };
 
+const isEffectivelyVisible = (
+  element: CanvasImageElement & Partial<{ effectiveVisible: boolean }>
+) => element.effectiveVisible ?? element.visible;
+
 const findCanvasImageElement = (elementId: string) => {
   const { documents } = useCanvasStore.getState();
   for (const document of documents) {
@@ -197,7 +201,7 @@ const queueBoardPreviewRequest = (
   priority: BoardPreviewPriority
 ) => {
   const taskInput = resolvePreviewTaskInput(elementId, priority);
-  if (!taskInput || !taskInput.element.visible) {
+  if (!taskInput || !isEffectivelyVisible(taskInput.element)) {
     useCanvasRuntimeStore.getState().releaseBoardPreview(elementId);
     return;
   }

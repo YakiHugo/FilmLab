@@ -88,6 +88,104 @@ const createDocument = (): CanvasDocument =>
   updatedAt: "2026-03-17T00:00:00.000Z",
 });
 
+const createCrossParentGroupingDocument = (): CanvasDocument =>
+  normalizeCanvasDocument({
+    id: "doc-1",
+    version: 2,
+    name: "Board",
+    width: 1200,
+    height: 800,
+    presetId: "custom",
+    backgroundColor: "#000000",
+    nodes: {
+      "group-1": {
+        id: "group-1",
+        type: "group",
+        parentId: null,
+        x: 100,
+        y: 120,
+        width: 1,
+        height: 1,
+        rotation: 0,
+        transform: {
+          x: 100,
+          y: 120,
+          width: 1,
+          height: 1,
+          rotation: 0,
+        },
+        opacity: 1,
+        locked: false,
+        visible: true,
+        childIds: ["shape-1"],
+        name: "Group",
+      },
+      "shape-1": {
+        id: "shape-1",
+        type: "shape",
+        parentId: "group-1",
+        x: 10,
+        y: 20,
+        width: 120,
+        height: 80,
+        rotation: 0,
+        transform: {
+          x: 10,
+          y: 20,
+          width: 120,
+          height: 80,
+          rotation: 0,
+        },
+        opacity: 1,
+        locked: false,
+        visible: true,
+        shapeType: "rect",
+        fill: "#ffffff",
+        stroke: "#111111",
+        strokeWidth: 1,
+      },
+      "shape-2": {
+        id: "shape-2",
+        type: "shape",
+        parentId: null,
+        x: 260,
+        y: 200,
+        width: 120,
+        height: 80,
+        rotation: 0,
+        transform: {
+          x: 260,
+          y: 200,
+          width: 120,
+          height: 80,
+          rotation: 0,
+        },
+        opacity: 1,
+        locked: false,
+        visible: true,
+        shapeType: "rect",
+        fill: "#ffffff",
+        stroke: "#111111",
+        strokeWidth: 1,
+      },
+    },
+    rootIds: ["group-1", "shape-2"],
+    slices: [],
+    guides: {
+      showCenter: false,
+      showThirds: false,
+      showSafeArea: false,
+    },
+    safeArea: {
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+    },
+    createdAt: "2026-03-17T00:00:00.000Z",
+    updatedAt: "2026-03-17T00:00:00.000Z",
+  });
+
 const createLegacyShapeDocument = () =>
   ({
     id: "doc-1",
@@ -339,6 +437,24 @@ describe("canvasStore", () => {
 
     expect(useCanvasStore.getState().activePanel).toBeNull();
     expect(useCanvasStore.getState().tool).toBe("select");
+  });
+
+  it("skips persistence, history, and selection changes when grouping is invalid", async () => {
+    useCanvasStore.setState({
+      activeDocumentId: "doc-1",
+      documents: [createCrossParentGroupingDocument()],
+      historyByDocumentId: {
+        "doc-1": { past: [], future: [] },
+      },
+      selectedElementIds: ["shape-1", "shape-2"],
+    });
+
+    const result = await useCanvasStore.getState().groupElements("doc-1", ["shape-1", "shape-2"]);
+
+    expect(result).toBeNull();
+    expect(useCanvasStore.getState().selectedElementIds).toEqual(["shape-1", "shape-2"]);
+    expect(useCanvasStore.getState().historyByDocumentId["doc-1"]?.past).toEqual([]);
+    expect(saveCanvasDocumentMock).not.toHaveBeenCalled();
   });
 
   it("short-circuits committed selection updates when ids are unchanged", () => {

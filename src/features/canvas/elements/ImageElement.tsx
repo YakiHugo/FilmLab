@@ -1,12 +1,17 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { Image as KonvaImage, Rect } from "react-konva";
-import type { CanvasImageElement } from "@/types";
+import type { CanvasImageElement, CanvasRenderableElement } from "@/types";
 import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useCanvasRuntimeStore } from "@/stores/canvasRuntimeStore";
 
+type CanvasImageRenderState = CanvasImageElement &
+  Partial<
+    Pick<Extract<CanvasRenderableElement, { type: "image" }>, "effectiveLocked" | "effectiveVisible" | "worldOpacity">
+  >;
+
 interface ImageElementProps {
-  element: CanvasImageElement;
+  element: CanvasImageRenderState;
   previewPriority: "interactive" | "background";
   dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
   onSelect: (elementId: string, additive: boolean) => void;
@@ -73,6 +78,9 @@ export const ImageElement = memo(function ImageElement({
   const releaseBoardPreview = useCanvasRuntimeStore((state) => state.releaseBoardPreview);
   const fallbackSrc = asset?.thumbnailUrl || asset?.objectUrl;
   const fallbackImage = useLoadedImage(fallbackSrc);
+  const effectiveLocked = element.effectiveLocked ?? element.locked;
+  const effectiveVisible = element.effectiveVisible ?? element.visible;
+  const renderOpacity = element.worldOpacity ?? element.opacity;
   const previewKey = useMemo(
     () =>
       JSON.stringify({
@@ -94,7 +102,7 @@ export const ImageElement = memo(function ImageElement({
   );
 
   useEffect(() => {
-    if (!asset || !element.visible) {
+    if (!asset || !effectiveVisible) {
       releaseBoardPreview(element.id);
       return;
     }
@@ -109,7 +117,7 @@ export const ImageElement = memo(function ImageElement({
     asset?.objectUrl,
     asset?.thumbnailUrl,
     element.id,
-    element.visible,
+    effectiveVisible,
     previewPriority,
     zoom,
     previewKey,
@@ -128,12 +136,12 @@ export const ImageElement = memo(function ImageElement({
         width={element.width}
         height={element.height}
         rotation={element.rotation}
-        opacity={element.opacity}
-        visible={element.visible}
+        opacity={renderOpacity}
+        visible={effectiveVisible}
         fill="#27272a"
         stroke="#52525b"
         strokeWidth={1}
-        draggable={!element.locked}
+        draggable={!effectiveLocked}
         dragBoundFunc={dragBoundFunc}
         onClick={(event) => onSelect(element.id, Boolean(event.evt.shiftKey))}
         onTap={() => onSelect(element.id, false)}
@@ -151,9 +159,9 @@ export const ImageElement = memo(function ImageElement({
       width={element.width}
       height={element.height}
       rotation={element.rotation}
-      opacity={element.opacity}
-      visible={element.visible}
-      draggable={!element.locked}
+      opacity={renderOpacity}
+      visible={effectiveVisible}
+      draggable={!effectiveLocked}
       dragBoundFunc={dragBoundFunc}
       onClick={(event) => onSelect(element.id, Boolean(event.evt.shiftKey))}
       onTap={() => onSelect(element.id, false)}

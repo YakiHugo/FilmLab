@@ -147,6 +147,103 @@ const createCanvasDocument = (): CanvasDocument =>
     updatedAt: "2026-03-17T00:00:00.000Z",
   });
 
+const createNestedVisibilityDocument = (): CanvasDocument =>
+  normalizeCanvasDocument({
+    id: "doc-hidden",
+    name: "Board",
+    width: 1000,
+    height: 800,
+    presetId: "custom",
+    backgroundColor: "#101010",
+    version: 2,
+    nodes: {
+      "group-1": {
+        id: "group-1",
+        type: "group",
+        parentId: null,
+        x: 120,
+        y: 90,
+        width: 1,
+        height: 1,
+        rotation: 0,
+        transform: {
+          x: 120,
+          y: 90,
+          width: 1,
+          height: 1,
+          rotation: 0,
+        },
+        opacity: 1,
+        locked: false,
+        visible: false,
+        childIds: ["image-1"],
+        name: "Hidden group",
+      },
+      "image-1": {
+        id: "image-1",
+        type: "image",
+        parentId: "group-1",
+        assetId: "asset-1",
+        x: 24,
+        y: 18,
+        width: 200,
+        height: 100,
+        rotation: 0,
+        transform: {
+          x: 24,
+          y: 18,
+          width: 200,
+          height: 100,
+          rotation: 0,
+        },
+        opacity: 1,
+        locked: false,
+        visible: true,
+      },
+      "text-1": {
+        id: "text-1",
+        type: "text",
+        parentId: null,
+        content: "Visible copy",
+        fontFamily: "Georgia",
+        fontSize: 24,
+        fontSizeTier: "small",
+        color: "#ffffff",
+        textAlign: "left",
+        x: 200,
+        y: 260,
+        width: 180,
+        height: 50,
+        rotation: 0,
+        transform: {
+          x: 200,
+          y: 260,
+          width: 180,
+          height: 50,
+          rotation: 0,
+        },
+        opacity: 1,
+        locked: false,
+        visible: true,
+      },
+    },
+    rootIds: ["group-1", "text-1"],
+    slices: [],
+    guides: {
+      showCenter: false,
+      showThirds: false,
+      showSafeArea: false,
+    },
+    safeArea: {
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+    },
+    createdAt: "2026-03-17T00:00:00.000Z",
+    updatedAt: "2026-03-17T00:00:00.000Z",
+  });
+
 describe("renderCanvasDocument", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -224,6 +321,28 @@ describe("renderCanvasDocument", () => {
     expect(mainContext.fillText).toHaveBeenNthCalledWith(1, "first line", 0, 0);
     expect(mainContext.fillText).toHaveBeenNthCalledWith(2, "second", 0, 28.799999999999997);
     expect(mainContext.fillText).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips descendants of hidden groups during export rendering", async () => {
+    vi.stubGlobal("document", {
+      createElement: vi.fn(() => createCanvas()),
+    });
+
+    const mainContext = createContext();
+    const mainCanvas = createCanvas(mainContext);
+
+    await renderCanvasDocumentToCanvas({
+      assets: [createAsset()],
+      canvas: mainCanvas as unknown as HTMLCanvasElement,
+      document: createNestedVisibilityDocument(),
+      height: 1600,
+      pixelRatio: 1,
+      width: 2000,
+    });
+
+    expect(renderDocumentToCanvasMock).not.toHaveBeenCalled();
+    expect(mainContext.fillText).toHaveBeenCalledWith("Visible copy", 0, 0);
+    expect(mainContext.fillText).toHaveBeenCalledTimes(1);
   });
 
   it("crops rendered slice regions using the board export scale", () => {

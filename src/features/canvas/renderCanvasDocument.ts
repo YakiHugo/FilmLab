@@ -4,6 +4,7 @@ import type {
   Asset,
   CanvasDocument,
   CanvasImageElement,
+  CanvasRenderableElement,
   CanvasShapeElement,
   CanvasSlice,
   CanvasTextElement,
@@ -40,14 +41,12 @@ const ensureCanvasSize = (canvas: HTMLCanvasElement, width: number, height: numb
 
 const withElementTransform = (
   context: CanvasRenderingContext2D,
-  element: Pick<
-    CanvasImageElement | CanvasTextElement | CanvasShapeElement,
-    "opacity" | "rotation" | "x" | "y"
-  >,
+  element: Pick<CanvasImageElement | CanvasTextElement | CanvasShapeElement, "opacity" | "rotation" | "x" | "y"> &
+    Partial<Pick<CanvasRenderableElement, "worldOpacity">>,
   draw: () => void
 ) => {
   context.save();
-  context.globalAlpha = element.opacity;
+  context.globalAlpha = element.worldOpacity ?? element.opacity;
   context.translate(element.x, element.y);
   context.rotate((element.rotation * Math.PI) / 180);
   draw();
@@ -242,9 +241,7 @@ export const renderCanvasDocumentToCanvas = async ({
     y: canvas.height / Math.max(1, document.height),
   };
   const assetById = new Map(assets.map((asset) => [asset.id, asset]));
-  const orderedElements = document.elements.filter(
-    (element) => element.effectiveVisible && element.visible
-  );
+  const orderedElements = document.elements.filter((element) => element.effectiveVisible);
 
   context.save();
   context.clearRect(0, 0, canvas.width, canvas.height);
