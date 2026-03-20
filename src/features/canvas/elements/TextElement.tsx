@@ -8,8 +8,21 @@ import {
 
 type CanvasTextRenderState = CanvasTextElement &
   Partial<
-    Pick<Extract<CanvasRenderableElement, { type: "text" }>, "effectiveLocked" | "effectiveVisible" | "worldOpacity">
+    Pick<
+      Extract<CanvasRenderableElement, { type: "text" }>,
+      "effectiveLocked" | "effectiveVisible" | "worldOpacity"
+    >
   >;
+
+export const isCanvasTextElementEditable = (
+  element:
+    | (Partial<Pick<CanvasTextElement, "locked" | "visible">> &
+        Partial<
+          Pick<Extract<CanvasRenderableElement, { type: "text" }>, "effectiveLocked" | "effectiveVisible">
+        >)
+    | null
+    | undefined
+) => Boolean(element && !(element.effectiveLocked ?? element.locked) && (element.effectiveVisible ?? element.visible));
 
 interface TextElementProps {
   element: CanvasTextRenderState;
@@ -29,9 +42,11 @@ export const TextElement = memo(function TextElement({
   onDoubleClick,
 }: TextElementProps) {
   const layoutElement = useMemo(() => fitCanvasTextElementToContent(element), [element]);
+  const canEditText = isCanvasTextElementEditable(layoutElement);
   const effectiveLocked = layoutElement.effectiveLocked ?? layoutElement.locked;
   const effectiveVisible = layoutElement.effectiveVisible ?? layoutElement.visible;
   const renderOpacity = layoutElement.worldOpacity ?? layoutElement.opacity;
+  const handleDoubleClick = canEditText ? () => onDoubleClick(layoutElement.id) : undefined;
 
   return (
     <Text
@@ -54,8 +69,8 @@ export const TextElement = memo(function TextElement({
       dragBoundFunc={dragBoundFunc}
       onClick={(event) => onSelect(layoutElement.id, Boolean(event.evt.shiftKey))}
       onTap={() => onSelect(layoutElement.id, false)}
-      onDblClick={() => onDoubleClick(layoutElement.id)}
-      onDblTap={() => onDoubleClick(layoutElement.id)}
+      onDblClick={handleDoubleClick}
+      onDblTap={handleDoubleClick}
       onDragEnd={(event) => onDragEnd(layoutElement.id, event.target.x(), event.target.y())}
     />
   );

@@ -45,7 +45,7 @@ import {
   fitCanvasTextElementToContent,
 } from "./textStyle";
 import { createTextMutationQueue } from "./textMutationQueue";
-import { TextElement } from "./elements/TextElement";
+import { TextElement, isCanvasTextElementEditable } from "./elements/TextElement";
 import { registerCanvasStage } from "./hooks/canvasStageRegistry";
 import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
 import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
@@ -554,6 +554,11 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     editingTextElement ??
     (editingTextId ? textElementDraftRef.current : null) ??
     singleSelectedTextElement;
+  const editingTextElementIsEditable = isCanvasTextElementEditable(editingTextElement);
+  const selectedTextElementIsEditable = isCanvasTextElementEditable(singleSelectedTextElement);
+  const activeTextElementIsEditable = editingTextId
+    ? editingTextElementIsEditable
+    : selectedTextElementIsEditable;
 
   if (!textMutationQueueRef.current) {
     textMutationQueueRef.current = createTextMutationQueue();
@@ -643,6 +648,9 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
   const beginTextEdit = useCallback(
     (element: CanvasTextElement, options?: { mode?: EditingTextMode }) => {
+      if (!isCanvasTextElementEditable(element)) {
+        return;
+      }
       const mode = options?.mode ?? "existing";
       const nextElement = fitCanvasTextElementToContent(element);
       createdTextElementRef.current = mode === "existing";
@@ -1135,7 +1143,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const handleTextElementDoubleClick = useCallback(
     (elementId: string) => {
       const element = elementByIdRef.current.get(elementId);
-      if (element?.type !== "text") {
+      if (element?.type !== "text" || !isCanvasTextElementEditable(element)) {
         return;
       }
 
@@ -1222,7 +1230,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
   const commitTextEdit = useCallback(() => {
     const currentTextElement = textElementDraftRef.current ?? activeTextElement;
-    if (!currentTextElement || !activeDocumentId) {
+    if (!currentTextElement || !activeDocumentId || !editingTextElementIsEditable) {
       cancelTextEdit();
       return;
     }
@@ -1254,6 +1262,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     cancelTextEdit,
     clearSelection,
     deleteElements,
+    editingTextElementIsEditable,
     editingTextMode,
     editingTextValue,
     activeTextElement,
@@ -1273,7 +1282,9 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
     const node = stage.findOne(`#${trackedId}`);
     const trackedTextElement = editingTextId
-      ? (textElementDraftRef.current ?? activeTextElement)
+      ? editingTextElementIsEditable
+        ? (textElementDraftRef.current ?? activeTextElement)
+        : null
       : singleSelectedTextElement;
 
     if (!node && !trackedTextElement) {
@@ -1305,6 +1316,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   }, [
     activeTextElement,
     editingTextId,
+    editingTextElementIsEditable,
     selectedElementIds,
     stageRef,
     singleSelectedTextElement,
@@ -1315,7 +1327,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const updateSelectedTextElement = useCallback(
     (updater: (element: CanvasTextElement) => CanvasTextElement) => {
       const currentTextElement = textElementDraftRef.current ?? activeTextElement;
-      if (!activeDocumentId || !currentTextElement) {
+      if (!activeDocumentId || !currentTextElement || !editingTextElementIsEditable) {
         return;
       }
       const nextElement = fitCanvasTextElementToContent(updater(currentTextElement));
@@ -1330,7 +1342,14 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
         upsertElement(activeDocumentId, nextElement)
       );
     },
-    [activeDocumentId, activeTextElement, editingTextId, editingTextMode, upsertElement]
+    [
+      activeDocumentId,
+      activeTextElement,
+      editingTextElementIsEditable,
+      editingTextId,
+      editingTextMode,
+      upsertElement,
+    ]
   );
 
   useLayoutEffect(() => {
@@ -1494,9 +1513,13 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   };
 
   const showTextToolbar = Boolean(
-    selectionOverlay && activeTextElement?.type === "text" && selectedElementIds.length === 1
+    selectionOverlay &&
+      activeTextElementIsEditable &&
+      activeTextElement?.type === "text" &&
+      selectedElementIds.length === 1
   );
-  const editingTextRenderElement = activeTextElement?.type === "text" ? activeTextElement : null;
+  const editingTextRenderElement =
+    activeTextElementIsEditable && activeTextElement?.type === "text" ? activeTextElement : null;
   const showTextEditor = Boolean(
     !hasMarqueeSession && !isMarqueeDragging && editingTextId && editingTextRenderElement
   );
@@ -1513,10 +1536,10 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     : null;
 
   useEffect(() => {
-    if (editingTextId && !activeTextElement) {
+    if (editingTextId && !editingTextElementIsEditable) {
       cancelTextEdit();
     }
-  }, [activeTextElement, cancelTextEdit, editingTextId]);
+  }, [cancelTextEdit, editingTextElementIsEditable, editingTextId]);
 
   if (!activeDocument) {
     return (

@@ -44,13 +44,21 @@ const setChildOrder = (
   orderedIds: CanvasNodeId[]
 ) => {
   if (!parentId) {
-    snapshot.rootIds = orderedIds.slice();
-    return;
+    if (!areEqual(snapshot.rootIds, orderedIds)) {
+      snapshot.rootIds = orderedIds.slice();
+      return true;
+    }
+    return false;
   }
   const parent = snapshot.nodes[parentId];
   if (parent?.type === "group") {
-    parent.childIds = orderedIds.slice();
+    if (!areEqual(parent.childIds, orderedIds)) {
+      parent.childIds = orderedIds.slice();
+      return true;
+    }
+    return false;
   }
+  return false;
 };
 
 const getChildOrder = (snapshot: CanvasDocumentSnapshot, parentId: CanvasNodeId | null) => {
@@ -82,10 +90,22 @@ const filterSelectedRoots = (snapshot: Pick<CanvasDocumentSnapshot, "nodes">, id
       )
   );
 
-const deleteNodeRecursive = (snapshot: CanvasDocumentSnapshot, nodeId: CanvasNodeId) => {
+const setDocumentField = <K extends keyof CanvasDocumentSnapshot>(
+  snapshot: CanvasDocumentSnapshot,
+  key: K,
+  value: CanvasDocumentSnapshot[K]
+) => {
+  if (areEqual(snapshot[key], value)) {
+    return false;
+  }
+  snapshot[key] = clone(value) as CanvasDocumentSnapshot[K];
+  return true;
+};
+
+const deleteNodeRecursive = (snapshot: CanvasDocumentSnapshot, nodeId: CanvasNodeId): boolean => {
   const node = snapshot.nodes[nodeId];
   if (!node) {
-    return;
+    return false;
   }
 
   if (node.type === "group") {
@@ -104,6 +124,7 @@ const deleteNodeRecursive = (snapshot: CanvasDocumentSnapshot, nodeId: CanvasNod
   }
 
   delete snapshot.nodes[nodeId];
+  return true;
 };
 
 const applyNodePropertyPatch = (node: CanvasNode, patch: CanvasNodePropertyPatch): CanvasNode => {
@@ -185,30 +206,44 @@ export const executeCanvasCommand = (
 ): ExecuteCanvasCommandResult => {
   const before = getCanvasDocumentSnapshot(document);
   const next = clone(before);
+  let didChange = false;
 
   if (command.type === "PATCH_DOCUMENT") {
-    Object.assign(next, clone(command.patch));
+    const patch = clone(command.patch);
+    for (const key of Object.keys(patch) as Array<keyof typeof patch>) {
+      didChange = setDocumentField(next, key as keyof CanvasDocumentSnapshot, patch[key]!) || didChange;
+    }
   } else if (command.type === "INSERT_NODES") {
     const nodes = command.nodes.map((node) => normalizeNode(node));
     const targetParentId = command.parentId ?? nodes[0]?.parentId ?? null;
     for (const node of nodes) {
-      next.nodes[node.id] = withSyncedTransformFields({
+      const nextNode = withSyncedTransformFields({
         ...node,
         parentId: targetParentId,
       });
+      const currentNode = next.nodes[node.id];
+      if (!currentNode || !areEqual(currentNode, nextNode)) {
+        next.nodes[node.id] = nextNode;
+        didChange = true;
+      }
     }
     const currentOrder = getChildOrder(next, targetParentId);
     const insertIds = nodes.map((node) => node.id);
-    setChildOrder(
+    const nextOrder = moveIdsInOrder(currentOrder, insertIds, command.index ?? currentOrder.length);
+    didChange = setChildOrder(
       next,
       targetParentId,
-      moveIdsInOrder(currentOrder, insertIds, command.index ?? currentOrder.length)
-    );
+      nextOrder
+    ) || didChange;
   } else if (command.type === "UPDATE_NODE_PROPS") {
     for (const update of command.updates) {
       const currentNode = next.nodes[update.id];
       if (currentNode) {
-        next.nodes[update.id] = applyNodePropertyPatch(currentNode, update.patch);
+        const nextNode = applyNodePropertyPatch(currentNode, update.patch);
+        if (!areEqual(currentNode, nextNode)) {
+          next.nodes[update.id] = nextNode;
+          didChange = true;
+        }
       }
     }
   } else if (command.type === "MOVE_NODES") {
@@ -224,7 +259,7 @@ export const executeCanvasCommand = (
       const localDelta = parentTransform
         ? rotatePoint({ x: command.dx, y: command.dy }, -parentTransform.rotation)
         : { x: command.dx, y: command.dy };
-      next.nodes[nodeId] = withSyncedTransformFields({
+      const nextNode = withSyncedTransformFields({
         ...currentNode,
         transform: toNodeTransform({
           ...currentNode.transform,
@@ -232,10 +267,14 @@ export const executeCanvasCommand = (
           y: currentNode.transform.y + localDelta.y,
         }),
       });
+      if (!areEqual(currentNode, nextNode)) {
+        next.nodes[nodeId] = nextNode;
+        didChange = true;
+      }
     }
   } else if (command.type === "DELETE_NODES") {
     for (const nodeId of command.ids) {
-      deleteNodeRecursive(next, nodeId);
+      didChange = deleteNodeRecursive(next, nodeId) || didChange;
     }
   } else if (command.type === "GROUP_NODES") {
     const uniqueIds = Array.from(new Set(command.ids)).filter((nodeId) => next.nodes[nodeId]);
@@ -269,6 +308,7 @@ export const executeCanvasCommand = (
         const targetParentTransform =
           targetParentId ? getCanvasNodeWorldTransform(runtime, targetParentId) : null;
         const groupWorldRotation = targetParentTransform?.rotation ?? 0;
+        didChange = true;
         next.nodes[groupId] = withSyncedTransformFields({
           id: groupId,
           type: "group",
@@ -316,7 +356,7 @@ export const executeCanvasCommand = (
           (nodeId) => !orderedSelectedIds.includes(nodeId)
         );
         const insertIndex = siblingOrder.indexOf(orderedSelectedIds[0]!);
-        setChildOrder(
+        didChange = setChildOrder(
           next,
           targetParentId,
           insertIdsAtIndex(
@@ -324,13 +364,14 @@ export const executeCanvasCommand = (
             [groupId],
             insertIndex >= 0 ? insertIndex : remainingSiblingIds.length
           )
-        );
+        ) || didChange;
       }
     }
   } else if (command.type === "UNGROUP_NODE") {
     const runtime = resolveCanvasDocument(next);
     const group = next.nodes[command.id];
     if (group?.type === "group") {
+      didChange = true;
       const targetParentId = group.parentId;
       const targetParentTransform =
         targetParentId ? getCanvasNodeWorldTransform(runtime, targetParentId) : null;
@@ -367,7 +408,7 @@ export const executeCanvasCommand = (
 
       delete next.nodes[group.id];
       const remainingSiblingIds = targetOrder.filter((nodeId) => nodeId !== group.id);
-      setChildOrder(
+      didChange = setChildOrder(
         next,
         targetParentId,
         insertIdsAtIndex(
@@ -375,7 +416,7 @@ export const executeCanvasCommand = (
           childIds,
           insertIndex >= 0 ? insertIndex : remainingSiblingIds.length
         )
-      );
+      ) || didChange;
     }
   } else if (command.type === "REPARENT_NODES") {
     const uniqueIds = filterSelectedRoots(
@@ -398,6 +439,12 @@ export const executeCanvasCommand = (
     ) {
       const runtime = resolveCanvasDocument(next);
       const worldTransforms = collectWorldTransformById(runtime, uniqueIds);
+      const currentOrder = getChildOrder(next, targetParentId);
+      const nextOrder = moveIdsInOrder(
+        currentOrder,
+        uniqueIds,
+        command.index ?? currentOrder.length
+      );
       for (const nodeId of uniqueIds) {
         const currentNode = next.nodes[nodeId];
         if (!currentNode) {
@@ -413,12 +460,8 @@ export const executeCanvasCommand = (
         }
       }
 
-      const currentOrder = getChildOrder(next, targetParentId);
-      setChildOrder(
-        next,
-        targetParentId,
-        moveIdsInOrder(currentOrder, uniqueIds, command.index ?? currentOrder.length)
-      );
+      didChange = didChange || !areEqual(currentOrder, nextOrder);
+      didChange = setChildOrder(next, targetParentId, nextOrder) || didChange;
 
       const parentWorldTransform =
         targetParentId ? getCanvasNodeWorldTransform(runtime, targetParentId) : null;
@@ -432,7 +475,7 @@ export const executeCanvasCommand = (
           x: world.x,
           y: world.y,
         });
-        next.nodes[nodeId] = withSyncedTransformFields({
+        const nextNode = withSyncedTransformFields({
           ...currentNode,
           parentId: targetParentId,
           transform: toNodeTransform({
@@ -442,32 +485,38 @@ export const executeCanvasCommand = (
             rotation: world.rotation - (parentWorldTransform?.rotation ?? 0),
           }),
         });
+        if (!areEqual(currentNode, nextNode)) {
+          next.nodes[nodeId] = nextNode;
+          didChange = true;
+        }
       }
     }
   } else if (command.type === "REORDER_CHILDREN") {
-    setChildOrder(
-      next,
-      command.parentId,
-      command.orderedIds.filter((nodeId) => Boolean(next.nodes[nodeId]))
-    );
+    const orderedIds = command.orderedIds.filter((nodeId) => Boolean(next.nodes[nodeId]));
+    didChange = setChildOrder(next, command.parentId, orderedIds) || didChange;
   } else if (command.type === "TOGGLE_NODE_LOCK") {
     const node = next.nodes[command.id];
     if (node) {
+      didChange = true;
       node.locked = !node.locked;
     }
   } else if (command.type === "TOGGLE_NODE_VISIBILITY") {
     const node = next.nodes[command.id];
     if (node) {
+      didChange = true;
       node.visible = !node.visible;
     }
   } else if (command.type === "APPLY_IMAGE_ADJUSTMENTS") {
     const node = next.nodes[command.id];
     if (node?.type === "image") {
-      node.adjustments = command.adjustments;
+      if (!areEqual(node.adjustments, command.adjustments)) {
+        node.adjustments = command.adjustments;
+        didChange = true;
+      }
     }
   }
 
-  if (areEqual(before, next)) {
+  if (!didChange) {
     return {
       didChange: false,
       document,

@@ -212,4 +212,30 @@ describe("document commands", () => {
     expect(result.forwardPatch.operations).toEqual([]);
     expect(result.inversePatch.operations).toEqual([]);
   });
+
+  it("treats no-op document patches as unchanged", () => {
+    const document = createCanvasTestDocument({
+      nodes: {
+        "shape-1": createShapeNode({
+          id: "shape-1",
+          x: 40,
+          y: 60,
+        }),
+      },
+      rootIds: ["shape-1"],
+    });
+
+    const result = executeCanvasCommand(document, {
+      type: "PATCH_DOCUMENT",
+      patch: {
+        name: document.name,
+        width: document.width,
+      },
+    });
+
+    expect(result.didChange).toBe(false);
+    expect(result.document).toBe(document);
+    expect(result.forwardPatch.operations).toEqual([]);
+    expect(result.inversePatch.operations).toEqual([]);
+  });
 });
