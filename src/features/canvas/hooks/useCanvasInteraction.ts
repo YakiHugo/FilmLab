@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { resolveSelectableSelectionIds } from "../selectionGeometry";
+import { selectionIdsEqual } from "../selectionModel";
 
 const isEditableTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
@@ -29,6 +31,20 @@ export function useCanvasInteraction() {
     () => documents.find((document) => document.id === activeDocumentId) ?? null,
     [documents, activeDocumentId]
   );
+  const selectableElementIds = useMemo(
+    () =>
+      activeDocument
+        ? resolveSelectableSelectionIds(
+            activeDocument.allNodes,
+            activeDocument.allNodes.map((node) => node.id)
+          )
+        : [],
+    [activeDocument]
+  );
+  const selectableElementIdSet = useMemo(
+    () => new Set(selectableElementIds),
+    [selectableElementIds]
+  );
 
   const clipboardIdsRef = useRef<string[]>([]);
 
@@ -39,17 +55,25 @@ export function useCanvasInteraction() {
   const selectElement = useCallback(
     (id: string, options?: { additive?: boolean }) => {
       const { selectedElementIds: currentSelectedIds } = useCanvasStore.getState();
+      if (!selectableElementIdSet.has(id)) {
+        return;
+      }
+      const selectableCurrentSelectedIds = currentSelectedIds.filter((selectedId) =>
+        selectableElementIdSet.has(selectedId)
+      );
       if (!options?.additive) {
         setSelectedElementIds([id]);
         return;
       }
-      if (currentSelectedIds.includes(id)) {
-        setSelectedElementIds(currentSelectedIds.filter((selectedId) => selectedId !== id));
+      if (selectableCurrentSelectedIds.includes(id)) {
+        setSelectedElementIds(
+          selectableCurrentSelectedIds.filter((selectedId) => selectedId !== id)
+        );
         return;
       }
-      setSelectedElementIds([...currentSelectedIds, id]);
+      setSelectedElementIds([...selectableCurrentSelectedIds, id]);
     },
-    [setSelectedElementIds]
+    [selectableElementIdSet, setSelectedElementIds]
   );
 
   const deleteSelection = useCallback(async () => {
@@ -67,11 +91,21 @@ export function useCanvasInteraction() {
   }, [activeDocumentId, duplicateElements, selectedElementIds]);
 
   const selectAll = useCallback(() => {
-    if (!activeDocument) {
+    if (selectableElementIds.length === 0) {
       return;
     }
-    setSelectedElementIds(activeDocument.allNodes.map((node) => node.id));
-  }, [activeDocument, setSelectedElementIds]);
+    setSelectedElementIds(selectableElementIds);
+  }, [selectableElementIds, setSelectedElementIds]);
+
+  useEffect(() => {
+    const nextSelectedIds = resolveSelectableSelectionIds(
+      activeDocument?.allNodes ?? [],
+      selectedElementIds
+    );
+    if (!selectionIdsEqual(selectedElementIds, nextSelectedIds)) {
+      setSelectedElementIds(nextSelectedIds);
+    }
+  }, [activeDocument?.allNodes, selectedElementIds, setSelectedElementIds]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

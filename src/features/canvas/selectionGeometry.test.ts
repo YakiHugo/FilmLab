@@ -4,6 +4,7 @@ import {
   mergeSelectionIds,
   normalizeSelectionRect,
   rectsIntersect,
+  resolveSelectableSelectionIds,
   resolveCompletedMarqueeSelectionIds,
   resolveIntersectingSelectionIds,
   resolveMarqueeSelectionIds,
@@ -122,5 +123,18 @@ describe("selection geometry", () => {
     expect(isSelectableSelectionTarget({ effectiveLocked: false, effectiveVisible: false })).toBe(
       false
     );
+  });
+
+  it("filters resolved selection ids to selectable nodes only", () => {
+    expect(
+      resolveSelectableSelectionIds(
+        [
+          { id: "visible", effectiveLocked: false, effectiveVisible: true },
+          { id: "locked", effectiveLocked: true, effectiveVisible: true },
+          { id: "hidden", effectiveLocked: false, effectiveVisible: false },
+        ],
+        ["visible", "locked", "hidden"]
+      )
+    ).toEqual(["visible"]);
   });
 });

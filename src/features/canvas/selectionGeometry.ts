@@ -10,9 +10,26 @@ export interface CanvasSelectionTarget {
   rect: CanvasOverlayRect;
 }
 
+export interface CanvasSelectableNode {
+  id: string;
+  effectiveLocked: boolean;
+  effectiveVisible: boolean;
+}
+
 export const isSelectableSelectionTarget = (
   target: { effectiveLocked: boolean; effectiveVisible: boolean }
 ) => !target.effectiveLocked && target.effectiveVisible;
+
+export const resolveSelectableSelectionIds = (
+  nodes: CanvasSelectableNode[],
+  ids: string[]
+) => {
+  const selectableNodeIds = new Set(
+    nodes.filter(isSelectableSelectionTarget).map((node) => node.id)
+  );
+
+  return ids.filter((id) => selectableNodeIds.has(id));
+};
 
 export const normalizeSelectionRect = (
   start: CanvasSelectionPoint,
