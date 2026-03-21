@@ -426,10 +426,10 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
 });
 
 export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProps) {
-  const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
-  const activeDocument = useCanvasStore((state) =>
-    state.activeDocumentId
-      ? (state.documents.find((document) => document.id === state.activeDocumentId) ?? null)
+  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
+  const activeWorkbench = useCanvasStore((state) =>
+    state.activeWorkbenchId
+      ? (state.workbenches.find((document) => document.id === state.activeWorkbenchId) ?? null)
       : null
   );
   const deleteElements = useCanvasStore((state) => state.deleteElements);
@@ -489,8 +489,8 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   }));
 
   const elementById = useMemo(
-    () => new Map((activeDocument?.allNodes ?? []).map((element) => [element.id, element])),
-    [activeDocument?.allNodes]
+    () => new Map((activeWorkbench?.allNodes ?? []).map((element) => [element.id, element])),
+    [activeWorkbench?.allNodes]
   );
   const elementByIdRef = useRef(elementById);
   const interactivePreviewElementId = useMemo(
@@ -597,29 +597,29 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   }, [editingTextElement, editingTextMode]);
 
   const thirdsGuideLines = useMemo(() => {
-    if (!activeDocument || !activeDocument.guides.showThirds) {
+    if (!activeWorkbench || !activeWorkbench.guides.showThirds) {
       return [];
     }
     return [
-      [activeDocument.width / 3, 0, activeDocument.width / 3, activeDocument.height],
-      [(activeDocument.width * 2) / 3, 0, (activeDocument.width * 2) / 3, activeDocument.height],
-      [0, activeDocument.height / 3, activeDocument.width, activeDocument.height / 3],
-      [0, (activeDocument.height * 2) / 3, activeDocument.width, (activeDocument.height * 2) / 3],
+      [activeWorkbench.width / 3, 0, activeWorkbench.width / 3, activeWorkbench.height],
+      [(activeWorkbench.width * 2) / 3, 0, (activeWorkbench.width * 2) / 3, activeWorkbench.height],
+      [0, activeWorkbench.height / 3, activeWorkbench.width, activeWorkbench.height / 3],
+      [0, (activeWorkbench.height * 2) / 3, activeWorkbench.width, (activeWorkbench.height * 2) / 3],
     ];
-  }, [activeDocument]);
+  }, [activeWorkbench]);
 
   const centerGuideLines = useMemo(() => {
-    if (!activeDocument || !activeDocument.guides.showCenter) {
+    if (!activeWorkbench || !activeWorkbench.guides.showCenter) {
       return [];
     }
     return [
-      [activeDocument.width / 2, 0, activeDocument.width / 2, activeDocument.height],
-      [0, activeDocument.height / 2, activeDocument.width, activeDocument.height / 2],
+      [activeWorkbench.width / 2, 0, activeWorkbench.width / 2, activeWorkbench.height],
+      [0, activeWorkbench.height / 2, activeWorkbench.width, activeWorkbench.height / 2],
     ];
-  }, [activeDocument]);
+  }, [activeWorkbench]);
 
   const fitZoom = useMemo(() => {
-    if (!activeDocument || stageSize.width <= 0 || stageSize.height <= 0) {
+    if (!activeWorkbench || stageSize.width <= 0 || stageSize.height <= 0) {
       return 1;
     }
     const usableWidth = Math.max(1, stageSize.width - VIEWPORT_INSETS.left - VIEWPORT_INSETS.right);
@@ -628,11 +628,11 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       stageSize.height - VIEWPORT_INSETS.top - VIEWPORT_INSETS.bottom
     );
     return clamp(
-      Math.min(usableWidth / activeDocument.width, usableHeight / activeDocument.height, 1),
+      Math.min(usableWidth / activeWorkbench.width, usableHeight / activeWorkbench.height, 1),
       0.2,
       1
     );
-  }, [activeDocument, stageSize.height, stageSize.width]);
+  }, [activeWorkbench, stageSize.height, stageSize.width]);
 
   const workspaceGridBounds = useMemo(
     () => getVisibleWorldGridBounds(viewport, zoom, stageSize),
@@ -690,12 +690,12 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
   const buildMarqueeSelectionTargets = useCallback(() => {
     const stage = stageRef.current;
-    if (!activeDocument || !stage) {
+    if (!activeWorkbench || !stage) {
       return [];
     }
 
     const nextTargets: CanvasSelectionTarget[] = [];
-    for (const element of activeDocument.elements) {
+    for (const element of activeWorkbench.elements) {
       if (!isSelectableSelectionTarget(element)) {
         continue;
       }
@@ -712,7 +712,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     }
 
     return nextTargets;
-  }, [activeDocument, stageRef, viewport, zoom]);
+  }, [activeWorkbench, stageRef, viewport, zoom]);
 
   const cancelQueuedMarqueeSelection = useCallback(() => {
     if (marqueeRenderFrameRef.current === null) {
@@ -735,7 +735,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
           : EMPTY_MARQUEE_RENDER_STATE
       );
     });
-  }, [activeDocumentId, cancelQueuedMarqueeSelection, clearSelectionPreview]);
+  }, [activeWorkbenchId, cancelQueuedMarqueeSelection, clearSelectionPreview]);
 
   const commitSelectedElementIds = useCallback(
     (nextSelectedIds: string[]) => {
@@ -963,12 +963,12 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
   const insertShapeElement = useCallback(
     (element: CanvasShapeElement) => {
-      if (!activeDocumentId) {
+      if (!activeWorkbenchId) {
         return;
       }
-      void upsertElement(activeDocumentId, element);
+      void upsertElement(element);
     },
-    [activeDocumentId, upsertElement]
+    [activeWorkbenchId, upsertElement]
   );
 
   const activeToolController = useMemo(
@@ -978,7 +978,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
   const activeToolContext = useMemo(
     () => ({
-      activeDocumentId,
+      activeWorkbenchId,
       activeShapeType,
       beginMarqueeSelection: beginMarqueeInteraction,
       beginPan: beginPanInteraction,
@@ -995,7 +995,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       updatePan: updatePanInteraction,
     }),
     [
-      activeDocumentId,
+      activeWorkbenchId,
       activeShapeType,
       beginMarqueeInteraction,
       beginPanInteraction,
@@ -1039,7 +1039,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const handleWorkspacePointerDown = useCallback(
     (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
       const stage = stageRef.current;
-      if (!stage || !activeDocument) {
+      if (!stage || !activeWorkbench) {
         return;
       }
 
@@ -1058,7 +1058,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       });
     },
     [
-      activeDocument,
+      activeWorkbench,
       activeToolController,
       activeToolContext,
       stageRef,
@@ -1126,18 +1126,18 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const handleElementDragEnd = useCallback(
     (elementId: string, x: number, y: number) => {
       const element = elementByIdRef.current.get(elementId);
-      if (!activeDocumentId || !element || element.effectiveLocked || !element.effectiveVisible) {
+      if (!activeWorkbenchId || !element || element.effectiveLocked || !element.effectiveVisible) {
         return;
       }
 
-      void upsertElement(activeDocumentId, {
+      void upsertElement({
         ...element,
         id: elementId,
         x,
         y,
       });
     },
-    [activeDocumentId, upsertElement]
+    [activeWorkbenchId, upsertElement]
   );
 
   const handleTextElementDoubleClick = useCallback(
@@ -1157,7 +1157,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     return () => {
       registerCanvasStage(null);
     };
-  }, [stageRef, activeDocumentId]);
+  }, [stageRef, activeWorkbenchId]);
 
   useEffect(() => {
     const container = viewportContainerRef.current;
@@ -1200,13 +1200,13 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   }, []);
 
   useEffect(() => {
-    if (!activeDocument || stageSize.width <= 0 || stageSize.height <= 0) {
+    if (!activeWorkbench || stageSize.width <= 0 || stageSize.height <= 0) {
       return;
     }
-    if (initializedDocumentIdsRef.current.has(activeDocument.id)) {
+    if (initializedDocumentIdsRef.current.has(activeWorkbench.id)) {
       return;
     }
-    initializedDocumentIdsRef.current.add(activeDocument.id);
+    initializedDocumentIdsRef.current.add(activeWorkbench.id);
     const usableWidth = Math.max(1, stageSize.width - VIEWPORT_INSETS.left - VIEWPORT_INSETS.right);
     const usableHeight = Math.max(
       1,
@@ -1214,10 +1214,10 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     );
     setZoom(fitZoom);
     setViewport({
-      x: Math.round(VIEWPORT_INSETS.left + (usableWidth - activeDocument.width * fitZoom) / 2),
-      y: Math.round(VIEWPORT_INSETS.top + (usableHeight - activeDocument.height * fitZoom) / 2),
+      x: Math.round(VIEWPORT_INSETS.left + (usableWidth - activeWorkbench.width * fitZoom) / 2),
+      y: Math.round(VIEWPORT_INSETS.top + (usableHeight - activeWorkbench.height * fitZoom) / 2),
     });
-  }, [activeDocument, fitZoom, setViewport, setZoom, stageSize.height, stageSize.width]);
+  }, [activeWorkbench, fitZoom, setViewport, setZoom, stageSize.height, stageSize.width]);
 
   const cancelTextEdit = useCallback(() => {
     setEditingTextMode(null);
@@ -1230,7 +1230,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
   const commitTextEdit = useCallback(() => {
     const currentTextElement = textElementDraftRef.current ?? activeTextElement;
-    if (!currentTextElement || !activeDocumentId || !editingTextElementIsEditable) {
+    if (!currentTextElement || !activeWorkbenchId || !editingTextElementIsEditable) {
       cancelTextEdit();
       return;
     }
@@ -1244,21 +1244,21 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       textElementDraftRef.current = nextElement;
       setEditingTextDraft(nextElement);
       void textMutationQueueRef.current!.enqueue(() =>
-        upsertElement(activeDocumentId, nextElement)
+        upsertElement(nextElement)
       );
       selectElement(nextElement.id);
     } else if (editingTextMode === "create") {
       clearSelection();
       if (createdTextElementRef.current) {
         void textMutationQueueRef.current!.enqueue(() =>
-          deleteElements(activeDocumentId, [currentTextElement.id])
+          deleteElements([currentTextElement.id])
         );
       }
     }
 
     cancelTextEdit();
   }, [
-    activeDocumentId,
+    activeWorkbenchId,
     cancelTextEdit,
     clearSelection,
     deleteElements,
@@ -1327,7 +1327,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const updateSelectedTextElement = useCallback(
     (updater: (element: CanvasTextElement) => CanvasTextElement) => {
       const currentTextElement = textElementDraftRef.current ?? activeTextElement;
-      if (!activeDocumentId || !currentTextElement || !editingTextElementIsEditable) {
+      if (!activeWorkbenchId || !currentTextElement || !editingTextElementIsEditable) {
         return;
       }
       const nextElement = fitCanvasTextElementToContent(updater(currentTextElement));
@@ -1339,11 +1339,11 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
         return;
       }
       void textMutationQueueRef.current!.enqueue(() =>
-        upsertElement(activeDocumentId, nextElement)
+        upsertElement(nextElement)
       );
     },
     [
-      activeDocumentId,
+      activeWorkbenchId,
       activeTextElement,
       editingTextElementIsEditable,
       editingTextId,
@@ -1354,7 +1354,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
   useLayoutEffect(() => {
     syncSelectionOverlay();
-  }, [syncSelectionOverlay, activeDocument?.updatedAt, zoom, viewport.x, viewport.y]);
+  }, [syncSelectionOverlay, activeWorkbench?.updatedAt, zoom, viewport.x, viewport.y]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -1497,7 +1497,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   };
 
   const resetView = () => {
-    if (!activeDocument) {
+    if (!activeWorkbench) {
       return;
     }
     const usableWidth = Math.max(1, stageSize.width - VIEWPORT_INSETS.left - VIEWPORT_INSETS.right);
@@ -1507,8 +1507,8 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     );
     setZoom(fitZoom);
     setViewport({
-      x: Math.round(VIEWPORT_INSETS.left + (usableWidth - activeDocument.width * fitZoom) / 2),
-      y: Math.round(VIEWPORT_INSETS.top + (usableHeight - activeDocument.height * fitZoom) / 2),
+      x: Math.round(VIEWPORT_INSETS.left + (usableWidth - activeWorkbench.width * fitZoom) / 2),
+      y: Math.round(VIEWPORT_INSETS.top + (usableHeight - activeWorkbench.height * fitZoom) / 2),
     });
   };
 
@@ -1541,10 +1541,10 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     }
   }, [cancelTextEdit, editingTextElementIsEditable, editingTextId]);
 
-  if (!activeDocument) {
+  if (!activeWorkbench) {
     return (
       <div className="absolute inset-0 flex items-center justify-center text-sm text-zinc-500">
-        Create or open a board to start composing on canvas.
+        Create or open a 工作台 to start composing on canvas.
       </div>
     );
   }
@@ -1637,24 +1637,24 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
             id={BOARD_SURFACE_NODE_ID}
             x={0}
             y={0}
-            width={activeDocument.width}
-            height={activeDocument.height}
-            fill={activeDocument.backgroundColor}
+            width={activeWorkbench.width}
+            height={activeWorkbench.height}
+            fill={activeWorkbench.backgroundColor}
             listening={false}
             perfectDrawEnabled={false}
           />
 
-          {activeDocument.guides.showSafeArea ? (
+          {activeWorkbench.guides.showSafeArea ? (
             <Rect
-              x={activeDocument.safeArea.left}
-              y={activeDocument.safeArea.top}
+              x={activeWorkbench.safeArea.left}
+              y={activeWorkbench.safeArea.top}
               width={Math.max(
                 1,
-                activeDocument.width - activeDocument.safeArea.left - activeDocument.safeArea.right
+                activeWorkbench.width - activeWorkbench.safeArea.left - activeWorkbench.safeArea.right
               )}
               height={Math.max(
                 1,
-                activeDocument.height - activeDocument.safeArea.top - activeDocument.safeArea.bottom
+                activeWorkbench.height - activeWorkbench.safeArea.top - activeWorkbench.safeArea.bottom
               )}
               stroke="rgba(255,255,255,0.22)"
               strokeWidth={1}
@@ -1691,7 +1691,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
             dragBoundFunc={dragBoundFunc}
             editingTextDraft={editingTextDraft}
             editingTextId={editingTextId}
-            elements={activeDocument.elements}
+            elements={activeWorkbench.elements}
             interactivePreviewElementId={interactivePreviewElementId}
             onElementDragEnd={handleElementDragEnd}
             onElementSelect={handleElementSelect}
@@ -1720,7 +1720,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
         </Layer>
 
         <Layer listening={false}>
-          {activeDocument.slices.map((slice) => {
+          {activeWorkbench.slices.map((slice) => {
             const selected = slice.id === selectedSliceId;
             return (
               <Fragment key={slice.id}>
@@ -1837,12 +1837,12 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
                 editingTextMode === "create" &&
                 !createdTextElementRef.current &&
                 nextValue.trim().length > 0 &&
-                activeDocumentId
+                activeWorkbenchId
               ) {
                 createdTextElementRef.current = true;
                 selectElement(nextElement.id);
                 void textMutationQueueRef.current!.enqueue(() =>
-                  upsertElement(activeDocumentId, nextElement)
+                  upsertElement(nextElement)
                 );
               }
             }}
@@ -1917,8 +1917,8 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
           type="button"
           onClick={resetView}
           className="flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-300 transition hover:bg-white/10"
-          aria-label="Center board"
-          title="Center board"
+          aria-label="Center 工作台"
+          title="Center 工作台"
         >
           <Crosshair className="h-4 w-4" />
         </button>

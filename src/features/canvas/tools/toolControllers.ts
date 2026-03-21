@@ -27,7 +27,7 @@ export interface CanvasToolPointerPayload {
 }
 
 export interface CanvasToolControllerContext {
-  activeDocumentId: string | null;
+  activeWorkbenchId: string | null;
   activeShapeType: CanvasShapeType;
   beginMarqueeSelection: (payload: {
     additive: boolean;
@@ -151,7 +151,7 @@ const textToolController: CanvasToolController = {
 
 const shapeToolController: CanvasToolController = {
   onPointerDown: (context, payload) => {
-    if (!payload.isBackgroundTarget || !payload.canvasPoint || !context.activeDocumentId) {
+    if (!payload.isBackgroundTarget || !payload.canvasPoint || !context.activeWorkbenchId) {
       return;
     }
 

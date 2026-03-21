@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { executeCanvasCommand } from "./commands";
-import { applyCanvasDocumentPatch } from "./patches";
-import { getCanvasDocumentSnapshot } from "./model";
+import { applyCanvasWorkbenchPatch } from "./patches";
+import { getCanvasWorkbenchSnapshot } from "./model";
 import { createCanvasTestDocument, createShapeNode } from "./testUtils";
 
 describe("document patches", () => {
@@ -24,10 +24,10 @@ describe("document patches", () => {
       dy: -12,
     });
 
-    const forwardApplied = applyCanvasDocumentPatch(document, result.forwardPatch);
-    const inverseApplied = applyCanvasDocumentPatch(result.document, result.inversePatch);
+    const forwardApplied = applyCanvasWorkbenchPatch(document, result.forwardPatch);
+    const inverseApplied = applyCanvasWorkbenchPatch(result.document, result.inversePatch);
 
-    expect(getCanvasDocumentSnapshot(forwardApplied)).toEqual(getCanvasDocumentSnapshot(result.document));
-    expect(getCanvasDocumentSnapshot(inverseApplied)).toEqual(getCanvasDocumentSnapshot(document));
+    expect(getCanvasWorkbenchSnapshot(forwardApplied)).toEqual(getCanvasWorkbenchSnapshot(result.document));
+    expect(getCanvasWorkbenchSnapshot(inverseApplied)).toEqual(getCanvasWorkbenchSnapshot(document));
   });
 });

@@ -52,7 +52,7 @@ import {
   sanitizeGenerationConfig,
   type GenerationConfig,
 } from "@/stores/generationConfigStore";
-import { useCanvasStore } from "@/stores/canvasStore";
+import { getCanvasResetEpoch, useCanvasStore } from "@/stores/canvasStore";
 import { useImageSessionStore } from "@/stores/imageSessionStore";
 import {
   bindResultAssetToConfig,
@@ -2178,20 +2178,30 @@ export function useImageGeneration() {
         return null;
       }
 
-      const canvas = useCanvasStore.getState();
-      const asset = useAssetStore.getState().assets.find((entry) => entry.id === finalAssetId);
-      let documentId = canvas.activeDocumentId;
-      if (!documentId) {
-        const created = await canvas.createDocument("AI Board");
-        documentId = created.id;
+      let canvasStore = useCanvasStore.getState();
+      if (!canvasStore.activeWorkbenchId && (canvasStore.workbenches.length === 0 || canvasStore.isLoading)) {
+        await canvasStore.init();
+        canvasStore = useCanvasStore.getState();
       }
-      if (!documentId) {
+      const asset = useAssetStore.getState().assets.find((entry) => entry.id === finalAssetId);
+      const startEpoch = getCanvasResetEpoch();
+      let workbenchId = canvasStore.activeWorkbenchId;
+      let insertionIndex = 1;
+      if (workbenchId) {
+        const activeWorkbench = canvasStore.workbenches.find((item) => item.id === workbenchId);
+        insertionIndex = (activeWorkbench?.rootIds.length ?? 0) + 1;
+      } else {
+        const created = await canvasStore.createWorkbench("AI 工作台");
+        if (startEpoch !== getCanvasResetEpoch()) {
+          return null;
+        }
+        workbenchId = created.id;
+      }
+      if (!workbenchId) {
         return null;
       }
 
       const { width, height } = resolveCanvasImageSize(asset);
-      const document = canvas.documents.find((item) => item.id === documentId);
-      const insertionIndex = (document?.rootIds.length ?? 0) + 1;
       const x = 140 + insertionIndex * 24;
       const y = 120 + insertionIndex * 24;
 
@@ -2217,9 +2227,12 @@ export function useImageGeneration() {
         visible: true,
       };
 
-      await canvas.upsertElement(documentId, element);
-      canvas.setSelectedElementIds([element.id]);
-      return { documentId, elementId: element.id };
+      await canvasStore.upsertElementInWorkbench(workbenchId, element);
+      const latestCanvasStore = useCanvasStore.getState();
+      if (latestCanvasStore.activeWorkbenchId === workbenchId) {
+        latestCanvasStore.setSelectedElementIds([element.id]);
+      }
+      return { workbenchId, elementId: element.id };
     },
     [getUiTurnById, persistImportedAssets]
   );

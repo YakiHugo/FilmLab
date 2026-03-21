@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { CanvasDocument } from "@/types";
-import { normalizeCanvasDocument } from "./studioPresets";
+import type { CanvasWorkbench } from "@/types";
+import { normalizeCanvasWorkbench } from "./studioPresets";
 import { appendCanvasSlice, buildStripSlices, clearCanvasSlices, updateCanvasSlice } from "./slices";
 
-const createDocument = (): CanvasDocument =>
-  normalizeCanvasDocument({
+const createWorkbench = (): CanvasWorkbench =>
+  normalizeCanvasWorkbench({
     id: "doc-1",
     name: "Test Story",
     width: 1080,
@@ -31,7 +31,7 @@ const createDocument = (): CanvasDocument =>
 
 describe("canvas slice helpers", () => {
   it("builds strip slices using the active preset dimensions", () => {
-    const document = buildStripSlices(createDocument(), 3);
+    const document = buildStripSlices(createWorkbench(), 3);
 
     expect(document.width).toBe(3240);
     expect(document.height).toBe(1350);
@@ -44,7 +44,7 @@ describe("canvas slice helpers", () => {
   });
 
   it("appends a new slice to the end of the strip", () => {
-    const base = buildStripSlices(createDocument(), 2);
+    const base = buildStripSlices(createWorkbench(), 2);
     const document = appendCanvasSlice(base);
 
     expect(document.width).toBe(3240);
@@ -57,8 +57,8 @@ describe("canvas slice helpers", () => {
     });
   });
 
-  it("clears slices back to the single-preset board size", () => {
-    const document = clearCanvasSlices(buildStripSlices(createDocument(), 4));
+  it("clears slices back to the single-preset 工作台 size", () => {
+    const document = clearCanvasSlices(buildStripSlices(createWorkbench(), 4));
 
     expect(document.width).toBe(1080);
     expect(document.height).toBe(1350);
@@ -66,7 +66,7 @@ describe("canvas slice helpers", () => {
   });
 
   it("updates a selected slice without affecting the rest", () => {
-    const document = buildStripSlices(createDocument(), 2);
+    const document = buildStripSlices(createWorkbench(), 2);
     const target = document.slices[0]!;
 
     const updated = updateCanvasSlice(document, target.id, {

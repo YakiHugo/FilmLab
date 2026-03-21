@@ -1,6 +1,7 @@
+import { getCurrentUserId } from "@/lib/authToken";
 import type {
-  CanvasDocument,
-  CanvasDocumentSnapshot,
+  CanvasWorkbench,
+  CanvasWorkbenchSnapshot,
   CanvasNode,
   CanvasNodeId,
   CanvasRenderableElement,
@@ -35,15 +36,16 @@ export const createCanvasNodeId = (prefix = "canvas-node") => {
 };
 
 export const getCanvasNode = (
-  document: Pick<CanvasDocumentSnapshot, "nodes">,
+  document: Pick<CanvasWorkbenchSnapshot, "nodes">,
   nodeId: CanvasNodeId
 ) => document.nodes[nodeId] ?? null;
 
-export const getCanvasDocumentSnapshot = (
-  document: CanvasDocument | CanvasDocumentSnapshot
-): CanvasDocumentSnapshot => ({
+export const getCanvasWorkbenchSnapshot = (
+  document: CanvasWorkbench | CanvasWorkbenchSnapshot
+): CanvasWorkbenchSnapshot => ({
   id: document.id,
   version: 2,
+  ownerRef: document.ownerRef ?? { userId: getCurrentUserId() },
   name: document.name,
   width: document.width,
   height: document.height,
@@ -108,17 +110,17 @@ export const normalizeNode = (node: CanvasNode): CanvasNode => {
 };
 
 export const getCanvasRenderableNode = (
-  document: CanvasDocument,
+  document: CanvasWorkbench,
   nodeId: CanvasNodeId
 ): CanvasRenderableNode | null => document.allNodes.find((node) => node.id === nodeId) ?? null;
 
 export const getCanvasRenderableElement = (
-  document: CanvasDocument,
+  document: CanvasWorkbench,
   nodeId: CanvasNodeId
 ): CanvasRenderableElement | null => document.elements.find((node) => node.id === nodeId) ?? null;
 
 export const getCanvasDescendantIds = (
-  document: Pick<CanvasDocumentSnapshot, "nodes">,
+  document: Pick<CanvasWorkbenchSnapshot, "nodes">,
   nodeId: CanvasNodeId
 ): CanvasNodeId[] => {
   const node = document.nodes[nodeId];
@@ -186,4 +188,4 @@ export const createDefaultShapeNode = ({
   }),
 });
 
-export const getCanvasLayerCount = (document: CanvasDocument | null) => document?.allNodes.length ?? 0;
+export const getCanvasLayerCount = (document: CanvasWorkbench | null) => document?.allNodes.length ?? 0;

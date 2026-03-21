@@ -1,11 +1,11 @@
 import type {
-  CanvasDocument,
+  CanvasWorkbench,
   CanvasRenderableElement,
   CanvasRenderableNode,
 } from "@/types";
 
 export interface CanvasSelectionModel {
-  activeDocument: CanvasDocument | null;
+  activeWorkbench: CanvasWorkbench | null;
   committedSelectedElementIds: string[];
   displaySelectedElementIdSet: Set<string>;
   displaySelectedElementIds: string[];
@@ -14,10 +14,10 @@ export interface CanvasSelectionModel {
   primarySelectedImageElement: Extract<CanvasRenderableElement, { type: "image" }> | null;
 }
 
-const createNodeById = (activeDocument: CanvasDocument | null) =>
+const createNodeById = (activeWorkbench: CanvasWorkbench | null) =>
   new Map(
-    (((activeDocument as CanvasDocument | null)?.allNodes ??
-      ((activeDocument as unknown as { elements?: CanvasRenderableNode[] } | null)?.elements ?? [])) as CanvasRenderableNode[]
+    (((activeWorkbench as CanvasWorkbench | null)?.allNodes ??
+      ((activeWorkbench as unknown as { elements?: CanvasRenderableNode[] } | null)?.elements ?? [])) as CanvasRenderableNode[]
     ).map((node) => [node.id, node])
   );
 
@@ -66,30 +66,30 @@ export const resolveDisplaySelectedElementIds = (
 ) => selectionPreviewElementIds ?? committedSelectedElementIds;
 
 export const resolvePrimarySelectedElement = (
-  activeDocument: CanvasDocument | null,
+  activeWorkbench: CanvasWorkbench | null,
   selectedElementIds: string[]
 ) => {
-  if (!activeDocument || selectedElementIds.length === 0) {
+  if (!activeWorkbench || selectedElementIds.length === 0) {
     return null;
   }
 
   const nodes =
-    activeDocument.allNodes ??
-    ((activeDocument as unknown as { elements?: CanvasRenderableNode[] }).elements ?? []);
+    activeWorkbench.allNodes ??
+    ((activeWorkbench as unknown as { elements?: CanvasRenderableNode[] }).elements ?? []);
   return nodes.find((node) => node.id === selectedElementIds[0]) ?? null;
 };
 
 export const resolvePrimarySelectedImageElement = (
-  activeDocument: CanvasDocument | null,
+  activeWorkbench: CanvasWorkbench | null,
   selectedElementIds: string[]
 ): Extract<CanvasRenderableElement, { type: "image" }> | null => {
-  if (!activeDocument || selectedElementIds.length === 0) {
+  if (!activeWorkbench || selectedElementIds.length === 0) {
     return null;
   }
 
   const elements =
-    activeDocument.elements ??
-    ((activeDocument as unknown as { elements?: CanvasRenderableElement[] }).elements ?? []);
+    activeWorkbench.elements ??
+    ((activeWorkbench as unknown as { elements?: CanvasRenderableElement[] }).elements ?? []);
   for (const elementId of selectedElementIds) {
     const element = elements.find((candidate) => candidate.id === elementId);
     if (element?.type === "image") {
@@ -101,27 +101,27 @@ export const resolvePrimarySelectedImageElement = (
 };
 
 export const hasSelectedImageElement = (
-  activeDocument: CanvasDocument | null,
+  activeWorkbench: CanvasWorkbench | null,
   selectedElementIds: string[]
-) => resolvePrimarySelectedImageElement(activeDocument, selectedElementIds) !== null;
+) => resolvePrimarySelectedImageElement(activeWorkbench, selectedElementIds) !== null;
 
 export const createCanvasSelectionModel = ({
-  activeDocument,
+  activeWorkbench,
   committedSelectedElementIds,
   displaySelectedElementIds,
   nodeById,
   hasPreviewSelection,
 }: {
-  activeDocument: CanvasDocument | null;
+  activeWorkbench: CanvasWorkbench | null;
   committedSelectedElementIds: string[];
   displaySelectedElementIds: string[];
   nodeById?: Map<string, CanvasRenderableNode>;
   hasPreviewSelection: boolean;
 }): CanvasSelectionModel => {
-  const resolvedNodeById = nodeById ?? createNodeById(activeDocument);
+  const resolvedNodeById = nodeById ?? createNodeById(activeWorkbench);
 
   return {
-    activeDocument,
+    activeWorkbench,
     committedSelectedElementIds,
     displaySelectedElementIdSet: new Set(displaySelectedElementIds),
     displaySelectedElementIds,

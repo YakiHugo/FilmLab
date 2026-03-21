@@ -27,23 +27,23 @@ const actionChipClass =
   "h-9 rounded-2xl border border-white/10 bg-white/[0.04] px-3 text-xs text-zinc-300 transition hover:bg-white/[0.08] hover:text-zinc-100";
 
 export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStoryPanelProps) {
-  const documents = useCanvasStore((state) => state.documents);
-  const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
-  const upsertDocument = useCanvasStore((state) => state.upsertDocument);
+  const workbenches = useCanvasStore((state) => state.workbenches);
+  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
+  const upsertWorkbench = useCanvasStore((state) => state.upsertWorkbench);
 
-  const activeDocument = useMemo(
-    () => documents.find((document) => document.id === activeDocumentId) ?? null,
-    [documents, activeDocumentId]
+  const activeWorkbench = useMemo(
+    () => workbenches.find((document) => document.id === activeWorkbenchId) ?? null,
+    [workbenches, activeWorkbenchId]
   );
 
   const orderedSlices = useMemo(
-    () => activeDocument?.slices.slice().sort((left, right) => left.order - right.order) ?? [],
-    [activeDocument?.slices]
+    () => activeWorkbench?.slices.slice().sort((left, right) => left.order - right.order) ?? [],
+    [activeWorkbench?.slices]
   );
 
   const selectedSlice =
     orderedSlices.find((slice) => slice.id === selectedSliceId) ?? orderedSlices[0] ?? null;
-  const currentPreset = getStudioCanvasPreset(activeDocument?.presetId);
+  const currentPreset = getStudioCanvasPreset(activeWorkbench?.presetId);
 
   useEffect(() => {
     if (!selectedSliceId && orderedSlices[0]) {
@@ -55,30 +55,30 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
     }
   }, [onSelectSlice, orderedSlices, selectedSliceId]);
 
-  if (!activeDocument) {
+  if (!activeWorkbench) {
     return null;
   }
 
-  const commitDocument = (nextDocument: typeof activeDocument) => {
-    void upsertDocument(nextDocument);
+  const commitDocument = (nextDocument: typeof activeWorkbench) => {
+    void upsertWorkbench(nextDocument);
   };
 
-  const updateGuide = (key: keyof typeof activeDocument.guides, value: boolean) => {
+  const updateGuide = (key: keyof typeof activeWorkbench.guides, value: boolean) => {
     commitDocument({
-      ...activeDocument,
+      ...activeWorkbench,
       guides: {
-        ...activeDocument.guides,
+        ...activeWorkbench.guides,
         [key]: value,
       },
     });
   };
 
-  const updateSafeArea = (key: keyof typeof activeDocument.safeArea, rawValue: string) => {
+  const updateSafeArea = (key: keyof typeof activeWorkbench.safeArea, rawValue: string) => {
     const nextValue = Math.max(0, Number(rawValue) || 0);
     commitDocument({
-      ...activeDocument,
+      ...activeWorkbench,
       safeArea: {
-        ...activeDocument.safeArea,
+        ...activeWorkbench.safeArea,
         [key]: nextValue,
       },
     });
@@ -88,11 +88,11 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
     if (!selectedSlice) {
       return;
     }
-    commitDocument(updateCanvasSlice(activeDocument, selectedSlice.id, patch));
+    commitDocument(updateCanvasSlice(activeWorkbench, selectedSlice.id, patch));
   };
 
   const applyPreset = (presetId: CanvasPresetId) => {
-    commitDocument(applyCanvasPresetToDocument(activeDocument, presetId));
+    commitDocument(applyCanvasPresetToDocument(activeWorkbench, presetId));
   };
 
   return (
@@ -100,7 +100,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
       <section className="rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(18,18,20,0.96),rgba(10,10,11,0.94))] p-4 shadow-[0_30px_90px_-48px_rgba(0,0,0,0.95)]">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.28em] text-zinc-500">Board Format</p>
+            <p className="text-[11px] uppercase tracking-[0.28em] text-zinc-500">工作台 Format</p>
             <h2 className="mt-1 font-['Syne'] text-xl text-zinc-100">Choose the feed frame first.</h2>
             <p className="mt-2 text-sm leading-6 text-zinc-400">
               Set the social ratio before layering so export boundaries stay predictable.
@@ -113,7 +113,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
 
         <div className="mt-4 grid gap-2">
           {STUDIO_CANVAS_PRESETS.map((preset) => {
-            const active = activeDocument.presetId === preset.id;
+            const active = activeWorkbench.presetId === preset.id;
             return (
               <button
                 key={preset.id}
@@ -144,12 +144,12 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
           <div className="rounded-2xl border border-white/10 bg-black/25 px-3 py-3">
             <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Canvas</p>
             <p className="mt-2 font-medium text-zinc-100">
-              {activeDocument.width} x {activeDocument.height}
+              {activeWorkbench.width} x {activeWorkbench.height}
             </p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-black/25 px-3 py-3">
             <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Layers</p>
-            <p className="mt-2 font-medium text-zinc-100">{activeDocument.elements.length}</p>
+            <p className="mt-2 font-medium text-zinc-100">{activeWorkbench.elements.length}</p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-black/25 px-3 py-3">
             <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Current</p>
@@ -162,7 +162,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-[11px] uppercase tracking-[0.28em] text-zinc-500">Export Sequence</p>
-            <h3 className="mt-1 font-['Syne'] text-xl text-zinc-100">Split one board into deliverables.</h3>
+            <h3 className="mt-1 font-['Syne'] text-xl text-zinc-100">Split one 工作台 into deliverables.</h3>
           </div>
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
             <ScissorsLineDashed className="h-4 w-4 text-zinc-400" />
@@ -176,7 +176,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
             className={actionChipClass}
             onClick={() => {
               onSelectSlice(null);
-              commitDocument(clearCanvasSlices(activeDocument));
+              commitDocument(clearCanvasSlices(activeWorkbench));
             }}
           >
             Single Frame
@@ -188,7 +188,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
               variant="secondary"
               className={actionChipClass}
               onClick={() => {
-                const nextDocument = buildStripSlices(activeDocument, count);
+                const nextDocument = buildStripSlices(activeWorkbench, count);
                 onSelectSlice(nextDocument.slices[0]?.id ?? null);
                 commitDocument(nextDocument);
               }}
@@ -201,7 +201,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
             variant="secondary"
             className={actionChipClass}
             onClick={() => {
-              const nextDocument = appendCanvasSlice(activeDocument);
+              const nextDocument = appendCanvasSlice(activeWorkbench);
               onSelectSlice(nextDocument.slices[nextDocument.slices.length - 1]?.id ?? null);
               commitDocument(nextDocument);
             }}
@@ -241,7 +241,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
           </div>
         ) : (
           <div className="mt-4 rounded-[24px] border border-dashed border-white/10 bg-white/[0.02] px-3 py-4 text-sm text-zinc-500">
-            Export the full board as a single post, or split it when a carousel or grid sequence is
+            Export the full 工作台 as a single post, or split it when a carousel or grid sequence is
             needed.
           </div>
         )}
@@ -255,7 +255,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
                 variant="ghost"
                 className="h-8 rounded-2xl px-2 text-xs text-rose-300 hover:text-rose-200"
                 onClick={() => {
-                  const nextDocument = deleteCanvasSlice(activeDocument, selectedSlice.id);
+                  const nextDocument = deleteCanvasSlice(activeWorkbench, selectedSlice.id);
                   onSelectSlice(nextDocument.slices[0]?.id ?? null);
                   commitDocument(nextDocument);
                 }}
@@ -315,24 +315,24 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
           <Button
             size="sm"
             variant="secondary"
-            className={cn(actionChipClass, activeDocument.guides.showThirds && "border-amber-300/30 bg-amber-200/10 text-zinc-100")}
-            onClick={() => updateGuide("showThirds", !activeDocument.guides.showThirds)}
+            className={cn(actionChipClass, activeWorkbench.guides.showThirds && "border-amber-300/30 bg-amber-200/10 text-zinc-100")}
+            onClick={() => updateGuide("showThirds", !activeWorkbench.guides.showThirds)}
           >
             Thirds
           </Button>
           <Button
             size="sm"
             variant="secondary"
-            className={cn(actionChipClass, activeDocument.guides.showCenter && "border-amber-300/30 bg-amber-200/10 text-zinc-100")}
-            onClick={() => updateGuide("showCenter", !activeDocument.guides.showCenter)}
+            className={cn(actionChipClass, activeWorkbench.guides.showCenter && "border-amber-300/30 bg-amber-200/10 text-zinc-100")}
+            onClick={() => updateGuide("showCenter", !activeWorkbench.guides.showCenter)}
           >
             Center
           </Button>
           <Button
             size="sm"
             variant="secondary"
-            className={cn(actionChipClass, activeDocument.guides.showSafeArea && "border-amber-300/30 bg-amber-200/10 text-zinc-100")}
-            onClick={() => updateGuide("showSafeArea", !activeDocument.guides.showSafeArea)}
+            className={cn(actionChipClass, activeWorkbench.guides.showSafeArea && "border-amber-300/30 bg-amber-200/10 text-zinc-100")}
+            onClick={() => updateGuide("showSafeArea", !activeWorkbench.guides.showSafeArea)}
           >
             Safe Area
           </Button>
@@ -345,7 +345,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
               <Input
                 type="number"
                 min={0}
-                value={activeDocument.safeArea[key]}
+                value={activeWorkbench.safeArea[key]}
                 onChange={(event) => updateSafeArea(key, event.target.value)}
                 className="h-10 rounded-2xl border-white/10 bg-black/35 text-sm"
               />

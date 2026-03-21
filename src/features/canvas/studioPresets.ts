@@ -1,14 +1,14 @@
 import type {
-  CanvasDocument,
+  CanvasWorkbench,
   CanvasGuideSettings,
   CanvasPresetId,
   CanvasSafeArea,
 } from "@/types";
 import {
-  normalizeCanvasDocument as normalizeCanvasDocumentRuntime,
-  normalizeCanvasDocumentWithCleanup as normalizeCanvasDocumentWithCleanupRuntime,
-  type NormalizableCanvasDocument,
-  type NormalizedCanvasDocumentResult,
+  normalizeCanvasWorkbench as normalizeCanvasWorkbenchRuntime,
+  normalizeCanvasWorkbenchWithCleanup as normalizeCanvasWorkbenchWithCleanupRuntime,
+  type NormalizableCanvasWorkbench,
+  type NormalizedCanvasWorkbenchResult,
 } from "./documentGraph";
 
 export interface StudioCanvasPreset {
@@ -62,7 +62,7 @@ export const STUDIO_CANVAS_PRESETS: StudioCanvasPreset[] = [
     id: "social-landscape",
     label: "Landscape 16:9",
     shortLabel: "16:9",
-    description: "Wide-format recaps, headers, and editorial boards.",
+    description: "Wide-format recaps, headers, and editorial 工作台.",
     width: 1600,
     height: 900,
   },
@@ -74,7 +74,7 @@ export const getStudioCanvasPreset = (presetId: CanvasPresetId | undefined | nul
   (presetId ? presetMap.get(presetId) : undefined) ??
   STUDIO_CANVAS_PRESETS.find((preset) => preset.id === "social-portrait")!;
 
-export const createDefaultCanvasDocumentFields = () => {
+export const createDefaultCanvasWorkbenchFields = () => {
   const preset = getStudioCanvasPreset("social-portrait");
   return {
     width: preset.width,
@@ -84,15 +84,15 @@ export const createDefaultCanvasDocumentFields = () => {
     guides: { ...DEFAULT_CANVAS_GUIDES },
     safeArea: { ...DEFAULT_CANVAS_SAFE_AREA },
   } satisfies Pick<
-    CanvasDocument,
+    CanvasWorkbench,
     "width" | "height" | "presetId" | "slices" | "guides" | "safeArea"
   >;
 };
 
 export const applyCanvasPresetToDocument = (
-  document: CanvasDocument,
+  document: CanvasWorkbench,
   presetId: CanvasPresetId
-): CanvasDocument => {
+): CanvasWorkbench => {
   const preset = getStudioCanvasPreset(presetId);
   const orderedSlices = document.slices.slice().sort((left, right) => left.order - right.order);
   const hasSlices = orderedSlices.length > 0;
@@ -115,10 +115,10 @@ export const applyCanvasPresetToDocument = (
   };
 };
 
-export const normalizeCanvasDocumentWithCleanup = (
-  document: NormalizableCanvasDocument
-): NormalizedCanvasDocumentResult =>
-  normalizeCanvasDocumentWithCleanupRuntime({
+export const normalizeCanvasWorkbenchWithCleanup = (
+  document: NormalizableCanvasWorkbench
+): NormalizedCanvasWorkbenchResult =>
+  normalizeCanvasWorkbenchWithCleanupRuntime({
     ...document,
     width: document.width || getStudioCanvasPreset(document.presetId).width,
     height: document.height || getStudioCanvasPreset(document.presetId).height,
@@ -141,8 +141,8 @@ export const normalizeCanvasDocumentWithCleanup = (
     },
   });
 
-export const normalizeCanvasDocument = (document: NormalizableCanvasDocument): CanvasDocument =>
-  normalizeCanvasDocumentRuntime({
+export const normalizeCanvasWorkbench = (document: NormalizableCanvasWorkbench): CanvasWorkbench =>
+  normalizeCanvasWorkbenchRuntime({
     ...document,
     width: document.width || getStudioCanvasPreset(document.presetId).width,
     height: document.height || getStudioCanvasPreset(document.presetId).height,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getCanvasNodeWorldTransform, worldPointToLocalPoint } from "./geometry";
-import { getCanvasDocumentSnapshot } from "./model";
+import { getCanvasWorkbenchSnapshot } from "./model";
 import { executeCanvasCommand } from "./commands";
 import { createCanvasTestDocument, createGroupNode, createShapeNode } from "./testUtils";
 
@@ -208,7 +208,7 @@ describe("document commands", () => {
     });
 
     expect(result.didChange).toBe(false);
-    expect(getCanvasDocumentSnapshot(result.document)).toEqual(getCanvasDocumentSnapshot(document));
+    expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
     expect(result.forwardPatch.operations).toEqual([]);
     expect(result.inversePatch.operations).toEqual([]);
   });

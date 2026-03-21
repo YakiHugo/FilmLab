@@ -1,6 +1,6 @@
 import { useMemo, useRef } from "react";
 import { useCanvasRuntimeStore } from "@/stores/canvasRuntimeStore";
-import { useCanvasStore } from "@/stores/canvasStore";
+import { selectActiveWorkbench, useCanvasStore } from "@/stores/canvasStore";
 import {
   createCanvasSelectionModel,
   resolveDisplaySelectedElementIds,
@@ -9,13 +9,8 @@ import {
 
 const EMPTY_SELECTED_ELEMENT_IDS: string[] = [];
 
-const selectActiveDocument = (state: ReturnType<typeof useCanvasStore.getState>) =>
-  state.activeDocumentId
-    ? (state.documents.find((document) => document.id === state.activeDocumentId) ?? null)
-    : null;
-
 export function useCanvasSelectionModel() {
-  const activeDocument = useCanvasStore(selectActiveDocument);
+  const activeWorkbench = useCanvasStore(selectActiveWorkbench);
   const committedSelectedElementIds = useCanvasStore(
     (state) => state.selectedElementIds,
     selectionIdsEqual
@@ -26,8 +21,8 @@ export function useCanvasSelectionModel() {
   );
   const stabilizedDisplaySelectedElementIdsRef = useRef<string[]>(EMPTY_SELECTED_ELEMENT_IDS);
   const nodeById = useMemo(
-    () => new Map((activeDocument?.allNodes ?? []).map((node) => [node.id, node])),
-    [activeDocument?.allNodes]
+    () => new Map((activeWorkbench?.allNodes ?? []).map((node) => [node.id, node])),
+    [activeWorkbench?.allNodes]
   );
 
   const rawDisplaySelectedElementIds = useMemo(
@@ -49,14 +44,14 @@ export function useCanvasSelectionModel() {
   return useMemo(
     () =>
       createCanvasSelectionModel({
-        activeDocument,
+        activeWorkbench,
         committedSelectedElementIds,
         displaySelectedElementIds,
         nodeById,
         hasPreviewSelection: selectionPreviewElementIds !== null,
       }),
     [
-      activeDocument,
+      activeWorkbench,
       committedSelectedElementIds,
       displaySelectedElementIds,
       nodeById,

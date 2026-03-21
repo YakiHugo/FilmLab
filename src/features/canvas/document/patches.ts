@@ -1,18 +1,18 @@
 import type {
-  CanvasDocument,
-  CanvasDocumentPatch,
-  CanvasDocumentPatchOperation,
-  CanvasDocumentSnapshot,
+  CanvasWorkbench,
+  CanvasWorkbenchPatch,
+  CanvasWorkbenchPatchOperation,
+  CanvasWorkbenchSnapshot,
 } from "@/types";
-import { getCanvasDocumentSnapshot } from "./model";
-import { resolveCanvasDocument } from "./resolve";
+import { getCanvasWorkbenchSnapshot } from "./model";
+import { resolveCanvasWorkbench } from "./resolve";
 import { areEqual, clone, DOCUMENT_FIELD_KEYS } from "./shared";
 
-export const createCanvasDocumentPatch = (
-  before: CanvasDocumentSnapshot,
-  after: CanvasDocumentSnapshot
-): CanvasDocumentPatch => {
-  const operations: CanvasDocumentPatchOperation[] = [];
+export const createCanvasWorkbenchPatch = (
+  before: CanvasWorkbenchSnapshot,
+  after: CanvasWorkbenchSnapshot
+): CanvasWorkbenchPatch => {
+  const operations: CanvasWorkbenchPatchOperation[] = [];
   const fields: Record<string, unknown> = {};
 
   for (const key of DOCUMENT_FIELD_KEYS) {
@@ -24,7 +24,7 @@ export const createCanvasDocumentPatch = (
   if (Object.keys(fields).length > 0) {
     operations.push({
       type: "patchDocument",
-      fields: fields as Extract<CanvasDocumentPatchOperation, { type: "patchDocument" }>["fields"],
+      fields: fields as Extract<CanvasWorkbenchPatchOperation, { type: "patchDocument" }>["fields"],
     });
   }
 
@@ -57,11 +57,11 @@ export const createCanvasDocumentPatch = (
   return { operations };
 };
 
-export const applyCanvasDocumentPatch = (
-  document: CanvasDocument | CanvasDocumentSnapshot,
-  patch: CanvasDocumentPatch
-): CanvasDocument => {
-  const nextSnapshot = getCanvasDocumentSnapshot(document);
+export const applyCanvasWorkbenchPatch = (
+  document: CanvasWorkbench | CanvasWorkbenchSnapshot,
+  patch: CanvasWorkbenchPatch
+): CanvasWorkbench => {
+  const nextSnapshot = getCanvasWorkbenchSnapshot(document);
   for (const operation of patch.operations) {
     if (operation.type === "patchDocument") {
       Object.assign(nextSnapshot, clone(operation.fields));
@@ -77,5 +77,5 @@ export const applyCanvasDocumentPatch = (
     }
     delete nextSnapshot.nodes[operation.nodeId];
   }
-  return resolveCanvasDocument(nextSnapshot);
+  return resolveCanvasWorkbench(nextSnapshot);
 };

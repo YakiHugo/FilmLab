@@ -20,7 +20,7 @@ export function CanvasAssetPicker() {
 
       <p className="text-sm leading-6 text-zinc-400">
         Imported shots and saved AI results stay in Library. Click a tile to place it on the active
-        board as a new image layer.
+        工作台 as a new image layer.
       </p>
 
       {assets.length > 0 ? (

@@ -3,7 +3,7 @@ import { useCallback } from "react";
 import type { CanvasSlice } from "@/types";
 import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { cropRenderedCanvasSlice, renderCanvasDocumentToCanvas } from "../renderCanvasDocument";
+import { cropRenderedCanvasSlice, renderCanvasWorkbenchToCanvas } from "../renderCanvasWorkbench";
 
 export type CanvasExportFormat = "png" | "jpeg";
 
@@ -96,9 +96,9 @@ export const exportStageDataUrl = (
 
 export function useCanvasExport() {
   const assets = useAssetStore((state) => state.assets);
-  const activeDocument = useCanvasStore((state) =>
-    state.activeDocumentId
-      ? state.documents.find((document) => document.id === state.activeDocumentId) ?? null
+  const activeWorkbench = useCanvasStore((state) =>
+    state.activeWorkbenchId
+      ? state.workbenches.find((document) => document.id === state.activeWorkbenchId) ?? null
       : null
   );
 
@@ -124,17 +124,17 @@ export function useCanvasExport() {
       options?: Partial<CanvasExportOptions> & { fileName?: string }
     ) => {
       const merged = {
-        ...(stage ? defaultExportOptions(stage) : defaultExportOptionsFromDocument(activeDocument)),
+        ...(stage ? defaultExportOptions(stage) : defaultExportOptionsFromDocument(activeWorkbench)),
         ...options,
       };
       let dataUrl: string | null = null;
-      if (activeDocument) {
+      if (activeWorkbench) {
         const exportCanvas = document.createElement("canvas");
         try {
-          await renderCanvasDocumentToCanvas({
+          await renderCanvasWorkbenchToCanvas({
             assets,
             canvas: exportCanvas,
-            document: activeDocument,
+            document: activeWorkbench,
             height: merged.height,
             pixelRatio: merged.pixelRatio,
             width: merged.width,
@@ -160,7 +160,7 @@ export function useCanvasExport() {
       link.click();
       return dataUrl;
     },
-    [activeDocument, assets, exportDataUrl]
+    [activeWorkbench, assets, exportDataUrl]
   );
 
   const exportSlices = useCallback(
@@ -169,25 +169,25 @@ export function useCanvasExport() {
       slices: CanvasSlice[],
       options?: Partial<CanvasExportOptions> & { filePrefix?: string }
     ): Promise<CanvasSliceExportResult[]> => {
-      if (slices.length === 0 || !activeDocument) {
+      if (slices.length === 0 || !activeWorkbench) {
         return [];
       }
 
       const merged = {
-        ...(stage ? defaultExportOptions(stage) : defaultExportOptionsFromDocument(activeDocument)),
+        ...(stage ? defaultExportOptions(stage) : defaultExportOptionsFromDocument(activeWorkbench)),
         ...options,
       };
       const extension = merged.format === "jpeg" ? "jpg" : "png";
       const fullCanvas = document.createElement("canvas");
 
       try {
-        await renderCanvasDocumentToCanvas({
+        await renderCanvasWorkbenchToCanvas({
           assets,
           canvas: fullCanvas,
-          document: activeDocument,
-          height: activeDocument.height,
+          document: activeWorkbench,
+          height: activeWorkbench.height,
           pixelRatio: merged.pixelRatio,
-          width: activeDocument.width,
+          width: activeWorkbench.width,
         });
 
         return slices
@@ -196,7 +196,7 @@ export function useCanvasExport() {
           .map((slice) => {
             const sliceCanvas = cropRenderedCanvasSlice({
               canvas: fullCanvas,
-              document: activeDocument,
+              document: activeWorkbench,
               pixelRatio: merged.pixelRatio,
               slice,
             });
@@ -223,7 +223,7 @@ export function useCanvasExport() {
         fullCanvas.height = 0;
       }
     },
-    [activeDocument, assets]
+    [activeWorkbench, assets]
   );
 
   const downloadSlices = useCallback(
@@ -253,14 +253,14 @@ export function useCanvasExport() {
 }
 
 const defaultExportOptionsFromDocument = (
-  activeDocument: {
+  activeWorkbench: {
     height: number;
     width: number;
   } | null
 ): CanvasExportOptions => ({
   format: "png",
-  width: activeDocument?.width ?? 1080,
-  height: activeDocument?.height ?? 1080,
+  width: activeWorkbench?.width ?? 1080,
+  height: activeWorkbench?.height ?? 1080,
   quality: 0.92,
   pixelRatio: 2,
 });

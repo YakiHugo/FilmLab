@@ -3,7 +3,7 @@ import type { CanvasShapeType } from "@/types";
 import { resolveCanvasToolController } from "./toolControllers";
 
 const createContext = () => ({
-  activeDocumentId: "doc-1",
+  activeWorkbenchId: "doc-1",
   activeShapeType: "rect" as CanvasShapeType,
   beginMarqueeSelection: vi.fn(),
   beginPan: vi.fn(),

@@ -164,9 +164,12 @@ export type CanvasRenderableElement =
   | CanvasRenderableShapeElement;
 export type CanvasRenderableNode = CanvasRenderableGroupNode | CanvasRenderableElement;
 
-export interface CanvasDocumentSnapshot {
+export interface CanvasWorkbenchSnapshot {
   id: string;
   version: 2;
+  ownerRef: {
+    userId: string;
+  };
   name: string;
   width: number;
   height: number;
@@ -182,12 +185,12 @@ export interface CanvasDocumentSnapshot {
   thumbnailBlob?: Blob;
 }
 
-export interface CanvasDocument extends CanvasDocumentSnapshot {
+export interface CanvasWorkbench extends CanvasWorkbenchSnapshot {
   allNodes: CanvasRenderableNode[];
   elements: CanvasRenderableElement[];
 }
 
-export type CanvasDocumentPatchOperation =
+export type CanvasWorkbenchPatchOperation =
   | { type: "putNode"; node: CanvasNode }
   | { type: "deleteNode"; nodeId: CanvasNodeId }
   | { type: "setRootIds"; rootIds: CanvasNodeId[] }
@@ -195,7 +198,7 @@ export type CanvasDocumentPatchOperation =
       type: "patchDocument";
       fields: Partial<
         Pick<
-          CanvasDocumentSnapshot,
+          CanvasWorkbenchSnapshot,
           | "backgroundColor"
           | "guides"
           | "height"
@@ -210,14 +213,14 @@ export type CanvasDocumentPatchOperation =
       >;
     };
 
-export interface CanvasDocumentPatch {
-  operations: CanvasDocumentPatchOperation[];
+export interface CanvasWorkbenchPatch {
+  operations: CanvasWorkbenchPatchOperation[];
 }
 
 export interface CanvasHistoryEntry {
   commandType: CanvasCommand["type"];
-  forwardPatch: CanvasDocumentPatch;
-  inversePatch: CanvasDocumentPatch;
+  forwardPatch: CanvasWorkbenchPatch;
+  inversePatch: CanvasWorkbenchPatch;
 }
 
 export type CanvasNodePropertyPatch = Partial<
@@ -236,7 +239,7 @@ export type CanvasCommand =
       type: "PATCH_DOCUMENT";
       patch: Partial<
         Pick<
-          CanvasDocumentSnapshot,
+          CanvasWorkbenchSnapshot,
           | "backgroundColor"
           | "guides"
           | "height"

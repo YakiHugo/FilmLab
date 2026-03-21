@@ -1,5 +1,5 @@
 import type {
-  CanvasDocument,
+  CanvasWorkbench,
   CanvasElement,
   CanvasNode,
   CanvasNodeId,
@@ -25,7 +25,7 @@ export const rotatePoint = (point: { x: number; y: number }, rotationDeg: number
 };
 
 export const getCanvasNodeWorldTransform = (
-  document: CanvasDocument,
+  document: CanvasWorkbench,
   nodeId: CanvasNodeId
 ): AccumulatedTransform | null => {
   const node = document.nodes[nodeId];
@@ -67,7 +67,7 @@ export const getCanvasNodeWorldTransform = (
 };
 
 export const worldPointToLocalPoint = (
-  document: CanvasDocument,
+  document: CanvasWorkbench,
   parentId: CanvasNodeId | null,
   worldPoint: { x: number; y: number }
 ) => {
@@ -129,7 +129,7 @@ export const computeLeafBounds = (
   return getBoundsFromPoints(corners);
 };
 
-export const collectWorldTransformById = (document: CanvasDocument, ids: CanvasNodeId[]) =>
+export const collectWorldTransformById = (document: CanvasWorkbench, ids: CanvasNodeId[]) =>
   new Map(
     ids
       .map((nodeId) => [nodeId, getCanvasNodeWorldTransform(document, nodeId)] as const)

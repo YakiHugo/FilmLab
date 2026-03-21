@@ -378,8 +378,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
   );
 });
 
-export function ProjectEditPanel() {
-  const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
+export function CanvasImageEditPanel() {
   const upsertElement = useCanvasStore((state) => state.upsertElement);
   const setElementDraftAdjustments = useCanvasRuntimeStore(
     (state) => state.setElementDraftAdjustments
@@ -389,12 +388,12 @@ export function ProjectEditPanel() {
   );
   const requestBoardPreview = useCanvasRuntimeStore((state) => state.requestBoardPreview);
   const [openSections, setOpenSections] = useState(createInitialOpenSections);
-  const { activeDocument, committedSelectedElementIds, primarySelectedImageElement: imageElement } =
+  const { activeWorkbench, committedSelectedElementIds, primarySelectedImageElement: imageElement } =
     useCanvasSelectionModel();
 
   const committedImageElement = useMemo(
-    () => resolvePrimarySelectedImageElement(activeDocument, committedSelectedElementIds),
-    [activeDocument, committedSelectedElementIds]
+    () => resolvePrimarySelectedImageElement(activeWorkbench, committedSelectedElementIds),
+    [activeWorkbench, committedSelectedElementIds]
   );
   const committedImageElementId = committedImageElement?.id ?? null;
   const committedImageElementIdRef = useRef<string | null>(committedImageElementId);
@@ -459,11 +458,11 @@ export function ProjectEditPanel() {
 
   const commitAdjustments = useCallback(
     async (nextAdjustments: EditingAdjustments) => {
-      if (!imageElement || !activeDocumentId) {
+      if (!imageElement) {
         return;
       }
       setElementDraftAdjustments(imageElement.id, nextAdjustments);
-      await upsertElement(activeDocumentId, {
+      await upsertElement({
         ...imageElement,
         adjustments: nextAdjustments,
       });
@@ -471,7 +470,6 @@ export function ProjectEditPanel() {
       void requestBoardPreview(imageElement.id, "interactive");
     },
     [
-      activeDocumentId,
       clearElementDraftAdjustments,
       imageElement,
       requestBoardPreview,
@@ -544,16 +542,16 @@ export function ProjectEditPanel() {
   return (
     <div className="flex flex-col gap-3">
       <section className="rounded-[24px] border border-white/10 bg-white/[0.035] p-4">
-        <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">Edit</p>
-        <h2 className="mt-1 font-['Syne'] text-lg text-stone-100">Image Adjustments</h2>
+        <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">编辑</p>
+        <h2 className="mt-1 font-['Syne'] text-lg text-stone-100">图像调整</h2>
         {disabled ? (
           <p className="mt-2 text-xs leading-5 text-stone-500">
-            Select an image element on the canvas to adjust its properties.
+            先在画布上选中一个图片元素，再调整它的参数。
           </p>
         ) : (
           <>
             <p className="mt-2 text-xs leading-5 text-stone-500">
-              The canvas preview and export now use the same board-side image adjustment set.
+              画布预览和导出现在共用同一套工作台侧图像调整参数。
             </p>
             <p className="mt-2 truncate text-xs uppercase tracking-[0.18em] text-stone-400">
               {asset?.name ?? imageElement.assetId}

@@ -1,6 +1,6 @@
 import type {
-  CanvasDocument,
-  CanvasDocumentSnapshot,
+  CanvasWorkbench,
+  CanvasWorkbenchSnapshot,
   CanvasElement,
   CanvasNode,
   CanvasNodeId,
@@ -188,7 +188,7 @@ const resolveNodeRecursive = (
   return resolvedNode;
 };
 
-export const resolveCanvasDocument = (snapshot: CanvasDocumentSnapshot): CanvasDocument => {
+export const resolveCanvasWorkbench = (snapshot: CanvasWorkbenchSnapshot): CanvasWorkbench => {
   const sanitized = sanitizeNodeHierarchy(
     Object.fromEntries(
       Object.entries(snapshot.nodes).map(([nodeId, node]) => [nodeId, normalizeNode(node)])

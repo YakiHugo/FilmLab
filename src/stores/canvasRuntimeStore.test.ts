@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
-import type { Asset, CanvasDocument, CanvasImageElement } from "@/types";
-import { normalizeCanvasDocument } from "@/features/canvas/studioPresets";
+import type { Asset, CanvasWorkbench, CanvasImageElement } from "@/types";
+import { normalizeCanvasWorkbench } from "@/features/canvas/studioPresets";
 
 const createCanvasImageRenderContextMock = vi.fn();
 const renderCanvasImageElementToCanvasMock = vi.fn();
@@ -10,8 +10,8 @@ const assetStoreState: { assets: Asset[] } = {
   assets: [],
 };
 
-const canvasStoreState: { documents: CanvasDocument[]; zoom: number } = {
-  documents: [],
+const canvasStoreState: { workbenches: CanvasWorkbench[]; zoom: number } = {
+  workbenches: [],
   zoom: 1,
 };
 
@@ -87,10 +87,10 @@ const createImageElement = (): CanvasImageElement => ({
   adjustments: createDefaultAdjustments(),
 });
 
-const createDocument = (element: CanvasImageElement): CanvasDocument =>
-  normalizeCanvasDocument({
+const createWorkbench = (element: CanvasImageElement): CanvasWorkbench =>
+  normalizeCanvasWorkbench({
     id: "doc-1",
-    name: "Board",
+    name: "工作台",
     width: 1200,
     height: 800,
     presetId: "custom",
@@ -133,7 +133,7 @@ describe("canvasRuntimeStore", () => {
       }),
     });
     assetStoreState.assets = [createAsset()];
-    canvasStoreState.documents = [createDocument(createImageElement())];
+    canvasStoreState.workbenches = [createWorkbench(createImageElement())];
     canvasStoreState.zoom = 1;
     createCanvasImageRenderContextMock.mockReset();
     renderCanvasImageElementToCanvasMock.mockReset();

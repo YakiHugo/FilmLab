@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import type { Asset, CanvasImageElement } from "@/types";
 import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
@@ -104,21 +103,24 @@ export const resolveCanvasImageInsertionSize = async (
 };
 
 export function useCanvasEngine() {
-  const documents = useCanvasStore((state) => state.documents);
-  const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
-  const upsertElement = useCanvasStore((state) => state.upsertElement);
+  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
+  const activeWorkbenchRootCount = useCanvasStore((state) => {
+    if (!state.activeWorkbenchId) {
+      return 0;
+    }
+    return (
+      state.workbenches.find((entry) => entry.id === state.activeWorkbenchId)?.rootIds.length ?? 0
+    );
+  });
+  const upsertElementInWorkbench = useCanvasStore((state) => state.upsertElementInWorkbench);
   const assets = useAssetStore((state) => state.assets);
 
-  const activeDocument = useMemo(
-    () => documents.find((document) => document.id === activeDocumentId) ?? null,
-    [documents, activeDocumentId]
-  );
-
   const addAssetToCanvas = async (assetId: string) => {
-    if (!activeDocument) {
+    if (!activeWorkbenchId) {
       return;
     }
-    const index = activeDocument.rootIds.length + 1;
+    const workbenchId = activeWorkbenchId;
+    const index = activeWorkbenchRootCount + 1;
     const asset = assets.find((candidate) => candidate.id === assetId);
     const initialSize = await resolveCanvasImageInsertionSize(asset);
     const initialPosition = snapPoint({
@@ -146,12 +148,11 @@ export function useCanvasEngine() {
       locked: false,
       visible: true,
     };
-    await upsertElement(activeDocument.id, element);
+    await upsertElementInWorkbench(workbenchId, element);
   };
 
   return {
     assets,
-    activeDocument,
     addAssetToCanvas,
   };
 }

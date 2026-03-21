@@ -128,10 +128,10 @@ const LayerRow = memo(function LayerRow({
 
 export function CanvasLayerPanel() {
   const {
-    activeDocument,
+    activeWorkbench,
     layers,
     assetById,
-    activeDocumentId,
+    activeWorkbenchId,
     reparentNodes,
     reorderElements,
     toggleElementVisibility,
@@ -147,7 +147,7 @@ export function CanvasLayerPanel() {
 
   const reorder = useCallback(
     (fromId: string, toId: string) => {
-      if (!activeDocumentId || fromId === toId) {
+      if (!activeWorkbenchId || fromId === toId) {
         return;
       }
       const fromLayer = layers.find((layer) => layer.id === fromId);
@@ -162,9 +162,9 @@ export function CanvasLayerPanel() {
       }
       if (
         fromLayer.type === "group" &&
-        activeDocument &&
+        activeWorkbench &&
         targetParentId &&
-        getCanvasDescendantIds(activeDocument, fromLayer.id).includes(targetParentId)
+        getCanvasDescendantIds(activeWorkbench, fromLayer.id).includes(targetParentId)
       ) {
         return;
       }
@@ -176,7 +176,6 @@ export function CanvasLayerPanel() {
         const targetIndex =
           toLayer.type === "group" ? targetSiblingIds.length : targetSiblingIds.indexOf(toLayer.id);
         void reparentNodes(
-          activeDocumentId,
           [fromId],
           targetParentId,
           targetIndex < 0 ? undefined : targetIndex
@@ -195,9 +194,9 @@ export function CanvasLayerPanel() {
       const ordered = siblingIds.slice();
       const [moved] = ordered.splice(fromIndex, 1);
       ordered.splice(toIndex, 0, moved);
-      void reorderElements(activeDocumentId, ordered.reverse(), targetParentId);
+      void reorderElements(ordered.reverse(), targetParentId);
     },
-    [activeDocument, activeDocumentId, layers, reorderElements, reparentNodes]
+    [activeWorkbench, activeWorkbenchId, layers, reorderElements, reparentNodes]
   );
 
   const handleSelect = useCallback(
@@ -209,32 +208,32 @@ export function CanvasLayerPanel() {
 
   const handleDelete = useCallback(
     (layerId: string) => {
-      if (!activeDocumentId) {
+      if (!activeWorkbenchId) {
         return;
       }
-      void deleteElements(activeDocumentId, [layerId]);
+      void deleteElements([layerId]);
     },
-    [activeDocumentId, deleteElements]
+    [activeWorkbenchId, deleteElements]
   );
 
   const handleToggleVisibility = useCallback(
     (layerId: string) => {
-      if (!activeDocumentId) {
+      if (!activeWorkbenchId) {
         return;
       }
-      void toggleElementVisibility(activeDocumentId, layerId);
+      void toggleElementVisibility(layerId);
     },
-    [activeDocumentId, toggleElementVisibility]
+    [activeWorkbenchId, toggleElementVisibility]
   );
 
   const handleToggleLock = useCallback(
     (layerId: string) => {
-      if (!activeDocumentId) {
+      if (!activeWorkbenchId) {
         return;
       }
-      void toggleElementLock(activeDocumentId, layerId);
+      void toggleElementLock(layerId);
     },
-    [activeDocumentId, toggleElementLock]
+    [activeWorkbenchId, toggleElementLock]
   );
 
   const handleDragStart = useCallback((layerId: string) => {
@@ -252,25 +251,25 @@ export function CanvasLayerPanel() {
   );
 
   const handleGroup = useCallback(() => {
-    if (!activeDocumentId || displaySelectedElementIds.length < 2) {
+    if (!activeWorkbenchId || displaySelectedElementIds.length < 2) {
       return;
     }
-    void groupElements(activeDocumentId, displaySelectedElementIds);
-  }, [activeDocumentId, displaySelectedElementIds, groupElements]);
+    void groupElements(displaySelectedElementIds);
+  }, [activeWorkbenchId, displaySelectedElementIds, groupElements]);
 
   const handleUngroup = useCallback(() => {
-    if (!activeDocumentId || primarySelectedElement?.type !== "group") {
+    if (!activeWorkbenchId || primarySelectedElement?.type !== "group") {
       return;
     }
-    void ungroupElement(activeDocumentId, primarySelectedElement.id);
-  }, [activeDocumentId, primarySelectedElement, ungroupElement]);
+    void ungroupElement(primarySelectedElement.id);
+  }, [activeWorkbenchId, primarySelectedElement, ungroupElement]);
 
   return (
     <div className="flex min-h-0 flex-col p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[11px] uppercase tracking-[0.28em] text-zinc-500">Layer Stack</p>
-          <h3 className="mt-1 font-['Syne'] text-xl text-zinc-100">Arrange the board with intent.</h3>
+          <h3 className="mt-1 font-['Syne'] text-xl text-zinc-100">有意识地组织当前工作台。</h3>
         </div>
         <div className="flex items-center gap-2">
           {displaySelectedElementIds.length > 1 ? (
@@ -300,7 +299,7 @@ export function CanvasLayerPanel() {
       </div>
 
       <p className="mt-3 text-sm leading-6 text-zinc-400">
-        Reorder by dragging. Visibility and lock states stay on the layer, so you can stage a board
+        拖拽即可重排。可见性和锁定状态会跟随图层保存，方便你持续组织当前工作台
         without losing alternates.
       </p>
 
@@ -321,7 +320,7 @@ export function CanvasLayerPanel() {
         ))}
         {layers.length === 0 ? (
           <div className="rounded-[22px] border border-dashed border-white/10 bg-white/[0.02] px-3 py-4 text-sm text-zinc-500">
-            No layers yet. Add an image or text layer to start composing the board.
+            还没有图层。先放一张图或一段文字，再开始搭建工作台内容。
           </div>
         ) : null}
       </div>

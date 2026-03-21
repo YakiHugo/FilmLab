@@ -1,43 +1,25 @@
 import { useMemo } from "react";
 import { useAssetStore } from "@/stores/assetStore";
-import { useCanvasStore } from "@/stores/canvasStore";
+import { selectActiveWorkbench, useCanvasStore } from "@/stores/canvasStore";
 
 export function useCanvasLayers() {
-  const documents = useCanvasStore((state) => state.documents);
-  const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
-  const executeCommand = useCanvasStore((state) => state.executeCommand);
+  const activeWorkbench = useCanvasStore(selectActiveWorkbench);
+  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
   const reorderElements = useCanvasStore((state) => state.reorderElements);
+  const reparentNodes = useCanvasStore((state) => state.reparentNodes);
   const toggleElementVisibility = useCanvasStore((state) => state.toggleElementVisibility);
   const toggleElementLock = useCanvasStore((state) => state.toggleElementLock);
   const deleteElements = useCanvasStore((state) => state.deleteElements);
   const assets = useAssetStore((state) => state.assets);
-  const reparentNodes = async (
-    documentId: string,
-    ids: string[],
-    parentId: string | null,
-    index?: number
-  ) => {
-    await executeCommand(documentId, {
-      type: "REPARENT_NODES",
-      ids,
-      index,
-      parentId,
-    });
-  };
-
-  const active = useMemo(
-    () => documents.find((document) => document.id === activeDocumentId) ?? null,
-    [documents, activeDocumentId]
-  );
 
   const layers = useMemo(() => {
-    if (!active) {
+    if (!activeWorkbench) {
       return [];
     }
 
-    const ordered: typeof active.allNodes = [];
+    const ordered: typeof activeWorkbench.allNodes = [];
     const visit = (nodeId: string) => {
-      const node = active.allNodes.find((candidate) => candidate.id === nodeId);
+      const node = activeWorkbench.allNodes.find((candidate) => candidate.id === nodeId);
       if (!node) {
         return;
       }
@@ -52,7 +34,7 @@ export function useCanvasLayers() {
       }
     };
 
-    active.rootIds
+    activeWorkbench.rootIds
       .slice()
       .reverse()
       .forEach((nodeId) => {
@@ -60,13 +42,13 @@ export function useCanvasLayers() {
       });
 
     return ordered;
-  }, [active]);
+  }, [activeWorkbench]);
 
   const assetById = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
 
   return {
-    activeDocument: active,
-    activeDocumentId,
+    activeWorkbench,
+    activeWorkbenchId,
     layers,
     assetById,
     reparentNodes,

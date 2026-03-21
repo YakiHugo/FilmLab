@@ -78,8 +78,8 @@ const isEffectivelyVisible = (
 ) => element.effectiveVisible ?? element.visible;
 
 const findCanvasImageElement = (elementId: string) => {
-  const { documents } = useCanvasStore.getState();
-  for (const document of documents) {
+  const { workbenches } = useCanvasStore.getState();
+  for (const document of workbenches) {
     const element = document.elements.find((candidate) => candidate.id === elementId);
     if (element?.type === "image") {
       return element;
@@ -366,7 +366,7 @@ const pumpPreviewQueue = () => {
             ...state.previewEntries,
             [task.element.id]: {
               ...(state.previewEntries[task.element.id] ?? createEmptyPreviewEntry()),
-              errorMessage: error instanceof Error ? error.message : "Failed to render board preview.",
+              errorMessage: error instanceof Error ? error.message : "Failed to render 工作台 preview.",
               lastRequestedAt: Date.now(),
               previewCacheKey: task.cacheKey,
               renderStatus: "error",

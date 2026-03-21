@@ -1,5 +1,5 @@
 import type Konva from "konva";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,12 +27,11 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
   const [quality, setQuality] = useState(0.92);
   const [pixelRatio, setPixelRatio] = useState(2);
   const [mode, setMode] = useState<"whole" | "slices">("whole");
-  const documents = useCanvasStore((state) => state.documents);
-  const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
-  const activeDocument = useMemo(
-    () => documents.find((document) => document.id === activeDocumentId) ?? null,
-    [documents, activeDocumentId]
-  );
+  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
+  const activeWorkbenchSlices = useCanvasStore((state) => {
+    const activeWorkbench = state.workbenches.find((entry) => entry.id === state.activeWorkbenchId);
+    return activeWorkbench?.slices ?? [];
+  });
   const { download, downloadSlices, exportDataUrl } = useCanvasExport();
 
   useEffect(() => {
@@ -44,45 +43,47 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
   }, [open, stage]);
 
   useEffect(() => {
-    if (activeDocument?.slices.length) {
-      return;
+    if (activeWorkbenchSlices.length === 0) {
+      setMode("whole");
     }
-    setMode("whole");
-  }, [activeDocument?.slices.length]);
+  }, [activeWorkbenchSlices.length]);
 
-  const previewUrl = exportDataUrl(stage, {
-    format,
-    width,
-    height,
-    quality,
-    pixelRatio,
-  });
+  const previewUrl =
+    open && mode === "whole"
+      ? exportDataUrl(stage, {
+          format,
+          width,
+          height,
+          quality,
+          pixelRatio,
+        })
+      : null;
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent className="max-w-lg">
-        <AlertDialogTitle>Export Canvas</AlertDialogTitle>
+        <AlertDialogTitle>{`\u5bfc\u51fa\u5de5\u4f5c\u53f0`}</AlertDialogTitle>
         <AlertDialogDescription>
-          Choose format, dimensions, and quality before downloading the active board or its export frames.
+          {`\u5148\u786e\u8ba4\u683c\u5f0f\u3001\u5c3a\u5bf8\u548c\u8d28\u91cf\uff0c\u518d\u5bfc\u51fa\u5f53\u524d\u5de5\u4f5c\u53f0\u6216\u5b83\u7684\u5207\u7247\u5e8f\u5217\u3002`}
         </AlertDialogDescription>
 
         <div className="mt-4 space-y-3">
           <div className="grid grid-cols-2 gap-2">
             <Select value={mode} onValueChange={(value) => setMode(value as "whole" | "slices")}>
               <SelectTrigger>
-                <SelectValue placeholder="Export mode" />
+                <SelectValue placeholder={"\u5bfc\u51fa\u6a21\u5f0f"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="whole">Whole Board</SelectItem>
-                <SelectItem value="slices" disabled={!activeDocument?.slices.length}>
-                  Frames ({activeDocument?.slices.length ?? 0})
+                <SelectItem value="whole">{`\u6574\u4e2a\u5de5\u4f5c\u53f0`}</SelectItem>
+                <SelectItem value="slices" disabled={activeWorkbenchSlices.length === 0}>
+                  {`\u5207\u7247\u5e8f\u5217`} ({activeWorkbenchSlices.length})
                 </SelectItem>
               </SelectContent>
             </Select>
 
             <Select value={format} onValueChange={(value) => setFormat(value as CanvasExportFormat)}>
               <SelectTrigger>
-                <SelectValue placeholder="Format" />
+                <SelectValue placeholder={"\u683c\u5f0f"} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="png">PNG</SelectItem>
@@ -92,7 +93,7 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
 
             <Select value={String(pixelRatio)} onValueChange={(value) => setPixelRatio(Number(value))}>
               <SelectTrigger>
-                <SelectValue placeholder="DPI scale" />
+                <SelectValue placeholder={"\u50cf\u7d20\u500d\u7387"} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="1">1x</SelectItem>
@@ -109,41 +110,42 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
                 min={64}
                 value={width}
                 onChange={(event) => setWidth(Math.max(64, Number(event.target.value) || 64))}
-                placeholder="Width"
+                placeholder={"\u5bbd\u5ea6"}
               />
               <Input
                 type="number"
                 min={64}
                 value={height}
                 onChange={(event) => setHeight(Math.max(64, Number(event.target.value) || 64))}
-                placeholder="Height"
+                placeholder={"\u9ad8\u5ea6"}
               />
             </div>
           ) : (
             <div className="rounded-lg border border-white/10 bg-black/35 px-3 py-3 text-sm text-slate-300">
-              {activeDocument?.slices.length ? (
+              {activeWorkbenchSlices.length ? (
                 <div className="space-y-2">
-                  <p>{activeDocument.slices.length} frames will be exported in sequence.</p>
+                  <p>{`\u5c06\u6309\u987a\u5e8f\u5bfc\u51fa`} {activeWorkbenchSlices.length} {`\u4e2a\u5207\u7247\u3002`}</p>
                   <div className="max-h-[120px] space-y-1 overflow-y-auto text-xs text-slate-400">
-                    {activeDocument.slices
+                    {activeWorkbenchSlices
                       .slice()
                       .sort((left, right) => left.order - right.order)
                       .map((slice) => (
                         <p key={slice.id}>
-                          {String(slice.order).padStart(2, "0")} {slice.name} ({slice.width} x {slice.height})
+                          {String(slice.order).padStart(2, "0")} {slice.name} ({slice.width} x{" "}
+                          {slice.height})
                         </p>
                       ))}
                   </div>
                 </div>
               ) : (
-                <p>Create export frames in Canvas before using sequence export.</p>
+                <p>{`\u5148\u5728\u5de5\u4f5c\u53f0\u91cc\u521b\u5efa\u5207\u7247\uff0c\u518d\u4f7f\u7528\u5e8f\u5217\u5bfc\u51fa\u3002`}</p>
               )}
             </div>
           )}
 
           <div className="space-y-1">
             <div className="flex items-center justify-between text-xs text-slate-400">
-              <span>Quality</span>
+              <span>{`\u8d28\u91cf`}</span>
               <span>{Math.round(quality * 100)}%</span>
             </div>
             <Slider
@@ -156,23 +158,31 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
             />
           </div>
 
-          {mode === "whole" && previewUrl && (
+          {mode === "whole" && previewUrl ? (
             <div className="overflow-hidden rounded-lg border border-white/10 bg-black/35">
-              <img src={previewUrl} alt="Canvas export preview" className="max-h-[220px] w-full object-contain" />
+              <img
+                src={previewUrl}
+                alt={"\u5de5\u4f5c\u53f0\u5bfc\u51fa\u9884\u89c8"}
+                className="max-h-[220px] w-full object-contain"
+              />
             </div>
-          )}
+          ) : null}
         </div>
 
         <div className="mt-5 flex justify-end gap-3">
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>{`\u53d6\u6d88`}</AlertDialogCancel>
           <AlertDialogAction
             onClick={() => {
+              const currentWorkbench = useCanvasStore
+                .getState()
+                .workbenches.find((workbench) => workbench.id === activeWorkbenchId);
+
               if (mode === "slices") {
-                void downloadSlices(stage, activeDocument?.slices ?? [], {
+                void downloadSlices(stage, currentWorkbench?.slices ?? [], {
                   format,
                   quality,
                   pixelRatio,
-                  filePrefix: activeDocument?.name ?? "filmlab-board",
+                  filePrefix: currentWorkbench?.name ?? "filmlab-workbench",
                 });
                 return;
               }
@@ -183,11 +193,13 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
                 height,
                 quality,
                 pixelRatio,
-                fileName: `${activeDocument?.name ?? "filmlab-board"}.${format === "jpeg" ? "jpg" : "png"}`,
+                fileName: `${currentWorkbench?.name ?? "filmlab-workbench"}.${
+                  format === "jpeg" ? "jpg" : "png"
+                }`,
               });
             }}
           >
-            Download
+            {`\u4e0b\u8f7d`}
           </AlertDialogAction>
         </div>
       </AlertDialogContent>

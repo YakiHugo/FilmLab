@@ -1,6 +1,7 @@
+import { getCurrentUserId } from "@/lib/authToken";
 import type {
-  CanvasDocument,
-  CanvasDocumentSnapshot,
+  CanvasWorkbench,
+  CanvasWorkbenchSnapshot,
   CanvasNode,
   CanvasNodeId,
   CanvasNodeTransform,
@@ -8,7 +9,7 @@ import type {
 } from "@/types";
 import { normalizeCanvasTextElement } from "../textStyle";
 import { createCanvasNodeId, normalizeNode } from "./model";
-import { resolveCanvasDocument } from "./resolve";
+import { resolveCanvasWorkbench } from "./resolve";
 import { clone, toNodeTransform, withSyncedTransformFields } from "./shared";
 
 type LegacyCanvasShapeElement = {
@@ -72,8 +73,8 @@ type LegacyCanvasImageElement = {
   zIndex?: number;
 };
 
-export type NormalizableCanvasDocument = Partial<
-  Omit<CanvasDocumentSnapshot, "nodes" | "rootIds" | "version">
+export type NormalizableCanvasWorkbench = Partial<
+  Omit<CanvasWorkbenchSnapshot, "nodes" | "rootIds" | "version">
 > & {
   elements?: Array<LegacyCanvasImageElement | LegacyCanvasTextElement | LegacyCanvasShapeElement>;
   nodes?: Record<string, CanvasNode>;
@@ -81,8 +82,8 @@ export type NormalizableCanvasDocument = Partial<
   version?: number;
 };
 
-export interface NormalizedCanvasDocumentResult {
-  document: CanvasDocument;
+export interface NormalizedCanvasWorkbenchResult {
+  document: CanvasWorkbench;
   removedLegacyShapeIds: string[];
 }
 
@@ -137,9 +138,9 @@ const normalizeLegacyElement = (
   });
 };
 
-export const normalizeCanvasDocumentWithCleanup = (
-  document: NormalizableCanvasDocument
-): NormalizedCanvasDocumentResult => {
+export const normalizeCanvasWorkbenchWithCleanup = (
+  document: NormalizableCanvasWorkbench
+): NormalizedCanvasWorkbenchResult => {
   const removedLegacyShapeIds: string[] = [];
   const normalizedNodes: Record<string, CanvasNode> = {};
   const legacyElements = Array.isArray(document.elements) ? document.elements.slice() : [];
@@ -162,10 +163,11 @@ export const normalizeCanvasDocumentWithCleanup = (
     }
   }
 
-  const snapshot: CanvasDocumentSnapshot = {
+  const snapshot: CanvasWorkbenchSnapshot = {
     id: document.id ?? createCanvasNodeId("canvas-document"),
     version: 2,
-    name: document.name ?? "Untitled board",
+    ownerRef: document.ownerRef ?? { userId: getCurrentUserId() },
+    name: document.name ?? "Untitled 工作台",
     width: Math.max(1, Number(document.width) || 1080),
     height: Math.max(1, Number(document.height) || 1350),
     presetId: document.presetId ?? "social-portrait",
@@ -197,10 +199,10 @@ export const normalizeCanvasDocumentWithCleanup = (
   };
 
   return {
-    document: resolveCanvasDocument(snapshot),
+    document: resolveCanvasWorkbench(snapshot),
     removedLegacyShapeIds,
   };
 };
 
-export const normalizeCanvasDocument = (document: NormalizableCanvasDocument): CanvasDocument =>
-  normalizeCanvasDocumentWithCleanup(document).document;
+export const normalizeCanvasWorkbench = (document: NormalizableCanvasWorkbench): CanvasWorkbench =>
+  normalizeCanvasWorkbenchWithCleanup(document).document;

@@ -2,7 +2,7 @@ import { renderDocumentToCanvas } from "@/features/editor/renderDocumentCanvas";
 import { releaseRenderSlots } from "@/lib/imageProcessing";
 import type {
   Asset,
-  CanvasDocument,
+  CanvasWorkbench,
   CanvasImageElement,
   CanvasRenderableElement,
   CanvasShapeElement,
@@ -17,10 +17,10 @@ import {
   splitCanvasTextLines,
 } from "./textStyle";
 
-interface RenderCanvasDocumentOptions {
+interface RenderCanvasWorkbenchOptions {
   assets: Asset[];
   canvas: HTMLCanvasElement;
-  document: CanvasDocument;
+  document: CanvasWorkbench;
   height: number;
   pixelRatio: number;
   width: number;
@@ -222,14 +222,14 @@ const drawImageElement = async ({
   }
 };
 
-export const renderCanvasDocumentToCanvas = async ({
+export const renderCanvasWorkbenchToCanvas = async ({
   assets,
   canvas,
   document,
   height,
   pixelRatio,
   width,
-}: RenderCanvasDocumentOptions) => {
+}: RenderCanvasWorkbenchOptions) => {
   ensureCanvasSize(canvas, width * pixelRatio, height * pixelRatio);
   const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context) {
@@ -285,7 +285,7 @@ export const cropRenderedCanvasSlice = ({
   slice,
 }: {
   canvas: HTMLCanvasElement;
-  document: CanvasDocument;
+  document: CanvasWorkbench;
   pixelRatio: number;
   slice: Pick<CanvasSlice, "height" | "width" | "x" | "y">;
 }) => {

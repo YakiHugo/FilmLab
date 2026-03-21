@@ -35,7 +35,7 @@ const canvasRoute = createRoute({
 
 const canvasDocumentRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/canvas/$documentId",
+  path: "/canvas/$workbenchId",
   component: CanvasPage,
 });
 

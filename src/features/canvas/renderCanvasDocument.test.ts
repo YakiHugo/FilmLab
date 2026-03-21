@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
-import type { Asset, CanvasDocument } from "@/types";
-import { normalizeCanvasDocument } from "./studioPresets";
-import { cropRenderedCanvasSlice, renderCanvasDocumentToCanvas } from "./renderCanvasDocument";
+import type { Asset, CanvasWorkbench } from "@/types";
+import { normalizeCanvasWorkbench } from "./studioPresets";
+import { cropRenderedCanvasSlice, renderCanvasWorkbenchToCanvas } from "./renderCanvasWorkbench";
 
 const renderDocumentToCanvasMock = vi.fn();
 const releaseRenderSlotsMock = vi.fn();
@@ -74,10 +74,10 @@ const createCanvas = (context = createContext()) => ({
   toDataURL: vi.fn(() => "data:image/png;base64,rendered"),
 });
 
-const createCanvasDocument = (): CanvasDocument =>
-  normalizeCanvasDocument({
+const createCanvasWorkbench = (): CanvasWorkbench =>
+  normalizeCanvasWorkbench({
     id: "doc-1",
-    name: "Board",
+    name: "工作台",
     width: 1000,
     height: 800,
     presetId: "custom",
@@ -108,7 +108,7 @@ const createCanvasDocument = (): CanvasDocument =>
         id: "text-1",
         type: "text",
         parentId: null,
-        content: "Board export",
+        content: "工作台 export",
         fontFamily: "Georgia",
         fontSize: 24,
         fontSizeTier: "small",
@@ -147,10 +147,10 @@ const createCanvasDocument = (): CanvasDocument =>
     updatedAt: "2026-03-17T00:00:00.000Z",
   });
 
-const createNestedVisibilityDocument = (): CanvasDocument =>
-  normalizeCanvasDocument({
+const createNestedVisibilityDocument = (): CanvasWorkbench =>
+  normalizeCanvasWorkbench({
     id: "doc-hidden",
-    name: "Board",
+    name: "工作台",
     width: 1000,
     height: 800,
     presetId: "custom",
@@ -244,7 +244,7 @@ const createNestedVisibilityDocument = (): CanvasDocument =>
     updatedAt: "2026-03-17T00:00:00.000Z",
   });
 
-describe("renderCanvasDocument", () => {
+describe("renderCanvasWorkbench", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     renderDocumentToCanvasMock.mockResolvedValue(undefined);
@@ -263,9 +263,9 @@ describe("renderCanvasDocument", () => {
 
     const mainContext = createContext();
     const mainCanvas = createCanvas(mainContext);
-    const canvasDocument = createCanvasDocument();
+    const canvasDocument = createCanvasWorkbench();
 
-    await renderCanvasDocumentToCanvas({
+    await renderCanvasWorkbenchToCanvas({
       assets: [createAsset()],
       canvas: mainCanvas as unknown as HTMLCanvasElement,
       document: canvasDocument,
@@ -284,7 +284,7 @@ describe("renderCanvasDocument", () => {
       },
     });
     expect(mainContext.drawImage).toHaveBeenCalled();
-    expect(mainContext.fillText).toHaveBeenCalledWith("Board export", 0, 0);
+    expect(mainContext.fillText).toHaveBeenCalledWith("工作台 export", 0, 0);
     expect(mainContext.fillRect).toHaveBeenCalledWith(0, 0, 1000, 800);
     expect(releaseRenderSlotsMock).toHaveBeenCalledWith("export", "board-export");
     createdCanvases.forEach((canvas) => {
@@ -300,7 +300,7 @@ describe("renderCanvasDocument", () => {
 
     const mainContext = createContext();
     const mainCanvas = createCanvas(mainContext);
-    const canvasDocument = createCanvasDocument();
+    const canvasDocument = createCanvasWorkbench();
     const textElement = canvasDocument.elements[1];
     if (!textElement || textElement.type !== "text") {
       throw new Error("Expected text element.");
@@ -309,7 +309,7 @@ describe("renderCanvasDocument", () => {
     textElement.content = "first line\nsecond";
     textElement.width = 40;
 
-    await renderCanvasDocumentToCanvas({
+    await renderCanvasWorkbenchToCanvas({
       assets: [createAsset()],
       canvas: mainCanvas as unknown as HTMLCanvasElement,
       document: canvasDocument,
@@ -331,7 +331,7 @@ describe("renderCanvasDocument", () => {
     const mainContext = createContext();
     const mainCanvas = createCanvas(mainContext);
 
-    await renderCanvasDocumentToCanvas({
+    await renderCanvasWorkbenchToCanvas({
       assets: [createAsset()],
       canvas: mainCanvas as unknown as HTMLCanvasElement,
       document: createNestedVisibilityDocument(),
@@ -345,7 +345,7 @@ describe("renderCanvasDocument", () => {
     expect(mainContext.fillText).toHaveBeenCalledTimes(1);
   });
 
-  it("crops rendered slice regions using the board export scale", () => {
+  it("crops rendered slice regions using the 工作台 export scale", () => {
     const sliceContext = createContext();
     const sliceCanvas = createCanvas(sliceContext);
     vi.stubGlobal("document", {
@@ -358,7 +358,7 @@ describe("renderCanvasDocument", () => {
 
     const result = cropRenderedCanvasSlice({
       canvas: boardCanvas as unknown as HTMLCanvasElement,
-      document: createCanvasDocument(),
+      document: createCanvasWorkbench(),
       pixelRatio: 2,
       slice: {
         x: 50,

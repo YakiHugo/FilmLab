@@ -5,8 +5,8 @@ import { CanvasAssetPicker } from "./CanvasAssetPicker";
 import { CanvasLayerPanel } from "./CanvasLayerPanel";
 import { CanvasPropertiesPanel } from "./CanvasPropertiesPanel";
 import { CanvasStoryPanel } from "./CanvasStoryPanel";
-import { CanvasProjectPanel } from "./CanvasProjectPanel";
-import { ProjectEditPanel } from "./ProjectEditPanel";
+import { CanvasWorkbenchPanel } from "./CanvasWorkbenchPanel";
+import { CanvasImageEditPanel } from "./CanvasImageEditPanel";
 
 interface CanvasFloatingPanelProps {
   selectedSliceId: string | null;
@@ -64,7 +64,7 @@ function PanelContent({
     case "edit":
       return (
         <div className="space-y-3">
-          <ProjectEditPanel />
+          <CanvasImageEditPanel />
           <CanvasPropertiesPanel />
         </div>
       );
@@ -74,8 +74,8 @@ function PanelContent({
       return <CanvasAssetPicker />;
     case "story":
       return <CanvasStoryPanel selectedSliceId={selectedSliceId} onSelectSlice={onSelectSlice} />;
-    case "project":
-      return <CanvasProjectPanel />;
+    case "workbench":
+      return <CanvasWorkbenchPanel />;
     case "properties":
       return <CanvasPropertiesPanel />;
     default:

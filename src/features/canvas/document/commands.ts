@@ -1,8 +1,8 @@
 import type {
   CanvasCommand,
-  CanvasDocument,
-  CanvasDocumentPatch,
-  CanvasDocumentSnapshot,
+  CanvasWorkbench,
+  CanvasWorkbenchPatch,
+  CanvasWorkbenchSnapshot,
   CanvasNode,
   CanvasNodeId,
   CanvasNodePropertyPatch,
@@ -20,15 +20,15 @@ import {
 import {
   createCanvasNodeId,
   getCanvasDescendantIds,
-  getCanvasDocumentSnapshot,
+  getCanvasWorkbenchSnapshot,
   getCanvasRenderableNode,
   normalizeNode,
 } from "./model";
-import { createCanvasDocumentPatch } from "./patches";
-import { resolveCanvasDocument } from "./resolve";
+import { createCanvasWorkbenchPatch } from "./patches";
+import { resolveCanvasWorkbench } from "./resolve";
 import { areEqual, clone, toNodeTransform, withSyncedTransformFields } from "./shared";
 
-const EMPTY_PATCH: CanvasDocumentPatch = { operations: [] };
+const EMPTY_PATCH: CanvasWorkbenchPatch = { operations: [] };
 
 const moveIdsInOrder = (ids: CanvasNodeId[], movingIds: CanvasNodeId[], index: number) => {
   const remaining = ids.filter((entry) => !movingIds.includes(entry));
@@ -39,7 +39,7 @@ const moveIdsInOrder = (ids: CanvasNodeId[], movingIds: CanvasNodeId[], index: n
 };
 
 const setChildOrder = (
-  snapshot: CanvasDocumentSnapshot,
+  snapshot: CanvasWorkbenchSnapshot,
   parentId: CanvasNodeId | null,
   orderedIds: CanvasNodeId[]
 ) => {
@@ -61,7 +61,7 @@ const setChildOrder = (
   return false;
 };
 
-const getChildOrder = (snapshot: CanvasDocumentSnapshot, parentId: CanvasNodeId | null) => {
+const getChildOrder = (snapshot: CanvasWorkbenchSnapshot, parentId: CanvasNodeId | null) => {
   if (!parentId) {
     return snapshot.rootIds.slice();
   }
@@ -70,7 +70,7 @@ const getChildOrder = (snapshot: CanvasDocumentSnapshot, parentId: CanvasNodeId 
 };
 
 const isValidParentTarget = (
-  snapshot: CanvasDocumentSnapshot,
+  snapshot: CanvasWorkbenchSnapshot,
   parentId: CanvasNodeId | null
 ) => !parentId || snapshot.nodes[parentId]?.type === "group";
 
@@ -81,7 +81,7 @@ const insertIdsAtIndex = (ids: CanvasNodeId[], insertIds: CanvasNodeId[], index:
   return next;
 };
 
-const filterSelectedRoots = (snapshot: Pick<CanvasDocumentSnapshot, "nodes">, ids: CanvasNodeId[]) =>
+const filterSelectedRoots = (snapshot: Pick<CanvasWorkbenchSnapshot, "nodes">, ids: CanvasNodeId[]) =>
   ids.filter(
     (nodeId) =>
       !ids.some(
@@ -90,19 +90,19 @@ const filterSelectedRoots = (snapshot: Pick<CanvasDocumentSnapshot, "nodes">, id
       )
   );
 
-const setDocumentField = <K extends keyof CanvasDocumentSnapshot>(
-  snapshot: CanvasDocumentSnapshot,
+const setDocumentField = <K extends keyof CanvasWorkbenchSnapshot>(
+  snapshot: CanvasWorkbenchSnapshot,
   key: K,
-  value: CanvasDocumentSnapshot[K]
+  value: CanvasWorkbenchSnapshot[K]
 ) => {
   if (areEqual(snapshot[key], value)) {
     return false;
   }
-  snapshot[key] = clone(value) as CanvasDocumentSnapshot[K];
+  snapshot[key] = clone(value) as CanvasWorkbenchSnapshot[K];
   return true;
 };
 
-const deleteNodeRecursive = (snapshot: CanvasDocumentSnapshot, nodeId: CanvasNodeId): boolean => {
+const deleteNodeRecursive = (snapshot: CanvasWorkbenchSnapshot, nodeId: CanvasNodeId): boolean => {
   const node = snapshot.nodes[nodeId];
   if (!node) {
     return false;
@@ -195,23 +195,23 @@ const applyNodePropertyPatch = (node: CanvasNode, patch: CanvasNodePropertyPatch
 
 export interface ExecuteCanvasCommandResult {
   didChange: boolean;
-  document: CanvasDocument;
-  forwardPatch: CanvasDocumentPatch;
-  inversePatch: CanvasDocumentPatch;
+  document: CanvasWorkbench;
+  forwardPatch: CanvasWorkbenchPatch;
+  inversePatch: CanvasWorkbenchPatch;
 }
 
 export const executeCanvasCommand = (
-  document: CanvasDocument,
+  document: CanvasWorkbench,
   command: CanvasCommand
 ): ExecuteCanvasCommandResult => {
-  const before = getCanvasDocumentSnapshot(document);
+  const before = getCanvasWorkbenchSnapshot(document);
   const next = clone(before);
   let didChange = false;
 
   if (command.type === "PATCH_DOCUMENT") {
     const patch = clone(command.patch);
     for (const key of Object.keys(patch) as Array<keyof typeof patch>) {
-      didChange = setDocumentField(next, key as keyof CanvasDocumentSnapshot, patch[key]!) || didChange;
+      didChange = setDocumentField(next, key as keyof CanvasWorkbenchSnapshot, patch[key]!) || didChange;
     }
   } else if (command.type === "INSERT_NODES") {
     const nodes = command.nodes.map((node) => normalizeNode(node));
@@ -247,7 +247,7 @@ export const executeCanvasCommand = (
       }
     }
   } else if (command.type === "MOVE_NODES") {
-    const runtime = resolveCanvasDocument(next);
+    const runtime = resolveCanvasWorkbench(next);
     for (const nodeId of command.ids) {
       const currentNode = next.nodes[nodeId];
       if (!currentNode) {
@@ -286,7 +286,7 @@ export const executeCanvasCommand = (
       const targetParentId = selectedParentIds[0] ?? null;
       const siblingOrder = getChildOrder(next, targetParentId);
       const orderedSelectedIds = siblingOrder.filter((nodeId) => uniqueIds.includes(nodeId));
-      const runtime = resolveCanvasDocument(next);
+      const runtime = resolveCanvasWorkbench(next);
       const worldTransforms = collectWorldTransformById(runtime, orderedSelectedIds);
       const renderables = orderedSelectedIds
         .map((nodeId) => getCanvasRenderableNode(runtime, nodeId))
@@ -368,7 +368,7 @@ export const executeCanvasCommand = (
       }
     }
   } else if (command.type === "UNGROUP_NODE") {
-    const runtime = resolveCanvasDocument(next);
+    const runtime = resolveCanvasWorkbench(next);
     const group = next.nodes[command.id];
     if (group?.type === "group") {
       didChange = true;
@@ -437,7 +437,7 @@ export const executeCanvasCommand = (
       isValidParentTarget(next, targetParentId) &&
       !createsCycle
     ) {
-      const runtime = resolveCanvasDocument(next);
+      const runtime = resolveCanvasWorkbench(next);
       const worldTransforms = collectWorldTransformById(runtime, uniqueIds);
       const currentOrder = getChildOrder(next, targetParentId);
       const nextOrder = moveIdsInOrder(
@@ -526,11 +526,11 @@ export const executeCanvasCommand = (
   }
 
   next.updatedAt = new Date().toISOString();
-  const nextDocument = resolveCanvasDocument(next);
+  const nextDocument = resolveCanvasWorkbench(next);
   return {
     didChange: true,
     document: nextDocument,
-    forwardPatch: createCanvasDocumentPatch(before, getCanvasDocumentSnapshot(nextDocument)),
-    inversePatch: createCanvasDocumentPatch(getCanvasDocumentSnapshot(nextDocument), before),
+    forwardPatch: createCanvasWorkbenchPatch(before, getCanvasWorkbenchSnapshot(nextDocument)),
+    inversePatch: createCanvasWorkbenchPatch(getCanvasWorkbenchSnapshot(nextDocument), before),
   };
 };

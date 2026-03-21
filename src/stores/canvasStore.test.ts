@@ -1,23 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
-import type { CanvasDocument } from "@/types";
-import { normalizeCanvasDocument } from "@/features/canvas/studioPresets";
+import type { CanvasWorkbench } from "@/types";
+import { normalizeCanvasWorkbench } from "@/features/canvas/studioPresets";
 import { useCanvasStore } from "./canvasStore";
 
-const loadCanvasDocumentsMock = vi.fn();
-const saveCanvasDocumentMock = vi.fn();
+const loadCanvasWorkbenchesMock = vi.fn();
+const saveCanvasWorkbenchMock = vi.fn();
 
 vi.mock("@/lib/db", () => ({
-  deleteCanvasDocument: vi.fn(),
-  loadCanvasDocuments: (...args: unknown[]) => loadCanvasDocumentsMock(...args),
-  saveCanvasDocument: (...args: unknown[]) => saveCanvasDocumentMock(...args),
+  deleteCanvasWorkbench: vi.fn(),
+  loadCanvasWorkbenches: (...args: unknown[]) => loadCanvasWorkbenchesMock(...args),
+  loadCanvasWorkbenchesByUser: (...args: unknown[]) => loadCanvasWorkbenchesMock(...args),
+  saveCanvasWorkbench: (...args: unknown[]) => saveCanvasWorkbenchMock(...args),
 }));
 
-const createDocument = (): CanvasDocument =>
-  normalizeCanvasDocument({
+const createWorkbench = (): CanvasWorkbench =>
+  normalizeCanvasWorkbench({
   id: "doc-1",
   version: 2,
-  name: "Board",
+  name: "工作台",
   width: 1200,
   height: 800,
   presetId: "custom",
@@ -88,11 +89,11 @@ const createDocument = (): CanvasDocument =>
   updatedAt: "2026-03-17T00:00:00.000Z",
 });
 
-const createCrossParentGroupingDocument = (): CanvasDocument =>
-  normalizeCanvasDocument({
+const createCrossParentGroupingDocument = (): CanvasWorkbench =>
+  normalizeCanvasWorkbench({
     id: "doc-1",
     version: 2,
-    name: "Board",
+    name: "工作台",
     width: 1200,
     height: 800,
     presetId: "custom",
@@ -189,17 +190,17 @@ const createCrossParentGroupingDocument = (): CanvasDocument =>
 const createLegacyShapeDocument = () =>
   ({
     id: "doc-1",
-    name: "Board",
+    name: "工作台",
     width: 1200,
     height: 800,
     presetId: "custom",
     backgroundColor: "#000000",
     elements: [
       {
-        ...(createDocument().elements[0] as CanvasDocument["elements"][number]),
+        ...(createWorkbench().elements[0] as CanvasWorkbench["elements"][number]),
       },
       {
-        ...(createDocument().elements[1] as CanvasDocument["elements"][number]),
+        ...(createWorkbench().elements[1] as CanvasWorkbench["elements"][number]),
         fontSizeTier: undefined,
       },
       {
@@ -240,10 +241,10 @@ const createLegacyShapeDocument = () =>
     },
     createdAt: "2026-03-17T00:00:00.000Z",
     updatedAt: "2026-03-17T00:00:00.000Z",
-  }) as unknown as CanvasDocument;
+  }) as unknown as CanvasWorkbench;
 
 const createLegacyTextTierDocument = () => {
-  const document = createDocument();
+  const document = createWorkbench();
   const textElement = document.elements[1];
   if (!textElement || textElement.type !== "text") {
     throw new Error("Expected text element.");
@@ -251,7 +252,7 @@ const createLegacyTextTierDocument = () => {
 
   return {
     id: "doc-1",
-    name: "Board",
+    name: "工作台",
     width: 1200,
     height: 800,
     presetId: "custom",
@@ -277,19 +278,19 @@ const createLegacyTextTierDocument = () => {
     },
     createdAt: "2026-03-17T00:00:00.000Z",
     updatedAt: "2026-03-17T00:00:00.000Z",
-  } as unknown as CanvasDocument;
+  } as unknown as CanvasWorkbench;
 };
 
 describe("canvasStore", () => {
   beforeEach(() => {
-    loadCanvasDocumentsMock.mockReset();
-    loadCanvasDocumentsMock.mockResolvedValue([]);
-    saveCanvasDocumentMock.mockClear();
-    saveCanvasDocumentMock.mockResolvedValue(true);
+    loadCanvasWorkbenchesMock.mockReset();
+    loadCanvasWorkbenchesMock.mockResolvedValue([]);
+    saveCanvasWorkbenchMock.mockClear();
+    saveCanvasWorkbenchMock.mockResolvedValue(true);
     useCanvasStore.setState({
-      activeDocumentId: "doc-1",
-      documents: [createDocument()],
-      historyByDocumentId: {},
+      activeWorkbenchId: "doc-1",
+      workbenches: [createWorkbench()],
+      historyByWorkbenchId: {},
       activePanel: null,
       selectedElementIds: [],
       tool: "select",
@@ -301,7 +302,7 @@ describe("canvasStore", () => {
   it("persists image-only adjustment updates even when geometry is unchanged", async () => {
     const element = useCanvasStore
       .getState()
-      .documents[0]?.elements.find((candidate) => candidate.id === "image-1");
+      .workbenches[0]?.elements.find((candidate) => candidate.id === "image-1");
     if (!element || element.type !== "image") {
       throw new Error("Expected image element.");
     }
@@ -311,65 +312,65 @@ describe("canvasStore", () => {
       exposure: 18,
     };
 
-    await useCanvasStore.getState().upsertElement("doc-1", {
+    await useCanvasStore.getState().upsertElement({
       ...element,
       adjustments: nextAdjustments,
     });
 
     const updated = useCanvasStore
       .getState()
-      .documents[0]?.elements.find((candidate) => candidate.id === "image-1");
+      .workbenches[0]?.elements.find((candidate) => candidate.id === "image-1");
     expect(updated?.type).toBe("image");
     if (updated?.type !== "image") {
       return;
     }
     expect(updated.adjustments?.exposure).toBe(18);
-    expect(saveCanvasDocumentMock).toHaveBeenCalledTimes(1);
+    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
   });
 
   it("persists text content updates without requiring transform changes", async () => {
     const element = useCanvasStore
       .getState()
-      .documents[0]?.elements.find((candidate) => candidate.id === "text-1");
+      .workbenches[0]?.elements.find((candidate) => candidate.id === "text-1");
     if (!element || element.type !== "text") {
       throw new Error("Expected text element.");
     }
 
-    await useCanvasStore.getState().upsertElement("doc-1", {
+    await useCanvasStore.getState().upsertElement({
       ...element,
       content: "Updated copy",
     });
 
     const updated = useCanvasStore
       .getState()
-      .documents[0]?.elements.find((candidate) => candidate.id === "text-1");
+      .workbenches[0]?.elements.find((candidate) => candidate.id === "text-1");
     expect(updated?.type).toBe("text");
     if (updated?.type !== "text") {
       return;
     }
     expect(updated.content).toBe("Updated copy");
-    expect(saveCanvasDocumentMock).toHaveBeenCalledTimes(1);
+    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
   });
 
   it("migrates legacy shape elements into v2 nodes during init", async () => {
-    loadCanvasDocumentsMock.mockResolvedValue([createLegacyShapeDocument()]);
+    loadCanvasWorkbenchesMock.mockResolvedValue([createLegacyShapeDocument()]);
 
     await useCanvasStore.getState().init();
 
-    const documents = useCanvasStore.getState().documents;
-    expect(documents).toHaveLength(1);
-    expect(documents[0]?.elements).toHaveLength(3);
-    expect(documents[0]?.elements.map((element) => element.type)).toEqual([
+    const workbenches = useCanvasStore.getState().workbenches;
+    expect(workbenches).toHaveLength(1);
+    expect(workbenches[0]?.elements).toHaveLength(3);
+    expect(workbenches[0]?.elements.map((element) => element.type)).toEqual([
       "image",
       "text",
       "shape",
     ]);
-    expect(documents[0]?.nodes["shape-1"]).toMatchObject({
+    expect(workbenches[0]?.nodes["shape-1"]).toMatchObject({
       id: "shape-1",
       type: "shape",
       shapeType: "rect",
     });
-    expect(saveCanvasDocumentMock).toHaveBeenCalledWith(
+    expect(saveCanvasWorkbenchMock).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "doc-1",
         nodes: expect.objectContaining({
@@ -382,19 +383,19 @@ describe("canvasStore", () => {
   });
 
   it("persists legacy text tier normalization during init", async () => {
-    loadCanvasDocumentsMock.mockResolvedValue([createLegacyTextTierDocument()]);
+    loadCanvasWorkbenchesMock.mockResolvedValue([createLegacyTextTierDocument()]);
 
     await useCanvasStore.getState().init();
 
-    const documents = useCanvasStore.getState().documents;
-    expect(documents).toHaveLength(1);
-    expect(documents[0]?.elements[1]).toMatchObject({
+    const workbenches = useCanvasStore.getState().workbenches;
+    expect(workbenches).toHaveLength(1);
+    expect(workbenches[0]?.elements[1]).toMatchObject({
       id: "text-1",
       type: "text",
       fontSizeTier: "small",
     });
-    expect(saveCanvasDocumentMock).toHaveBeenCalledTimes(1);
-    expect(saveCanvasDocumentMock).toHaveBeenCalledWith(
+    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
+    expect(saveCanvasWorkbenchMock).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "doc-1",
         nodes: expect.objectContaining({
@@ -441,20 +442,20 @@ describe("canvasStore", () => {
 
   it("skips persistence, history, and selection changes when grouping is invalid", async () => {
     useCanvasStore.setState({
-      activeDocumentId: "doc-1",
-      documents: [createCrossParentGroupingDocument()],
-      historyByDocumentId: {
+      activeWorkbenchId: "doc-1",
+      workbenches: [createCrossParentGroupingDocument()],
+      historyByWorkbenchId: {
         "doc-1": { past: [], future: [] },
       },
       selectedElementIds: ["shape-1", "shape-2"],
     });
 
-    const result = await useCanvasStore.getState().groupElements("doc-1", ["shape-1", "shape-2"]);
+    const result = await useCanvasStore.getState().groupElements(["shape-1", "shape-2"]);
 
     expect(result).toBeNull();
     expect(useCanvasStore.getState().selectedElementIds).toEqual(["shape-1", "shape-2"]);
-    expect(useCanvasStore.getState().historyByDocumentId["doc-1"]?.past).toEqual([]);
-    expect(saveCanvasDocumentMock).not.toHaveBeenCalled();
+    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]?.past).toEqual([]);
+    expect(saveCanvasWorkbenchMock).not.toHaveBeenCalled();
   });
 
   it("short-circuits committed selection updates when ids are unchanged", () => {

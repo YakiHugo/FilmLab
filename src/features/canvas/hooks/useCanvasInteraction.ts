@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useCanvasStore } from "@/stores/canvasStore";
+import { selectActiveWorkbench, useCanvasStore } from "@/stores/canvasStore";
 import { resolveSelectableSelectionIds } from "../selectionGeometry";
 import { selectionIdsEqual } from "../selectionModel";
 
@@ -15,8 +15,8 @@ const isEditableTarget = (target: EventTarget | null) => {
 };
 
 export function useCanvasInteraction() {
-  const documents = useCanvasStore((state) => state.documents);
-  const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
+  const activeWorkbench = useCanvasStore(selectActiveWorkbench);
+  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
   const selectedElementIds = useCanvasStore((state) => state.selectedElementIds);
   const setSelectedElementIds = useCanvasStore((state) => state.setSelectedElementIds);
   const duplicateElements = useCanvasStore((state) => state.duplicateElements);
@@ -27,19 +27,15 @@ export function useCanvasInteraction() {
   const undo = useCanvasStore((state) => state.undo);
   const redo = useCanvasStore((state) => state.redo);
 
-  const activeDocument = useMemo(
-    () => documents.find((document) => document.id === activeDocumentId) ?? null,
-    [documents, activeDocumentId]
-  );
   const selectableElementIds = useMemo(
     () =>
-      activeDocument
+      activeWorkbench
         ? resolveSelectableSelectionIds(
-            activeDocument.allNodes,
-            activeDocument.allNodes.map((node) => node.id)
+            activeWorkbench.allNodes,
+            activeWorkbench.allNodes.map((node) => node.id)
           )
         : [],
-    [activeDocument]
+    [activeWorkbench]
   );
   const selectableElementIdSet = useMemo(
     () => new Set(selectableElementIds),
@@ -77,18 +73,18 @@ export function useCanvasInteraction() {
   );
 
   const deleteSelection = useCallback(async () => {
-    if (!activeDocumentId || selectedElementIds.length === 0) {
+    if (selectedElementIds.length === 0) {
       return;
     }
-    await deleteElements(activeDocumentId, selectedElementIds);
-  }, [activeDocumentId, deleteElements, selectedElementIds]);
+    await deleteElements(selectedElementIds);
+  }, [deleteElements, selectedElementIds]);
 
   const duplicateSelection = useCallback(async () => {
-    if (!activeDocumentId || selectedElementIds.length === 0) {
+    if (selectedElementIds.length === 0) {
       return;
     }
-    await duplicateElements(activeDocumentId, selectedElementIds);
-  }, [activeDocumentId, duplicateElements, selectedElementIds]);
+    await duplicateElements(selectedElementIds);
+  }, [duplicateElements, selectedElementIds]);
 
   const selectAll = useCallback(() => {
     if (selectableElementIds.length === 0) {
@@ -99,20 +95,17 @@ export function useCanvasInteraction() {
 
   useEffect(() => {
     const nextSelectedIds = resolveSelectableSelectionIds(
-      activeDocument?.allNodes ?? [],
+      activeWorkbench?.allNodes ?? [],
       selectedElementIds
     );
     if (!selectionIdsEqual(selectedElementIds, nextSelectedIds)) {
       setSelectedElementIds(nextSelectedIds);
     }
-  }, [activeDocument?.allNodes, selectedElementIds, setSelectedElementIds]);
+  }, [activeWorkbench?.allNodes, selectedElementIds, setSelectedElementIds]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (isEditableTarget(event.target)) {
-        return;
-      }
-      if (!activeDocumentId) {
+      if (isEditableTarget(event.target) || !activeWorkbenchId) {
         return;
       }
 
@@ -137,7 +130,7 @@ export function useCanvasInteraction() {
           clipboardIdsRef.current.length > 0 ? clipboardIdsRef.current : selectedElementIds;
         if (idsToDuplicate.length > 0) {
           event.preventDefault();
-          void duplicateElements(activeDocumentId, idsToDuplicate);
+          void duplicateElements(idsToDuplicate);
         }
         return;
       }
@@ -145,16 +138,16 @@ export function useCanvasInteraction() {
       if (metaOrCtrl && event.key.toLowerCase() === "z") {
         event.preventDefault();
         if (event.shiftKey) {
-          void redo(activeDocumentId);
+          void redo();
           return;
         }
-        void undo(activeDocumentId);
+        void undo();
         return;
       }
 
       if (metaOrCtrl && event.key.toLowerCase() === "y") {
         event.preventDefault();
-        void redo(activeDocumentId);
+        void redo();
         return;
       }
 
@@ -162,12 +155,12 @@ export function useCanvasInteraction() {
         event.preventDefault();
         if (event.shiftKey) {
           if (selectedElementIds.length === 1) {
-            void ungroupElement(activeDocumentId, selectedElementIds[0]!);
+            void ungroupElement(selectedElementIds[0]!);
           }
           return;
         }
         if (selectedElementIds.length > 1) {
-          void groupElements(activeDocumentId, selectedElementIds);
+          void groupElements(selectedElementIds);
         }
         return;
       }
@@ -175,7 +168,7 @@ export function useCanvasInteraction() {
       if (event.key === "Delete" || event.key === "Backspace") {
         if (selectedElementIds.length > 0) {
           event.preventDefault();
-          void deleteElements(activeDocumentId, selectedElementIds);
+          void deleteElements(selectedElementIds);
         }
         return;
       }
@@ -187,16 +180,16 @@ export function useCanvasInteraction() {
       const step = event.shiftKey ? 10 : 1;
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        void nudgeElements(activeDocumentId, selectedElementIds, 0, -step);
+        void nudgeElements(selectedElementIds, 0, -step);
       } else if (event.key === "ArrowDown") {
         event.preventDefault();
-        void nudgeElements(activeDocumentId, selectedElementIds, 0, step);
+        void nudgeElements(selectedElementIds, 0, step);
       } else if (event.key === "ArrowLeft") {
         event.preventDefault();
-        void nudgeElements(activeDocumentId, selectedElementIds, -step, 0);
+        void nudgeElements(selectedElementIds, -step, 0);
       } else if (event.key === "ArrowRight") {
         event.preventDefault();
-        void nudgeElements(activeDocumentId, selectedElementIds, step, 0);
+        void nudgeElements(selectedElementIds, step, 0);
       }
     };
 
@@ -205,8 +198,7 @@ export function useCanvasInteraction() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [
-    activeDocument,
-    activeDocumentId,
+    activeWorkbenchId,
     deleteElements,
     duplicateElements,
     groupElements,
@@ -219,7 +211,7 @@ export function useCanvasInteraction() {
   ]);
 
   return {
-    activeDocument,
+    activeWorkbench,
     selectedElementIds,
     setSelectedElementIds,
     selectElement,

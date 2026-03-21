@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
-import type { CanvasDocument } from "@/types";
-import { normalizeCanvasDocument } from "./studioPresets";
+import type { CanvasWorkbench } from "@/types";
+import { normalizeCanvasWorkbench } from "./studioPresets";
 import {
   createCanvasSelectionModel,
   hasSelectedImageElement,
@@ -11,11 +11,11 @@ import {
   selectionIdsEqual,
 } from "./selectionModel";
 
-const createDocument = (): CanvasDocument =>
-  normalizeCanvasDocument({
+const createWorkbench = (): CanvasWorkbench =>
+  normalizeCanvasWorkbench({
   id: "doc-1",
   version: 2,
-  name: "Board",
+  name: "工作台",
   width: 1200,
   height: 800,
   presetId: "custom",
@@ -121,19 +121,19 @@ describe("selection model", () => {
   });
 
   it("resolves the primary selected element from the first id", () => {
-    const document = createDocument();
+    const document = createWorkbench();
     expect(resolvePrimarySelectedElement(document, ["text-1", "image-1"])?.id).toBe("text-1");
     expect(resolvePrimarySelectedElement(document, ["missing-id"])).toBeNull();
   });
 
   it("resolves the first selected image without changing the committed policy", () => {
-    const document = createDocument();
+    const document = createWorkbench();
 
     expect(resolvePrimarySelectedImageElement(document, ["text-1", "image-2"])?.id).toBe("image-2");
     expect(hasSelectedImageElement(document, ["text-1"])).toBe(false);
 
     const model = createCanvasSelectionModel({
-      activeDocument: document,
+      activeWorkbench: document,
       committedSelectedElementIds: ["text-1"],
       displaySelectedElementIds: ["image-1"],
       hasPreviewSelection: true,

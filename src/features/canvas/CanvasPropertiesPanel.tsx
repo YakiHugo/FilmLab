@@ -52,16 +52,15 @@ const NumberInput = ({
 );
 
 export function CanvasPropertiesPanel() {
-  const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
   const upsertElement = useCanvasStore((state) => state.upsertElement);
   const assets = useAssetStore((state) => state.assets);
-  const { activeDocument, primarySelectedElement: selected } = useCanvasSelectionModel();
+  const { activeWorkbench, primarySelectedElement: selected } = useCanvasSelectionModel();
 
   const update = (patch: Partial<CanvasElement>) => {
-    if (!selected || !activeDocumentId) {
+    if (!selected) {
       return;
     }
-    void upsertElement(activeDocumentId, {
+    void upsertElement({
       ...selected,
       ...patch,
     } as CanvasElement);
@@ -110,19 +109,19 @@ export function CanvasPropertiesPanel() {
         <div className="mt-4 rounded-[24px] border border-dashed border-white/10 bg-white/[0.02] p-4">
           <p className="text-sm font-medium text-zinc-100">Nothing selected yet.</p>
           <p className="mt-2 text-sm leading-6 text-zinc-500">
-            Click any image, text, shape, or group layer on the board to edit it here.
+            Click any image, text, shape, or group layer on the 工作台 to edit it here.
           </p>
-          {activeDocument ? (
+          {activeWorkbench ? (
             <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-zinc-300">
               <div className="rounded-2xl border border-white/10 bg-black/25 px-3 py-3">
                 <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Canvas</p>
                 <p className="mt-2 font-medium text-zinc-100">
-                  {activeDocument.width} x {activeDocument.height}
+                  {activeWorkbench.width} x {activeWorkbench.height}
                 </p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/25 px-3 py-3">
                 <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Layers</p>
-                <p className="mt-2 font-medium text-zinc-100">{activeDocument.elements.length}</p>
+                <p className="mt-2 font-medium text-zinc-100">{activeWorkbench.elements.length}</p>
               </div>
             </div>
           ) : null}
@@ -193,8 +192,7 @@ export function CanvasPropertiesPanel() {
                   {selectedAsset?.name ?? selected.assetId}
                 </p>
                 <p className="mt-2 text-xs leading-5 text-zinc-500">
-                  Fine-tune placed images from the board-side edit panel to keep layout and tone in
-                  one workflow.
+                  通过工作台侧的编辑面板微调已放置图片，让排版和调色保持在同一条工作流里。
                 </p>
               </div>
 

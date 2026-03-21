@@ -1,5 +1,5 @@
-import type { CanvasDocument, CanvasGroupNode, CanvasNode, CanvasNodeId, CanvasShapeElement } from "@/types";
-import { normalizeCanvasDocument } from "../studioPresets";
+import type { CanvasWorkbench, CanvasGroupNode, CanvasNode, CanvasNodeId, CanvasShapeElement } from "@/types";
+import { normalizeCanvasWorkbench } from "../studioPresets";
 
 export const createShapeNode = ({
   id,
@@ -103,11 +103,11 @@ export const createCanvasTestDocument = ({
 }: {
   nodes: Record<string, CanvasNode>;
   rootIds: CanvasNodeId[];
-}): CanvasDocument =>
-  normalizeCanvasDocument({
+}): CanvasWorkbench =>
+  normalizeCanvasWorkbench({
     id: "doc-1",
     version: 2,
-    name: "Board",
+    name: "工作台",
     width: 1200,
     height: 900,
     presetId: "custom",

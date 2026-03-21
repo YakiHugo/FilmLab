@@ -1,4 +1,4 @@
-import type { CanvasDocument, CanvasSlice } from "@/types";
+import type { CanvasWorkbench, CanvasSlice } from "@/types";
 import { getStudioCanvasPreset } from "./studioPresets";
 
 const createSliceId = () => {
@@ -15,7 +15,7 @@ const sanitizeSliceName = (value: string, fallback: string) => {
   return trimmed.length > 0 ? trimmed : fallback;
 };
 
-export const buildStripSlices = (document: CanvasDocument, count: number): CanvasDocument => {
+export const buildStripSlices = (document: CanvasWorkbench, count: number): CanvasWorkbench => {
   const preset = getStudioCanvasPreset(document.presetId);
   const safeCount = Math.max(1, Math.round(count));
   const slices: CanvasSlice[] = Array.from({ length: safeCount }, (_, index) => ({
@@ -37,7 +37,7 @@ export const buildStripSlices = (document: CanvasDocument, count: number): Canva
   };
 };
 
-export const clearCanvasSlices = (document: CanvasDocument): CanvasDocument => {
+export const clearCanvasSlices = (document: CanvasWorkbench): CanvasWorkbench => {
   const preset = getStudioCanvasPreset(document.presetId);
   return {
     ...document,
@@ -48,7 +48,7 @@ export const clearCanvasSlices = (document: CanvasDocument): CanvasDocument => {
   };
 };
 
-export const appendCanvasSlice = (document: CanvasDocument): CanvasDocument => {
+export const appendCanvasSlice = (document: CanvasWorkbench): CanvasWorkbench => {
   const preset = getStudioCanvasPreset(document.presetId);
   const nextOrder = document.slices.length + 1;
   const slices = [
@@ -74,10 +74,10 @@ export const appendCanvasSlice = (document: CanvasDocument): CanvasDocument => {
 };
 
 export const updateCanvasSlice = (
-  document: CanvasDocument,
+  document: CanvasWorkbench,
   sliceId: string,
   patch: Partial<CanvasSlice>
-): CanvasDocument => ({
+): CanvasWorkbench => ({
   ...document,
   slices: document.slices
     .map((slice) =>
@@ -96,7 +96,7 @@ export const updateCanvasSlice = (
   updatedAt: nowIso(),
 });
 
-export const deleteCanvasSlice = (document: CanvasDocument, sliceId: string): CanvasDocument => {
+export const deleteCanvasSlice = (document: CanvasWorkbench, sliceId: string): CanvasWorkbench => {
   const remaining = document.slices
     .filter((slice) => slice.id !== sliceId)
     .sort((left, right) => left.order - right.order)
