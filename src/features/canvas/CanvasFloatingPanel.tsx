@@ -1,44 +1,72 @@
 import { X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import { cn } from "@/lib/utils";
 import { useCanvasStore, type CanvasFloatingPanel as PanelType } from "@/stores/canvasStore";
 import { CanvasAssetPicker } from "./CanvasAssetPicker";
+import { CanvasImageEditPanel } from "./CanvasImageEditPanel";
 import { CanvasLayerPanel } from "./CanvasLayerPanel";
 import { CanvasPropertiesPanel } from "./CanvasPropertiesPanel";
 import { CanvasStoryPanel } from "./CanvasStoryPanel";
 import { CanvasWorkbenchPanel } from "./CanvasWorkbenchPanel";
-import { CanvasImageEditPanel } from "./CanvasImageEditPanel";
+import {
+  canvasEditDockBoundsClassName,
+  canvasEditDockPanelStyle,
+  canvasEditDockStyle,
+} from "./editDockTheme";
 
 interface CanvasFloatingPanelProps {
   selectedSliceId: string | null;
   onSelectSlice: (sliceId: string | null) => void;
 }
 
+const PANEL_TITLES: Record<NonNullable<PanelType>, string> = {
+  edit: "Edit",
+  layers: "Layers",
+  library: "Library",
+  properties: "Inspector",
+  story: "Story",
+  workbench: "Workbench",
+};
+
 export function CanvasFloatingPanel({ selectedSliceId, onSelectSlice }: CanvasFloatingPanelProps) {
   const activePanel = useCanvasStore((s) => s.activePanel);
   const setActivePanel = useCanvasStore((s) => s.setActivePanel);
+  const isEditDock = activePanel === "edit";
 
   return (
     <AnimatePresence mode="wait">
-      {activePanel && (
+      {activePanel ? (
         <motion.div
           key={activePanel}
           initial={{ x: -20, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
           exit={{ x: -20, opacity: 0 }}
           transition={{ duration: 0.18, ease: "easeOut" }}
-          className="absolute bottom-4 left-16 top-[64px] z-10 flex w-[320px] flex-col overflow-hidden rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(18,18,20,0.96),rgba(10,10,11,0.94))] shadow-[0_30px_90px_-48px_rgba(0,0,0,0.95)] backdrop-blur-xl"
+          style={{ ...canvasEditDockStyle, ...canvasEditDockPanelStyle }}
+          className={cn(
+            "absolute z-10 flex min-w-0 flex-col overflow-hidden rounded-r-[6px] border border-[color:var(--canvas-edit-border)] bg-[color:var(--canvas-edit-bg)] shadow-[var(--canvas-edit-shadow)]",
+            canvasEditDockBoundsClassName
+          )}
         >
-          <div className="flex items-center justify-end px-3 pt-3">
+          <div className="flex items-center justify-between border-b border-[color:var(--canvas-edit-divider)] px-6 py-5">
+            <h2 className="text-[22px] font-medium tracking-[-0.03em] text-[color:var(--canvas-edit-text)]">
+              {PANEL_TITLES[activePanel]}
+            </h2>
             <button
               type="button"
               onClick={() => setActivePanel(null)}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-white/10 hover:text-zinc-300"
+              className="flex h-8 w-8 items-center justify-center text-[color:var(--canvas-edit-text-muted)] transition hover:text-[color:var(--canvas-edit-text)]"
               aria-label="Close panel"
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="h-5 w-5" />
             </button>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-3">
+          <div
+            className={cn(
+              "flex min-h-0 flex-1 flex-col overflow-hidden pb-6",
+              isEditDock ? "px-6 pt-1" : "px-6 pt-5"
+            )}
+          >
             <PanelContent
               panel={activePanel}
               selectedSliceId={selectedSliceId}
@@ -46,7 +74,7 @@ export function CanvasFloatingPanel({ selectedSliceId, onSelectSlice }: CanvasFl
             />
           </div>
         </motion.div>
-      )}
+      ) : null}
     </AnimatePresence>
   );
 }
@@ -63,10 +91,9 @@ function PanelContent({
   switch (panel) {
     case "edit":
       return (
-        <div className="space-y-3">
-          <CanvasImageEditPanel />
-          <CanvasPropertiesPanel />
-        </div>
+        <CanvasImageEditPanel>
+          <CanvasPropertiesPanel variant="embedded" />
+        </CanvasImageEditPanel>
       );
     case "layers":
       return <CanvasLayerPanel />;
@@ -77,7 +104,7 @@ function PanelContent({
     case "workbench":
       return <CanvasWorkbenchPanel />;
     case "properties":
-      return <CanvasPropertiesPanel />;
+      return <CanvasPropertiesPanel variant="standalone" />;
     default:
       return null;
   }

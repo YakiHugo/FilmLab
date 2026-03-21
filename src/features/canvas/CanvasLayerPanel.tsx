@@ -1,10 +1,24 @@
 import { Eye, EyeOff, GripVertical, Layers3, Lock, Trash2, Unlock } from "lucide-react";
 import { memo, useCallback, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvasStore";
 import type { Asset, CanvasRenderableNode } from "@/types";
 import { getCanvasDescendantIds } from "./documentGraph";
+import {
+  canvasDockActionChipClassName,
+  canvasDockBadgeClassName,
+  canvasDockBodyTextClassName,
+  canvasDockEmptyStateClassName,
+  canvasDockHeadingClassName,
+  canvasDockIconBadgeClassName,
+  canvasDockInteractiveListItemClassName,
+  canvasDockListItemClassName,
+  canvasDockOverlineClassName,
+  canvasDockPanelContentClassName,
+  canvasDockSelectedListItemClassName,
+  canvasDockSectionClassName,
+  canvasDockSectionMutedClassName,
+} from "./editDockTheme";
 import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
 import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
 import { useCanvasLayers } from "./hooks/useCanvasLayers";
@@ -20,6 +34,9 @@ interface LayerRowProps {
   onToggleVisibility: (layerId: string) => void;
   selected: boolean;
 }
+
+const rowIconButtonClassName =
+  "flex h-8 w-8 items-center justify-center rounded-[8px] border border-[color:var(--canvas-edit-border)] bg-[color:var(--canvas-edit-surface-strong)] text-[color:var(--canvas-edit-text-soft)] transition hover:text-[color:var(--canvas-edit-text)]";
 
 const LayerRow = memo(function LayerRow({
   asset,
@@ -52,10 +69,14 @@ const LayerRow = memo(function LayerRow({
         onDrop(layer.id);
       }}
       className={cn(
-        "flex items-center gap-3 rounded-[22px] border px-3 py-3 transition",
+        canvasDockListItemClassName,
+        "flex items-center gap-3 px-3 py-3",
         selected
-          ? "border-amber-300/30 bg-amber-200/10 text-zinc-100"
-          : "border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.05]"
+          ? canvasDockSelectedListItemClassName
+          : cn(
+              canvasDockInteractiveListItemClassName,
+              "text-[color:var(--canvas-edit-text-muted)]"
+            )
       )}
       style={{
         paddingLeft: 12 + layer.depth * 18,
@@ -63,64 +84,69 @@ const LayerRow = memo(function LayerRow({
     >
       <button
         type="button"
-        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
         onClick={(event) => {
           onSelect(layer.id, event.shiftKey);
         }}
       >
-        <GripVertical className="h-4 w-4 shrink-0 text-zinc-500" />
+        <GripVertical className="h-4 w-4 shrink-0 text-[color:var(--canvas-edit-text-soft)]" />
         {layer.type === "image" ? (
           <img
             src={asset?.thumbnailUrl || asset?.objectUrl}
-            alt={asset?.name ?? "layer"}
-            className="h-10 w-10 rounded-xl border border-white/10 object-cover"
+            alt={asset?.name ?? "Layer preview"}
+            className="h-10 w-10 rounded-[8px] border border-[color:var(--canvas-edit-border)] object-cover"
           />
         ) : null}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="truncate text-sm font-medium text-zinc-100">{previewText}</p>
-            <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+            <p className="truncate text-sm font-medium text-[color:var(--canvas-edit-text)]">
+              {previewText}
+            </p>
+            <span className={cn(canvasDockBadgeClassName, "px-2 py-0.5 tracking-[0.18em]")}>
               {layer.type === "shape" ? layer.shapeType : layer.type}
             </span>
           </div>
-          <p className="mt-1 truncate text-xs text-zinc-500">
-            {Math.round(layer.width)} x {Math.round(layer.height)} - x {Math.round(layer.x)}, y{" "}
+          <p className="mt-1 truncate text-xs text-[color:var(--canvas-edit-text-muted)]">
+            {Math.round(layer.width)} x {Math.round(layer.height)} at {Math.round(layer.x)},{" "}
             {Math.round(layer.y)}
           </p>
         </div>
       </button>
 
       <div className="flex items-center gap-1">
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-8 w-8 rounded-xl p-0"
+        <button
+          type="button"
+          className={rowIconButtonClassName}
           onClick={() => {
             onToggleVisibility(layer.id);
           }}
+          aria-label={layer.visible ? "Hide layer" : "Show layer"}
         >
           {layer.visible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-8 w-8 rounded-xl p-0"
+        </button>
+        <button
+          type="button"
+          className={rowIconButtonClassName}
           onClick={() => {
             onToggleLock(layer.id);
           }}
+          aria-label={layer.locked ? "Unlock layer" : "Lock layer"}
         >
           {layer.locked ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-8 w-8 rounded-xl p-0 text-rose-300 hover:text-rose-200"
+        </button>
+        <button
+          type="button"
+          className={cn(
+            rowIconButtonClassName,
+            "text-rose-300 hover:text-rose-200"
+          )}
           onClick={() => {
             onDelete(layer.id);
           }}
+          aria-label="Delete layer"
         >
           <Trash2 className="h-3.5 w-3.5" />
-        </Button>
+        </button>
       </div>
     </div>
   );
@@ -265,65 +291,75 @@ export function CanvasLayerPanel() {
   }, [activeWorkbenchId, primarySelectedElement, ungroupElement]);
 
   return (
-    <div className="flex min-h-0 flex-col p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.28em] text-zinc-500">Layer Stack</p>
-          <h3 className="mt-1 font-['Syne'] text-xl text-zinc-100">有意识地组织当前工作台。</h3>
+    <div className={canvasDockPanelContentClassName}>
+      <section className={canvasDockSectionClassName}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className={canvasDockOverlineClassName}>Layer Stack</p>
+            <h3 className={canvasDockHeadingClassName}>Reorder the active composition.</h3>
+            <p className={cn(canvasDockBodyTextClassName, "mt-2")}>
+              Drag to change stacking order. Lock and visibility states stay attached to each layer
+              while you organize alternates.
+            </p>
+          </div>
+          <div className={canvasDockIconBadgeClassName}>
+            <Layers3 className="h-4 w-4 text-[color:var(--canvas-edit-text-soft)]" />
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className={canvasDockBadgeClassName}>
+            {layers.length} layer{layers.length === 1 ? "" : "s"}
+          </span>
+          {displaySelectedElementIds.length > 0 ? (
+            <span className={canvasDockBadgeClassName}>
+              {displaySelectedElementIds.length} selected
+            </span>
+          ) : null}
           {displaySelectedElementIds.length > 1 ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              className="h-9 rounded-2xl border border-white/10 bg-white/[0.06] px-3 text-xs"
-              onClick={handleGroup}
-            >
+            <button type="button" className={canvasDockActionChipClassName} onClick={handleGroup}>
               Group
-            </Button>
+            </button>
           ) : null}
           {primarySelectedElement?.type === "group" ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              className="h-9 rounded-2xl border border-white/10 bg-white/[0.06] px-3 text-xs"
+            <button
+              type="button"
+              className={canvasDockActionChipClassName}
               onClick={handleUngroup}
             >
               Ungroup
-            </Button>
+            </button>
           ) : null}
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
-            <Layers3 className="h-4 w-4 text-zinc-400" />
-          </div>
         </div>
-      </div>
+      </section>
 
-      <p className="mt-3 text-sm leading-6 text-zinc-400">
-        拖拽即可重排。可见性和锁定状态会跟随图层保存，方便你持续组织当前工作台
-        without losing alternates.
-      </p>
+      <section className={cn(canvasDockSectionMutedClassName, "min-h-0 flex flex-1 flex-col p-2")}>
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+          {layers.map((layer) => (
+            <LayerRow
+              key={layer.id}
+              asset={layer.type === "image" ? (assetById.get(layer.assetId) ?? null) : null}
+              layer={layer}
+              onDelete={handleDelete}
+              onDrop={handleDrop}
+              onDragStart={handleDragStart}
+              onSelect={handleSelect}
+              onToggleLock={handleToggleLock}
+              onToggleVisibility={handleToggleVisibility}
+              selected={displaySelectedElementIdSet.has(layer.id)}
+            />
+          ))}
 
-      <div className="mt-4 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
-        {layers.map((layer) => (
-          <LayerRow
-            key={layer.id}
-            asset={layer.type === "image" ? (assetById.get(layer.assetId) ?? null) : null}
-            layer={layer}
-            onDelete={handleDelete}
-            onDrop={handleDrop}
-            onDragStart={handleDragStart}
-            onSelect={handleSelect}
-            onToggleLock={handleToggleLock}
-            onToggleVisibility={handleToggleVisibility}
-            selected={displaySelectedElementIdSet.has(layer.id)}
-          />
-        ))}
-        {layers.length === 0 ? (
-          <div className="rounded-[22px] border border-dashed border-white/10 bg-white/[0.02] px-3 py-4 text-sm text-zinc-500">
-            还没有图层。先放一张图或一段文字，再开始搭建工作台内容。
-          </div>
-        ) : null}
-      </div>
+          {layers.length === 0 ? (
+            <div className={cn(canvasDockEmptyStateClassName, "px-4 py-4 text-sm")}>
+              <p className="font-medium text-[color:var(--canvas-edit-text)]">No layers yet.</p>
+              <p className="mt-2 leading-6 text-[color:var(--canvas-edit-text-muted)]">
+                Add an image, text, or shape to the canvas first, then organize the stack here.
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </section>
     </div>
   );
 }

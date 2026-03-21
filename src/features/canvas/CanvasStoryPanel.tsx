@@ -17,14 +17,29 @@ import {
   deleteCanvasSlice,
   updateCanvasSlice,
 } from "./slices";
+import {
+  canvasDockActionChipClassName,
+  canvasDockBadgeClassName,
+  canvasDockBodyTextClassName,
+  canvasDockEmptyStateClassName,
+  canvasDockFieldClassName,
+  canvasDockFieldLabelClassName,
+  canvasDockHeadingClassName,
+  canvasDockIconBadgeClassName,
+  canvasDockInteractiveListItemClassName,
+  canvasDockListItemClassName,
+  canvasDockMetricCardClassName,
+  canvasDockOverlineClassName,
+  canvasDockPanelContentClassName,
+  canvasDockSelectedListItemClassName,
+  canvasDockSectionClassName,
+  canvasDockSectionMutedClassName,
+} from "./editDockTheme";
 
 interface CanvasStoryPanelProps {
   selectedSliceId: string | null;
   onSelectSlice: (sliceId: string | null) => void;
 }
-
-const actionChipClass =
-  "h-9 rounded-2xl border border-white/10 bg-white/[0.04] px-3 text-xs text-zinc-300 transition hover:bg-white/[0.08] hover:text-zinc-100";
 
 export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStoryPanelProps) {
   const workbenches = useCanvasStore((state) => state.workbenches);
@@ -96,18 +111,19 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
   };
 
   return (
-    <div className="space-y-3 p-4">
-      <section className="rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(18,18,20,0.96),rgba(10,10,11,0.94))] p-4 shadow-[0_30px_90px_-48px_rgba(0,0,0,0.95)]">
-        <div className="flex items-start justify-between gap-3">
+    <div className={cn(canvasDockPanelContentClassName, "overflow-y-auto pr-1")}>
+      <section className={canvasDockSectionClassName}>
+        <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.28em] text-zinc-500">工作台 Format</p>
-            <h2 className="mt-1 font-['Syne'] text-xl text-zinc-100">Choose the feed frame first.</h2>
-            <p className="mt-2 text-sm leading-6 text-zinc-400">
-              Set the social ratio before layering so export boundaries stay predictable.
+            <p className={canvasDockOverlineClassName}>Canvas Format</p>
+            <h3 className={canvasDockHeadingClassName}>Lock the frame before sequencing.</h3>
+            <p className={cn(canvasDockBodyTextClassName, "mt-2")}>
+              Set the social ratio first so slices, exports, and safe areas all line up against the
+              same crop boundary.
             </p>
           </div>
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
-            <Frame className="h-4 w-4 text-zinc-400" />
+          <div className={canvasDockIconBadgeClassName}>
+            <Frame className="h-4 w-4 text-[color:var(--canvas-edit-text-soft)]" />
           </div>
         </div>
 
@@ -120,52 +136,64 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
                 type="button"
                 onClick={() => applyPreset(preset.id)}
                 className={cn(
-                  "rounded-[22px] border px-3 py-3 text-left transition",
+                  canvasDockListItemClassName,
+                  canvasDockInteractiveListItemClassName,
+                  "px-3 py-3 text-left",
                   active
-                    ? "border-amber-300/30 bg-amber-200/10 text-zinc-100"
-                    : "border-white/10 bg-white/[0.03] text-zinc-300 hover:bg-white/[0.06]"
+                    ? canvasDockSelectedListItemClassName
+                    : "text-[color:var(--canvas-edit-text-muted)]"
                 )}
               >
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-medium">{preset.label}</p>
-                    <p className="mt-1 text-xs text-zinc-500">{preset.description}</p>
+                    <p className="text-sm font-medium text-[color:var(--canvas-edit-text)]">
+                      {preset.label}
+                    </p>
+                    <p className="mt-1 text-xs text-[color:var(--canvas-edit-text-muted)]">
+                      {preset.description}
+                    </p>
                   </div>
-                  <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] tracking-[0.22em] text-zinc-400">
-                    {preset.shortLabel}
-                  </span>
+                  <span className={canvasDockBadgeClassName}>{preset.shortLabel}</span>
                 </div>
               </button>
             );
           })}
         </div>
 
-        <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-zinc-300">
-          <div className="rounded-2xl border border-white/10 bg-black/25 px-3 py-3">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Canvas</p>
-            <p className="mt-2 font-medium text-zinc-100">
+        <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-[color:var(--canvas-edit-pill-text)]">
+          <div className={canvasDockMetricCardClassName}>
+            <p className={canvasDockFieldLabelClassName}>Canvas</p>
+            <p className="mt-2 font-medium text-[color:var(--canvas-edit-text)]">
               {activeWorkbench.width} x {activeWorkbench.height}
             </p>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-black/25 px-3 py-3">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Layers</p>
-            <p className="mt-2 font-medium text-zinc-100">{activeWorkbench.elements.length}</p>
+          <div className={canvasDockMetricCardClassName}>
+            <p className={canvasDockFieldLabelClassName}>Layers</p>
+            <p className="mt-2 font-medium text-[color:var(--canvas-edit-text)]">
+              {activeWorkbench.elements.length}
+            </p>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-black/25 px-3 py-3">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Current</p>
-            <p className="mt-2 font-medium text-zinc-100">{currentPreset.shortLabel}</p>
+          <div className={canvasDockMetricCardClassName}>
+            <p className={canvasDockFieldLabelClassName}>Current</p>
+            <p className="mt-2 font-medium text-[color:var(--canvas-edit-text)]">
+              {currentPreset.shortLabel}
+            </p>
           </div>
         </div>
       </section>
 
-      <section className="rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(18,18,20,0.96),rgba(10,10,11,0.94))] p-4 shadow-[0_30px_90px_-48px_rgba(0,0,0,0.95)]">
-        <div className="flex items-start justify-between gap-3">
+      <section className={canvasDockSectionClassName}>
+        <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.28em] text-zinc-500">Export Sequence</p>
-            <h3 className="mt-1 font-['Syne'] text-xl text-zinc-100">Split one 工作台 into deliverables.</h3>
+            <p className={canvasDockOverlineClassName}>Export Sequence</p>
+            <h3 className={canvasDockHeadingClassName}>Split one canvas into deliverables.</h3>
+            <p className={cn(canvasDockBodyTextClassName, "mt-2")}>
+              Keep the full frame as a single post, or cut it into ordered slices for carousels and
+              strip-based exports.
+            </p>
           </div>
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
-            <ScissorsLineDashed className="h-4 w-4 text-zinc-400" />
+          <div className={canvasDockIconBadgeClassName}>
+            <ScissorsLineDashed className="h-4 w-4 text-[color:var(--canvas-edit-text-soft)]" />
           </div>
         </div>
 
@@ -173,7 +201,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
           <Button
             size="sm"
             variant="secondary"
-            className={actionChipClass}
+            className={canvasDockActionChipClassName}
             onClick={() => {
               onSelectSlice(null);
               commitDocument(clearCanvasSlices(activeWorkbench));
@@ -186,7 +214,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
               key={count}
               size="sm"
               variant="secondary"
-              className={actionChipClass}
+              className={canvasDockActionChipClassName}
               onClick={() => {
                 const nextDocument = buildStripSlices(activeWorkbench, count);
                 onSelectSlice(nextDocument.slices[0]?.id ?? null);
@@ -199,7 +227,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
           <Button
             size="sm"
             variant="secondary"
-            className={actionChipClass}
+            className={canvasDockActionChipClassName}
             onClick={() => {
               const nextDocument = appendCanvasSlice(activeWorkbench);
               onSelectSlice(nextDocument.slices[nextDocument.slices.length - 1]?.id ?? null);
@@ -220,19 +248,23 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
                   type="button"
                   onClick={() => onSelectSlice(slice.id)}
                   className={cn(
-                    "flex w-full items-center justify-between rounded-[22px] border px-3 py-3 text-left transition",
+                    canvasDockListItemClassName,
+                    canvasDockInteractiveListItemClassName,
+                    "flex w-full items-center justify-between px-3 py-3 text-left",
                     active
-                      ? "border-amber-300/30 bg-amber-200/10"
-                      : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
+                      ? canvasDockSelectedListItemClassName
+                      : "text-[color:var(--canvas-edit-text-muted)]"
                   )}
                 >
                   <div>
-                    <p className="text-sm font-medium text-zinc-100">{slice.name}</p>
-                    <p className="mt-1 text-xs text-zinc-500">
+                    <p className="text-sm font-medium text-[color:var(--canvas-edit-text)]">
+                      {slice.name}
+                    </p>
+                    <p className="mt-1 text-xs text-[color:var(--canvas-edit-text-muted)]">
                       {slice.width} x {slice.height} at {slice.x}, {slice.y}
                     </p>
                   </div>
-                  <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] tracking-[0.22em] text-zinc-400">
+                  <span className={canvasDockBadgeClassName}>
                     {String(slice.order).padStart(2, "0")}
                   </span>
                 </button>
@@ -240,20 +272,27 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
             })}
           </div>
         ) : (
-          <div className="mt-4 rounded-[24px] border border-dashed border-white/10 bg-white/[0.02] px-3 py-4 text-sm text-zinc-500">
-            Export the full 工作台 as a single post, or split it when a carousel or grid sequence is
-            needed.
+          <div className={cn(canvasDockEmptyStateClassName, "mt-4 px-4 py-4 text-sm")}>
+            <p className="font-medium text-[color:var(--canvas-edit-text)]">Single-frame export.</p>
+            <p className="mt-2 leading-6 text-[color:var(--canvas-edit-text-muted)]">
+              Leave the canvas as one frame, or split it here when you need a carousel or sequence.
+            </p>
           </div>
         )}
 
         {selectedSlice ? (
-          <div className="mt-4 space-y-3 rounded-[24px] border border-white/10 bg-black/25 p-4">
+          <div className={cn(canvasDockSectionMutedClassName, "mt-4 space-y-3")}>
             <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-medium text-zinc-100">Selected frame</p>
+              <div>
+                <p className={canvasDockFieldLabelClassName}>Selected Frame</p>
+                <p className="mt-1 text-sm font-medium text-[color:var(--canvas-edit-text)]">
+                  {selectedSlice.name}
+                </p>
+              </div>
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-8 rounded-2xl px-2 text-xs text-rose-300 hover:text-rose-200"
+                className="h-8 rounded-[8px] px-2 text-xs text-rose-300 hover:bg-transparent hover:text-rose-200"
                 onClick={() => {
                   const nextDocument = deleteCanvasSlice(activeWorkbench, selectedSlice.id);
                   onSelectSlice(nextDocument.slices[0]?.id ?? null);
@@ -267,7 +306,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
             <Input
               value={selectedSlice.name}
               onChange={(event) => updateSelectedSlice({ name: event.target.value })}
-              className="h-10 rounded-2xl border-white/10 bg-black/35 text-sm"
+              className={canvasDockFieldClassName}
             />
 
             <div className="grid grid-cols-2 gap-3">
@@ -277,8 +316,8 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
                 ["width", selectedSlice.width],
                 ["height", selectedSlice.height],
               ] as const).map(([key, value]) => (
-                <label key={key} className="space-y-1.5">
-                  <span className="text-[10px] uppercase tracking-[0.22em] text-zinc-500">{key}</span>
+                <label key={key} className="space-y-2">
+                  <span className={canvasDockFieldLabelClassName}>{key}</span>
                   <Input
                     type="number"
                     min={0}
@@ -291,7 +330,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
                         ),
                       })
                     }
-                    className="h-10 rounded-2xl border-white/10 bg-black/35 text-sm"
+                    className={canvasDockFieldClassName}
                   />
                 </label>
               ))}
@@ -300,14 +339,18 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
         ) : null}
       </section>
 
-      <section className="rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(18,18,20,0.96),rgba(10,10,11,0.94))] p-4 shadow-[0_30px_90px_-48px_rgba(0,0,0,0.95)]">
-        <div className="flex items-start justify-between gap-3">
+      <section className={canvasDockSectionClassName}>
+        <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.28em] text-zinc-500">Guides & Safe Area</p>
-            <h3 className="mt-1 font-['Syne'] text-xl text-zinc-100">Guard the social crop.</h3>
+            <p className={canvasDockOverlineClassName}>Guides & Safe Area</p>
+            <h3 className={canvasDockHeadingClassName}>Guard the final crop.</h3>
+            <p className={cn(canvasDockBodyTextClassName, "mt-2")}>
+              Keep type and focal subjects inside the safe area so the same composition survives
+              feed crop differences.
+            </p>
           </div>
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
-            <LayoutTemplate className="h-4 w-4 text-zinc-400" />
+          <div className={canvasDockIconBadgeClassName}>
+            <LayoutTemplate className="h-4 w-4 text-[color:var(--canvas-edit-text-soft)]" />
           </div>
         </div>
 
@@ -315,7 +358,10 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
           <Button
             size="sm"
             variant="secondary"
-            className={cn(actionChipClass, activeWorkbench.guides.showThirds && "border-amber-300/30 bg-amber-200/10 text-zinc-100")}
+            className={cn(
+              canvasDockActionChipClassName,
+              activeWorkbench.guides.showThirds && canvasDockSelectedListItemClassName
+            )}
             onClick={() => updateGuide("showThirds", !activeWorkbench.guides.showThirds)}
           >
             Thirds
@@ -323,7 +369,10 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
           <Button
             size="sm"
             variant="secondary"
-            className={cn(actionChipClass, activeWorkbench.guides.showCenter && "border-amber-300/30 bg-amber-200/10 text-zinc-100")}
+            className={cn(
+              canvasDockActionChipClassName,
+              activeWorkbench.guides.showCenter && canvasDockSelectedListItemClassName
+            )}
             onClick={() => updateGuide("showCenter", !activeWorkbench.guides.showCenter)}
           >
             Center
@@ -331,7 +380,10 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
           <Button
             size="sm"
             variant="secondary"
-            className={cn(actionChipClass, activeWorkbench.guides.showSafeArea && "border-amber-300/30 bg-amber-200/10 text-zinc-100")}
+            className={cn(
+              canvasDockActionChipClassName,
+              activeWorkbench.guides.showSafeArea && canvasDockSelectedListItemClassName
+            )}
             onClick={() => updateGuide("showSafeArea", !activeWorkbench.guides.showSafeArea)}
           >
             Safe Area
@@ -340,24 +392,24 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
 
         <div className="mt-4 grid grid-cols-2 gap-3">
           {(["top", "right", "bottom", "left"] as const).map((key) => (
-            <label key={key} className="space-y-1.5">
-              <span className="text-[10px] uppercase tracking-[0.22em] text-zinc-500">{key}</span>
+            <label key={key} className="space-y-2">
+              <span className={canvasDockFieldLabelClassName}>{key}</span>
               <Input
                 type="number"
                 min={0}
                 value={activeWorkbench.safeArea[key]}
                 onChange={(event) => updateSafeArea(key, event.target.value)}
-                className="h-10 rounded-2xl border-white/10 bg-black/35 text-sm"
+                className={canvasDockFieldClassName}
               />
             </label>
           ))}
         </div>
 
-        <div className="mt-4 flex items-start gap-3 rounded-[24px] border border-white/10 bg-white/[0.03] px-3 py-3 text-sm text-zinc-400">
-          <Shield className="mt-0.5 h-4 w-4 shrink-0 text-amber-200/70" />
-          <p>
-            Keep type and focal subjects inside the safe area. It makes multi-frame export much more
-            resilient across feed crop differences.
+        <div className={cn(canvasDockSectionMutedClassName, "mt-4 flex items-start gap-3")}>
+          <Shield className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--canvas-edit-text-soft)]" />
+          <p className="text-sm leading-6 text-[color:var(--canvas-edit-text-muted)]">
+            Safe-area guides are especially useful when one layout has to survive both single-post
+            and multi-frame export.
           </p>
         </div>
       </section>

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { filmProfiles } from "@/data/filmProfiles";
 import { Input } from "@/components/ui/input";
@@ -9,9 +9,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import type { CanvasElement } from "@/types";
+import {
+  canvasDockBodyTextClassName,
+  canvasDockEmptyStateClassName,
+  canvasDockFieldClassName,
+  canvasDockFieldLabelClassName,
+  canvasDockHeadingClassName,
+  canvasDockIconBadgeClassName,
+  canvasDockMetricCardClassName,
+  canvasDockOverlineClassName,
+  canvasDockSelectContentClassName,
+  canvasDockSelectTriggerClassName,
+  canvasDockSectionClassName,
+  canvasDockSectionMutedClassName,
+} from "./editDockTheme";
 import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
 import {
   applyCanvasTextFontSizeTier,
@@ -21,6 +36,10 @@ import {
   getCanvasTextColorOption,
   getCanvasTextFontOption,
 } from "./textStyle";
+
+interface CanvasPropertiesPanelProps {
+  variant?: "embedded" | "standalone";
+}
 
 const NumberInput = ({
   label,
@@ -37,8 +56,8 @@ const NumberInput = ({
   max?: number;
   step?: number;
 }) => (
-  <label className="space-y-1.5">
-    <span className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">{label}</span>
+  <label className="space-y-2">
+    <span className={canvasDockFieldLabelClassName}>{label}</span>
     <Input
       type="number"
       min={min}
@@ -46,12 +65,14 @@ const NumberInput = ({
       step={step}
       value={Math.round(value * 1000) / 1000}
       onChange={(event) => onChange(Number(event.target.value) || 0)}
-      className="h-10 rounded-2xl border-white/10 bg-black/35 px-3 text-sm"
+      className={canvasDockFieldClassName}
     />
   </label>
 );
 
-export function CanvasPropertiesPanel() {
+export const CanvasPropertiesPanel = memo(function CanvasPropertiesPanel({
+  variant = "standalone",
+}: CanvasPropertiesPanelProps) {
   const upsertElement = useCanvasStore((state) => state.upsertElement);
   const assets = useAssetStore((state) => state.assets);
   const { activeWorkbench, primarySelectedElement: selected } = useCanvasSelectionModel();
@@ -92,49 +113,59 @@ export function CanvasPropertiesPanel() {
       ? CANVAS_TEXT_COLOR_OPTIONS
       : [...CANVAS_TEXT_COLOR_OPTIONS, current];
   }, [selected]);
+  const isEmbedded = variant === "embedded";
 
   return (
-    <div className="p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.28em] text-zinc-500">Inspector</p>
-          <h3 className="mt-1 font-['Syne'] text-xl text-zinc-100">Tune the selected layer.</h3>
+    <div
+      className={cn(
+        "space-y-5 text-[color:var(--canvas-edit-text)]",
+        isEmbedded ? "" : "min-h-0 flex-1 overflow-y-auto pr-1"
+      )}
+    >
+      {isEmbedded ? (
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className={canvasDockOverlineClassName}>Inspector</p>
+            <h3 className={canvasDockHeadingClassName}>Selected layer controls</h3>
+          </div>
+          <div className={canvasDockIconBadgeClassName}>
+            <SlidersHorizontal className="h-4 w-4 text-[color:var(--canvas-edit-text-soft)]" />
+          </div>
         </div>
-        <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
-          <SlidersHorizontal className="h-4 w-4 text-zinc-400" />
-        </div>
-      </div>
+      ) : null}
 
       {!selected ? (
-        <div className="mt-4 rounded-[24px] border border-dashed border-white/10 bg-white/[0.02] p-4">
-          <p className="text-sm font-medium text-zinc-100">Nothing selected yet.</p>
-          <p className="mt-2 text-sm leading-6 text-zinc-500">
-            Click any image, text, shape, or group layer on the 工作台 to edit it here.
+        <div className={cn(canvasDockEmptyStateClassName, "p-4")}>
+          <p className="text-sm font-medium text-[color:var(--canvas-edit-text)]">
+            Nothing selected yet.
+          </p>
+          <p className={cn(canvasDockBodyTextClassName, "mt-2")}>
+            Click any image, text, shape, or group layer on the canvas to edit it here.
           </p>
           {activeWorkbench ? (
-            <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-zinc-300">
-              <div className="rounded-2xl border border-white/10 bg-black/25 px-3 py-3">
-                <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Canvas</p>
-                <p className="mt-2 font-medium text-zinc-100">
+            <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-[color:var(--canvas-edit-pill-text)]">
+              <div className={canvasDockMetricCardClassName}>
+                <p className={canvasDockFieldLabelClassName}>Canvas</p>
+                <p className="mt-2 font-medium text-[color:var(--canvas-edit-text)]">
                   {activeWorkbench.width} x {activeWorkbench.height}
                 </p>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-black/25 px-3 py-3">
-                <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500">Layers</p>
-                <p className="mt-2 font-medium text-zinc-100">{activeWorkbench.elements.length}</p>
+              <div className={canvasDockMetricCardClassName}>
+                <p className={canvasDockFieldLabelClassName}>Layers</p>
+                <p className="mt-2 font-medium text-[color:var(--canvas-edit-text)]">
+                  {activeWorkbench.elements.length}
+                </p>
               </div>
             </div>
           ) : null}
         </div>
       ) : (
-        <div className="mt-4 space-y-4">
-          <div className="rounded-[24px] border border-white/10 bg-white/[0.03] px-4 py-3">
+        <div className="space-y-4">
+          <div className={cn(canvasDockSectionMutedClassName, "px-4 py-3")}>
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">
-                  Selected Layer
-                </p>
-                <p className="mt-1 text-sm font-medium text-zinc-100">
+                <p className={canvasDockFieldLabelClassName}>Selected Layer</p>
+                <p className="mt-1 text-sm font-medium text-[color:var(--canvas-edit-text)]">
                   {selected.type === "image"
                     ? (selectedAsset?.name ?? "Image layer")
                     : selected.type === "text"
@@ -144,14 +175,14 @@ export function CanvasPropertiesPanel() {
                         : (selected.name || "Group")}
                 </p>
               </div>
-              <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.24em] text-zinc-400">
+              <span className="rounded-full border border-[color:var(--canvas-edit-border)] px-2.5 py-1 text-[10px] uppercase tracking-[0.24em] text-[color:var(--canvas-edit-text-muted)]">
                 {selected.type}
               </span>
             </div>
           </div>
 
-          <div className="rounded-[24px] border border-white/10 bg-black/25 p-4">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Transform</p>
+          <div className={canvasDockSectionClassName}>
+            <p className={canvasDockFieldLabelClassName}>Transform</p>
             <div className="mt-3 grid grid-cols-2 gap-3">
               <NumberInput label="X" value={selected.x} onChange={(value) => update({ x: value })} />
               <NumberInput label="Y" value={selected.y} onChange={(value) => update({ y: value })} />
@@ -185,14 +216,14 @@ export function CanvasPropertiesPanel() {
           </div>
 
           {selected.type === "image" ? (
-            <div className="space-y-3 rounded-[24px] border border-white/10 bg-black/25 p-4">
+            <div className={cn(canvasDockSectionClassName, "space-y-3")}>
               <div>
-                <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Image</p>
-                <p className="mt-1 truncate text-sm text-zinc-100">
+                <p className={canvasDockFieldLabelClassName}>Image</p>
+                <p className="mt-1 truncate text-sm text-[color:var(--canvas-edit-text)]">
                   {selectedAsset?.name ?? selected.assetId}
                 </p>
-                <p className="mt-2 text-xs leading-5 text-zinc-500">
-                  通过工作台侧的编辑面板微调已放置图片，让排版和调色保持在同一条工作流里。
+                <p className="mt-2 text-xs leading-5 text-[color:var(--canvas-edit-text-muted)]">
+                  Apply film profiles without leaving the edit dock.
                 </p>
               </div>
 
@@ -202,10 +233,10 @@ export function CanvasPropertiesPanel() {
                   update({ filmProfileId: value === "none" ? undefined : value })
                 }
               >
-                <SelectTrigger className="h-10 rounded-2xl border-white/10 bg-black/35 text-sm">
+                <SelectTrigger className={canvasDockSelectTriggerClassName}>
                   <SelectValue placeholder="Film profile" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={canvasDockSelectContentClassName}>
                   <SelectItem value="none">No profile</SelectItem>
                   {filmProfiles.map((profile) => (
                     <SelectItem key={profile.id} value={profile.id}>
@@ -218,22 +249,22 @@ export function CanvasPropertiesPanel() {
           ) : null}
 
           {selected.type === "text" ? (
-            <div className="space-y-3 rounded-[24px] border border-white/10 bg-black/25 p-4">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Text</p>
+            <div className={cn(canvasDockSectionClassName, "space-y-3")}>
+              <p className={canvasDockFieldLabelClassName}>Text</p>
               <Input
                 value={selected.content}
                 onChange={(event) => update({ content: event.target.value })}
-                className="h-10 rounded-2xl border-white/10 bg-black/35 px-3 text-sm"
+                className={canvasDockFieldClassName}
               />
               <div className="grid grid-cols-2 gap-3">
                 <Select
                   value={selected.fontFamily}
                   onValueChange={(value) => update({ fontFamily: value })}
                 >
-                  <SelectTrigger className="h-10 rounded-2xl border-white/10 bg-black/35 text-sm">
+                  <SelectTrigger className={canvasDockSelectTriggerClassName}>
                     <SelectValue placeholder="Font" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className={canvasDockSelectContentClassName}>
                     {textFontOptions.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
@@ -249,10 +280,10 @@ export function CanvasPropertiesPanel() {
                     )
                   }
                 >
-                  <SelectTrigger className="h-10 rounded-2xl border-white/10 bg-black/35 text-sm">
+                  <SelectTrigger className={canvasDockSelectTriggerClassName}>
                     <SelectValue placeholder="Size tier" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className={canvasDockSelectContentClassName}>
                     {CANVAS_TEXT_SIZE_TIER_OPTIONS.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
@@ -261,10 +292,10 @@ export function CanvasPropertiesPanel() {
                   </SelectContent>
                 </Select>
                 <Select value={selected.color} onValueChange={(value) => update({ color: value })}>
-                  <SelectTrigger className="h-10 rounded-2xl border-white/10 bg-black/35 text-sm">
+                  <SelectTrigger className={canvasDockSelectTriggerClassName}>
                     <SelectValue placeholder="Color" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className={canvasDockSelectContentClassName}>
                     {textColorOptions.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
@@ -278,10 +309,10 @@ export function CanvasPropertiesPanel() {
                     update({ textAlign: value as "left" | "center" | "right" })
                   }
                 >
-                  <SelectTrigger className="h-10 rounded-2xl border-white/10 bg-black/35 text-sm">
+                  <SelectTrigger className={canvasDockSelectTriggerClassName}>
                     <SelectValue placeholder="Align" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className={canvasDockSelectContentClassName}>
                     <SelectItem value="left">Left</SelectItem>
                     <SelectItem value="center">Center</SelectItem>
                     <SelectItem value="right">Right</SelectItem>
@@ -292,26 +323,26 @@ export function CanvasPropertiesPanel() {
           ) : null}
 
           {selected.type === "shape" ? (
-            <div className="space-y-3 rounded-[24px] border border-white/10 bg-black/25 p-4">
-              <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Shape</p>
-              <label className="space-y-1.5">
-                <span className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">Fill</span>
+            <div className={cn(canvasDockSectionClassName, "space-y-3")}>
+              <p className={canvasDockFieldLabelClassName}>Shape</p>
+              <label className="space-y-2">
+                <span className={canvasDockFieldLabelClassName}>Fill</span>
                 <Input
                   type="text"
                   value={selected.fill}
                   onChange={(event) => update({ fill: event.target.value } as Partial<CanvasElement>)}
-                  className="h-10 rounded-2xl border-white/10 bg-black/35 px-3 text-sm"
+                  className={canvasDockFieldClassName}
                 />
               </label>
-              <label className="space-y-1.5">
-                <span className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">Stroke</span>
+              <label className="space-y-2">
+                <span className={canvasDockFieldLabelClassName}>Stroke</span>
                 <Input
                   type="text"
                   value={selected.stroke}
                   onChange={(event) =>
                     update({ stroke: event.target.value } as Partial<CanvasElement>)
                   }
-                  className="h-10 rounded-2xl border-white/10 bg-black/35 px-3 text-sm"
+                  className={canvasDockFieldClassName}
                 />
               </label>
               <NumberInput
@@ -329,4 +360,4 @@ export function CanvasPropertiesPanel() {
       )}
     </div>
   );
-}
+});

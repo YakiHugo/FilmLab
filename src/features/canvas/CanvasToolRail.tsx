@@ -1,6 +1,23 @@
-import { ArrowRight, Circle, Frame, Images, Layers3, Slash, SlidersHorizontal, Square, Type } from "lucide-react";
+import {
+  ArrowRight,
+  Circle,
+  Frame,
+  Images,
+  Layers3,
+  PanelsTopLeft,
+  Settings2,
+  Slash,
+  SlidersHorizontal,
+  Square,
+  Type,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvasStore";
+import {
+  canvasEditDockBoundsClassName,
+  canvasEditDockRailLeftClassName,
+  canvasEditDockStyle,
+} from "./editDockTheme";
 
 const toolButtons = [
   { tool: "text" as const, icon: Type, label: "Text" },
@@ -17,6 +34,8 @@ const shapeButtons = [
 const panelButtons = [
   { panel: "library" as const, icon: Images, label: "Library" },
   { panel: "layers" as const, icon: Layers3, label: "Layers" },
+  { panel: "properties" as const, icon: Settings2, label: "Inspector" },
+  { panel: "workbench" as const, icon: PanelsTopLeft, label: "Workbench" },
   { panel: "story" as const, icon: Frame, label: "Story" },
   { panel: "edit" as const, icon: SlidersHorizontal, label: "Edit" },
 ] as const;
@@ -29,9 +48,25 @@ export function CanvasToolRail() {
   const activePanel = useCanvasStore((s) => s.activePanel);
   const togglePanel = useCanvasStore((s) => s.togglePanel);
 
+  const buttonClassName = (active: boolean) =>
+    cn(
+      "flex h-10 w-10 items-center justify-center rounded-[10px] transition",
+      active
+        ? "bg-[color:var(--canvas-edit-surface)] text-[color:var(--canvas-edit-text)]"
+        : "text-[color:var(--canvas-edit-text-muted)] hover:bg-[color:var(--canvas-edit-surface)] hover:text-[color:var(--canvas-edit-text)]"
+    );
+
   return (
-    <div className="absolute bottom-4 left-3 top-[64px] z-20 flex w-11 flex-col items-center justify-between rounded-2xl border border-white/10 bg-black/60 py-2 shadow-lg backdrop-blur-xl">
-      <div className="flex flex-col items-center gap-0.5">
+    <div
+      style={canvasEditDockStyle}
+      className={cn(
+        "absolute z-20 flex flex-col items-center justify-between",
+        canvasEditDockBoundsClassName,
+        canvasEditDockRailLeftClassName,
+        "w-[var(--canvas-edit-rail-width)] rounded-l-[6px] border border-[color:var(--canvas-edit-border)] border-r-0 bg-[color:var(--canvas-edit-bg)] py-4"
+      )}
+    >
+      <div className="flex flex-col items-center gap-1.5">
         {toolButtons.map((btn) => {
           const Icon = btn.icon;
           const active = tool === btn.tool;
@@ -40,23 +75,18 @@ export function CanvasToolRail() {
               <button
                 type="button"
                 onClick={() => setTool(btn.tool)}
-                className={cn(
-                  "flex h-9 w-9 items-center justify-center rounded-xl transition",
-                  active
-                    ? "bg-white text-zinc-950"
-                    : "text-zinc-400 hover:bg-white/10 hover:text-zinc-200"
-                )}
+                className={buttonClassName(active)}
                 aria-label={btn.label}
                 title={btn.label}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-[18px] w-[18px]" />
               </button>
             </div>
           );
         })}
 
         {tool === "shape" ? (
-          <div className="mt-1 flex flex-col items-center gap-0.5">
+          <div className="mt-1 flex flex-col items-center gap-1.5">
             {shapeButtons.map((btn) => {
               const Icon = btn.icon;
               const active = activeShapeType === btn.shapeType;
@@ -69,24 +99,29 @@ export function CanvasToolRail() {
                     setTool("shape");
                   }}
                   className={cn(
-                    "flex h-8 w-8 items-center justify-center rounded-lg transition",
+                    "flex h-9 w-9 items-center justify-center rounded-[10px] transition",
                     active
-                      ? "bg-amber-200 text-zinc-950"
-                      : "text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
+                      ? "bg-[color:var(--canvas-edit-surface)] text-[color:var(--canvas-edit-text)]"
+                      : "text-[color:var(--canvas-edit-text-soft)] hover:bg-[color:var(--canvas-edit-surface)] hover:text-[color:var(--canvas-edit-text)]"
                   )}
                   aria-label={btn.label}
                   title={btn.label}
                 >
-                  <Icon className="h-3.5 w-3.5" />
+                  <Icon className="h-4 w-4" />
                 </button>
               );
             })}
           </div>
         ) : null}
 
-        <div className="mx-2 my-1 h-px w-6 bg-white/10" />
+        <div
+          className={cn(
+            "mx-2 h-px w-6",
+            "my-2 bg-[color:var(--canvas-edit-divider)]"
+          )}
+        />
 
-        {panelButtons.slice(0, 2).map((btn) => {
+        {panelButtons.slice(0, 3).map((btn) => {
           const Icon = btn.icon;
           const active = activePanel === btn.panel;
           return (
@@ -94,23 +129,18 @@ export function CanvasToolRail() {
               key={btn.panel}
               type="button"
               onClick={() => togglePanel(btn.panel)}
-              className={cn(
-                "flex h-9 w-9 items-center justify-center rounded-xl transition",
-                active
-                  ? "bg-white text-zinc-950"
-                  : "text-zinc-400 hover:bg-white/10 hover:text-zinc-200"
-              )}
+              className={buttonClassName(active)}
               aria-label={btn.label}
               title={btn.label}
             >
-              <Icon className="h-4 w-4" />
+              <Icon className="h-[18px] w-[18px]" />
             </button>
           );
         })}
       </div>
 
-      <div className="flex flex-col items-center gap-0.5">
-        {panelButtons.slice(2).map((btn) => {
+      <div className="flex flex-col items-center gap-1.5">
+        {panelButtons.slice(3).map((btn) => {
           const Icon = btn.icon;
           const active = activePanel === btn.panel;
           return (
@@ -118,16 +148,11 @@ export function CanvasToolRail() {
               key={btn.panel}
               type="button"
               onClick={() => togglePanel(btn.panel)}
-              className={cn(
-                "flex h-9 w-9 items-center justify-center rounded-xl transition",
-                active
-                  ? "bg-white text-zinc-950"
-                  : "text-zinc-400 hover:bg-white/10 hover:text-zinc-200"
-              )}
+              className={buttonClassName(active)}
               aria-label={btn.label}
               title={btn.label}
             >
-              <Icon className="h-4 w-4" />
+              <Icon className="h-[18px] w-[18px]" />
             </button>
           );
         })}
