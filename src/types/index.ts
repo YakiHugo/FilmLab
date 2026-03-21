@@ -228,6 +228,21 @@ export interface CalibrationAdjustments {
   blueSaturation: number;
 }
 
+export type AsciiCharsetPreset = "standard" | "blocks" | "detailed";
+export type AsciiColorMode = "grayscale" | "full-color";
+export type AsciiDitherMode = "none" | "floyd-steinberg";
+
+export interface AsciiAdjustments {
+  enabled: boolean;
+  charsetPreset: AsciiCharsetPreset;
+  colorMode: AsciiColorMode;
+  cellSize: number;
+  characterSpacing: number;
+  contrast: number;
+  dither: AsciiDitherMode;
+  invert: boolean;
+}
+
 export interface LocalAdjustmentDelta {
   exposure?: number;
   contrast?: number;
@@ -309,7 +324,6 @@ export interface LocalBrushMask {
 
 export type LocalAdjustmentMask = LocalRadialMask | LocalLinearMask | LocalBrushMask;
 
-
 export interface EditorLayer {
   id: string;
   name: string;
@@ -360,6 +374,7 @@ export const ASPECT_RATIOS = [
 export type AspectRatio = (typeof ASPECT_RATIOS)[number];
 
 export interface EditingAdjustments {
+  brightness?: number;
   exposure: number;
   contrast: number;
   highlights: number;
@@ -368,6 +383,7 @@ export interface EditingAdjustments {
   blacks: number;
   temperature: number;
   tint: number;
+  hue?: number;
   temperatureKelvin?: number;
   tintMG?: number;
   vibrance: number;
@@ -394,6 +410,8 @@ export interface EditingAdjustments {
   colorNoiseReduction: number;
   vignette: number;
   grain: number;
+  blur?: number;
+  dilate?: number;
   grainSize: number;
   grainRoughness: number;
   glowIntensity: number;
@@ -406,6 +424,7 @@ export interface EditingAdjustments {
     size: 8 | 16;
     intensity: number;
   };
+  ascii?: AsciiAdjustments;
   pushPullEv?: number;
   rotate: number;
   rightAngleRotation: number;
@@ -433,12 +452,7 @@ export interface EditingAdjustments {
 }
 
 /** MIME types accepted for asset import. */
-export type AssetMimeType =
-  | "image/jpeg"
-  | "image/png"
-  | "image/tiff"
-  | "image/webp"
-  | "image/avif";
+export type AssetMimeType = "image/jpeg" | "image/png" | "image/tiff" | "image/webp" | "image/avif";
 
 export type AssetOrigin = "file" | "url" | "ai";
 
@@ -526,6 +540,7 @@ export type AssetSyncJobOperation = "upload" | "delete";
 export interface AssetSyncJob {
   jobId: string;
   localAssetId: string;
+  ownerUserId?: string;
   op: AssetSyncJobOperation;
   attempts: number;
   nextRetryAt: string;
@@ -551,7 +566,7 @@ export interface AssetMetadata {
   capturedAt?: string;
 }
 
-export interface Project {
+export interface CurrentUser {
   id: string;
   name: string;
   createdAt: string;
@@ -563,4 +578,3 @@ export * from "./imageGeneration";
 export * from "./adjustments";
 export * from "./editor";
 export * from "./renderer";
-

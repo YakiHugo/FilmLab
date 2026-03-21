@@ -28,13 +28,6 @@ const cloneLayer = (layer: EditorLayer): EditorLayer => {
   return JSON.parse(JSON.stringify(layer)) as EditorLayer;
 };
 
-export const createEditorLayerId = (prefix = "layer") => {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return `${prefix}-${crypto.randomUUID()}`;
-  }
-  return `${prefix}-${Math.random().toString(16).slice(2)}`;
-};
-
 export const createBaseLayer = (asset: Pick<Asset, "id" | "adjustments">): EditorLayer => ({
   id: `base-${asset.id}`,
   name: "Background",

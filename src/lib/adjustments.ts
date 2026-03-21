@@ -3,6 +3,7 @@ import {
   type ColorGradingAdjustments,
   type BwMixAdjustments,
   type CalibrationAdjustments,
+  type AsciiAdjustments,
   type EditingAdjustments,
   type HslColorKey,
   type HslAdjustments,
@@ -50,6 +51,17 @@ const defaultCalibration: CalibrationAdjustments = {
   greenSaturation: 0,
   blueHue: 0,
   blueSaturation: 0,
+};
+
+const defaultAscii: AsciiAdjustments = {
+  enabled: false,
+  charsetPreset: "standard",
+  colorMode: "grayscale",
+  cellSize: 12,
+  characterSpacing: 1,
+  contrast: 1,
+  dither: "none",
+  invert: false,
 };
 
 const defaultPointCurve: PointCurveAdjustments = {
@@ -237,7 +249,9 @@ const normalizeLocalMaskColorRange = (
 };
 
 const normalizeLocalRadialMask = (mask: unknown): LocalRadialMask => {
-  const raw = (mask && typeof mask === "object" ? mask : {}) as Partial<Record<keyof LocalRadialMask, unknown>>;
+  const raw = (mask && typeof mask === "object" ? mask : {}) as Partial<
+    Record<keyof LocalRadialMask, unknown>
+  >;
   const lumaRange = normalizeLocalMaskLumaRange(raw);
   const colorRange = normalizeLocalMaskColorRange(raw);
   return {
@@ -254,7 +268,9 @@ const normalizeLocalRadialMask = (mask: unknown): LocalRadialMask => {
 };
 
 const normalizeLocalLinearMask = (mask: unknown): LocalLinearMask => {
-  const raw = (mask && typeof mask === "object" ? mask : {}) as Partial<Record<keyof LocalLinearMask, unknown>>;
+  const raw = (mask && typeof mask === "object" ? mask : {}) as Partial<
+    Record<keyof LocalLinearMask, unknown>
+  >;
   const lumaRange = normalizeLocalMaskLumaRange(raw);
   const colorRange = normalizeLocalMaskColorRange(raw);
   const startX = clampValue(Number.isFinite(raw.startX) ? (raw.startX as number) : 0.5, 0, 1);
@@ -281,7 +297,9 @@ const normalizeLocalLinearMask = (mask: unknown): LocalLinearMask => {
 };
 
 const normalizeLocalBrushMask = (mask: unknown): LocalBrushMask => {
-  const raw = (mask && typeof mask === "object" ? mask : {}) as Partial<Record<keyof LocalBrushMask, unknown>>;
+  const raw = (mask && typeof mask === "object" ? mask : {}) as Partial<
+    Record<keyof LocalBrushMask, unknown>
+  >;
   const lumaRange = normalizeLocalMaskLumaRange(raw);
   const colorRange = normalizeLocalMaskColorRange(raw);
   const pointsRaw = Array.isArray(raw.points) ? raw.points : [];
@@ -307,7 +325,11 @@ const normalizeLocalBrushMask = (mask: unknown): LocalBrushMask => {
   return {
     mode: "brush",
     points,
-    brushSize: clampValue(Number.isFinite(raw.brushSize) ? (raw.brushSize as number) : 0.08, 0.005, 0.25),
+    brushSize: clampValue(
+      Number.isFinite(raw.brushSize) ? (raw.brushSize as number) : 0.08,
+      0.005,
+      0.25
+    ),
     feather: clampValue(Number.isFinite(raw.feather) ? (raw.feather as number) : 0.55, 0, 1),
     flow: clampValue(Number.isFinite(raw.flow) ? (raw.flow as number) : 0.85, 0.05, 1),
     ...lumaRange,
@@ -317,7 +339,8 @@ const normalizeLocalBrushMask = (mask: unknown): LocalBrushMask => {
 };
 
 const normalizeLocalMask = (mask: unknown): LocalAdjustmentMask => {
-  const modeValue = mask && typeof mask === "object" ? (mask as { mode?: unknown }).mode : undefined;
+  const modeValue =
+    mask && typeof mask === "object" ? (mask as { mode?: unknown }).mode : undefined;
   if (modeValue === "linear") {
     return normalizeLocalLinearMask(mask);
   }
@@ -352,6 +375,7 @@ const normalizeLocalAdjustments = (localAdjustments: unknown): LocalAdjustment[]
 type NormalizableAdjustments = Partial<EditingAdjustments> & {
   hsl?: Partial<Record<HslColorKey, Partial<HslAdjustments[HslColorKey]>>>;
   pointCurve?: Partial<Record<keyof PointCurveAdjustments, PointCurvePoint[]>>;
+  ascii?: Partial<AsciiAdjustments>;
   colorGrading?: Partial<EditingAdjustments["colorGrading"]> & {
     shadows?: Partial<EditingAdjustments["colorGrading"]["shadows"]>;
     midtones?: Partial<EditingAdjustments["colorGrading"]["midtones"]>;
@@ -477,22 +501,62 @@ const normalizeAdjustmentsUncached = (
     typeof merged.temperatureKelvin === "number" && Number.isFinite(merged.temperatureKelvin)
       ? clampValue(merged.temperatureKelvin, 1800, 50000)
       : undefined;
+  merged.brightness = clampValue(
+    Number.isFinite(merged.brightness) ? (merged.brightness as number) : (defaults.brightness ?? 0),
+    -100,
+    100
+  );
   merged.tintMG =
     typeof merged.tintMG === "number" && Number.isFinite(merged.tintMG)
       ? clampValue(merged.tintMG, -100, 100)
       : undefined;
+  merged.hue = clampValue(
+    Number.isFinite(merged.hue) ? (merged.hue as number) : (defaults.hue ?? 0),
+    -100,
+    100
+  );
   merged.localAdjustments = normalizeLocalAdjustments(merged.localAdjustments);
   merged.customLut = {
     enabled: Boolean(merged.customLut?.enabled),
     path: typeof merged.customLut?.path === "string" ? merged.customLut.path : "",
     size: merged.customLut?.size === 16 ? 16 : 8,
     intensity: clampValue(
-      Number.isFinite(merged.customLut?.intensity)
-        ? (merged.customLut?.intensity as number)
-        : 0,
+      Number.isFinite(merged.customLut?.intensity) ? (merged.customLut?.intensity as number) : 0,
       0,
       1
     ),
+  };
+  merged.ascii = {
+    enabled: Boolean(merged.ascii?.enabled),
+    charsetPreset:
+      merged.ascii?.charsetPreset === "blocks" || merged.ascii?.charsetPreset === "detailed"
+        ? merged.ascii.charsetPreset
+        : defaultAscii.charsetPreset,
+    colorMode:
+      merged.ascii?.colorMode === "full-color" ? merged.ascii.colorMode : defaultAscii.colorMode,
+    cellSize: clampValue(
+      Number.isFinite(merged.ascii?.cellSize)
+        ? (merged.ascii?.cellSize as number)
+        : defaultAscii.cellSize,
+      6,
+      24
+    ),
+    characterSpacing: clampValue(
+      Number.isFinite(merged.ascii?.characterSpacing)
+        ? (merged.ascii?.characterSpacing as number)
+        : defaultAscii.characterSpacing,
+      0.7,
+      1.6
+    ),
+    contrast: clampValue(
+      Number.isFinite(merged.ascii?.contrast)
+        ? (merged.ascii?.contrast as number)
+        : defaultAscii.contrast,
+      0.5,
+      2.5
+    ),
+    dither: merged.ascii?.dither === "floyd-steinberg" ? merged.ascii.dither : defaultAscii.dither,
+    invert: Boolean(merged.ascii?.invert),
   };
   merged.pushPullEv =
     typeof merged.pushPullEv === "number" && Number.isFinite(merged.pushPullEv)
@@ -504,9 +568,7 @@ const normalizeAdjustmentsUncached = (
     100
   );
   merged.glowMidtoneFocus = clampValue(
-    Number.isFinite(merged.glowMidtoneFocus)
-      ? merged.glowMidtoneFocus
-      : defaults.glowMidtoneFocus,
+    Number.isFinite(merged.glowMidtoneFocus) ? merged.glowMidtoneFocus : defaults.glowMidtoneFocus,
     0,
     100
   );
@@ -517,6 +579,16 @@ const normalizeAdjustmentsUncached = (
   );
   merged.glowRadius = clampValue(
     Number.isFinite(merged.glowRadius) ? merged.glowRadius : defaults.glowRadius,
+    0,
+    100
+  );
+  merged.blur = clampValue(
+    Number.isFinite(merged.blur) ? (merged.blur as number) : (defaults.blur ?? 0),
+    0,
+    100
+  );
+  merged.dilate = clampValue(
+    Number.isFinite(merged.dilate) ? (merged.dilate as number) : (defaults.dilate ?? 0),
     0,
     100
   );
@@ -542,14 +614,14 @@ const normalizeAdjustmentsUncached = (
   merged.perspectiveHorizontal = clampValue(
     Number.isFinite(merged.perspectiveHorizontal)
       ? (merged.perspectiveHorizontal as number)
-      : defaults.perspectiveHorizontal ?? 0,
+      : (defaults.perspectiveHorizontal ?? 0),
     -100,
     100
   );
   merged.perspectiveVertical = clampValue(
     Number.isFinite(merged.perspectiveVertical)
       ? (merged.perspectiveVertical as number)
-      : defaults.perspectiveVertical ?? 0,
+      : (defaults.perspectiveVertical ?? 0),
     -100,
     100
   );
@@ -558,21 +630,21 @@ const normalizeAdjustmentsUncached = (
   merged.opticsDistortionK1 = clampValue(
     Number.isFinite(merged.opticsDistortionK1)
       ? (merged.opticsDistortionK1 as number)
-      : defaults.opticsDistortionK1 ?? 0,
+      : (defaults.opticsDistortionK1 ?? 0),
     -100,
     100
   );
   merged.opticsDistortionK2 = clampValue(
     Number.isFinite(merged.opticsDistortionK2)
       ? (merged.opticsDistortionK2 as number)
-      : defaults.opticsDistortionK2 ?? 0,
+      : (defaults.opticsDistortionK2 ?? 0),
     -100,
     100
   );
   merged.opticsCaAmount = clampValue(
     Number.isFinite(merged.opticsCaAmount)
       ? (merged.opticsCaAmount as number)
-      : defaults.opticsCaAmount ?? 0,
+      : (defaults.opticsCaAmount ?? 0),
     0,
     100
   );
@@ -586,7 +658,7 @@ const normalizeAdjustmentsUncached = (
   merged.opticsVignetteMidpoint = clampValue(
     Number.isFinite(merged.opticsVignetteMidpoint)
       ? (merged.opticsVignetteMidpoint as number)
-      : defaults.opticsVignetteMidpoint ?? 50,
+      : (defaults.opticsVignetteMidpoint ?? 50),
     0,
     100
   );
@@ -614,6 +686,7 @@ const normalizeAdjustmentsUncached = (
 
 export function createDefaultAdjustments(): EditingAdjustments {
   return {
+    brightness: 0,
     exposure: 0,
     contrast: 0,
     highlights: 0,
@@ -622,6 +695,7 @@ export function createDefaultAdjustments(): EditingAdjustments {
     blacks: 0,
     temperature: 0,
     tint: 0,
+    hue: 0,
     vibrance: 0,
     saturation: 0,
     texture: 0,
@@ -666,6 +740,8 @@ export function createDefaultAdjustments(): EditingAdjustments {
     colorNoiseReduction: 0,
     vignette: 0,
     grain: 0,
+    blur: 0,
+    dilate: 0,
     grainSize: 50,
     grainRoughness: 50,
     glowIntensity: 0,
@@ -677,6 +753,9 @@ export function createDefaultAdjustments(): EditingAdjustments {
       path: "",
       size: 8,
       intensity: 0,
+    },
+    ascii: {
+      ...defaultAscii,
     },
     rotate: 0,
     rightAngleRotation: 0,
@@ -758,4 +837,3 @@ export const applyPresetAdjustments = (
   });
   return next;
 };
-

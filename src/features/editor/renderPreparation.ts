@@ -1,4 +1,5 @@
 import { applyAdjustmentGroupVisibility } from "@/lib/editorAdjustmentVisibility";
+import { normalizeAdjustments } from "@/lib/adjustments";
 import { resolveLayerAdjustments } from "@/lib/editorLayers";
 import type { Asset, EditingAdjustments, EditorLayer, EditorLayerBlendMode } from "@/types";
 
@@ -13,12 +14,14 @@ export interface EditorLayerRenderEntry {
 interface BuildEditorLayerRenderEntriesOptions {
   assetById: Map<string, Asset>;
   documentAsset: Asset;
+  documentAdjustments?: EditingAdjustments;
   layers: EditorLayer[];
 }
 
 export const buildEditorLayerRenderEntries = ({
   assetById,
   documentAsset,
+  documentAdjustments,
   layers,
 }: BuildEditorLayerRenderEntriesOptions): EditorLayerRenderEntry[] =>
   layers
@@ -40,7 +43,9 @@ export const buildEditorLayerRenderEntries = ({
         opacity,
         blendMode: layer.blendMode,
         adjustments: applyAdjustmentGroupVisibility(
-          resolveLayerAdjustments(layer, documentAsset.adjustments),
+          layer.type === "base" && documentAdjustments
+            ? normalizeAdjustments(documentAdjustments)
+            : resolveLayerAdjustments(layer, documentAdjustments ?? documentAsset.adjustments),
           layer.adjustmentVisibility
         ),
       };

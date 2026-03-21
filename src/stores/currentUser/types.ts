@@ -1,0 +1,72 @@
+import type { Asset, AssetOrigin, AssetUpdate, CurrentUser, EditorLayer } from "@/types";
+
+export interface ImportProgress {
+  current: number;
+  total: number;
+}
+
+export interface ImportSkipSummary {
+  unsupported: number;
+  oversized: number;
+  duplicated: number;
+  overflow: number;
+}
+
+export interface ImportAssetsResult {
+  requested: number;
+  accepted: number;
+  added: number;
+  failed: number;
+  addedAssetIds: string[];
+  errors: string[];
+  skipped: ImportSkipSummary;
+}
+
+export interface ImportAssetOptions {
+  source?: Asset["source"];
+  origin?: AssetOrigin;
+  ownerRef?: Asset["ownerRef"];
+}
+
+// Backward-compatible alias for existing consumers during migration.
+export type AddAssetsResult = ImportAssetsResult;
+
+export interface CurrentUserState {
+  currentUser: CurrentUser | null;
+  assets: Asset[];
+  isLoading: boolean;
+  isImporting: boolean;
+  importProgress: ImportProgress | null;
+  selectedAssetIds: string[];
+
+  init: () => Promise<void>;
+  importAssets: (
+    files: File[] | FileList,
+    options?: ImportAssetOptions
+  ) => Promise<ImportAssetsResult>;
+  importAssetFromUrl: (url: string) => Promise<ImportAssetsResult>;
+  runAssetSync: () => Promise<void>;
+  retryAssetSyncForAsset: (assetId: string) => Promise<void>;
+  applyPresetToDay: (day: string, presetId: string, intensity: number) => void;
+  applyPresetToSelection: (assetIds: string[], presetId: string, intensity?: number) => void;
+  updateAsset: (assetId: string, update: AssetUpdate) => void;
+  updateAssetOnly: (assetId: string, update: AssetUpdate) => void;
+  addLayer: (assetId: string, layer: EditorLayer) => void;
+  removeLayer: (assetId: string, layerId: string) => void;
+  updateLayer: (assetId: string, layerId: string, patch: Partial<EditorLayer>) => void;
+  moveLayer: (assetId: string, layerId: string, direction: "up" | "down") => void;
+  duplicateLayer: (assetId: string, layerId: string) => void;
+  mergeLayerDown: (assetId: string, layerId: string) => Promise<boolean>;
+  flattenLayers: (assetId: string) => Promise<boolean>;
+
+  setSelectedAssetIds: (assetIds: string[]) => void;
+  clearAssetSelection: () => void;
+
+  setAssetTags: (assetId: string, tags: string[]) => void;
+  addTagsToAssets: (assetIds: string[], tags: string[]) => void;
+  removeTagsFromAssets: (assetIds: string[], tags: string[]) => void;
+
+  deleteAssets: (assetIds: string[]) => Promise<void>;
+  resetCurrentUser: () => Promise<void>;
+}
+

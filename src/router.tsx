@@ -1,23 +1,18 @@
 import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
-import { z } from "zod";
 import App from "@/App";
 import { CanvasPage } from "@/pages/canvas";
-import { EditorPage } from "@/pages/editor";
 import { ImageLabPage } from "@/pages/image-lab";
 import { LibraryPage } from "@/pages/library";
-
-const editorSearchSchema = z.object({
-  assetId: z.string().optional().catch(undefined),
-});
+import { StudioPage } from "@/pages/studio";
 
 const rootRoute = createRootRoute({
   component: App,
 });
 
-const imageLabRoute = createRoute({
+const studioRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: ImageLabPage,
+  component: StudioPage,
 });
 
 const libraryRoute = createRoute({
@@ -26,11 +21,10 @@ const libraryRoute = createRoute({
   component: LibraryPage,
 });
 
-const editorRoute = createRoute({
+const assistRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/editor",
-  validateSearch: editorSearchSchema,
-  component: EditorPage,
+  path: "/assist",
+  component: ImageLabPage,
 });
 
 const canvasRoute = createRoute({
@@ -41,14 +35,14 @@ const canvasRoute = createRoute({
 
 const canvasDocumentRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/canvas/$documentId",
+  path: "/canvas/$workbenchId",
   component: CanvasPage,
 });
 
 const routeTree = rootRoute.addChildren([
-  imageLabRoute,
+  studioRoute,
   libraryRoute,
-  editorRoute,
+  assistRoute,
   canvasRoute,
   canvasDocumentRoute,
 ]);

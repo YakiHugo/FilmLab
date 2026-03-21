@@ -1,4 +1,5 @@
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
+import { asciiAdjustmentsEqual } from "@/lib/asciiRaster";
 import type {
   EditingAdjustments,
   EditorAdjustmentGroupId,
@@ -8,6 +9,7 @@ import type {
 
 const EDITOR_ADJUSTMENT_GROUP_KEYS = {
   basic: [
+    "brightness",
     "exposure",
     "contrast",
     "highlights",
@@ -16,6 +18,7 @@ const EDITOR_ADJUSTMENT_GROUP_KEYS = {
     "blacks",
     "temperature",
     "tint",
+    "hue",
     "temperatureKelvin",
     "tintMG",
     "vibrance",
@@ -27,6 +30,8 @@ const EDITOR_ADJUSTMENT_GROUP_KEYS = {
     "dehaze",
     "vignette",
     "grain",
+    "blur",
+    "dilate",
     "grainSize",
     "grainRoughness",
     "glowIntensity",
@@ -34,6 +39,7 @@ const EDITOR_ADJUSTMENT_GROUP_KEYS = {
     "glowBias",
     "glowRadius",
     "customLut",
+    "ascii",
   ],
   detail: [
     "sharpening",
@@ -77,7 +83,7 @@ const cloneAdjustmentGroupValue = (
   key: EditorAdjustmentGroupKey,
   value: EditingAdjustments[EditorAdjustmentGroupKey]
 ) => {
-  if (key === "customLut") {
+  if (key === "customLut" || key === "ascii") {
     return value && typeof value === "object" ? { ...value } : undefined;
   }
   return value;
@@ -96,7 +102,10 @@ const assignDefaultAdjustmentGroupValue = (
     EditorAdjustmentGroupKey,
     EditingAdjustments[EditorAdjustmentGroupKey] | undefined
   >;
-  nextRecord[key] = cloneAdjustmentGroupValue(key, defaultRecord[key]) as EditingAdjustments[EditorAdjustmentGroupKey];
+  nextRecord[key] = cloneAdjustmentGroupValue(
+    key,
+    defaultRecord[key]
+  ) as EditingAdjustments[EditorAdjustmentGroupKey];
 };
 
 const resetAdjustmentGroup = (
@@ -122,6 +131,9 @@ const hasChangedAdjustmentGroupValue = (
       adjustments.customLut?.intensity !== defaults.customLut?.intensity
     );
   }
+  if (key === "ascii") {
+    return !asciiAdjustmentsEqual(adjustments.ascii, defaults.ascii);
+  }
   return adjustments[key] !== defaults[key];
 };
 
@@ -132,11 +144,7 @@ export const applyAdjustmentGroupVisibility = (
   const normalized = normalizeAdjustments(adjustments);
   const normalizedVisibility = normalizeEditorAdjustmentGroupVisibility(visibility);
 
-  if (
-    normalizedVisibility.basic &&
-    normalizedVisibility.effects &&
-    normalizedVisibility.detail
-  ) {
+  if (normalizedVisibility.basic && normalizedVisibility.effects && normalizedVisibility.detail) {
     return normalized;
   }
 

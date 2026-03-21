@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
 import { Trash2, WandSparkles } from "lucide-react";
 import { presets } from "@/data/presets";
 import {
@@ -33,7 +32,9 @@ interface AssetMetadataPanelProps {
 const sourceLabel = (source: Asset["source"]) =>
   source === "ai-generated" ? "AI Generated" : "Imported";
 const toKb = (size: number) => `${Math.max(1, Math.round(size / 1024))} KB`;
-const syncStatusLabel = (status: Asset["remote"] extends infer T ? (T extends { status: infer S } ? S : never) : never) => {
+const syncStatusLabel = (
+  status: Asset["remote"] extends infer T ? (T extends { status: infer S } ? S : never) : never
+) => {
   switch (status) {
     case "synced":
       return "Synced";
@@ -58,7 +59,6 @@ const syncStatusLabel = (status: Asset["remote"] extends infer T ? (T extends { 
 };
 
 export function AssetMetadataPanel({ asset, selectedCount, className }: AssetMetadataPanelProps) {
-  const navigate = useNavigate();
   const retryAssetSyncForAsset = useAssetStore((state) => state.retryAssetSyncForAsset);
   const { selectedAssetIds, removeSelection, applyPreset } = useBatchOperations();
 
@@ -137,19 +137,6 @@ export function AssetMetadataPanel({ asset, selectedCount, className }: AssetMet
             </div>
           </CollapsibleSection>
 
-          <Button
-            size="sm"
-            variant="secondary"
-            className={cn("w-full", controlClass)}
-            onClick={() => {
-              void navigate({
-                to: "/editor",
-                search: { assetId: asset.id },
-              });
-            }}
-          >
-            Open in Editor
-          </Button>
           {asset.remote?.status === "upload_failed" ? (
             <Button
               size="sm"

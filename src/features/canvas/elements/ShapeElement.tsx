@@ -1,55 +1,94 @@
-import { Circle, Group, Line, Rect } from "react-konva";
-import type { CanvasShapeElement } from "@/types";
+import { memo, useMemo } from "react";
+import { Arrow, Ellipse, Group, Line, Rect } from "react-konva";
+import type { CanvasRenderableElement, CanvasShapeElement } from "@/types";
+
+type CanvasShapeRenderState = CanvasShapeElement &
+  Partial<
+    Pick<Extract<CanvasRenderableElement, { type: "shape" }>, "effectiveLocked" | "effectiveVisible" | "worldOpacity">
+  >;
 
 interface ShapeElementProps {
-  element: CanvasShapeElement;
-  isSelected: boolean;
-  onSelect: (additive: boolean) => void;
-  onDragEnd: (x: number, y: number) => void;
+  element: CanvasShapeRenderState;
+  dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
+  onSelect: (elementId: string, additive: boolean) => void;
+  onDragEnd: (elementId: string, x: number, y: number) => void;
 }
 
-export function ShapeElement({ element, isSelected, onSelect, onDragEnd }: ShapeElementProps) {
+export const ShapeElement = memo(function ShapeElement({
+  element,
+  dragBoundFunc,
+  onSelect,
+  onDragEnd,
+}: ShapeElementProps) {
+  const points = useMemo(() => {
+    if (element.points && element.points.length > 0) {
+      return element.points.flatMap((point) => [point.x, point.y]);
+    }
+    return [0, element.height / 2, element.width, element.height / 2];
+  }, [element.height, element.points, element.width]);
+  const effectiveLocked = element.effectiveLocked ?? element.locked;
+  const effectiveVisible = element.effectiveVisible ?? element.visible;
+  const renderOpacity = element.worldOpacity ?? element.opacity;
+
   return (
     <Group
       id={element.id}
       x={element.x}
       y={element.y}
       rotation={element.rotation}
-      opacity={element.opacity}
-      visible={element.visible}
-      draggable={!element.locked}
-      onClick={(event) => onSelect(Boolean(event.evt.shiftKey))}
-      onTap={() => onSelect(false)}
-      onDragEnd={(event) => onDragEnd(event.target.x(), event.target.y())}
+      opacity={renderOpacity}
+      visible={effectiveVisible}
+      draggable={!effectiveLocked}
+      dragBoundFunc={dragBoundFunc}
+      onClick={(event) => onSelect(element.id, Boolean(event.evt.shiftKey))}
+      onTap={() => onSelect(element.id, false)}
+      onDragEnd={(event) => onDragEnd(element.id, event.target.x(), event.target.y())}
     >
-      {element.shape === "circle" && (
-        <Circle
-          x={element.width / 2}
-          y={element.height / 2}
-          radius={Math.min(element.width, element.height) / 2}
-          fill={element.fill}
-          stroke={isSelected ? "#f59e0b" : element.stroke}
-          strokeWidth={isSelected ? 2 : element.strokeWidth}
-        />
-      )}
-
-      {element.shape === "line" && (
-        <Line
-          points={[0, 0, element.width, element.height]}
-          stroke={isSelected ? "#f59e0b" : element.stroke || element.fill}
-          strokeWidth={isSelected ? 3 : element.strokeWidth || 2}
-        />
-      )}
-
-      {element.shape === "rect" && (
+      {element.shapeType === "rect" ? (
         <Rect
           width={element.width}
           height={element.height}
           fill={element.fill}
-          stroke={isSelected ? "#f59e0b" : element.stroke}
-          strokeWidth={isSelected ? 2 : element.strokeWidth}
+          stroke={element.stroke}
+          strokeWidth={element.strokeWidth}
+          cornerRadius={element.radius ?? 0}
         />
-      )}
+      ) : null}
+
+      {element.shapeType === "ellipse" ? (
+        <Ellipse
+          x={element.width / 2}
+          y={element.height / 2}
+          radiusX={element.width / 2}
+          radiusY={element.height / 2}
+          fill={element.fill}
+          stroke={element.stroke}
+          strokeWidth={element.strokeWidth}
+        />
+      ) : null}
+
+      {element.shapeType === "line" ? (
+        <Line
+          points={points}
+          stroke={element.stroke}
+          strokeWidth={element.strokeWidth}
+          lineCap="round"
+          lineJoin="round"
+        />
+      ) : null}
+
+      {element.shapeType === "arrow" ? (
+        <Arrow
+          points={points}
+          stroke={element.stroke}
+          fill={element.stroke}
+          strokeWidth={element.strokeWidth}
+          lineCap="round"
+          lineJoin="round"
+          pointerAtBeginning={Boolean(element.arrowHead?.start)}
+          pointerAtEnding={element.arrowHead?.end ?? true}
+        />
+      ) : null}
     </Group>
   );
-}
+});

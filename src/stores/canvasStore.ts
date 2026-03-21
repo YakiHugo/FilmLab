@@ -1,424 +1,1379 @@
-﻿import { create } from "zustand";
+import { create } from "zustand";
 import { devtools } from "zustand/middleware";
-import { deleteCanvasDocument, loadCanvasDocuments, saveCanvasDocument } from "@/lib/db";
-import type { CanvasDocument, CanvasElement } from "@/types";
+import { getCurrentUserId } from "@/lib/authToken";
+import { selectionIdsEqual } from "@/features/canvas/selectionModel";
+import {
+  applyCanvasWorkbenchPatch,
+  executeCanvasCommand,
+  getCanvasDescendantIds,
+  getCanvasNodeWorldTransform,
+  getCanvasWorkbenchSnapshot,
+  worldPointToLocalPoint,
+} from "@/features/canvas/documentGraph";
+import {
+  createDefaultCanvasWorkbenchFields,
+  normalizeCanvasWorkbench,
+  normalizeCanvasWorkbenchWithCleanup,
+} from "@/features/canvas/studioPresets";
+import {
+  deleteCanvasWorkbench,
+  loadCanvasWorkbench,
+  loadCanvasWorkbenchesByUser,
+  saveCanvasWorkbench,
+} from "@/lib/db";
+import { on } from "@/lib/storeEvents";
+import { createId } from "@/utils";
+import type {
+  CanvasCommand,
+  CanvasHistoryEntry,
+  CanvasNode,
+  CanvasNodeId,
+  CanvasRenderableElement,
+  CanvasShapeType,
+  CanvasWorkbench,
+  CanvasWorkbenchSnapshot,
+} from "@/types";
 
-export type CanvasTool = "select" | "text" | "shape" | "hand";
-export type CanvasShapeType = "rect" | "circle" | "line";
+export type CanvasTool = "select" | "text" | "hand" | "shape";
+export type CanvasFloatingPanel =
+  | "edit"
+  | "layers"
+  | "library"
+  | "story"
+  | "properties"
+  | "workbench"
+  | null;
 
 interface CanvasHistoryState {
-  past: CanvasElement[][];
-  future: CanvasElement[][];
+  past: CanvasHistoryEntry[];
+  future: CanvasHistoryEntry[];
 }
 
+interface ExecuteCommandOptions {
+  trackHistory?: boolean;
+}
+
+type CanvasHistoryTransitionMode = "undo" | "redo";
+
+interface CreateWorkbenchOptions {
+  activate?: boolean;
+}
+
+interface DeleteWorkbenchOptions {
+  nextActiveWorkbenchId?: string | null;
+}
+
+type CanvasCommitStatus =
+  | "committed"
+  | "delete_failed"
+  | "epoch_invalidated"
+  | "missing_target"
+  | "noop"
+  | "persist_failed";
+
+type CanvasCommitOutcome<T> =
+  | { status: "committed"; value: T }
+  | { status: "noop"; value: T }
+  | { status: Exclude<CanvasCommitStatus, "committed" | "noop"> };
+
+interface BaseWorkbenchCommitDescriptor {
+  workbenchId: string;
+  nextWorkbench: CanvasWorkbench;
+}
+
+interface CommandCommitDescriptor extends BaseWorkbenchCommitDescriptor {
+  historyMode: "command";
+  historyEntry: CanvasHistoryEntry;
+  trackHistory: boolean;
+}
+
+interface HistoryTransitionCommitDescriptor extends BaseWorkbenchCommitDescriptor {
+  historyMode: CanvasHistoryTransitionMode;
+  historyEntry: CanvasHistoryEntry;
+  historyState: CanvasHistoryState;
+}
+
+type WorkbenchCommitDescriptor =
+  | CommandCommitDescriptor
+  | HistoryTransitionCommitDescriptor;
+
 interface CanvasState {
-  documents: CanvasDocument[];
-  activeDocumentId: string | null;
+  workbenches: CanvasWorkbench[];
+  activeWorkbenchId: string | null;
   selectedElementIds: string[];
   tool: CanvasTool;
-  shapeType: CanvasShapeType;
+  activeShapeType: CanvasShapeType;
   zoom: number;
   viewport: { x: number; y: number };
+  activePanel: CanvasFloatingPanel;
   isLoading: boolean;
-  historyByDocumentId: Record<string, CanvasHistoryState>;
+  historyByWorkbenchId: Record<string, CanvasHistoryState>;
   init: () => Promise<void>;
-  createDocument: (name?: string) => Promise<CanvasDocument>;
-  setActiveDocumentId: (id: string | null) => void;
+  createWorkbench: (name?: string, options?: CreateWorkbenchOptions) => Promise<CanvasWorkbench | null>;
+  setActiveWorkbenchId: (id: string | null) => void;
   setSelectedElementIds: (ids: string[]) => void;
   setTool: (tool: CanvasTool) => void;
-  setShapeType: (shapeType: CanvasShapeType) => void;
+  setActiveShapeType: (shapeType: CanvasShapeType) => void;
   setZoom: (zoom: number) => void;
   setViewport: (viewport: { x: number; y: number }) => void;
-  upsertDocument: (document: CanvasDocument) => Promise<void>;
-  upsertElement: (documentId: string, element: CanvasElement) => Promise<void>;
-  upsertElements: (documentId: string, elements: CanvasElement[]) => Promise<void>;
-  deleteElements: (documentId: string, ids: string[]) => Promise<void>;
-  duplicateElements: (documentId: string, ids: string[]) => Promise<string[]>;
-  reorderElements: (documentId: string, orderedIds: string[]) => Promise<void>;
-  toggleElementVisibility: (documentId: string, id: string) => Promise<void>;
-  toggleElementLock: (documentId: string, id: string) => Promise<void>;
-  nudgeElements: (documentId: string, ids: string[], dx: number, dy: number) => Promise<void>;
-  canUndo: (documentId: string) => boolean;
-  canRedo: (documentId: string) => boolean;
-  undo: (documentId: string) => Promise<boolean>;
-  redo: (documentId: string) => Promise<boolean>;
-  deleteDocument: (id: string) => Promise<void>;
+  setActivePanel: (panel: CanvasFloatingPanel) => void;
+  togglePanel: (panel: CanvasFloatingPanel) => void;
+  upsertWorkbench: (workbench: CanvasWorkbench) => Promise<void>;
+  upsertElement: (element: CanvasNode | CanvasRenderableElement) => Promise<void>;
+  upsertElements: (elements: Array<CanvasNode | CanvasRenderableElement>) => Promise<void>;
+  deleteElements: (ids: string[]) => Promise<void>;
+  duplicateElements: (ids: string[]) => Promise<string[]>;
+  reorderElements: (orderedIds: string[], parentId?: string | null) => Promise<void>;
+  reparentNodes: (ids: string[], parentId: string | null, index?: number) => Promise<void>;
+  toggleElementVisibility: (id: string) => Promise<void>;
+  toggleElementLock: (id: string) => Promise<void>;
+  nudgeElements: (ids: string[], dx: number, dy: number) => Promise<void>;
+  groupElements: (ids: string[]) => Promise<string | null>;
+  ungroupElement: (id: string) => Promise<void>;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+  undo: () => Promise<boolean>;
+  redo: () => Promise<boolean>;
+  deleteWorkbench: (id: string, options?: DeleteWorkbenchOptions) => Promise<boolean>;
+  executeCommandInWorkbench: (
+    workbenchId: string,
+    command: CanvasCommand,
+    options?: ExecuteCommandOptions
+  ) => Promise<CanvasWorkbench | null>;
+  upsertElementInWorkbench: (
+    workbenchId: string,
+    element: CanvasNode | CanvasRenderableElement
+  ) => Promise<void>;
+  upsertElementsInWorkbench: (
+    workbenchId: string,
+    elements: Array<CanvasNode | CanvasRenderableElement>
+  ) => Promise<void>;
 }
 
 const nowIso = () => new Date().toISOString();
+const EMPTY_SLICES: CanvasWorkbench["slices"] = [];
 
-const createDocumentId = () => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `doc-${Date.now()}`;
-};
+type StoredCanvasWorkbench = Awaited<ReturnType<typeof loadCanvasWorkbenchesByUser>>[number];
 
-const createElementId = () => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `el-${Date.now()}-${Math.random().toString(16).slice(2, 7)}`;
-};
-
-const cloneElements = (elements: CanvasElement[]): CanvasElement[] => {
+const clone = <T>(value: T): T => {
   if (typeof structuredClone === "function") {
-    return structuredClone(elements) as CanvasElement[];
+    return structuredClone(value);
   }
-  return JSON.parse(JSON.stringify(elements)) as CanvasElement[];
+  return JSON.parse(JSON.stringify(value)) as T;
 };
 
-const normalizeElements = (elements: CanvasElement[]) =>
-  elements
-    .slice()
-    .sort((a, b) => a.zIndex - b.zIndex)
-    .map((element, index) => ({
-      ...element,
-      zIndex: index + 1,
-    }));
+let canvasResetEpoch = 0;
+let canvasInitPromise: Promise<void> | null = null;
+let lifecycleQueueTail: Promise<void> = Promise.resolve();
+const workbenchQueueTails = new Map<string, Promise<void>>();
+const pendingCanvasWorkbenchCleanupById = new Map<string, string>();
+const pendingCanvasWorkbenchRestoreSnapshots = new Map<string, CanvasWorkbenchSnapshot>();
+
+const loadCanvasWorkbenchesForCurrentUser = async (): Promise<StoredCanvasWorkbench[]> => {
+  return loadCanvasWorkbenchesByUser(getCurrentUserId());
+};
+
+export const getCanvasResetEpoch = () => canvasResetEpoch;
+
+const settleQueueTail = (tail?: Promise<unknown>): Promise<void> =>
+  (tail ?? Promise.resolve()).then(
+    () => undefined,
+    () => undefined
+  );
+
+const waitForWorkbenchQueue = (workbenchId: string) =>
+  settleQueueTail(workbenchQueueTails.get(workbenchId));
+
+const enqueueWorkbenchTask = <T>(workbenchId: string, task: () => Promise<T>): Promise<T> => {
+  const queued = Promise.all([
+    settleQueueTail(lifecycleQueueTail),
+    waitForWorkbenchQueue(workbenchId),
+  ]).then(async () => task());
+  const nextTail = settleQueueTail(queued);
+  workbenchQueueTails.set(workbenchId, nextTail);
+  return queued.finally(() => {
+    if (workbenchQueueTails.get(workbenchId) === nextTail) {
+      workbenchQueueTails.delete(workbenchId);
+    }
+  });
+};
+
+const enqueueLifecycleTask = <T>(
+  epoch: number,
+  onInvalidated: T,
+  task: () => Promise<T>
+): Promise<T> => {
+  const workbenchQueueSnapshot = Array.from(workbenchQueueTails.values(), (tail) =>
+    settleQueueTail(tail)
+  );
+  const queued = settleQueueTail(lifecycleQueueTail).then(async () => {
+    if (epoch !== canvasResetEpoch) {
+      return onInvalidated;
+    }
+    await Promise.all(workbenchQueueSnapshot);
+    if (epoch !== canvasResetEpoch) {
+      return onInvalidated;
+    }
+    await flushPendingCanvasWorkbenchCleanup(epoch);
+    return task();
+  });
+  lifecycleQueueTail = settleQueueTail(queued);
+  return queued;
+};
+
+const resetCanvasTaskQueues = () => {
+  lifecycleQueueTail = Promise.resolve();
+  workbenchQueueTails.clear();
+};
+
+const flushPendingCanvasWorkbenchCleanup = async (epoch: number) => {
+  const currentUserId = getCurrentUserId();
+  const pendingCleanupIds = Array.from(pendingCanvasWorkbenchCleanupById.entries())
+    .filter(([, userId]) => userId === currentUserId)
+    .map(([workbenchId]) => workbenchId);
+  const pendingRestoreSnapshots = Array.from(pendingCanvasWorkbenchRestoreSnapshots.values()).filter(
+    (snapshot) => snapshot.ownerRef.userId === currentUserId
+  );
+
+  if (
+    pendingCleanupIds.length === 0 &&
+    pendingRestoreSnapshots.length === 0
+  ) {
+    return;
+  }
+
+  for (const workbenchId of pendingCleanupIds) {
+    if (epoch !== canvasResetEpoch || getCurrentUserId() !== currentUserId) {
+      return;
+    }
+    const deleted = await deleteCanvasWorkbench(workbenchId);
+    if (deleted) {
+      pendingCanvasWorkbenchCleanupById.delete(workbenchId);
+    }
+  }
+
+  for (const snapshot of pendingRestoreSnapshots) {
+    if (epoch !== canvasResetEpoch || getCurrentUserId() !== currentUserId) {
+      return;
+    }
+    const existing = await loadCanvasWorkbench(snapshot.id);
+    if (existing) {
+      pendingCanvasWorkbenchRestoreSnapshots.delete(snapshot.id);
+      continue;
+    }
+    if (epoch !== canvasResetEpoch || getCurrentUserId() !== currentUserId) {
+      return;
+    }
+    const restored = await saveCanvasWorkbench(snapshot);
+    if (restored) {
+      pendingCanvasWorkbenchRestoreSnapshots.delete(snapshot.id);
+    }
+  }
+};
+
+const persistCanvasWorkbenchSnapshot = async (
+  workbench: CanvasWorkbench,
+  epoch: number
+): Promise<boolean> => {
+  if (epoch !== canvasResetEpoch) {
+    return false;
+  }
+
+  const saved = await saveCanvasWorkbench(getCanvasWorkbenchSnapshot(workbench));
+  if (!saved) {
+    return false;
+  }
+
+  if (epoch !== canvasResetEpoch) {
+    await deleteCanvasWorkbench(workbench.id);
+    return false;
+  }
+
+  return true;
+};
+
+const isRenderableElement = (
+  entry: CanvasNode | CanvasRenderableElement
+): entry is CanvasRenderableElement => "depth" in entry && "bounds" in entry;
+
+const toNode = (
+  workbench: CanvasWorkbench,
+  entry: CanvasNode | CanvasRenderableElement
+): CanvasNode => {
+  const parentId = entry.parentId ?? null;
+  const parentWorldTransform = parentId
+    ? getCanvasNodeWorldTransform(workbench, parentId)
+    : null;
+  const localPosition = isRenderableElement(entry)
+    ? worldPointToLocalPoint(workbench, parentId, {
+        x: entry.x,
+        y: entry.y,
+      })
+    : {
+        x: entry.transform.x,
+        y: entry.transform.y,
+      };
+  const rotation = isRenderableElement(entry)
+    ? entry.rotation - (parentWorldTransform?.rotation ?? 0)
+    : entry.transform.rotation;
+  const baseNode = {
+    id: entry.id,
+    type: entry.type,
+    parentId,
+    transform: {
+      x: localPosition.x,
+      y: localPosition.y,
+      width: Math.max(1, entry.width),
+      height: Math.max(1, entry.height),
+      rotation,
+    },
+    x: localPosition.x,
+    y: localPosition.y,
+    width: Math.max(1, entry.width),
+    height: Math.max(1, entry.height),
+    rotation,
+    opacity: entry.opacity,
+    locked: entry.locked,
+    visible: entry.visible,
+    zIndex: entry.zIndex,
+  } satisfies Pick<
+    CanvasNode,
+    | "height"
+    | "id"
+    | "locked"
+    | "opacity"
+    | "parentId"
+    | "rotation"
+    | "transform"
+    | "type"
+    | "visible"
+    | "width"
+    | "x"
+    | "y"
+    | "zIndex"
+  >;
+
+  if (entry.type === "group") {
+    return {
+      ...baseNode,
+      type: "group",
+      childIds: entry.childIds.slice(),
+      name: entry.name,
+    };
+  }
+
+  if (entry.type === "image") {
+    return {
+      ...baseNode,
+      type: "image",
+      assetId: entry.assetId,
+      adjustments: entry.adjustments,
+      filmProfileId: entry.filmProfileId,
+    };
+  }
+
+  if (entry.type === "text") {
+    return {
+      ...baseNode,
+      type: "text",
+      color: entry.color,
+      content: entry.content,
+      fontFamily: entry.fontFamily,
+      fontSize: entry.fontSize,
+      fontSizeTier: entry.fontSizeTier,
+      textAlign: entry.textAlign,
+    };
+  }
+
+  return {
+    ...baseNode,
+    type: "shape",
+    arrowHead: entry.arrowHead,
+    fill: entry.fill,
+    points: entry.points ? clone(entry.points) : undefined,
+    radius: entry.radius,
+    shapeType: entry.shapeType,
+    stroke: entry.stroke,
+    strokeWidth: entry.strokeWidth,
+  };
+};
+
+const claimUniqueNodeId = (usedIds: Set<CanvasNodeId>) => {
+  let nextId = createId("node-id");
+  while (usedIds.has(nextId)) {
+    nextId = createId("node-id");
+  }
+  usedIds.add(nextId);
+  return nextId;
+};
+
+const makeDefaultWorkbench = (name = "Untitled Workbench"): CanvasWorkbench => {
+  const now = nowIso();
+  const defaults = createDefaultCanvasWorkbenchFields();
+  return normalizeCanvasWorkbench({
+    id: createId("workbench-id"),
+    version: 2,
+    ownerRef: { userId: getCurrentUserId() },
+    name,
+    ...defaults,
+    backgroundColor: "#050505",
+    nodes: {},
+    rootIds: [],
+    createdAt: now,
+    updatedAt: now,
+  });
+};
 
 const MAX_CANVAS_HISTORY = 50;
 
-const elementsSignature = (elements: CanvasElement[]) =>
-  elements
-    .map((element) =>
-      [
-        element.id,
-        element.x,
-        element.y,
-        element.width,
-        element.height,
-        element.rotation,
-        element.opacity,
-        element.visible,
-        element.locked,
-        element.zIndex,
-      ].join(":")
-    )
-    .join("|");
+const createEmptyHistoryState = (): CanvasHistoryState => ({
+  past: [],
+  future: [],
+});
 
-const makeDefaultDocument = (name = "Untitled board"): CanvasDocument => {
-  const now = nowIso();
+const replaceWorkbenchInState = (
+  workbenches: CanvasWorkbench[],
+  workbenchId: string,
+  nextWorkbench: CanvasWorkbench
+) =>
+  workbenches.map((workbench) =>
+    workbench.id === workbenchId ? nextWorkbench : workbench
+  );
+
+const createHistoryEntry = (
+  command: CanvasCommand,
+  result: Pick<CanvasHistoryEntry, "forwardPatch" | "inversePatch">
+): CanvasHistoryEntry => ({
+  commandType: command.type,
+  forwardPatch: result.forwardPatch,
+  inversePatch: result.inversePatch,
+});
+
+const applyCommandHistory = (
+  historyByWorkbenchId: Record<string, CanvasHistoryState>,
+  workbenchId: string,
+  historyEntry: CanvasHistoryEntry,
+  trackHistory: boolean
+) => {
+  if (!trackHistory) {
+    return historyByWorkbenchId;
+  }
+
+  const history = historyByWorkbenchId[workbenchId] ?? createEmptyHistoryState();
   return {
-    id: createDocumentId(),
-    name,
-    width: 1080,
-    height: 1350,
-    backgroundColor: "#050505",
-    elements: [],
-    createdAt: now,
-    updatedAt: now,
+    ...historyByWorkbenchId,
+    [workbenchId]: {
+      past: [...history.past, historyEntry].slice(-MAX_CANVAS_HISTORY),
+      future: [],
+    },
   };
 };
+
+const applyHistoryTransition = (
+  historyByWorkbenchId: Record<string, CanvasHistoryState>,
+  workbenchId: string,
+  mode: CanvasHistoryTransitionMode,
+  historyEntry: CanvasHistoryEntry,
+  historyState: CanvasHistoryState
+) => ({
+  ...historyByWorkbenchId,
+  [workbenchId]:
+    mode === "undo"
+      ? {
+          past: historyState.past.slice(0, -1),
+          future: [historyEntry, ...historyState.future].slice(0, MAX_CANVAS_HISTORY),
+        }
+      : {
+          past: [...historyState.past, historyEntry].slice(-MAX_CANVAS_HISTORY),
+          future: historyState.future.slice(1),
+        },
+});
+
+const commitCommandResultToState = (
+  state: CanvasState,
+  descriptor: WorkbenchCommitDescriptor,
+  selectedElementIds?: string[]
+):
+  | Pick<CanvasState, "workbenches" | "historyByWorkbenchId">
+  | Pick<CanvasState, "workbenches" | "historyByWorkbenchId" | "selectedElementIds"> => {
+  const workbenches = replaceWorkbenchInState(
+    state.workbenches,
+    descriptor.workbenchId,
+    descriptor.nextWorkbench
+  );
+  const historyByWorkbenchId =
+    descriptor.historyMode === "command"
+      ? applyCommandHistory(
+          state.historyByWorkbenchId,
+          descriptor.workbenchId,
+          descriptor.historyEntry,
+          descriptor.trackHistory
+        )
+      : applyHistoryTransition(
+          state.historyByWorkbenchId,
+          descriptor.workbenchId,
+          descriptor.historyMode,
+          descriptor.historyEntry,
+          descriptor.historyState
+        );
+
+  if (selectedElementIds === undefined) {
+    return {
+      workbenches,
+      historyByWorkbenchId,
+    };
+  }
+
+  return {
+    workbenches,
+    historyByWorkbenchId,
+    selectedElementIds,
+  };
+};
+
+const commitCreatedWorkbenchToState = (
+  state: CanvasState,
+  workbench: CanvasWorkbench,
+  options?: CreateWorkbenchOptions
+) => ({
+  workbenches: [workbench, ...state.workbenches],
+  activeWorkbenchId: options?.activate === false ? state.activeWorkbenchId : workbench.id,
+  selectedElementIds: options?.activate === false ? state.selectedElementIds : [],
+  historyByWorkbenchId: {
+    ...state.historyByWorkbenchId,
+    [workbench.id]: createEmptyHistoryState(),
+  },
+  viewport: options?.activate === false ? state.viewport : { x: 0, y: 0 },
+  zoom: options?.activate === false ? state.zoom : 1,
+});
+
+const commitDeletedWorkbenchToState = (
+  state: CanvasState,
+  id: string,
+  options?: DeleteWorkbenchOptions
+) => {
+  const workbenches = state.workbenches.filter((item) => item.id !== id);
+  const isValidNextActiveWorkbenchId = (candidate: string | null | undefined) =>
+    candidate !== null && candidate !== undefined
+      ? workbenches.some((workbench) => workbench.id === candidate)
+      : candidate === null;
+  const nextActiveWorkbenchId =
+    options?.nextActiveWorkbenchId !== undefined
+      ? options.nextActiveWorkbenchId === null
+        ? state.activeWorkbenchId === id
+          ? null
+          : state.activeWorkbenchId
+        : isValidNextActiveWorkbenchId(options.nextActiveWorkbenchId)
+          ? options.nextActiveWorkbenchId
+          : null
+      : state.activeWorkbenchId === id
+        ? (workbenches[0]?.id ?? null)
+        : state.activeWorkbenchId;
+  const nextHistory = { ...state.historyByWorkbenchId };
+  delete nextHistory[id];
+  const activeChanged = nextActiveWorkbenchId !== state.activeWorkbenchId;
+
+  return {
+    workbenches,
+    activeWorkbenchId: nextActiveWorkbenchId,
+    selectedElementIds: activeChanged ? [] : state.selectedElementIds,
+    historyByWorkbenchId: nextHistory,
+  };
+};
+
+const createCommitFailureOutcome = (
+  status: Exclude<CanvasCommitStatus, "committed" | "noop">
+): CanvasCommitOutcome<never> => ({ status });
+
+const cloneNodeTree = (
+  workbench: CanvasWorkbench,
+  nodeId: CanvasNodeId,
+  offset: { x: number; y: number },
+  usedIds: Set<CanvasNodeId>,
+  idMap = new Map<CanvasNodeId, CanvasNodeId>()
+): CanvasNode[] => {
+  const source = workbench.nodes[nodeId];
+  if (!source) {
+    return [];
+  }
+
+  const nextId = claimUniqueNodeId(usedIds);
+  idMap.set(nodeId, nextId);
+  const cloneNode: CanvasNode = {
+    ...clone(source),
+    id: nextId,
+    transform: {
+      ...source.transform,
+      x: source.transform.x + offset.x,
+      y: source.transform.y + offset.y,
+    },
+  };
+
+  if (cloneNode.type === "group") {
+    const sourceGroup = source.type === "group" ? source : null;
+    if (!sourceGroup) {
+      return [cloneNode];
+    }
+    const children = sourceGroup.childIds.flatMap((childId) =>
+      cloneNodeTree(workbench, childId, { x: 0, y: 0 }, usedIds, idMap)
+    );
+    cloneNode.childIds = sourceGroup.childIds
+      .map((childId) => idMap.get(childId))
+      .filter((childId): childId is string => Boolean(childId));
+    for (const child of children) {
+      child.parentId = cloneNode.id;
+    }
+    return [cloneNode, ...children];
+  }
+
+  return [cloneNode];
+};
+
+export const selectActiveWorkbench = (state: CanvasState) =>
+  state.activeWorkbenchId
+    ? state.workbenches.find((workbench) => workbench.id === state.activeWorkbenchId) ?? null
+    : null;
+
+export const selectActiveWorkbenchName = (state: CanvasState) =>
+  selectActiveWorkbench(state)?.name ?? "未命名工作台";
+
+export const selectActiveWorkbenchExportState = (state: CanvasState) =>
+  selectActiveWorkbench(state)?.slices ?? EMPTY_SLICES;
 
 export const useCanvasStore = create<CanvasState>()(
   devtools(
     (set, get) => {
-      const commitElements = async (
-        documentId: string,
-        updater: (elements: CanvasElement[]) => CanvasElement[],
-        options?: { trackHistory?: boolean }
-      ): Promise<CanvasDocument | null> => {
-        const existing = get().documents.find((document) => document.id === documentId);
-        if (!existing) {
-          return null;
+      const resolveCommandTarget = (workbenchId: string) =>
+        get().workbenches.find((workbench) => workbench.id === workbenchId) ?? null;
+
+      const resolveCommitFailureStatus = (
+        epoch: number,
+        fallback: Extract<CanvasCommitStatus, "delete_failed" | "persist_failed">
+      ): Exclude<CanvasCommitStatus, "committed" | "noop" | "missing_target"> =>
+        epoch !== canvasResetEpoch ? "epoch_invalidated" : fallback;
+
+      const runWorkbenchCommand = (
+        workbenchId: string,
+        existing: CanvasWorkbench,
+        command: CanvasCommand,
+        options?: ExecuteCommandOptions
+      ) => {
+        const result = executeCanvasCommand(existing, command);
+        if (!result.didChange) {
+          return { kind: "noop" as const, workbench: existing };
         }
 
-        const before = cloneElements(existing.elements);
-        const nextRaw = updater(cloneElements(existing.elements));
-        const nextElements = normalizeElements(nextRaw);
-
-        if (elementsSignature(before) === elementsSignature(nextElements)) {
-          return existing;
-        }
-
-        const nextDocument: CanvasDocument = {
-          ...existing,
-          elements: nextElements,
-          updatedAt: nowIso(),
+        return {
+          kind: "commit" as const,
+          descriptor: {
+            workbenchId,
+            nextWorkbench: result.document,
+            historyMode: "command",
+            historyEntry: createHistoryEntry(command, result),
+            trackHistory: options?.trackHistory !== false,
+          } satisfies CommandCommitDescriptor,
         };
-
-        await saveCanvasDocument(nextDocument);
-
-        set((state) => {
-          const nextHistory = { ...state.historyByDocumentId };
-          const history = nextHistory[documentId] ?? { past: [], future: [] };
-
-          if (options?.trackHistory !== false) {
-            const nextPast = [...history.past, before].slice(-MAX_CANVAS_HISTORY);
-            nextHistory[documentId] = {
-              past: nextPast,
-              future: [],
-            };
-          } else {
-            nextHistory[documentId] = history;
-          }
-
-          return {
-            documents: state.documents.map((document) =>
-              document.id === documentId ? nextDocument : document
-            ),
-            historyByDocumentId: nextHistory,
-          };
-        });
-
-        return nextDocument;
       };
 
+      const persistCommittedWorkbench = async (
+        workbench: CanvasWorkbench,
+        epoch: number
+      ) => persistCanvasWorkbenchSnapshot(workbench, epoch);
+
+      const commitDescriptorToStore = async (
+        descriptor: WorkbenchCommitDescriptor,
+        epoch: number,
+        selectedElementIds?: string[]
+      ): Promise<CanvasCommitOutcome<CanvasWorkbench>> => {
+        if (!(await persistCommittedWorkbench(descriptor.nextWorkbench, epoch))) {
+          return createCommitFailureOutcome(resolveCommitFailureStatus(epoch, "persist_failed"));
+        }
+
+        let didCommit = false;
+        set((state) => {
+          if (epoch !== canvasResetEpoch) {
+            return state;
+          }
+
+          didCommit = true;
+          return commitCommandResultToState(state, descriptor, selectedElementIds);
+        });
+
+        return didCommit
+          ? { status: "committed", value: descriptor.nextWorkbench }
+          : createCommitFailureOutcome("epoch_invalidated");
+      };
+
+      const commitCreatedWorkbenchToStore = async (
+        workbench: CanvasWorkbench,
+        epoch: number,
+        options?: CreateWorkbenchOptions
+      ): Promise<CanvasCommitOutcome<CanvasWorkbench>> => {
+        if (!(await persistCanvasWorkbenchSnapshot(workbench, epoch))) {
+          return createCommitFailureOutcome(resolveCommitFailureStatus(epoch, "persist_failed"));
+        }
+
+        let didCommit = false;
+        set((state) => {
+          if (epoch !== canvasResetEpoch) {
+            return state;
+          }
+
+          didCommit = true;
+          return commitCreatedWorkbenchToState(state, workbench, options);
+        });
+
+        if (didCommit) {
+          return { status: "committed", value: workbench };
+        }
+
+        const rolledBack = await deleteCanvasWorkbench(workbench.id);
+        if (!rolledBack) {
+          pendingCanvasWorkbenchCleanupById.set(workbench.id, workbench.ownerRef.userId);
+        }
+        return createCommitFailureOutcome(rolledBack ? "epoch_invalidated" : "persist_failed");
+      };
+
+      const commitDeletedWorkbenchToStore = async (
+        workbenchId: string,
+        epoch: number,
+        options?: DeleteWorkbenchOptions
+      ): Promise<CanvasCommitOutcome<true>> => {
+        if (epoch !== canvasResetEpoch) {
+          return createCommitFailureOutcome("epoch_invalidated");
+        }
+
+        const existingWorkbench = resolveCommandTarget(workbenchId);
+        if (!existingWorkbench) {
+          return createCommitFailureOutcome("missing_target");
+        }
+
+        if (!(await deleteCanvasWorkbench(workbenchId))) {
+          return createCommitFailureOutcome(resolveCommitFailureStatus(epoch, "delete_failed"));
+        }
+
+        let didCommit = false;
+        set((state) => {
+          if (epoch !== canvasResetEpoch) {
+            return state;
+          }
+
+          didCommit = true;
+          return commitDeletedWorkbenchToState(state, workbenchId, options);
+        });
+
+        if (didCommit) {
+          return { status: "committed", value: true };
+        }
+
+        if (existingWorkbench) {
+          const existingSnapshot = getCanvasWorkbenchSnapshot(existingWorkbench);
+          const restored = await saveCanvasWorkbench(existingSnapshot);
+          if (!restored) {
+            pendingCanvasWorkbenchRestoreSnapshots.set(existingSnapshot.id, existingSnapshot);
+            return createCommitFailureOutcome("persist_failed");
+          }
+        }
+
+        return createCommitFailureOutcome("epoch_invalidated");
+      };
+
+      const executeCommandAgainstWorkbench = async (
+        workbenchId: string,
+        existing: CanvasWorkbench,
+        command: CanvasCommand,
+        epoch: number,
+        options?: ExecuteCommandOptions,
+        selectedElementIds?: string[]
+      ): Promise<CanvasCommitOutcome<CanvasWorkbench>> => {
+        const commandResult = runWorkbenchCommand(workbenchId, existing, command, options);
+        if (commandResult.kind === "noop") {
+          return { status: "noop", value: commandResult.workbench };
+        }
+
+        return commitDescriptorToStore(commandResult.descriptor, epoch, selectedElementIds);
+      };
+
+      const enqueueWorkbenchMutation = <T>(
+        workbenchId: string,
+        task: (workbench: CanvasWorkbench, epoch: number) => Promise<T>,
+        onMissing: T
+      ) =>
+        enqueueWorkbenchTask(workbenchId, async () => {
+          const workbench = resolveCommandTarget(workbenchId);
+          if (!workbench) {
+            return onMissing;
+          }
+
+          return task(workbench, getCanvasResetEpoch());
+        });
+
+      const createHistoryTransitionDescriptor = (
+        workbenchId: string,
+        workbench: CanvasWorkbench,
+        historyMode: CanvasHistoryTransitionMode,
+        historyEntry: CanvasHistoryEntry,
+        historyState: CanvasHistoryState
+      ): HistoryTransitionCommitDescriptor => ({
+        workbenchId,
+        nextWorkbench: applyCanvasWorkbenchPatch(
+          workbench,
+          historyMode === "undo" ? historyEntry.inversePatch : historyEntry.forwardPatch
+        ),
+        historyMode,
+        historyEntry,
+        historyState,
+      });
+
+      const executeWorkbenchCommand = async (
+        workbenchId: string,
+        command: CanvasCommand,
+        options?: ExecuteCommandOptions
+      ) =>
+        enqueueWorkbenchMutation(
+          workbenchId,
+          async (existing, epoch) => {
+            const outcome = await executeCommandAgainstWorkbench(
+              workbenchId,
+              existing,
+              command,
+              epoch,
+              options
+            );
+            return outcome.status === "committed" || outcome.status === "noop"
+              ? outcome.value
+              : null;
+          },
+          null
+        );
+
+      const hasWorkbench = (workbenchId: string | null) =>
+        Boolean(workbenchId && get().workbenches.some((workbench) => workbench.id === workbenchId));
+
       return {
-        documents: [],
-        activeDocumentId: null,
+        workbenches: [],
+        activeWorkbenchId: null,
         selectedElementIds: [],
         tool: "select",
-        shapeType: "rect",
+        activeShapeType: "rect",
         zoom: 1,
         viewport: { x: 0, y: 0 },
+        activePanel: null,
         isLoading: false,
-        historyByDocumentId: {},
+        historyByWorkbenchId: {},
         init: async () => {
-          set({ isLoading: true });
-          const documents = await loadCanvasDocuments();
-          set({
-            documents,
-            activeDocumentId: documents[0]?.id ?? null,
-            isLoading: false,
+          if (canvasInitPromise) {
+            return canvasInitPromise;
+          }
+
+          const epoch = getCanvasResetEpoch();
+          canvasInitPromise = enqueueLifecycleTask(epoch, undefined, async () => {
+            set({ isLoading: true });
+            try {
+              const loadedWorkbenches = await loadCanvasWorkbenchesForCurrentUser();
+              if (epoch !== canvasResetEpoch) {
+                return;
+              }
+              const normalizedWorkbenches = loadedWorkbenches.map((workbench) =>
+                normalizeCanvasWorkbenchWithCleanup(workbench)
+              );
+              const workbenches = normalizedWorkbenches.map((entry) => entry.document);
+
+              await Promise.all(
+                normalizedWorkbenches.map((entry, index) => {
+                  const original = loadedWorkbenches[index];
+                  if (!original) {
+                    return Promise.resolve(false);
+                  }
+                  const normalizedSnapshot = getCanvasWorkbenchSnapshot(entry.document);
+                  return JSON.stringify(original) === JSON.stringify(normalizedSnapshot)
+                    ? Promise.resolve(false)
+                    : persistCanvasWorkbenchSnapshot(entry.document, epoch);
+                })
+              );
+
+              if (epoch !== canvasResetEpoch) {
+                return;
+              }
+
+              set((state) =>
+                epoch !== canvasResetEpoch
+                  ? state
+                  : {
+                      workbenches,
+                      activeWorkbenchId: workbenches[0]?.id ?? null,
+                      isLoading: false,
+                    }
+              );
+            } catch (error) {
+              if (epoch === canvasResetEpoch) {
+                set({ isLoading: false });
+              }
+              console.warn("Canvas store initialization failed.", error);
+            }
+          }).finally(() => {
+            canvasInitPromise = null;
+          });
+
+          return canvasInitPromise;
+        },
+        createWorkbench: async (name, options) => {
+          const epoch = getCanvasResetEpoch();
+          return enqueueLifecycleTask(epoch, null, async () => {
+            const workbench = makeDefaultWorkbench(name);
+            const outcome = await commitCreatedWorkbenchToStore(workbench, epoch, options);
+            return outcome.status === "committed" ? outcome.value : null;
           });
         },
-        createDocument: async (name) => {
-          const document = makeDefaultDocument(name);
-          await saveCanvasDocument(document);
-          set((state) => ({
-            documents: [document, ...state.documents],
-            activeDocumentId: document.id,
-            selectedElementIds: [],
-            historyByDocumentId: {
-              ...state.historyByDocumentId,
-              [document.id]: { past: [], future: [] },
-            },
-            viewport: { x: 0, y: 0 },
-            zoom: 1,
-          }));
-          return document;
-        },
-        setActiveDocumentId: (activeDocumentId) => set({ activeDocumentId, selectedElementIds: [] }),
+        setActiveWorkbenchId: (activeWorkbenchId) =>
+          set(() => {
+            if (activeWorkbenchId !== null && !hasWorkbench(activeWorkbenchId)) {
+              return { activeWorkbenchId: null, selectedElementIds: [] };
+            }
+
+            return { activeWorkbenchId, selectedElementIds: [] };
+          }),
         setSelectedElementIds: (selectedElementIds) =>
-          set({ selectedElementIds: Array.from(new Set(selectedElementIds)) }),
-        setTool: (tool) => set({ tool }),
-        setShapeType: (shapeType) => set({ shapeType }),
+          set((state) => {
+            const nextSelectedElementIds = Array.from(new Set(selectedElementIds));
+            return selectionIdsEqual(state.selectedElementIds, nextSelectedElementIds)
+              ? state
+              : { selectedElementIds: nextSelectedElementIds };
+          }),
+        setTool: (tool) =>
+          set((state) => ({
+            tool,
+            activePanel: tool === "text" || tool === "shape" ? null : state.activePanel,
+          })),
+        setActiveShapeType: (activeShapeType) => set({ activeShapeType }),
         setZoom: (zoom) => set({ zoom }),
         setViewport: (viewport) => set({ viewport }),
-        upsertDocument: async (document) => {
-          await saveCanvasDocument(document);
+        setActivePanel: (activePanel) =>
+          set({
+            activePanel,
+            tool: "select",
+          }),
+        togglePanel: (panel) =>
           set((state) => ({
-            documents: state.documents.some((item) => item.id === document.id)
-              ? state.documents.map((item) => (item.id === document.id ? document : item))
-              : [document, ...state.documents],
-          }));
-        },
-        upsertElement: async (documentId, element) => {
-          await commitElements(documentId, (elements) =>
-            elements.some((item) => item.id === element.id)
-              ? elements.map((item) => (item.id === element.id ? element : item))
-              : [...elements, element]
-          );
-        },
-        upsertElements: async (documentId, elements) => {
-          await commitElements(documentId, (existing) => {
-            const byId = new Map(existing.map((element) => [element.id, element]));
-            for (const element of elements) {
-              byId.set(element.id, element);
+            activePanel: state.activePanel === panel ? null : panel,
+            tool: "select",
+          })),
+        upsertWorkbench: async (workbench) => {
+          const normalized = normalizeCanvasWorkbench(getCanvasWorkbenchSnapshot(workbench));
+          const patchCommand: CanvasCommand = {
+            type: "PATCH_DOCUMENT",
+            patch: {
+              backgroundColor: normalized.backgroundColor,
+              guides: normalized.guides,
+              height: normalized.height,
+              name: normalized.name,
+              presetId: normalized.presetId,
+              safeArea: normalized.safeArea,
+              slices: normalized.slices,
+              thumbnailBlob: normalized.thumbnailBlob,
+              width: normalized.width,
+            },
+          };
+
+          if (resolveCommandTarget(normalized.id)) {
+            await executeWorkbenchCommand(normalized.id, patchCommand, { trackHistory: false });
+            return;
+          }
+
+          const epoch = getCanvasResetEpoch();
+          await enqueueLifecycleTask(epoch, undefined, async () => {
+            const existing = resolveCommandTarget(normalized.id);
+            if (!existing) {
+              await commitCreatedWorkbenchToStore(normalized, epoch, { activate: false });
+              return;
             }
-            return Array.from(byId.values());
+
+            await executeCommandAgainstWorkbench(
+              normalized.id,
+              existing,
+              patchCommand,
+              epoch,
+              { trackHistory: false }
+            );
           });
         },
-        deleteElements: async (documentId, ids) => {
-          const removing = new Set(ids);
-          if (removing.size === 0) {
+        executeCommandInWorkbench: executeWorkbenchCommand,
+        upsertElementInWorkbench: async (workbenchId, element) => {
+          await enqueueWorkbenchMutation(
+            workbenchId,
+            async (activeWorkbench, epoch) => {
+              const existingNode = activeWorkbench.nodes[element.id];
+              if (existingNode) {
+                if (existingNode.type !== element.type) {
+                  return;
+                }
+                const nextNode = toNode(activeWorkbench, element);
+                await executeCommandAgainstWorkbench(
+                  workbenchId,
+                  activeWorkbench,
+                  {
+                    type: "UPDATE_NODE_PROPS",
+                    updates: [
+                      {
+                        id: element.id,
+                        patch: {
+                          ...nextNode.transform,
+                          ...(element.type === "text"
+                            ? {
+                                color: element.color,
+                                content: element.content,
+                                fontFamily: element.fontFamily,
+                                fontSize: element.fontSize,
+                                fontSizeTier: element.fontSizeTier,
+                                textAlign: element.textAlign,
+                              }
+                            : {}),
+                          ...(element.type === "image"
+                            ? {
+                                adjustments: element.adjustments,
+                                filmProfileId: element.filmProfileId,
+                              }
+                            : {}),
+                          ...(element.type === "shape"
+                            ? {
+                                arrowHead: element.arrowHead,
+                                fill: element.fill,
+                                points: element.points,
+                                radius: element.radius,
+                                shapeType: element.shapeType,
+                                stroke: element.stroke,
+                                strokeWidth: element.strokeWidth,
+                              }
+                            : {}),
+                          locked: element.locked,
+                          opacity: element.opacity,
+                          visible: element.visible,
+                        },
+                      },
+                    ],
+                  },
+                  epoch
+                );
+                return;
+              }
+
+              const nextNode = toNode(activeWorkbench, element);
+              await executeCommandAgainstWorkbench(
+                workbenchId,
+                activeWorkbench,
+                {
+                  type: "INSERT_NODES",
+                  nodes: [nextNode],
+                  parentId: nextNode.parentId,
+                },
+                epoch
+              );
+            },
+            undefined
+          );
+        },
+        upsertElementsInWorkbench: async (workbenchId, elements) => {
+          for (const element of elements) {
+            await get().upsertElementInWorkbench(workbenchId, element);
+          }
+        },
+        upsertElement: async (element) => {
+          const activeWorkbenchId = get().activeWorkbenchId;
+          if (!activeWorkbenchId) {
             return;
           }
-          await commitElements(documentId, (elements) => elements.filter((element) => !removing.has(element.id)));
-          set((state) => ({
-            selectedElementIds: state.selectedElementIds.filter((id) => !removing.has(id)),
-          }));
+          await get().upsertElementInWorkbench(activeWorkbenchId, element);
         },
-        duplicateElements: async (documentId, ids) => {
-          const duplicating = new Set(ids);
-          if (duplicating.size === 0) {
+        upsertElements: async (elements) => {
+          const activeWorkbenchId = get().activeWorkbenchId;
+          if (!activeWorkbenchId) {
+            return;
+          }
+          await get().upsertElementsInWorkbench(activeWorkbenchId, elements);
+        },
+        deleteElements: async (ids) => {
+          const activeWorkbenchId = get().activeWorkbenchId;
+          if (!activeWorkbenchId || ids.length === 0) {
+            return;
+          }
+
+          await enqueueWorkbenchMutation(
+            activeWorkbenchId,
+            async (activeWorkbench, epoch) => {
+              const deleteIds = Array.from(
+                new Set(
+                  ids.flatMap((nodeId) => [
+                    nodeId,
+                    ...getCanvasDescendantIds(activeWorkbench, nodeId),
+                  ])
+                )
+              ).filter((nodeId) => Boolean(activeWorkbench.nodes[nodeId]));
+              if (deleteIds.length === 0) {
+                return;
+              }
+
+              const outcome = await executeCommandAgainstWorkbench(
+                activeWorkbenchId,
+                activeWorkbench,
+                {
+                  type: "DELETE_NODES",
+                  ids: deleteIds,
+                },
+                epoch
+              );
+              if (outcome.status !== "committed") {
+                return;
+              }
+
+              const deleteIdSet = new Set(deleteIds);
+              set((state) => ({
+                selectedElementIds: state.selectedElementIds.filter((id) => !deleteIdSet.has(id)),
+              }));
+            },
+            undefined
+          );
+        },
+        duplicateElements: async (ids) => {
+          const activeWorkbenchId = get().activeWorkbenchId;
+          if (!activeWorkbenchId || ids.length === 0) {
             return [];
           }
 
-          const existing = get().documents.find((document) => document.id === documentId);
-          if (!existing) {
-            return [];
-          }
+          return enqueueWorkbenchMutation(
+            activeWorkbenchId,
+            async (activeWorkbench, epoch) => {
+              const uniqueIds = Array.from(new Set(ids));
+              const selectedRoots = uniqueIds.filter(
+                (nodeId) =>
+                  !uniqueIds.some((candidateId) =>
+                    getCanvasDescendantIds(activeWorkbench, candidateId).includes(nodeId)
+                  )
+              );
+              const usedIds = new Set(Object.keys(activeWorkbench.nodes));
+              const duplicatedTrees = selectedRoots.map((nodeId) =>
+                cloneNodeTree(activeWorkbench, nodeId, { x: 24, y: 24 }, usedIds)
+              );
+              const duplicates = duplicatedTrees.flat();
+              const duplicatedIds = duplicatedTrees
+                .map((nodes) => nodes[0]?.id ?? null)
+                .filter((nodeId): nodeId is string => Boolean(nodeId));
 
-          const selected = existing.elements.filter((element) => duplicating.has(element.id));
-          const baseZIndex = existing.elements.reduce((max, element) => Math.max(max, element.zIndex), 0);
-          const duplicates = selected.map((element, index) => ({
-            ...cloneElements([element])[0],
-            id: createElementId(),
-            x: element.x + 24,
-            y: element.y + 24,
-            zIndex: baseZIndex + index + 1,
-          }));
+              const outcome = await executeCommandAgainstWorkbench(
+                activeWorkbenchId,
+                activeWorkbench,
+                {
+                  type: "INSERT_NODES",
+                  nodes: duplicates,
+                },
+                epoch
+              );
+              if (outcome.status !== "committed") {
+                return [];
+              }
 
-          await commitElements(documentId, (elements) => [...elements, ...duplicates]);
-          const duplicatedIds = duplicates.map((element) => element.id);
-          set({ selectedElementIds: duplicatedIds });
-          return duplicatedIds;
+              set({ selectedElementIds: duplicatedIds });
+              return duplicatedIds;
+            },
+            []
+          );
         },
-        reorderElements: async (documentId, orderedIds) => {
-          if (orderedIds.length === 0) {
+        reorderElements: async (orderedIds, parentId = null) => {
+          const activeWorkbenchId = get().activeWorkbenchId;
+          if (!activeWorkbenchId || orderedIds.length === 0) {
             return;
           }
-          await commitElements(documentId, (elements) => {
-            const byId = new Map(elements.map((element) => [element.id, element]));
-            const ordered = orderedIds.map((id) => byId.get(id)).filter((element): element is CanvasElement => Boolean(element));
-            const orderedSet = new Set(ordered.map((element) => element.id));
-            const rest = elements.filter((element) => !orderedSet.has(element.id));
-            const mergedTopToBottom = [...ordered, ...rest];
-            const total = mergedTopToBottom.length;
-            return mergedTopToBottom.map((element, index) => ({
-              ...element,
-              zIndex: total - index,
-            }));
+
+          await executeWorkbenchCommand(activeWorkbenchId, {
+            type: "REORDER_CHILDREN",
+            parentId,
+            orderedIds,
           });
         },
-        toggleElementVisibility: async (documentId, id) => {
-          await commitElements(documentId, (elements) =>
-            elements.map((element) =>
-              element.id === id
-                ? {
-                    ...element,
-                    visible: !element.visible,
-                  }
-                : element
-            )
-          );
-        },
-        toggleElementLock: async (documentId, id) => {
-          await commitElements(documentId, (elements) =>
-            elements.map((element) =>
-              element.id === id
-                ? {
-                    ...element,
-                    locked: !element.locked,
-                  }
-                : element
-            )
-          );
-        },
-        nudgeElements: async (documentId, ids, dx, dy) => {
-          const moving = new Set(ids);
-          if (moving.size === 0 || (dx === 0 && dy === 0)) {
+        reparentNodes: async (ids, parentId, index) => {
+          const activeWorkbenchId = get().activeWorkbenchId;
+          if (!activeWorkbenchId || ids.length === 0) {
             return;
           }
-          await commitElements(documentId, (elements) =>
-            elements.map((element) =>
-              moving.has(element.id)
-                ? {
-                    ...element,
-                    x: element.x + dx,
-                    y: element.y + dy,
-                  }
-                : element
-            )
+
+          await executeWorkbenchCommand(activeWorkbenchId, {
+            type: "REPARENT_NODES",
+            ids,
+            index,
+            parentId,
+          });
+        },
+        toggleElementVisibility: async (id) => {
+          const activeWorkbenchId = get().activeWorkbenchId;
+          if (!activeWorkbenchId) {
+            return;
+          }
+
+          await executeWorkbenchCommand(activeWorkbenchId, {
+            type: "TOGGLE_NODE_VISIBILITY",
+            id,
+          });
+        },
+        toggleElementLock: async (id) => {
+          const activeWorkbenchId = get().activeWorkbenchId;
+          if (!activeWorkbenchId) {
+            return;
+          }
+
+          await executeWorkbenchCommand(activeWorkbenchId, {
+            type: "TOGGLE_NODE_LOCK",
+            id,
+          });
+        },
+        nudgeElements: async (ids, dx, dy) => {
+          const activeWorkbenchId = get().activeWorkbenchId;
+          if (!activeWorkbenchId || ids.length === 0 || (dx === 0 && dy === 0)) {
+            return;
+          }
+
+          await executeWorkbenchCommand(activeWorkbenchId, {
+            type: "MOVE_NODES",
+            ids,
+            dx,
+            dy,
+          });
+        },
+        groupElements: async (ids) => {
+          const activeWorkbenchId = get().activeWorkbenchId;
+          const uniqueIds = Array.from(new Set(ids));
+          if (!activeWorkbenchId || uniqueIds.length < 2) {
+            return null;
+          }
+
+          return enqueueWorkbenchMutation(
+            activeWorkbenchId,
+            async (activeWorkbench, epoch) => {
+              const groupId = claimUniqueNodeId(new Set(Object.keys(activeWorkbench.nodes)));
+              const outcome = await executeCommandAgainstWorkbench(
+                activeWorkbenchId,
+                activeWorkbench,
+                {
+                  type: "GROUP_NODES",
+                  ids: uniqueIds,
+                  groupId,
+                },
+                epoch
+              );
+              if (outcome.status !== "committed") {
+                return null;
+              }
+              if (!outcome.value.nodes[groupId] || outcome.value.nodes[groupId].type !== "group") {
+                return null;
+              }
+
+              set({ selectedElementIds: [groupId] });
+              return groupId;
+            },
+            null
           );
         },
-        canUndo: (documentId) => {
-          const history = get().historyByDocumentId[documentId];
+        ungroupElement: async (id) => {
+          const activeWorkbenchId = get().activeWorkbenchId;
+          if (!activeWorkbenchId) {
+            return;
+          }
+
+          await enqueueWorkbenchMutation(
+            activeWorkbenchId,
+            async (activeWorkbench, epoch) => {
+              const outcome = await executeCommandAgainstWorkbench(
+                activeWorkbenchId,
+                activeWorkbench,
+                {
+                  type: "UNGROUP_NODE",
+                  id,
+                },
+                epoch
+              );
+              if (outcome.status !== "committed" || outcome.value.nodes[id]) {
+                return;
+              }
+              set({ selectedElementIds: [] });
+            },
+            undefined
+          );
+        },
+        canUndo: () => {
+          const activeWorkbenchId = get().activeWorkbenchId;
+          if (!activeWorkbenchId) {
+            return false;
+          }
+          const history = get().historyByWorkbenchId[activeWorkbenchId];
           return Boolean(history && history.past.length > 0);
         },
-        canRedo: (documentId) => {
-          const history = get().historyByDocumentId[documentId];
+        canRedo: () => {
+          const activeWorkbenchId = get().activeWorkbenchId;
+          if (!activeWorkbenchId) {
+            return false;
+          }
+          const history = get().historyByWorkbenchId[activeWorkbenchId];
           return Boolean(history && history.future.length > 0);
         },
-        undo: async (documentId) => {
-          const existing = get().documents.find((document) => document.id === documentId);
-          if (!existing) {
+        undo: async () => {
+          const activeWorkbenchId = get().activeWorkbenchId;
+          if (!activeWorkbenchId) {
             return false;
           }
-          const history = get().historyByDocumentId[documentId] ?? { past: [], future: [] };
-          const previous = history.past[history.past.length - 1];
-          if (!previous) {
-            return false;
-          }
+          return enqueueWorkbenchMutation(
+            activeWorkbenchId,
+            async (activeWorkbench, epoch) => {
+              const history =
+                get().historyByWorkbenchId[activeWorkbenchId] ?? createEmptyHistoryState();
+              const previous = history.past[history.past.length - 1];
+              if (!previous) {
+                return false;
+              }
 
-          const nextPast = history.past.slice(0, -1);
-          const nextFuture = [cloneElements(existing.elements), ...history.future].slice(0, MAX_CANVAS_HISTORY);
-
-          const nextDocument: CanvasDocument = {
-            ...existing,
-            elements: normalizeElements(cloneElements(previous)),
-            updatedAt: nowIso(),
-          };
-
-          await saveCanvasDocument(nextDocument);
-          set((state) => ({
-            documents: state.documents.map((document) =>
-              document.id === documentId ? nextDocument : document
-            ),
-            historyByDocumentId: {
-              ...state.historyByDocumentId,
-              [documentId]: {
-                past: nextPast,
-                future: nextFuture,
-              },
+              const descriptor = createHistoryTransitionDescriptor(
+                activeWorkbenchId,
+                activeWorkbench,
+                "undo",
+                previous,
+                history
+              );
+              const outcome = await commitDescriptorToStore(descriptor, epoch, []);
+              return outcome.status === "committed";
             },
-            selectedElementIds: [],
-          }));
-          return true;
+            false
+          );
         },
-        redo: async (documentId) => {
-          const existing = get().documents.find((document) => document.id === documentId);
-          if (!existing) {
+        redo: async () => {
+          const activeWorkbenchId = get().activeWorkbenchId;
+          if (!activeWorkbenchId) {
             return false;
           }
-          const history = get().historyByDocumentId[documentId] ?? { past: [], future: [] };
-          const next = history.future[0];
-          if (!next) {
-            return false;
-          }
+          return enqueueWorkbenchMutation(
+            activeWorkbenchId,
+            async (activeWorkbench, epoch) => {
+              const history =
+                get().historyByWorkbenchId[activeWorkbenchId] ?? createEmptyHistoryState();
+              const nextEntry = history.future[0];
+              if (!nextEntry) {
+                return false;
+              }
 
-          const nextPast = [...history.past, cloneElements(existing.elements)].slice(-MAX_CANVAS_HISTORY);
-          const nextFuture = history.future.slice(1);
-
-          const nextDocument: CanvasDocument = {
-            ...existing,
-            elements: normalizeElements(cloneElements(next)),
-            updatedAt: nowIso(),
-          };
-
-          await saveCanvasDocument(nextDocument);
-          set((state) => ({
-            documents: state.documents.map((document) =>
-              document.id === documentId ? nextDocument : document
-            ),
-            historyByDocumentId: {
-              ...state.historyByDocumentId,
-              [documentId]: {
-                past: nextPast,
-                future: nextFuture,
-              },
+              const descriptor = createHistoryTransitionDescriptor(
+                activeWorkbenchId,
+                activeWorkbench,
+                "redo",
+                nextEntry,
+                history
+              );
+              const outcome = await commitDescriptorToStore(descriptor, epoch, []);
+              return outcome.status === "committed";
             },
-            selectedElementIds: [],
-          }));
-          return true;
+            false
+          );
         },
-        deleteDocument: async (id) => {
-          await deleteCanvasDocument(id);
-          set((state) => {
-            const documents = state.documents.filter((item) => item.id !== id);
-            const activeDocumentId =
-              state.activeDocumentId === id ? documents[0]?.id ?? null : state.activeDocumentId;
-            const nextHistory = { ...state.historyByDocumentId };
-            delete nextHistory[id];
-            return {
-              documents,
-              activeDocumentId,
-              selectedElementIds: activeDocumentId ? state.selectedElementIds : [],
-              historyByDocumentId: nextHistory,
-            };
+        deleteWorkbench: async (id, options) => {
+          const epoch = getCanvasResetEpoch();
+          return enqueueLifecycleTask(epoch, false, async () => {
+            const outcome = await commitDeletedWorkbenchToStore(id, epoch, options);
+            return outcome.status === "committed";
           });
         },
       };
@@ -426,3 +1381,19 @@ export const useCanvasStore = create<CanvasState>()(
     { name: "CanvasStore", enabled: process.env.NODE_ENV === "development" }
   )
 );
+
+on("currentUser:reset", () => {
+  canvasResetEpoch += 1;
+  canvasInitPromise = null;
+  resetCanvasTaskQueues();
+  useCanvasStore.setState({
+    workbenches: [],
+    activeWorkbenchId: null,
+    selectedElementIds: [],
+    historyByWorkbenchId: {},
+    viewport: { x: 0, y: 0 },
+    zoom: 1,
+    activePanel: null,
+    isLoading: false,
+  });
+});

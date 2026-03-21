@@ -367,7 +367,7 @@ on("assets:deleted", (deletedIds) => {
   }
 });
 
-on("project:reset", () => {
+on("currentUser:reset", () => {
   useEditorStore.setState({
     cropGuideMode: DEFAULT_CROP_GUIDE_MODE,
     cropGuideRotation: 0,

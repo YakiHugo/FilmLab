@@ -1,14 +1,12 @@
 import { resolveRenderProfile } from "@/lib/film";
 import { normalizeAdjustments } from "@/lib/adjustments";
+import { applyAsciiRasterEffect, buildAsciiOutputToken } from "@/lib/asciiRaster";
 import { applyTimestampOverlay } from "@/lib/timestampOverlay";
 import { clamp } from "@/lib/math";
 import { resolveRenderIntent, type RenderIntent } from "@/lib/renderIntent";
 import { getRendererRuntimeConfig } from "@/lib/renderer/config";
 import { createTilePlan } from "@/lib/renderer/gpu/TiledRenderer";
-import {
-  resolveViewportRenderRegion,
-  type ViewportRoi,
-} from "@/lib/renderer/viewportRegion";
+import { resolveViewportRenderRegion, type ViewportRoi } from "@/lib/renderer/viewportRegion";
 import type {
   EditingAdjustments,
   LocalAdjustment,
@@ -533,17 +531,14 @@ const hasLocalAdjustmentDelta = (delta: LocalAdjustmentDelta) =>
 
 const resolveActiveLocalAdjustments = (localAdjustments: LocalAdjustment[] | undefined) =>
   (localAdjustments ?? []).filter(
-    (local) =>
-      local.enabled &&
-      local.amount > 0.0001 &&
-      hasLocalAdjustmentDelta(local.adjustments)
+    (local) => local.enabled && local.amount > 0.0001 && hasLocalAdjustmentDelta(local.adjustments)
   );
 
 const serializeLocalMask = (mask: LocalAdjustmentMask) => {
   const lumaMin = clamp(mask.lumaMin ?? 0, 0, 1);
   const lumaMax = clamp(mask.lumaMax ?? 1, 0, 1);
   const lumaFeather = clamp(mask.lumaFeather ?? 0, 0, 1);
-  const hueCenter = ((mask.hueCenter ?? 0) % 360 + 360) % 360;
+  const hueCenter = (((mask.hueCenter ?? 0) % 360) + 360) % 360;
   const hueRange = clamp(mask.hueRange ?? 180, 0, 180);
   const hueFeather = clamp(mask.hueFeather ?? 0, 0, 180);
   const satMin = clamp(mask.satMin ?? 0, 0, 1);
@@ -1108,6 +1103,7 @@ const createOutputKey = (params: {
         0
       )}:${toNumberKey(params.adjustments.timestampOpacity, 0)}:${params.timestampText ?? ""}`
     : "off";
+  const asciiToken = buildAsciiOutputToken(params.adjustments.ascii);
   return [
     "out",
     getCanvasRuntimeId(params.canvas),
@@ -1115,6 +1111,7 @@ const createOutputKey = (params: {
     params.pipelineKey,
     params.localAdjustmentsKey,
     timestampToken,
+    asciiToken,
   ].join("|");
 };
 
@@ -1151,10 +1148,7 @@ const getRenderManager = async () => {
   return _renderManagerInstance;
 };
 
-export const releaseRenderSlots = async (
-  mode: RenderMode,
-  slotPrefix?: string
-) => {
+export const releaseRenderSlots = async (mode: RenderMode, slotPrefix?: string) => {
   const renderManager = await getRenderManager();
   if (slotPrefix?.trim()) {
     renderManager.disposeBySlotPrefix(mode, slotPrefix);
@@ -1206,7 +1200,10 @@ const renderWithPipeline = async (
       );
     }
 
-    if (options.targetWidth > renderer.maxTextureSize || options.targetHeight > renderer.maxTextureSize) {
+    if (
+      options.targetWidth > renderer.maxTextureSize ||
+      options.targetHeight > renderer.maxTextureSize
+    ) {
       throw new RenderError(
         `Render target ${options.targetWidth}x${options.targetHeight} exceeds max texture size ${renderer.maxTextureSize}.`
       );
@@ -1220,7 +1217,9 @@ const renderWithPipeline = async (
     const filmDirty = frameState.filmKey !== options.filmKey;
     const opticsDirty = frameState.opticsKey !== options.opticsKey;
     const uploadNeeded =
-      !!options.forceRerender || sourceDirty || frameState.uploadedGeometryKey !== options.uploadKey;
+      !!options.forceRerender ||
+      sourceDirty ||
+      frameState.uploadedGeometryKey !== options.uploadKey;
     const pipelineKey = [
       options.geometryKey,
       options.masterKey,
@@ -1308,30 +1307,21 @@ const renderWithPipeline = async (
               level: options.resolvedProfile.lut.size,
             });
           }
-          if (
-            options.resolvedProfile.lutBlend &&
-            typeof renderer.ensureLUTBlend === "function"
-          ) {
+          if (options.resolvedProfile.lutBlend && typeof renderer.ensureLUTBlend === "function") {
             await renderer.ensureLUTBlend({
               url: options.resolvedProfile.lutBlend.path,
               level: options.resolvedProfile.lutBlend.size,
             });
           }
 
-          if (
-            options.resolvedProfile.customLut &&
-            typeof renderer.ensureCustomLUT === "function"
-          ) {
+          if (options.resolvedProfile.customLut && typeof renderer.ensureCustomLUT === "function") {
             await renderer.ensureCustomLUT({
               url: options.resolvedProfile.customLut.path,
               level: options.resolvedProfile.customLut.size,
             });
           }
 
-          if (
-            options.resolvedProfile.printLut &&
-            typeof renderer.ensurePrintLUT === "function"
-          ) {
+          if (options.resolvedProfile.printLut && typeof renderer.ensurePrintLUT === "function") {
             await renderer.ensurePrintLUT({
               url: options.resolvedProfile.printLut.path,
               level: options.resolvedProfile.printLut.size,
@@ -1445,10 +1435,7 @@ const renderWithPipeline = async (
       renderMetrics: emptyMetrics,
     };
   } catch (e) {
-    const shouldRecycleRenderer = !(
-      options.mode === "preview" &&
-      !options.strictErrors
-    );
+    const shouldRecycleRenderer = !(options.mode === "preview" && !options.strictErrors);
     if (
       _renderManagerInstance &&
       shouldRecycleRenderer &&
@@ -1530,9 +1517,7 @@ const logRenderTimings = (
 const describeRenderError = (error: unknown): string => {
   if (error instanceof Error) {
     const causeMessage =
-      error.cause !== undefined && error.cause !== null
-        ? describeRenderError(error.cause)
-        : "";
+      error.cause !== undefined && error.cause !== null ? describeRenderError(error.cause) : "";
     return causeMessage ? `${error.message} | cause: ${causeMessage}` : error.message;
   }
   return String(error);
@@ -1737,7 +1722,7 @@ const resolveLocalMaskLumaRange = (mask: LocalAdjustmentMask) => {
 };
 
 const resolveLocalMaskColorRange = (mask: LocalAdjustmentMask) => ({
-  hueCenter: ((mask.hueCenter ?? 0) % 360 + 360) % 360,
+  hueCenter: (((mask.hueCenter ?? 0) % 360) + 360) % 360,
   hueRange: clamp(mask.hueRange ?? 180, 0, 180),
   hueFeather: clamp(mask.hueFeather ?? 0, 0, 180),
   satMin: clamp(mask.satMin ?? 0, 0, 1),
@@ -2054,10 +2039,13 @@ if (import.meta.hot) {
     clearSourceBitmapCache();
   });
 
-  import.meta.hot.accept(["@/lib/renderer/RenderManager", "@/lib/renderer/uniformResolvers"], () => {
-    _pipelineModuleCache = null;
-    clearUniformScratch();
-  });
+  import.meta.hot.accept(
+    ["@/lib/renderer/RenderManager", "@/lib/renderer/uniformResolvers"],
+    () => {
+      _pipelineModuleCache = null;
+      clearUniformScratch();
+    }
+  );
 }
 
 export const renderImageToCanvas = async ({
@@ -2084,11 +2072,9 @@ export const renderImageToCanvas = async ({
   const callStartAt = performance.now();
   const intentConfig = intent ? resolveRenderIntent(intent) : null;
   const mode = intentConfig?.mode ?? modeOption ?? "preview";
-  const qualityProfile =
-    intentConfig?.qualityProfile ?? qualityProfileOption ?? "interactive";
+  const qualityProfile = intentConfig?.qualityProfile ?? qualityProfileOption ?? "interactive";
   const strictErrors = strictErrorsOption ?? mode === "export";
-  const skipHalationBloom =
-    skipHalationBloomOption ?? intentConfig?.skipHalationBloom ?? false;
+  const skipHalationBloom = skipHalationBloomOption ?? intentConfig?.skipHalationBloom ?? false;
   const runtimeConfig = getRendererRuntimeConfig();
   const featureFlags = runtimeConfig.features;
   const incrementalPipeline = featureFlags.incrementalPipeline;
@@ -2268,7 +2254,8 @@ export const renderImageToCanvas = async ({
       activeLocalAdjustments.length > 0 && !exportTilePlan && !viewportRenderRegion;
 
     const sourceDirty = !incrementalPipeline || frameState.sourceKey !== sourceKey;
-    const geometryDirty = !incrementalPipeline || sourceDirty || frameState.geometryKey !== geometryKey;
+    const geometryDirty =
+      !incrementalPipeline || sourceDirty || frameState.geometryKey !== geometryKey;
     const masterDirty = !incrementalPipeline || frameState.masterKey !== masterKey;
     const hslDirty = !incrementalPipeline || frameState.hslKey !== hslKey;
     const curveDirty = !incrementalPipeline || frameState.curveKey !== curveKey;
@@ -2340,33 +2327,38 @@ export const renderImageToCanvas = async ({
             const tileSourceKey = `${sourceKey}|${layerId}|tile:${tileIndex}`;
             const tileGeometryKey = `${geometryKey}|tile:${tile.x},${tile.y},${tile.width}x${tile.height}`;
 
-            const tileResult = await renderWithPipeline(tileGeometryCanvas, layerAdjustments, tileFrameState, {
-              mode: tileRenderMode,
-              slotId: tileSlotId,
-              strictErrors,
-              resolvedProfile,
-              geometryUniforms: tileGeometryUniforms,
-              sourceWidth: tile.width,
-              sourceHeight: tile.height,
-              targetWidth: tile.width,
-              targetHeight: tile.height,
-              uploadKey: tileUploadKey,
-              sourceKey: tileSourceKey,
-              geometryKey: tileGeometryKey,
-              masterKey: layerKeys.master,
-              hslKey: layerKeys.hsl,
-              curveKey: layerKeys.curve,
-              detailKey: layerKeys.detail,
-              filmKey,
-              opticsKey,
-              grainSeed,
-              forceRerender: true,
-              skipHsl: skipHslPass,
-              skipCurve: skipCurvePass,
-              skipDetail: skipDetailPass,
-              skipFilm: skipFilmPass,
-              skipHalationBloom: skipOpticsPass,
-            });
+            const tileResult = await renderWithPipeline(
+              tileGeometryCanvas,
+              layerAdjustments,
+              tileFrameState,
+              {
+                mode: tileRenderMode,
+                slotId: tileSlotId,
+                strictErrors,
+                resolvedProfile,
+                geometryUniforms: tileGeometryUniforms,
+                sourceWidth: tile.width,
+                sourceHeight: tile.height,
+                targetWidth: tile.width,
+                targetHeight: tile.height,
+                uploadKey: tileUploadKey,
+                sourceKey: tileSourceKey,
+                geometryKey: tileGeometryKey,
+                masterKey: layerKeys.master,
+                hslKey: layerKeys.hsl,
+                curveKey: layerKeys.curve,
+                detailKey: layerKeys.detail,
+                filmKey,
+                opticsKey,
+                grainSeed,
+                forceRerender: true,
+                skipHsl: skipHslPass,
+                skipCurve: skipCurvePass,
+                skipDetail: skipDetailPass,
+                skipFilm: skipFilmPass,
+                skipHalationBloom: skipOpticsPass,
+              }
+            );
 
             if (collectMetrics) {
               mergePipelineMetrics(layerMetrics, tileResult.renderMetrics);
@@ -2459,6 +2451,11 @@ export const renderImageToCanvas = async ({
             }
           }
 
+          applyAsciiRasterEffect({
+            canvas,
+            ascii: normalizedAdjustments.ascii,
+            qualityProfile,
+          });
           applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
           timings.composeMs = performance.now() - composeStartAt;
 
@@ -2512,6 +2509,11 @@ export const renderImageToCanvas = async ({
         });
         outputContext.clearRect(0, 0, canvas.width, canvas.height);
         outputContext.drawImage(fallbackGeometryCanvas, 0, 0, canvas.width, canvas.height);
+        applyAsciiRasterEffect({
+          canvas,
+          ascii: normalizedAdjustments.ascii,
+          qualityProfile,
+        });
         applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
         return;
       } finally {
@@ -2595,34 +2597,39 @@ export const renderImageToCanvas = async ({
       throwIfAborted(signal);
 
       const pipelineStartAt = performance.now();
-      const pipelineResult = await renderWithPipeline(pipelineSource, normalizedAdjustments, frameState, {
-        mode,
-        slotId,
-        strictErrors,
-        resolvedProfile,
-        geometryUniforms,
-        sourceWidth: pipelineSourceWidth,
-        sourceHeight: pipelineSourceHeight,
-        targetWidth: renderTargetWidth,
-        targetHeight: renderTargetHeight,
-        uploadKey,
-        sourceKey,
-        geometryKey,
-        masterKey,
-        hslKey,
-        curveKey,
-        detailKey,
-        filmKey,
-        opticsKey,
-        grainSeed,
-        forceRerender: !incrementalPipeline,
-        captureLinearOutput: useHdrLocalComposition,
-        skipHsl: skipHslPass,
-        skipCurve: skipCurvePass,
-        skipDetail: skipDetailPass,
-        skipFilm: skipFilmPass,
-        skipHalationBloom: skipOpticsPass,
-      });
+      const pipelineResult = await renderWithPipeline(
+        pipelineSource,
+        normalizedAdjustments,
+        frameState,
+        {
+          mode,
+          slotId,
+          strictErrors,
+          resolvedProfile,
+          geometryUniforms,
+          sourceWidth: pipelineSourceWidth,
+          sourceHeight: pipelineSourceHeight,
+          targetWidth: renderTargetWidth,
+          targetHeight: renderTargetHeight,
+          uploadKey,
+          sourceKey,
+          geometryKey,
+          masterKey,
+          hslKey,
+          curveKey,
+          detailKey,
+          filmKey,
+          opticsKey,
+          grainSeed,
+          forceRerender: !incrementalPipeline,
+          captureLinearOutput: useHdrLocalComposition,
+          skipHsl: skipHslPass,
+          skipCurve: skipCurvePass,
+          skipDetail: skipDetailPass,
+          skipFilm: skipFilmPass,
+          skipHalationBloom: skipOpticsPass,
+        }
+      );
       timings.pipelineMs = performance.now() - pipelineStartAt;
       timings.pipelineMetrics = pipelineResult.renderMetrics;
 
@@ -2669,33 +2676,38 @@ export const renderImageToCanvas = async ({
             const localFrameState = renderManager.getFrameState(localRenderMode, localSlotId);
 
             try {
-              const localResult = await renderWithPipeline(pipelineSource, localAdjustments, localFrameState, {
-                mode: localRenderMode,
-                slotId: localSlotId,
-                strictErrors,
-                resolvedProfile,
-                geometryUniforms,
-                sourceWidth: pipelineSourceWidth,
-                sourceHeight: pipelineSourceHeight,
-                targetWidth: renderTargetWidth,
-                targetHeight: renderTargetHeight,
-                uploadKey,
-                sourceKey,
-                geometryKey,
-                masterKey: localMasterKey,
-                hslKey: localHslKey,
-                curveKey: localCurveKey,
-                detailKey: localDetailKey,
-                filmKey,
-                opticsKey,
-                grainSeed,
-                forceRerender: !incrementalPipeline,
-                skipHsl: skipHslPass,
-                skipCurve: skipCurvePass,
-                skipDetail: skipDetailPass,
-                skipFilm: skipFilmPass,
-                skipHalationBloom: skipOpticsPass,
-              });
+              const localResult = await renderWithPipeline(
+                pipelineSource,
+                localAdjustments,
+                localFrameState,
+                {
+                  mode: localRenderMode,
+                  slotId: localSlotId,
+                  strictErrors,
+                  resolvedProfile,
+                  geometryUniforms,
+                  sourceWidth: pipelineSourceWidth,
+                  sourceHeight: pipelineSourceHeight,
+                  targetWidth: renderTargetWidth,
+                  targetHeight: renderTargetHeight,
+                  uploadKey,
+                  sourceKey,
+                  geometryKey,
+                  masterKey: localMasterKey,
+                  hslKey: localHslKey,
+                  curveKey: localCurveKey,
+                  detailKey: localDetailKey,
+                  filmKey,
+                  opticsKey,
+                  grainSeed,
+                  forceRerender: !incrementalPipeline,
+                  skipHsl: skipHslPass,
+                  skipCurve: skipCurvePass,
+                  skipDetail: skipDetailPass,
+                  skipFilm: skipFilmPass,
+                  skipHalationBloom: skipOpticsPass,
+                }
+              );
               composeLocalLayer({
                 outputContext,
                 frameState,
@@ -2712,7 +2724,10 @@ export const renderImageToCanvas = async ({
               if (strictErrors) {
                 throw localRenderError;
               }
-              console.warn(`[FilmLab] Local adjustment render skipped (${local.id}).`, localRenderError);
+              console.warn(
+                `[FilmLab] Local adjustment render skipped (${local.id}).`,
+                localRenderError
+              );
             }
           }
         };
@@ -2720,13 +2735,22 @@ export const renderImageToCanvas = async ({
         if (!useHdrLocalComposition) {
           await composeLocalWithCanvas();
         } else {
-          const composeRenderer = renderManager.getRenderer(mode, canvas.width, canvas.height, slotId);
+          const composeRenderer = renderManager.getRenderer(
+            mode,
+            canvas.width,
+            canvas.height,
+            slotId
+          );
           let compositedLinear = composeRenderer.consumeCapturedLinearResult();
           if (!compositedLinear) {
             await composeLocalWithCanvas();
           } else {
             try {
-              for (let localIndex = 0; localIndex < activeLocalAdjustments.length; localIndex += 1) {
+              for (
+                let localIndex = 0;
+                localIndex < activeLocalAdjustments.length;
+                localIndex += 1
+              ) {
                 const local = activeLocalAdjustments[localIndex]!;
                 const localAdjustments = applyLocalAdjustmentDelta(normalizedAdjustments, local);
                 const localMasterKey = createMasterKey(localAdjustments);
@@ -2806,7 +2830,10 @@ export const renderImageToCanvas = async ({
                   if (strictErrors) {
                     throw localRenderError;
                   }
-                  console.warn(`[FilmLab] Local adjustment render skipped (${local.id}).`, localRenderError);
+                  console.warn(
+                    `[FilmLab] Local adjustment render skipped (${local.id}).`,
+                    localRenderError
+                  );
                 }
               }
 
@@ -2819,6 +2846,11 @@ export const renderImageToCanvas = async ({
           }
         }
 
+        applyAsciiRasterEffect({
+          canvas,
+          ascii: normalizedAdjustments.ascii,
+          qualityProfile,
+        });
         applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
         frameState.outputKey = outputKey;
         frameState.lastRenderError = null;
@@ -2848,11 +2880,7 @@ export const renderImageToCanvas = async ({
         throw e;
       }
 
-      if (
-        mode === "preview" &&
-        featureFlags.keepLastPreviewFrameOnError &&
-        frameState.outputKey
-      ) {
+      if (mode === "preview" && featureFlags.keepLastPreviewFrameOnError && frameState.outputKey) {
         try {
           const previewRenderer = renderManager.getRenderer(
             mode,
@@ -2879,6 +2907,11 @@ export const renderImageToCanvas = async ({
             outputContext.clearRect(0, 0, canvas.width, canvas.height);
             outputContext.drawImage(previewRenderer.canvas, 0, 0, canvas.width, canvas.height);
           }
+          applyAsciiRasterEffect({
+            canvas,
+            ascii: normalizedAdjustments.ascii,
+            qualityProfile,
+          });
           applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
           timings.composeMs = performance.now() - composeStartAt;
           timings.totalMs = performance.now() - callStartAt;
@@ -2921,7 +2954,12 @@ export const renderImageToCanvas = async ({
         qualityProfile,
       });
       if (viewportRenderRegion) {
-        outputContext.clearRect(renderOffsetX, renderOffsetY, renderTargetWidth, renderTargetHeight);
+        outputContext.clearRect(
+          renderOffsetX,
+          renderOffsetY,
+          renderTargetWidth,
+          renderTargetHeight
+        );
         outputContext.drawImage(
           fallbackGeometryCanvas,
           renderOffsetX,
@@ -2933,6 +2971,11 @@ export const renderImageToCanvas = async ({
         outputContext.clearRect(0, 0, canvas.width, canvas.height);
         outputContext.drawImage(fallbackGeometryCanvas, 0, 0, canvas.width, canvas.height);
       }
+      applyAsciiRasterEffect({
+        canvas,
+        ascii: normalizedAdjustments.ascii,
+        qualityProfile,
+      });
       applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
       frameState.outputKey = createOutputKey({
         canvas,

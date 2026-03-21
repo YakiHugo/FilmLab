@@ -89,6 +89,19 @@ describe("editorAdjustmentVisibility", () => {
       hasAdjustmentGroupChanges(
         {
           ...defaults,
+          ascii: {
+            ...defaults.ascii!,
+            enabled: true,
+          },
+        },
+        "effects"
+      )
+    ).toBe(true);
+
+    expect(
+      hasAdjustmentGroupChanges(
+        {
+          ...defaults,
           sharpenRadius: 60,
         },
         "detail"

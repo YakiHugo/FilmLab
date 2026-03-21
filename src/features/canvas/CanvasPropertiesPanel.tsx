@@ -1,11 +1,45 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
+import { SlidersHorizontal } from "lucide-react";
 import { filmProfiles } from "@/data/filmProfiles";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { useAssetStore } from "@/stores/assetStore";
-import type { CanvasElement } from "@/types";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
+import type { CanvasElement } from "@/types";
+import {
+  canvasDockBodyTextClassName,
+  canvasDockEmptyStateClassName,
+  canvasDockFieldClassName,
+  canvasDockFieldLabelClassName,
+  canvasDockHeadingClassName,
+  canvasDockIconBadgeClassName,
+  canvasDockMetricCardClassName,
+  canvasDockOverlineClassName,
+  canvasDockSelectContentClassName,
+  canvasDockSelectTriggerClassName,
+  canvasDockSectionClassName,
+  canvasDockSectionMutedClassName,
+} from "./editDockTheme";
+import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
+import {
+  applyCanvasTextFontSizeTier,
+  CANVAS_TEXT_COLOR_OPTIONS,
+  CANVAS_TEXT_FONT_OPTIONS,
+  CANVAS_TEXT_SIZE_TIER_OPTIONS,
+  getCanvasTextColorOption,
+  getCanvasTextFontOption,
+} from "./textStyle";
+
+interface CanvasPropertiesPanelProps {
+  variant?: "embedded" | "standalone";
+}
 
 const NumberInput = ({
   label,
@@ -22,8 +56,8 @@ const NumberInput = ({
   max?: number;
   step?: number;
 }) => (
-  <label className="space-y-1">
-    <span className="text-[11px] text-zinc-500">{label}</span>
+  <label className="space-y-2">
+    <span className={canvasDockFieldLabelClassName}>{label}</span>
     <Input
       type="number"
       min={min}
@@ -31,31 +65,23 @@ const NumberInput = ({
       step={step}
       value={Math.round(value * 1000) / 1000}
       onChange={(event) => onChange(Number(event.target.value) || 0)}
-      className="h-8 rounded-lg border-white/10 bg-black/35 px-2 text-xs"
+      className={canvasDockFieldClassName}
     />
   </label>
 );
 
-export function CanvasPropertiesPanel() {
-  const documents = useCanvasStore((state) => state.documents);
-  const activeDocumentId = useCanvasStore((state) => state.activeDocumentId);
+export const CanvasPropertiesPanel = memo(function CanvasPropertiesPanel({
+  variant = "standalone",
+}: CanvasPropertiesPanelProps) {
   const upsertElement = useCanvasStore((state) => state.upsertElement);
   const assets = useAssetStore((state) => state.assets);
-  const { selectedElementIds } = useCanvasInteraction();
-
-  const selected = useMemo(() => {
-    const active = documents.find((document) => document.id === activeDocumentId);
-    if (!active || selectedElementIds.length === 0) {
-      return null;
-    }
-    return active.elements.find((element) => element.id === selectedElementIds[0]) ?? null;
-  }, [documents, activeDocumentId, selectedElementIds]);
+  const { activeWorkbench, primarySelectedElement: selected } = useCanvasSelectionModel();
 
   const update = (patch: Partial<CanvasElement>) => {
-    if (!selected || !activeDocumentId) {
+    if (!selected) {
       return;
     }
-    void upsertElement(activeDocumentId, {
+    void upsertElement({
       ...selected,
       ...patch,
     } as CanvasElement);
@@ -68,58 +94,149 @@ export function CanvasPropertiesPanel() {
     return assets.find((asset) => asset.id === selected.assetId) ?? null;
   }, [assets, selected]);
 
+  const textFontOptions = useMemo(() => {
+    if (!selected || selected.type !== "text") {
+      return CANVAS_TEXT_FONT_OPTIONS;
+    }
+    const current = getCanvasTextFontOption(selected.fontFamily);
+    return CANVAS_TEXT_FONT_OPTIONS.some((option) => option.value === current.value)
+      ? CANVAS_TEXT_FONT_OPTIONS
+      : [...CANVAS_TEXT_FONT_OPTIONS, current];
+  }, [selected]);
+
+  const textColorOptions = useMemo(() => {
+    if (!selected || selected.type !== "text") {
+      return CANVAS_TEXT_COLOR_OPTIONS;
+    }
+    const current = getCanvasTextColorOption(selected.color);
+    return CANVAS_TEXT_COLOR_OPTIONS.some((option) => option.value === current.value)
+      ? CANVAS_TEXT_COLOR_OPTIONS
+      : [...CANVAS_TEXT_COLOR_OPTIONS, current];
+  }, [selected]);
+  const isEmbedded = variant === "embedded";
+
   return (
-    <aside className="rounded-2xl border border-white/10 bg-black/35 p-3">
-      <h3 className="mb-3 text-xs uppercase tracking-[0.2em] text-zinc-500">Properties</h3>
-      {!selected && <p className="text-xs text-zinc-500">Select an element to inspect.</p>}
+    <div
+      className={cn(
+        "space-y-5 text-[color:var(--canvas-edit-text)]",
+        isEmbedded ? "" : "min-h-0 flex-1 overflow-y-auto pr-1"
+      )}
+    >
+      {isEmbedded ? (
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className={canvasDockOverlineClassName}>Inspector</p>
+            <h3 className={canvasDockHeadingClassName}>Selected layer controls</h3>
+          </div>
+          <div className={canvasDockIconBadgeClassName}>
+            <SlidersHorizontal className="h-4 w-4 text-[color:var(--canvas-edit-text-soft)]" />
+          </div>
+        </div>
+      ) : null}
 
-      {selected && (
-        <div className="space-y-3">
-          <p className="text-xs text-zinc-300">Type: {selected.type}</p>
-
-          <div className="grid grid-cols-2 gap-2">
-            <NumberInput label="X" value={selected.x} onChange={(value) => update({ x: value })} />
-            <NumberInput label="Y" value={selected.y} onChange={(value) => update({ y: value })} />
-            <NumberInput
-              label="Width"
-              value={selected.width}
-              min={1}
-              onChange={(value) => update({ width: Math.max(1, value) })}
-            />
-            <NumberInput
-              label="Height"
-              value={selected.height}
-              min={1}
-              onChange={(value) => update({ height: Math.max(1, value) })}
-            />
-            <NumberInput
-              label="Rotation"
-              value={selected.rotation}
-              step={0.5}
-              onChange={(value) => update({ rotation: value })}
-            />
-            <NumberInput
-              label="Opacity"
-              value={selected.opacity}
-              min={0}
-              max={1}
-              step={0.01}
-              onChange={(value) => update({ opacity: Math.max(0, Math.min(1, value)) })}
-            />
+      {!selected ? (
+        <div className={cn(canvasDockEmptyStateClassName, "p-4")}>
+          <p className="text-sm font-medium text-[color:var(--canvas-edit-text)]">
+            Nothing selected yet.
+          </p>
+          <p className={cn(canvasDockBodyTextClassName, "mt-2")}>
+            Click any image, text, shape, or group layer on the canvas to edit it here.
+          </p>
+          {activeWorkbench ? (
+            <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-[color:var(--canvas-edit-pill-text)]">
+              <div className={canvasDockMetricCardClassName}>
+                <p className={canvasDockFieldLabelClassName}>Canvas</p>
+                <p className="mt-2 font-medium text-[color:var(--canvas-edit-text)]">
+                  {activeWorkbench.width} x {activeWorkbench.height}
+                </p>
+              </div>
+              <div className={canvasDockMetricCardClassName}>
+                <p className={canvasDockFieldLabelClassName}>Layers</p>
+                <p className="mt-2 font-medium text-[color:var(--canvas-edit-text)]">
+                  {activeWorkbench.elements.length}
+                </p>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className={cn(canvasDockSectionMutedClassName, "px-4 py-3")}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className={canvasDockFieldLabelClassName}>Selected Layer</p>
+                <p className="mt-1 text-sm font-medium text-[color:var(--canvas-edit-text)]">
+                  {selected.type === "image"
+                    ? (selectedAsset?.name ?? "Image layer")
+                    : selected.type === "text"
+                      ? "Text layer"
+                      : selected.type === "shape"
+                        ? `${selected.shapeType} shape`
+                        : (selected.name || "Group")}
+                </p>
+              </div>
+              <span className="rounded-full border border-[color:var(--canvas-edit-border)] px-2.5 py-1 text-[10px] uppercase tracking-[0.24em] text-[color:var(--canvas-edit-text-muted)]">
+                {selected.type}
+              </span>
+            </div>
           </div>
 
-          {selected.type === "image" && (
-            <div className="space-y-2 rounded-xl border border-white/10 bg-black/30 p-2">
-              <p className="text-[11px] text-zinc-500">Image</p>
-              <p className="truncate text-xs text-zinc-200">{selectedAsset?.name ?? selected.assetId}</p>
+          <div className={canvasDockSectionClassName}>
+            <p className={canvasDockFieldLabelClassName}>Transform</p>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <NumberInput label="X" value={selected.x} onChange={(value) => update({ x: value })} />
+              <NumberInput label="Y" value={selected.y} onChange={(value) => update({ y: value })} />
+              <NumberInput
+                label="Width"
+                value={selected.width}
+                min={1}
+                onChange={(value) => update({ width: Math.max(1, value) })}
+              />
+              <NumberInput
+                label="Height"
+                value={selected.height}
+                min={1}
+                onChange={(value) => update({ height: Math.max(1, value) })}
+              />
+              <NumberInput
+                label="Rotation"
+                value={selected.rotation}
+                step={0.5}
+                onChange={(value) => update({ rotation: value })}
+              />
+              <NumberInput
+                label="Opacity"
+                value={selected.opacity}
+                min={0}
+                max={1}
+                step={0.01}
+                onChange={(value) => update({ opacity: Math.max(0, Math.min(1, value)) })}
+              />
+            </div>
+          </div>
+
+          {selected.type === "image" ? (
+            <div className={cn(canvasDockSectionClassName, "space-y-3")}>
+              <div>
+                <p className={canvasDockFieldLabelClassName}>Image</p>
+                <p className="mt-1 truncate text-sm text-[color:var(--canvas-edit-text)]">
+                  {selectedAsset?.name ?? selected.assetId}
+                </p>
+                <p className="mt-2 text-xs leading-5 text-[color:var(--canvas-edit-text-muted)]">
+                  Apply film profiles without leaving the edit dock.
+                </p>
+              </div>
+
               <Select
                 value={selected.filmProfileId ?? "none"}
-                onValueChange={(value) => update({ filmProfileId: value === "none" ? undefined : value })}
+                onValueChange={(value) =>
+                  update({ filmProfileId: value === "none" ? undefined : value })
+                }
               >
-                <SelectTrigger className="h-8 rounded-lg text-xs">
+                <SelectTrigger className={canvasDockSelectTriggerClassName}>
                   <SelectValue placeholder="Film profile" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className={canvasDockSelectContentClassName}>
                   <SelectItem value="none">No profile</SelectItem>
                   {filmProfiles.map((profile) => (
                     <SelectItem key={profile.id} value={profile.id}>
@@ -129,42 +246,73 @@ export function CanvasPropertiesPanel() {
                 </SelectContent>
               </Select>
             </div>
-          )}
+          ) : null}
 
-          {selected.type === "text" && (
-            <div className="space-y-2 rounded-xl border border-white/10 bg-black/30 p-2">
-              <p className="text-[11px] text-zinc-500">Text</p>
+          {selected.type === "text" ? (
+            <div className={cn(canvasDockSectionClassName, "space-y-3")}>
+              <p className={canvasDockFieldLabelClassName}>Text</p>
               <Input
                 value={selected.content}
                 onChange={(event) => update({ content: event.target.value })}
-                className="h-8 rounded-lg border-white/10 bg-black/35 px-2 text-xs"
+                className={canvasDockFieldClassName}
               />
-              <div className="grid grid-cols-2 gap-2">
-                <Input
+              <div className="grid grid-cols-2 gap-3">
+                <Select
                   value={selected.fontFamily}
-                  onChange={(event) => update({ fontFamily: event.target.value })}
-                  className="h-8 rounded-lg border-white/10 bg-black/35 px-2 text-xs"
-                />
-                <Input
-                  type="number"
-                  min={8}
-                  value={selected.fontSize}
-                  onChange={(event) => update({ fontSize: Math.max(8, Number(event.target.value) || 8) })}
-                  className="h-8 rounded-lg border-white/10 bg-black/35 px-2 text-xs"
-                />
-                <Input
-                  value={selected.color}
-                  onChange={(event) => update({ color: event.target.value })}
-                  className="h-8 rounded-lg border-white/10 bg-black/35 px-2 text-xs"
-                />
+                  onValueChange={(value) => update({ fontFamily: value })}
+                >
+                  <SelectTrigger className={canvasDockSelectTriggerClassName}>
+                    <SelectValue placeholder="Font" />
+                  </SelectTrigger>
+                  <SelectContent className={canvasDockSelectContentClassName}>
+                    {textFontOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={selected.fontSizeTier}
+                  onValueChange={(value) =>
+                    update(
+                      applyCanvasTextFontSizeTier(selected, value as typeof selected.fontSizeTier)
+                    )
+                  }
+                >
+                  <SelectTrigger className={canvasDockSelectTriggerClassName}>
+                    <SelectValue placeholder="Size tier" />
+                  </SelectTrigger>
+                  <SelectContent className={canvasDockSelectContentClassName}>
+                    {CANVAS_TEXT_SIZE_TIER_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={selected.color} onValueChange={(value) => update({ color: value })}>
+                  <SelectTrigger className={canvasDockSelectTriggerClassName}>
+                    <SelectValue placeholder="Color" />
+                  </SelectTrigger>
+                  <SelectContent className={canvasDockSelectContentClassName}>
+                    {textColorOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Select
                   value={selected.textAlign}
-                  onValueChange={(value) => update({ textAlign: value as "left" | "center" | "right" })}
+                  onValueChange={(value) =>
+                    update({ textAlign: value as "left" | "center" | "right" })
+                  }
                 >
-                  <SelectTrigger className="h-8 rounded-lg text-xs">
+                  <SelectTrigger className={canvasDockSelectTriggerClassName}>
                     <SelectValue placeholder="Align" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className={canvasDockSelectContentClassName}>
                     <SelectItem value="left">Left</SelectItem>
                     <SelectItem value="center">Center</SelectItem>
                     <SelectItem value="right">Right</SelectItem>
@@ -172,34 +320,44 @@ export function CanvasPropertiesPanel() {
                 </Select>
               </div>
             </div>
-          )}
+          ) : null}
 
-          {selected.type === "shape" && (
-            <div className="space-y-2 rounded-xl border border-white/10 bg-black/30 p-2">
-              <p className="text-[11px] text-zinc-500">Shape</p>
-              <div className="grid grid-cols-2 gap-2">
+          {selected.type === "shape" ? (
+            <div className={cn(canvasDockSectionClassName, "space-y-3")}>
+              <p className={canvasDockFieldLabelClassName}>Shape</p>
+              <label className="space-y-2">
+                <span className={canvasDockFieldLabelClassName}>Fill</span>
                 <Input
+                  type="text"
                   value={selected.fill}
-                  onChange={(event) => update({ fill: event.target.value })}
-                  className="h-8 rounded-lg border-white/10 bg-black/35 px-2 text-xs"
+                  onChange={(event) => update({ fill: event.target.value } as Partial<CanvasElement>)}
+                  className={canvasDockFieldClassName}
                 />
+              </label>
+              <label className="space-y-2">
+                <span className={canvasDockFieldLabelClassName}>Stroke</span>
                 <Input
-                  value={selected.stroke ?? ""}
-                  onChange={(event) => update({ stroke: event.target.value || undefined })}
-                  className="h-8 rounded-lg border-white/10 bg-black/35 px-2 text-xs"
+                  type="text"
+                  value={selected.stroke}
+                  onChange={(event) =>
+                    update({ stroke: event.target.value } as Partial<CanvasElement>)
+                  }
+                  className={canvasDockFieldClassName}
                 />
-                <Input
-                  type="number"
-                  min={0}
-                  value={selected.strokeWidth ?? 0}
-                  onChange={(event) => update({ strokeWidth: Math.max(0, Number(event.target.value) || 0) })}
-                  className="h-8 rounded-lg border-white/10 bg-black/35 px-2 text-xs"
-                />
-              </div>
+              </label>
+              <NumberInput
+                label="Stroke Width"
+                value={selected.strokeWidth}
+                min={0}
+                step={0.5}
+                onChange={(value) =>
+                  update({ strokeWidth: Math.max(0, value) } as Partial<CanvasElement>)
+                }
+              />
             </div>
-          )}
+          ) : null}
         </div>
       )}
-    </aside>
+    </div>
   );
-}
+});

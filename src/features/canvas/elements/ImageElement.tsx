@@ -1,16 +1,24 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Image as KonvaImage, Rect } from "react-konva";
-import type { CanvasImageElement } from "@/types";
+import type { CanvasImageElement, CanvasRenderableElement } from "@/types";
+import { useAssetStore } from "@/stores/assetStore";
+import { useCanvasStore } from "@/stores/canvasStore";
+import { useCanvasRuntimeStore } from "@/stores/canvasRuntimeStore";
+
+type CanvasImageRenderState = CanvasImageElement &
+  Partial<
+    Pick<Extract<CanvasRenderableElement, { type: "image" }>, "effectiveLocked" | "effectiveVisible" | "worldOpacity">
+  >;
 
 interface ImageElementProps {
-  element: CanvasImageElement;
-  src?: string;
-  isSelected: boolean;
-  onSelect: (additive: boolean) => void;
-  onDragEnd: (x: number, y: number) => void;
+  element: CanvasImageRenderState;
+  previewPriority: "interactive" | "background";
+  dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
+  onSelect: (elementId: string, additive: boolean) => void;
+  onDragEnd: (elementId: string, x: number, y: number) => void;
 }
 
-export function ImageElement({ element, src, isSelected, onSelect, onDragEnd }: ImageElementProps) {
+const useLoadedImage = (src?: string) => {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
 
   useEffect(() => {
@@ -19,52 +27,107 @@ export function ImageElement({ element, src, isSelected, onSelect, onDragEnd }: 
       return;
     }
 
-    let revokedUrl: string | null = null;
     let cancelled = false;
     const nextImage = new window.Image();
-    const controller = new AbortController();
+    nextImage.decoding = "async";
+    nextImage.src = src;
 
     const handleLoad = () => {
       if (!cancelled) {
         setImage(nextImage);
       }
     };
-
-    const load = async () => {
-      try {
-        if (src.startsWith("blob:") || src.startsWith("data:") || src.startsWith("http")) {
-          const response = await fetch(src, { signal: controller.signal });
-          if (!response.ok) {
-            throw new Error("Failed to load image source.");
-          }
-          const blob = await response.blob();
-          revokedUrl = URL.createObjectURL(blob);
-          nextImage.src = revokedUrl;
-        } else {
-          nextImage.src = src;
-        }
-      } catch {
-        if (!cancelled) {
-          setImage(null);
-        }
+    const handleError = () => {
+      if (!cancelled) {
+        setImage(null);
       }
     };
-
     nextImage.addEventListener("load", handleLoad);
-    void load();
+    nextImage.addEventListener("error", handleError);
+    void nextImage
+      .decode()
+      .then(handleLoad)
+      .catch(() => {
+        // Some browsers reject decode() for object URLs before `load`.
+      });
 
     return () => {
       cancelled = true;
-      controller.abort();
       nextImage.removeEventListener("load", handleLoad);
+      nextImage.removeEventListener("error", handleError);
       nextImage.src = "";
-      if (revokedUrl) {
-        URL.revokeObjectURL(revokedUrl);
-      }
     };
   }, [src]);
 
-  if (!image) {
+  return image;
+};
+
+export const ImageElement = memo(function ImageElement({
+  element,
+  previewPriority,
+  dragBoundFunc,
+  onSelect,
+  onDragEnd,
+}: ImageElementProps) {
+  const asset = useAssetStore(
+    (state) => state.assets.find((candidate) => candidate.id === element.assetId) ?? null
+  );
+  const zoom = useCanvasStore((state) => state.zoom);
+  const previewEntry = useCanvasRuntimeStore((state) => state.previewEntries[element.id]);
+  const requestBoardPreview = useCanvasRuntimeStore((state) => state.requestBoardPreview);
+  const releaseBoardPreview = useCanvasRuntimeStore((state) => state.releaseBoardPreview);
+  const fallbackSrc = asset?.thumbnailUrl || asset?.objectUrl;
+  const fallbackImage = useLoadedImage(fallbackSrc);
+  const effectiveLocked = element.effectiveLocked ?? element.locked;
+  const effectiveVisible = element.effectiveVisible ?? element.visible;
+  const renderOpacity = element.worldOpacity ?? element.opacity;
+  const previewKey = useMemo(
+    () =>
+      JSON.stringify({
+        adjustments: element.adjustments ?? null,
+        assetId: element.assetId,
+        filmProfileId: element.filmProfileId ?? null,
+        height: Math.round(element.height),
+        width: Math.round(element.width),
+        zoom: Number(zoom.toFixed(3)),
+      }),
+    [
+      element.adjustments,
+      element.assetId,
+      element.filmProfileId,
+      element.height,
+      element.width,
+      zoom,
+    ]
+  );
+
+  useEffect(() => {
+    if (!asset || !effectiveVisible) {
+      releaseBoardPreview(element.id);
+      return;
+    }
+
+    void requestBoardPreview(element.id, previewPriority);
+    return () => {
+      releaseBoardPreview(element.id);
+    };
+  }, [
+    asset,
+    asset?.contentHash,
+    asset?.objectUrl,
+    asset?.thumbnailUrl,
+    element.id,
+    effectiveVisible,
+    previewPriority,
+    zoom,
+    previewKey,
+    releaseBoardPreview,
+    requestBoardPreview,
+  ]);
+
+  const renderSource = previewEntry?.previewSource ?? fallbackImage;
+
+  if (!renderSource) {
     return (
       <Rect
         id={element.id}
@@ -73,15 +136,16 @@ export function ImageElement({ element, src, isSelected, onSelect, onDragEnd }: 
         width={element.width}
         height={element.height}
         rotation={element.rotation}
-        opacity={element.opacity}
-        visible={element.visible}
-        fill={isSelected ? "#3f3120" : "#27272a"}
-        stroke={isSelected ? "#f59e0b" : "#52525b"}
-        strokeWidth={isSelected ? 2 : 1}
-        draggable={!element.locked}
-        onClick={(event) => onSelect(Boolean(event.evt.shiftKey))}
-        onTap={() => onSelect(false)}
-        onDragEnd={(event) => onDragEnd(event.target.x(), event.target.y())}
+        opacity={renderOpacity}
+        visible={effectiveVisible}
+        fill="#27272a"
+        stroke="#52525b"
+        strokeWidth={1}
+        draggable={!effectiveLocked}
+        dragBoundFunc={dragBoundFunc}
+        onClick={(event) => onSelect(element.id, Boolean(event.evt.shiftKey))}
+        onTap={() => onSelect(element.id, false)}
+        onDragEnd={(event) => onDragEnd(element.id, event.target.x(), event.target.y())}
       />
     );
   }
@@ -89,20 +153,19 @@ export function ImageElement({ element, src, isSelected, onSelect, onDragEnd }: 
   return (
     <KonvaImage
       id={element.id}
-      image={image}
+      image={renderSource}
       x={element.x}
       y={element.y}
       width={element.width}
       height={element.height}
       rotation={element.rotation}
-      opacity={element.opacity}
-      visible={element.visible}
-      draggable={!element.locked}
-      onClick={(event) => onSelect(Boolean(event.evt.shiftKey))}
-      onTap={() => onSelect(false)}
-      onDragEnd={(event) => onDragEnd(event.target.x(), event.target.y())}
-      stroke={isSelected ? "#f59e0b" : undefined}
-      strokeWidth={isSelected ? 2 : 0}
+      opacity={renderOpacity}
+      visible={effectiveVisible}
+      draggable={!effectiveLocked}
+      dragBoundFunc={dragBoundFunc}
+      onClick={(event) => onSelect(element.id, Boolean(event.evt.shiftKey))}
+      onTap={() => onSelect(element.id, false)}
+      onDragEnd={(event) => onDragEnd(element.id, event.target.x(), event.target.y())}
     />
   );
-}
+});

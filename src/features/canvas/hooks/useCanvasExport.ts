@@ -1,5 +1,9 @@
 import type Konva from "konva";
 import { useCallback } from "react";
+import type { CanvasSlice } from "@/types";
+import { useAssetStore } from "@/stores/assetStore";
+import { useCanvasStore } from "@/stores/canvasStore";
+import { cropRenderedCanvasSlice, renderCanvasWorkbenchToCanvas } from "../renderCanvasWorkbench";
 
 export type CanvasExportFormat = "png" | "jpeg";
 
@@ -11,6 +15,16 @@ export interface CanvasExportOptions {
   pixelRatio: number;
 }
 
+export interface CanvasSliceExportResult {
+  slice: CanvasSlice;
+  dataUrl: string;
+  fileName: string;
+}
+
+const EDITOR_GRID_FILL = "rgba(255,255,255,0.18)";
+const WORKSPACE_BACKGROUND_NODE_ID = "canvas-workspace-background";
+const WORKSPACE_GRID_NODE_ID = "canvas-workspace-grid";
+
 const defaultExportOptions = (stage: Konva.Stage): CanvasExportOptions => ({
   format: "png",
   width: stage.width(),
@@ -19,35 +33,123 @@ const defaultExportOptions = (stage: Konva.Stage): CanvasExportOptions => ({
   pixelRatio: 2,
 });
 
+const hideEditorOverlayNodes = (stage: Konva.Stage) => {
+  const hiddenNodes: Konva.Node[] = [];
+  const candidates = [...stage.find("Rect"), ...stage.find("Shape")];
+  const seenNodes = new Set<Konva.Node>();
+
+  for (const node of candidates) {
+    if (seenNodes.has(node)) {
+      continue;
+    }
+    seenNodes.add(node);
+
+    const nodeId = node.id();
+    const hasPatternFill = Boolean(node.getAttr("fillPatternImage"));
+    const hasEditorGridFill = node.getAttr("fill") === EDITOR_GRID_FILL;
+    const isWorkspaceOverlayNode =
+      nodeId === WORKSPACE_BACKGROUND_NODE_ID || nodeId === WORKSPACE_GRID_NODE_ID;
+    if (!isWorkspaceOverlayNode && nodeId) {
+      continue;
+    }
+
+    if (!isWorkspaceOverlayNode && !hasPatternFill && !hasEditorGridFill) {
+      continue;
+    }
+
+    if (!node.visible()) {
+      continue;
+    }
+
+    node.visible(false);
+    hiddenNodes.push(node);
+  }
+
+  return hiddenNodes;
+};
+
+export const exportStageDataUrl = (
+  stage: Konva.Stage,
+  options: Partial<CanvasExportOptions> & {
+    crop?: Pick<CanvasSlice, "x" | "y" | "width" | "height">;
+  }
+) => {
+  const mimeType = options.format === "jpeg" ? "image/jpeg" : "image/png";
+  const hiddenNodes = hideEditorOverlayNodes(stage);
+
+  try {
+    return stage.toDataURL({
+      mimeType,
+      quality: options.quality,
+      x: options.crop?.x,
+      y: options.crop?.y,
+      width: options.width,
+      height: options.height,
+      pixelRatio: options.pixelRatio,
+    });
+  } finally {
+    for (const node of hiddenNodes) {
+      node.visible(true);
+    }
+  }
+};
+
 export function useCanvasExport() {
-  const exportDataUrl = useCallback(
-    (stage: Konva.Stage | null, options?: Partial<CanvasExportOptions>) => {
-      if (!stage) {
-        return null;
-      }
-      const merged = { ...defaultExportOptions(stage), ...options };
-      const mimeType = merged.format === "jpeg" ? "image/jpeg" : "image/png";
-      return stage.toDataURL({
-        mimeType,
-        quality: merged.quality,
-        width: merged.width,
-        height: merged.height,
-        pixelRatio: merged.pixelRatio,
-      });
-    },
-    []
+  const assets = useAssetStore((state) => state.assets);
+  const activeWorkbench = useCanvasStore((state) =>
+    state.activeWorkbenchId
+      ? state.workbenches.find((document) => document.id === state.activeWorkbenchId) ?? null
+      : null
   );
 
-  const download = useCallback(
+  const exportDataUrl = useCallback(
     (
       stage: Konva.Stage | null,
-      options?: Partial<CanvasExportOptions> & { fileName?: string }
+      options?: Partial<CanvasExportOptions> & {
+        crop?: Pick<CanvasSlice, "x" | "y" | "width" | "height">;
+      }
     ) => {
       if (!stage) {
         return null;
       }
       const merged = { ...defaultExportOptions(stage), ...options };
-      const dataUrl = exportDataUrl(stage, merged);
+      return exportStageDataUrl(stage, merged);
+    },
+    []
+  );
+
+  const download = useCallback(
+    async (
+      stage: Konva.Stage | null,
+      options?: Partial<CanvasExportOptions> & { fileName?: string }
+    ) => {
+      const merged = {
+        ...(stage ? defaultExportOptions(stage) : defaultExportOptionsFromDocument(activeWorkbench)),
+        ...options,
+      };
+      let dataUrl: string | null = null;
+      if (activeWorkbench) {
+        const exportCanvas = document.createElement("canvas");
+        try {
+          await renderCanvasWorkbenchToCanvas({
+            assets,
+            canvas: exportCanvas,
+            document: activeWorkbench,
+            height: merged.height,
+            pixelRatio: merged.pixelRatio,
+            width: merged.width,
+          });
+          dataUrl = exportCanvas.toDataURL(
+            merged.format === "jpeg" ? "image/jpeg" : "image/png",
+            merged.quality
+          );
+        } finally {
+          exportCanvas.width = 0;
+          exportCanvas.height = 0;
+        }
+      } else if (stage) {
+        dataUrl = exportDataUrl(stage, merged);
+      }
       if (!dataUrl) {
         return null;
       }
@@ -58,11 +160,107 @@ export function useCanvasExport() {
       link.click();
       return dataUrl;
     },
-    [exportDataUrl]
+    [activeWorkbench, assets, exportDataUrl]
+  );
+
+  const exportSlices = useCallback(
+    async (
+      stage: Konva.Stage | null,
+      slices: CanvasSlice[],
+      options?: Partial<CanvasExportOptions> & { filePrefix?: string }
+    ): Promise<CanvasSliceExportResult[]> => {
+      if (slices.length === 0 || !activeWorkbench) {
+        return [];
+      }
+
+      const merged = {
+        ...(stage ? defaultExportOptions(stage) : defaultExportOptionsFromDocument(activeWorkbench)),
+        ...options,
+      };
+      const extension = merged.format === "jpeg" ? "jpg" : "png";
+      const fullCanvas = document.createElement("canvas");
+
+      try {
+        await renderCanvasWorkbenchToCanvas({
+          assets,
+          canvas: fullCanvas,
+          document: activeWorkbench,
+          height: activeWorkbench.height,
+          pixelRatio: merged.pixelRatio,
+          width: activeWorkbench.width,
+        });
+
+        return slices
+          .slice()
+          .sort((left, right) => left.order - right.order)
+          .map((slice) => {
+            const sliceCanvas = cropRenderedCanvasSlice({
+              canvas: fullCanvas,
+              document: activeWorkbench,
+              pixelRatio: merged.pixelRatio,
+              slice,
+            });
+            try {
+              const dataUrl = sliceCanvas.toDataURL(
+                merged.format === "jpeg" ? "image/jpeg" : "image/png",
+                merged.quality
+              );
+              return {
+                slice,
+                dataUrl,
+                fileName: `${options?.filePrefix ?? "filmlab-story"}-${String(slice.order).padStart(2, "0")}-${slice.name
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]+/g, "-")
+                  .replace(/^-+|-+$/g, "") || "slice"}.${extension}`,
+              };
+            } finally {
+              sliceCanvas.width = 0;
+              sliceCanvas.height = 0;
+            }
+          });
+      } finally {
+        fullCanvas.width = 0;
+        fullCanvas.height = 0;
+      }
+    },
+    [activeWorkbench, assets]
+  );
+
+  const downloadSlices = useCallback(
+    async (
+      stage: Konva.Stage | null,
+      slices: CanvasSlice[],
+      options?: Partial<CanvasExportOptions> & { filePrefix?: string }
+    ) => {
+      const results = await exportSlices(stage, slices, options);
+      results.forEach((result) => {
+        const link = document.createElement("a");
+        link.href = result.dataUrl;
+        link.download = result.fileName;
+        link.click();
+      });
+      return results;
+    },
+    [exportSlices]
   );
 
   return {
     exportDataUrl,
     download,
+    exportSlices,
+    downloadSlices,
   };
 }
+
+const defaultExportOptionsFromDocument = (
+  activeWorkbench: {
+    height: number;
+    width: number;
+  } | null
+): CanvasExportOptions => ({
+  format: "png",
+  width: activeWorkbench?.width ?? 1080,
+  height: activeWorkbench?.height ?? 1080,
+  quality: 0.92,
+  pixelRatio: 2,
+});

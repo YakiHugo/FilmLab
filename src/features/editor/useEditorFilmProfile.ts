@@ -5,6 +5,7 @@ import { createDefaultAdjustments } from "@/lib/adjustments";
 import { applyAdjustmentGroupVisibility } from "@/lib/editorAdjustmentVisibility";
 import { listBuiltInFilmProfiles, normalizeFilmProfile } from "@/lib/film";
 import { useEditorStore } from "@/stores/editorStore";
+import { createId } from "@/utils";
 import type {
   Asset,
   AssetUpdate,
@@ -321,7 +322,7 @@ export function useEditorFilmProfile(
       return false;
     }
     const custom: Preset = {
-      id: `custom-${Date.now()}`,
+      id: createId("preset-id"),
       name,
       tags: (basePresets[0]?.tags ?? []) as Preset["tags"],
       intensity: 100,
