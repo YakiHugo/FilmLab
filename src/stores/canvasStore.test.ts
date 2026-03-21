@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
-import type { CanvasWorkbench } from "@/types";
+import type { CanvasHistoryEntry, CanvasWorkbench } from "@/types";
 import { normalizeCanvasWorkbench } from "@/features/canvas/studioPresets";
 import { useCanvasStore } from "./canvasStore";
 
@@ -281,6 +281,14 @@ const createLegacyTextTierDocument = () => {
   } as unknown as CanvasWorkbench;
 };
 
+const createHistoryEntry = (
+  commandType: CanvasHistoryEntry["commandType"] = "PATCH_DOCUMENT"
+): CanvasHistoryEntry => ({
+  commandType,
+  forwardPatch: { operations: [] },
+  inversePatch: { operations: [] },
+});
+
 describe("canvasStore", () => {
   beforeEach(() => {
     loadCanvasWorkbenchesMock.mockReset();
@@ -465,5 +473,239 @@ describe("canvasStore", () => {
     useCanvasStore.getState().setSelectedElementIds(["image-1", "text-1"]);
 
     expect(useCanvasStore.getState().selectedElementIds).toBe(firstSelectedElementIds);
+  });
+
+  it("records command history and clears future entries by default", async () => {
+    const staleFutureEntry = createHistoryEntry("MOVE_NODES");
+    useCanvasStore.setState({
+      historyByWorkbenchId: {
+        "doc-1": {
+          past: [],
+          future: [staleFutureEntry],
+        },
+      },
+    });
+
+    const result = await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+      type: "PATCH_DOCUMENT",
+      patch: {
+        name: "Renamed workbench",
+      },
+    });
+
+    expect(result?.name).toBe("Renamed workbench");
+    expect(useCanvasStore.getState().workbenches[0]?.name).toBe("Renamed workbench");
+    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
+      past: [
+        expect.objectContaining({
+          commandType: "PATCH_DOCUMENT",
+        }),
+      ],
+      future: [],
+    });
+  });
+
+  it("keeps history unchanged when trackHistory is false", async () => {
+    const existingHistory = {
+      past: [createHistoryEntry("MOVE_NODES")],
+      future: [createHistoryEntry("TOGGLE_NODE_LOCK")],
+    };
+    useCanvasStore.setState({
+      historyByWorkbenchId: {
+        "doc-1": existingHistory,
+      },
+    });
+
+    const result = await useCanvasStore.getState().executeCommandInWorkbench(
+      "doc-1",
+      {
+        type: "PATCH_DOCUMENT",
+        patch: {
+          name: "Renamed without history",
+        },
+      },
+      { trackHistory: false }
+    );
+
+    expect(result?.name).toBe("Renamed without history");
+    expect(useCanvasStore.getState().workbenches[0]?.name).toBe("Renamed without history");
+    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual(existingHistory);
+  });
+
+  it("skips persistence and history changes for no-op commands", async () => {
+    const existing = useCanvasStore.getState().workbenches[0]!;
+    const previousHistory = {
+      past: [createHistoryEntry("MOVE_NODES")],
+      future: [createHistoryEntry("TOGGLE_NODE_VISIBILITY")],
+    };
+    useCanvasStore.setState({
+      historyByWorkbenchId: {
+        "doc-1": previousHistory,
+      },
+    });
+    saveCanvasWorkbenchMock.mockClear();
+
+    const result = await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+      type: "PATCH_DOCUMENT",
+      patch: {
+        name: existing.name,
+      },
+    });
+
+    expect(result).toBe(existing);
+    expect(saveCanvasWorkbenchMock).not.toHaveBeenCalled();
+    expect(useCanvasStore.getState().workbenches[0]).toBe(existing);
+    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual(previousHistory);
+  });
+
+  it("undo applies inverse patches, moves history to future, and clears selection", async () => {
+    const originalName = useCanvasStore.getState().workbenches[0]?.name;
+    await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+      type: "PATCH_DOCUMENT",
+      patch: {
+        name: "Renamed workbench",
+      },
+    });
+    useCanvasStore.setState({
+      selectedElementIds: ["image-1", "text-1"],
+    });
+
+    const undone = await useCanvasStore.getState().undo();
+
+    expect(undone).toBe(true);
+    expect(useCanvasStore.getState().workbenches[0]?.name).toBe(originalName);
+    expect(useCanvasStore.getState().selectedElementIds).toEqual([]);
+    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
+      past: [],
+      future: [
+        expect.objectContaining({
+          commandType: "PATCH_DOCUMENT",
+        }),
+      ],
+    });
+  });
+
+  it("redo reapplies forward patches, restores past history, and clears selection", async () => {
+    await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+      type: "PATCH_DOCUMENT",
+      patch: {
+        name: "Renamed workbench",
+      },
+    });
+    await useCanvasStore.getState().undo();
+    useCanvasStore.setState({
+      selectedElementIds: ["image-1"],
+    });
+
+    const redone = await useCanvasStore.getState().redo();
+
+    expect(redone).toBe(true);
+    expect(useCanvasStore.getState().workbenches[0]?.name).toBe("Renamed workbench");
+    expect(useCanvasStore.getState().selectedElementIds).toEqual([]);
+    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
+      past: [
+        expect.objectContaining({
+          commandType: "PATCH_DOCUMENT",
+        }),
+      ],
+      future: [],
+    });
+  });
+
+  it("does not commit command state when persistence fails", async () => {
+    const originalName = useCanvasStore.getState().workbenches[0]?.name;
+    useCanvasStore.setState({
+      historyByWorkbenchId: {
+        "doc-1": {
+          past: [],
+          future: [],
+        },
+      },
+    });
+    saveCanvasWorkbenchMock.mockResolvedValue(false);
+
+    const result = await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+      type: "PATCH_DOCUMENT",
+      patch: {
+        name: "Should not persist",
+      },
+    });
+
+    expect(result).toBeNull();
+    expect(useCanvasStore.getState().workbenches[0]?.name).toBe(originalName);
+    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
+      past: [],
+      future: [],
+    });
+  });
+
+  it("does not commit undo state when persistence fails", async () => {
+    await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+      type: "PATCH_DOCUMENT",
+      patch: {
+        name: "Renamed workbench",
+      },
+    });
+    useCanvasStore.setState({
+      selectedElementIds: ["image-1"],
+    });
+    saveCanvasWorkbenchMock.mockResolvedValue(false);
+
+    const undone = await useCanvasStore.getState().undo();
+
+    expect(undone).toBe(false);
+    expect(useCanvasStore.getState().workbenches[0]?.name).toBe("Renamed workbench");
+    expect(useCanvasStore.getState().selectedElementIds).toEqual(["image-1"]);
+    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
+      past: [
+        expect.objectContaining({
+          commandType: "PATCH_DOCUMENT",
+        }),
+      ],
+      future: [],
+    });
+  });
+
+  it("does not commit redo state when persistence fails", async () => {
+    const originalName = useCanvasStore.getState().workbenches[0]?.name;
+    await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+      type: "PATCH_DOCUMENT",
+      patch: {
+        name: "Renamed workbench",
+      },
+    });
+    await useCanvasStore.getState().undo();
+    useCanvasStore.setState({
+      selectedElementIds: ["image-1"],
+    });
+    saveCanvasWorkbenchMock.mockResolvedValue(false);
+
+    const redone = await useCanvasStore.getState().redo();
+
+    expect(redone).toBe(false);
+    expect(useCanvasStore.getState().workbenches[0]?.name).toBe(originalName);
+    expect(useCanvasStore.getState().selectedElementIds).toEqual(["image-1"]);
+    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
+      past: [],
+      future: [
+        expect.objectContaining({
+          commandType: "PATCH_DOCUMENT",
+        }),
+      ],
+    });
+  });
+
+  it("returns null without side effects when the command target workbench is missing", async () => {
+    saveCanvasWorkbenchMock.mockClear();
+
+    const result = await useCanvasStore.getState().executeCommandInWorkbench("missing-doc", {
+      type: "PATCH_DOCUMENT",
+      patch: {
+        name: "Missing",
+      },
+    });
+
+    expect(result).toBeNull();
+    expect(saveCanvasWorkbenchMock).not.toHaveBeenCalled();
   });
 });

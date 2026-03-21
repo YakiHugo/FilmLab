@@ -51,6 +51,8 @@ interface ExecuteCommandOptions {
   trackHistory?: boolean;
 }
 
+type CanvasHistoryTransitionMode = "undo" | "redo";
+
 interface CreateWorkbenchOptions {
   activate?: boolean;
 }
@@ -58,6 +60,27 @@ interface CreateWorkbenchOptions {
 interface DeleteWorkbenchOptions {
   nextActiveWorkbenchId?: string | null;
 }
+
+interface BaseWorkbenchCommitDescriptor {
+  workbenchId: string;
+  nextWorkbench: CanvasWorkbench;
+}
+
+interface CommandCommitDescriptor extends BaseWorkbenchCommitDescriptor {
+  historyMode: "command";
+  historyEntry: CanvasHistoryEntry;
+  trackHistory: boolean;
+}
+
+interface HistoryTransitionCommitDescriptor extends BaseWorkbenchCommitDescriptor {
+  historyMode: CanvasHistoryTransitionMode;
+  historyEntry: CanvasHistoryEntry;
+  historyState: CanvasHistoryState;
+}
+
+type WorkbenchCommitDescriptor =
+  | CommandCommitDescriptor
+  | HistoryTransitionCommitDescriptor;
 
 interface CanvasState {
   workbenches: CanvasWorkbench[];
@@ -288,6 +311,111 @@ const makeDefaultWorkbench = (name = "Untitled Workbench"): CanvasWorkbench => {
 
 const MAX_CANVAS_HISTORY = 50;
 
+const createEmptyHistoryState = (): CanvasHistoryState => ({
+  past: [],
+  future: [],
+});
+
+const replaceWorkbenchInState = (
+  workbenches: CanvasWorkbench[],
+  workbenchId: string,
+  nextWorkbench: CanvasWorkbench
+) =>
+  workbenches.map((workbench) =>
+    workbench.id === workbenchId ? nextWorkbench : workbench
+  );
+
+const createHistoryEntry = (
+  command: CanvasCommand,
+  result: Pick<CanvasHistoryEntry, "forwardPatch" | "inversePatch">
+): CanvasHistoryEntry => ({
+  commandType: command.type,
+  forwardPatch: result.forwardPatch,
+  inversePatch: result.inversePatch,
+});
+
+const applyCommandHistory = (
+  historyByWorkbenchId: Record<string, CanvasHistoryState>,
+  workbenchId: string,
+  historyEntry: CanvasHistoryEntry,
+  trackHistory: boolean
+) => {
+  if (!trackHistory) {
+    return historyByWorkbenchId;
+  }
+
+  const history = historyByWorkbenchId[workbenchId] ?? createEmptyHistoryState();
+  return {
+    ...historyByWorkbenchId,
+    [workbenchId]: {
+      past: [...history.past, historyEntry].slice(-MAX_CANVAS_HISTORY),
+      future: [],
+    },
+  };
+};
+
+const applyHistoryTransition = (
+  historyByWorkbenchId: Record<string, CanvasHistoryState>,
+  workbenchId: string,
+  mode: CanvasHistoryTransitionMode,
+  historyEntry: CanvasHistoryEntry,
+  historyState: CanvasHistoryState
+) => ({
+  ...historyByWorkbenchId,
+  [workbenchId]:
+    mode === "undo"
+      ? {
+          past: historyState.past.slice(0, -1),
+          future: [historyEntry, ...historyState.future].slice(0, MAX_CANVAS_HISTORY),
+        }
+      : {
+          past: [...historyState.past, historyEntry].slice(-MAX_CANVAS_HISTORY),
+          future: historyState.future.slice(1),
+        },
+});
+
+const commitCommandResultToState = (
+  state: CanvasState,
+  descriptor: WorkbenchCommitDescriptor,
+  selectedElementIds?: string[]
+):
+  | Pick<CanvasState, "workbenches" | "historyByWorkbenchId">
+  | Pick<CanvasState, "workbenches" | "historyByWorkbenchId" | "selectedElementIds"> => {
+  const workbenches = replaceWorkbenchInState(
+    state.workbenches,
+    descriptor.workbenchId,
+    descriptor.nextWorkbench
+  );
+  const historyByWorkbenchId =
+    descriptor.historyMode === "command"
+      ? applyCommandHistory(
+          state.historyByWorkbenchId,
+          descriptor.workbenchId,
+          descriptor.historyEntry,
+          descriptor.trackHistory
+        )
+      : applyHistoryTransition(
+          state.historyByWorkbenchId,
+          descriptor.workbenchId,
+          descriptor.historyMode,
+          descriptor.historyEntry,
+          descriptor.historyState
+        );
+
+  if (selectedElementIds === undefined) {
+    return {
+      workbenches,
+      historyByWorkbenchId,
+    };
+  }
+
+  return {
+    workbenches,
+    historyByWorkbenchId,
+    selectedElementIds,
+  };
+};
+
 const cloneNodeTree = (
   workbench: CanvasWorkbench,
   nodeId: CanvasNodeId,
@@ -346,56 +474,97 @@ export const selectActiveWorkbenchExportState = (state: CanvasState) =>
 export const useCanvasStore = create<CanvasState>()(
   devtools(
     (set, get) => {
+      const resolveCommandTarget = (workbenchId: string) =>
+        get().workbenches.find((workbench) => workbench.id === workbenchId) ?? null;
+
+      const runWorkbenchCommand = (
+        workbenchId: string,
+        existing: CanvasWorkbench,
+        command: CanvasCommand,
+        options?: ExecuteCommandOptions
+      ) => {
+        const result = executeCanvasCommand(existing, command);
+        if (!result.didChange) {
+          return { kind: "noop" as const, workbench: existing };
+        }
+
+        return {
+          kind: "commit" as const,
+          descriptor: {
+            workbenchId,
+            nextWorkbench: result.document,
+            historyMode: "command",
+            historyEntry: createHistoryEntry(command, result),
+            trackHistory: options?.trackHistory !== false,
+          } satisfies CommandCommitDescriptor,
+        };
+      };
+
+      const persistCommittedWorkbench = async (
+        workbench: CanvasWorkbench,
+        epoch: number
+      ) => persistCanvasWorkbenchSnapshot(workbench, epoch);
+
+      const commitDescriptorToStore = async (
+        descriptor: WorkbenchCommitDescriptor,
+        epoch: number,
+        selectedElementIds?: string[]
+      ) => {
+        if (!(await persistCommittedWorkbench(descriptor.nextWorkbench, epoch))) {
+          return false;
+        }
+
+        let didCommit = false;
+        set((state) => {
+          if (epoch !== canvasResetEpoch) {
+            return state;
+          }
+
+          didCommit = true;
+          return commitCommandResultToState(state, descriptor, selectedElementIds);
+        });
+
+        return didCommit;
+      };
+
+      const createHistoryTransitionDescriptor = (
+        workbenchId: string,
+        workbench: CanvasWorkbench,
+        historyMode: CanvasHistoryTransitionMode,
+        historyEntry: CanvasHistoryEntry,
+        historyState: CanvasHistoryState
+      ): HistoryTransitionCommitDescriptor => ({
+        workbenchId,
+        nextWorkbench: applyCanvasWorkbenchPatch(
+          workbench,
+          historyMode === "undo" ? historyEntry.inversePatch : historyEntry.forwardPatch
+        ),
+        historyMode,
+        historyEntry,
+        historyState,
+      });
+
       const executeWorkbenchCommand = async (
         workbenchId: string,
         command: CanvasCommand,
         options?: ExecuteCommandOptions
       ) => {
-        const existing = get().workbenches.find((workbench) => workbench.id === workbenchId);
+        const existing = resolveCommandTarget(workbenchId);
         if (!existing) {
           return null;
         }
 
         const epoch = getCanvasResetEpoch();
-        const result = executeCanvasCommand(existing, command);
-        if (!result.didChange) {
-          return existing;
+        const commandResult = runWorkbenchCommand(workbenchId, existing, command, options);
+        if (commandResult.kind === "noop") {
+          return commandResult.workbench;
         }
 
-        if (!(await persistCanvasWorkbenchSnapshot(result.document, epoch))) {
+        if (!(await commitDescriptorToStore(commandResult.descriptor, epoch))) {
           return null;
         }
 
-        set((state) => {
-          if (epoch !== canvasResetEpoch) {
-            return state;
-          }
-          const history = state.historyByWorkbenchId[workbenchId] ?? { past: [], future: [] };
-          const nextHistoryByWorkbenchId = { ...state.historyByWorkbenchId };
-          nextHistoryByWorkbenchId[workbenchId] =
-            options?.trackHistory === false
-              ? history
-              : {
-                  past: [
-                    ...history.past,
-                    {
-                      commandType: command.type,
-                      forwardPatch: result.forwardPatch,
-                      inversePatch: result.inversePatch,
-                    },
-                  ].slice(-MAX_CANVAS_HISTORY),
-                  future: [],
-                };
-
-          return {
-            workbenches: state.workbenches.map((workbench) =>
-              workbench.id === workbenchId ? result.document : workbench
-            ),
-            historyByWorkbenchId: nextHistoryByWorkbenchId,
-          };
-        });
-
-        return result.document;
+        return commandResult.descriptor.nextWorkbench;
       };
 
       const getActiveWorkbench = () => selectActiveWorkbench(get());
@@ -559,7 +728,7 @@ export const useCanvasStore = create<CanvasState>()(
         },
         executeCommandInWorkbench: executeWorkbenchCommand,
         upsertElementInWorkbench: async (workbenchId, element) => {
-          const activeWorkbench = get().workbenches.find((item) => item.id === workbenchId);
+          const activeWorkbench = resolveCommandTarget(workbenchId);
           if (!activeWorkbench) {
             return;
           }
@@ -818,35 +987,25 @@ export const useCanvasStore = create<CanvasState>()(
           }
           const epoch = getCanvasResetEpoch();
 
-          const history = get().historyByWorkbenchId[activeWorkbenchId] ?? {
-            past: [],
-            future: [],
-          };
+          const history =
+            get().historyByWorkbenchId[activeWorkbenchId] ?? createEmptyHistoryState();
           const previous = history.past[history.past.length - 1];
           if (!previous) {
             return false;
           }
 
-          const resultWorkbench = applyCanvasWorkbenchPatch(activeWorkbench, previous.inversePatch);
-          if (!(await persistCanvasWorkbenchSnapshot(resultWorkbench, epoch))) {
+          const descriptor = createHistoryTransitionDescriptor(
+            activeWorkbenchId,
+            activeWorkbench,
+            "undo",
+            previous,
+            history
+          );
+          if (
+            !(await commitDescriptorToStore(descriptor, epoch, []))
+          ) {
             return false;
           }
-          if (epoch !== canvasResetEpoch) {
-            return false;
-          }
-          set((state) => ({
-            workbenches: state.workbenches.map((workbench) =>
-              workbench.id === activeWorkbenchId ? resultWorkbench : workbench
-            ),
-            historyByWorkbenchId: {
-              ...state.historyByWorkbenchId,
-              [activeWorkbenchId]: {
-                past: history.past.slice(0, -1),
-                future: [previous, ...history.future].slice(0, MAX_CANVAS_HISTORY),
-              },
-            },
-            selectedElementIds: [],
-          }));
           return true;
         },
         redo: async () => {
@@ -857,35 +1016,25 @@ export const useCanvasStore = create<CanvasState>()(
           }
           const epoch = getCanvasResetEpoch();
 
-          const history = get().historyByWorkbenchId[activeWorkbenchId] ?? {
-            past: [],
-            future: [],
-          };
+          const history =
+            get().historyByWorkbenchId[activeWorkbenchId] ?? createEmptyHistoryState();
           const nextEntry = history.future[0];
           if (!nextEntry) {
             return false;
           }
 
-          const resultWorkbench = applyCanvasWorkbenchPatch(activeWorkbench, nextEntry.forwardPatch);
-          if (!(await persistCanvasWorkbenchSnapshot(resultWorkbench, epoch))) {
+          const descriptor = createHistoryTransitionDescriptor(
+            activeWorkbenchId,
+            activeWorkbench,
+            "redo",
+            nextEntry,
+            history
+          );
+          if (
+            !(await commitDescriptorToStore(descriptor, epoch, []))
+          ) {
             return false;
           }
-          if (epoch !== canvasResetEpoch) {
-            return false;
-          }
-          set((state) => ({
-            workbenches: state.workbenches.map((workbench) =>
-              workbench.id === activeWorkbenchId ? resultWorkbench : workbench
-            ),
-            historyByWorkbenchId: {
-              ...state.historyByWorkbenchId,
-              [activeWorkbenchId]: {
-                past: [...history.past, nextEntry].slice(-MAX_CANVAS_HISTORY),
-                future: history.future.slice(1),
-              },
-            },
-            selectedElementIds: [],
-          }));
           return true;
         },
         deleteWorkbench: async (id, options) => {
