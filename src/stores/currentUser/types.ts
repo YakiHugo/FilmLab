@@ -1,4 +1,4 @@
-import type { Asset, AssetOrigin, AssetUpdate, EditorLayer, Project } from "@/types";
+import type { Asset, AssetOrigin, AssetUpdate, CurrentUser, EditorLayer } from "@/types";
 
 export interface ImportProgress {
   current: number;
@@ -31,8 +31,8 @@ export interface ImportAssetOptions {
 // Backward-compatible alias for existing consumers during migration.
 export type AddAssetsResult = ImportAssetsResult;
 
-export interface ProjectState {
-  project: Project | null;
+export interface CurrentUserState {
+  currentUser: CurrentUser | null;
   assets: Asset[];
   isLoading: boolean;
   isImporting: boolean;
@@ -67,6 +67,6 @@ export interface ProjectState {
   removeTagsFromAssets: (assetIds: string[], tags: string[]) => void;
 
   deleteAssets: (assetIds: string[]) => Promise<void>;
-  resetProject: () => Promise<void>;
+  resetCurrentUser: () => Promise<void>;
 }
 

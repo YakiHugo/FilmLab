@@ -1,12 +1,13 @@
 ﻿import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import type { PersistedImageSession } from "../../shared/chatImageTypes";
+import { getCurrentUserId } from "@/lib/authToken";
 import type {
   AssetOrigin,
   AssetOwnerRef,
   AssetMetadata,
   AssetRemoteState,
   AssetSyncJobOperation,
-  CanvasDocumentSnapshot,
+  CanvasWorkbenchSnapshot,
   EditorLayer,
   EditingAdjustments,
   FilmProfile,
@@ -42,8 +43,11 @@ interface FilmLabDB extends DBSchema {
       remote?: AssetRemoteState;
       ownerRef?: AssetOwnerRef;
     };
+    indexes: {
+      byOwnerUserId: string;
+    };
   };
-  project: {
+  currentUser: {
     key: string;
     value: {
       id: string;
@@ -64,15 +68,19 @@ interface FilmLabDB extends DBSchema {
       byAssetId: string;
     };
   };
-  canvasDocuments: {
+  canvasWorkbenches: {
     key: string;
-    value: CanvasDocumentSnapshot;
+    value: CanvasWorkbenchSnapshot;
+    indexes: {
+      byOwnerUserId: string;
+    };
   };
   assetSyncJobs: {
     key: string;
     value: {
       jobId: string;
       localAssetId: string;
+      ownerUserId?: string;
       op: AssetSyncJobOperation;
       attempts: number;
       nextRetryAt: string;
@@ -84,6 +92,7 @@ interface FilmLabDB extends DBSchema {
     indexes: {
       byLocalAssetId: string;
       byNextRetryAt: string;
+      byOwnerUserId: string;
       byOp: AssetSyncJobOperation;
     };
   };
@@ -94,7 +103,7 @@ interface FilmLabDB extends DBSchema {
 }
 
 const DB_NAME = "filmlab-mvp";
-const DB_VERSION = 9;
+const DB_VERSION = 12;
 
 let dbFailed = false;
 let dbInstance: IDBPDatabase<FilmLabDB> | null = null;
@@ -108,35 +117,62 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
     try {
       const db = await openDB<FilmLabDB>(DB_NAME, DB_VERSION, {
         upgrade(db, oldVersion, _newVersion, transaction) {
-          if (!db.objectStoreNames.contains("assets")) {
-            db.createObjectStore("assets", { keyPath: "id" });
+          const legacyObjectStoreNames = db.objectStoreNames as unknown as DOMStringList;
+          const legacySchemaDb = db as unknown as { deleteObjectStore: (name: string) => void };
+          const recreateLocalStores = [
+            "project",
+            "canvasDocuments",
+            "assets",
+            "localMaskBlobs",
+            "assetSyncJobs",
+            "canvasWorkbenches",
+          ];
+          if (oldVersion < 11) {
+            for (const storeName of recreateLocalStores) {
+              if (legacyObjectStoreNames.contains(storeName)) {
+                legacySchemaDb.deleteObjectStore(storeName);
+              }
+            }
           }
-          if (!db.objectStoreNames.contains("project")) {
-            db.createObjectStore("project", { keyPath: "id" });
+          if (!db.objectStoreNames.contains("assets")) {
+            const store = db.createObjectStore("assets", { keyPath: "id" });
+            store.createIndex("byOwnerUserId", "ownerRef.userId", { unique: false });
+          } else if (oldVersion < 11) {
+            const store = transaction.objectStore("assets");
+            if (!store.indexNames.contains("byOwnerUserId")) {
+              store.createIndex("byOwnerUserId", "ownerRef.userId", { unique: false });
+            }
+          }
+          if (!db.objectStoreNames.contains("currentUser")) {
+            db.createObjectStore("currentUser", { keyPath: "id" });
           }
           if (!db.objectStoreNames.contains("localMaskBlobs")) {
             const store = db.createObjectStore("localMaskBlobs", { keyPath: "id" });
             store.createIndex("byAssetId", "assetId", { unique: false });
           }
-          if (!db.objectStoreNames.contains("canvasDocuments")) {
-            db.createObjectStore("canvasDocuments", { keyPath: "id" });
+          if (!db.objectStoreNames.contains("canvasWorkbenches")) {
+            const store = db.createObjectStore("canvasWorkbenches", { keyPath: "id" });
+            store.createIndex("byOwnerUserId", "ownerRef.userId", { unique: false });
+          } else if (oldVersion < 11) {
+            const store = transaction.objectStore("canvasWorkbenches");
+            if (!store.indexNames.contains("byOwnerUserId")) {
+              store.createIndex("byOwnerUserId", "ownerRef.userId", { unique: false });
+            }
           }
           if (!db.objectStoreNames.contains("assetSyncJobs")) {
             const syncStore = db.createObjectStore("assetSyncJobs", { keyPath: "jobId" });
             syncStore.createIndex("byLocalAssetId", "localAssetId", { unique: false });
             syncStore.createIndex("byNextRetryAt", "nextRetryAt", { unique: false });
+            syncStore.createIndex("byOwnerUserId", "ownerUserId", { unique: false });
             syncStore.createIndex("byOp", "op", { unique: false });
-          } else if (oldVersion < 7) {
-            const syncStore = transaction.objectStore("assetSyncJobs");
-            if (!syncStore.indexNames.contains("byLocalAssetId")) {
-              syncStore.createIndex("byLocalAssetId", "localAssetId", { unique: false });
-            }
-            if (!syncStore.indexNames.contains("byNextRetryAt")) {
-              syncStore.createIndex("byNextRetryAt", "nextRetryAt", { unique: false });
-            }
-            if (!syncStore.indexNames.contains("byOp")) {
-              syncStore.createIndex("byOp", "op", { unique: false });
-            }
+          } else if (oldVersion < 12) {
+            const legacySchemaDb = db as unknown as { deleteObjectStore: (name: string) => void };
+            legacySchemaDb.deleteObjectStore("assetSyncJobs");
+            const syncStore = db.createObjectStore("assetSyncJobs", { keyPath: "jobId" });
+            syncStore.createIndex("byLocalAssetId", "localAssetId", { unique: false });
+            syncStore.createIndex("byNextRetryAt", "nextRetryAt", { unique: false });
+            syncStore.createIndex("byOwnerUserId", "ownerUserId", { unique: false });
+            syncStore.createIndex("byOp", "op", { unique: false });
           }
           if (!db.objectStoreNames.contains("imageGenerationSessions")) {
             db.createObjectStore("imageGenerationSessions", { keyPath: "id" });
@@ -400,25 +436,27 @@ const hydrateBrushMaskBlobs = async (
   };
 };
 
-export async function saveProject(project: FilmLabDB["project"]["value"]): Promise<boolean> {
+export async function saveCurrentUser(
+  currentUser: FilmLabDB["currentUser"]["value"]
+): Promise<boolean> {
   const db = await getDB();
   if (!db) return false;
   try {
-    await db.put("project", project);
+    await db.put("currentUser", currentUser);
     return true;
   } catch (error) {
-    console.warn("IndexedDB saveProject failed:", error);
+    console.warn("IndexedDB saveCurrentUser failed:", error);
     return false;
   }
 }
 
-export async function loadProject(id = "default") {
+export async function loadCurrentUser(id: string) {
   const db = await getDB();
   if (!db) return null;
   try {
-    return (await db.get("project", id)) ?? null;
+    return (await db.get("currentUser", id)) ?? null;
   } catch (error) {
-    console.warn("IndexedDB loadProject failed:", error);
+    console.warn("IndexedDB loadCurrentUser failed:", error);
     return null;
   }
 }
@@ -431,6 +469,7 @@ export async function saveAsset(asset: FilmLabDB["assets"]["value"]): Promise<bo
     const storedAdjustments = await maybeOffloadBrushMaskBlobs(db, asset.id, asset.adjustments);
     await db.put("assets", {
       ...asset,
+      ownerRef: { userId: getCurrentUserId() },
       adjustments: storedAdjustments,
     });
     return true;
@@ -466,13 +505,44 @@ export async function loadAssets() {
   }
 }
 
+export async function loadAssetsByUser(userId: string): Promise<StoredAsset[]> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("assets")) return [];
+  try {
+    const assets = db.objectStoreNames.contains("assets")
+      ? db.transaction("assets").store.indexNames.contains("byOwnerUserId")
+        ? await db.getAllFromIndex("assets", "byOwnerUserId", userId)
+        : (await db.getAll("assets")).filter((asset) => asset.ownerRef?.userId === userId)
+      : [];
+    return Promise.all(
+      assets.map(async (asset) => {
+        try {
+          return {
+            ...asset,
+            adjustments: await hydrateBrushMaskBlobs(db, asset.adjustments),
+          };
+        } catch (error) {
+          console.warn(`IndexedDB loadAssetsByUser skipped hydration for asset ${asset.id}.`, error);
+          return asset;
+        }
+      })
+    );
+  } catch (error) {
+    console.warn("IndexedDB loadAssetsByUser failed:", error);
+    return [];
+  }
+}
+
 export type StoredAssetSyncJob = FilmLabDB["assetSyncJobs"]["value"];
 
 export async function saveAssetSyncJob(job: StoredAssetSyncJob): Promise<boolean> {
   const db = await getDB();
   if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return false;
   try {
-    await db.put("assetSyncJobs", job);
+    await db.put("assetSyncJobs", {
+      ...job,
+      ownerUserId: getCurrentUserId(),
+    });
     return true;
   } catch (error) {
     console.warn("IndexedDB saveAssetSyncJob failed:", error);
@@ -487,7 +557,10 @@ export async function saveAssetSyncJobs(jobs: StoredAssetSyncJob[]): Promise<boo
   try {
     const tx = db.transaction("assetSyncJobs", "readwrite");
     for (const job of jobs) {
-      await tx.store.put(job);
+      await tx.store.put({
+        ...job,
+        ownerUserId: getCurrentUserId(),
+      });
     }
     await tx.done;
     return true;
@@ -507,6 +580,25 @@ export async function loadAssetSyncJobs(limit = 128): Promise<StoredAssetSyncJob
       .slice(0, Math.max(1, limit));
   } catch (error) {
     console.warn("IndexedDB loadAssetSyncJobs failed:", error);
+    return [];
+  }
+}
+
+export async function loadAssetSyncJobsByUser(
+  userId: string,
+  limit = 128
+): Promise<StoredAssetSyncJob[]> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return [];
+  try {
+    const jobs = db.transaction("assetSyncJobs").store.indexNames.contains("byOwnerUserId")
+      ? await db.getAllFromIndex("assetSyncJobs", "byOwnerUserId", userId)
+      : (await db.getAll("assetSyncJobs")).filter((job) => job.ownerUserId === userId);
+    return jobs
+      .sort((a, b) => a.nextRetryAt.localeCompare(b.nextRetryAt))
+      .slice(0, Math.max(1, limit));
+  } catch (error) {
+    console.warn("IndexedDB loadAssetSyncJobsByUser failed:", error);
     return [];
   }
 }
@@ -546,6 +638,21 @@ export async function deleteAssetSyncJobsByAssetId(assetId: string): Promise<boo
   }
 }
 
+export async function clearAssetSyncJobsByUser(userId: string): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return false;
+  try {
+    const jobs = db.transaction("assetSyncJobs").store.indexNames.contains("byOwnerUserId")
+      ? await db.getAllFromIndex("assetSyncJobs", "byOwnerUserId", userId)
+      : (await db.getAll("assetSyncJobs")).filter((job) => job.ownerUserId === userId);
+    await Promise.all(jobs.map((job) => db.delete("assetSyncJobs", job.jobId)));
+    return true;
+  } catch (error) {
+    console.warn("IndexedDB clearAssetSyncJobsByUser failed:", error);
+    return false;
+  }
+}
+
 export async function clearAssets(): Promise<boolean> {
   const db = await getDB();
   if (!db) return false;
@@ -564,6 +671,29 @@ export async function clearAssets(): Promise<boolean> {
   }
 }
 
+export async function clearAssetsByUser(userId: string): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("assets")) return false;
+  try {
+    const assets = db.transaction("assets").store.indexNames.contains("byOwnerUserId")
+      ? await db.getAllFromIndex("assets", "byOwnerUserId", userId)
+      : (await db.getAll("assets")).filter((asset) => asset.ownerRef?.userId === userId);
+    const results = await Promise.all(
+      assets.map(async (asset) => {
+        const [deletedSyncJobs, deletedAsset] = await Promise.all([
+          deleteAssetSyncJobsByAssetId(asset.id),
+          deleteAsset(asset.id),
+        ]);
+        return deletedSyncJobs && deletedAsset;
+      })
+    );
+    return results.every(Boolean);
+  } catch (error) {
+    console.warn("IndexedDB clearAssetsByUser failed:", error);
+    return false;
+  }
+}
+
 export async function deleteAsset(id: string): Promise<boolean> {
   const db = await getDB();
   if (!db) return false;
@@ -577,63 +707,101 @@ export async function deleteAsset(id: string): Promise<boolean> {
   }
 }
 
-export type StoredCanvasDocument = FilmLabDB["canvasDocuments"]["value"];
+export type StoredCanvasWorkbench = FilmLabDB["canvasWorkbenches"]["value"];
 
-export async function saveCanvasDocument(document: StoredCanvasDocument): Promise<boolean> {
+export async function saveCanvasWorkbench(document: StoredCanvasWorkbench): Promise<boolean> {
   const db = await getDB();
-  if (!db || !db.objectStoreNames.contains("canvasDocuments")) return false;
+  if (!db || !db.objectStoreNames.contains("canvasWorkbenches")) return false;
   try {
-    await db.put("canvasDocuments", document);
+    await db.put("canvasWorkbenches", {
+      ...document,
+      ownerRef: { userId: getCurrentUserId() },
+    });
     return true;
   } catch (error) {
-    console.warn("IndexedDB saveCanvasDocument failed:", error);
+    console.warn("IndexedDB saveCanvasWorkbench failed:", error);
     return false;
   }
 }
 
-export async function loadCanvasDocument(id: string): Promise<StoredCanvasDocument | null> {
+export async function loadCanvasWorkbench(id: string): Promise<StoredCanvasWorkbench | null> {
   const db = await getDB();
-  if (!db || !db.objectStoreNames.contains("canvasDocuments")) return null;
+  if (!db || !db.objectStoreNames.contains("canvasWorkbenches")) return null;
   try {
-    return (await db.get("canvasDocuments", id)) ?? null;
+    return (await db.get("canvasWorkbenches", id)) ?? null;
   } catch (error) {
-    console.warn("IndexedDB loadCanvasDocument failed:", error);
+    console.warn("IndexedDB loadCanvasWorkbench failed:", error);
     return null;
   }
 }
 
-export async function loadCanvasDocuments(): Promise<StoredCanvasDocument[]> {
+export async function loadCanvasWorkbenches(): Promise<StoredCanvasWorkbench[]> {
   const db = await getDB();
-  if (!db || !db.objectStoreNames.contains("canvasDocuments")) return [];
+  if (!db || !db.objectStoreNames.contains("canvasWorkbenches")) return [];
   try {
-    const documents = await db.getAll("canvasDocuments");
-    return documents.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const workbenches = await db.getAll("canvasWorkbenches");
+    return workbenches.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   } catch (error) {
-    console.warn("IndexedDB loadCanvasDocuments failed:", error);
+    console.warn("IndexedDB loadCanvasWorkbenches failed:", error);
     return [];
   }
 }
 
-export async function deleteCanvasDocument(id: string): Promise<boolean> {
+export async function loadCanvasWorkbenchesByUser(userId: string): Promise<StoredCanvasWorkbench[]> {
   const db = await getDB();
-  if (!db || !db.objectStoreNames.contains("canvasDocuments")) return false;
+  if (!db || !db.objectStoreNames.contains("canvasWorkbenches")) return [];
   try {
-    await db.delete("canvasDocuments", id);
+    const workbenches = db.transaction("canvasWorkbenches").store.indexNames.contains("byOwnerUserId")
+      ? await db.getAllFromIndex("canvasWorkbenches", "byOwnerUserId", userId)
+      : (await db.getAll("canvasWorkbenches")).filter(
+          (workbench) => workbench.ownerRef?.userId === userId
+        );
+    return workbenches.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  } catch (error) {
+    console.warn("IndexedDB loadCanvasWorkbenchesByUser failed:", error);
+    return [];
+  }
+}
+
+export async function deleteCanvasWorkbench(id: string): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("canvasWorkbenches")) return false;
+  try {
+    await db.delete("canvasWorkbenches", id);
     return true;
   } catch (error) {
-    console.warn("IndexedDB deleteCanvasDocument failed:", error);
+    console.warn("IndexedDB deleteCanvasWorkbench failed:", error);
     return false;
   }
 }
 
-export async function clearCanvasDocuments(): Promise<boolean> {
+export async function clearCanvasWorkbenches(): Promise<boolean> {
   const db = await getDB();
-  if (!db || !db.objectStoreNames.contains("canvasDocuments")) return false;
+  if (!db || !db.objectStoreNames.contains("canvasWorkbenches")) return false;
   try {
-    await db.clear("canvasDocuments");
+    await db.clear("canvasWorkbenches");
     return true;
   } catch (error) {
-    console.warn("IndexedDB clearCanvasDocuments failed:", error);
+    console.warn("IndexedDB clearCanvasWorkbenches failed:", error);
+    return false;
+  }
+}
+
+export async function clearCanvasWorkbenchesByUser(userId: string): Promise<boolean> {
+  const db = await getDB();
+  if (!db || !db.objectStoreNames.contains("canvasWorkbenches")) return false;
+  try {
+    const workbenches = db.transaction("canvasWorkbenches").store.indexNames.contains("byOwnerUserId")
+      ? await db.getAllFromIndex("canvasWorkbenches", "byOwnerUserId", userId)
+      : (await db.getAll("canvasWorkbenches")).filter(
+          (workbench) => workbench.ownerRef?.userId === userId
+        );
+    await Promise.all(
+      workbenches.map((workbench) => db.delete("canvasWorkbenches", workbench.id))
+    );
+    return true;
+  } catch (error) {
+    console.warn("IndexedDB clearCanvasWorkbenchesByUser failed:", error);
     return false;
   }
 }

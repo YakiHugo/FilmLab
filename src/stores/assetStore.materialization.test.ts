@@ -32,17 +32,17 @@ vi.mock("@/lib/authToken", () => ({
 
 vi.mock("@/lib/db", () => ({
   clearAssets: vi.fn(async () => undefined),
-  clearCanvasDocuments: vi.fn(async () => undefined),
+  clearCanvasWorkbenches: vi.fn(async () => undefined),
   deleteAsset: vi.fn(async () => undefined),
   deleteAssetSyncJob: vi.fn(async () => undefined),
   deleteAssetSyncJobsByAssetId: vi.fn(async () => undefined),
   loadAssetSyncJobs: vi.fn(async () => []),
   loadAssets: vi.fn(async () => []),
-  loadProject: vi.fn(async () => null),
+  loadCurrentUser: vi.fn(async () => null),
   saveAsset: vi.fn(async () => undefined),
   saveAssetSyncJob: vi.fn(async () => undefined),
   saveAssetSyncJobs: vi.fn(async () => undefined),
-  saveProject: vi.fn(async () => undefined),
+  saveCurrentUser: vi.fn(async () => undefined),
 }));
 
 vi.mock("@/features/editor/thumbnail", () => ({
@@ -62,7 +62,7 @@ vi.mock("@/features/editor/presetUtils", () => ({
   loadCustomPresets: vi.fn(() => []),
 }));
 
-vi.mock("./project/persistence", () => ({
+vi.mock("./currentUser/persistence", () => ({
   cancelPendingPersists: vi.fn(),
   ensurePersistFlushOnUnload: vi.fn(),
   flushPendingPersists: vi.fn(async () => undefined),
@@ -71,11 +71,11 @@ vi.mock("./project/persistence", () => ({
   toStoredAsset: vi.fn(),
 }));
 
-vi.mock("./project/runtimeAsset", () => ({
+vi.mock("./currentUser/runtimeAsset", () => ({
   materializeStoredAsset: vi.fn(),
 }));
 
-vi.mock("./project/sync", () => ({
+vi.mock("./currentUser/sync", () => ({
   MAX_SYNC_ATTEMPTS: 3,
   createSyncJob: vi.fn(({ localAssetId, op, nextRetryAt }) => ({
     jobId: `job-${localAssetId}-${op}`,
@@ -151,7 +151,7 @@ describe("assetStore render materialization", () => {
     const { useEditorStore } = await import("./editorStore");
 
     useAssetStore.setState({
-      project: null,
+      currentUser: null,
       assets: [createAsset()],
       isLoading: false,
       isImporting: false,

@@ -540,6 +540,7 @@ export type AssetSyncJobOperation = "upload" | "delete";
 export interface AssetSyncJob {
   jobId: string;
   localAssetId: string;
+  ownerUserId?: string;
   op: AssetSyncJobOperation;
   attempts: number;
   nextRetryAt: string;
@@ -565,7 +566,7 @@ export interface AssetMetadata {
   capturedAt?: string;
 }
 
-export interface Project {
+export interface CurrentUser {
   id: string;
   name: string;
   createdAt: string;

@@ -3,7 +3,7 @@
 interface StoreEvents {
   "assets:imported": string[];
   "assets:deleted": Set<string>;
-  "project:reset": void;
+  "currentUser:reset": void;
 }
 
 type EventName = keyof StoreEvents;

@@ -1,5 +1,5 @@
 ﻿import { describe, expect, it } from "vitest";
-import { MAX_TAGS_PER_ASSET, mergeTags, normalizeTags, removeTags } from "./project/tagging";
+import { MAX_TAGS_PER_ASSET, mergeTags, normalizeTags, removeTags } from "./currentUser/tagging";
 
 describe("project tag rules", () => {
   it("normalizes and deduplicates tags case-insensitively", () => {

@@ -1,7 +1,3 @@
-﻿export const DEFAULT_PROJECT_ID = "default";
-export const LEGACY_PROJECT_ID = "default-project";
-export const DEFAULT_PROJECT_NAME = "FilmLab 项目";
-
 export const MAX_IMPORT_FILE_SIZE = 50 * 1024 * 1024;
 export const MAX_IMPORT_BATCH_SIZE = 500;
 export const IMPORT_PROGRESS_THROTTLE_MS = 100;
@@ -37,4 +33,3 @@ export const resolveImportConcurrency = () => {
     Math.min(MAX_IMPORT_CONCURRENCY, preferred || DEFAULT_IMPORT_CONCURRENCY)
   );
 };
-

@@ -1,6 +1,6 @@
 ﻿import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Asset } from "@/types";
-import { MAX_IMPORT_BATCH_SIZE, MAX_IMPORT_FILE_SIZE } from "./project/constants";
+import { MAX_IMPORT_BATCH_SIZE, MAX_IMPORT_FILE_SIZE } from "./currentUser/constants";
 
 vi.mock("@/lib/assetMetadata", () => ({
   prepareAssetPayload: vi.fn(async () => ({ metadata: {}, thumbnailBlob: undefined })),
@@ -12,7 +12,7 @@ vi.mock("@/lib/db", () => ({
 
 import { prepareAssetPayload } from "@/lib/assetMetadata";
 import { saveAsset } from "@/lib/db";
-import { runImportPipeline } from "./project/importPipeline";
+import { runImportPipeline } from "./currentUser/importPipeline";
 
 const createFile = (name: string, type = "image/jpeg", bytes = 3) =>
   new File([new Uint8Array(bytes)], name, { type, lastModified: Date.now() });

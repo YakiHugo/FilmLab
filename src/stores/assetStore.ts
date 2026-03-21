@@ -20,18 +20,19 @@ import {
   resolveBaseAdjustmentsFromLayers,
 } from "@/lib/editorLayers";
 import {
-  clearAssets,
-  clearCanvasDocuments,
+  clearAssetSyncJobsByUser,
+  clearAssetsByUser,
+  clearCanvasWorkbenchesByUser,
   deleteAsset,
   deleteAssetSyncJob,
   deleteAssetSyncJobsByAssetId,
-  loadAssetSyncJobs,
-  loadAssets,
-  loadProject,
+  loadAssetSyncJobsByUser,
+  loadAssetsByUser,
+  loadCurrentUser,
   saveAssetSyncJob,
   saveAssetSyncJobs,
   saveAsset,
-  saveProject,
+  saveCurrentUser,
   type StoredAsset,
 } from "@/lib/db";
 import { createRenderedThumbnailBlob } from "@/features/editor/thumbnail";
@@ -50,14 +51,9 @@ import { findAssetsReferencingTextureAsset } from "@/features/editor/renderDepen
 import { emit } from "@/lib/storeEvents";
 import { loadCustomPresets } from "@/features/editor/presetUtils";
 import type { Asset, AssetRemoteSyncStatus, EditorLayer } from "@/types";
-import {
-  DEFAULT_PROJECT_ID,
-  DEFAULT_PROJECT_NAME,
-  IMPORT_COMMIT_CHUNK_SIZE,
-  LEGACY_PROJECT_ID,
-} from "./project/constants";
-import { resolveAssetImportDay } from "./project/grouping";
-import { runImportPipeline } from "./project/importPipeline";
+import { IMPORT_COMMIT_CHUNK_SIZE } from "./currentUser/constants";
+import { resolveAssetImportDay } from "./currentUser/grouping";
+import { runImportPipeline } from "./currentUser/importPipeline";
 import {
   cancelPendingPersists,
   ensurePersistFlushOnUnload,
@@ -65,12 +61,12 @@ import {
   normalizeAssetUpdate,
   persistAsset,
   toStoredAsset,
-} from "./project/persistence";
-import { materializeStoredAsset } from "./project/runtimeAsset";
-import { MAX_SYNC_ATTEMPTS, createSyncJob, isSyncJobReady, withSyncJobFailure } from "./project/sync";
-import { selectAssets, selectImportProgress, selectIsImporting, selectIsLoading, selectProject, selectSelectedAssetIds } from "./project/selectors";
-import { mergeTags, normalizeTags, removeTags } from "./project/tagging";
-import type { AddAssetsResult, ProjectState } from "./project/types";
+} from "./currentUser/persistence";
+import { materializeStoredAsset } from "./currentUser/runtimeAsset";
+import { MAX_SYNC_ATTEMPTS, createSyncJob, isSyncJobReady, withSyncJobFailure } from "./currentUser/sync";
+import { selectAssets, selectImportProgress, selectIsImporting, selectIsLoading, selectCurrentUser, selectSelectedAssetIds } from "./currentUser/selectors";
+import { mergeTags, normalizeTags, removeTags } from "./currentUser/tagging";
+import type { AddAssetsResult, CurrentUserState } from "./currentUser/types";
 import { useEditorStore } from "./editorStore";
 
 const findPresetById = (presetId: string) => {
@@ -112,11 +108,12 @@ const applyPresetToAssets = (
   return { nextAssets, changed };
 };
 
-const defaultProject = () => {
+const defaultCurrentUser = () => {
+  const userId = getCurrentUserId();
   const now = new Date().toISOString();
   return {
-    id: DEFAULT_PROJECT_ID,
-    name: DEFAULT_PROJECT_NAME,
+    id: userId,
+    name: userId,
     createdAt: now,
     updatedAt: now,
   };
@@ -197,6 +194,7 @@ const createEmptyImportResult = (): AddAssetsResult => ({
 
 const syncNowIso = () => new Date().toISOString();
 let isSyncRunning = false;
+let assetStoreEpoch = 0;
 let lastRemoteChangeCursor: string | undefined;
 const THUMBNAIL_REFRESH_DEBOUNCE_MS = 220;
 const pendingThumbnailRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -229,8 +227,8 @@ const shouldRefreshReferencedRenderedThumbnails = (
 
 const scheduleRenderedThumbnailRefresh = (
   assetId: string,
-  set: (updater: (state: ProjectState) => Partial<ProjectState>) => void,
-  get: () => ProjectState
+  set: (updater: (state: CurrentUserState) => Partial<CurrentUserState>) => void,
+  get: () => CurrentUserState
 ) => {
   const pending = pendingThumbnailRefreshTimers.get(assetId);
   if (pending) {
@@ -295,8 +293,8 @@ const scheduleRenderedThumbnailRefresh = (
 
 const scheduleReferencedThumbnailRefreshes = (
   assetId: string,
-  set: (updater: (state: ProjectState) => Partial<ProjectState>) => void,
-  get: () => ProjectState
+  set: (updater: (state: CurrentUserState) => Partial<CurrentUserState>) => void,
+  get: () => CurrentUserState
 ) => {
   const dependentAssetIds = findAssetsReferencingTextureAsset(get().assets, assetId);
   dependentAssetIds.forEach((dependentAssetId) => {
@@ -368,9 +366,17 @@ const replaceAssetFileExtension = (fileName: string, extension: string) => {
   return `${baseName}.${extension}`;
 };
 
+const captureAssetStoreScope = () => ({
+  epoch: assetStoreEpoch,
+  userId: getCurrentUserId(),
+});
+
+const isAssetStoreScopeStale = (scope: ReturnType<typeof captureAssetStoreScope>) =>
+  scope.epoch !== assetStoreEpoch || scope.userId !== getCurrentUserId();
+
 ensurePersistFlushOnUnload();
 
-export const useAssetStore = create<ProjectState>()(
+export const useAssetStore = create<CurrentUserState>()(
   devtools(
     (set, get) => {
       const runRenderMaterialization = async (
@@ -524,7 +530,7 @@ export const useAssetStore = create<ProjectState>()(
       };
 
       return {
-        project: null,
+        currentUser: null,
         assets: [],
         isLoading: true,
         isImporting: false,
@@ -533,31 +539,24 @@ export const useAssetStore = create<ProjectState>()(
 
       init: async () => {
         set({ isLoading: true });
-        let project = defaultProject();
+        assetStoreEpoch += 1;
+        const initScope = captureAssetStoreScope();
+        let currentUser = defaultCurrentUser();
         let committed = false;
         const hydratedAssets: Asset[] = [];
         const hydratedPairs: Array<{ asset: Asset; stored: StoredAsset }> = [];
 
         try {
-          let storedProject = await loadProject(DEFAULT_PROJECT_ID);
-          if (!storedProject) {
-            const legacyProject = await loadProject(LEGACY_PROJECT_ID);
-            if (legacyProject) {
-              storedProject = {
-                ...legacyProject,
-                id: DEFAULT_PROJECT_ID,
-              };
-              await saveProject(storedProject);
-            }
+          const userId = initScope.userId;
+          lastRemoteChangeCursor = undefined;
+          const storedCurrentUser = await loadCurrentUser(userId);
+          currentUser = storedCurrentUser ?? defaultCurrentUser();
+          if (!storedCurrentUser) {
+            await saveCurrentUser(currentUser);
           }
 
-          project = storedProject ?? defaultProject();
-          if (!storedProject) {
-            await saveProject(project);
-          }
-
-          const storedAssets = await loadAssets();
-          const fallbackOwnerRef = { userId: getCurrentUserId() };
+          const storedAssets = await loadAssetsByUser(userId);
+          const fallbackOwnerRef = { userId };
           const nowIso = new Date().toISOString();
 
           storedAssets.forEach((stored) => {
@@ -585,8 +584,13 @@ export const useAssetStore = create<ProjectState>()(
               }
               return latestIso(cursor, asset.remote.lastSyncedAt ?? asset.remote.updatedAt);
             },
-            lastRemoteChangeCursor
+            undefined
           );
+
+          if (isAssetStoreScopeStale(initScope)) {
+            revokeAssetUrls(hydratedAssets);
+            return;
+          }
 
           set((state) => {
             const nextSelection = state.selectedAssetIds.filter((id) =>
@@ -597,12 +601,16 @@ export const useAssetStore = create<ProjectState>()(
             committed = true;
 
             return {
-              project,
+              currentUser,
               assets: hydratedAssets,
               isLoading: false,
               selectedAssetIds: nextSelection,
             };
           });
+
+          if (isAssetStoreScopeStale(initScope)) {
+            return;
+          }
 
           const migrationPayloads = hydratedPairs
             .filter(({ asset, stored }) => {
@@ -626,10 +634,15 @@ export const useAssetStore = create<ProjectState>()(
             void Promise.allSettled(migrationPayloads.map((payload) => saveAsset(payload)));
           }
 
-          const existingSyncJobs = await loadAssetSyncJobs(5000);
+          const existingSyncJobs = await loadAssetSyncJobsByUser(userId, 5000);
           const queuedUploadIds = new Set(
             existingSyncJobs
               .filter((job) => job.op === "upload")
+              .map((job) => job.localAssetId)
+          );
+          const queuedDeleteIds = new Set(
+            existingSyncJobs
+              .filter((job) => job.op === "delete")
               .map((job) => job.localAssetId)
           );
           const legacyAssets = hydratedAssets.filter(
@@ -649,6 +662,10 @@ export const useAssetStore = create<ProjectState>()(
             );
             await saveAssetSyncJobs(jobs);
 
+            if (isAssetStoreScopeStale(initScope)) {
+              return;
+            }
+
             const updatedIds = new Set(legacyAssets.map((asset) => asset.id));
             set((state) => ({
               assets: state.assets.map((asset) =>
@@ -661,13 +678,50 @@ export const useAssetStore = create<ProjectState>()(
               .map((asset) => withRemoteStatus(asset, "upload_queued", { lastError: undefined }))
               .forEach(persistAsset);
           }
+
+          const pendingDeleteAssets = hydratedAssets.filter(
+            (asset) =>
+              Boolean(asset.remote?.remoteAssetId) &&
+              (asset.remote?.status === "delete_failed" || asset.remote?.status === "delete_queued") &&
+              !queuedDeleteIds.has(asset.id)
+          );
+          if (pendingDeleteAssets.length > 0) {
+            const queuedAt = syncNowIso();
+            const jobs = pendingDeleteAssets.map((asset) =>
+              createSyncJob({
+                localAssetId: asset.id,
+                op: "delete",
+                remoteAssetId: asset.remote?.remoteAssetId,
+                nextRetryAt: queuedAt,
+              })
+            );
+            await saveAssetSyncJobs(jobs);
+
+            if (isAssetStoreScopeStale(initScope)) {
+              return;
+            }
+
+            const recoveredDeletes = new Map(
+              pendingDeleteAssets.map((asset) => [
+                asset.id,
+                withRemoteStatus(asset, "delete_queued", {
+                  remoteAssetId: asset.remote?.remoteAssetId,
+                  lastError: undefined,
+                }),
+              ])
+            );
+            set((state) => ({
+              assets: state.assets.map((asset) => recoveredDeletes.get(asset.id) ?? asset),
+            }));
+            Array.from(recoveredDeletes.values()).forEach(persistAsset);
+          }
         } catch (error) {
           if (!committed && hydratedAssets.length > 0) {
             revokeAssetUrls(hydratedAssets);
           }
           console.warn("Asset store initialization failed.", error);
           set((state) => ({
-            project: state.project ?? project,
+            currentUser: state.currentUser ?? currentUser,
             isLoading: false,
           }));
         }
@@ -740,18 +794,18 @@ export const useAssetStore = create<ProjectState>()(
 
           if (result.added > 0) {
             const now = new Date().toISOString();
-            const previousProject = get().project;
-            const nextProject = previousProject
-              ? { ...previousProject, updatedAt: now }
-              : defaultProject();
+            const previousCurrentUser = get().currentUser;
+            const nextCurrentUser = previousCurrentUser
+              ? { ...previousCurrentUser, updatedAt: now }
+              : defaultCurrentUser();
 
             try {
-              await saveProject(nextProject);
+              await saveCurrentUser(nextCurrentUser);
             } catch (error) {
-              console.warn("Failed to persist project after import", error);
+              console.warn("Failed to persist current user metadata after import", error);
             }
 
-            set({ project: nextProject });
+            set({ currentUser: nextCurrentUser });
             emit("assets:imported", result.addedAssetIds);
           }
 
@@ -806,10 +860,17 @@ export const useAssetStore = create<ProjectState>()(
           return;
         }
         isSyncRunning = true;
+        const syncScope = captureAssetStoreScope();
 
         const reconcileRemoteChanges = async () => {
           try {
+            if (isAssetStoreScopeStale(syncScope)) {
+              return;
+            }
             const changes = await fetchAssetChanges(lastRemoteChangeCursor);
+            if (isAssetStoreScopeStale(syncScope)) {
+              return;
+            }
             if (changes.length === 0) {
               return;
             }
@@ -864,6 +925,9 @@ export const useAssetStore = create<ProjectState>()(
               revokeAssetUrls(removedAssets);
             }
 
+            if (isAssetStoreScopeStale(syncScope)) {
+              return;
+            }
             set((state) => ({
               assets: state.assets
                 .filter((asset) => !removeIds.has(asset.id))
@@ -871,6 +935,9 @@ export const useAssetStore = create<ProjectState>()(
               selectedAssetIds: state.selectedAssetIds.filter((id) => !removeIds.has(id)),
             }));
 
+            if (isAssetStoreScopeStale(syncScope)) {
+              return;
+            }
             updates.forEach((asset) => persistAsset(asset));
             if (removedAssets.length > 0) {
               const removedIds = new Set(removedAssets.map((asset) => asset.id));
@@ -888,7 +955,12 @@ export const useAssetStore = create<ProjectState>()(
         };
 
         try {
-          const jobs = (await loadAssetSyncJobs(256)).filter((job) => isSyncJobReady(job));
+          const jobs = (await loadAssetSyncJobsByUser(syncScope.userId, 256)).filter((job) =>
+            isSyncJobReady(job)
+          );
+          if (isAssetStoreScopeStale(syncScope)) {
+            return;
+          }
           const uploadJobs = jobs.filter((job) => job.op === "upload");
           const deleteJobs = jobs.filter((job) => job.op === "delete");
           const runUpload = pLimit(2);
@@ -905,6 +977,9 @@ export const useAssetStore = create<ProjectState>()(
                   }
 
                   let working = withRemoteStatus(current, "uploading", { lastError: undefined });
+                  if (isAssetStoreScopeStale(syncScope)) {
+                    return;
+                  }
                   set((state) => ({
                     assets: state.assets.map((asset) =>
                       asset.id === current.id ? working : asset
@@ -922,6 +997,9 @@ export const useAssetStore = create<ProjectState>()(
                     let contentHash = working.contentHash;
                     if (!contentHash) {
                       contentHash = await sha256FromBlob(workingBlob);
+                      if (isAssetStoreScopeStale(syncScope)) {
+                        return;
+                      }
                       working = {
                         ...working,
                         contentHash,
@@ -937,6 +1015,9 @@ export const useAssetStore = create<ProjectState>()(
                       throw new Error("Missing content hash for sync upload.");
                     }
 
+                    if (isAssetStoreScopeStale(syncScope)) {
+                      return;
+                    }
                     const prepared = await presignAssetUpload({
                       localAssetId: current.id,
                       name: working.name,
@@ -949,11 +1030,23 @@ export const useAssetStore = create<ProjectState>()(
                       tags: working.tags ?? [],
                       metadata: toMetadataRecord(working),
                     });
+                    if (isAssetStoreScopeStale(syncScope)) {
+                      return;
+                    }
 
                     if (!prepared.existing) {
+                      if (isAssetStoreScopeStale(syncScope)) {
+                        return;
+                      }
                       await uploadToPresignedTarget(prepared.upload, workingBlob);
                       if (working.thumbnailBlob && prepared.thumbnailUpload) {
+                        if (isAssetStoreScopeStale(syncScope)) {
+                          return;
+                        }
                         await uploadToPresignedTarget(prepared.thumbnailUpload, working.thumbnailBlob);
+                      }
+                      if (isAssetStoreScopeStale(syncScope)) {
+                        return;
                       }
                       await completeAssetUpload({
                         remoteAssetId: prepared.remoteAssetId,
@@ -970,6 +1063,9 @@ export const useAssetStore = create<ProjectState>()(
                         tags: working.tags ?? [],
                         metadata: toMetadataRecord(working),
                       });
+                    }
+                    if (isAssetStoreScopeStale(syncScope)) {
+                      return;
                     }
 
                     const synced = withRemoteStatus(working, "synced", {
@@ -990,6 +1086,9 @@ export const useAssetStore = create<ProjectState>()(
                       synced.remote?.lastSyncedAt ?? synced.remote?.updatedAt
                     );
                   } catch (error) {
+                    if (isAssetStoreScopeStale(syncScope)) {
+                      return;
+                    }
                     const message = error instanceof Error ? error.message : "Upload sync failed.";
                     const failedJob = withSyncJobFailure(job, message);
                     if (failedJob.attempts >= MAX_SYNC_ATTEMPTS) {
@@ -1035,6 +1134,9 @@ export const useAssetStore = create<ProjectState>()(
                       lastError: undefined,
                     });
                     deletingAsset = deleting;
+                    if (isAssetStoreScopeStale(syncScope)) {
+                      return;
+                    }
                     set((state) => ({
                       assets: state.assets.map((asset) =>
                         asset.id === current.id ? deleting : asset
@@ -1044,7 +1146,13 @@ export const useAssetStore = create<ProjectState>()(
                   }
 
                   try {
+                    if (isAssetStoreScopeStale(syncScope)) {
+                      return;
+                    }
                     await deleteRemoteAsset(remoteAssetId);
+                    if (isAssetStoreScopeStale(syncScope)) {
+                      return;
+                    }
                     await deleteAssetSyncJob(job.jobId);
 
                     if (deletingAsset) {
@@ -1069,6 +1177,9 @@ export const useAssetStore = create<ProjectState>()(
                       );
                     }
                   } catch (error) {
+                    if (isAssetStoreScopeStale(syncScope)) {
+                      return;
+                    }
                     const message = error instanceof Error ? error.message : "Delete sync failed.";
                     const failedJob = withSyncJobFailure(job, message);
                     if (failedJob.attempts >= MAX_SYNC_ATTEMPTS) {
@@ -1541,22 +1652,27 @@ export const useAssetStore = create<ProjectState>()(
         }
       },
 
-      resetProject: async () => {
+      resetCurrentUser: async () => {
+        assetStoreEpoch += 1;
+        lastRemoteChangeCursor = undefined;
+        emit("currentUser:reset");
         await flushPendingPersists();
+        const userId = getCurrentUserId();
         revokeAssetUrls(get().assets);
-        await clearAssets();
-        await clearCanvasDocuments();
+        await clearAssetSyncJobsByUser(userId);
+        await clearAssetsByUser(userId);
+        await clearCanvasWorkbenchesByUser(userId);
 
-        const project = defaultProject();
-        await saveProject(project);
+        const currentUser = defaultCurrentUser();
+        await saveCurrentUser(currentUser);
 
         set({
-          project,
+          currentUser,
           assets: [],
+          isImporting: false,
+          importProgress: null,
           selectedAssetIds: [],
         });
-
-        emit("project:reset");
       },
       };
     },
@@ -1564,13 +1680,13 @@ export const useAssetStore = create<ProjectState>()(
   )
 );
 
-export type { AddAssetsResult } from "./project/types";
+export type { AddAssetsResult } from "./currentUser/types";
 export {
   selectAssets,
   selectImportProgress,
   selectIsImporting,
   selectIsLoading,
-  selectProject,
+  selectCurrentUser,
   selectSelectedAssetIds,
 };
 

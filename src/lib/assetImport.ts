@@ -1,6 +1,6 @@
 import { useAssetStore } from "@/stores/assetStore";
-import { MAX_IMPORT_FILE_SIZE, isSupportedImportFile } from "@/stores/project/constants";
-import type { ImportAssetOptions, ImportAssetsResult } from "@/stores/project/types";
+import { MAX_IMPORT_FILE_SIZE, isSupportedImportFile } from "@/stores/currentUser/constants";
+import type { ImportAssetOptions, ImportAssetsResult } from "@/stores/currentUser/types";
 import type { Asset } from "@/types";
 
 type AssetFingerprintLike = Pick<Asset, "id" | "name" | "size">;

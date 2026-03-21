@@ -4,7 +4,7 @@ import {
   createSyncJob,
   isSyncJobReady,
   withSyncJobFailure,
-} from "./project/sync";
+} from "./currentUser/sync";
 
 describe("project sync queue helpers", () => {
   it("uses deterministic job id for same asset and operation", () => {

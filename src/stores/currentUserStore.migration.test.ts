@@ -1,7 +1,7 @@
 ﻿import { describe, expect, it } from "vitest";
 import type { Asset } from "@/types";
-import { resolveAssetImportDay, toLocalDayKey } from "./project/grouping";
-import { toStoredAsset } from "./project/persistence";
+import { resolveAssetImportDay, toLocalDayKey } from "./currentUser/grouping";
+import { toStoredAsset } from "./currentUser/persistence";
 
 const createAsset = (overrides?: Partial<Asset>): Asset => ({
   id: "asset-1",
