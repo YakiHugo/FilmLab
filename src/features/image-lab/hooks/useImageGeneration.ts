@@ -2169,7 +2169,7 @@ export function useImageGeneration() {
         insertionIndex = (activeWorkbench?.rootIds.length ?? 0) + 1;
       } else {
         const created = await canvasStore.createWorkbench("AI 工作台");
-        if (startEpoch !== getCanvasResetEpoch()) {
+        if (!created || startEpoch !== getCanvasResetEpoch()) {
           return null;
         }
         workbenchId = created.id;

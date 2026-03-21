@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import { emit } from "@/lib/storeEvents";
 import type { CanvasHistoryEntry, CanvasWorkbench } from "@/types";
 import { normalizeCanvasWorkbench } from "@/features/canvas/studioPresets";
 import { useCanvasStore } from "./canvasStore";
 
+const deleteCanvasWorkbenchMock = vi.fn();
 const loadCanvasWorkbenchesMock = vi.fn();
 const saveCanvasWorkbenchMock = vi.fn();
 
 vi.mock("@/lib/db", () => ({
-  deleteCanvasWorkbench: vi.fn(),
+  deleteCanvasWorkbench: (...args: unknown[]) => deleteCanvasWorkbenchMock(...args),
   loadCanvasWorkbenches: (...args: unknown[]) => loadCanvasWorkbenchesMock(...args),
   loadCanvasWorkbenchesByUser: (...args: unknown[]) => loadCanvasWorkbenchesMock(...args),
   saveCanvasWorkbench: (...args: unknown[]) => saveCanvasWorkbenchMock(...args),
@@ -289,8 +291,31 @@ const createHistoryEntry = (
   inversePatch: { operations: [] },
 });
 
+const createDeferred = <T>() => {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
+    resolve = nextResolve;
+    reject = nextReject;
+  });
+  return {
+    promise,
+    resolve,
+    reject,
+  };
+};
+
+const flushMicrotasks = async (count = 8) => {
+  for (let index = 0; index < count; index += 1) {
+    await Promise.resolve();
+  }
+};
+
 describe("canvasStore", () => {
   beforeEach(() => {
+    emit("currentUser:reset");
+    deleteCanvasWorkbenchMock.mockReset();
+    deleteCanvasWorkbenchMock.mockResolvedValue(true);
     loadCanvasWorkbenchesMock.mockReset();
     loadCanvasWorkbenchesMock.mockResolvedValue([]);
     saveCanvasWorkbenchMock.mockClear();
@@ -558,6 +583,42 @@ describe("canvasStore", () => {
     expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual(previousHistory);
   });
 
+  it("serializes commands on the same workbench so later commits see the latest state", async () => {
+    const firstSave = createDeferred<boolean>();
+    saveCanvasWorkbenchMock.mockReset();
+    saveCanvasWorkbenchMock.mockReturnValueOnce(firstSave.promise).mockResolvedValue(true);
+
+    const renamePromise = useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+      type: "PATCH_DOCUMENT",
+      patch: {
+        name: "Renamed workbench",
+      },
+    });
+    const recolorPromise = useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+      type: "PATCH_DOCUMENT",
+      patch: {
+        backgroundColor: "#ffffff",
+      },
+    });
+
+    await flushMicrotasks();
+
+    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
+
+    firstSave.resolve(true);
+
+    const [renamed, recolored] = await Promise.all([renamePromise, recolorPromise]);
+
+    expect(renamed?.name).toBe("Renamed workbench");
+    expect(recolored?.name).toBe("Renamed workbench");
+    expect(recolored?.backgroundColor).toBe("#ffffff");
+    expect(useCanvasStore.getState().workbenches[0]).toMatchObject({
+      name: "Renamed workbench",
+      backgroundColor: "#ffffff",
+    });
+    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("undo applies inverse patches, moves history to future, and clears selection", async () => {
     const originalName = useCanvasStore.getState().workbenches[0]?.name;
     await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
@@ -693,6 +754,152 @@ describe("canvasStore", () => {
         }),
       ],
     });
+  });
+
+  it("returns null and leaves state untouched when createWorkbench persistence fails", async () => {
+    useCanvasStore.setState({
+      activeWorkbenchId: null,
+      workbenches: [],
+      historyByWorkbenchId: {},
+      selectedElementIds: [],
+    });
+    saveCanvasWorkbenchMock.mockResolvedValue(false);
+
+    const created = await useCanvasStore.getState().createWorkbench("Failed create");
+
+    expect(created).toBeNull();
+    expect(useCanvasStore.getState().workbenches).toEqual([]);
+    expect(useCanvasStore.getState().activeWorkbenchId).toBeNull();
+  });
+
+  it("does not add a missing workbench through upsertWorkbench when persistence fails", async () => {
+    useCanvasStore.setState({
+      activeWorkbenchId: null,
+      workbenches: [],
+      historyByWorkbenchId: {},
+    });
+    saveCanvasWorkbenchMock.mockResolvedValue(false);
+
+    await useCanvasStore.getState().upsertWorkbench(createWorkbench());
+
+    expect(useCanvasStore.getState().workbenches).toEqual([]);
+    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns false and preserves state when deleteWorkbench persistence fails", async () => {
+    useCanvasStore.setState({
+      historyByWorkbenchId: {
+        "doc-1": {
+          past: [createHistoryEntry("PATCH_DOCUMENT")],
+          future: [],
+        },
+      },
+      selectedElementIds: ["image-1"],
+    });
+    deleteCanvasWorkbenchMock.mockResolvedValue(false);
+
+    const deleted = await useCanvasStore
+      .getState()
+      .deleteWorkbench("doc-1", { nextActiveWorkbenchId: null });
+
+    expect(deleted).toBe(false);
+    expect(useCanvasStore.getState().workbenches).toHaveLength(1);
+    expect(useCanvasStore.getState().activeWorkbenchId).toBe("doc-1");
+    expect(useCanvasStore.getState().selectedElementIds).toEqual(["image-1"]);
+    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
+      past: [expect.objectContaining({ commandType: "PATCH_DOCUMENT" })],
+      future: [],
+    });
+  });
+
+  it("returns false without deleting when deleteWorkbench target is missing", async () => {
+    deleteCanvasWorkbenchMock.mockClear();
+
+    const deleted = await useCanvasStore
+      .getState()
+      .deleteWorkbench("missing-doc", { nextActiveWorkbenchId: null });
+
+    expect(deleted).toBe(false);
+    expect(deleteCanvasWorkbenchMock).not.toHaveBeenCalled();
+  });
+
+  it("drops queued command commits after current user reset", async () => {
+    const deferredSave = createDeferred<boolean>();
+    saveCanvasWorkbenchMock.mockReset();
+    saveCanvasWorkbenchMock.mockReturnValueOnce(deferredSave.promise);
+
+    const commandPromise = useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+      type: "PATCH_DOCUMENT",
+      patch: {
+        name: "Should be discarded",
+      },
+    });
+
+    emit("currentUser:reset");
+    deferredSave.resolve(true);
+
+    const result = await commandPromise;
+
+    expect(result).toBeNull();
+    expect(useCanvasStore.getState().workbenches).toEqual([]);
+    expect(useCanvasStore.getState().activeWorkbenchId).toBeNull();
+  });
+
+  it("skips queued createWorkbench work after current user reset", async () => {
+    const deferredSave = createDeferred<boolean>();
+    saveCanvasWorkbenchMock.mockReset();
+    saveCanvasWorkbenchMock.mockReturnValueOnce(deferredSave.promise).mockResolvedValue(true);
+
+    const commandPromise = useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+      type: "PATCH_DOCUMENT",
+      patch: {
+        name: "Block lifecycle queue",
+      },
+    });
+    const createPromise = useCanvasStore.getState().createWorkbench("Queued create");
+
+    await flushMicrotasks();
+    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
+
+    emit("currentUser:reset");
+    deferredSave.resolve(true);
+
+    const [commandResult, created] = await Promise.all([commandPromise, createPromise]);
+
+    expect(commandResult).toBeNull();
+    expect(created).toBeNull();
+    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
+    expect(useCanvasStore.getState().workbenches).toEqual([]);
+  });
+
+  it("skips queued deleteWorkbench work after current user reset", async () => {
+    const queuedDeleteId = "queued-delete";
+    const deferredSave = createDeferred<boolean>();
+    saveCanvasWorkbenchMock.mockReset();
+    saveCanvasWorkbenchMock.mockReturnValueOnce(deferredSave.promise);
+
+    const commandPromise = useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+      type: "PATCH_DOCUMENT",
+      patch: {
+        name: "Block delete",
+      },
+    });
+    const deletePromise = useCanvasStore
+      .getState()
+      .deleteWorkbench(queuedDeleteId, { nextActiveWorkbenchId: null });
+
+    await flushMicrotasks();
+    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
+
+    emit("currentUser:reset");
+    deferredSave.resolve(true);
+
+    const [commandResult, deleted] = await Promise.all([commandPromise, deletePromise]);
+
+    expect(commandResult).toBeNull();
+    expect(deleted).toBe(false);
+    expect(deleteCanvasWorkbenchMock).not.toHaveBeenCalledWith(queuedDeleteId);
+    expect(useCanvasStore.getState().workbenches).toEqual([]);
   });
 
   it("returns null without side effects when the command target workbench is missing", async () => {

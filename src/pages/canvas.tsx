@@ -73,7 +73,7 @@ export function CanvasPage() {
         void (async () => {
           const recoveryEpoch = getCanvasResetEpoch();
           const created = await createWorkbench(undefined, { activate: false });
-          if (recoveryEpoch !== getCanvasResetEpoch()) {
+          if (!created || recoveryEpoch !== getCanvasResetEpoch()) {
             return;
           }
           await navigate({
@@ -110,7 +110,7 @@ export function CanvasPage() {
     void (async () => {
       const recoveryEpoch = getCanvasResetEpoch();
       const created = await createWorkbench(undefined, { activate: false });
-      if (recoveryEpoch !== getCanvasResetEpoch()) {
+      if (!created || recoveryEpoch !== getCanvasResetEpoch()) {
         return;
       }
       await navigate({

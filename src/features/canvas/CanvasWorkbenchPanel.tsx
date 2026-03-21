@@ -49,6 +49,9 @@ export function CanvasWorkbenchPanel() {
     const created = await createWorkbench(`\u5de5\u4f5c\u53f0 ${String(nextIndex).padStart(2, "0")}`, {
       activate: false,
     });
+    if (!created) {
+      return;
+    }
     await navigate({
       to: "/canvas/$workbenchId",
       params: { workbenchId: created.id },
@@ -70,7 +73,10 @@ export function CanvasWorkbenchPanel() {
     if (!activeWorkbenchId) {
       return;
     }
-    await deleteWorkbench(activeWorkbenchId, { nextActiveWorkbenchId: null });
+    const deleted = await deleteWorkbench(activeWorkbenchId, { nextActiveWorkbenchId: null });
+    if (!deleted) {
+      return;
+    }
   };
 
   return (

@@ -50,6 +50,9 @@ export function CanvasAppBar({ onExport }: CanvasAppBarProps) {
           onClick={() => {
             void (async () => {
               const created = await createWorkbench(undefined, { activate: false });
+              if (!created) {
+                return;
+              }
               await navigate({
                 to: "/canvas/$workbenchId",
                 params: { workbenchId: created.id },

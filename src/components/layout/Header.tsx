@@ -38,6 +38,9 @@ function ContextActions() {
               const created = await useCanvasStore.getState().createWorkbench(undefined, {
                 activate: false,
               });
+              if (!created) {
+                return;
+              }
               await navigate({
                 to: "/canvas/$workbenchId",
                 params: { workbenchId: created.id },
