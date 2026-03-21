@@ -4,7 +4,6 @@ import {
   memo,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -16,7 +15,6 @@ import { Layer, Line, Rect, Stage, Text as KonvaText } from "react-konva";
 import type {
   CanvasRenderableElement,
   CanvasRenderableNode,
-  CanvasRenderableTextElement,
   CanvasShapeElement,
   CanvasTextElement,
 } from "@/types";
@@ -28,7 +26,6 @@ import { ImageElement } from "./elements/ImageElement";
 import { ShapeElement } from "./elements/ShapeElement";
 import { getVisibleWorldGridBounds, GRID_SIZE, quantizeDragPosition } from "./grid";
 import type { CanvasOverlayRect } from "./overlayGeometry";
-import { resolveFloatingOverlayPosition } from "./overlayGeometry";
 import {
   isSelectableSelectionTarget,
   normalizeSelectionRect,
@@ -48,6 +45,7 @@ import { createTextMutationQueue } from "./textMutationQueue";
 import { TextElement, isCanvasTextElementEditable } from "./elements/TextElement";
 import { registerCanvasStage } from "./hooks/canvasStageRegistry";
 import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
+import { useCanvasViewportOverlay } from "./hooks/useCanvasViewportOverlay";
 import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
 import { selectionIdsEqual } from "./selectionModel";
 import { resolveCanvasToolController } from "./tools/toolControllers";
@@ -99,16 +97,6 @@ const isInputLikeElement = (target: EventTarget | null) => {
   );
 };
 
-interface CanvasSelectionOverlayMetrics {
-  rect: CanvasOverlayRect;
-  textMatrix: string | null;
-}
-
-const createTransformMatrix = (node: Konva.Node) => {
-  const [a, b, c, d, e, f] = node.getAbsoluteTransform().getMatrix();
-  return `matrix(${a}, ${b}, ${c}, ${d}, ${e}, ${f})`;
-};
-
 const getSelectionOverlayRect = (node: Konva.Node): CanvasOverlayRect => {
   const rect = node.getClientRect({
     skipShadow: true,
@@ -122,50 +110,6 @@ const getSelectionOverlayRect = (node: Konva.Node): CanvasOverlayRect => {
     height: rect.height,
   };
 };
-
-const selectionOverlayEqual = (
-  left: CanvasSelectionOverlayMetrics | null,
-  right: CanvasSelectionOverlayMetrics | null
-) => {
-  if (left === right) {
-    return true;
-  }
-  if (!left || !right) {
-    return false;
-  }
-
-  return (
-    left.textMatrix === right.textMatrix &&
-    Math.abs(left.rect.x - right.rect.x) < 0.5 &&
-    Math.abs(left.rect.y - right.rect.y) < 0.5 &&
-    Math.abs(left.rect.width - right.rect.width) < 0.5 &&
-    Math.abs(left.rect.height - right.rect.height) < 0.5
-  );
-};
-
-const getDraftTextOverlayRect = (
-  element: CanvasTextElement | CanvasRenderableTextElement,
-  viewport: { x: number; y: number },
-  zoom: number
-): CanvasOverlayRect => {
-  const layoutElement = fitCanvasTextElementToContent(element);
-
-  return {
-    x: layoutElement.x * zoom + viewport.x,
-    y: layoutElement.y * zoom + viewport.y,
-    width: Math.max(1, layoutElement.width * zoom),
-    height: Math.max(1, layoutElement.height * zoom),
-  };
-};
-
-interface CanvasTextEditorLayout {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-  transform: string;
-  transformOrigin: "top left";
-}
 
 interface MarqueeSelectionState {
   additive: boolean;
@@ -210,40 +154,6 @@ const marqueeRenderStateEqual = (
     return false;
   }
   return true;
-};
-
-const getTextEditorLayout = ({
-  element,
-  transform,
-  viewport,
-  zoom,
-}: {
-  element: CanvasTextElement | CanvasRenderableTextElement;
-  transform: string | null;
-  viewport: { x: number; y: number };
-  zoom: number;
-}): CanvasTextEditorLayout => {
-  const layoutElement = fitCanvasTextElementToContent(element);
-
-  if (transform) {
-    return {
-      left: 0,
-      top: 0,
-      width: layoutElement.width,
-      height: layoutElement.height,
-      transform,
-      transformOrigin: "top left",
-    };
-  }
-
-  return {
-    left: 0,
-    top: 0,
-    width: layoutElement.width,
-    height: layoutElement.height,
-    transform: `translate(${layoutElement.x * zoom + viewport.x}px, ${layoutElement.y * zoom + viewport.y}px) scale(${zoom}) rotate(${layoutElement.rotation}deg)`,
-    transformOrigin: "top left",
-  };
 };
 
 function DotGrid({
@@ -464,17 +374,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const [editingTextWorkbenchId, setEditingTextWorkbenchId] = useState<string | null>(null);
   const [editingTextValue, setEditingTextValue] = useState("");
   const [editingTextDraft, setEditingTextDraft] = useState<CanvasTextElement | null>(null);
-  const [selectionOverlay, setSelectionOverlay] = useState<CanvasSelectionOverlayMetrics | null>(
-    null
-  );
-  const [toolbarPosition, setToolbarPosition] = useState({
-    left: 0,
-    top: 0,
-  });
-  const [dimensionsBadgePosition, setDimensionsBadgePosition] = useState({
-    left: 0,
-    top: 0,
-  });
   const panningAnchorRef = useRef<{ x: number; y: number } | null>(null);
   const viewportAnchorRef = useRef<{ x: number; y: number } | null>(null);
   const initializedDocumentIdsRef = useRef<Set<string>>(new Set());
@@ -1323,60 +1222,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     upsertElementInWorkbench,
   ]);
 
-  const syncSelectionOverlay = useCallback(() => {
-    const stage = stageRef.current;
-    const trackedId =
-      editingTextId ?? (selectedElementIds.length === 1 ? selectedElementIds[0]! : null);
-
-    if (!stage || !trackedId) {
-      setSelectionOverlay((current) => (current ? null : current));
-      return;
-    }
-
-    const node = stage.findOne(`#${trackedId}`);
-    const trackedTextElement = editingTextId
-      ? activeTextElementIsEditable
-        ? (textElementDraftRef.current ?? activeTextElement)
-        : null
-      : singleSelectedTextElement;
-
-    if (!node && !trackedTextElement) {
-      setSelectionOverlay((current) => (current ? null : current));
-      return;
-    }
-
-    const rect = node
-      ? getSelectionOverlayRect(node)
-      : trackedTextElement
-        ? getDraftTextOverlayRect(trackedTextElement, viewport, zoom)
-        : null;
-    if (!rect) {
-      setSelectionOverlay((current) => (current ? null : current));
-      return;
-    }
-
-    const nextOverlay: CanvasSelectionOverlayMetrics = {
-      rect,
-      textMatrix:
-        node && trackedTextElement && trackedId === trackedTextElement.id
-          ? createTransformMatrix(node)
-          : null,
-    };
-
-    setSelectionOverlay((current) =>
-      selectionOverlayEqual(current, nextOverlay) ? current : nextOverlay
-    );
-  }, [
-    activeTextElement,
-    editingTextId,
-    activeTextElementIsEditable,
-    selectedElementIds,
-    stageRef,
-    singleSelectedTextElement,
-    viewport,
-    zoom,
-  ]);
-
   const updateSelectedTextElement = useCallback(
     (updater: (element: CanvasTextElement) => CanvasTextElement) => {
       const currentTextElement = textElementDraftRef.current ?? activeTextElement;
@@ -1412,95 +1257,33 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     ]
   );
 
-  useLayoutEffect(() => {
-    syncSelectionOverlay();
-  }, [syncSelectionOverlay, activeWorkbench?.updatedAt, zoom, viewport.x, viewport.y]);
-
-  useEffect(() => {
-    const stage = stageRef.current;
-    const trackedId =
-      editingTextId ?? (selectedElementIds.length === 1 ? selectedElementIds[0]! : null);
-
-    if (!stage || !trackedId) {
-      setSelectionOverlay((current) => (current ? null : current));
-      return;
-    }
-
-    const trackedNode = stage.findOne(`#${trackedId}`);
-    if (!trackedNode) {
-      setSelectionOverlay((current) => (current ? null : current));
-      return;
-    }
-    const node = trackedNode as Konva.Node;
-
-    const handleNodeChange = () => {
-      syncSelectionOverlay();
-    };
-
-    node.on("dragmove transform dragend transformend", handleNodeChange);
-    syncSelectionOverlay();
-
-    return () => {
-      node.off("dragmove transform dragend transformend", handleNodeChange);
-    };
-  }, [editingTextId, selectedElementIds, stageRef, syncSelectionOverlay]);
-
-  useLayoutEffect(() => {
-    if (
-      !selectionOverlay ||
-      !activeTextElement ||
-      activeTextElement.type !== "text" ||
-      stageSize.width <= 0 ||
-      stageSize.height <= 0
-    ) {
-      return;
-    }
-
-    const toolbarRect = textToolbarRef.current?.getBoundingClientRect();
-    const nextPosition = resolveFloatingOverlayPosition({
-      anchorRect: selectionOverlay.rect,
-      containerHeight: stageSize.height,
-      containerWidth: stageSize.width,
-      gap: FLOATING_TOOLBAR_GAP,
-      overlayHeight: Math.round(toolbarRect?.height ?? DEFAULT_TEXT_TOOLBAR_SIZE.height),
-      overlayWidth: Math.round(toolbarRect?.width ?? DEFAULT_TEXT_TOOLBAR_SIZE.width),
+  const editingTextRenderElement =
+    (!editingTextId || editingTextWorkbenchId === activeWorkbenchId) &&
+    activeTextElementIsEditable &&
+    activeTextElement?.type === "text"
+      ? activeTextElement
+      : null;
+  const { selectionOverlay, toolbarPosition, dimensionsBadgePosition, editingTextLayout } =
+    useCanvasViewportOverlay({
+      stageRef,
+      stageSize,
+      viewport,
+      zoom,
+      selectedElementIds,
+      editingTextId,
+      activeTextElement,
+      activeTextElementIsEditable,
+      editingTextRenderElement,
+      textElementDraftRef,
+      singleSelectedTextElement,
+      singleSelectedNonTextElement,
+      textToolbarRef,
+      dimensionsBadgeRef,
+      toolbarSize: DEFAULT_TEXT_TOOLBAR_SIZE,
+      dimensionsBadgeSize: DEFAULT_DIMENSIONS_BADGE_SIZE,
+      floatingToolbarGap: FLOATING_TOOLBAR_GAP,
+      activeWorkbenchUpdatedAt: activeWorkbench?.updatedAt,
     });
-
-    setToolbarPosition((current) =>
-      Math.abs(current.left - nextPosition.left) < 0.5 &&
-      Math.abs(current.top - nextPosition.top) < 0.5
-        ? current
-        : nextPosition
-    );
-  }, [activeTextElement, selectionOverlay, stageSize.height, stageSize.width]);
-
-  useLayoutEffect(() => {
-    if (
-      !selectionOverlay ||
-      !singleSelectedNonTextElement ||
-      stageSize.width <= 0 ||
-      stageSize.height <= 0
-    ) {
-      return;
-    }
-
-    const badgeRect = dimensionsBadgeRef.current?.getBoundingClientRect();
-    const nextPosition = resolveFloatingOverlayPosition({
-      anchorRect: selectionOverlay.rect,
-      containerHeight: stageSize.height,
-      containerWidth: stageSize.width,
-      gap: FLOATING_TOOLBAR_GAP,
-      overlayHeight: Math.round(badgeRect?.height ?? DEFAULT_DIMENSIONS_BADGE_SIZE.height),
-      overlayWidth: Math.round(badgeRect?.width ?? DEFAULT_DIMENSIONS_BADGE_SIZE.width),
-    });
-
-    setDimensionsBadgePosition((current) =>
-      Math.abs(current.left - nextPosition.left) < 0.5 &&
-      Math.abs(current.top - nextPosition.top) < 0.5
-        ? current
-        : nextPosition
-    );
-  }, [selectionOverlay, singleSelectedNonTextElement, stageSize.height, stageSize.width]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1579,26 +1362,12 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       activeTextElement?.type === "text" &&
       selectedElementIds.length === 1
   );
-  const editingTextRenderElement =
-    (!editingTextId || editingTextWorkbenchId === activeWorkbenchId) &&
-    activeTextElementIsEditable &&
-    activeTextElement?.type === "text"
-      ? activeTextElement
-      : null;
   const showTextEditor = Boolean(
     !hasMarqueeSession && !isMarqueeDragging && editingTextId && editingTextRenderElement
   );
   const showDimensionsBadge = Boolean(
     selectionOverlay && singleSelectedNonTextElement && selectedElementIds.length === 1
   );
-  const editingTextLayout = editingTextRenderElement
-    ? getTextEditorLayout({
-        element: editingTextRenderElement,
-        transform: selectionOverlay?.textMatrix ?? null,
-        viewport,
-        zoom,
-      })
-    : null;
 
   useEffect(() => {
     if (resolvingTextSessionRef.current || !editingTextId) {
