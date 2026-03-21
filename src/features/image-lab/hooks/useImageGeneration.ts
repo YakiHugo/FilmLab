@@ -54,6 +54,7 @@ import {
 } from "@/stores/generationConfigStore";
 import { getCanvasResetEpoch, useCanvasStore } from "@/stores/canvasStore";
 import { useImageSessionStore } from "@/stores/imageSessionStore";
+import { createId } from "@/utils";
 import {
   bindResultAssetToConfig,
   clearBoundResultReferencesFromConfig,
@@ -149,27 +150,6 @@ export interface PromptObservabilityState {
   error: string | null;
   summary: PromptObservabilitySummaryResponse | null;
 }
-
-const createElementId = () => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `canvas-image-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-};
-
-const createTurnId = () => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `generated-turn-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-};
-
-const createJobId = () => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `image-job-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-};
 
 const createPromptArtifactTurnState = (
   overrides?: Partial<PromptArtifactTurnState>
@@ -808,10 +788,7 @@ const toReferenceImageEntry = async (
   }
 
   return {
-    id:
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `ref-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    id: createId("reference-id"),
     url: await readBlobAsDataUrl(processedFile),
     fileName: processedFile.name,
     type,
@@ -1595,8 +1572,8 @@ export function useImageGeneration() {
       invalidateConversationSnapshotRequests();
       cancelActiveGeneration("Generation canceled by a newer request.");
 
-      const turnId = createTurnId();
-      const jobId = createJobId();
+      const turnId = createId("turn-id");
+      const jobId = createId("job-id");
       const requestSnapshot: ImageGenerationRequest = {
         ...options.requestSnapshot,
         ...(serverConversationIdRef.current
@@ -2206,7 +2183,7 @@ export function useImageGeneration() {
       const y = 120 + insertionIndex * 24;
 
       const element: CanvasImageElement = {
-        id: createElementId(),
+        id: createId("node-id"),
         type: "image",
         parentId: null,
         assetId: finalAssetId,

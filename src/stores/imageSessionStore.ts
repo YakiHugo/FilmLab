@@ -11,6 +11,7 @@ import {
   loadImageGenerationSessions,
   saveImageGenerationSession,
 } from "@/lib/db";
+import { createId } from "@/utils";
 
 interface ImageSessionState {
   session: PersistedImageSession | null;
@@ -36,16 +37,9 @@ let hydrationPromise: Promise<void> | null = null;
 
 const nowIso = () => new Date().toISOString();
 
-const createSessionId = () => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `image-session-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-};
-
 const createEmptyImageSession = (): PersistedImageSession => {
   const timestamp = nowIso();
-  const id = createSessionId();
+  const id = createId("session-id");
   return {
     id,
     thread: {
