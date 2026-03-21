@@ -21,6 +21,7 @@ import {
   saveCanvasWorkbench,
 } from "@/lib/db";
 import { on } from "@/lib/storeEvents";
+import { createId } from "@/utils";
 import type {
   CanvasCommand,
   CanvasHistoryEntry,
@@ -115,20 +116,6 @@ const nowIso = () => new Date().toISOString();
 const EMPTY_SLICES: CanvasWorkbench["slices"] = [];
 
 type StoredCanvasWorkbench = Awaited<ReturnType<typeof loadCanvasWorkbenchesByUser>>[number];
-
-const createWorkbenchId = () => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `workbench-${Date.now()}`;
-};
-
-const createNodeId = () => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `node-${Date.now()}-${Math.random().toString(16).slice(2, 7)}`;
-};
 
 const clone = <T>(value: T): T => {
   if (typeof structuredClone === "function") {
@@ -273,11 +260,20 @@ const toNode = (
   };
 };
 
+const claimUniqueNodeId = (usedIds: Set<CanvasNodeId>) => {
+  let nextId = createId("node-id");
+  while (usedIds.has(nextId)) {
+    nextId = createId("node-id");
+  }
+  usedIds.add(nextId);
+  return nextId;
+};
+
 const makeDefaultWorkbench = (name = "Untitled Workbench"): CanvasWorkbench => {
   const now = nowIso();
   const defaults = createDefaultCanvasWorkbenchFields();
   return normalizeCanvasWorkbench({
-    id: createWorkbenchId(),
+    id: createId("workbench-id"),
     version: 2,
     ownerRef: { userId: getCurrentUserId() },
     name,
@@ -296,6 +292,7 @@ const cloneNodeTree = (
   workbench: CanvasWorkbench,
   nodeId: CanvasNodeId,
   offset: { x: number; y: number },
+  usedIds: Set<CanvasNodeId>,
   idMap = new Map<CanvasNodeId, CanvasNodeId>()
 ): CanvasNode[] => {
   const source = workbench.nodes[nodeId];
@@ -303,7 +300,7 @@ const cloneNodeTree = (
     return [];
   }
 
-  const nextId = createNodeId();
+  const nextId = claimUniqueNodeId(usedIds);
   idMap.set(nodeId, nextId);
   const cloneNode: CanvasNode = {
     ...clone(source),
@@ -321,7 +318,7 @@ const cloneNodeTree = (
       return [cloneNode];
     }
     const children = sourceGroup.childIds.flatMap((childId) =>
-      cloneNodeTree(workbench, childId, { x: 0, y: 0 }, idMap)
+      cloneNodeTree(workbench, childId, { x: 0, y: 0 }, usedIds, idMap)
     );
     cloneNode.childIds = sourceGroup.childIds
       .map((childId) => idMap.get(childId))
@@ -569,6 +566,9 @@ export const useCanvasStore = create<CanvasState>()(
 
           const existingNode = activeWorkbench.nodes[element.id];
           if (existingNode) {
+            if (existingNode.type !== element.type) {
+              return;
+            }
             const nextNode = toNode(activeWorkbench, element);
             await executeWorkbenchCommand(workbenchId, {
               type: "UPDATE_NODE_PROPS",
@@ -646,12 +646,25 @@ export const useCanvasStore = create<CanvasState>()(
             return;
           }
 
-          await executeWorkbenchCommand(activeWorkbench.id, {
+          const deleteIds = Array.from(
+            new Set(
+              ids.flatMap((nodeId) => [nodeId, ...getCanvasDescendantIds(activeWorkbench, nodeId)])
+            )
+          ).filter((nodeId) => Boolean(activeWorkbench.nodes[nodeId]));
+          if (deleteIds.length === 0) {
+            return;
+          }
+
+          const result = await executeWorkbenchCommand(activeWorkbench.id, {
             type: "DELETE_NODES",
-            ids,
+            ids: deleteIds,
           });
+          if (!result) {
+            return;
+          }
+          const deleteIdSet = new Set(deleteIds);
           set((state) => ({
-            selectedElementIds: state.selectedElementIds.filter((id) => !ids.includes(id)),
+            selectedElementIds: state.selectedElementIds.filter((id) => !deleteIdSet.has(id)),
           }));
         },
         duplicateElements: async (ids) => {
@@ -660,24 +673,29 @@ export const useCanvasStore = create<CanvasState>()(
             return [];
           }
 
-          const selectedRoots = Array.from(new Set(ids)).filter(
+          const uniqueIds = Array.from(new Set(ids));
+          const selectedRoots = uniqueIds.filter(
             (nodeId) =>
-              !ids.some((candidateId) =>
+              !uniqueIds.some((candidateId) =>
                 getCanvasDescendantIds(activeWorkbench, candidateId).includes(nodeId)
               )
           );
+          const usedIds = new Set(Object.keys(activeWorkbench.nodes));
           const duplicatedTrees = selectedRoots.map((nodeId) =>
-            cloneNodeTree(activeWorkbench, nodeId, { x: 24, y: 24 })
+            cloneNodeTree(activeWorkbench, nodeId, { x: 24, y: 24 }, usedIds)
           );
           const duplicates = duplicatedTrees.flat();
           const duplicatedIds = duplicatedTrees
             .map((nodes) => nodes[0]?.id ?? null)
             .filter((nodeId): nodeId is string => Boolean(nodeId));
 
-          await executeWorkbenchCommand(activeWorkbench.id, {
+          const result = await executeWorkbenchCommand(activeWorkbench.id, {
             type: "INSERT_NODES",
             nodes: duplicates,
           });
+          if (!result) {
+            return [];
+          }
           set({ selectedElementIds: duplicatedIds });
           return duplicatedIds;
         },
@@ -748,7 +766,7 @@ export const useCanvasStore = create<CanvasState>()(
             return null;
           }
 
-          const groupId = createNodeId();
+          const groupId = claimUniqueNodeId(new Set(Object.keys(activeWorkbench.nodes)));
           const result = await executeWorkbenchCommand(activeWorkbench.id, {
             type: "GROUP_NODES",
             ids: uniqueIds,

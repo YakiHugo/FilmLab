@@ -1,8 +1,6 @@
 import type { CanvasShapeType, CanvasTextElement } from "@/types";
-import {
-  createCanvasNodeId,
-  createDefaultShapeNode,
-} from "../documentGraph";
+import { createId } from "@/utils";
+import { createDefaultShapeNode } from "../documentGraph";
 import { snapPoint } from "../grid";
 import {
   DEFAULT_CANVAS_TEXT_COLOR,
@@ -118,7 +116,7 @@ const textToolController: CanvasToolController = {
 
     const snappedPoint = snapPoint(payload.canvasPoint);
     const textElement = fitCanvasTextElementToContent({
-      id: createCanvasNodeId("canvas-text"),
+      id: createId("node-id"),
       type: "text",
       parentId: null,
       content: "",

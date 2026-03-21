@@ -189,6 +189,102 @@ describe("document commands", () => {
     });
   });
 
+  it("treats inserts with duplicate batch ids as a no-op", () => {
+    const document = createCanvasTestDocument({
+      nodes: {
+        "shape-1": createShapeNode({
+          id: "shape-1",
+          x: 40,
+          y: 60,
+        }),
+      },
+      rootIds: ["shape-1"],
+    });
+
+    const result = executeCanvasCommand(document, {
+      type: "INSERT_NODES",
+      nodes: [
+        createShapeNode({ id: "duplicate", x: 120, y: 100 }),
+        createShapeNode({ id: "duplicate", x: 220, y: 180 }),
+      ],
+    });
+
+    expect(result.didChange).toBe(false);
+    expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
+    expect(result.forwardPatch.operations).toEqual([]);
+    expect(result.inversePatch.operations).toEqual([]);
+  });
+
+  it("treats inserts that collide with existing ids as a no-op", () => {
+    const document = createCanvasTestDocument({
+      nodes: {
+        "shape-1": createShapeNode({
+          id: "shape-1",
+          x: 40,
+          y: 60,
+        }),
+      },
+      rootIds: ["shape-1"],
+    });
+
+    const result = executeCanvasCommand(document, {
+      type: "INSERT_NODES",
+      nodes: [createShapeNode({ id: "shape-1", x: 120, y: 100 })],
+    });
+
+    expect(result.didChange).toBe(false);
+    expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
+    expect(result.forwardPatch.operations).toEqual([]);
+    expect(result.inversePatch.operations).toEqual([]);
+  });
+
+  it("keeps inserted subtree parents while only rebasing inserted roots", () => {
+    const document = createCanvasTestDocument({
+      nodes: {
+        host: createGroupNode({
+          id: "host",
+          x: 40,
+          y: 60,
+          childIds: [],
+        }),
+      },
+      rootIds: ["host"],
+    });
+
+    const result = executeCanvasCommand(document, {
+      type: "INSERT_NODES",
+      parentId: "host",
+      nodes: [
+        createGroupNode({
+          id: "group-1",
+          x: 120,
+          y: 140,
+          childIds: ["shape-1"],
+        }),
+        createShapeNode({
+          id: "shape-1",
+          parentId: "group-1",
+          x: 20,
+          y: 30,
+        }),
+      ],
+    });
+
+    expect(result.didChange).toBe(true);
+    expect(result.document.nodes["group-1"]).toMatchObject({
+      id: "group-1",
+      parentId: "host",
+      childIds: ["shape-1"],
+    });
+    expect(result.document.nodes["shape-1"]).toMatchObject({
+      id: "shape-1",
+      parentId: "group-1",
+    });
+    expect(result.document.nodes.host).toMatchObject({
+      childIds: ["group-1"],
+    });
+  });
+
   it("marks invalid commands as unchanged and emits no patch operations", () => {
     const document = createCanvasTestDocument({
       nodes: {

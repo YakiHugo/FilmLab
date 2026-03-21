@@ -1,12 +1,6 @@
 import type { CanvasWorkbench, CanvasSlice } from "@/types";
+import { createId } from "@/utils";
 import { getStudioCanvasPreset } from "./studioPresets";
-
-const createSliceId = () => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `slice-${Date.now()}-${Math.random().toString(16).slice(2, 7)}`;
-};
 
 const nowIso = () => new Date().toISOString();
 
@@ -19,7 +13,7 @@ export const buildStripSlices = (document: CanvasWorkbench, count: number): Canv
   const preset = getStudioCanvasPreset(document.presetId);
   const safeCount = Math.max(1, Math.round(count));
   const slices: CanvasSlice[] = Array.from({ length: safeCount }, (_, index) => ({
-    id: createSliceId(),
+    id: createId("slice-id"),
     name: `Slide ${index + 1}`,
     x: index * preset.width,
     y: 0,
@@ -54,7 +48,7 @@ export const appendCanvasSlice = (document: CanvasWorkbench): CanvasWorkbench =>
   const slices = [
     ...document.slices,
     {
-      id: createSliceId(),
+      id: createId("slice-id"),
       name: `Slide ${nextOrder}`,
       x: preset.width * (nextOrder - 1),
       y: 0,

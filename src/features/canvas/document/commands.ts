@@ -9,6 +9,7 @@ import type {
   CanvasNodeTransform,
   CanvasRenderableNode,
 } from "@/types";
+import { createId } from "@/utils";
 import { normalizeCanvasTextElement } from "../textStyle";
 import {
   collectWorldTransformById,
@@ -18,7 +19,6 @@ import {
   worldPointToLocalPoint,
 } from "./geometry";
 import {
-  createCanvasNodeId,
   getCanvasDescendantIds,
   getCanvasWorkbenchSnapshot,
   getCanvasRenderableNode,
@@ -101,6 +101,8 @@ const setDocumentField = <K extends keyof CanvasWorkbenchSnapshot>(
   snapshot[key] = clone(value) as CanvasWorkbenchSnapshot[K];
   return true;
 };
+
+const hasDuplicateNodeIds = (ids: CanvasNodeId[]) => new Set(ids).size !== ids.length;
 
 const deleteNodeRecursive = (snapshot: CanvasWorkbenchSnapshot, nodeId: CanvasNodeId): boolean => {
   const node = snapshot.nodes[nodeId];
@@ -214,27 +216,64 @@ export const executeCanvasCommand = (
       didChange = setDocumentField(next, key as keyof CanvasWorkbenchSnapshot, patch[key]!) || didChange;
     }
   } else if (command.type === "INSERT_NODES") {
-    const nodes = command.nodes.map((node) => normalizeNode(node));
-    const targetParentId = command.parentId ?? nodes[0]?.parentId ?? null;
-    for (const node of nodes) {
-      const nextNode = withSyncedTransformFields({
-        ...node,
-        parentId: targetParentId,
+    const normalizedNodes = command.nodes.map((node) => normalizeNode(node));
+    const insertedIds = normalizedNodes.map((node) => node.id);
+
+    if (!hasDuplicateNodeIds(insertedIds) && insertedIds.every((nodeId) => !next.nodes[nodeId])) {
+      const insertedNodeMap = new Map(normalizedNodes.map((node) => [node.id, node]));
+      const nextNodes = normalizedNodes.map((node) => {
+        const isBatchRoot = !node.parentId || !insertedNodeMap.has(node.parentId);
+        return {
+          ...node,
+          parentId: isBatchRoot && command.parentId !== undefined ? command.parentId ?? null : node.parentId,
+        } satisfies CanvasNode;
       });
-      const currentNode = next.nodes[node.id];
-      if (!currentNode || !areEqual(currentNode, nextNode)) {
-        next.nodes[node.id] = nextNode;
-        didChange = true;
+      const nextNodeMap = new Map(nextNodes.map((node) => [node.id, node]));
+      const hasInvalidParent = nextNodes.some((node) => {
+        if (!node.parentId) {
+          return false;
+        }
+
+        const batchParent = nextNodeMap.get(node.parentId);
+        if (batchParent) {
+          return batchParent.type !== "group";
+        }
+
+        return next.nodes[node.parentId]?.type !== "group";
+      });
+
+      if (!hasInvalidParent) {
+        for (const node of nextNodes) {
+          next.nodes[node.id] = node;
+          didChange = true;
+        }
+
+        const rootIdsByParent = new Map<CanvasNodeId | null, CanvasNodeId[]>();
+        for (const node of nextNodes) {
+          if (node.parentId && nextNodeMap.has(node.parentId)) {
+            continue;
+          }
+          const parentId = node.parentId ?? null;
+          const group = rootIdsByParent.get(parentId);
+          if (group) {
+            group.push(node.id);
+            continue;
+          }
+          rootIdsByParent.set(parentId, [node.id]);
+        }
+
+        for (const [parentId, rootIds] of rootIdsByParent) {
+          const currentOrder = getChildOrder(next, parentId);
+          const insertIndex =
+            command.parentId !== undefined && parentId === (command.parentId ?? null)
+              ? command.index ?? currentOrder.length
+              : currentOrder.length;
+          didChange =
+            setChildOrder(next, parentId, insertIdsAtIndex(currentOrder, rootIds, insertIndex)) ||
+            didChange;
+        }
       }
     }
-    const currentOrder = getChildOrder(next, targetParentId);
-    const insertIds = nodes.map((node) => node.id);
-    const nextOrder = moveIdsInOrder(currentOrder, insertIds, command.index ?? currentOrder.length);
-    didChange = setChildOrder(
-      next,
-      targetParentId,
-      nextOrder
-    ) || didChange;
   } else if (command.type === "UPDATE_NODE_PROPS") {
     for (const update of command.updates) {
       const currentNode = next.nodes[update.id];
@@ -300,7 +339,7 @@ export const executeCanvasCommand = (
           { x: node.bounds.x, y: node.bounds.y + node.bounds.height },
         ]);
         const bounds = getBoundsFromPoints(points);
-        const groupId = command.groupId ?? createCanvasNodeId("canvas-group");
+        const groupId = command.groupId ?? createId("node-id");
         const groupLocalOrigin = worldPointToLocalPoint(runtime, targetParentId, {
           x: bounds.x,
           y: bounds.y,

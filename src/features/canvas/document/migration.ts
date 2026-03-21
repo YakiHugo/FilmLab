@@ -1,4 +1,5 @@
 import { getCurrentUserId } from "@/lib/authToken";
+import { createId } from "@/utils";
 import type {
   CanvasWorkbench,
   CanvasWorkbenchSnapshot,
@@ -8,7 +9,7 @@ import type {
   CanvasTextElement,
 } from "@/types";
 import { normalizeCanvasTextElement } from "../textStyle";
-import { createCanvasNodeId, normalizeNode } from "./model";
+import { normalizeNode } from "./model";
 import { resolveCanvasWorkbench } from "./resolve";
 import { clone, toNodeTransform, withSyncedTransformFields } from "./shared";
 
@@ -164,7 +165,7 @@ export const normalizeCanvasWorkbenchWithCleanup = (
   }
 
   const snapshot: CanvasWorkbenchSnapshot = {
-    id: document.id ?? createCanvasNodeId("canvas-document"),
+    id: document.id ?? createId("workbench-id"),
     version: 2,
     ownerRef: document.ownerRef ?? { userId: getCurrentUserId() },
     name: document.name ?? "Untitled 工作台",

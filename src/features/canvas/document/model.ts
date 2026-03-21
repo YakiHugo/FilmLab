@@ -1,4 +1,5 @@
 import { getCurrentUserId } from "@/lib/authToken";
+import { createId } from "@/utils";
 import type {
   CanvasWorkbench,
   CanvasWorkbenchSnapshot,
@@ -27,13 +28,6 @@ export const isCanvasImageRenderable = (
 export const isCanvasShapeRenderable = (
   node: CanvasRenderableNode | null | undefined
 ): node is Extract<CanvasRenderableNode, { type: "shape" }> => node?.type === "shape";
-
-export const createCanvasNodeId = (prefix = "canvas-node") => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-};
 
 export const getCanvasNode = (
   document: Pick<CanvasWorkbenchSnapshot, "nodes">,
@@ -138,7 +132,7 @@ export const getCanvasDescendantIds = (
 export const createDefaultShapeNode = ({
   fill = "rgba(244,210,156,0.2)",
   height = 160,
-  id = createCanvasNodeId("canvas-shape"),
+  id = createId("node-id"),
   parentId = null,
   shapeType = "rect",
   stroke = "#f4d29c",

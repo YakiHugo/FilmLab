@@ -1,7 +1,7 @@
 import type { Asset, CanvasImageElement } from "@/types";
 import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { createCanvasNodeId } from "../documentGraph";
+import { createId } from "@/utils";
 import { snapPoint } from "../grid";
 
 const INITIAL_CANVAS_IMAGE_LONG_EDGE = 320;
@@ -128,7 +128,7 @@ export function useCanvasEngine() {
       y: 100 + index * 18,
     });
     const element: CanvasImageElement = {
-      id: createCanvasNodeId("canvas-image"),
+      id: createId("node-id"),
       type: "image",
       parentId: null,
       assetId,
