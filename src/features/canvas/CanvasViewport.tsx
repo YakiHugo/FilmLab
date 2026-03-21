@@ -41,12 +41,12 @@ import {
   CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER,
   fitCanvasTextElementToContent,
 } from "./textStyle";
-import { createTextMutationQueue } from "./textMutationQueue";
 import { TextElement, isCanvasTextElementEditable } from "./elements/TextElement";
 import { registerCanvasStage } from "./hooks/canvasStageRegistry";
 import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
 import { useCanvasViewportOverlay } from "./hooks/useCanvasViewportOverlay";
 import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
+import { useCanvasTextSession } from "./hooks/useCanvasTextSession";
 import { selectionIdsEqual } from "./selectionModel";
 import { resolveCanvasToolController } from "./tools/toolControllers";
 
@@ -54,8 +54,6 @@ interface CanvasViewportProps {
   stageRef: RefObject<Konva.Stage>;
   selectedSliceId?: string | null;
 }
-
-type EditingTextMode = "existing" | "create";
 
 const BOARD_SURFACE_NODE_ID = "canvas-background";
 const WORKSPACE_BACKGROUND_NODE_ID = "canvas-workspace-background";
@@ -369,19 +367,9 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const [marqueeRenderState, setMarqueeRenderState] = useState<MarqueeSelectionRenderState>(
     EMPTY_MARQUEE_RENDER_STATE
   );
-  const [editingTextId, setEditingTextId] = useState<string | null>(null);
-  const [editingTextMode, setEditingTextMode] = useState<EditingTextMode | null>(null);
-  const [editingTextWorkbenchId, setEditingTextWorkbenchId] = useState<string | null>(null);
-  const [editingTextValue, setEditingTextValue] = useState("");
-  const [editingTextDraft, setEditingTextDraft] = useState<CanvasTextElement | null>(null);
   const panningAnchorRef = useRef<{ x: number; y: number } | null>(null);
   const viewportAnchorRef = useRef<{ x: number; y: number } | null>(null);
   const initializedDocumentIdsRef = useRef<Set<string>>(new Set());
-  const textMutationQueueRef = useRef<ReturnType<typeof createTextMutationQueue> | null>(null);
-  const textElementDraftRef = useRef<CanvasTextElement | null>(null);
-  const createdTextElementRef = useRef(false);
-  const resolvingTextSessionRef = useRef(false);
-  const textSessionVersionRef = useRef(0);
   const marqueeRenderFrameRef = useRef<number | null>(null);
   const marqueeSelectionRef = useRef<MarqueeSelectionState | null>(null);
   const marqueeSelectionTargetsRef = useRef<CanvasSelectionTarget[]>([]);
@@ -416,14 +404,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     [displaySelectedElementIds, editingTextDraft, elementById]
   );
 
-  const editingTextElement = useMemo(() => {
-    if (!editingTextId) {
-      return null;
-    }
-    const element = elementById.get(editingTextId);
-    return element?.type === "text" ? element : null;
-  }, [editingTextId, elementById]);
-
   const singleSelectedElement = useMemo(() => {
     if (selectedElementIds.length !== 1) {
       return null;
@@ -451,17 +431,27 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   );
   const isMarqueeDragging = marqueeRenderState.isDragging;
   const hasMarqueeSession = marqueeRenderState.hasSession;
-
-  const activeTextElement =
-    editingTextDraft ??
-    editingTextElement ??
-    (editingTextId ? textElementDraftRef.current : null) ??
-    singleSelectedTextElement;
-  const activeTextElementIsEditable = isCanvasTextElementEditable(activeTextElement);
-
-  if (!textMutationQueueRef.current) {
-    textMutationQueueRef.current = createTextMutationQueue();
-  }
+  const {
+    editingTextId,
+    editingTextDraft,
+    editingTextValue,
+    editingTextRenderElement,
+    trackedTextOverlayElement,
+    beginTextEdit,
+    handleTextValueChange,
+    handleTextInputKeyDown,
+    updateSelectedTextElement,
+  } = useCanvasTextSession({
+    activeWorkbenchId,
+    elementById,
+    singleSelectedTextElement,
+    selectElement,
+    clearSelection,
+    upsertElementInWorkbench,
+    executeCommandInWorkbench,
+    textEditorRef,
+    textToolbarRef,
+  });
 
   useEffect(() => {
     selectedElementIdsRef.current = selectedElementIds;
@@ -470,30 +460,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   useEffect(() => {
     elementByIdRef.current = elementById;
   }, [elementById]);
-
-  useEffect(() => {
-    if (editingTextDraft) {
-      textElementDraftRef.current = editingTextDraft;
-      return;
-    }
-    if (editingTextElement) {
-      textElementDraftRef.current = editingTextElement;
-      return;
-    }
-    if (singleSelectedTextElement) {
-      textElementDraftRef.current = singleSelectedTextElement;
-      return;
-    }
-    if (!editingTextId) {
-      textElementDraftRef.current = null;
-    }
-  }, [editingTextDraft, editingTextElement, editingTextId, singleSelectedTextElement]);
-
-  useEffect(() => {
-    if (editingTextMode === "create" && editingTextElement) {
-      createdTextElementRef.current = true;
-    }
-  }, [editingTextElement, editingTextMode]);
 
   const thirdsGuideLines = useMemo(() => {
     if (!activeWorkbench || !activeWorkbench.guides.showThirds) {
@@ -544,26 +510,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   );
 
   const shouldPan = tool === "hand" || isSpacePressed;
-
-  const beginTextEdit = useCallback(
-    (element: CanvasTextElement, options?: { mode?: EditingTextMode }) => {
-      if (!activeWorkbenchId || !isCanvasTextElementEditable(element)) {
-        return;
-      }
-      const mode = options?.mode ?? "existing";
-      const nextElement = fitCanvasTextElementToContent(element);
-      textSessionVersionRef.current += 1;
-      resolvingTextSessionRef.current = false;
-      createdTextElementRef.current = mode === "existing";
-      textElementDraftRef.current = nextElement;
-      setEditingTextDraft(nextElement);
-      setEditingTextId(nextElement.id);
-      setEditingTextMode(mode);
-      setEditingTextWorkbenchId(activeWorkbenchId);
-      setEditingTextValue(nextElement.content);
-    },
-    [activeWorkbenchId]
-  );
 
   const toCanvasPoint = useCallback(
     (stage: Konva.Stage) => {
@@ -1120,149 +1066,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       y: Math.round(VIEWPORT_INSETS.top + (usableHeight - activeWorkbench.height * fitZoom) / 2),
     });
   }, [activeWorkbench, fitZoom, setViewport, setZoom, stageSize.height, stageSize.width]);
-
-  const cancelTextEdit = useCallback(() => {
-    resolvingTextSessionRef.current = false;
-    setEditingTextMode(null);
-    setEditingTextId(null);
-    setEditingTextWorkbenchId(null);
-    setEditingTextValue("");
-    setEditingTextDraft(null);
-    createdTextElementRef.current = false;
-    textElementDraftRef.current = null;
-  }, []);
-
-  const persistCurrentTextDraftToWorkbench = useCallback(
-    async (workbenchId: string) => {
-      const currentTextElement = textElementDraftRef.current ?? activeTextElement;
-      if (!currentTextElement || !isCanvasTextElementEditable(currentTextElement)) {
-        return;
-      }
-
-      const nextContent = editingTextValue.trim();
-      const shouldDeleteCreatedText = editingTextMode === "create" && createdTextElementRef.current;
-      if (nextContent) {
-        const nextElement = fitCanvasTextElementToContent({
-          ...currentTextElement,
-          content: nextContent,
-        });
-        textElementDraftRef.current = nextElement;
-        await textMutationQueueRef.current!.enqueue(() =>
-          upsertElementInWorkbench(workbenchId, nextElement)
-        );
-        return;
-      }
-
-      if (shouldDeleteCreatedText) {
-        await textMutationQueueRef.current!.enqueue(() =>
-          executeCommandInWorkbench(workbenchId, {
-            type: "DELETE_NODES",
-            ids: [currentTextElement.id],
-          })
-        );
-      }
-    },
-    [
-      activeTextElement,
-      editingTextMode,
-      editingTextValue,
-      executeCommandInWorkbench,
-      upsertElementInWorkbench,
-    ]
-  );
-
-  const commitTextEdit = useCallback(() => {
-    const currentTextElement = textElementDraftRef.current ?? activeTextElement;
-    if (
-      !currentTextElement ||
-      !activeWorkbenchId ||
-      editingTextWorkbenchId !== activeWorkbenchId ||
-      !isCanvasTextElementEditable(currentTextElement)
-    ) {
-      cancelTextEdit();
-      return;
-    }
-
-    const sessionWorkbenchId = editingTextWorkbenchId;
-    const nextContent = editingTextValue.trim();
-    if (nextContent) {
-      const nextElement = fitCanvasTextElementToContent({
-        ...currentTextElement,
-        content: nextContent,
-      });
-      textElementDraftRef.current = nextElement;
-      setEditingTextDraft(nextElement);
-      void textMutationQueueRef.current!.enqueue(() =>
-        upsertElementInWorkbench(sessionWorkbenchId, nextElement)
-      );
-      selectElement(nextElement.id);
-    } else if (editingTextMode === "create") {
-      clearSelection();
-      if (createdTextElementRef.current) {
-        void textMutationQueueRef.current!.enqueue(() =>
-          executeCommandInWorkbench(sessionWorkbenchId, {
-            type: "DELETE_NODES",
-            ids: [currentTextElement.id],
-          })
-        );
-      }
-    }
-
-    cancelTextEdit();
-  }, [
-    activeWorkbenchId,
-    cancelTextEdit,
-    clearSelection,
-    executeCommandInWorkbench,
-    editingTextWorkbenchId,
-    editingTextMode,
-    editingTextValue,
-    activeTextElement,
-    selectElement,
-    upsertElementInWorkbench,
-  ]);
-
-  const updateSelectedTextElement = useCallback(
-    (updater: (element: CanvasTextElement) => CanvasTextElement) => {
-      const currentTextElement = textElementDraftRef.current ?? activeTextElement;
-      const targetWorkbenchId = editingTextWorkbenchId ?? activeWorkbenchId;
-      if (
-        !targetWorkbenchId ||
-        !activeWorkbenchId ||
-        (editingTextWorkbenchId !== null && editingTextWorkbenchId !== activeWorkbenchId) ||
-        !currentTextElement ||
-        !isCanvasTextElementEditable(currentTextElement)
-      ) {
-        return;
-      }
-      const nextElement = fitCanvasTextElementToContent(updater(currentTextElement));
-      textElementDraftRef.current = nextElement;
-      if (editingTextId === currentTextElement.id) {
-        setEditingTextDraft(nextElement);
-      }
-      if (editingTextMode === "create" && !createdTextElementRef.current) {
-        return;
-      }
-      void textMutationQueueRef.current!.enqueue(() =>
-        upsertElementInWorkbench(targetWorkbenchId, nextElement)
-      );
-    },
-    [
-      activeWorkbenchId,
-      activeTextElement,
-      editingTextWorkbenchId,
-      editingTextId,
-      editingTextMode,
-      upsertElementInWorkbench,
-    ]
-  );
-
-  const editingTextRenderElement =
-    (!editingTextId || editingTextWorkbenchId === activeWorkbenchId) &&
-    activeTextElementIsEditable &&
-    activeTextElement?.type === "text"
-      ? activeTextElement
-      : null;
   const { selectionOverlay, toolbarPosition, dimensionsBadgePosition, editingTextLayout } =
     useCanvasViewportOverlay({
       stageRef,
@@ -1271,11 +1074,8 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       zoom,
       selectedElementIds,
       editingTextId,
-      activeTextElement,
-      activeTextElementIsEditable,
       editingTextRenderElement,
-      textElementDraftRef,
-      singleSelectedTextElement,
+      trackedTextOverlayElement,
       singleSelectedNonTextElement,
       textToolbarRef,
       dimensionsBadgeRef,
@@ -1290,9 +1090,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       if (event.code === "Space" && !isInputLikeElement(event.target)) {
         event.preventDefault();
         setIsSpacePressed(true);
-      }
-      if (event.key === "Escape") {
-        cancelTextEdit();
       }
     };
     const handleKeyUp = (event: KeyboardEvent) => {
@@ -1309,29 +1106,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [cancelTextEdit]);
-
-  useEffect(() => {
-    if (!editingTextId) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) {
-        return;
-      }
-      if (textEditorRef.current?.contains(target) || textToolbarRef.current?.contains(target)) {
-        return;
-      }
-      commitTextEdit();
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-    };
-  }, [commitTextEdit, editingTextId]);
+  }, []);
 
   const adjustZoom = (direction: "in" | "out") => {
     const scaleBy = 1.08;
@@ -1356,11 +1131,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   };
 
   const showTextToolbar = Boolean(
-    selectionOverlay &&
-      (!editingTextId || editingTextWorkbenchId === activeWorkbenchId) &&
-      activeTextElementIsEditable &&
-      activeTextElement?.type === "text" &&
-      selectedElementIds.length === 1
+    selectionOverlay && editingTextRenderElement && selectedElementIds.length === 1
   );
   const showTextEditor = Boolean(
     !hasMarqueeSession && !isMarqueeDragging && editingTextId && editingTextRenderElement
@@ -1368,37 +1139,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const showDimensionsBadge = Boolean(
     selectionOverlay && singleSelectedNonTextElement && selectedElementIds.length === 1
   );
-
-  useEffect(() => {
-    if (resolvingTextSessionRef.current || !editingTextId) {
-      return;
-    }
-
-    if (
-      !activeTextElementIsEditable ||
-      (editingTextWorkbenchId !== null && editingTextWorkbenchId !== activeWorkbenchId)
-    ) {
-      const originatingWorkbenchId = editingTextWorkbenchId;
-      const sessionVersion = textSessionVersionRef.current;
-      if (originatingWorkbenchId && originatingWorkbenchId !== activeWorkbenchId) {
-        resolvingTextSessionRef.current = true;
-        void persistCurrentTextDraftToWorkbench(originatingWorkbenchId).finally(() => {
-          if (textSessionVersionRef.current === sessionVersion) {
-            cancelTextEdit();
-          }
-        });
-        return;
-      }
-      cancelTextEdit();
-    }
-  }, [
-    activeTextElementIsEditable,
-    activeWorkbenchId,
-    cancelTextEdit,
-    editingTextId,
-    editingTextWorkbenchId,
-    persistCurrentTextDraftToWorkbench,
-  ]);
 
   if (!activeWorkbench) {
     return (
@@ -1676,46 +1416,9 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
             ref={textEditorInputRef}
             value={editingTextValue}
             onChange={(event) => {
-              const nextValue = event.target.value;
-              setEditingTextValue(nextValue);
-
-              const sourceElement =
-                textElementDraftRef.current ?? editingTextRenderElement ?? activeTextElement;
-              if (!sourceElement) {
-                return;
-              }
-
-              const nextElement = fitCanvasTextElementToContent({
-                ...sourceElement,
-                content: nextValue,
-              });
-              textElementDraftRef.current = nextElement;
-              setEditingTextDraft(nextElement);
-
-              if (
-                editingTextMode === "create" &&
-                !createdTextElementRef.current &&
-                nextValue.trim().length > 0 &&
-                activeWorkbenchId &&
-                editingTextWorkbenchId === activeWorkbenchId
-              ) {
-                createdTextElementRef.current = true;
-                selectElement(nextElement.id);
-                void textMutationQueueRef.current!.enqueue(() =>
-                  upsertElementInWorkbench(activeWorkbenchId, nextElement)
-                );
-              }
+              handleTextValueChange(event.target.value);
             }}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                cancelTextEdit();
-              }
-              if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-                event.preventDefault();
-                commitTextEdit();
-              }
-            }}
+            onKeyDown={handleTextInputKeyDown}
             autoFocus
             placeholder="Add Text"
             spellCheck={false}

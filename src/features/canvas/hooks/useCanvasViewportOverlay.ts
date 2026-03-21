@@ -45,11 +45,8 @@ interface UseCanvasViewportOverlayOptions {
   zoom: number;
   selectedElementIds: string[];
   editingTextId: string | null;
-  activeTextElement: CanvasTextElement | CanvasRenderableTextElement | null;
-  activeTextElementIsEditable: boolean;
   editingTextRenderElement: CanvasTextElement | CanvasRenderableTextElement | null;
-  textElementDraftRef: { current: CanvasTextElement | null };
-  singleSelectedTextElement: CanvasRenderableTextElement | null;
+  trackedTextOverlayElement: CanvasTextElement | CanvasRenderableTextElement | null;
   singleSelectedNonTextElement: { id: string } | null;
   textToolbarRef: RefObject<HTMLDivElement>;
   dimensionsBadgeRef: RefObject<HTMLDivElement>;
@@ -72,11 +69,8 @@ export function useCanvasViewportOverlay({
   zoom,
   selectedElementIds,
   editingTextId,
-  activeTextElement,
-  activeTextElementIsEditable,
   editingTextRenderElement,
-  textElementDraftRef,
-  singleSelectedTextElement,
+  trackedTextOverlayElement,
   singleSelectedNonTextElement,
   textToolbarRef,
   dimensionsBadgeRef,
@@ -112,21 +106,15 @@ export function useCanvasViewportOverlay({
     }
 
     const node = stage.findOne(`#${trackedId}`);
-    const trackedTextElement = editingTextId
-      ? activeTextElementIsEditable
-        ? (textElementDraftRef.current ?? activeTextElement)
-        : null
-      : singleSelectedTextElement;
-
-    if (!node && !trackedTextElement) {
+    if (!node && !trackedTextOverlayElement) {
       setSelectionOverlay((current) => (current ? null : current));
       return;
     }
 
     const rect = node
       ? getSelectionOverlayRect(node)
-      : trackedTextElement
-        ? getDraftTextOverlayRect(trackedTextElement, viewport, zoom)
+      : trackedTextOverlayElement
+        ? getDraftTextOverlayRect(trackedTextOverlayElement, viewport, zoom)
         : null;
     if (!rect) {
       setSelectionOverlay((current) => (current ? null : current));
@@ -136,7 +124,7 @@ export function useCanvasViewportOverlay({
     const nextOverlay: CanvasSelectionOverlayMetrics = {
       rect,
       textMatrix:
-        node && trackedTextElement && trackedId === trackedTextElement.id
+        node && trackedTextOverlayElement && trackedId === trackedTextOverlayElement.id
           ? createTransformMatrix(node)
           : null,
     };
@@ -145,12 +133,8 @@ export function useCanvasViewportOverlay({
       selectionOverlayEqual(current, nextOverlay) ? current : nextOverlay
     );
   }, [
-    activeTextElement,
-    activeTextElementIsEditable,
-    editingTextId,
-    singleSelectedTextElement,
+    trackedTextOverlayElement,
     stageRef,
-    textElementDraftRef,
     trackedId,
     viewport,
     zoom,
@@ -190,8 +174,7 @@ export function useCanvasViewportOverlay({
   useLayoutEffect(() => {
     if (
       !selectionOverlay ||
-      !activeTextElement ||
-      activeTextElement.type !== "text" ||
+      !editingTextRenderElement ||
       stageSize.width <= 0 ||
       stageSize.height <= 0
     ) {
@@ -212,7 +195,7 @@ export function useCanvasViewportOverlay({
       overlayPositionEqual(current, nextPosition) ? current : nextPosition
     );
   }, [
-    activeTextElement,
+    editingTextRenderElement,
     floatingToolbarGap,
     selectionOverlay,
     stageSize.height,
