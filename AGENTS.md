@@ -21,9 +21,8 @@ Follow Conventional Commit style: `feat(scope): ...`, `fix(scope): ...`, `refact
 
 ## Testing
 
-- Keep implementation context and test-writing context isolated. Never write implementation code and test files in the same agent-visible context.
-- When tests are needed, delegate test authoring to a dedicated subagent with isolated context.
-- The inverse is also acceptable: one isolated subagent may implement while another isolated subagent writes tests, but no single context may see and edit both.
+- Keep implementation work and test-writing work logically separate. If both are needed, finish implementation first and write tests as a separate step.
+- Do not use subagents for implementation or test authoring. Subagents are reserved for review and explore only.
 - Only write unit tests for pure functions.
 - Treat pure functions strictly: deterministic input/output logic with no I/O, shared mutable state, framework lifecycle, network, storage, timer, or rendering side effects.
 - Do not add unit tests for components, hooks, stores, routes, integration flows, or any side-effectful or non-pure module.
@@ -31,24 +30,25 @@ Follow Conventional Commit style: `feat(scope): ...`, `fix(scope): ...`, `refact
 
 ## Subagents
 
-- When the user or the main agent judges a task too large, split it into modules and delegate implementation to subagents.
-- The main agent owns the orchestration: define module boundaries, manage sequencing, track dependency impact, and integrate the result.
-- Delegate with clear ownership so subagents do not work on overlapping modules or incompatible assumptions.
-- Account for cross-module dependencies before delegation. Do not split work blindly when interface or integration risk is high.
-- If dependency relationships are too complex to split safely, stop and ask the user to help decompose the task instead of guessing.
+- Use subagents only for review and explore tasks.
+- Do not use subagents for implementation, refactoring, test authoring, orchestration, or integration work.
+- Explore subagents should answer bounded codebase questions or gather context only.
+- Review subagents may be used for architecture, performance, and bug or missing-functionality review passes.
+- If a task is too large or too coupled to split safely, do not delegate delivery work to subagents; ask the user to narrow scope or help decompose it instead.
 
 ## Code Review
 
 - Only flag concrete issues. Do not nitpick style, hypothetical edge cases that cannot happen, or "improvements" that change nothing meaningful.
 - If a review finds nothing wrong, say "no issues found". Do not invent problems to appear thorough.
-- After implementation and any relevant tests, dispatch a dedicated architecture review subagent.
-- Dispatch a dedicated performance review subagent.
-- Dispatch a dedicated code bug and missing functionality review subagent.
+- After implementation and any relevant tests pass, automatically dispatch a dedicated architecture review subagent.
+- Automatically dispatch a dedicated performance review subagent.
+- Automatically dispatch a dedicated code bug and missing functionality review subagent.
+- Do not commit an independent module or step until the required review subagent passes have finished and their findings have been resolved or explicitly accepted.
 - The main agent remains responsible for dispatching those review passes, consolidating findings, resolving conflicts, and deciding the final changes.
 
 ## Using GitHub
 
 - Never mention Claude Code in PR descriptions, PR comments, or issue comments.
 - Use the gh tool for GitHub-related operations.
-- Atomic development: when executing a multi-step plan, commit after each independent step completes (with tests passing). Do not accumulate all
+- Atomic development: when executing a multi-step plan, commit after each independent step completes only after relevant tests pass and the required review subagent passes are complete. Do not accumulate all
   changes into one final commit.
