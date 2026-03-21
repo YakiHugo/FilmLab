@@ -18,6 +18,9 @@ Follow Conventional Commit style: `feat(scope): ...`, `fix(scope): ...`, `refact
 - Do what has been asked; nothing more, nothing less. Do not over-engineer.
 - For small decisions (naming, local refactors, implementation details), decide on your own and move on. Only ask when the choice is irreversible or affects security/architecture.
 - When refactoring or creating new module, first propose what you consider best practice and let the user decide, rather than immediately compromising the workspace code
+- Prefer shared helpers in `src/utils/<function>.ts`, with re-exports from `src/utils/index.ts`.
+- Do not inline runtime ID generation with `randomUUID`, `Date.now`, or `Math.random`; reuse the shared ID helper instead.
+- For canvas insert, duplicate, delete, and upsert flows, reuse the shared collision and selection handling instead of re-implementing ad hoc logic at new call sites.
 
 ## Testing
 
