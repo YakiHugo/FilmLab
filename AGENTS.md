@@ -43,10 +43,10 @@ Follow Conventional Commit style: `feat(scope): ...`, `fix(scope): ...`, `refact
 
 - Only flag concrete issues. Do not nitpick style, hypothetical edge cases that cannot happen, or "improvements" that change nothing meaningful.
 - If a review finds nothing wrong, say "no issues found". Do not invent problems to appear thorough.
-- After implementation and any relevant tests pass, automatically dispatch a dedicated architecture review subagent.
-- Automatically dispatch a dedicated performance review subagent.
-- Automatically dispatch a dedicated code bug and missing functionality review subagent.
-- Do not commit an independent module or step until the required review subagent passes have finished and their findings have been resolved or explicitly accepted.
+- After implementation and any relevant tests pass, the main agent must decide how many review subagents to run, and which types to run, based on the scope of the current changes and the results of the previous review round.
+- Dispatch architecture, performance, and bug or missing-functionality review subagents only when that area could be affected by the current changes, or when a previous review in that area found issues that still need revalidation.
+- If a review area is clearly unaffected by the current changes and the last pass for that area found no issues, do not rerun that subagent.
+- Do not commit an independent module or step until the review subagent passes selected for that step have finished and their findings have been resolved or explicitly accepted.
 - The main agent remains responsible for dispatching those review passes, consolidating findings, resolving conflicts, and deciding the final changes.
 
 ## Using GitHub
