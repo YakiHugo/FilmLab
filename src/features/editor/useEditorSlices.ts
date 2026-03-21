@@ -6,7 +6,6 @@ import {
 } from "@/lib/editorAdjustmentVisibility";
 import { createDefaultLayerMask, createDefaultLayerMaskData } from "@/lib/editorLayerMasks";
 import {
-  createEditorLayerId,
   ensureAssetLayers,
   moveLayerToIndex,
   resolveBaseAdjustmentsFromLayers,
@@ -14,6 +13,7 @@ import {
 } from "@/lib/editorLayers";
 import { useAssetStore } from "@/stores/assetStore";
 import { useEditorStore } from "@/stores/editorStore";
+import { createId } from "@/utils";
 import {
   createEditorDocument,
   createRenderDocument,
@@ -991,7 +991,7 @@ export function useEditorLayerActions() {
       return;
     }
     const adjustmentLayer: EditorLayer = {
-      id: createEditorLayerId("adjustment"),
+      id: createId("layer-id"),
       name: `Adjustment ${layers.filter((layer) => layer.type === "adjustment").length + 1}`,
       type: "adjustment",
       visible: true,
@@ -1009,7 +1009,7 @@ export function useEditorLayerActions() {
     }
     const duplicated: EditorLayer = {
       ...selectedLayer,
-      id: createEditorLayerId("layer"),
+      id: createId("layer-id"),
       name: `${selectedLayer.name} Copy`,
       type: selectedLayer.type === "base" ? "duplicate" : selectedLayer.type,
     };
@@ -1027,7 +1027,7 @@ export function useEditorLayerActions() {
         return;
       }
       const textureLayer: EditorLayer = {
-        id: createEditorLayerId("texture"),
+        id: createId("layer-id"),
         name: textureAsset.name,
         type: "texture",
         visible: true,

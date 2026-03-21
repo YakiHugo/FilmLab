@@ -14,11 +14,11 @@ import { getCurrentUserId } from "@/lib/authToken";
 import { sha256FromBlob } from "@/lib/hash";
 import {
   cloneEditorLayers,
-  createEditorLayerId,
   ensureAssetLayers,
   moveLayerByDirection,
   resolveBaseAdjustmentsFromLayers,
 } from "@/lib/editorLayers";
+import { createId } from "@/utils";
 import {
   clearAssetSyncJobsByUser,
   clearAssetsByUser,
@@ -1447,7 +1447,7 @@ export const useAssetStore = create<CurrentUserState>()(
               const source = layers[sourceIndex]!;
               const duplicate: EditorLayer = {
                 ...source,
-                id: createEditorLayerId("layer"),
+                id: createId("layer-id"),
                 type: source.type === "base" ? "duplicate" : source.type,
                 name: `${source.name} Copy`,
               };

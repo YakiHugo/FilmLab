@@ -5,6 +5,7 @@ import {
   normalizeAdjustments,
 } from "@/lib/adjustments";
 import { normalizeFilmProfile, resolveFilmProfile as resolveRuntimeFilmProfile } from "@/lib/film";
+import { createId } from "@/utils";
 import {
   PRESET_ADJUSTMENT_KEYS,
   type EditingAdjustments,
@@ -138,7 +139,6 @@ export const normalizeImportedPresets = (parsed: unknown): Preset[] => {
   const defaultTags = basePresets[0]?.tags ?? ([] as Preset["tags"]);
   const fallbackIntensity = basePresets[0]?.intensity ?? 100;
   const fallbackDescription = basePresets[0]?.description ?? "导入预设";
-  const timestamp = Date.now();
 
   return incoming.filter(isPresetLike).map((preset, index) => {
     const rawTags = Array.isArray(preset.tags)
@@ -157,7 +157,7 @@ export const normalizeImportedPresets = (parsed: unknown): Preset[] => {
     })();
 
     return {
-      id: (preset.id as string) || `imported-${timestamp}-${index}`,
+      id: (preset.id as string) || createId("preset-id"),
       name: (preset.name as string) || `导入预设 ${index + 1}`,
       tags: (rawTags.length > 0 ? rawTags : defaultTags) as Preset["tags"],
       intensity: typeof preset.intensity === "number" ? preset.intensity : fallbackIntensity,

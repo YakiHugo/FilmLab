@@ -1,12 +1,9 @@
+import { createId } from "@/utils";
 import type { LocalAdjustment, LocalAdjustmentDelta, LocalAdjustmentMask } from "@/types";
 
 export type LocalAdjustmentMaskMode = LocalAdjustmentMask["mode"];
 
-const LOCAL_ID_PREFIX = "local";
 const DEFAULT_LOCAL_AMOUNT = 100;
-
-const createLocalAdjustmentId = () =>
-  `${LOCAL_ID_PREFIX}-${Math.random().toString(36).slice(2, 8)}-${Date.now().toString(36)}`;
 
 export const createDefaultLocalMask = (
   mode: LocalAdjustmentMaskMode
@@ -70,7 +67,7 @@ export const createDefaultLocalMask = (
 };
 
 export const createLocalAdjustment = (mode: LocalAdjustmentMaskMode): LocalAdjustment => ({
-  id: createLocalAdjustmentId(),
+  id: createId("adjustment-id"),
   enabled: true,
   amount: DEFAULT_LOCAL_AMOUNT,
   mask: createDefaultLocalMask(mode),
@@ -84,7 +81,7 @@ export const cloneLocalAdjustment = (local: LocalAdjustment): LocalAdjustment =>
       : (JSON.parse(JSON.stringify(local)) as LocalAdjustment);
   return {
     ...cloned,
-    id: createLocalAdjustmentId(),
+    id: createId("adjustment-id"),
   };
 };
 
