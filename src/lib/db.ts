@@ -715,7 +715,7 @@ export async function saveCanvasWorkbench(document: StoredCanvasWorkbench): Prom
   try {
     await db.put("canvasWorkbenches", {
       ...document,
-      ownerRef: { userId: getCurrentUserId() },
+      ownerRef: document.ownerRef ?? { userId: getCurrentUserId() },
     });
     return true;
   } catch (error) {
