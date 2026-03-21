@@ -5,6 +5,7 @@ import { createBaseLayer } from "@/lib/editorLayers";
 import { sha256FromBlob } from "@/lib/hash";
 import { prepareAssetPayload } from "@/lib/assetMetadata";
 import { saveAsset } from "@/lib/db";
+import { createId } from "@/utils";
 import type { Asset } from "@/types";
 import {
   IMPORT_PROGRESS_THROTTLE_MS,
@@ -27,13 +28,7 @@ interface ImportPipelineOptions {
 
 const getFingerprint = (input: { name: string; size: number }) => `${input.name}:${input.size}`;
 
-const createAssetId = (file: File) => {
-  const random =
-    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
-      : Math.random().toString(16).slice(2);
-  return `${file.name}-${file.lastModified}-${random}`;
-};
+const createAssetId = (file: File) => `${file.name}-${file.lastModified}-${createId("asset-id")}`;
 
 const createEmptyResult = (requested = 0): ImportAssetsResult => ({
   requested,
