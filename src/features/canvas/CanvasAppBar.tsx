@@ -16,7 +16,7 @@ export function CanvasAppBar({ onExport }: CanvasAppBarProps) {
     return activeWorkbench?.name ?? "";
   });
   const createWorkbench = useCanvasStore((state) => state.createWorkbench);
-  const upsertWorkbench = useCanvasStore((state) => state.upsertWorkbench);
+  const patchWorkbench = useCanvasStore((state) => state.patchWorkbench);
   const zoom = useCanvasStore((state) => state.zoom);
   const { canUndo, canRedo, undo, redo } = useCanvasHistory();
 
@@ -27,17 +27,17 @@ export function CanvasAppBar({ onExport }: CanvasAppBarProps) {
           <Input
             value={activeWorkbenchName}
             onChange={(event) => {
-              const currentWorkbench = useCanvasStore
-                .getState()
-                .workbenches.find((entry) => entry.id === activeWorkbenchId);
-              if (!currentWorkbench) {
+              if (!activeWorkbenchId) {
                 return;
               }
 
-              void upsertWorkbench({
-                ...currentWorkbench,
-                name: event.target.value || "\u672a\u547d\u540d\u5de5\u4f5c\u53f0",
-              });
+              void patchWorkbench(
+                activeWorkbenchId,
+                {
+                  name: event.target.value || "\u672a\u547d\u540d\u5de5\u4f5c\u53f0",
+                },
+                { trackHistory: false }
+              );
             }}
             className="h-8 w-[220px] rounded-lg border-white/10 bg-white/[0.06] px-2.5 text-sm text-zinc-100 placeholder:text-zinc-500"
             placeholder="\u5de5\u4f5c\u53f0\u540d\u79f0"

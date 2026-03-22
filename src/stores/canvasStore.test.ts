@@ -772,18 +772,21 @@ describe("canvasStore", () => {
     expect(useCanvasStore.getState().activeWorkbenchId).toBeNull();
   });
 
-  it("does not add a missing workbench through upsertWorkbench when persistence fails", async () => {
+  it("does not patch a missing workbench", async () => {
     useCanvasStore.setState({
       activeWorkbenchId: null,
       workbenches: [],
       historyByWorkbenchId: {},
     });
-    saveCanvasWorkbenchMock.mockResolvedValue(false);
+    saveCanvasWorkbenchMock.mockClear();
 
-    await useCanvasStore.getState().upsertWorkbench(createWorkbench());
+    const result = await useCanvasStore.getState().patchWorkbench("doc-1", {
+      name: "Missing workbench",
+    });
 
+    expect(result).toBeNull();
     expect(useCanvasStore.getState().workbenches).toEqual([]);
-    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
+    expect(saveCanvasWorkbenchMock).not.toHaveBeenCalled();
   });
 
   it("returns false and preserves state when deleteWorkbench persistence fails", async () => {

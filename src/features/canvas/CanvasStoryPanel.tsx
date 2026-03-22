@@ -44,7 +44,7 @@ interface CanvasStoryPanelProps {
 export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStoryPanelProps) {
   const workbenches = useCanvasStore((state) => state.workbenches);
   const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
-  const upsertWorkbench = useCanvasStore((state) => state.upsertWorkbench);
+  const patchWorkbench = useCanvasStore((state) => state.patchWorkbench);
 
   const activeWorkbench = useMemo(
     () => workbenches.find((document) => document.id === activeWorkbenchId) ?? null,
@@ -75,7 +75,21 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
   }
 
   const commitDocument = (nextDocument: typeof activeWorkbench) => {
-    void upsertWorkbench(nextDocument);
+    void patchWorkbench(
+      activeWorkbench.id,
+      {
+        backgroundColor: nextDocument.backgroundColor,
+        guides: nextDocument.guides,
+        height: nextDocument.height,
+        name: nextDocument.name,
+        presetId: nextDocument.presetId,
+        safeArea: nextDocument.safeArea,
+        slices: nextDocument.slices,
+        thumbnailBlob: nextDocument.thumbnailBlob,
+        width: nextDocument.width,
+      },
+      { trackHistory: false }
+    );
   };
 
   const updateGuide = (key: keyof typeof activeWorkbench.guides, value: boolean) => {

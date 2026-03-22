@@ -57,7 +57,7 @@ export function CanvasWorkbenchPanel() {
   );
   const createWorkbench = useCanvasStore((state) => state.createWorkbench);
   const deleteWorkbench = useCanvasStore((state) => state.deleteWorkbench);
-  const upsertWorkbench = useCanvasStore((state) => state.upsertWorkbench);
+  const patchWorkbench = useCanvasStore((state) => state.patchWorkbench);
 
   const workbenchCount = workbenches.length;
 
@@ -158,17 +158,17 @@ export function CanvasWorkbenchPanel() {
             <Input
               value={activeWorkbenchMeta.name}
               onChange={(event) => {
-                const currentWorkbench = useCanvasStore
-                  .getState()
-                  .workbenches.find((entry) => entry.id === activeWorkbenchMeta.id);
-                if (!currentWorkbench) {
+                if (!activeWorkbenchMeta.id) {
                   return;
                 }
 
-                void upsertWorkbench({
-                  ...currentWorkbench,
-                  name: event.target.value || "Untitled Workbench",
-                });
+                void patchWorkbench(
+                  activeWorkbenchMeta.id,
+                  {
+                    name: event.target.value || "Untitled Workbench",
+                  },
+                  { trackHistory: false }
+                );
               }}
               className={canvasDockFieldClassName}
             />
