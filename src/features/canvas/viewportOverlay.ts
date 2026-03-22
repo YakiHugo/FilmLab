@@ -1,6 +1,6 @@
 import type { CanvasRenderableTextElement, CanvasTextElement } from "@/types";
 import type { CanvasOverlayRect } from "./overlayGeometry";
-import { fitCanvasTextElementToContent } from "./textStyle";
+import { fitCanvasTextElementToContent, measureCanvasTextEditorSize } from "./textStyle";
 
 export interface CanvasSelectionOverlayMetrics {
   rect: CanvasOverlayRect;
@@ -52,12 +52,13 @@ export const getDraftTextOverlayRect = (
   zoom: number
 ): CanvasOverlayRect => {
   const layoutElement = fitCanvasTextElementToContent(element);
+  const editingSize = measureCanvasTextEditorSize(element);
 
   return {
     x: layoutElement.x * zoom + viewport.x,
     y: layoutElement.y * zoom + viewport.y,
-    width: Math.max(1, layoutElement.width * zoom),
-    height: Math.max(1, layoutElement.height * zoom),
+    width: Math.max(1, editingSize.width * zoom),
+    height: Math.max(1, editingSize.height * zoom),
   };
 };
 
@@ -103,13 +104,14 @@ export const getTextEditorLayout = ({
   zoom: number;
 }): CanvasTextEditorLayout => {
   const layoutElement = fitCanvasTextElementToContent(element);
+  const editingSize = measureCanvasTextEditorSize(element);
 
   if (transform) {
     return {
       left: 0,
       top: 0,
-      width: layoutElement.width,
-      height: layoutElement.height,
+      width: editingSize.width,
+      height: editingSize.height,
       transform,
       transformOrigin: "top left",
     };
@@ -118,8 +120,8 @@ export const getTextEditorLayout = ({
   return {
     left: 0,
     top: 0,
-    width: layoutElement.width,
-    height: layoutElement.height,
+    width: editingSize.width,
+    height: editingSize.height,
     transform: `translate(${layoutElement.x * zoom + viewport.x}px, ${layoutElement.y * zoom + viewport.y}px) scale(${zoom}) rotate(${layoutElement.rotation}deg)`,
     transformOrigin: "top left",
   };

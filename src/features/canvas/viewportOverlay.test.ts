@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { fitCanvasTextElementToContent } from "./textStyle";
 import type { CanvasSelectionOverlayMetrics } from "./viewportOverlay";
 import {
   getTextEditorLayout,
@@ -164,5 +165,29 @@ describe("viewport overlay helpers", () => {
       transform: "translate(180px, 170px) scale(1.5) rotate(15deg)",
       transformOrigin: "top left",
     });
+  });
+
+  it("keeps empty editing text wide enough to show the placeholder", () => {
+    const element = {
+      ...createTextElement(),
+      content: "",
+    };
+    const fitted = fitCanvasTextElementToContent(element);
+    const layout = getTextEditorLayout({
+      element,
+      transform: null,
+      viewport: { x: 120, y: 80 },
+      zoom: 1.5,
+    });
+    const overlay = resolveSelectionOverlayMetrics({
+      draftTextElement: element,
+      textMatrix: null,
+      viewport: { x: 120, y: 80 },
+      zoom: 1.5,
+      nodeRect: null,
+    });
+
+    expect(layout.width).toBeGreaterThan(fitted.width);
+    expect(overlay?.rect.width).toBeGreaterThan(fitted.width * 1.5);
   });
 });

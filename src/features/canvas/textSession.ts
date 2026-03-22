@@ -58,6 +58,36 @@ export const shouldRenderEditingTextOnActiveWorkbench = ({
   activeTextElementIsEditable &&
   activeTextElementType === "text";
 
+export const shouldShowTextToolbar = ({
+  hasEditingTextRenderElement,
+  hasSelectionOverlay,
+}: {
+  hasEditingTextRenderElement: boolean;
+  hasSelectionOverlay: boolean;
+}) => hasSelectionOverlay && hasEditingTextRenderElement;
+
+export const shouldSelectMaterializedCreatedText = ({
+  activeWorkbenchId,
+  editingTextId,
+  hasEditingTextElement,
+  isEditingTextSelected,
+  mode,
+  sessionWorkbenchId,
+}: {
+  activeWorkbenchId: string | null;
+  editingTextId: string | null;
+  hasEditingTextElement: boolean;
+  isEditingTextSelected: boolean;
+  mode: EditingTextMode | null;
+  sessionWorkbenchId: string | null;
+}) =>
+  mode === "create" &&
+  editingTextId !== null &&
+  hasEditingTextElement &&
+  !isEditingTextSelected &&
+  activeWorkbenchId !== null &&
+  sessionWorkbenchId === activeWorkbenchId;
+
 export const shouldPersistTextSessionOnWorkbenchSwitch = ({
   activeWorkbenchId,
   sessionWorkbenchId,

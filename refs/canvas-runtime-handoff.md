@@ -15,6 +15,7 @@ This reflects repository state after:
 
 - `1373fbc` `refactor(canvas): extract viewport overlay sync`
 - `8763f38` `refactor(canvas): extract text editing session`
+- `bdea173` `fix(canvas): preserve draft overlay fallback`
 
 ## Current State
 
@@ -59,27 +60,33 @@ What `CanvasViewport` still owns on purpose:
 
 ## Local Follow-up (2026-03-22)
 
-This handoff note was updated after a local, uncommitted follow-up on the overlay seam.
+This handoff note was updated after the local text create-mode follow-up on top of the overlay seam fixes.
 
 Files changed locally:
 
 - `src/features/canvas/CanvasViewport.tsx`
-- `src/features/canvas/hooks/useCanvasViewportOverlay.ts`
+- `src/features/canvas/hooks/useCanvasTextSession.ts`
+- `src/features/canvas/textSession.ts`
+- `src/features/canvas/textSession.test.ts`
+- `src/features/canvas/textStyle.ts`
+- `src/features/canvas/textStyle.test.ts`
 - `src/features/canvas/viewportOverlay.ts`
 - `src/features/canvas/viewportOverlay.test.ts`
 
 What changed locally:
 
-- extracted `resolveSelectionOverlayMetrics` in `viewportOverlay.ts` so overlay metric resolution is centralized
-- updated `useCanvasViewportOverlay` so a `findOne` miss no longer clears the overlay immediately; it now reuses the normal sync path so draft-text fallback can survive until a Konva node exists
-- added pure tests for node-rect preference, draft fallback, and null-return cases
-- fixed a follow-up runtime regression in `CanvasViewport` caused by reading `editingTextDraft` before the `useCanvasTextSession(...)` result had been initialized
+- kept text-toolbar visibility anchored to the active text session + overlay instead of committed single-selection
+- moved create-mode selection to a post-materialization effect so the store only selects the new text node after it actually exists
+- added a temporary active selection outline for create-mode draft text before the committed selection catches up
+- reserved enough editor width for the empty-text placeholder so the initial textarea no longer collapses to a tiny width
+- added pure tests for toolbar visibility, delayed create-mode selection, and empty-text editor sizing
 
 Important status:
 
-- these local changes are not committed
-- they passed targeted static/test validation
-- they were not browser-smoke-tested yet
+- the create-mode toolbar visibility bug is fixed locally
+- empty create-mode text now shows both an active outline and a readable placeholder width
+- these local changes passed targeted static/test validation
+- browser-state validation was run for text creation, but a full manual smoke pass across restart / HMR flows still has not been done
 
 ## Validation Already Run
 
@@ -102,10 +109,23 @@ Passed locally after the overlay follow-up:
 - `pnpm exec tsc --noEmit`
 - `pnpm exec eslint src/features/canvas/CanvasViewport.tsx src/features/canvas/hooks/useCanvasViewportOverlay.ts src/features/canvas/viewportOverlay.ts src/features/canvas/viewportOverlay.test.ts`
 
+Passed locally after the text create-mode follow-up:
+
+- `pnpm test -- src/features/canvas/textStyle.test.ts src/features/canvas/viewportOverlay.test.ts src/features/canvas/textSession.test.ts src/features/canvas/tools/toolControllers.test.ts`
+- `pnpm exec tsc --noEmit`
+- `pnpm exec eslint src/features/canvas/CanvasViewport.tsx src/features/canvas/hooks/useCanvasTextSession.ts src/features/canvas/textSession.ts src/features/canvas/textSession.test.ts src/features/canvas/textStyle.ts src/features/canvas/textStyle.test.ts src/features/canvas/viewportOverlay.ts src/features/canvas/viewportOverlay.test.ts`
+
+Browser-state validation completed locally:
+
+- create-mode text shows the toolbar immediately, even before the node is committed to store selection
+- the empty textarea now opens with a readable placeholder width (`147px` in local dev validation)
+- the first non-empty input materializes the node and promotes it to committed single-selection without hiding the toolbar
+- the create-mode draft now shows a visible active outline before committed selection is available
+
 What was not done:
 
-- no browser/manual interaction smoke test was run after the second cut
-- no browser/manual smoke test was run after the local overlay follow-up and the `editingTextDraft` TDZ fix
+- no full manual interaction smoke test was run after the text create-mode follow-up
+- no restart / HMR verification was run after the text create-mode follow-up
 - the user reported a separate runtime symptom where, after hot update or dev-server restart, the page can stop accepting newly added elements; this has not been reproduced or investigated yet
 
 ## Known Open Bugs
@@ -148,48 +168,27 @@ Main places:
 
 - [useCanvasTextSession.ts](/E:/project/FilmLab/src/features/canvas/hooks/useCanvasTextSession.ts)
 
-### 3. New text create-mode toolbar can stay hidden during the first edit session
+### 3. Restart / HMR insertion reliability is still unverified
 
 Problem:
 
-- create-mode clears selection first
-- the hook tries to select the new text id before it exists in the active workbench
-- selection rejects unknown ids
-- toolbar visibility still depends on a single selected element
+- the user previously reported that after hot update or dev-server restart, the page can stop accepting newly added elements
+- this has still not been reproduced or cleared in a normal manual browser run
 
 Impact:
 
-- the toolbar can stay hidden during the initial create/edit session for newly created text
+- there may still be a broader runtime-shell reliability issue outside the text-session seam
 
 Main places:
 
-- [toolControllers.ts](/E:/project/FilmLab/src/features/canvas/tools/toolControllers.ts)
-- [useCanvasTextSession.ts](/E:/project/FilmLab/src/features/canvas/hooks/useCanvasTextSession.ts)
 - [CanvasViewport.tsx](/E:/project/FilmLab/src/features/canvas/CanvasViewport.tsx)
-- [useCanvasInteraction.ts](/E:/project/FilmLab/src/features/canvas/hooks/useCanvasInteraction.ts)
+- [useCanvasTextSession.ts](/E:/project/FilmLab/src/features/canvas/hooks/useCanvasTextSession.ts)
+- [toolControllers.ts](/E:/project/FilmLab/src/features/canvas/tools/toolControllers.ts)
 
-### 4. Overlay draft fallback is still unstable when the Konva node does not exist
+Closed locally on 2026-03-22:
 
-Problem:
-
-- `useCanvasViewportOverlay` can compute a fallback rect from draft text data
-- but the node-subscription effect still clears `selectionOverlay` immediately when `findOne` misses
-
-Impact:
-
-- overlay anchoring can disappear in draft-only cases, which is exactly where the fallback is meant to work
-
-Main places:
-
-- [useCanvasViewportOverlay.ts](/E:/project/FilmLab/src/features/canvas/hooks/useCanvasViewportOverlay.ts)
-
-Local status (2026-03-22):
-
-- there is now a local, uncommitted fix attempt for this seam
-- do not mark this bug closed until browser verification confirms that:
-  - draft-only text editing keeps its overlay anchor
-  - the anchor survives until the Konva node materializes
-  - overlay/toolbar/editor anchoring does not flicker across the transition
+- the create-mode toolbar-hidden bug is fixed
+- the draft-only overlay fallback now survives until text materialization in local browser-state validation
 
 ## Deferred Architecture TODOs
 
@@ -271,7 +270,7 @@ If those checks fail:
 
 If those checks pass:
 
-- the next most reasonable product bug to tackle is still the create-mode toolbar visibility issue
+- the next most reasonable product bug to tackle is `Escape is not a true cancel`
 - do not jump to the deferred architecture TODOs before the remaining concrete runtime bugs are stabilized
 
 ## Recommended Next Step
@@ -289,7 +288,7 @@ Why this should come before any more runtime refactor work:
 
 If the baseline is confirmed healthy, the next likely product bug target is:
 
-- new text create-mode toolbar visibility
+- `Escape is not a true cancel`
 
 Not recommended as the immediate next step:
 

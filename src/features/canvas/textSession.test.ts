@@ -4,6 +4,8 @@ import {
   shouldMaterializeCreatedText,
   shouldPersistTextSessionOnWorkbenchSwitch,
   shouldRenderEditingTextOnActiveWorkbench,
+  shouldSelectMaterializedCreatedText,
+  shouldShowTextToolbar,
 } from "./textSession";
 
 describe("text session helpers", () => {
@@ -65,6 +67,75 @@ describe("text session helpers", () => {
         mode: "create",
         nextValue: "Hello",
         sessionWorkbenchId: "workbench-2",
+      })
+    ).toBe(false);
+  });
+
+  it("shows the text toolbar whenever a text render element has an overlay anchor", () => {
+    expect(
+      shouldShowTextToolbar({
+        hasEditingTextRenderElement: true,
+        hasSelectionOverlay: true,
+      })
+    ).toBe(true);
+
+    expect(
+      shouldShowTextToolbar({
+        hasEditingTextRenderElement: true,
+        hasSelectionOverlay: false,
+      })
+    ).toBe(false);
+
+    expect(
+      shouldShowTextToolbar({
+        hasEditingTextRenderElement: false,
+        hasSelectionOverlay: true,
+      })
+    ).toBe(false);
+  });
+
+  it("re-selects a created text node only after it materializes on the active workbench", () => {
+    expect(
+      shouldSelectMaterializedCreatedText({
+        activeWorkbenchId: "workbench-1",
+        editingTextId: "text-1",
+        hasEditingTextElement: true,
+        isEditingTextSelected: false,
+        mode: "create",
+        sessionWorkbenchId: "workbench-1",
+      })
+    ).toBe(true);
+
+    expect(
+      shouldSelectMaterializedCreatedText({
+        activeWorkbenchId: "workbench-1",
+        editingTextId: "text-1",
+        hasEditingTextElement: false,
+        isEditingTextSelected: false,
+        mode: "create",
+        sessionWorkbenchId: "workbench-1",
+      })
+    ).toBe(false);
+
+    expect(
+      shouldSelectMaterializedCreatedText({
+        activeWorkbenchId: "workbench-1",
+        editingTextId: "text-1",
+        hasEditingTextElement: true,
+        isEditingTextSelected: true,
+        mode: "create",
+        sessionWorkbenchId: "workbench-1",
+      })
+    ).toBe(false);
+
+    expect(
+      shouldSelectMaterializedCreatedText({
+        activeWorkbenchId: "workbench-1",
+        editingTextId: "text-1",
+        hasEditingTextElement: true,
+        isEditingTextSelected: false,
+        mode: "existing",
+        sessionWorkbenchId: "workbench-1",
       })
     ).toBe(false);
   });

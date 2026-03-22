@@ -4,6 +4,7 @@ import {
   fitCanvasTextElementToContent,
   getClosestCanvasTextFontSizeTier,
   getCanvasTextColorOption,
+  measureCanvasTextEditorSize,
   measureCanvasTextContentSize,
   normalizeCanvasTextElement,
 } from "./textStyle";
@@ -107,5 +108,32 @@ describe("canvas text style helpers", () => {
 
     expect(fitted.width).toBe(29);
     expect(fitted.height).toBe(22);
+  });
+
+  it("keeps the editor wide enough to show the placeholder for empty text", () => {
+    const contentSize = measureCanvasTextContentSize(
+      {
+        content: "",
+        fontFamily: "Georgia",
+        fontSize: 18,
+      },
+      {
+        measureText: (line) => line.length * 9,
+      }
+    );
+    const editorSize = measureCanvasTextEditorSize(
+      {
+        content: "",
+        fontFamily: "Georgia",
+        fontSize: 18,
+      },
+      {
+        measureText: (line) => line.length * 9,
+      }
+    );
+
+    expect(contentSize.width).toBe(11);
+    expect(editorSize.width).toBe(74);
+    expect(editorSize.height).toBe(contentSize.height);
   });
 });

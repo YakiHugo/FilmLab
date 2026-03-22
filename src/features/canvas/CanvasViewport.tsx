@@ -39,8 +39,10 @@ import {
 import {
   applyCanvasTextFontSizeTier,
   CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER,
+  CANVAS_TEXT_EDITOR_PLACEHOLDER,
   fitCanvasTextElementToContent,
 } from "./textStyle";
+import { shouldShowTextToolbar } from "./textSession";
 import { TextElement, isCanvasTextElementEditable } from "./elements/TextElement";
 import { registerCanvasStage } from "./hooks/canvasStageRegistry";
 import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
@@ -428,6 +430,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   } = useCanvasTextSession({
     activeWorkbenchId,
     elementById,
+    selectedElementIds,
     singleSelectedTextElement,
     selectElement,
     clearSelection,
@@ -1129,11 +1132,19 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     });
   };
 
-  const showTextToolbar = Boolean(
-    selectionOverlay && editingTextRenderElement && selectedElementIds.length === 1
-  );
+  const showTextToolbar = shouldShowTextToolbar({
+    hasEditingTextRenderElement: Boolean(editingTextRenderElement),
+    hasSelectionOverlay: Boolean(selectionOverlay),
+  });
   const showTextEditor = Boolean(
     !hasMarqueeSession && !isMarqueeDragging && editingTextId && editingTextRenderElement
+  );
+  const showEditingTextSelectionOutline = Boolean(
+    selectionOverlay &&
+      editingTextRenderElement &&
+      displaySelectedElementIds.length === 0 &&
+      !hasMarqueeSession &&
+      !isMarqueeDragging
   );
   const showDimensionsBadge = Boolean(
     selectionOverlay && singleSelectedNonTextElement && selectedElementIds.length === 1
@@ -1347,6 +1358,20 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
         </Layer>
       </Stage>
 
+      {showEditingTextSelectionOutline && selectionOverlay ? (
+        <div
+          className="pointer-events-none absolute z-10"
+          style={{
+            left: selectionOverlay.rect.x,
+            top: selectionOverlay.rect.y,
+            width: Math.max(1, selectionOverlay.rect.width),
+            height: Math.max(1, selectionOverlay.rect.height),
+            border: `1.5px solid ${CANVAS_SELECTION_ACCENT}`,
+            boxSizing: "border-box",
+          }}
+        />
+      ) : null}
+
       {showDimensionsBadge && singleSelectedNonTextElement ? (
         <div
           ref={dimensionsBadgeRef}
@@ -1419,7 +1444,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
             }}
             onKeyDown={handleTextInputKeyDown}
             autoFocus
-            placeholder="Add Text"
+            placeholder={CANVAS_TEXT_EDITOR_PLACEHOLDER}
             spellCheck={false}
             wrap="off"
             className="absolute inset-0 m-0 w-full resize-none border-0 bg-transparent p-0 outline-none"

@@ -19,6 +19,7 @@ import {
   shouldMaterializeCreatedText,
   shouldPersistTextSessionOnWorkbenchSwitch,
   shouldRenderEditingTextOnActiveWorkbench,
+  shouldSelectMaterializedCreatedText,
   type EditingTextMode,
 } from "../textSession";
 import { fitCanvasTextElementToContent } from "../textStyle";
@@ -29,6 +30,7 @@ type CanvasTextSessionElement = CanvasTextElement | CanvasRenderableTextElement;
 interface UseCanvasTextSessionOptions {
   activeWorkbenchId: string | null;
   elementById: Map<string, CanvasRenderableNode>;
+  selectedElementIds: string[];
   singleSelectedTextElement: CanvasRenderableTextElement | null;
   selectElement: (elementId: string) => void;
   clearSelection: () => void;
@@ -64,6 +66,7 @@ interface UseCanvasTextSessionResult {
 export function useCanvasTextSession({
   activeWorkbenchId,
   elementById,
+  selectedElementIds,
   singleSelectedTextElement,
   selectElement,
   clearSelection,
@@ -137,6 +140,34 @@ export function useCanvasTextSession({
       createdTextElementRef.current = true;
     }
   }, [editingTextElement, editingTextMode]);
+
+  const isEditingTextSelected =
+    editingTextId !== null && selectedElementIds.includes(editingTextId);
+
+  useEffect(() => {
+    if (
+      !shouldSelectMaterializedCreatedText({
+        activeWorkbenchId,
+        editingTextId,
+        hasEditingTextElement: Boolean(editingTextElement),
+        isEditingTextSelected,
+        mode: editingTextMode,
+        sessionWorkbenchId: editingTextWorkbenchId,
+      })
+    ) {
+      return;
+    }
+
+    selectElement(editingTextId);
+  }, [
+    activeWorkbenchId,
+    editingTextElement,
+    editingTextId,
+    editingTextMode,
+    editingTextWorkbenchId,
+    isEditingTextSelected,
+    selectElement,
+  ]);
 
   const beginTextEdit = useCallback(
     (element: CanvasTextElement, options?: { mode?: EditingTextMode }) => {
@@ -342,7 +373,6 @@ export function useCanvasTextSession({
         })
       ) {
         createdTextElementRef.current = true;
-        selectElement(nextElement.id);
         void textMutationQueueRef.current!.enqueue(() =>
           upsertElementInWorkbench(activeWorkbenchId, nextElement)
         );
@@ -354,7 +384,6 @@ export function useCanvasTextSession({
       editingTextMode,
       editingTextRenderElement,
       editingTextWorkbenchId,
-      selectElement,
       upsertElementInWorkbench,
     ]
   );
