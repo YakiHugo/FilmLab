@@ -4,10 +4,10 @@ import type { CanvasRenderableTextElement, CanvasTextElement } from "@/types";
 import type { CanvasOverlayRect } from "../overlayGeometry";
 import { resolveFloatingOverlayPosition } from "../overlayGeometry";
 import {
-  getDraftTextOverlayRect,
   getTextEditorLayout,
   overlayPositionEqual,
   resolveTrackedOverlayId,
+  resolveSelectionOverlayMetrics,
   selectionOverlayEqual,
   type CanvasSelectionOverlayMetrics,
   type CanvasTextEditorLayout,
@@ -106,28 +106,20 @@ export function useCanvasViewportOverlay({
     }
 
     const node = stage.findOne(`#${trackedId}`);
-    if (!node && !trackedTextOverlayElement) {
-      setSelectionOverlay((current) => (current ? null : current));
-      return;
-    }
-
-    const rect = node
-      ? getSelectionOverlayRect(node)
-      : trackedTextOverlayElement
-        ? getDraftTextOverlayRect(trackedTextOverlayElement, viewport, zoom)
-        : null;
-    if (!rect) {
-      setSelectionOverlay((current) => (current ? null : current));
-      return;
-    }
-
-    const nextOverlay: CanvasSelectionOverlayMetrics = {
-      rect,
+    const nextOverlay = resolveSelectionOverlayMetrics({
+      draftTextElement: trackedTextOverlayElement,
       textMatrix:
         node && trackedTextOverlayElement && trackedId === trackedTextOverlayElement.id
           ? createTransformMatrix(node)
           : null,
-    };
+      viewport,
+      zoom,
+      nodeRect: node ? getSelectionOverlayRect(node) : null,
+    });
+    if (!nextOverlay) {
+      setSelectionOverlay((current) => (current ? null : current));
+      return;
+    }
 
     setSelectionOverlay((current) =>
       selectionOverlayEqual(current, nextOverlay) ? current : nextOverlay
@@ -154,7 +146,7 @@ export function useCanvasViewportOverlay({
 
     const trackedNode = stage.findOne(`#${trackedId}`);
     if (!trackedNode) {
-      setSelectionOverlay((current) => (current ? null : current));
+      syncSelectionOverlay();
       return;
     }
     const node = trackedNode as Konva.Node;

@@ -388,22 +388,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     () => (displaySelectedElementIds.length === 1 ? displaySelectedElementIds[0]! : null),
     [displaySelectedElementIds]
   );
-  const displaySelectedElements = useMemo(
-    () =>
-      displaySelectedElementIds
-        .map((elementId) => {
-          const element = elementById.get(elementId);
-          if (!element) {
-            return null;
-          }
-          return element.type === "text" && editingTextDraft?.id === element.id
-            ? editingTextDraft
-            : element;
-        })
-        .filter((element): element is CanvasRenderableNode | CanvasTextElement => Boolean(element)),
-    [displaySelectedElementIds, editingTextDraft, elementById]
-  );
-
   const singleSelectedElement = useMemo(() => {
     if (selectedElementIds.length !== 1) {
       return null;
@@ -452,6 +436,21 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     textEditorRef,
     textToolbarRef,
   });
+  const displaySelectedElements = useMemo(
+    () =>
+      displaySelectedElementIds
+        .map((elementId) => {
+          const element = elementById.get(elementId);
+          if (!element) {
+            return null;
+          }
+          return element.type === "text" && editingTextDraft?.id === element.id
+            ? editingTextDraft
+            : element;
+        })
+        .filter((element): element is CanvasRenderableNode | CanvasTextElement => Boolean(element)),
+    [displaySelectedElementIds, editingTextDraft, elementById]
+  );
 
   useEffect(() => {
     selectedElementIdsRef.current = selectedElementIds;

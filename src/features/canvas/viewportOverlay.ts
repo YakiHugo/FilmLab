@@ -61,6 +61,36 @@ export const getDraftTextOverlayRect = (
   };
 };
 
+export const resolveSelectionOverlayMetrics = ({
+  draftTextElement,
+  textMatrix,
+  viewport,
+  zoom,
+  nodeRect,
+}: {
+  draftTextElement: CanvasTextElement | CanvasRenderableTextElement | null;
+  textMatrix: string | null;
+  viewport: { x: number; y: number };
+  zoom: number;
+  nodeRect: CanvasOverlayRect | null;
+}): CanvasSelectionOverlayMetrics | null => {
+  if (nodeRect) {
+    return {
+      rect: nodeRect,
+      textMatrix,
+    };
+  }
+
+  if (!draftTextElement) {
+    return null;
+  }
+
+  return {
+    rect: getDraftTextOverlayRect(draftTextElement, viewport, zoom),
+    textMatrix: null,
+  };
+};
+
 export const getTextEditorLayout = ({
   element,
   transform,

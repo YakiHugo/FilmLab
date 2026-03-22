@@ -3,6 +3,7 @@ import type { CanvasSelectionOverlayMetrics } from "./viewportOverlay";
 import {
   getTextEditorLayout,
   resolveTrackedOverlayId,
+  resolveSelectionOverlayMetrics,
   selectionOverlayEqual,
 } from "./viewportOverlay";
 
@@ -90,6 +91,63 @@ describe("viewport overlay helpers", () => {
       transform: "matrix(1, 0, 0, 1, 15, 25)",
       transformOrigin: "top left",
     });
+  });
+
+  it("falls back to the draft text rect when no node rect exists", () => {
+    expect(
+      resolveSelectionOverlayMetrics({
+        draftTextElement: createTextElement(),
+        textMatrix: "matrix(1, 0, 0, 1, 15, 25)",
+        viewport: { x: 120, y: 80 },
+        zoom: 1.5,
+        nodeRect: null,
+      })
+    ).toEqual({
+      rect: {
+        x: 180,
+        y: 170,
+        width: 111,
+        height: 43.5,
+      },
+      textMatrix: null,
+    });
+  });
+
+  it("prefers the node rect when both node and draft text data exist", () => {
+    expect(
+      resolveSelectionOverlayMetrics({
+        draftTextElement: createTextElement(),
+        textMatrix: "matrix(1, 0, 0, 1, 15, 25)",
+        viewport: { x: 120, y: 80 },
+        zoom: 1.5,
+        nodeRect: {
+          x: 10,
+          y: 20,
+          width: 30,
+          height: 40,
+        },
+      })
+    ).toEqual({
+      rect: {
+        x: 10,
+        y: 20,
+        width: 30,
+        height: 40,
+      },
+      textMatrix: "matrix(1, 0, 0, 1, 15, 25)",
+    });
+  });
+
+  it("returns null when neither node nor draft text metrics exist", () => {
+    expect(
+      resolveSelectionOverlayMetrics({
+        draftTextElement: null,
+        textMatrix: null,
+        viewport: { x: 120, y: 80 },
+        zoom: 1.5,
+        nodeRect: null,
+      })
+    ).toBeNull();
   });
 
   it("falls back to viewport, zoom, and rotation when no matrix exists", () => {
