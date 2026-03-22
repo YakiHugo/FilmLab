@@ -2,6 +2,7 @@ export type EditingTextMode = "existing" | "create";
 
 export type TextCommitKind = "upsert" | "delete" | "noop";
 export type TextCancelKind = "reset" | "rollback-delete";
+export type TextSessionWorkbenchTransition = "noop" | "persist-source" | "reset" | "wait";
 
 export const resolveTextCommitKind = ({
   hasCreatedElement,
@@ -98,10 +99,28 @@ export const shouldSelectMaterializedCreatedText = ({
   activeWorkbenchId !== null &&
   sessionWorkbenchId === activeWorkbenchId;
 
-export const shouldPersistTextSessionOnWorkbenchSwitch = ({
+export const resolveTextSessionWorkbenchTransition = ({
   activeWorkbenchId,
+  hasActiveWorkbench,
+  hasSessionWorkbench,
   sessionWorkbenchId,
 }: {
   activeWorkbenchId: string | null;
+  hasActiveWorkbench: boolean;
+  hasSessionWorkbench: boolean;
   sessionWorkbenchId: string | null;
-}) => sessionWorkbenchId !== null && sessionWorkbenchId !== activeWorkbenchId;
+}): TextSessionWorkbenchTransition => {
+  if (!sessionWorkbenchId || !hasSessionWorkbench) {
+    return "reset";
+  }
+
+  if (!activeWorkbenchId || !hasActiveWorkbench) {
+    return "wait";
+  }
+
+  if (sessionWorkbenchId === activeWorkbenchId) {
+    return "noop";
+  }
+
+  return "persist-source";
+};

@@ -84,6 +84,32 @@ Important status:
 - text and shape insertion were browser-validated after hot update
 - text and shape insertion were browser-validated again after a full dev-client restart on a fresh origin
 
+## Local Follow-up (2026-03-22, missing-source session handling)
+
+This handoff note was updated again after the missing-source text-session follow-up.
+
+Files changed locally:
+
+- `src/features/canvas/CanvasViewport.tsx`
+- `src/features/canvas/hooks/useCanvasTextSession.ts`
+- `src/features/canvas/textSession.ts`
+- `src/features/canvas/textSession.test.ts`
+
+What changed locally:
+
+- passed the current open workbench ids into `useCanvasTextSession`
+- added a pure workbench-transition resolver so the session distinguishes `noop`, `wait`, `persist-source`, and `reset`
+- kept the existing source-persist behavior when the source workbench still exists
+- reset the session locally instead of persisting to a missing source workbench id
+- guarded create-mode rollback delete so `Escape` no longer queues a delete against a removed workbench
+- added pure tests for source-present, source-missing, and temporary-null-active transition cases
+
+Important status:
+
+- `Closing a source workbench can lose an active text draft` is fixed locally
+- switching workbenches during an active text session still persists the draft back to the original source workbench when that workbench still exists
+- deleting the current workbench during an active text session now ends the session cleanly instead of letting a stale source-write fall through to the store no-op path
+
 ## Validation Already Run
 
 Passed during the refactor:
@@ -132,6 +158,23 @@ Browser-state validation completed locally after the latest follow-up:
 - after a full dev-client restart on a fresh origin, creating a new workbench and inserting both text + shape still works
 - no canvas-shell runtime exception was observed during those insert / edit flows
 
+Passed locally after the missing-source session follow-up:
+
+- `pnpm test -- src/features/canvas/textSession.test.ts src/features/canvas/textStyle.test.ts src/features/canvas/viewportOverlay.test.ts src/features/canvas/tools/toolControllers.test.ts`
+- `pnpm exec tsc --noEmit`
+- `pnpm exec eslint src/features/canvas/CanvasViewport.tsx src/features/canvas/hooks/useCanvasTextSession.ts src/features/canvas/textSession.ts src/features/canvas/textSession.test.ts`
+
+Browser-state validation completed locally after the missing-source session follow-up:
+
+- a programmatic workbench switch during an active text session still left the source workbench at `1 element`, confirming source-persist behavior still held when the source remained available
+- deleting the current workbench during an active text session recovered to the remaining workbench, ended the session, and did not leak the deleted draft into the surviving workbench
+- no browser console error was observed during that delete/recovery path
+
+What was not re-validated in this pass:
+
+- the existing-text style-change `Escape` flow was not re-run end-to-end in the browser in this pass
+- image/library-driven insertion still was not browser-validated in this pass
+
 What was not done:
 
 - no browser validation was run for image/library-driven insertion in this pass
@@ -139,26 +182,7 @@ What was not done:
 
 ## Known Open Bugs
 
-These were identified after the text-session extraction review.
-They were not fixed in `8763f38`.
-They should be treated as real open issues, not closed.
-
-### 1. Closing a source workbench can lose an active text draft
-
-Problem:
-
-- `useCanvasTextSession` persists on workbench switch by writing back to the original `editingTextWorkbenchId`
-- if that workbench is closed first, later writes target a missing workbench id
-- missing-workbench mutations are dropped by the store path
-
-Impact:
-
-- the latest text draft can be lost when a workbench is closed during an active text edit session
-
-Main places:
-
-- [useCanvasTextSession.ts](/E:/project/FilmLab/src/features/canvas/hooks/useCanvasTextSession.ts)
-- [canvasStore.ts](/E:/project/FilmLab/src/stores/canvasStore.ts)
+No concrete open runtime bug remains called out in this handoff note after the missing-source session follow-up.
 
 Closed locally on 2026-03-22:
 
@@ -166,6 +190,7 @@ Closed locally on 2026-03-22:
 - the draft-only overlay fallback now survives until text materialization in local browser-state validation
 - `Escape is not a true cancel` is fixed
 - reload / HMR stage sizing no longer strands the runtime shell at `1x1`
+- `Closing a source workbench can lose an active text draft` is fixed
 - text + shape insertion now pass browser validation after hot update and after full dev-client restart
 
 ## Deferred Architecture TODOs
@@ -243,13 +268,13 @@ Keep doing before any broader refactor:
 
 Best immediate target:
 
-- fix `Closing a source workbench can lose an active text draft`
+- re-check the canvas shell for the next concrete runtime/product bug before starting any deferred architecture cleanup
 
 Why this should come next:
 
-- it is now the clearest remaining user-visible text-session bug in the handoff
-- it sits in the same runtime seam that was just stabilized
-- it can be addressed without reopening the broader architecture refactor
+- the previously recommended missing-source session bug is now closed locally
+- this handoff note no longer has a remaining concrete bug that justifies widening into the deferred architecture TODOs
+- image/library-driven insertion still lacks browser validation in this note, so that is the most obvious runtime surface left to probe first
 
 Not recommended as the immediate next step:
 

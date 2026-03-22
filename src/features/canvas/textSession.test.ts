@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   resolveTextCancelKind,
   resolveTextCommitKind,
+  resolveTextSessionWorkbenchTransition,
   shouldMaterializeCreatedText,
-  shouldPersistTextSessionOnWorkbenchSwitch,
   shouldRenderEditingTextOnActiveWorkbench,
   shouldSelectMaterializedCreatedText,
   shouldShowTextToolbar,
@@ -164,20 +164,70 @@ describe("text session helpers", () => {
     ).toBe(false);
   });
 
-  it("persists a text session only when its source workbench no longer matches the active workbench", () => {
+  it("keeps the text session when the active workbench still owns it", () => {
     expect(
-      shouldPersistTextSessionOnWorkbenchSwitch({
-        activeWorkbenchId: "workbench-2",
-        sessionWorkbenchId: "workbench-1",
-      })
-    ).toBe(true);
-
-    expect(
-      shouldPersistTextSessionOnWorkbenchSwitch({
+      resolveTextSessionWorkbenchTransition({
         activeWorkbenchId: "workbench-1",
+        hasActiveWorkbench: true,
+        hasSessionWorkbench: true,
         sessionWorkbenchId: "workbench-1",
       })
-    ).toBe(false);
+    ).toBe("noop");
+  });
+
+  it("persists to the source workbench after switching away while the source still exists", () => {
+    expect(
+      resolveTextSessionWorkbenchTransition({
+        activeWorkbenchId: "workbench-2",
+        hasActiveWorkbench: true,
+        hasSessionWorkbench: true,
+        sessionWorkbenchId: "workbench-1",
+      })
+    ).toBe("persist-source");
+  });
+
+  it("waits for route recovery while the source workbench still exists", () => {
+    expect(
+      resolveTextSessionWorkbenchTransition({
+        activeWorkbenchId: null,
+        hasActiveWorkbench: false,
+        hasSessionWorkbench: true,
+        sessionWorkbenchId: "workbench-1",
+      })
+    ).toBe("wait");
+  });
+
+  it("resets when the source workbench disappears after the active workbench changes", () => {
+    expect(
+      resolveTextSessionWorkbenchTransition({
+        activeWorkbenchId: "workbench-2",
+        hasActiveWorkbench: true,
+        hasSessionWorkbench: false,
+        sessionWorkbenchId: "workbench-1",
+      })
+    ).toBe("reset");
+  });
+
+  it("resets when the source workbench disappears before route recovery finishes", () => {
+    expect(
+      resolveTextSessionWorkbenchTransition({
+        activeWorkbenchId: null,
+        hasActiveWorkbench: false,
+        hasSessionWorkbench: false,
+        sessionWorkbenchId: "workbench-1",
+      })
+    ).toBe("reset");
+  });
+
+  it("resets when the session no longer has a source workbench id", () => {
+    expect(
+      resolveTextSessionWorkbenchTransition({
+        activeWorkbenchId: "workbench-1",
+        hasActiveWorkbench: true,
+        hasSessionWorkbench: false,
+        sessionWorkbenchId: null,
+      })
+    ).toBe("reset");
   });
 
   it("keeps commit, cancel, and workbench-switch decisions on separate branches", () => {
@@ -195,11 +245,13 @@ describe("text session helpers", () => {
       })
     ).toBe("reset");
     expect(
-      shouldPersistTextSessionOnWorkbenchSwitch({
+      resolveTextSessionWorkbenchTransition({
         activeWorkbenchId: "workbench-1",
+        hasActiveWorkbench: true,
+        hasSessionWorkbench: true,
         sessionWorkbenchId: "workbench-1",
       })
-    ).toBe(false);
+    ).toBe("noop");
 
     expect(
       resolveTextCommitKind({
@@ -215,11 +267,13 @@ describe("text session helpers", () => {
       })
     ).toBe("rollback-delete");
     expect(
-      shouldPersistTextSessionOnWorkbenchSwitch({
+      resolveTextSessionWorkbenchTransition({
         activeWorkbenchId: "workbench-2",
+        hasActiveWorkbench: true,
+        hasSessionWorkbench: true,
         sessionWorkbenchId: "workbench-1",
       })
-    ).toBe(true);
+    ).toBe("persist-source");
   });
 
   it("renders the editing text only when the active workbench still owns the editable text node", () => {

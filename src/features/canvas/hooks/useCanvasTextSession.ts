@@ -17,8 +17,8 @@ import { isCanvasTextElementEditable } from "../elements/TextElement";
 import {
   resolveTextCancelKind,
   resolveTextCommitKind,
+  resolveTextSessionWorkbenchTransition,
   shouldMaterializeCreatedText,
-  shouldPersistTextSessionOnWorkbenchSwitch,
   shouldRenderEditingTextOnActiveWorkbench,
   shouldSelectMaterializedCreatedText,
   type EditingTextMode,
@@ -30,6 +30,7 @@ type CanvasTextSessionElement = CanvasTextElement | CanvasRenderableTextElement;
 
 interface UseCanvasTextSessionOptions {
   activeWorkbenchId: string | null;
+  availableWorkbenchIds: string[];
   elementById: Map<string, CanvasRenderableNode>;
   selectedElementIds: string[];
   singleSelectedTextElement: CanvasRenderableTextElement | null;
@@ -67,6 +68,7 @@ interface UseCanvasTextSessionResult {
 
 export function useCanvasTextSession({
   activeWorkbenchId,
+  availableWorkbenchIds,
   elementById,
   selectedElementIds,
   singleSelectedTextElement,
@@ -87,6 +89,10 @@ export function useCanvasTextSession({
   const createdTextElementRef = useRef(false);
   const resolvingTextSessionRef = useRef(false);
   const textSessionVersionRef = useRef(0);
+  const availableWorkbenchIdSet = useMemo(
+    () => new Set(availableWorkbenchIds),
+    [availableWorkbenchIds]
+  );
 
   const editingTextElement = useMemo(() => {
     if (!editingTextId) {
@@ -122,6 +128,8 @@ export function useCanvasTextSession({
   const cancelTextEdit = useCallback(() => {
     const currentTextElement = textElementDraftRef.current ?? activeTextElement;
     const sessionWorkbenchId = editingTextWorkbenchId;
+    const hasSessionWorkbench =
+      sessionWorkbenchId !== null && availableWorkbenchIdSet.has(sessionWorkbenchId);
     const cancelKind = resolveTextCancelKind({
       hasCreatedElement: createdTextElementRef.current,
       mode: editingTextMode,
@@ -131,6 +139,7 @@ export function useCanvasTextSession({
       cancelKind === "rollback-delete" &&
       currentTextElement &&
       sessionWorkbenchId &&
+      hasSessionWorkbench &&
       isCanvasTextElementEditable(currentTextElement)
     ) {
       clearSelection();
@@ -154,6 +163,7 @@ export function useCanvasTextSession({
     editingTextWorkbenchId,
     executeCommandInWorkbench,
     resetTextEditState,
+    availableWorkbenchIdSet,
   ]);
 
   useEffect(() => {
@@ -474,27 +484,41 @@ export function useCanvasTextSession({
       return;
     }
 
-    const shouldPersistSession = shouldPersistTextSessionOnWorkbenchSwitch({
+    const workbenchTransition = resolveTextSessionWorkbenchTransition({
       activeWorkbenchId,
+      hasActiveWorkbench:
+        activeWorkbenchId !== null && availableWorkbenchIdSet.has(activeWorkbenchId),
+      hasSessionWorkbench:
+        editingTextWorkbenchId !== null && availableWorkbenchIdSet.has(editingTextWorkbenchId),
       sessionWorkbenchId: editingTextWorkbenchId,
     });
-    if (!activeTextElementIsEditable || shouldPersistSession) {
-      const originatingWorkbenchId = editingTextWorkbenchId;
-      const sessionVersion = textSessionVersionRef.current;
-      if (shouldPersistSession && originatingWorkbenchId) {
-        resolvingTextSessionRef.current = true;
-        void persistCurrentTextDraftToWorkbench(originatingWorkbenchId).finally(() => {
-          if (textSessionVersionRef.current === sessionVersion) {
-            resetTextEditState();
-          }
-        });
-        return;
-      }
+
+    if (!activeTextElementIsEditable) {
       resetTextEditState();
+      return;
     }
+
+    if (workbenchTransition === "noop" || workbenchTransition === "wait") {
+      return;
+    }
+
+    const originatingWorkbenchId = editingTextWorkbenchId;
+    const sessionVersion = textSessionVersionRef.current;
+    if (workbenchTransition === "persist-source" && originatingWorkbenchId) {
+      resolvingTextSessionRef.current = true;
+      void persistCurrentTextDraftToWorkbench(originatingWorkbenchId).finally(() => {
+        if (textSessionVersionRef.current === sessionVersion) {
+          resetTextEditState();
+        }
+      });
+      return;
+    }
+
+    resetTextEditState();
   }, [
     activeTextElementIsEditable,
     activeWorkbenchId,
+    availableWorkbenchIdSet,
     editingTextId,
     editingTextWorkbenchId,
     persistCurrentTextDraftToWorkbench,

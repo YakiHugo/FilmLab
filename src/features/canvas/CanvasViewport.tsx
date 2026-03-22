@@ -12,6 +12,7 @@ import {
 import { unstable_batchedUpdates } from "react-dom";
 import { Crosshair, Hand, Minus, MousePointer2, Plus } from "lucide-react";
 import { Layer, Line, Rect, Stage, Text as KonvaText } from "react-konva";
+import { shallow } from "zustand/shallow";
 import type {
   CanvasRenderableElement,
   CanvasRenderableNode,
@@ -337,6 +338,10 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
 
 export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProps) {
   const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
+  const availableWorkbenchIds = useCanvasStore(
+    (state) => state.workbenches.map((workbench) => workbench.id),
+    shallow
+  );
   const activeWorkbench = useCanvasStore((state) =>
     state.activeWorkbenchId
       ? (state.workbenches.find((document) => document.id === state.activeWorkbenchId) ?? null)
@@ -429,6 +434,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     updateSelectedTextElement,
   } = useCanvasTextSession({
     activeWorkbenchId,
+    availableWorkbenchIds,
     elementById,
     selectedElementIds,
     singleSelectedTextElement,
