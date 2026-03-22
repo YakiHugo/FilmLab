@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { filmProfiles } from "@/data/filmProfiles";
 import { Input } from "@/components/ui/input";
@@ -10,9 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { useAssetStore } from "@/stores/assetStore";
-import { useCanvasStore } from "@/stores/canvasStore";
-import type { CanvasElement } from "@/types";
+import type { CanvasTextFontSizeTier } from "@/types";
 import {
   canvasDockBodyTextClassName,
   canvasDockEmptyStateClassName,
@@ -27,15 +25,10 @@ import {
   canvasDockSectionClassName,
   canvasDockSectionMutedClassName,
 } from "./editDockTheme";
-import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
 import {
-  applyCanvasTextFontSizeTier,
-  CANVAS_TEXT_COLOR_OPTIONS,
-  CANVAS_TEXT_FONT_OPTIONS,
   CANVAS_TEXT_SIZE_TIER_OPTIONS,
-  getCanvasTextColorOption,
-  getCanvasTextFontOption,
 } from "./textStyle";
+import { useCanvasPropertiesPanelModel } from "./hooks/useCanvasPropertiesPanelModel";
 
 interface CanvasPropertiesPanelProps {
   variant?: "embedded" | "standalone";
@@ -73,46 +66,28 @@ const NumberInput = ({
 export const CanvasPropertiesPanel = memo(function CanvasPropertiesPanel({
   variant = "standalone",
 }: CanvasPropertiesPanelProps) {
-  const upsertElement = useCanvasStore((state) => state.upsertElement);
-  const assets = useAssetStore((state) => state.assets);
-  const { activeWorkbench, primarySelectedElement: selected } = useCanvasSelectionModel();
-
-  const update = (patch: Partial<CanvasElement>) => {
-    if (!selected) {
-      return;
-    }
-    void upsertElement({
-      ...selected,
-      ...patch,
-    } as CanvasElement);
-  };
-
-  const selectedAsset = useMemo(() => {
-    if (!selected || selected.type !== "image") {
-      return null;
-    }
-    return assets.find((asset) => asset.id === selected.assetId) ?? null;
-  }, [assets, selected]);
-
-  const textFontOptions = useMemo(() => {
-    if (!selected || selected.type !== "text") {
-      return CANVAS_TEXT_FONT_OPTIONS;
-    }
-    const current = getCanvasTextFontOption(selected.fontFamily);
-    return CANVAS_TEXT_FONT_OPTIONS.some((option) => option.value === current.value)
-      ? CANVAS_TEXT_FONT_OPTIONS
-      : [...CANVAS_TEXT_FONT_OPTIONS, current];
-  }, [selected]);
-
-  const textColorOptions = useMemo(() => {
-    if (!selected || selected.type !== "text") {
-      return CANVAS_TEXT_COLOR_OPTIONS;
-    }
-    const current = getCanvasTextColorOption(selected.color);
-    return CANVAS_TEXT_COLOR_OPTIONS.some((option) => option.value === current.value)
-      ? CANVAS_TEXT_COLOR_OPTIONS
-      : [...CANVAS_TEXT_COLOR_OPTIONS, current];
-  }, [selected]);
+  const {
+    activeWorkbench,
+    selected,
+    selectedAsset,
+    setFilmProfileId,
+    setFill,
+    setFontFamily,
+    setFontSizeTier,
+    setHeight,
+    setOpacity,
+    setRotation,
+    setStroke,
+    setStrokeWidth,
+    setTextAlign,
+    setTextColor,
+    setTextContent,
+    setWidth,
+    setX,
+    setY,
+    textColorOptions,
+    textFontOptions,
+  } = useCanvasPropertiesPanelModel();
   const isEmbedded = variant === "embedded";
 
   return (
@@ -184,33 +159,18 @@ export const CanvasPropertiesPanel = memo(function CanvasPropertiesPanel({
           <div className={canvasDockSectionClassName}>
             <p className={canvasDockFieldLabelClassName}>Transform</p>
             <div className="mt-3 grid grid-cols-2 gap-3">
-              <NumberInput label="X" value={selected.x} onChange={(value) => update({ x: value })} />
-              <NumberInput label="Y" value={selected.y} onChange={(value) => update({ y: value })} />
-              <NumberInput
-                label="Width"
-                value={selected.width}
-                min={1}
-                onChange={(value) => update({ width: Math.max(1, value) })}
-              />
-              <NumberInput
-                label="Height"
-                value={selected.height}
-                min={1}
-                onChange={(value) => update({ height: Math.max(1, value) })}
-              />
-              <NumberInput
-                label="Rotation"
-                value={selected.rotation}
-                step={0.5}
-                onChange={(value) => update({ rotation: value })}
-              />
+              <NumberInput label="X" value={selected.x} onChange={setX} />
+              <NumberInput label="Y" value={selected.y} onChange={setY} />
+              <NumberInput label="Width" value={selected.width} min={1} onChange={setWidth} />
+              <NumberInput label="Height" value={selected.height} min={1} onChange={setHeight} />
+              <NumberInput label="Rotation" value={selected.rotation} step={0.5} onChange={setRotation} />
               <NumberInput
                 label="Opacity"
                 value={selected.opacity}
                 min={0}
                 max={1}
                 step={0.01}
-                onChange={(value) => update({ opacity: Math.max(0, Math.min(1, value)) })}
+                onChange={setOpacity}
               />
             </div>
           </div>
@@ -229,9 +189,7 @@ export const CanvasPropertiesPanel = memo(function CanvasPropertiesPanel({
 
               <Select
                 value={selected.filmProfileId ?? "none"}
-                onValueChange={(value) =>
-                  update({ filmProfileId: value === "none" ? undefined : value })
-                }
+                onValueChange={setFilmProfileId}
               >
                 <SelectTrigger className={canvasDockSelectTriggerClassName}>
                   <SelectValue placeholder="Film profile" />
@@ -253,14 +211,11 @@ export const CanvasPropertiesPanel = memo(function CanvasPropertiesPanel({
               <p className={canvasDockFieldLabelClassName}>Text</p>
               <Input
                 value={selected.content}
-                onChange={(event) => update({ content: event.target.value })}
+                onChange={(event) => setTextContent(event.target.value)}
                 className={canvasDockFieldClassName}
               />
               <div className="grid grid-cols-2 gap-3">
-                <Select
-                  value={selected.fontFamily}
-                  onValueChange={(value) => update({ fontFamily: value })}
-                >
+                <Select value={selected.fontFamily} onValueChange={setFontFamily}>
                   <SelectTrigger className={canvasDockSelectTriggerClassName}>
                     <SelectValue placeholder="Font" />
                   </SelectTrigger>
@@ -274,11 +229,7 @@ export const CanvasPropertiesPanel = memo(function CanvasPropertiesPanel({
                 </Select>
                 <Select
                   value={selected.fontSizeTier}
-                  onValueChange={(value) =>
-                    update(
-                      applyCanvasTextFontSizeTier(selected, value as typeof selected.fontSizeTier)
-                    )
-                  }
+                  onValueChange={(value) => setFontSizeTier(value as CanvasTextFontSizeTier)}
                 >
                   <SelectTrigger className={canvasDockSelectTriggerClassName}>
                     <SelectValue placeholder="Size tier" />
@@ -291,7 +242,7 @@ export const CanvasPropertiesPanel = memo(function CanvasPropertiesPanel({
                     ))}
                   </SelectContent>
                 </Select>
-                <Select value={selected.color} onValueChange={(value) => update({ color: value })}>
+                <Select value={selected.color} onValueChange={setTextColor}>
                   <SelectTrigger className={canvasDockSelectTriggerClassName}>
                     <SelectValue placeholder="Color" />
                   </SelectTrigger>
@@ -305,9 +256,7 @@ export const CanvasPropertiesPanel = memo(function CanvasPropertiesPanel({
                 </Select>
                 <Select
                   value={selected.textAlign}
-                  onValueChange={(value) =>
-                    update({ textAlign: value as "left" | "center" | "right" })
-                  }
+                  onValueChange={(value) => setTextAlign(value as "left" | "center" | "right")}
                 >
                   <SelectTrigger className={canvasDockSelectTriggerClassName}>
                     <SelectValue placeholder="Align" />
@@ -330,7 +279,7 @@ export const CanvasPropertiesPanel = memo(function CanvasPropertiesPanel({
                 <Input
                   type="text"
                   value={selected.fill}
-                  onChange={(event) => update({ fill: event.target.value } as Partial<CanvasElement>)}
+                  onChange={(event) => setFill(event.target.value)}
                   className={canvasDockFieldClassName}
                 />
               </label>
@@ -339,9 +288,7 @@ export const CanvasPropertiesPanel = memo(function CanvasPropertiesPanel({
                 <Input
                   type="text"
                   value={selected.stroke}
-                  onChange={(event) =>
-                    update({ stroke: event.target.value } as Partial<CanvasElement>)
-                  }
+                  onChange={(event) => setStroke(event.target.value)}
                   className={canvasDockFieldClassName}
                 />
               </label>
@@ -350,9 +297,7 @@ export const CanvasPropertiesPanel = memo(function CanvasPropertiesPanel({
                 value={selected.strokeWidth}
                 min={0}
                 step={0.5}
-                onChange={(value) =>
-                  update({ strokeWidth: Math.max(0, value) } as Partial<CanvasElement>)
-                }
+                onChange={setStrokeWidth}
               />
             </div>
           ) : null}
