@@ -6,16 +6,16 @@
 
 ## 状态更新
 
-- 状态: `canvasStore` 第一阶段 seam 拆分已落地；`CanvasViewport` 也完成了第一刀 seam 拆分，已从“单组件吞掉视口导航 + marquee + 渲染壳”收缩为“stage shell + viewport navigation hook + marquee selection hook + text/overlay host”。
-- 总评: `7.0/10`
+- 状态: `canvasStore` 第一阶段 seam 拆分已落地；`CanvasViewport` 也完成了第一刀 seam 拆分，已从“单组件吞掉视口导航 + marquee + 渲染壳”收缩为“stage shell + viewport navigation hook + marquee selection hook + text/overlay host”；panel 第一刀 seam 收口也已落地，已从“panel 直接决定领域更新”收缩为“panel view + model hook + pure planner/state seam”。
+- 总评: `7.4/10`
 - 当前最强的一层: 文档内核
-- 当前最弱的两层: panel 层、runtime preview / 文本会话
-- 当前最明显的结构热点: panel 层直接承载领域规则、`CanvasViewport` 仍保留 text/overlay host 与工具编排中心、页面入口仍带一部分恢复策略
-- 验证基线: 已补 `src/features/canvas/viewportNavigation.test.ts`；本轮相关 lint 通过；全量测试已复跑，`109` 个测试文件、`438` 个 case 全部通过；本轮额外做了 1 轮架构复核，无新增阻断问题
+- 当前最弱的两层: runtime preview / 文本会话、页面与路由装配
+- 当前最明显的结构热点: `CanvasViewport` 仍保留 text/overlay host 与工具编排中心、页面入口仍带一部分恢复策略、`canvasRuntimeStore` 仍直接依赖全局 store 取数
+- 验证基线: 已补 `src/features/canvas/workbenchPanelState.test.ts`、`storyPanelState.test.ts`、`layerPanelState.test.ts`、`propertyPanelState.test.ts`；相关回归 `7` 个测试文件、`56` 个 case 全部通过；本轮相关 lint 通过；本轮额外做了 2 轮 review，panel seam 无新增阻断问题
 - 下一阶段优先级:
-  1. 先收口 panel 层的领域逻辑
-  2. 再继续拆 `CanvasViewport` 剩余的 text/overlay host 和工具编排中心
-  3. 再处理页面入口 / 文本会话 / runtime preview 的应用层边界
+  1. 继续拆 `CanvasViewport` 剩余的 text/overlay host 和工具编排中心
+  2. 再处理页面入口 / 文本会话 / runtime preview 的应用层边界
+  3. 再继续收紧 `canvasStore` 的 active-workbench 门面，避免它重新长回万能入口
 
 ## 评分口径
 
@@ -212,7 +212,7 @@
 判断:
 
 - 这层已经从“最大结构瓶颈”降到了“可继续承接后续拆分”的状态。
-- 目前不需要立刻继续深拆它，下一刀应该转向 `CanvasViewport` 和 panel 层。
+- 目前不需要立刻继续深拆它，下一刀应该转向 `CanvasViewport`、文本会话与 runtime preview。
 
 ## 4. 运行时预览管线
 
@@ -393,52 +393,67 @@
 - `src/features/canvas/CanvasPropertiesPanel.tsx`
 - `src/features/canvas/CanvasStoryPanel.tsx`
 - `src/features/canvas/CanvasWorkbenchPanel.tsx`
+- `src/features/canvas/CanvasAppBar.tsx`
 - `src/features/canvas/CanvasExportDialog.tsx`
+- `src/features/canvas/hooks/useCanvasWorkbenchActions.ts`
+- `src/features/canvas/hooks/useCanvasStoryPanelModel.ts`
+- `src/features/canvas/hooks/useCanvasLayerPanelModel.ts`
+- `src/features/canvas/hooks/useCanvasPropertiesPanelModel.ts`
+- `src/features/canvas/workbenchPanelState.ts`
+- `src/features/canvas/storyPanelState.ts`
+- `src/features/canvas/layerPanelState.ts`
+- `src/features/canvas/propertyPanelState.ts`
 
 职责:
 
-- 图层管理
-- 属性编辑
-- 故事切片与 guide/safe-area 设置
-- workbench 管理
-- 导出 UI
+- 图层管理 UI
+- 属性编辑 UI
+- 故事切片与 guide/safe-area UI
+- workbench 管理 UI
+- 把 panel 意图翻译为 `patchWorkbench`、`executeCommandInWorkbench`、`reorderElements`、`reparentNodes`、`createWorkbench`、`deleteWorkbench`
 
 输入/输出:
 
-- 输入: store state、selection model、active workbench
-- 输出: 直接调用 store mutation 或直接组装文档 patch
+- 输入: store state、selection model、active workbench、页面层传入的 `selectedSliceId`
+- 输出: model hook 统一调用 store mutation API；pure planner 输出 patch、command 和 layer drop plan
 
 依赖方向:
 
-- panel 普遍直接依赖 `useCanvasStore`
-- 部分 panel 同时依赖 selection hooks、asset store 和本地领域 helper
+- panel 组件依赖 panel model hook
+- model hook 依赖 `useCanvasStore`、selection hooks、router/page props
+- pure planner/state 模块只依赖类型、slice helper、preset helper、document graph
+- UI 不再直接组装领域 patch / command 细节
 
 关键状态转换/不变量:
 
-- 图层拖拽重排要保持 parent / sibling 顺序正确
-- 切片变更要始终保持选中 slice 有效
-- 属性编辑不能破坏节点基础结构
+- 图层拖拽重排保持 parent / sibling 顺序正确
+- group 不能拖进自己的后代
+- 切片变更始终保持选中 slice 有效
+- 属性编辑只能发出对节点类型合法的 `UPDATE_NODE_PROPS`
 
 优点:
 
-- 面板体验完整
-- UI 上手快，读一个 panel 基本能看懂这一块做什么
+- panel 层已经从“view + 领域规则”收缩成“view + intent”
+- `CanvasWorkbenchPanel` 与 `CanvasAppBar` 现在共用同一套 workbench action seam
+- `CanvasStoryPanel` 的 preset / slice / guide / safe-area 规划集中到了 `storyPanelState.ts`
+- `CanvasLayerPanel` 的 reorder / reparent 判定集中到了 `layerPanelState.ts`
+- `CanvasPropertiesPanel` 已改成“字段 intent -> UPDATE_NODE_PROPS”
+- panel 级规则现在可以通过 4 个 pure planner 测试文件独立回归
 
 问题:
 
-- panel 层并不只是 view/controller，而是在重复写应用层规则
-- `CanvasLayerPanel` 里自己决定 reorder / reparent 分支
-- `CanvasStoryPanel` 里自己决定 preset、slice、guide、safe-area 的文档更新
-- `CanvasPropertiesPanel` 直接拼 `upsertElement` patch
-- 这些规则没有统一收口，后续很容易出现“同一类更新在不同入口行为不一致”
+- `CanvasExportDialog` 还没有并入这套 seam
+- 这层仍通过 model hook 直接依赖 `useCanvasStore`，不是完全独立的 use-case 层
+- 后续如果 `CanvasImageEditPanel` 或 viewport 侧属性修改入口继续增长，需要复用 `propertyPanelState.ts`，否则会重新分叉
 
-评分: `5/10`
+评分: `8.5/10`
 
-重构优先级: `P1`
+重构优先级: `已完成本轮 P1，后续降为 P2`
 
 判断:
 
-- panel 层要收口成“发意图”，不该继续自己决定领域更新细节。
+- 这一层已经不再是当前最危险的结构热点。
+- 后续重点不是继续深拆 panel，而是防止新的属性入口和导出入口绕开现有 seam。
 
 ## 8. 渲染与导出
 
@@ -519,15 +534,15 @@
 
 ### P1
 
-- 收口 panel 层的领域逻辑
+- 继续拆 `CanvasViewport` 剩余的 text/overlay host 与工具编排中心
 
 ### P2
 
-- 继续拆 `CanvasViewport` 剩余的 text/overlay host 与工具编排中心
 - 页面入口的恢复策略下沉为更明确的应用层
 - 文本会话从 hook 进一步收口成更显式的 session service
 - runtime preview 从全局 store 读取模型转向更明确的 workbench-scoped 输入
 - 继续收紧 `canvasStore` 的 active-workbench 门面，避免它重新长回“万能接口集合”
+- 把 `CanvasExportDialog` / `CanvasImageEditPanel` 等剩余入口继续并入现有 panel seam，避免局部反弹
 
 ### P3
 
@@ -536,21 +551,18 @@
 
 ## 推荐的拆分顺序
 
-1. 先把 panel 层统一改成只发意图:
-   - layer reorder intent
-   - story/preset/slice intent
-   - element property intent
-2. 再继续把 `CanvasViewport` 收到更明确的三层:
+1. 先继续拆 `CanvasViewport` 到更明确的三层:
    - stage shell
    - tool / input orchestration
    - text/overlay host
-3. 再处理页面入口 / 文本会话 / runtime preview 的 service 化和边界下沉
-4. 最后再继续收紧 `canvasStore` 对上层暴露的 active-workbench 门面
+2. 再处理页面入口 / 文本会话 / runtime preview 的 service 化和边界下沉
+3. 再继续收紧 `canvasStore` 对上层暴露的 active-workbench 门面
+4. 最后把剩余未收口的 panel 入口并到现有 seam 上，避免重新长回组件内规则
 
 ## 最终判断
 
-这轮之后，最紧急的 seam 已经从 `canvasStore` 进一步收缩到了 panel 层，以及 `CanvasViewport` 残留的 text/overlay host 与工具编排中心。
+这轮之后，最紧急的 seam 已经从 panel 层转向了 `CanvasViewport` 残留的 text/overlay host 与工具编排中心，以及页面入口 / 文本会话 / runtime preview 的应用层边界。
 
-- 如果继续堆功能，复杂度会优先集中在 panel 层，其次才是 `CanvasViewport` 剩余的宿主职责，而不是重新首先压垮 `canvasStore.ts`
-- `canvasStore` 现在已经能继续承接下一轮拆分，但还不值得宣布“完成”
+- 如果继续堆功能，复杂度会优先集中在 `CanvasViewport`，其次才是页面入口、文本会话和 runtime preview，而不是重新首先压垮 panel 层或 `canvasStore.ts`
+- panel 层现在已经能继续承接下一轮拆分，但还不值得宣布“整个 canvas 完成”
 - 文档内核这条健康链路仍然应该继续被保护，后续重构仍应围绕上层应用边界展开
