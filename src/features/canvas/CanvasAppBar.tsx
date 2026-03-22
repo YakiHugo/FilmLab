@@ -1,22 +1,16 @@
-import { useNavigate } from "@tanstack/react-router";
 import { CirclePlus, Download, Redo2, Undo2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useCanvasHistory } from "./hooks/useCanvasHistory";
+import { useCanvasWorkbenchActions } from "./hooks/useCanvasWorkbenchActions";
 
 interface CanvasAppBarProps {
   onExport: () => void;
 }
 
 export function CanvasAppBar({ onExport }: CanvasAppBarProps) {
-  const navigate = useNavigate();
-  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
-  const activeWorkbenchName = useCanvasStore((state) => {
-    const activeWorkbench = state.workbenches.find((entry) => entry.id === state.activeWorkbenchId);
-    return activeWorkbench?.name ?? "";
-  });
-  const createWorkbench = useCanvasStore((state) => state.createWorkbench);
-  const patchWorkbench = useCanvasStore((state) => state.patchWorkbench);
+  const { activeWorkbenchId, activeWorkbenchMeta, createWorkbenchAndNavigate, renameActiveWorkbench } =
+    useCanvasWorkbenchActions();
   const zoom = useCanvasStore((state) => state.zoom);
   const { canUndo, canRedo, undo, redo } = useCanvasHistory();
 
@@ -25,19 +19,9 @@ export function CanvasAppBar({ onExport }: CanvasAppBarProps) {
       <div className="flex items-center gap-3">
         {activeWorkbenchId ? (
           <Input
-            value={activeWorkbenchName}
+            value={activeWorkbenchMeta.name}
             onChange={(event) => {
-              if (!activeWorkbenchId) {
-                return;
-              }
-
-              void patchWorkbench(
-                activeWorkbenchId,
-                {
-                  name: event.target.value || "\u672a\u547d\u540d\u5de5\u4f5c\u53f0",
-                },
-                { trackHistory: false }
-              );
+              void renameActiveWorkbench(event.target.value);
             }}
             className="h-8 w-[220px] rounded-lg border-white/10 bg-white/[0.06] px-2.5 text-sm text-zinc-100 placeholder:text-zinc-500"
             placeholder="\u5de5\u4f5c\u53f0\u540d\u79f0"
@@ -48,16 +32,7 @@ export function CanvasAppBar({ onExport }: CanvasAppBarProps) {
         <button
           type="button"
           onClick={() => {
-            void (async () => {
-              const created = await createWorkbench(undefined, { activate: false });
-              if (!created) {
-                return;
-              }
-              await navigate({
-                to: "/canvas/$workbenchId",
-                params: { workbenchId: created.id },
-              });
-            })();
+            void createWorkbenchAndNavigate();
           }}
           className="flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs text-zinc-300 transition hover:bg-white/10 hover:text-zinc-100"
         >

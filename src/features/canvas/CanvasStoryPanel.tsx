@@ -1,22 +1,8 @@
 import { Frame, LayoutTemplate, ScissorsLineDashed, Shield } from "lucide-react";
-import { useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { useCanvasStore } from "@/stores/canvasStore";
-import type { CanvasPresetId } from "@/types";
-import {
-  applyCanvasPresetToDocument,
-  getStudioCanvasPreset,
-  STUDIO_CANVAS_PRESETS,
-} from "./studioPresets";
-import {
-  appendCanvasSlice,
-  buildStripSlices,
-  clearCanvasSlices,
-  deleteCanvasSlice,
-  updateCanvasSlice,
-} from "./slices";
+import { STUDIO_CANVAS_PRESETS } from "./studioPresets";
 import {
   canvasDockActionChipClassName,
   canvasDockBadgeClassName,
@@ -35,6 +21,7 @@ import {
   canvasDockSectionClassName,
   canvasDockSectionMutedClassName,
 } from "./editDockTheme";
+import { useCanvasStoryPanelModel } from "./hooks/useCanvasStoryPanelModel";
 
 interface CanvasStoryPanelProps {
   selectedSliceId: string | null;
@@ -42,87 +29,29 @@ interface CanvasStoryPanelProps {
 }
 
 export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStoryPanelProps) {
-  const workbenches = useCanvasStore((state) => state.workbenches);
-  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
-  const patchWorkbench = useCanvasStore((state) => state.patchWorkbench);
-
-  const activeWorkbench = useMemo(
-    () => workbenches.find((document) => document.id === activeWorkbenchId) ?? null,
-    [workbenches, activeWorkbenchId]
-  );
-
-  const orderedSlices = useMemo(
-    () => activeWorkbench?.slices.slice().sort((left, right) => left.order - right.order) ?? [],
-    [activeWorkbench?.slices]
-  );
-
-  const selectedSlice =
-    orderedSlices.find((slice) => slice.id === selectedSliceId) ?? orderedSlices[0] ?? null;
-  const currentPreset = getStudioCanvasPreset(activeWorkbench?.presetId);
-
-  useEffect(() => {
-    if (!selectedSliceId && orderedSlices[0]) {
-      onSelectSlice(orderedSlices[0].id);
-      return;
-    }
-    if (selectedSliceId && !orderedSlices.some((slice) => slice.id === selectedSliceId)) {
-      onSelectSlice(orderedSlices[0]?.id ?? null);
-    }
-  }, [onSelectSlice, orderedSlices, selectedSliceId]);
+  const {
+    activeWorkbench,
+    appendSlice,
+    applyPreset,
+    buildStripSlices,
+    clearSlices,
+    currentPreset,
+    deleteSelectedSlice,
+    orderedSlices,
+    selectSlice,
+    selectedSlice,
+    updateGuide,
+    updateSafeArea,
+    updateSelectedSliceName,
+    updateSelectedSliceNumberField,
+  } = useCanvasStoryPanelModel({
+    selectedSliceId,
+    onSelectSlice,
+  });
 
   if (!activeWorkbench) {
     return null;
   }
-
-  const commitDocument = (nextDocument: typeof activeWorkbench) => {
-    void patchWorkbench(
-      activeWorkbench.id,
-      {
-        backgroundColor: nextDocument.backgroundColor,
-        guides: nextDocument.guides,
-        height: nextDocument.height,
-        name: nextDocument.name,
-        presetId: nextDocument.presetId,
-        safeArea: nextDocument.safeArea,
-        slices: nextDocument.slices,
-        thumbnailBlob: nextDocument.thumbnailBlob,
-        width: nextDocument.width,
-      },
-      { trackHistory: false }
-    );
-  };
-
-  const updateGuide = (key: keyof typeof activeWorkbench.guides, value: boolean) => {
-    commitDocument({
-      ...activeWorkbench,
-      guides: {
-        ...activeWorkbench.guides,
-        [key]: value,
-      },
-    });
-  };
-
-  const updateSafeArea = (key: keyof typeof activeWorkbench.safeArea, rawValue: string) => {
-    const nextValue = Math.max(0, Number(rawValue) || 0);
-    commitDocument({
-      ...activeWorkbench,
-      safeArea: {
-        ...activeWorkbench.safeArea,
-        [key]: nextValue,
-      },
-    });
-  };
-
-  const updateSelectedSlice = (patch: Parameters<typeof updateCanvasSlice>[2]) => {
-    if (!selectedSlice) {
-      return;
-    }
-    commitDocument(updateCanvasSlice(activeWorkbench, selectedSlice.id, patch));
-  };
-
-  const applyPreset = (presetId: CanvasPresetId) => {
-    commitDocument(applyCanvasPresetToDocument(activeWorkbench, presetId));
-  };
 
   return (
     <div className={cn(canvasDockPanelContentClassName, "overflow-y-auto pr-1")}>
@@ -217,8 +146,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
             variant="secondary"
             className={canvasDockActionChipClassName}
             onClick={() => {
-              onSelectSlice(null);
-              commitDocument(clearCanvasSlices(activeWorkbench));
+              clearSlices();
             }}
           >
             Single Frame
@@ -230,9 +158,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
               variant="secondary"
               className={canvasDockActionChipClassName}
               onClick={() => {
-                const nextDocument = buildStripSlices(activeWorkbench, count);
-                onSelectSlice(nextDocument.slices[0]?.id ?? null);
-                commitDocument(nextDocument);
+                buildStripSlices(count);
               }}
             >
               {count} Frames
@@ -243,9 +169,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
             variant="secondary"
             className={canvasDockActionChipClassName}
             onClick={() => {
-              const nextDocument = appendCanvasSlice(activeWorkbench);
-              onSelectSlice(nextDocument.slices[nextDocument.slices.length - 1]?.id ?? null);
-              commitDocument(nextDocument);
+              appendSlice();
             }}
           >
             Add Frame
@@ -260,7 +184,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
                 <button
                   key={slice.id}
                   type="button"
-                  onClick={() => onSelectSlice(slice.id)}
+                  onClick={() => selectSlice(slice.id)}
                   className={cn(
                     canvasDockListItemClassName,
                     canvasDockInteractiveListItemClassName,
@@ -307,11 +231,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
                 size="sm"
                 variant="ghost"
                 className="h-8 rounded-[8px] px-2 text-xs text-rose-300 hover:bg-transparent hover:text-rose-200"
-                onClick={() => {
-                  const nextDocument = deleteCanvasSlice(activeWorkbench, selectedSlice.id);
-                  onSelectSlice(nextDocument.slices[0]?.id ?? null);
-                  commitDocument(nextDocument);
-                }}
+                onClick={deleteSelectedSlice}
               >
                 Remove
               </Button>
@@ -319,7 +239,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
 
             <Input
               value={selectedSlice.name}
-              onChange={(event) => updateSelectedSlice({ name: event.target.value })}
+              onChange={(event) => updateSelectedSliceName(event.target.value)}
               className={canvasDockFieldClassName}
             />
 
@@ -337,12 +257,7 @@ export function CanvasStoryPanel({ selectedSliceId, onSelectSlice }: CanvasStory
                     min={0}
                     value={Math.round(value)}
                     onChange={(event) =>
-                      updateSelectedSlice({
-                        [key]: Math.max(
-                          key === "x" || key === "y" ? 0 : 1,
-                          Number(event.target.value) || 0
-                        ),
-                      })
+                      updateSelectedSliceNumberField(key, event.target.value)
                     }
                     className={canvasDockFieldClassName}
                   />
