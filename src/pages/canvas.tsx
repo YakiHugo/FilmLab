@@ -19,6 +19,7 @@ export function CanvasPage() {
   const stageRef = useRef<Konva.Stage>(null);
   const [selectedSliceId, setSelectedSliceId] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [hasInitializedCanvas, setHasInitializedCanvas] = useState(false);
   const pendingRouteRecoveryRef = useRef<string | null>(null);
   const params = useParams({ from: "/canvas/$workbenchId", shouldThrow: false });
   const workbenchId = params?.workbenchId;
@@ -37,11 +38,20 @@ export function CanvasPage() {
   const setActivePanel = useCanvasStore((state) => state.setActivePanel);
 
   useEffect(() => {
-    void init();
+    let isMounted = true;
+    void init().finally(() => {
+      if (isMounted) {
+        setHasInitializedCanvas(true);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
   }, [init]);
 
   useEffect(() => {
-    if (isLoading) {
+    if (isLoading || !hasInitializedCanvas) {
       return;
     }
 
@@ -123,6 +133,7 @@ export function CanvasPage() {
   }, [
     activeWorkbenchId,
     createWorkbench,
+    hasInitializedCanvas,
     isLoading,
     navigate,
     setActiveWorkbenchId,

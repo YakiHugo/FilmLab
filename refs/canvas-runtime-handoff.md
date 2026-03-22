@@ -110,6 +110,39 @@ Important status:
 - switching workbenches during an active text session still persists the draft back to the original source workbench when that workbench still exists
 - deleting the current workbench during an active text session now ends the session cleanly instead of letting a stale source-write fall through to the store no-op path
 
+## Local Follow-up (2026-03-22, image insertion parity + cold-start recovery)
+
+This handoff note was updated again after the image/library insertion parity pass and the cold-start canvas recovery follow-up.
+
+Files changed locally:
+
+- `src/features/canvas/CanvasAssetPicker.tsx`
+- `src/features/canvas/hooks/useCanvasEngine.ts`
+- `src/features/image-lab/hooks/useImageGeneration.ts`
+- `src/pages/canvas.tsx`
+- `src/utils/index.ts`
+- `src/utils/resolveCanvasImageInsertionSize.ts`
+- `src/utils/resolveCanvasImageInsertionSize.test.ts`
+
+What changed locally:
+
+- moved canvas image insertion sizing into a shared `src/utils` helper and re-exported it from `src/utils/index.ts`
+- kept the canvas-side source-size precedence: metadata first, then bitmap decode, then object-url decode, then `320x320` fallback
+- rewired both `useCanvasEngine` and `useImageGeneration.addToCanvas` to use that shared insertion-size resolver
+- preserved the old image-lab `96px` minimum short-edge floor through an option on that shared resolver so very narrow generated images do not collapse into hard-to-select slivers
+- updated canvas library insertion so a successful insert now selects the new image immediately
+- kept the current `CanvasPage` image-selection policy, so canvas library insertion now also re-enters the `Edit` panel automatically
+- added a non-clickable recovery state in `CanvasAssetPicker` so the panel no longer intentionally permits silent no-op inserts when no active workbench is available
+- fixed the `CanvasPage` cold-start route-recovery timing so it waits for `init()` to settle before deciding whether it must create a fallback workbench
+- migrated the old canvas image sizing tests onto the shared utility test surface
+
+Important status:
+
+- canvas library insertion and image-lab insertion now share the same initial image sizing resolver
+- canvas library insertion now selects the inserted image and reopens `Edit` as intended
+- the cold-start / new-tab canvas recovery path no longer created a stray workbench before persisted workbenches finished loading in local browser validation
+- the remaining `image/library-driven insertion` surface from this handoff note is now browser-validated locally
+
 ## Validation Already Run
 
 Passed during the refactor:
@@ -164,20 +197,35 @@ Passed locally after the missing-source session follow-up:
 - `pnpm exec tsc --noEmit`
 - `pnpm exec eslint src/features/canvas/CanvasViewport.tsx src/features/canvas/hooks/useCanvasTextSession.ts src/features/canvas/textSession.ts src/features/canvas/textSession.test.ts`
 
+Passed locally after the image insertion parity + cold-start recovery follow-up:
+
+- `pnpm test -- src/utils/resolveCanvasImageInsertionSize.test.ts src/stores/canvasStore.test.ts`
+- `pnpm exec tsc --noEmit`
+- `pnpm exec eslint src/pages/canvas.tsx src/utils/resolveCanvasImageInsertionSize.ts src/utils/resolveCanvasImageInsertionSize.test.ts src/utils/index.ts src/features/canvas/hooks/useCanvasEngine.ts src/features/canvas/CanvasAssetPicker.tsx src/features/image-lab/hooks/useImageGeneration.ts`
+
 Browser-state validation completed locally after the missing-source session follow-up:
 
 - a programmatic workbench switch during an active text session still left the source workbench at `1 element`, confirming source-persist behavior still held when the source remained available
 - deleting the current workbench during an active text session recovered to the remaining workbench, ended the session, and did not leak the deleted draft into the surviving workbench
 - no browser console error was observed during that delete/recovery path
 
+Browser-state validation completed locally after the image insertion parity + cold-start recovery follow-up:
+
+- with an imported library asset available, clicking that asset from the canvas `Library` panel inserted a new image, selected it immediately, and reopened `Edit`
+- repeating that flow created a second distinct image node with a new id and offset position instead of overwriting the first insert
+- after the cold-start recovery fix, opening a fresh canvas tab at a valid persisted workbench route no longer created an extra fallback workbench before init completed
+- the same shared insertion sizing now produced `320 x 212` for the imported test asset in both canvas-library insertion and the image-lab add-to-canvas path
+- a live `image-generate` request stayed pending in local validation, so the image-lab `Canvas` result-card button was not revalidated end-to-end against a finished provider response
+- to cover the runtime path despite that provider block, the in-browser `useImageGeneration.addToCanvas` path was executed against the current assist-page turn plus an imported asset id, and it inserted a third image into the active workbench with the expected shared sizing and offset
+- no browser console error was observed in those image insertion and recovery flows
+
 What was not re-validated in this pass:
 
 - the existing-text style-change `Escape` flow was not re-run end-to-end in the browser in this pass
-- image/library-driven insertion still was not browser-validated in this pass
+- the image-lab `Canvas` result-card button itself was not re-run against a completed provider response because the local generation request remained pending during validation
 
 What was not done:
 
-- no browser validation was run for image/library-driven insertion in this pass
 - the unrelated asset-sync console warning (`Failed to reconcile remote changes Error: Not Found`) was not investigated here
 
 ## Known Open Bugs
@@ -192,6 +240,9 @@ Closed locally on 2026-03-22:
 - reload / HMR stage sizing no longer strands the runtime shell at `1x1`
 - `Closing a source workbench can lose an active text draft` is fixed
 - text + shape insertion now pass browser validation after hot update and after full dev-client restart
+- canvas library insertion now selects the inserted image and reopens `Edit`
+- cold-start canvas recovery no longer creates a stray fallback workbench before persisted workbenches load
+- image/library-driven insertion is now browser-validated locally
 
 ## Deferred Architecture TODOs
 
@@ -273,8 +324,8 @@ Best immediate target:
 Why this should come next:
 
 - the previously recommended missing-source session bug is now closed locally
-- this handoff note no longer has a remaining concrete bug that justifies widening into the deferred architecture TODOs
-- image/library-driven insertion still lacks browser validation in this note, so that is the most obvious runtime surface left to probe first
+- this handoff note no longer has a remaining concrete bug or a remaining unvalidated image/library insertion surface that justifies widening into the deferred architecture TODOs
+- the next concrete target should come from a fresh runtime/product bug sweep, not from the deferred architecture cleanup list
 
 Not recommended as the immediate next step:
 

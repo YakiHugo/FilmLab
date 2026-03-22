@@ -30,7 +30,7 @@ import {
   type CatalogDrivenFeatureSupport,
   type ImageModelCatalog,
 } from "@/lib/ai/imageModelCatalog";
-import type { Asset, CanvasImageElement } from "@/types";
+import type { CanvasImageElement } from "@/types";
 import type {
   ImageAspectRatio,
   ImageGenerationAssetRefRole,
@@ -54,7 +54,10 @@ import {
 } from "@/stores/generationConfigStore";
 import { getCanvasResetEpoch, useCanvasStore } from "@/stores/canvasStore";
 import { useImageSessionStore } from "@/stores/imageSessionStore";
-import { createId } from "@/utils";
+import {
+  createId,
+  resolveCanvasImageInsertionSize,
+} from "@/utils";
 import {
   bindResultAssetToConfig,
   clearBoundResultReferencesFromConfig,
@@ -699,8 +702,6 @@ const toUITurn = (
 };
 
 const REFERENCE_IMAGE_MAX_DIMENSION = 1_600;
-const DEFAULT_CANVAS_LONG_EDGE = 420;
-
 const blobToFileExtension = (mimeType: string) =>
   mimeType.includes("jpeg") ? "jpg" : mimeType.includes("webp") ? "webp" : "png";
 
@@ -888,29 +889,6 @@ const toImageRequest = (
   batchSize: config.batchSize,
   modelParams: config.modelParams,
 });
-
-export const resolveCanvasImageSize = (asset?: Asset | null) => {
-  const sourceWidth = asset?.metadata?.width ?? 0;
-  const sourceHeight = asset?.metadata?.height ?? 0;
-  if (sourceWidth <= 0 || sourceHeight <= 0) {
-    return {
-      width: DEFAULT_CANVAS_LONG_EDGE,
-      height: DEFAULT_CANVAS_LONG_EDGE,
-    };
-  }
-
-  if (sourceWidth >= sourceHeight) {
-    return {
-      width: DEFAULT_CANVAS_LONG_EDGE,
-      height: Math.max(96, Math.round((DEFAULT_CANVAS_LONG_EDGE * sourceHeight) / sourceWidth)),
-    };
-  }
-
-  return {
-    width: Math.max(96, Math.round((DEFAULT_CANVAS_LONG_EDGE * sourceWidth) / sourceHeight)),
-    height: DEFAULT_CANVAS_LONG_EDGE,
-  };
-};
 
 const toUploadFiles = async (images: Array<{ image: SaveableGeneratedImage; index: number }>) =>
   Promise.all(
@@ -2178,7 +2156,9 @@ export function useImageGeneration() {
         return null;
       }
 
-      const { width, height } = resolveCanvasImageSize(asset);
+      const { width, height } = await resolveCanvasImageInsertionSize(asset, {
+        minimumShortEdge: 96,
+      });
       const x = 140 + insertionIndex * 24;
       const y = 120 + insertionIndex * 24;
 
