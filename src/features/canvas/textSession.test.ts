@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  resolveTextCancelKind,
   resolveTextCommitKind,
   shouldMaterializeCreatedText,
   shouldPersistTextSessionOnWorkbenchSwitch,
@@ -37,6 +38,29 @@ describe("text session helpers", () => {
         value: "   ",
       })
     ).toBe("delete");
+  });
+
+  it("keeps cancel behavior as a pure reset until create-mode has materialized a node", () => {
+    expect(
+      resolveTextCancelKind({
+        hasCreatedElement: false,
+        mode: "create",
+      })
+    ).toBe("reset");
+
+    expect(
+      resolveTextCancelKind({
+        hasCreatedElement: true,
+        mode: "create",
+      })
+    ).toBe("rollback-delete");
+
+    expect(
+      resolveTextCancelKind({
+        hasCreatedElement: true,
+        mode: "existing",
+      })
+    ).toBe("reset");
   });
 
   it("materializes created text only after the first non-empty input on the active workbench", () => {
@@ -154,6 +178,48 @@ describe("text session helpers", () => {
         sessionWorkbenchId: "workbench-1",
       })
     ).toBe(false);
+  });
+
+  it("keeps commit, cancel, and workbench-switch decisions on separate branches", () => {
+    expect(
+      resolveTextCommitKind({
+        hasCreatedElement: false,
+        mode: "create",
+        value: "Hello",
+      })
+    ).toBe("upsert");
+    expect(
+      resolveTextCancelKind({
+        hasCreatedElement: false,
+        mode: "create",
+      })
+    ).toBe("reset");
+    expect(
+      shouldPersistTextSessionOnWorkbenchSwitch({
+        activeWorkbenchId: "workbench-1",
+        sessionWorkbenchId: "workbench-1",
+      })
+    ).toBe(false);
+
+    expect(
+      resolveTextCommitKind({
+        hasCreatedElement: true,
+        mode: "create",
+        value: "   ",
+      })
+    ).toBe("delete");
+    expect(
+      resolveTextCancelKind({
+        hasCreatedElement: true,
+        mode: "create",
+      })
+    ).toBe("rollback-delete");
+    expect(
+      shouldPersistTextSessionOnWorkbenchSwitch({
+        activeWorkbenchId: "workbench-2",
+        sessionWorkbenchId: "workbench-1",
+      })
+    ).toBe(true);
   });
 
   it("renders the editing text only when the active workbench still owns the editable text node", () => {

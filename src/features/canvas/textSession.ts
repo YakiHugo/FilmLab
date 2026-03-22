@@ -1,6 +1,7 @@
 export type EditingTextMode = "existing" | "create";
 
 export type TextCommitKind = "upsert" | "delete" | "noop";
+export type TextCancelKind = "reset" | "rollback-delete";
 
 export const resolveTextCommitKind = ({
   hasCreatedElement,
@@ -21,6 +22,15 @@ export const resolveTextCommitKind = ({
 
   return "noop";
 };
+
+export const resolveTextCancelKind = ({
+  hasCreatedElement,
+  mode,
+}: {
+  hasCreatedElement: boolean;
+  mode: EditingTextMode | null;
+}): TextCancelKind =>
+  mode === "create" && hasCreatedElement ? "rollback-delete" : "reset";
 
 export const shouldMaterializeCreatedText = ({
   activeWorkbenchId,

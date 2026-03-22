@@ -15,6 +15,7 @@ import type {
 } from "@/types";
 import { isCanvasTextElementEditable } from "../elements/TextElement";
 import {
+  resolveTextCancelKind,
   resolveTextCommitKind,
   shouldMaterializeCreatedText,
   shouldPersistTextSessionOnWorkbenchSwitch,
@@ -40,7 +41,8 @@ interface UseCanvasTextSessionOptions {
   ) => Promise<void>;
   executeCommandInWorkbench: (
     workbenchId: string,
-    command: CanvasCommand
+    command: CanvasCommand,
+    options?: { trackHistory?: boolean }
   ) => Promise<unknown>;
   textEditorRef: RefObject<HTMLDivElement>;
   textToolbarRef: RefObject<HTMLDivElement>;
@@ -106,7 +108,7 @@ export function useCanvasTextSession({
     textMutationQueueRef.current = createTextMutationQueue();
   }
 
-  const cancelTextEdit = useCallback(() => {
+  const resetTextEditState = useCallback(() => {
     resolvingTextSessionRef.current = false;
     setEditingTextMode(null);
     setEditingTextId(null);
@@ -116,6 +118,43 @@ export function useCanvasTextSession({
     createdTextElementRef.current = false;
     textElementDraftRef.current = null;
   }, []);
+
+  const cancelTextEdit = useCallback(() => {
+    const currentTextElement = textElementDraftRef.current ?? activeTextElement;
+    const sessionWorkbenchId = editingTextWorkbenchId;
+    const cancelKind = resolveTextCancelKind({
+      hasCreatedElement: createdTextElementRef.current,
+      mode: editingTextMode,
+    });
+
+    if (
+      cancelKind === "rollback-delete" &&
+      currentTextElement &&
+      sessionWorkbenchId &&
+      isCanvasTextElementEditable(currentTextElement)
+    ) {
+      clearSelection();
+      void textMutationQueueRef.current!.enqueue(() =>
+        executeCommandInWorkbench(
+          sessionWorkbenchId,
+          {
+            type: "DELETE_NODES",
+            ids: [currentTextElement.id],
+          },
+          { trackHistory: false }
+        )
+      );
+    }
+
+    resetTextEditState();
+  }, [
+    activeTextElement,
+    clearSelection,
+    editingTextMode,
+    editingTextWorkbenchId,
+    executeCommandInWorkbench,
+    resetTextEditState,
+  ]);
 
   useEffect(() => {
     if (editingTextDraft) {
@@ -241,7 +280,7 @@ export function useCanvasTextSession({
       editingTextWorkbenchId !== activeWorkbenchId ||
       !isCanvasTextElementEditable(currentTextElement)
     ) {
-      cancelTextEdit();
+      resetTextEditState();
       return;
     }
 
@@ -274,16 +313,16 @@ export function useCanvasTextSession({
       );
     }
 
-    cancelTextEdit();
+    resetTextEditState();
   }, [
     activeWorkbenchId,
     activeTextElement,
-    cancelTextEdit,
     clearSelection,
     editingTextWorkbenchId,
     editingTextMode,
     editingTextValue,
     executeCommandInWorkbench,
+    resetTextEditState,
     selectElement,
     upsertElementInWorkbench,
   ]);
@@ -291,9 +330,7 @@ export function useCanvasTextSession({
   const updateSelectedTextElement = useCallback(
     (updater: (element: CanvasTextElement) => CanvasTextElement) => {
       const currentTextElement = textElementDraftRef.current ?? activeTextElement;
-      const targetWorkbenchId = editingTextWorkbenchId ?? activeWorkbenchId;
       if (
-        !targetWorkbenchId ||
         !activeWorkbenchId ||
         (editingTextWorkbenchId !== null && editingTextWorkbenchId !== activeWorkbenchId) ||
         !currentTextElement ||
@@ -307,21 +344,12 @@ export function useCanvasTextSession({
       if (editingTextId === currentTextElement.id) {
         setEditingTextDraft(nextElement);
       }
-      if (editingTextMode === "create" && !createdTextElementRef.current) {
-        return;
-      }
-
-      void textMutationQueueRef.current!.enqueue(() =>
-        upsertElementInWorkbench(targetWorkbenchId, nextElement)
-      );
     },
     [
       activeWorkbenchId,
       activeTextElement,
       editingTextWorkbenchId,
       editingTextId,
-      editingTextMode,
-      upsertElementInWorkbench,
     ]
   );
 
@@ -457,20 +485,20 @@ export function useCanvasTextSession({
         resolvingTextSessionRef.current = true;
         void persistCurrentTextDraftToWorkbench(originatingWorkbenchId).finally(() => {
           if (textSessionVersionRef.current === sessionVersion) {
-            cancelTextEdit();
+            resetTextEditState();
           }
         });
         return;
       }
-      cancelTextEdit();
+      resetTextEditState();
     }
   }, [
     activeTextElementIsEditable,
     activeWorkbenchId,
-    cancelTextEdit,
     editingTextId,
     editingTextWorkbenchId,
     persistCurrentTextDraftToWorkbench,
+    resetTextEditState,
   ]);
 
   return {

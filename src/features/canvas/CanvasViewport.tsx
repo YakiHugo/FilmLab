@@ -1010,6 +1010,10 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   }, [stageRef, activeWorkbenchId]);
 
   useEffect(() => {
+    if (!activeWorkbenchId) {
+      return;
+    }
+
     const container = viewportContainerRef.current;
     if (!container) {
       return;
@@ -1047,7 +1051,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     return () => {
       observer.disconnect();
     };
-  }, []);
+  }, [activeWorkbenchId]);
 
   useEffect(() => {
     if (!activeWorkbench || stageSize.width <= 0 || stageSize.height <= 0) {

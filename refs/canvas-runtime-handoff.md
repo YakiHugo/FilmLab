@@ -58,9 +58,9 @@ What `CanvasViewport` still owns on purpose:
 - added pure tests for text-session decision logic
 - rewired `CanvasViewport` to consume hook outputs instead of owning text session state/effects directly
 
-## Local Follow-up (2026-03-22)
+## Local Follow-up (2026-03-22, runtime validation + true cancel)
 
-This handoff note was updated after the local text create-mode follow-up on top of the overlay seam fixes.
+This handoff note was updated after the runtime-shell stabilization pass and the true-cancel text follow-up.
 
 Files changed locally:
 
@@ -68,25 +68,21 @@ Files changed locally:
 - `src/features/canvas/hooks/useCanvasTextSession.ts`
 - `src/features/canvas/textSession.ts`
 - `src/features/canvas/textSession.test.ts`
-- `src/features/canvas/textStyle.ts`
-- `src/features/canvas/textStyle.test.ts`
-- `src/features/canvas/viewportOverlay.ts`
-- `src/features/canvas/viewportOverlay.test.ts`
 
 What changed locally:
 
-- kept text-toolbar visibility anchored to the active text session + overlay instead of committed single-selection
-- moved create-mode selection to a post-materialization effect so the store only selects the new text node after it actually exists
-- added a temporary active selection outline for create-mode draft text before the committed selection catches up
-- reserved enough editor width for the empty-text placeholder so the initial textarea no longer collapses to a tiny width
-- added pure tests for toolbar visibility, delayed create-mode selection, and empty-text editor sizing
+- rebound viewport measurement when `activeWorkbenchId` becomes available so `CanvasViewport` no longer strands Konva at `1x1` after reload / init
+- split internal text-session reset from explicit user cancel
+- kept in-session text style changes session-local instead of writing through during edit
+- rolled back materialized create-mode text on `Escape` via non-history delete
+- added pure tests for cancel semantics alongside the existing commit/switch helpers
 
 Important status:
 
-- the create-mode toolbar visibility bug is fixed locally
-- empty create-mode text now shows both an active outline and a readable placeholder width
-- these local changes passed targeted static/test validation
-- browser-state validation was run for text creation, but a full manual smoke pass across restart / HMR flows still has not been done
+- the reload / HMR runtime-shell blocker that left the stage at `1x1` is fixed locally
+- `Escape is not a true cancel` is fixed locally for both create-mode materialization and existing-text style changes
+- text and shape insertion were browser-validated after hot update
+- text and shape insertion were browser-validated again after a full dev-client restart on a fresh origin
 
 ## Validation Already Run
 
@@ -122,11 +118,24 @@ Browser-state validation completed locally:
 - the first non-empty input materializes the node and promotes it to committed single-selection without hiding the toolbar
 - the create-mode draft now shows a visible active outline before committed selection is available
 
+Passed locally after the runtime-shell + true-cancel follow-up:
+
+- `pnpm test -- src/features/canvas/textSession.test.ts src/features/canvas/textStyle.test.ts src/features/canvas/viewportOverlay.test.ts src/features/canvas/tools/toolControllers.test.ts`
+- `pnpm exec tsc --noEmit`
+- `pnpm exec eslint src/features/canvas/CanvasViewport.tsx src/features/canvas/hooks/useCanvasTextSession.ts src/features/canvas/textSession.ts src/features/canvas/textSession.test.ts`
+
+Browser-state validation completed locally after the latest follow-up:
+
+- after hot update, `CanvasViewport` no longer stays at `1x1`; the stage remeasures and accepts new text + shape inserts
+- create-mode text still materializes on first input, and `Escape` now removes the temporary node entirely
+- existing text size changes now stay local during edit and revert on `Escape` (`48 -> 36` in local validation)
+- after a full dev-client restart on a fresh origin, creating a new workbench and inserting both text + shape still works
+- no canvas-shell runtime exception was observed during those insert / edit flows
+
 What was not done:
 
-- no full manual interaction smoke test was run after the text create-mode follow-up
-- no restart / HMR verification was run after the text create-mode follow-up
-- the user reported a separate runtime symptom where, after hot update or dev-server restart, the page can stop accepting newly added elements; this has not been reproduced or investigated yet
+- no browser validation was run for image/library-driven insertion in this pass
+- the unrelated asset-sync console warning (`Failed to reconcile remote changes Error: Not Found`) was not investigated here
 
 ## Known Open Bugs
 
@@ -151,44 +160,13 @@ Main places:
 - [useCanvasTextSession.ts](/E:/project/FilmLab/src/features/canvas/hooks/useCanvasTextSession.ts)
 - [canvasStore.ts](/E:/project/FilmLab/src/stores/canvasStore.ts)
 
-### 2. Escape is not a true cancel
-
-Problem:
-
-- create-mode can materialize a node before final commit
-- toolbar style updates can also persist before final commit
-- Escape currently only closes the session, it does not roll back those writes
-
-Impact:
-
-- create-mode can leave behind a partially materialized text node
-- font/color/size changes on existing text can survive an apparent cancel
-
-Main places:
-
-- [useCanvasTextSession.ts](/E:/project/FilmLab/src/features/canvas/hooks/useCanvasTextSession.ts)
-
-### 3. Restart / HMR insertion reliability is still unverified
-
-Problem:
-
-- the user previously reported that after hot update or dev-server restart, the page can stop accepting newly added elements
-- this has still not been reproduced or cleared in a normal manual browser run
-
-Impact:
-
-- there may still be a broader runtime-shell reliability issue outside the text-session seam
-
-Main places:
-
-- [CanvasViewport.tsx](/E:/project/FilmLab/src/features/canvas/CanvasViewport.tsx)
-- [useCanvasTextSession.ts](/E:/project/FilmLab/src/features/canvas/hooks/useCanvasTextSession.ts)
-- [toolControllers.ts](/E:/project/FilmLab/src/features/canvas/tools/toolControllers.ts)
-
 Closed locally on 2026-03-22:
 
 - the create-mode toolbar-hidden bug is fixed
 - the draft-only overlay fallback now survives until text materialization in local browser-state validation
+- `Escape is not a true cancel` is fixed
+- reload / HMR stage sizing no longer strands the runtime shell at `1x1`
+- text + shape insertion now pass browser validation after hot update and after full dev-client restart
 
 ## Deferred Architecture TODOs
 
@@ -247,48 +225,31 @@ Also keep these scope decisions in mind:
 
 ## Suitability Before Continuing
 
-It is not a good idea to continue directly into the remaining open bugs or architecture TODOs yet.
+The baseline is now healthy enough to continue to the next concrete runtime bug.
 
 Why:
 
-- a localized follow-up already surfaced one runtime regression (`Cannot access 'editingTextDraft' before initialization`) before smoke testing
-- the local overlay fix is only statically/test validated, not browser validated
-- a user-reported HMR/dev-server-restart insertion failure may still exist and may indicate a broader runtime-shell issue outside the overlay seam
+- stage sizing survives reload / HMR in browser validation
+- text + shape insertion work again after hot update and after full dev-client restart
+- true cancel semantics are now in place, so the previously most visible text-session product bug is closed
 
-Required before continuing:
+Keep doing before any broader refactor:
 
-- run browser smoke tests for text creation, existing-text editing, and non-text insertion
-- explicitly verify that adding text/shapes/images still works after:
-  - a normal hot update
-  - a full dev-server restart
-- watch the console for runtime exceptions during those flows
-
-If those checks fail:
-
-- investigate the runtime-shell failure first
-- do not start the next bugfix/refactor while insert/create flows are still unreliable
-
-If those checks pass:
-
-- the next most reasonable product bug to tackle is `Escape is not a true cancel`
-- do not jump to the deferred architecture TODOs before the remaining concrete runtime bugs are stabilized
+- stay on concrete runtime/product bugs
+- keep browser-validating insert/edit flows whenever touching `CanvasViewport` or `useCanvasTextSession`
+- avoid widening into the deferred architecture TODOs unless a concrete bug forces it
 
 ## Recommended Next Step
 
 Best immediate target:
 
-- validate the current local overlay follow-up in the browser
-- reproduce or clear the "after hot update / restart, cannot add elements" report
+- fix `Closing a source workbench can lose an active text draft`
 
-Why this should come before any more runtime refactor work:
+Why this should come next:
 
-- the current workspace already contains uncommitted runtime-shell changes
-- one runtime regression was already found while landing them
-- continuing without validation risks stacking another bug on top of an unstable baseline
-
-If the baseline is confirmed healthy, the next likely product bug target is:
-
-- `Escape is not a true cancel`
+- it is now the clearest remaining user-visible text-session bug in the handoff
+- it sits in the same runtime seam that was just stabilized
+- it can be addressed without reopening the broader architecture refactor
 
 Not recommended as the immediate next step:
 
@@ -297,7 +258,7 @@ Not recommended as the immediate next step:
 - marquee / pan extraction
 - full text-session view-model redesign
 
-Those are valid later, but they are larger scope than the current seam work.
+Those are still valid later, but they are larger scope than the remaining concrete runtime bug.
 
 ## Local Workspace Note
 
