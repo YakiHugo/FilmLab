@@ -15,9 +15,9 @@ import { Layer, Line, Rect, Stage, Text as KonvaText } from "react-konva";
 import { shallow } from "zustand/shallow";
 import type {
   CanvasRenderableElement,
-  CanvasRenderableNode,
-  CanvasShapeElement,
+  CanvasRenderableTextElement,
   CanvasTextElement,
+  CanvasShapeElement,
 } from "@/types";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvasStore";
@@ -43,14 +43,15 @@ import {
   CANVAS_TEXT_EDITOR_PLACEHOLDER,
   fitCanvasTextElementToContent,
 } from "./textStyle";
-import { shouldShowTextToolbar } from "./textSession";
 import { TextElement, isCanvasTextElementEditable } from "./elements/TextElement";
 import { registerCanvasStage } from "./hooks/canvasStageRegistry";
 import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
 import { useCanvasViewportOverlay } from "./hooks/useCanvasViewportOverlay";
 import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
+import { useCanvasTextRuntimeViewModel } from "./hooks/useCanvasTextRuntimeViewModel";
 import { useCanvasTextSession } from "./hooks/useCanvasTextSession";
 import { selectionIdsEqual } from "./selectionModel";
+import type { CanvasTextRuntimeSelectedElement } from "./textRuntimeViewModel";
 import { resolveCanvasToolController } from "./tools/toolControllers";
 
 interface CanvasViewportProps {
@@ -226,9 +227,9 @@ function DotGrid({
 }
 
 interface CanvasElementsLayerProps {
+  activeEditingTextId: string | null;
   dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
-  editingTextDraft: CanvasTextElement | null;
-  editingTextId: string | null;
+  editingTextDraft: CanvasRenderableTextElement | CanvasTextElement | null;
   elements: CanvasRenderableElement[];
   interactivePreviewElementId: string | null;
   onElementDragEnd: (elementId: string, x: number, y: number) => void;
@@ -237,9 +238,9 @@ interface CanvasElementsLayerProps {
 }
 
 const CanvasElementsLayer = memo(function CanvasElementsLayer({
+  activeEditingTextId,
   dragBoundFunc,
   editingTextDraft,
-  editingTextId,
   elements,
   interactivePreviewElementId,
   onElementDragEnd,
@@ -281,7 +282,7 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
           <TextElement
             key={liveTextElement.id}
             element={liveTextElement}
-            isEditing={editingTextId === liveTextElement.id}
+            isEditing={activeEditingTextId === liveTextElement.id}
             dragBoundFunc={dragBoundFunc}
             onSelect={onElementSelect}
             onDoubleClick={onTextElementDoubleClick}
@@ -294,7 +295,7 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
 });
 
 interface CanvasSelectionOutlineLayerProps {
-  selectedElements: Array<CanvasRenderableNode | CanvasTextElement>;
+  selectedElements: CanvasTextRuntimeSelectedElement[];
 }
 
 const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
@@ -426,8 +427,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     editingTextId,
     editingTextDraft,
     editingTextValue,
-    editingTextRenderElement,
-    trackedTextOverlayElement,
+    editingTextWorkbenchId,
     beginTextEdit,
     handleTextValueChange,
     handleTextInputKeyDown,
@@ -445,21 +445,17 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     textEditorRef,
     textToolbarRef,
   });
-  const displaySelectedElements = useMemo(
-    () =>
-      displaySelectedElementIds
-        .map((elementId) => {
-          const element = elementById.get(elementId);
-          if (!element) {
-            return null;
-          }
-          return element.type === "text" && editingTextDraft?.id === element.id
-            ? editingTextDraft
-            : element;
-        })
-        .filter((element): element is CanvasRenderableNode | CanvasTextElement => Boolean(element)),
-    [displaySelectedElementIds, editingTextDraft, elementById]
-  );
+  const textRuntimeViewModel = useCanvasTextRuntimeViewModel({
+    activeWorkbenchId,
+    displaySelectedElementIds,
+    editingTextDraft,
+    editingTextId,
+    editingTextWorkbenchId,
+    hasMarqueeSession,
+    isMarqueeDragging,
+    nodeById: elementById,
+    selectedElementIds,
+  });
 
   useEffect(() => {
     selectedElementIdsRef.current = selectedElementIds;
@@ -1084,10 +1080,9 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       stageSize,
       viewport,
       zoom,
-      selectedElementIds,
-      editingTextId,
-      editingTextRenderElement,
-      trackedTextOverlayElement,
+      trackedOverlayId: textRuntimeViewModel.trackedOverlayId,
+      textOverlayModel: textRuntimeViewModel.textOverlayModel,
+      textEditorModel: textRuntimeViewModel.activeTextEditorModel,
       singleSelectedNonTextElement,
       textToolbarRef,
       dimensionsBadgeRef,
@@ -1141,21 +1136,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       y: Math.round(VIEWPORT_INSETS.top + (usableHeight - activeWorkbench.height * fitZoom) / 2),
     });
   };
-
-  const showTextToolbar = shouldShowTextToolbar({
-    hasEditingTextRenderElement: Boolean(editingTextRenderElement),
-    hasSelectionOverlay: Boolean(selectionOverlay),
-  });
-  const showTextEditor = Boolean(
-    !hasMarqueeSession && !isMarqueeDragging && editingTextId && editingTextRenderElement
-  );
-  const showEditingTextSelectionOutline = Boolean(
-    selectionOverlay &&
-      editingTextRenderElement &&
-      displaySelectedElementIds.length === 0 &&
-      !hasMarqueeSession &&
-      !isMarqueeDragging
-  );
   const showDimensionsBadge = Boolean(
     selectionOverlay && singleSelectedNonTextElement && selectedElementIds.length === 1
   );
@@ -1307,9 +1287,9 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
         <Layer>
           <CanvasElementsLayer
+            activeEditingTextId={textRuntimeViewModel.activeEditingTextId}
             dragBoundFunc={dragBoundFunc}
-            editingTextDraft={editingTextDraft}
-            editingTextId={editingTextId}
+            editingTextDraft={textRuntimeViewModel.renderedEditingTextDraft}
             elements={activeWorkbench.elements}
             interactivePreviewElementId={interactivePreviewElementId}
             onElementDragEnd={handleElementDragEnd}
@@ -1319,7 +1299,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
         </Layer>
 
         <Layer listening={false}>
-          <CanvasSelectionOutlineLayer selectedElements={displaySelectedElements} />
+          <CanvasSelectionOutlineLayer selectedElements={textRuntimeViewModel.displaySelectedElements} />
         </Layer>
 
         <Layer listening={false}>
@@ -1368,7 +1348,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
         </Layer>
       </Stage>
 
-      {showEditingTextSelectionOutline && selectionOverlay ? (
+      {textRuntimeViewModel.showEditingTextSelectionOutline && selectionOverlay ? (
         <div
           className="pointer-events-none absolute z-10"
           style={{
@@ -1405,10 +1385,12 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
         </div>
       ) : null}
 
-      {showTextToolbar && editingTextRenderElement && selectionOverlay ? (
+      {textRuntimeViewModel.showTextToolbar &&
+      textRuntimeViewModel.activeTextEditorModel &&
+      selectionOverlay ? (
         <CanvasTextToolbar
           ref={textToolbarRef}
-          element={editingTextRenderElement}
+          element={textRuntimeViewModel.activeTextEditorModel}
           position={toolbarPosition}
           onColorChange={(color) => {
             updateSelectedTextElement((element) => ({
@@ -1430,7 +1412,9 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
         />
       ) : null}
 
-      {showTextEditor && editingTextRenderElement && editingTextLayout ? (
+      {textRuntimeViewModel.showTextEditor &&
+      textRuntimeViewModel.activeTextEditorModel &&
+      editingTextLayout ? (
         <div
           ref={textEditorRef}
           className="absolute z-20"
@@ -1460,12 +1444,12 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
             className="absolute inset-0 m-0 w-full resize-none border-0 bg-transparent p-0 outline-none"
             style={{
               boxSizing: "border-box",
-              color: editingTextRenderElement.color,
-              fontFamily: editingTextRenderElement.fontFamily,
-              fontSize: editingTextRenderElement.fontSize,
+              color: textRuntimeViewModel.activeTextEditorModel.color,
+              fontFamily: textRuntimeViewModel.activeTextEditorModel.fontFamily,
+              fontSize: textRuntimeViewModel.activeTextEditorModel.fontSize,
               lineHeight: CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER,
               overflow: "hidden",
-              textAlign: editingTextRenderElement.textAlign,
+              textAlign: textRuntimeViewModel.activeTextEditorModel.textAlign,
             }}
           />
         </div>

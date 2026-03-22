@@ -9,8 +9,9 @@ import {
   type ReactNode,
 } from "react";
 import { Check } from "lucide-react";
-import type { CanvasTextElement, CanvasTextFontSizeTier } from "@/types";
+import type { CanvasTextFontSizeTier } from "@/types";
 import { cn } from "@/lib/utils";
+import type { CanvasTextEditorModel } from "./textRuntimeViewModel";
 import {
   CANVAS_TEXT_COLOR_OPTIONS,
   CANVAS_TEXT_FONT_OPTIONS,
@@ -28,7 +29,7 @@ type ToolbarMenu = "color" | "font" | "size" | null;
 const TOOLBAR_MENU_GAP = 10;
 
 export interface CanvasTextToolbarProps {
-  element: CanvasTextElement;
+  element: CanvasTextEditorModel;
   onColorChange: (value: string) => void;
   onFontFamilyChange: (value: string) => void;
   onFontSizeTierChange: (value: CanvasTextFontSizeTier) => void;

@@ -52,31 +52,6 @@ export const shouldMaterializeCreatedText = ({
   activeWorkbenchId !== null &&
   sessionWorkbenchId === activeWorkbenchId;
 
-export const shouldRenderEditingTextOnActiveWorkbench = ({
-  activeTextElementIsEditable,
-  activeTextElementType,
-  activeWorkbenchId,
-  editingTextId,
-  sessionWorkbenchId,
-}: {
-  activeTextElementIsEditable: boolean;
-  activeTextElementType: string | null | undefined;
-  activeWorkbenchId: string | null;
-  editingTextId: string | null;
-  sessionWorkbenchId: string | null;
-}) =>
-  (!editingTextId || sessionWorkbenchId === activeWorkbenchId) &&
-  activeTextElementIsEditable &&
-  activeTextElementType === "text";
-
-export const shouldShowTextToolbar = ({
-  hasEditingTextRenderElement,
-  hasSelectionOverlay,
-}: {
-  hasEditingTextRenderElement: boolean;
-  hasSelectionOverlay: boolean;
-}) => hasSelectionOverlay && hasEditingTextRenderElement;
-
 export const shouldSelectMaterializedCreatedText = ({
   activeWorkbenchId,
   editingTextId,

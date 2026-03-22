@@ -19,14 +19,11 @@ import {
   resolveTextCommitKind,
   resolveTextSessionWorkbenchTransition,
   shouldMaterializeCreatedText,
-  shouldRenderEditingTextOnActiveWorkbench,
   shouldSelectMaterializedCreatedText,
   type EditingTextMode,
 } from "../textSession";
 import { fitCanvasTextElementToContent } from "../textStyle";
 import { createTextMutationQueue } from "../textMutationQueue";
-
-type CanvasTextSessionElement = CanvasTextElement | CanvasRenderableTextElement;
 
 interface UseCanvasTextSessionOptions {
   activeWorkbenchId: string | null;
@@ -54,10 +51,6 @@ interface UseCanvasTextSessionResult {
   editingTextDraft: CanvasTextElement | null;
   editingTextValue: string;
   editingTextWorkbenchId: string | null;
-  activeTextElement: CanvasTextSessionElement | null;
-  activeTextElementIsEditable: boolean;
-  editingTextRenderElement: CanvasTextSessionElement | null;
-  trackedTextOverlayElement: CanvasTextSessionElement | null;
   beginTextEdit: (element: CanvasTextElement, options?: { mode?: EditingTextMode }) => void;
   cancelTextEdit: () => void;
   commitTextEdit: () => void;
@@ -65,6 +58,29 @@ interface UseCanvasTextSessionResult {
   handleTextInputKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
   updateSelectedTextElement: (updater: (element: CanvasTextElement) => CanvasTextElement) => void;
 }
+
+const toTextRollbackPatch = (
+  element: CanvasTextElement | CanvasRenderableTextElement
+): CanvasCommand & { type: "UPDATE_NODE_PROPS" } => ({
+  type: "UPDATE_NODE_PROPS",
+  updates: [
+    {
+      id: element.id,
+      patch: {
+        ...element.transform,
+        color: element.color,
+        content: element.content,
+        fontFamily: element.fontFamily,
+        fontSize: element.fontSize,
+        fontSizeTier: element.fontSizeTier,
+        textAlign: element.textAlign,
+        locked: element.locked,
+        opacity: element.opacity,
+        visible: element.visible,
+      },
+    },
+  ],
+});
 
 export function useCanvasTextSession({
   activeWorkbenchId,
@@ -86,13 +102,24 @@ export function useCanvasTextSession({
   const [editingTextDraft, setEditingTextDraft] = useState<CanvasTextElement | null>(null);
   const textMutationQueueRef = useRef<ReturnType<typeof createTextMutationQueue> | null>(null);
   const textElementDraftRef = useRef<CanvasTextElement | null>(null);
+  const initialTextElementRef = useRef<CanvasTextElement | CanvasRenderableTextElement | null>(null);
   const createdTextElementRef = useRef(false);
+  const persistedExistingTextDraftRef = useRef(false);
+  const pendingPersistSourceCountRef = useRef(0);
   const resolvingTextSessionRef = useRef(false);
   const textSessionVersionRef = useRef(0);
+  const textSessionTransitionVersionRef = useRef(0);
   const availableWorkbenchIdSet = useMemo(
     () => new Set(availableWorkbenchIds),
     [availableWorkbenchIds]
   );
+  const activeWorkbenchIdRef = useRef(activeWorkbenchId);
+  const editingTextWorkbenchIdRef = useRef(editingTextWorkbenchId);
+  const availableWorkbenchIdSetRef = useRef(availableWorkbenchIdSet);
+
+  activeWorkbenchIdRef.current = activeWorkbenchId;
+  editingTextWorkbenchIdRef.current = editingTextWorkbenchId;
+  availableWorkbenchIdSetRef.current = availableWorkbenchIdSet;
 
   const editingTextElement = useMemo(() => {
     if (!editingTextId) {
@@ -115,6 +142,8 @@ export function useCanvasTextSession({
   }
 
   const resetTextEditState = useCallback(() => {
+    textSessionVersionRef.current += 1;
+    textSessionTransitionVersionRef.current += 1;
     resolvingTextSessionRef.current = false;
     setEditingTextMode(null);
     setEditingTextId(null);
@@ -122,11 +151,32 @@ export function useCanvasTextSession({
     setEditingTextValue("");
     setEditingTextDraft(null);
     createdTextElementRef.current = false;
+    persistedExistingTextDraftRef.current = false;
+    pendingPersistSourceCountRef.current = 0;
+    initialTextElementRef.current = null;
     textElementDraftRef.current = null;
+  }, []);
+
+  const resolveCurrentWorkbenchTransition = useCallback(() => {
+    const currentActiveWorkbenchId = activeWorkbenchIdRef.current;
+    const currentEditingTextWorkbenchId = editingTextWorkbenchIdRef.current;
+    const currentAvailableWorkbenchIdSet = availableWorkbenchIdSetRef.current;
+
+    return resolveTextSessionWorkbenchTransition({
+      activeWorkbenchId: currentActiveWorkbenchId,
+      hasActiveWorkbench:
+        currentActiveWorkbenchId !== null &&
+        currentAvailableWorkbenchIdSet.has(currentActiveWorkbenchId),
+      hasSessionWorkbench:
+        currentEditingTextWorkbenchId !== null &&
+        currentAvailableWorkbenchIdSet.has(currentEditingTextWorkbenchId),
+      sessionWorkbenchId: currentEditingTextWorkbenchId,
+    });
   }, []);
 
   const cancelTextEdit = useCallback(() => {
     const currentTextElement = textElementDraftRef.current ?? activeTextElement;
+    const initialTextElement = initialTextElementRef.current;
     const sessionWorkbenchId = editingTextWorkbenchId;
     const hasSessionWorkbench =
       sessionWorkbenchId !== null && availableWorkbenchIdSet.has(sessionWorkbenchId);
@@ -150,6 +200,25 @@ export function useCanvasTextSession({
             type: "DELETE_NODES",
             ids: [currentTextElement.id],
           },
+          { trackHistory: false }
+        )
+      );
+    } else if (
+      editingTextMode === "existing" &&
+      (
+        persistedExistingTextDraftRef.current ||
+        resolvingTextSessionRef.current ||
+        pendingPersistSourceCountRef.current > 0
+      ) &&
+      initialTextElement &&
+      sessionWorkbenchId &&
+      hasSessionWorkbench &&
+      isCanvasTextElementEditable(initialTextElement)
+    ) {
+      void textMutationQueueRef.current!.enqueue(() =>
+        executeCommandInWorkbench(
+          sessionWorkbenchId,
+          toTextRollbackPatch(initialTextElement),
           { trackHistory: false }
         )
       );
@@ -207,7 +276,7 @@ export function useCanvasTextSession({
       return;
     }
 
-    selectElement(editingTextId);
+    selectElement(editingTextId!);
   }, [
     activeWorkbenchId,
     editingTextElement,
@@ -227,8 +296,11 @@ export function useCanvasTextSession({
       const mode = options?.mode ?? "existing";
       const nextElement = fitCanvasTextElementToContent(element);
       textSessionVersionRef.current += 1;
+      textSessionTransitionVersionRef.current += 1;
       resolvingTextSessionRef.current = false;
       createdTextElementRef.current = mode === "existing";
+      initialTextElementRef.current = mode === "existing" ? element : null;
+      persistedExistingTextDraftRef.current = false;
       textElementDraftRef.current = nextElement;
       setEditingTextDraft(nextElement);
       setEditingTextId(nextElement.id);
@@ -243,7 +315,7 @@ export function useCanvasTextSession({
     async (workbenchId: string) => {
       const currentTextElement = textElementDraftRef.current ?? activeTextElement;
       if (!currentTextElement || !isCanvasTextElementEditable(currentTextElement)) {
-        return;
+        return false;
       }
 
       const nextContent = editingTextValue.trim();
@@ -261,7 +333,7 @@ export function useCanvasTextSession({
         await textMutationQueueRef.current!.enqueue(() =>
           upsertElementInWorkbench(workbenchId, nextElement)
         );
-        return;
+        return true;
       }
 
       if (commitKind === "delete") {
@@ -271,7 +343,10 @@ export function useCanvasTextSession({
             ids: [currentTextElement.id],
           })
         );
+        return true;
       }
+
+      return false;
     },
     [
       activeTextElement,
@@ -363,33 +438,11 @@ export function useCanvasTextSession({
     ]
   );
 
-  const editingTextRenderElement = useMemo(
-    () =>
-      shouldRenderEditingTextOnActiveWorkbench({
-        activeTextElementIsEditable,
-        activeTextElementType: activeTextElement?.type,
-        activeWorkbenchId,
-        editingTextId,
-        sessionWorkbenchId: editingTextWorkbenchId,
-      })
-        ? activeTextElement
-        : null,
-    [
-      activeTextElement,
-      activeTextElementIsEditable,
-      activeWorkbenchId,
-      editingTextId,
-      editingTextWorkbenchId,
-    ]
-  );
-  const trackedTextOverlayElement =
-    activeTextElementIsEditable && activeTextElement?.type === "text" ? activeTextElement : null;
-
   const handleTextValueChange = useCallback(
     (nextValue: string) => {
       setEditingTextValue(nextValue);
 
-      const sourceElement = textElementDraftRef.current ?? editingTextRenderElement ?? activeTextElement;
+      const sourceElement = textElementDraftRef.current ?? activeTextElement;
       if (!sourceElement) {
         return;
       }
@@ -411,8 +464,9 @@ export function useCanvasTextSession({
         })
       ) {
         createdTextElementRef.current = true;
+        const currentWorkbenchId = activeWorkbenchId;
         void textMutationQueueRef.current!.enqueue(() =>
-          upsertElementInWorkbench(activeWorkbenchId, nextElement)
+          upsertElementInWorkbench(currentWorkbenchId!, nextElement)
         );
       }
     },
@@ -420,7 +474,6 @@ export function useCanvasTextSession({
       activeTextElement,
       activeWorkbenchId,
       editingTextMode,
-      editingTextRenderElement,
       editingTextWorkbenchId,
       upsertElementInWorkbench,
     ]
@@ -480,21 +533,24 @@ export function useCanvasTextSession({
   }, [commitTextEdit, editingTextId, textEditorRef, textToolbarRef]);
 
   useEffect(() => {
-    if (resolvingTextSessionRef.current || !editingTextId) {
+    if (!editingTextId) {
       return;
     }
 
-    const workbenchTransition = resolveTextSessionWorkbenchTransition({
-      activeWorkbenchId,
-      hasActiveWorkbench:
-        activeWorkbenchId !== null && availableWorkbenchIdSet.has(activeWorkbenchId),
-      hasSessionWorkbench:
-        editingTextWorkbenchId !== null && availableWorkbenchIdSet.has(editingTextWorkbenchId),
-      sessionWorkbenchId: editingTextWorkbenchId,
-    });
+    const workbenchTransition = resolveCurrentWorkbenchTransition();
 
     if (!activeTextElementIsEditable) {
       resetTextEditState();
+      return;
+    }
+
+    if (resolvingTextSessionRef.current) {
+      if (workbenchTransition === "noop" || workbenchTransition === "wait") {
+        resolvingTextSessionRef.current = false;
+        textSessionTransitionVersionRef.current += 1;
+      } else if (workbenchTransition === "reset") {
+        resetTextEditState();
+      }
       return;
     }
 
@@ -504,25 +560,61 @@ export function useCanvasTextSession({
 
     const originatingWorkbenchId = editingTextWorkbenchId;
     const sessionVersion = textSessionVersionRef.current;
+    const transitionVersion = textSessionTransitionVersionRef.current + 1;
     if (workbenchTransition === "persist-source" && originatingWorkbenchId) {
+      textSessionTransitionVersionRef.current = transitionVersion;
+      pendingPersistSourceCountRef.current += 1;
       resolvingTextSessionRef.current = true;
-      void persistCurrentTextDraftToWorkbench(originatingWorkbenchId).finally(() => {
-        if (textSessionVersionRef.current === sessionVersion) {
-          resetTextEditState();
-        }
-      });
+      void persistCurrentTextDraftToWorkbench(originatingWorkbenchId)
+        .then((didPersistDraft) => {
+          if (
+            didPersistDraft &&
+            editingTextMode === "existing" &&
+            textSessionVersionRef.current === sessionVersion
+          ) {
+            persistedExistingTextDraftRef.current = true;
+          }
+        })
+        .finally(() => {
+          if (textSessionVersionRef.current === sessionVersion) {
+            pendingPersistSourceCountRef.current = Math.max(
+              0,
+              pendingPersistSourceCountRef.current - 1
+            );
+          }
+
+          if (
+            textSessionVersionRef.current !== sessionVersion ||
+            textSessionTransitionVersionRef.current !== transitionVersion
+          ) {
+            return;
+          }
+
+          const currentWorkbenchTransition = resolveCurrentWorkbenchTransition();
+          if (
+            currentWorkbenchTransition === "persist-source" ||
+            currentWorkbenchTransition === "reset"
+          ) {
+            resetTextEditState();
+            return;
+          }
+
+          resolvingTextSessionRef.current = false;
+        });
       return;
     }
 
     resetTextEditState();
   }, [
-    activeTextElementIsEditable,
     activeWorkbenchId,
+    activeTextElementIsEditable,
     availableWorkbenchIdSet,
     editingTextId,
+    editingTextMode,
     editingTextWorkbenchId,
     persistCurrentTextDraftToWorkbench,
     resetTextEditState,
+    resolveCurrentWorkbenchTransition,
   ]);
 
   return {
@@ -530,10 +622,6 @@ export function useCanvasTextSession({
     editingTextDraft,
     editingTextValue,
     editingTextWorkbenchId,
-    activeTextElement,
-    activeTextElementIsEditable,
-    editingTextRenderElement,
-    trackedTextOverlayElement,
     beginTextEdit,
     cancelTextEdit,
     commitTextEdit,

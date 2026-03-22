@@ -1,6 +1,6 @@
-import type { CanvasRenderableTextElement, CanvasTextElement } from "@/types";
 import type { CanvasOverlayRect } from "./overlayGeometry";
-import { fitCanvasTextElementToContent, measureCanvasTextEditorSize } from "./textStyle";
+import type { CanvasTextEditorModel, CanvasTextOverlayModel } from "./textRuntimeViewModel";
+import { measureCanvasTextEditorSize } from "./textStyle";
 
 export interface CanvasSelectionOverlayMetrics {
   rect: CanvasOverlayRect;
@@ -15,11 +15,6 @@ export interface CanvasTextEditorLayout {
   transform: string;
   transformOrigin: "top left";
 }
-
-export const resolveTrackedOverlayId = (
-  editingTextId: string | null,
-  selectedElementIds: string[]
-) => editingTextId ?? (selectedElementIds.length === 1 ? selectedElementIds[0]! : null);
 
 export const selectionOverlayEqual = (
   left: CanvasSelectionOverlayMetrics | null,
@@ -46,30 +41,29 @@ export const overlayPositionEqual = (
   right: { left: number; top: number }
 ) => Math.abs(left.left - right.left) < 0.5 && Math.abs(left.top - right.top) < 0.5;
 
-export const getDraftTextOverlayRect = (
-  element: CanvasTextElement | CanvasRenderableTextElement,
+export const getTextOverlayRect = (
+  element: CanvasTextOverlayModel,
   viewport: { x: number; y: number },
   zoom: number
 ): CanvasOverlayRect => {
-  const layoutElement = fitCanvasTextElementToContent(element);
   const editingSize = measureCanvasTextEditorSize(element);
 
   return {
-    x: layoutElement.x * zoom + viewport.x,
-    y: layoutElement.y * zoom + viewport.y,
+    x: element.x * zoom + viewport.x,
+    y: element.y * zoom + viewport.y,
     width: Math.max(1, editingSize.width * zoom),
     height: Math.max(1, editingSize.height * zoom),
   };
 };
 
 export const resolveSelectionOverlayMetrics = ({
-  draftTextElement,
+  textOverlayModel,
   textMatrix,
   viewport,
   zoom,
   nodeRect,
 }: {
-  draftTextElement: CanvasTextElement | CanvasRenderableTextElement | null;
+  textOverlayModel: CanvasTextOverlayModel | null;
   textMatrix: string | null;
   viewport: { x: number; y: number };
   zoom: number;
@@ -82,12 +76,12 @@ export const resolveSelectionOverlayMetrics = ({
     };
   }
 
-  if (!draftTextElement) {
+  if (!textOverlayModel) {
     return null;
   }
 
   return {
-    rect: getDraftTextOverlayRect(draftTextElement, viewport, zoom),
+    rect: getTextOverlayRect(textOverlayModel, viewport, zoom),
     textMatrix: null,
   };
 };
@@ -98,12 +92,11 @@ export const getTextEditorLayout = ({
   viewport,
   zoom,
 }: {
-  element: CanvasTextElement | CanvasRenderableTextElement;
+  element: CanvasTextEditorModel;
   transform: string | null;
   viewport: { x: number; y: number };
   zoom: number;
 }): CanvasTextEditorLayout => {
-  const layoutElement = fitCanvasTextElementToContent(element);
   const editingSize = measureCanvasTextEditorSize(element);
 
   if (transform) {
@@ -122,7 +115,7 @@ export const getTextEditorLayout = ({
     top: 0,
     width: editingSize.width,
     height: editingSize.height,
-    transform: `translate(${layoutElement.x * zoom + viewport.x}px, ${layoutElement.y * zoom + viewport.y}px) scale(${zoom}) rotate(${layoutElement.rotation}deg)`,
+    transform: `translate(${element.x * zoom + viewport.x}px, ${element.y * zoom + viewport.y}px) scale(${zoom}) rotate(${element.rotation}deg)`,
     transformOrigin: "top left",
   };
 };

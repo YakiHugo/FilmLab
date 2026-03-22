@@ -4,9 +4,7 @@ import {
   resolveTextCommitKind,
   resolveTextSessionWorkbenchTransition,
   shouldMaterializeCreatedText,
-  shouldRenderEditingTextOnActiveWorkbench,
   shouldSelectMaterializedCreatedText,
-  shouldShowTextToolbar,
 } from "./textSession";
 
 describe("text session helpers", () => {
@@ -91,29 +89,6 @@ describe("text session helpers", () => {
         mode: "create",
         nextValue: "Hello",
         sessionWorkbenchId: "workbench-2",
-      })
-    ).toBe(false);
-  });
-
-  it("shows the text toolbar whenever a text render element has an overlay anchor", () => {
-    expect(
-      shouldShowTextToolbar({
-        hasEditingTextRenderElement: true,
-        hasSelectionOverlay: true,
-      })
-    ).toBe(true);
-
-    expect(
-      shouldShowTextToolbar({
-        hasEditingTextRenderElement: true,
-        hasSelectionOverlay: false,
-      })
-    ).toBe(false);
-
-    expect(
-      shouldShowTextToolbar({
-        hasEditingTextRenderElement: false,
-        hasSelectionOverlay: true,
       })
     ).toBe(false);
   });
@@ -274,37 +249,5 @@ describe("text session helpers", () => {
         sessionWorkbenchId: "workbench-1",
       })
     ).toBe("persist-source");
-  });
-
-  it("renders the editing text only when the active workbench still owns the editable text node", () => {
-    expect(
-      shouldRenderEditingTextOnActiveWorkbench({
-        activeTextElementIsEditable: true,
-        activeTextElementType: "text",
-        activeWorkbenchId: "workbench-1",
-        editingTextId: "text-1",
-        sessionWorkbenchId: "workbench-1",
-      })
-    ).toBe(true);
-
-    expect(
-      shouldRenderEditingTextOnActiveWorkbench({
-        activeTextElementIsEditable: true,
-        activeTextElementType: "text",
-        activeWorkbenchId: "workbench-2",
-        editingTextId: "text-1",
-        sessionWorkbenchId: "workbench-1",
-      })
-    ).toBe(false);
-
-    expect(
-      shouldRenderEditingTextOnActiveWorkbench({
-        activeTextElementIsEditable: false,
-        activeTextElementType: "text",
-        activeWorkbenchId: "workbench-1",
-        editingTextId: "text-1",
-        sessionWorkbenchId: "workbench-1",
-      })
-    ).toBe(false);
   });
 });

@@ -1,12 +1,19 @@
 import type Konva from "konva";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type RefObject } from "react";
-import type { CanvasRenderableTextElement, CanvasTextElement } from "@/types";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import type { CanvasOverlayRect } from "../overlayGeometry";
 import { resolveFloatingOverlayPosition } from "../overlayGeometry";
+import type { CanvasTextEditorModel, CanvasTextOverlayModel } from "../textRuntimeViewModel";
 import {
   getTextEditorLayout,
   overlayPositionEqual,
-  resolveTrackedOverlayId,
   resolveSelectionOverlayMetrics,
   selectionOverlayEqual,
   type CanvasSelectionOverlayMetrics,
@@ -43,10 +50,9 @@ interface UseCanvasViewportOverlayOptions {
     y: number;
   };
   zoom: number;
-  selectedElementIds: string[];
-  editingTextId: string | null;
-  editingTextRenderElement: CanvasTextElement | CanvasRenderableTextElement | null;
-  trackedTextOverlayElement: CanvasTextElement | CanvasRenderableTextElement | null;
+  trackedOverlayId: string | null;
+  textOverlayModel: CanvasTextOverlayModel | null;
+  textEditorModel: CanvasTextEditorModel | null;
   singleSelectedNonTextElement: { id: string } | null;
   textToolbarRef: RefObject<HTMLDivElement>;
   dimensionsBadgeRef: RefObject<HTMLDivElement>;
@@ -67,10 +73,9 @@ export function useCanvasViewportOverlay({
   stageSize,
   viewport,
   zoom,
-  selectedElementIds,
-  editingTextId,
-  editingTextRenderElement,
-  trackedTextOverlayElement,
+  trackedOverlayId,
+  textOverlayModel,
+  textEditorModel,
   singleSelectedNonTextElement,
   textToolbarRef,
   dimensionsBadgeRef,
@@ -93,23 +98,19 @@ export function useCanvasViewportOverlay({
     left: 0,
     top: 0,
   });
-  const trackedId = useMemo(
-    () => resolveTrackedOverlayId(editingTextId, selectedElementIds),
-    [editingTextId, selectedElementIds]
-  );
 
   const syncSelectionOverlay = useCallback(() => {
     const stage = stageRef.current;
-    if (!stage || !trackedId) {
+    if (!stage || !trackedOverlayId) {
       setSelectionOverlay((current) => (current ? null : current));
       return;
     }
 
-    const node = stage.findOne(`#${trackedId}`);
+    const node = stage.findOne(`#${trackedOverlayId}`);
     const nextOverlay = resolveSelectionOverlayMetrics({
-      draftTextElement: trackedTextOverlayElement,
+      textOverlayModel,
       textMatrix:
-        node && trackedTextOverlayElement && trackedId === trackedTextOverlayElement.id
+        node && textOverlayModel && trackedOverlayId === textOverlayModel.id
           ? createTransformMatrix(node)
           : null,
       viewport,
@@ -125,9 +126,9 @@ export function useCanvasViewportOverlay({
       selectionOverlayEqual(current, nextOverlay) ? current : nextOverlay
     );
   }, [
-    trackedTextOverlayElement,
     stageRef,
-    trackedId,
+    trackedOverlayId,
+    textOverlayModel,
     viewport,
     zoom,
   ]);
@@ -136,40 +137,41 @@ export function useCanvasViewportOverlay({
     syncSelectionOverlay();
   }, [activeWorkbenchUpdatedAt, syncSelectionOverlay, viewport.x, viewport.y, zoom]);
 
+  const syncSelectionOverlayRef = useRef(syncSelectionOverlay);
+
+  useEffect(() => {
+    syncSelectionOverlayRef.current = syncSelectionOverlay;
+  }, [syncSelectionOverlay]);
+
   useEffect(() => {
     const stage = stageRef.current;
 
-    if (!stage || !trackedId) {
+    if (!stage || !trackedOverlayId) {
       setSelectionOverlay((current) => (current ? null : current));
       return;
     }
 
-    const trackedNode = stage.findOne(`#${trackedId}`);
+    const trackedNode = stage.findOne(`#${trackedOverlayId}`);
     if (!trackedNode) {
-      syncSelectionOverlay();
+      syncSelectionOverlayRef.current();
       return;
     }
     const node = trackedNode as Konva.Node;
 
     const handleNodeChange = () => {
-      syncSelectionOverlay();
+      syncSelectionOverlayRef.current();
     };
 
     node.on("dragmove transform dragend transformend", handleNodeChange);
-    syncSelectionOverlay();
+    syncSelectionOverlayRef.current();
 
     return () => {
       node.off("dragmove transform dragend transformend", handleNodeChange);
     };
-  }, [stageRef, syncSelectionOverlay, trackedId]);
+  }, [stageRef, trackedOverlayId]);
 
   useLayoutEffect(() => {
-    if (
-      !selectionOverlay ||
-      !editingTextRenderElement ||
-      stageSize.width <= 0 ||
-      stageSize.height <= 0
-    ) {
+    if (!selectionOverlay || !textEditorModel || stageSize.width <= 0 || stageSize.height <= 0) {
       return;
     }
 
@@ -187,11 +189,11 @@ export function useCanvasViewportOverlay({
       overlayPositionEqual(current, nextPosition) ? current : nextPosition
     );
   }, [
-    editingTextRenderElement,
     floatingToolbarGap,
     selectionOverlay,
     stageSize.height,
     stageSize.width,
+    textEditorModel,
     textToolbarRef,
     toolbarSize.height,
     toolbarSize.width,
@@ -233,15 +235,15 @@ export function useCanvasViewportOverlay({
 
   const editingTextLayout = useMemo(
     () =>
-      editingTextRenderElement
+      textEditorModel
         ? getTextEditorLayout({
-            element: editingTextRenderElement,
+            element: textEditorModel,
             transform: selectionOverlay?.textMatrix ?? null,
             viewport,
             zoom,
           })
         : null,
-    [editingTextRenderElement, selectionOverlay?.textMatrix, viewport, zoom]
+    [textEditorModel, selectionOverlay?.textMatrix, viewport, zoom]
   );
 
   return {
