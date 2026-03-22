@@ -1,9 +1,7 @@
 import { Eye, EyeOff, GripVertical, Layers3, Lock, Trash2, Unlock } from "lucide-react";
-import { memo, useCallback, useState } from "react";
+import { memo } from "react";
 import { cn } from "@/lib/utils";
-import { useCanvasStore } from "@/stores/canvasStore";
 import type { Asset, CanvasRenderableNode } from "@/types";
-import { getCanvasDescendantIds } from "./documentGraph";
 import {
   canvasDockActionChipClassName,
   canvasDockBadgeClassName,
@@ -19,9 +17,7 @@ import {
   canvasDockSectionClassName,
   canvasDockSectionMutedClassName,
 } from "./editDockTheme";
-import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
-import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
-import { useCanvasLayers } from "./hooks/useCanvasLayers";
+import { useCanvasLayerPanelModel } from "./hooks/useCanvasLayerPanelModel";
 
 interface LayerRowProps {
   asset: Asset | null;
@@ -154,141 +150,20 @@ const LayerRow = memo(function LayerRow({
 
 export function CanvasLayerPanel() {
   const {
-    activeWorkbench,
-    layers,
     assetById,
-    activeWorkbenchId,
-    reparentNodes,
-    reorderElements,
-    toggleElementVisibility,
-    toggleElementLock,
-    deleteElements,
-  } = useCanvasLayers();
-  const groupElements = useCanvasStore((state) => state.groupElements);
-  const ungroupElement = useCanvasStore((state) => state.ungroupElement);
-  const { displaySelectedElementIdSet, displaySelectedElementIds, primarySelectedElement } =
-    useCanvasSelectionModel();
-  const { selectElement } = useCanvasInteraction();
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-
-  const reorder = useCallback(
-    (fromId: string, toId: string) => {
-      if (!activeWorkbenchId || fromId === toId) {
-        return;
-      }
-      const fromLayer = layers.find((layer) => layer.id === fromId);
-      const toLayer = layers.find((layer) => layer.id === toId);
-      if (!fromLayer || !toLayer) {
-        return;
-      }
-
-      const targetParentId = toLayer.type === "group" ? toLayer.id : (toLayer.parentId ?? null);
-      if (targetParentId === fromId) {
-        return;
-      }
-      if (
-        fromLayer.type === "group" &&
-        activeWorkbench &&
-        targetParentId &&
-        getCanvasDescendantIds(activeWorkbench, fromLayer.id).includes(targetParentId)
-      ) {
-        return;
-      }
-
-      if (fromLayer.parentId !== targetParentId) {
-        const targetSiblingIds = layers
-          .filter((layer) => layer.parentId === targetParentId)
-          .map((layer) => layer.id);
-        const targetIndex =
-          toLayer.type === "group" ? targetSiblingIds.length : targetSiblingIds.indexOf(toLayer.id);
-        void reparentNodes(
-          [fromId],
-          targetParentId,
-          targetIndex < 0 ? undefined : targetIndex
-        );
-        return;
-      }
-
-      const siblingIds = layers
-        .filter((layer) => layer.parentId === targetParentId)
-        .map((layer) => layer.id);
-      const fromIndex = siblingIds.indexOf(fromId);
-      const toIndex = siblingIds.indexOf(toId);
-      if (fromIndex < 0 || toIndex < 0) {
-        return;
-      }
-      const ordered = siblingIds.slice();
-      const [moved] = ordered.splice(fromIndex, 1);
-      ordered.splice(toIndex, 0, moved);
-      void reorderElements(ordered.reverse(), targetParentId);
-    },
-    [activeWorkbench, activeWorkbenchId, layers, reorderElements, reparentNodes]
-  );
-
-  const handleSelect = useCallback(
-    (layerId: string, additive: boolean) => {
-      selectElement(layerId, { additive });
-    },
-    [selectElement]
-  );
-
-  const handleDelete = useCallback(
-    (layerId: string) => {
-      if (!activeWorkbenchId) {
-        return;
-      }
-      void deleteElements([layerId]);
-    },
-    [activeWorkbenchId, deleteElements]
-  );
-
-  const handleToggleVisibility = useCallback(
-    (layerId: string) => {
-      if (!activeWorkbenchId) {
-        return;
-      }
-      void toggleElementVisibility(layerId);
-    },
-    [activeWorkbenchId, toggleElementVisibility]
-  );
-
-  const handleToggleLock = useCallback(
-    (layerId: string) => {
-      if (!activeWorkbenchId) {
-        return;
-      }
-      void toggleElementLock(layerId);
-    },
-    [activeWorkbenchId, toggleElementLock]
-  );
-
-  const handleDragStart = useCallback((layerId: string) => {
-    setDraggingId(layerId);
-  }, []);
-
-  const handleDrop = useCallback(
-    (layerId: string) => {
-      if (draggingId) {
-        reorder(draggingId, layerId);
-      }
-      setDraggingId(null);
-    },
-    [draggingId, reorder]
-  );
-
-  const handleGroup = useCallback(() => {
-    if (!activeWorkbenchId || displaySelectedElementIds.length < 2) {
-      return;
-    }
-    void groupElements(displaySelectedElementIds);
-  }, [activeWorkbenchId, displaySelectedElementIds, groupElements]);
-
-  const handleUngroup = useCallback(() => {
-    if (!activeWorkbenchId || primarySelectedElement?.type !== "group") {
-      return;
-    }
-    void ungroupElement(primarySelectedElement.id);
-  }, [activeWorkbenchId, primarySelectedElement, ungroupElement]);
+    displaySelectedElementIdSet,
+    displaySelectedElementIds,
+    handleDelete,
+    handleDragStart,
+    handleDrop,
+    handleGroup,
+    handleSelect,
+    handleToggleLock,
+    handleToggleVisibility,
+    handleUngroup,
+    layers,
+    primarySelectedElement,
+  } = useCanvasLayerPanelModel();
 
   return (
     <div className={canvasDockPanelContentClassName}>
