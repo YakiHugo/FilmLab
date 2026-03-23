@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import type { CanvasPresetId, CanvasSlice, CanvasWorkbench } from "@/types";
 import { getStudioCanvasPreset } from "../studioPresets";
 import {
@@ -6,10 +6,7 @@ import {
   resolveCanvasSliceNamePatch,
   resolveCanvasSliceNumericPatch,
 } from "../storyPanelState";
-import {
-  resolveOrderedCanvasSlices,
-  resolveSelectedCanvasSliceId,
-} from "../workbenchPanelState";
+import { resolveOrderedCanvasSlices } from "../workbenchPanelState";
 import { useCanvasWorkbenchActions } from "./useCanvasWorkbenchActions";
 
 interface UseCanvasStoryPanelModelOptions {
@@ -28,24 +25,9 @@ export function useCanvasStoryPanelModel({
     [activeWorkbench]
   );
 
-  const resolvedSelectedSliceId = useMemo(
-    () =>
-      resolveSelectedCanvasSliceId({
-        orderedSlices,
-        selectedSliceId,
-      }),
-    [orderedSlices, selectedSliceId]
-  );
-
   const selectedSlice =
-    orderedSlices.find((slice) => slice.id === resolvedSelectedSliceId) ?? null;
+    orderedSlices.find((slice) => slice.id === selectedSliceId) ?? null;
   const currentPreset = getStudioCanvasPreset(activeWorkbench?.presetId);
-
-  useEffect(() => {
-    if (resolvedSelectedSliceId !== selectedSliceId) {
-      onSelectSlice(resolvedSelectedSliceId);
-    }
-  }, [onSelectSlice, resolvedSelectedSliceId, selectedSliceId]);
 
   const commitIntent = useCallback(
     (intent: Parameters<typeof planCanvasStoryPanelIntent>[0]["intent"]) => {
