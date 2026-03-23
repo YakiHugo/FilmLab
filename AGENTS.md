@@ -22,6 +22,44 @@ Follow Conventional Commit style: `feat(scope): ...`, `fix(scope): ...`, `refact
 - Do not inline runtime ID generation with `randomUUID`, `Date.now`, or `Math.random`; reuse the shared ID helper instead.
 - For canvas insert, duplicate, delete, and upsert flows, reuse the shared collision and selection handling instead of re-implementing ad hoc logic at new call sites.
 
+## Long Tasks
+
+- Treat a task as long when it is too large or too coupled to finish safely in one session.
+- For a long task, use the first session for orchestration: split the work into small, high-cohesion slices with clear validation boundaries.
+- Persist progress to files, not model context. A later session should recover from files plus `git log`, not from chat history.
+- Keep two external artifacts:
+  - a markdown task note for scope, architecture decisions, risks, validation notes, and human handoff
+  - a JSON task list for execution state only
+- Keep the JSON minimal. Do not duplicate architecture notes, long rationale, or verbose tool output in it.
+- Prefer a minimal JSON shape like:
+
+```json
+{
+  "baseline": "abc1234",
+  "currentTaskId": "2",
+  "tasks": [
+    { "id": "1", "title": "read current implementation", "status": "done", "passes": true },
+    { "id": "2", "title": "refactor state boundary", "status": "in_progress", "passes": false, "rollback": "revert last commit" }
+  ]
+}
+```
+
+- Keep task status values stable, for example `pending`, `in_progress`, `blocked`, `done`, `rolled_back`.
+- `passes` is the completion gate. The task is complete only when required items have `passes: true` or are explicitly accepted.
+- Keep rollback minimal:
+  - one baseline commit or tag for the whole effort
+  - one per-task rollback note only when the rollback is not obvious
+- If validation fails and the current slice is not fixed immediately, update the JSON status to `blocked` or `rolled_back`, record the first actionable failure in the markdown note, and stop claiming progress.
+
+## Compact Instructions
+
+- When compressing context or handoff material, preserve information in this order and drop lower-priority material first.
+1. Architecture decisions. Do not summarize away the decision, rationale, boundary, or chosen tradeoff.
+2. Modified files and critical changes. Keep an explicit file list and the key change in each file.
+3. Validation state. Record pass or fail per relevant command.
+4. Unresolved TODOs and rollback notes. Keep them explicit.
+5. Tool output. Reduce it to pass or fail plus the first actionable error unless the full raw output is needed for debugging.
+
 ## Stateful Modules
 
 - When a module mixes session state, async persistence, UI ownership, and cross-context transitions, treat it as a state machine, not a local patching task.
@@ -32,7 +70,7 @@ Follow Conventional Commit style: `feat(scope): ...`, `fix(scope): ...`, `refact
 ## Testing
 
 - Keep implementation work and test-writing work logically separate. If both are needed, finish implementation first and write tests as a separate step.
-- Do not use subagents for implementation or test authoring. Subagents are reserved for review and explore only.
+- Prefer keeping implementation and test authoring in the main agent. Use subagents there only when the work has already been decomposed into explicit, low-coupling slices with clear external task state.
 - Only write unit tests for pure functions.
 - Treat pure functions strictly: deterministic input/output logic with no I/O, shared mutable state, framework lifecycle, network, storage, timer, or rendering side effects.
 - Do not add unit tests for components, hooks, stores, routes, integration flows, or any side-effectful or non-pure module.
@@ -43,12 +81,12 @@ Follow Conventional Commit style: `feat(scope): ...`, `fix(scope): ...`, `refact
 
 ## Subagents
 
-- Use subagents only for review and explore tasks.
-- Do not use subagents for implementation, refactoring, test authoring, orchestration, or integration work.
+- Prefer using subagents for bounded review and exploration.
+- Prefer keeping orchestration, implementation, refactoring, integration, and test authoring in the main agent unless long-task slices and external task state are already explicit.
 - Explore subagents should answer bounded codebase questions or gather context only.
 - Review subagents may be used for architecture, performance, and bug or missing-functionality review passes.
 - Default to the minimum review surface that matches the change. For complex logic changes, usually start with architecture plus bug/regression; add performance only when hot paths or render/update frequency changed.
-- If a task is too large or too coupled to split safely, do not delegate delivery work to subagents; ask the user to narrow scope or help decompose it instead.
+- If a task is too large or too coupled to split safely, prefer decomposing it first or narrowing scope instead of delegating delivery work immediately.
 - In review prompts, state any accepted current behaviors and out-of-scope interactions explicitly so subagents do not keep re-reporting them.
 
 ## Code Review
