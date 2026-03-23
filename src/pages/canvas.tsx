@@ -7,6 +7,7 @@ import { CanvasExportDialog } from "@/features/canvas/CanvasExportDialog";
 import { CanvasFloatingPanel } from "@/features/canvas/CanvasFloatingPanel";
 import { CanvasToolRail } from "@/features/canvas/CanvasToolRail";
 import { CanvasViewport } from "@/features/canvas/CanvasViewport";
+import { CanvasRuntimeProvider } from "@/features/canvas/runtime/CanvasRuntimeProvider";
 import { hasSelectedImageElement } from "@/features/canvas/selectionModel";
 import {
   getCanvasResetEpoch,
@@ -165,11 +166,24 @@ export function CanvasPage() {
 
   return (
     <div className="absolute inset-0 overflow-hidden">
-      <CanvasViewport stageRef={stageRef} selectedSliceId={selectedSliceId} />
-      <CanvasAppBar onExport={() => setExportOpen(true)} />
-      <CanvasToolRail />
-      <CanvasFloatingPanel selectedSliceId={selectedSliceId} onSelectSlice={setSelectedSliceId} />
-      <CanvasExportDialog open={exportOpen} onOpenChange={setExportOpen} stage={stageRef.current} />
+      <CanvasRuntimeProvider
+        key={activeWorkbenchId ?? "canvas-runtime:empty"}
+        workbench={activeWorkbench}
+        workbenchId={activeWorkbenchId}
+      >
+        <CanvasViewport stageRef={stageRef} selectedSliceId={selectedSliceId} />
+        <CanvasAppBar onExport={() => setExportOpen(true)} />
+        <CanvasToolRail />
+        <CanvasFloatingPanel
+          selectedSliceId={selectedSliceId}
+          onSelectSlice={setSelectedSliceId}
+        />
+        <CanvasExportDialog
+          open={exportOpen}
+          onOpenChange={setExportOpen}
+          stage={stageRef.current}
+        />
+      </CanvasRuntimeProvider>
     </div>
   );
 }

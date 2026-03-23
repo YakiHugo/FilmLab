@@ -1,6 +1,9 @@
-﻿type Listener<T> = (payload: T) => void;
+import type { Asset } from "@/types";
+
+type Listener<T> = (payload: T) => void;
 
 interface StoreEvents {
+  "assets:changed": Map<string, Asset | null>;
   "assets:imported": string[];
   "assets:deleted": Set<string>;
   "currentUser:reset": void;

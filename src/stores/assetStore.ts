@@ -1680,6 +1680,31 @@ export const useAssetStore = create<CurrentUserState>()(
   )
 );
 
+useAssetStore.subscribe((state, previousState) => {
+  if (state.assets === previousState.assets) {
+    return;
+  }
+
+  const previousAssetById = new Map(previousState.assets.map((asset) => [asset.id, asset]));
+  const changedAssets = new Map<string, Asset | null>();
+
+  for (const asset of state.assets) {
+    const previousAsset = previousAssetById.get(asset.id);
+    if (previousAsset !== asset) {
+      changedAssets.set(asset.id, asset);
+    }
+    previousAssetById.delete(asset.id);
+  }
+
+  for (const removedAssetId of previousAssetById.keys()) {
+    changedAssets.set(removedAssetId, null);
+  }
+
+  if (changedAssets.size > 0) {
+    emit("assets:changed", changedAssets);
+  }
+});
+
 export type { AddAssetsResult } from "./currentUser/types";
 export {
   selectAssets,

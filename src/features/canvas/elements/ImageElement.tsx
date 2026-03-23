@@ -1,9 +1,12 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Image as KonvaImage, Rect } from "react-konva";
 import type { CanvasImageElement, CanvasRenderableElement } from "@/types";
-import { useAssetStore } from "@/stores/assetStore";
+import {
+  useCanvasPreviewActions,
+  useCanvasPreviewEntry,
+  useCanvasRuntimeAsset,
+} from "@/features/canvas/runtime/canvasRuntimeHooks";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { useCanvasRuntimeStore } from "@/stores/canvasRuntimeStore";
 
 type CanvasImageRenderState = CanvasImageElement &
   Partial<
@@ -17,6 +20,15 @@ interface ImageElementProps {
   onSelect: (elementId: string, additive: boolean) => void;
   onDragEnd: (elementId: string, x: number, y: number) => void;
 }
+
+const hashString = (value: string) => {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
+};
 
 const useLoadedImage = (src?: string) => {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
@@ -69,40 +81,44 @@ export const ImageElement = memo(function ImageElement({
   onSelect,
   onDragEnd,
 }: ImageElementProps) {
-  const asset = useAssetStore(
-    (state) => state.assets.find((candidate) => candidate.id === element.assetId) ?? null
-  );
+  const { asset, assetRenderFingerprint } = useCanvasRuntimeAsset(element.assetId);
   const zoom = useCanvasStore((state) => state.zoom);
-  const previewEntry = useCanvasRuntimeStore((state) => state.previewEntries[element.id]);
-  const requestBoardPreview = useCanvasRuntimeStore((state) => state.requestBoardPreview);
-  const releaseBoardPreview = useCanvasRuntimeStore((state) => state.releaseBoardPreview);
+  const previewEntry = useCanvasPreviewEntry(element.id);
+  const { releaseBoardPreview, requestBoardPreview } = useCanvasPreviewActions();
   const fallbackSrc = asset?.thumbnailUrl || asset?.objectUrl;
   const fallbackImage = useLoadedImage(fallbackSrc);
   const effectiveLocked = element.effectiveLocked ?? element.locked;
   const effectiveVisible = element.effectiveVisible ?? element.visible;
   const renderOpacity = element.worldOpacity ?? element.opacity;
+  const hadPreviewEntryRef = useRef(previewEntry !== undefined);
+  const elementAdjustmentsFingerprint = useMemo(
+    () => hashString(JSON.stringify(element.adjustments ?? null)),
+    [element.adjustments]
+  );
   const previewKey = useMemo(
     () =>
-      JSON.stringify({
-        adjustments: element.adjustments ?? null,
-        assetId: element.assetId,
-        filmProfileId: element.filmProfileId ?? null,
-        height: Math.round(element.height),
-        width: Math.round(element.width),
-        zoom: Number(zoom.toFixed(3)),
-      }),
+      [
+        element.assetId,
+        assetRenderFingerprint ?? "missing",
+        element.filmProfileId ?? "none",
+        `${Math.round(element.width)}x${Math.round(element.height)}`,
+        elementAdjustmentsFingerprint,
+        Number(zoom.toFixed(3)).toString(),
+      ].join("|"),
     [
-      element.adjustments,
       element.assetId,
+      assetRenderFingerprint,
+      elementAdjustmentsFingerprint,
       element.filmProfileId,
       element.height,
       element.width,
       zoom,
     ]
   );
+  const hasRenderableAsset = asset !== null;
 
   useEffect(() => {
-    if (!asset || !effectiveVisible) {
+    if (!hasRenderableAsset || !effectiveVisible) {
       releaseBoardPreview(element.id);
       return;
     }
@@ -112,16 +128,36 @@ export const ImageElement = memo(function ImageElement({
       releaseBoardPreview(element.id);
     };
   }, [
-    asset,
-    asset?.contentHash,
-    asset?.objectUrl,
-    asset?.thumbnailUrl,
     element.id,
     effectiveVisible,
+    hasRenderableAsset,
     previewPriority,
-    zoom,
     previewKey,
     releaseBoardPreview,
+    requestBoardPreview,
+  ]);
+
+  useEffect(() => {
+    const hadPreviewEntry = hadPreviewEntryRef.current;
+    const hasPreviewEntry = previewEntry !== undefined;
+    hadPreviewEntryRef.current = hasPreviewEntry;
+
+    if (
+      !hadPreviewEntry ||
+      hasPreviewEntry ||
+      !hasRenderableAsset ||
+      !effectiveVisible
+    ) {
+      return;
+    }
+
+    void requestBoardPreview(element.id, previewPriority);
+  }, [
+    element.id,
+    effectiveVisible,
+    hasRenderableAsset,
+    previewEntry,
+    previewPriority,
     requestBoardPreview,
   ]);
 

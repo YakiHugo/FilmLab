@@ -12,8 +12,11 @@ import type { NumericAdjustmentKey } from "@/features/editor/types";
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import { asciiAdjustmentsEqual } from "@/lib/asciiRaster";
 import { cn } from "@/lib/utils";
-import { useAssetStore } from "@/stores/assetStore";
-import { useCanvasRuntimeStore } from "@/stores/canvasRuntimeStore";
+import {
+  useCanvasElementDraftAdjustments,
+  useCanvasPreviewActions,
+  useCanvasRuntimeAsset,
+} from "@/features/canvas/runtime/canvasRuntimeHooks";
 import { useCanvasStore } from "@/stores/canvasStore";
 import type { AsciiAdjustments, EditingAdjustments } from "@/types";
 import {
@@ -502,13 +505,11 @@ const ProjectEditControls = memo(function ProjectEditControls({
 
 export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
   const upsertElement = useCanvasStore((state) => state.upsertElement);
-  const setElementDraftAdjustments = useCanvasRuntimeStore(
-    (state) => state.setElementDraftAdjustments
-  );
-  const clearElementDraftAdjustments = useCanvasRuntimeStore(
-    (state) => state.clearElementDraftAdjustments
-  );
-  const requestBoardPreview = useCanvasRuntimeStore((state) => state.requestBoardPreview);
+  const {
+    clearElementDraftAdjustments,
+    requestBoardPreview,
+    setElementDraftAdjustments,
+  } = useCanvasPreviewActions();
   const [openSections, setOpenSections] = useState(createInitialOpenSections);
   const { activeWorkbench, committedSelectedElementIds, primarySelectedImageElement: imageElement } =
     useCanvasSelectionModel();
@@ -517,18 +518,12 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
     () => resolvePrimarySelectedImageElement(activeWorkbench, committedSelectedElementIds),
     [activeWorkbench, committedSelectedElementIds]
   );
+  const displayedImageElementId = imageElement?.id ?? null;
   const committedImageElementId = committedImageElement?.id ?? null;
   const committedImageElementIdRef = useRef<string | null>(committedImageElementId);
-
-  const asset = useAssetStore((state) =>
-    imageElement
-      ? (state.assets.find((candidate) => candidate.id === imageElement.assetId) ?? null)
-      : null
-  );
-
-  const draftAdjustments = useCanvasRuntimeStore((state) =>
-    imageElement ? state.draftAdjustmentsByElementId[imageElement.id] : undefined
-  );
+  const displayedImageElementIdRef = useRef<string | null>(displayedImageElementId);
+  const { asset } = useCanvasRuntimeAsset(imageElement?.assetId ?? null);
+  const draftAdjustments = useCanvasElementDraftAdjustments(imageElement?.id ?? null);
 
   const adjustments = useMemo(
     () =>
@@ -559,9 +554,32 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
     committedImageElementIdRef.current = committedImageElementId;
   }, [clearElementDraftAdjustments, committedImageElementId]);
 
+  useEffect(() => {
+    const previousDisplayedImageElementId = displayedImageElementIdRef.current;
+    if (
+      previousDisplayedImageElementId &&
+      previousDisplayedImageElementId !== displayedImageElementId &&
+      previousDisplayedImageElementId !== committedImageElementId
+    ) {
+      clearElementDraftAdjustments(previousDisplayedImageElementId);
+    }
+    displayedImageElementIdRef.current = displayedImageElementId;
+  }, [
+    clearElementDraftAdjustments,
+    committedImageElementId,
+    displayedImageElementId,
+  ]);
+
   useEffect(
     () => () => {
       const currentCommittedImageElementId = committedImageElementIdRef.current;
+      const currentDisplayedImageElementId = displayedImageElementIdRef.current;
+      if (
+        currentDisplayedImageElementId &&
+        currentDisplayedImageElementId !== currentCommittedImageElementId
+      ) {
+        clearElementDraftAdjustments(currentDisplayedImageElementId);
+      }
       if (currentCommittedImageElementId) {
         clearElementDraftAdjustments(currentCommittedImageElementId);
       }

@@ -2,7 +2,7 @@ import type Konva from "konva";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { unstable_batchedUpdates } from "react-dom";
 import type { CanvasRenderableElement } from "@/types";
-import { useCanvasRuntimeStore } from "@/stores/canvasRuntimeStore";
+import { useCanvasSelectionPreview } from "@/features/canvas/runtime/canvasRuntimeHooks";
 import type { CanvasOverlayRect } from "../overlayGeometry";
 import {
   isSelectableSelectionTarget,
@@ -117,10 +117,8 @@ export function useCanvasMarqueeSelection({
   selectedElementIds,
   setSelectedElementIds,
 }: UseCanvasMarqueeSelectionOptions): UseCanvasMarqueeSelectionResult {
-  const setSelectionPreviewElementIds = useCanvasRuntimeStore(
-    (state) => state.setSelectionPreviewElementIds
-  );
-  const clearSelectionPreview = useCanvasRuntimeStore((state) => state.clearSelectionPreview);
+  const { clearSelectionPreview, setSelectionPreviewElementIds } =
+    useCanvasSelectionPreview();
   const [marqueeRenderState, setMarqueeRenderState] = useState<MarqueeSelectionRenderState>(
     EMPTY_MARQUEE_RENDER_STATE
   );
