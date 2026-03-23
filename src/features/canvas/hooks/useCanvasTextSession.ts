@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   type KeyboardEventHandler,
-  type RefObject,
 } from "react";
 import type {
   CanvasCommand,
@@ -42,8 +41,6 @@ interface UseCanvasTextSessionOptions {
     command: CanvasCommand,
     options?: { trackHistory?: boolean }
   ) => Promise<unknown>;
-  textEditorRef: RefObject<HTMLDivElement>;
-  textToolbarRef: RefObject<HTMLDivElement>;
 }
 
 interface UseCanvasTextSessionResult {
@@ -92,8 +89,6 @@ export function useCanvasTextSession({
   clearSelection,
   upsertElementInWorkbench,
   executeCommandInWorkbench,
-  textEditorRef,
-  textToolbarRef,
 }: UseCanvasTextSessionOptions): UseCanvasTextSessionResult {
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [editingTextMode, setEditingTextMode] = useState<EditingTextMode | null>(null);
@@ -492,45 +487,6 @@ export function useCanvasTextSession({
     },
     [cancelTextEdit, commitTextEdit]
   );
-
-  useEffect(() => {
-    if (!editingTextId) {
-      return;
-    }
-
-    const handleWindowKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        cancelTextEdit();
-      }
-    };
-
-    window.addEventListener("keydown", handleWindowKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleWindowKeyDown);
-    };
-  }, [cancelTextEdit, editingTextId]);
-
-  useEffect(() => {
-    if (!editingTextId) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) {
-        return;
-      }
-      if (textEditorRef.current?.contains(target) || textToolbarRef.current?.contains(target)) {
-        return;
-      }
-      commitTextEdit();
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-    };
-  }, [commitTextEdit, editingTextId, textEditorRef, textToolbarRef]);
 
   useEffect(() => {
     if (!editingTextId) {

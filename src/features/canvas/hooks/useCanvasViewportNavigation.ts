@@ -1,27 +1,17 @@
 import type Konva from "konva";
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { registerCanvasStage } from "./canvasStageRegistry";
-import type { CanvasToolName } from "../tools/toolControllers";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import {
-  resolveCanvasFitView,
   resolveCanvasPointFromScreen,
   resolveCanvasZoomStep,
   resolveViewportAfterZoom,
-  type CanvasViewportInsets,
   type CanvasViewportPoint,
-  type CanvasViewportSize,
+  type CanvasViewportTransform,
 } from "../viewportNavigation";
 
 interface UseCanvasViewportNavigationOptions {
-  activeWorkbench: {
-    height: number;
-    id: string;
-    width: number;
-  } | null;
-  activeWorkbenchId: string | null;
-  insets: CanvasViewportInsets;
+  fitView: CanvasViewportTransform | null;
+  shouldPan: boolean;
   stageRef: RefObject<Konva.Stage>;
-  tool: CanvasToolName;
   viewport: CanvasViewportPoint;
   zoom: number;
   setViewport: (viewport: CanvasViewportPoint) => void;
@@ -35,67 +25,23 @@ interface UseCanvasViewportNavigationResult {
   endPanInteraction: () => void;
   handleStageWheel: (event: Konva.KonvaEventObject<WheelEvent>) => void;
   resetView: () => void;
-  shouldPan: boolean;
-  stageSize: CanvasViewportSize;
   toCanvasPoint: (stage: Konva.Stage) => CanvasViewportPoint | null;
   toScreenPoint: (stage: Konva.Stage) => CanvasViewportPoint | null;
   updatePanInteraction: (screenPoint: CanvasViewportPoint) => void;
-  viewportContainerRef: RefObject<HTMLDivElement>;
 }
 
-const createEmptyStageSize = (): CanvasViewportSize => ({
-  width: 0,
-  height: 0,
-});
-
-const isInputLikeElement = (target: EventTarget | null) => {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-  const tagName = target.tagName.toLowerCase();
-  return (
-    tagName === "input" ||
-    tagName === "textarea" ||
-    tagName === "select" ||
-    target.isContentEditable
-  );
-};
-
 export function useCanvasViewportNavigation({
-  activeWorkbench,
-  activeWorkbenchId,
-  insets,
+  fitView,
+  shouldPan,
   stageRef,
-  tool,
   viewport,
   zoom,
   setViewport,
   setZoom,
 }: UseCanvasViewportNavigationOptions): UseCanvasViewportNavigationResult {
-  const viewportContainerRef = useRef<HTMLDivElement>(null);
-  const [stageSize, setStageSize] = useState(createEmptyStageSize);
-  const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
-  const initializedWorkbenchIdsRef = useRef<Set<string>>(new Set());
   const panningAnchorRef = useRef<CanvasViewportPoint | null>(null);
   const viewportAnchorRef = useRef<CanvasViewportPoint | null>(null);
-
-  const shouldPan = tool === "hand" || isSpacePressed;
-
-  const fitView = useMemo(
-    () =>
-      activeWorkbench
-        ? resolveCanvasFitView({
-            insets,
-            stageSize,
-            workbenchSize: {
-              width: activeWorkbench.width,
-              height: activeWorkbench.height,
-            },
-          })
-        : null,
-    [activeWorkbench, insets, stageSize]
-  );
 
   const toCanvasPoint = useCallback(
     (stage: Konva.Stage) => {
@@ -210,98 +156,12 @@ export function useCanvasViewportNavigation({
   }, [fitView, setViewport, setZoom]);
 
   useEffect(() => {
-    registerCanvasStage(stageRef.current);
-    return () => {
-      registerCanvasStage(null);
-    };
-  }, [stageRef, activeWorkbenchId]);
-
-  useEffect(() => {
-    if (!activeWorkbenchId) {
-      return;
-    }
-
-    const container = viewportContainerRef.current;
-    if (!container) {
-      return;
-    }
-
-    const updateStageSize = (width: number, height: number) => {
-      setStageSize((current) =>
-        current.width === width && current.height === height ? current : { width, height }
-      );
-    };
-
-    const measure = () => {
-      const rect = container.getBoundingClientRect();
-      updateStageSize(Math.round(rect.width), Math.round(rect.height));
-    };
-
-    measure();
-
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", measure);
-      return () => {
-        window.removeEventListener("resize", measure);
-      };
-    }
-
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) {
-        return;
-      }
-
-      updateStageSize(Math.round(entry.contentRect.width), Math.round(entry.contentRect.height));
-    });
-    observer.observe(container);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [activeWorkbenchId]);
-
-  useEffect(() => {
-    if (!activeWorkbench || !fitView) {
-      return;
-    }
-
-    if (initializedWorkbenchIdsRef.current.has(activeWorkbench.id)) {
-      return;
-    }
-
-    initializedWorkbenchIdsRef.current.add(activeWorkbench.id);
-    setZoom(fitView.zoom);
-    setViewport(fitView.viewport);
-  }, [activeWorkbench, fitView, setViewport, setZoom]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.code === "Space" && !isInputLikeElement(event.target)) {
-        event.preventDefault();
-        setIsSpacePressed(true);
-      }
-    };
-
-    const handleKeyUp = (event: KeyboardEvent) => {
-      if (event.code !== "Space") {
-        return;
-      }
-
-      setIsSpacePressed(false);
+    if (!shouldPan && isPanning) {
       setIsPanning(false);
       panningAnchorRef.current = null;
       viewportAnchorRef.current = null;
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-    };
-  }, []);
+    }
+  }, [isPanning, shouldPan]);
 
   return {
     adjustZoom,
@@ -310,11 +170,8 @@ export function useCanvasViewportNavigation({
     endPanInteraction,
     handleStageWheel,
     resetView,
-    shouldPan,
-    stageSize,
     toCanvasPoint,
     toScreenPoint,
     updatePanInteraction,
-    viewportContainerRef,
   };
 }
