@@ -611,6 +611,7 @@ describe("imageGenerateRoute", () => {
           createdAt: "2026-03-12T00:00:00.000Z",
           completedAt: "2026-03-12T00:00:02.000Z",
           telemetry: {
+            traceId: "trace-run-moderation-1",
             providerRequestId: null,
             providerTaskId: null,
             latencyMs: 2000,
@@ -661,6 +662,7 @@ describe("imageGenerateRoute", () => {
           createdAt: "2026-03-12T00:00:00.000Z",
           completedAt: "2026-03-12T00:00:05.000Z",
           telemetry: {
+            traceId: "trace-run-1",
             providerRequestId: null,
             providerTaskId: null,
             latencyMs: 5000,
@@ -933,6 +935,7 @@ describe("imageGenerateRoute", () => {
           createdAt: "2026-03-12T00:00:00.000Z",
           completedAt: "2026-03-12T00:00:05.000Z",
           telemetry: {
+            traceId: "trace-run-1",
             providerRequestId: null,
             providerTaskId: null,
             latencyMs: 5000,
@@ -1478,12 +1481,14 @@ describe("imageGenerateRoute", () => {
     expect(response.statusCode).toBe(429);
     expect(response.json()).toMatchObject({
       error: "Provider rejected request.",
+      traceId: expect.any(String),
       conversationId: "conversation-1",
       threadId: "conversation-1",
       turnId: expect.any(String),
       jobId: expect.any(String),
       runId: expect.any(String),
     });
+    expect(response.headers["x-request-id"]).toEqual(expect.any(String));
     expect(repositoryMock.completeGenerationFailure).toHaveBeenCalled();
 
     await app.close();

@@ -92,6 +92,7 @@ const envSchema = z.object({
   AUTH_JWT_SECRET: optionalTrimmedString(),
   AUTH_JWT_ISSUER: optionalTrimmedString(),
   AUTH_JWT_AUDIENCE: optionalTrimmedString(),
+  TRUST_PROXY_REQUEST_ID: optionalBooleanString(),
   ALLOW_UNSIGNED_DEV_AUTH: optionalBooleanString(),
   DEV_AUTH_ALLOWED_USER_IDS: optionalTrimmedString(),
 });
@@ -128,6 +129,7 @@ export interface AppConfig {
   authJwtSecret?: string;
   authJwtIssuer?: string;
   authJwtAudience?: string;
+  trustProxyRequestId: boolean;
   allowUnsignedDevAuth: boolean;
   devAuthAllowedUserIds: string[];
 }
@@ -190,6 +192,7 @@ export const getConfig = (): AppConfig => {
     authJwtSecret: env.AUTH_JWT_SECRET,
     authJwtIssuer: env.AUTH_JWT_ISSUER,
     authJwtAudience: env.AUTH_JWT_AUDIENCE,
+    trustProxyRequestId: env.TRUST_PROXY_REQUEST_ID ?? false,
     allowUnsignedDevAuth: env.ALLOW_UNSIGNED_DEV_AUTH ?? ((env.NODE_ENV ?? "development") === "development"),
     devAuthAllowedUserIds: (env.DEV_AUTH_ALLOWED_USER_IDS ?? "local-user")
       .split(",")

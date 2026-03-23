@@ -243,6 +243,7 @@ describe("ImageChatFeed", () => {
             id: "artifact-dispatch-1",
             runId: "run-1",
             turnId: "turn-1",
+            traceId: "trace-run-1",
             version: 3,
             stage: "dispatch",
             targetKey: "dashscope:qwen-image-2.0-pro",

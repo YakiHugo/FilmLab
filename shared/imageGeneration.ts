@@ -215,6 +215,7 @@ export interface ImageGenerationResponse {
   turnId: string;
   jobId: string;
   runId: string;
+  traceId: string;
   modelId: import("./imageModelCatalog").FrontendImageModelId;
   logicalModel: import("./imageModelCatalog").LogicalImageModelId;
   deploymentId: import("./imageModelCatalog").ImageDeploymentId;

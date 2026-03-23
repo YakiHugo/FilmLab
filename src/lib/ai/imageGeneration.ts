@@ -19,6 +19,7 @@ interface ImageGenerationResponseErrorPayload {
   turnId?: string;
   jobId?: string;
   runId?: string;
+  traceId?: string;
 }
 
 export interface ImageGenerationRequestError extends Error {
@@ -27,6 +28,7 @@ export interface ImageGenerationRequestError extends Error {
   turnId?: string;
   jobId?: string;
   runId?: string;
+  traceId?: string;
 }
 
 const createAbortError = () => {
@@ -195,6 +197,9 @@ export async function generateImage(
     if (typeof errorPayload?.runId === "string") {
       error.runId = errorPayload.runId;
     }
+    if (typeof errorPayload?.traceId === "string") {
+      error.traceId = errorPayload.traceId;
+    }
     throw error;
   }
 
@@ -234,6 +239,12 @@ export async function generateImage(
       ? json.runId
       : (() => {
           throw new Error("Missing run id in image generation response.");
+        })();
+  const traceId =
+    typeof json.traceId === "string"
+      ? json.traceId
+      : (() => {
+          throw new Error("Missing trace id in image generation response.");
         })();
   const logicalModel =
     typeof json.logicalModel === "string"
@@ -292,6 +303,7 @@ export async function generateImage(
     turnId,
     jobId,
     runId,
+    traceId,
     modelId,
     logicalModel,
     deploymentId,

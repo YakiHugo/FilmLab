@@ -17,11 +17,11 @@ import {
   cloneConversationCreativeState,
   createInitialConversationCreativeState,
 } from "../../gateway/prompt/types";
-import type { PromptVersionRecord } from "../../gateway/prompt/types";
 import {
   ChatConversationNotFoundError,
   ChatPromptStateConflictError,
 } from "./types";
+import { createId } from "../../../../shared/createId";
 import type {
   AcceptConversationTurnInput,
   ChatConversationRecord,
@@ -301,6 +301,13 @@ const MIGRATIONS = [
         ON chat_prompt_versions(conversation_id, created_at DESC);
     `,
   },
+  {
+    name: "006_prompt_trace_id",
+    sql: `
+      ALTER TABLE chat_prompt_versions
+      ADD COLUMN IF NOT EXISTS trace_id TEXT NULL;
+    `,
+  },
 ] as const;
 
 interface ChatTurnRow {
@@ -410,6 +417,7 @@ interface ChatPromptArtifactRow {
   id: string;
   run_id: string;
   turn_id: string;
+  trace_id: string | null;
   version: number;
   stage: PersistedPromptArtifactRecord["stage"];
   target_key: string | null;
@@ -470,6 +478,7 @@ const parsePromptSnapshot = (value: unknown): PersistedRunRecord["prompt"] => {
 const parseTelemetry = (value: unknown): PersistedRunRecord["telemetry"] => {
   if (typeof value !== "object" || value === null) {
     return {
+      traceId: null,
       providerRequestId: null,
       providerTaskId: null,
       latencyMs: null,
@@ -478,6 +487,7 @@ const parseTelemetry = (value: unknown): PersistedRunRecord["telemetry"] => {
 
   const telemetry = value as Record<string, unknown>;
   return {
+    traceId: typeof telemetry.traceId === "string" ? telemetry.traceId : null,
     providerRequestId:
       typeof telemetry.providerRequestId === "string" ? telemetry.providerRequestId : null,
     providerTaskId: typeof telemetry.providerTaskId === "string" ? telemetry.providerTaskId : null,
@@ -702,6 +712,7 @@ const toPromptArtifactRecord = (
   id: row.id,
   runId: row.run_id,
   turnId: row.turn_id,
+  traceId: row.trace_id,
   version: row.version,
   stage: row.stage,
   targetKey: row.target_key,
@@ -818,7 +829,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
     }
 
     const createdAt = new Date().toISOString();
-    const conversationId = crypto.randomUUID();
+    const conversationId = createId("conversation");
     await this.pool.query(
       `
         INSERT INTO chat_conversations (
@@ -1200,6 +1211,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
           compiler_version,
           capability_version,
           original_prompt,
+          trace_id,
           prompt_intent,
           turn_delta,
           committed_state_before,
@@ -1290,6 +1302,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
             compiler_version,
             capability_version,
             original_prompt,
+            trace_id,
             prompt_intent,
             turn_delta,
             committed_state_before,
@@ -1337,7 +1350,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
   async clearActiveConversation(userId: string) {
     await this.ensureReady();
     const createdAt = new Date().toISOString();
-    const conversationId = crypto.randomUUID();
+    const conversationId = createId("conversation");
 
     await this.withTransaction(async (client) => {
       await client.query(
@@ -1803,6 +1816,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
               compiler_version,
               capability_version,
               original_prompt,
+              trace_id,
               prompt_intent,
               turn_delta,
               committed_state_before,
@@ -1817,9 +1831,9 @@ export class PostgresChatStateRepository implements ChatStateRepository {
               created_at
             )
             VALUES (
-              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb,
-              $14::jsonb, $15::jsonb, $16::jsonb, $17, $18, $19, $20::jsonb, $21::jsonb,
-              $22::jsonb, $23::timestamptz
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb,
+              $15::jsonb, $16::jsonb, $17::jsonb, $18, $19, $20, $21::jsonb, $22::jsonb,
+              $23::jsonb, $24::timestamptz
             );
           `,
           [
@@ -1834,6 +1848,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
             version.compilerVersion,
             version.capabilityVersion,
             version.originalPrompt,
+            version.traceId,
             JSON.stringify(version.promptIntent),
             JSON.stringify(version.turnDelta),
             JSON.stringify(version.committedStateBefore),
@@ -2036,7 +2051,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
           VALUES ($1, $2, $3, $4, 'accepted_as_final', $5, $6, $7::timestamptz);
         `,
         [
-          crypto.randomUUID(),
+          createId("accepted-edge"),
           turnRow.conversation_id,
           previousBaseAssetId ?? input.assetId,
           input.assetId,

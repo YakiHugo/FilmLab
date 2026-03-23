@@ -46,4 +46,13 @@ describe("server config startup validation", () => {
 
     expect(getConfig().allowUnsignedDevAuth).toBe(true);
   });
+
+  it("does not trust proxy request ids by default", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+
+    const { getConfig, resetConfigForTests } = await import("./config");
+    resetConfigForTests();
+
+    expect(getConfig().trustProxyRequestId).toBe(false);
+  });
 });

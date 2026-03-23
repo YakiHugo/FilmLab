@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { ZodError } from "zod";
 import type {
   PersistedAssetEdgeType,
@@ -9,6 +9,7 @@ import type {
   PersistedRunRecord,
   PersistedRunTargetSnapshot,
 } from "../../../shared/chatImageTypes";
+import { createId } from "../../../shared/createId";
 import type { PromptVersionRecord } from "../gateway/prompt/types";
 import { requireAuthenticatedUser } from "../auth/user";
 import { ChatPromptStateConflictError } from "../chat/persistence/types";
@@ -30,6 +31,7 @@ import { ProviderError } from "../providers/base/errors";
 import { downloadGeneratedImage } from "../shared/downloadGeneratedImage";
 import { createGeneratedImageCapability } from "../shared/generatedImageCapability";
 import { getImageGenerationCapabilityWarnings } from "../shared/imageGenerationCapabilityWarnings";
+import { attachTraceIdHeader, getRequestTraceId } from "../shared/requestTrace";
 import {
   imageGenerationRequestSchema,
   type ParsedImageGenerationRequest,
@@ -42,14 +44,6 @@ import {
 } from "../../../shared/imageGeneration";
 
 const GENERATED_IMAGE_NORMALIZATION_CONCURRENCY = 2;
-
-const createId = (prefix: string) => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-};
 
 const cloneSnapshot = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
@@ -64,6 +58,44 @@ const formatNormalizationWarning = (count: number) =>
   `${count} generated image${count === 1 ? "" : "s"} could not be processed and ${
     count === 1 ? "was" : "were"
   } omitted.`;
+
+type PersistedGenerationContext = {
+  conversationId: string;
+  turnId: string;
+  jobId: string;
+  runId: string;
+  attemptId: string;
+};
+
+const toPersistedGenerationResponse = (
+  persistedGeneration: PersistedGenerationContext | null
+) =>
+  persistedGeneration
+    ? {
+        conversationId: persistedGeneration.conversationId,
+        threadId: persistedGeneration.conversationId,
+        turnId: persistedGeneration.turnId,
+        jobId: persistedGeneration.jobId,
+        runId: persistedGeneration.runId,
+      }
+    : {};
+
+const sendTraceableError = (
+  reply: FastifyReply,
+  input: {
+    statusCode: number;
+    error: string;
+    traceId: string;
+    persistedGeneration?: PersistedGenerationContext | null;
+  }
+) => {
+  attachTraceIdHeader(reply, input.traceId);
+  return reply.code(input.statusCode).send({
+    error: input.error,
+    traceId: input.traceId,
+    ...toPersistedGenerationResponse(input.persistedGeneration ?? null),
+  });
+};
 
 const createRunTargetSnapshot = (input: PersistedRunTargetSnapshot): PersistedRunTargetSnapshot => ({
   modelId: input.modelId,
@@ -289,6 +321,7 @@ const findMatchingExactTarget = (
 const buildPromptVersionRecord = (input: {
   runId: string;
   turnId: string;
+  traceId: string;
   version: number;
   stage: PromptVersionRecord["stage"];
   compilerVersion: string;
@@ -312,6 +345,7 @@ const buildPromptVersionRecord = (input: {
   id: createId("prompt-version"),
   runId: input.runId,
   turnId: input.turnId,
+  traceId: input.traceId,
   version: input.version,
   stage: input.stage,
   targetKey: input.targetKey ?? null,
@@ -347,9 +381,15 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
       },
     },
     async (request, reply) => {
+      const traceId = getRequestTraceId(request);
+      attachTraceIdHeader(reply, traceId);
       const userId = requireAuthenticatedUser(request);
       if (!userId) {
-        return reply.code(401).send({ error: "Unauthorized." });
+        return sendTraceableError(reply, {
+          statusCode: 401,
+          error: "Unauthorized.",
+          traceId,
+        });
       }
 
       const requestController = new AbortController();
@@ -402,15 +442,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
       };
 
       let payload;
-      let persistedGeneration:
-        | {
-            conversationId: string;
-            turnId: string;
-            jobId: string;
-            runId: string;
-            attemptId: string;
-          }
-        | null = null;
+      let persistedGeneration: PersistedGenerationContext | null = null;
 
       try {
         payload = imageGenerationRequestSchema.parse(request.body);
@@ -419,7 +451,11 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           error instanceof ZodError
             ? "Invalid request payload."
             : "Request body could not be parsed.";
-        return reply.code(400).send({ error: message });
+        return sendTraceableError(reply, {
+          statusCode: 400,
+          error: message,
+          traceId,
+        });
       }
 
       try {
@@ -429,8 +465,10 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           payload.conversationId &&
           payload.threadId !== payload.conversationId
         ) {
-          return reply.code(400).send({
+          return sendTraceableError(reply, {
+            statusCode: 400,
             error: "threadId and conversationId must match when both are provided.",
+            traceId,
           });
         }
 
@@ -439,7 +477,11 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           ? await repository.getConversationById(userId, requestedConversationId)
           : await repository.getOrCreateActiveConversation(userId);
         if (!conversation) {
-          return reply.code(404).send({ error: "Conversation not found." });
+          return sendTraceableError(reply, {
+            statusCode: 404,
+            error: "Conversation not found.",
+            traceId,
+          });
         }
 
         if (payload.retryOfTurnId) {
@@ -449,8 +491,10 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             payload.retryOfTurnId
           );
           if (!retryTurnExists) {
-            return reply.code(400).send({
+            return sendTraceableError(reply, {
+              statusCode: 400,
               error: "retryOfTurnId does not belong to the selected conversation.",
+              traceId,
             });
           }
         }
@@ -476,9 +520,10 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           const retryRun = findRetryRun(snapshot.runs, payload.retryOfTurnId);
           const retryJob = retryRun ? findRetryJob(snapshot.jobs, retryRun) : null;
           if (!retryRun?.prompt || !retryJob?.requestSnapshot) {
-            return reply.code(400).send({
-              error:
-                "Exact retry is unavailable because no prior execution snapshot was found.",
+            return sendTraceableError(reply, {
+              statusCode: 400,
+              error: "Exact retry is unavailable because no prior execution snapshot was found.",
+              traceId,
             });
           }
 
@@ -494,7 +539,11 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
 
         const frontendModel = getFrontendImageModelById(effectivePayload.modelId);
         if (!frontendModel) {
-          return reply.code(400).send({ error: `Unsupported modelId: ${effectivePayload.modelId}.` });
+          return sendTraceableError(reply, {
+            statusCode: 400,
+            error: `Unsupported modelId: ${effectivePayload.modelId}.`,
+            traceId,
+          });
         }
 
         const requestedOperation = resolveRequestedOperation(effectivePayload.assetRefs);
@@ -511,8 +560,10 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         const validationResult = compatibilityProbe.safeParse(effectivePayload);
         if (!validationResult.success) {
           const firstIssue = validationResult.error.issues[0];
-          return reply.code(400).send({
+          return sendTraceableError(reply, {
+            statusCode: 400,
             error: firstIssue?.message ?? "Request is incompatible with selected model.",
+            traceId,
           });
         }
 
@@ -535,16 +586,19 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         if (effectiveRetryMode === "exact" && payload.retryOfTurnId) {
           const retryRun = exactRetrySourceRun;
           if (!retryRun?.prompt) {
-            return reply.code(400).send({
-              error:
-                "Exact retry is unavailable because no prior prompt snapshot was found.",
+            return sendTraceableError(reply, {
+              statusCode: 400,
+              error: "Exact retry is unavailable because no prior prompt snapshot was found.",
+              traceId,
             });
           }
 
           const exactTarget = findMatchingExactTarget(routeTargets, retryRun);
           if (!exactTarget) {
-            return reply.code(400).send({
+            return sendTraceableError(reply, {
+              statusCode: 400,
               error: "Exact retry target is no longer available. Use recompile retry instead.",
+              traceId,
             });
           }
 
@@ -602,6 +656,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           rewritePromptVersion = buildPromptVersionRecord({
             runId: rewriteRunId,
             turnId,
+            traceId,
             version: 1,
             stage: "rewrite",
             compilerVersion: promptContext.compilerVersion,
@@ -633,6 +688,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             return buildPromptVersionRecord({
               runId: imageRunId,
               turnId,
+              traceId,
               version: index + 1,
               stage: "compile",
               targetKey: compiled.targetKey,
@@ -741,6 +797,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             createdAt,
             completedAt: createdAt,
             telemetry: {
+              traceId,
               providerRequestId: null,
               providerTaskId: null,
               latencyMs: null,
@@ -805,6 +862,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             createdAt,
             completedAt: null,
             telemetry: {
+              traceId,
               providerRequestId: null,
               providerTaskId: null,
               latencyMs: null,
@@ -837,6 +895,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         let finalDispatchWarnings = [...initialPromptSnapshot.warnings];
         const generated = await imageRuntimeRouter.generate(routingRequest, {
           signal: requestController.signal,
+          traceId,
           targets: routeTargets,
           resolveRequest: async (target) => {
             dispatchAttempt += 1;
@@ -850,6 +909,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
                   buildPromptVersionRecord({
                     runId: imageRunId,
                     turnId,
+                    traceId,
                     version: compilePromptVersions.length + dispatchAttempt,
                     stage: "dispatch",
                   targetKey: `${target.provider.id}:${target.deployment.providerModel}`,
@@ -911,6 +971,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
                 buildPromptVersionRecord({
                   runId: imageRunId,
                   turnId,
+                  traceId,
                   version: compilePromptVersions.length + dispatchAttempt,
                   stage: "dispatch",
                   targetKey: compiled.targetKey,
@@ -1015,11 +1076,13 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
 
           normalizationFailureCount += 1;
           firstNormalizationError ??= result.reason;
-          app.log.warn(
+          request.log.warn(
             {
               err: result.reason,
               imageIndex: index,
               conversationId: persistedGeneration?.conversationId ?? null,
+              turnId: persistedGeneration?.turnId ?? null,
+              runId: persistedGeneration?.runId ?? null,
             },
             "Generated image result could not be normalized."
           );
@@ -1127,6 +1190,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             buildPromptVersionRecord({
               runId: imageRunId,
               turnId,
+              traceId,
               version: compilePromptVersions.length + dispatchAttempt + 1,
               stage: "dispatch",
               targetKey: `${generated.runtimeProvider}:${generated.providerModel}`,
@@ -1185,6 +1249,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           createdAt,
           completedAt: createdAt,
           telemetry: {
+            traceId,
             providerRequestId: null,
             providerTaskId: null,
             latencyMs: null,
@@ -1238,6 +1303,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             referencedAssetIds:
               effectivePayload.assetRefs?.map((assetRef) => assetRef.assetId) ?? [],
             telemetry: {
+              traceId,
               providerRequestId: generated.providerRequestId ?? null,
               providerTaskId: generated.providerTaskId ?? null,
               latencyMs: Date.now() - startedAt,
@@ -1271,6 +1337,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           createdAt,
           completedAt,
           telemetry: {
+            traceId,
             providerRequestId: generated.providerRequestId ?? null,
             providerTaskId: generated.providerTaskId ?? null,
             latencyMs: Date.now() - startedAt,
@@ -1283,6 +1350,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           turnId,
           jobId,
           runId: imageRunId,
+          traceId,
           modelId: generated.modelId,
           logicalModel: generated.logicalModel,
           deploymentId: generated.deploymentId,
@@ -1308,8 +1376,10 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         });
       } catch (error) {
         if (error instanceof ChatPromptStateConflictError) {
-          return reply.code(409).send({
+          return sendTraceableError(reply, {
+            statusCode: 409,
             error: "Conversation state changed during prompt compilation. Please retry.",
+            traceId,
           });
         }
 
@@ -1331,7 +1401,16 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
               completedAt: new Date().toISOString(),
             });
           } catch (persistenceError) {
-            app.log.error(persistenceError);
+            request.log.error(
+              {
+                err: persistenceError,
+                conversationId: persistedGeneration.conversationId,
+                turnId: persistedGeneration.turnId,
+                jobId: persistedGeneration.jobId,
+                runId: persistedGeneration.runId,
+              },
+              "Failed to persist image generation failure state."
+            );
           }
         }
 
@@ -1340,31 +1419,38 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
         }
 
         if (error instanceof ProviderError) {
-          return reply.code(error.statusCode).send({
+          request.log.warn(
+            {
+              err: error,
+              conversationId: persistedGeneration?.conversationId ?? null,
+              turnId: persistedGeneration?.turnId ?? null,
+              jobId: persistedGeneration?.jobId ?? null,
+              runId: persistedGeneration?.runId ?? null,
+            },
+            "Image generation failed with a provider error."
+          );
+          return sendTraceableError(reply, {
+            statusCode: error.statusCode,
             error: error.message,
-            ...(persistedGeneration
-              ? {
-                  conversationId: persistedGeneration.conversationId,
-                  threadId: persistedGeneration.conversationId,
-                  turnId: persistedGeneration.turnId,
-                  jobId: persistedGeneration.jobId,
-                  runId: persistedGeneration.runId,
-                }
-              : {}),
+            traceId,
+            persistedGeneration,
           });
         }
-        app.log.error(error);
-        return reply.code(500).send({
+        request.log.error(
+          {
+            err: error,
+            conversationId: persistedGeneration?.conversationId ?? null,
+            turnId: persistedGeneration?.turnId ?? null,
+            jobId: persistedGeneration?.jobId ?? null,
+            runId: persistedGeneration?.runId ?? null,
+          },
+          "Image generation failed."
+        );
+        return sendTraceableError(reply, {
+          statusCode: 500,
           error: "Image generation failed.",
-          ...(persistedGeneration
-            ? {
-                conversationId: persistedGeneration.conversationId,
-                threadId: persistedGeneration.conversationId,
-                turnId: persistedGeneration.turnId,
-                jobId: persistedGeneration.jobId,
-                runId: persistedGeneration.runId,
-              }
-            : {}),
+          traceId,
+          persistedGeneration,
         });
       } finally {
         request.raw.removeListener("aborted", abortRequest);

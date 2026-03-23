@@ -9,6 +9,7 @@ import { generatedImageRoute } from "./routes/generated-image";
 import { modelCatalogRoute } from "./routes/model-catalog";
 import { imageConversationRoute } from "./routes/image-conversation";
 import { imageGenerateRoute } from "./routes/image-generate";
+import { attachTraceIdHeader, createRequestTraceId } from "./shared/requestTrace";
 
 export const buildServer = async () => {
   const config = getConfig();
@@ -22,12 +23,19 @@ export const buildServer = async () => {
       },
     },
     bodyLimit: config.requestBodyLimitBytes,
+    genReqId: (request) =>
+      createRequestTraceId(request.headers, {
+        trustProxyRequestId: config.trustProxyRequestId,
+      }),
   });
 
   const repository = createChatStateRepository(config.databaseUrl);
   app.decorate("chatStateRepository", repository);
   app.addHook("onClose", async () => {
     await repository.close();
+  });
+  app.addHook("onRequest", async (request, reply) => {
+    attachTraceIdHeader(reply, request.id);
   });
 
   await app.register(registerCors);

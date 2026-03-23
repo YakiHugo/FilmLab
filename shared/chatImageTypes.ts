@@ -126,6 +126,7 @@ export interface PersistedPromptArtifactRecord {
   id: string;
   runId: string;
   turnId: string;
+  traceId: string | null;
   version: number;
   stage: PersistedPromptArtifactStage;
   targetKey: string | null;
@@ -234,6 +235,7 @@ export interface PersistedPromptSnapshot {
 }
 
 export interface PersistedRunTelemetry {
+  traceId: string | null;
   providerRequestId: string | null;
   providerTaskId: string | null;
   latencyMs: number | null;
