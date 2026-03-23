@@ -6,16 +6,16 @@
 
 ## 状态更新
 
-- 状态: `canvasStore` 第一阶段 seam 拆分已落地；`CanvasViewport` 也完成了第一刀 seam 拆分，已从“单组件吞掉视口导航 + marquee + 渲染壳”收缩为“stage shell + viewport navigation hook + marquee selection hook + text/overlay host”；panel 第一刀 seam 收口也已落地，已从“panel 直接决定领域更新”收缩为“panel view + model hook + pure planner/state seam”。
-- 总评: `7.4/10`
+- 状态: `canvasStore` 第一阶段 seam 拆分已落地；`CanvasViewport` 第二刀 seam 拆分也已落地，已从“stage shell + viewport navigation hook + marquee selection hook + text/overlay host”继续收缩为“composition shell + stage shell + tool/input orchestrator + overlay host + lifecycle/navigation seam”；panel 第一刀 seam 收口也已落地，已从“panel 直接决定领域更新”收缩为“panel view + model hook + pure planner/state seam”。
+- 总评: `7.8/10`
 - 当前最强的一层: 文档内核
 - 当前最弱的两层: runtime preview / 文本会话、页面与路由装配
-- 当前最明显的结构热点: `CanvasViewport` 仍保留 text/overlay host 与工具编排中心、页面入口仍带一部分恢复策略、`canvasRuntimeStore` 仍直接依赖全局 store 取数
-- 验证基线: 已补 `src/features/canvas/workbenchPanelState.test.ts`、`storyPanelState.test.ts`、`layerPanelState.test.ts`、`propertyPanelState.test.ts`；相关回归 `7` 个测试文件、`56` 个 case 全部通过；本轮相关 lint 通过；本轮额外做了 2 轮 review，panel seam 无新增阻断问题
+- 当前最明显的结构热点: 页面入口仍带一部分恢复策略、`useCanvasTextSession` 仍承担跨 workbench 迁移与持久化/回滚、`canvasRuntimeStore` 仍直接依赖全局 store 取数
+- 验证基线: `pnpm test` 通过，相关回归共 `113` 个测试文件、`456` 个 case 全部通过；`pnpm lint` 通过，但保留 `5` 个既有 warning；`pnpm build:client` 通过；本轮额外做了 architecture + bug/regression 两轮 review，均无新增阻断问题
 - 下一阶段优先级:
-  1. 继续拆 `CanvasViewport` 剩余的 text/overlay host 和工具编排中心
-  2. 再处理页面入口 / 文本会话 / runtime preview 的应用层边界
-  3. 再继续收紧 `canvasStore` 的 active-workbench 门面，避免它重新长回万能入口
+  1. 处理页面入口 / 文本会话 / runtime preview 的应用层边界
+  2. 再继续收紧 `canvasStore` 的 active-workbench 门面，避免它重新长回万能入口
+  3. 把 `CanvasExportDialog` / `CanvasImageEditPanel` 等剩余入口继续并入现有 seam，避免局部反弹
 
 ## 评分口径
 
@@ -271,7 +271,11 @@
 文件重点:
 
 - `src/features/canvas/CanvasViewport.tsx`
+- `src/features/canvas/CanvasViewportStageShell.tsx`
+- `src/features/canvas/CanvasViewportOverlayHost.tsx`
+- `src/features/canvas/hooks/useCanvasViewportLifecycle.ts`
 - `src/features/canvas/hooks/useCanvasViewportNavigation.ts`
+- `src/features/canvas/hooks/useCanvasViewportToolOrchestrator.ts`
 - `src/features/canvas/hooks/useCanvasMarqueeSelection.ts`
 - `src/features/canvas/tools/toolControllers.ts`
 - `src/features/canvas/hooks/useCanvasViewportOverlay.ts`
@@ -279,6 +283,7 @@
 
 职责:
 
+- 组合 stage / overlay / controls
 - Stage host
 - tool controller 路由与指针事件编排
 - pan / zoom / fit-to-view / 空格平移
@@ -296,7 +301,8 @@
 
 依赖方向:
 
-- 这层直接依赖多个 store 和多个 canvas hooks
+- 组合壳仍直接依赖多个 store selector 和多个 canvas hooks
+- stage / overlay / tool seam 之间通过显式 props 与 action port 协作，不再依赖宽 context
 - element 组件再往回依赖 runtime/store
 
 关键状态转换/不变量:
@@ -308,28 +314,32 @@
 
 优点:
 
-- `CanvasViewport` 已不再自己维护 pan / zoom / fit-to-view / marquee 的整套会话状态
-- `useCanvasViewportNavigation` 把视口导航生命周期、容器测量、wheel zoom、空格平移收到了一个明确 seam
+- `CanvasViewport` 已进一步退化成组合壳，stage 渲染、tool/input 编排、overlay DOM 宿主已经分层
+- `CanvasViewportStageShell` 把 Konva stage、layer 结构、slice/guide/marquee 可视化收到了一个单独 seam
+- `useCanvasViewportToolOrchestrator` 用分组 `CanvasToolActionPort` 收口工具输入，`toolControllers.ts` 不再依赖“什么都能做”的宽 context
+- `CanvasViewportOverlayHost` 接管了 text editor / toolbar / dimensions badge、outside-click commit 和全局 Escape cancel
+- `useCanvasTextSession` 已不再持有 DOM refs 或 document/window 监听
+- `useCanvasViewportLifecycle` 把 stage registry、容器测量、首次 fit-to-view、空格键状态从导航控制里拆了出去
 - `useCanvasMarqueeSelection` 把框选 preview / commit / runtime preview 同步收到了一个明确 seam
 - 视口数学已抽成纯函数模块，`viewportNavigation.test.ts` 把 fit-to-view 和 zoom anchor 的关键语义锁住了
-- `CanvasViewport` 现在更接近 stage shell + orchestration host，而不是单文件 super-host
+- `toolControllers.test.ts` 仍能直接锁住 select / hand / text / shape 的关键行为，不需要通过 `CanvasViewport` 做回归
 
 问题:
 
-- `CanvasViewport` 仍是跨域协调中心，继续同时拼装 tool controller、text session、overlay host 和 stage shell
-- `toolControllers.ts` 的扩展点仍然偏窄，工具通过宽 context 直接触达选择、平移、文本编辑和 `setTool`，还不是稳定的可插拔工具层
-- `useCanvasTextSession` 仍然带着跨 workbench 迁移、持久化/回滚、DOM 事件监听等职责，说明 text host 还没有真正从 viewport 边界中退出
+- `CanvasViewport` 虽然已经瘦身，但仍是一个应用层组合中心，直接拉取较多 store state 和跨 seam view model
 - `useCanvasMarqueeSelection` 虽然独立成 hook，但仍依赖 Konva node `getClientRect()` 和 runtime store preview，同样还不是纯 selection policy
-- `useCanvasViewportNavigation` 当前是“视口控制器 + 生命周期协调器”的混合体，职责比原来清楚，但还没有彻底细化
+- `useCanvasViewportOverlay` 仍然依赖 stage 测量和 DOM 几何计算，overlay 布局还不是完全可替换的纯布局层
+- `useCanvasTextSession` 仍然带着跨 workbench 迁移、持久化/回滚与 selection 同步职责，text session 只是退出了 DOM 宿主，还没有退出应用层状态机
+- `useCanvasViewportNavigation` 已经大幅收窄，但依然承担 pan / zoom / pointer transform 的全部控制逻辑，后续如果继续堆手势语义，这里还是会长胖
 
-评分: `6.5/10`
+评分: `8.6/10`
 
 重构优先级: `已完成本轮 P1，后续降为 P2`
 
 判断:
 
-- 第一刀 seam 拆分已经有效，`CanvasViewport` 不再是此前那种失控的 super-host。
-- 但它还没有达到 `8.5/10` 应有的边界清晰度，下一刀应该继续把 text/overlay host 与工具编排中心往外拆，而不是重新往里堆功能。
+- 这一层已经达到本轮目标，可以从“首要拆分对象”降到“需要防止反弹的已收口 seam”。
+- 后续重点不该再回到把功能重新堆进 `CanvasViewport`，而是保持它作为组合壳，继续把更高层的恢复策略和文本会话边界往外推。
 
 ## 6. 文本编辑状态机
 
@@ -356,7 +366,7 @@
 依赖方向:
 
 - 纯判定逻辑被拆到 `textSession.ts`
-- 真正的会话管理依赖 viewport host、store mutation API 和 DOM refs
+- 真正的会话管理依赖 viewport host 与 store mutation API，但已不再直接依赖 DOM refs 或全局监听
 
 关键状态转换/不变量:
 
@@ -370,20 +380,22 @@
 - 这块已经有明显状态机意识
 - commit / cancel / workbench transition 的纯判定被抽出来了
 - 文本 mutation queue 让副作用顺序更可控
+- DOM 宿主已经移到 `CanvasViewportOverlayHost`，`useCanvasTextSession` 的边界比上一轮清楚
 
 问题:
 
 - 真实状态机仍主要靠 ref + effect 协作，不够显式
-- 会话逻辑虽然独立成 hook，但仍高度依赖 viewport 生命周期与 DOM 宿主
+- 会话逻辑虽然独立成 hook，但仍高度依赖 viewport 生命周期与 store mutation 门面
+- 跨 workbench 迁移、持久化/回滚、selection 同步仍塞在同一个 hook 里，状态边界还不够薄
 - 后续如果再加富文本、inline style、multi-node text edit，这里会快速变难维护
 
-评分: `6.5/10`
+评分: `7.3/10`
 
-重构优先级: `P2`
+重构优先级: `P1`
 
 判断:
 
-- 方向是对的，但还没完全落成真正独立的 session service。
+- 这块比上一轮健康，但还没有达到 `8.5/10`，下一刀应该把它从“hook + refs + effects”继续推进成更显式的 session service / state machine seam。
 
 ## 7. 面板层
 
@@ -513,7 +525,7 @@
 - 文档内核: `src/features/canvas/document/*`
 - 持久化与提交队列: `src/stores/canvasStore.ts`、`src/features/canvas/store/*`
 - 运行时预览: `src/stores/canvasRuntimeStore.ts`
-- 视口与交互: `src/features/canvas/CanvasViewport.tsx`、`src/features/canvas/hooks/useCanvasViewportNavigation.ts`、`src/features/canvas/hooks/useCanvasMarqueeSelection.ts`
+- 视口与交互: `src/features/canvas/CanvasViewport.tsx`、`src/features/canvas/CanvasViewportStageShell.tsx`、`src/features/canvas/CanvasViewportOverlayHost.tsx`、`src/features/canvas/hooks/useCanvasViewportLifecycle.ts`、`src/features/canvas/hooks/useCanvasViewportNavigation.ts`、`src/features/canvas/hooks/useCanvasViewportToolOrchestrator.ts`、`src/features/canvas/hooks/useCanvasMarqueeSelection.ts`
 - 文本会话: `src/features/canvas/hooks/useCanvasTextSession.ts`
 - 面板层: `src/features/canvas/CanvasLayerPanel.tsx`、`CanvasStoryPanel.tsx`、`CanvasPropertiesPanel.tsx`
 - 渲染导出: `src/features/canvas/renderCanvasDocument.ts`、`src/features/canvas/hooks/useCanvasExport.ts`
@@ -527,6 +539,7 @@
 - `src/features/canvas/document/resolve.test.ts`
 - `src/features/canvas/renderCanvasDocument.test.ts`
 - `src/features/canvas/textSession.test.ts`
+- `src/features/canvas/tools/toolControllers.test.ts`
 - `src/features/canvas/viewportOverlay.test.ts`
 - `src/features/canvas/viewportNavigation.test.ts`
 
@@ -534,15 +547,15 @@
 
 ### P1
 
-- 继续拆 `CanvasViewport` 剩余的 text/overlay host 与工具编排中心
-
-### P2
-
 - 页面入口的恢复策略下沉为更明确的应用层
 - 文本会话从 hook 进一步收口成更显式的 session service
 - runtime preview 从全局 store 读取模型转向更明确的 workbench-scoped 输入
+
+### P2
+
 - 继续收紧 `canvasStore` 的 active-workbench 门面，避免它重新长回“万能接口集合”
 - 把 `CanvasExportDialog` / `CanvasImageEditPanel` 等剩余入口继续并入现有 panel seam，避免局部反弹
+- 保护 `CanvasViewport` 新的 stage / tool / overlay seam，不让新的交互策略重新堆回组合壳
 
 ### P3
 
@@ -551,18 +564,16 @@
 
 ## 推荐的拆分顺序
 
-1. 先继续拆 `CanvasViewport` 到更明确的三层:
-   - stage shell
-   - tool / input orchestration
-   - text/overlay host
-2. 再处理页面入口 / 文本会话 / runtime preview 的 service 化和边界下沉
-3. 再继续收紧 `canvasStore` 对上层暴露的 active-workbench 门面
+1. 先处理页面入口 / 文本会话 / runtime preview 的 service 化和边界下沉
+2. 再继续收紧 `canvasStore` 对上层暴露的 active-workbench 门面
+3. 同时保护 `CanvasViewport` 新的 stage / tool / overlay seam，不让新的交互策略重新回流
 4. 最后把剩余未收口的 panel 入口并到现有 seam 上，避免重新长回组件内规则
 
 ## 最终判断
 
-这轮之后，最紧急的 seam 已经从 panel 层转向了 `CanvasViewport` 残留的 text/overlay host 与工具编排中心，以及页面入口 / 文本会话 / runtime preview 的应用层边界。
+这轮之后，最紧急的 seam 已经从 panel 层和 viewport 残留宿主，转向了页面入口 / 文本会话 / runtime preview 的应用层边界。
 
-- 如果继续堆功能，复杂度会优先集中在 `CanvasViewport`，其次才是页面入口、文本会话和 runtime preview，而不是重新首先压垮 panel 层或 `canvasStore.ts`
+- 如果继续堆功能，复杂度会优先集中在文本会话、页面入口和 runtime preview，而不是重新首先压垮 `CanvasViewport`、panel 层或 `canvasStore.ts`
 - panel 层现在已经能继续承接下一轮拆分，但还不值得宣布“整个 canvas 完成”
+- `CanvasViewport` 这一层已经可以承接后续功能，但前提是不要把新的恢复策略、DOM 宿主逻辑和工具策略重新塞回组合壳
 - 文档内核这条健康链路仍然应该继续被保护，后续重构仍应围绕上层应用边界展开
