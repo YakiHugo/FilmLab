@@ -6,12 +6,12 @@
 
 ## 状态更新
 
-- 状态: `canvasStore` 第一阶段 seam 拆分已落地；`CanvasViewport` 第二刀 seam 拆分也已落地，已从“stage shell + viewport navigation hook + marquee selection hook + text/overlay host”继续收缩为“composition shell + stage shell + tool/input orchestrator + overlay host + lifecycle/navigation seam”；panel 第一刀 seam 收口也已落地，已从“panel 直接决定领域更新”收缩为“panel view + model hook + pure planner/state seam”。
-- 总评: `7.8/10`
+- 状态: `canvasStore` 第一阶段 seam 拆分已落地；`CanvasViewport` 第二刀 seam 拆分也已落地，已从“stage shell + viewport navigation hook + marquee selection hook + text/overlay host”继续收缩为“composition shell + stage shell + tool/input orchestrator + overlay host + lifecycle/navigation seam”；panel 第一刀 seam 收口也已落地，已从“panel 直接决定领域更新”收缩为“panel view + model hook + pure planner/state seam”；文本会话 P1 也已落地，已从“hook + refs + effects 串联状态机”继续收口为“pure reducer + effect runner + thin hook adapter + session snapshot”。
+- 总评: `8.0/10`
 - 当前最强的一层: 文档内核
-- 当前最弱的两层: runtime preview / 文本会话、页面与路由装配
-- 当前最明显的结构热点: 页面入口仍带一部分恢复策略、`useCanvasTextSession` 仍承担跨 workbench 迁移与持久化/回滚、`canvasRuntimeStore` 仍直接依赖全局 store 取数
-- 验证基线: `pnpm test` 通过，相关回归共 `113` 个测试文件、`456` 个 case 全部通过；`pnpm lint` 通过，但保留 `5` 个既有 warning；`pnpm build:client` 通过；本轮额外做了 architecture + bug/regression 两轮 review，均无新增阻断问题
+- 当前最弱的两层: runtime preview / 页面与路由装配
+- 当前最明显的结构热点: 页面入口仍带一部分恢复策略、`canvasRuntimeStore` 仍直接依赖全局 store 取数，文本属性修改入口也还没有完全统一到同一个 use-case seam
+- 验证基线: `pnpm test` 通过，相关回归共 `113` 个测试文件、`456` 个 case 全部通过；`pnpm lint` 通过，但保留 `5` 个既有 warning；`pnpm build:client` 通过；本轮额外做了 architecture + bug/regression 两轮 review，均无新增阻断问题；另做了基于 `agent-browser` 的文本 smoke 验证，跑通 create -> commit、create -> cancel、edit -> switch workbench 三条路径
 - 下一阶段优先级:
   1. 处理页面入口 / 文本会话 / runtime preview 的应用层边界
   2. 再继续收紧 `canvasStore` 的 active-workbench 门面，避免它重新长回万能入口
@@ -347,6 +347,8 @@
 
 - `src/features/canvas/hooks/useCanvasTextSession.ts`
 - `src/features/canvas/textSession.ts`
+- `src/features/canvas/textSessionState.ts`
+- `src/features/canvas/textSessionRunner.ts`
 - `src/features/canvas/textRuntimeViewModel.ts`
 - `src/features/canvas/textMutationQueue.ts`
 
@@ -360,13 +362,14 @@
 
 输入/输出:
 
-- 输入: active workbench、selected ids、editing draft、文本输入事件
-- 输出: 文本会话状态、提交命令、view model
+- 输入: active workbench、available workbench ids、selected ids、文本输入事件、持久化完成回调
+- 输出: 文本会话 snapshot、effect intents、提交命令、view model
 
 依赖方向:
 
-- 纯判定逻辑被拆到 `textSession.ts`
-- 真正的会话管理依赖 viewport host 与 store mutation API，但已不再直接依赖 DOM refs 或全局监听
+- 纯判定逻辑与状态迁移被拆到 `textSession.ts` + `textSessionState.ts`
+- effect 执行被收口到 `textSessionRunner.ts`
+- 真正的 hook 适配层仍依赖 viewport host 与 store mutation API，但已不再直接依赖 DOM refs 或全局监听
 
 关键状态转换/不变量:
 
@@ -374,28 +377,32 @@
 - cancel 在未 materialize 与已 materialize 两条路径上行为不同
 - 切换 workbench 时要区分 `noop`、`wait`、`persist-source`、`reset`
 - 文本写入必须串行
+- 晚到的 source persist 结果不能污染新会话
 
 优点:
 
-- 这块已经有明显状态机意识
-- commit / cancel / workbench transition 的纯判定被抽出来了
-- 文本 mutation queue 让副作用顺序更可控
-- DOM 宿主已经移到 `CanvasViewportOverlayHost`，`useCanvasTextSession` 的边界比上一轮清楚
+- 状态机已经显式收口为 reducer + effect runner，关键转移不再主要靠 ref + effect 拼装
+- `useCanvasTextSession` 已收口为薄适配层，对上游暴露稳定的 `session + actions`
+- session token / transition token 把“忽略晚到异步结果”从隐式约定推进成显式机制
+- 文本 mutation queue 继续保留串行写入语义，但不再承担状态判断
+- `textRuntimeViewModel` 已改为消费统一 session snapshot，viewport 侧不再继续拼散装 `editingText*` 字段
+- 本轮已经补了纯测试和 `agent-browser` smoke 验证，回归面比上一轮更可控
 
 问题:
 
-- 真实状态机仍主要靠 ref + effect 协作，不够显式
-- 会话逻辑虽然独立成 hook，但仍高度依赖 viewport 生命周期与 store mutation 门面
-- 跨 workbench 迁移、持久化/回滚、selection 同步仍塞在同一个 hook 里，状态边界还不够薄
-- 后续如果再加富文本、inline style、multi-node text edit，这里会快速变难维护
+- 会话 seam 虽然已经显式化，但仍通过 hook 挂在 viewport 组合层，不是完全独立的应用服务
+- 跨 workbench persist 的 effect port 仍直接连到 `useCanvasStore` mutation API，还没有做到更窄的 use-case service
+- 文本属性修改仍分布在 inline text session 和 properties panel 两条入口，后续需要防止重新分叉
+- 后续如果再加富文本、inline style、multi-node text edit，仍需要在当前 reducer/effect seam 之上继续扩接口，而不是把状态机重新塞回 hook
 
-评分: `7.3/10`
+评分: `8.6/10`
 
-重构优先级: `P1`
+重构优先级: `已完成本轮 P1，后续降为 P2`
 
 判断:
 
-- 这块比上一轮健康，但还没有达到 `8.5/10`，下一刀应该把它从“hook + refs + effects”继续推进成更显式的 session service / state machine seam。
+- 这块已经达到当前阶段的 `8.5+` 目标，可以从“首要拆分对象”降到“需要防止反弹的已收口 seam”。
+- 后续重点不该再是重拆文本会话本身，而是避免新的文本属性入口、页面恢复策略或 runtime 依赖重新绕开现有 seam。
 
 ## 7. 面板层
 
@@ -548,11 +555,11 @@
 ### P1
 
 - 页面入口的恢复策略下沉为更明确的应用层
-- 文本会话从 hook 进一步收口成更显式的 session service
 - runtime preview 从全局 store 读取模型转向更明确的 workbench-scoped 输入
 
 ### P2
 
+- 保护文本会话新的 reducer / effect runner / snapshot seam，不让新的文本能力重新堆回 hook
 - 继续收紧 `canvasStore` 的 active-workbench 门面，避免它重新长回“万能接口集合”
 - 把 `CanvasExportDialog` / `CanvasImageEditPanel` 等剩余入口继续并入现有 panel seam，避免局部反弹
 - 保护 `CanvasViewport` 新的 stage / tool / overlay seam，不让新的交互策略重新堆回组合壳
@@ -564,16 +571,16 @@
 
 ## 推荐的拆分顺序
 
-1. 先处理页面入口 / 文本会话 / runtime preview 的 service 化和边界下沉
+1. 先处理页面入口 / runtime preview 的 service 化和边界下沉
 2. 再继续收紧 `canvasStore` 对上层暴露的 active-workbench 门面
-3. 同时保护 `CanvasViewport` 新的 stage / tool / overlay seam，不让新的交互策略重新回流
+3. 同时保护文本会话与 `CanvasViewport` 新的 seam，不让新的交互策略重新回流
 4. 最后把剩余未收口的 panel 入口并到现有 seam 上，避免重新长回组件内规则
 
 ## 最终判断
 
-这轮之后，最紧急的 seam 已经从 panel 层和 viewport 残留宿主，转向了页面入口 / 文本会话 / runtime preview 的应用层边界。
+这轮之后，最紧急的 seam 已经从 panel 层和文本会话残留宿主，转向了页面入口 / runtime preview 的应用层边界。
 
-- 如果继续堆功能，复杂度会优先集中在文本会话、页面入口和 runtime preview，而不是重新首先压垮 `CanvasViewport`、panel 层或 `canvasStore.ts`
+- 如果继续堆功能，复杂度会优先集中在页面入口和 runtime preview，而不是重新首先压垮文本会话、`CanvasViewport`、panel 层或 `canvasStore.ts`
 - panel 层现在已经能继续承接下一轮拆分，但还不值得宣布“整个 canvas 完成”
-- `CanvasViewport` 这一层已经可以承接后续功能，但前提是不要把新的恢复策略、DOM 宿主逻辑和工具策略重新塞回组合壳
+- 文本会话与 `CanvasViewport` 这两层已经可以承接后续功能，但前提是不要把新的恢复策略、DOM 宿主逻辑和工具策略重新塞回组合壳
 - 文档内核这条健康链路仍然应该继续被保护，后续重构仍应围绕上层应用边界展开
