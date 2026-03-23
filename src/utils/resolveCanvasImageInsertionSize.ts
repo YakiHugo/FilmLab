@@ -19,7 +19,7 @@ interface CanvasImageInsertionSizeOptions {
   minimumShortEdge?: number;
 }
 
-const isPositiveDimension = (value?: number | null) =>
+const isPositiveDimension = (value?: number | null): value is number =>
   typeof value === "number" && Number.isFinite(value) && value > 0;
 
 const toValidCanvasImageSize = (value?: Partial<CanvasImageSize> | null): CanvasImageSize | null => {

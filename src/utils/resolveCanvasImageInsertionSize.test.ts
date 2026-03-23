@@ -109,6 +109,24 @@ describe("resolveCanvasImageInsertionSizeFromCandidates", () => {
       height: 320,
     });
   });
+
+  it("ignores null-like dimensions and falls back to the next valid source", () => {
+    expect(
+      resolveCanvasImageInsertionSizeFromCandidates({
+        metadata: {
+          width: undefined,
+          height: 800,
+        },
+        bitmap: {
+          width: 1200,
+          height: 600,
+        },
+      })
+    ).toEqual({
+      width: 320,
+      height: 160,
+    });
+  });
 });
 
 describe("fitCanvasImageSizeWithinLongestEdge", () => {
