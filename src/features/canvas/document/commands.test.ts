@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { createDefaultAdjustments } from "@/lib/adjustments";
 import { getCanvasNodeWorldTransform, worldPointToLocalPoint } from "./geometry";
 import { getCanvasWorkbenchSnapshot } from "./model";
 import { executeCanvasCommand } from "./commands";
-import { createCanvasTestDocument, createGroupNode, createShapeNode } from "./testUtils";
+import { applyCanvasWorkbenchPatch } from "./patches";
+import { createCanvasTestDocument, createGroupNode, createImageNode, createShapeNode } from "./testUtils";
 
 describe("document commands", () => {
   it("groups same-parent siblings in sibling order and preserves world transforms", () => {
@@ -333,5 +335,40 @@ describe("document commands", () => {
     expect(result.document).toBe(document);
     expect(result.forwardPatch.operations).toEqual([]);
     expect(result.inversePatch.operations).toEqual([]);
+  });
+
+  it("applies image adjustment commands and round-trips their patches", () => {
+    const originalAdjustments = createDefaultAdjustments();
+    const nextAdjustments = createDefaultAdjustments();
+    nextAdjustments.exposure = 24;
+    nextAdjustments.contrast = 12;
+    const document = createCanvasTestDocument({
+      nodes: {
+        "image-1": createImageNode({
+          adjustments: originalAdjustments,
+          id: "image-1",
+          x: 40,
+          y: 60,
+        }),
+      },
+      rootIds: ["image-1"],
+    });
+
+    const result = executeCanvasCommand(document, {
+      type: "APPLY_IMAGE_ADJUSTMENTS",
+      adjustments: nextAdjustments,
+      id: "image-1",
+    });
+
+    expect(result.didChange).toBe(true);
+    expect(result.document.nodes["image-1"]).toMatchObject({
+      adjustments: nextAdjustments,
+    });
+
+    const forwardApplied = applyCanvasWorkbenchPatch(document, result.forwardPatch);
+    const inverseApplied = applyCanvasWorkbenchPatch(result.document, result.inversePatch);
+
+    expect(getCanvasWorkbenchSnapshot(forwardApplied)).toEqual(getCanvasWorkbenchSnapshot(result.document));
+    expect(getCanvasWorkbenchSnapshot(inverseApplied)).toEqual(getCanvasWorkbenchSnapshot(document));
   });
 });

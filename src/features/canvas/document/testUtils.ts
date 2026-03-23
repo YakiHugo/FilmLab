@@ -1,4 +1,12 @@
-import type { CanvasWorkbench, CanvasGroupNode, CanvasNode, CanvasNodeId, CanvasShapeElement } from "@/types";
+import { createDefaultAdjustments } from "@/lib/adjustments";
+import type {
+  CanvasWorkbench,
+  CanvasGroupNode,
+  CanvasImageElement,
+  CanvasNode,
+  CanvasNodeId,
+  CanvasShapeElement,
+} from "@/types";
 import { normalizeCanvasWorkbench } from "../studioPresets";
 
 export const createShapeNode = ({
@@ -46,6 +54,58 @@ export const createShapeNode = ({
   fill: "#ffffff",
   stroke: "#111111",
   strokeWidth: 1,
+});
+
+export const createImageNode = ({
+  adjustments = createDefaultAdjustments(),
+  assetId = "asset-1",
+  filmProfileId,
+  id,
+  parentId = null,
+  x,
+  y,
+  width = 120,
+  height = 80,
+  rotation = 0,
+  opacity = 1,
+  locked = false,
+  visible = true,
+}: {
+  adjustments?: CanvasImageElement["adjustments"];
+  assetId?: string;
+  filmProfileId?: string;
+  id: CanvasNodeId;
+  parentId?: CanvasNodeId | null;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  rotation?: number;
+  opacity?: number;
+  locked?: boolean;
+  visible?: boolean;
+}): CanvasImageElement => ({
+  id,
+  type: "image",
+  parentId,
+  assetId,
+  x,
+  y,
+  width,
+  height,
+  rotation,
+  transform: {
+    x,
+    y,
+    width,
+    height,
+    rotation,
+  },
+  opacity,
+  locked,
+  visible,
+  adjustments,
+  filmProfileId,
 });
 
 export const createGroupNode = ({

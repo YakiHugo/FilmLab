@@ -17,13 +17,13 @@ import {
   useCanvasPreviewActions,
   useCanvasRuntimeAsset,
 } from "@/features/canvas/runtime/canvasRuntimeHooks";
-import { useCanvasStore } from "@/stores/canvasStore";
 import type { AsciiAdjustments, EditingAdjustments } from "@/types";
 import {
   canvasDockBodyTextClassName,
   canvasDockSelectContentClassName,
   canvasDockSelectTriggerClassName,
 } from "./editDockTheme";
+import { useCanvasImagePropertyActions } from "./hooks/useCanvasImagePropertyActions";
 import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
 import { resolvePrimarySelectedImageElement } from "./selectionModel";
 
@@ -504,7 +504,6 @@ const ProjectEditControls = memo(function ProjectEditControls({
 });
 
 export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
-  const upsertElement = useCanvasStore((state) => state.upsertElement);
   const {
     clearElementDraftAdjustments,
     requestBoardPreview,
@@ -513,6 +512,7 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
   const [openSections, setOpenSections] = useState(createInitialOpenSections);
   const { activeWorkbench, committedSelectedElementIds, primarySelectedImageElement: imageElement } =
     useCanvasSelectionModel();
+  const { setAdjustments } = useCanvasImagePropertyActions(imageElement);
 
   const committedImageElement = useMemo(
     () => resolvePrimarySelectedImageElement(activeWorkbench, committedSelectedElementIds),
@@ -604,10 +604,7 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
         return;
       }
       setElementDraftAdjustments(imageElement.id, nextAdjustments);
-      await upsertElement({
-        ...imageElement,
-        adjustments: nextAdjustments,
-      });
+      await setAdjustments(nextAdjustments);
       clearElementDraftAdjustments(imageElement.id);
       void requestBoardPreview(imageElement.id, "interactive");
     },
@@ -616,7 +613,7 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
       imageElement,
       requestBoardPreview,
       setElementDraftAdjustments,
-      upsertElement,
+      setAdjustments,
     ]
   );
 

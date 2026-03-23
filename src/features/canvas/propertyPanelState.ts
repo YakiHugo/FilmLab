@@ -10,7 +10,6 @@ import type {
 
 export type CanvasNodePropertyIntent =
   | { type: "set-height"; value: number }
-  | { type: "set-image-film-profile"; value: string | undefined }
   | { type: "set-opacity"; value: number }
   | { type: "set-rotation"; value: number }
   | { type: "set-shape-fill"; value: string }
@@ -84,10 +83,6 @@ export const planCanvasNodePropertyCommand = ({
   switch (intent.type) {
     case "set-height":
       return createUpdateNodePropsCommand(node.id, { height: clampPositiveSize(intent.value) });
-    case "set-image-film-profile":
-      return node.type === "image"
-        ? createUpdateNodePropsCommand(node.id, { filmProfileId: intent.value })
-        : null;
     case "set-opacity":
       return createUpdateNodePropsCommand(node.id, { opacity: clampOpacity(intent.value) });
     case "set-rotation":

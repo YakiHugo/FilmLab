@@ -9,6 +9,7 @@ import {
   getCanvasTextFontOption,
 } from "../textStyle";
 import { planCanvasNodePropertyCommand } from "../propertyPanelState";
+import { useCanvasImagePropertyActions } from "./useCanvasImagePropertyActions";
 import { useCanvasSelectionModel } from "./useCanvasSelectionModel";
 
 export function useCanvasPropertiesPanelModel() {
@@ -16,6 +17,10 @@ export function useCanvasPropertiesPanelModel() {
   const executeCommandInWorkbench = useCanvasStore((state) => state.executeCommandInWorkbench);
   const assets = useAssetStore((state) => state.assets);
   const { activeWorkbench, primarySelectedElement: selected } = useCanvasSelectionModel();
+  const {
+    setAdjustments: setImageAdjustments,
+    setFilmProfileId: commitImageFilmProfileId,
+  } = useCanvasImagePropertyActions(selected?.type === "image" ? selected : null);
 
   const commitIntent = useCallback(
     (intent: Parameters<typeof planCanvasNodePropertyCommand>[0]["intent"]) => {
@@ -72,10 +77,8 @@ export function useCanvasPropertiesPanelModel() {
     selected,
     selectedAsset,
     setFilmProfileId: (value: string) =>
-      commitIntent({
-        type: "set-image-film-profile",
-        value: value === "none" ? undefined : value,
-      }),
+      commitImageFilmProfileId(value === "none" ? undefined : value),
+    setImageAdjustments,
     setFill: (value: string) => commitIntent({ type: "set-shape-fill", value }),
     setFontFamily: (value: string) => commitIntent({ type: "set-text-font-family", value }),
     setFontSizeTier: (value: CanvasTextFontSizeTier) =>

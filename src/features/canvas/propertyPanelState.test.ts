@@ -163,7 +163,7 @@ describe("propertyPanelState", () => {
 
     expect(
       planCanvasNodePropertyCommand({
-        intent: { type: "set-image-film-profile", value: "profile-1" },
+        intent: { type: "set-text-color", value: "#ff0000" },
         node,
         workbench,
       })
