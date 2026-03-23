@@ -210,16 +210,8 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     setSelectedElementIds,
   });
   const {
-    cancelTextEdit,
-    commitTextEdit,
-    editingTextId,
-    editingTextDraft,
-    editingTextValue,
-    editingTextWorkbenchId,
-    beginTextEdit,
-    handleTextValueChange,
-    handleTextInputKeyDown,
-    updateSelectedTextElement,
+    actions: textSessionActions,
+    session: textSession,
   } = useCanvasTextSession({
     activeWorkbenchId,
     availableWorkbenchIds,
@@ -234,13 +226,11 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const textRuntimeViewModel = useCanvasTextRuntimeViewModel({
     activeWorkbenchId,
     displaySelectedElementIds,
-    editingTextDraft,
-    editingTextId,
-    editingTextWorkbenchId,
     hasMarqueeSession,
     isMarqueeDragging,
     nodeById: elementById,
     selectedElementIds,
+    textSession,
   });
 
   const thirdsGuideLines = useMemo(() => {
@@ -298,7 +288,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
     activeWorkbenchId,
     beginMarqueeInteraction,
     beginPanInteraction,
-    beginTextEdit,
+    beginTextEdit: textSessionActions.begin,
     clearSelection,
     commitMarqueeInteraction,
     endPanInteraction,
@@ -352,38 +342,38 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
         return;
       }
 
-      beginTextEdit(element);
+      textSessionActions.begin(element);
     },
-    [beginTextEdit]
+    [textSessionActions]
   );
 
   const handleTextColorChange = useCallback(
     (color: string) => {
-      updateSelectedTextElement((element) => ({
+      textSessionActions.updateDraft((element) => ({
         ...element,
         color,
       }));
     },
-    [updateSelectedTextElement]
+    [textSessionActions]
   );
 
   const handleTextFontFamilyChange = useCallback(
     (fontFamily: string) => {
-      updateSelectedTextElement((element) => ({
+      textSessionActions.updateDraft((element) => ({
         ...element,
         fontFamily,
       }));
     },
-    [updateSelectedTextElement]
+    [textSessionActions]
   );
 
   const handleTextFontSizeTierChange = useCallback(
     (fontSizeTier: Parameters<typeof applyCanvasTextFontSizeTier>[1]) => {
-      updateSelectedTextElement((element) =>
+      textSessionActions.updateDraft((element) =>
         applyCanvasTextFontSizeTier(element, fontSizeTier)
       );
     },
-    [updateSelectedTextElement]
+    [textSessionActions]
   );
 
   if (!activeWorkbench) {
@@ -426,15 +416,15 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
       <CanvasViewportOverlayHost
         activeWorkbenchUpdatedAt={activeWorkbench.updatedAt}
-        editingTextId={editingTextId}
-        editingTextValue={editingTextValue}
-        onCancelTextEdit={cancelTextEdit}
-        onCommitTextEdit={commitTextEdit}
+        editingTextId={textSession.id}
+        editingTextValue={textSession.value}
+        onCancelTextEdit={textSessionActions.cancel}
+        onCommitTextEdit={textSessionActions.commit}
         onFontFamilyChange={handleTextFontFamilyChange}
         onFontSizeTierChange={handleTextFontSizeTierChange}
         onTextColorChange={handleTextColorChange}
-        onTextInputKeyDown={handleTextInputKeyDown}
-        onTextValueChange={handleTextValueChange}
+        onTextInputKeyDown={textSessionActions.handleInputKeyDown}
+        onTextValueChange={textSessionActions.changeValue}
         selectedElementCount={selectedElementIds.length}
         singleSelectedNonTextElement={singleSelectedNonTextElement}
         stageRef={stageRef}

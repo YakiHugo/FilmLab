@@ -6,6 +6,10 @@ import type {
   CanvasTextElement,
 } from "@/types";
 import { resolveCanvasTextRuntimeViewModel } from "./textRuntimeViewModel";
+import {
+  createCanvasTextSessionSnapshot,
+  type CanvasTextSessionSnapshot,
+} from "./textSessionState";
 
 const createRenderableTextElement = (
   overrides: Partial<CanvasRenderableTextElement> = {}
@@ -120,6 +124,24 @@ const createNodeById = (
   nodes: CanvasRenderableNode[]
 ): Map<string, CanvasRenderableNode> => new Map(nodes.map((node) => [node.id, node]));
 
+const createTextSession = (
+  overrides: Partial<CanvasTextSessionSnapshot> = {}
+): CanvasTextSessionSnapshot => ({
+  ...createCanvasTextSessionSnapshot(),
+  draft: null,
+  hasMaterializedElement: true,
+  hasPersistedExistingDraft: false,
+  id: "text-1",
+  initialElement: null,
+  mode: "existing",
+  sessionToken: 1,
+  status: "editing",
+  transitionToken: 0,
+  value: "Draft",
+  workbenchId: "workbench-1",
+  ...overrides,
+});
+
 describe("text runtime view model helpers", () => {
   it("applies the live draft once for both rendered elements and selected outlines", () => {
     const textElement = createRenderableTextElement();
@@ -127,13 +149,13 @@ describe("text runtime view model helpers", () => {
     const result = resolveCanvasTextRuntimeViewModel({
       activeWorkbenchId: "workbench-1",
       displaySelectedElementIds: ["text-1"],
-      editingTextDraft,
-      editingTextId: "text-1",
-      editingTextWorkbenchId: "workbench-1",
       hasMarqueeSession: false,
       isMarqueeDragging: false,
       nodeById: createNodeById([textElement]),
       selectedElementIds: ["text-1"],
+      textSession: createTextSession({
+        draft: editingTextDraft,
+      }),
     });
 
     expect(result.activeEditingTextId).toBe("text-1");
@@ -148,13 +170,13 @@ describe("text runtime view model helpers", () => {
     const result = resolveCanvasTextRuntimeViewModel({
       activeWorkbenchId: "workbench-1",
       displaySelectedElementIds: [],
-      editingTextDraft,
-      editingTextId: "text-1",
-      editingTextWorkbenchId: "workbench-1",
       hasMarqueeSession: true,
       isMarqueeDragging: true,
       nodeById: createNodeById([]),
       selectedElementIds: [],
+      textSession: createTextSession({
+        draft: editingTextDraft,
+      }),
     });
 
     expect(result.activeEditingTextId).toBeNull();
@@ -169,13 +191,13 @@ describe("text runtime view model helpers", () => {
     const result = resolveCanvasTextRuntimeViewModel({
       activeWorkbenchId: "workbench-2",
       displaySelectedElementIds: ["text-1"],
-      editingTextDraft,
-      editingTextId: "text-1",
-      editingTextWorkbenchId: "workbench-1",
       hasMarqueeSession: false,
       isMarqueeDragging: false,
       nodeById: createNodeById([textElement]),
       selectedElementIds: ["text-1"],
+      textSession: createTextSession({
+        draft: editingTextDraft,
+      }),
     });
 
     expect(result.activeEditingTextId).toBeNull();
@@ -189,13 +211,20 @@ describe("text runtime view model helpers", () => {
     const result = resolveCanvasTextRuntimeViewModel({
       activeWorkbenchId: "workbench-1",
       displaySelectedElementIds: ["shape-1"],
-      editingTextDraft: null,
-      editingTextId: null,
-      editingTextWorkbenchId: null,
       hasMarqueeSession: false,
       isMarqueeDragging: false,
       nodeById: createNodeById([shapeElement]),
       selectedElementIds: ["shape-1"],
+      textSession: createTextSession({
+        draft: null,
+        hasMaterializedElement: false,
+        id: null,
+        mode: null,
+        sessionToken: 0,
+        status: "idle",
+        value: "",
+        workbenchId: null,
+      }),
     });
 
     expect(result.trackedOverlayId).toBe("shape-1");

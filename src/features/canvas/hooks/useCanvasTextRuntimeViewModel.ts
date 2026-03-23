@@ -1,8 +1,5 @@
 import { useMemo, useRef } from "react";
-import type {
-  CanvasRenderableNode,
-  CanvasTextElement,
-} from "@/types";
+import type { CanvasRenderableNode } from "@/types";
 import {
   canvasTextEditorModelEqual,
   canvasTextOverlayModelEqual,
@@ -10,53 +7,46 @@ import {
   resolveCanvasTextRuntimeViewModel,
   type CanvasTextRuntimeViewModel,
 } from "../textRuntimeViewModel";
+import type { CanvasTextSessionSnapshot } from "../textSessionState";
 
 interface UseCanvasTextRuntimeViewModelOptions {
   activeWorkbenchId: string | null;
   displaySelectedElementIds: string[];
-  editingTextDraft: CanvasTextElement | null;
-  editingTextId: string | null;
-  editingTextWorkbenchId: string | null;
   hasMarqueeSession: boolean;
   isMarqueeDragging: boolean;
   nodeById: Map<string, CanvasRenderableNode>;
   selectedElementIds: string[];
+  textSession: CanvasTextSessionSnapshot;
 }
 
 export function useCanvasTextRuntimeViewModel({
   activeWorkbenchId,
   displaySelectedElementIds,
-  editingTextDraft,
-  editingTextId,
-  editingTextWorkbenchId,
   hasMarqueeSession,
   isMarqueeDragging,
   nodeById,
   selectedElementIds,
+  textSession,
 }: UseCanvasTextRuntimeViewModelOptions): CanvasTextRuntimeViewModel {
   const resolvedModel = useMemo(
     () =>
       resolveCanvasTextRuntimeViewModel({
         activeWorkbenchId,
         displaySelectedElementIds,
-        editingTextDraft,
-        editingTextId,
-        editingTextWorkbenchId,
         hasMarqueeSession,
         isMarqueeDragging,
         nodeById,
         selectedElementIds,
+        textSession,
       }),
     [
       activeWorkbenchId,
       displaySelectedElementIds,
-      editingTextDraft,
-      editingTextId,
-      editingTextWorkbenchId,
       hasMarqueeSession,
       isMarqueeDragging,
       nodeById,
       selectedElementIds,
+      textSession,
     ]
   );
 

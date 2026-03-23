@@ -4,6 +4,7 @@ import type {
   CanvasTextElement,
   CanvasTextFontSizeTier,
 } from "@/types";
+import type { CanvasTextSessionSnapshot } from "./textSessionState";
 
 export interface CanvasTextOverlayModel {
   content: string;
@@ -41,13 +42,11 @@ export interface CanvasTextRuntimeViewModel {
 interface ResolveCanvasTextRuntimeViewModelOptions {
   activeWorkbenchId: string | null;
   displaySelectedElementIds: string[];
-  editingTextDraft: CanvasTextElement | null;
-  editingTextId: string | null;
-  editingTextWorkbenchId: string | null;
   hasMarqueeSession: boolean;
   isMarqueeDragging: boolean;
   nodeById: Map<string, CanvasRenderableNode>;
   selectedElementIds: string[];
+  textSession: CanvasTextSessionSnapshot;
 }
 
 const toCanvasTextOverlayModel = (
@@ -86,23 +85,21 @@ const isEditableTextElement = (
 
 const resolveEditingTextElement = ({
   activeWorkbenchId,
-  editingTextDraft,
-  editingTextId,
-  editingTextWorkbenchId,
   nodeById,
+  textSession,
 }: Pick<
   ResolveCanvasTextRuntimeViewModelOptions,
-  "activeWorkbenchId" | "editingTextDraft" | "editingTextId" | "editingTextWorkbenchId" | "nodeById"
+  "activeWorkbenchId" | "nodeById" | "textSession"
 >) => {
-  if (!editingTextId || editingTextWorkbenchId !== activeWorkbenchId) {
+  if (!textSession.id || textSession.workbenchId !== activeWorkbenchId) {
     return null;
   }
 
-  if (isEditableTextElement(editingTextDraft)) {
-    return editingTextDraft;
+  if (isEditableTextElement(textSession.draft)) {
+    return textSession.draft;
   }
 
-  const editingTextElement = nodeById.get(editingTextId);
+  const editingTextElement = nodeById.get(textSession.id);
   return isEditableTextElement(editingTextElement) ? editingTextElement : null;
 };
 
@@ -124,13 +121,12 @@ const resolveTrackedOverlayId = ({
 
 const resolveDisplaySelectedElements = ({
   displaySelectedElementIds,
-  editingTextDraft,
-  editingTextId,
   hasActiveEditingText,
   nodeById,
+  textSession,
 }: Pick<
   ResolveCanvasTextRuntimeViewModelOptions,
-  "displaySelectedElementIds" | "editingTextDraft" | "editingTextId" | "nodeById"
+  "displaySelectedElementIds" | "nodeById" | "textSession"
 > & { hasActiveEditingText: boolean }): CanvasTextRuntimeSelectedElement[] =>
   displaySelectedElementIds
     .map((elementId) => {
@@ -141,12 +137,12 @@ const resolveDisplaySelectedElements = ({
 
       if (
         hasActiveEditingText &&
-        editingTextDraft &&
-        editingTextId &&
+        textSession.draft &&
+        textSession.id &&
         element.type === "text" &&
-        element.id === editingTextId
+        element.id === textSession.id
       ) {
-        return editingTextDraft;
+        return textSession.draft;
       }
 
       return element;
@@ -156,36 +152,31 @@ const resolveDisplaySelectedElements = ({
 export const resolveCanvasTextRuntimeViewModel = ({
   activeWorkbenchId,
   displaySelectedElementIds,
-  editingTextDraft,
-  editingTextId,
-  editingTextWorkbenchId,
   hasMarqueeSession,
   isMarqueeDragging,
   nodeById,
   selectedElementIds,
+  textSession,
 }: ResolveCanvasTextRuntimeViewModelOptions): CanvasTextRuntimeViewModel => {
   const editingTextElement = resolveEditingTextElement({
     activeWorkbenchId,
-    editingTextDraft,
-    editingTextId,
-    editingTextWorkbenchId,
     nodeById,
+    textSession,
   });
   const activeTextElement = editingTextElement;
   const activeTextEditorModel = activeTextElement
     ? toCanvasTextEditorModel(activeTextElement)
     : null;
   const textOverlayModel = activeTextElement ? toCanvasTextOverlayModel(activeTextElement) : null;
-  const hasActiveEditingText = Boolean(editingTextElement && editingTextId);
+  const hasActiveEditingText = Boolean(editingTextElement && textSession.id);
   const hasTextUiSuppressedByMarquee = hasMarqueeSession || isMarqueeDragging;
   const activeEditingTextId =
-    !hasTextUiSuppressedByMarquee && hasActiveEditingText ? editingTextId : null;
+    !hasTextUiSuppressedByMarquee && hasActiveEditingText ? textSession.id : null;
   const displaySelectedElements = resolveDisplaySelectedElements({
     displaySelectedElementIds,
-    editingTextDraft,
-    editingTextId,
     hasActiveEditingText,
     nodeById,
+    textSession,
   });
 
   return {
@@ -205,7 +196,7 @@ export const resolveCanvasTextRuntimeViewModel = ({
       textOverlayModel !== null,
     textOverlayModel,
     trackedOverlayId: resolveTrackedOverlayId({
-      editingTextId,
+      editingTextId: textSession.id,
       hasActiveEditingText,
       selectedElementIds,
     }),
