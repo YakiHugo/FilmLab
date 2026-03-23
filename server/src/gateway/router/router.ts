@@ -109,9 +109,9 @@ export const imageRuntimeRouter = {
     });
   },
   async upscale(
-    request: ParsedImageUpscaleRequest,
-    payload: { imageBuffer: Buffer; mimeType: string },
-    options?: { signal?: AbortSignal; timeoutMs?: number; traceId?: string }
+    _request: ParsedImageUpscaleRequest,
+    _payload: { imageBuffer: Buffer; mimeType: string },
+    _options?: { signal?: AbortSignal; timeoutMs?: number; traceId?: string }
   ) {
     throw new ProviderError("Image upscale is not available in the model registry refactor.", 400);
   },
