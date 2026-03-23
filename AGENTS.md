@@ -37,6 +37,9 @@ Follow Conventional Commit style: `feat(scope): ...`, `fix(scope): ...`, `refact
 - Treat pure functions strictly: deterministic input/output logic with no I/O, shared mutable state, framework lifecycle, network, storage, timer, or rendering side effects.
 - Do not add unit tests for components, hooks, stores, routes, integration flows, or any side-effectful or non-pure module.
 - Do not expand existing nonconforming tests. They may be deleted when touched or when cleanup is requested.
+- For browser-based validation of local UI flows, `agent-browser` is recommended for interactive smoke checks because it is quick to iterate with and easier to replay than an ad hoc CDP session.
+- Do not treat `agent-browser` as a blanket replacement for CDP/Chrome DevTools. Use whichever tool best matches the interaction or diagnostics you need.
+- Only codify an `agent-browser` flow under `scripts/` and `package.json` when it is stable and expected to be rerun regularly; otherwise a one-off manual smoke pass is enough.
 
 ## Subagents
 
