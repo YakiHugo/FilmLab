@@ -5,6 +5,7 @@ import {
   bindResultAssetToConfig,
   bindResultReferenceToConfig,
   clearBoundResultReferencesFromConfig,
+  clearReferenceImagesFromConfig,
   clearReferenceInputsForUnsupportedModel,
   removeBoundResultReferenceFromConfig,
   updateAssetRefRoleInConfig,
@@ -58,7 +59,14 @@ describe("reference image config helpers", () => {
         sourceAssetId: "thread-asset-1",
       }),
     ]);
-    expect(nextConfig.assetRefs).toEqual([{ assetId: "thread-asset-1", role: "reference" }]);
+    expect(nextConfig.assetRefs).toEqual([
+      {
+        assetId: "thread-asset-1",
+        role: "reference",
+        referenceType: "content",
+        weight: 1,
+      },
+    ]);
   });
 
   it("removes both the materialized reference image and asset ref together", () => {
@@ -112,12 +120,36 @@ describe("reference image config helpers", () => {
       weight: 1,
     });
 
-    const { nextConfig, removedReferenceImageCount } =
+    const { nextConfig, removedReferenceImageCount, removedAssetRefCount } =
       clearReferenceInputsForUnsupportedModel(baseConfig);
 
     expect(removedReferenceImageCount).toBe(2);
+    expect(removedAssetRefCount).toBe(1);
     expect(nextConfig.referenceImages).toEqual([]);
-    expect(nextConfig.assetRefs).toEqual([{ assetId: "thread-asset-1", role: "reference" }]);
+    expect(nextConfig.assetRefs).toEqual([]);
+  });
+
+  it("clears reference images without dropping edit or variation asset refs", () => {
+    const baseConfig = bindResultReferenceToConfig(createConfig(), {
+      assetId: "thread-asset-1",
+      referenceImage: createReferenceImage("ref-1"),
+    });
+    baseConfig.assetRefs.push({
+      assetId: "thread-asset-2",
+      role: "edit",
+    });
+    baseConfig.assetRefs.push({
+      assetId: "thread-asset-3",
+      role: "variation",
+    });
+
+    const nextConfig = clearReferenceImagesFromConfig(baseConfig);
+
+    expect(nextConfig.referenceImages).toEqual([]);
+    expect(nextConfig.assetRefs).toEqual([
+      { assetId: "thread-asset-2", role: "edit" },
+      { assetId: "thread-asset-3", role: "variation" },
+    ]);
   });
 
   it("binds edit and variation roles without materializing reference images when native refs are unavailable", () => {

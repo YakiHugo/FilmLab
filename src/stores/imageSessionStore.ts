@@ -124,8 +124,8 @@ const collectRequiredAssetIds = (
       requiredAssetIds.add(assetId);
     }
     for (const result of turn.results) {
-      if (result.threadAssetId) {
-        requiredAssetIds.add(result.threadAssetId);
+      if (result.assetId ?? result.threadAssetId) {
+        requiredAssetIds.add((result.assetId ?? result.threadAssetId)!);
       }
     }
   }

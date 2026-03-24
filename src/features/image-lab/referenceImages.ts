@@ -8,7 +8,7 @@ import {
 const dedupeAssetRefs = (assetRefs: GenerationConfig["assetRefs"]) => {
   const seen = new Set<string>();
   return assetRefs.filter((assetRef) => {
-    const key = `${assetRef.assetId}:${assetRef.role}`;
+    const key = assetRef.assetId;
     if (seen.has(key)) {
       return false;
     }
@@ -16,6 +16,21 @@ const dedupeAssetRefs = (assetRefs: GenerationConfig["assetRefs"]) => {
     return true;
   });
 };
+
+const toAssetRef = (
+  assetId: string,
+  role: ImageGenerationAssetRefRole,
+  referenceImage?: ReferenceImage | null
+): GenerationConfig["assetRefs"][number] => ({
+  assetId,
+  role,
+  ...(role === "reference" && referenceImage
+    ? {
+        referenceType: referenceImage.type,
+        weight: referenceImage.weight ?? 1,
+      }
+    : {}),
+});
 
 const toBoundReferenceImage = (
   assetId: string,
@@ -48,7 +63,7 @@ const withUpdatedAssetBinding = (
   }
 ) => {
   const nextAssetRefs = dedupeAssetRefs([
-    { assetId: input.assetId, role: input.role },
+    toAssetRef(input.assetId, input.role, input.referenceImage),
     ...config.assetRefs.filter((assetRef) => assetRef.assetId !== input.assetId),
   ]);
   const issues = validateImageAssetRefs(nextAssetRefs);
@@ -135,12 +150,26 @@ export const removeBoundResultReferenceFromConfig = (
 
 export const clearReferenceInputsForUnsupportedModel = (
   config: GenerationConfig
-): { nextConfig: GenerationConfig; removedReferenceImageCount: number } => ({
+): {
+  nextConfig: GenerationConfig;
+  removedReferenceImageCount: number;
+  removedAssetRefCount: number;
+} => ({
   nextConfig: {
     ...config,
     referenceImages: [],
+    assetRefs: [],
   },
   removedReferenceImageCount: config.referenceImages.length,
+  removedAssetRefCount: config.assetRefs.length,
+});
+
+export const clearReferenceImagesFromConfig = (
+  config: GenerationConfig
+): GenerationConfig => ({
+  ...config,
+  referenceImages: [],
+  assetRefs: config.assetRefs.filter((assetRef) => assetRef.role !== "reference"),
 });
 
 export const clearBoundResultReferencesFromConfig = (

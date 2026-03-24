@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AssetService } from "../assets/service";
 
 const generateMock = vi.fn();
 const getRouteTargetsMock = vi.fn();
@@ -58,6 +59,52 @@ const repositoryMock = {
   completeGenerationSuccess: vi.fn(),
   completeGenerationFailure: vi.fn(),
   turnExists: vi.fn(),
+};
+
+let generatedAssetCounter = 0;
+
+const assetServiceMock = {
+  close: vi.fn(),
+  resolveProviderAssetRefs: vi.fn(
+    async (
+      _userId: string,
+      assetRefs: Array<{
+        assetId: string;
+        role: "reference" | "edit" | "variation";
+        referenceType?: "style" | "content" | "controlnet";
+        weight?: number;
+      }>
+    ) =>
+      assetRefs.map((assetRef) => ({
+        assetId: assetRef.assetId,
+        role: assetRef.role,
+        referenceType: assetRef.referenceType ?? "content",
+        weight: assetRef.weight ?? 1,
+        signedUrl: `https://assets.example.com/${assetRef.assetId}.png`,
+        mimeType: "image/png",
+      }))
+  ),
+  createGeneratedAsset: vi.fn(async (input: { createdAt: string; mimeType: string; buffer: Buffer }) => {
+    generatedAssetCounter += 1;
+    const assetId = `asset-generated-${generatedAssetCounter}`;
+    return {
+      created: true,
+      assetId,
+      name: `generated-${generatedAssetCounter}.png`,
+      type: input.mimeType,
+      size: input.buffer.byteLength,
+      source: "ai-generated" as const,
+      origin: "ai" as const,
+      contentHash: `hash-${generatedAssetCounter}`,
+      createdAt: input.createdAt,
+      updatedAt: input.createdAt,
+      objectUrl: `/api/assets/${assetId}/original?token=test`,
+      thumbnailUrl: `/api/assets/${assetId}/original?token=test`,
+    };
+  }),
+  deleteAsset: vi.fn(async () => undefined),
+  createAssetEdges: vi.fn(async () => undefined),
+  deleteAssetEdges: vi.fn(async () => undefined),
 };
 
 const createRouteTargetFixture = (input: {
@@ -177,6 +224,7 @@ const createApp = async () => {
 
   const app = Fastify();
   app.decorate("chatStateRepository", repositoryMock);
+  app.decorate("assetService", assetServiceMock as unknown as AssetService);
   await app.register(imageGenerateRoute);
   return app;
 };
@@ -188,9 +236,15 @@ describe("imageGenerateRoute", () => {
     generateMock.mockReset();
     getRouteTargetsMock.mockReset();
     downloadGeneratedImageMock.mockReset();
+    generatedAssetCounter = 0;
     Object.values(repositoryMock).forEach((mockFn) => {
       if ("mockReset" in mockFn) {
         mockFn.mockReset();
+      }
+    });
+    Object.values(assetServiceMock).forEach((mockFn) => {
+      if ("mockClear" in mockFn) {
+        mockFn.mockClear();
       }
     });
 
@@ -237,6 +291,12 @@ describe("imageGenerateRoute", () => {
         aspectRatio: "1:1",
         batchSize: 1,
         style: "none",
+        assetRefs: [
+          {
+            assetId: "asset-reference-1",
+            role: "reference",
+          },
+        ],
         referenceImages: [],
         modelParams: {},
       },
@@ -345,42 +405,40 @@ describe("imageGenerateRoute", () => {
     expect(repositoryMock.completeGenerationSuccess).toHaveBeenCalledWith(
       expect.objectContaining({
         conversationId: "conversation-1",
-        generatedImages: [
+        generatedImages: [],
+        assets: [
           expect.objectContaining({
-            ownerUserId: "user-1",
-            visibility: "private",
-            mimeType: "image/png",
-            blobData: Buffer.from([9, 8, 7]),
+            id: "asset-generated-1",
+            assetType: "image",
           }),
           expect.objectContaining({
-            ownerUserId: "user-1",
-            visibility: "private",
-            mimeType: "image/png",
-            blobData: Buffer.from([1, 2, 3]),
+            id: "asset-generated-2",
+            assetType: "image",
           }),
         ],
         results: [
           expect.objectContaining({
-            imageId: expect.any(String),
-            imageUrl: expect.stringMatching(/^\/api\/generated-images\/[^?]+\?token=/),
+            assetId: "asset-generated-1",
+            imageUrl: expect.stringMatching(/^\/api\/assets\/asset-generated-1\/original\?token=/),
           }),
           expect.objectContaining({
-            imageId: expect.any(String),
-            imageUrl: expect.stringMatching(/^\/api\/generated-images\/[^?]+\?token=/),
+            assetId: "asset-generated-2",
+            imageUrl: expect.stringMatching(/^\/api\/assets\/asset-generated-2\/original\?token=/),
           }),
         ],
       })
     );
 
     const body = response.json();
-    expect(body.imageId).toEqual(expect.any(String));
-    expect(body.imageUrl).toMatch(/^\/api\/generated-images\/[^?]+\?token=/);
+    expect(body.imageId).toBeUndefined();
+    expect(body.imageUrl).toMatch(/^\/api\/assets\/asset-generated-1\/original\?token=/);
     expect(body.images).toHaveLength(2);
     expect(body.images[0]).toMatchObject({
+      assetId: "asset-generated-1",
       provider: "dashscope",
       model: "qwen-image-2.0-pro",
     });
-    expect(body.images[0].imageUrl).toMatch(/^\/api\/generated-images\/[^?]+\?token=/);
+    expect(body.images[0].imageUrl).toMatch(/^\/api\/assets\/asset-generated-1\/original\?token=/);
 
     await app.close();
   });
@@ -1452,6 +1510,53 @@ describe("imageGenerateRoute", () => {
 
     expect(response.statusCode).toBe(413);
     expect(repositoryMock.completeGenerationFailure).toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("cleans up newly created canonical assets when later persistence fails", async () => {
+    generateMock.mockResolvedValue({
+      modelId: "qwen-image-2-pro",
+      logicalModel: "image.qwen.v2.pro",
+      deploymentId: "dashscope-qwen-image-2-pro-primary",
+      runtimeProvider: "dashscope",
+      providerModel: "qwen-image-2.0-pro",
+      warnings: [],
+      images: [
+        {
+          binaryData: Buffer.from([1, 2, 3]),
+          mimeType: "image/png",
+        },
+      ],
+    });
+    repositoryMock.completeGenerationSuccess.mockRejectedValueOnce(
+      new Error("Persisted run could not be committed.")
+    );
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+      payload: {
+        prompt: "Studio portrait",
+        modelId: "qwen-image-2-pro",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        referenceImages: [],
+        modelParams: {},
+      },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(repositoryMock.completeGenerationFailure).toHaveBeenCalled();
+    expect(assetServiceMock.deleteAsset).toHaveBeenCalledWith(
+      "user-1",
+      "asset-generated-1"
+    );
 
     await app.close();
   });

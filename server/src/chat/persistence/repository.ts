@@ -5,8 +5,13 @@ import { PostgresChatStateRepository } from "./postgres";
 import type { ChatStateRepository } from "./types";
 
 export const createChatStateRepository = (
-  databaseUrl = getConfig().databaseUrl
+  database: Pool | string | undefined = getConfig().databaseUrl
 ): ChatStateRepository => {
+  if (database instanceof Pool) {
+    return new PostgresChatStateRepository(database);
+  }
+
+  const databaseUrl = database;
   if (!databaseUrl) {
     return new MemoryChatStateRepository();
   }

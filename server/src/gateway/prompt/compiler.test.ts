@@ -120,10 +120,10 @@ describe("prompt compiler", () => {
     expect(promptIr.operation).toBe(expectedOperation);
     expect(promptIr.goal).toBe("Refine the neon skyline with cleaner typography");
     expect(promptIr.sourceAssets).toEqual(
-      assetRefs.filter((entry) => entry.role !== "reference")
+      request.assetRefs.filter((entry) => entry.role !== "reference")
     );
     expect(promptIr.referenceAssets).toEqual(
-      assetRefs.filter((entry) => entry.role === "reference")
+      request.assetRefs.filter((entry) => entry.role === "reference")
     );
   });
 

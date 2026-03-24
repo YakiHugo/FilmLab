@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AssetService } from "../assets/service";
 
 const generateMock = vi.fn();
 const getRouteTargetsMock = vi.fn();
@@ -59,6 +60,52 @@ const repositoryMock = {
   completeGenerationSuccess: vi.fn(),
   completeGenerationFailure: vi.fn(),
   turnExists: vi.fn(),
+};
+
+let generatedAssetCounter = 0;
+
+const assetServiceMock = {
+  close: vi.fn(),
+  resolveProviderAssetRefs: vi.fn(
+    async (
+      _userId: string,
+      assetRefs: Array<{
+        assetId: string;
+        role: "reference" | "edit" | "variation";
+        referenceType?: "style" | "content" | "controlnet";
+        weight?: number;
+      }>
+    ) =>
+      assetRefs.map((assetRef) => ({
+        assetId: assetRef.assetId,
+        role: assetRef.role,
+        referenceType: assetRef.referenceType ?? "content",
+        weight: assetRef.weight ?? 1,
+        signedUrl: `https://assets.example.com/${assetRef.assetId}.png`,
+        mimeType: "image/png",
+      }))
+  ),
+  createGeneratedAsset: vi.fn(async (input: { createdAt: string; mimeType: string; buffer: Buffer }) => {
+    generatedAssetCounter += 1;
+    const assetId = `asset-generated-${generatedAssetCounter}`;
+    return {
+      created: true,
+      assetId,
+      name: `generated-${generatedAssetCounter}.png`,
+      type: input.mimeType,
+      size: input.buffer.byteLength,
+      source: "ai-generated" as const,
+      origin: "ai" as const,
+      contentHash: `hash-${generatedAssetCounter}`,
+      createdAt: input.createdAt,
+      updatedAt: input.createdAt,
+      objectUrl: `/api/assets/${assetId}/original?token=test`,
+      thumbnailUrl: `/api/assets/${assetId}/original?token=test`,
+    };
+  }),
+  deleteAsset: vi.fn(async () => undefined),
+  createAssetEdges: vi.fn(async () => undefined),
+  deleteAssetEdges: vi.fn(async () => undefined),
 };
 
 const createRouteTargetFixture = (input: {
@@ -208,6 +255,7 @@ const createApp = async () => {
 
   const app = Fastify();
   app.decorate("chatStateRepository", repositoryMock);
+  app.decorate("assetService", assetServiceMock as unknown as AssetService);
   await app.register(imageGenerateRoute);
   return app;
 };
@@ -219,9 +267,15 @@ describe("imageGenerateRoute evals", () => {
     generateMock.mockReset();
     getRouteTargetsMock.mockReset();
     downloadGeneratedImageMock.mockReset();
+    generatedAssetCounter = 0;
     Object.values(repositoryMock).forEach((mockFn) => {
       if ("mockReset" in mockFn) {
         mockFn.mockReset();
+      }
+    });
+    Object.values(assetServiceMock).forEach((mockFn) => {
+      if ("mockClear" in mockFn) {
+        mockFn.mockClear();
       }
     });
 

@@ -17,7 +17,6 @@ interface ImageResultCardProps {
   provider: string;
   model: string;
   assetId: string | null;
-  threadAssetId?: string | null;
   saved: boolean;
   selected: boolean;
   compact?: boolean;
@@ -38,7 +37,7 @@ export function ImageResultCard({
   imageUrl,
   provider,
   model,
-  threadAssetId = null,
+  assetId = null,
   saved,
   selected,
   compact = false,
@@ -79,8 +78,8 @@ export function ImageResultCard({
 
   const iconSm = "h-3.5 w-3.5";
   const canToggleSelection = Boolean(onToggleSelection && !saved);
-  const canUseAsReference = Boolean(threadAssetId && onUseAsReference);
-  const canAccept = Boolean(threadAssetId && onAccept);
+  const canUseAsReference = Boolean(assetId && onUseAsReference);
+  const canAccept = Boolean(assetId && onAccept);
   const canAddToCanvas = Boolean(onAddToCanvas);
   const upscaleTitle = onUpscale ? "Upscale image" : "Upscale is not available for this result";
 
@@ -200,7 +199,7 @@ export function ImageResultCard({
                   setMenuOpen(false);
                   onEditFromThis?.();
                 }}
-                disabled={!threadAssetId || !onEditFromThis}
+                disabled={!assetId || !onEditFromThis}
               >
                 <ImagePlus className={iconSm} />
                 Edit from this
@@ -286,7 +285,7 @@ export function ImageResultCard({
               type="button"
               className="inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[12px] font-medium text-white/80 transition hover:bg-white/10 hover:text-white disabled:text-white/40"
               onClick={onEditFromThis}
-              disabled={!threadAssetId || !onEditFromThis}
+              disabled={!assetId || !onEditFromThis}
             >
               <ImagePlus className={iconSm} />
               Edit

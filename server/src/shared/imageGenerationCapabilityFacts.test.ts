@@ -6,9 +6,6 @@ import {
   validateImageGenerationRequestAgainstModel,
 } from "./imageGenerationSchema";
 
-const createDataUrl = (byteLength: number) =>
-  `data:image/png;base64,${Buffer.alloc(byteLength, 1).toString("base64")}`;
-
 describe("image generation capability facts", () => {
   it("stay aligned across frontend model registry, catalog, and server validation", () => {
     const frontendModel = getFrontendImageModelById("qwen-image-2-pro");
@@ -47,13 +44,6 @@ describe("image generation capability facts", () => {
         width: 2048,
         height: 1024,
         style: "cinematic",
-        referenceImages: [
-          {
-            id: "ref-1",
-            url: createDataUrl(1024),
-            type: "content",
-          },
-        ],
         negativePrompt: "avoid blur",
         seed: 42,
         guidanceScale: 11,
@@ -62,7 +52,7 @@ describe("image generation capability facts", () => {
         modelParams: {
           promptExtend: true,
         },
-        assetRefs: [{ assetId: "thread-asset-1", role: "edit" }],
+        assetRefs: [{ assetId: "thread-asset-1", role: "edit", referenceType: "content" }],
       });
 
     expect(validationResult.success).toBe(false);
@@ -75,7 +65,7 @@ describe("image generation capability facts", () => {
     expect(issuePaths).toContain("steps");
   });
 
-  it("rejects oversized qwen reference images during compatibility validation", () => {
+  it("rejects weighted qwen reference assets during compatibility validation", () => {
     const frontendModel = getFrontendImageModelById("qwen-image-2-pro");
     expect(frontendModel).not.toBeNull();
     if (!frontendModel) {
@@ -91,11 +81,12 @@ describe("image generation capability facts", () => {
         modelId: "qwen-image-2-pro",
         aspectRatio: "1:1",
         style: "none",
-        referenceImages: [
+        assetRefs: [
           {
-            id: "ref-oversized",
-            url: createDataUrl(10 * 1024 * 1024 + 1),
-            type: "content",
+            assetId: "asset-ref-1",
+            role: "reference",
+            referenceType: "content",
+            weight: 0.5,
           },
         ],
         batchSize: 1,
@@ -112,7 +103,7 @@ describe("image generation capability facts", () => {
     expect(validationResult.error.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          path: ["referenceImages", 0, "url"],
+          path: ["assetRefs", 0, "weight"],
         }),
       ])
     );

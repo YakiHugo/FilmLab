@@ -10,8 +10,11 @@ export const getImageGenerationCapabilityWarnings = (
   }
 
   const warnings: string[] = [];
-  if (!frontendModel.constraints.referenceImages.enabled && request.referenceImages.length > 0) {
-    const count = request.referenceImages.length;
+  const guidedAssetCount = (request.assetRefs ?? []).filter(
+    (assetRef) => assetRef.role === "reference"
+  ).length;
+  if (!frontendModel.constraints.referenceImages.enabled && guidedAssetCount > 0) {
+    const count = guidedAssetCount;
     warnings.push(
       `${frontendModel.label} ignores ${count} reference image${count === 1 ? "" : "s"}.`
     );

@@ -720,7 +720,6 @@ function TurnRow({
                   provider={entry.provider}
                   model={entry.model}
                   assetId={entry.assetId}
-                  threadAssetId={entry.threadAssetId}
                   selected={entry.selected}
                   saved={entry.saved}
                   isUpscaling={entry.isUpscaling}

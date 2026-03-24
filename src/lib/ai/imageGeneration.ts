@@ -135,6 +135,12 @@ const normalizeImages = (
 
     normalized.push({
       imageUrl: resolveApiUrl(item.imageUrl),
+      assetId:
+        typeof item.assetId === "string"
+          ? item.assetId
+          : (() => {
+              throw new Error("Generated image is missing assetId.");
+            })(),
       ...(typeof item.resultId === "string" ? { resultId: item.resultId } : {}),
       ...(typeof item.imageId === "string" ? { imageId: item.imageId } : {}),
       provider:
@@ -284,8 +290,13 @@ export async function generateImage(
     : [];
 
   if (images.length === 0 && fallbackImageUrl) {
+    const fallbackAssetId = primaryAssetIds[0];
+    if (!fallbackAssetId) {
+      throw new Error("Generated image is missing assetId.");
+    }
     images.push({
       imageUrl: fallbackImageUrl,
+      assetId: fallbackAssetId,
       ...(typeof json.resultId === "string" ? { resultId: json.resultId } : {}),
       ...(typeof json.imageId === "string" ? { imageId: json.imageId } : {}),
       provider: runtimeProvider,

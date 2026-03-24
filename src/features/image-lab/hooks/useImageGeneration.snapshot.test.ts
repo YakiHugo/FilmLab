@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PromptObservabilitySummaryResponse } from "../../../../shared/chatImageTypes";
 import {
+  deserializeAssetRefs,
   invalidatePromptObservabilityState,
   RETRY_REFERENCE_IMAGES_OMITTED_WARNING,
   omitUnavailableReferenceImages,
@@ -11,6 +12,36 @@ import {
 } from "./useImageGeneration";
 
 describe("image generation request snapshots", () => {
+  it("restores reference-only asset ref metadata from persisted snapshots", () => {
+    expect(
+      deserializeAssetRefs([
+        {
+          assetId: "asset-reference",
+          role: "reference",
+          referenceType: "style",
+          weight: 0.35,
+        },
+        {
+          assetId: "asset-edit",
+          role: "edit",
+          referenceType: "controlnet",
+          weight: 0.8,
+        },
+      ])
+    ).toEqual([
+      {
+        assetId: "asset-reference",
+        role: "reference",
+        referenceType: "style",
+        weight: 0.35,
+      },
+      {
+        assetId: "asset-edit",
+        role: "edit",
+      },
+    ]);
+  });
+
   it("preserves reference image urls for replayable retries", () => {
     const snapshot = toPersistedRequestSnapshot({
       prompt: "Rainy alley",

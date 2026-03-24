@@ -109,6 +109,8 @@ export interface ReferenceImage {
 export interface ImageGenerationAssetRef {
   assetId: string;
   role: ImageGenerationAssetRefRole;
+  referenceType?: ReferenceImageType;
+  weight?: number;
 }
 
 export interface ImageAssetRefValidationIssue {
@@ -195,7 +197,7 @@ export interface GeneratedImage {
   resultId?: string;
   imageUrl: string;
   imageId?: string;
-  assetId?: string;
+  assetId: string;
   provider: ImageProviderId;
   model: string;
   mimeType?: string;

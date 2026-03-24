@@ -29,7 +29,6 @@ import type { ResolvedRouteTarget } from "../gateway/router/types";
 import { getFrontendImageModelById } from "../models/frontendRegistry";
 import { ProviderError } from "../providers/base/errors";
 import { downloadGeneratedImage } from "../shared/downloadGeneratedImage";
-import { createGeneratedImageCapability } from "../shared/generatedImageCapability";
 import { getImageGenerationCapabilityWarnings } from "../shared/imageGenerationCapabilityWarnings";
 import { attachTraceIdHeader, getRequestTraceId } from "../shared/requestTrace";
 import {
@@ -443,6 +442,9 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
 
       let payload;
       let persistedGeneration: PersistedGenerationContext | null = null;
+      const createdGeneratedAssetIds: string[] = [];
+      let createdAssetEdgeIds: string[] = [];
+      let generationAssetsCommitted = false;
 
       try {
         payload = imageGenerationRequestSchema.parse(request.body);
@@ -953,6 +955,10 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
                   deploymentId: target.deployment.id,
                   provider: target.provider.id,
                 },
+                resolvedAssetRefs: await app.assetService.resolveProviderAssetRefs(
+                  userId,
+                  effectivePayload.assetRefs ?? []
+                ),
                 prompt: dispatchedPrompt,
                 negativePrompt: undefined,
               };
@@ -1022,6 +1028,10 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
                 deploymentId: target.deployment.id,
                 provider: target.provider.id,
               },
+              resolvedAssetRefs: await app.assetService.resolveProviderAssetRefs(
+                userId,
+                effectivePayload.assetRefs ?? []
+              ),
               prompt: compiled.dispatchedPrompt,
               negativePrompt: compiled.negativePrompt ?? undefined,
             };
@@ -1034,12 +1044,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           async (image, index) => normalizeGeneratedImage(image, index)
         );
         const normalizedResults: Array<{
-          resultId: string;
-          assetId: string;
           buffer: Buffer;
-          imageId: string;
-          imageUrl: string;
-          privateTokenHash: string;
           provider: string;
           model: string;
           mimeType?: string;
@@ -1057,14 +1062,8 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
               return;
             }
 
-            const capability = createGeneratedImageCapability();
             normalizedResults.push({
-              resultId: createId("chat-result"),
-              assetId: createId("thread-asset"),
               buffer: normalized.buffer,
-              imageId: capability.imageId,
-              imageUrl: capability.imageUrl,
-              privateTokenHash: capability.privateTokenHash,
               provider: generated.runtimeProvider,
               model: generated.providerModel,
               mimeType: normalized.mimeType,
@@ -1090,12 +1089,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
 
         const normalizedImages = normalizedResults.reduce<
           Array<{
-            resultId: string;
-            assetId: string;
             buffer: Buffer;
-            imageId: string;
-            imageUrl: string;
-            privateTokenHash: string;
             provider: string;
             model: string;
             mimeType?: string;
@@ -1111,10 +1105,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           return accumulator;
         }, []);
 
-        const firstImageUrl = normalizedImages[0]?.imageUrl;
-        const firstImageId = normalizedImages[0]?.imageId;
-
-        if (!firstImageUrl) {
+        if (normalizedImages.length === 0) {
           if (firstNormalizationError) {
             throw firstNormalizationError;
           }
@@ -1134,15 +1125,60 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           finalPromptSnapshot,
           normalizedImages[0]?.revisedPrompt ?? null
         );
-        const assets = normalizedImages.map((image, index) => ({
+        const assetizedImages: Array<{
+          resultId: string;
+          assetId: string;
+          imageUrl: string;
+          thumbnailUrl: string;
+          created: boolean;
+          provider: string;
+          model: string;
+          mimeType?: string;
+          revisedPrompt: string | null;
+          index: number;
+        }> = [];
+        for (const [index, image] of normalizedImages.entries()) {
+          const createdAsset = await app.assetService.createGeneratedAsset({
+            userId,
+            name: `generated-${turnId}-${index + 1}`,
+            mimeType: image.mimeType ?? "image/png",
+            buffer: image.buffer,
+            createdAt: completedAt,
+            source: "ai-generated",
+            origin: "ai",
+            metadata: {
+              runtimeProvider: image.provider,
+              providerModel: image.model,
+              revisedPrompt: image.revisedPrompt ?? null,
+              index,
+            },
+          });
+          if (createdAsset.created) {
+            createdGeneratedAssetIds.push(createdAsset.assetId);
+          }
+
+          assetizedImages.push({
+            resultId: createId("chat-result"),
+            assetId: createdAsset.assetId,
+            imageUrl: createdAsset.objectUrl,
+            thumbnailUrl: createdAsset.thumbnailUrl,
+            created: createdAsset.created,
+            provider: image.provider,
+            model: image.model,
+            mimeType: createdAsset.type,
+            revisedPrompt: image.revisedPrompt,
+            index: image.index,
+          });
+        }
+        const assets = assetizedImages.map((image, index) => ({
           id: image.assetId,
           turnId,
           runId: imageRunId,
           assetType: "image" as const,
           label: `Generated image ${index + 1}`,
           metadata: {
-            imageId: image.imageId,
             imageUrl: image.imageUrl,
+            thumbnailUrl: image.thumbnailUrl,
             mimeType: image.mimeType ?? null,
             runtimeProvider: image.provider,
             providerModel: image.model,
@@ -1153,7 +1189,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             {
               id: createId("thread-locator"),
               assetId: image.assetId,
-              locatorType: "generated_image_store" as const,
+              locatorType: "remote_url" as const,
               locatorValue: image.imageUrl,
               mimeType: image.mimeType,
               expiresAt: null,
@@ -1172,6 +1208,13 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
             createdAt: completedAt,
           }))
         );
+        await app.assetService.createAssetEdges(
+          assetEdges.map((edge) => ({
+            ...edge,
+            conversationId: conversation.id,
+          }))
+        );
+        createdAssetEdgeIds = assetEdges.map((edge) => edge.id);
         const executedTarget = createRunTargetSnapshot({
           modelId: generated.modelId,
           logicalModel: generated.logicalModel,
@@ -1269,30 +1312,19 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           providerRequestId: generated.providerRequestId,
           providerTaskId: generated.providerTaskId,
           warnings: mergedWarnings,
-          generatedImages: normalizedImages.map((image) => ({
-            id: image.imageId,
-            ownerUserId: userId,
-            conversationId: conversation.id,
-            turnId,
-            mimeType: image.mimeType ?? "image/png",
-            sizeBytes: image.buffer.byteLength,
-            blobData: image.buffer,
-            visibility: "private",
-            privateTokenHash: image.privateTokenHash,
-            createdAt: completedAt,
-          })),
-          results: normalizedImages.map((image, index) => ({
+          generatedImages: [],
+          results: assetizedImages.map((image, index) => ({
             id: image.resultId,
             imageUrl: image.imageUrl,
-            imageId: image.imageId,
+            imageId: null,
             threadAssetId: image.assetId,
             runtimeProvider: image.provider,
             providerModel: image.model,
             mimeType: image.mimeType,
             revisedPrompt: image.revisedPrompt,
             index,
-            assetId: null,
-            saved: false,
+            assetId: image.assetId,
+            saved: true,
           })),
           assets,
           assetEdges,
@@ -1312,6 +1344,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           },
           completedAt,
         });
+        generationAssetsCommitted = true;
 
         const imageRunRecord: PersistedRunRecord = {
           id: imageRunId,
@@ -1357,12 +1390,10 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
           runtimeProvider: generated.runtimeProvider,
           providerModel: generated.providerModel,
           createdAt: completedAt,
-          imageId: firstImageId,
-          imageUrl: firstImageUrl,
-          images: normalizedImages.map((image) => ({
+          imageUrl: assetizedImages[0]?.imageUrl,
+          images: assetizedImages.map((image) => ({
             resultId: image.resultId,
             assetId: image.assetId,
-            imageId: image.imageId,
             imageUrl: image.imageUrl,
             provider: image.provider,
             model: image.model,
@@ -1412,6 +1443,17 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
               "Failed to persist image generation failure state."
             );
           }
+        }
+
+        if (!generationAssetsCommitted && createdAssetEdgeIds.length > 0) {
+          await app.assetService.deleteAssetEdges(createdAssetEdgeIds).catch(() => undefined);
+        }
+        if (!generationAssetsCommitted && createdGeneratedAssetIds.length > 0) {
+          await Promise.allSettled(
+            createdGeneratedAssetIds.map((assetId) =>
+              app.assetService.deleteAsset(userId, assetId)
+            )
+          );
         }
 
         if (requestController.signal.aborted || reply.raw.destroyed) {
