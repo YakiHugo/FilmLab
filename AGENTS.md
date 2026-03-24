@@ -15,12 +15,17 @@ Follow Conventional Commit style: `feat(scope): ...`, `fix(scope): ...`, `refact
 - Never be sycophantic. If you disagree, say so directly. If my suggestion would make the code worse, push back.
 - Do not excessively use emojis.
 - Always read and understand code before proposing changes. Never suggest modifications to code you have not inspected.
+- When I ask for a review, explain the post-change overall architecture first. Cover every major affected file, its role in that architecture, and for any large, high-responsibility, or newly created component or module, include a concise description of its internal logic.
 - Do what has been asked; nothing more, nothing less. Do not over-engineer.
 - For small decisions (naming, local refactors, implementation details), decide on your own and move on. Only ask when the choice is irreversible or affects security/architecture.
 - When refactoring or creating new module, first propose what you consider best practice and let the user decide, rather than immediately compromising the workspace code
 - Prefer shared helpers in `src/utils/<function>.ts`, with re-exports from `src/utils/index.ts`.
 - Do not inline runtime ID generation with `randomUUID`, `Date.now`, or `Math.random`; reuse the shared ID helper instead.
 - For canvas insert, duplicate, delete, and upsert flows, reuse the shared collision and selection handling instead of re-implementing ad hoc logic at new call sites.
+
+## Code Convention
+
+- Split logic or components when a unit has more than one real responsibility, repeated behavior, or state/side-effect flow that makes ownership unclear; do not split for tiny one-off paths, prop-forwarding wrappers, or abstractions that only make the file shorter while keeping the same coupling.
 
 ## Long Tasks
 
@@ -75,8 +80,7 @@ Follow Conventional Commit style: `feat(scope): ...`, `fix(scope): ...`, `refact
 - Treat pure functions strictly: deterministic input/output logic with no I/O, shared mutable state, framework lifecycle, network, storage, timer, or rendering side effects.
 - Do not add unit tests for components, hooks, stores, routes, integration flows, or any side-effectful or non-pure module.
 - Do not expand existing nonconforming tests. They may be deleted when touched or when cleanup is requested.
-- For browser-based validation of local UI flows, `agent-browser` is recommended for interactive smoke checks because it is quick to iterate with and easier to replay than an ad hoc CDP session.
-- Do not treat `agent-browser` as a blanket replacement for CDP/Chrome DevTools. Use whichever tool best matches the interaction or diagnostics you need.
+- For browser-based validation of local UI flows, use `agent-browser` for interactive smoke tests and lightweight end-to-end functional checks. Do not use it as the default tool for extracting or reading page content.
 - Only codify an `agent-browser` flow under `scripts/` and `package.json` when it is stable and expected to be rerun regularly; otherwise a one-off manual smoke pass is enough.
 
 ## Subagents
