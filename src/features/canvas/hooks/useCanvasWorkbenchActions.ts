@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
-import { selectActiveWorkbench, useCanvasStore } from "@/stores/canvasStore";
+import { useCanvasStore } from "@/stores/canvasStore";
 import type {
   CanvasWorkbenchEditablePatch,
   CreateWorkbenchOptions,
@@ -10,15 +10,14 @@ import {
   resolveCanvasWorkbenchName,
   resolveCanvasWorkbenchSequenceName,
 } from "../workbenchPanelState";
+import { useActiveCanvasWorkbench } from "./useActiveCanvasWorkbench";
 
 export function useCanvasWorkbenchActions() {
   const navigate = useNavigate();
+  const { activeWorkbench, activeWorkbenchId, patchWorkbench } = useActiveCanvasWorkbench();
   const workbenches = useCanvasStore((state) => state.workbenches);
-  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
-  const activeWorkbench = useCanvasStore(selectActiveWorkbench);
   const createWorkbench = useCanvasStore((state) => state.createWorkbench);
   const deleteWorkbench = useCanvasStore((state) => state.deleteWorkbench);
-  const patchWorkbench = useCanvasStore((state) => state.patchWorkbench);
 
   const activeWorkbenchMeta = useMemo(
     () => ({
@@ -34,13 +33,13 @@ export function useCanvasWorkbenchActions() {
 
   const patchActiveWorkbench = useCallback(
     async (patch: CanvasWorkbenchEditablePatch, options?: PatchWorkbenchOptions) => {
-      if (!activeWorkbench?.id) {
+      if (!activeWorkbenchId) {
         return null;
       }
 
-      return patchWorkbench(activeWorkbench.id, patch, options);
+      return patchWorkbench(patch, options);
     },
-    [activeWorkbench?.id, patchWorkbench]
+    [activeWorkbenchId, patchWorkbench]
   );
 
   const renameActiveWorkbench = useCallback(

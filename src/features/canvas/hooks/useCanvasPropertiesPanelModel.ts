@@ -1,6 +1,5 @@
 import { useCallback, useMemo } from "react";
 import { useAssetStore } from "@/stores/assetStore";
-import { useCanvasStore } from "@/stores/canvasStore";
 import type { CanvasTextFontSizeTier } from "@/types";
 import {
   CANVAS_TEXT_COLOR_OPTIONS,
@@ -9,12 +8,12 @@ import {
   getCanvasTextFontOption,
 } from "../textStyle";
 import { planCanvasNodePropertyCommand } from "../propertyPanelState";
+import { useActiveCanvasWorkbench } from "./useActiveCanvasWorkbench";
 import { useCanvasImagePropertyActions } from "./useCanvasImagePropertyActions";
 import { useCanvasSelectionModel } from "./useCanvasSelectionModel";
 
 export function useCanvasPropertiesPanelModel() {
-  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
-  const executeCommandInWorkbench = useCanvasStore((state) => state.executeCommandInWorkbench);
+  const { activeWorkbenchId, executeCommand } = useActiveCanvasWorkbench();
   const assets = useAssetStore((state) => state.assets);
   const { activeWorkbench, primarySelectedElement: selected } = useCanvasSelectionModel();
   const {
@@ -37,9 +36,9 @@ export function useCanvasPropertiesPanelModel() {
         return;
       }
 
-      void executeCommandInWorkbench(activeWorkbenchId, command);
+      void executeCommand(command);
     },
-    [activeWorkbench, activeWorkbenchId, executeCommandInWorkbench, selected]
+    [activeWorkbench, activeWorkbenchId, executeCommand, selected]
   );
 
   const selectedAsset = useMemo(() => {

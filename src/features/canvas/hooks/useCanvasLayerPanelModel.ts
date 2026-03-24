@@ -1,5 +1,4 @@
 import { useCallback, useState } from "react";
-import { useCanvasStore } from "@/stores/canvasStore";
 import { planCanvasLayerDrop } from "../layerPanelState";
 import { useCanvasInteraction } from "./useCanvasInteraction";
 import { useCanvasLayers } from "./useCanvasLayers";
@@ -10,15 +9,15 @@ export function useCanvasLayerPanelModel() {
     activeWorkbench,
     activeWorkbenchId,
     assetById,
-    deleteElements,
+    deleteNodes,
+    groupNodes,
     layers,
     reorderElements,
     reparentNodes,
     toggleElementLock,
     toggleElementVisibility,
+    ungroupNode,
   } = useCanvasLayers();
-  const groupElements = useCanvasStore((state) => state.groupElements);
-  const ungroupElement = useCanvasStore((state) => state.ungroupElement);
   const { displaySelectedElementIdSet, displaySelectedElementIds, primarySelectedElement } =
     useCanvasSelectionModel();
   const { selectElement } = useCanvasInteraction();
@@ -59,7 +58,7 @@ export function useCanvasLayerPanelModel() {
       if (!activeWorkbenchId) {
         return;
       }
-      void deleteElements([layerId]);
+      void deleteNodes([layerId]);
     },
     handleDragStart: (layerId: string) => {
       setDraggingId(layerId);
@@ -69,7 +68,7 @@ export function useCanvasLayerPanelModel() {
       if (!activeWorkbenchId || displaySelectedElementIds.length < 2) {
         return;
       }
-      void groupElements(displaySelectedElementIds);
+      void groupNodes(displaySelectedElementIds);
     },
     handleSelect: (layerId: string, additive: boolean) => {
       selectElement(layerId, { additive });
@@ -90,7 +89,7 @@ export function useCanvasLayerPanelModel() {
       if (!activeWorkbenchId || primarySelectedElement?.type !== "group") {
         return;
       }
-      void ungroupElement(primarySelectedElement.id);
+      void ungroupNode(primarySelectedElement.id);
     },
     layers,
     primarySelectedElement,

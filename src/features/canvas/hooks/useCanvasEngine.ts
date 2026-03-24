@@ -3,18 +3,10 @@ import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { createId, resolveCanvasImageInsertionSize } from "@/utils";
 import { snapPoint } from "../grid";
+import { useActiveCanvasWorkbench } from "./useActiveCanvasWorkbench";
 
 export function useCanvasEngine() {
-  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
-  const activeWorkbenchRootCount = useCanvasStore((state) => {
-    if (!state.activeWorkbenchId) {
-      return 0;
-    }
-    return (
-      state.workbenches.find((entry) => entry.id === state.activeWorkbenchId)?.rootIds.length ?? 0
-    );
-  });
-  const upsertElementInWorkbench = useCanvasStore((state) => state.upsertElementInWorkbench);
+  const { activeWorkbenchId, activeWorkbenchRootCount, upsertElement } = useActiveCanvasWorkbench();
   const setSelectedElementIds = useCanvasStore((state) => state.setSelectedElementIds);
   const assets = useAssetStore((state) => state.assets);
 
@@ -51,7 +43,7 @@ export function useCanvasEngine() {
       locked: false,
       visible: true,
     };
-    await upsertElementInWorkbench(workbenchId, element);
+    await upsertElement(element);
     if (useCanvasStore.getState().activeWorkbenchId === workbenchId) {
       setSelectedElementIds([element.id]);
     }

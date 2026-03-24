@@ -1,11 +1,12 @@
 import { useMemo, useRef } from "react";
 import { useCanvasSelectionPreview } from "@/features/canvas/runtime/canvasRuntimeHooks";
-import { selectActiveWorkbench, useCanvasStore } from "@/stores/canvasStore";
+import { useCanvasStore } from "@/stores/canvasStore";
 import {
   createCanvasSelectionModel,
   resolveDisplaySelectedElementIds,
   selectionIdsEqual,
 } from "../selectionModel";
+import { selectActiveWorkbench } from "../store/canvasStoreSelectors";
 
 const EMPTY_SELECTED_ELEMENT_IDS: string[] = [];
 

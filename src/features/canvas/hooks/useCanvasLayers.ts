@@ -1,15 +1,19 @@
 import { useMemo } from "react";
 import { useAssetStore } from "@/stores/assetStore";
-import { selectActiveWorkbench, useCanvasStore } from "@/stores/canvasStore";
+import { useActiveCanvasWorkbench } from "./useActiveCanvasWorkbench";
 
 export function useCanvasLayers() {
-  const activeWorkbench = useCanvasStore(selectActiveWorkbench);
-  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
-  const reorderElements = useCanvasStore((state) => state.reorderElements);
-  const reparentNodes = useCanvasStore((state) => state.reparentNodes);
-  const toggleElementVisibility = useCanvasStore((state) => state.toggleElementVisibility);
-  const toggleElementLock = useCanvasStore((state) => state.toggleElementLock);
-  const deleteElements = useCanvasStore((state) => state.deleteElements);
+  const {
+    activeWorkbench,
+    activeWorkbenchId,
+    deleteNodes,
+    groupNodes,
+    reorderElements,
+    reparentNodes,
+    toggleElementLock,
+    toggleElementVisibility,
+    ungroupNode,
+  } = useActiveCanvasWorkbench();
   const assets = useAssetStore((state) => state.assets);
 
   const layers = useMemo(() => {
@@ -53,8 +57,10 @@ export function useCanvasLayers() {
     assetById,
     reparentNodes,
     reorderElements,
+    groupNodes,
     toggleElementVisibility,
     toggleElementLock,
-    deleteElements,
+    ungroupNode,
+    deleteNodes,
   };
 }
