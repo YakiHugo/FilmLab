@@ -1,7 +1,7 @@
 import { getClientAuthToken } from "./authToken";
 
-export interface AssetPresignUploadRequest {
-  localAssetId: string;
+export interface AssetUploadInitRequest {
+  assetId?: string;
   name: string;
   type: string;
   size: number;
@@ -11,6 +11,7 @@ export interface AssetPresignUploadRequest {
   contentHash: string;
   tags: string[];
   metadata?: Record<string, unknown>;
+  includeThumbnail?: boolean;
 }
 
 type UploadTarget = {
@@ -19,38 +20,34 @@ type UploadTarget = {
   headers?: Record<string, string>;
 };
 
-export type AssetPresignUploadResponse =
-  | {
-      existing: true;
-      remoteAssetId: string;
-      objectKey: string;
-      thumbnailKey?: string;
-      updatedAt: string;
-    }
-  | {
-      existing: false;
-      remoteAssetId: string;
-      objectKey: string;
-      thumbnailKey?: string;
-      upload: UploadTarget;
-      thumbnailUpload?: UploadTarget;
-    };
-
-export interface AssetCompleteUploadRequest {
-  remoteAssetId: string;
-  localAssetId: string;
-  objectKey: string;
-  thumbnailKey?: string;
+export interface AssetApiRecord {
+  assetId: string;
   name: string;
   type: string;
   size: number;
-  createdAt: string;
   source: "imported" | "ai-generated";
   origin: "file" | "url" | "ai";
   contentHash: string;
   tags: string[];
   metadata?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  objectUrl: string;
+  thumbnailUrl: string;
 }
+
+export type AssetUploadInitResponse =
+  | {
+      existing: true;
+      assetId: string;
+      asset: AssetApiRecord;
+    }
+  | {
+      existing: false;
+      assetId: string;
+      upload: UploadTarget;
+      thumbnailUpload?: UploadTarget;
+    };
 
 const parseJson = async (response: Response) => {
   try {
@@ -75,10 +72,10 @@ const assertOk = async (response: Response, fallback: string) => {
   throw new Error(fallback);
 };
 
-export const presignAssetUpload = async (
-  payload: AssetPresignUploadRequest
-): Promise<AssetPresignUploadResponse> => {
-  const response = await fetch("/api/assets/presign-upload", {
+export const prepareAssetUpload = async (
+  payload: AssetUploadInitRequest
+): Promise<AssetUploadInitResponse> => {
+  const response = await fetch("/api/assets/uploads/init", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -88,26 +85,40 @@ export const presignAssetUpload = async (
   });
 
   await assertOk(response, "Failed to prepare upload.");
-  const json = (await parseJson(response)) as AssetPresignUploadResponse | null;
+  const json = (await parseJson(response)) as AssetUploadInitResponse | null;
   if (!json || typeof json !== "object") {
     throw new Error("Invalid upload preparation response.");
   }
   return json;
 };
 
-export const completeAssetUpload = async (payload: AssetCompleteUploadRequest): Promise<void> => {
-  const response = await fetch("/api/assets/complete-upload", {
+export const completeAssetUpload = async (assetId: string): Promise<AssetApiRecord> => {
+  const response = await fetch(`/api/assets/uploads/${encodeURIComponent(assetId)}/complete`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders(),
-    },
-    body: JSON.stringify(payload),
+    headers: authHeaders(),
   });
   await assertOk(response, "Failed to complete upload.");
+  const json = (await parseJson(response)) as AssetApiRecord | null;
+  if (!json || typeof json !== "object") {
+    throw new Error("Invalid upload completion response.");
+  }
+  return json;
 };
 
-export const uploadToPresignedTarget = async (
+export const fetchRemoteAsset = async (assetId: string): Promise<AssetApiRecord> => {
+  const response = await fetch(`/api/assets/${encodeURIComponent(assetId)}`, {
+    method: "GET",
+    headers: authHeaders(),
+  });
+  await assertOk(response, "Failed to load remote asset.");
+  const json = (await parseJson(response)) as AssetApiRecord | null;
+  if (!json || typeof json !== "object") {
+    throw new Error("Invalid remote asset response.");
+  }
+  return json;
+};
+
+export const uploadToAssetTarget = async (
   target: UploadTarget,
   blob: Blob
 ): Promise<void> => {
@@ -131,8 +142,8 @@ export const uploadToPresignedTarget = async (
   await assertOk(response, "Failed to upload binary.");
 };
 
-export const deleteRemoteAsset = async (remoteAssetId: string): Promise<void> => {
-  const response = await fetch(`/api/assets/${encodeURIComponent(remoteAssetId)}`, {
+export const deleteRemoteAsset = async (assetId: string): Promise<void> => {
+  const response = await fetch(`/api/assets/${encodeURIComponent(assetId)}`, {
     method: "DELETE",
     headers: authHeaders(),
   });
@@ -140,7 +151,7 @@ export const deleteRemoteAsset = async (remoteAssetId: string): Promise<void> =>
 };
 
 export interface AssetChangeRecord {
-  remoteAssetId: string;
+  assetId: string;
   contentHash: string;
   deletedAt?: string;
   updatedAt: string;
@@ -163,7 +174,7 @@ export const fetchAssetChanges = async (since?: string): Promise<AssetChangeReco
     if (!item || typeof item !== "object") return false;
     const candidate = item as Partial<AssetChangeRecord>;
     return (
-      typeof candidate.remoteAssetId === "string" &&
+      typeof candidate.assetId === "string" &&
       typeof candidate.contentHash === "string" &&
       typeof candidate.updatedAt === "string"
     );

@@ -469,7 +469,6 @@ export type AssetRemoteSyncStatus =
 
 export interface AssetRemoteState {
   status: AssetRemoteSyncStatus;
-  remoteAssetId?: string;
   lastError?: string;
   updatedAt?: string;
   lastSyncedAt?: string;
@@ -545,7 +544,6 @@ export interface AssetSyncJob {
   attempts: number;
   nextRetryAt: string;
   lastError?: string;
-  remoteAssetId?: string;
   createdAt: string;
   updatedAt: string;
 }

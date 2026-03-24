@@ -7,8 +7,8 @@ import {
   completeAssetUpload,
   fetchAssetChanges,
   deleteRemoteAsset,
-  presignAssetUpload,
-  uploadToPresignedTarget,
+  prepareAssetUpload,
+  uploadToAssetTarget,
 } from "@/lib/assetSyncApi";
 import { getCurrentUserId } from "@/lib/authToken";
 import { sha256FromBlob } from "@/lib/hash";
@@ -52,7 +52,7 @@ import { emit } from "@/lib/storeEvents";
 import { loadCustomPresets } from "@/features/editor/presetUtils";
 import type { Asset, AssetRemoteSyncStatus, EditorLayer } from "@/types";
 import { IMPORT_COMMIT_CHUNK_SIZE } from "./currentUser/constants";
-import { resolveAssetImportDay } from "./currentUser/grouping";
+import { resolveAssetImportDay, toLocalDayKey } from "./currentUser/grouping";
 import { runImportPipeline } from "./currentUser/importPipeline";
 import {
   cancelPendingPersists,
@@ -66,7 +66,11 @@ import { materializeStoredAsset } from "./currentUser/runtimeAsset";
 import { MAX_SYNC_ATTEMPTS, createSyncJob, isSyncJobReady, withSyncJobFailure } from "./currentUser/sync";
 import { selectAssets, selectImportProgress, selectIsImporting, selectIsLoading, selectCurrentUser, selectSelectedAssetIds } from "./currentUser/selectors";
 import { mergeTags, normalizeTags, removeTags } from "./currentUser/tagging";
-import type { AddAssetsResult, CurrentUserState } from "./currentUser/types";
+import type {
+  AddAssetsResult,
+  CurrentUserState,
+  MaterializedRemoteAssetInput,
+} from "./currentUser/types";
 import { useEditorStore } from "./editorStore";
 
 const findPresetById = (presetId: string) => {
@@ -320,6 +324,69 @@ const latestIso = (left?: string, right?: string): string | undefined => {
   if (!left) return right;
   if (!right) return left;
   return Date.parse(left) >= Date.parse(right) ? left : right;
+};
+
+const isRemotelyPersisted = (asset: Asset) =>
+  Boolean(asset.remote?.lastSyncedAt) ||
+  asset.remote?.status === "synced" ||
+  asset.remote?.status === "delete_queued" ||
+  asset.remote?.status === "deleting" ||
+  asset.remote?.status === "delete_failed";
+
+const toAssetMetadata = (metadata?: Record<string, unknown>): Asset["metadata"] | undefined => {
+  if (!metadata || typeof metadata !== "object") {
+    return undefined;
+  }
+
+  const next: NonNullable<Asset["metadata"]> = {};
+  if (typeof metadata.width === "number") next.width = metadata.width;
+  if (typeof metadata.height === "number") next.height = metadata.height;
+  if (typeof metadata.cameraMake === "string") next.cameraMake = metadata.cameraMake;
+  if (typeof metadata.cameraModel === "string") next.cameraModel = metadata.cameraModel;
+  if (typeof metadata.lensModel === "string") next.lensModel = metadata.lensModel;
+  if (typeof metadata.focalLength === "number") next.focalLength = metadata.focalLength;
+  if (typeof metadata.aperture === "number") next.aperture = metadata.aperture;
+  if (typeof metadata.shutterSpeed === "string") next.shutterSpeed = metadata.shutterSpeed;
+  if (typeof metadata.iso === "number") next.iso = metadata.iso;
+  if (typeof metadata.capturedAt === "string") next.capturedAt = metadata.capturedAt;
+  return Object.keys(next).length > 0 ? next : undefined;
+};
+
+const mergeRemoteAsset = (
+  current: Asset | undefined,
+  input: MaterializedRemoteAssetInput
+): Asset => {
+  const importDay = current?.importDay ?? toLocalDayKey(input.createdAt);
+  const metadata = toAssetMetadata(input.metadata);
+  const remote = {
+    ...(current?.remote ?? {}),
+    status: "synced" as const,
+    lastError: undefined,
+    updatedAt: input.updatedAt,
+    lastSyncedAt: input.updatedAt,
+  };
+
+  return {
+    ...current,
+    id: input.assetId,
+    name: input.name,
+    type: input.type,
+    size: input.size,
+    createdAt: input.createdAt,
+    objectUrl: current?.blob ? current.objectUrl : input.objectUrl,
+    thumbnailUrl: current?.blob
+      ? (current.thumbnailUrl ?? current.objectUrl)
+      : (input.thumbnailUrl ?? input.objectUrl),
+    importDay,
+    group: current?.group ?? importDay,
+    tags: current?.tags ?? normalizeTags(input.tags ?? []),
+    metadata: metadata ?? current?.metadata,
+    source: input.source ?? current?.source,
+    origin: input.origin ?? current?.origin ?? "file",
+    contentHash: input.contentHash ?? current?.contentHash,
+    remote,
+    ownerRef: current?.ownerRef ?? { userId: getCurrentUserId() },
+  };
 };
 
 const toMetadataRecord = (asset: Asset): Record<string, unknown> | undefined => {
@@ -579,10 +646,10 @@ export const useAssetStore = create<CurrentUserState>()(
 
           lastRemoteChangeCursor = hydratedAssets.reduce<string | undefined>(
             (cursor, asset) => {
-              if (!asset.remote?.remoteAssetId) {
+              if (!isRemotelyPersisted(asset)) {
                 return cursor;
               }
-              return latestIso(cursor, asset.remote.lastSyncedAt ?? asset.remote.updatedAt);
+              return latestIso(cursor, asset.remote?.lastSyncedAt ?? asset.remote?.updatedAt);
             },
             undefined
           );
@@ -681,7 +748,7 @@ export const useAssetStore = create<CurrentUserState>()(
 
           const pendingDeleteAssets = hydratedAssets.filter(
             (asset) =>
-              Boolean(asset.remote?.remoteAssetId) &&
+              isRemotelyPersisted(asset) &&
               (asset.remote?.status === "delete_failed" || asset.remote?.status === "delete_queued") &&
               !queuedDeleteIds.has(asset.id)
           );
@@ -691,7 +758,6 @@ export const useAssetStore = create<CurrentUserState>()(
               createSyncJob({
                 localAssetId: asset.id,
                 op: "delete",
-                remoteAssetId: asset.remote?.remoteAssetId,
                 nextRetryAt: queuedAt,
               })
             );
@@ -705,7 +771,6 @@ export const useAssetStore = create<CurrentUserState>()(
               pendingDeleteAssets.map((asset) => [
                 asset.id,
                 withRemoteStatus(asset, "delete_queued", {
-                  remoteAssetId: asset.remote?.remoteAssetId,
                   lastError: undefined,
                 }),
               ])
@@ -778,10 +843,14 @@ export const useAssetStore = create<CurrentUserState>()(
 
           commitBufferedAssets();
 
-          if (importedAssets.length > 0) {
+          const uploadQueuedAssets = importedAssets.filter(
+            (asset) => asset.remote?.status === "upload_queued"
+          );
+
+          if (uploadQueuedAssets.length > 0) {
             const queuedAt = syncNowIso();
             await saveAssetSyncJobs(
-              importedAssets.map((asset) =>
+              uploadQueuedAssets.map((asset) =>
                 createSyncJob({
                   localAssetId: asset.id,
                   op: "upload",
@@ -855,6 +924,43 @@ export const useAssetStore = create<CurrentUserState>()(
         });
       },
 
+      materializeRemoteAssets: (inputs) => {
+        if (inputs.length === 0) {
+          return;
+        }
+
+        const nextById = new Map(inputs.map((input) => [input.assetId, input]));
+        const touched: Asset[] = [];
+
+        set((state) => {
+          const nextAssets = state.assets.map((asset) => {
+            const input = nextById.get(asset.id);
+            if (!input) {
+              return asset;
+            }
+
+            const merged = mergeRemoteAsset(asset, input);
+            touched.push(merged);
+            nextById.delete(asset.id);
+            return merged;
+          });
+
+          for (const input of nextById.values()) {
+            const merged = mergeRemoteAsset(undefined, input);
+            touched.push(merged);
+            nextAssets.push(merged);
+          }
+
+          return { assets: nextAssets };
+        });
+
+        touched.forEach((asset) => {
+          if (asset.blob) {
+            persistAsset(asset);
+          }
+        });
+      },
+
       runAssetSync: async () => {
         if (isSyncRunning) {
           return;
@@ -880,17 +986,15 @@ export const useAssetStore = create<CurrentUserState>()(
               lastRemoteChangeCursor
             );
 
-            const changesByRemoteId = new Map(changes.map((change) => [change.remoteAssetId, change]));
+            const changesByAssetId = new Map(changes.map((change) => [change.assetId, change]));
             const changesByHash = new Map(changes.map((change) => [change.contentHash, change]));
             const currentState = get();
             const updates = new Map<string, Asset>();
             const removeIds = new Set<string>();
 
             for (const asset of currentState.assets) {
-              const byRemoteId = asset.remote?.remoteAssetId
-                ? changesByRemoteId.get(asset.remote.remoteAssetId)
-                : undefined;
-              const change = byRemoteId ?? (asset.contentHash ? changesByHash.get(asset.contentHash) : undefined);
+              const byAssetId = changesByAssetId.get(asset.id);
+              const change = byAssetId ?? (asset.contentHash ? changesByHash.get(asset.contentHash) : undefined);
               if (!change) {
                 continue;
               }
@@ -907,7 +1011,6 @@ export const useAssetStore = create<CurrentUserState>()(
                 },
                 "synced",
                 {
-                  remoteAssetId: change.remoteAssetId,
                   lastError: undefined,
                   lastSyncedAt: change.updatedAt,
                 }
@@ -1018,8 +1121,8 @@ export const useAssetStore = create<CurrentUserState>()(
                     if (isAssetStoreScopeStale(syncScope)) {
                       return;
                     }
-                    const prepared = await presignAssetUpload({
-                      localAssetId: current.id,
+                    const prepared = await prepareAssetUpload({
+                      assetId: current.id,
                       name: working.name,
                       type: working.type,
                       size: working.size,
@@ -1029,61 +1132,67 @@ export const useAssetStore = create<CurrentUserState>()(
                       contentHash,
                       tags: working.tags ?? [],
                       metadata: toMetadataRecord(working),
+                      includeThumbnail: Boolean(working.thumbnailBlob),
                     });
                     if (isAssetStoreScopeStale(syncScope)) {
                       return;
+                    }
+
+                    if (prepared.assetId !== current.id) {
+                      throw new Error(
+                        `Asset sync identity mismatch for ${current.id}. Expected canonical assetId to remain stable.`
+                      );
                     }
 
                     if (!prepared.existing) {
                       if (isAssetStoreScopeStale(syncScope)) {
                         return;
                       }
-                      await uploadToPresignedTarget(prepared.upload, workingBlob);
+                      await uploadToAssetTarget(prepared.upload, workingBlob);
                       if (working.thumbnailBlob && prepared.thumbnailUpload) {
                         if (isAssetStoreScopeStale(syncScope)) {
                           return;
                         }
-                        await uploadToPresignedTarget(prepared.thumbnailUpload, working.thumbnailBlob);
+                        await uploadToAssetTarget(prepared.thumbnailUpload, working.thumbnailBlob);
                       }
                       if (isAssetStoreScopeStale(syncScope)) {
                         return;
                       }
-                      await completeAssetUpload({
-                        remoteAssetId: prepared.remoteAssetId,
-                        localAssetId: current.id,
-                        objectKey: prepared.objectKey,
-                        thumbnailKey: prepared.thumbnailKey,
-                        name: working.name,
-                        type: working.type,
-                        size: working.size,
-                        createdAt: working.createdAt,
-                        source,
-                        origin,
-                        contentHash,
-                        tags: working.tags ?? [],
-                        metadata: toMetadataRecord(working),
-                      });
+                      const completed = await completeAssetUpload(prepared.assetId);
+                      working = {
+                        ...working,
+                        objectUrl: completed.objectUrl,
+                        thumbnailUrl: completed.thumbnailUrl,
+                      };
                     }
                     if (isAssetStoreScopeStale(syncScope)) {
                       return;
                     }
 
+                    const syncedSource = prepared.existing ? prepared.asset : null;
                     const synced = withRemoteStatus(working, "synced", {
-                      remoteAssetId: prepared.remoteAssetId,
                       lastError: undefined,
-                      lastSyncedAt:
-                        ("updatedAt" in prepared ? prepared.updatedAt : undefined) ?? syncNowIso(),
+                      lastSyncedAt: syncedSource?.updatedAt ?? syncNowIso(),
                     });
+                    const syncedAsset: Asset = {
+                      ...synced,
+                      ...(syncedSource
+                        ? {
+                            objectUrl: syncedSource.objectUrl,
+                            thumbnailUrl: syncedSource.thumbnailUrl,
+                          }
+                        : {}),
+                    };
                     set((state) => ({
                       assets: state.assets.map((asset) =>
-                        asset.id === current.id ? synced : asset
+                        asset.id === current.id ? syncedAsset : asset
                       ),
                     }));
-                    persistAsset(synced);
+                    persistAsset(syncedAsset);
                     await deleteAssetSyncJob(job.jobId);
                     lastRemoteChangeCursor = latestIso(
                       lastRemoteChangeCursor,
-                      synced.remote?.lastSyncedAt ?? synced.remote?.updatedAt
+                      syncedAsset.remote?.lastSyncedAt ?? syncedAsset.remote?.updatedAt
                     );
                   } catch (error) {
                     if (isAssetStoreScopeStale(syncScope)) {
@@ -1121,8 +1230,8 @@ export const useAssetStore = create<CurrentUserState>()(
               ...deleteJobs.map((job) =>
                 runDelete(async () => {
                   const current = get().assets.find((asset) => asset.id === job.localAssetId);
-                  const remoteAssetId = job.remoteAssetId ?? current?.remote?.remoteAssetId;
-                  if (!remoteAssetId) {
+                  const assetId = current?.id ?? job.localAssetId;
+                  if (current && !isRemotelyPersisted(current)) {
                     await deleteAssetSyncJob(job.jobId);
                     return;
                   }
@@ -1130,7 +1239,6 @@ export const useAssetStore = create<CurrentUserState>()(
                   let deletingAsset: Asset | null = null;
                   if (current) {
                     const deleting = withRemoteStatus(current, "deleting", {
-                      remoteAssetId,
                       lastError: undefined,
                     });
                     deletingAsset = deleting;
@@ -1149,7 +1257,7 @@ export const useAssetStore = create<CurrentUserState>()(
                     if (isAssetStoreScopeStale(syncScope)) {
                       return;
                     }
-                    await deleteRemoteAsset(remoteAssetId);
+                    await deleteRemoteAsset(assetId);
                     if (isAssetStoreScopeStale(syncScope)) {
                       return;
                     }
@@ -1157,7 +1265,6 @@ export const useAssetStore = create<CurrentUserState>()(
 
                     if (deletingAsset) {
                       const deleted = withRemoteStatus(deletingAsset, "deleted", {
-                        remoteAssetId,
                         lastError: undefined,
                         lastSyncedAt: syncNowIso(),
                       });
@@ -1186,7 +1293,6 @@ export const useAssetStore = create<CurrentUserState>()(
                       await deleteAssetSyncJob(job.jobId);
                       if (deletingAsset) {
                         const failed = withRemoteStatus(deletingAsset, "delete_failed", {
-                          remoteAssetId,
                           lastError: message,
                         });
                         set((state) => ({
@@ -1202,7 +1308,6 @@ export const useAssetStore = create<CurrentUserState>()(
                     await saveAssetSyncJob(failedJob);
                     if (deletingAsset) {
                       const requeued = withRemoteStatus(deletingAsset, "delete_queued", {
-                        remoteAssetId,
                         lastError: message,
                       });
                       set((state) => ({
@@ -1596,12 +1701,11 @@ export const useAssetStore = create<CurrentUserState>()(
 
         const { assets, selectedAssetIds } = get();
         const targets = assets.filter((asset) => idsToDelete.has(asset.id));
-        const remoteDeleteAssets = targets.filter((asset) => Boolean(asset.remote?.remoteAssetId));
-        const localDeleteAssets = targets.filter((asset) => !asset.remote?.remoteAssetId);
+        const remoteDeleteAssets = targets.filter((asset) => isRemotelyPersisted(asset));
+        const localDeleteAssets = targets.filter((asset) => !isRemotelyPersisted(asset));
 
         const queuedRemoteDeletes = remoteDeleteAssets.map((asset) =>
           withRemoteStatus(asset, "delete_queued", {
-            remoteAssetId: asset.remote?.remoteAssetId,
             lastError: undefined,
           })
         );
@@ -1615,7 +1719,6 @@ export const useAssetStore = create<CurrentUserState>()(
               createSyncJob({
                 localAssetId: asset.id,
                 op: "delete",
-                remoteAssetId: asset.remote?.remoteAssetId,
                 nextRetryAt: syncNowIso(),
               })
             )

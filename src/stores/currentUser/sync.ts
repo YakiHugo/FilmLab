@@ -23,7 +23,6 @@ export const nextRetryAtForAttempt = (attempts: number) => {
 export const createSyncJob = (params: {
   localAssetId: string;
   op: AssetSyncJobOperation;
-  remoteAssetId?: string;
   nextRetryAt?: string;
 }): AssetSyncJob => {
   const now = new Date().toISOString();
@@ -33,7 +32,6 @@ export const createSyncJob = (params: {
     op: params.op,
     attempts: 0,
     nextRetryAt: params.nextRetryAt ?? now,
-    remoteAssetId: params.remoteAssetId,
     createdAt: now,
     updatedAt: now,
   };
