@@ -10,8 +10,9 @@ import { CanvasViewportStageShell } from "./CanvasViewportStageShell";
 import { VIEWPORT_INSETS } from "./canvasViewportConstants";
 import { isCanvasTextElementEditable } from "./elements/TextElement";
 import { getVisibleWorldGridBounds, quantizeDragPosition } from "./grid";
+import { useCanvasActiveWorkbenchCommands } from "./hooks/useCanvasActiveWorkbenchCommands";
+import { useCanvasActiveWorkbenchState } from "./hooks/useCanvasActiveWorkbenchState";
 import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
-import { useActiveCanvasWorkbench } from "./hooks/useActiveCanvasWorkbench";
 import { useCanvasMarqueeSelection } from "./hooks/useCanvasMarqueeSelection";
 import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
 import { useCanvasTextRuntimeViewModel } from "./hooks/useCanvasTextRuntimeViewModel";
@@ -105,7 +106,8 @@ function CanvasViewportControls({
 }
 
 export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProps) {
-  const { activeWorkbench, activeWorkbenchId, upsertElement } = useActiveCanvasWorkbench();
+  const { activeWorkbench, activeWorkbenchId } = useCanvasActiveWorkbenchState();
+  const { upsertElement } = useCanvasActiveWorkbenchCommands();
   const availableWorkbenchIds = useCanvasStore(
     (state) => state.workbenches.map((workbench) => workbench.id),
     shallow

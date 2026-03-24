@@ -1,17 +1,15 @@
 import { useCallback } from "react";
-import { useCanvasStore } from "@/stores/canvasStore";
 import type { CanvasCommand, CanvasRenderableElement, EditingAdjustments } from "@/types";
 import {
   planCanvasImagePropertyCommand,
   type CanvasImagePropertyIntent,
 } from "../imagePropertyState";
+import { useCanvasActiveWorkbenchCommands } from "./useCanvasActiveWorkbenchCommands";
 
 type CanvasRenderableImageElement = Extract<CanvasRenderableElement, { type: "image" }>;
 
 interface CommitCanvasImagePropertyIntentOptions {
-  activeWorkbenchId: string | null;
-  executeCommandInWorkbench: (
-    workbenchId: string,
+  executeCommand: (
     command: CanvasCommand,
     options?: { trackHistory?: boolean }
   ) => Promise<unknown>;
@@ -20,12 +18,11 @@ interface CommitCanvasImagePropertyIntentOptions {
 }
 
 export const commitCanvasImagePropertyIntent = async ({
-  activeWorkbenchId,
-  executeCommandInWorkbench,
+  executeCommand,
   imageElement,
   intent,
 }: CommitCanvasImagePropertyIntentOptions) => {
-  if (!activeWorkbenchId || !imageElement) {
+  if (!imageElement) {
     return;
   }
 
@@ -37,22 +34,20 @@ export const commitCanvasImagePropertyIntent = async ({
     return;
   }
 
-  await executeCommandInWorkbench(activeWorkbenchId, command);
+  await executeCommand(command);
 };
 
 export function useCanvasImagePropertyActions(selectedImageElement: CanvasRenderableImageElement | null) {
-  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
-  const executeCommandInWorkbench = useCanvasStore((state) => state.executeCommandInWorkbench);
+  const { executeCommand } = useCanvasActiveWorkbenchCommands();
 
   const commitIntent = useCallback(
     (intent: CanvasImagePropertyIntent) =>
       commitCanvasImagePropertyIntent({
-        activeWorkbenchId,
-        executeCommandInWorkbench,
+        executeCommand,
         imageElement: selectedImageElement,
         intent,
       }),
-    [activeWorkbenchId, executeCommandInWorkbench, selectedImageElement]
+    [executeCommand, selectedImageElement]
   );
 
   const setAdjustments = useCallback(

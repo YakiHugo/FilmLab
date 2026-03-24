@@ -10,11 +10,13 @@ import {
   resolveCanvasWorkbenchName,
   resolveCanvasWorkbenchSequenceName,
 } from "../workbenchPanelState";
-import { useActiveCanvasWorkbench } from "./useActiveCanvasWorkbench";
+import { useCanvasActiveWorkbenchCommands } from "./useCanvasActiveWorkbenchCommands";
+import { useCanvasActiveWorkbenchState } from "./useCanvasActiveWorkbenchState";
 
 export function useCanvasWorkbenchActions() {
   const navigate = useNavigate();
-  const { activeWorkbench, activeWorkbenchId, patchWorkbench } = useActiveCanvasWorkbench();
+  const { activeWorkbench, activeWorkbenchId } = useCanvasActiveWorkbenchState();
+  const { patchWorkbench } = useCanvasActiveWorkbenchCommands();
   const workbenches = useCanvasStore((state) => state.workbenches);
   const createWorkbench = useCanvasStore((state) => state.createWorkbench);
   const deleteWorkbench = useCanvasStore((state) => state.deleteWorkbench);
@@ -32,14 +34,9 @@ export function useCanvasWorkbenchActions() {
   );
 
   const patchActiveWorkbench = useCallback(
-    async (patch: CanvasWorkbenchEditablePatch, options?: PatchWorkbenchOptions) => {
-      if (!activeWorkbenchId) {
-        return null;
-      }
-
-      return patchWorkbench(patch, options);
-    },
-    [activeWorkbenchId, patchWorkbench]
+    (patch: CanvasWorkbenchEditablePatch, options?: PatchWorkbenchOptions) =>
+      patchWorkbench(patch, options),
+    [patchWorkbench]
   );
 
   const renameActiveWorkbench = useCallback(

@@ -3,7 +3,7 @@ import { useCallback } from "react";
 import type { CanvasSlice } from "@/types";
 import { useAssetStore } from "@/stores/assetStore";
 import { cropRenderedCanvasSlice, renderCanvasWorkbenchToCanvas } from "../renderCanvasWorkbench";
-import { useActiveCanvasWorkbench } from "./useActiveCanvasWorkbench";
+import { useCanvasActiveWorkbenchState } from "./useCanvasActiveWorkbenchState";
 
 export type CanvasExportFormat = "png" | "jpeg";
 
@@ -96,7 +96,7 @@ export const exportStageDataUrl = (
 
 export function useCanvasExport() {
   const assets = useAssetStore((state) => state.assets);
-  const { activeWorkbench } = useActiveCanvasWorkbench();
+  const { activeWorkbench } = useCanvasActiveWorkbenchState();
 
   const exportDataUrl = useCallback(
     (

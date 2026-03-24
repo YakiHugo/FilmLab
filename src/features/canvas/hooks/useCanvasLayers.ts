@@ -1,11 +1,11 @@
 import { useMemo } from "react";
 import { useAssetStore } from "@/stores/assetStore";
-import { useActiveCanvasWorkbench } from "./useActiveCanvasWorkbench";
+import { useCanvasActiveWorkbenchState } from "./useCanvasActiveWorkbenchState";
+import { useCanvasActiveWorkbenchStructure } from "./useCanvasActiveWorkbenchStructure";
 
 export function useCanvasLayers() {
+  const { activeWorkbench, activeWorkbenchId } = useCanvasActiveWorkbenchState();
   const {
-    activeWorkbench,
-    activeWorkbenchId,
     deleteNodes,
     groupNodes,
     reorderElements,
@@ -13,7 +13,7 @@ export function useCanvasLayers() {
     toggleElementLock,
     toggleElementVisibility,
     ungroupNode,
-  } = useActiveCanvasWorkbench();
+  } = useCanvasActiveWorkbenchStructure();
   const assets = useAssetStore((state) => state.assets);
 
   const layers = useMemo(() => {

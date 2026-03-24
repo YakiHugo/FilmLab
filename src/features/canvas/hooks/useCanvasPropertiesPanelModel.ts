@@ -8,14 +8,16 @@ import {
   getCanvasTextFontOption,
 } from "../textStyle";
 import { planCanvasNodePropertyCommand } from "../propertyPanelState";
-import { useActiveCanvasWorkbench } from "./useActiveCanvasWorkbench";
+import { useCanvasActiveWorkbenchCommands } from "./useCanvasActiveWorkbenchCommands";
+import { useCanvasActiveWorkbenchState } from "./useCanvasActiveWorkbenchState";
 import { useCanvasImagePropertyActions } from "./useCanvasImagePropertyActions";
 import { useCanvasSelectionModel } from "./useCanvasSelectionModel";
 
 export function useCanvasPropertiesPanelModel() {
-  const { activeWorkbenchId, executeCommand } = useActiveCanvasWorkbench();
+  const { activeWorkbench } = useCanvasActiveWorkbenchState();
+  const { executeCommand } = useCanvasActiveWorkbenchCommands();
   const assets = useAssetStore((state) => state.assets);
-  const { activeWorkbench, primarySelectedElement: selected } = useCanvasSelectionModel();
+  const { primarySelectedElement: selected } = useCanvasSelectionModel();
   const {
     setAdjustments: setImageAdjustments,
     setFilmProfileId: commitImageFilmProfileId,
@@ -23,7 +25,7 @@ export function useCanvasPropertiesPanelModel() {
 
   const commitIntent = useCallback(
     (intent: Parameters<typeof planCanvasNodePropertyCommand>[0]["intent"]) => {
-      if (!activeWorkbench || !activeWorkbenchId || !selected) {
+      if (!activeWorkbench || !selected) {
         return;
       }
 
@@ -38,7 +40,7 @@ export function useCanvasPropertiesPanelModel() {
 
       void executeCommand(command);
     },
-    [activeWorkbench, activeWorkbenchId, executeCommand, selected]
+    [activeWorkbench, executeCommand, selected]
   );
 
   const selectedAsset = useMemo(() => {

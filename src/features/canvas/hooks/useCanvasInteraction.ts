@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { resolveSelectableSelectionIds } from "../selectionGeometry";
 import { selectionIdsEqual } from "../selectionModel";
-import { useActiveCanvasWorkbench } from "./useActiveCanvasWorkbench";
+import { useCanvasActiveWorkbenchState } from "./useCanvasActiveWorkbenchState";
+import { useCanvasActiveWorkbenchStructure } from "./useCanvasActiveWorkbenchStructure";
+import { useCanvasHistoryActions } from "./useCanvasHistoryActions";
 
 const isEditableTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
@@ -16,17 +18,15 @@ const isEditableTarget = (target: EventTarget | null) => {
 };
 
 export function useCanvasInteraction() {
+  const { activeWorkbench, activeWorkbenchId } = useCanvasActiveWorkbenchState();
   const {
-    activeWorkbench,
-    activeWorkbenchId,
     deleteNodes,
     duplicateNodes,
     groupNodes,
     nudgeElements,
-    redo,
-    undo,
     ungroupNode,
-  } = useActiveCanvasWorkbench();
+  } = useCanvasActiveWorkbenchStructure();
+  const { redo, undo } = useCanvasHistoryActions();
   const selectedElementIds = useCanvasStore((state) => state.selectedElementIds);
   const setSelectedElementIds = useCanvasStore((state) => state.setSelectedElementIds);
 
