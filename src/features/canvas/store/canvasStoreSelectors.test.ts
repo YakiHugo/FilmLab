@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasStoreDataState } from "./canvasStoreTypes";
 import {
+  selectCanvasActiveWorkbenchState,
   selectActiveWorkbench,
   selectActiveWorkbenchRootCount,
   selectCanRedoOnActiveWorkbench,
   selectCanRedoInWorkbench,
   selectCanUndoOnActiveWorkbench,
   selectCanUndoInWorkbench,
+  selectResolvedActiveWorkbenchId,
 } from "./canvasStoreSelectors";
 
 const createState = (): CanvasStoreDataState => ({
@@ -59,7 +61,14 @@ describe("canvasStoreSelectors", () => {
     const state = createState();
 
     expect(selectActiveWorkbench(state)?.id).toBe("workbench-1");
+    expect(selectResolvedActiveWorkbenchId(state)).toBe("workbench-1");
     expect(selectActiveWorkbenchRootCount(state)).toBe(2);
+    expect(selectCanvasActiveWorkbenchState(state)).toMatchObject({
+      activeWorkbench: state.workbenches[0],
+      activeWorkbenchId: "workbench-1",
+      activeWorkbenchRootCount: 2,
+      slices: [],
+    });
   });
 
   it("reports undo and redo availability per workbench id", () => {
@@ -96,5 +105,18 @@ describe("canvasStoreSelectors", () => {
 
     expect(selectCanUndoOnActiveWorkbench(state)).toBe(false);
     expect(selectCanRedoOnActiveWorkbench(state)).toBe(false);
+  });
+
+  it("collapses missing active workbench state to the null-safe read model", () => {
+    const state = createState();
+    state.activeWorkbenchId = "missing-workbench";
+
+    expect(selectResolvedActiveWorkbenchId(state)).toBeNull();
+    expect(selectCanvasActiveWorkbenchState(state)).toEqual({
+      activeWorkbench: null,
+      activeWorkbenchId: null,
+      activeWorkbenchRootCount: 0,
+      slices: [],
+    });
   });
 });
