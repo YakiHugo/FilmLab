@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { shallow } from "zustand/shallow";
 import { hasSelectedImageElement } from "@/features/canvas/selectionModel";
-import { getCanvasResetEpoch, selectActiveWorkbench, useCanvasStore } from "@/stores/canvasStore";
+import { getCanvasResetEpoch, useCanvasStore } from "@/stores/canvasStore";
 import type { CanvasWorkbench } from "@/types";
 import {
   resolveCanvasPageRecoveryPlan,
   shouldAutoOpenCanvasEditPanel,
 } from "../canvasPageState";
+import { selectActiveWorkbench } from "../store/canvasStoreSelectors";
 import {
   resolveOrderedCanvasSlices,
   resolveSelectedCanvasSliceId,
@@ -27,8 +28,11 @@ export function useCanvasPageModel(): CanvasPageModel {
   const navigate = useNavigate();
   const params = useParams({ from: "/canvas/$workbenchId", shouldThrow: false });
   const routeWorkbenchId = params?.workbenchId ?? null;
-  const pendingRecoveryRef = useRef<string | null>(null);
+  const recoveryTokenRef = useRef(0);
+  const pendingRecoveryTokenRef = useRef<number | null>(null);
+  const routeWorkbenchIdRef = useRef(routeWorkbenchId);
   const [hasInitializedCanvas, setHasInitializedCanvas] = useState(false);
+  const [pendingRecoveryToken, setPendingRecoveryToken] = useState<number | null>(null);
   const [exportOpen, setExportOpenState] = useState(false);
   const [rawSelectedSliceId, setRawSelectedSliceId] = useState<string | null>(null);
   const workbenchIds = useCanvasStore(
@@ -44,6 +48,26 @@ export function useCanvasPageModel(): CanvasPageModel {
   const selectedElementIds = useCanvasStore((state) => state.selectedElementIds);
   const activePanel = useCanvasStore((state) => state.activePanel);
   const setActivePanel = useCanvasStore((state) => state.setActivePanel);
+  routeWorkbenchIdRef.current = routeWorkbenchId;
+
+  const finalizeRecoveryNavigation = useCallback(
+    async (targetWorkbenchId: string, token: number) => {
+      if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+        await new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => resolve());
+        });
+      }
+      if (
+        pendingRecoveryTokenRef.current !== token ||
+        routeWorkbenchIdRef.current !== targetWorkbenchId ||
+        useCanvasStore.getState().activeWorkbenchId === targetWorkbenchId
+      ) {
+        return;
+      }
+      setActiveWorkbenchId(targetWorkbenchId);
+    },
+    [setActiveWorkbenchId]
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -63,7 +87,7 @@ export function useCanvasPageModel(): CanvasPageModel {
     const recoveryPlan = resolveCanvasPageRecoveryPlan({
       activeWorkbenchId,
       hasInitialized: hasInitializedCanvas,
-      hasPendingRecovery: pendingRecoveryRef.current !== null,
+      hasPendingRecovery: pendingRecoveryToken !== null,
       isLoading,
       routeWorkbenchId,
       workbenchIds,
@@ -79,17 +103,30 @@ export function useCanvasPageModel(): CanvasPageModel {
     }
 
     if (recoveryPlan.type === "navigate-to-fallback") {
-      pendingRecoveryRef.current = recoveryPlan.workbenchId;
+      const recoveryToken = recoveryTokenRef.current + 1;
+      recoveryTokenRef.current = recoveryToken;
+      pendingRecoveryTokenRef.current = recoveryToken;
+      setPendingRecoveryToken(recoveryToken);
       void navigate({
         to: "/canvas/$workbenchId",
         params: { workbenchId: recoveryPlan.workbenchId },
-      }).finally(() => {
-        pendingRecoveryRef.current = null;
-      });
+      })
+        .then(() => finalizeRecoveryNavigation(recoveryPlan.workbenchId, recoveryToken))
+        .finally(() => {
+          if (pendingRecoveryTokenRef.current === recoveryToken) {
+            pendingRecoveryTokenRef.current = null;
+            setPendingRecoveryToken((currentToken) =>
+              currentToken === recoveryToken ? null : currentToken
+            );
+          }
+        });
       return;
     }
 
-    pendingRecoveryRef.current = "create";
+    const recoveryToken = recoveryTokenRef.current + 1;
+    recoveryTokenRef.current = recoveryToken;
+    pendingRecoveryTokenRef.current = recoveryToken;
+    setPendingRecoveryToken(recoveryToken);
     void (async () => {
       const recoveryEpoch = getCanvasResetEpoch();
       const created = await createWorkbench(undefined, { activate: false });
@@ -101,15 +138,23 @@ export function useCanvasPageModel(): CanvasPageModel {
         to: "/canvas/$workbenchId",
         params: { workbenchId: created.id },
       });
+      await finalizeRecoveryNavigation(created.id, recoveryToken);
     })().finally(() => {
-      pendingRecoveryRef.current = null;
+      if (pendingRecoveryTokenRef.current === recoveryToken) {
+        pendingRecoveryTokenRef.current = null;
+        setPendingRecoveryToken((currentToken) =>
+          currentToken === recoveryToken ? null : currentToken
+        );
+      }
     });
   }, [
     activeWorkbenchId,
     createWorkbench,
+    finalizeRecoveryNavigation,
     hasInitializedCanvas,
     isLoading,
     navigate,
+    pendingRecoveryToken,
     routeWorkbenchId,
     setActiveWorkbenchId,
     workbenchIds,

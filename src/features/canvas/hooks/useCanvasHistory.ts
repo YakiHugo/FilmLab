@@ -1,22 +1,25 @@
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 import { useCanvasStore } from "@/stores/canvasStore";
+import {
+  selectActiveWorkbench,
+  selectCanRedoOnActiveWorkbench,
+  selectCanUndoOnActiveWorkbench,
+} from "../store/canvasStoreSelectors";
 
 export function useCanvasHistory() {
-  const canUndoSelector = useCanvasStore((state) => state.canUndo);
-  const canRedoSelector = useCanvasStore((state) => state.canRedo);
-  const undoInStore = useCanvasStore((state) => state.undo);
-  const redoInStore = useCanvasStore((state) => state.redo);
-
-  const canUndo = useMemo(() => canUndoSelector(), [canUndoSelector]);
-  const canRedo = useMemo(() => canRedoSelector(), [canRedoSelector]);
+  const activeWorkbenchId = useCanvasStore((state) => selectActiveWorkbench(state)?.id ?? null);
+  const canUndo = useCanvasStore(selectCanUndoOnActiveWorkbench);
+  const canRedo = useCanvasStore(selectCanRedoOnActiveWorkbench);
+  const undoInWorkbench = useCanvasStore((state) => state.undoInWorkbench);
+  const redoInWorkbench = useCanvasStore((state) => state.redoInWorkbench);
 
   const undo = useCallback(() => {
-    void undoInStore();
-  }, [undoInStore]);
+    void undoInWorkbench(activeWorkbenchId);
+  }, [activeWorkbenchId, undoInWorkbench]);
 
   const redo = useCallback(() => {
-    void redoInStore();
-  }, [redoInStore]);
+    void redoInWorkbench(activeWorkbenchId);
+  }, [activeWorkbenchId, redoInWorkbench]);
 
   return {
     canUndo,
