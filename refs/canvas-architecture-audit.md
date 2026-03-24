@@ -1,21 +1,21 @@
 # Canvas 模块架构审计
 
-日期: 2026-03-24
+日期: 2026-03-25
 范围: `src/pages/canvas.tsx`、`src/stores/canvasStore.ts`、`src/features/canvas/runtime/*`、`src/features/canvas/*`
 评价口径: 是否适合后续迭代，不评价 UI 完成度
 
 ## 状态更新
 
-- 状态: `canvasStore` 第一阶段 seam 拆分已落地；`CanvasViewport` 第二刀 seam 拆分也已落地，已从“stage shell + viewport navigation hook + marquee selection hook + text/overlay host”继续收缩为“composition shell + stage shell + tool/input orchestrator + overlay host + lifecycle/navigation seam”；panel 第一刀 seam 收口已落地；文本会话 P1 与 runtime preview P1 已落地；页面入口 / 路由恢复 P1 已落地；本轮新增完成了图片编辑 / 图片属性入口统一 P1，下沉为“`imagePropertyState` + `useCanvasImagePropertyActions` + `CanvasImageEditPanel` / `useCanvasPropertiesPanelModel` 共用 image property seam”，并在后续 review 修掉了 image target owner、UI sentinel 泄漏与 commit contract 模糊问题。
-- 总评: `8.5/10`
+- 状态: `canvasStore` 第一阶段 seam 拆分已落地；`CanvasViewport` 第二刀 seam 拆分已落地；panel 第一刀 seam 收口、文本会话 P1、runtime preview P1、页面入口 / 路由恢复 P1、图片编辑 / 图片属性入口统一 P1 均已落地；本轮继续完成了 active-workbench 边界 P2，把默认集成面收缩为“`useCanvasActiveWorkbenchState` + `useCanvasActiveWorkbenchCommands` + `useCanvasActiveWorkbenchStructure` + `useCanvasHistory`”，旧的 `useActiveCanvasWorkbench` 全能门面已删除，后续 review 修掉了 history stale state、过宽订阅和残留绑定逻辑问题。
+- 总评: `8.6/10`
 - 当前最强的一层: 文档内核
-- 当前最弱的两层: 渲染与导出 / 持久化与提交队列
-- 当前最明显的结构热点: 导出入口仍保留 stage snapshot 分支；`canvasStore` 的 active-workbench 门面仍偏宽；图片专用 property seam 已收口，但整体 panel model 仍未完全独立为 use-case service
-- 验证基线: `pnpm test` 通过，相关回归共 `119` 个测试文件、`490` 个 case 全部通过；`pnpm lint` 通过，但保留 `5` 个既有 warning；`pnpm build:client` 通过；本轮额外做了 architecture + bug/regression 两轮 subagent review，follow-up 修复后均为 `no issues found`；浏览器 smoke 仍以页面入口 / 路由恢复那轮为基线，本轮主要新增 pure planner 和 command regression coverage。
+- 当前唯一明显低于 `8.5` 的一层: 渲染与导出
+- 当前最明显的结构热点: 导出入口仍保留 stage snapshot 分支；`CanvasExportDialog` 仍未完全收口到单一 export seam；panel model 仍未完全独立为 use-case service
+- 验证基线: active-workbench P2 focused regression 通过，`7` 个测试文件、`61` 个 case 全部通过；更大范围 canvas 回归通过，`33` 个测试文件、`174` 个 case 全部通过；`pnpm lint` 通过，但保留 `5` 个既有 warning 且都在本 slice 之外；architecture / bug-regression / performance 三轮 subagent review 最终均为 `no issues found`；当前全局 `pnpm test` / `pnpm build:client` / app `tsc` 失败点在 `image-lab` 与 `server` conversation route，不属于 canvas seam 变更面。
 - 下一阶段优先级:
-  1. 在导出领域定义清楚前，继续收紧 `canvasStore` 的 active-workbench 门面
-  2. 继续保护 `runtime preview` / 文本会话 / `CanvasViewport` / `CanvasPage` 新 seam，避免复杂度回流
-  3. 导出领域明确后，再统一导出主路径
+  1. 统一导出主路径，清掉 `stage snapshot` 旁路
+  2. 继续保护 `runtime preview` / 文本会话 / `CanvasViewport` / `CanvasPage` / active-workbench 新 seam，避免复杂度回流
+  3. 仅在导出边界稳定后，再考虑更高一级的 panel property use-case service
 
 ## 评分口径
 
@@ -196,29 +196,33 @@
 
 优点:
 
-- `canvasStore.ts` 已明显变薄，主要保留订阅状态、UI setter 和 active-workbench 级门面
+- `canvasStore.ts` 已明显变薄，主要保留订阅状态、UI setter 和显式 `...InWorkbench` store API
 - workbench 生命周期、串行提交、持久化回滚、undo/redo、epoch 失效、补偿逻辑已下沉到 `canvasWorkbenchService`
 - 纯状态迁移和 history 变更已下沉到 `canvasWorkbenchState`，边界比原来清楚很多
 - `patchWorkbench` 已收口 workbench 顶层更新，`CanvasAppBar` / `CanvasStoryPanel` / `CanvasWorkbenchPanel` 不再走整份 workbench 回写
-- 本轮 review 抓出的两个真实问题已修掉:
+- active-workbench 默认集成口已从宽门面继续收缩为只读状态、命令口、结构动作口和独立 history seam；上层默认不再经由单个全能 facade 消费 store 能力
+- null-safe 绑定契约已下沉到纯 helper，hooks 本身只保留 selector 和适配职责
+- 本轮 review 抓出的真实问题已修掉:
   - delete/group 现在在队列内部基于最新 workbench 快照计算
   - reset 现在会清空并 gate pending compensation，旧 epoch 不会把债务写回新会话
+  - history 可用性现在通过独立 state seam 订阅，不再出现 stale `canUndo` / `canRedo`
+  - commands / structure / history 的 `activeWorkbenchId` 订阅已改成窄 selector，不再被整份 read model 牵连重渲染
 
 问题:
 
-- 这层仍不是“纯 UI store”，而是“薄 store 壳 + 一层应用门面”，active-workbench 级包装 API 还在
+- 这层仍不是“纯 UI store”，而是“薄 store 壳 + 持久化/生命周期应用边界”，只是 active-workbench 默认集成面已经收窄
 - `selectedElementIds`、`tool`、`viewport`、`activePanel` 等 UI 状态仍和文档 mutation 门面共存于同一个 Zustand store
-- panel / viewport / text session 仍普遍直接依赖 `useCanvasStore`，所以上层耦合压力只是被转移和减轻，还没有完全解开
+- panel / viewport / text session 仍有部分路径直接依赖 `useCanvasStore` 或显式 `...InWorkbench` API，所以上层耦合压力只是被继续压低，还没有完全解开
 - `toNode`、`cloneNodeTree` 这类节点适配逻辑目前仍在 service 内，后续如果 node use case 继续增多，这里还会再长
 
-评分: `7.5/10`
+评分: `8.5/10`
 
-重构优先级: `已完成本轮 P1，后续降为 P2`
+重构优先级: `已完成本轮 P2，后续降为 P3`
 
 判断:
 
-- 这层已经从“最大结构瓶颈”降到了“可继续承接后续拆分”的状态。
-- 目前不需要立刻继续深拆它，下一刀应该转向页面入口 / 路由恢复与剩余导出入口统一。
+- 这层已经从“最大结构瓶颈”降到了“达到当前阶段 `8.5+` 目标、但仍需防止回流”的状态。
+- 目前不需要立刻继续深拆它，下一刀应该转向导出入口统一。
 
 ## 4. 运行时预览管线
 
@@ -575,15 +579,15 @@
 
 ### P1
 
-- 在导出领域定义清楚前，继续收紧 `canvasStore` 的 active-workbench 门面
-- 保护 `CanvasImageEditPanel` / `CanvasPropertiesPanel` 新的 image property seam，不让新的图片属性入口重新绕开它
+- 统一导出主路径，减少 `stage snapshot` 分支，并把 `CanvasExportDialog` 收口到更明确的 export seam
 
 ### P2
 
-- 导出领域明确后，统一导出主路径，减少 `stage snapshot` 分支，并把 `CanvasExportDialog` 收口到更明确的应用 seam
+- 保护 `CanvasImageEditPanel` / `CanvasPropertiesPanel` 新的 image property seam，不让新的图片属性入口重新绕开它
 - 保护新的 `CanvasPage` shell + `useCanvasPageModel` + `canvasPageState` seam，不让新的恢复策略或 URL state 重新堆回页面壳层
 - 保护 runtime preview 新的 scoped service seam，不让新的图片编辑或选择逻辑重新绕开 provider / narrow hooks
 - 保护文本会话新的 reducer / effect runner / snapshot seam，不让新的文本能力重新堆回 hook
+- 保护 active-workbench 新的 state / command / structure / history seam，不让新的默认集成点重新长回全能 facade
 - 保护 `CanvasViewport` 新的 stage / tool / overlay seam，不让新的交互策略重新堆回组合壳
 
 ### P3
@@ -592,16 +596,16 @@
 
 ## 推荐的拆分顺序
 
-1. 在导出领域未定前，先继续收紧 `canvasStore` 对上层暴露的 active-workbench 门面
+1. 先统一导出主路径，减少 `stage snapshot` 旁路并收口 `CanvasExportDialog`
 2. 同时保护 `CanvasImageEditPanel` / `CanvasPropertiesPanel` 新的 image property seam，不让新的入口重新回流到整节点写回
-3. 再继续保护新的页面入口 / 路由恢复 seam，避免复杂度回流
-4. 导出领域明确后，再统一导出主路径
+3. 再继续保护新的页面入口 / 路由恢复、runtime preview、文本会话与 active-workbench seam，避免复杂度回流
+4. 文档内核继续只做保护性演进，不做推倒重写
 
 ## 最终判断
 
-这轮之后，页面入口 / 路由恢复这一刀和图片编辑 / 图片属性入口统一这一刀都已经落地，最紧急的结构风险进一步收缩到导出入口与 `canvasStore` active-workbench 门面。
+这轮之后，页面入口 / 路由恢复、图片编辑 / 图片属性入口统一，以及 active-workbench 边界收口这三刀都已经落地，最紧急的结构风险进一步收缩到导出入口。
 
-- 如果继续堆功能，复杂度会优先集中在导出相关入口和 `canvasStore` active-workbench 门面，而不是重新首先压垮页面入口、runtime preview、文本会话、`CanvasViewport`、panel 层或图片属性入口
+- 如果继续堆功能，复杂度会优先集中在导出相关入口，而不是重新首先压垮页面入口、runtime preview、文本会话、`CanvasViewport`、panel 层、图片属性入口或 active-workbench seam
 - panel 层现在已经能继续承接下一轮拆分，但还不值得宣布“整个 canvas 完成”
-- 页面层、runtime preview、文本会话与 `CanvasViewport` 这几层已经可以承接后续功能，但前提是不要把新的恢复策略、导出旁路或工具策略重新塞回这些 seam
+- 页面层、runtime preview、文本会话、`CanvasViewport` 与 active-workbench 这几层已经可以承接后续功能，但前提是不要把新的恢复策略、导出旁路或工具策略重新塞回这些 seam
 - 文档内核这条健康链路仍然应该继续被保护，后续重构仍应围绕上层应用边界展开
