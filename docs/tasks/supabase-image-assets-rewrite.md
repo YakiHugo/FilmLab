@@ -18,8 +18,11 @@
   implementation targets Supabase Storage + Postgres, with an in-memory fallback for tests and
   envs without Supabase credentials.
 - Uploaded and generated images share the same storage path model and database tables.
+- Content-hash dedupe lives at the service boundary, not a unique database index. Stable mutable
+  `assetId` replacements are allowed to converge to the same bytes as another asset, while new
+  uploads and generated images serialize dedupe through repository-level content-hash locks.
 - Image generation requests are asset-only. Frontend sends `assetRefs`; the server resolves those
-- refs to provider-readable URLs or buffers when the selected model needs native image input.
+  refs to provider-readable URLs or buffers when the selected model needs native image input.
 - Conversation results point directly at canonical assets. There is no secondary "save generated
   result into library" step.
 - Canvas continues to consume ordinary `image` elements with `assetId`; AI-specific canvas element
@@ -57,23 +60,29 @@
 
 - `pnpm --filter server typecheck`: passed
 - `pnpm exec tsc --noEmit`: passed
-- Targeted Vitest runs for asset import, image session, image generation, prompt compiler, Qwen
-  provider, and route coverage: passed
-- `pnpm lint`: passed with pre-existing warnings in UI component files and one React hook warning
-  in `useImageGeneration.ts`
 - `pnpm test`: passed
 - `pnpm build`: passed
-- `pnpm exec vitest run src/lib/ai/imageGeneration.test.ts src/features/image-lab/ImageChatFeed.test.tsx src/features/image-lab/referenceImages.test.ts src/stores/assetStore.materialization.test.ts`: passed
+- `pnpm lint`: passed with four pre-existing `react-refresh` warnings in unrelated UI files
+- Targeted Vitest runs for image-lab snapshot/reference helpers, route coverage, and generated
+  asset materialization: passed
 
 ## Recent Slice
 
 - Fixed the generated-result materialization gap in the image-lab flow. Generation success now
   injects returned canonical assets into `useAssetStore` immediately, then hydrates them from
-  `/api/assets/:assetId` in the background so canvas insertion and “use as reference” operate on
+  `/api/assets/:assetId` in the background so canvas insertion and "use as reference" operate on
   real library assets instead of conversation-only result records.
 - Added a dedicated `materializeRemoteAssets` store action so remote-only canonical assets can be
   represented in runtime asset state without pretending they are locally editable blob-backed
   assets.
+- Closed the post-review image-lab state bugs. Unsupported-model switches now clear all executable
+  image-guided inputs, persisted reference asset refs keep `referenceType` and `weight`, and the
+  reference-panel Clear action consistently removes reference-role state while preserving
+  edit/variation bindings.
+- Hardened the asset backend around canonical metadata and cleanup. Upload sessions now overwrite
+  stale metadata, completion re-measures stored objects instead of trusting init payloads, dedupe
+  for new uploads and generated images is serialized through repository content-hash locks, and
+  late generation failures now clean up newly created assets plus canonical `asset_edges`.
 
 ## Implementation Notes
 
@@ -94,23 +103,15 @@
 
 ## Open Review Findings
 
-- `server/src/assets/service.ts`
-  - upload prepare/complete logic still has canonical metadata drift risks for changed assets and
-    reused upload sessions
-  - generated asset creation still needs a clean duplicate-content strategy and late-failure cleanup
-- `src/features/image-lab/referenceImages.ts`
-  - switching to a model without image guidance still clears preview references but not executable
-    `assetRefs`
-- `src/features/image-lab/hooks/useImageGeneration.ts`
-  - persisted `assetRefs` still drop `referenceType` and `weight` during snapshot deserialize
+- None. The latest bounded client and server review passes both returned `no issues found`.
 
 ## Commit Readiness
 
 - Task note and JSON are updated for handoff.
-- The generated-result materialization slice is validated locally.
-- The broader rewrite is not yet ready for a full multi-module commit because the review findings
-  above are still open. Per `AGENTS.md`, those modules should be fixed or explicitly accepted
-  before they are committed.
+- Validation is green: `pnpm --filter server typecheck`, `pnpm exec tsc --noEmit`, `pnpm test`,
+  and `pnpm build` all pass.
+- `pnpm lint` passes with four pre-existing `react-refresh` warnings in unrelated UI files.
+- The rewrite is ready for module commits.
 
 ## Handoff Notes
 

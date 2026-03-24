@@ -1,6 +1,6 @@
 {
   "baseline": "bf4e949",
-  "currentTaskId": "8",
+  "currentTaskId": "9",
   "tasks": [
     {
       "id": "1",
@@ -53,7 +53,13 @@
     {
       "id": "8",
       "title": "resolve remaining post-review server and image-lab findings before module commits",
-      "status": "blocked",
+      "status": "done",
+      "passes": true
+    },
+    {
+      "id": "9",
+      "title": "commit verified rewrite slices by module boundary",
+      "status": "in_progress",
       "passes": false
     }
   ]
