@@ -1,10 +1,8 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { CirclePlus, Images, PanelsTopLeft, PencilLine, Trash2, Wand2 } from "lucide-react";
-import { shallow } from "zustand/shallow";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { useCanvasStore } from "@/stores/canvasStore";
 import { getStudioCanvasPreset } from "./studioPresets";
 import {
   canvasDockActionChipClassName,
@@ -23,6 +21,7 @@ import {
   canvasDockSelectedListItemClassName,
   canvasDockSectionClassName,
 } from "./editDockTheme";
+import { useCanvasWorkbenchActions } from "./hooks/useCanvasWorkbenchActions";
 
 const formatUpdatedAt = (value: string) => {
   const date = new Date(value);
@@ -38,63 +37,17 @@ const formatUpdatedAt = (value: string) => {
 };
 
 export function CanvasWorkbenchPanel() {
-  const navigate = useNavigate();
-  const workbenches = useCanvasStore((state) => state.workbenches);
-  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
-  const activeWorkbenchMeta = useCanvasStore(
-    (state) => {
-      const workbench = state.workbenches.find((entry) => entry.id === state.activeWorkbenchId);
-      return {
-        id: workbench?.id ?? null,
-        name: workbench?.name ?? "",
-        presetId: workbench?.presetId ?? "custom",
-        width: workbench?.width ?? 0,
-        height: workbench?.height ?? 0,
-        updatedAt: workbench?.updatedAt ?? "",
-      };
-    },
-    shallow
-  );
-  const createWorkbench = useCanvasStore((state) => state.createWorkbench);
-  const deleteWorkbench = useCanvasStore((state) => state.deleteWorkbench);
-  const upsertWorkbench = useCanvasStore((state) => state.upsertWorkbench);
+  const {
+    activeWorkbenchId,
+    activeWorkbenchMeta,
+    createSequentialWorkbench,
+    deleteActiveWorkbench,
+    renameActiveWorkbench,
+    selectWorkbench,
+    workbenches,
+  } = useCanvasWorkbenchActions();
 
   const workbenchCount = workbenches.length;
-
-  const handleCreateWorkbench = async () => {
-    const nextIndex = workbenches.length + 1;
-    const created = await createWorkbench(`Workbench ${String(nextIndex).padStart(2, "0")}`, {
-      activate: false,
-    });
-    if (!created) {
-      return;
-    }
-    await navigate({
-      to: "/canvas/$workbenchId",
-      params: { workbenchId: created.id },
-    });
-  };
-
-  const handleSelectWorkbench = (workbenchId: string) => {
-    if (workbenchId === activeWorkbenchId) {
-      return;
-    }
-
-    void navigate({
-      to: "/canvas/$workbenchId",
-      params: { workbenchId },
-    });
-  };
-
-  const handleDeleteWorkbench = async () => {
-    if (!activeWorkbenchId) {
-      return;
-    }
-    const deleted = await deleteWorkbench(activeWorkbenchId, { nextActiveWorkbenchId: null });
-    if (!deleted) {
-      return;
-    }
-  };
 
   return (
     <div className={canvasDockPanelContentClassName}>
@@ -158,17 +111,7 @@ export function CanvasWorkbenchPanel() {
             <Input
               value={activeWorkbenchMeta.name}
               onChange={(event) => {
-                const currentWorkbench = useCanvasStore
-                  .getState()
-                  .workbenches.find((entry) => entry.id === activeWorkbenchMeta.id);
-                if (!currentWorkbench) {
-                  return;
-                }
-
-                void upsertWorkbench({
-                  ...currentWorkbench,
-                  name: event.target.value || "Untitled Workbench",
-                });
+                void renameActiveWorkbench(event.target.value);
               }}
               className={canvasDockFieldClassName}
             />
@@ -233,7 +176,9 @@ export function CanvasWorkbenchPanel() {
               <button
                 key={workbench.id}
                 type="button"
-                onClick={() => handleSelectWorkbench(workbench.id)}
+                onClick={() => {
+                  void selectWorkbench(workbench.id);
+                }}
                 className={cn(
                   canvasDockListItemClassName,
                   canvasDockInteractiveListItemClassName,
@@ -272,7 +217,7 @@ export function CanvasWorkbenchPanel() {
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <Button size="sm" className={canvasDockActionChipClassName} onClick={() => void handleCreateWorkbench()}>
+          <Button size="sm" className={canvasDockActionChipClassName} onClick={() => void createSequentialWorkbench()}>
             <CirclePlus className="mr-2 h-4 w-4" />
             New Workbench
           </Button>
@@ -281,7 +226,7 @@ export function CanvasWorkbenchPanel() {
             variant="secondary"
             className={cn(canvasDockActionChipClassName, "text-rose-200 hover:text-rose-100")}
             disabled={!activeWorkbenchMeta.id || workbenches.length <= 1}
-            onClick={() => void handleDeleteWorkbench()}
+            onClick={() => void deleteActiveWorkbench()}
           >
             <Trash2 className="mr-2 h-4 w-4" />
             Delete Current

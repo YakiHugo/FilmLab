@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { selectActiveWorkbench, useCanvasStore } from "@/stores/canvasStore";
+import { useCanvasStore } from "@/stores/canvasStore";
 import { resolveSelectableSelectionIds } from "../selectionGeometry";
 import { selectionIdsEqual } from "../selectionModel";
+import { useCanvasActiveWorkbenchState } from "./useCanvasActiveWorkbenchState";
+import { useCanvasActiveWorkbenchStructure } from "./useCanvasActiveWorkbenchStructure";
+import { useCanvasHistoryActions } from "./useCanvasHistoryActions";
 
 const isEditableTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
@@ -15,17 +18,17 @@ const isEditableTarget = (target: EventTarget | null) => {
 };
 
 export function useCanvasInteraction() {
-  const activeWorkbench = useCanvasStore(selectActiveWorkbench);
-  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
+  const { activeWorkbench, activeWorkbenchId } = useCanvasActiveWorkbenchState();
+  const {
+    deleteNodes,
+    duplicateNodes,
+    groupNodes,
+    nudgeElements,
+    ungroupNode,
+  } = useCanvasActiveWorkbenchStructure();
+  const { redo, undo } = useCanvasHistoryActions();
   const selectedElementIds = useCanvasStore((state) => state.selectedElementIds);
   const setSelectedElementIds = useCanvasStore((state) => state.setSelectedElementIds);
-  const duplicateElements = useCanvasStore((state) => state.duplicateElements);
-  const deleteElements = useCanvasStore((state) => state.deleteElements);
-  const nudgeElements = useCanvasStore((state) => state.nudgeElements);
-  const groupElements = useCanvasStore((state) => state.groupElements);
-  const ungroupElement = useCanvasStore((state) => state.ungroupElement);
-  const undo = useCanvasStore((state) => state.undo);
-  const redo = useCanvasStore((state) => state.redo);
 
   const selectableElementIds = useMemo(
     () =>
@@ -76,15 +79,15 @@ export function useCanvasInteraction() {
     if (selectedElementIds.length === 0) {
       return;
     }
-    await deleteElements(selectedElementIds);
-  }, [deleteElements, selectedElementIds]);
+    await deleteNodes(selectedElementIds);
+  }, [deleteNodes, selectedElementIds]);
 
   const duplicateSelection = useCallback(async () => {
     if (selectedElementIds.length === 0) {
       return;
     }
-    await duplicateElements(selectedElementIds);
-  }, [duplicateElements, selectedElementIds]);
+    await duplicateNodes(selectedElementIds);
+  }, [duplicateNodes, selectedElementIds]);
 
   const selectAll = useCallback(() => {
     if (selectableElementIds.length === 0) {
@@ -130,7 +133,7 @@ export function useCanvasInteraction() {
           clipboardIdsRef.current.length > 0 ? clipboardIdsRef.current : selectedElementIds;
         if (idsToDuplicate.length > 0) {
           event.preventDefault();
-          void duplicateElements(idsToDuplicate);
+          void duplicateNodes(idsToDuplicate);
         }
         return;
       }
@@ -155,12 +158,12 @@ export function useCanvasInteraction() {
         event.preventDefault();
         if (event.shiftKey) {
           if (selectedElementIds.length === 1) {
-            void ungroupElement(selectedElementIds[0]!);
+            void ungroupNode(selectedElementIds[0]!);
           }
           return;
         }
         if (selectedElementIds.length > 1) {
-          void groupElements(selectedElementIds);
+          void groupNodes(selectedElementIds);
         }
         return;
       }
@@ -168,7 +171,7 @@ export function useCanvasInteraction() {
       if (event.key === "Delete" || event.key === "Backspace") {
         if (selectedElementIds.length > 0) {
           event.preventDefault();
-          void deleteElements(selectedElementIds);
+          void deleteNodes(selectedElementIds);
         }
         return;
       }
@@ -199,14 +202,14 @@ export function useCanvasInteraction() {
     };
   }, [
     activeWorkbenchId,
-    deleteElements,
-    duplicateElements,
-    groupElements,
+    deleteNodes,
+    duplicateNodes,
+    groupNodes,
     nudgeElements,
     redo,
     selectAll,
     selectedElementIds,
-    ungroupElement,
+    ungroupNode,
     undo,
   ]);
 

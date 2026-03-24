@@ -18,7 +18,7 @@ import {
 import { useCanvasEngine } from "./hooks/useCanvasEngine";
 
 export function CanvasAssetPicker() {
-  const { assets, addAssetToCanvas } = useCanvasEngine();
+  const { assets, addAssetToCanvas, canAddAssetsToCanvas } = useCanvasEngine();
 
   return (
     <div className={canvasDockPanelContentClassName}>
@@ -51,20 +51,37 @@ export function CanvasAssetPicker() {
       </section>
 
       {assets.length > 0 ? (
-        <div className="grid min-h-0 flex-1 grid-cols-2 gap-3 overflow-y-auto pr-1">
+        <>
+          {!canAddAssetsToCanvas ? (
+            <div className={cn(canvasDockEmptyStateClassName, "mb-4 px-4 py-4 text-sm")}>
+              <p className="font-medium text-[color:var(--canvas-edit-text)]">
+                Workbench is still recovering.
+              </p>
+              <p className="mt-2 leading-6 text-[color:var(--canvas-edit-text-muted)]">
+                Asset placement is temporarily disabled until the active workbench is available.
+              </p>
+            </div>
+          ) : null}
+
+          <div className="grid min-h-0 flex-1 grid-cols-2 gap-3 overflow-y-auto pr-1">
           {assets.map((asset) => (
             <button
               key={asset.id}
               type="button"
+              disabled={!canAddAssetsToCanvas}
               className={cn(
                 canvasDockListItemClassName,
                 canvasDockInteractiveListItemClassName,
-                "group overflow-hidden text-left"
+                "group overflow-hidden text-left disabled:cursor-not-allowed disabled:opacity-55"
               )}
               onClick={() => {
                 void addAssetToCanvas(asset.id);
               }}
-              title={asset.name}
+              title={
+                canAddAssetsToCanvas
+                  ? asset.name
+                  : `${asset.name} (waiting for an active workbench)`
+              }
             >
               <div className="relative aspect-[4/5] overflow-hidden bg-black/40">
                 <img
@@ -74,7 +91,7 @@ export function CanvasAssetPicker() {
                 />
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/80 via-black/12 to-transparent" />
                 <span className="absolute left-3 top-3 rounded-full border border-white/10 bg-black/55 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-[color:var(--canvas-edit-text)]">
-                  Add
+                  {canAddAssetsToCanvas ? "Add" : "Wait"}
                 </span>
               </div>
               <div className="space-y-1 px-3 py-3">
@@ -87,7 +104,8 @@ export function CanvasAssetPicker() {
               </div>
             </button>
           ))}
-        </div>
+          </div>
+        </>
       ) : (
         <div
           className={cn(

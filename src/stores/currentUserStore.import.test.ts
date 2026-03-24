@@ -6,11 +6,23 @@ vi.mock("@/lib/assetMetadata", () => ({
   prepareAssetPayload: vi.fn(async () => ({ metadata: {}, thumbnailBlob: undefined })),
 }));
 
+vi.mock("@/lib/assetSyncApi", () => ({
+  prepareAssetUpload: vi.fn(async (payload: { assetId?: string; updatedAt?: string }) => ({
+    existing: false,
+    assetId: payload.assetId ?? "asset-test",
+    upload: {
+      method: "PUT" as const,
+      url: `/api/assets/upload/${payload.assetId ?? "asset-test"}/original`,
+    },
+  })),
+}));
+
 vi.mock("@/lib/db", () => ({
   saveAsset: vi.fn(async () => true),
 }));
 
 import { prepareAssetPayload } from "@/lib/assetMetadata";
+import { prepareAssetUpload } from "@/lib/assetSyncApi";
 import { saveAsset } from "@/lib/db";
 import { runImportPipeline } from "./currentUser/importPipeline";
 
@@ -20,6 +32,7 @@ const createFile = (name: string, type = "image/jpeg", bytes = 3) =>
 describe("project import pipeline", () => {
   beforeEach(() => {
     vi.mocked(prepareAssetPayload).mockClear();
+    vi.mocked(prepareAssetUpload).mockClear();
     vi.mocked(saveAsset).mockClear();
   });
 

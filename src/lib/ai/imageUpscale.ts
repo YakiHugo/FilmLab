@@ -131,6 +131,12 @@ export async function upscaleImage(
 
   return {
     imageUrl: resolveApiUrl(json.imageUrl),
+    assetId:
+      typeof json.assetId === "string"
+        ? json.assetId
+        : (() => {
+            throw new Error("Invalid image upscale response.");
+          })(),
     ...(typeof json.imageId === "string" ? { imageId: json.imageId } : {}),
     provider,
     model: typeof json.model === "string" ? json.model : payload.model,

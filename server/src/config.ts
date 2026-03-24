@@ -89,9 +89,14 @@ const envSchema = z.object({
   KLING_SECRET_KEY: optionalTrimmedString(),
   KLING_API_BASE_URL: optionalUrlString().default("https://api-beijing.klingai.com"),
   DATABASE_URL: optionalTrimmedString(),
+  SUPABASE_URL: optionalUrlString(),
+  SUPABASE_SERVICE_ROLE_KEY: optionalTrimmedString(),
+  SUPABASE_STORAGE_BUCKET: optionalTrimmedString(),
+  ASSET_URL_SECRET: optionalTrimmedString(),
   AUTH_JWT_SECRET: optionalTrimmedString(),
   AUTH_JWT_ISSUER: optionalTrimmedString(),
   AUTH_JWT_AUDIENCE: optionalTrimmedString(),
+  TRUST_PROXY_REQUEST_ID: optionalBooleanString(),
   ALLOW_UNSIGNED_DEV_AUTH: optionalBooleanString(),
   DEV_AUTH_ALLOWED_USER_IDS: optionalTrimmedString(),
 });
@@ -125,9 +130,14 @@ export interface AppConfig {
   klingSecretKey?: string;
   klingApiBaseUrl: string;
   databaseUrl?: string;
+  supabaseUrl?: string;
+  supabaseServiceRoleKey?: string;
+  supabaseStorageBucket?: string;
+  assetUrlSecret?: string;
   authJwtSecret?: string;
   authJwtIssuer?: string;
   authJwtAudience?: string;
+  trustProxyRequestId: boolean;
   allowUnsignedDevAuth: boolean;
   devAuthAllowedUserIds: string[];
 }
@@ -187,9 +197,17 @@ export const getConfig = (): AppConfig => {
     klingSecretKey: env.KLING_SECRET_KEY,
     klingApiBaseUrl: env.KLING_API_BASE_URL.replace(/\/+$/, ""),
     databaseUrl: env.DATABASE_URL,
+    supabaseUrl: env.SUPABASE_URL?.replace(/\/+$/, ""),
+    supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+    supabaseStorageBucket: env.SUPABASE_STORAGE_BUCKET ?? "assets",
+    assetUrlSecret:
+      env.ASSET_URL_SECRET ??
+      env.AUTH_JWT_SECRET ??
+      "filmlab-dev-asset-url-secret",
     authJwtSecret: env.AUTH_JWT_SECRET,
     authJwtIssuer: env.AUTH_JWT_ISSUER,
     authJwtAudience: env.AUTH_JWT_AUDIENCE,
+    trustProxyRequestId: env.TRUST_PROXY_REQUEST_ID ?? false,
     allowUnsignedDevAuth: env.ALLOW_UNSIGNED_DEV_AUTH ?? ((env.NODE_ENV ?? "development") === "development"),
     devAuthAllowedUserIds: (env.DEV_AUTH_ALLOWED_USER_IDS ?? "local-user")
       .split(",")

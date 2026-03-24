@@ -12,15 +12,18 @@ import type { NumericAdjustmentKey } from "@/features/editor/types";
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import { asciiAdjustmentsEqual } from "@/lib/asciiRaster";
 import { cn } from "@/lib/utils";
-import { useAssetStore } from "@/stores/assetStore";
-import { useCanvasRuntimeStore } from "@/stores/canvasRuntimeStore";
-import { useCanvasStore } from "@/stores/canvasStore";
+import {
+  useCanvasElementDraftAdjustments,
+  useCanvasPreviewActions,
+  useCanvasRuntimeAsset,
+} from "@/features/canvas/runtime/canvasRuntimeHooks";
 import type { AsciiAdjustments, EditingAdjustments } from "@/types";
 import {
   canvasDockBodyTextClassName,
   canvasDockSelectContentClassName,
   canvasDockSelectTriggerClassName,
 } from "./editDockTheme";
+import { useCanvasImagePropertyActions } from "./hooks/useCanvasImagePropertyActions";
 import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
 import { resolvePrimarySelectedImageElement } from "./selectionModel";
 
@@ -501,34 +504,26 @@ const ProjectEditControls = memo(function ProjectEditControls({
 });
 
 export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
-  const upsertElement = useCanvasStore((state) => state.upsertElement);
-  const setElementDraftAdjustments = useCanvasRuntimeStore(
-    (state) => state.setElementDraftAdjustments
-  );
-  const clearElementDraftAdjustments = useCanvasRuntimeStore(
-    (state) => state.clearElementDraftAdjustments
-  );
-  const requestBoardPreview = useCanvasRuntimeStore((state) => state.requestBoardPreview);
+  const {
+    clearElementDraftAdjustments,
+    requestBoardPreview,
+    setElementDraftAdjustments,
+  } = useCanvasPreviewActions();
   const [openSections, setOpenSections] = useState(createInitialOpenSections);
   const { activeWorkbench, committedSelectedElementIds, primarySelectedImageElement: imageElement } =
     useCanvasSelectionModel();
+  const { setAdjustments } = useCanvasImagePropertyActions(imageElement);
 
   const committedImageElement = useMemo(
     () => resolvePrimarySelectedImageElement(activeWorkbench, committedSelectedElementIds),
     [activeWorkbench, committedSelectedElementIds]
   );
+  const displayedImageElementId = imageElement?.id ?? null;
   const committedImageElementId = committedImageElement?.id ?? null;
   const committedImageElementIdRef = useRef<string | null>(committedImageElementId);
-
-  const asset = useAssetStore((state) =>
-    imageElement
-      ? (state.assets.find((candidate) => candidate.id === imageElement.assetId) ?? null)
-      : null
-  );
-
-  const draftAdjustments = useCanvasRuntimeStore((state) =>
-    imageElement ? state.draftAdjustmentsByElementId[imageElement.id] : undefined
-  );
+  const displayedImageElementIdRef = useRef<string | null>(displayedImageElementId);
+  const { asset } = useCanvasRuntimeAsset(imageElement?.assetId ?? null);
+  const draftAdjustments = useCanvasElementDraftAdjustments(imageElement?.id ?? null);
 
   const adjustments = useMemo(
     () =>
@@ -559,9 +554,32 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
     committedImageElementIdRef.current = committedImageElementId;
   }, [clearElementDraftAdjustments, committedImageElementId]);
 
+  useEffect(() => {
+    const previousDisplayedImageElementId = displayedImageElementIdRef.current;
+    if (
+      previousDisplayedImageElementId &&
+      previousDisplayedImageElementId !== displayedImageElementId &&
+      previousDisplayedImageElementId !== committedImageElementId
+    ) {
+      clearElementDraftAdjustments(previousDisplayedImageElementId);
+    }
+    displayedImageElementIdRef.current = displayedImageElementId;
+  }, [
+    clearElementDraftAdjustments,
+    committedImageElementId,
+    displayedImageElementId,
+  ]);
+
   useEffect(
     () => () => {
       const currentCommittedImageElementId = committedImageElementIdRef.current;
+      const currentDisplayedImageElementId = displayedImageElementIdRef.current;
+      if (
+        currentDisplayedImageElementId &&
+        currentDisplayedImageElementId !== currentCommittedImageElementId
+      ) {
+        clearElementDraftAdjustments(currentDisplayedImageElementId);
+      }
       if (currentCommittedImageElementId) {
         clearElementDraftAdjustments(currentCommittedImageElementId);
       }
@@ -586,10 +604,7 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
         return;
       }
       setElementDraftAdjustments(imageElement.id, nextAdjustments);
-      await upsertElement({
-        ...imageElement,
-        adjustments: nextAdjustments,
-      });
+      await setAdjustments(nextAdjustments);
       clearElementDraftAdjustments(imageElement.id);
       void requestBoardPreview(imageElement.id, "interactive");
     },
@@ -598,7 +613,7 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
       imageElement,
       requestBoardPreview,
       setElementDraftAdjustments,
-      upsertElement,
+      setAdjustments,
     ]
   );
 

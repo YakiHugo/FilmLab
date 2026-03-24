@@ -43,36 +43,29 @@ export interface CanvasNodeTransform {
   rotation: number;
 }
 
-export interface CanvasNodeBase {
+export interface CanvasPersistedNodeBase {
   id: CanvasNodeId;
   type: CanvasNodeType;
-  parentId: CanvasNodeId | null;
   transform: CanvasNodeTransform;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
   zIndex?: number;
   opacity: number;
   locked: boolean;
   visible: boolean;
 }
 
-export interface CanvasGroupNode extends CanvasNodeBase {
+export interface CanvasPersistedGroupNode extends CanvasPersistedNodeBase {
   type: "group";
-  childIds: CanvasNodeId[];
   name: string;
 }
 
-export interface CanvasImageElement extends CanvasNodeBase {
+export interface CanvasPersistedImageElement extends CanvasPersistedNodeBase {
   type: "image";
   assetId: string;
   filmProfileId?: string;
   adjustments?: EditingAdjustments;
 }
 
-export interface CanvasTextElement extends CanvasNodeBase {
+export interface CanvasPersistedTextElement extends CanvasPersistedNodeBase {
   type: "text";
   content: string;
   fontFamily: string;
@@ -92,7 +85,7 @@ export interface CanvasShapeArrowHead {
   end: boolean;
 }
 
-export interface CanvasShapeElement extends CanvasNodeBase {
+export interface CanvasPersistedShapeElement extends CanvasPersistedNodeBase {
   type: "shape";
   shapeType: CanvasShapeType;
   fill: string;
@@ -101,6 +94,44 @@ export interface CanvasShapeElement extends CanvasNodeBase {
   radius?: number;
   points?: CanvasShapePoint[];
   arrowHead?: CanvasShapeArrowHead;
+}
+
+export type CanvasPersistedElement =
+  | CanvasPersistedImageElement
+  | CanvasPersistedTextElement
+  | CanvasPersistedShapeElement;
+export type CanvasPersistedNode = CanvasPersistedGroupNode | CanvasPersistedElement;
+
+export interface CanvasNodeBase extends CanvasPersistedNodeBase {
+  parentId: CanvasNodeId | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+}
+
+export interface CanvasGroupNode extends CanvasNodeBase, Omit<CanvasPersistedGroupNode, keyof CanvasPersistedNodeBase> {
+  type: "group";
+  childIds?: CanvasNodeId[];
+}
+
+export interface CanvasImageElement
+  extends CanvasNodeBase,
+    Omit<CanvasPersistedImageElement, keyof CanvasPersistedNodeBase> {
+  type: "image";
+}
+
+export interface CanvasTextElement
+  extends CanvasNodeBase,
+    Omit<CanvasPersistedTextElement, keyof CanvasPersistedNodeBase> {
+  type: "text";
+}
+
+export interface CanvasShapeElement
+  extends CanvasNodeBase,
+    Omit<CanvasPersistedShapeElement, keyof CanvasPersistedNodeBase> {
+  type: "shape";
 }
 
 export type CanvasElement = CanvasImageElement | CanvasTextElement | CanvasShapeElement;
@@ -135,26 +166,26 @@ export interface CanvasRenderableNodeBase {
 
 export interface CanvasRenderableGroupNode
   extends CanvasRenderableNodeBase,
-    Omit<CanvasGroupNode, "childIds" | "transform"> {
+    Omit<CanvasGroupNode, "childIds" | keyof CanvasRenderableNodeBase> {
   type: "group";
   childIds: CanvasNodeId[];
 }
 
 export interface CanvasRenderableImageElement
   extends CanvasRenderableNodeBase,
-    Omit<CanvasImageElement, "transform"> {
+    Omit<CanvasImageElement, keyof CanvasRenderableNodeBase> {
   type: "image";
 }
 
 export interface CanvasRenderableTextElement
   extends CanvasRenderableNodeBase,
-    Omit<CanvasTextElement, "transform"> {
+    Omit<CanvasTextElement, keyof CanvasRenderableNodeBase> {
   type: "text";
 }
 
 export interface CanvasRenderableShapeElement
   extends CanvasRenderableNodeBase,
-    Omit<CanvasShapeElement, "transform"> {
+    Omit<CanvasShapeElement, keyof CanvasRenderableNodeBase> {
   type: "shape";
 }
 
@@ -166,7 +197,7 @@ export type CanvasRenderableNode = CanvasRenderableGroupNode | CanvasRenderableE
 
 export interface CanvasWorkbenchSnapshot {
   id: string;
-  version: 2;
+  version: 3;
   ownerRef: {
     userId: string;
   };
@@ -175,8 +206,9 @@ export interface CanvasWorkbenchSnapshot {
   height: number;
   presetId: CanvasPresetId;
   backgroundColor: string;
-  nodes: Record<string, CanvasNode>;
+  nodes: Record<string, CanvasPersistedNode>;
   rootIds: CanvasNodeId[];
+  groupChildren: Record<string, CanvasNodeId[]>;
   slices: CanvasSlice[];
   guides: CanvasGuideSettings;
   safeArea: CanvasSafeArea;
@@ -190,48 +222,54 @@ export interface CanvasWorkbench extends CanvasWorkbenchSnapshot {
   elements: CanvasRenderableElement[];
 }
 
-export type CanvasWorkbenchPatchOperation =
-  | { type: "putNode"; node: CanvasNode }
-  | { type: "deleteNode"; nodeId: CanvasNodeId }
-  | { type: "setRootIds"; rootIds: CanvasNodeId[] }
-  | {
-      type: "patchDocument";
-      fields: Partial<
-        Pick<
-          CanvasWorkbenchSnapshot,
-          | "backgroundColor"
-          | "guides"
-          | "height"
-          | "name"
-          | "presetId"
-          | "safeArea"
-          | "slices"
-          | "thumbnailBlob"
-          | "updatedAt"
-          | "width"
-        >
-      >;
-    };
+export type CanvasDocumentMetaPatch = Partial<
+  Pick<
+    CanvasWorkbenchSnapshot,
+    | "backgroundColor"
+    | "guides"
+    | "height"
+    | "name"
+    | "presetId"
+    | "safeArea"
+    | "slices"
+    | "thumbnailBlob"
+    | "updatedAt"
+    | "width"
+  >
+>;
 
-export interface CanvasWorkbenchPatch {
-  operations: CanvasWorkbenchPatchOperation[];
+export type CanvasDocumentOp =
+  | { type: "patchDocumentMeta"; patch: CanvasDocumentMetaPatch }
+  | { type: "putNode"; node: CanvasPersistedNode }
+  | { type: "deleteNode"; nodeId: CanvasNodeId }
+  | { type: "setRootOrder"; rootIds: CanvasNodeId[] }
+  | { type: "setGroupChildren"; groupId: CanvasNodeId; childIds: CanvasNodeId[] };
+
+export interface CanvasDocumentChangeSet {
+  operations: CanvasDocumentOp[];
 }
 
 export interface CanvasHistoryEntry {
   commandType: CanvasCommand["type"];
-  forwardPatch: CanvasWorkbenchPatch;
-  inversePatch: CanvasWorkbenchPatch;
+  forwardChangeSet: CanvasDocumentChangeSet;
+  inverseChangeSet: CanvasDocumentChangeSet;
 }
 
 export type CanvasNodePropertyPatch = Partial<
-  Pick<CanvasNodeBase, "locked" | "opacity" | "visible">
+  Pick<CanvasPersistedNodeBase, "locked" | "opacity" | "visible">
 > &
   Partial<CanvasNodeTransform> &
   Partial<
-    Pick<CanvasGroupNode, "name"> &
-      Pick<CanvasImageElement, "adjustments" | "filmProfileId"> &
-      Pick<CanvasTextElement, "color" | "content" | "fontFamily" | "fontSize" | "fontSizeTier" | "textAlign"> &
-      Pick<CanvasShapeElement, "arrowHead" | "fill" | "points" | "radius" | "shapeType" | "stroke" | "strokeWidth">
+    Pick<CanvasPersistedGroupNode, "name"> &
+      Pick<CanvasPersistedImageElement, "adjustments" | "filmProfileId"> &
+      Pick<
+        CanvasPersistedTextElement,
+        "color" | "content" | "fontFamily" | "fontSize" | "fontSizeTier" | "textAlign"
+      > &
+      Pick<
+        CanvasPersistedShapeElement,
+        "arrowHead" | "fill" | "points" | "radius" | "shapeType" | "stroke" | "strokeWidth"
+      >
   >;
 
 export type CanvasCommand =

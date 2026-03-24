@@ -48,4 +48,52 @@ describe("buildServer", () => {
 
     expect(closeMock).toHaveBeenCalledTimes(1);
   });
+
+  it("generates a server-side x-request-id by default", async () => {
+    const { buildServer } = await import("./index");
+
+    const app = await buildServer();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: {
+        "x-request-id": "client-trace-1",
+      },
+    });
+
+    expect(response.headers["x-request-id"]).toEqual(expect.stringMatching(/^req-/));
+    expect(response.headers["x-request-id"]).not.toBe("client-trace-1");
+
+    await app.close();
+  });
+
+  it("reuses x-request-id only when trusted proxy mode is enabled", async () => {
+    vi.stubEnv("TRUST_PROXY_REQUEST_ID", "true");
+    const { resetConfigForTests } = await import("./config");
+    resetConfigForTests();
+
+    const { buildServer } = await import("./index");
+    const app = await buildServer();
+
+    const echoed = await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: {
+        "x-request-id": "proxy-trace-1",
+      },
+    });
+    const invalid = await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: {
+        "x-request-id": "bad trace id with spaces",
+      },
+    });
+
+    expect(echoed.headers["x-request-id"]).toBe("proxy-trace-1");
+    expect(invalid.headers["x-request-id"]).toEqual(expect.stringMatching(/^req-/));
+
+    await app.close();
+  });
 });

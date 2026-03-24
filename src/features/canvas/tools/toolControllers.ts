@@ -24,43 +24,60 @@ export interface CanvasToolPointerPayload {
   screenPoint: CanvasToolPoint | null;
 }
 
-export interface CanvasToolControllerContext {
-  activeWorkbenchId: string | null;
-  activeShapeType: CanvasShapeType;
-  beginMarqueeSelection: (payload: {
-    additive: boolean;
-    canvasPoint: CanvasToolPoint;
-    screenPoint: CanvasToolPoint;
-  }) => void;
-  beginPan: (screenPoint: CanvasToolPoint) => void;
-  beginTextEdit: (element: CanvasTextElement, options?: { mode?: "existing" | "create" }) => void;
-  clearSelection: () => void;
-  commitMarqueeSelection: (payload: {
-    canvasPoint: CanvasToolPoint | null;
-    screenPoint: CanvasToolPoint | null;
-  }) => void;
-  endPan: () => void;
-  insertShape: (element: ReturnType<typeof createDefaultShapeNode>) => void;
-  selectElement: (elementId: string) => void;
-  setTool: (tool: CanvasToolName) => void;
-  updateMarqueeSelection: (payload: {
-    canvasPoint: CanvasToolPoint;
-    screenPoint: CanvasToolPoint;
-  }) => void;
-  updatePan: (screenPoint: CanvasToolPoint) => void;
+export interface CanvasToolActionPort {
+  marquee: {
+    beginSelection: (payload: {
+      additive: boolean;
+      canvasPoint: CanvasToolPoint;
+      screenPoint: CanvasToolPoint;
+    }) => void;
+    commitSelection: (payload: {
+      canvasPoint: CanvasToolPoint | null;
+      screenPoint: CanvasToolPoint | null;
+    }) => void;
+    updateSelection: (payload: {
+      canvasPoint: CanvasToolPoint;
+      screenPoint: CanvasToolPoint;
+    }) => void;
+  };
+  pan: {
+    begin: (screenPoint: CanvasToolPoint) => void;
+    end: () => void;
+    update: (screenPoint: CanvasToolPoint) => void;
+  };
+  selection: {
+    clear: () => void;
+    select: (elementId: string) => void;
+  };
+  shape: {
+    activeShapeType: CanvasShapeType;
+    insert: (element: ReturnType<typeof createDefaultShapeNode>) => void;
+  };
+  text: {
+    beginEdit: (
+      element: CanvasTextElement,
+      options?: { mode?: "existing" | "create" }
+    ) => void;
+  };
+  toolState: {
+    setTool: (tool: CanvasToolName) => void;
+  };
+  workbench: {
+    activeWorkbenchId: string | null;
+  };
 }
 
 export interface CanvasToolController {
   onPointerDown: (
-    context: CanvasToolControllerContext,
+    context: CanvasToolActionPort,
     payload: CanvasToolPointerPayload
   ) => void;
   onPointerMove?: (
-    context: CanvasToolControllerContext,
+    context: CanvasToolActionPort,
     payload: Pick<CanvasToolPointerPayload, "canvasPoint" | "screenPoint">
   ) => void;
   onPointerUp?: (
-    context: CanvasToolControllerContext,
+    context: CanvasToolActionPort,
     payload: Pick<CanvasToolPointerPayload, "canvasPoint" | "screenPoint">
   ) => void;
 }
@@ -70,7 +87,7 @@ const selectToolController: CanvasToolController = {
     if (!payload.isBackgroundTarget || !payload.canvasPoint || !payload.screenPoint) {
       return;
     }
-    context.beginMarqueeSelection({
+    context.marquee.beginSelection({
       additive: payload.additive,
       canvasPoint: payload.canvasPoint,
       screenPoint: payload.screenPoint,
@@ -80,13 +97,13 @@ const selectToolController: CanvasToolController = {
     if (!payload.canvasPoint || !payload.screenPoint) {
       return;
     }
-    context.updateMarqueeSelection({
+    context.marquee.updateSelection({
       canvasPoint: payload.canvasPoint,
       screenPoint: payload.screenPoint,
     });
   },
   onPointerUp: (context, payload) => {
-    context.commitMarqueeSelection(payload);
+    context.marquee.commitSelection(payload);
   },
 };
 
@@ -95,16 +112,16 @@ const handToolController: CanvasToolController = {
     if (!payload.isBackgroundTarget || !payload.screenPoint) {
       return;
     }
-    context.beginPan(payload.screenPoint);
+    context.pan.begin(payload.screenPoint);
   },
   onPointerMove: (context, payload) => {
     if (!payload.screenPoint) {
       return;
     }
-    context.updatePan(payload.screenPoint);
+    context.pan.update(payload.screenPoint);
   },
   onPointerUp: (context) => {
-    context.endPan();
+    context.pan.end();
   },
 };
 
@@ -141,29 +158,33 @@ const textToolController: CanvasToolController = {
       color: DEFAULT_CANVAS_TEXT_COLOR,
       textAlign: "left",
     });
-    context.clearSelection();
-    context.setTool("select");
-    context.beginTextEdit(textElement, { mode: "create" });
+    context.selection.clear();
+    context.toolState.setTool("select");
+    context.text.beginEdit(textElement, { mode: "create" });
   },
 };
 
 const shapeToolController: CanvasToolController = {
   onPointerDown: (context, payload) => {
-    if (!payload.isBackgroundTarget || !payload.canvasPoint || !context.activeWorkbenchId) {
+    if (
+      !payload.isBackgroundTarget ||
+      !payload.canvasPoint ||
+      !context.workbench.activeWorkbenchId
+    ) {
       return;
     }
 
     const snappedPoint = snapPoint(payload.canvasPoint);
     const nextShape = createDefaultShapeNode({
-      shapeType: context.activeShapeType,
+      shapeType: context.shape.activeShapeType,
       x: snappedPoint.x,
       y: snappedPoint.y,
     });
 
-    context.clearSelection();
-    context.insertShape(nextShape);
-    context.selectElement(nextShape.id);
-    context.setTool("select");
+    context.selection.clear();
+    context.shape.insert(nextShape);
+    context.selection.select(nextShape.id);
+    context.toolState.setTool("select");
   },
 };
 

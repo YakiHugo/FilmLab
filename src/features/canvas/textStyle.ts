@@ -19,6 +19,7 @@ export interface CanvasTextContentSize {
 export const CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER = 1.2;
 export const DEFAULT_CANVAS_TEXT_FONT_FAMILY = "Georgia";
 export const DEFAULT_CANVAS_TEXT_FONT_SIZE_TIER: CanvasTextFontSizeTier = "medium";
+export const CANVAS_TEXT_EDITOR_PLACEHOLDER = "Add Text";
 export const CANVAS_TEXT_MENU_ITEM_HEIGHT = 38;
 export const CANVAS_TEXT_MENU_PADDING = 8;
 export const CANVAS_TEXT_MENU_WIDTHS = {
@@ -120,6 +121,31 @@ export const measureCanvasTextContentSize = (
       Math.ceil(maxLineWidth + TEXT_WIDTH_PADDING)
     ),
     height: Math.max(lineHeight, lineHeight * Math.max(lines.length, 1)),
+  };
+};
+
+export const measureCanvasTextEditorSize = (
+  element: Pick<CanvasTextElement, "content" | "fontFamily" | "fontSize">,
+  options?: {
+    measureText?: (line: string, font: { fontFamily: string; fontSize: number }) => number;
+  }
+): CanvasTextContentSize => {
+  const contentSize = measureCanvasTextContentSize(element, options);
+  if (element.content.length > 0) {
+    return contentSize;
+  }
+
+  const placeholderSize = measureCanvasTextContentSize(
+    {
+      ...element,
+      content: CANVAS_TEXT_EDITOR_PLACEHOLDER,
+    },
+    options
+  );
+
+  return {
+    width: Math.max(contentSize.width, placeholderSize.width),
+    height: Math.max(contentSize.height, placeholderSize.height),
   };
 };
 

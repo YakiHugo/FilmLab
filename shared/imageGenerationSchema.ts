@@ -52,6 +52,8 @@ export const requestedImageGenerationTargetSchema = z.object({
 export const imageGenerationAssetRefSchema = z.object({
   assetId: z.string().trim().min(1),
   role: imageGenerationAssetRefRoleSchema.default("reference"),
+  referenceType: referenceImageTypeSchema.default("content"),
+  weight: z.number().min(0).max(1).optional(),
 });
 
 export const imagePromptIntentEditOpSchema = z.object({

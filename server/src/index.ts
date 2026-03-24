@@ -1,14 +1,20 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { Pool } from "pg";
+import { createAssetRepository } from "./assets/repository";
+import { AssetService } from "./assets/service";
+import { createAssetStorage } from "./assets/storage";
 import { createChatStateRepository } from "./chat/persistence/repository";
 import { assertStartupConfig, getConfig } from "./config";
 import { registerCors } from "./plugins/cors";
 import { registerRateLimit } from "./plugins/rateLimit";
+import { assetRoute } from "./routes/assets";
 import { generatedImageRoute } from "./routes/generated-image";
 import { modelCatalogRoute } from "./routes/model-catalog";
 import { imageConversationRoute } from "./routes/image-conversation";
 import { imageGenerateRoute } from "./routes/image-generate";
+import { attachTraceIdHeader, createRequestTraceId } from "./shared/requestTrace";
 
 export const buildServer = async () => {
   const config = getConfig();
@@ -22,16 +28,35 @@ export const buildServer = async () => {
       },
     },
     bodyLimit: config.requestBodyLimitBytes,
+    genReqId: (request) =>
+      createRequestTraceId(request.headers, {
+        trustProxyRequestId: config.trustProxyRequestId,
+      }),
   });
 
-  const repository = createChatStateRepository(config.databaseUrl);
+  const pool = config.databaseUrl
+    ? new Pool({
+        connectionString: config.databaseUrl,
+      })
+    : null;
+  const repository = createChatStateRepository(pool ?? config.databaseUrl);
+  const assetService = new AssetService(
+    createAssetRepository(pool, config.supabaseStorageBucket ?? "assets"),
+    createAssetStorage(config)
+  );
   app.decorate("chatStateRepository", repository);
+  app.decorate("assetService", assetService);
   app.addHook("onClose", async () => {
     await repository.close();
+    await assetService.close();
+  });
+  app.addHook("onRequest", async (request, reply) => {
+    attachTraceIdHeader(reply, request.id);
   });
 
   await app.register(registerCors);
   await app.register(registerRateLimit);
+  await app.register(assetRoute);
   await app.register(generatedImageRoute);
   await app.register(imageConversationRoute);
   await app.register(imageGenerateRoute);

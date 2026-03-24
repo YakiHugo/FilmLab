@@ -1,4 +1,5 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { createId } from "../../../shared/createId";
 
 export type GeneratedImageVisibility = "private";
 
@@ -18,7 +19,7 @@ export const buildGeneratedImageUrl = (imageId: string, token: string) =>
   `/api/generated-images/${encodeURIComponent(imageId)}?token=${encodeURIComponent(token)}`;
 
 export const createGeneratedImageCapability = (): GeneratedImageCapability => {
-  const imageId = randomUUID();
+  const imageId = createId("generated-image");
   const privateToken = buildCapabilityToken();
   return {
     imageId,

@@ -287,8 +287,8 @@ const createHistoryEntry = (
   commandType: CanvasHistoryEntry["commandType"] = "PATCH_DOCUMENT"
 ): CanvasHistoryEntry => ({
   commandType,
-  forwardPatch: { operations: [] },
-  inversePatch: { operations: [] },
+  forwardChangeSet: { operations: [] },
+  inverseChangeSet: { operations: [] },
 });
 
 const createDeferred = <T>() => {
@@ -345,7 +345,7 @@ describe("canvasStore", () => {
       exposure: 18,
     };
 
-    await useCanvasStore.getState().upsertElement({
+    await useCanvasStore.getState().upsertElementInWorkbench("doc-1", {
       ...element,
       adjustments: nextAdjustments,
     });
@@ -369,7 +369,7 @@ describe("canvasStore", () => {
       throw new Error("Expected text element.");
     }
 
-    await useCanvasStore.getState().upsertElement({
+    await useCanvasStore.getState().upsertElementInWorkbench("doc-1", {
       ...element,
       content: "Updated copy",
     });
@@ -483,7 +483,10 @@ describe("canvasStore", () => {
       selectedElementIds: ["shape-1", "shape-2"],
     });
 
-    const result = await useCanvasStore.getState().groupElements(["shape-1", "shape-2"]);
+    const result = await useCanvasStore.getState().groupNodesInWorkbench("doc-1", [
+      "shape-1",
+      "shape-2",
+    ]);
 
     expect(result).toBeNull();
     expect(useCanvasStore.getState().selectedElementIds).toEqual(["shape-1", "shape-2"]);
@@ -631,7 +634,7 @@ describe("canvasStore", () => {
       selectedElementIds: ["image-1", "text-1"],
     });
 
-    const undone = await useCanvasStore.getState().undo();
+    const undone = await useCanvasStore.getState().undoInWorkbench("doc-1");
 
     expect(undone).toBe(true);
     expect(useCanvasStore.getState().workbenches[0]?.name).toBe(originalName);
@@ -653,12 +656,12 @@ describe("canvasStore", () => {
         name: "Renamed workbench",
       },
     });
-    await useCanvasStore.getState().undo();
+    await useCanvasStore.getState().undoInWorkbench("doc-1");
     useCanvasStore.setState({
       selectedElementIds: ["image-1"],
     });
 
-    const redone = await useCanvasStore.getState().redo();
+    const redone = await useCanvasStore.getState().redoInWorkbench("doc-1");
 
     expect(redone).toBe(true);
     expect(useCanvasStore.getState().workbenches[0]?.name).toBe("Renamed workbench");
@@ -712,7 +715,7 @@ describe("canvasStore", () => {
     });
     saveCanvasWorkbenchMock.mockResolvedValue(false);
 
-    const undone = await useCanvasStore.getState().undo();
+    const undone = await useCanvasStore.getState().undoInWorkbench("doc-1");
 
     expect(undone).toBe(false);
     expect(useCanvasStore.getState().workbenches[0]?.name).toBe("Renamed workbench");
@@ -735,13 +738,13 @@ describe("canvasStore", () => {
         name: "Renamed workbench",
       },
     });
-    await useCanvasStore.getState().undo();
+    await useCanvasStore.getState().undoInWorkbench("doc-1");
     useCanvasStore.setState({
       selectedElementIds: ["image-1"],
     });
     saveCanvasWorkbenchMock.mockResolvedValue(false);
 
-    const redone = await useCanvasStore.getState().redo();
+    const redone = await useCanvasStore.getState().redoInWorkbench("doc-1");
 
     expect(redone).toBe(false);
     expect(useCanvasStore.getState().workbenches[0]?.name).toBe(originalName);
@@ -772,18 +775,21 @@ describe("canvasStore", () => {
     expect(useCanvasStore.getState().activeWorkbenchId).toBeNull();
   });
 
-  it("does not add a missing workbench through upsertWorkbench when persistence fails", async () => {
+  it("does not patch a missing workbench", async () => {
     useCanvasStore.setState({
       activeWorkbenchId: null,
       workbenches: [],
       historyByWorkbenchId: {},
     });
-    saveCanvasWorkbenchMock.mockResolvedValue(false);
+    saveCanvasWorkbenchMock.mockClear();
 
-    await useCanvasStore.getState().upsertWorkbench(createWorkbench());
+    const result = await useCanvasStore.getState().patchWorkbench("doc-1", {
+      name: "Missing workbench",
+    });
 
+    expect(result).toBeNull();
     expect(useCanvasStore.getState().workbenches).toEqual([]);
-    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
+    expect(saveCanvasWorkbenchMock).not.toHaveBeenCalled();
   });
 
   it("returns false and preserves state when deleteWorkbench persistence fails", async () => {

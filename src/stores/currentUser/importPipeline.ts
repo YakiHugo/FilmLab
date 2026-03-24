@@ -1,6 +1,7 @@
 import pLimit from "p-limit";
 import { presets } from "@/data/presets";
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import { prepareAssetUpload } from "@/lib/assetSyncApi";
 import { createBaseLayer } from "@/lib/editorLayers";
 import { sha256FromBlob } from "@/lib/hash";
 import { prepareAssetPayload } from "@/lib/assetMetadata";
@@ -28,7 +29,7 @@ interface ImportPipelineOptions {
 
 const getFingerprint = (input: { name: string; size: number }) => `${input.name}:${input.size}`;
 
-const createAssetId = (file: File) => `${file.name}-${file.lastModified}-${createId("asset-id")}`;
+const createAssetId = () => createId("asset");
 
 const createEmptyResult = (requested = 0): ImportAssetsResult => ({
   requested,
@@ -149,10 +150,23 @@ export const runImportPipeline = async ({
         let thumbnailUrl: string | undefined;
 
         try {
-          const id = createAssetId(file);
           const fileBlob = file.slice(0, file.size, file.type);
           const contentHash = await sha256FromBlob(fileBlob);
           const { metadata, thumbnailBlob } = await prepareAssetPayload(fileBlob);
+          const prepared = await prepareAssetUpload({
+            assetId: createAssetId(),
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            createdAt: timestamp,
+            source,
+            origin,
+            contentHash,
+            tags: [],
+            metadata: metadata as Record<string, unknown>,
+            includeThumbnail: Boolean(thumbnailBlob),
+          });
+          const id = prepared.assetId;
 
           objectUrl = URL.createObjectURL(fileBlob);
           thumbnailUrl = thumbnailBlob ? URL.createObjectURL(thumbnailBlob) : objectUrl;
@@ -182,8 +196,9 @@ export const runImportPipeline = async ({
             contentHash,
             ownerRef,
             remote: {
-              status: "upload_queued",
-              updatedAt: timestamp,
+              status: prepared.existing ? "synced" : "upload_queued",
+              updatedAt: prepared.existing ? prepared.asset.updatedAt : timestamp,
+              lastSyncedAt: prepared.existing ? prepared.asset.updatedAt : undefined,
             },
           };
           asset.layers = [createBaseLayer(asset)];

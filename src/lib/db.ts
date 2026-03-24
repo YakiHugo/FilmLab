@@ -85,7 +85,6 @@ interface FilmLabDB extends DBSchema {
       attempts: number;
       nextRetryAt: string;
       lastError?: string;
-      remoteAssetId?: string;
       createdAt: string;
       updatedAt: string;
     };

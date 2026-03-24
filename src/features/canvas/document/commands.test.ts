@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { createDefaultAdjustments } from "@/lib/adjustments";
 import { getCanvasNodeWorldTransform, worldPointToLocalPoint } from "./geometry";
 import { getCanvasWorkbenchSnapshot } from "./model";
 import { executeCanvasCommand } from "./commands";
-import { createCanvasTestDocument, createGroupNode, createShapeNode } from "./testUtils";
+import { applyCanvasDocumentChangeSet } from "./patches";
+import { createCanvasTestDocument, createGroupNode, createImageNode, createShapeNode } from "./testUtils";
 
 describe("document commands", () => {
   it("groups same-parent siblings in sibling order and preserves world transforms", () => {
@@ -28,9 +30,8 @@ describe("document commands", () => {
     expect(result.document.nodes["group-1"]).toMatchObject({
       id: "group-1",
       type: "group",
-      parentId: null,
-      childIds: ["shape-a", "shape-b"],
     });
+    expect(result.document.groupChildren["group-1"]).toEqual(["shape-a", "shape-b"]);
     expect(getCanvasNodeWorldTransform(result.document, "shape-a")).toEqual(beforeWorldA);
     expect(getCanvasNodeWorldTransform(result.document, "shape-b")).toEqual(beforeWorldB);
   });
@@ -69,6 +70,28 @@ describe("document commands", () => {
     expect(result.document).toBe(document);
   });
 
+  it("rejects grouping when the requested group id already exists", () => {
+    const document = createCanvasTestDocument({
+      nodes: {
+        "shape-1": createShapeNode({ id: "shape-1", x: 10, y: 20 }),
+        "shape-2": createShapeNode({ id: "shape-2", x: 180, y: 40 }),
+        "group-1": createGroupNode({ id: "group-1", x: 320, y: 80, childIds: [] }),
+      },
+      rootIds: ["shape-1", "shape-2", "group-1"],
+    });
+
+    const result = executeCanvasCommand(document, {
+      type: "GROUP_NODES",
+      ids: ["shape-1", "shape-2"],
+      groupId: "group-1",
+    });
+
+    expect(result.didChange).toBe(false);
+    expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
+    expect(result.forwardChangeSet.operations).toEqual([]);
+    expect(result.inverseChangeSet.operations).toEqual([]);
+  });
+
   it("ungroups by preserving world transforms and materializing inherited flags", () => {
     const document = createCanvasTestDocument({
       nodes: {
@@ -101,10 +124,12 @@ describe("document commands", () => {
     expect(result.didChange).toBe(true);
     expect(result.document.rootIds).toEqual(["shape-1"]);
     expect(result.document.nodes["shape-1"]).toMatchObject({
-      parentId: null,
       visible: false,
       locked: true,
       opacity: 0.4,
+    });
+    expect(result.document.allNodes.find((node) => node.id === "shape-1")).toMatchObject({
+      parentId: null,
     });
     expect(getCanvasNodeWorldTransform(result.document, "shape-1")).toEqual(beforeWorld);
     expect(result.document.elements[0]).toMatchObject({
@@ -211,8 +236,8 @@ describe("document commands", () => {
 
     expect(result.didChange).toBe(false);
     expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
-    expect(result.forwardPatch.operations).toEqual([]);
-    expect(result.inversePatch.operations).toEqual([]);
+    expect(result.forwardChangeSet.operations).toEqual([]);
+    expect(result.inverseChangeSet.operations).toEqual([]);
   });
 
   it("treats inserts that collide with existing ids as a no-op", () => {
@@ -234,8 +259,8 @@ describe("document commands", () => {
 
     expect(result.didChange).toBe(false);
     expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
-    expect(result.forwardPatch.operations).toEqual([]);
-    expect(result.inversePatch.operations).toEqual([]);
+    expect(result.forwardChangeSet.operations).toEqual([]);
+    expect(result.inverseChangeSet.operations).toEqual([]);
   });
 
   it("keeps inserted subtree parents while only rebasing inserted roots", () => {
@@ -273,15 +298,15 @@ describe("document commands", () => {
     expect(result.didChange).toBe(true);
     expect(result.document.nodes["group-1"]).toMatchObject({
       id: "group-1",
+    });
+    expect(result.document.groupChildren.host).toEqual(["group-1"]);
+    expect(result.document.groupChildren["group-1"]).toEqual(["shape-1"]);
+    expect(result.document.allNodes.find((node) => node.id === "group-1")).toMatchObject({
       parentId: "host",
       childIds: ["shape-1"],
     });
-    expect(result.document.nodes["shape-1"]).toMatchObject({
-      id: "shape-1",
+    expect(result.document.allNodes.find((node) => node.id === "shape-1")).toMatchObject({
       parentId: "group-1",
-    });
-    expect(result.document.nodes.host).toMatchObject({
-      childIds: ["group-1"],
     });
   });
 
@@ -305,8 +330,30 @@ describe("document commands", () => {
 
     expect(result.didChange).toBe(false);
     expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
-    expect(result.forwardPatch.operations).toEqual([]);
-    expect(result.inversePatch.operations).toEqual([]);
+    expect(result.forwardChangeSet.operations).toEqual([]);
+    expect(result.inverseChangeSet.operations).toEqual([]);
+  });
+
+  it("rejects reorder commands that do not preserve the current sibling set", () => {
+    const document = createCanvasTestDocument({
+      nodes: {
+        "shape-1": createShapeNode({ id: "shape-1", x: 40, y: 60 }),
+        "shape-2": createShapeNode({ id: "shape-2", x: 140, y: 60 }),
+        "shape-3": createShapeNode({ id: "shape-3", x: 240, y: 60 }),
+      },
+      rootIds: ["shape-1", "shape-2", "shape-3"],
+    });
+
+    const result = executeCanvasCommand(document, {
+      type: "REORDER_CHILDREN",
+      parentId: null,
+      orderedIds: ["shape-3", "shape-1"],
+    });
+
+    expect(result.didChange).toBe(false);
+    expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
+    expect(result.forwardChangeSet.operations).toEqual([]);
+    expect(result.inverseChangeSet.operations).toEqual([]);
   });
 
   it("treats no-op document patches as unchanged", () => {
@@ -331,7 +378,42 @@ describe("document commands", () => {
 
     expect(result.didChange).toBe(false);
     expect(result.document).toBe(document);
-    expect(result.forwardPatch.operations).toEqual([]);
-    expect(result.inversePatch.operations).toEqual([]);
+    expect(result.forwardChangeSet.operations).toEqual([]);
+    expect(result.inverseChangeSet.operations).toEqual([]);
+  });
+
+  it("applies image adjustment commands and round-trips their patches", () => {
+    const originalAdjustments = createDefaultAdjustments();
+    const nextAdjustments = createDefaultAdjustments();
+    nextAdjustments.exposure = 24;
+    nextAdjustments.contrast = 12;
+    const document = createCanvasTestDocument({
+      nodes: {
+        "image-1": createImageNode({
+          adjustments: originalAdjustments,
+          id: "image-1",
+          x: 40,
+          y: 60,
+        }),
+      },
+      rootIds: ["image-1"],
+    });
+
+    const result = executeCanvasCommand(document, {
+      type: "APPLY_IMAGE_ADJUSTMENTS",
+      adjustments: nextAdjustments,
+      id: "image-1",
+    });
+
+    expect(result.didChange).toBe(true);
+    expect(result.document.nodes["image-1"]).toMatchObject({
+      adjustments: nextAdjustments,
+    });
+
+    const forwardApplied = applyCanvasDocumentChangeSet(document, result.forwardChangeSet);
+    const inverseApplied = applyCanvasDocumentChangeSet(result.document, result.inverseChangeSet);
+
+    expect(getCanvasWorkbenchSnapshot(forwardApplied)).toEqual(getCanvasWorkbenchSnapshot(result.document));
+    expect(getCanvasWorkbenchSnapshot(inverseApplied)).toEqual(getCanvasWorkbenchSnapshot(document));
   });
 });

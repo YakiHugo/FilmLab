@@ -1,17 +1,19 @@
 import { getCurrentUserId } from "@/lib/authToken";
 import { createId } from "@/utils";
 import type {
-  CanvasWorkbench,
-  CanvasWorkbenchSnapshot,
   CanvasNode,
   CanvasNodeId,
   CanvasNodeTransform,
+  CanvasPersistedNode,
   CanvasTextElement,
+  CanvasWorkbench,
+  CanvasWorkbenchSnapshot,
 } from "@/types";
 import { normalizeCanvasTextElement } from "../textStyle";
+import { deriveLegacyGroupChildren, normalizeCanvasHierarchy } from "./hierarchy";
 import { normalizeNode } from "./model";
 import { resolveCanvasWorkbench } from "./resolve";
-import { clone, toNodeTransform, withSyncedTransformFields } from "./shared";
+import { clone, toNodeTransform } from "./shared";
 
 type LegacyCanvasShapeElement = {
   fill?: string;
@@ -74,11 +76,14 @@ type LegacyCanvasImageElement = {
   zIndex?: number;
 };
 
+type LegacyCanvasNodeMap = Record<string, CanvasNode>;
+
 export type NormalizableCanvasWorkbench = Partial<
-  Omit<CanvasWorkbenchSnapshot, "nodes" | "rootIds" | "version">
+  Omit<CanvasWorkbenchSnapshot, "groupChildren" | "nodes" | "rootIds" | "version">
 > & {
   elements?: Array<LegacyCanvasImageElement | LegacyCanvasTextElement | LegacyCanvasShapeElement>;
-  nodes?: Record<string, CanvasNode>;
+  groupChildren?: Record<string, CanvasNodeId[]>;
+  nodes?: Record<string, CanvasPersistedNode | CanvasNode>;
   rootIds?: CanvasNodeId[];
   version?: number;
 };
@@ -107,49 +112,89 @@ const normalizeLegacyElement = (
   element: LegacyCanvasImageElement | LegacyCanvasTextElement | LegacyCanvasShapeElement
 ): CanvasNode => {
   if (element.type === "text") {
-    return withSyncedTransformFields(
-      normalizeCanvasTextElement({
-        ...element,
-        parentId: null,
-        transform: normalizeLegacyNodeTransform(element),
-      })
-    );
+    const transform = normalizeLegacyNodeTransform(element);
+    return normalizeCanvasTextElement({
+      ...element,
+      parentId: null,
+      transform,
+      x: transform.x,
+      y: transform.y,
+      width: transform.width,
+      height: transform.height,
+      rotation: transform.rotation,
+    });
   }
 
   if (element.type === "shape") {
-    return withSyncedTransformFields({
+    const transform = normalizeLegacyNodeTransform(element);
+    return {
       id: element.id,
       type: "shape",
       parentId: null,
-      transform: normalizeLegacyNodeTransform(element),
+      transform,
+      x: transform.x,
+      y: transform.y,
+      width: transform.width,
+      height: transform.height,
+      rotation: transform.rotation,
       opacity: element.opacity,
       locked: element.locked,
       visible: element.visible,
+      zIndex: element.zIndex,
       shapeType: element.shape === "ellipse" ? "ellipse" : "rect",
       fill: element.fill ?? "#f4d29c",
       stroke: element.stroke ?? "#ffffff",
       strokeWidth: Math.max(0, Number(element.strokeWidth ?? 0) || 0),
-    });
+    };
   }
 
-  return withSyncedTransformFields({
-    ...element,
+  const transform = normalizeLegacyNodeTransform(element);
+  return {
+    id: element.id,
+    type: "image",
     parentId: null,
-    transform: normalizeLegacyNodeTransform(element),
-  });
+    transform,
+    x: transform.x,
+    y: transform.y,
+    width: transform.width,
+    height: transform.height,
+    rotation: transform.rotation,
+    opacity: element.opacity,
+    locked: element.locked,
+    visible: element.visible,
+    zIndex: element.zIndex,
+    assetId: element.assetId,
+    adjustments: element.adjustments,
+    filmProfileId: element.filmProfileId,
+  };
 };
+
+const isLegacyNodeMap = (
+  version: number | undefined,
+  nodes: Record<string, CanvasPersistedNode | CanvasNode> | undefined
+): nodes is LegacyCanvasNodeMap =>
+  Boolean(nodes && version !== 3);
 
 export const normalizeCanvasWorkbenchWithCleanup = (
   document: NormalizableCanvasWorkbench
 ): NormalizedCanvasWorkbenchResult => {
   const removedLegacyShapeIds: string[] = [];
-  const normalizedNodes: Record<string, CanvasNode> = {};
+  const normalizedNodes: Record<string, CanvasPersistedNode> = {};
   const legacyElements = Array.isArray(document.elements) ? document.elements.slice() : [];
+  const parentHints: Record<string, CanvasNodeId | null | undefined> = {};
+  let explicitRootIds = document.rootIds?.slice();
+  let explicitGroupChildren = document.groupChildren ? clone(document.groupChildren) : undefined;
 
-  if (document.version === 2 && document.nodes) {
+  if (document.version === 3 && document.nodes) {
     for (const [nodeId, node] of Object.entries(document.nodes)) {
       normalizedNodes[nodeId] = normalizeNode(node);
     }
+  } else if (isLegacyNodeMap(document.version, document.nodes)) {
+    for (const [nodeId, node] of Object.entries(document.nodes)) {
+      normalizedNodes[nodeId] = normalizeNode(node);
+      parentHints[nodeId] = node.parentId ?? null;
+    }
+    explicitGroupChildren = deriveLegacyGroupChildren(document.nodes);
   } else {
     const orderedLegacyElements = legacyElements.sort(
       (left, right) => Number(left.zIndex ?? 0) - Number(right.zIndex ?? 0)
@@ -157,31 +202,35 @@ export const normalizeCanvasWorkbenchWithCleanup = (
 
     for (const entry of orderedLegacyElements) {
       const normalizedNode = normalizeLegacyElement(entry);
-      normalizedNodes[normalizedNode.id] = normalizedNode;
+      normalizedNodes[normalizedNode.id] = normalizeNode(normalizedNode);
+      parentHints[normalizedNode.id] = normalizedNode.parentId ?? null;
       if (entry.type === "shape" && !entry.shape) {
         removedLegacyShapeIds.push(entry.id);
       }
     }
+
+    explicitRootIds = orderedLegacyElements.map((entry) => entry.id);
   }
+
+  const normalizedHierarchy = normalizeCanvasHierarchy({
+    nodes: normalizedNodes,
+    rootIds: explicitRootIds,
+    groupChildren: explicitGroupChildren,
+    parentHints,
+  });
 
   const snapshot: CanvasWorkbenchSnapshot = {
     id: document.id ?? createId("workbench-id"),
-    version: 2,
+    version: 3,
     ownerRef: document.ownerRef ?? { userId: getCurrentUserId() },
-    name: document.name ?? "Untitled 工作台",
+    name: document.name ?? "Untitled Workbench",
     width: Math.max(1, Number(document.width) || 1080),
     height: Math.max(1, Number(document.height) || 1350),
     presetId: document.presetId ?? "social-portrait",
     backgroundColor: document.backgroundColor ?? "#050505",
     nodes: normalizedNodes,
-    rootIds:
-      document.version === 2 && document.rootIds
-        ? document.rootIds.filter((nodeId) => Boolean(normalizedNodes[nodeId]))
-        : legacyElements
-            .slice()
-            .sort((left, right) => Number(left.zIndex ?? 0) - Number(right.zIndex ?? 0))
-            .map((entry) => entry.id)
-            .filter((nodeId) => Boolean(normalizedNodes[nodeId])),
+    rootIds: normalizedHierarchy.rootIds,
+    groupChildren: normalizedHierarchy.groupChildren,
     slices: clone(document.slices ?? []),
     guides: {
       showCenter: Boolean(document.guides?.showCenter),

@@ -1,27 +1,18 @@
-import { useCallback, useMemo } from "react";
-import { useCanvasStore } from "@/stores/canvasStore";
+import { useMemo } from "react";
+import { useCanvasHistoryActions } from "./useCanvasHistoryActions";
+import { useCanvasHistoryState } from "./useCanvasHistoryState";
 
 export function useCanvasHistory() {
-  const canUndoSelector = useCanvasStore((state) => state.canUndo);
-  const canRedoSelector = useCanvasStore((state) => state.canRedo);
-  const undoInStore = useCanvasStore((state) => state.undo);
-  const redoInStore = useCanvasStore((state) => state.redo);
+  const { canRedo, canUndo } = useCanvasHistoryState();
+  const { redo, undo } = useCanvasHistoryActions();
 
-  const canUndo = useMemo(() => canUndoSelector(), [canUndoSelector]);
-  const canRedo = useMemo(() => canRedoSelector(), [canRedoSelector]);
-
-  const undo = useCallback(() => {
-    void undoInStore();
-  }, [undoInStore]);
-
-  const redo = useCallback(() => {
-    void redoInStore();
-  }, [redoInStore]);
-
-  return {
-    canUndo,
-    canRedo,
-    undo,
-    redo,
-  };
+  return useMemo(
+    () => ({
+      canRedo,
+      canUndo,
+      redo,
+      undo,
+    }),
+    [canRedo, canUndo, redo, undo]
+  );
 }

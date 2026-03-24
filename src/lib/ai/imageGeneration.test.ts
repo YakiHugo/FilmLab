@@ -33,6 +33,7 @@ describe("generateImage", () => {
           turnId: "turn-1",
           jobId: "job-1",
           runId: "run-1",
+          traceId: "trace-1",
           modelId: "seedream-v5",
           logicalModel: "image.seedream.v5",
           deploymentId: "ark-seedream-v5-primary",
@@ -92,6 +93,7 @@ describe("generateImage", () => {
       turnId: "turn-1",
       jobId: "job-1",
       runId: "run-1",
+      traceId: "trace-1",
     });
     expect(result.warnings).toEqual(["Seedream returned 1 of 2 requested images."]);
     expect(result.images).toHaveLength(1);
@@ -111,6 +113,7 @@ describe("generateImage", () => {
           turnId: "turn-2",
           jobId: "job-2",
           runId: "run-2",
+          traceId: "trace-2",
           modelId: "qwen-image-2-pro",
           logicalModel: "image.qwen.v2.pro",
           deploymentId: "dashscope-qwen-image-2-pro-primary",
@@ -159,6 +162,7 @@ describe("generateImage", () => {
       turnId: "turn-2",
       jobId: "job-2",
       runId: "run-2",
+      traceId: "trace-2",
       modelId: "qwen-image-2-pro",
       logicalModel: "image.qwen.v2.pro",
       deploymentId: "dashscope-qwen-image-2-pro-primary",
@@ -169,6 +173,52 @@ describe("generateImage", () => {
       resultId: "result-2",
       provider: "dashscope",
       model: "qwen-image-2.0-pro",
+    });
+  });
+
+  it("attaches traceId to request errors when the server returns one", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: "Provider rejected request.",
+          traceId: "trace-error-1",
+          conversationId: "conversation-1",
+          threadId: "conversation-1",
+          turnId: "turn-3",
+          jobId: "job-3",
+          runId: "run-3",
+        }),
+        {
+          status: 429,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+
+    const { generateImage } = await import("./imageGeneration");
+
+    await expect(
+      generateImage({
+        prompt: "Rainy alley",
+        modelId: "qwen-image-2-pro",
+        aspectRatio: "1:1",
+        style: "none",
+        referenceImages: [],
+        batchSize: 1,
+        modelParams: {},
+      })
+    ).rejects.toMatchObject({
+      message: "Provider rejected request.",
+      traceId: "trace-error-1",
+      conversationId: "conversation-1",
+      threadId: "conversation-1",
+      turnId: "turn-3",
+      jobId: "job-3",
+      runId: "run-3",
     });
   });
 });

@@ -22,8 +22,8 @@ vi.mock("@/lib/assetSyncApi", () => ({
   completeAssetUpload: vi.fn(),
   fetchAssetChanges: vi.fn(async () => []),
   deleteRemoteAsset: vi.fn(),
-  presignAssetUpload: vi.fn(),
-  uploadToPresignedTarget: vi.fn(),
+  prepareAssetUpload: vi.fn(),
+  uploadToAssetTarget: vi.fn(),
 }));
 
 vi.mock("@/lib/authToken", () => ({

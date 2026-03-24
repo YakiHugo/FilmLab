@@ -90,6 +90,7 @@ const createSession = (jobCount = 0, turnCount = 2): PersistedImageSession => ({
       createdAt: "2026-03-09T00:00:00.000Z",
       completedAt: null,
       telemetry: {
+        traceId: "trace-run-loading",
         providerRequestId: null,
         providerTaskId: null,
         latencyMs: null,

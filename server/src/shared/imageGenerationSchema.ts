@@ -31,18 +31,6 @@ const appendIssue = (
   });
 };
 
-const estimateDataUrlBytes = (value: string): number | null => {
-  const trimmedValue = value.trim();
-  const match = /^data:[^;,]+;base64,([A-Za-z0-9+/=]+)$/i.exec(trimmedValue);
-  if (!match?.[1]) {
-    return null;
-  }
-
-  const encoded = match[1];
-  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
-  return Math.max(0, Math.floor((encoded.length * 3) / 4) - padding);
-};
-
 export const validateImageGenerationRequestAgainstModel = (
   payload: ParsedImageGenerationRequest,
   frontendModel: FrontendModelSpec,
@@ -127,21 +115,25 @@ export const validateImageGenerationRequestAgainstModel = (
     }
   }
 
+  const referenceAssetRefs = payload.assetRefs.filter((assetRef) => assetRef.role === "reference");
   if (capability.referenceImages.enabled) {
-    if (payload.referenceImages.length > capability.referenceImages.maxImages) {
+    if (referenceAssetRefs.length > capability.referenceImages.maxImages) {
       appendIssue(
         ctx,
-        ["referenceImages"],
+        ["assetRefs"],
         `${label} supports at most ${capability.referenceImages.maxImages} reference images.`
       );
     }
 
-    payload.referenceImages.forEach((referenceImage, index) => {
-      if (!capability.referenceImages.supportedTypes.includes(referenceImage.type)) {
+    referenceAssetRefs.forEach((referenceImage, index) => {
+      if (
+        referenceImage.referenceType &&
+        !capability.referenceImages.supportedTypes.includes(referenceImage.referenceType)
+      ) {
         appendIssue(
           ctx,
-          ["referenceImages", index, "type"],
-          `${label} does not support reference image type ${referenceImage.type}.`
+          ["assetRefs", index, "referenceType"],
+          `${label} does not support reference image type ${referenceImage.referenceType}.`
         );
       }
 
@@ -152,31 +144,15 @@ export const validateImageGenerationRequestAgainstModel = (
       ) {
         appendIssue(
           ctx,
-          ["referenceImages", index, "weight"],
+          ["assetRefs", index, "weight"],
           `${label} does not support reference image weights.`
         );
       }
-
-      if (typeof capability.referenceImages.maxFileSizeBytes === "number") {
-        const estimatedBytes = estimateDataUrlBytes(referenceImage.url);
-        if (
-          typeof estimatedBytes === "number" &&
-          estimatedBytes > capability.referenceImages.maxFileSizeBytes
-        ) {
-          appendIssue(
-            ctx,
-            ["referenceImages", index, "url"],
-            `${label} reference images must be ${Math.round(
-              capability.referenceImages.maxFileSizeBytes / 1024 / 1024
-            )} MB or smaller.`
-          );
-        }
-      }
     });
-  } else if (payload.referenceImages.length > 0) {
+  } else if (referenceAssetRefs.length > 0) {
     appendIssue(
       ctx,
-      ["referenceImages"],
+      ["assetRefs"],
       `${label} does not support reference images.`
     );
   }

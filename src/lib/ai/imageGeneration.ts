@@ -19,6 +19,7 @@ interface ImageGenerationResponseErrorPayload {
   turnId?: string;
   jobId?: string;
   runId?: string;
+  traceId?: string;
 }
 
 export interface ImageGenerationRequestError extends Error {
@@ -27,6 +28,7 @@ export interface ImageGenerationRequestError extends Error {
   turnId?: string;
   jobId?: string;
   runId?: string;
+  traceId?: string;
 }
 
 const createAbortError = () => {
@@ -133,6 +135,12 @@ const normalizeImages = (
 
     normalized.push({
       imageUrl: resolveApiUrl(item.imageUrl),
+      assetId:
+        typeof item.assetId === "string"
+          ? item.assetId
+          : (() => {
+              throw new Error("Generated image is missing assetId.");
+            })(),
       ...(typeof item.resultId === "string" ? { resultId: item.resultId } : {}),
       ...(typeof item.imageId === "string" ? { imageId: item.imageId } : {}),
       provider:
@@ -195,6 +203,9 @@ export async function generateImage(
     if (typeof errorPayload?.runId === "string") {
       error.runId = errorPayload.runId;
     }
+    if (typeof errorPayload?.traceId === "string") {
+      error.traceId = errorPayload.traceId;
+    }
     throw error;
   }
 
@@ -235,6 +246,12 @@ export async function generateImage(
       : (() => {
           throw new Error("Missing run id in image generation response.");
         })();
+  const traceId =
+    typeof json.traceId === "string"
+      ? json.traceId
+      : (() => {
+          throw new Error("Missing trace id in image generation response.");
+        })();
   const logicalModel =
     typeof json.logicalModel === "string"
       ? (json.logicalModel as ImageGenerationResponse["logicalModel"])
@@ -273,8 +290,13 @@ export async function generateImage(
     : [];
 
   if (images.length === 0 && fallbackImageUrl) {
+    const fallbackAssetId = primaryAssetIds[0];
+    if (!fallbackAssetId) {
+      throw new Error("Generated image is missing assetId.");
+    }
     images.push({
       imageUrl: fallbackImageUrl,
+      assetId: fallbackAssetId,
       ...(typeof json.resultId === "string" ? { resultId: json.resultId } : {}),
       ...(typeof json.imageId === "string" ? { imageId: json.imageId } : {}),
       provider: runtimeProvider,
@@ -292,6 +314,7 @@ export async function generateImage(
     turnId,
     jobId,
     runId,
+    traceId,
     modelId,
     logicalModel,
     deploymentId,

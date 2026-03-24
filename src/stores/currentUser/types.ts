@@ -28,6 +28,22 @@ export interface ImportAssetOptions {
   ownerRef?: Asset["ownerRef"];
 }
 
+export interface MaterializedRemoteAssetInput {
+  assetId: string;
+  name: string;
+  type: Asset["type"];
+  size: number;
+  createdAt: string;
+  updatedAt: string;
+  source: Asset["source"];
+  origin: AssetOrigin;
+  contentHash?: string;
+  tags?: string[];
+  metadata?: Record<string, unknown>;
+  objectUrl: string;
+  thumbnailUrl?: string;
+}
+
 // Backward-compatible alias for existing consumers during migration.
 export type AddAssetsResult = ImportAssetsResult;
 
@@ -45,6 +61,7 @@ export interface CurrentUserState {
     options?: ImportAssetOptions
   ) => Promise<ImportAssetsResult>;
   importAssetFromUrl: (url: string) => Promise<ImportAssetsResult>;
+  materializeRemoteAssets: (assets: MaterializedRemoteAssetInput[]) => void;
   runAssetSync: () => Promise<void>;
   retryAssetSyncForAsset: (assetId: string) => Promise<void>;
   applyPresetToDay: (day: string, presetId: string, intensity: number) => void;

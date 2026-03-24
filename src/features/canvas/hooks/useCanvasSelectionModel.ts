@@ -1,11 +1,12 @@
 import { useMemo, useRef } from "react";
-import { useCanvasRuntimeStore } from "@/stores/canvasRuntimeStore";
-import { selectActiveWorkbench, useCanvasStore } from "@/stores/canvasStore";
+import { useCanvasSelectionPreview } from "@/features/canvas/runtime/canvasRuntimeHooks";
+import { useCanvasStore } from "@/stores/canvasStore";
 import {
   createCanvasSelectionModel,
   resolveDisplaySelectedElementIds,
   selectionIdsEqual,
 } from "../selectionModel";
+import { selectActiveWorkbench } from "../store/canvasStoreSelectors";
 
 const EMPTY_SELECTED_ELEMENT_IDS: string[] = [];
 
@@ -15,10 +16,7 @@ export function useCanvasSelectionModel() {
     (state) => state.selectedElementIds,
     selectionIdsEqual
   );
-  const selectionPreviewElementIds = useCanvasRuntimeStore(
-    (state) => state.selectionPreviewElementIds,
-    selectionIdsEqual
-  );
+  const { selectionPreviewElementIds } = useCanvasSelectionPreview();
   const stabilizedDisplaySelectedElementIdsRef = useRef<string[]>(EMPTY_SELECTED_ELEMENT_IDS);
   const nodeById = useMemo(
     () => new Map((activeWorkbench?.allNodes ?? []).map((node) => [node.id, node])),

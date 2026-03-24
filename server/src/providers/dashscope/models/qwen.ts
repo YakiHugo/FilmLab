@@ -15,11 +15,11 @@ const getDashScopeGenerationUrl = () =>
 const resolvePromptExtend = (value: unknown) => (typeof value === "boolean" ? value : true);
 
 const buildQwenMessageContent = (input: PlatformProviderGenerateInput) => {
-  const referenceImages = input.request.referenceImages
-    .filter((referenceImage) => typeof referenceImage.url === "string" && referenceImage.url.trim())
+  const referenceImages = (input.request.resolvedAssetRefs ?? [])
+    .filter((referenceImage) => Boolean(referenceImage.signedUrl.trim()))
     .slice(0, 3)
     .map((referenceImage) => ({
-      image: referenceImage.url.trim(),
+      image: referenceImage.signedUrl.trim(),
     }));
 
   if (referenceImages.length === 0) {

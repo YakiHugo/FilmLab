@@ -16,6 +16,7 @@ import {
   createInitialConversationCreativeState,
 } from "../../gateway/prompt/types";
 import type { PromptVersionRecord } from "../../gateway/prompt/types";
+import { createId } from "../../../../shared/createId";
 import {
   ChatConversationNotFoundError,
   ChatPromptStateConflictError,
@@ -124,7 +125,7 @@ export class MemoryChatStateRepository implements ChatStateRepository {
 
     const createdAt = new Date().toISOString();
     const conversation: MemoryConversationRecord = {
-      id: crypto.randomUUID(),
+      id: createId("conversation"),
       userId,
       promptState: createInitialConversationCreativeState(),
       isActive: true,
@@ -531,10 +532,7 @@ export class MemoryChatStateRepository implements ChatStateRepository {
       updatedAt: input.acceptedAt,
     });
 
-    const edgeId =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `accepted-edge-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const edgeId = createId("accepted-edge");
     this.assetEdges.set(edgeId, {
       id: edgeId,
       conversationId: conversation.id,

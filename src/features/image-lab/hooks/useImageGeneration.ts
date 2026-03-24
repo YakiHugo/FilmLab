@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   GenerationJobSnapshot,
+  PersistedAssetRecord,
   PersistedPromptArtifactRecord,
   PersistedRunRecord,
   PersistedImageGenerationRequestSnapshot,
@@ -10,6 +11,7 @@ import type {
   PersistedResultItem,
 } from "../../../../shared/chatImageTypes";
 import { importAssetFiles } from "@/lib/assetImport";
+import { fetchRemoteAsset } from "@/lib/assetSyncApi";
 import {
   acceptImageConversationTurn,
   clearImageConversation,
@@ -30,7 +32,7 @@ import {
   type CatalogDrivenFeatureSupport,
   type ImageModelCatalog,
 } from "@/lib/ai/imageModelCatalog";
-import type { Asset, CanvasImageElement } from "@/types";
+import type { CanvasImageElement } from "@/types";
 import type {
   ImageAspectRatio,
   ImageGenerationAssetRefRole,
@@ -54,10 +56,15 @@ import {
 } from "@/stores/generationConfigStore";
 import { getCanvasResetEpoch, useCanvasStore } from "@/stores/canvasStore";
 import { useImageSessionStore } from "@/stores/imageSessionStore";
-import { createId } from "@/utils";
+import {
+  createId,
+  resolveCanvasImageInsertionSize,
+} from "@/utils";
 import {
   bindResultAssetToConfig,
+  bindResultReferenceToConfig,
   clearBoundResultReferencesFromConfig,
+  clearReferenceImagesFromConfig,
   clearReferenceInputsForUnsupportedModel,
   removeBoundResultReferenceFromConfig,
   updateAssetRefRoleInConfig,
@@ -67,7 +74,6 @@ import { useGenerationConfig } from "./useGenerationConfig";
 export interface GeneratedResultItem {
   imageUrl: string;
   imageId?: string | null;
-  threadAssetId: string | null;
   provider: string;
   model: string;
   mimeType?: string;
@@ -106,24 +112,6 @@ export interface ImageGenerationTurn {
   promptArtifactsError: string | null;
   promptArtifacts: PersistedPromptArtifactRecord[] | null;
   results: GeneratedResultItem[];
-}
-
-interface ImportedImage {
-  imageUrl: string;
-  assetId: string | null;
-  provider: string;
-  model: string;
-  index: number;
-  mimeType?: string;
-  revisedPrompt?: string | null;
-}
-
-interface ImportedGenerationResult {
-  imageUrl: string;
-  assetId: string | null;
-  images: ImportedImage[];
-  importedAssetIds: string[];
-  indexToAssetId: Record<number, string>;
 }
 
 interface RuntimeResultState {
@@ -381,6 +369,36 @@ const deserializePromptIntent = (value: unknown): ImagePromptIntentInput => {
   };
 };
 
+export const deserializeAssetRefs = (
+  value: unknown
+): GenerationConfig["assetRefs"] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.reduce<GenerationConfig["assetRefs"]>((next, entry) => {
+    if (!isRecord(entry) || typeof entry.assetId !== "string") {
+      return next;
+    }
+
+    const role =
+      entry.role === "edit" || entry.role === "variation" ? entry.role : "reference";
+    next.push({
+      assetId: entry.assetId,
+      role,
+      ...(role === "reference"
+        ? {
+            referenceType: isReferenceImageType(entry.referenceType)
+              ? entry.referenceType
+              : "content",
+            weight: typeof entry.weight === "number" ? entry.weight : 1,
+          }
+        : {}),
+    });
+    return next;
+  }, []);
+};
+
 const deserializedConfigCache = new WeakMap<Record<string, unknown>, GenerationConfig>();
 
 const deserializeConfig = (
@@ -416,20 +434,7 @@ const deserializeConfig = (
         : fallbackConfig.negativePrompt,
     promptIntent: deserializePromptIntent(snapshot.promptIntent),
     referenceImages: deserializeReferenceImages(snapshot.referenceImages),
-    assetRefs: Array.isArray(snapshot.assetRefs)
-      ? snapshot.assetRefs.reduce<GenerationConfig["assetRefs"]>((next, entry) => {
-          if (!isRecord(entry) || typeof entry.assetId !== "string") {
-            return next;
-          }
-
-          next.push({
-            assetId: entry.assetId,
-            role:
-              entry.role === "edit" || entry.role === "variation" ? entry.role : "reference",
-          });
-          return next;
-        }, [])
-      : [],
+    assetRefs: deserializeAssetRefs(snapshot.assetRefs),
     seed: typeof snapshot.seed === "number" ? snapshot.seed : fallbackConfig.seed,
     guidanceScale:
       typeof snapshot.guidanceScale === "number"
@@ -574,51 +579,6 @@ export const omitUnavailableReferenceImages = (
   };
 };
 
-interface SaveableGeneratedImage {
-  imageUrl: string;
-  imageId?: string | null;
-  provider: string;
-  model: string;
-  mimeType?: string;
-  revisedPrompt?: string | null;
-}
-
-const toGeneratedImages = (
-  results: Array<{
-    imageUrl: string;
-    imageId?: string | null;
-    provider: string;
-    model: string;
-    mimeType?: string;
-    revisedPrompt?: string | null;
-  }>
-): SaveableGeneratedImage[] =>
-  results.map((result) => ({
-    imageUrl: result.imageUrl,
-    imageId: result.imageId ?? undefined,
-    provider: result.provider,
-    model: result.model,
-    mimeType: result.mimeType,
-    revisedPrompt: result.revisedPrompt ?? null,
-  }));
-
-const applyImportedAssetsToPersistedResults = (
-  results: PersistedResultItem[],
-  indexToAssetId: Record<number, string>
-) =>
-  results.map((result) => {
-    const assetId = indexToAssetId[result.index];
-    if (!assetId) {
-      return result;
-    }
-
-    return {
-      ...result,
-      assetId,
-      saved: true,
-    };
-  });
-
 const toPersistedResultsFromResponse = (
   response: ImageGenerationResponse
 ): PersistedResultItem[] =>
@@ -632,8 +592,8 @@ const toPersistedResultsFromResponse = (
     mimeType: image.mimeType,
     revisedPrompt: image.revisedPrompt ?? null,
     index,
-    assetId: null,
-    saved: false,
+    assetId: image.assetId ?? response.primaryAssetIds[index] ?? null,
+    saved: true,
   }));
 
 const toUITurn = (
@@ -682,13 +642,12 @@ const toUITurn = (
       return {
         imageUrl: result.imageUrl,
         imageId: result.imageId ?? undefined,
-        threadAssetId: result.threadAssetId,
         provider: result.runtimeProvider,
         model: result.providerModel,
         mimeType: result.mimeType,
         revisedPrompt: result.revisedPrompt ?? null,
         index: result.index,
-        assetId: result.assetId,
+        assetId: result.assetId ?? result.threadAssetId,
         selected: runtimeState?.selected ?? !result.saved,
         saved: result.saved,
         isUpscaling: runtimeState?.isUpscaling ?? false,
@@ -699,8 +658,6 @@ const toUITurn = (
 };
 
 const REFERENCE_IMAGE_MAX_DIMENSION = 1_600;
-const DEFAULT_CANVAS_LONG_EDGE = 420;
-
 const blobToFileExtension = (mimeType: string) =>
   mimeType.includes("jpeg") ? "jpg" : mimeType.includes("webp") ? "webp" : "png";
 
@@ -808,28 +765,6 @@ export const filesToReferenceImages = async (
   return entries;
 };
 
-const createReferenceImageFromGeneratedResult = async (
-  input: {
-    imageUrl: string;
-    fileNamePrefix: string;
-  },
-  options?: { maxFileSizeBytes?: number }
-) => {
-  const imageResponse = await fetch(input.imageUrl);
-  if (!imageResponse.ok) {
-    throw new Error("Generated image could not be reused as a reference.");
-  }
-
-  const blob = await imageResponse.blob();
-  const mimeType = blob.type || "image/png";
-  const extension = blobToFileExtension(mimeType);
-  const file = new File([blob], `${input.fileNamePrefix}.${extension}`, {
-    type: mimeType,
-  });
-
-  return toReferenceImageEntry(file, "content", options);
-};
-
 const resolveAssetRoleNotice = (
   role: ImageGenerationAssetRefRole,
   supportedFeatures: CatalogDrivenFeatureSupport
@@ -879,7 +814,6 @@ const toImageRequest = (
   style: supportedFeatures.styles ? config.style : "none",
   stylePreset: config.stylePreset || undefined,
   negativePrompt: supportedFeatures.negativePrompt ? config.negativePrompt || undefined : undefined,
-  referenceImages: supportedFeatures.referenceImages.enabled ? config.referenceImages : [],
   assetRefs: config.assetRefs,
   seed: supportedFeatures.seed ? (config.seed ?? undefined) : undefined,
   guidanceScale: supportedFeatures.guidanceScale ? (config.guidanceScale ?? undefined) : undefined,
@@ -889,99 +823,11 @@ const toImageRequest = (
   modelParams: config.modelParams,
 });
 
-export const resolveCanvasImageSize = (asset?: Asset | null) => {
-  const sourceWidth = asset?.metadata?.width ?? 0;
-  const sourceHeight = asset?.metadata?.height ?? 0;
-  if (sourceWidth <= 0 || sourceHeight <= 0) {
-    return {
-      width: DEFAULT_CANVAS_LONG_EDGE,
-      height: DEFAULT_CANVAS_LONG_EDGE,
-    };
-  }
-
-  if (sourceWidth >= sourceHeight) {
-    return {
-      width: DEFAULT_CANVAS_LONG_EDGE,
-      height: Math.max(96, Math.round((DEFAULT_CANVAS_LONG_EDGE * sourceHeight) / sourceWidth)),
-    };
-  }
-
-  return {
-    width: Math.max(96, Math.round((DEFAULT_CANVAS_LONG_EDGE * sourceWidth) / sourceHeight)),
-    height: DEFAULT_CANVAS_LONG_EDGE,
-  };
-};
-
-const toUploadFiles = async (images: Array<{ image: SaveableGeneratedImage; index: number }>) =>
-  Promise.all(
-    images.map(async ({ image, index }) => {
-      const imageResponse = await fetch(image.imageUrl);
-      if (!imageResponse.ok) {
-        throw new Error("Generated image could not be downloaded.");
-      }
-      const blob = await imageResponse.blob();
-      const mimeType = blob.type || image.mimeType || "image/png";
-      const extension = blobToFileExtension(mimeType);
-      return new File([blob], `ai-${Date.now()}-${index}.${extension}`, {
-        type: mimeType,
-      });
-    })
-  );
-
 export async function generateImages(
   request: ImageGenerationRequest,
   options?: { signal?: AbortSignal }
 ): Promise<ImageGenerationResponse> {
   return requestImageGeneration(request, options);
-}
-
-export async function saveGeneratedImages(
-  images: SaveableGeneratedImage[],
-  selectedIndexes: number[]
-): Promise<ImportedGenerationResult> {
-  const selectedEntries = selectedIndexes
-    .map((index) => ({ image: images[index], index }))
-    .filter(
-      (entry): entry is { image: SaveableGeneratedImage; index: number } => Boolean(entry.image)
-    );
-
-  if (selectedEntries.length === 0) {
-    return {
-      imageUrl: "",
-      assetId: null,
-      images: [],
-      importedAssetIds: [],
-      indexToAssetId: {},
-    };
-  }
-
-  const files = await toUploadFiles(selectedEntries);
-  const importResult = await importAssetFiles(files, {
-    source: "ai-generated",
-    origin: "ai",
-  });
-
-  const importedAssetIds = importResult.resolvedAssetIds;
-  const indexToAssetId: Record<number, string> = {};
-  const importedImages = selectedEntries.map((entry, arrayIndex) => {
-    const assetId = importedAssetIds[arrayIndex] ?? null;
-    if (assetId) {
-      indexToAssetId[entry.index] = assetId;
-    }
-    return {
-      ...entry.image,
-      index: entry.index,
-      assetId,
-    };
-  });
-
-  return {
-    imageUrl: importedImages[0]?.imageUrl ?? "",
-    assetId: importedImages[0]?.assetId ?? null,
-    images: importedImages,
-    importedAssetIds,
-    indexToAssetId,
-  };
 }
 
 export function useImageGeneration() {
@@ -999,10 +845,7 @@ export function useImageGeneration() {
     setConfig,
     setModel: setModelInConfig,
     updateConfig,
-    addReferenceImages,
-    updateReferenceImage,
     removeReferenceImage: removeReferenceImageInConfig,
-    clearReferenceImages: clearReferenceImagesInConfig,
   } = useGenerationConfig();
   const session = useImageSessionStore((state) => state.session);
   const replaceSession = useImageSessionStore((state) => state.replaceSession);
@@ -1053,13 +896,14 @@ export function useImageGeneration() {
   promptObservabilityRef.current = promptObservability;
 
   useEffect(() => {
+    const promptArtifactAbortControllers = promptArtifactAbortRef.current;
     return () => {
       generationRequestRef.current?.controller.abort();
       generationRequestRef.current = null;
       snapshotRequestAbortRef.current?.abort();
       snapshotRequestAbortRef.current = null;
-      promptArtifactAbortRef.current.forEach((controller) => controller.abort());
-      promptArtifactAbortRef.current.clear();
+      promptArtifactAbortControllers.forEach((controller) => controller.abort());
+      promptArtifactAbortControllers.clear();
       promptObservabilityAbortRef.current?.abort();
       promptObservabilityAbortRef.current = null;
     };
@@ -1189,29 +1033,6 @@ export function useImageGeneration() {
     },
     []
   );
-
-  const clearRuntimeResultState = useCallback((turnId: string, index: number) => {
-    setRuntimeResults((previous) => {
-      const turnState = previous[turnId];
-      if (!turnState || !(index in turnState)) {
-        return previous;
-      }
-
-      const nextTurnState = { ...turnState };
-      delete nextTurnState[index];
-
-      if (Object.keys(nextTurnState).length === 0) {
-        const next = { ...previous };
-        delete next[turnId];
-        return next;
-      }
-
-      return {
-        ...previous,
-        [turnId]: nextTurnState,
-      };
-    });
-  }, []);
 
   const clearRuntimeTurnState = useCallback((turnId: string) => {
     setSavingTurnIds((previous) => {
@@ -1489,34 +1310,46 @@ export function useImageGeneration() {
     [getTurnById, updateJob, updateTurn]
   );
 
-  const persistImportedAssets = useCallback(
-    (turnId: string, indexToAssetId: Record<number, string>) => {
-      const nextResults = updateTurnResults(turnId, (results) =>
-        applyImportedAssetsToPersistedResults(results, indexToAssetId)
-      );
-      if (!nextResults) {
-        return;
-      }
-
-      Object.keys(indexToAssetId).forEach((indexKey) => {
-        clearRuntimeResultState(turnId, Number(indexKey));
-      });
-      updateTurn(turnId, {
-        error: null,
-      });
-    },
-    [clearRuntimeResultState, updateTurn, updateTurnResults]
-  );
-
   const addReferenceFiles = useCallback(
     async (filesInput: FileList | File[]) => {
-      const entries = await filesToReferenceImages(filesInput, "content", {
-        maxFileSizeBytes: supportedFeatures.referenceImages.maxFileSizeBytes,
+      if (!config) {
+        return [];
+      }
+
+      const imported = await importAssetFiles(filesInput, {
+        source: "imported",
+        origin: "file",
       });
-      addReferenceImages(entries);
+      const importedAssets = imported.resolvedAssetIds
+        .map((assetId) => useAssetStore.getState().assets.find((asset) => asset.id === assetId) ?? null)
+        .filter((asset): asset is NonNullable<typeof asset> => Boolean(asset));
+
+      if (importedAssets.length === 0) {
+        return [];
+      }
+
+      const nextConfig = importedAssets.reduce<GenerationConfig>((draftConfig, asset) => {
+        return bindResultReferenceToConfig(draftConfig, {
+          assetId: asset.id,
+          referenceImage: {
+            id: createId("reference-id"),
+            url: asset.objectUrl,
+            fileName: asset.name,
+            type: "content",
+            weight: 1,
+            sourceAssetId: asset.id,
+          },
+        });
+      }, cloneGenerationConfig(config));
+
+      setConfig(nextConfig);
+      const importedAssetIds = new Set(importedAssets.map((asset) => asset.id));
+      const entries = nextConfig.referenceImages.filter((entry) =>
+        entry.sourceAssetId ? importedAssetIds.has(entry.sourceAssetId) : false
+      );
       return entries;
     },
-    [addReferenceImages, supportedFeatures.referenceImages.maxFileSizeBytes]
+    [config, setConfig]
   );
 
   const setModel = useCallback(
@@ -1539,14 +1372,18 @@ export function useImageGeneration() {
 
       if (
         !toCatalogFeatureSupport(nextModel).referenceImages.enabled &&
-        config.referenceImages.length > 0
+        (config.referenceImages.length > 0 || config.assetRefs.length > 0)
       ) {
-        const { nextConfig, removedReferenceImageCount } =
+        const { nextConfig, removedReferenceImageCount, removedAssetRefCount } =
           clearReferenceInputsForUnsupportedModel(nextConfigBase);
+        const removedInputCount = Math.max(
+          removedReferenceImageCount,
+          removedAssetRefCount
+        );
         setConfig(nextConfig);
         setNotice(
-          `Switched to ${nextModel.label}. Removed ${removedReferenceImageCount} reference image${
-            removedReferenceImageCount === 1 ? "" : "s"
+          `Switched to ${nextModel.label}. Removed ${removedInputCount} image-guided input${
+            removedInputCount === 1 ? "" : "s"
           } because this model does not support image-guided generation.`
         );
         return;
@@ -1556,6 +1393,81 @@ export function useImageGeneration() {
     },
     [catalog, config, setConfig, setModelInConfig]
   );
+
+  const materializeGeneratedAssets = useCallback((response: ImageGenerationResponse) => {
+    const persistedAssetsById = new Map<string, PersistedAssetRecord>(
+      response.assets.map((asset) => [asset.id, asset])
+    );
+    const provisionalAssets = response.images.map((image, index) => {
+      const persistedAsset = persistedAssetsById.get(image.assetId);
+      const metadata = isRecord(persistedAsset?.metadata) ? persistedAsset.metadata : undefined;
+      const thumbnailUrl =
+        metadata && typeof metadata.thumbnailUrl === "string"
+          ? metadata.thumbnailUrl
+          : image.imageUrl;
+      const mimeType =
+        metadata && typeof metadata.mimeType === "string"
+          ? metadata.mimeType
+          : (image.mimeType ?? "image/png");
+
+      return {
+        assetId: image.assetId,
+        name: persistedAsset?.label ?? `Generated image ${index + 1}`,
+        type: mimeType,
+        size: 0,
+        createdAt: persistedAsset?.createdAt ?? response.createdAt,
+        updatedAt: response.createdAt,
+        source: "ai-generated" as const,
+        origin: "ai" as const,
+        metadata,
+        objectUrl: image.imageUrl,
+        thumbnailUrl,
+      };
+    });
+
+    useAssetStore.getState().materializeRemoteAssets(provisionalAssets);
+
+    const assetIds = Array.from(new Set(provisionalAssets.map((asset) => asset.assetId)));
+    void Promise.allSettled(assetIds.map((assetId) => fetchRemoteAsset(assetId))).then((results) => {
+      const hydratedAssets = results.flatMap((result) => {
+        if (result.status !== "fulfilled") {
+          return [];
+        }
+
+        const asset = result.value;
+        return [
+          {
+            assetId: asset.assetId,
+            name: asset.name,
+            type: asset.type,
+            size: asset.size,
+            createdAt: asset.createdAt,
+            updatedAt: asset.updatedAt,
+            source: asset.source,
+            origin: asset.origin,
+            contentHash: asset.contentHash,
+            tags: asset.tags,
+            metadata: asset.metadata,
+            objectUrl: asset.objectUrl,
+            thumbnailUrl: asset.thumbnailUrl,
+          },
+        ];
+      });
+
+      if (hydratedAssets.length > 0) {
+        useAssetStore.getState().materializeRemoteAssets(hydratedAssets);
+      }
+
+      const failedAssetIds = results.flatMap((result, index) =>
+        result.status === "rejected" ? [assetIds[index] ?? "unknown"] : []
+      );
+      if (failedAssetIds.length > 0) {
+        console.warn("Failed to hydrate generated assets in the asset store.", {
+          assetIds: failedAssetIds,
+        });
+      }
+    });
+  }, []);
 
   const runGeneration = useCallback(
     async (options: {
@@ -1649,6 +1561,7 @@ export function useImageGeneration() {
         }
 
         serverConversationIdRef.current = generated.conversationId;
+        materializeGeneratedAssets(generated);
         updateTurn(turnId, {
           status: "done",
           error: null,
@@ -1726,6 +1639,7 @@ export function useImageGeneration() {
       clearRuntimeTurnState,
       invalidateConversationSnapshotRequests,
       modelConfig,
+      materializeGeneratedAssets,
       refreshConversationSnapshot,
       updateJob,
       updateTurn,
@@ -1836,13 +1750,13 @@ export function useImageGeneration() {
     async (turnId: string, index: number) => {
       const turn = getUiTurnById(turnId);
       const result = turn?.results.find((entry) => entry.index === index);
-      if (!result?.threadAssetId) {
+      if (!result?.assetId) {
         return null;
       }
 
       invalidateConversationSnapshotRequests();
       try {
-        const snapshot = await acceptImageConversationTurn(turnId, result.threadAssetId);
+        const snapshot = await acceptImageConversationTurn(turnId, result.assetId);
         applyConversationSnapshot(snapshot);
         return snapshot;
       } catch (error) {
@@ -1937,9 +1851,13 @@ export function useImageGeneration() {
       });
 
       try {
-        const imported = await saveGeneratedImages(toGeneratedImages(turn.results), selectedIndexes);
-        persistImportedAssets(turnId, imported.indexToAssetId);
-        return imported;
+        return updateTurnResults(turnId, (results) =>
+          results.map((result) =>
+            selectedIndexes.includes(result.index) && result.assetId
+              ? { ...result, saved: true }
+              : result
+          )
+        );
       } catch (error) {
         updateTurn(turnId, {
           error: error instanceof Error ? error.message : "Save generated images failed.",
@@ -1949,7 +1867,7 @@ export function useImageGeneration() {
         setTurnSavingState(turnId, false);
       }
     },
-    [getUiTurnById, persistImportedAssets, setTurnSavingState, updateTurn]
+    [getUiTurnById, setTurnSavingState, updateTurn, updateTurnResults]
   );
 
   const toggleResultSelection = useCallback(
@@ -1976,30 +1894,35 @@ export function useImageGeneration() {
     ) => {
       const turn = getUiTurnById(turnId);
       const result = turn?.results.find((entry) => entry.index === index);
-      if (!result?.threadAssetId || !config || !modelConfig) {
+      if (!result?.assetId || !config) {
         return;
       }
 
       try {
-        const includeReferenceImage = supportedFeatures.referenceImages.enabled;
-        const referenceImage = includeReferenceImage
-          ? await createReferenceImageFromGeneratedResult(
-              {
-                imageUrl: result.imageUrl,
-                fileNamePrefix: `${role}-asset-${turnId}-${index + 1}`,
-              },
-              {
-                maxFileSizeBytes: modelConfig.constraints.referenceImages.maxFileSizeBytes,
+        const asset =
+          useAssetStore.getState().assets.find((entry) => entry.id === result.assetId) ?? null;
+        const binding =
+          role === "reference" && asset
+            ? {
+                nextConfig: bindResultReferenceToConfig(cloneGenerationConfig(config), {
+                  assetId: result.assetId,
+                  referenceImage: {
+                    id: createId("reference-id"),
+                    url: asset.objectUrl,
+                    fileName: asset.name,
+                    type: "content",
+                    weight: 1,
+                    sourceAssetId: asset.id,
+                  },
+                }),
+                error: null,
               }
-            )
-          : null;
-
-        const binding = bindResultAssetToConfig(cloneGenerationConfig(config), {
-          assetId: result.threadAssetId,
-          role,
-          includeReferenceImage,
-          referenceImage,
-        });
+            : bindResultAssetToConfig(cloneGenerationConfig(config), {
+                assetId: result.assetId,
+                role,
+                includeReferenceImage: false,
+                referenceImage: null,
+              });
         if (binding.error) {
           setNotice(binding.error);
           return;
@@ -2018,7 +1941,7 @@ export function useImageGeneration() {
         );
       }
     },
-    [config, getUiTurnById, modelConfig, setConfig, setNotice, supportedFeatures]
+    [config, getUiTurnById, setConfig, setNotice, supportedFeatures]
   );
 
   const useResultAsReference = useCallback(
@@ -2083,6 +2006,37 @@ export function useImageGeneration() {
     setConfig(clearBoundResultReferencesFromConfig(config));
   }, [config, setConfig]);
 
+  const patchReferenceImage = useCallback(
+    (id: string, patch: Partial<ReferenceImage>) => {
+      if (!config) {
+        return;
+      }
+
+      const referenceImage = config.referenceImages.find((entry) => entry.id === id);
+      setConfig({
+        ...config,
+        referenceImages: config.referenceImages.map((entry) =>
+          entry.id === id
+            ? {
+                ...entry,
+                ...patch,
+              }
+            : entry
+        ),
+        assetRefs: config.assetRefs.map((assetRef) =>
+          assetRef.assetId === referenceImage?.sourceAssetId && assetRef.role === "reference"
+            ? {
+                ...assetRef,
+                ...(patch.type ? { referenceType: patch.type } : {}),
+                ...(typeof patch.weight === "number" ? { weight: patch.weight } : {}),
+              }
+            : assetRef
+        ),
+      });
+    },
+    [config, setConfig]
+  );
+
   const removeReferenceImage = useCallback(
     (id: string) => {
       if (!config) {
@@ -2105,13 +2059,8 @@ export function useImageGeneration() {
       return;
     }
 
-    if (config.referenceImages.some((referenceImage) => referenceImage.sourceAssetId)) {
-      setConfig(clearReferenceInputsForUnsupportedModel(config).nextConfig);
-      return;
-    }
-
-    clearReferenceImagesInConfig();
-  }, [clearReferenceImagesInConfig, config, setConfig]);
+    setConfig(clearReferenceImagesFromConfig(config));
+  }, [config, setConfig]);
 
   const upscaleResult = useCallback(
     async (turnId: string, index: number) => {
@@ -2138,19 +2087,11 @@ export function useImageGeneration() {
         return null;
       }
 
-      let finalAssetId =
+      const finalAssetId =
         assetId ??
         (typeof index === "number"
           ? (turn.results.find((entry) => entry.index === index)?.assetId ?? null)
           : (turn.results.find((entry) => entry.assetId)?.assetId ?? null));
-      if (!finalAssetId && typeof index === "number") {
-        const imported = await saveGeneratedImages(toGeneratedImages(turn.results), [index]);
-        finalAssetId = imported.indexToAssetId[index] ?? null;
-
-        if (finalAssetId) {
-          persistImportedAssets(turnId, imported.indexToAssetId);
-        }
-      }
       if (!finalAssetId) {
         return null;
       }
@@ -2178,7 +2119,9 @@ export function useImageGeneration() {
         return null;
       }
 
-      const { width, height } = resolveCanvasImageSize(asset);
+      const { width, height } = await resolveCanvasImageInsertionSize(asset, {
+        minimumShortEdge: 96,
+      });
       const x = 140 + insertionIndex * 24;
       const y = 120 + insertionIndex * 24;
 
@@ -2211,7 +2154,7 @@ export function useImageGeneration() {
       }
       return { workbenchId, elementId: element.id };
     },
-    [getUiTurnById, persistImportedAssets]
+    [getUiTurnById]
   );
 
   const clearSession = useCallback(async () => {
@@ -2285,7 +2228,7 @@ export function useImageGeneration() {
     setModel,
     updateConfig,
     addReferenceFiles,
-    updateReferenceImage,
+    updateReferenceImage: patchReferenceImage,
     removeReferenceImage,
     clearReferenceImages,
     removeAssetReference,

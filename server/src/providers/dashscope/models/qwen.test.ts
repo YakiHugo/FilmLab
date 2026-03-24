@@ -172,16 +172,22 @@ describe("generateDashscopeQwen", () => {
 
     const { generateDashscopeQwen } = await import("./qwen");
     const input = createInput();
-    input.request.referenceImages = [
+    input.request.resolvedAssetRefs = [
       {
-        id: "ref-1",
-        url: "data:image/png;base64,AAA",
-        type: "content",
+        assetId: "asset-ref-1",
+        role: "reference",
+        referenceType: "content",
+        weight: 1,
+        signedUrl: "https://assets.example.com/ref-1.png",
+        mimeType: "image/png",
       },
       {
-        id: "ref-2",
-        url: "data:image/png;base64,BBB",
-        type: "content",
+        assetId: "asset-ref-2",
+        role: "reference",
+        referenceType: "content",
+        weight: 1,
+        signedUrl: "https://assets.example.com/ref-2.png",
+        mimeType: "image/png",
       },
     ];
 
@@ -199,8 +205,8 @@ describe("generateDashscopeQwen", () => {
       };
     };
     expect(requestPayload.input.messages[0]?.content).toEqual([
-      { image: "data:image/png;base64,AAA" },
-      { image: "data:image/png;base64,BBB" },
+      { image: "https://assets.example.com/ref-1.png" },
+      { image: "https://assets.example.com/ref-2.png" },
       { text: "Rainy alley" },
     ]);
   });

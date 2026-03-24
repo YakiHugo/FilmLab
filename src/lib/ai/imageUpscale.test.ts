@@ -26,6 +26,7 @@ describe("upscaleImage", () => {
           runtimeProvider: "dashscope",
           modelFamily: "qwen",
           model: "qwen-image-2.0-pro",
+          assetId: "asset-upscaled-1",
           imageId: "img-upscaled-1",
           imageUrl: "/api/generated-images/img-upscaled-1",
           mimeType: "image/png",
@@ -56,6 +57,7 @@ describe("upscaleImage", () => {
     expect(result).toMatchObject({
       provider: "dashscope",
       model: "qwen-image-2.0-pro",
+      assetId: "asset-upscaled-1",
       imageId: "img-upscaled-1",
       imageUrl: "/api/generated-images/img-upscaled-1",
       mimeType: "image/png",

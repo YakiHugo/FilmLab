@@ -2,8 +2,8 @@ import type Konva from "konva";
 import { useCallback } from "react";
 import type { CanvasSlice } from "@/types";
 import { useAssetStore } from "@/stores/assetStore";
-import { useCanvasStore } from "@/stores/canvasStore";
 import { cropRenderedCanvasSlice, renderCanvasWorkbenchToCanvas } from "../renderCanvasWorkbench";
+import { useCanvasActiveWorkbenchState } from "./useCanvasActiveWorkbenchState";
 
 export type CanvasExportFormat = "png" | "jpeg";
 
@@ -96,11 +96,7 @@ export const exportStageDataUrl = (
 
 export function useCanvasExport() {
   const assets = useAssetStore((state) => state.assets);
-  const activeWorkbench = useCanvasStore((state) =>
-    state.activeWorkbenchId
-      ? state.workbenches.find((document) => document.id === state.activeWorkbenchId) ?? null
-      : null
-  );
+  const { activeWorkbench } = useCanvasActiveWorkbenchState();
 
   const exportDataUrl = useCallback(
     (
