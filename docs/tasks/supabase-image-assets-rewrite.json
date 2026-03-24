@@ -1,0 +1,60 @@
+{
+  "baseline": "bf4e949",
+  "currentTaskId": "8",
+  "tasks": [
+    {
+      "id": "1",
+      "title": "record baseline and create task artifacts",
+      "status": "done",
+      "passes": true
+    },
+    {
+      "id": "2",
+      "title": "refactor shared asset and image-generation contracts to canonical asset ids",
+      "status": "done",
+      "passes": true,
+      "rollback": "revert shared contract slice commit"
+    },
+    {
+      "id": "3",
+      "title": "implement Fastify asset backend with Postgres tables and storage adapter",
+      "status": "done",
+      "passes": true,
+      "rollback": "revert server asset backend slice commit"
+    },
+    {
+      "id": "4",
+      "title": "rewire client asset import and sync to the canonical asset backend",
+      "status": "done",
+      "passes": true,
+      "rollback": "revert client asset sync slice commit"
+    },
+    {
+      "id": "5",
+      "title": "update image generation and image-lab flows to asset-only references and results",
+      "status": "done",
+      "passes": true,
+      "rollback": "revert image generation slice commit"
+    },
+    {
+      "id": "6",
+      "title": "validate build and remove obsolete remoteAssetId or threadAssetId assumptions",
+      "status": "done",
+      "passes": true,
+      "rollback": "revert final cleanup slice commit"
+    },
+    {
+      "id": "7",
+      "title": "materialize generated canonical assets into the runtime asset store",
+      "status": "done",
+      "passes": true,
+      "rollback": "revert generated-result materialization slice commit"
+    },
+    {
+      "id": "8",
+      "title": "resolve remaining post-review server and image-lab findings before module commits",
+      "status": "blocked",
+      "passes": false
+    }
+  ]
+}
