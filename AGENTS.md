@@ -6,14 +6,12 @@
 - Never be sycophantic. If you disagree, say so directly. If my suggestion would make the code worse, push back.
 - Do not excessively use emojis.
 - Always read and understand code before proposing changes. Never suggest modifications to code you have not inspected.
-- When I ask for a review, explain the post-change overall architecture first. Cover every major affected file, its role in that architecture, and for any large, high-responsibility, or newly created component or module, include a concise description of its internal logic.
+- When I ask for a change overview, explain the post-change overall architecture first. Cover every major affected file, its role in that architecture, and for any large, high-responsibility, or newly created component or module, include a concise description of its internal logic.
 - Do what has been asked; nothing more, nothing less. Do not over-engineer.
 - For small decisions (naming, local refactors, implementation details), decide on your own and move on. Only ask when the choice is irreversible or affects security/architecture.
 - When refactoring or creating new module, first propose what you consider best practice and let the user decide, rather than immediately compromising the workspace code
 - When modifying a module, search `docs/tasks` for related unfinished notes first; do not ignore existing task context and duplicate or conflict with in-flight work.
 - When updating this file, keep rules short and dense: say when to do something and what anti-pattern to avoid, without extra narration.
-- Do not inline runtime ID generation with `randomUUID`, `Date.now`, or `Math.random`; reuse the shared ID helper instead.
-- For canvas insert, duplicate, delete, and upsert flows, reuse the shared collision and selection handling instead of re-implementing ad hoc logic at new call sites.
 
 ## Code Convention
 
