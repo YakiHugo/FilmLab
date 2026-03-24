@@ -1,5 +1,5 @@
 import type Konva from "konva";
-import { Fragment, memo, useEffect, useState, type RefObject } from "react";
+import { Fragment, memo, useEffect, useMemo, useState, type RefObject } from "react";
 import { Layer, Line, Rect, Stage, Text as KonvaText } from "react-konva";
 import type {
   CanvasRenderableElement,
@@ -7,6 +7,7 @@ import type {
   CanvasTextElement,
   CanvasWorkbench,
 } from "@/types";
+import { createId } from "@/utils";
 import {
   CANVAS_SELECTION_ACCENT,
   CANVAS_SELECTION_ACCENT_FILL,
@@ -24,6 +25,15 @@ const WORKSPACE_DOT_GRID_NODE_ID = "canvas-workspace-grid";
 const DOT_RADIUS = 0.72;
 const WORKSPACE_BACKGROUND_FILL = "rgb(38, 38, 38)";
 const WORKSPACE_DOT_FILL = "rgb(68, 68, 68)";
+
+interface CanvasSelectionOutlineRect {
+  id: string;
+  rotation: number;
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+}
 
 function DotGrid({
   bounds,
@@ -162,27 +172,113 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
 });
 
 const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
+  stageRef,
   selectedElements,
 }: {
+  stageRef: RefObject<Konva.Stage>;
   selectedElements: CanvasTextRuntimeSelectedElement[];
 }) {
+  const baseOutlineRects = useMemo(
+    () => selectedElements.map((element) => resolveBaseSelectionOutlineRect(element)),
+    [selectedElements]
+  );
+  const selectionSnapshotKey = useMemo(
+    () =>
+      `${selectedElements.map((element) => element.id).join("|")}::${createId("selection-outline")}`,
+    [selectedElements]
+  );
+  const [liveOutlineState, setLiveOutlineState] = useState<{
+    rects: CanvasSelectionOutlineRect[] | null;
+    selectionSnapshotKey: string;
+  }>({
+    rects: null,
+    selectionSnapshotKey,
+  });
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || selectedElements.length === 0) {
+      setLiveOutlineState((current) =>
+        current.selectionSnapshotKey === selectionSnapshotKey && current.rects === null
+          ? current
+          : {
+              rects: null,
+              selectionSnapshotKey,
+            }
+      );
+      return;
+    }
+
+    const runtimeTargets = selectedElements.map((element, index) => {
+      const baseOutlineRect = baseOutlineRects[index]!;
+      if (element.type === "group") {
+        return {
+          baseOutlineRect,
+          node: null,
+        };
+      }
+
+      const node = stage.findOne(`#${element.id}`);
+      return {
+        baseOutlineRect,
+        node: node ?? null,
+      };
+    });
+    const trackedNodes = runtimeTargets
+      .map((target) => target.node)
+      .filter((node): node is Konva.Node => Boolean(node));
+
+    if (trackedNodes.length === 0) {
+      setLiveOutlineState((current) =>
+        current.selectionSnapshotKey === selectionSnapshotKey && current.rects === null
+          ? current
+          : {
+              rects: null,
+              selectionSnapshotKey,
+            }
+      );
+      return;
+    }
+
+    const syncOutlineRects = () => {
+      const nextOutlineRects = runtimeTargets.map((target) =>
+        target.node
+          ? resolveLiveSelectionOutlineRect(target.baseOutlineRect, target.node)
+          : target.baseOutlineRect
+      );
+      setLiveOutlineState((current) =>
+        current.selectionSnapshotKey === selectionSnapshotKey &&
+        current.rects &&
+        selectionOutlineRectsEqual(current.rects, nextOutlineRects)
+          ? current
+          : {
+              rects: nextOutlineRects,
+              selectionSnapshotKey,
+            }
+      );
+    };
+
+    syncOutlineRects();
+
+    trackedNodes.forEach((node) => {
+      node.on("dragmove transform dragend transformend", syncOutlineRects);
+    });
+
+    return () => {
+      trackedNodes.forEach((node) => {
+        node.off("dragmove transform dragend transformend", syncOutlineRects);
+      });
+    };
+  }, [baseOutlineRects, selectedElements, selectionSnapshotKey, stageRef]);
+
+  const outlineRects =
+    liveOutlineState.selectionSnapshotKey === selectionSnapshotKey && liveOutlineState.rects
+      ? liveOutlineState.rects
+      : baseOutlineRects;
+
   return (
     <>
-      {selectedElements.map((element) => {
-        const outlineElement =
-          element.type === "group"
-            ? {
-                id: element.id,
-                rotation: 0,
-                x: element.bounds.x,
-                y: element.bounds.y,
-                width: element.bounds.width,
-                height: element.bounds.height,
-              }
-            : element.type === "text"
-              ? fitCanvasTextElementToContent(element)
-              : element;
-
+      {outlineRects.map((outlineElement) => {
         return (
           <Rect
             key={outlineElement.id}
@@ -201,6 +297,67 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
     </>
   );
 });
+
+const resolveBaseSelectionOutlineRect = (
+  element: CanvasTextRuntimeSelectedElement
+): CanvasSelectionOutlineRect =>
+  element.type === "group"
+    ? {
+        id: element.id,
+        rotation: 0,
+        x: element.bounds.x,
+        y: element.bounds.y,
+        width: element.bounds.width,
+        height: element.bounds.height,
+      }
+    : element.type === "text"
+      ? fitCanvasTextElementToContent(element)
+      : {
+          id: element.id,
+          rotation: element.rotation,
+          x: element.x,
+          y: element.y,
+          width: element.width,
+          height: element.height,
+        };
+
+const resolveLiveSelectionOutlineRect = (
+  baseOutlineRect: CanvasSelectionOutlineRect,
+  node: Konva.Node
+): CanvasSelectionOutlineRect => {
+  const scaleX = Math.abs(node.scaleX()) || 1;
+  const scaleY = Math.abs(node.scaleY()) || 1;
+
+  return {
+    ...baseOutlineRect,
+    rotation: node.rotation(),
+    width: baseOutlineRect.width * scaleX,
+    height: baseOutlineRect.height * scaleY,
+    x: node.x(),
+    y: node.y(),
+  };
+};
+
+const selectionOutlineRectsEqual = (
+  left: CanvasSelectionOutlineRect[],
+  right: CanvasSelectionOutlineRect[]
+) =>
+  left.length === right.length &&
+  left.every((rect, index) => {
+    const candidate = right[index];
+    if (!candidate) {
+      return false;
+    }
+
+    return (
+      rect.id === candidate.id &&
+      Math.abs(rect.rotation - candidate.rotation) < 0.01 &&
+      Math.abs(rect.width - candidate.width) < 0.5 &&
+      Math.abs(rect.height - candidate.height) < 0.5 &&
+      Math.abs(rect.x - candidate.x) < 0.5 &&
+      Math.abs(rect.y - candidate.y) < 0.5
+    );
+  });
 
 interface CanvasViewportStageShellProps {
   activeEditingTextId: string | null;
@@ -378,7 +535,7 @@ export function CanvasViewportStageShell({
         </Layer>
 
         <Layer listening={false}>
-          <CanvasSelectionOutlineLayer selectedElements={selectedElements} />
+          <CanvasSelectionOutlineLayer stageRef={stageRef} selectedElements={selectedElements} />
         </Layer>
 
         <Layer listening={false}>
