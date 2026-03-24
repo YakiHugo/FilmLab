@@ -1,11 +1,9 @@
 import type {
-  CanvasWorkbench,
-  CanvasWorkbenchSnapshot,
   CanvasElement,
-  CanvasNode,
-  CanvasNodeId,
   CanvasRenderableElement,
   CanvasRenderableNode,
+  CanvasWorkbench,
+  CanvasWorkbenchSnapshot,
 } from "@/types";
 import {
   computeLeafBounds,
@@ -13,76 +11,13 @@ import {
   localPointToWorldPoint,
   type AccumulatedTransform,
 } from "./geometry";
-import { normalizeNode } from "./model";
-import { clone, isGroupNode } from "./shared";
-
-const sanitizeRootOrder = (
-  nodes: Record<string, CanvasNode>,
-  rootIds: CanvasNodeId[] | undefined
-): CanvasNodeId[] => {
-  const existingRootIds = Object.values(nodes)
-    .filter((node) => !node.parentId)
-    .map((node) => node.id);
-  const orderedIds = Array.from(new Set(rootIds ?? [])).filter(
-    (nodeId) => nodes[nodeId] && !nodes[nodeId]!.parentId
-  );
-
-  for (const nodeId of existingRootIds) {
-    if (!orderedIds.includes(nodeId)) {
-      orderedIds.push(nodeId);
-    }
-  }
-
-  return orderedIds;
-};
-
-const sanitizeNodeHierarchy = (
-  nodes: Record<string, CanvasNode>,
-  rootIds: CanvasNodeId[]
-): { nodes: Record<string, CanvasNode>; rootIds: CanvasNodeId[] } => {
-  const nextNodes = clone(nodes);
-  const sanitizedRootIds = sanitizeRootOrder(nextNodes, rootIds);
-
-  for (const node of Object.values(nextNodes)) {
-    if (!isGroupNode(node)) {
-      continue;
-    }
-
-    node.childIds = node.childIds.filter((childId) => {
-      const child = nextNodes[childId];
-      if (!child) {
-        return false;
-      }
-      child.parentId = node.id;
-      return true;
-    });
-  }
-
-  for (const node of Object.values(nextNodes)) {
-    if (node.parentId && !nextNodes[node.parentId]) {
-      node.parentId = null;
-    }
-  }
-
-  for (const node of Object.values(nextNodes)) {
-    if (!node.parentId) {
-      continue;
-    }
-    const parent = nextNodes[node.parentId];
-    if (parent?.type === "group" && !parent.childIds.includes(node.id)) {
-      parent.childIds.push(node.id);
-    }
-  }
-
-  return {
-    nodes: nextNodes,
-    rootIds: sanitizeRootOrder(nextNodes, sanitizedRootIds),
-  };
-};
+import { buildCanvasHierarchyIndex } from "./hierarchy";
+import { clone } from "./shared";
 
 const resolveNodeRecursive = (
-  nodes: Record<string, CanvasNode>,
-  nodeId: CanvasNodeId,
+  snapshot: CanvasWorkbenchSnapshot,
+  nodeId: string,
+  parentId: string | null,
   parentTransform: AccumulatedTransform,
   parentLocked: boolean,
   parentVisible: boolean,
@@ -90,7 +25,7 @@ const resolveNodeRecursive = (
   allNodes: CanvasRenderableNode[],
   elements: CanvasRenderableElement[]
 ): CanvasRenderableNode | null => {
-  const node = nodes[nodeId];
+  const node = snapshot.nodes[nodeId];
   if (!node) {
     return null;
   }
@@ -109,9 +44,11 @@ const resolveNodeRecursive = (
   const effectiveVisible = parentVisible && node.visible;
 
   if (node.type === "group") {
+    const childIds = snapshot.groupChildren[node.id] ?? [];
     const groupNode: CanvasRenderableNode = {
       ...node,
-      childIds: node.childIds.slice(),
+      parentId,
+      childIds: childIds.slice(),
       depth,
       bounds: {
         x: accumulated.x,
@@ -134,10 +71,11 @@ const resolveNodeRecursive = (
     };
 
     const childBounds: Array<{ x: number; y: number; width: number; height: number }> = [];
-    for (const childId of node.childIds) {
+    for (const childId of childIds) {
       const child = resolveNodeRecursive(
-        nodes,
+        snapshot,
         childId,
+        node.id,
         accumulated,
         effectiveLocked,
         effectiveVisible,
@@ -166,9 +104,10 @@ const resolveNodeRecursive = (
 
   const resolvedNode: CanvasRenderableElement = {
     ...(node as CanvasElement),
+    parentId,
     childIds: [],
     depth,
-    bounds: computeLeafBounds(accumulated, node),
+    bounds: computeLeafBounds(accumulated, node as CanvasElement),
     opacity: node.opacity,
     worldOpacity: accumulated.opacity,
     locked: node.locked,
@@ -189,19 +128,16 @@ const resolveNodeRecursive = (
 };
 
 export const resolveCanvasWorkbench = (snapshot: CanvasWorkbenchSnapshot): CanvasWorkbench => {
-  const sanitized = sanitizeNodeHierarchy(
-    Object.fromEntries(
-      Object.entries(snapshot.nodes).map(([nodeId, node]) => [nodeId, normalizeNode(node)])
-    ),
-    snapshot.rootIds
-  );
+  buildCanvasHierarchyIndex(snapshot);
+
   const allNodes: CanvasRenderableNode[] = [];
   const elements: CanvasRenderableElement[] = [];
 
-  for (const rootId of sanitized.rootIds) {
+  for (const rootId of snapshot.rootIds) {
     resolveNodeRecursive(
-      sanitized.nodes,
+      snapshot,
       rootId,
+      null,
       { x: 0, y: 0, rotation: 0, opacity: 1 },
       false,
       true,
@@ -213,9 +149,10 @@ export const resolveCanvasWorkbench = (snapshot: CanvasWorkbenchSnapshot): Canva
 
   return {
     ...snapshot,
-    version: 2,
-    nodes: sanitized.nodes,
-    rootIds: sanitized.rootIds,
+    version: 3,
+    nodes: clone(snapshot.nodes),
+    rootIds: snapshot.rootIds.slice(),
+    groupChildren: clone(snapshot.groupChildren),
     allNodes,
     elements,
   };

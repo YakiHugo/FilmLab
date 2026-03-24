@@ -72,7 +72,7 @@ export function useCanvasImagePropertyActions(selectedImageElement: CanvasRender
 
   return {
     commitIntent,
-    imageElement,
+    imageElement: selectedImageElement,
     setAdjustments,
     setFilmProfileId,
   };

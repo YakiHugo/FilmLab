@@ -1,9 +1,8 @@
 import type {
   CanvasWorkbench,
-  CanvasElement,
-  CanvasNode,
   CanvasNodeId,
   CanvasNodeTransform,
+  CanvasPersistedElement,
   CanvasRenderableNode,
 } from "@/types";
 
@@ -28,42 +27,16 @@ export const getCanvasNodeWorldTransform = (
   document: CanvasWorkbench,
   nodeId: CanvasNodeId
 ): AccumulatedTransform | null => {
-  const node = document.nodes[nodeId];
+  const node = document.allNodes.find((entry) => entry.id === nodeId);
   if (!node) {
     return null;
   }
-
-  const lineage: CanvasNode[] = [];
-  let current: CanvasNode | undefined = node;
-  while (current) {
-    lineage.unshift(current);
-    current = current.parentId ? document.nodes[current.parentId] : undefined;
-  }
-
-  let accumulated: AccumulatedTransform = {
-    x: 0,
-    y: 0,
-    rotation: 0,
-    opacity: 1,
+  return {
+    x: node.x,
+    y: node.y,
+    rotation: node.rotation,
+    opacity: node.worldOpacity,
   };
-
-  for (const entry of lineage) {
-    const rotated = rotatePoint(
-      {
-        x: entry.transform.x,
-        y: entry.transform.y,
-      },
-      accumulated.rotation
-    );
-    accumulated = {
-      x: accumulated.x + rotated.x,
-      y: accumulated.y + rotated.y,
-      rotation: accumulated.rotation + entry.transform.rotation,
-      opacity: accumulated.opacity * entry.opacity,
-    };
-  }
-
-  return accumulated;
 };
 
 export const worldPointToLocalPoint = (
@@ -121,7 +94,7 @@ export const getBoundsFromPoints = (points: Array<{ x: number; y: number }>) => 
 
 export const computeLeafBounds = (
   transform: AccumulatedTransform,
-  node: CanvasElement
+  node: CanvasPersistedElement
 ): CanvasRenderableNode["bounds"] => {
   const corners = getNodeCorners(node.transform).map((point) =>
     localPointToWorldPoint(transform, point)

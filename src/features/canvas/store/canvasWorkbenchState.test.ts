@@ -76,8 +76,8 @@ describe("canvasWorkbenchState", () => {
       historyByWorkbenchId: {
         "doc-1": {
           past: [createHistoryEntry({ type: "PATCH_DOCUMENT", patch: { name: "One" } }, {
-            forwardPatch: { operations: [] },
-            inversePatch: { operations: [] },
+            forwardChangeSet: { operations: [] },
+            inverseChangeSet: { operations: [] },
           })],
           future: [],
         },
@@ -99,8 +99,8 @@ describe("canvasWorkbenchState", () => {
         "doc-1": {
           past: [],
           future: [createHistoryEntry({ type: "MOVE_NODES", dx: 1, dy: 1, ids: ["node-1"] }, {
-            forwardPatch: { operations: [] },
-            inversePatch: { operations: [] },
+            forwardChangeSet: { operations: [] },
+            inverseChangeSet: { operations: [] },
           })],
         },
       },
@@ -112,8 +112,8 @@ describe("canvasWorkbenchState", () => {
       },
     };
     const result = {
-      forwardPatch: { operations: [] },
-      inversePatch: { operations: [] },
+      forwardChangeSet: { operations: [] },
+      inverseChangeSet: { operations: [] },
     };
 
     const nextState = commitCommandResultToState(state, {

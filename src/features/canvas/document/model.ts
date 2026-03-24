@@ -1,17 +1,18 @@
 import { getCurrentUserId } from "@/lib/authToken";
 import { createId } from "@/utils";
 import type {
-  CanvasWorkbench,
-  CanvasWorkbenchSnapshot,
   CanvasNode,
   CanvasNodeId,
+  CanvasPersistedNode,
   CanvasRenderableElement,
   CanvasRenderableNode,
   CanvasShapeElement,
   CanvasShapePoint,
+  CanvasWorkbench,
+  CanvasWorkbenchSnapshot,
 } from "@/types";
 import { normalizeCanvasTextElement } from "../textStyle";
-import { clone, toNodeTransform, withSyncedTransformFields } from "./shared";
+import { clone, toNodeTransform } from "./shared";
 
 export const isCanvasRenderableElement = (
   node: CanvasRenderableNode
@@ -38,7 +39,7 @@ export const getCanvasWorkbenchSnapshot = (
   document: CanvasWorkbench | CanvasWorkbenchSnapshot
 ): CanvasWorkbenchSnapshot => ({
   id: document.id,
-  version: 2,
+  version: 3,
   ownerRef: document.ownerRef ?? { userId: getCurrentUserId() },
   name: document.name,
   width: document.width,
@@ -47,6 +48,7 @@ export const getCanvasWorkbenchSnapshot = (
   backgroundColor: document.backgroundColor,
   nodes: clone(document.nodes),
   rootIds: document.rootIds.slice(),
+  groupChildren: clone(document.groupChildren),
   slices: clone(document.slices),
   guides: clone(document.guides),
   safeArea: clone(document.safeArea),
@@ -55,22 +57,48 @@ export const getCanvasWorkbenchSnapshot = (
   thumbnailBlob: document.thumbnailBlob,
 });
 
-export const normalizeNode = (node: CanvasNode): CanvasNode => {
+export const normalizeNode = (node: CanvasPersistedNode | CanvasNode): CanvasPersistedNode => {
   if (node.type === "text") {
-    return withSyncedTransformFields(
-      normalizeCanvasTextElement({
-        ...node,
-        transform: toNodeTransform(node.transform),
-        parentId: node.parentId ?? null,
-      })
-    );
+    const transform = toNodeTransform(node.transform);
+    const normalized = normalizeCanvasTextElement({
+      ...node,
+      parentId: null,
+      transform,
+      x: transform.x,
+      y: transform.y,
+      width: transform.width,
+      height: transform.height,
+      rotation: transform.rotation,
+    });
+    return {
+      id: normalized.id,
+      type: "text",
+      transform: toNodeTransform(normalized.transform),
+      zIndex: normalized.zIndex,
+      opacity: normalized.opacity,
+      locked: normalized.locked,
+      visible: normalized.visible,
+      color: normalized.color,
+      content: normalized.content,
+      fontFamily: normalized.fontFamily,
+      fontSize: normalized.fontSize,
+      fontSizeTier: normalized.fontSizeTier,
+      textAlign: normalized.textAlign,
+    };
   }
 
   if (node.type === "shape") {
-    return withSyncedTransformFields({
-      ...node,
-      parentId: node.parentId ?? null,
+    return {
+      id: node.id,
+      type: "shape",
       transform: toNodeTransform(node.transform),
+      zIndex: node.zIndex,
+      opacity: node.opacity,
+      locked: node.locked,
+      visible: node.visible,
+      shapeType: node.shapeType,
+      fill: node.fill,
+      stroke: node.stroke,
       strokeWidth: Math.max(0, Number(node.strokeWidth) || 0),
       radius: typeof node.radius === "number" ? Math.max(0, node.radius) : undefined,
       points: node.points?.map((point) => ({
@@ -83,24 +111,34 @@ export const normalizeNode = (node: CanvasNode): CanvasNode => {
             end: Boolean(node.arrowHead.end),
           }
         : undefined,
-    });
+    };
   }
 
   if (node.type === "group") {
-    return withSyncedTransformFields({
-      ...node,
-      parentId: node.parentId ?? null,
+    return {
+      id: node.id,
+      type: "group",
       transform: toNodeTransform(node.transform),
-      childIds: Array.from(new Set(node.childIds ?? [])),
+      zIndex: node.zIndex,
+      opacity: node.opacity,
+      locked: node.locked,
+      visible: node.visible,
       name: node.name || "Group",
-    });
+    };
   }
 
-  return withSyncedTransformFields({
-    ...node,
-    parentId: node.parentId ?? null,
+  return {
+    id: node.id,
+    type: "image",
     transform: toNodeTransform(node.transform),
-  });
+    zIndex: node.zIndex,
+    opacity: node.opacity,
+    locked: node.locked,
+    visible: node.visible,
+    assetId: node.assetId,
+    adjustments: node.adjustments,
+    filmProfileId: node.filmProfileId,
+  };
 };
 
 export const getCanvasRenderableNode = (
@@ -114,7 +152,7 @@ export const getCanvasRenderableElement = (
 ): CanvasRenderableElement | null => document.elements.find((node) => node.id === nodeId) ?? null;
 
 export const getCanvasDescendantIds = (
-  document: Pick<CanvasWorkbenchSnapshot, "nodes">,
+  document: Pick<CanvasWorkbenchSnapshot, "groupChildren" | "nodes">,
   nodeId: CanvasNodeId
 ): CanvasNodeId[] => {
   const node = document.nodes[nodeId];
@@ -123,7 +161,7 @@ export const getCanvasDescendantIds = (
   }
 
   const descendants: CanvasNodeId[] = [];
-  for (const childId of node.childIds) {
+  for (const childId of document.groupChildren[nodeId] ?? []) {
     descendants.push(childId, ...getCanvasDescendantIds(document, childId));
   }
   return descendants;
@@ -152,34 +190,37 @@ export const createDefaultShapeNode = ({
   x: number;
   y: number;
 }): CanvasShapeElement => ({
-  ...withSyncedTransformFields({
-    id,
-    type: "shape",
-    parentId,
-    transform: toNodeTransform({
-      x,
-      y,
-      width,
-      height,
-      rotation: 0,
-    }),
-    opacity: 1,
-    locked: false,
-    visible: true,
-    shapeType,
-    fill,
-    stroke,
-    strokeWidth,
-    ...(shapeType === "line" || shapeType === "arrow"
-      ? {
-          points: [
-            { x: 0, y: height / 2 },
-            { x: width, y: height / 2 },
-          ] satisfies CanvasShapePoint[],
-          arrowHead: shapeType === "arrow" ? { start: false, end: true } : undefined,
-        }
-      : {}),
+  id,
+  type: "shape",
+  parentId,
+  transform: toNodeTransform({
+    x,
+    y,
+    width,
+    height,
+    rotation: 0,
   }),
+  x,
+  y,
+  width,
+  height,
+  rotation: 0,
+  opacity: 1,
+  locked: false,
+  visible: true,
+  shapeType,
+  fill,
+  stroke,
+  strokeWidth,
+  ...(shapeType === "line" || shapeType === "arrow"
+    ? {
+        points: [
+          { x: 0, y: height / 2 },
+          { x: width, y: height / 2 },
+        ] satisfies CanvasShapePoint[],
+        arrowHead: shapeType === "arrow" ? { start: false, end: true } : undefined,
+      }
+    : {}),
 });
 
 export const getCanvasLayerCount = (document: CanvasWorkbench | null) => document?.allNodes.length ?? 0;

@@ -6,7 +6,9 @@ import {
   saveCanvasWorkbench,
 } from "@/lib/db";
 import {
-  applyCanvasWorkbenchPatch,
+  applyCanvasDocumentChangeSet,
+  areEqual,
+  buildCanvasHierarchyIndex,
   executeCanvasCommand,
   getCanvasDescendantIds,
   getCanvasNodeWorldTransform,
@@ -293,7 +295,7 @@ const toNode = (
     return {
       ...baseNode,
       type: "group",
-      childIds: entry.childIds.slice(),
+      childIds: entry.childIds?.slice() ?? [],
       name: entry.name,
     };
   }
@@ -348,16 +350,97 @@ const makeDefaultWorkbench = (name = "Untitled Workbench"): CanvasWorkbench => {
   const defaults = createDefaultCanvasWorkbenchFields();
   return normalizeCanvasWorkbench({
     id: createId("workbench-id"),
-    version: 2,
+    version: 3,
     ownerRef: { userId: getCurrentUserId() },
     name,
     ...defaults,
     backgroundColor: "#050505",
     nodes: {},
     rootIds: [],
+    groupChildren: {},
     createdAt: now,
     updatedAt: now,
   });
+};
+
+const toEditableNodeFromPersisted = (
+  source: CanvasWorkbench["nodes"][string],
+  parentId: CanvasNodeId | null
+): CanvasNode => {
+  const baseNode = {
+    id: source.id,
+    type: source.type,
+    parentId,
+    transform: clone(source.transform),
+    x: source.transform.x,
+    y: source.transform.y,
+    width: source.transform.width,
+    height: source.transform.height,
+    rotation: source.transform.rotation,
+    zIndex: source.zIndex,
+    opacity: source.opacity,
+    locked: source.locked,
+    visible: source.visible,
+  } satisfies Pick<
+    CanvasNode,
+    | "height"
+    | "id"
+    | "locked"
+    | "opacity"
+    | "parentId"
+    | "rotation"
+    | "transform"
+    | "type"
+    | "visible"
+    | "width"
+    | "x"
+    | "y"
+    | "zIndex"
+  >;
+
+  if (source.type === "group") {
+    return {
+      ...baseNode,
+      type: "group",
+      childIds: [],
+      name: source.name,
+    };
+  }
+
+  if (source.type === "image") {
+    return {
+      ...baseNode,
+      type: "image",
+      assetId: source.assetId,
+      adjustments: source.adjustments,
+      filmProfileId: source.filmProfileId,
+    };
+  }
+
+  if (source.type === "text") {
+    return {
+      ...baseNode,
+      type: "text",
+      color: source.color,
+      content: source.content,
+      fontFamily: source.fontFamily,
+      fontSize: source.fontSize,
+      fontSizeTier: source.fontSizeTier,
+      textAlign: source.textAlign,
+    };
+  }
+
+  return {
+    ...baseNode,
+    type: "shape",
+    arrowHead: source.arrowHead,
+    fill: source.fill,
+    points: source.points ? clone(source.points) : undefined,
+    radius: source.radius,
+    shapeType: source.shapeType,
+    stroke: source.stroke,
+    strokeWidth: source.strokeWidth,
+  };
 };
 
 const cloneNodeTree = (
@@ -365,6 +448,7 @@ const cloneNodeTree = (
   nodeId: CanvasNodeId,
   offset: { x: number; y: number },
   usedIds: Set<CanvasNodeId>,
+  parentId: CanvasNodeId | null,
   idMap = new Map<CanvasNodeId, CanvasNodeId>()
 ): CanvasNode[] => {
   const source = workbench.nodes[nodeId];
@@ -375,13 +459,18 @@ const cloneNodeTree = (
   const nextId = claimUniqueNodeId(usedIds);
   idMap.set(nodeId, nextId);
   const cloneNode: CanvasNode = {
-    ...clone(source),
+    ...toEditableNodeFromPersisted(source, parentId),
     id: nextId,
     transform: {
       ...source.transform,
       x: source.transform.x + offset.x,
       y: source.transform.y + offset.y,
     },
+    x: source.transform.x + offset.x,
+    y: source.transform.y + offset.y,
+    width: source.transform.width,
+    height: source.transform.height,
+    rotation: source.transform.rotation,
   };
 
   if (cloneNode.type === "group") {
@@ -389,10 +478,11 @@ const cloneNodeTree = (
     if (!sourceGroup) {
       return [cloneNode];
     }
-    const children = sourceGroup.childIds.flatMap((childId) =>
-      cloneNodeTree(workbench, childId, { x: 0, y: 0 }, usedIds, idMap)
+    const childIds = workbench.groupChildren[sourceGroup.id] ?? [];
+    const children = childIds.flatMap((childId) =>
+      cloneNodeTree(workbench, childId, { x: 0, y: 0 }, usedIds, cloneNode.id, idMap)
     );
-    cloneNode.childIds = sourceGroup.childIds
+    cloneNode.childIds = childIds
       .map((childId) => idMap.get(childId))
       .filter((childId): childId is string => Boolean(childId));
     for (const child of children) {
@@ -587,9 +677,11 @@ export const createCanvasWorkbenchService = ({
     historyState: CanvasHistoryState
   ): HistoryTransitionCommitDescriptor => ({
     workbenchId,
-    nextWorkbench: applyCanvasWorkbenchPatch(
+    nextWorkbench: applyCanvasDocumentChangeSet(
       workbench,
-      historyMode === "undo" ? historyEntry.inversePatch : historyEntry.forwardPatch
+      historyMode === "undo"
+        ? historyEntry.inverseChangeSet
+        : historyEntry.forwardChangeSet
     ),
     historyMode,
     historyEntry,
@@ -644,7 +736,7 @@ export const createCanvasWorkbenchService = ({
                 return Promise.resolve(false);
               }
               const normalizedSnapshot = getCanvasWorkbenchSnapshot(entry.document);
-              return JSON.stringify(original) === JSON.stringify(normalizedSnapshot)
+              return areEqual(original, normalizedSnapshot)
                 ? Promise.resolve(false)
                 : persistCanvasWorkbenchSnapshot(entry.document, epoch);
             })
@@ -837,8 +929,15 @@ export const createCanvasWorkbenchService = ({
               )
           );
           const usedIds = new Set(Object.keys(activeWorkbench.nodes));
+          const parentById = buildCanvasHierarchyIndex(activeWorkbench).parentById;
           const duplicatedTrees = selectedRoots.map((nodeId) =>
-            cloneNodeTree(activeWorkbench, nodeId, { x: 24, y: 24 }, usedIds)
+            cloneNodeTree(
+              activeWorkbench,
+              nodeId,
+              { x: 24, y: 24 },
+              usedIds,
+              parentById[nodeId] ?? null
+            )
           );
           const duplicates = duplicatedTrees.flat();
           const duplicatedIds = duplicatedTrees

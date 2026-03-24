@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { executeCanvasCommand } from "./commands";
-import { applyCanvasWorkbenchPatch } from "./patches";
+import { applyCanvasDocumentChangeSet } from "./patches";
 import { getCanvasWorkbenchSnapshot } from "./model";
 import { createCanvasTestDocument, createShapeNode } from "./testUtils";
 
-describe("document patches", () => {
-  it("round-trips forward and inverse patches without drift", () => {
+describe("document change sets", () => {
+  it("round-trips forward and inverse change sets without drift", () => {
     const document = createCanvasTestDocument({
       nodes: {
         "shape-1": createShapeNode({
@@ -24,8 +24,8 @@ describe("document patches", () => {
       dy: -12,
     });
 
-    const forwardApplied = applyCanvasWorkbenchPatch(document, result.forwardPatch);
-    const inverseApplied = applyCanvasWorkbenchPatch(result.document, result.inversePatch);
+    const forwardApplied = applyCanvasDocumentChangeSet(document, result.forwardChangeSet);
+    const inverseApplied = applyCanvasDocumentChangeSet(result.document, result.inverseChangeSet);
 
     expect(getCanvasWorkbenchSnapshot(forwardApplied)).toEqual(getCanvasWorkbenchSnapshot(result.document));
     expect(getCanvasWorkbenchSnapshot(inverseApplied)).toEqual(getCanvasWorkbenchSnapshot(document));

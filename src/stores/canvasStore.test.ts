@@ -287,8 +287,8 @@ const createHistoryEntry = (
   commandType: CanvasHistoryEntry["commandType"] = "PATCH_DOCUMENT"
 ): CanvasHistoryEntry => ({
   commandType,
-  forwardPatch: { operations: [] },
-  inversePatch: { operations: [] },
+  forwardChangeSet: { operations: [] },
+  inverseChangeSet: { operations: [] },
 });
 
 const createDeferred = <T>() => {

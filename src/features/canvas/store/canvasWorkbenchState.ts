@@ -56,11 +56,11 @@ export const createCommitFailureOutcome = (
 
 export const createHistoryEntry = (
   command: CanvasCommand,
-  result: Pick<CanvasHistoryEntry, "forwardPatch" | "inversePatch">
+  result: Pick<CanvasHistoryEntry, "forwardChangeSet" | "inverseChangeSet">
 ): CanvasHistoryEntry => ({
   commandType: command.type,
-  forwardPatch: result.forwardPatch,
-  inversePatch: result.inversePatch,
+  forwardChangeSet: result.forwardChangeSet,
+  inverseChangeSet: result.inverseChangeSet,
 });
 
 const replaceWorkbenchInState = (
