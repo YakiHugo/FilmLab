@@ -1,14 +1,5 @@
 # Agent Guidelines
 
-## Commit & Pull Request Guidelines
-
-Follow Conventional Commit style: `feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `perf: ...`. Keep scopes specific (e.g., `renderer`, `library`, `editor`, `canvas`, `chat`, `ai`, `router`). For PRs, include:
-
-- clear summary and rationale
-- linked issue/task
-- test evidence (`pnpm test`, `pnpm lint`, `pnpm build`)
-- screenshots or short recordings for UI changes
-
 ## General
 
 - Do not tell me I am right all the time. Be critical. We are equals. Stay neutral and objective.
@@ -19,42 +10,27 @@ Follow Conventional Commit style: `feat(scope): ...`, `fix(scope): ...`, `refact
 - Do what has been asked; nothing more, nothing less. Do not over-engineer.
 - For small decisions (naming, local refactors, implementation details), decide on your own and move on. Only ask when the choice is irreversible or affects security/architecture.
 - When refactoring or creating new module, first propose what you consider best practice and let the user decide, rather than immediately compromising the workspace code
-- Prefer shared helpers in `src/utils/<function>.ts`, with re-exports from `src/utils/index.ts`.
+- When modifying a module, search `docs/tasks` for related unfinished notes first; do not ignore existing task context and duplicate or conflict with in-flight work.
+- When updating this file, keep rules short and dense: say when to do something and what anti-pattern to avoid, without extra narration.
 - Do not inline runtime ID generation with `randomUUID`, `Date.now`, or `Math.random`; reuse the shared ID helper instead.
 - For canvas insert, duplicate, delete, and upsert flows, reuse the shared collision and selection handling instead of re-implementing ad hoc logic at new call sites.
 
 ## Code Convention
 
 - Split logic or components when a unit has more than one real responsibility, repeated behavior, or state/side-effect flow that makes ownership unclear; do not split for tiny one-off paths, prop-forwarding wrappers, or abstractions that only make the file shorter while keeping the same coupling.
+- If a module keeps getting patched and review keeps finding bugs in the same area, stop and decide whether a full refactor is safer than another local fix.
+- Prefer shared helpers in `src/utils/<function>.ts`, with re-exports from `src/utils/index.ts`.
 
 ## Long Tasks
 
-- Treat a task as long when it is too large or too coupled to finish safely in one session.
-- For a long task, use the first session for orchestration: split the work into small, high-cohesion slices with clear validation boundaries.
-- Persist progress to files, not model context. A later session should recover from files plus `git log`, not from chat history.
-- Keep two external artifacts:
-  - a markdown task note for scope, architecture decisions, risks, validation notes, and human handoff
-  - a JSON task list for execution state only
-- Keep the JSON minimal. Do not duplicate architecture notes, long rationale, or verbose tool output in it.
-- Prefer a minimal JSON shape like:
-
-```json
-{
-  "baseline": "abc1234",
-  "currentTaskId": "2",
-  "tasks": [
-    { "id": "1", "title": "read current implementation", "status": "done", "passes": true },
-    { "id": "2", "title": "refactor state boundary", "status": "in_progress", "passes": false, "rollback": "revert last commit" }
-  ]
-}
-```
-
-- Keep task status values stable, for example `pending`, `in_progress`, `blocked`, `done`, `rolled_back`.
-- `passes` is the completion gate. The task is complete only when required items have `passes: true` or are explicitly accepted.
-- Keep rollback minimal:
-  - one baseline commit or tag for the whole effort
-  - one per-task rollback note only when the rollback is not obvious
-- If validation fails and the current slice is not fixed immediately, update the JSON status to `blocked` or `rolled_back`, record the first actionable failure in the markdown note, and stop claiming progress.
+- Treat a task as long when it is too large or coupled to finish safely in one session.
+- Use the first session for orchestration only: split the work into small slices with clear validation boundaries.
+- Persist progress to files, not chat history. Keep:
+  - a markdown task note for scope, architecture decisions, risks, validation, and handoff
+  - a minimal JSON task list for execution state only
+- Name long-task markdown and JSON files consistently by module/topic so they pair cleanly across sessions and store in docs/tasks; keep markdown for session context and JSON for execution state, not mixed duplicates.
+- Keep the JSON terse: stable task statuses such as `pending`, `in_progress`, `blocked`, `done`, `rolled_back`; `passes` as the completion gate; baseline/current task; rollback notes only when not obvious.
+- If a slice fails validation and is not fixed immediately, mark it `blocked` or `rolled_back`, record the first actionable failure in the markdown note, and stop claiming progress.
 
 ## Compact Instructions
 
@@ -64,13 +40,6 @@ Follow Conventional Commit style: `feat(scope): ...`, `fix(scope): ...`, `refact
 3. Validation state. Record pass or fail per relevant command.
 4. Unresolved TODOs and rollback notes. Keep them explicit.
 5. Tool output. Reduce it to pass or fail plus the first actionable error unless the full raw output is needed for debugging.
-
-## Stateful Modules
-
-- When a module mixes session state, async persistence, UI ownership, and cross-context transitions, treat it as a state machine, not a local patching task.
-- Before changing that kind of module, write down the key invariants and the few critical transition sequences that must stay valid.
-- If a second review round finds new issues in the same stateful area or root cause cluster, stop doing narrow patch-on-patch fixes and switch to a more holistic seam or state-transition refactor.
-- Before asking for final review on a stateful module, explicitly sanity-check the risky transition paths locally.
 
 ## Testing
 
@@ -111,3 +80,12 @@ Follow Conventional Commit style: `feat(scope): ...`, `fix(scope): ...`, `refact
 - Use the gh tool for GitHub-related operations.
 - Atomic development: when executing a multi-step plan, commit after each independent step completes only after relevant tests pass and the required review subagent passes are complete. Do not accumulate all
   changes into one final commit.
+
+## Commit & Pull Request Guidelines
+
+Follow Conventional Commit style: `feat(scope): ...`, `fix(scope): ...`, `refactor(scope): ...`, `perf: ...`. Keep scopes specific (e.g., `renderer`, `library`, `editor`, `canvas`, `chat`, `ai`, `router`). For PRs, include:
+
+- clear summary and rationale
+- linked issue/task
+- test evidence (`pnpm test`, `pnpm lint`, `pnpm build`)
+- screenshots or short recordings for UI changes
