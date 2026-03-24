@@ -111,7 +111,7 @@
 - Validation is green: `pnpm --filter server typecheck`, `pnpm exec tsc --noEmit`, `pnpm test`,
   and `pnpm build` all pass.
 - `pnpm lint` passes with four pre-existing `react-refresh` warnings in unrelated UI files.
-- The rewrite is ready for module commits.
+- Module commits are recorded on this branch.
 
 ## Handoff Notes
 

@@ -59,8 +59,8 @@
     {
       "id": "9",
       "title": "commit verified rewrite slices by module boundary",
-      "status": "in_progress",
-      "passes": false
+      "status": "done",
+      "passes": true
     }
   ]
 }
