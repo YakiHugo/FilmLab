@@ -5,6 +5,10 @@ import {
   createCanvasWorkbenchService,
   resetCanvasWorkbenchService,
 } from "@/features/canvas/store/canvasWorkbenchService";
+import {
+  selectCanRedoInWorkbench,
+  selectCanUndoInWorkbench,
+} from "@/features/canvas/store/canvasStoreSelectors";
 import type {
   CanvasFloatingPanel,
   CanvasStoreDataSetter,
@@ -44,21 +48,6 @@ export interface CanvasState extends CanvasStoreDataState {
   setViewport: (viewport: { x: number; y: number }) => void;
   setActivePanel: (panel: CanvasFloatingPanel) => void;
   togglePanel: (panel: CanvasFloatingPanel) => void;
-  upsertElement: (element: CanvasNode | CanvasRenderableElement) => Promise<void>;
-  upsertElements: (elements: Array<CanvasNode | CanvasRenderableElement>) => Promise<void>;
-  deleteElements: (ids: string[]) => Promise<void>;
-  duplicateElements: (ids: string[]) => Promise<string[]>;
-  reorderElements: (orderedIds: string[], parentId?: string | null) => Promise<void>;
-  reparentNodes: (ids: string[], parentId: string | null, index?: number) => Promise<void>;
-  toggleElementVisibility: (id: string) => Promise<void>;
-  toggleElementLock: (id: string) => Promise<void>;
-  nudgeElements: (ids: string[], dx: number, dy: number) => Promise<void>;
-  groupElements: (ids: string[]) => Promise<string | null>;
-  ungroupElement: (id: string) => Promise<void>;
-  canUndo: () => boolean;
-  canRedo: () => boolean;
-  undo: () => Promise<boolean>;
-  redo: () => Promise<boolean>;
   deleteWorkbench: (id: string, options?: DeleteWorkbenchOptions) => Promise<boolean>;
   executeCommandInWorkbench: (
     workbenchId: string,
@@ -73,9 +62,34 @@ export interface CanvasState extends CanvasStoreDataState {
     workbenchId: string,
     elements: Array<CanvasNode | CanvasRenderableElement>
   ) => Promise<void>;
+  deleteNodesInWorkbench: (workbenchId: string, ids: string[]) => Promise<string[]>;
+  duplicateNodesInWorkbench: (workbenchId: string, ids: string[]) => Promise<string[]>;
+  reorderElementsInWorkbench: (
+    workbenchId: string,
+    orderedIds: string[],
+    parentId?: string | null
+  ) => Promise<void>;
+  reparentNodesInWorkbench: (
+    workbenchId: string,
+    ids: string[],
+    parentId: string | null,
+    index?: number
+  ) => Promise<void>;
+  toggleElementVisibilityInWorkbench: (workbenchId: string, id: string) => Promise<void>;
+  toggleElementLockInWorkbench: (workbenchId: string, id: string) => Promise<void>;
+  nudgeElementsInWorkbench: (
+    workbenchId: string,
+    ids: string[],
+    dx: number,
+    dy: number
+  ) => Promise<void>;
+  groupNodesInWorkbench: (workbenchId: string, ids: string[]) => Promise<string | null>;
+  ungroupNodeInWorkbench: (workbenchId: string, id: string) => Promise<void>;
+  canUndoInWorkbench: (workbenchId: string | null) => boolean;
+  canRedoInWorkbench: (workbenchId: string | null) => boolean;
+  undoInWorkbench: (workbenchId: string | null) => Promise<boolean>;
+  redoInWorkbench: (workbenchId: string | null) => Promise<boolean>;
 }
-
-const EMPTY_SLICES: CanvasWorkbench["slices"] = [];
 
 const createInitialCanvasStoreDataState = (): CanvasStoreDataState => ({
   workbenches: [],
@@ -89,17 +103,6 @@ const createInitialCanvasStoreDataState = (): CanvasStoreDataState => ({
   isLoading: false,
   historyByWorkbenchId: {},
 });
-
-export const selectActiveWorkbench = (state: CanvasState) =>
-  state.activeWorkbenchId
-    ? state.workbenches.find((workbench) => workbench.id === state.activeWorkbenchId) ?? null
-    : null;
-
-export const selectActiveWorkbenchName = (state: CanvasState) =>
-  selectActiveWorkbench(state)?.name ?? "Untitled Workbench";
-
-export const selectActiveWorkbenchExportState = (state: CanvasState) =>
-  selectActiveWorkbench(state)?.slices ?? EMPTY_SLICES;
 
 export const useCanvasStore = create<CanvasState>()(
   devtools(
@@ -154,110 +157,93 @@ export const useCanvasStore = create<CanvasState>()(
             activePanel: state.activePanel === panel ? null : panel,
             tool: "select",
           })),
-        upsertElement: async (element) => {
-          const activeWorkbenchId = get().activeWorkbenchId;
-          if (!activeWorkbenchId) {
-            return;
-          }
-          await service.upsertElementInWorkbench(activeWorkbenchId, element);
-        },
-        upsertElements: async (elements) => {
-          const activeWorkbenchId = get().activeWorkbenchId;
-          if (!activeWorkbenchId) {
-            return;
-          }
-          await service.upsertElementsInWorkbench(activeWorkbenchId, elements);
-        },
-        deleteElements: async (ids) => {
-          const activeWorkbenchId = get().activeWorkbenchId;
-          if (!activeWorkbenchId || ids.length === 0) {
-            return;
-          }
-          await service.deleteNodesInWorkbench(activeWorkbenchId, ids);
-        },
-        duplicateElements: async (ids) => {
-          const activeWorkbenchId = get().activeWorkbenchId;
-          if (!activeWorkbenchId || ids.length === 0) {
+        deleteWorkbench: service.deleteWorkbench,
+        executeCommandInWorkbench: service.executeCommandInWorkbench,
+        upsertElementInWorkbench: service.upsertElementInWorkbench,
+        upsertElementsInWorkbench: service.upsertElementsInWorkbench,
+        deleteNodesInWorkbench: async (workbenchId, ids) => {
+          if (!hasWorkbench(workbenchId) || ids.length === 0) {
             return [];
           }
 
-          return service.duplicateNodesInWorkbench(activeWorkbenchId, ids);
+          return service.deleteNodesInWorkbench(workbenchId, ids);
         },
-        reorderElements: async (orderedIds, parentId = null) => {
-          const activeWorkbenchId = get().activeWorkbenchId;
-          if (!activeWorkbenchId || orderedIds.length === 0) {
+        duplicateNodesInWorkbench: async (workbenchId, ids) => {
+          if (!hasWorkbench(workbenchId) || ids.length === 0) {
+            return [];
+          }
+
+          return service.duplicateNodesInWorkbench(workbenchId, ids);
+        },
+        reorderElementsInWorkbench: async (workbenchId, orderedIds, parentId = null) => {
+          if (!hasWorkbench(workbenchId) || orderedIds.length === 0) {
             return;
           }
 
-          await service.executeCommandInWorkbench(activeWorkbenchId, {
+          await service.executeCommandInWorkbench(workbenchId, {
             type: "REORDER_CHILDREN",
             parentId,
             orderedIds,
           });
         },
-        reparentNodes: async (ids, parentId, index) => {
-          const activeWorkbenchId = get().activeWorkbenchId;
-          if (!activeWorkbenchId || ids.length === 0) {
+        reparentNodesInWorkbench: async (workbenchId, ids, parentId, index) => {
+          if (!hasWorkbench(workbenchId) || ids.length === 0) {
             return;
           }
 
-          await service.executeCommandInWorkbench(activeWorkbenchId, {
+          await service.executeCommandInWorkbench(workbenchId, {
             type: "REPARENT_NODES",
             ids,
             index,
             parentId,
           });
         },
-        toggleElementVisibility: async (id) => {
-          const activeWorkbenchId = get().activeWorkbenchId;
-          if (!activeWorkbenchId) {
+        toggleElementVisibilityInWorkbench: async (workbenchId, id) => {
+          if (!hasWorkbench(workbenchId)) {
             return;
           }
 
-          await service.executeCommandInWorkbench(activeWorkbenchId, {
+          await service.executeCommandInWorkbench(workbenchId, {
             type: "TOGGLE_NODE_VISIBILITY",
             id,
           });
         },
-        toggleElementLock: async (id) => {
-          const activeWorkbenchId = get().activeWorkbenchId;
-          if (!activeWorkbenchId) {
+        toggleElementLockInWorkbench: async (workbenchId, id) => {
+          if (!hasWorkbench(workbenchId)) {
             return;
           }
 
-          await service.executeCommandInWorkbench(activeWorkbenchId, {
+          await service.executeCommandInWorkbench(workbenchId, {
             type: "TOGGLE_NODE_LOCK",
             id,
           });
         },
-        nudgeElements: async (ids, dx, dy) => {
-          const activeWorkbenchId = get().activeWorkbenchId;
-          if (!activeWorkbenchId || ids.length === 0 || (dx === 0 && dy === 0)) {
+        nudgeElementsInWorkbench: async (workbenchId, ids, dx, dy) => {
+          if (!hasWorkbench(workbenchId) || ids.length === 0 || (dx === 0 && dy === 0)) {
             return;
           }
 
-          await service.executeCommandInWorkbench(activeWorkbenchId, {
+          await service.executeCommandInWorkbench(workbenchId, {
             type: "MOVE_NODES",
             ids,
             dx,
             dy,
           });
         },
-        groupElements: async (ids) => {
-          const activeWorkbenchId = get().activeWorkbenchId;
+        groupNodesInWorkbench: async (workbenchId, ids) => {
           const uniqueIds = Array.from(new Set(ids));
-          if (!activeWorkbenchId || uniqueIds.length < 2) {
+          if (!hasWorkbench(workbenchId) || uniqueIds.length < 2) {
             return null;
           }
-          return service.groupNodesInWorkbench(activeWorkbenchId, uniqueIds);
+
+          return service.groupNodesInWorkbench(workbenchId, uniqueIds);
         },
-        ungroupElement: async (id) => {
-          const activeWorkbenchId = get().activeWorkbenchId;
-          if (!activeWorkbenchId) {
+        ungroupNodeInWorkbench: async (workbenchId, id) => {
+          if (!hasWorkbench(workbenchId)) {
             return;
           }
 
-          const result = await service.executeCommandInWorkbench(activeWorkbenchId, {
+          const result = await service.executeCommandInWorkbench(workbenchId, {
             type: "UNGROUP_NODE",
             id,
           });
@@ -267,28 +253,12 @@ export const useCanvasStore = create<CanvasState>()(
 
           set({ selectedElementIds: [] });
         },
-        canUndo: () => {
-          const activeWorkbenchId = get().activeWorkbenchId;
-          if (!activeWorkbenchId) {
-            return false;
-          }
-          const history = get().historyByWorkbenchId[activeWorkbenchId];
-          return Boolean(history && history.past.length > 0);
-        },
-        canRedo: () => {
-          const activeWorkbenchId = get().activeWorkbenchId;
-          if (!activeWorkbenchId) {
-            return false;
-          }
-          const history = get().historyByWorkbenchId[activeWorkbenchId];
-          return Boolean(history && history.future.length > 0);
-        },
-        undo: async () => service.undo(get().activeWorkbenchId),
-        redo: async () => service.redo(get().activeWorkbenchId),
-        deleteWorkbench: service.deleteWorkbench,
-        executeCommandInWorkbench: service.executeCommandInWorkbench,
-        upsertElementInWorkbench: service.upsertElementInWorkbench,
-        upsertElementsInWorkbench: service.upsertElementsInWorkbench,
+        canUndoInWorkbench: (workbenchId) =>
+          hasWorkbench(workbenchId) && selectCanUndoInWorkbench(get(), workbenchId),
+        canRedoInWorkbench: (workbenchId) =>
+          hasWorkbench(workbenchId) && selectCanRedoInWorkbench(get(), workbenchId),
+        undoInWorkbench: (workbenchId) => service.undo(workbenchId),
+        redoInWorkbench: (workbenchId) => service.redo(workbenchId),
       };
     },
     { name: "CanvasStore", enabled: process.env.NODE_ENV === "development" }
