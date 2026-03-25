@@ -134,7 +134,7 @@ export function CanvasViewportOverlayHost({
             top: selectionOverlay.rect.y,
             width: Math.max(1, selectionOverlay.rect.width),
             height: Math.max(1, selectionOverlay.rect.height),
-            border: `1.5px solid ${CANVAS_SELECTION_ACCENT}`,
+            border: `1px solid ${CANVAS_SELECTION_ACCENT}`,
             boxSizing: "border-box",
           }}
         />

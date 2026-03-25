@@ -288,7 +288,7 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
             height={outlineElement.height}
             rotation={outlineElement.rotation}
             stroke={CANVAS_SELECTION_ACCENT}
-            strokeWidth={1.5}
+            strokeWidth={1}
             strokeScaleEnabled={false}
           />
         );
@@ -478,8 +478,7 @@ export function CanvasViewportStageShell({
               height={Math.max(1, interaction.marqueeRect.height)}
               fill={CANVAS_SELECTION_ACCENT_FILL}
               stroke={CANVAS_SELECTION_ACCENT}
-              strokeWidth={1.5}
-              dash={[8, 5]}
+              strokeWidth={1}
               strokeScaleEnabled={false}
             />
           ) : null}
