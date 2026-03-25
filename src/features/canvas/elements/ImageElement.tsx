@@ -18,6 +18,8 @@ interface ImageElementProps {
   previewPriority: "interactive" | "background";
   dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
   onSelect: (elementId: string, additive: boolean) => void;
+  onDragMove: (elementId: string, x: number, y: number) => void;
+  onDragStart: (elementId: string) => void;
   onDragEnd: (elementId: string, x: number, y: number) => void;
 }
 
@@ -79,6 +81,8 @@ export const ImageElement = memo(function ImageElement({
   previewPriority,
   dragBoundFunc,
   onSelect,
+  onDragMove,
+  onDragStart,
   onDragEnd,
 }: ImageElementProps) {
   const { asset, assetRenderFingerprint } = useCanvasRuntimeAsset(element.assetId);
@@ -181,6 +185,8 @@ export const ImageElement = memo(function ImageElement({
         dragBoundFunc={dragBoundFunc}
         onClick={(event) => onSelect(element.id, Boolean(event.evt.shiftKey))}
         onTap={() => onSelect(element.id, false)}
+        onDragStart={() => onDragStart(element.id)}
+        onDragMove={(event) => onDragMove(element.id, event.target.x(), event.target.y())}
         onDragEnd={(event) => onDragEnd(element.id, event.target.x(), event.target.y())}
       />
     );
@@ -201,6 +207,8 @@ export const ImageElement = memo(function ImageElement({
       dragBoundFunc={dragBoundFunc}
       onClick={(event) => onSelect(element.id, Boolean(event.evt.shiftKey))}
       onTap={() => onSelect(element.id, false)}
+      onDragStart={() => onDragStart(element.id)}
+      onDragMove={(event) => onDragMove(element.id, event.target.x(), event.target.y())}
       onDragEnd={(event) => onDragEnd(element.id, event.target.x(), event.target.y())}
     />
   );

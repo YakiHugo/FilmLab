@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import type { CanvasWorkbench } from "@/types";
+import { createCanvasTestDocument, createGroupNode, createShapeNode } from "./document/testUtils";
 import { normalizeCanvasWorkbench } from "./studioPresets";
 import {
   createCanvasSelectionModel,
@@ -8,6 +9,8 @@ import {
   resolveDisplaySelectedElementIds,
   resolvePrimarySelectedElement,
   resolvePrimarySelectedImageElement,
+  resolveSelectedRootElementIds,
+  resolveSelectedRootRenderableElementIds,
   selectionIdsEqual,
 } from "./selectionModel";
 
@@ -141,5 +144,43 @@ describe("selection model", () => {
 
     expect(model.primarySelectedImageElement?.id).toBe("image-1");
     expect(hasSelectedImageElement(document, model.committedSelectedElementIds)).toBe(false);
+  });
+
+  it("filters selected descendants when their ancestor group is already selected", () => {
+    const document = createCanvasTestDocument({
+      nodes: {
+        group: createGroupNode({
+          id: "group",
+          x: 120,
+          y: 80,
+          childIds: ["shape-a", "shape-b"],
+        }),
+        "shape-a": createShapeNode({
+          id: "shape-a",
+          parentId: "group",
+          x: 20,
+          y: 30,
+        }),
+        "shape-b": createShapeNode({
+          id: "shape-b",
+          parentId: "group",
+          x: 180,
+          y: 60,
+        }),
+        "shape-c": createShapeNode({
+          id: "shape-c",
+          x: 420,
+          y: 220,
+        }),
+      },
+      rootIds: ["group", "shape-c"],
+    });
+
+    expect(resolveSelectedRootElementIds(document, ["shape-a", "group", "shape-c", "shape-b"])).toEqual(
+      ["group", "shape-c"]
+    );
+    expect(
+      resolveSelectedRootRenderableElementIds(document, ["shape-a", "group", "shape-c", "shape-b"])
+    ).toEqual(["shape-c"]);
   });
 });

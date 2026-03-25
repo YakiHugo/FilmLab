@@ -1,5 +1,5 @@
 import type Konva from "konva";
-import { useCallback, useMemo, type RefObject } from "react";
+import { useCallback, useMemo, useRef, type RefObject } from "react";
 import type {
   CanvasCommand,
   CanvasRenderableNode,
@@ -10,12 +10,20 @@ import type {
 } from "@/types";
 import { isCanvasTextElementEditable } from "../elements/TextElement";
 import { quantizeDragPosition } from "../grid";
+import { resolveSelectedRootRenderableElementIds } from "../selectionModel";
 import type { CanvasToolName } from "../tools/toolControllers";
 import type { CanvasViewportPoint, CanvasViewportTransform } from "../viewportNavigation";
 import { useCanvasMarqueeSelection } from "./useCanvasMarqueeSelection";
 import type { CanvasTextSessionActions } from "./useCanvasTextSession";
 import { useCanvasViewportNavigation } from "./useCanvasViewportNavigation";
 import { useCanvasViewportToolOrchestrator } from "./useCanvasViewportToolOrchestrator";
+
+interface CanvasElementDragSession {
+  draggedElementId: string;
+  movedElementIds: string[];
+  movedNodes: Map<string, Konva.Node>;
+  originalPositions: Map<string, { x: number; y: number }>;
+}
 
 interface UseCanvasViewportInteractionControllerOptions {
   activeShapeType: CanvasShapeType;
@@ -72,6 +80,7 @@ export function useCanvasViewportInteractionController({
   viewportContainerRef,
   zoom,
 }: UseCanvasViewportInteractionControllerOptions) {
+  const dragSessionRef = useRef<CanvasElementDragSession | null>(null);
   const shouldPan = tool === "hand" || isSpacePressed;
   const {
     adjustZoom,
@@ -166,22 +175,143 @@ export function useCanvasViewportInteractionController({
     [elementByIdRef, selectElement]
   );
 
+  const handleElementDragStart = useCallback(
+    (elementId: string) => {
+      const element = elementByIdRef.current?.get(elementId);
+      if (!element || element.effectiveLocked || !element.effectiveVisible) {
+        dragSessionRef.current = null;
+        return;
+      }
+
+      const selectedRootIds = resolveSelectedRootRenderableElementIds(
+        activeWorkbench,
+        selectedElementIds
+      );
+      const stage = stageRef.current;
+      const movedElementIds =
+        selectedRootIds.length > 1 && selectedRootIds.includes(elementId)
+          ? selectedRootIds
+          : [elementId];
+      const movedNodes = new Map<string, Konva.Node>();
+      const originalPositions = new Map<string, { x: number; y: number }>();
+
+      for (const movedElementId of movedElementIds) {
+        const movedElement = elementByIdRef.current?.get(movedElementId);
+        if (!movedElement || movedElement.effectiveLocked || !movedElement.effectiveVisible) {
+          continue;
+        }
+
+        const movedNode = stage?.findOne<Konva.Node>(`#${movedElementId}`);
+        if (!movedNode) {
+          continue;
+        }
+
+        originalPositions.set(movedElementId, {
+          x: movedElement.x,
+          y: movedElement.y,
+        });
+        movedNodes.set(movedElementId, movedNode);
+      }
+
+      if (!originalPositions.has(elementId)) {
+        originalPositions.set(elementId, {
+          x: element.x,
+          y: element.y,
+        });
+      }
+      if (!movedNodes.has(elementId) && stage) {
+        const draggedNode = stage.findOne<Konva.Node>(`#${elementId}`);
+        if (draggedNode) {
+          movedNodes.set(elementId, draggedNode);
+        }
+      }
+
+      dragSessionRef.current = {
+        draggedElementId: elementId,
+        movedElementIds: Array.from(originalPositions.keys()),
+        movedNodes,
+        originalPositions,
+      };
+    },
+    [activeWorkbench, elementByIdRef, selectedElementIds, stageRef]
+  );
+
+  const handleElementDragMove = useCallback(
+    (elementId: string, x: number, y: number) => {
+      const dragSession = dragSessionRef.current;
+      if (
+        !dragSession ||
+        dragSession.draggedElementId !== elementId ||
+        dragSession.movedElementIds.length <= 1
+      ) {
+        return;
+      }
+
+      const draggedOrigin = dragSession.originalPositions.get(elementId);
+      const stage = stageRef.current;
+      if (!draggedOrigin || !stage) {
+        return;
+      }
+
+      const dx = x - draggedOrigin.x;
+      const dy = y - draggedOrigin.y;
+
+      for (const movedElementId of dragSession.movedElementIds) {
+        if (movedElementId === elementId) {
+          continue;
+        }
+
+        const movedOrigin = dragSession.originalPositions.get(movedElementId);
+        const movedNode = dragSession.movedNodes.get(movedElementId);
+        if (!movedOrigin || !movedNode) {
+          continue;
+        }
+
+        const nextPosition = {
+          x: movedOrigin.x + dx,
+          y: movedOrigin.y + dy,
+        };
+
+        if (
+          Math.abs(movedNode.x() - nextPosition.x) < 0.01 &&
+          Math.abs(movedNode.y() - nextPosition.y) < 0.01
+        ) {
+          continue;
+        }
+        movedNode.position(nextPosition);
+      }
+
+      stage.batchDraw();
+    },
+    [stageRef]
+  );
+
   const handleElementDragEnd = useCallback(
     (elementId: string, x: number, y: number) => {
+      const dragSession = dragSessionRef.current;
+      dragSessionRef.current = null;
+
       const element = elementByIdRef.current?.get(elementId);
       if (!activeWorkbenchId || !element || element.effectiveLocked || !element.effectiveVisible) {
         return;
       }
 
-      const dx = x - element.x;
-      const dy = y - element.y;
+      const draggedOrigin =
+        dragSession?.draggedElementId === elementId
+          ? dragSession.originalPositions.get(elementId)
+          : null;
+      const dx = x - (draggedOrigin?.x ?? element.x);
+      const dy = y - (draggedOrigin?.y ?? element.y);
       if (dx === 0 && dy === 0) {
         return;
       }
 
       void executeCommand({
         type: "MOVE_NODES",
-        ids: [elementId],
+        ids:
+          dragSession?.draggedElementId === elementId && dragSession.movedElementIds.length > 0
+            ? dragSession.movedElementIds
+            : [elementId],
         dx,
         dy,
       });
@@ -224,6 +354,8 @@ export function useCanvasViewportInteractionController({
       containerRef: viewportContainerRef,
       cursor,
       dragBoundFunc,
+      handleElementDragMove,
+      handleElementDragStart,
       handleElementDragEnd,
       handleElementSelect,
       handleStageWheel,
@@ -239,6 +371,8 @@ export function useCanvasViewportInteractionController({
     [
       cursor,
       dragBoundFunc,
+      handleElementDragMove,
+      handleElementDragStart,
       handleElementDragEnd,
       handleElementSelect,
       handleStageWheel,

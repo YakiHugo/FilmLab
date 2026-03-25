@@ -29,6 +29,8 @@ interface TextElementProps {
   isEditing: boolean;
   dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
   onSelect: (elementId: string, additive: boolean) => void;
+  onDragMove: (elementId: string, x: number, y: number) => void;
+  onDragStart: (elementId: string) => void;
   onDragEnd: (elementId: string, x: number, y: number) => void;
   onDoubleClick: (elementId: string) => void;
 }
@@ -38,6 +40,8 @@ export const TextElement = memo(function TextElement({
   isEditing,
   dragBoundFunc,
   onSelect,
+  onDragMove,
+  onDragStart,
   onDragEnd,
   onDoubleClick,
 }: TextElementProps) {
@@ -71,6 +75,8 @@ export const TextElement = memo(function TextElement({
       onTap={() => onSelect(layoutElement.id, false)}
       onDblClick={handleDoubleClick}
       onDblTap={handleDoubleClick}
+      onDragStart={() => onDragStart(layoutElement.id)}
+      onDragMove={(event) => onDragMove(layoutElement.id, event.target.x(), event.target.y())}
       onDragEnd={(event) => onDragEnd(layoutElement.id, event.target.x(), event.target.y())}
     />
   );

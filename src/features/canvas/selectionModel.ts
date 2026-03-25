@@ -3,6 +3,7 @@ import type {
   CanvasRenderableElement,
   CanvasRenderableNode,
 } from "@/types";
+import { getCanvasDescendantIds } from "./document/model";
 
 export interface CanvasSelectionModel {
   activeWorkbench: CanvasWorkbench | null;
@@ -99,6 +100,37 @@ export const resolvePrimarySelectedImageElement = (
 
   return null;
 };
+
+export const resolveSelectedRootElementIds = (
+  activeWorkbench: Pick<CanvasWorkbench, "groupChildren" | "nodes"> | null,
+  selectedElementIds: string[]
+) => {
+  if (!activeWorkbench || selectedElementIds.length === 0) {
+    return [];
+  }
+
+  const uniqueIds = Array.from(new Set(selectedElementIds)).filter((elementId) =>
+    Boolean(activeWorkbench.nodes[elementId])
+  );
+
+  return uniqueIds.filter(
+    (elementId) =>
+      !uniqueIds.some(
+        (candidateId) =>
+          candidateId !== elementId &&
+          getCanvasDescendantIds(activeWorkbench, candidateId).includes(elementId)
+      )
+  );
+};
+
+export const resolveSelectedRootRenderableElementIds = (
+  activeWorkbench: Pick<CanvasWorkbench, "groupChildren" | "nodes"> | null,
+  selectedElementIds: string[]
+) =>
+  resolveSelectedRootElementIds(activeWorkbench, selectedElementIds).filter((elementId) => {
+    const element = activeWorkbench?.nodes[elementId];
+    return Boolean(element && element.type !== "group");
+  });
 
 export const hasSelectedImageElement = (
   activeWorkbench: CanvasWorkbench | null,

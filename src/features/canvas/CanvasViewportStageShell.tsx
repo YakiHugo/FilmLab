@@ -107,6 +107,8 @@ interface CanvasElementsLayerProps {
   dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
   editingTextDraft: CanvasRenderableTextElement | CanvasTextElement | null;
   elements: CanvasRenderableElement[];
+  onElementDragMove: (elementId: string, x: number, y: number) => void;
+  onElementDragStart: (elementId: string) => void;
   interactivePreviewElementId: string | null;
   onElementDragEnd: (elementId: string, x: number, y: number) => void;
   onElementSelect: (elementId: string, additive: boolean) => void;
@@ -118,6 +120,8 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
   dragBoundFunc,
   editingTextDraft,
   elements,
+  onElementDragMove,
+  onElementDragStart,
   interactivePreviewElementId,
   onElementDragEnd,
   onElementSelect,
@@ -136,6 +140,8 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
               }
               dragBoundFunc={dragBoundFunc}
               onSelect={onElementSelect}
+              onDragMove={onElementDragMove}
+              onDragStart={onElementDragStart}
               onDragEnd={onElementDragEnd}
             />
           );
@@ -148,6 +154,8 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
               element={element}
               dragBoundFunc={dragBoundFunc}
               onSelect={onElementSelect}
+              onDragMove={onElementDragMove}
+              onDragStart={onElementDragStart}
               onDragEnd={onElementDragEnd}
             />
           );
@@ -161,6 +169,8 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
             isEditing={activeEditingTextId === liveTextElement.id}
             dragBoundFunc={dragBoundFunc}
             onSelect={onElementSelect}
+            onDragMove={onElementDragMove}
+            onDragStart={onElementDragStart}
             onDoubleClick={onTextElementDoubleClick}
             onDragEnd={onElementDragEnd}
           />
@@ -363,6 +373,8 @@ interface CanvasViewportStageShellProps {
     containerRef: RefObject<HTMLDivElement>;
     cursor: string;
     dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
+    handleElementDragMove: (elementId: string, x: number, y: number) => void;
+    handleElementDragStart: (elementId: string) => void;
     handleElementDragEnd: (elementId: string, x: number, y: number) => void;
     handleElementSelect: (elementId: string, additive: boolean) => void;
     handleStageWheel: (event: Konva.KonvaEventObject<WheelEvent>) => void;
@@ -456,6 +468,8 @@ export function CanvasViewportStageShell({
             editingTextDraft={textEditing.editingTextDraft}
             elements={scene.activeWorkbench.elements}
             interactivePreviewElementId={scene.interactivePreviewElementId}
+            onElementDragMove={interaction.handleElementDragMove}
+            onElementDragStart={interaction.handleElementDragStart}
             onElementDragEnd={interaction.handleElementDragEnd}
             onElementSelect={interaction.handleElementSelect}
             onTextElementDoubleClick={interaction.handleTextElementDoubleClick}
