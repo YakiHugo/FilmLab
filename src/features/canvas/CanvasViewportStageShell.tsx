@@ -1,6 +1,6 @@
 import type Konva from "konva";
-import { Fragment, memo, useEffect, useMemo, useState, type RefObject } from "react";
-import { Layer, Line, Rect, Stage, Text as KonvaText } from "react-konva";
+import { memo, useEffect, useMemo, useState, type RefObject } from "react";
+import { Layer, Rect, Stage } from "react-konva";
 import type {
   CanvasRenderableElement,
   CanvasRenderableTextElement,
@@ -20,7 +20,6 @@ import { GRID_SIZE } from "./grid";
 import { fitCanvasTextElementToContent } from "./textStyle";
 import type { CanvasTextRuntimeSelectedElement } from "./textRuntimeViewModel";
 
-const BOARD_SURFACE_NODE_ID = "canvas-background";
 const WORKSPACE_DOT_GRID_NODE_ID = "canvas-workspace-grid";
 const DOT_RADIUS = 0.72;
 const WORKSPACE_BACKGROUND_FILL = "rgb(38, 38, 38)";
@@ -390,10 +389,7 @@ interface CanvasViewportStageShellProps {
   };
   scene: {
     activeWorkbench: CanvasWorkbench;
-    centerGuideLines: number[][];
     interactivePreviewElementId: string | null;
-    selectedSliceId?: string | null;
-    thirdsGuideLines: number[][];
     workspaceGridBounds: {
       x: number;
       y: number;
@@ -451,62 +447,6 @@ export function CanvasViewportStageShell({
           />
 
           <DotGrid bounds={scene.workspaceGridBounds} />
-
-          <Rect
-            id={BOARD_SURFACE_NODE_ID}
-            x={0}
-            y={0}
-            width={scene.activeWorkbench.width}
-            height={scene.activeWorkbench.height}
-            fill={scene.activeWorkbench.backgroundColor}
-            listening={false}
-            perfectDrawEnabled={false}
-          />
-
-          {scene.activeWorkbench.guides.showSafeArea ? (
-            <Rect
-              x={scene.activeWorkbench.safeArea.left}
-              y={scene.activeWorkbench.safeArea.top}
-              width={Math.max(
-                1,
-                scene.activeWorkbench.width -
-                  scene.activeWorkbench.safeArea.left -
-                  scene.activeWorkbench.safeArea.right
-              )}
-              height={Math.max(
-                1,
-                scene.activeWorkbench.height -
-                  scene.activeWorkbench.safeArea.top -
-                  scene.activeWorkbench.safeArea.bottom
-              )}
-              stroke="rgba(255,255,255,0.22)"
-              strokeWidth={1}
-              dash={[10, 10]}
-              listening={false}
-            />
-          ) : null}
-
-          {scene.thirdsGuideLines.map((points, index) => (
-            <Line
-              key={`thirds-${index}`}
-              points={points}
-              stroke="rgba(255,255,255,0.14)"
-              strokeWidth={1}
-              dash={[10, 10]}
-              listening={false}
-            />
-          ))}
-
-          {scene.centerGuideLines.map((points, index) => (
-            <Line
-              key={`center-${index}`}
-              points={points}
-              stroke="rgba(251,191,36,0.22)"
-              strokeWidth={1}
-              dash={[14, 10]}
-              listening={false}
-            />
-          ))}
         </Layer>
 
         <Layer>
@@ -543,35 +483,6 @@ export function CanvasViewportStageShell({
               strokeScaleEnabled={false}
             />
           ) : null}
-        </Layer>
-
-        <Layer listening={false}>
-          {scene.activeWorkbench.slices.map((slice) => {
-            const selected = slice.id === scene.selectedSliceId;
-            return (
-              <Fragment key={slice.id}>
-                <Rect
-                  x={slice.x}
-                  y={slice.y}
-                  width={slice.width}
-                  height={slice.height}
-                  stroke={selected ? "#f5c97a" : "rgba(255,255,255,0.28)"}
-                  strokeWidth={selected ? 2 : 1}
-                  dash={selected ? [18, 10] : [10, 10]}
-                  fill={selected ? "rgba(245, 201, 122, 0.06)" : "rgba(255,255,255,0.015)"}
-                />
-                <KonvaText
-                  x={slice.x + 16}
-                  y={slice.y + 16}
-                  text={`${String(slice.order).padStart(2, "0")}  ${slice.name}`}
-                  fontFamily="Manrope"
-                  fontSize={18}
-                  fill={selected ? "#f7e0b2" : "rgba(255,255,255,0.68)"}
-                  padding={8}
-                />
-              </Fragment>
-            );
-          })}
         </Layer>
       </Stage>
     </div>

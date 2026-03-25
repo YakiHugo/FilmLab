@@ -5,30 +5,19 @@ import { useCanvasStore, type CanvasFloatingPanel as PanelType } from "@/stores/
 import { CanvasAssetPicker } from "./CanvasAssetPicker";
 import { CanvasImageEditPanel } from "./CanvasImageEditPanel";
 import { CanvasLayerPanel } from "./CanvasLayerPanel";
-import { CanvasPropertiesPanel } from "./CanvasPropertiesPanel";
-import { CanvasStoryPanel } from "./CanvasStoryPanel";
-import { CanvasWorkbenchPanel } from "./CanvasWorkbenchPanel";
 import {
   canvasEditDockBoundsClassName,
   canvasEditDockPanelStyle,
   canvasEditDockStyle,
 } from "./editDockTheme";
 
-interface CanvasFloatingPanelProps {
-  selectedSliceId: string | null;
-  onSelectSlice: (sliceId: string | null) => void;
-}
-
 const PANEL_TITLES: Record<NonNullable<PanelType>, string> = {
   edit: "Edit",
   layers: "Layers",
   library: "Library",
-  properties: "Inspector",
-  story: "Story",
-  workbench: "Workbench",
 };
 
-export function CanvasFloatingPanel({ selectedSliceId, onSelectSlice }: CanvasFloatingPanelProps) {
+export function CanvasFloatingPanel() {
   const activePanel = useCanvasStore((s) => s.activePanel);
   const setActivePanel = useCanvasStore((s) => s.setActivePanel);
   const isEditDock = activePanel === "edit";
@@ -67,11 +56,7 @@ export function CanvasFloatingPanel({ selectedSliceId, onSelectSlice }: CanvasFl
               isEditDock ? "px-6 pt-1" : "px-6 pt-5"
             )}
           >
-            <PanelContent
-              panel={activePanel}
-              selectedSliceId={selectedSliceId}
-              onSelectSlice={onSelectSlice}
-            />
+            <PanelContent panel={activePanel} />
           </div>
         </motion.div>
       ) : null}
@@ -81,30 +66,16 @@ export function CanvasFloatingPanel({ selectedSliceId, onSelectSlice }: CanvasFl
 
 function PanelContent({
   panel,
-  selectedSliceId,
-  onSelectSlice,
 }: {
   panel: NonNullable<PanelType>;
-  selectedSliceId: string | null;
-  onSelectSlice: (sliceId: string | null) => void;
 }) {
   switch (panel) {
     case "edit":
-      return (
-        <CanvasImageEditPanel>
-          <CanvasPropertiesPanel variant="embedded" />
-        </CanvasImageEditPanel>
-      );
+      return <CanvasImageEditPanel />;
     case "layers":
       return <CanvasLayerPanel />;
     case "library":
       return <CanvasAssetPicker />;
-    case "story":
-      return <CanvasStoryPanel selectedSliceId={selectedSliceId} onSelectSlice={onSelectSlice} />;
-    case "workbench":
-      return <CanvasWorkbenchPanel />;
-    case "properties":
-      return <CanvasPropertiesPanel variant="standalone" />;
     default:
       return null;
   }

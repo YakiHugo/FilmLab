@@ -5,9 +5,6 @@ export type CanvasFloatingPanel =
   | "edit"
   | "layers"
   | "library"
-  | "story"
-  | "properties"
-  | "workbench"
   | null;
 
 export interface CanvasHistoryState {

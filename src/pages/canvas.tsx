@@ -7,7 +7,6 @@ import { CanvasToolRail } from "@/features/canvas/CanvasToolRail";
 import { CanvasViewport } from "@/features/canvas/CanvasViewport";
 import { useCanvasEditPanelAutoOpen } from "@/features/canvas/hooks/useCanvasEditPanelAutoOpen";
 import { useCanvasRouteWorkbenchSync } from "@/features/canvas/hooks/useCanvasRouteWorkbenchSync";
-import { useCanvasSelectedSlice } from "@/features/canvas/hooks/useCanvasSelectedSlice";
 import { CanvasRuntimeProvider } from "@/features/canvas/runtime/CanvasRuntimeProvider";
 import { selectActiveWorkbench } from "@/features/canvas/store/canvasStoreSelectors";
 import { useCanvasStore } from "@/stores/canvasStore";
@@ -19,7 +18,6 @@ export function CanvasPage() {
   useCanvasEditPanelAutoOpen();
   const activeWorkbench = useCanvasStore(selectActiveWorkbench);
   const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
-  const { selectedSliceId, selectSlice } = useCanvasSelectedSlice(activeWorkbench);
 
   return (
     <div className="absolute inset-0 overflow-hidden">
@@ -28,17 +26,14 @@ export function CanvasPage() {
         workbench={activeWorkbench}
         workbenchId={activeWorkbenchId}
       >
-        <CanvasViewport stageRef={stageRef} selectedSliceId={selectedSliceId} />
+        <CanvasViewport stageRef={stageRef} />
         <CanvasAppBar
           onExport={() => {
             setExportOpen(true);
           }}
         />
         <CanvasToolRail />
-        <CanvasFloatingPanel
-          selectedSliceId={selectedSliceId}
-          onSelectSlice={selectSlice}
-        />
+        <CanvasFloatingPanel />
         <CanvasExportDialog
           open={exportOpen}
           onOpenChange={setExportOpen}

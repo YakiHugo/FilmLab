@@ -22,7 +22,6 @@ import type { CanvasToolName } from "./tools/toolControllers";
 
 interface CanvasViewportProps {
   stageRef: RefObject<Konva.Stage>;
-  selectedSliceId?: string | null;
 }
 
 interface CanvasViewportControlsProps {
@@ -102,7 +101,7 @@ function CanvasViewportControls({
   );
 }
 
-export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProps) {
+export function CanvasViewport({ stageRef }: CanvasViewportProps) {
   const { activeWorkbench, activeWorkbenchId } = useCanvasActiveWorkbenchState();
   const { executeCommand, upsertElement } = useCanvasActiveWorkbenchCommands();
   const tool = useCanvasStore((state) => state.tool);
@@ -194,10 +193,7 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
 
   const scene = {
     activeWorkbench,
-    centerGuideLines: sceneState.centerGuideLines,
     interactivePreviewElementId: sceneState.interactivePreviewElementId,
-    selectedSliceId,
-    thirdsGuideLines: sceneState.thirdsGuideLines,
     workspaceGridBounds: sceneState.workspaceGridBounds,
   };
   const interaction = {
