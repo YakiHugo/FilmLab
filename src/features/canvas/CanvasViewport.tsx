@@ -1,26 +1,23 @@
 import type Konva from "konva";
 import { Crosshair, Hand, Minus, MousePointer2, Plus } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
-import { shallow } from "zustand/shallow";
-import type { CanvasShapeElement } from "@/types";
+import { useCallback, type RefObject } from "react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { CanvasViewportOverlayHost } from "./CanvasViewportOverlayHost";
 import { CanvasViewportStageShell } from "./CanvasViewportStageShell";
 import { VIEWPORT_INSETS } from "./canvasViewportConstants";
-import { isCanvasTextElementEditable } from "./elements/TextElement";
-import { getVisibleWorldGridBounds, quantizeDragPosition } from "./grid";
 import { useCanvasActiveWorkbenchCommands } from "./hooks/useCanvasActiveWorkbenchCommands";
 import { useCanvasActiveWorkbenchState } from "./hooks/useCanvasActiveWorkbenchState";
 import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
-import { useCanvasMarqueeSelection } from "./hooks/useCanvasMarqueeSelection";
 import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
-import { useCanvasTextRuntimeViewModel } from "./hooks/useCanvasTextRuntimeViewModel";
-import { useCanvasTextSession } from "./hooks/useCanvasTextSession";
+import { useCanvasTextSessionPort } from "./hooks/useCanvasTextSessionPort";
+import { useCanvasViewportInteractionController } from "./hooks/useCanvasViewportInteractionController";
 import { useCanvasViewportLifecycle } from "./hooks/useCanvasViewportLifecycle";
-import { useCanvasViewportNavigation } from "./hooks/useCanvasViewportNavigation";
-import { useCanvasViewportToolOrchestrator } from "./hooks/useCanvasViewportToolOrchestrator";
-import { applyCanvasTextFontSizeTier } from "./textStyle";
+import { useCanvasViewportSceneState } from "./hooks/useCanvasViewportSceneState";
+import {
+  useCanvasViewportTextEditingController,
+  useCanvasViewportTextSessionController,
+} from "./hooks/useCanvasViewportTextEditingController";
 import type { CanvasToolName } from "./tools/toolControllers";
 
 interface CanvasViewportProps {
@@ -87,8 +84,8 @@ function CanvasViewportControls({
         type="button"
         onClick={resetView}
         className="flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-300 transition hover:bg-white/10"
-        aria-label="Center 工作台"
-        title="Center 工作台"
+        aria-label="Center 宸ヤ綔鍙?"
+        title="Center 宸ヤ綔鍙?"
       >
         <Crosshair className="h-4 w-4" />
       </button>
@@ -108,12 +105,6 @@ function CanvasViewportControls({
 export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProps) {
   const { activeWorkbench, activeWorkbenchId } = useCanvasActiveWorkbenchState();
   const { executeCommand, upsertElement } = useCanvasActiveWorkbenchCommands();
-  const availableWorkbenchIds = useCanvasStore(
-    (state) => state.workbenches.map((workbench) => workbench.id),
-    shallow
-  );
-  const executeCommandInWorkbench = useCanvasStore((state) => state.executeCommandInWorkbench);
-  const upsertElementInWorkbench = useCanvasStore((state) => state.upsertElementInWorkbench);
   const tool = useCanvasStore((state) => state.tool);
   const activeShapeType = useCanvasStore((state) => state.activeShapeType);
   const setTool = useCanvasStore((state) => state.setTool);
@@ -125,41 +116,6 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
   const { selectedElementIds, setSelectedElementIds, selectElement, clearSelection } =
     useCanvasInteraction();
 
-  const elementById = useMemo(
-    () => new Map((activeWorkbench?.allNodes ?? []).map((element) => [element.id, element])),
-    [activeWorkbench?.allNodes]
-  );
-  const elementByIdRef = useRef(elementById);
-
-  useEffect(() => {
-    elementByIdRef.current = elementById;
-  }, [elementById]);
-
-  const interactivePreviewElementId = useMemo(
-    () => (displaySelectedElementIds.length === 1 ? displaySelectedElementIds[0]! : null),
-    [displaySelectedElementIds]
-  );
-
-  const singleSelectedElement = useMemo(() => {
-    if (selectedElementIds.length !== 1) {
-      return null;
-    }
-
-    return elementById.get(selectedElementIds[0]!) ?? null;
-  }, [elementById, selectedElementIds]);
-
-  const singleSelectedTextElement = useMemo(
-    () => (singleSelectedElement?.type === "text" ? singleSelectedElement : null),
-    [singleSelectedElement]
-  );
-  const singleSelectedNonTextElement = useMemo(
-    () =>
-      singleSelectedElement && singleSelectedElement.type !== "text"
-        ? singleSelectedElement
-        : null,
-    [singleSelectedElement]
-  );
-
   const { fitView, isSpacePressed, stageSize, viewportContainerRef } =
     useCanvasViewportLifecycle({
       activeWorkbench,
@@ -169,279 +125,128 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
       setViewport,
       setZoom,
     });
-  const shouldPan = tool === "hand" || isSpacePressed;
-  const {
-    adjustZoom,
-    beginPanInteraction,
-    cursor,
-    endPanInteraction,
-    handleStageWheel,
-    resetView,
-    toCanvasPoint,
-    toScreenPoint,
-    updatePanInteraction,
-  } = useCanvasViewportNavigation({
-    fitView,
-    shouldPan,
-    stageRef,
-    viewport,
-    zoom,
-    setViewport,
-    setZoom,
-  });
-  const {
-    beginMarqueeInteraction,
-    commitMarqueeInteraction,
-    hasMarqueeSession,
-    isMarqueeDragging,
-    marqueeRenderState,
-    updateMarqueeInteraction,
-  } = useCanvasMarqueeSelection({
+  const sceneState = useCanvasViewportSceneState({
     activeWorkbench,
-    activeWorkbenchId,
-    stageRef,
-    tool,
-    viewport,
-    zoom,
-    selectedElementIds,
-    setSelectedElementIds,
-  });
-  const {
-    actions: textSessionActions,
-    session: textSession,
-  } = useCanvasTextSession({
-    activeWorkbenchId,
-    availableWorkbenchIds,
-    elementById,
-    selectedElementIds,
-    singleSelectedTextElement,
-    selectElement,
-    clearSelection,
-    upsertElementInWorkbench,
-    executeCommandInWorkbench,
-  });
-  const textRuntimeViewModel = useCanvasTextRuntimeViewModel({
-    activeWorkbenchId,
     displaySelectedElementIds,
-    hasMarqueeSession,
-    isMarqueeDragging,
-    nodeById: elementById,
     selectedElementIds,
-    textSession,
+    stageSize,
+    viewport,
+    zoom,
   });
-
-  const thirdsGuideLines = useMemo(() => {
-    if (!activeWorkbench || !activeWorkbench.guides.showThirds) {
-      return [];
-    }
-
-    return [
-      [activeWorkbench.width / 3, 0, activeWorkbench.width / 3, activeWorkbench.height],
-      [(activeWorkbench.width * 2) / 3, 0, (activeWorkbench.width * 2) / 3, activeWorkbench.height],
-      [0, activeWorkbench.height / 3, activeWorkbench.width, activeWorkbench.height / 3],
-      [0, (activeWorkbench.height * 2) / 3, activeWorkbench.width, (activeWorkbench.height * 2) / 3],
-    ];
-  }, [activeWorkbench]);
-
-  const centerGuideLines = useMemo(() => {
-    if (!activeWorkbench || !activeWorkbench.guides.showCenter) {
-      return [];
-    }
-
-    return [
-      [activeWorkbench.width / 2, 0, activeWorkbench.width / 2, activeWorkbench.height],
-      [0, activeWorkbench.height / 2, activeWorkbench.width, activeWorkbench.height / 2],
-    ];
-  }, [activeWorkbench]);
-
-  const workspaceGridBounds = useMemo(
-    () => getVisibleWorldGridBounds(viewport, zoom, stageSize),
-    [stageSize, viewport, zoom]
-  );
-
-  const dragBoundFunc = useCallback(
-    (position: { x: number; y: number }) => quantizeDragPosition(position),
-    []
-  );
-
-  const insertShapeElement = useCallback(
-    (element: CanvasShapeElement) => {
-      if (!activeWorkbenchId) {
-        return;
-      }
-
-      void upsertElement(element);
-    },
-    [activeWorkbenchId, upsertElement]
-  );
-
-  const {
-    handleWorkspacePointerDown,
-    handleWorkspacePointerMove,
-    handleWorkspacePointerUp,
-  } = useCanvasViewportToolOrchestrator({
-    activeShapeType,
-    activeWorkbench,
-    activeWorkbenchId,
-    beginMarqueeInteraction,
-    beginPanInteraction,
-    beginTextEdit: textSessionActions.begin,
-    clearSelection,
-    commitMarqueeInteraction,
-    endPanInteraction,
-    insertShapeElement,
-    selectElement: (elementId: string) => {
+  const selectSingleElement = useCallback(
+    (elementId: string) => {
       selectElement(elementId);
-    },
-    setTool,
-    shouldPan,
-    stageRef,
-    toCanvasPoint,
-    toScreenPoint,
-    tool,
-    updateMarqueeInteraction,
-    updatePanInteraction,
-  });
-
-  const handleElementSelect = useCallback(
-    (elementId: string, additive: boolean) => {
-      const element = elementByIdRef.current.get(elementId);
-      if (!element || element.effectiveLocked || !element.effectiveVisible) {
-        return;
-      }
-
-      selectElement(elementId, { additive });
     },
     [selectElement]
   );
-
-  const handleElementDragEnd = useCallback(
-    (elementId: string, x: number, y: number) => {
-      const element = elementByIdRef.current.get(elementId);
-      if (!activeWorkbenchId || !element || element.effectiveLocked || !element.effectiveVisible) {
-        return;
-      }
-
-      const dx = x - element.x;
-      const dy = y - element.y;
-      if (dx === 0 && dy === 0) {
-        return;
-      }
-
-      void executeCommand({
-        type: "MOVE_NODES",
-        ids: [elementId],
-        dx,
-        dy,
-      });
-    },
-    [activeWorkbenchId, executeCommand]
-  );
-
-  const handleTextElementDoubleClick = useCallback(
-    (elementId: string) => {
-      const element = elementByIdRef.current.get(elementId);
-      if (!element?.type || element.type !== "text" || !isCanvasTextElementEditable(element)) {
-        return;
-      }
-
-      textSessionActions.begin(element);
-    },
-    [textSessionActions]
-  );
-
-  const handleTextColorChange = useCallback(
-    (color: string) => {
-      textSessionActions.updateDraft((element) => ({
-        ...element,
-        color,
-      }));
-    },
-    [textSessionActions]
-  );
-
-  const handleTextFontFamilyChange = useCallback(
-    (fontFamily: string) => {
-      textSessionActions.updateDraft((element) => ({
-        ...element,
-        fontFamily,
-      }));
-    },
-    [textSessionActions]
-  );
-
-  const handleTextFontSizeTierChange = useCallback(
-    (fontSizeTier: Parameters<typeof applyCanvasTextFontSizeTier>[1]) => {
-      textSessionActions.updateDraft((element) =>
-        applyCanvasTextFontSizeTier(element, fontSizeTier)
-      );
-    },
-    [textSessionActions]
-  );
+  const textSessionPort = useCanvasTextSessionPort({
+    clearSelection,
+    selectElement: selectSingleElement,
+  });
+  const textSessionState = useCanvasViewportTextSessionController({
+    elementById: sceneState.elementById,
+    port: textSessionPort,
+    selectedElementIds,
+    singleSelectedTextElement: sceneState.singleSelectedTextElement,
+  });
+  const interactionState = useCanvasViewportInteractionController({
+    activeShapeType,
+    activeWorkbench,
+    activeWorkbenchId,
+    beginTextEdit: textSessionState.textSessionActions.begin,
+    clearSelection,
+    elementByIdRef: sceneState.elementByIdRef,
+    executeCommand,
+    fitView,
+    isSpacePressed,
+    selectElement,
+    selectedElementIds,
+    setSelectedElementIds,
+    setTool,
+    setViewport,
+    setZoom,
+    stageRef,
+    stageSize,
+    tool,
+    upsertElement,
+    viewport,
+    viewportContainerRef,
+    zoom,
+  });
+  const textEditingState = useCanvasViewportTextEditingController({
+    activeWorkbenchId,
+    displaySelectedElementIds,
+    elementById: sceneState.elementById,
+    hasMarqueeSession: interactionState.marquee.hasMarqueeSession,
+    isMarqueeDragging: interactionState.marquee.isMarqueeDragging,
+    selectedElementIds,
+    textSession: textSessionState.textSession,
+    textSessionActions: textSessionState.textSessionActions,
+  });
 
   if (!activeWorkbench) {
     return (
       <div className="absolute inset-0 flex items-center justify-center text-sm text-zinc-500">
-        Create or open a 工作台 to start composing on canvas.
+        Create or open a 宸ヤ綔鍙?to start composing on canvas.
       </div>
     );
   }
 
+  const scene = {
+    activeWorkbench,
+    centerGuideLines: sceneState.centerGuideLines,
+    interactivePreviewElementId: sceneState.interactivePreviewElementId,
+    selectedSliceId,
+    thirdsGuideLines: sceneState.thirdsGuideLines,
+    workspaceGridBounds: sceneState.workspaceGridBounds,
+  };
+  const interaction = {
+    ...interactionState.stage,
+    isMarqueeDragging: interactionState.marquee.isMarqueeDragging,
+    marqueeRect: interactionState.marquee.marqueeRect,
+  };
+  const textEditing = {
+    activeEditingTextId: textEditingState.textRuntimeViewModel.activeEditingTextId,
+    editingTextDraft: textEditingState.textRuntimeViewModel.renderedEditingTextDraft,
+    onCancelTextEdit: textSessionState.textSessionActions.cancel,
+    onCommitTextEdit: textSessionState.textSessionActions.commit,
+    onFontFamilyChange: textEditingState.handleTextFontFamilyChange,
+    onFontSizeTierChange: textEditingState.handleTextFontSizeTierChange,
+    onTextColorChange: textEditingState.handleTextColorChange,
+    onTextInputKeyDown: textSessionState.textSessionActions.handleInputKeyDown,
+    onTextValueChange: textSessionState.textSessionActions.changeValue,
+    runtimeViewModel: textEditingState.textRuntimeViewModel,
+    selectedElements: textEditingState.textRuntimeViewModel.displaySelectedElements,
+    session: textSessionState.textSession,
+  };
+  const overlay = {
+    activeWorkbenchUpdatedAt: activeWorkbench.updatedAt,
+    selectedElementCount: selectedElementIds.length,
+    singleSelectedNonTextElement: sceneState.singleSelectedNonTextElement,
+    stageRef,
+    stageSize,
+    viewport,
+    zoom,
+  };
+
   return (
     <div className="absolute inset-0">
       <CanvasViewportStageShell
-        activeEditingTextId={textRuntimeViewModel.activeEditingTextId}
-        activeWorkbench={activeWorkbench}
-        centerGuideLines={centerGuideLines}
-        containerRef={viewportContainerRef}
-        cursor={cursor}
-        dragBoundFunc={dragBoundFunc}
-        editingTextDraft={textRuntimeViewModel.renderedEditingTextDraft}
-        interactivePreviewElementId={interactivePreviewElementId}
-        isMarqueeDragging={isMarqueeDragging}
-        marqueeRect={marqueeRenderState.rect}
-        onElementDragEnd={handleElementDragEnd}
-        onElementSelect={handleElementSelect}
-        onStageWheel={handleStageWheel}
-        onTextElementDoubleClick={handleTextElementDoubleClick}
-        onWorkspacePointerDown={handleWorkspacePointerDown}
-        onWorkspacePointerMove={handleWorkspacePointerMove}
-        onWorkspacePointerUp={handleWorkspacePointerUp}
-        selectedElements={textRuntimeViewModel.displaySelectedElements}
-        selectedSliceId={selectedSliceId}
-        stageRef={stageRef}
-        stageSize={stageSize}
-        thirdsGuideLines={thirdsGuideLines}
-        viewport={viewport}
-        workspaceGridBounds={workspaceGridBounds}
-        zoom={zoom}
+        interaction={interaction}
+        scene={scene}
+        textEditing={textEditing}
       />
 
       <CanvasViewportOverlayHost
-        activeWorkbenchUpdatedAt={activeWorkbench.updatedAt}
-        editingTextId={textSession.id}
-        editingTextValue={textSession.value}
-        onCancelTextEdit={textSessionActions.cancel}
-        onCommitTextEdit={textSessionActions.commit}
-        onFontFamilyChange={handleTextFontFamilyChange}
-        onFontSizeTierChange={handleTextFontSizeTierChange}
-        onTextColorChange={handleTextColorChange}
-        onTextInputKeyDown={textSessionActions.handleInputKeyDown}
-        onTextValueChange={textSessionActions.changeValue}
-        selectedElementCount={selectedElementIds.length}
-        singleSelectedNonTextElement={singleSelectedNonTextElement}
-        stageRef={stageRef}
-        stageSize={stageSize}
-        textRuntimeViewModel={textRuntimeViewModel}
-        viewport={viewport}
-        zoom={zoom}
+        overlay={overlay}
+        textEditing={textEditing}
       />
 
       <CanvasViewportControls
-        adjustZoom={adjustZoom}
-        resetView={resetView}
+        adjustZoom={interactionState.controls.adjustZoom}
+        resetView={interactionState.controls.resetView}
         setTool={setTool}
-        shouldPan={shouldPan}
+        shouldPan={interactionState.controls.shouldPan}
         tool={tool}
       />
     </div>

@@ -9,6 +9,7 @@ export interface CanvasTextSessionPort {
     command: CanvasCommand,
     options?: { trackHistory?: boolean }
   ) => Promise<unknown>;
+  getActiveWorkbenchId: () => string | null;
   getAvailableWorkbenchIds: () => string[];
   selectElement: (elementId: string) => void;
   upsertElementInWorkbench: (
