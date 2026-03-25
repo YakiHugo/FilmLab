@@ -66,8 +66,13 @@ export const resolveCanvasPageRecoveryPlan = ({
 
 export const shouldAutoOpenCanvasEditPanel = ({
   activePanel,
-  hasSelectedImage,
+  currentSelectedImageId,
+  previousSelectedImageId,
 }: {
   activePanel: CanvasFloatingPanel;
-  hasSelectedImage: boolean;
-}) => activePanel !== "edit" && hasSelectedImage;
+  currentSelectedImageId: string | null;
+  previousSelectedImageId: string | null;
+}) =>
+  activePanel !== "edit" &&
+  currentSelectedImageId !== null &&
+  currentSelectedImageId !== previousSelectedImageId;

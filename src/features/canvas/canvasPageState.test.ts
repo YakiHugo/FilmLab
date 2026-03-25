@@ -117,23 +117,33 @@ describe("canvasPageState", () => {
     ).toEqual({ type: "create-and-navigate" });
   });
 
-  it("opens the edit panel only when an image is selected and edit is not already active", () => {
+  it("opens the edit panel only when the selected image context changes outside edit", () => {
     expect(
       shouldAutoOpenCanvasEditPanel({
         activePanel: "layers",
-        hasSelectedImage: true,
+        currentSelectedImageId: "image-1",
+        previousSelectedImageId: null,
       })
     ).toBe(true);
     expect(
       shouldAutoOpenCanvasEditPanel({
         activePanel: "edit",
-        hasSelectedImage: true,
+        currentSelectedImageId: "image-2",
+        previousSelectedImageId: "image-1",
       })
     ).toBe(false);
     expect(
       shouldAutoOpenCanvasEditPanel({
         activePanel: null,
-        hasSelectedImage: false,
+        currentSelectedImageId: null,
+        previousSelectedImageId: "image-1",
+      })
+    ).toBe(false);
+    expect(
+      shouldAutoOpenCanvasEditPanel({
+        activePanel: "layers",
+        currentSelectedImageId: "image-1",
+        previousSelectedImageId: "image-1",
       })
     ).toBe(false);
   });

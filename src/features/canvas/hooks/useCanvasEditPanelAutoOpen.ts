@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { hasSelectedImageElement } from "@/features/canvas/selectionModel";
+import { useEffect, useRef } from "react";
+import { resolvePrimarySelectedImageElement } from "@/features/canvas/selectionModel";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { shouldAutoOpenCanvasEditPanel } from "../canvasPageState";
 import { selectActiveWorkbench } from "../store/canvasStoreSelectors";
@@ -9,15 +9,25 @@ export function useCanvasEditPanelAutoOpen() {
   const selectedElementIds = useCanvasStore((state) => state.selectedElementIds);
   const activePanel = useCanvasStore((state) => state.activePanel);
   const setActivePanel = useCanvasStore((state) => state.setActivePanel);
+  const previousSelectedImageIdRef = useRef<string | null>(null);
+
+  const selectedImageId =
+    activeWorkbench && selectedElementIds.length > 0
+      ? resolvePrimarySelectedImageElement(activeWorkbench, selectedElementIds)?.id ?? null
+      : null;
 
   useEffect(() => {
-    const hasSelectedImage =
-      Boolean(activeWorkbench) &&
-      selectedElementIds.length > 0 &&
-      hasSelectedImageElement(activeWorkbench, selectedElementIds);
-
-    if (shouldAutoOpenCanvasEditPanel({ activePanel, hasSelectedImage })) {
+    const previousSelectedImageId = previousSelectedImageIdRef.current;
+    if (
+      shouldAutoOpenCanvasEditPanel({
+        activePanel,
+        currentSelectedImageId: selectedImageId,
+        previousSelectedImageId,
+      })
+    ) {
       setActivePanel("edit");
     }
-  }, [activePanel, activeWorkbench, selectedElementIds, setActivePanel]);
+
+    previousSelectedImageIdRef.current = selectedImageId;
+  }, [activePanel, selectedImageId, setActivePanel]);
 }
