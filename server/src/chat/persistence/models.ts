@@ -6,8 +6,8 @@ import type {
   ImagePromptIntentInput,
   ImagePromptIntentEditOp,
   ReferenceImage,
-} from "./imageGeneration";
-import type { FrontendImageModelId } from "./imageModelCatalog";
+} from "../../../../shared/imageGeneration";
+import type { FrontendImageModelId } from "../../../../shared/imageModelCatalog";
 
 export type GenerationJobStatus = "running" | "succeeded" | "failed";
 export type PersistedGenerationTurnStatus = "loading" | "done" | "error";
@@ -302,16 +302,6 @@ export interface PersistedImageSession {
   updatedAt: string;
 }
 
-export interface ThreadSnapshotGenerateResponse {
-  threadId: string;
-  turnId: string;
-  runId: string;
-  jobId: string;
-  primaryAssetIds: string[];
-  runs: PersistedRunRecord[];
-  assets: PersistedAssetRecord[];
-}
-
 export interface TurnPromptArtifactsResponse {
   turnId: string;
   versions: PersistedPromptArtifactRecord[];
@@ -357,9 +347,4 @@ export interface PromptObservabilitySummaryResponse {
   semanticLosses: PromptObservabilityLossSummary[];
   targets: PromptObservabilityTargetSummary[];
   turns: PromptObservabilityTurnSummary[];
-}
-
-export interface PreparedGenerationContext {
-  assetRefs: ImageGenerationAssetRef[];
-  referencedAssetIds: string[];
 }

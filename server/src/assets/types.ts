@@ -1,4 +1,4 @@
-import type { PersistedAssetEdgeType } from "../../../shared/chatImageTypes";
+import type { PersistedAssetEdgeType } from "../chat/persistence/models";
 
 export type AssetSource = "imported" | "ai-generated";
 export type AssetFileKind = "original" | "thumbnail";

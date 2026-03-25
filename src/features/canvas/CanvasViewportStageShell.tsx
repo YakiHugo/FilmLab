@@ -360,136 +360,124 @@ const selectionOutlineRectsEqual = (
   });
 
 interface CanvasViewportStageShellProps {
-  activeEditingTextId: string | null;
-  activeWorkbench: CanvasWorkbench;
-  centerGuideLines: number[][];
-  containerRef: RefObject<HTMLDivElement>;
-  cursor: string;
-  dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
-  editingTextDraft: CanvasRenderableTextElement | CanvasTextElement | null;
-  interactivePreviewElementId: string | null;
-  isMarqueeDragging: boolean;
-  marqueeRect: { x: number; y: number; width: number; height: number } | null;
-  onElementDragEnd: (elementId: string, x: number, y: number) => void;
-  onElementSelect: (elementId: string, additive: boolean) => void;
-  onStageWheel: (event: Konva.KonvaEventObject<WheelEvent>) => void;
-  onTextElementDoubleClick: (elementId: string) => void;
-  onWorkspacePointerDown: (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
-  onWorkspacePointerMove: (event?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
-  onWorkspacePointerUp: (event?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
-  selectedElements: CanvasTextRuntimeSelectedElement[];
-  selectedSliceId?: string | null;
-  stageRef: RefObject<Konva.Stage>;
-  stageSize: {
-    width: number;
-    height: number;
+  interaction: {
+    containerRef: RefObject<HTMLDivElement>;
+    cursor: string;
+    dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
+    handleElementDragEnd: (elementId: string, x: number, y: number) => void;
+    handleElementSelect: (elementId: string, additive: boolean) => void;
+    handleStageWheel: (event: Konva.KonvaEventObject<WheelEvent>) => void;
+    handleTextElementDoubleClick: (elementId: string) => void;
+    handleWorkspacePointerDown: (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
+    handleWorkspacePointerMove: (
+      event?: Konva.KonvaEventObject<MouseEvent | TouchEvent>
+    ) => void;
+    handleWorkspacePointerUp: (
+      event?: Konva.KonvaEventObject<MouseEvent | TouchEvent>
+    ) => void;
+    isMarqueeDragging: boolean;
+    marqueeRect: { x: number; y: number; width: number; height: number } | null;
+    stageRef: RefObject<Konva.Stage>;
+    stageSize: {
+      width: number;
+      height: number;
+    };
+    viewport: {
+      x: number;
+      y: number;
+    };
+    zoom: number;
   };
-  thirdsGuideLines: number[][];
-  viewport: {
-    x: number;
-    y: number;
+  scene: {
+    activeWorkbench: CanvasWorkbench;
+    centerGuideLines: number[][];
+    interactivePreviewElementId: string | null;
+    selectedSliceId?: string | null;
+    thirdsGuideLines: number[][];
+    workspaceGridBounds: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    };
   };
-  workspaceGridBounds: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
+  textEditing: {
+    activeEditingTextId: string | null;
+    editingTextDraft: CanvasRenderableTextElement | CanvasTextElement | null;
+    selectedElements: CanvasTextRuntimeSelectedElement[];
   };
-  zoom: number;
 }
 
 export function CanvasViewportStageShell({
-  activeEditingTextId,
-  activeWorkbench,
-  centerGuideLines,
-  containerRef,
-  cursor,
-  dragBoundFunc,
-  editingTextDraft,
-  interactivePreviewElementId,
-  isMarqueeDragging,
-  marqueeRect,
-  onElementDragEnd,
-  onElementSelect,
-  onStageWheel,
-  onTextElementDoubleClick,
-  onWorkspacePointerDown,
-  onWorkspacePointerMove,
-  onWorkspacePointerUp,
-  selectedElements,
-  selectedSliceId,
-  stageRef,
-  stageSize,
-  thirdsGuideLines,
-  viewport,
-  workspaceGridBounds,
-  zoom,
+  interaction,
+  scene,
+  textEditing,
 }: CanvasViewportStageShellProps) {
   return (
     <div
-      ref={containerRef}
+      ref={interaction.containerRef}
       className="absolute inset-0"
       style={{
-        cursor,
+        cursor: interaction.cursor,
         touchAction: "none",
       }}
     >
       <Stage
-        ref={stageRef}
-        width={Math.max(stageSize.width, 1)}
-        height={Math.max(stageSize.height, 1)}
-        x={viewport.x}
-        y={viewport.y}
-        scaleX={zoom}
-        scaleY={zoom}
-        onWheel={onStageWheel}
-        onMouseDown={onWorkspacePointerDown}
-        onTouchStart={onWorkspacePointerDown}
-        onMouseMove={onWorkspacePointerMove}
-        onTouchMove={onWorkspacePointerMove}
-        onMouseUp={onWorkspacePointerUp}
-        onTouchEnd={onWorkspacePointerUp}
-        onTouchCancel={onWorkspacePointerUp}
+        ref={interaction.stageRef}
+        width={Math.max(interaction.stageSize.width, 1)}
+        height={Math.max(interaction.stageSize.height, 1)}
+        x={interaction.viewport.x}
+        y={interaction.viewport.y}
+        scaleX={interaction.zoom}
+        scaleY={interaction.zoom}
+        onWheel={interaction.handleStageWheel}
+        onMouseDown={interaction.handleWorkspacePointerDown}
+        onTouchStart={interaction.handleWorkspacePointerDown}
+        onMouseMove={interaction.handleWorkspacePointerMove}
+        onTouchMove={interaction.handleWorkspacePointerMove}
+        onMouseUp={interaction.handleWorkspacePointerUp}
+        onTouchEnd={interaction.handleWorkspacePointerUp}
+        onTouchCancel={interaction.handleWorkspacePointerUp}
       >
         <Layer>
           <Rect
             id={WORKSPACE_BACKGROUND_NODE_ID}
-            x={workspaceGridBounds.x}
-            y={workspaceGridBounds.y}
-            width={workspaceGridBounds.width}
-            height={workspaceGridBounds.height}
+            x={scene.workspaceGridBounds.x}
+            y={scene.workspaceGridBounds.y}
+            width={scene.workspaceGridBounds.width}
+            height={scene.workspaceGridBounds.height}
             fill={WORKSPACE_BACKGROUND_FILL}
             perfectDrawEnabled={false}
           />
 
-          <DotGrid bounds={workspaceGridBounds} />
+          <DotGrid bounds={scene.workspaceGridBounds} />
 
           <Rect
             id={BOARD_SURFACE_NODE_ID}
             x={0}
             y={0}
-            width={activeWorkbench.width}
-            height={activeWorkbench.height}
-            fill={activeWorkbench.backgroundColor}
+            width={scene.activeWorkbench.width}
+            height={scene.activeWorkbench.height}
+            fill={scene.activeWorkbench.backgroundColor}
             listening={false}
             perfectDrawEnabled={false}
           />
 
-          {activeWorkbench.guides.showSafeArea ? (
+          {scene.activeWorkbench.guides.showSafeArea ? (
             <Rect
-              x={activeWorkbench.safeArea.left}
-              y={activeWorkbench.safeArea.top}
+              x={scene.activeWorkbench.safeArea.left}
+              y={scene.activeWorkbench.safeArea.top}
               width={Math.max(
                 1,
-                activeWorkbench.width -
-                  activeWorkbench.safeArea.left -
-                  activeWorkbench.safeArea.right
+                scene.activeWorkbench.width -
+                  scene.activeWorkbench.safeArea.left -
+                  scene.activeWorkbench.safeArea.right
               )}
               height={Math.max(
                 1,
-                activeWorkbench.height -
-                  activeWorkbench.safeArea.top -
-                  activeWorkbench.safeArea.bottom
+                scene.activeWorkbench.height -
+                  scene.activeWorkbench.safeArea.top -
+                  scene.activeWorkbench.safeArea.bottom
               )}
               stroke="rgba(255,255,255,0.22)"
               strokeWidth={1}
@@ -498,7 +486,7 @@ export function CanvasViewportStageShell({
             />
           ) : null}
 
-          {thirdsGuideLines.map((points, index) => (
+          {scene.thirdsGuideLines.map((points, index) => (
             <Line
               key={`thirds-${index}`}
               points={points}
@@ -509,7 +497,7 @@ export function CanvasViewportStageShell({
             />
           ))}
 
-          {centerGuideLines.map((points, index) => (
+          {scene.centerGuideLines.map((points, index) => (
             <Line
               key={`center-${index}`}
               points={points}
@@ -523,28 +511,31 @@ export function CanvasViewportStageShell({
 
         <Layer>
           <CanvasElementsLayer
-            activeEditingTextId={activeEditingTextId}
-            dragBoundFunc={dragBoundFunc}
-            editingTextDraft={editingTextDraft}
-            elements={activeWorkbench.elements}
-            interactivePreviewElementId={interactivePreviewElementId}
-            onElementDragEnd={onElementDragEnd}
-            onElementSelect={onElementSelect}
-            onTextElementDoubleClick={onTextElementDoubleClick}
+            activeEditingTextId={textEditing.activeEditingTextId}
+            dragBoundFunc={interaction.dragBoundFunc}
+            editingTextDraft={textEditing.editingTextDraft}
+            elements={scene.activeWorkbench.elements}
+            interactivePreviewElementId={scene.interactivePreviewElementId}
+            onElementDragEnd={interaction.handleElementDragEnd}
+            onElementSelect={interaction.handleElementSelect}
+            onTextElementDoubleClick={interaction.handleTextElementDoubleClick}
           />
         </Layer>
 
         <Layer listening={false}>
-          <CanvasSelectionOutlineLayer stageRef={stageRef} selectedElements={selectedElements} />
+          <CanvasSelectionOutlineLayer
+            stageRef={interaction.stageRef}
+            selectedElements={textEditing.selectedElements}
+          />
         </Layer>
 
         <Layer listening={false}>
-          {isMarqueeDragging && marqueeRect ? (
+          {interaction.isMarqueeDragging && interaction.marqueeRect ? (
             <Rect
-              x={marqueeRect.x}
-              y={marqueeRect.y}
-              width={Math.max(1, marqueeRect.width)}
-              height={Math.max(1, marqueeRect.height)}
+              x={interaction.marqueeRect.x}
+              y={interaction.marqueeRect.y}
+              width={Math.max(1, interaction.marqueeRect.width)}
+              height={Math.max(1, interaction.marqueeRect.height)}
               fill={CANVAS_SELECTION_ACCENT_FILL}
               stroke={CANVAS_SELECTION_ACCENT}
               strokeWidth={1.5}
@@ -555,8 +546,8 @@ export function CanvasViewportStageShell({
         </Layer>
 
         <Layer listening={false}>
-          {activeWorkbench.slices.map((slice) => {
-            const selected = slice.id === selectedSliceId;
+          {scene.activeWorkbench.slices.map((slice) => {
+            const selected = slice.id === scene.selectedSliceId;
             return (
               <Fragment key={slice.id}>
                 <Rect

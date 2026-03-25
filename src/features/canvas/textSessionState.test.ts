@@ -117,6 +117,9 @@ describe("canvas text session state", () => {
     expect(result.session.workbenchId).toBe("workbench-1");
     expect(result.session.hasMaterializedElement).toBe(true);
     expect(result.session.initialElement?.id).toBe("text-1");
+    expect(result.session.draft).not.toBeNull();
+    expect("bounds" in (result.session.draft ?? {})).toBe(false);
+    expect("effectiveVisible" in (result.session.draft ?? {})).toBe(false);
   });
 
   it("materializes create-mode text on the first non-empty input", () => {

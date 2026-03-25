@@ -1,20 +1,36 @@
 import { describe, expect, it } from "vitest";
-import type { PromptObservabilitySummaryResponse } from "../../../../shared/chatImageTypes";
+import type { ImageLabObservabilityView } from "../../../../shared/imageLabViews";
 import {
-  deserializeAssetRefs,
   invalidatePromptObservabilityState,
   RETRY_REFERENCE_IMAGES_OMITTED_WARNING,
   omitUnavailableReferenceImages,
-  resolveRetryRequestSnapshot,
   shouldFetchPromptArtifacts,
   shouldFetchPromptObservability,
-  toPersistedRequestSnapshot,
 } from "./useImageGeneration";
+import {
+  toGenerationConfigFromRequest,
+  toImageGenerationRequest,
+} from "./imageLabViewState";
 
 describe("image generation request snapshots", () => {
-  it("restores reference-only asset ref metadata from persisted snapshots", () => {
-    expect(
-      deserializeAssetRefs([
+  it("restores reference-only asset ref metadata from conversation request views", () => {
+    const config = toGenerationConfigFromRequest({
+      modelId: "qwen-image-2-pro",
+      aspectRatio: "1:1",
+      width: null,
+      height: null,
+      style: "none",
+      stylePreset: "",
+      negativePrompt: "",
+      promptIntent: {
+        preserve: [],
+        avoid: [],
+        styleDirectives: [],
+        continuityTargets: [],
+        editOps: [],
+      },
+      referenceImages: [],
+      assetRefs: [
         {
           assetId: "asset-reference",
           role: "reference",
@@ -27,8 +43,16 @@ describe("image generation request snapshots", () => {
           referenceType: "controlnet",
           weight: 0.8,
         },
-      ])
-    ).toEqual([
+      ],
+      seed: null,
+      guidanceScale: null,
+      steps: null,
+      sampler: "",
+      batchSize: 1,
+      modelParams: {},
+    });
+
+    expect(config.assetRefs).toEqual([
       {
         assetId: "asset-reference",
         role: "reference",
@@ -38,26 +62,27 @@ describe("image generation request snapshots", () => {
       {
         assetId: "asset-edit",
         role: "edit",
+        referenceType: "controlnet",
+        weight: 0.8,
       },
     ]);
   });
 
-  it("preserves reference image urls for replayable retries", () => {
-    const snapshot = toPersistedRequestSnapshot({
-      prompt: "Rainy alley",
+  it("preserves reference image urls through request view normalization", () => {
+    const config = toGenerationConfigFromRequest({
       modelId: "qwen-image-2-pro",
       aspectRatio: "1:1",
+      width: null,
+      height: null,
       style: "none",
-      batchSize: 1,
+      stylePreset: "",
+      negativePrompt: "",
       promptIntent: {
         preserve: [],
         avoid: [],
         styleDirectives: [],
         continuityTargets: [],
         editOps: [],
-      },
-      modelParams: {
-        promptExtend: true,
       },
       referenceImages: [
         {
@@ -68,9 +93,17 @@ describe("image generation request snapshots", () => {
         },
       ],
       assetRefs: [{ assetId: "thread-asset-1", role: "reference" }],
+      seed: null,
+      guidanceScale: null,
+      steps: null,
+      sampler: "",
+      batchSize: 1,
+      modelParams: {
+        promptExtend: true,
+      },
     });
 
-    expect(snapshot.referenceImages).toEqual([
+    expect(config.referenceImages).toEqual([
       expect.objectContaining({
         id: "ref-1",
         url: "data:image/png;base64,AAA",
@@ -78,9 +111,8 @@ describe("image generation request snapshots", () => {
       }),
     ]);
 
-    const retryRequest = resolveRetryRequestSnapshot(snapshot);
-    expect(retryRequest.warnings).toEqual([]);
-    expect(retryRequest.request.referenceImages).toEqual([
+    const request = toImageGenerationRequest("Rainy alley", config);
+    expect(request.referenceImages).toEqual([
       expect.objectContaining({
         id: "ref-1",
         url: "data:image/png;base64,AAA",
@@ -90,21 +122,21 @@ describe("image generation request snapshots", () => {
   });
 
   it("warns when historical reference image urls are unavailable", () => {
-    const retryRequest = resolveRetryRequestSnapshot({
-      prompt: "Rainy alley",
+    const resolved = omitUnavailableReferenceImages(
+      toGenerationConfigFromRequest({
       modelId: "qwen-image-2-pro",
       aspectRatio: "1:1",
+      width: null,
+      height: null,
       style: "none",
-      batchSize: 1,
+      stylePreset: "",
+      negativePrompt: "",
       promptIntent: {
         preserve: [],
         avoid: [],
         styleDirectives: [],
         continuityTargets: [],
         editOps: [],
-      },
-      modelParams: {
-        promptExtend: true,
       },
       referenceImages: [
         {
@@ -113,10 +145,20 @@ describe("image generation request snapshots", () => {
           type: "content",
         },
       ],
-    });
+      assetRefs: [],
+      seed: null,
+      guidanceScale: null,
+      steps: null,
+      sampler: "",
+      batchSize: 1,
+      modelParams: {
+        promptExtend: true,
+      },
+    })
+    );
 
-    expect(retryRequest.request.referenceImages).toEqual([]);
-    expect(retryRequest.warnings).toEqual([RETRY_REFERENCE_IMAGES_OMITTED_WARNING]);
+    expect(resolved.config.referenceImages).toEqual([]);
+    expect(resolved.warnings).toEqual([RETRY_REFERENCE_IMAGES_OMITTED_WARNING]);
   });
 
   it("drops unavailable reference images from legacy config retries and keeps valid refs", () => {
@@ -216,7 +258,7 @@ describe("image generation request snapshots", () => {
   });
 
   it("invalidates prompt observability for the same conversation without discarding the last summary", () => {
-    const summary: PromptObservabilitySummaryResponse = {
+    const summary: ImageLabObservabilityView = {
       conversationId: "conversation-1",
       overview: {
         totalTurns: 1,

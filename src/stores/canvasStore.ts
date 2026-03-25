@@ -23,8 +23,7 @@ import type {
 import { on } from "@/lib/storeEvents";
 import type {
   CanvasCommand,
-  CanvasNode,
-  CanvasRenderableElement,
+  CanvasEditableElement,
   CanvasShapeType,
   CanvasWorkbench,
 } from "@/types";
@@ -56,11 +55,11 @@ export interface CanvasState extends CanvasStoreDataState {
   ) => Promise<CanvasWorkbench | null>;
   upsertElementInWorkbench: (
     workbenchId: string,
-    element: CanvasNode | CanvasRenderableElement
+    element: CanvasEditableElement
   ) => Promise<void>;
   upsertElementsInWorkbench: (
     workbenchId: string,
-    elements: Array<CanvasNode | CanvasRenderableElement>
+    elements: CanvasEditableElement[]
   ) => Promise<void>;
   deleteNodesInWorkbench: (workbenchId: string, ids: string[]) => Promise<string[]>;
   duplicateNodesInWorkbench: (workbenchId: string, ids: string[]) => Promise<string[]>;

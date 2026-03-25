@@ -1356,24 +1356,8 @@ describe("imageGenerateRoute", () => {
     expect(body).toMatchObject({
       runtimeProvider: "dashscope",
       providerModel: "qwen-image-2.0-pro-fallback",
-      runs: [
-        expect.any(Object),
-        expect.objectContaining({
-          requestedTarget: expect.objectContaining({
-            deploymentId: "dashscope-qwen-image-2-pro-primary",
-            providerModel: "qwen-image-2.0-pro",
-          }),
-          selectedTarget: expect.objectContaining({
-            deploymentId: "dashscope-qwen-image-2-pro-primary",
-            providerModel: "qwen-image-2.0-pro",
-          }),
-          executedTarget: expect.objectContaining({
-            deploymentId: "dashscope-qwen-image-2-pro-fallback",
-            providerModel: "qwen-image-2.0-pro-fallback",
-          }),
-        }),
-      ],
     });
+    expect(body).not.toHaveProperty("runs");
 
     await app.close();
   });

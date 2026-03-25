@@ -1,4 +1,4 @@
-import type { CanvasCommand, CanvasRenderableTextElement, CanvasTextElement } from "@/types";
+import type { CanvasCommand, CanvasEditableTextElement, CanvasRenderableTextElement, CanvasTextElement } from "@/types";
 import type { TextMutationQueue } from "./textMutationQueue";
 import type { CanvasTextSessionEffect } from "./textSessionState";
 
@@ -9,11 +9,12 @@ export interface CanvasTextSessionPort {
     command: CanvasCommand,
     options?: { trackHistory?: boolean }
   ) => Promise<unknown>;
+  getActiveWorkbenchId: () => string | null;
   getAvailableWorkbenchIds: () => string[];
   selectElement: (elementId: string) => void;
   upsertElementInWorkbench: (
     workbenchId: string,
-    element: CanvasTextElement | CanvasRenderableTextElement
+    element: CanvasEditableTextElement
   ) => Promise<void>;
 }
 

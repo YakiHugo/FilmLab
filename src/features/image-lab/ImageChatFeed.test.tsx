@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { PromptObservabilitySummaryResponse } from "../../../shared/chatImageTypes";
+import type { ImageLabObservabilityView } from "../../../shared/imageLabViews";
 import {
   ImageChatFeed,
   PromptObservabilityPanel,
@@ -106,7 +106,7 @@ const renderPromptArtifactsPanel = (turn: ImageGenerationTurn) =>
 
 const renderPromptObservabilityPanel = (
   status: "idle" | "loading" | "loaded" | "error",
-  summary: PromptObservabilitySummaryResponse | null,
+  summary: ImageLabObservabilityView | null,
   error: string | null = null
 ) =>
   renderToStaticMarkup(
@@ -114,8 +114,8 @@ const renderPromptObservabilityPanel = (
   );
 
 const buildObservabilitySummary = (
-  overrides?: Partial<PromptObservabilitySummaryResponse>
-): PromptObservabilitySummaryResponse => ({
+  overrides?: Partial<ImageLabObservabilityView>
+): ImageLabObservabilityView => ({
   conversationId: "conversation-1",
   overview: {
     totalTurns: 3,

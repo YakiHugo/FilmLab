@@ -1,4 +1,8 @@
-import type { CanvasRenderableTextElement, CanvasTextElement } from "@/types";
+import type {
+  CanvasEditableTextElement,
+  CanvasRenderableTextElement,
+  CanvasTextElement,
+} from "@/types";
 import {
   resolveTextCancelKind,
   resolveTextCommitKind,
@@ -14,8 +18,40 @@ export type CanvasTextSessionStatus =
   | "waiting"
   | "persisting-source";
 
+const toCanvasEditableTextElement = (
+  element: CanvasTextElement | CanvasRenderableTextElement
+): CanvasEditableTextElement => ({
+  id: element.id,
+  type: "text",
+  parentId: element.parentId,
+  transform: {
+    ...element.transform,
+  },
+  x: element.transform.x,
+  y: element.transform.y,
+  width: element.transform.width,
+  height: element.transform.height,
+  rotation: element.transform.rotation,
+  zIndex: element.zIndex,
+  opacity: element.opacity,
+  locked: element.locked,
+  visible: element.visible,
+  color: element.color,
+  content: element.content,
+  fontFamily: element.fontFamily,
+  fontSize: element.fontSize,
+  fontSizeTier: element.fontSizeTier,
+  textAlign: element.textAlign,
+});
+
+const fitCanvasEditableTextDraft = (
+  options: CanvasTextSessionReducerOptions,
+  element: CanvasTextElement | CanvasRenderableTextElement
+): CanvasEditableTextElement =>
+  options.fitDraft(toCanvasEditableTextElement(element));
+
 export interface CanvasTextSessionSnapshot {
-  draft: CanvasTextElement | null;
+  draft: CanvasEditableTextElement | null;
   hasMaterializedElement: boolean;
   hasPersistedExistingDraft: boolean;
   id: string | null;
@@ -56,7 +92,7 @@ export type CanvasTextSessionEffect =
   | { type: "select-element"; elementId: string }
   | {
       type: "upsert-draft";
-      element: CanvasTextElement;
+      element: CanvasEditableTextElement;
       reason: "commit" | "materialize" | "persist-source";
       sessionToken: number;
       transitionToken: number | null;
@@ -193,7 +229,7 @@ const buildUpsertDraftEffect = ({
   reason,
   session,
 }: {
-  element: CanvasTextElement;
+  element: CanvasEditableTextElement;
   reason: "commit" | "materialize" | "persist-source";
   session: CanvasTextSessionSnapshot;
 }): CanvasTextSessionEffect[] =>
@@ -236,7 +272,7 @@ const buildPersistSourceEffects = (
   }
 
   return buildUpsertDraftEffect({
-    element: options.fitDraft({
+    element: fitCanvasEditableTextDraft(options, {
       ...session.draft,
       content: session.value.trim(),
     }),
@@ -261,7 +297,7 @@ export const reduceCanvasTextSession = (
       }
 
       const mode = event.mode ?? "existing";
-      const nextDraft = options.fitDraft(event.element);
+      const nextDraft = fitCanvasEditableTextDraft(options, event.element);
       return {
         effects: [],
         session: {
@@ -356,7 +392,7 @@ export const reduceCanvasTextSession = (
           })
         );
       } else if (commitKind === "upsert") {
-        const nextDraft = options.fitDraft({
+        const nextDraft = fitCanvasEditableTextDraft(options, {
           ...session.draft,
           content: session.value.trim(),
         });
@@ -384,7 +420,7 @@ export const reduceCanvasTextSession = (
         return { effects: [], session };
       }
 
-      const nextDraft = options.fitDraft({
+      const nextDraft = fitCanvasEditableTextDraft(options, {
         ...session.draft,
         content: event.nextValue,
       });
@@ -552,7 +588,7 @@ export const reduceCanvasTextSession = (
         return { effects: [], session };
       }
 
-      const nextDraft = options.fitDraft(event.updater(session.draft));
+      const nextDraft = fitCanvasEditableTextDraft(options, event.updater(session.draft));
       return {
         effects: [],
         session: {

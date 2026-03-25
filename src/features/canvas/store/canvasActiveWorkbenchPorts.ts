@@ -1,7 +1,6 @@
 import type {
   CanvasCommand,
-  CanvasNode,
-  CanvasRenderableElement,
+  CanvasEditableElement,
   CanvasWorkbench,
 } from "@/types";
 import type {
@@ -24,8 +23,8 @@ export interface CanvasActiveWorkbenchCommands {
     command: CanvasCommand,
     options?: ExecuteCommandOptions
   ) => Promise<CanvasWorkbench | null>;
-  upsertElement: (element: CanvasNode | CanvasRenderableElement) => Promise<void>;
-  upsertElements: (elements: Array<CanvasNode | CanvasRenderableElement>) => Promise<void>;
+  upsertElement: (element: CanvasEditableElement) => Promise<void>;
+  upsertElements: (elements: CanvasEditableElement[]) => Promise<void>;
 }
 
 export interface CanvasActiveWorkbenchStructure {
@@ -65,11 +64,11 @@ export interface CanvasActiveWorkbenchCommandStoreApi {
   ) => Promise<CanvasWorkbench | null>;
   upsertElementInWorkbench: (
     workbenchId: string,
-    element: CanvasNode | CanvasRenderableElement
+    element: CanvasEditableElement
   ) => Promise<void>;
   upsertElementsInWorkbench: (
     workbenchId: string,
-    elements: Array<CanvasNode | CanvasRenderableElement>
+    elements: CanvasEditableElement[]
   ) => Promise<void>;
 }
 

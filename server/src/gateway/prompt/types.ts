@@ -6,7 +6,7 @@ import type {
   PersistedPromptArtifactStage,
   PersistedPromptArtifactTurnDelta,
   PersistedSemanticLoss,
-} from "../../../../shared/chatImageTypes";
+} from "../../chat/persistence/models";
 
 export type SemanticLoss = PersistedSemanticLoss;
 export type TurnDelta = PersistedPromptArtifactTurnDelta;

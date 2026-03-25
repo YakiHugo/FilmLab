@@ -16,49 +16,40 @@ import {
 import type { CanvasTextRuntimeViewModel } from "./textRuntimeViewModel";
 
 interface CanvasViewportOverlayHostProps {
-  activeWorkbenchUpdatedAt?: string;
-  editingTextId: string | null;
-  editingTextValue: string;
-  onCancelTextEdit: () => void;
-  onCommitTextEdit: () => void;
-  onFontFamilyChange: (fontFamily: string) => void;
-  onFontSizeTierChange: (fontSizeTier: CanvasTextFontSizeTier) => void;
-  onTextColorChange: (color: string) => void;
-  onTextInputKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
-  onTextValueChange: (nextValue: string) => void;
-  selectedElementCount: number;
-  singleSelectedNonTextElement: Exclude<CanvasRenderableNode, { type: "text" }> | null;
-  stageRef: RefObject<Konva.Stage>;
-  stageSize: {
-    width: number;
-    height: number;
+  overlay: {
+    activeWorkbenchUpdatedAt?: string;
+    selectedElementCount: number;
+    singleSelectedNonTextElement: Exclude<CanvasRenderableNode, { type: "text" }> | null;
+    stageRef: RefObject<Konva.Stage>;
+    stageSize: {
+      width: number;
+      height: number;
+    };
+    viewport: {
+      x: number;
+      y: number;
+    };
+    zoom: number;
   };
-  textRuntimeViewModel: CanvasTextRuntimeViewModel;
-  viewport: {
-    x: number;
-    y: number;
+  textEditing: {
+    onCancelTextEdit: () => void;
+    onCommitTextEdit: () => void;
+    onFontFamilyChange: (fontFamily: string) => void;
+    onFontSizeTierChange: (fontSizeTier: CanvasTextFontSizeTier) => void;
+    onTextColorChange: (color: string) => void;
+    onTextInputKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
+    onTextValueChange: (nextValue: string) => void;
+    runtimeViewModel: CanvasTextRuntimeViewModel;
+    session: {
+      id: string | null;
+      value: string;
+    };
   };
-  zoom: number;
 }
 
 export function CanvasViewportOverlayHost({
-  activeWorkbenchUpdatedAt,
-  editingTextId,
-  editingTextValue,
-  onCancelTextEdit,
-  onCommitTextEdit,
-  onFontFamilyChange,
-  onFontSizeTierChange,
-  onTextColorChange,
-  onTextInputKeyDown,
-  onTextValueChange,
-  selectedElementCount,
-  singleSelectedNonTextElement,
-  stageRef,
-  stageSize,
-  textRuntimeViewModel,
-  viewport,
-  zoom,
+  overlay,
+  textEditing,
 }: CanvasViewportOverlayHostProps) {
   const textToolbarRef = useRef<HTMLDivElement>(null);
   const dimensionsBadgeRef = useRef<HTMLDivElement>(null);
@@ -66,21 +57,25 @@ export function CanvasViewportOverlayHost({
 
   const { selectionOverlay, toolbarPosition, dimensionsBadgePosition, editingTextLayout } =
     useCanvasViewportOverlay({
-      stageRef,
-      stageSize,
-      viewport,
-      zoom,
-      trackedOverlayId: textRuntimeViewModel.trackedOverlayId,
-      textOverlayModel: textRuntimeViewModel.textOverlayModel,
-      textEditorModel: textRuntimeViewModel.activeTextEditorModel,
-      singleSelectedNonTextElement,
+      stageRef: overlay.stageRef,
+      stageSize: overlay.stageSize,
+      viewport: overlay.viewport,
+      zoom: overlay.zoom,
+      trackedOverlayId: textEditing.runtimeViewModel.trackedOverlayId,
+      textOverlayModel: textEditing.runtimeViewModel.textOverlayModel,
+      textEditorModel: textEditing.runtimeViewModel.activeTextEditorModel,
+      singleSelectedNonTextElement: overlay.singleSelectedNonTextElement,
       textToolbarRef,
       dimensionsBadgeRef,
       toolbarSize: DEFAULT_TEXT_TOOLBAR_SIZE,
       dimensionsBadgeSize: DEFAULT_DIMENSIONS_BADGE_SIZE,
       floatingToolbarGap: FLOATING_TOOLBAR_GAP,
-      activeWorkbenchUpdatedAt,
+      activeWorkbenchUpdatedAt: overlay.activeWorkbenchUpdatedAt,
     });
+  const editingTextId = textEditing.session.id;
+  const editingTextValue = textEditing.session.value;
+  const handleCancelTextEdit = textEditing.onCancelTextEdit;
+  const handleCommitTextEdit = textEditing.onCommitTextEdit;
 
   useEffect(() => {
     if (!editingTextId) {
@@ -89,7 +84,7 @@ export function CanvasViewportOverlayHost({
 
     const handleWindowKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        onCancelTextEdit();
+        handleCancelTextEdit();
       }
     };
 
@@ -97,7 +92,7 @@ export function CanvasViewportOverlayHost({
     return () => {
       window.removeEventListener("keydown", handleWindowKeyDown);
     };
-  }, [editingTextId, onCancelTextEdit]);
+  }, [editingTextId, handleCancelTextEdit]);
 
   useEffect(() => {
     if (!editingTextId) {
@@ -114,22 +109,24 @@ export function CanvasViewportOverlayHost({
         return;
       }
 
-      onCommitTextEdit();
+      handleCommitTextEdit();
     };
 
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown, true);
     };
-  }, [editingTextId, onCommitTextEdit]);
+  }, [editingTextId, handleCommitTextEdit]);
 
   const showDimensionsBadge = Boolean(
-    selectionOverlay && singleSelectedNonTextElement && selectedElementCount === 1
+    selectionOverlay &&
+      overlay.singleSelectedNonTextElement &&
+      overlay.selectedElementCount === 1
   );
 
   return (
     <>
-      {textRuntimeViewModel.showEditingTextSelectionOutline && selectionOverlay ? (
+      {textEditing.runtimeViewModel.showEditingTextSelectionOutline && selectionOverlay ? (
         <div
           className="pointer-events-none absolute z-10"
           style={{
@@ -143,7 +140,7 @@ export function CanvasViewportOverlayHost({
         />
       ) : null}
 
-      {showDimensionsBadge && singleSelectedNonTextElement ? (
+      {showDimensionsBadge && overlay.singleSelectedNonTextElement ? (
         <div
           ref={dimensionsBadgeRef}
           className="absolute z-20 rounded-[12px] border border-white/10 bg-black/90 px-3 py-2 text-sm font-semibold text-zinc-50 shadow-[0_20px_48px_-32px_rgba(0,0,0,0.95)] backdrop-blur-xl"
@@ -153,34 +150,34 @@ export function CanvasViewportOverlayHost({
           }}
         >
           {Math.round(
-            singleSelectedNonTextElement.type === "group"
-              ? singleSelectedNonTextElement.bounds.width
-              : singleSelectedNonTextElement.width
+            overlay.singleSelectedNonTextElement.type === "group"
+              ? overlay.singleSelectedNonTextElement.bounds.width
+              : overlay.singleSelectedNonTextElement.width
           )}{" "}
           x{" "}
           {Math.round(
-            singleSelectedNonTextElement.type === "group"
-              ? singleSelectedNonTextElement.bounds.height
-              : singleSelectedNonTextElement.height
+            overlay.singleSelectedNonTextElement.type === "group"
+              ? overlay.singleSelectedNonTextElement.bounds.height
+              : overlay.singleSelectedNonTextElement.height
           )}
         </div>
       ) : null}
 
-      {textRuntimeViewModel.showTextToolbar &&
-      textRuntimeViewModel.activeTextEditorModel &&
+      {textEditing.runtimeViewModel.showTextToolbar &&
+      textEditing.runtimeViewModel.activeTextEditorModel &&
       selectionOverlay ? (
         <CanvasTextToolbar
           ref={textToolbarRef}
-          element={textRuntimeViewModel.activeTextEditorModel}
+          element={textEditing.runtimeViewModel.activeTextEditorModel}
           position={toolbarPosition}
-          onColorChange={onTextColorChange}
-          onFontFamilyChange={onFontFamilyChange}
-          onFontSizeTierChange={onFontSizeTierChange}
+          onColorChange={textEditing.onTextColorChange}
+          onFontFamilyChange={textEditing.onFontFamilyChange}
+          onFontSizeTierChange={textEditing.onFontSizeTierChange}
         />
       ) : null}
 
-      {textRuntimeViewModel.showTextEditor &&
-      textRuntimeViewModel.activeTextEditorModel &&
+      {textEditing.runtimeViewModel.showTextEditor &&
+      textEditing.runtimeViewModel.activeTextEditorModel &&
       editingTextLayout ? (
         <div
           ref={textEditorRef}
@@ -200,9 +197,9 @@ export function CanvasViewportOverlayHost({
           <textarea
             value={editingTextValue}
             onChange={(event) => {
-              onTextValueChange(event.target.value);
+              textEditing.onTextValueChange(event.target.value);
             }}
-            onKeyDown={onTextInputKeyDown}
+            onKeyDown={textEditing.onTextInputKeyDown}
             autoFocus
             placeholder={CANVAS_TEXT_EDITOR_PLACEHOLDER}
             spellCheck={false}
@@ -210,12 +207,12 @@ export function CanvasViewportOverlayHost({
             className="absolute inset-0 m-0 w-full resize-none border-0 bg-transparent p-0 outline-none"
             style={{
               boxSizing: "border-box",
-              color: textRuntimeViewModel.activeTextEditorModel.color,
-              fontFamily: textRuntimeViewModel.activeTextEditorModel.fontFamily,
-              fontSize: textRuntimeViewModel.activeTextEditorModel.fontSize,
+              color: textEditing.runtimeViewModel.activeTextEditorModel.color,
+              fontFamily: textEditing.runtimeViewModel.activeTextEditorModel.fontFamily,
+              fontSize: textEditing.runtimeViewModel.activeTextEditorModel.fontSize,
               lineHeight: CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER,
               overflow: "hidden",
-              textAlign: textRuntimeViewModel.activeTextEditorModel.textAlign,
+              textAlign: textEditing.runtimeViewModel.activeTextEditorModel.textAlign,
             }}
           />
         </div>

@@ -227,8 +227,6 @@ export interface ImageGenerationResponse {
   imageId?: string;
   imageUrl?: string;
   images: GeneratedImage[];
-  runs: import("./chatImageTypes").PersistedRunRecord[];
-  assets: import("./chatImageTypes").PersistedAssetRecord[];
   primaryAssetIds: string[];
   warnings?: string[];
 }
