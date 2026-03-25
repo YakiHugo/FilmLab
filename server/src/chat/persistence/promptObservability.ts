@@ -6,7 +6,7 @@ import type {
   PromptObservabilitySummaryResponse,
   PromptObservabilityTargetSummary,
   PromptObservabilityTurnSummary,
-} from "../../../../shared/chatImageTypes";
+} from "./models";
 
 type PromptObservabilityTurnSource = Pick<
   PersistedGenerationTurn,

@@ -9,7 +9,7 @@ import type {
   TurnPromptArtifactsResponse,
   PersistedRunRecord,
   PersistedResultItem,
-} from "../../../../shared/chatImageTypes";
+} from "./models";
 import {
   cloneConversationCreativeState,
   cloneCreativeState,

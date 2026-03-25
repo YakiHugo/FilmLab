@@ -435,7 +435,6 @@ describe("imageGenerateRoute evals", () => {
 
     const body = response.json();
     expect(body.traceId).toEqual(expect.any(String));
-    expect(body.runs[1]?.telemetry?.traceId).toBe(body.traceId);
 
     const createdGeneration = repositoryMock.createGeneration.mock.calls[0]?.[0] as {
       run: {
@@ -447,6 +446,15 @@ describe("imageGenerateRoute evals", () => {
     };
     expect(createdGeneration.run.operation).toBe("image.edit");
     expect(createdGeneration.run.telemetry.traceId).toBe(body.traceId);
+    expect(repositoryMock.completeGenerationSuccess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        run: expect.objectContaining({
+          telemetry: expect.objectContaining({
+            traceId: body.traceId,
+          }),
+        }),
+      })
+    );
 
     const promptVersions = repositoryMock.createPromptVersions.mock.calls.flatMap(
       ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
@@ -661,29 +669,33 @@ describe("imageGenerateRoute evals", () => {
         }),
       })
     );
+    const createdGeneration = repositoryMock.createGeneration.mock.calls[0]?.[0] as {
+      run: {
+        telemetry: {
+          traceId: string;
+        };
+        requestedTarget: {
+          deploymentId: string;
+          providerModel: string;
+        };
+        selectedTarget: {
+          deploymentId: string;
+          providerModel: string;
+        };
+      };
+    };
+    expect(createdGeneration.run.telemetry.traceId).toBe(body.traceId);
+    expect(createdGeneration.run.requestedTarget).toMatchObject({
+      deploymentId: "dashscope-qwen-image-2-pro-primary",
+      providerModel: "qwen-image-2.0-pro",
+    });
+    expect(createdGeneration.run.selectedTarget).toMatchObject({
+      deploymentId: "dashscope-qwen-image-2-pro-primary",
+      providerModel: "qwen-image-2.0-pro",
+    });
     expect(body).toMatchObject({
       runtimeProvider: "dashscope",
       providerModel: "qwen-image-2.0-pro-fallback",
-      runs: [
-        expect.any(Object),
-        expect.objectContaining({
-          telemetry: expect.objectContaining({
-            traceId: body.traceId,
-          }),
-          requestedTarget: expect.objectContaining({
-            deploymentId: "dashscope-qwen-image-2-pro-primary",
-            providerModel: "qwen-image-2.0-pro",
-          }),
-          selectedTarget: expect.objectContaining({
-            deploymentId: "dashscope-qwen-image-2-pro-primary",
-            providerModel: "qwen-image-2.0-pro",
-          }),
-          executedTarget: expect.objectContaining({
-            deploymentId: "dashscope-qwen-image-2-pro-fallback",
-            providerModel: "qwen-image-2.0-pro-fallback",
-          }),
-        }),
-      ],
     });
 
     await app.close();

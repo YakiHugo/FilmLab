@@ -56,6 +56,57 @@ const createApp = async () => {
   return app;
 };
 
+const createConversationSnapshot = (
+  overrides?: Partial<{
+    id: string;
+    createdAt: string;
+    updatedAt: string;
+    turns: unknown[];
+  }>
+) => {
+  const id = overrides?.id ?? "conversation-1";
+  const createdAt = overrides?.createdAt ?? "2026-03-12T00:00:00.000Z";
+  const updatedAt = overrides?.updatedAt ?? createdAt;
+
+  return {
+    id,
+    thread: {
+      id,
+      creativeBrief: {
+        latestPrompt: null,
+        latestModelId: null,
+        acceptedAssetId: null,
+        selectedAssetIds: [],
+        recentAssetRefIds: [],
+      },
+      promptState: {
+        committed: {
+          prompt: null,
+          preserve: [],
+          avoid: [],
+          styleDirectives: [],
+          continuityTargets: [],
+          editOps: [],
+          referenceAssetIds: [],
+        },
+        candidate: null,
+        baseAssetId: null,
+        candidateTurnId: null,
+        revision: 0,
+      },
+      createdAt,
+      updatedAt,
+    },
+    turns: overrides?.turns ?? [],
+    runs: [],
+    assets: [],
+    assetEdges: [],
+    jobs: [],
+    createdAt,
+    updatedAt,
+  };
+};
+
 describe("imageConversationRoute", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -87,13 +138,7 @@ describe("imageConversationRoute", () => {
   });
 
   it("returns the caller's active conversation snapshot", async () => {
-    repositoryMock.getConversationSnapshot.mockResolvedValue({
-      id: "conversation-1",
-      createdAt: "2026-03-12T00:00:00.000Z",
-      updatedAt: "2026-03-12T00:00:00.000Z",
-      turns: [],
-      jobs: [],
-    });
+    repositoryMock.getConversationSnapshot.mockResolvedValue(createConversationSnapshot());
 
     const app = await createApp();
     const response = await app.inject({
@@ -107,9 +152,8 @@ describe("imageConversationRoute", () => {
     expect(response.statusCode).toBe(200);
     expect(repositoryMock.getConversationSnapshot).toHaveBeenCalledWith("user-1", undefined);
     expect(response.json()).toMatchObject({
-      id: "conversation-1",
+      conversationId: "conversation-1",
       turns: [],
-      jobs: [],
     });
 
     await app.close();
@@ -387,13 +431,13 @@ describe("imageConversationRoute", () => {
   });
 
   it("clears and recreates the active conversation", async () => {
-    repositoryMock.clearActiveConversation.mockResolvedValue({
-      id: "conversation-2",
-      createdAt: "2026-03-12T01:00:00.000Z",
-      updatedAt: "2026-03-12T01:00:00.000Z",
-      turns: [],
-      jobs: [],
-    });
+    repositoryMock.clearActiveConversation.mockResolvedValue(
+      createConversationSnapshot({
+        id: "conversation-2",
+        createdAt: "2026-03-12T01:00:00.000Z",
+        updatedAt: "2026-03-12T01:00:00.000Z",
+      })
+    );
 
     const app = await createApp();
     const response = await app.inject({
@@ -435,13 +479,11 @@ describe("imageConversationRoute", () => {
 
   it("deletes only turns owned by the current user", async () => {
     repositoryMock.deleteTurn.mockResolvedValueOnce(null);
-    repositoryMock.deleteTurn.mockResolvedValueOnce({
-      id: "conversation-1",
-      createdAt: "2026-03-12T00:00:00.000Z",
-      updatedAt: "2026-03-12T00:05:00.000Z",
-      turns: [],
-      jobs: [],
-    });
+    repositoryMock.deleteTurn.mockResolvedValueOnce(
+      createConversationSnapshot({
+        updatedAt: "2026-03-12T00:05:00.000Z",
+      })
+    );
 
     const app = await createApp();
 

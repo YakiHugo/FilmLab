@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type {
   PersistedPromptSnapshot,
   PersistedSemanticLoss,
-} from "../../../../shared/chatImageTypes";
+} from "../../chat/persistence/models";
 import { PROMPT_COMPILER_CAPABILITY_VERSION } from "../../../../shared/imageModelCapabilityFacts";
 import {
   resolveImagePromptCompilerOperation,
