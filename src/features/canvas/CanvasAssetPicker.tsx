@@ -1,111 +1,90 @@
-import { Link } from "@tanstack/react-router";
-import { ArrowUpRight, Images } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Images } from "lucide-react";
+import { UploadButton } from "@/components/UploadButton";
 import { cn } from "@/lib/utils";
 import {
-  canvasDockActionChipClassName,
-  canvasDockBadgeClassName,
-  canvasDockBodyTextClassName,
   canvasDockEmptyStateClassName,
-  canvasDockHeadingClassName,
   canvasDockIconBadgeClassName,
-  canvasDockInteractiveListItemClassName,
   canvasDockListItemClassName,
-  canvasDockOverlineClassName,
   canvasDockPanelContentClassName,
-  canvasDockSectionClassName,
 } from "./editDockTheme";
 import { useCanvasEngine } from "./hooks/useCanvasEngine";
 
 export function CanvasAssetPicker() {
-  const { assets, addAssetToCanvas, canAddAssetsToCanvas } = useCanvasEngine();
+  const { assets, addAssetToCanvas, canAddAssetsToCanvas, importAssetsToCanvas } =
+    useCanvasEngine();
+  const emptyStateMessage = canAddAssetsToCanvas
+    ? "Use the upload button to import images. New uploads land on the active canvas immediately."
+    : "Wait for the active workbench to recover, then upload images here.";
 
   return (
-    <div className={canvasDockPanelContentClassName}>
-      <section className={canvasDockSectionClassName}>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className={canvasDockOverlineClassName}>Library Feed</p>
-            <h3 className={canvasDockHeadingClassName}>Source material ready for placement.</h3>
-            <p className={cn(canvasDockBodyTextClassName, "mt-2")}>
-              Imported shots and saved AI outputs stay here. Click any tile to place it on the
-              active canvas as a new image layer.
-            </p>
-          </div>
-          <div className={canvasDockIconBadgeClassName}>
-            <Images className="h-4 w-4 text-[color:var(--canvas-edit-text-soft)]" />
-          </div>
-        </div>
+    <div className={cn(canvasDockPanelContentClassName, "gap-4")}>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="min-w-0 text-[13px] font-medium tracking-[-0.02em] text-[color:var(--canvas-edit-text)]">
+          点击添加图片到画布
+        </h3>
+        <UploadButton
+          label="Upload images to canvas"
+          labelClassName="sr-only"
+          variant="ghost"
+          size="sm"
+          disabled={!canAddAssetsToCanvas}
+          className="h-9 w-9 shrink-0 rounded-[8px] border border-[color:var(--canvas-edit-border)] bg-[color:var(--canvas-edit-surface)] px-0 text-[color:var(--canvas-edit-text-muted)] transition hover:bg-[#202022] hover:text-[color:var(--canvas-edit-text)]"
+          onFiles={(files) => {
+            void importAssetsToCanvas(files);
+          }}
+        />
+      </div>
 
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <span className={canvasDockBadgeClassName}>
-            {assets.length} item{assets.length === 1 ? "" : "s"}
-          </span>
-          <Button size="sm" variant="secondary" className={canvasDockActionChipClassName} asChild>
-            <Link to="/library">
-              Open Library
-              <ArrowUpRight className="ml-2 h-4 w-4" />
-            </Link>
-          </Button>
+      {!canAddAssetsToCanvas ? (
+        <div className={cn(canvasDockEmptyStateClassName, "px-4 py-4 text-sm")}>
+          <p className="font-medium text-[color:var(--canvas-edit-text)]">
+            Workbench is still recovering.
+          </p>
+          <p className="mt-2 leading-6 text-[color:var(--canvas-edit-text-muted)]">
+            Uploading and image placement are temporarily disabled until the active workbench is
+            available.
+          </p>
         </div>
-      </section>
+      ) : null}
 
       {assets.length > 0 ? (
-        <>
-          {!canAddAssetsToCanvas ? (
-            <div className={cn(canvasDockEmptyStateClassName, "mb-4 px-4 py-4 text-sm")}>
-              <p className="font-medium text-[color:var(--canvas-edit-text)]">
-                Workbench is still recovering.
-              </p>
-              <p className="mt-2 leading-6 text-[color:var(--canvas-edit-text-muted)]">
-                Asset placement is temporarily disabled until the active workbench is available.
-              </p>
-            </div>
-          ) : null}
-
-          <div className="grid min-h-0 flex-1 grid-cols-2 gap-3 overflow-y-auto pr-1">
-          {assets.map((asset) => (
-            <button
-              key={asset.id}
-              type="button"
-              disabled={!canAddAssetsToCanvas}
-              className={cn(
-                canvasDockListItemClassName,
-                canvasDockInteractiveListItemClassName,
-                "group overflow-hidden text-left disabled:cursor-not-allowed disabled:opacity-55"
-              )}
-              onClick={() => {
-                void addAssetToCanvas(asset.id);
-              }}
-              title={
-                canAddAssetsToCanvas
-                  ? asset.name
-                  : `${asset.name} (waiting for an active workbench)`
-              }
-            >
-              <div className="relative aspect-[4/5] overflow-hidden bg-black/40">
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          <div className="grid grid-cols-3 gap-2">
+            {assets.map((asset) => (
+              <button
+                key={asset.id}
+                type="button"
+                disabled={!canAddAssetsToCanvas}
+                className={cn(
+                  canvasDockListItemClassName,
+                  "group relative aspect-square overflow-hidden rounded-[6px] bg-[color:var(--canvas-edit-surface-strong)] text-left transition duration-200 focus-visible:outline-none focus-visible:border-[color:var(--canvas-edit-divider)] disabled:cursor-not-allowed disabled:opacity-45",
+                  canAddAssetsToCanvas &&
+                    "hover:border-[color:var(--canvas-edit-divider)] hover:bg-[#1c1c1e]"
+                )}
+                onClick={() => {
+                  void addAssetToCanvas(asset.id);
+                }}
+                title={
+                  canAddAssetsToCanvas
+                    ? asset.name
+                    : `${asset.name} (waiting for an active workbench)`
+                }
+                aria-label={canAddAssetsToCanvas ? asset.name : `${asset.name}, unavailable`}
+              >
                 <img
                   src={asset.thumbnailUrl || asset.objectUrl}
                   alt={asset.name}
-                  className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                  className="h-full w-full object-cover transition duration-300 ease-out group-hover:scale-[1.04]"
                 />
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/80 via-black/12 to-transparent" />
-                <span className="absolute left-3 top-3 rounded-full border border-white/10 bg-black/55 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-[color:var(--canvas-edit-text)]">
-                  {canAddAssetsToCanvas ? "Add" : "Wait"}
-                </span>
-              </div>
-              <div className="space-y-1 px-3 py-3">
-                <p className="truncate text-sm font-medium text-[color:var(--canvas-edit-text)]">
-                  {asset.name}
-                </p>
-                <p className="truncate text-xs text-[color:var(--canvas-edit-text-muted)]">
-                  Insert as a new image layer.
-                </p>
-              </div>
-            </button>
-          ))}
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 flex min-h-0 items-end bg-gradient-to-t from-black/80 via-black/16 to-transparent px-2.5 py-2 opacity-0 transition duration-200 group-hover:opacity-100">
+                  <span className="block truncate text-[10px] font-medium text-white/92">
+                    {asset.name}
+                  </span>
+                </div>
+              </button>
+            ))}
           </div>
-        </>
+        </div>
       ) : (
         <div
           className={cn(
@@ -117,11 +96,10 @@ export function CanvasAssetPicker() {
             <Images className="h-4 w-4 text-[color:var(--canvas-edit-text-soft)]" />
           </div>
           <p className="mt-4 text-sm font-medium text-[color:var(--canvas-edit-text)]">
-            Library is empty.
+            No images yet.
           </p>
           <p className="mt-2 text-sm leading-6 text-[color:var(--canvas-edit-text-muted)]">
-            Import a few reference images first, then pull them into the active composition from
-            here.
+            {emptyStateMessage}
           </p>
         </div>
       )}

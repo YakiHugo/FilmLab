@@ -1,29 +1,33 @@
 import type { CanvasImageElement } from "@/types";
+import { importAssetFiles } from "@/lib/assetImport";
 import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { createId, resolveCanvasImageInsertionSize } from "@/utils";
 import { snapPoint } from "../grid";
-import { useCanvasActiveWorkbenchCommands } from "./useCanvasActiveWorkbenchCommands";
 import { useCanvasActiveWorkbenchId } from "./useCanvasActiveWorkbenchId";
 import {
-  selectActiveWorkbenchRootCount,
   selectResolvedActiveWorkbenchId,
+  selectWorkbenchById,
 } from "../store/canvasStoreSelectors";
 
 export function useCanvasEngine() {
   const activeWorkbenchId = useCanvasActiveWorkbenchId();
-  const activeWorkbenchRootCount = useCanvasStore(selectActiveWorkbenchRootCount);
-  const { upsertElement } = useCanvasActiveWorkbenchCommands();
-  const setSelectedElementIds = useCanvasStore((state) => state.setSelectedElementIds);
+  const upsertElementInWorkbench = useCanvasStore((state) => state.upsertElementInWorkbench);
   const assets = useAssetStore((state) => state.assets);
 
-  const addAssetToCanvas = async (assetId: string) => {
-    if (!activeWorkbenchId) {
+  const addAssetToCanvas = async (assetId: string, explicitWorkbenchId?: string) => {
+    const canvasState = useCanvasStore.getState();
+    const workbenchId = explicitWorkbenchId ?? selectResolvedActiveWorkbenchId(canvasState);
+    if (!workbenchId) {
       return;
     }
-    const workbenchId = activeWorkbenchId;
-    const index = activeWorkbenchRootCount + 1;
-    const asset = assets.find((candidate) => candidate.id === assetId);
+    const workbench = selectWorkbenchById(canvasState, workbenchId);
+    if (!workbench) {
+      return;
+    }
+
+    const index = workbench.rootIds.length + 1;
+    const asset = useAssetStore.getState().assets.find((candidate) => candidate.id === assetId);
     const initialSize = await resolveCanvasImageInsertionSize(asset);
     const initialPosition = snapPoint({
       x: 120 + index * 18,
@@ -50,9 +54,18 @@ export function useCanvasEngine() {
       locked: false,
       visible: true,
     };
-    await upsertElement(element);
-    if (selectResolvedActiveWorkbenchId(useCanvasStore.getState()) === workbenchId) {
-      setSelectedElementIds([element.id]);
+    await upsertElementInWorkbench(workbenchId, element);
+  };
+
+  const importAssetsToCanvas = async (filesInput: File[] | FileList) => {
+    const targetWorkbenchId = selectResolvedActiveWorkbenchId(useCanvasStore.getState());
+    if (!targetWorkbenchId) {
+      return;
+    }
+
+    const { resolvedAssetIds } = await importAssetFiles(filesInput);
+    for (const assetId of resolvedAssetIds) {
+      await addAssetToCanvas(assetId, targetWorkbenchId);
     }
   };
 
@@ -60,5 +73,6 @@ export function useCanvasEngine() {
     assets,
     addAssetToCanvas,
     canAddAssetsToCanvas: Boolean(activeWorkbenchId),
+    importAssetsToCanvas,
   };
 }
