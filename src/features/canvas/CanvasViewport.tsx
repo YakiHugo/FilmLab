@@ -107,7 +107,7 @@ function CanvasViewportControls({
 
 export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProps) {
   const { activeWorkbench, activeWorkbenchId } = useCanvasActiveWorkbenchState();
-  const { upsertElement } = useCanvasActiveWorkbenchCommands();
+  const { executeCommand, upsertElement } = useCanvasActiveWorkbenchCommands();
   const availableWorkbenchIds = useCanvasStore(
     (state) => state.workbenches.map((workbench) => workbench.id),
     shallow
@@ -322,14 +322,20 @@ export function CanvasViewport({ stageRef, selectedSliceId }: CanvasViewportProp
         return;
       }
 
-      void upsertElement({
-        ...element,
-        id: elementId,
-        x,
-        y,
+      const dx = x - element.x;
+      const dy = y - element.y;
+      if (dx === 0 && dy === 0) {
+        return;
+      }
+
+      void executeCommand({
+        type: "MOVE_NODES",
+        ids: [elementId],
+        dx,
+        dy,
       });
     },
-    [activeWorkbenchId, upsertElement]
+    [activeWorkbenchId, executeCommand]
   );
 
   const handleTextElementDoubleClick = useCallback(

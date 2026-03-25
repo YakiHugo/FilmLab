@@ -1,3 +1,8 @@
+import type {
+  CanvasEditableElement,
+  CanvasEditableGroupNode,
+  CanvasRenderableTextElement,
+} from "@/types";
 import { describe, expect, it, vi } from "vitest";
 import {
   bindCanvasActiveWorkbenchHistoryActions,
@@ -5,6 +10,15 @@ import {
   bindCanvasActiveWorkbenchHistory,
   bindCanvasActiveWorkbenchStructure,
 } from "./canvasActiveWorkbenchPorts";
+
+const renderableTextNode = null as unknown as CanvasRenderableTextElement;
+// @ts-expect-error runtime renderable nodes must not satisfy editable write inputs
+const blockedRenderableEditableElement: CanvasEditableElement = renderableTextNode;
+void blockedRenderableEditableElement;
+const editableGroupNode = null as unknown as CanvasEditableGroupNode;
+// @ts-expect-error structural group nodes must not satisfy public element upsert inputs
+const blockedGroupEditableElement: CanvasEditableElement = editableGroupNode;
+void blockedGroupEditableElement;
 
 describe("canvasActiveWorkbenchPorts", () => {
   it("binds command ports to the active workbench id", async () => {
@@ -21,11 +35,37 @@ describe("canvasActiveWorkbenchPorts", () => {
       },
       workbenchId: "workbench-1",
     });
+    const editableTextNode = {
+      id: "node-1",
+      type: "text" as const,
+      parentId: null,
+      transform: {
+        x: 12,
+        y: 18,
+        width: 120,
+        height: 48,
+        rotation: 0,
+      },
+      x: 12,
+      y: 18,
+      width: 120,
+      height: 48,
+      rotation: 0,
+      opacity: 1,
+      locked: false,
+      visible: true,
+      color: "#ffffff",
+      content: "Hello",
+      fontFamily: "Georgia",
+      fontSize: 24,
+      fontSizeTier: "medium" as const,
+      textAlign: "left" as const,
+    };
 
     await commands.patchWorkbench({ name: "Renamed" });
     await commands.executeCommand({ type: "DELETE_NODES", ids: ["node-1"] });
-    await commands.upsertElement({ id: "node-1", type: "text" } as never);
-    await commands.upsertElements([{ id: "node-2", type: "text" } as never]);
+    await commands.upsertElement(editableTextNode);
+    await commands.upsertElements([{ ...editableTextNode, id: "node-2" }]);
 
     expect(patchWorkbench).toHaveBeenCalledWith("workbench-1", { name: "Renamed" }, undefined);
     expect(executeCommandInWorkbench).toHaveBeenCalledWith(
@@ -33,12 +73,9 @@ describe("canvasActiveWorkbenchPorts", () => {
       { type: "DELETE_NODES", ids: ["node-1"] },
       undefined
     );
-    expect(upsertElementInWorkbench).toHaveBeenCalledWith("workbench-1", {
-      id: "node-1",
-      type: "text",
-    });
+    expect(upsertElementInWorkbench).toHaveBeenCalledWith("workbench-1", editableTextNode);
     expect(upsertElementsInWorkbench).toHaveBeenCalledWith("workbench-1", [
-      { id: "node-2", type: "text" },
+      { ...editableTextNode, id: "node-2" },
     ]);
   });
 
@@ -56,11 +93,37 @@ describe("canvasActiveWorkbenchPorts", () => {
       },
       workbenchId: null,
     });
+    const editableTextNode = {
+      id: "node-1",
+      type: "text" as const,
+      parentId: null,
+      transform: {
+        x: 12,
+        y: 18,
+        width: 120,
+        height: 48,
+        rotation: 0,
+      },
+      x: 12,
+      y: 18,
+      width: 120,
+      height: 48,
+      rotation: 0,
+      opacity: 1,
+      locked: false,
+      visible: true,
+      color: "#ffffff",
+      content: "Hello",
+      fontFamily: "Georgia",
+      fontSize: 24,
+      fontSizeTier: "medium" as const,
+      textAlign: "left" as const,
+    };
 
     await expect(commands.patchWorkbench({ name: "noop" })).resolves.toBeNull();
     await expect(commands.executeCommand({ type: "DELETE_NODES", ids: ["node-1"] })).resolves.toBeNull();
-    await expect(commands.upsertElement({ id: "node-1", type: "text" } as never)).resolves.toBeUndefined();
-    await expect(commands.upsertElements([{ id: "node-2", type: "text" } as never])).resolves.toBeUndefined();
+    await expect(commands.upsertElement(editableTextNode)).resolves.toBeUndefined();
+    await expect(commands.upsertElements([{ ...editableTextNode, id: "node-2" }])).resolves.toBeUndefined();
 
     expect(patchWorkbench).not.toHaveBeenCalled();
     expect(executeCommandInWorkbench).not.toHaveBeenCalled();

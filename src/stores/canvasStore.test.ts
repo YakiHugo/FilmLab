@@ -346,8 +346,22 @@ describe("canvasStore", () => {
     };
 
     await useCanvasStore.getState().upsertElementInWorkbench("doc-1", {
-      ...element,
+      id: element.id,
+      type: "image",
+      parentId: element.parentId,
+      transform: { ...element.transform },
+      x: element.transform.x,
+      y: element.transform.y,
+      width: element.transform.width,
+      height: element.transform.height,
+      rotation: element.transform.rotation,
+      zIndex: element.zIndex,
+      opacity: element.opacity,
+      locked: element.locked,
+      visible: element.visible,
+      assetId: element.assetId,
       adjustments: nextAdjustments,
+      filmProfileId: element.filmProfileId,
     });
 
     const updated = useCanvasStore
@@ -370,8 +384,25 @@ describe("canvasStore", () => {
     }
 
     await useCanvasStore.getState().upsertElementInWorkbench("doc-1", {
-      ...element,
+      id: element.id,
+      type: "text",
+      parentId: element.parentId,
+      transform: { ...element.transform },
+      x: element.transform.x,
+      y: element.transform.y,
+      width: element.transform.width,
+      height: element.transform.height,
+      rotation: element.transform.rotation,
+      zIndex: element.zIndex,
+      opacity: element.opacity,
+      locked: element.locked,
+      visible: element.visible,
+      color: element.color,
       content: "Updated copy",
+      fontFamily: element.fontFamily,
+      fontSize: element.fontSize,
+      fontSizeTier: element.fontSizeTier,
+      textAlign: element.textAlign,
     });
 
     const updated = useCanvasStore

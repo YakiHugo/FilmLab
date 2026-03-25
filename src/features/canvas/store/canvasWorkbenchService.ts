@@ -11,9 +11,7 @@ import {
   buildCanvasHierarchyIndex,
   executeCanvasCommand,
   getCanvasDescendantIds,
-  getCanvasNodeWorldTransform,
   getCanvasWorkbenchSnapshot,
-  worldPointToLocalPoint,
 } from "@/features/canvas/documentGraph";
 import {
   createDefaultCanvasWorkbenchFields,
@@ -23,10 +21,10 @@ import {
 import { createId } from "@/utils";
 import type {
   CanvasCommand,
+  CanvasEditableElement,
   CanvasHistoryEntry,
   CanvasNode,
   CanvasNodeId,
-  CanvasRenderableElement,
   CanvasWorkbench,
   CanvasWorkbenchSnapshot,
 } from "@/types";
@@ -76,11 +74,11 @@ export interface CanvasWorkbenchService {
   ) => Promise<CanvasWorkbench | null>;
   upsertElementInWorkbench: (
     workbenchId: string,
-    element: CanvasNode | CanvasRenderableElement
+    element: CanvasEditableElement
   ) => Promise<void>;
   upsertElementsInWorkbench: (
     workbenchId: string,
-    elements: Array<CanvasNode | CanvasRenderableElement>
+    elements: CanvasEditableElement[]
   ) => Promise<void>;
   deleteNodesInWorkbench: (workbenchId: string, ids: string[]) => Promise<string[]>;
   duplicateNodesInWorkbench: (workbenchId: string, ids: string[]) => Promise<string[]>;
@@ -230,111 +228,39 @@ const persistCanvasWorkbenchSnapshot = async (
 const canQueueCompensation = (epoch: number, userId: string) =>
   epoch === canvasResetEpoch && getCurrentUserId() === userId;
 
-const isRenderableElement = (
-  entry: CanvasNode | CanvasRenderableElement
-): entry is CanvasRenderableElement => "depth" in entry && "bounds" in entry;
-
-const toNode = (
-  workbench: CanvasWorkbench,
-  entry: CanvasNode | CanvasRenderableElement
-): CanvasNode => {
-  const parentId = entry.parentId ?? null;
-  const parentWorldTransform = parentId
-    ? getCanvasNodeWorldTransform(workbench, parentId)
-    : null;
-  const localPosition = isRenderableElement(entry)
-    ? worldPointToLocalPoint(workbench, parentId, {
-        x: entry.x,
-        y: entry.y,
-      })
-    : {
-        x: entry.transform.x,
-        y: entry.transform.y,
-      };
-  const rotation = isRenderableElement(entry)
-    ? entry.rotation - (parentWorldTransform?.rotation ?? 0)
-    : entry.transform.rotation;
-  const baseNode = {
-    id: entry.id,
-    type: entry.type,
-    parentId,
-    transform: {
-      x: localPosition.x,
-      y: localPosition.y,
-      width: Math.max(1, entry.width),
-      height: Math.max(1, entry.height),
-      rotation,
-    },
-    x: localPosition.x,
-    y: localPosition.y,
-    width: Math.max(1, entry.width),
-    height: Math.max(1, entry.height),
-    rotation,
-    opacity: entry.opacity,
-    locked: entry.locked,
-    visible: entry.visible,
-    zIndex: entry.zIndex,
-  } satisfies Pick<
-    CanvasNode,
-    | "height"
-    | "id"
-    | "locked"
-    | "opacity"
-    | "parentId"
-    | "rotation"
-    | "transform"
-    | "type"
-    | "visible"
-    | "width"
-    | "x"
-    | "y"
-    | "zIndex"
-  >;
-
-  if (entry.type === "group") {
-    return {
-      ...baseNode,
-      type: "group",
-      childIds: entry.childIds?.slice() ?? [],
-      name: entry.name,
-    };
-  }
-
-  if (entry.type === "image") {
-    return {
-      ...baseNode,
-      type: "image",
-      assetId: entry.assetId,
-      adjustments: entry.adjustments,
-      filmProfileId: entry.filmProfileId,
-    };
-  }
-
-  if (entry.type === "text") {
-    return {
-      ...baseNode,
-      type: "text",
-      color: entry.color,
-      content: entry.content,
-      fontFamily: entry.fontFamily,
-      fontSize: entry.fontSize,
-      fontSizeTier: entry.fontSizeTier,
-      textAlign: entry.textAlign,
-    };
-  }
-
-  return {
-    ...baseNode,
-    type: "shape",
-    arrowHead: entry.arrowHead,
-    fill: entry.fill,
-    points: entry.points ? clone(entry.points) : undefined,
-    radius: entry.radius,
-    shapeType: entry.shapeType,
-    stroke: entry.stroke,
-    strokeWidth: entry.strokeWidth,
-  };
-};
+const toEditableElementPropertyPatch = (node: CanvasEditableElement) => ({
+  ...node.transform,
+  ...(node.type === "text"
+    ? {
+        color: node.color,
+        content: node.content,
+        fontFamily: node.fontFamily,
+        fontSize: node.fontSize,
+        fontSizeTier: node.fontSizeTier,
+        textAlign: node.textAlign,
+      }
+    : {}),
+  ...(node.type === "image"
+    ? {
+        adjustments: node.adjustments,
+        filmProfileId: node.filmProfileId,
+      }
+    : {}),
+  ...(node.type === "shape"
+    ? {
+        arrowHead: node.arrowHead,
+        fill: node.fill,
+        points: node.points ? clone(node.points) : undefined,
+        radius: node.radius,
+        shapeType: node.shapeType,
+        stroke: node.stroke,
+        strokeWidth: node.strokeWidth,
+      }
+    : {}),
+  locked: node.locked,
+  opacity: node.opacity,
+  visible: node.visible,
+});
 
 const claimUniqueNodeId = (usedIds: Set<CanvasNodeId>) => {
   let nextId = createId("node-id");
@@ -804,7 +730,6 @@ export const createCanvasWorkbenchService = ({
             if (existingNode.type !== element.type) {
               return;
             }
-            const nextNode = toNode(activeWorkbench, element);
             await executeCommandAgainstWorkbench(
               workbenchId,
               activeWorkbench,
@@ -813,39 +738,7 @@ export const createCanvasWorkbenchService = ({
                 updates: [
                   {
                     id: element.id,
-                    patch: {
-                      ...nextNode.transform,
-                      ...(element.type === "text"
-                        ? {
-                            color: element.color,
-                            content: element.content,
-                            fontFamily: element.fontFamily,
-                            fontSize: element.fontSize,
-                            fontSizeTier: element.fontSizeTier,
-                            textAlign: element.textAlign,
-                          }
-                        : {}),
-                      ...(element.type === "image"
-                        ? {
-                            adjustments: element.adjustments,
-                            filmProfileId: element.filmProfileId,
-                          }
-                        : {}),
-                      ...(element.type === "shape"
-                        ? {
-                            arrowHead: element.arrowHead,
-                            fill: element.fill,
-                            points: element.points,
-                            radius: element.radius,
-                            shapeType: element.shapeType,
-                            stroke: element.stroke,
-                            strokeWidth: element.strokeWidth,
-                          }
-                        : {}),
-                      locked: element.locked,
-                      opacity: element.opacity,
-                      visible: element.visible,
-                    },
+                    patch: toEditableElementPropertyPatch(element),
                   },
                 ],
               },
@@ -854,14 +747,13 @@ export const createCanvasWorkbenchService = ({
             return;
           }
 
-          const nextNode = toNode(activeWorkbench, element);
           await executeCommandAgainstWorkbench(
             workbenchId,
             activeWorkbench,
             {
               type: "INSERT_NODES",
-              nodes: [nextNode],
-              parentId: nextNode.parentId,
+              nodes: [element],
+              parentId: element.parentId,
             },
             epoch
           );

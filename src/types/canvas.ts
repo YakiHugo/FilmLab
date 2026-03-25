@@ -137,6 +137,33 @@ export interface CanvasShapeElement
 export type CanvasElement = CanvasImageElement | CanvasTextElement | CanvasShapeElement;
 export type CanvasNode = CanvasGroupNode | CanvasElement;
 
+interface CanvasWriteBoundaryGuardFields {
+  bounds?: never;
+  depth?: never;
+  effectiveLocked?: never;
+  effectiveVisible?: never;
+  worldOpacity?: never;
+}
+
+export type CanvasEditableGroupNode = CanvasGroupNode & CanvasWriteBoundaryGuardFields;
+export type CanvasEditableImageElement = CanvasImageElement &
+  CanvasWriteBoundaryGuardFields & {
+    childIds?: never;
+  };
+export type CanvasEditableTextElement = CanvasTextElement &
+  CanvasWriteBoundaryGuardFields & {
+    childIds?: never;
+  };
+export type CanvasEditableShapeElement = CanvasShapeElement &
+  CanvasWriteBoundaryGuardFields & {
+    childIds?: never;
+  };
+export type CanvasEditableElement =
+  | CanvasEditableImageElement
+  | CanvasEditableTextElement
+  | CanvasEditableShapeElement;
+export type CanvasEditableNode = CanvasEditableGroupNode | CanvasEditableElement;
+
 export interface CanvasRenderableNodeBase {
   id: CanvasNodeId;
   type: CanvasNodeType;
@@ -292,7 +319,7 @@ export type CanvasCommand =
     }
   | {
       type: "INSERT_NODES";
-      nodes: CanvasNode[];
+      nodes: CanvasEditableNode[];
       index?: number;
       parentId?: CanvasNodeId | null;
     }

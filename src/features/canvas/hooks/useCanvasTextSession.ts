@@ -8,6 +8,7 @@ import {
 } from "react";
 import type {
   CanvasCommand,
+  CanvasEditableTextElement,
   CanvasRenderableNode,
   CanvasRenderableTextElement,
   CanvasTextElement,
@@ -39,7 +40,7 @@ interface UseCanvasTextSessionOptions {
   clearSelection: () => void;
   upsertElementInWorkbench: (
     workbenchId: string,
-    element: CanvasTextElement | CanvasRenderableTextElement
+    element: CanvasEditableTextElement
   ) => Promise<void>;
   executeCommandInWorkbench: (
     workbenchId: string,
