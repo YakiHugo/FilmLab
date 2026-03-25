@@ -2,9 +2,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Check, Copy, Download, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
-  PersistedPromptArtifactRecord,
-  PromptObservabilitySummaryResponse,
-} from "../../../shared/chatImageTypes";
+  ImageLabObservabilityView,
+  ImageLabPromptArtifactView,
+} from "../../../shared/imageLabViews";
 import { IMAGE_STYLE_PRESETS } from "@/lib/ai/imageStylePresets";
 import { IMAGE_STYLES } from "@/lib/ai/imageStyles";
 import { cn } from "@/lib/utils";
@@ -16,7 +16,7 @@ interface ImageChatFeedProps {
   currentModelName: string;
   promptObservabilityStatus: "idle" | "loading" | "loaded" | "error";
   promptObservabilityError: string | null;
-  promptObservability: PromptObservabilitySummaryResponse | null;
+  promptObservability: ImageLabObservabilityView | null;
   onClearHistory: () => void;
   onToggleResultSelection: (turnId: string, index: number) => void;
   onSaveSelectedResults: (turnId: string) => void;
@@ -313,7 +313,7 @@ export function PromptObservabilityPanel({
 }: {
   status: "idle" | "loading" | "loaded" | "error";
   error: string | null;
-  summary: PromptObservabilitySummaryResponse | null;
+  summary: ImageLabObservabilityView | null;
 }) {
   if (status === "idle" || status === "loading") {
     return (
@@ -473,7 +473,7 @@ export function PromptObservabilityPanel({
   );
 }
 
-function PromptArtifactCard({ artifact }: { artifact: PersistedPromptArtifactRecord }) {
+function PromptArtifactCard({ artifact }: { artifact: ImageLabPromptArtifactView }) {
   return (
     <article className="space-y-3 rounded-3xl border border-white/8 bg-white/[0.03] p-4">
       <div className="flex flex-wrap items-center gap-2">

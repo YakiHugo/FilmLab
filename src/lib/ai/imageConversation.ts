@@ -1,8 +1,8 @@
 import type {
-  PersistedImageSession,
-  PromptObservabilitySummaryResponse,
-  TurnPromptArtifactsResponse,
-} from "../../../shared/chatImageTypes";
+  ImageLabConversationView,
+  ImageLabObservabilityView,
+  ImageLabPromptArtifactsView,
+} from "../../../shared/imageLabViews";
 import { resolveApiUrl } from "@/lib/api/resolveApiUrl";
 import { getClientAuthToken } from "@/lib/authToken";
 
@@ -13,7 +13,7 @@ const toAuthorizedHeaders = () => ({
   Authorization: `Bearer ${getClientAuthToken()}`,
 });
 
-const parseConversationResponse = async (response: Response): Promise<PersistedImageSession> => {
+const parseConversationResponse = async (response: Response): Promise<ImageLabConversationView> => {
   if (!response.ok) {
     let message = "Image conversation request failed.";
     try {
@@ -32,12 +32,12 @@ const parseConversationResponse = async (response: Response): Promise<PersistedI
     throw new Error("Invalid image conversation response.");
   }
 
-  return json as unknown as PersistedImageSession;
+  return json as unknown as ImageLabConversationView;
 };
 
 const parsePromptArtifactsResponse = async (
   response: Response
-): Promise<TurnPromptArtifactsResponse> => {
+): Promise<ImageLabPromptArtifactsView> => {
   if (!response.ok) {
     let message = "Image conversation request failed.";
     try {
@@ -56,12 +56,12 @@ const parsePromptArtifactsResponse = async (
     throw new Error("Invalid prompt artifact response.");
   }
 
-  return json as unknown as TurnPromptArtifactsResponse;
+  return json as unknown as ImageLabPromptArtifactsView;
 };
 
 const parsePromptObservabilityResponse = async (
   response: Response
-): Promise<PromptObservabilitySummaryResponse> => {
+): Promise<ImageLabObservabilityView> => {
   if (!response.ok) {
     let message = "Image conversation request failed.";
     try {
@@ -80,13 +80,13 @@ const parsePromptObservabilityResponse = async (
     throw new Error("Invalid prompt observability response.");
   }
 
-  return json as unknown as PromptObservabilitySummaryResponse;
+  return json as unknown as ImageLabObservabilityView;
 };
 
 export const fetchImageConversation = async (
   conversationId?: string,
   options?: { signal?: AbortSignal }
-): Promise<PersistedImageSession> => {
+): Promise<ImageLabConversationView> => {
   const url = conversationId
     ? `${resolveApiUrl("/api/image-conversation")}?conversationId=${encodeURIComponent(conversationId)}`
     : resolveApiUrl("/api/image-conversation");
@@ -99,7 +99,7 @@ export const fetchImageConversation = async (
   );
 };
 
-export const clearImageConversation = async (): Promise<PersistedImageSession> =>
+export const clearImageConversation = async (): Promise<ImageLabConversationView> =>
   parseConversationResponse(
     await fetch(resolveApiUrl("/api/image-conversation"), {
       method: "DELETE",
@@ -109,7 +109,7 @@ export const clearImageConversation = async (): Promise<PersistedImageSession> =
 
 export const deleteImageConversationTurn = async (
   turnId: string
-): Promise<PersistedImageSession> =>
+): Promise<ImageLabConversationView> =>
   parseConversationResponse(
     await fetch(resolveApiUrl(`/api/image-conversation/turns/${encodeURIComponent(turnId)}`), {
       method: "DELETE",
@@ -120,7 +120,7 @@ export const deleteImageConversationTurn = async (
 export const acceptImageConversationTurn = async (
   turnId: string,
   assetId: string
-): Promise<PersistedImageSession> =>
+): Promise<ImageLabConversationView> =>
   parseConversationResponse(
     await fetch(
       resolveApiUrl(`/api/image-conversation/turns/${encodeURIComponent(turnId)}/accept`),
@@ -138,7 +138,7 @@ export const acceptImageConversationTurn = async (
 export const fetchImagePromptArtifacts = async (
   turnId: string,
   options?: { signal?: AbortSignal }
-): Promise<TurnPromptArtifactsResponse> =>
+): Promise<ImageLabPromptArtifactsView> =>
   parsePromptArtifactsResponse(
     await fetch(
       resolveApiUrl(`/api/image-conversation/turns/${encodeURIComponent(turnId)}/prompt-artifacts`),
@@ -152,7 +152,7 @@ export const fetchImagePromptArtifacts = async (
 export const fetchImagePromptObservability = async (
   conversationId?: string,
   options?: { signal?: AbortSignal }
-): Promise<PromptObservabilitySummaryResponse> => {
+): Promise<ImageLabObservabilityView> => {
   const url = conversationId
     ? `${resolveApiUrl("/api/image-conversation/observability")}?conversationId=${encodeURIComponent(conversationId)}`
     : resolveApiUrl("/api/image-conversation/observability");

@@ -281,10 +281,6 @@ export async function generateImage(
   const images = normalizeImages(json.images, runtimeProvider, providerModel);
   const fallbackImageUrl =
     typeof json.imageUrl === "string" ? resolveApiUrl(json.imageUrl) : undefined;
-  const runs = Array.isArray(json.runs) ? (json.runs as ImageGenerationResponse["runs"]) : [];
-  const assets = Array.isArray(json.assets)
-    ? (json.assets as ImageGenerationResponse["assets"])
-    : [];
   const primaryAssetIds = Array.isArray(json.primaryAssetIds)
     ? json.primaryAssetIds.filter((entry): entry is string => typeof entry === "string")
     : [];
@@ -324,8 +320,6 @@ export async function generateImage(
     ...(typeof json.imageId === "string" ? { imageId: json.imageId } : {}),
     imageUrl: fallbackImageUrl ?? images[0]?.imageUrl,
     images,
-    runs,
-    assets,
     primaryAssetIds,
     ...(warnings.length > 0 ? { warnings } : {}),
   };

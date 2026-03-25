@@ -1,5 +1,4 @@
 ﻿import { openDB, type DBSchema, type IDBPDatabase } from "idb";
-import type { PersistedImageSession } from "../../shared/chatImageTypes";
 import { getCurrentUserId } from "@/lib/authToken";
 import type {
   AssetOrigin,
@@ -95,14 +94,10 @@ interface FilmLabDB extends DBSchema {
       byOp: AssetSyncJobOperation;
     };
   };
-  imageGenerationSessions: {
-    key: string;
-    value: PersistedImageSession;
-  };
 }
 
 const DB_NAME = "filmlab-mvp";
-const DB_VERSION = 12;
+const DB_VERSION = 13;
 
 let dbFailed = false;
 let dbInstance: IDBPDatabase<FilmLabDB> | null = null;
@@ -173,10 +168,8 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
             syncStore.createIndex("byOwnerUserId", "ownerUserId", { unique: false });
             syncStore.createIndex("byOp", "op", { unique: false });
           }
-          if (!db.objectStoreNames.contains("imageGenerationSessions")) {
-            db.createObjectStore("imageGenerationSessions", { keyPath: "id" });
-          } else if (oldVersion < 9) {
-            transaction.objectStore("imageGenerationSessions").clear();
+          if (legacyObjectStoreNames.contains("imageGenerationSessions")) {
+            legacySchemaDb.deleteObjectStore("imageGenerationSessions");
           }
           // v5+ only add optional value fields (`importDay`, `tags`, `source`, sync fields).
           // No value migration is needed because IndexedDB values are schemaless.
@@ -801,59 +794,6 @@ export async function clearCanvasWorkbenchesByUser(userId: string): Promise<bool
     return true;
   } catch (error) {
     console.warn("IndexedDB clearCanvasWorkbenchesByUser failed:", error);
-    return false;
-  }
-}
-
-export type StoredImageGenerationSession = FilmLabDB["imageGenerationSessions"]["value"];
-
-export async function saveImageGenerationSession(
-  session: StoredImageGenerationSession
-): Promise<boolean> {
-  const db = await getDB();
-  if (!db || !db.objectStoreNames.contains("imageGenerationSessions")) return false;
-  try {
-    await db.put("imageGenerationSessions", session);
-    return true;
-  } catch (error) {
-    console.warn("IndexedDB saveImageGenerationSession failed:", error);
-    return false;
-  }
-}
-
-export async function loadImageGenerationSession(
-  id: string
-): Promise<StoredImageGenerationSession | null> {
-  const db = await getDB();
-  if (!db || !db.objectStoreNames.contains("imageGenerationSessions")) return null;
-  try {
-    return (await db.get("imageGenerationSessions", id)) ?? null;
-  } catch (error) {
-    console.warn("IndexedDB loadImageGenerationSession failed:", error);
-    return null;
-  }
-}
-
-export async function loadImageGenerationSessions(): Promise<StoredImageGenerationSession[]> {
-  const db = await getDB();
-  if (!db || !db.objectStoreNames.contains("imageGenerationSessions")) return [];
-  try {
-    const sessions = await db.getAll("imageGenerationSessions");
-    return sessions.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-  } catch (error) {
-    console.warn("IndexedDB loadImageGenerationSessions failed:", error);
-    return [];
-  }
-}
-
-export async function deleteImageGenerationSession(id: string): Promise<boolean> {
-  const db = await getDB();
-  if (!db || !db.objectStoreNames.contains("imageGenerationSessions")) return false;
-  try {
-    await db.delete("imageGenerationSessions", id);
-    return true;
-  } catch (error) {
-    console.warn("IndexedDB deleteImageGenerationSession failed:", error);
     return false;
   }
 }
