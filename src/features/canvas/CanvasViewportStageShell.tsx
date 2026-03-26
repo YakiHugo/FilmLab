@@ -1,6 +1,6 @@
 import type Konva from "konva";
-import { memo, useEffect, useMemo, useState, type RefObject } from "react";
-import { Layer, Rect, Stage } from "react-konva";
+import { memo, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Layer, Rect, Stage, Transformer } from "react-konva";
 import type {
   CanvasRenderableElement,
   CanvasRenderableTextElement,
@@ -17,6 +17,7 @@ import { ImageElement } from "./elements/ImageElement";
 import { ShapeElement } from "./elements/ShapeElement";
 import { TextElement } from "./elements/TextElement";
 import { GRID_SIZE } from "./grid";
+import type { CanvasResizeTransformerConfig } from "./hooks/useCanvasViewportResizeController";
 import { fitCanvasTextElementToContent } from "./textStyle";
 import type { CanvasTextRuntimeSelectedElement } from "./textRuntimeViewModel";
 
@@ -112,6 +113,9 @@ interface CanvasElementsLayerProps {
   interactivePreviewElementId: string | null;
   onElementDragEnd: (elementId: string, x: number, y: number) => void;
   onElementSelect: (elementId: string, additive: boolean) => void;
+  onElementTransform: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
+  onElementTransformEnd: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
+  onElementTransformStart: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
   onTextElementDoubleClick: (elementId: string) => void;
 }
 
@@ -125,6 +129,9 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
   interactivePreviewElementId,
   onElementDragEnd,
   onElementSelect,
+  onElementTransform,
+  onElementTransformEnd,
+  onElementTransformStart,
   onTextElementDoubleClick,
 }: CanvasElementsLayerProps) {
   return (
@@ -143,6 +150,9 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
               onDragMove={onElementDragMove}
               onDragStart={onElementDragStart}
               onDragEnd={onElementDragEnd}
+              onTransform={onElementTransform}
+              onTransformEnd={onElementTransformEnd}
+              onTransformStart={onElementTransformStart}
             />
           );
         }
@@ -157,11 +167,15 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
               onDragMove={onElementDragMove}
               onDragStart={onElementDragStart}
               onDragEnd={onElementDragEnd}
+              onTransform={onElementTransform}
+              onTransformEnd={onElementTransformEnd}
+              onTransformStart={onElementTransformStart}
             />
           );
         }
 
-        const liveTextElement = editingTextDraft?.id === element.id ? editingTextDraft : element;
+        const liveTextElement =
+          editingTextDraft?.id === element.id ? editingTextDraft : element;
         return (
           <TextElement
             key={liveTextElement.id}
@@ -173,6 +187,9 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
             onDragStart={onElementDragStart}
             onDoubleClick={onTextElementDoubleClick}
             onDragEnd={onElementDragEnd}
+            onTransform={onElementTransform}
+            onTransformEnd={onElementTransformEnd}
+            onTransformStart={onElementTransformStart}
           />
         );
       })}
@@ -183,9 +200,11 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
 const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
   stageRef,
   selectedElements,
+  suppressSingleSelectionOutline,
 }: {
   stageRef: RefObject<Konva.Stage>;
   selectedElements: CanvasTextRuntimeSelectedElement[];
+  suppressSingleSelectionOutline: boolean;
 }) {
   const baseOutlineRects = useMemo(
     () => selectedElements.map((element) => resolveBaseSelectionOutlineRect(element)),
@@ -196,6 +215,8 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
       `${selectedElements.map((element) => element.id).join("|")}::${createId("selection-outline")}`,
     [selectedElements]
   );
+  const hideSingleSelectionOutline =
+    suppressSingleSelectionOutline && selectedElements.length === 1;
   const [liveOutlineState, setLiveOutlineState] = useState<{
     rects: CanvasSelectionOutlineRect[] | null;
     selectionSnapshotKey: string;
@@ -205,6 +226,18 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
   });
 
   useEffect(() => {
+    if (hideSingleSelectionOutline) {
+      setLiveOutlineState((current) =>
+        current.selectionSnapshotKey === selectionSnapshotKey && current.rects === null
+          ? current
+          : {
+              rects: null,
+              selectionSnapshotKey,
+            }
+      );
+      return;
+    }
+
     const stage = stageRef.current;
     if (!stage || selectedElements.length === 0) {
       setLiveOutlineState((current) =>
@@ -278,12 +311,16 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
         node.off("dragmove transform dragend transformend", syncOutlineRects);
       });
     };
-  }, [baseOutlineRects, selectedElements, selectionSnapshotKey, stageRef]);
+  }, [baseOutlineRects, hideSingleSelectionOutline, selectedElements, selectionSnapshotKey, stageRef]);
 
   const outlineRects =
     liveOutlineState.selectionSnapshotKey === selectionSnapshotKey && liveOutlineState.rects
       ? liveOutlineState.rects
       : baseOutlineRects;
+
+  if (hideSingleSelectionOutline) {
+    return null;
+  }
 
   return (
     <>
@@ -368,6 +405,70 @@ const selectionOutlineRectsEqual = (
     );
   });
 
+const CanvasSelectionTransformerLayer = memo(function CanvasSelectionTransformerLayer({
+  stageRef,
+  transformer,
+  transformerElementId,
+}: {
+  stageRef: RefObject<Konva.Stage>;
+  transformer: CanvasResizeTransformerConfig | null;
+  transformerElementId: string | null;
+}) {
+  const transformerRef = useRef<Konva.Transformer>(null);
+
+  useEffect(() => {
+    const transformerNode = transformerRef.current;
+    const stage = stageRef.current;
+    if (!transformerNode) {
+      return;
+    }
+
+    if (!stage || !transformer || !transformerElementId) {
+      transformerNode.nodes([]);
+      transformerNode.getLayer()?.batchDraw();
+      return;
+    }
+
+    const attachedNode = stage.findOne<Konva.Node>(`#${transformerElementId}`);
+    if (!attachedNode) {
+      transformerNode.nodes([]);
+      transformerNode.getLayer()?.batchDraw();
+      return;
+    }
+
+    transformerNode.nodes([attachedNode]);
+    transformerNode.getLayer()?.batchDraw();
+
+    return () => {
+      transformerNode.nodes([]);
+      transformerNode.getLayer()?.batchDraw();
+    };
+  }, [stageRef, transformer, transformerElementId]);
+
+  if (!transformer || !transformerElementId) {
+    return null;
+  }
+
+  const {
+    anchorStyleFunc,
+    boundBoxFunc,
+    ...transformerProps
+  } = transformer;
+
+  return (
+    <Transformer
+      ref={transformerRef}
+      {...transformerProps}
+      anchorStyleFunc={anchorStyleFunc}
+      boundBoxFunc={(oldBox, newBox) =>
+        boundBoxFunc(oldBox, newBox, {
+          activeAnchor: transformerRef.current?.getActiveAnchor() ?? null,
+        })
+      }
+    />
+  );
+});
+
 interface CanvasViewportStageShellProps {
   interaction: {
     containerRef: RefObject<HTMLDivElement>;
@@ -377,6 +478,9 @@ interface CanvasViewportStageShellProps {
     handleElementDragStart: (elementId: string) => void;
     handleElementDragEnd: (elementId: string, x: number, y: number) => void;
     handleElementSelect: (elementId: string, additive: boolean) => void;
+    handleElementTransform: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
+    handleElementTransformEnd: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
+    handleElementTransformStart: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
     handleStageWheel: (event: Konva.KonvaEventObject<WheelEvent>) => void;
     handleTextElementDoubleClick: (elementId: string) => void;
     handleWorkspacePointerDown: (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
@@ -399,6 +503,11 @@ interface CanvasViewportStageShellProps {
     };
     zoom: number;
   };
+  resize: {
+    showTransformer: boolean;
+    transformer: CanvasResizeTransformerConfig | null;
+    transformerElementId: string | null;
+  };
   scene: {
     activeWorkbench: CanvasWorkbench;
     interactivePreviewElementId: string | null;
@@ -418,6 +527,7 @@ interface CanvasViewportStageShellProps {
 
 export function CanvasViewportStageShell({
   interaction,
+  resize,
   scene,
   textEditing,
 }: CanvasViewportStageShellProps) {
@@ -472,6 +582,9 @@ export function CanvasViewportStageShell({
             onElementDragStart={interaction.handleElementDragStart}
             onElementDragEnd={interaction.handleElementDragEnd}
             onElementSelect={interaction.handleElementSelect}
+            onElementTransform={interaction.handleElementTransform}
+            onElementTransformEnd={interaction.handleElementTransformEnd}
+            onElementTransformStart={interaction.handleElementTransformStart}
             onTextElementDoubleClick={interaction.handleTextElementDoubleClick}
           />
         </Layer>
@@ -480,6 +593,15 @@ export function CanvasViewportStageShell({
           <CanvasSelectionOutlineLayer
             stageRef={interaction.stageRef}
             selectedElements={textEditing.selectedElements}
+            suppressSingleSelectionOutline={resize.showTransformer}
+          />
+        </Layer>
+
+        <Layer>
+          <CanvasSelectionTransformerLayer
+            stageRef={interaction.stageRef}
+            transformer={resize.transformer}
+            transformerElementId={resize.transformerElementId}
           />
         </Layer>
 

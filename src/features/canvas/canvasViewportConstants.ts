@@ -8,7 +8,7 @@ export const VIEWPORT_INSETS = {
 } as const;
 
 export const CANVAS_SELECTION_ACCENT = "rgba(255,255,255,0.92)";
-export const CANVAS_SELECTION_ACCENT_FILL = "transparent";
+export const CANVAS_SELECTION_ACCENT_FILL = "rgba(255,255,255,0.08)";
 
 export const FLOATING_TOOLBAR_GAP = 12;
 

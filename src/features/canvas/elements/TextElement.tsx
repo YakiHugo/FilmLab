@@ -1,3 +1,4 @@
+import type Konva from "konva";
 import { memo, useMemo } from "react";
 import { Text } from "react-konva";
 import type { CanvasRenderableElement, CanvasTextElement } from "@/types";
@@ -33,6 +34,9 @@ interface TextElementProps {
   onDragStart: (elementId: string) => void;
   onDragEnd: (elementId: string, x: number, y: number) => void;
   onDoubleClick: (elementId: string) => void;
+  onTransform: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
+  onTransformEnd: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
+  onTransformStart: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
 }
 
 export const TextElement = memo(function TextElement({
@@ -44,6 +48,9 @@ export const TextElement = memo(function TextElement({
   onDragStart,
   onDragEnd,
   onDoubleClick,
+  onTransform,
+  onTransformEnd,
+  onTransformStart,
 }: TextElementProps) {
   const layoutElement = useMemo(() => fitCanvasTextElementToContent(element), [element]);
   const canEditText = isCanvasTextElementEditable(layoutElement);
@@ -78,6 +85,9 @@ export const TextElement = memo(function TextElement({
       onDragStart={() => onDragStart(layoutElement.id)}
       onDragMove={(event) => onDragMove(layoutElement.id, event.target.x(), event.target.y())}
       onDragEnd={(event) => onDragEnd(layoutElement.id, event.target.x(), event.target.y())}
+      onTransformStart={(event) => onTransformStart(layoutElement.id, event)}
+      onTransform={(event) => onTransform(layoutElement.id, event)}
+      onTransformEnd={(event) => onTransformEnd(layoutElement.id, event)}
     />
   );
 });

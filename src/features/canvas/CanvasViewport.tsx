@@ -1,7 +1,8 @@
 import type Konva from "konva";
 import { Crosshair, Hand, Minus, MousePointer2, Plus } from "lucide-react";
-import { useCallback, type RefObject } from "react";
+import { useCallback, useMemo, type RefObject } from "react";
 import { cn } from "@/lib/utils";
+import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { CanvasViewportOverlayHost } from "./CanvasViewportOverlayHost";
 import { CanvasViewportStageShell } from "./CanvasViewportStageShell";
@@ -13,6 +14,7 @@ import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
 import { useCanvasTextSessionPort } from "./hooks/useCanvasTextSessionPort";
 import { useCanvasViewportInteractionController } from "./hooks/useCanvasViewportInteractionController";
 import { useCanvasViewportLifecycle } from "./hooks/useCanvasViewportLifecycle";
+import { useCanvasViewportResizeController } from "./hooks/useCanvasViewportResizeController";
 import { useCanvasViewportSceneState } from "./hooks/useCanvasViewportSceneState";
 import {
   useCanvasViewportTextEditingController,
@@ -111,9 +113,11 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
   const setZoom = useCanvasStore((state) => state.setZoom);
   const viewport = useCanvasStore((state) => state.viewport);
   const setViewport = useCanvasStore((state) => state.setViewport);
+  const assets = useAssetStore((state) => state.assets);
   const { displaySelectedElementIds } = useCanvasSelectionModel();
   const { selectedElementIds, setSelectedElementIds, selectElement, clearSelection } =
     useCanvasInteraction();
+  const assetById = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
 
   const { fitView, isSpacePressed, stageSize, viewportContainerRef } =
     useCanvasViewportLifecycle({
@@ -173,14 +177,28 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
     zoom,
   });
   const textEditingState = useCanvasViewportTextEditingController({
+    activeWorkbench,
     activeWorkbenchId,
     displaySelectedElementIds,
     elementById: sceneState.elementById,
+    executeCommand,
     hasMarqueeSession: interactionState.marquee.hasMarqueeSession,
     isMarqueeDragging: interactionState.marquee.isMarqueeDragging,
     selectedElementIds,
+    singleSelectedTextElement: sceneState.singleSelectedTextElement,
     textSession: textSessionState.textSession,
     textSessionActions: textSessionState.textSessionActions,
+  });
+  const resizeState = useCanvasViewportResizeController({
+    activeEditingTextId: textEditingState.textRuntimeViewModel.activeEditingTextId,
+    assetById,
+    activeWorkbench,
+    executeCommand,
+    hasMarqueeSession: interactionState.marquee.hasMarqueeSession,
+    isMarqueeDragging: interactionState.marquee.isMarqueeDragging,
+    selectedElementIds,
+    stageRef,
+    singleSelectedElement: sceneState.singleSelectedElement,
   });
 
   if (!activeWorkbench) {
@@ -198,9 +216,13 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
   };
   const interaction = {
     ...interactionState.stage,
+    handleElementTransform: resizeState.handleElementTransform,
+    handleElementTransformEnd: resizeState.handleElementTransformEnd,
+    handleElementTransformStart: resizeState.handleElementTransformStart,
     isMarqueeDragging: interactionState.marquee.isMarqueeDragging,
     marqueeRect: interactionState.marquee.marqueeRect,
-  };
+    showTransformer: resizeState.showTransformer,
+    };
   const textEditing = {
     activeEditingTextId: textEditingState.textRuntimeViewModel.activeEditingTextId,
     editingTextDraft: textEditingState.textRuntimeViewModel.renderedEditingTextDraft,
@@ -217,6 +239,7 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
   };
   const overlay = {
     activeWorkbenchUpdatedAt: activeWorkbench.updatedAt,
+    previewDimensionsStore: resizeState.previewDimensionsStore,
     selectedElementCount: selectedElementIds.length,
     singleSelectedNonTextElement: sceneState.singleSelectedNonTextElement,
     stageRef,
@@ -224,11 +247,17 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
     viewport,
     zoom,
   };
+  const resize = {
+    showTransformer: resizeState.showTransformer,
+    transformer: resizeState.transformer,
+    transformerElementId: resizeState.transformerElementId,
+  };
 
   return (
     <div className="absolute inset-0">
       <CanvasViewportStageShell
         interaction={interaction}
+        resize={resize}
         scene={scene}
         textEditing={textEditing}
       />

@@ -1,5 +1,11 @@
 import type Konva from "konva";
-import { useEffect, useRef, type KeyboardEventHandler, type RefObject } from "react";
+import {
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+  type KeyboardEventHandler,
+  type RefObject,
+} from "react";
 import type { CanvasRenderableNode, CanvasTextFontSizeTier } from "@/types";
 import {
   CANVAS_SELECTION_ACCENT,
@@ -18,6 +24,16 @@ import type { CanvasTextRuntimeViewModel } from "./textRuntimeViewModel";
 interface CanvasViewportOverlayHostProps {
   overlay: {
     activeWorkbenchUpdatedAt?: string;
+    previewDimensionsStore: {
+      getSnapshot: () =>
+        | {
+            elementId: string;
+            width: number;
+            height: number;
+          }
+        | null;
+      subscribe: (listener: () => void) => () => void;
+    };
     selectedElementCount: number;
     singleSelectedNonTextElement: Exclude<CanvasRenderableNode, { type: "text" }> | null;
     stageRef: RefObject<Konva.Stage>;
@@ -74,6 +90,16 @@ export function CanvasViewportOverlayHost({
     });
   const editingTextId = textEditing.session.id;
   const editingTextValue = textEditing.session.value;
+  const previewDimensions = useSyncExternalStore(
+    overlay.previewDimensionsStore.subscribe,
+    overlay.previewDimensionsStore.getSnapshot,
+    overlay.previewDimensionsStore.getSnapshot
+  );
+  const activePreviewDimensions =
+    overlay.singleSelectedNonTextElement &&
+    previewDimensions?.elementId === overlay.singleSelectedNonTextElement.id
+      ? previewDimensions
+      : null;
   const handleCancelTextEdit = textEditing.onCancelTextEdit;
   const handleCommitTextEdit = textEditing.onCommitTextEdit;
 
@@ -150,15 +176,17 @@ export function CanvasViewportOverlayHost({
           }}
         >
           {Math.round(
-            overlay.singleSelectedNonTextElement.type === "group"
-              ? overlay.singleSelectedNonTextElement.bounds.width
-              : overlay.singleSelectedNonTextElement.width
+            activePreviewDimensions?.width ??
+              (overlay.singleSelectedNonTextElement.type === "group"
+                ? overlay.singleSelectedNonTextElement.bounds.width
+                : overlay.singleSelectedNonTextElement.width)
           )}{" "}
           x{" "}
           {Math.round(
-            overlay.singleSelectedNonTextElement.type === "group"
-              ? overlay.singleSelectedNonTextElement.bounds.height
-              : overlay.singleSelectedNonTextElement.height
+            activePreviewDimensions?.height ??
+              (overlay.singleSelectedNonTextElement.type === "group"
+                ? overlay.singleSelectedNonTextElement.bounds.height
+                : overlay.singleSelectedNonTextElement.height)
           )}
         </div>
       ) : null}

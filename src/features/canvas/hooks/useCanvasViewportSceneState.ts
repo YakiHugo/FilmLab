@@ -97,6 +97,7 @@ export function useCanvasViewportSceneState({
     elementById,
     elementByIdRef,
     interactivePreviewElementId,
+    singleSelectedElement,
     singleSelectedNonTextElement,
     singleSelectedTextElement,
     thirdsGuideLines,

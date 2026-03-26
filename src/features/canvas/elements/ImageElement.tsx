@@ -1,3 +1,4 @@
+import type Konva from "konva";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Image as KonvaImage, Rect } from "react-konva";
 import type { CanvasImageElement, CanvasRenderableElement } from "@/types";
@@ -21,6 +22,9 @@ interface ImageElementProps {
   onDragMove: (elementId: string, x: number, y: number) => void;
   onDragStart: (elementId: string) => void;
   onDragEnd: (elementId: string, x: number, y: number) => void;
+  onTransform: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
+  onTransformEnd: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
+  onTransformStart: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
 }
 
 const hashString = (value: string) => {
@@ -84,6 +88,9 @@ export const ImageElement = memo(function ImageElement({
   onDragMove,
   onDragStart,
   onDragEnd,
+  onTransform,
+  onTransformEnd,
+  onTransformStart,
 }: ImageElementProps) {
   const { asset, assetRenderFingerprint } = useCanvasRuntimeAsset(element.assetId);
   const zoom = useCanvasStore((state) => state.zoom);
@@ -195,6 +202,9 @@ export const ImageElement = memo(function ImageElement({
         onDragStart={() => onDragStart(element.id)}
         onDragMove={(event) => onDragMove(element.id, event.target.x(), event.target.y())}
         onDragEnd={(event) => onDragEnd(element.id, event.target.x(), event.target.y())}
+        onTransformStart={(event) => onTransformStart(element.id, event)}
+        onTransform={(event) => onTransform(element.id, event)}
+        onTransformEnd={(event) => onTransformEnd(element.id, event)}
       />
     );
   }
@@ -217,6 +227,9 @@ export const ImageElement = memo(function ImageElement({
       onDragStart={() => onDragStart(element.id)}
       onDragMove={(event) => onDragMove(element.id, event.target.x(), event.target.y())}
       onDragEnd={(event) => onDragEnd(element.id, event.target.x(), event.target.y())}
+      onTransformStart={(event) => onTransformStart(element.id, event)}
+      onTransform={(event) => onTransform(element.id, event)}
+      onTransformEnd={(event) => onTransformEnd(element.id, event)}
     />
   );
 });

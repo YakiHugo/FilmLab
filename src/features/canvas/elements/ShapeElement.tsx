@@ -1,6 +1,14 @@
-import { memo, useMemo } from "react";
+import type Konva from "konva";
+import { memo } from "react";
 import { Arrow, Ellipse, Group, Line, Rect } from "react-konva";
 import type { CanvasRenderableElement, CanvasShapeElement } from "@/types";
+import {
+  CANVAS_SHAPE_BODY_NODE_NAME,
+  resolveCanvasArrowShapeAttrs,
+  resolveCanvasEllipseShapeAttrs,
+  resolveCanvasLineShapeAttrs,
+  resolveCanvasRectShapeAttrs,
+} from "../shapeRenderState";
 
 type CanvasShapeRenderState = CanvasShapeElement &
   Partial<
@@ -14,6 +22,9 @@ interface ShapeElementProps {
   onDragMove: (elementId: string, x: number, y: number) => void;
   onDragStart: (elementId: string) => void;
   onDragEnd: (elementId: string, x: number, y: number) => void;
+  onTransform: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
+  onTransformEnd: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
+  onTransformStart: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
 }
 
 export const ShapeElement = memo(function ShapeElement({
@@ -23,13 +34,10 @@ export const ShapeElement = memo(function ShapeElement({
   onDragMove,
   onDragStart,
   onDragEnd,
+  onTransform,
+  onTransformEnd,
+  onTransformStart,
 }: ShapeElementProps) {
-  const points = useMemo(() => {
-    if (element.points && element.points.length > 0) {
-      return element.points.flatMap((point) => [point.x, point.y]);
-    }
-    return [0, element.height / 2, element.width, element.height / 2];
-  }, [element.height, element.points, element.width]);
   const effectiveLocked = element.effectiveLocked ?? element.locked;
   const effectiveVisible = element.effectiveVisible ?? element.visible;
   const renderOpacity = element.worldOpacity ?? element.opacity;
@@ -49,50 +57,35 @@ export const ShapeElement = memo(function ShapeElement({
       onDragStart={() => onDragStart(element.id)}
       onDragMove={(event) => onDragMove(element.id, event.target.x(), event.target.y())}
       onDragEnd={(event) => onDragEnd(element.id, event.target.x(), event.target.y())}
+      onTransformStart={(event) => onTransformStart(element.id, event)}
+      onTransform={(event) => onTransform(element.id, event)}
+      onTransformEnd={(event) => onTransformEnd(element.id, event)}
     >
       {element.shapeType === "rect" ? (
         <Rect
-          width={element.width}
-          height={element.height}
-          fill={element.fill}
-          stroke={element.stroke}
-          strokeWidth={element.strokeWidth}
-          cornerRadius={element.radius ?? 0}
+          name={CANVAS_SHAPE_BODY_NODE_NAME}
+          {...resolveCanvasRectShapeAttrs(element)}
         />
       ) : null}
 
       {element.shapeType === "ellipse" ? (
         <Ellipse
-          x={element.width / 2}
-          y={element.height / 2}
-          radiusX={element.width / 2}
-          radiusY={element.height / 2}
-          fill={element.fill}
-          stroke={element.stroke}
-          strokeWidth={element.strokeWidth}
+          name={CANVAS_SHAPE_BODY_NODE_NAME}
+          {...resolveCanvasEllipseShapeAttrs(element)}
         />
       ) : null}
 
       {element.shapeType === "line" ? (
         <Line
-          points={points}
-          stroke={element.stroke}
-          strokeWidth={element.strokeWidth}
-          lineCap="round"
-          lineJoin="round"
+          name={CANVAS_SHAPE_BODY_NODE_NAME}
+          {...resolveCanvasLineShapeAttrs(element)}
         />
       ) : null}
 
       {element.shapeType === "arrow" ? (
         <Arrow
-          points={points}
-          stroke={element.stroke}
-          fill={element.stroke}
-          strokeWidth={element.strokeWidth}
-          lineCap="round"
-          lineJoin="round"
-          pointerAtBeginning={Boolean(element.arrowHead?.start)}
-          pointerAtEnding={element.arrowHead?.end ?? true}
+          name={CANVAS_SHAPE_BODY_NODE_NAME}
+          {...resolveCanvasArrowShapeAttrs(element)}
         />
       ) : null}
     </Group>
