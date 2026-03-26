@@ -4,6 +4,7 @@ import type { Asset, CanvasImageElement } from "@/types";
 import {
   createCanvasImageRenderContext,
   resolveCanvasImageAdjustments,
+  resolveCanvasImagePreviewTargetSize,
 } from "./boardImageRendering";
 
 const createAsset = (overrides?: Partial<Asset>): Asset => ({
@@ -108,6 +109,19 @@ describe("boardImageRendering", () => {
     expect(zoomedIn.targetSize.width).toBeGreaterThan(zoomedOut.targetSize.width);
     expect(zoomedIn.targetSize.height).toBeGreaterThan(zoomedOut.targetSize.height);
     expect(zoomedIn.cacheKey).not.toBe(zoomedOut.cacheKey);
+  });
+
+  it("preserves the element aspect ratio when resolving preview target sizes", () => {
+    const targetSize = resolveCanvasImagePreviewTargetSize(
+      createElement({
+        width: 401,
+        height: 267,
+      }),
+      "background",
+      1
+    );
+
+    expect(targetSize.width / targetSize.height).toBeCloseTo(401 / 267, 2);
   });
 
   it("folds draft adjustments and per-element film profiles into the render context", () => {

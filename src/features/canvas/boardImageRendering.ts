@@ -48,6 +48,7 @@ const PREVIEW_SCALE_MULTIPLIER: Record<BoardPreviewPriority, number> = {
 const PREVIEW_TARGET_BUCKETS = [256, 384, 512, 640, 768, 896, 1024, 1280, 1536, 1792, 2048, 2560, 3072] as const;
 
 const clampPreviewDimension = (value: number) => Math.max(128, Math.round(value));
+const clampAspectPreservingDimension = (value: number) => Math.max(1, Math.round(value));
 
 const resolveBucketedPreviewDimension = (value: number, maxDimension: number) => {
   const clamped = Math.max(128, Math.min(maxDimension, value));
@@ -101,10 +102,22 @@ export const resolveCanvasImagePreviewTargetSize = (
     Math.max(requestedWidth, requestedHeight) > maxDimension
       ? maxDimension / Math.max(requestedWidth, requestedHeight)
       : 1;
+  const scaledWidth = Math.max(1, Math.round(requestedWidth * scale));
+  const scaledHeight = Math.max(1, Math.round(requestedHeight * scale));
+  const aspectRatio = scaledWidth / Math.max(1, scaledHeight);
 
+  if (scaledWidth >= scaledHeight) {
+    const width = resolveBucketedPreviewDimension(scaledWidth, maxDimension);
+    return {
+      width,
+      height: clampAspectPreservingDimension(width / aspectRatio),
+    };
+  }
+
+  const height = resolveBucketedPreviewDimension(scaledHeight, maxDimension);
   return {
-    width: resolveBucketedPreviewDimension(Math.round(requestedWidth * scale), maxDimension),
-    height: resolveBucketedPreviewDimension(Math.round(requestedHeight * scale), maxDimension),
+    width: clampAspectPreservingDimension(height * aspectRatio),
+    height,
   };
 };
 
