@@ -606,12 +606,10 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
       setElementDraftAdjustments(imageElement.id, nextAdjustments);
       await setAdjustments(nextAdjustments);
       clearElementDraftAdjustments(imageElement.id);
-      void requestBoardPreview(imageElement.id, "interactive");
     },
     [
       clearElementDraftAdjustments,
       imageElement,
-      requestBoardPreview,
       setElementDraftAdjustments,
       setAdjustments,
     ]

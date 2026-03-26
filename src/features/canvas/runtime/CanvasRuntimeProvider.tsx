@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PropsWithChildren } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type PropsWithChildren } from "react";
 import { CanvasRuntimeContext } from "./canvasRuntimeContext";
 import { createCanvasRuntimeScope } from "./canvasRuntimeScope";
 import { on } from "@/lib/storeEvents";
@@ -35,8 +35,10 @@ export function CanvasRuntimeProvider({
   const lastAssetSnapshotByIdRef = useRef(
     createCanvasRuntimeAssetSnapshotById(useAssetStore.getState().assets)
   );
+  const effectLifetimeRef = useRef(0);
 
-  useEffect(() => {
+  // Keep runtime input current before child preview effects request new renders.
+  useLayoutEffect(() => {
     scope.updateInput({
       ...scope.getInput(),
       workbench,
@@ -46,6 +48,8 @@ export function CanvasRuntimeProvider({
 
   useEffect(
     () => {
+      const effectLifetime = effectLifetimeRef.current + 1;
+      effectLifetimeRef.current = effectLifetime;
       const unsubscribeAssetChanges = on("assets:changed", (changedAssets) => {
         const previousAssetSnapshotById = lastAssetSnapshotByIdRef.current;
         const assetChangeSet: CanvasRuntimeAssetChangeSet = {
@@ -109,7 +113,12 @@ export function CanvasRuntimeProvider({
         unsubscribeReset();
         unsubscribeCanvasStore();
         unsubscribeAssetChanges();
-        scope.dispose();
+        queueMicrotask(() => {
+          if (effectLifetimeRef.current !== effectLifetime) {
+            return;
+          }
+          scope.dispose();
+        });
       };
     },
     [scope]

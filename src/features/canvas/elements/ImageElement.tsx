@@ -128,9 +128,6 @@ export const ImageElement = memo(function ImageElement({
     }
 
     void requestBoardPreview(element.id, previewPriority);
-    return () => {
-      releaseBoardPreview(element.id);
-    };
   }, [
     element.id,
     effectiveVisible,
@@ -140,6 +137,16 @@ export const ImageElement = memo(function ImageElement({
     releaseBoardPreview,
     requestBoardPreview,
   ]);
+
+  useEffect(() => {
+    if (!hasRenderableAsset || !effectiveVisible) {
+      return;
+    }
+
+    return () => {
+      releaseBoardPreview(element.id);
+    };
+  }, [element.id, effectiveVisible, hasRenderableAsset, releaseBoardPreview]);
 
   useEffect(() => {
     const hadPreviewEntry = hadPreviewEntryRef.current;
