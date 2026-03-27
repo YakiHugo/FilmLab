@@ -1,6 +1,6 @@
 import type Konva from "konva";
 import { Crosshair, Hand, Minus, MousePointer2, Plus } from "lucide-react";
-import { useCallback, useMemo, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useState, type RefObject } from "react";
 import { cn } from "@/lib/utils";
 import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
@@ -10,7 +10,7 @@ import { VIEWPORT_INSETS } from "./canvasViewportConstants";
 import { useCanvasActiveWorkbenchCommands } from "./hooks/useCanvasActiveWorkbenchCommands";
 import { useCanvasActiveWorkbenchState } from "./hooks/useCanvasActiveWorkbenchState";
 import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
-import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
+import { useCanvasDisplaySelectedElementIds } from "./hooks/useCanvasSelectionModel";
 import { useCanvasTextSessionPort } from "./hooks/useCanvasTextSessionPort";
 import { useCanvasViewportInteractionController } from "./hooks/useCanvasViewportInteractionController";
 import { useCanvasViewportLifecycle } from "./hooks/useCanvasViewportLifecycle";
@@ -20,7 +20,11 @@ import {
   useCanvasViewportTextEditingController,
   useCanvasViewportTextSessionController,
 } from "./hooks/useCanvasViewportTextEditingController";
-import type { CanvasToolName } from "./tools/toolControllers";
+import {
+  shouldCanvasToolSelectElements,
+  type CanvasToolName,
+} from "./tools/toolControllers";
+import type { CanvasInteractionNotice } from "./viewportOverlay";
 
 interface CanvasViewportProps {
   stageRef: RefObject<Konva.Stage>;
@@ -105,7 +109,14 @@ function CanvasViewportControls({
 
 export function CanvasViewport({ stageRef }: CanvasViewportProps) {
   const { activeWorkbench, activeWorkbenchId } = useCanvasActiveWorkbenchState();
-  const { executeCommand, upsertElement } = useCanvasActiveWorkbenchCommands();
+  const {
+    beginInteraction,
+    commitInteraction,
+    executeCommand,
+    previewCommand,
+    rollbackInteraction,
+    upsertElement,
+  } = useCanvasActiveWorkbenchCommands();
   const tool = useCanvasStore((state) => state.tool);
   const activeShapeType = useCanvasStore((state) => state.activeShapeType);
   const setTool = useCanvasStore((state) => state.setTool);
@@ -114,10 +125,36 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
   const viewport = useCanvasStore((state) => state.viewport);
   const setViewport = useCanvasStore((state) => state.setViewport);
   const assets = useAssetStore((state) => state.assets);
-  const { displaySelectedElementIds } = useCanvasSelectionModel();
+  const displaySelectedElementIds = useCanvasDisplaySelectedElementIds();
   const { selectedElementIds, setSelectedElementIds, selectElement, clearSelection } =
     useCanvasInteraction();
+  const activeWorkbenchInteractionStatus = useCanvasStore((state) =>
+    activeWorkbenchId ? state.interactionStatusByWorkbenchId[activeWorkbenchId] ?? null : null
+  );
+  const isViewportInteractionBlocked =
+    (activeWorkbenchInteractionStatus?.queuedMutations ?? 0) > 0;
+  const [interactionNotice, setInteractionNotice] = useState<CanvasInteractionNotice | null>(null);
   const assetById = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
+
+  useEffect(() => {
+    if (!interactionNotice) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setInteractionNotice(null);
+    }, 2400);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [interactionNotice]);
+
+  const handleInteractionError = useCallback((message: string) => {
+    setInteractionNotice({
+      type: "error",
+      message,
+    });
+  }, []);
 
   const { fitView, isSpacePressed, stageSize, viewportContainerRef } =
     useCanvasViewportLifecycle({
@@ -128,6 +165,10 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
       setViewport,
       setZoom,
     });
+  const canManipulateSelection = shouldCanvasToolSelectElements({
+    shouldPan: tool === "hand" || isSpacePressed,
+    tool,
+  });
   const sceneState = useCanvasViewportSceneState({
     activeWorkbench,
     displaySelectedElementIds,
@@ -156,12 +197,16 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
     activeShapeType,
     activeWorkbench,
     activeWorkbenchId,
+    beginInteraction,
     beginTextEdit: textSessionState.textSessionActions.begin,
     clearSelection,
+    commitInteraction,
     elementByIdRef: sceneState.elementByIdRef,
-    executeCommand,
     fitView,
     isSpacePressed,
+    onInteractionError: handleInteractionError,
+    previewCommand,
+    rollbackInteraction,
     selectElement,
     selectedElementIds,
     setSelectedElementIds,
@@ -193,11 +238,17 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
     activeEditingTextId: textEditingState.textRuntimeViewModel.activeEditingTextId,
     assetById,
     activeWorkbench,
-    executeCommand,
+    activeWorkbenchId,
+    canManipulateSelection,
+    beginInteraction,
+    commitInteraction,
     hasMarqueeSession: interactionState.marquee.hasMarqueeSession,
+    interactionBlocked: isViewportInteractionBlocked,
     isMarqueeDragging: interactionState.marquee.isMarqueeDragging,
+    onInteractionError: handleInteractionError,
+    previewCommand,
+    rollbackInteraction,
     selectedElementIds,
-    stageRef,
     singleSelectedElement: sceneState.singleSelectedElement,
   });
 
@@ -239,6 +290,8 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
   };
   const overlay = {
     activeWorkbenchUpdatedAt: activeWorkbench.updatedAt,
+    interactionNotice,
+    suspendDocumentOverlaySync: Boolean(activeWorkbenchInteractionStatus?.active),
     previewDimensionsStore: resizeState.previewDimensionsStore,
     selectedElementCount: selectedElementIds.length,
     singleSelectedNonTextElement: sceneState.singleSelectedNonTextElement,

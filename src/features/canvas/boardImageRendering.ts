@@ -101,14 +101,21 @@ export const resolveCanvasImagePreviewTargetSize = (
   };
 };
 
+export const resolveCanvasImagePreviewTargetSizeKey = (
+  element: Pick<CanvasImageElement, "width" | "height">,
+  priority: BoardPreviewPriority,
+  viewportScale = 1
+) => {
+  const targetSize = resolveCanvasImagePreviewTargetSize(element, priority, viewportScale);
+  return `${targetSize.width}x${targetSize.height}`;
+};
+
 export const createCanvasImageDocumentRenderContext = ({
   asset,
-  assetById,
   draftAdjustments,
   element,
 }: {
   asset: Asset;
-  assetById: Map<string, Asset>;
   draftAdjustments?: EditingAdjustments;
   element: CanvasImageElement;
 }): CanvasImageDocumentRenderContext => {
@@ -122,7 +129,7 @@ export const createCanvasImageDocumentRenderContext = ({
 
   return {
     adjustments,
-    filmProfile: imageDocument.film.profile,
+    filmProfile: imageDocument.film.profile ?? undefined,
     imageDocument,
     timestampText: resolveAssetTimestampText(asset.metadata, asset.createdAt),
   };
@@ -145,7 +152,6 @@ export const createCanvasImageRenderContext = ({
 }): CanvasImageRenderContext => {
   const documentContext = createCanvasImageDocumentRenderContext({
     asset,
-    assetById,
     draftAdjustments,
     element,
   });

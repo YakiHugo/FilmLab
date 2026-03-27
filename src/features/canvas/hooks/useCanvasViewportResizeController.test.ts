@@ -147,7 +147,9 @@ describe("useCanvasViewportResizeController", () => {
     expect(
       canShowCanvasSelectionTransformer({
         activeEditingTextId: null,
+        canManipulateSelection: true,
         hasMarqueeSession: false,
+        interactionBlocked: false,
         isMarqueeDragging: false,
         selectedElement: createRenderableImage(),
         selectedElementIds: ["node-1"],
@@ -159,7 +161,9 @@ describe("useCanvasViewportResizeController", () => {
     expect(
       canShowCanvasSelectionTransformer({
         activeEditingTextId: null,
+        canManipulateSelection: true,
         hasMarqueeSession: false,
+        interactionBlocked: false,
         isMarqueeDragging: false,
         selectedElement: createRenderableImage(),
         selectedElementIds: ["node-1", "node-2"],
@@ -169,7 +173,9 @@ describe("useCanvasViewportResizeController", () => {
     expect(
       canShowCanvasSelectionTransformer({
         activeEditingTextId: null,
+        canManipulateSelection: true,
         hasMarqueeSession: false,
+        interactionBlocked: false,
         isMarqueeDragging: false,
         selectedElement: createRenderableGroup(),
         selectedElementIds: ["group-1"],
@@ -181,7 +187,9 @@ describe("useCanvasViewportResizeController", () => {
     expect(
       canShowCanvasSelectionTransformer({
         activeEditingTextId: "text-1",
+        canManipulateSelection: true,
         hasMarqueeSession: false,
+        interactionBlocked: false,
         isMarqueeDragging: false,
         selectedElement: createRenderableText(),
         selectedElementIds: ["text-1"],
@@ -191,7 +199,9 @@ describe("useCanvasViewportResizeController", () => {
     expect(
       canShowCanvasSelectionTransformer({
         activeEditingTextId: null,
+        canManipulateSelection: true,
         hasMarqueeSession: true,
+        interactionBlocked: false,
         isMarqueeDragging: false,
         selectedElement: createRenderableImage(),
         selectedElementIds: ["node-1"],
@@ -203,9 +213,39 @@ describe("useCanvasViewportResizeController", () => {
     expect(
       canShowCanvasSelectionTransformer({
         activeEditingTextId: null,
+        canManipulateSelection: true,
         hasMarqueeSession: false,
+        interactionBlocked: false,
         isMarqueeDragging: false,
         selectedElement: createRenderableImage({ effectiveLocked: true }),
+        selectedElementIds: ["node-1"],
+      })
+    ).toBe(false);
+  });
+
+  it("hides the transformer outside select-mode element manipulation", () => {
+    expect(
+      canShowCanvasSelectionTransformer({
+        activeEditingTextId: null,
+        canManipulateSelection: false,
+        hasMarqueeSession: false,
+        interactionBlocked: false,
+        isMarqueeDragging: false,
+        selectedElement: createRenderableImage(),
+        selectedElementIds: ["node-1"],
+      })
+    ).toBe(false);
+  });
+
+  it("hides the transformer while interaction commits or queued mutations block resize", () => {
+    expect(
+      canShowCanvasSelectionTransformer({
+        activeEditingTextId: null,
+        canManipulateSelection: true,
+        hasMarqueeSession: false,
+        interactionBlocked: true,
+        isMarqueeDragging: false,
+        selectedElement: createRenderableImage(),
         selectedElementIds: ["node-1"],
       })
     ).toBe(false);

@@ -20,10 +20,12 @@ import {
   CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER,
 } from "./textStyle";
 import type { CanvasTextRuntimeViewModel } from "./textRuntimeViewModel";
+import type { CanvasInteractionNotice } from "./viewportOverlay";
 
 interface CanvasViewportOverlayHostProps {
   overlay: {
     activeWorkbenchUpdatedAt?: string;
+    suspendDocumentOverlaySync?: boolean;
     previewDimensionsStore: {
       getSnapshot: () =>
         | {
@@ -36,6 +38,7 @@ interface CanvasViewportOverlayHostProps {
     };
     selectedElementCount: number;
     singleSelectedNonTextElement: Exclude<CanvasRenderableNode, { type: "text" }> | null;
+    interactionNotice: CanvasInteractionNotice | null;
     stageRef: RefObject<Konva.Stage>;
     stageSize: {
       width: number;
@@ -87,6 +90,7 @@ export function CanvasViewportOverlayHost({
       dimensionsBadgeSize: DEFAULT_DIMENSIONS_BADGE_SIZE,
       floatingToolbarGap: FLOATING_TOOLBAR_GAP,
       activeWorkbenchUpdatedAt: overlay.activeWorkbenchUpdatedAt,
+      suspendDocumentOverlaySync: overlay.suspendDocumentOverlaySync,
     });
   const editingTextId = textEditing.session.id;
   const editingTextValue = textEditing.session.value;
@@ -152,6 +156,12 @@ export function CanvasViewportOverlayHost({
 
   return (
     <>
+      {overlay.interactionNotice ? (
+        <div className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2 rounded-xl border border-red-500/40 bg-red-950/85 px-3 py-2 text-xs font-medium text-red-100 shadow-[0_16px_40px_-20px_rgba(0,0,0,0.95)] backdrop-blur-xl">
+          {overlay.interactionNotice.message}
+        </div>
+      ) : null}
+
       {textEditing.runtimeViewModel.showEditingTextSelectionOutline && selectionOverlay ? (
         <div
           className="pointer-events-none absolute z-10"

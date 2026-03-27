@@ -1,28 +1,21 @@
 import type Konva from "konva";
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { flushSync } from "react-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Asset,
   CanvasCommand,
   CanvasRenderableElement,
   CanvasRenderableNode,
-  CanvasShapePoint,
   CanvasWorkbench,
 } from "@/types";
 import { CANVAS_SELECTION_ACCENT } from "../canvasViewportConstants";
-import { areEqual } from "../document/shared";
 import {
-  applyCanvasResizePreviewToNode,
-  type CanvasResizeMutableNode,
-} from "../resizeNodePreview";
-import {
-  type CanvasResizePreview,
   constrainCanvasResizeBoxToAspectRatio,
   planCanvasElementResize,
   resolveMinimumCanvasImageDimensions,
+  type CanvasResizePlan,
   type CanvasResizeTransformBox,
 } from "../resizeGeometry";
-import { createCanvasResizePreviewFromElement } from "../resizeGeometry";
+import type { CanvasResizeMutableNode } from "../resizeNodePreview";
 import { fitCanvasTextElementToContent } from "../textStyle";
 
 const TRANSFORMER_ENABLED_ANCHORS = [
@@ -62,42 +55,21 @@ export interface CanvasResizeTransformerConfig {
   useSingleNodeRotation: boolean;
 }
 
-const isResizePatchNoop = (
-  element: CanvasRenderableElement,
-  patch: Record<string, unknown>
-) =>
-  Object.entries(patch).every(([key, value]) => {
-    if (key === "x") {
-      return areEqual(element.transform.x, value);
-    }
-    if (key === "y") {
-      return areEqual(element.transform.y, value);
-    }
-    if (key === "width") {
-      return areEqual(element.transform.width, value);
-    }
-    if (key === "height") {
-      return areEqual(element.transform.height, value);
-    }
-
-    return areEqual(
-      (element as unknown as Record<string, unknown>)[key],
-      value
-    );
-  });
-
 interface UseCanvasViewportResizeControllerOptions {
   activeEditingTextId: string | null;
   assetById: Map<string, Asset>;
   activeWorkbench: CanvasWorkbench | null;
-  executeCommand: (
-    command: CanvasCommand,
-    options?: { trackHistory?: boolean }
-  ) => Promise<CanvasWorkbench | null>;
+  activeWorkbenchId: string | null;
+  canManipulateSelection: boolean;
+  beginInteraction: () => { interactionId: string } | null;
+  commitInteraction: (interactionId: string) => Promise<CanvasWorkbench | null>;
   hasMarqueeSession: boolean;
+  interactionBlocked: boolean;
   isMarqueeDragging: boolean;
+  onInteractionError: (message: string) => void;
+  previewCommand: (interactionId: string, command: CanvasCommand) => CanvasWorkbench | null;
+  rollbackInteraction: (interactionId: string) => CanvasWorkbench | null;
   selectedElementIds: string[];
-  stageRef: RefObject<Konva.Stage>;
   singleSelectedElement: CanvasRenderableNode | null;
 }
 
@@ -167,18 +139,24 @@ export const resolveCanvasResizeAnchorStyle = (anchorName: string) => {
 
 export const canShowCanvasSelectionTransformer = ({
   activeEditingTextId,
+  canManipulateSelection,
   hasMarqueeSession,
+  interactionBlocked,
   isMarqueeDragging,
   selectedElement,
   selectedElementIds,
 }: {
   activeEditingTextId: string | null;
+  canManipulateSelection: boolean;
   hasMarqueeSession: boolean;
+  interactionBlocked: boolean;
   isMarqueeDragging: boolean;
   selectedElement: CanvasRenderableNode | null;
   selectedElementIds: string[];
 }) =>
   Boolean(
+    canManipulateSelection &&
+    !interactionBlocked &&
     selectedElement &&
       selectedElement.type !== "group" &&
       !selectedElement.effectiveLocked &&
@@ -221,9 +199,7 @@ const resolveCanvasTextAspectRatio = (
     : null;
 };
 
-const resolveMinimumTransformerDimensions = (
-  element: CanvasRenderableElement,
-) => {
+const resolveMinimumTransformerDimensions = (element: CanvasRenderableElement) => {
   if (element.type === "image") {
     return {
       width: 32,
@@ -239,7 +215,9 @@ const resolveMinimumTransformerDimensions = (
   }
 
   const layoutElement = fitCanvasTextElementToContent(element);
-  const minimumScale = MIN_TRANSFORM_TEXT_FONT_SIZE / Math.max(element.fontSize, MIN_TRANSFORM_TEXT_FONT_SIZE);
+  const minimumScale =
+    MIN_TRANSFORM_TEXT_FONT_SIZE /
+    Math.max(element.fontSize, MIN_TRANSFORM_TEXT_FONT_SIZE);
 
   return {
     width: Math.max(MIN_TRANSFORM_BOX_DIMENSION, layoutElement.width * minimumScale),
@@ -247,19 +225,13 @@ const resolveMinimumTransformerDimensions = (
   };
 };
 
-const toPreviewDimensions = ({
-  elementId,
-  preview,
-}: {
-  elementId: string;
-  preview: { height: number; width: number };
-}) => ({
-  elementId,
-  width: preview.width,
-  height: preview.height,
-});
-
-type CanvasResizePreviewDimensions = ReturnType<typeof toPreviewDimensions> | null;
+type CanvasResizePreviewDimensions =
+  | {
+      elementId: string;
+      width: number;
+      height: number;
+    }
+  | null;
 
 const previewDimensionsEqual = (
   left: CanvasResizePreviewDimensions,
@@ -273,98 +245,61 @@ const previewDimensionsEqual = (
     left.height === right.height);
 
 const resolveShiftKeyState = (event: Event) =>
-  "shiftKey" in event &&
-  typeof event.shiftKey === "boolean"
-    ? event.shiftKey
-    : false;
+  "shiftKey" in event && typeof event.shiftKey === "boolean" ? event.shiftKey : false;
 
 interface CanvasResizeSessionState {
+  commitInteraction: ((interactionId: string) => Promise<CanvasWorkbench | null>) | null;
   elementId: string | null;
-  endHandled: boolean;
+  interactionId: string | null;
+  latestPlan: CanvasResizePlan | null;
+  node: CanvasResizeMutableNode | null;
+  previewCommand: ((interactionId: string, command: CanvasCommand) => CanvasWorkbench | null) | null;
+  previewFrameId: number | null;
+  rollbackInteraction: ((interactionId: string) => CanvasWorkbench | null) | null;
+  sourceWorkbenchId: string | null;
   token: number;
 }
-
-const canvasShapePointsEqual = (
-  left: CanvasShapePoint[] | undefined,
-  right: CanvasShapePoint[] | undefined
-) => {
-  if (!left && !right) {
-    return true;
-  }
-
-  if (!left || !right || left.length !== right.length) {
-    return false;
-  }
-
-  return left.every(
-    (point, index) =>
-      areEqual(point.x, right[index]?.x) && areEqual(point.y, right[index]?.y)
-  );
-};
-
-const doesElementMatchResizePreview = (
-  element: CanvasRenderableElement,
-  preview: CanvasResizePreview
-) => {
-  if (
-    !areEqual(element.x, preview.x) ||
-    !areEqual(element.y, preview.y) ||
-    !areEqual(element.width, preview.width) ||
-    !areEqual(element.height, preview.height)
-  ) {
-    return false;
-  }
-
-  if (element.type === "text") {
-    return (
-      areEqual(element.fontSize, preview.fontSize) &&
-      areEqual(element.fontSizeTier, preview.fontSizeTier)
-    );
-  }
-
-  if (element.type === "shape") {
-    return (
-      areEqual(element.strokeWidth, preview.strokeWidth ?? element.strokeWidth) &&
-      areEqual(element.radius, preview.radius ?? element.radius) &&
-      canvasShapePointsEqual(element.points, preview.points)
-    );
-  }
-
-  return true;
-};
 
 export function useCanvasViewportResizeController({
   activeEditingTextId,
   assetById,
   activeWorkbench,
-  executeCommand,
+  activeWorkbenchId,
+  canManipulateSelection,
+  beginInteraction,
+  commitInteraction,
   hasMarqueeSession,
+  interactionBlocked,
   isMarqueeDragging,
+  onInteractionError,
+  previewCommand,
+  rollbackInteraction,
   selectedElementIds,
-  stageRef,
   singleSelectedElement,
 }: UseCanvasViewportResizeControllerOptions) {
   const [isTransforming, setIsTransforming] = useState(false);
-  const [pendingCommitPreview, setPendingCommitPreview] = useState<{
-    elementId: string;
-    preview: CanvasResizePreview;
-    sessionToken: number;
-  } | null>(null);
-  const previewDimensionsRef = useRef<CanvasResizePreviewDimensions>(null);
-  const previewDimensionsListenersRef = useRef(new Set<() => void>());
   const selectedElement: CanvasRenderableElement | null =
     singleSelectedElement && singleSelectedElement.type !== "group"
       ? singleSelectedElement
       : null;
+  const previewDimensionsRef = useRef<CanvasResizePreviewDimensions>(null);
+  const previewDimensionsListenersRef = useRef(new Set<() => void>());
+  const previewDimensionsNotificationFrameRef = useRef<number | null>(null);
   const selectedElementRef = useRef<CanvasRenderableElement | null>(selectedElement);
   const assetByIdRef = useRef(assetById);
   const activeWorkbenchRef = useRef(activeWorkbench);
-  const isTransformingRef = useRef(isTransforming);
   const isImageAspectUnlockedRef = useRef(false);
   const transformAnchorRef = useRef<string | null>(null);
   const transformSessionRef = useRef<CanvasResizeSessionState>({
+    commitInteraction: null,
     elementId: null,
-    endHandled: false,
+    interactionId: null,
+    latestPlan: null,
+    node: null,
+    previewCommand: null,
+    previewFrameId: null,
+    rollbackInteraction: null,
+    sourceWorkbenchId: null,
     token: 0,
   });
 
@@ -380,30 +315,30 @@ export function useCanvasViewportResizeController({
     activeWorkbenchRef.current = activeWorkbench;
   }, [activeWorkbench]);
 
-  useEffect(() => {
-    isTransformingRef.current = isTransforming;
-  }, [isTransforming]);
+  const setPreviewDimensions = useCallback((nextPreviewDimensions: CanvasResizePreviewDimensions) => {
+    if (previewDimensionsEqual(previewDimensionsRef.current, nextPreviewDimensions)) {
+      return;
+    }
 
-  const setPreviewDimensions = useCallback(
-    (
-      nextPreviewDimensions: CanvasResizePreviewDimensions,
-      options?: { notify?: boolean }
-    ) => {
-      if (previewDimensionsEqual(previewDimensionsRef.current, nextPreviewDimensions)) {
-        return;
-      }
-
-      previewDimensionsRef.current = nextPreviewDimensions;
-      if (options?.notify === false) {
-        return;
-      }
-
+    previewDimensionsRef.current = nextPreviewDimensions;
+    if (typeof window === "undefined") {
       previewDimensionsListenersRef.current.forEach((listener) => {
         listener();
       });
-    },
-    []
-  );
+      return;
+    }
+
+    if (previewDimensionsNotificationFrameRef.current !== null) {
+      return;
+    }
+
+    previewDimensionsNotificationFrameRef.current = window.requestAnimationFrame(() => {
+      previewDimensionsNotificationFrameRef.current = null;
+      previewDimensionsListenersRef.current.forEach((listener) => {
+        listener();
+      });
+    });
+  }, []);
 
   const previewDimensionsStore = useMemo(
     () => ({
@@ -422,14 +357,18 @@ export function useCanvasViewportResizeController({
     () =>
       canShowCanvasSelectionTransformer({
         activeEditingTextId,
+        canManipulateSelection,
         hasMarqueeSession,
+        interactionBlocked,
         isMarqueeDragging,
         selectedElement,
         selectedElementIds,
       }),
     [
       activeEditingTextId,
+      canManipulateSelection,
       hasMarqueeSession,
+      interactionBlocked,
       isMarqueeDragging,
       selectedElement,
       selectedElementIds,
@@ -446,6 +385,7 @@ export function useCanvasViewportResizeController({
       element: selectedElement,
     });
   }, [assetById, selectedElement]);
+
   const textAspectRatio = useMemo(() => {
     if (!selectedElement || selectedElement.type !== "text") {
       return null;
@@ -490,18 +430,14 @@ export function useCanvasViewportResizeController({
     }
 
     const minimumDimensions = resolveMinimumTransformerDimensions(selectedElement);
-    const lockedImageMinimumDimensions = resolveMinimumCanvasImageDimensions(
-      imageAspectRatio
-    );
+    const lockedImageMinimumDimensions = resolveMinimumCanvasImageDimensions(imageAspectRatio);
     const ratioConfig = resolveTransformerRatioConfig(selectedElement);
 
     return {
       anchorFill: CANVAS_SELECTION_ACCENT,
       anchorSize: 8,
       anchorStyleFunc: (anchor) => {
-        anchor.setAttrs(
-          resolveCanvasResizeAnchorStyle(anchor.name().split(" ")[0] ?? "")
-        );
+        anchor.setAttrs(resolveCanvasResizeAnchorStyle(anchor.name().split(" ")[0] ?? ""));
       },
       anchorStroke: "rgba(24,24,27,0.92)",
       anchorStrokeWidth: 1.5,
@@ -561,51 +497,12 @@ export function useCanvasViewportResizeController({
   }, [imageAspectRatio, selectedElement, showTransformer, textAspectRatio]);
 
   useEffect(() => {
-    if (isTransformingRef.current || pendingCommitPreview) {
+    if (isTransforming) {
       return;
     }
-    transformSessionRef.current = {
-      elementId: null,
-      endHandled: false,
-      token: transformSessionRef.current.token,
-    };
-    transformAnchorRef.current = null;
     setPreviewDimensions(null);
-  }, [activeWorkbench?.updatedAt, pendingCommitPreview, selectedElement?.id, setPreviewDimensions]);
-
-  useEffect(() => {
-    if (!pendingCommitPreview) {
-      return;
-    }
-
-    const pendingElement =
-      activeWorkbench?.allNodes.find((element) => element.id === pendingCommitPreview.elementId) ?? null;
-    if (!pendingElement || pendingElement.type === "group") {
-      setPendingCommitPreview(null);
-      setPreviewDimensions(null);
-      return;
-    }
-
-    if (doesElementMatchResizePreview(pendingElement, pendingCommitPreview.preview)) {
-      setPendingCommitPreview((current) =>
-        current?.sessionToken === pendingCommitPreview.sessionToken ? null : current
-      );
-      setPreviewDimensions(null);
-      return;
-    }
-
-    const node = stageRef.current?.findOne<CanvasResizeMutableNode>(`#${pendingCommitPreview.elementId}`);
-    if (!node) {
-      return;
-    }
-
-    applyCanvasResizePreviewToNode({
-      element: pendingElement,
-      node,
-      preview: pendingCommitPreview.preview,
-    });
-    node.getStage()?.batchDraw();
-  }, [activeWorkbench?.updatedAt, pendingCommitPreview, setPreviewDimensions, stageRef]);
+    transformAnchorRef.current = null;
+  }, [isTransforming, selectedElement?.id, setPreviewDimensions]);
 
   const resolvePlanForNode = useCallback((node: CanvasResizeMutableNode) => {
     const currentElement = selectedElementRef.current;
@@ -614,7 +511,7 @@ export function useCanvasViewportResizeController({
       return null;
     }
 
-    const imageAspectRatio =
+    const resolvedImageAspectRatio =
       currentElement.type === "image"
         ? resolveCanvasImageAspectRatio({
             asset: assetByIdRef.current.get(currentElement.assetId) ?? null,
@@ -624,7 +521,7 @@ export function useCanvasViewportResizeController({
 
     return planCanvasElementResize({
       element: currentElement,
-      imageAspectRatio,
+      imageAspectRatio: resolvedImageAspectRatio,
       preserveImageAspectRatio:
         currentElement.type === "image"
           ? !isImageAspectUnlockedRef.current
@@ -639,6 +536,119 @@ export function useCanvasViewportResizeController({
     });
   }, []);
 
+  const flushResizePreview = useCallback(
+    (session: CanvasResizeSessionState) => {
+      if (!session.interactionId || !session.latestPlan || !session.elementId) {
+        return true;
+      }
+
+      const command: CanvasCommand = {
+        type: "UPDATE_NODE_PROPS",
+        updates: [
+          {
+            id: session.elementId,
+            patch: session.latestPlan.patch,
+          },
+        ],
+      };
+      const nextWorkbench = session.previewCommand?.(session.interactionId, command) ?? null;
+      if (!nextWorkbench) {
+        session.rollbackInteraction?.(session.interactionId);
+        session.interactionId = null;
+        return false;
+      }
+
+      const node = session.node;
+      if (node) {
+        if (Math.abs(node.scaleX() - 1) > 0.0001 || Math.abs(node.scaleY() - 1) > 0.0001) {
+          node.scaleX(1);
+          node.scaleY(1);
+        }
+        node.position({
+          x: session.latestPlan.preview.x,
+          y: session.latestPlan.preview.y,
+        });
+        node.getLayer()?.batchDraw();
+      }
+
+      return true;
+    },
+    []
+  );
+
+  const scheduleResizePreview = useCallback(
+    (session: CanvasResizeSessionState) => {
+      if (session.previewFrameId !== null) {
+        return;
+      }
+
+      session.previewFrameId = window.requestAnimationFrame(() => {
+        session.previewFrameId = null;
+        if (!flushResizePreview(session)) {
+          onInteractionError("Resize preview failed and was rolled back.");
+        }
+      });
+    },
+    [flushResizePreview, onInteractionError]
+  );
+
+  useEffect(
+    () => () => {
+      const session = transformSessionRef.current;
+      if (previewDimensionsNotificationFrameRef.current !== null) {
+        window.cancelAnimationFrame(previewDimensionsNotificationFrameRef.current);
+        previewDimensionsNotificationFrameRef.current = null;
+      }
+      if (session.previewFrameId !== null) {
+        window.cancelAnimationFrame(session.previewFrameId);
+      }
+      if (session.interactionId) {
+        session.rollbackInteraction?.(session.interactionId);
+      }
+      transformSessionRef.current = {
+        commitInteraction: null,
+        elementId: null,
+        interactionId: null,
+        latestPlan: null,
+        node: null,
+        previewCommand: null,
+        previewFrameId: null,
+        rollbackInteraction: null,
+        sourceWorkbenchId: null,
+        token: session.token,
+      };
+    },
+    []
+  );
+
+  useEffect(() => {
+    const session = transformSessionRef.current;
+    if (!session.interactionId || session.sourceWorkbenchId === activeWorkbenchId) {
+      return;
+    }
+
+    if (session.previewFrameId !== null) {
+      window.cancelAnimationFrame(session.previewFrameId);
+    }
+    session.rollbackInteraction?.(session.interactionId);
+    transformSessionRef.current = {
+      commitInteraction: null,
+      elementId: null,
+      interactionId: null,
+      latestPlan: null,
+      node: null,
+      previewCommand: null,
+      previewFrameId: null,
+      rollbackInteraction: null,
+      sourceWorkbenchId: null,
+      token: session.token,
+    };
+    transformAnchorRef.current = null;
+    isImageAspectUnlockedRef.current = false;
+    setIsTransforming(false);
+    setPreviewDimensions(null);
+  }, [activeWorkbenchId, setPreviewDimensions]);
+
   const handleElementTransformStart = useCallback(
     (elementId: string, event: Konva.KonvaEventObject<Event>) => {
       if (!showTransformer || selectedElementRef.current?.id !== elementId) {
@@ -647,176 +657,164 @@ export function useCanvasViewportResizeController({
 
       transformAnchorRef.current = null;
       isImageAspectUnlockedRef.current = resolveShiftKeyState(event.evt);
-      transformSessionRef.current = {
-        elementId,
-        endHandled: false,
-        token: transformSessionRef.current.token + 1,
-      };
-      const plan = resolvePlanForNode(event.target as CanvasResizeMutableNode);
-      setIsTransforming(true);
-      setPreviewDimensions(
-        plan
-          ? toPreviewDimensions({
-              elementId,
-              preview: plan.preview,
-            })
-          : null,
-        {
-        notify: false,
+      const sessionToken = transformSessionRef.current.token + 1;
+      const interaction = beginInteraction();
+      const node = event.target as CanvasResizeMutableNode;
+      if (!interaction) {
+        node.getStage()?.findOne<Konva.Transformer>("Transformer")?.stopTransform();
+        const currentElement = selectedElementRef.current;
+        node.scaleX(1);
+        node.scaleY(1);
+        if (currentElement) {
+          node.position({
+            x: currentElement.x,
+            y: currentElement.y,
+          });
         }
-      );
-    },
-    [resolvePlanForNode, showTransformer]
-  );
-
-  const handleElementTransform = useCallback(
-    (elementId: string, event: Konva.KonvaEventObject<Event>) => {
-      if (!showTransformer || selectedElementRef.current?.id !== elementId) {
-        return;
-      }
-
-      isImageAspectUnlockedRef.current = resolveShiftKeyState(event.evt);
-      const plan = resolvePlanForNode(event.target as CanvasResizeMutableNode);
-      setPreviewDimensions(
-        plan
-          ? toPreviewDimensions({
-              elementId,
-              preview: plan.preview,
-            })
-          : null,
-        {
-        notify: false,
-        }
-      );
-    },
-    [resolvePlanForNode, showTransformer]
-  );
-
-  const handleElementTransformEnd = useCallback(
-    (elementId: string, event: Konva.KonvaEventObject<Event>) => {
-      const currentElement = selectedElementRef.current;
-      const currentSession = transformSessionRef.current;
-      if (
-        currentSession.elementId === elementId &&
-        currentSession.endHandled
-      ) {
-        return;
-      }
-      const nextSession = {
-        elementId,
-        endHandled: true,
-        token:
-          currentSession.elementId === elementId
-            ? currentSession.token
-            : currentSession.token + 1,
-      };
-      transformSessionRef.current = nextSession;
-      const sessionToken = nextSession.token;
-
-      if (!showTransformer || !currentElement || currentElement.id !== elementId) {
         transformAnchorRef.current = null;
         isImageAspectUnlockedRef.current = false;
         setIsTransforming(false);
         setPreviewDimensions(null);
+        event.cancelBubble = true;
+        node.getLayer()?.batchDraw();
+        return;
+      }
+      const session: CanvasResizeSessionState = {
+        commitInteraction,
+        elementId,
+        interactionId: interaction.interactionId,
+        latestPlan: null,
+        node,
+        previewCommand,
+        previewFrameId: null,
+        rollbackInteraction,
+        sourceWorkbenchId: activeWorkbenchId,
+        token: sessionToken,
+      };
+      transformSessionRef.current = session;
+      setIsTransforming(true);
+
+      const plan = resolvePlanForNode(node);
+      if (!plan) {
+        setPreviewDimensions(null);
+        return;
+      }
+
+      session.latestPlan = plan;
+      setPreviewDimensions({
+        elementId,
+        width: plan.preview.width,
+        height: plan.preview.height,
+      });
+      scheduleResizePreview(session);
+    },
+    [
+      activeWorkbenchId,
+      beginInteraction,
+      commitInteraction,
+      previewCommand,
+      resolvePlanForNode,
+      rollbackInteraction,
+      scheduleResizePreview,
+      setPreviewDimensions,
+      showTransformer,
+    ]
+  );
+
+  const handleElementTransform = useCallback(
+    (elementId: string, event: Konva.KonvaEventObject<Event>) => {
+      const session = transformSessionRef.current;
+      if (
+        !showTransformer ||
+        selectedElementRef.current?.id !== elementId ||
+        session.elementId !== elementId
+      ) {
         return;
       }
 
       isImageAspectUnlockedRef.current = resolveShiftKeyState(event.evt);
       const node = event.target as CanvasResizeMutableNode;
+      session.node = node;
       const plan = resolvePlanForNode(node);
       if (!plan) {
-        transformAnchorRef.current = null;
-        isImageAspectUnlockedRef.current = false;
-        setIsTransforming(false);
-        setPreviewDimensions(null);
         return;
       }
 
-      flushSync(() => {
-        setIsTransforming(false);
-        setPendingCommitPreview({
-          elementId,
-          preview: plan.preview,
-          sessionToken,
-        });
-        setPreviewDimensions(
-          toPreviewDimensions({
-            elementId,
-            preview: plan.preview,
-          })
-        );
+      session.latestPlan = plan;
+      setPreviewDimensions({
+        elementId,
+        width: plan.preview.width,
+        height: plan.preview.height,
       });
+      scheduleResizePreview(session);
+    },
+    [resolvePlanForNode, scheduleResizePreview, setPreviewDimensions, showTransformer]
+  );
 
-      applyCanvasResizePreviewToNode({
-        element: currentElement,
-        node,
-        preview: plan.preview,
-      });
-      node.getStage()?.batchDraw();
+  const handleElementTransformEnd = useCallback(
+    (elementId: string, event: Konva.KonvaEventObject<Event>) => {
+      const session = transformSessionRef.current;
+      if (session.elementId !== elementId) {
+        return;
+      }
+
+      isImageAspectUnlockedRef.current = resolveShiftKeyState(event.evt);
+      const node = event.target as CanvasResizeMutableNode;
+      session.node = node;
+      const finalPlan = resolvePlanForNode(node);
+      if (finalPlan) {
+        session.latestPlan = finalPlan;
+      }
+
+      if (session.previewFrameId !== null) {
+        window.cancelAnimationFrame(session.previewFrameId);
+        session.previewFrameId = null;
+      }
+      if (!flushResizePreview(session)) {
+        onInteractionError("Resize preview failed and was rolled back.");
+      }
+
+      const interactionId = session.interactionId;
+      const sessionToken = session.token;
+      const commitSessionInteraction = session.commitInteraction;
+      transformSessionRef.current = {
+        commitInteraction: null,
+        elementId: null,
+        interactionId: null,
+        latestPlan: null,
+        node: null,
+        previewCommand: null,
+        previewFrameId: null,
+        rollbackInteraction: null,
+        sourceWorkbenchId: null,
+        token: sessionToken,
+      };
       transformAnchorRef.current = null;
+      isImageAspectUnlockedRef.current = false;
+      setIsTransforming(false);
+      setPreviewDimensions(null);
 
-      if (isResizePatchNoop(currentElement, plan.patch)) {
-        isImageAspectUnlockedRef.current = false;
-        setPendingCommitPreview(null);
-        setPreviewDimensions(null);
+      if (!interactionId) {
         return;
       }
 
-      const revertNodeToCurrentElement = () => {
-        applyCanvasResizePreviewToNode({
-          element: currentElement,
-          node,
-          preview: createCanvasResizePreviewFromElement(currentElement),
-        });
-        node.getStage()?.batchDraw();
-      };
-      const isCurrentResizeSession = () => {
-        const session = transformSessionRef.current;
-        return session.elementId === elementId && session.token === sessionToken;
-      };
-
-      void executeCommand({
-        type: "UPDATE_NODE_PROPS",
-        updates: [
-          {
-            id: currentElement.id,
-            patch: plan.patch,
-          },
-        ],
-      })
+      void (commitSessionInteraction ?? commitInteraction)(interactionId)
         .then((nextWorkbench) => {
-          if (!isCurrentResizeSession()) {
-            return;
+          if (!nextWorkbench) {
+            onInteractionError("Resize commit failed and was rolled back.");
           }
-
-          if (nextWorkbench) {
-            return;
-          }
-
-          revertNodeToCurrentElement();
-          flushSync(() => {
-            setPendingCommitPreview(null);
-            setPreviewDimensions(null);
-          });
         })
         .catch(() => {
-          if (!isCurrentResizeSession()) {
-            return;
-          }
-
-          revertNodeToCurrentElement();
-          flushSync(() => {
-            setPendingCommitPreview(null);
-            setPreviewDimensions(null);
-          });
-        })
-        .finally(() => {
-          if (isCurrentResizeSession()) {
-            isImageAspectUnlockedRef.current = false;
-          }
+          onInteractionError("Resize commit failed and was rolled back.");
         });
     },
-    [executeCommand, resolvePlanForNode, showTransformer]
+    [
+      commitInteraction,
+      flushResizePreview,
+      onInteractionError,
+      resolvePlanForNode,
+      setPreviewDimensions,
+    ]
   );
 
   return {

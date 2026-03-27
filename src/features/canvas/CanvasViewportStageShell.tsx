@@ -7,7 +7,6 @@ import type {
   CanvasTextElement,
   CanvasWorkbench,
 } from "@/types";
-import { createId } from "@/utils";
 import {
   CANVAS_SELECTION_ACCENT,
   CANVAS_SELECTION_ACCENT_FILL,
@@ -105,11 +104,12 @@ function DotGrid({
 
 interface CanvasElementsLayerProps {
   activeEditingTextId: string | null;
+  canManipulateElements: boolean;
   dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
   editingTextDraft: CanvasRenderableTextElement | CanvasTextElement | null;
   elements: CanvasRenderableElement[];
   onElementDragMove: (elementId: string, x: number, y: number) => void;
-  onElementDragStart: (elementId: string) => void;
+  onElementDragStart: (elementId: string, event: Konva.KonvaEventObject<DragEvent>) => void;
   interactivePreviewElementId: string | null;
   onElementDragEnd: (elementId: string, x: number, y: number) => void;
   onElementSelect: (elementId: string, additive: boolean) => void;
@@ -121,6 +121,7 @@ interface CanvasElementsLayerProps {
 
 const CanvasElementsLayer = memo(function CanvasElementsLayer({
   activeEditingTextId,
+  canManipulateElements,
   dragBoundFunc,
   editingTextDraft,
   elements,
@@ -141,6 +142,7 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
           return (
             <ImageElement
               key={element.id}
+              canDrag={canManipulateElements}
               element={element}
               previewPriority={
                 element.id === interactivePreviewElementId ? "interactive" : "background"
@@ -161,6 +163,7 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
           return (
             <ShapeElement
               key={element.id}
+              canDrag={canManipulateElements}
               element={element}
               dragBoundFunc={dragBoundFunc}
               onSelect={onElementSelect}
@@ -179,6 +182,7 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
         return (
           <TextElement
             key={liveTextElement.id}
+            canDrag={canManipulateElements}
             element={liveTextElement}
             isEditing={activeEditingTextId === liveTextElement.id}
             dragBoundFunc={dragBoundFunc}
@@ -211,10 +215,12 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
     [selectedElements]
   );
   const selectionSnapshotKey = useMemo(
-    () =>
-      `${selectedElements.map((element) => element.id).join("|")}::${createId("selection-outline")}`,
+    () => selectedElements.map((element) => element.id).join("|"),
     [selectedElements]
   );
+  const baseOutlineRectsRef = useRef(baseOutlineRects);
+  const selectedElementsRef = useRef(selectedElements);
+  const syncOutlineRectsRef = useRef<(() => void) | null>(null);
   const hideSingleSelectionOutline =
     suppressSingleSelectionOutline && selectedElements.length === 1;
   const [liveOutlineState, setLiveOutlineState] = useState<{
@@ -226,7 +232,13 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
   });
 
   useEffect(() => {
+    baseOutlineRectsRef.current = baseOutlineRects;
+    selectedElementsRef.current = selectedElements;
+  }, [baseOutlineRects, selectedElements]);
+
+  useEffect(() => {
     if (hideSingleSelectionOutline) {
+      syncOutlineRectsRef.current = null;
       setLiveOutlineState((current) =>
         current.selectionSnapshotKey === selectionSnapshotKey && current.rects === null
           ? current
@@ -239,7 +251,8 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
     }
 
     const stage = stageRef.current;
-    if (!stage || selectedElements.length === 0) {
+    if (!stage || selectionSnapshotKey.length === 0) {
+      syncOutlineRectsRef.current = null;
       setLiveOutlineState((current) =>
         current.selectionSnapshotKey === selectionSnapshotKey && current.rects === null
           ? current
@@ -251,8 +264,8 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
       return;
     }
 
-    const runtimeTargets = selectedElements.map((element, index) => {
-      const baseOutlineRect = baseOutlineRects[index]!;
+    const runtimeTargets = selectedElementsRef.current.map((element, index) => {
+      const baseOutlineRect = baseOutlineRectsRef.current[index]!;
       if (element.type === "group") {
         return {
           baseOutlineRect,
@@ -271,6 +284,7 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
       .filter((node): node is Konva.Node => Boolean(node));
 
     if (trackedNodes.length === 0) {
+      syncOutlineRectsRef.current = null;
       setLiveOutlineState((current) =>
         current.selectionSnapshotKey === selectionSnapshotKey && current.rects === null
           ? current
@@ -283,10 +297,11 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
     }
 
     const syncOutlineRects = () => {
-      const nextOutlineRects = runtimeTargets.map((target) =>
+      const latestBaseOutlineRects = baseOutlineRectsRef.current;
+      const nextOutlineRects = runtimeTargets.map((target, index) =>
         target.node
-          ? resolveLiveSelectionOutlineRect(target.baseOutlineRect, target.node)
-          : target.baseOutlineRect
+          ? resolveLiveSelectionOutlineRect(latestBaseOutlineRects[index]!, target.node)
+          : latestBaseOutlineRects[index]!
       );
       setLiveOutlineState((current) =>
         current.selectionSnapshotKey === selectionSnapshotKey &&
@@ -299,6 +314,7 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
             }
       );
     };
+    syncOutlineRectsRef.current = syncOutlineRects;
 
     syncOutlineRects();
 
@@ -310,8 +326,15 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
       trackedNodes.forEach((node) => {
         node.off("dragmove transform dragend transformend", syncOutlineRects);
       });
+      if (syncOutlineRectsRef.current === syncOutlineRects) {
+        syncOutlineRectsRef.current = null;
+      }
     };
-  }, [baseOutlineRects, hideSingleSelectionOutline, selectedElements, selectionSnapshotKey, stageRef]);
+  }, [hideSingleSelectionOutline, selectionSnapshotKey, stageRef]);
+
+  useEffect(() => {
+    syncOutlineRectsRef.current?.();
+  }, [baseOutlineRects, selectedElements]);
 
   const outlineRects =
     liveOutlineState.selectionSnapshotKey === selectionSnapshotKey && liveOutlineState.rects
@@ -415,6 +438,7 @@ const CanvasSelectionTransformerLayer = memo(function CanvasSelectionTransformer
   transformerElementId: string | null;
 }) {
   const transformerRef = useRef<Konva.Transformer>(null);
+  const hasTransformer = Boolean(transformer);
 
   useEffect(() => {
     const transformerNode = transformerRef.current;
@@ -423,7 +447,7 @@ const CanvasSelectionTransformerLayer = memo(function CanvasSelectionTransformer
       return;
     }
 
-    if (!stage || !transformer || !transformerElementId) {
+    if (!stage || !hasTransformer || !transformerElementId) {
       transformerNode.nodes([]);
       transformerNode.getLayer()?.batchDraw();
       return;
@@ -443,7 +467,7 @@ const CanvasSelectionTransformerLayer = memo(function CanvasSelectionTransformer
       transformerNode.nodes([]);
       transformerNode.getLayer()?.batchDraw();
     };
-  }, [stageRef, transformer, transformerElementId]);
+  }, [hasTransformer, stageRef, transformerElementId]);
 
   if (!transformer || !transformerElementId) {
     return null;
@@ -471,11 +495,12 @@ const CanvasSelectionTransformerLayer = memo(function CanvasSelectionTransformer
 
 interface CanvasViewportStageShellProps {
   interaction: {
+    canManipulateElements: boolean;
     containerRef: RefObject<HTMLDivElement>;
     cursor: string;
     dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
     handleElementDragMove: (elementId: string, x: number, y: number) => void;
-    handleElementDragStart: (elementId: string) => void;
+    handleElementDragStart: (elementId: string, event: Konva.KonvaEventObject<DragEvent>) => void;
     handleElementDragEnd: (elementId: string, x: number, y: number) => void;
     handleElementSelect: (elementId: string, additive: boolean) => void;
     handleElementTransform: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
@@ -574,6 +599,7 @@ export function CanvasViewportStageShell({
         <Layer>
           <CanvasElementsLayer
             activeEditingTextId={textEditing.activeEditingTextId}
+            canManipulateElements={interaction.canManipulateElements}
             dragBoundFunc={interaction.dragBoundFunc}
             editingTextDraft={textEditing.editingTextDraft}
             elements={scene.activeWorkbench.elements}
