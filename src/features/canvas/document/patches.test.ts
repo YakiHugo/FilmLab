@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { executeCanvasCommand } from "./commands";
-import { applyCanvasDocumentChangeSet } from "./patches";
+import {
+  applyCanvasDocumentChangeSet,
+  diffCanvasDocumentChangeSet,
+} from "./patches";
 import { getCanvasWorkbenchSnapshot } from "./model";
 import { createCanvasTestDocument, createShapeNode } from "./testUtils";
 
@@ -29,5 +32,24 @@ describe("document change sets", () => {
 
     expect(getCanvasWorkbenchSnapshot(forwardApplied)).toEqual(getCanvasWorkbenchSnapshot(result.document));
     expect(getCanvasWorkbenchSnapshot(inverseApplied)).toEqual(getCanvasWorkbenchSnapshot(document));
+  });
+
+  it("returns an empty diff for net-no-op documents", () => {
+    const document = createCanvasTestDocument({
+      nodes: {
+        "shape-1": createShapeNode({
+          id: "shape-1",
+          x: 32,
+          y: 48,
+        }),
+      },
+      rootIds: ["shape-1"],
+    });
+
+    expect(diffCanvasDocumentChangeSet(document, document)).toEqual({
+      didChange: false,
+      forwardChangeSet: { operations: [] },
+      inverseChangeSet: { operations: [] },
+    });
   });
 });

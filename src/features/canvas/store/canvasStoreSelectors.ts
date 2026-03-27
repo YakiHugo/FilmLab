@@ -4,7 +4,7 @@ import type { CanvasHistoryState, CanvasStoreDataState } from "./canvasStoreType
 type CanvasWorkbenchSelectorState = Pick<CanvasStoreDataState, "activeWorkbenchId" | "workbenches">;
 type CanvasHistorySelectorState = Pick<
   CanvasStoreDataState,
-  "activeWorkbenchId" | "historyByWorkbenchId" | "workbenches"
+  "activeWorkbenchId" | "historyByWorkbenchId" | "interactionStatusByWorkbenchId" | "workbenches"
 >;
 
 export const EMPTY_CANVAS_SLICES: CanvasWorkbench["slices"] = [];
@@ -67,14 +67,26 @@ export const selectActiveWorkbenchRootCount = (state: CanvasWorkbenchSelectorSta
   selectCanvasActiveWorkbenchState(state).activeWorkbenchRootCount;
 
 export const selectCanUndoInWorkbench = (
-  state: Pick<CanvasStoreDataState, "historyByWorkbenchId">,
+  state: Pick<CanvasStoreDataState, "historyByWorkbenchId" | "interactionStatusByWorkbenchId">,
   workbenchId: string | null | undefined
-) => (workbenchId ? hasHistoryEntries(state.historyByWorkbenchId[workbenchId], "past") : false);
+) =>
+  workbenchId
+    ? !state.interactionStatusByWorkbenchId[workbenchId]?.active &&
+      (state.interactionStatusByWorkbenchId[workbenchId]?.pendingCommits ?? 0) === 0 &&
+      (state.interactionStatusByWorkbenchId[workbenchId]?.queuedMutations ?? 0) === 0 &&
+      hasHistoryEntries(state.historyByWorkbenchId[workbenchId], "past")
+    : false;
 
 export const selectCanRedoInWorkbench = (
-  state: Pick<CanvasStoreDataState, "historyByWorkbenchId">,
+  state: Pick<CanvasStoreDataState, "historyByWorkbenchId" | "interactionStatusByWorkbenchId">,
   workbenchId: string | null | undefined
-) => (workbenchId ? hasHistoryEntries(state.historyByWorkbenchId[workbenchId], "future") : false);
+) =>
+  workbenchId
+    ? !state.interactionStatusByWorkbenchId[workbenchId]?.active &&
+      (state.interactionStatusByWorkbenchId[workbenchId]?.pendingCommits ?? 0) === 0 &&
+      (state.interactionStatusByWorkbenchId[workbenchId]?.queuedMutations ?? 0) === 0 &&
+      hasHistoryEntries(state.historyByWorkbenchId[workbenchId], "future")
+    : false;
 
 export const selectCanUndoOnActiveWorkbench = (state: CanvasHistorySelectorState) =>
   selectWorkbenchById(state, state.activeWorkbenchId)

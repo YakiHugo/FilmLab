@@ -24,12 +24,20 @@ describe("canvasActiveWorkbenchPorts", () => {
   it("binds command ports to the active workbench id", async () => {
     const patchWorkbench = vi.fn().mockResolvedValue({ id: "workbench-1" });
     const executeCommandInWorkbench = vi.fn().mockResolvedValue({ id: "workbench-1" });
+    const beginInteractionInWorkbench = vi.fn().mockReturnValue({ interactionId: "interaction-1" });
+    const previewCommandInWorkbench = vi.fn().mockReturnValue({ id: "workbench-1" });
+    const commitInteractionInWorkbench = vi.fn().mockResolvedValue({ id: "workbench-1" });
+    const rollbackInteractionInWorkbench = vi.fn().mockReturnValue({ id: "workbench-1" });
     const upsertElementInWorkbench = vi.fn().mockResolvedValue(undefined);
     const upsertElementsInWorkbench = vi.fn().mockResolvedValue(undefined);
     const commands = bindCanvasActiveWorkbenchCommands({
       storeApi: {
         patchWorkbench,
         executeCommandInWorkbench,
+        beginInteractionInWorkbench,
+        previewCommandInWorkbench,
+        commitInteractionInWorkbench,
+        rollbackInteractionInWorkbench,
         upsertElementInWorkbench,
         upsertElementsInWorkbench,
       },
@@ -64,6 +72,15 @@ describe("canvasActiveWorkbenchPorts", () => {
 
     await commands.patchWorkbench({ name: "Renamed" });
     await commands.executeCommand({ type: "DELETE_NODES", ids: ["node-1"] });
+    expect(commands.beginInteraction()).toEqual({ interactionId: "interaction-1" });
+    expect(
+      commands.previewCommand("interaction-1", {
+        type: "PATCH_DOCUMENT",
+        patch: { name: "Preview" },
+      })
+    ).toEqual({ id: "workbench-1" });
+    await commands.commitInteraction("interaction-1");
+    expect(commands.rollbackInteraction("interaction-1")).toEqual({ id: "workbench-1" });
     await commands.upsertElement(editableTextNode);
     await commands.upsertElements([{ ...editableTextNode, id: "node-2" }]);
 
@@ -73,6 +90,13 @@ describe("canvasActiveWorkbenchPorts", () => {
       { type: "DELETE_NODES", ids: ["node-1"] },
       undefined
     );
+    expect(beginInteractionInWorkbench).toHaveBeenCalledWith("workbench-1");
+    expect(previewCommandInWorkbench).toHaveBeenCalledWith("workbench-1", "interaction-1", {
+      type: "PATCH_DOCUMENT",
+      patch: { name: "Preview" },
+    });
+    expect(commitInteractionInWorkbench).toHaveBeenCalledWith("workbench-1", "interaction-1");
+    expect(rollbackInteractionInWorkbench).toHaveBeenCalledWith("workbench-1", "interaction-1");
     expect(upsertElementInWorkbench).toHaveBeenCalledWith("workbench-1", editableTextNode);
     expect(upsertElementsInWorkbench).toHaveBeenCalledWith("workbench-1", [
       { ...editableTextNode, id: "node-2" },
@@ -82,12 +106,20 @@ describe("canvasActiveWorkbenchPorts", () => {
   it("returns null-safe no-op command contracts when no active workbench exists", async () => {
     const patchWorkbench = vi.fn();
     const executeCommandInWorkbench = vi.fn();
+    const beginInteractionInWorkbench = vi.fn();
+    const previewCommandInWorkbench = vi.fn();
+    const commitInteractionInWorkbench = vi.fn();
+    const rollbackInteractionInWorkbench = vi.fn();
     const upsertElementInWorkbench = vi.fn();
     const upsertElementsInWorkbench = vi.fn();
     const commands = bindCanvasActiveWorkbenchCommands({
       storeApi: {
         patchWorkbench,
         executeCommandInWorkbench,
+        beginInteractionInWorkbench,
+        previewCommandInWorkbench,
+        commitInteractionInWorkbench,
+        rollbackInteractionInWorkbench,
         upsertElementInWorkbench,
         upsertElementsInWorkbench,
       },
@@ -122,11 +154,21 @@ describe("canvasActiveWorkbenchPorts", () => {
 
     await expect(commands.patchWorkbench({ name: "noop" })).resolves.toBeNull();
     await expect(commands.executeCommand({ type: "DELETE_NODES", ids: ["node-1"] })).resolves.toBeNull();
+    expect(commands.beginInteraction()).toBeNull();
+    expect(
+      commands.previewCommand("interaction-1", { type: "PATCH_DOCUMENT", patch: { name: "noop" } })
+    ).toBeNull();
+    await expect(commands.commitInteraction("interaction-1")).resolves.toBeNull();
+    expect(commands.rollbackInteraction("interaction-1")).toBeNull();
     await expect(commands.upsertElement(editableTextNode)).resolves.toBeUndefined();
     await expect(commands.upsertElements([{ ...editableTextNode, id: "node-2" }])).resolves.toBeUndefined();
 
     expect(patchWorkbench).not.toHaveBeenCalled();
     expect(executeCommandInWorkbench).not.toHaveBeenCalled();
+    expect(beginInteractionInWorkbench).not.toHaveBeenCalled();
+    expect(previewCommandInWorkbench).not.toHaveBeenCalled();
+    expect(commitInteractionInWorkbench).not.toHaveBeenCalled();
+    expect(rollbackInteractionInWorkbench).not.toHaveBeenCalled();
     expect(upsertElementInWorkbench).not.toHaveBeenCalled();
     expect(upsertElementsInWorkbench).not.toHaveBeenCalled();
   });

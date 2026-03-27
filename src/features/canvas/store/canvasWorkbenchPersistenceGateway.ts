@@ -9,19 +9,16 @@ import { getCanvasWorkbenchSnapshot } from "@/features/canvas/documentGraph";
 import type { CanvasWorkbench, CanvasWorkbenchSnapshot } from "@/types";
 
 export type StoredCanvasWorkbench = Awaited<ReturnType<typeof loadCanvasWorkbenchesByUser>>[number];
+export type CanvasWorkbenchPersistStatus =
+  | "persisted"
+  | "persist_failed"
+  | "epoch_invalidated_before_persist"
+  | "epoch_invalidated_after_persist";
 
 const pendingCanvasWorkbenchCleanupById = new Map<string, string>();
 const pendingCanvasWorkbenchRestoreSnapshots = new Map<string, CanvasWorkbenchSnapshot>();
 
-const canQueueCompensation = ({
-  epoch,
-  getResetEpoch,
-  userId,
-}: {
-  epoch: number;
-  getResetEpoch: () => number;
-  userId: string;
-}) => epoch === getResetEpoch() && getCurrentUserId() === userId;
+const canQueueCompensation = (userId: string) => userId.trim().length > 0;
 
 export const loadCanvasWorkbenchesForCurrentUser = async (): Promise<StoredCanvasWorkbench[]> => {
   return loadCanvasWorkbenchesByUser(getCurrentUserId());
@@ -45,50 +42,41 @@ export const persistCanvasWorkbenchSnapshot = async ({
   epoch: number;
   getResetEpoch: () => number;
   workbench: CanvasWorkbench;
-}): Promise<boolean> => {
+}): Promise<CanvasWorkbenchPersistStatus> => {
   if (epoch !== getResetEpoch()) {
-    return false;
+    return "epoch_invalidated_before_persist";
   }
 
   const saved = await saveCanvasWorkbench(getCanvasWorkbenchSnapshot(workbench));
   if (!saved) {
-    return false;
+    return "persist_failed";
   }
 
   if (epoch !== getResetEpoch()) {
-    await deleteCanvasWorkbench(workbench.id);
-    return false;
+    return "epoch_invalidated_after_persist";
   }
 
-  return true;
+  return "persisted";
 };
 
 export const queueCanvasWorkbenchCleanupCompensation = ({
-  epoch,
-  getResetEpoch,
   userId,
   workbenchId,
 }: {
-  epoch: number;
-  getResetEpoch: () => number;
   userId: string;
   workbenchId: string;
 }) => {
-  if (canQueueCompensation({ epoch, getResetEpoch, userId })) {
+  if (canQueueCompensation(userId)) {
     pendingCanvasWorkbenchCleanupById.set(workbenchId, userId);
   }
 };
 
 export const queueCanvasWorkbenchRestoreCompensation = ({
-  epoch,
-  getResetEpoch,
   snapshot,
 }: {
-  epoch: number;
-  getResetEpoch: () => number;
   snapshot: CanvasWorkbenchSnapshot;
 }) => {
-  if (canQueueCompensation({ epoch, getResetEpoch, userId: snapshot.ownerRef.userId })) {
+  if (canQueueCompensation(snapshot.ownerRef.userId)) {
     pendingCanvasWorkbenchRestoreSnapshots.set(snapshot.id, snapshot);
   }
 };

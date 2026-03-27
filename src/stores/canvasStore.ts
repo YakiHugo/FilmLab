@@ -53,6 +53,20 @@ export interface CanvasState extends CanvasStoreDataState {
     command: CanvasCommand,
     options?: ExecuteCommandOptions
   ) => Promise<CanvasWorkbench | null>;
+  beginInteractionInWorkbench: (workbenchId: string) => { interactionId: string } | null;
+  previewCommandInWorkbench: (
+    workbenchId: string,
+    interactionId: string,
+    command: CanvasCommand
+  ) => CanvasWorkbench | null;
+  commitInteractionInWorkbench: (
+    workbenchId: string,
+    interactionId: string
+  ) => Promise<CanvasWorkbench | null>;
+  rollbackInteractionInWorkbench: (
+    workbenchId: string,
+    interactionId: string
+  ) => CanvasWorkbench | null;
   upsertElementInWorkbench: (
     workbenchId: string,
     element: CanvasEditableElement
@@ -101,6 +115,7 @@ const createInitialCanvasStoreDataState = (): CanvasStoreDataState => ({
   activePanel: null,
   isLoading: false,
   historyByWorkbenchId: {},
+  interactionStatusByWorkbenchId: {},
 });
 
 export const useCanvasStore = create<CanvasState>()(
@@ -158,6 +173,22 @@ export const useCanvasStore = create<CanvasState>()(
           })),
         deleteWorkbench: service.deleteWorkbench,
         executeCommandInWorkbench: service.executeCommandInWorkbench,
+        beginInteractionInWorkbench: (workbenchId) =>
+          hasWorkbench(workbenchId)
+            ? service.beginInteractionInWorkbench(workbenchId)
+            : null,
+        previewCommandInWorkbench: (workbenchId, interactionId, command) =>
+          hasWorkbench(workbenchId)
+            ? service.previewCommandInWorkbench(workbenchId, interactionId, command)
+            : null,
+        commitInteractionInWorkbench: (workbenchId, interactionId) =>
+          hasWorkbench(workbenchId)
+            ? service.commitInteractionInWorkbench(workbenchId, interactionId)
+            : Promise.resolve(null),
+        rollbackInteractionInWorkbench: (workbenchId, interactionId) =>
+          hasWorkbench(workbenchId)
+            ? service.rollbackInteractionInWorkbench(workbenchId, interactionId)
+            : null,
         upsertElementInWorkbench: service.upsertElementInWorkbench,
         upsertElementsInWorkbench: service.upsertElementsInWorkbench,
         deleteNodesInWorkbench: async (workbenchId, ids) => {
@@ -271,6 +302,7 @@ on("currentUser:reset", () => {
     activeWorkbenchId: null,
     selectedElementIds: [],
     historyByWorkbenchId: {},
+    interactionStatusByWorkbenchId: {},
     viewport: { x: 0, y: 0 },
     zoom: 1,
     activePanel: null,

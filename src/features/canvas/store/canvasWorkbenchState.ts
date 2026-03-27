@@ -12,15 +12,17 @@ export type CanvasHistoryTransitionMode = "undo" | "redo";
 export type CanvasCommitStatus =
   | "committed"
   | "delete_failed"
-  | "epoch_invalidated"
+  | "epoch_invalidated_after_persist"
+  | "epoch_invalidated_before_persist"
   | "missing_target"
   | "noop"
   | "persist_failed";
 
 export type CanvasCommitOutcome<T> =
   | { status: "committed"; value: T }
+  | { status: "epoch_invalidated_after_persist"; value?: T }
   | { status: "noop"; value: T }
-  | { status: Exclude<CanvasCommitStatus, "committed" | "noop"> };
+  | { status: Exclude<CanvasCommitStatus, "committed" | "epoch_invalidated_after_persist" | "noop"> };
 
 interface BaseWorkbenchCommitDescriptor {
   workbenchId: string;
@@ -92,6 +94,14 @@ const applyCommandHistory = (
   };
 };
 
+export const appendCanvasHistoryEntry = (
+  history: CanvasHistoryState,
+  historyEntry: CanvasHistoryEntry
+): CanvasHistoryState => ({
+  past: [...history.past, historyEntry].slice(-MAX_CANVAS_HISTORY),
+  future: [],
+});
+
 const applyHistoryTransition = (
   historyByWorkbenchId: Record<string, CanvasHistoryState>,
   workbenchId: string,
@@ -133,12 +143,12 @@ export const commitCommandResultToState = (
           descriptor.trackHistory
         )
       : applyHistoryTransition(
-          state.historyByWorkbenchId,
-          descriptor.workbenchId,
-          descriptor.historyMode,
-          descriptor.historyEntry,
-          descriptor.historyState
-        );
+            state.historyByWorkbenchId,
+            descriptor.workbenchId,
+            descriptor.historyMode,
+            descriptor.historyEntry,
+            descriptor.historyState
+          );
 
   if (selectedElementIds === undefined) {
     return {
@@ -165,6 +175,9 @@ export const commitCreatedWorkbenchToState = (
   historyByWorkbenchId: {
     ...state.historyByWorkbenchId,
     [workbench.id]: createEmptyHistoryState(),
+  },
+  interactionStatusByWorkbenchId: {
+    ...state.interactionStatusByWorkbenchId,
   },
   viewport: options?.activate === false ? state.viewport : { x: 0, y: 0 },
   zoom: options?.activate === false ? state.zoom : 1,
@@ -194,6 +207,8 @@ export const commitDeletedWorkbenchToState = (
         : state.activeWorkbenchId;
   const nextHistory = { ...state.historyByWorkbenchId };
   delete nextHistory[id];
+  const nextInteractionStatus = { ...state.interactionStatusByWorkbenchId };
+  delete nextInteractionStatus[id];
   const activeChanged = nextActiveWorkbenchId !== state.activeWorkbenchId;
 
   return {
@@ -201,9 +216,32 @@ export const commitDeletedWorkbenchToState = (
     activeWorkbenchId: nextActiveWorkbenchId,
     selectedElementIds: activeChanged ? [] : state.selectedElementIds,
     historyByWorkbenchId: nextHistory,
+    interactionStatusByWorkbenchId: nextInteractionStatus,
   };
 };
 
 export const resolvePatchWorkbenchTrackHistory = (
   options?: ExecuteCommandOptions
 ) => options?.trackHistory === true;
+
+export const commitPreviewCommandResultToState = (
+  state: CanvasStoreDataState,
+  descriptor: Pick<CommandCommitDescriptor, "workbenchId" | "nextWorkbench">
+) => {
+  const history = state.historyByWorkbenchId[descriptor.workbenchId] ?? createEmptyHistoryState();
+
+  return {
+    workbenches: replaceWorkbenchInState(
+      state.workbenches,
+      descriptor.workbenchId,
+      descriptor.nextWorkbench
+    ),
+    historyByWorkbenchId: {
+      ...state.historyByWorkbenchId,
+      [descriptor.workbenchId]: {
+        past: history.past,
+        future: [],
+      },
+    },
+  };
+};

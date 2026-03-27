@@ -12,11 +12,17 @@ export interface CanvasHistoryState {
   future: CanvasHistoryEntry[];
 }
 
+export interface CanvasWorkbenchInteractionStatus {
+  active: boolean;
+  pendingCommits: number;
+  queuedMutations: number;
+}
+
 export interface ExecuteCommandOptions {
   trackHistory?: boolean;
 }
 
-export type PatchWorkbenchOptions = ExecuteCommandOptions;
+export type PatchWorkbenchOptions = Pick<ExecuteCommandOptions, "trackHistory">;
 
 export interface CreateWorkbenchOptions {
   activate?: boolean;
@@ -42,6 +48,7 @@ export interface CanvasStoreDataState {
   activePanel: CanvasFloatingPanel;
   isLoading: boolean;
   historyByWorkbenchId: Record<string, CanvasHistoryState>;
+  interactionStatusByWorkbenchId: Record<string, CanvasWorkbenchInteractionStatus>;
 }
 
 export type CanvasStoreDataUpdate =

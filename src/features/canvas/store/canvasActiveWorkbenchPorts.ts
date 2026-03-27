@@ -13,6 +13,7 @@ const noopPromiseVoid = async () => undefined;
 const noopPromiseFalse = async () => false;
 const noopPromiseNull = async () => null;
 const noopPromiseArray = async () => [] as string[];
+const noopNull = () => null;
 
 export interface CanvasActiveWorkbenchCommands {
   patchWorkbench: (
@@ -23,6 +24,10 @@ export interface CanvasActiveWorkbenchCommands {
     command: CanvasCommand,
     options?: ExecuteCommandOptions
   ) => Promise<CanvasWorkbench | null>;
+  beginInteraction: () => { interactionId: string } | null;
+  previewCommand: (interactionId: string, command: CanvasCommand) => CanvasWorkbench | null;
+  commitInteraction: (interactionId: string) => Promise<CanvasWorkbench | null>;
+  rollbackInteraction: (interactionId: string) => CanvasWorkbench | null;
   upsertElement: (element: CanvasEditableElement) => Promise<void>;
   upsertElements: (elements: CanvasEditableElement[]) => Promise<void>;
 }
@@ -62,6 +67,20 @@ export interface CanvasActiveWorkbenchCommandStoreApi {
     command: CanvasCommand,
     options?: ExecuteCommandOptions
   ) => Promise<CanvasWorkbench | null>;
+  beginInteractionInWorkbench: (workbenchId: string) => { interactionId: string } | null;
+  previewCommandInWorkbench: (
+    workbenchId: string,
+    interactionId: string,
+    command: CanvasCommand
+  ) => CanvasWorkbench | null;
+  commitInteractionInWorkbench: (
+    workbenchId: string,
+    interactionId: string
+  ) => Promise<CanvasWorkbench | null>;
+  rollbackInteractionInWorkbench: (
+    workbenchId: string,
+    interactionId: string
+  ) => CanvasWorkbench | null;
   upsertElementInWorkbench: (
     workbenchId: string,
     element: CanvasEditableElement
@@ -127,6 +146,20 @@ export const bindCanvasActiveWorkbenchCommands = ({
     workbenchId
       ? storeApi.executeCommandInWorkbench(workbenchId, command, options)
       : noopPromiseNull(),
+  beginInteraction: () =>
+    workbenchId ? storeApi.beginInteractionInWorkbench(workbenchId) : noopNull(),
+  previewCommand: (interactionId, command) =>
+    workbenchId
+      ? storeApi.previewCommandInWorkbench(workbenchId, interactionId, command)
+      : null,
+  commitInteraction: (interactionId) =>
+    workbenchId
+      ? storeApi.commitInteractionInWorkbench(workbenchId, interactionId)
+      : noopPromiseNull(),
+  rollbackInteraction: (interactionId) =>
+    workbenchId
+      ? storeApi.rollbackInteractionInWorkbench(workbenchId, interactionId)
+      : null,
   upsertElement: (element) =>
     workbenchId ? storeApi.upsertElementInWorkbench(workbenchId, element) : noopPromiseVoid(),
   upsertElements: (elements) =>

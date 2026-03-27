@@ -617,6 +617,366 @@ describe("canvasStore", () => {
     expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual(previousHistory);
   });
 
+  it("keeps interaction preview in memory only and clears redo history without persisting", () => {
+    const baselineHistory = {
+      past: [createHistoryEntry("PATCH_DOCUMENT")],
+      future: [createHistoryEntry("MOVE_NODES")],
+    };
+    useCanvasStore.setState({
+      historyByWorkbenchId: {
+        "doc-1": baselineHistory,
+      },
+    });
+    saveCanvasWorkbenchMock.mockClear();
+
+    const interaction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
+
+    expect(interaction).toEqual({
+      interactionId: expect.any(String),
+    });
+
+    const previewed = useCanvasStore.getState().previewCommandInWorkbench(
+      "doc-1",
+      interaction!.interactionId,
+      {
+        type: "MOVE_NODES",
+        ids: ["image-1"],
+        dx: 10,
+        dy: 5,
+      }
+    );
+
+    expect(previewed?.nodes["image-1"]).toMatchObject({
+      id: "image-1",
+      transform: expect.objectContaining({
+        x: 20,
+        y: 25,
+      }),
+    });
+    expect(useCanvasStore.getState().workbenches[0]?.nodes["image-1"]).toMatchObject({
+      id: "image-1",
+      transform: expect.objectContaining({
+        x: 20,
+        y: 25,
+      }),
+    });
+    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
+      past: baselineHistory.past,
+      future: [],
+    });
+    expect(saveCanvasWorkbenchMock).not.toHaveBeenCalled();
+  });
+
+  it("restores baseline history and skips persistence for a net-no-op interaction", async () => {
+    const baselineHistory = {
+      past: [createHistoryEntry("PATCH_DOCUMENT")],
+      future: [createHistoryEntry("MOVE_NODES")],
+    };
+    const baselineWorkbench = useCanvasStore.getState().workbenches[0];
+    useCanvasStore.setState({
+      historyByWorkbenchId: {
+        "doc-1": baselineHistory,
+      },
+    });
+    saveCanvasWorkbenchMock.mockClear();
+
+    const interaction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
+    if (!interaction) {
+      throw new Error("Expected interaction.");
+    }
+
+    useCanvasStore.getState().previewCommandInWorkbench("doc-1", interaction.interactionId, {
+      type: "MOVE_NODES",
+      ids: ["image-1"],
+      dx: 10,
+      dy: 0,
+    });
+    useCanvasStore.getState().previewCommandInWorkbench("doc-1", interaction.interactionId, {
+      type: "MOVE_NODES",
+      ids: ["image-1"],
+      dx: -10,
+      dy: 0,
+    });
+
+    const committed = await useCanvasStore
+      .getState()
+      .commitInteractionInWorkbench("doc-1", interaction.interactionId);
+
+    expect(committed?.nodes["image-1"]).toMatchObject({
+      id: "image-1",
+      transform: expect.objectContaining({
+        x: 10,
+        y: 20,
+      }),
+    });
+    expect(committed?.updatedAt).toBe(baselineWorkbench?.updatedAt);
+    expect(useCanvasStore.getState().workbenches[0]?.updatedAt).toBe(
+      baselineWorkbench?.updatedAt
+    );
+    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual(baselineHistory);
+    expect(saveCanvasWorkbenchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects mixed preview command types inside a single interaction", () => {
+    const interaction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
+    if (!interaction) {
+      throw new Error("Expected interaction.");
+    }
+
+    const firstPreview = useCanvasStore.getState().previewCommandInWorkbench(
+      "doc-1",
+      interaction.interactionId,
+      {
+        type: "MOVE_NODES",
+        ids: ["image-1"],
+        dx: 10,
+        dy: 0,
+      }
+    );
+
+    expect(firstPreview).not.toBeNull();
+    expect(
+      useCanvasStore.getState().previewCommandInWorkbench("doc-1", interaction.interactionId, {
+        type: "PATCH_DOCUMENT",
+        patch: {
+          name: "should-fail",
+        },
+      })
+    ).toBeNull();
+    expect(
+      useCanvasStore.getState().rollbackInteractionInWorkbench("doc-1", interaction.interactionId)
+    ).toMatchObject({
+      id: "doc-1",
+    });
+  });
+
+  it("serializes consecutive interactions and records one history entry per gesture", async () => {
+    const firstSave = createDeferred<boolean>();
+    saveCanvasWorkbenchMock.mockReset();
+    saveCanvasWorkbenchMock.mockReturnValueOnce(firstSave.promise).mockResolvedValue(true);
+
+    const firstInteraction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
+    if (!firstInteraction) {
+      throw new Error("Expected first interaction.");
+    }
+    useCanvasStore.getState().previewCommandInWorkbench("doc-1", firstInteraction.interactionId, {
+      type: "MOVE_NODES",
+      ids: ["image-1"],
+      dx: 10,
+      dy: 0,
+    });
+    const firstCommitPromise = useCanvasStore
+      .getState()
+      .commitInteractionInWorkbench("doc-1", firstInteraction.interactionId);
+
+    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
+      past: [expect.objectContaining({ commandType: "MOVE_NODES" })],
+      future: [],
+    });
+
+    const secondInteraction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
+    if (!secondInteraction) {
+      throw new Error("Expected second interaction.");
+    }
+    useCanvasStore.getState().previewCommandInWorkbench("doc-1", secondInteraction.interactionId, {
+      type: "MOVE_NODES",
+      ids: ["image-1"],
+      dx: 5,
+      dy: 0,
+    });
+    const secondCommitPromise = useCanvasStore
+      .getState()
+      .commitInteractionInWorkbench("doc-1", secondInteraction.interactionId);
+
+    await flushMicrotasks();
+
+    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
+    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
+      past: [
+        expect.objectContaining({ commandType: "MOVE_NODES" }),
+        expect.objectContaining({ commandType: "MOVE_NODES" }),
+      ],
+      future: [],
+    });
+
+    firstSave.resolve(true);
+
+    const [firstCommitted, secondCommitted] = await Promise.all([
+      firstCommitPromise,
+      secondCommitPromise,
+    ]);
+
+    expect(firstCommitted?.nodes["image-1"]).toMatchObject({
+      id: "image-1",
+      transform: expect.objectContaining({ x: 20, y: 20 }),
+    });
+    expect(secondCommitted?.nodes["image-1"]).toMatchObject({
+      id: "image-1",
+      transform: expect.objectContaining({ x: 25, y: 20 }),
+    });
+    expect(useCanvasStore.getState().workbenches[0]?.nodes["image-1"]).toMatchObject({
+      id: "image-1",
+      transform: expect.objectContaining({ x: 25, y: 20 }),
+    });
+    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rolls back the workbench and clears later pending gestures when an interaction commit fails", async () => {
+    const firstSave = createDeferred<boolean>();
+    saveCanvasWorkbenchMock.mockReset();
+    saveCanvasWorkbenchMock.mockReturnValueOnce(firstSave.promise);
+
+    const firstInteraction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
+    if (!firstInteraction) {
+      throw new Error("Expected first interaction.");
+    }
+    useCanvasStore.getState().previewCommandInWorkbench("doc-1", firstInteraction.interactionId, {
+      type: "MOVE_NODES",
+      ids: ["image-1"],
+      dx: 10,
+      dy: 0,
+    });
+    const firstCommitPromise = useCanvasStore
+      .getState()
+      .commitInteractionInWorkbench("doc-1", firstInteraction.interactionId);
+
+    const secondInteraction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
+    if (!secondInteraction) {
+      throw new Error("Expected second interaction.");
+    }
+    useCanvasStore.getState().previewCommandInWorkbench("doc-1", secondInteraction.interactionId, {
+      type: "MOVE_NODES",
+      ids: ["image-1"],
+      dx: 5,
+      dy: 0,
+    });
+    const secondCommitPromise = useCanvasStore
+      .getState()
+      .commitInteractionInWorkbench("doc-1", secondInteraction.interactionId);
+
+    await flushMicrotasks();
+    firstSave.resolve(false);
+
+    const [firstCommitted, secondCommitted] = await Promise.all([
+      firstCommitPromise,
+      secondCommitPromise,
+    ]);
+
+    expect(firstCommitted).toBeNull();
+    expect(secondCommitted).toBeNull();
+    expect(useCanvasStore.getState().workbenches[0]?.nodes["image-1"]).toMatchObject({
+      id: "image-1",
+      transform: expect.objectContaining({ x: 10, y: 20 }),
+    });
+    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
+      past: [],
+      future: [],
+    });
+    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks ordinary commands while an interaction is open", async () => {
+    const interaction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
+    if (!interaction) {
+      throw new Error("Expected interaction.");
+    }
+
+    const result = await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+      type: "PATCH_DOCUMENT",
+      patch: {
+        name: "Blocked during interaction",
+      },
+    });
+
+    expect(result).toBeNull();
+    expect(useCanvasStore.getState().workbenches[0]?.name).not.toBe("Blocked during interaction");
+    expect(saveCanvasWorkbenchMock).not.toHaveBeenCalled();
+  });
+
+  it("blocks ordinary commands while an interaction commit is still pending", async () => {
+    const firstSave = createDeferred<boolean>();
+    saveCanvasWorkbenchMock.mockReset();
+    saveCanvasWorkbenchMock.mockReturnValueOnce(firstSave.promise);
+
+    const interaction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
+    if (!interaction) {
+      throw new Error("Expected interaction.");
+    }
+    useCanvasStore.getState().previewCommandInWorkbench("doc-1", interaction.interactionId, {
+      type: "MOVE_NODES",
+      ids: ["image-1"],
+      dx: 10,
+      dy: 0,
+    });
+    const commitPromise = useCanvasStore
+      .getState()
+      .commitInteractionInWorkbench("doc-1", interaction.interactionId);
+
+    await flushMicrotasks();
+
+    const blockedCommand = await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+      type: "PATCH_DOCUMENT",
+      patch: {
+        name: "Blocked while pending",
+      },
+    });
+
+    expect(blockedCommand).toBeNull();
+    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
+
+    firstSave.resolve(true);
+    await commitPromise;
+
+    expect(useCanvasStore.getState().workbenches[0]?.name).not.toBe("Blocked while pending");
+  });
+
+  it("does not start an interaction while a queued non-interaction mutation is in flight", async () => {
+    const deferredSave = createDeferred<boolean>();
+    saveCanvasWorkbenchMock.mockReset();
+    saveCanvasWorkbenchMock.mockReturnValueOnce(deferredSave.promise);
+
+    const commandPromise = useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+      type: "PATCH_DOCUMENT",
+      patch: {
+        name: "Queued rename",
+      },
+    });
+
+    await flushMicrotasks();
+
+    expect(useCanvasStore.getState().interactionStatusByWorkbenchId["doc-1"]).toEqual({
+      active: false,
+      pendingCommits: 0,
+      queuedMutations: 1,
+    });
+    expect(useCanvasStore.getState().beginInteractionInWorkbench("doc-1")).toBeNull();
+
+    deferredSave.resolve(true);
+    await commandPromise;
+    expect(useCanvasStore.getState().interactionStatusByWorkbenchId["doc-1"]).toBeUndefined();
+  });
+
+  it("returns null when rolling back a stale interaction handle", () => {
+    const interaction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
+    if (!interaction) {
+      throw new Error("Expected interaction.");
+    }
+
+    expect(
+      useCanvasStore
+        .getState()
+        .rollbackInteractionInWorkbench("doc-1", "stale-interaction-id")
+    ).toBeNull();
+
+    expect(
+      useCanvasStore
+        .getState()
+        .rollbackInteractionInWorkbench("doc-1", interaction.interactionId)
+    ).toMatchObject({
+      id: "doc-1",
+    });
+  });
+
   it("serializes commands on the same workbench so later commits see the latest state", async () => {
     const firstSave = createDeferred<boolean>();
     saveCanvasWorkbenchMock.mockReset();
@@ -903,7 +1263,9 @@ describe("canvasStore", () => {
 
     const [commandResult, created] = await Promise.all([commandPromise, createPromise]);
 
-    expect(commandResult).toBeNull();
+    expect(commandResult).toMatchObject({
+      id: "doc-1",
+    });
     expect(created).toBeNull();
     expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
     expect(useCanvasStore.getState().workbenches).toEqual([]);
@@ -933,7 +1295,9 @@ describe("canvasStore", () => {
 
     const [commandResult, deleted] = await Promise.all([commandPromise, deletePromise]);
 
-    expect(commandResult).toBeNull();
+    expect(commandResult).toMatchObject({
+      id: "doc-1",
+    });
     expect(deleted).toBe(false);
     expect(deleteCanvasWorkbenchMock).not.toHaveBeenCalledWith(queuedDeleteId);
     expect(useCanvasStore.getState().workbenches).toEqual([]);

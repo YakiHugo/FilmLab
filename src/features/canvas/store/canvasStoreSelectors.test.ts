@@ -54,6 +54,7 @@ const createState = (): CanvasStoreDataState => ({
       ],
     },
   },
+  interactionStatusByWorkbenchId: {},
 });
 
 describe("canvasStoreSelectors", () => {
@@ -80,6 +81,35 @@ describe("canvasStoreSelectors", () => {
     expect(selectCanRedoInWorkbench(state, "workbench-2")).toBe(true);
     expect(selectCanUndoInWorkbench(state, null)).toBe(false);
     expect(selectCanRedoInWorkbench(state, null)).toBe(false);
+  });
+
+  it("suppresses undo and redo while interaction history is still pending", () => {
+    const state = createState();
+    state.interactionStatusByWorkbenchId["workbench-1"] = {
+      active: false,
+      pendingCommits: 1,
+      queuedMutations: 0,
+    };
+    state.interactionStatusByWorkbenchId["workbench-2"] = {
+      active: true,
+      pendingCommits: 0,
+      queuedMutations: 0,
+    };
+
+    expect(selectCanUndoInWorkbench(state, "workbench-1")).toBe(false);
+    expect(selectCanRedoInWorkbench(state, "workbench-2")).toBe(false);
+  });
+
+  it("suppresses undo and redo while queued mutations still block interactions", () => {
+    const state = createState();
+    state.interactionStatusByWorkbenchId["workbench-1"] = {
+      active: false,
+      pendingCommits: 0,
+      queuedMutations: 1,
+    };
+
+    expect(selectCanUndoInWorkbench(state, "workbench-1")).toBe(false);
+    expect(selectCanRedoInWorkbench(state, "workbench-1")).toBe(false);
   });
 
   it("treats missing active workbench ids as unavailable history", () => {
