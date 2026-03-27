@@ -1,12 +1,14 @@
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import { ensureAssetLayers } from "@/lib/editorLayers";
-import { getBuiltInFilmProfile } from "@/lib/film";
+import { buildRenderDocumentDependencyKey } from "@/features/editor/renderDependencies";
 import type { RenderIntent } from "@/lib/renderIntent";
+import {
+  legacyEditingAdjustmentsToImageRenderDocument,
+  renderSingleImageToCanvas,
+  type ImageRenderDocument,
+} from "@/render/image";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
 import type { Asset, CanvasImageElement, EditingAdjustments } from "@/types";
-import { createRenderDocument, type RenderDocument } from "@/features/editor/document";
-import { renderDocumentToCanvas } from "@/features/editor/renderDocumentCanvas";
-import { applyCanvasImagePostProcessing } from "./canvasImagePostProcessing";
 
 export type BoardPreviewPriority = "interactive" | "background";
 
@@ -19,7 +21,7 @@ export interface CanvasImageRenderContext {
   adjustments: EditingAdjustments;
   cacheKey: string;
   filmProfile: Asset["filmProfile"] | undefined;
-  renderDocument: RenderDocument;
+  imageDocument: ImageRenderDocument;
   renderVariant: BoardPreviewPriority;
   targetSize: CanvasImageRenderTargetSize;
   timestampText: string | null;
@@ -28,7 +30,7 @@ export interface CanvasImageRenderContext {
 export interface CanvasImageDocumentRenderContext {
   adjustments: EditingAdjustments;
   filmProfile: Asset["filmProfile"] | undefined;
-  renderDocument: RenderDocument;
+  imageDocument: ImageRenderDocument;
   timestampText: string | null;
 }
 
@@ -54,28 +56,6 @@ const resolveBucketedPreviewDimension = (value: number, maxDimension: number) =>
   const clamped = Math.max(128, Math.min(maxDimension, value));
   const bucket = PREVIEW_TARGET_BUCKETS.find((candidate) => candidate >= clamped);
   return Math.min(maxDimension, bucket ?? maxDimension);
-};
-
-const hashString = (value: string) => {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16);
-};
-
-const resolveCanvasImageFilmProfile = (element: CanvasImageElement, asset: Asset) => {
-  if (element.filmProfileId) {
-    return getBuiltInFilmProfile(element.filmProfileId) ?? undefined;
-  }
-  if (asset.filmProfile) {
-    return asset.filmProfile;
-  }
-  if (asset.filmProfileId) {
-    return getBuiltInFilmProfile(asset.filmProfileId) ?? undefined;
-  }
-  return undefined;
 };
 
 export const resolveCanvasImageAdjustments = (
@@ -133,21 +113,17 @@ export const createCanvasImageDocumentRenderContext = ({
   element: CanvasImageElement;
 }): CanvasImageDocumentRenderContext => {
   const adjustments = resolveCanvasImageAdjustments(element, asset, draftAdjustments);
-  const filmProfile = resolveCanvasImageFilmProfile(element, asset);
-  const renderDocument = createRenderDocument({
-    key: `board:${element.id}`,
-    assetById,
-    documentAsset: asset,
-    layers: ensureAssetLayers(asset),
+  const imageDocument = legacyEditingAdjustmentsToImageRenderDocument({
+    id: `board:${element.id}`,
+    asset,
     adjustments,
-    filmProfile,
-    showOriginal: false,
+    filmProfileId: element.filmProfileId,
   });
 
   return {
     adjustments,
-    filmProfile,
-    renderDocument,
+    filmProfile: imageDocument.film.profile,
+    imageDocument,
     timestampText: resolveAssetTimestampText(asset.metadata, asset.createdAt),
   };
 };
@@ -174,13 +150,17 @@ export const createCanvasImageRenderContext = ({
     element,
   });
   const targetSize = resolveCanvasImagePreviewTargetSize(element, priority, viewportScale);
+  const dependencyKey = buildRenderDocumentDependencyKey(
+    documentContext.imageDocument.id,
+    assetById,
+    ensureAssetLayers(asset)
+  );
   const cacheKey = [
     `variant:${priority}`,
-    documentContext.renderDocument.documentKey,
-    documentContext.renderDocument.renderGraph.key,
+    dependencyKey,
+    documentContext.imageDocument.revisionKey,
     `${targetSize.width}x${targetSize.height}`,
-    hashString(JSON.stringify(documentContext.adjustments)),
-    documentContext.filmProfile?.id ?? asset.filmProfileId ?? "none",
+    documentContext.filmProfile?.id ?? "none",
   ].join("|");
 
   return {
@@ -223,18 +203,22 @@ export const renderCanvasImageElementToCanvas = async ({
     viewportScale,
   });
 
-  await renderDocumentToCanvas({
+  await renderSingleImageToCanvas({
     canvas,
-    document: context.renderDocument,
-    intent,
-    targetSize: context.targetSize,
-    timestampText: context.timestampText,
-    strictErrors: intent === "export-full",
-    signal,
-    renderSlotPrefix,
+    document: context.imageDocument,
+    request: {
+      intent: intent === "export-full" ? "export" : "preview",
+      quality: priority === "interactive" ? "interactive" : "full",
+      targetSize: context.targetSize,
+      timestampText: context.timestampText,
+      signal,
+      renderSlotId: renderSlotPrefix,
+    },
+    runtime: {
+      asset,
+      assetById,
+    },
   });
-
-  applyCanvasImagePostProcessing(canvas, context.adjustments);
 
   return context;
 };

@@ -1,0 +1,36 @@
+{
+  "baseline": "single-image-render-kernel",
+  "current": "after-develop-and-analysis",
+  "tasks": [
+    {
+      "id": "contracts-and-legacy-adapter",
+      "status": "done",
+      "passes": [
+        "pnpm exec vitest --run src/render/image/types.test.ts src/render/image/legacyAdapter.test.ts"
+      ]
+    },
+    {
+      "id": "canvas-single-image-rewire",
+      "status": "done",
+      "passes": [
+        "preview and single-image export both call renderSingleImage",
+        "pnpm exec vitest --run src/render/image/renderSingleImage.test.ts src/features/canvas/boardImageRendering.test.ts src/features/canvas/renderCanvasDocument.test.ts",
+        "pnpm exec tsc -p tsconfig.json --noEmit"
+      ]
+    },
+    {
+      "id": "ascii-effect-execution",
+      "status": "done",
+      "passes": [
+        "ascii node executes through the new effect stack"
+      ]
+    },
+    {
+      "id": "after-develop-and-analysis",
+      "status": "pending",
+      "passes": [
+        "single-image runtime supports afterDevelop effects with explicit analysis inputs"
+      ]
+    }
+  ]
+}

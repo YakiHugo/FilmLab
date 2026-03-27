@@ -152,4 +152,53 @@ describe("boardImageRendering", () => {
     expect(context.adjustments.exposure).toBe(24);
     expect(context.filmProfile?.id).toBe("film-portrait-soft-v1");
   });
+
+  it("invalidates preview cache keys when referenced texture assets change", () => {
+    const element = createElement();
+    const textureA = createAsset({
+      id: "texture-1",
+      objectUrl: "blob:texture-a",
+      contentHash: "texture-a",
+    });
+    const textureB = createAsset({
+      id: "texture-1",
+      objectUrl: "blob:texture-b",
+      contentHash: "texture-b",
+    });
+    const asset = createAsset({
+      layers: [
+        {
+          id: "texture-layer-1",
+          name: "Texture 1",
+          type: "texture",
+          visible: true,
+          opacity: 100,
+          blendMode: "overlay",
+          textureAssetId: "texture-1",
+        } as Asset["layers"][number],
+      ],
+    });
+
+    const first = createCanvasImageRenderContext({
+      asset,
+      assetById: new Map([
+        [asset.id, asset],
+        [textureA.id, textureA],
+      ]),
+      element,
+      priority: "interactive",
+    });
+    const second = createCanvasImageRenderContext({
+      asset,
+      assetById: new Map([
+        [asset.id, asset],
+        [textureB.id, textureB],
+      ]),
+      element,
+      priority: "interactive",
+    });
+
+    expect(first.imageDocument.revisionKey).toBe(second.imageDocument.revisionKey);
+    expect(first.cacheKey).not.toBe(second.cacheKey);
+  });
 });

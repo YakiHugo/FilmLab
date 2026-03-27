@@ -1,15 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import { renderSingleImageToCanvas } from "@/render/image";
 import type { Asset, CanvasWorkbench } from "@/types";
 import { normalizeCanvasWorkbench } from "./studioPresets";
 import { cropRenderedCanvasSlice, renderCanvasWorkbenchToCanvas } from "./renderCanvasWorkbench";
 
-const renderDocumentToCanvasMock = vi.fn();
 const releaseRenderSlotsMock = vi.fn();
-
-vi.mock("@/features/editor/renderDocumentCanvas", () => ({
-  renderDocumentToCanvas: (...args: unknown[]) => renderDocumentToCanvasMock(...args),
-}));
+vi.mock("@/render/image", async () => {
+  const actual = await vi.importActual<typeof import("@/render/image")>("@/render/image");
+  return {
+    ...actual,
+    renderSingleImageToCanvas: vi.fn(),
+  };
+});
 
 vi.mock("@/lib/imageProcessing", () => ({
   releaseRenderSlots: (...args: unknown[]) => releaseRenderSlotsMock(...args),
@@ -247,7 +250,7 @@ const createNestedVisibilityDocument = (): CanvasWorkbench =>
 describe("renderCanvasWorkbench", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    renderDocumentToCanvasMock.mockResolvedValue(undefined);
+    vi.mocked(renderSingleImageToCanvas).mockResolvedValue({ revisionKey: "revision-1" });
     releaseRenderSlotsMock.mockResolvedValue(undefined);
   });
 
@@ -274,13 +277,19 @@ describe("renderCanvasWorkbench", () => {
       width: 2000,
     });
 
-    expect(renderDocumentToCanvasMock).toHaveBeenCalledTimes(1);
-    expect(renderDocumentToCanvasMock.mock.calls[0]?.[0]).toMatchObject({
-      intent: "export-full",
-      renderSlotPrefix: "board-export",
-      targetSize: {
-        width: 400,
-        height: 200,
+    expect(renderSingleImageToCanvas).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(renderSingleImageToCanvas).mock.calls[0]?.[0]).toMatchObject({
+      request: {
+        intent: "export",
+        quality: "full",
+        renderSlotId: "board-export",
+        targetSize: {
+          width: 400,
+          height: 200,
+        },
+      },
+      runtime: {
+        asset: expect.objectContaining({ id: "asset-1" }),
       },
     });
     expect(mainContext.drawImage).toHaveBeenCalled();
@@ -340,7 +349,7 @@ describe("renderCanvasWorkbench", () => {
       width: 2000,
     });
 
-    expect(renderDocumentToCanvasMock).not.toHaveBeenCalled();
+    expect(renderSingleImageToCanvas).not.toHaveBeenCalled();
     expect(mainContext.fillText).toHaveBeenCalledWith("Visible copy", 0, 0);
     expect(mainContext.fillText).toHaveBeenCalledTimes(1);
   });

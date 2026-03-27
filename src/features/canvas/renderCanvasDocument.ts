@@ -1,5 +1,5 @@
-import { renderDocumentToCanvas } from "@/features/editor/renderDocumentCanvas";
 import { releaseRenderSlots } from "@/lib/imageProcessing";
+import { renderSingleImageToCanvas } from "@/render/image";
 import type {
   Asset,
   CanvasWorkbench,
@@ -10,7 +10,6 @@ import type {
   CanvasTextElement,
 } from "@/types";
 import { createCanvasImageDocumentRenderContext } from "./boardImageRendering";
-import { applyCanvasImagePostProcessing } from "./canvasImagePostProcessing";
 import {
   CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER,
   fitCanvasTextElementToContent,
@@ -199,19 +198,24 @@ const drawImageElement = async ({
       element,
     });
 
-    await renderDocumentToCanvas({
+    await renderSingleImageToCanvas({
       canvas: imageCanvas,
-      document: renderContext.renderDocument,
-      intent: "export-full",
-      targetSize: {
-        width: Math.max(1, Math.round(element.width * outputScale.x)),
-        height: Math.max(1, Math.round(element.height * outputScale.y)),
+      document: renderContext.imageDocument,
+      request: {
+        intent: "export",
+        quality: "full",
+        targetSize: {
+          width: Math.max(1, Math.round(element.width * outputScale.x)),
+          height: Math.max(1, Math.round(element.height * outputScale.y)),
+        },
+        timestampText: renderContext.timestampText,
+        renderSlotId: EXPORT_RENDER_SLOT_PREFIX,
       },
-      timestampText: renderContext.timestampText,
-      strictErrors: true,
-      renderSlotPrefix: EXPORT_RENDER_SLOT_PREFIX,
+      runtime: {
+        asset,
+        assetById,
+      },
     });
-    applyCanvasImagePostProcessing(imageCanvas, renderContext.adjustments);
 
     withElementTransform(context, element, () => {
       context.drawImage(imageCanvas, 0, 0, element.width, element.height);
