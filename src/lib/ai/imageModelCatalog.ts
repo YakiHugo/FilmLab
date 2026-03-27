@@ -6,13 +6,17 @@ import type {
 } from "../../../shared/imageModelCatalog";
 import type {
   ImageAspectRatio,
-  ImageGenerationAssetRef,
+  ImageGenerationOperation,
+  ImageInputAssetBinding,
   ImagePromptIntentInput,
   ImageStyleId,
-  ReferenceImage,
 } from "@/types/imageGeneration";
 import type { ImageModelParamValue } from "@/lib/ai/imageModelParams";
 import { IMAGE_GENERATION_LIMITS } from "@/lib/ai/imageGenerationSchema";
+import {
+  countExecutableInputAssetsForPromptCompiler,
+  dedupeImageInputAssets,
+} from "@/types/imageGeneration";
 
 export type ImageModelCatalog = ImageModelCatalogResponse;
 export type ImageModelCatalogEntry = FrontendImageModelCatalogEntry;
@@ -38,8 +42,8 @@ export interface CatalogDrivenGenerationConfig {
   stylePreset: string;
   negativePrompt: string;
   promptIntent: ImagePromptIntentInput;
-  referenceImages: ReferenceImage[];
-  assetRefs: ImageGenerationAssetRef[];
+  operation: ImageGenerationOperation;
+  inputAssets: ImageInputAssetBinding[];
   seed: number | null;
   guidanceScale: number | null;
   steps: number | null;
@@ -181,8 +185,8 @@ export const createDefaultGenerationConfig = (
     continuityTargets: [],
     editOps: [],
   },
-  referenceImages: [],
-  assetRefs: [],
+  operation: "generate",
+  inputAssets: [],
   seed: model.defaults.seed,
   guidanceScale: model.defaults.guidanceScale,
   steps: model.defaults.steps,
@@ -204,6 +208,45 @@ export const sanitizeGenerationConfigWithCatalog = (
     ? config.aspectRatio
     : model.defaults.aspectRatio;
   const featureSupport = toCatalogFeatureSupport(model);
+  const dedupedInputAssets = dedupeImageInputAssets(config.inputAssets);
+  const sourceInputAssets = dedupedInputAssets.filter((entry) => entry.binding === "source");
+  const guideCandidates = dedupedInputAssets
+    .filter((entry) => entry.binding === "guide")
+    .map((entry) => {
+      if (!featureSupport.referenceImages.enabled) {
+        return {
+          ...entry,
+          guideType: entry.guideType ?? "content",
+          weight: clampNullableNumber(entry.weight ?? 1, 0, 1) ?? 1,
+        };
+      }
+
+      return {
+        ...entry,
+        guideType:
+          entry.guideType &&
+          featureSupport.referenceImages.supportedTypes.includes(entry.guideType)
+            ? entry.guideType
+            : featureSupport.referenceImages.supportedTypes[0] ?? "content",
+        weight: featureSupport.referenceImages.supportsWeight
+          ? clampNullableNumber(entry.weight ?? 1, 0, 1) ?? 1
+          : 1,
+      };
+    });
+  const guideInputAssets = featureSupport.referenceImages.enabled
+    ? guideCandidates.reduce<typeof guideCandidates>((accepted, entry) => {
+        const nextAccepted = [...accepted, entry];
+        const executableInputAssetCount = countExecutableInputAssetsForPromptCompiler({
+          operation: config.operation,
+          inputAssets: [...sourceInputAssets, ...nextAccepted],
+          promptCompiler: model.promptCompiler,
+        });
+        if (executableInputAssetCount > featureSupport.referenceImages.maxImages) {
+          return accepted;
+        }
+        return nextAccepted;
+      }, [])
+    : guideCandidates;
   const next: CatalogDrivenGenerationConfig = {
     ...config,
     modelId: model.id,
@@ -256,26 +299,14 @@ export const sanitizeGenerationConfigWithCatalog = (
     },
     style: featureSupport.styles ? config.style : "none",
     stylePreset: featureSupport.styles ? config.stylePreset : "",
-    assetRefs: [...config.assetRefs],
+    operation: config.operation,
+    inputAssets: [...sourceInputAssets, ...guideInputAssets],
     modelParams: Object.fromEntries(
       model.parameterDefinitions.map((definition) => [
         definition.key,
         config.modelParams[definition.key] ?? model.defaults.modelParams[definition.key],
       ])
     ),
-    referenceImages: featureSupport.referenceImages.enabled
-      ? config.referenceImages
-          .slice(0, featureSupport.referenceImages.maxImages)
-          .map((entry) => ({
-            ...entry,
-            type: featureSupport.referenceImages.supportedTypes.includes(entry.type)
-              ? entry.type
-              : featureSupport.referenceImages.supportedTypes[0] ?? "content",
-            weight: featureSupport.referenceImages.supportsWeight
-              ? clampNullableNumber(entry.weight ?? 1, 0, 1) ?? 1
-              : 1,
-          }))
-      : [],
   };
 
   if (!model.constraints.supportsCustomSize) {

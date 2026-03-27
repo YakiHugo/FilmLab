@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { ImageLabObservabilityView } from "../../../../shared/imageLabViews";
 import {
   invalidatePromptObservabilityState,
-  RETRY_REFERENCE_IMAGES_OMITTED_WARNING,
-  omitUnavailableReferenceImages,
   shouldFetchPromptArtifacts,
   shouldFetchPromptObservability,
 } from "./useImageGeneration";
@@ -13,7 +11,7 @@ import {
 } from "./imageLabViewState";
 
 describe("image generation request snapshots", () => {
-  it("restores reference-only asset ref metadata from conversation request views", () => {
+  it("maps legacy request views into the new operation plus inputAssets model", () => {
     const config = toGenerationConfigFromRequest({
       modelId: "qwen-image-2-pro",
       aspectRatio: "1:1",
@@ -29,19 +27,25 @@ describe("image generation request snapshots", () => {
         continuityTargets: [],
         editOps: [],
       },
-      referenceImages: [],
+      operation: "generate",
+      inputAssets: undefined as never,
+      referenceImages: [
+        {
+          id: "ref-1",
+          fileName: "guide.png",
+          type: "style",
+          weight: 0.35,
+          sourceAssetId: "asset-guide-1",
+        },
+      ],
       assetRefs: [
         {
-          assetId: "asset-reference",
+          assetId: "asset-guide-1",
           role: "reference",
-          referenceType: "style",
-          weight: 0.35,
         },
         {
-          assetId: "asset-edit",
+          assetId: "asset-source-1",
           role: "edit",
-          referenceType: "controlnet",
-          weight: 0.8,
         },
       ],
       seed: null,
@@ -50,25 +54,24 @@ describe("image generation request snapshots", () => {
       sampler: "",
       batchSize: 1,
       modelParams: {},
-    });
+    } as never);
 
-    expect(config.assetRefs).toEqual([
+    expect(config.operation).toBe("edit");
+    expect(config.inputAssets).toEqual([
       {
-        assetId: "asset-reference",
-        role: "reference",
-        referenceType: "style",
+        assetId: "asset-guide-1",
+        binding: "guide",
+        guideType: "style",
         weight: 0.35,
       },
       {
-        assetId: "asset-edit",
-        role: "edit",
-        referenceType: "controlnet",
-        weight: 0.8,
+        assetId: "asset-source-1",
+        binding: "source",
       },
     ]);
   });
 
-  it("preserves reference image urls through request view normalization", () => {
+  it("preserves new request view bindings without reintroducing legacy fields", () => {
     const config = toGenerationConfigFromRequest({
       modelId: "qwen-image-2-pro",
       aspectRatio: "1:1",
@@ -84,15 +87,16 @@ describe("image generation request snapshots", () => {
         continuityTargets: [],
         editOps: [],
       },
-      referenceImages: [
+      operation: "variation",
+      inputAssets: [
+        { assetId: "asset-source-1", binding: "source" },
         {
-          id: "ref-1",
-          url: "data:image/png;base64,AAA",
-          type: "content",
-          sourceAssetId: "thread-asset-1",
+          assetId: "asset-guide-1",
+          binding: "guide",
+          guideType: "content",
+          weight: 0.8,
         },
       ],
-      assetRefs: [{ assetId: "thread-asset-1", role: "reference" }],
       seed: null,
       guidanceScale: null,
       steps: null,
@@ -103,121 +107,22 @@ describe("image generation request snapshots", () => {
       },
     });
 
-    expect(config.referenceImages).toEqual([
-      expect.objectContaining({
-        id: "ref-1",
-        url: "data:image/png;base64,AAA",
-        sourceAssetId: "thread-asset-1",
-      }),
+    expect(config.operation).toBe("variation");
+    expect(config.inputAssets).toEqual([
+      { assetId: "asset-source-1", binding: "source" },
+      {
+        assetId: "asset-guide-1",
+        binding: "guide",
+        guideType: "content",
+        weight: 0.8,
+      },
     ]);
 
     const request = toImageGenerationRequest("Rainy alley", config);
-    expect(request.referenceImages).toEqual([
-      expect.objectContaining({
-        id: "ref-1",
-        url: "data:image/png;base64,AAA",
-        sourceAssetId: "thread-asset-1",
-      }),
-    ]);
-  });
-
-  it("warns when historical reference image urls are unavailable", () => {
-    const resolved = omitUnavailableReferenceImages(
-      toGenerationConfigFromRequest({
-      modelId: "qwen-image-2-pro",
-      aspectRatio: "1:1",
-      width: null,
-      height: null,
-      style: "none",
-      stylePreset: "",
-      negativePrompt: "",
-      promptIntent: {
-        preserve: [],
-        avoid: [],
-        styleDirectives: [],
-        continuityTargets: [],
-        editOps: [],
-      },
-      referenceImages: [
-        {
-          id: "ref-1",
-          fileName: "missing.png",
-          type: "content",
-        },
-      ],
-      assetRefs: [],
-      seed: null,
-      guidanceScale: null,
-      steps: null,
-      sampler: "",
-      batchSize: 1,
-      modelParams: {
-        promptExtend: true,
-      },
-    })
-    );
-
-    expect(resolved.config.referenceImages).toEqual([]);
-    expect(resolved.warnings).toEqual([RETRY_REFERENCE_IMAGES_OMITTED_WARNING]);
-  });
-
-  it("drops unavailable reference images from legacy config retries and keeps valid refs", () => {
-    const resolved = omitUnavailableReferenceImages({
-      modelId: "qwen-image-2-pro",
-      aspectRatio: "1:1",
-      width: 1024,
-      height: 1024,
-      style: "none",
-      stylePreset: "",
-      negativePrompt: "",
-      promptIntent: {
-        preserve: [],
-        avoid: [],
-        styleDirectives: [],
-        continuityTargets: [],
-        editOps: [],
-      },
-      referenceImages: [
-        {
-          id: "missing-ref",
-          url: "",
-          type: "content",
-          sourceAssetId: "thread-asset-1",
-        },
-        {
-          id: "usable-ref",
-          url: "data:image/png;base64,AAA",
-          type: "content",
-          sourceAssetId: "thread-asset-2",
-        },
-      ],
-      assetRefs: [
-        { assetId: "thread-asset-1", role: "reference" },
-        { assetId: "thread-asset-2", role: "reference" },
-        { assetId: "thread-asset-edit", role: "edit" },
-      ],
-      seed: null,
-      guidanceScale: null,
-      steps: null,
-      sampler: "",
-      batchSize: 1,
-      modelParams: {
-        promptExtend: true,
-      },
-    });
-
-    expect(resolved.warnings).toEqual([RETRY_REFERENCE_IMAGES_OMITTED_WARNING]);
-    expect(resolved.config.referenceImages).toEqual([
-      expect.objectContaining({
-        id: "usable-ref",
-        url: "data:image/png;base64,AAA",
-        sourceAssetId: "thread-asset-2",
-      }),
-    ]);
-    expect(resolved.config.assetRefs).toEqual([
-      { assetId: "thread-asset-2", role: "reference" },
-      { assetId: "thread-asset-edit", role: "edit" },
-    ]);
+    expect(request.operation).toBe("variation");
+    expect(request.inputAssets).toEqual(config.inputAssets);
+    expect("referenceImages" in (request as Record<string, unknown>)).toBe(false);
+    expect("assetRefs" in (request as Record<string, unknown>)).toBe(false);
   });
 
   it("only fetches prompt artifacts lazily when they are not already cached", () => {

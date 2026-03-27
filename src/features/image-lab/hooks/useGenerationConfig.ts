@@ -18,11 +18,7 @@ export function useGenerationConfig() {
   const initializeFromModel = useGenerationConfigStore((state) => state.initializeFromModel);
   const setModelInStore = useGenerationConfigStore((state) => state.setModel);
   const updateConfigInStore = useGenerationConfigStore((state) => state.updateConfig);
-  const addReferenceImagesInStore = useGenerationConfigStore((state) => state.addReferenceImages);
-  const updateReferenceImageInStore = useGenerationConfigStore((state) => state.updateReferenceImage);
-  const removeReferenceImageInStore = useGenerationConfigStore((state) => state.removeReferenceImage);
-  const clearReferenceImagesInStore = useGenerationConfigStore((state) => state.clearReferenceImages);
-  const setAssetRefsInStore = useGenerationConfigStore((state) => state.setAssetRefs);
+  const setInputAssetsInStore = useGenerationConfigStore((state) => state.setInputAssets);
 
   const visibleModels = useMemo(() => catalog?.models ?? [], [catalog?.models]);
   const selectedModel = useMemo(
@@ -82,15 +78,7 @@ export function useGenerationConfig() {
     },
     updateConfig: (patch: Parameters<typeof updateConfigInStore>[0]) =>
       updateConfigInStore(patch, selectedModel),
-    addReferenceImages: (entries: Parameters<typeof addReferenceImagesInStore>[0]) =>
-      addReferenceImagesInStore(entries, selectedModel),
-    updateReferenceImage: (
-      id: string,
-      patch: Parameters<typeof updateReferenceImageInStore>[1]
-    ) => updateReferenceImageInStore(id, patch, selectedModel),
-    removeReferenceImage: (id: string) => removeReferenceImageInStore(id, selectedModel),
-    clearReferenceImages: () => clearReferenceImagesInStore(selectedModel),
-    setAssetRefs: (assetRefs: Parameters<typeof setAssetRefsInStore>[0]) =>
-      setAssetRefsInStore(assetRefs, selectedModel),
+    setInputAssets: (inputAssets: Parameters<typeof setInputAssetsInStore>[0]) =>
+      setInputAssetsInStore(inputAssets, selectedModel),
   };
 }

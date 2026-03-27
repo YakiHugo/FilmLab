@@ -3,7 +3,6 @@ import type { FrontendImageModelId } from "../../shared/imageModelCatalog";
 import { getImageModelCapabilityFactByModelId } from "../../shared/imageModelCapabilityFacts";
 import { getDefaultImageModelParams, getImageModelParamDefinitions } from "@/lib/ai/imageModelParams";
 import type { ImageModelCatalogEntry } from "@/lib/ai/imageModelCatalog";
-import type { ReferenceImage } from "@/types/imageGeneration";
 import type { GenerationConfig } from "./generationConfigStore";
 import { sanitizeGenerationConfig } from "./generationConfigStore";
 
@@ -61,9 +60,6 @@ const createModelFixture = (
 };
 
 const seedreamModel = createModelFixture("seedream-v5", {
-  logicalModel: "image.seedream.v5",
-  deploymentId: "ark-seedream-v5-primary",
-  providerModel: "doubao-seedream-5-0-260128",
   constraints: {
     supportsCustomSize: false,
     supportedAspectRatios: ["1:1", "16:9", "9:16"],
@@ -79,11 +75,6 @@ const seedreamModel = createModelFixture("seedream-v5", {
 });
 
 const qwenModel = createModelFixture("qwen-image-2-pro", {
-  logicalModel: "image.qwen.v2.pro",
-  modelFamily: "qwen",
-  defaultProvider: "dashscope",
-  deploymentId: "dashscope-qwen-image-2-pro-primary",
-  providerModel: "qwen-image-2.0-pro",
   constraints: {
     supportsCustomSize: true,
     supportedAspectRatios: ["1:1", "16:9", "9:16", "custom"],
@@ -96,113 +87,55 @@ const qwenModel = createModelFixture("qwen-image-2-pro", {
     },
     unsupportedFields: ["guidanceScale", "steps"],
   },
-  defaults: {
-    aspectRatio: "1:1",
-    width: 1024,
-    height: 1024,
-    batchSize: 1,
-    negativePrompt: "",
-    style: "none",
-    stylePreset: "",
-    seed: null,
-    guidanceScale: null,
-    steps: null,
-    sampler: "",
-    modelParams: getDefaultImageModelParams("qwen-image-2-pro"),
-  },
-});
-
-const zimageModel = createModelFixture("zimage-turbo", {
-  logicalModel: "image.zimage.turbo",
-  modelFamily: "zimage",
-  defaultProvider: "dashscope",
-  deploymentId: "dashscope-zimage-turbo-primary",
-  providerModel: "z-image-turbo",
-  constraints: {
-    supportsCustomSize: false,
-    supportedAspectRatios: ["1:1", "16:9"],
-    maxBatchSize: 1,
-    referenceImages: {
-      enabled: false,
-      maxImages: 0,
-      supportedTypes: [],
-      supportsWeight: false,
-    },
-    unsupportedFields: ["negativePrompt"],
-  },
-});
-
-const klingModel = createModelFixture("kling-v3", {
-  logicalModel: "image.kling.v3",
-  modelFamily: "kling",
-  defaultProvider: "kling",
-  deploymentId: "kling-kling-v3-primary",
-  providerModel: "kling-v3",
-  constraints: {
-    supportsCustomSize: false,
-    supportedAspectRatios: ["1:1", "16:9", "21:9"],
-    maxBatchSize: 9,
-    referenceImages: {
-      enabled: false,
-      maxImages: 0,
-      supportedTypes: [],
-      supportsWeight: false,
-    },
-    unsupportedFields: ["seed"],
-  },
 });
 
 const createConfig = (
   modelId: FrontendImageModelId,
   patch: Partial<GenerationConfig> = {}
-): GenerationConfig => {
-  const { assetRefs, referenceImages, ...restPatch } = patch;
-
-  return {
-    modelId,
-    aspectRatio: "custom",
-    width: 1024,
-    height: 1024,
-    style: "cinematic",
-    stylePreset: "",
-    negativePrompt: "",
-    promptIntent: {
-      preserve: [],
-      avoid: [],
-      styleDirectives: [],
-      continuityTargets: [],
-      editOps: [],
-    },
-    referenceImages: referenceImages ?? [],
-    assetRefs: assetRefs ?? [],
-    seed: null,
-    guidanceScale: null,
-    steps: null,
-    sampler: "",
-    batchSize: 1,
-    modelParams: getDefaultImageModelParams(modelId),
-    ...restPatch,
-  };
-};
+): GenerationConfig => ({
+  modelId,
+  aspectRatio: "custom",
+  width: 1024,
+  height: 1024,
+  style: "cinematic",
+  stylePreset: "",
+  negativePrompt: "",
+  promptIntent: {
+    preserve: [],
+    avoid: [],
+    styleDirectives: [],
+    continuityTargets: [],
+    editOps: [],
+  },
+  operation: "generate",
+  inputAssets: [],
+  seed: null,
+  guidanceScale: null,
+  steps: null,
+  sampler: "",
+  batchSize: 1,
+  modelParams: getDefaultImageModelParams(modelId),
+  ...patch,
+});
 
 describe("sanitizeGenerationConfig", () => {
-  it("drops unsupported explicit sizes and controls from catalog constraints", () => {
-    const referenceImages: ReferenceImage[] = [
-      {
-        id: "ref-1",
-        url: "data:image/png;base64,abc",
-        type: "content",
-        weight: 0.25,
-      },
-    ];
-
+  it("drops unsupported explicit sizes and controls while preserving asset handles for compiler fallback", () => {
     const sanitized = sanitizeGenerationConfig(
       createConfig("seedream-v5", {
         aspectRatio: "16:9",
         width: 1536,
         height: 864,
         negativePrompt: "avoid blur",
-        referenceImages,
+        operation: "edit",
+        inputAssets: [
+          { assetId: "asset-source-1", binding: "source" },
+          {
+            assetId: "asset-guide-1",
+            binding: "guide",
+            guideType: "style",
+            weight: 0.25,
+          },
+        ],
         seed: 42,
         guidanceScale: 12,
         steps: 35,
@@ -210,18 +143,25 @@ describe("sanitizeGenerationConfig", () => {
       seedreamModel
     );
 
-    expect(sanitized.modelId).toBe("seedream-v5");
     expect(sanitized.width).toBeNull();
     expect(sanitized.height).toBeNull();
     expect(sanitized.negativePrompt).toBe("");
-    expect(sanitized.referenceImages).toEqual([]);
+    expect(sanitized.operation).toBe("edit");
+    expect(sanitized.inputAssets).toEqual([
+      { assetId: "asset-source-1", binding: "source" },
+      {
+        assetId: "asset-guide-1",
+        binding: "guide",
+        guideType: "style",
+        weight: 0.25,
+      },
+    ]);
     expect(sanitized.seed).toBeNull();
     expect(sanitized.guidanceScale).toBeNull();
     expect(sanitized.steps).toBeNull();
-    expect(sanitized.batchSize).toBe(1);
   });
 
-  it("clamps custom-size requests while preserving explicit model param values for later validation", () => {
+  it("clamps custom-size requests and batch size within catalog bounds", () => {
     const sanitized = sanitizeGenerationConfig(
       createConfig("qwen-image-2-pro", {
         width: 50_000,
@@ -247,74 +187,82 @@ describe("sanitizeGenerationConfig", () => {
     expect(sanitized.modelParams.promptExtend).toBe("invalid");
   });
 
-  it("drops unsupported negative prompts for zimage while preserving supported seed control", () => {
-    const sanitized = sanitizeGenerationConfig(
-      createConfig("zimage-turbo", {
-        negativePrompt: "avoid blur",
-        seed: 99,
-        batchSize: 4,
-      }),
-      zimageModel
-    );
-
-    expect(sanitized.negativePrompt).toBe("");
-    expect(sanitized.seed).toBe(99);
-    expect(sanitized.batchSize).toBe(1);
-  });
-
-  it("keeps supported aspect ratios for kling but removes unsupported seed control", () => {
-    const sanitized = sanitizeGenerationConfig(
-      createConfig("kling-v3", {
-        aspectRatio: "21:9",
-        width: 1536,
-        height: 1024,
-        negativePrompt: "avoid blur",
-        seed: 123,
-        batchSize: 12,
-      }),
-      klingModel
-    );
-
-    expect(sanitized.aspectRatio).toBe("21:9");
-    expect(sanitized.width).toBeNull();
-    expect(sanitized.height).toBeNull();
-    expect(sanitized.negativePrompt).toBe("avoid blur");
-    expect(sanitized.seed).toBeNull();
-    expect(sanitized.batchSize).toBe(9);
-  });
-
-  it("caps reference images and normalizes unsupported types and weights from the catalog", () => {
+  it("caps guide assets and normalizes unsupported types and weights for native reference models", () => {
     const sanitized = sanitizeGenerationConfig(
       createConfig("qwen-image-2-pro", {
-        referenceImages: [
+        inputAssets: [
           {
-            id: "ref-1",
-            url: "data:image/png;base64,1",
-            type: "style",
+            assetId: "asset-guide-1",
+            binding: "guide",
+            guideType: "style",
             weight: 0.25,
           },
           {
-            id: "ref-2",
-            url: "data:image/png;base64,2",
-            type: "content",
+            assetId: "asset-guide-2",
+            binding: "guide",
+            guideType: "content",
             weight: 0.4,
           },
           {
-            id: "ref-3",
-            url: "data:image/png;base64,3",
-            type: "controlnet",
+            assetId: "asset-guide-3",
+            binding: "guide",
+            guideType: "controlnet",
             weight: 0.9,
+          },
+          {
+            assetId: "asset-guide-4",
+            binding: "guide",
+            guideType: "content",
+            weight: 0.1,
           },
         ],
       }),
       qwenModel
     );
 
-    expect(sanitized.referenceImages).toHaveLength(3);
-    expect(sanitized.referenceImages).toEqual([
-      expect.objectContaining({ id: "ref-1", type: "content", weight: 1 }),
-      expect.objectContaining({ id: "ref-2", type: "content", weight: 1 }),
-      expect.objectContaining({ id: "ref-3", type: "content", weight: 1 }),
+    expect(sanitized.inputAssets).toEqual([
+      {
+        assetId: "asset-guide-1",
+        binding: "guide",
+        guideType: "content",
+        weight: 1,
+      },
+      {
+        assetId: "asset-guide-2",
+        binding: "guide",
+        guideType: "content",
+        weight: 1,
+      },
+      {
+        assetId: "asset-guide-3",
+        binding: "guide",
+        guideType: "content",
+        weight: 1,
+      },
+    ]);
+  });
+
+  it("dedupes source and guide bindings by asset id with source taking precedence", () => {
+    const sanitized = sanitizeGenerationConfig(
+      createConfig("qwen-image-2-pro", {
+        operation: "variation",
+        inputAssets: [
+          {
+            assetId: "asset-1",
+            binding: "guide",
+            guideType: "content",
+            weight: 0.5,
+          },
+          { assetId: "asset-1", binding: "source" },
+          { assetId: "asset-2", binding: "source" },
+        ],
+      }),
+      qwenModel
+    );
+
+    expect(sanitized.inputAssets).toEqual([
+      { assetId: "asset-1", binding: "source" },
+      { assetId: "asset-2", binding: "source" },
     ]);
   });
 });

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { getImageModelCatalogEntry, toCatalogFeatureSupport } from "@/lib/ai/imageModelCatalog";
-import type { ImageAspectRatio } from "../../../../shared/imageGeneration";
 import {
-  clearReferenceInputsForUnsupportedModel,
-} from "../referenceImages";
+  getImageModelCatalogEntry,
+  sanitizeGenerationConfigWithCatalog,
+  toCatalogFeatureSupport,
+} from "@/lib/ai/imageModelCatalog";
+import type { ImageAspectRatio } from "../../../../shared/imageGeneration";
+import type { GenerationConfig } from "@/stores/generationConfigStore";
 import { useGenerationConfig } from "./useGenerationConfig";
 import { useImageLabConversation } from "./useImageLabConversation";
 import { useImageLabUiState } from "./useImageLabUiState";
@@ -12,19 +14,102 @@ import { useImageLabCommands } from "./useImageLabCommands";
 import {
   cloneGenerationConfig,
   mergeTurnsWithPending,
-  omitUnavailableReferenceImages,
   toGenerationConfigFromRequest,
 } from "./imageLabViewState";
 
 export type { GeneratedResultItem, ImageGenerationTurn } from "./imageLabViewState";
 export {
   invalidatePromptObservabilityState,
-  omitUnavailableReferenceImages,
-  RETRY_REFERENCE_IMAGES_OMITTED_WARNING,
   shouldFetchPromptArtifacts,
   shouldFetchPromptObservability,
   toImageGenerationRequest,
 } from "./imageLabViewState";
+
+const describeModelSwitchInputAssetChanges = (
+  currentConfig: GenerationConfig,
+  nextConfig: GenerationConfig
+) => {
+  const currentGuides = currentConfig.inputAssets.filter((entry) => entry.binding === "guide");
+  const nextGuides = nextConfig.inputAssets.filter((entry) => entry.binding === "guide");
+  const currentSources = currentConfig.inputAssets.filter((entry) => entry.binding === "source");
+  const nextGuideById = new Map(nextGuides.map((entry) => [entry.assetId, entry]));
+  const nextSourceIds = new Set(
+    nextConfig.inputAssets
+      .filter((entry) => entry.binding === "source")
+      .map((entry) => entry.assetId)
+  );
+  const droppedGuideCount = currentGuides.filter((entry) => !nextGuideById.has(entry.assetId)).length;
+  const droppedSourceCount = currentSources.filter((entry) => !nextSourceIds.has(entry.assetId)).length;
+  const remappedGuideTypes = currentGuides.some((entry) => {
+    const nextEntry = nextGuideById.get(entry.assetId);
+    return nextEntry && (nextEntry.guideType ?? "content") !== (entry.guideType ?? "content");
+  });
+  const normalizedGuideWeights = currentGuides.some((entry) => {
+    const nextEntry = nextGuideById.get(entry.assetId);
+    return nextEntry && (nextEntry.weight ?? 1) !== (entry.weight ?? 1);
+  });
+
+  return [
+    ...(droppedGuideCount > 0
+      ? [
+          `${droppedGuideCount} guide image${droppedGuideCount === 1 ? "" : "s"} ${
+            droppedGuideCount === 1 ? "was" : "were"
+          } removed to fit the target model`,
+        ]
+      : []),
+    ...(droppedSourceCount > 0
+      ? [`${droppedSourceCount} source image${droppedSourceCount === 1 ? "" : "s"} could not be kept on the target model`]
+      : []),
+    ...(remappedGuideTypes ? ["unsupported guide types were remapped"] : []),
+    ...(normalizedGuideWeights ? ["guide weights were normalized"] : []),
+  ];
+};
+
+const haveModelParamsChanged = (
+  currentConfig: GenerationConfig,
+  nextConfig: GenerationConfig
+) => {
+  const keys = new Set([
+    ...Object.keys(currentConfig.modelParams),
+    ...Object.keys(nextConfig.modelParams),
+  ]);
+  for (const key of keys) {
+    if (currentConfig.modelParams[key] !== nextConfig.modelParams[key]) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const describeModelSwitchRequestChanges = (
+  currentConfig: GenerationConfig,
+  nextConfig: GenerationConfig
+) => [
+  ...((currentConfig.aspectRatio !== nextConfig.aspectRatio ||
+    currentConfig.width !== nextConfig.width ||
+    currentConfig.height !== nextConfig.height)
+    ? ["output sizing was adjusted"]
+    : []),
+  ...(currentConfig.batchSize !== nextConfig.batchSize ? ["batch size was adjusted"] : []),
+  ...((currentConfig.style !== nextConfig.style ||
+    currentConfig.stylePreset !== nextConfig.stylePreset)
+    ? ["style hints were adjusted"]
+    : []),
+  ...(currentConfig.negativePrompt !== nextConfig.negativePrompt
+    ? [
+        currentConfig.negativePrompt.trim().length > 0 && nextConfig.negativePrompt.trim().length === 0
+          ? "negative prompt was cleared"
+          : "negative prompt was adjusted",
+      ]
+    : []),
+  ...((currentConfig.seed !== nextConfig.seed ||
+    currentConfig.guidanceScale !== nextConfig.guidanceScale ||
+    currentConfig.steps !== nextConfig.steps ||
+    currentConfig.sampler !== nextConfig.sampler)
+    ? ["generation controls were adjusted"]
+    : []),
+  ...(haveModelParamsChanged(currentConfig, nextConfig) ? ["model-specific params were reset"] : []),
+];
 
 export function useImageGeneration() {
   const {
@@ -109,6 +194,8 @@ export function useImageGeneration() {
 
   const turnsRef = useRef(turns);
   turnsRef.current = turns;
+  const configRef = useRef(config);
+  configRef.current = config;
 
   const getUiTurnById = useCallback(
     (turnId: string) => turnsRef.current.find((turn) => turn.id === turnId) ?? null,
@@ -117,6 +204,7 @@ export function useImageGeneration() {
 
   const assetActions = useImageLabAssetActions({
     config,
+    getConfig: () => configRef.current,
     setConfig,
     supportedFeatures,
     setNotice: ui.setNotice,
@@ -161,30 +249,53 @@ export function useImageGeneration() {
         setModelInConfig(modelId);
         return;
       }
+      if (config.modelId === nextModel.id) {
+        return;
+      }
 
       const nextConfigBase = {
         ...config,
         modelId: nextModel.id,
         modelParams: { ...nextModel.defaults.modelParams },
       };
+      const nextConfig = sanitizeGenerationConfigWithCatalog(nextConfigBase, nextModel);
+      const requestChangeLabels = describeModelSwitchRequestChanges(config, nextConfig);
+
+      setConfig(nextConfig);
+      const nextFeatureSupport = toCatalogFeatureSupport(nextModel);
+      const sanitizedInputLabels = describeModelSwitchInputAssetChanges(config, nextConfig);
+      const hasGuideAssets = config.inputAssets.some((entry) => entry.binding === "guide");
+      const hasSourceAsset = config.inputAssets.some((entry) => entry.binding === "source");
+      const fallsBackGuideAssets =
+        hasGuideAssets && !nextFeatureSupport.referenceImages.enabled;
+      const fallsBackSourceAsset =
+        hasSourceAsset && nextFeatureSupport.promptCompiler.sourceImageExecution !== "native";
 
       if (
-        !toCatalogFeatureSupport(nextModel).referenceImages.enabled &&
-        (config.referenceImages.length > 0 || config.assetRefs.length > 0)
+        requestChangeLabels.length === 0 &&
+        sanitizedInputLabels.length === 0 &&
+        !fallsBackGuideAssets &&
+        !fallsBackSourceAsset
       ) {
-        const { nextConfig, removedReferenceImageCount, removedAssetRefCount } =
-          clearReferenceInputsForUnsupportedModel(nextConfigBase);
-        const removedInputCount = Math.max(removedReferenceImageCount, removedAssetRefCount);
-        setConfig(nextConfig);
-        ui.setNotice(
-          `Switched to ${nextModel.label}. Removed ${removedInputCount} image-guided input${
-            removedInputCount === 1 ? "" : "s"
-          } because this model does not support image-guided generation.`
-        );
         return;
       }
 
-      setConfig(nextConfigBase);
+      const changeLabels = [
+        ...requestChangeLabels,
+        ...sanitizedInputLabels,
+        ...(fallsBackGuideAssets ? ["guide images will be compiled into text guidance"] : []),
+        ...(() => {
+          if (!fallsBackSourceAsset) {
+            return [];
+          }
+          return nextFeatureSupport.promptCompiler.sourceImageExecution === "reference_guided"
+            ? ["source image operations will run as reference-guided generation"]
+            : ["source image operations will be compiled into text guidance"];
+        })(),
+      ];
+      ui.setNotice(
+        `Switched to ${nextModel.label}. ${changeLabels.join(" and ")}.`
+      );
     },
     [catalog, config, setConfig, setModelInConfig, ui]
   );
@@ -193,26 +304,6 @@ export function useImageGeneration() {
     async (input: { text: string }) =>
       config ? commands.runGeneration(input.text, cloneGenerationConfig(config)) : null,
     [commands, config]
-  );
-
-  const retryTurn = useCallback(
-    async (turnId: string) => {
-      const turn = getUiTurnById(turnId);
-      if (!turn) {
-        return null;
-      }
-
-      const retryConfig = omitUnavailableReferenceImages(turn.configSnapshot);
-      if (retryConfig.warnings.length > 0) {
-        ui.setNotice(retryConfig.warnings[0] ?? null);
-      }
-
-      return commands.runGeneration(turn.prompt, retryConfig.config, {
-        retryOfTurnId: turnId,
-        localWarnings: retryConfig.warnings,
-      });
-    },
-    [commands, getUiTurnById, ui]
   );
 
   const reuseParameters = useCallback(
@@ -234,11 +325,7 @@ export function useImageGeneration() {
       const nextConfig = persistedRequest
         ? toGenerationConfigFromRequest(persistedRequest)
         : cloneGenerationConfig(turn.configSnapshot);
-      setConfig({
-        ...nextConfig,
-        referenceImages: [],
-        assetRefs: [],
-      });
+      setConfig(nextConfig);
       return turn.prompt;
     },
     [catalog, conversationTurnsById, getUiTurnById, setConfig, ui]
@@ -263,13 +350,14 @@ export function useImageGeneration() {
     aspectRatioOptions,
     setModel,
     updateConfig,
-    addReferenceFiles: assetActions.addReferenceFiles,
-    updateReferenceImage: assetActions.updateReferenceImage,
-    removeReferenceImage: assetActions.removeReferenceImage,
-    clearReferenceImages: assetActions.clearReferenceImages,
-    removeAssetReference: assetActions.removeAssetReference,
-    updateAssetRefRole: assetActions.updateAssetRefRole,
-    clearAssetReferences: assetActions.clearAssetReferences,
+    importInputAssets: assetActions.importInputAssets,
+    bindGuideAssets: assetActions.bindGuideAssets,
+    updateGuideAsset: assetActions.updateGuideAsset,
+    clearGuideAssets: assetActions.clearGuideAssets,
+    removeInputAsset: assetActions.removeInputAsset,
+    updateInputIntent: assetActions.updateInputIntent,
+    clearSourceAsset: assetActions.clearSourceAsset,
+    clearAllInputAssets: assetActions.clearAllInputAssets,
     useResultAsReference: assetActions.useResultAsReference,
     editFromResult: assetActions.editFromResult,
     varyFromResult: assetActions.varyFromResult,
@@ -278,7 +366,7 @@ export function useImageGeneration() {
     generateFromPromptInput,
     deleteTurn: commands.deleteTurn,
     acceptTurnResult: commands.acceptTurnResult,
-    retryTurn,
+    retryTurn: commands.retryTurn,
     reuseParameters,
     upscaleResult: commands.upscaleResult,
     toggleResultSelection: commands.toggleResultSelection,

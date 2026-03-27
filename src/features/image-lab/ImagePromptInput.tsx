@@ -23,13 +23,11 @@ import type {
 } from "@/lib/ai/imageModelCatalog";
 import type {
   ImageAspectRatio,
-  ImageGenerationAssetRef,
   ImagePromptIntentInput,
   ImageStyleId,
-  ReferenceImage,
 } from "@/types/imageGeneration";
 import { ProviderApiKeyPanel } from "./ProviderApiKeyPanel";
-import { ReferenceImagePicker } from "./ReferenceImagePicker";
+import { ReferenceImagePicker, type GuideInputAssetView } from "./ReferenceImagePicker";
 
 interface ImagePromptInputProps {
   isGeneratingImage?: boolean;
@@ -67,8 +65,16 @@ interface ImagePromptInputProps {
   };
   promptIntent: ImagePromptIntentInput;
   modelParamDefinitions: ImageModelParamDefinition[];
-  referenceImages: ReferenceImage[];
-  selectedAssetRefs: ImageGenerationAssetRef[];
+  guideAssets: GuideInputAssetView[];
+  guideAssetLimit: number;
+  guideAssetNativeCapacity: number;
+  guideAssetCapacityHint?: string | null;
+  selectedInputAssets: Array<{
+    assetId: string;
+    label: string;
+    available: boolean;
+    intent: "guide" | "edit" | "variation";
+  }>;
   assetRefValidationMessage?: string | null;
   externalPrompt?: string | null;
   onExternalPromptConsumed?: () => void;
@@ -91,13 +97,16 @@ interface ImagePromptInputProps {
   }) => void;
   onPromptIntentChange: (patch: Partial<ImagePromptIntentInput>) => void;
   onModelExtraParamChange: (key: string, value: ImageModelParamValue) => void;
-  onAddReferenceFiles: (files: FileList) => void;
-  onUpdateReferenceImage: (id: string, patch: Partial<ReferenceImage>) => void;
-  onRemoveReferenceImage: (id: string) => void;
-  onClearReferenceImages: () => void;
-  onRemoveAssetRef: (assetId: string) => void;
-  onUpdateAssetRefRole: (assetId: string, role: ImageGenerationAssetRef["role"]) => void;
-  onClearAssetRefs: () => void;
+  onAddGuideFiles: (files: FileList) => void;
+  onUpdateGuideAsset: (
+    assetId: string,
+    patch: { guideType?: "style" | "content" | "controlnet"; weight?: number }
+  ) => void;
+  onRemoveGuideAsset: (assetId: string) => void;
+  onClearGuideAssets: () => void;
+  onRemoveInputAsset: (assetId: string) => void;
+  onUpdateInputIntent: (assetId: string, intent: "guide" | "edit" | "variation") => void;
+  onClearInputAssets: () => void;
   onGenerateImage: (input: { text: string }) => void;
 }
 
@@ -130,10 +139,10 @@ const EDIT_OP_OPTIONS: Array<{
   { id: "deemphasize", label: "De-emphasize" },
 ];
 const ASSET_ROLE_OPTIONS: Array<{
-  id: ImageGenerationAssetRef["role"];
+  id: "guide" | "edit" | "variation";
   label: string;
 }> = [
-  { id: "reference", label: "Ref" },
+  { id: "guide", label: "Ref" },
   { id: "edit", label: "Edit" },
   { id: "variation", label: "Vary" },
 ];
@@ -301,8 +310,11 @@ export function ImagePromptInput({
   modelParams,
   promptIntent,
   modelParamDefinitions,
-  referenceImages,
-  selectedAssetRefs,
+  guideAssets,
+  guideAssetLimit,
+  guideAssetNativeCapacity,
+  guideAssetCapacityHint = null,
+  selectedInputAssets,
   assetRefValidationMessage = null,
   externalPrompt = null,
   onExternalPromptConsumed,
@@ -314,13 +326,13 @@ export function ImagePromptInput({
   onModelParamsChange,
   onPromptIntentChange,
   onModelExtraParamChange,
-  onAddReferenceFiles,
-  onUpdateReferenceImage,
-  onRemoveReferenceImage,
-  onClearReferenceImages,
-  onRemoveAssetRef,
-  onUpdateAssetRefRole,
-  onClearAssetRefs,
+  onAddGuideFiles,
+  onUpdateGuideAsset,
+  onRemoveGuideAsset,
+  onClearGuideAssets,
+  onRemoveInputAsset,
+  onUpdateInputIntent,
+  onClearInputAssets,
   onGenerateImage,
 }: ImagePromptInputProps) {
   const [promptValue, setPromptValue] = useState("");
@@ -346,9 +358,20 @@ export function ImagePromptInput({
     selectedPreset?.title ??
     (selectedStyle && selectedStyle.id !== "none" ? selectedStyle.label : "Style");
   const resolutionLabel = supportsCustomSize ? formatResolutionLabel(resolutionValue) : "Auto size";
+  const refsMaxImages = guideAssetLimit;
+  const refsSupportedTypes =
+    providerFeatures.referenceImages.enabled && providerFeatures.referenceImages.supportedTypes.length > 0
+      ? providerFeatures.referenceImages.supportedTypes
+      : (["content", "style", "controlnet"] as const);
+  const refsSupportsWeight = providerFeatures.referenceImages.enabled
+    ? providerFeatures.referenceImages.supportsWeight
+    : true;
+  const showRefsNativeCapacity = guideAssetNativeCapacity > 0;
   const refsLabel =
-    referenceImages.length > 0
-      ? `Refs ${referenceImages.length}/${providerFeatures.referenceImages.maxImages}`
+    guideAssets.length > 0
+      ? showRefsNativeCapacity
+        ? `Refs ${guideAssets.length}/${guideAssetNativeCapacity}`
+        : `Refs ${guideAssets.length}`
       : "Refs";
 
   useEffect(() => {
@@ -384,12 +407,6 @@ export function ImagePromptInput({
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
-
-  useEffect(() => {
-    if (!providerFeatures.referenceImages.enabled) {
-      setActiveHoverPanel((current) => (current === "refs" ? null : current));
-    }
-  }, [providerFeatures.referenceImages.enabled]);
 
   useEffect(() => {
     if (!externalPrompt) {
@@ -488,6 +505,10 @@ export function ImagePromptInput({
   };
 
   const selectModel = (modelId: string) => {
+    if (modelId === imageModel) {
+      setModelMenuOpen(false);
+      return;
+    }
     onImageModelChange(modelId);
     setModelMenuOpen(false);
   };
@@ -663,14 +684,16 @@ export function ImagePromptInput({
   const renderRefsPanel = () => (
     <PanelShell className="left-1/2 w-[360px] -translate-x-1/2">
       <ReferenceImagePicker
-        referenceImages={referenceImages}
-        maxImages={providerFeatures.referenceImages.maxImages}
-        supportedTypes={providerFeatures.referenceImages.supportedTypes}
-        supportsWeight={providerFeatures.referenceImages.supportsWeight}
-        onAddFiles={onAddReferenceFiles}
-        onUpdateImage={onUpdateReferenceImage}
-        onRemoveImage={onRemoveReferenceImage}
-        onClearImages={onClearReferenceImages}
+        guideAssets={guideAssets}
+        maxImages={refsMaxImages}
+        nativeCapacity={showRefsNativeCapacity ? guideAssetNativeCapacity : null}
+        capacityHint={guideAssetCapacityHint}
+        supportedTypes={[...refsSupportedTypes]}
+        supportsWeight={refsSupportsWeight}
+        onAddFiles={onAddGuideFiles}
+        onUpdateImage={onUpdateGuideAsset}
+        onRemoveImage={onRemoveGuideAsset}
+        onClearImages={onClearGuideAssets}
       />
     </PanelShell>
   );
@@ -1092,29 +1115,39 @@ export function ImagePromptInput({
             className="min-h-[108px] max-h-[220px] w-full resize-none overflow-y-auto border-none bg-transparent px-2 py-2 text-[22px] leading-tight text-zinc-50 outline-none placeholder:text-zinc-500 sm:text-[24px]"
           />
 
-          {selectedAssetRefs.length > 0 ? (
+          {selectedInputAssets.length > 0 ? (
             <div className="mt-3 space-y-2 px-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">
-                  Referencing
+                  Image Inputs
                 </span>
                 <button
                   type="button"
                   className="text-xs text-zinc-500 transition hover:text-zinc-200"
-                  onClick={onClearAssetRefs}
+                  onClick={onClearInputAssets}
                 >
                   Clear
                 </button>
               </div>
               <div className="flex flex-wrap gap-2">
-                {selectedAssetRefs.map((assetRef) => (
+                {selectedInputAssets.map((assetRef) => (
                   <div
                     key={assetRef.assetId}
                     className="flex items-center gap-2 rounded-[18px] border border-white/10 bg-white/[0.04] px-3 py-2"
                   >
-                    <span className="max-w-[140px] truncate text-xs text-zinc-300">
-                      {assetRef.assetId}
-                    </span>
+                    <div className="min-w-0">
+                      <span
+                        className={cn(
+                          "block max-w-[140px] truncate text-xs",
+                          assetRef.available ? "text-zinc-300" : "text-zinc-500"
+                        )}
+                      >
+                        {assetRef.label}
+                      </span>
+                      {!assetRef.available ? (
+                        <span className="block text-[10px] text-zinc-600">Missing asset</span>
+                      ) : null}
+                    </div>
                     <div className="flex items-center gap-1 rounded-full border border-white/10 bg-black/20 p-1">
                       {ASSET_ROLE_OPTIONS.map((option) => (
                         <button
@@ -1122,11 +1155,11 @@ export function ImagePromptInput({
                           type="button"
                           className={cn(
                             "rounded-full px-2 py-1 text-[10px] font-medium transition",
-                            assetRef.role === option.id
+                            assetRef.intent === option.id
                               ? "bg-white text-zinc-950"
                               : "text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-100"
                           )}
-                          onClick={() => onUpdateAssetRefRole(assetRef.assetId, option.id)}
+                          onClick={() => onUpdateInputIntent(assetRef.assetId, option.id)}
                         >
                           {option.label}
                         </button>
@@ -1135,7 +1168,7 @@ export function ImagePromptInput({
                     <button
                       type="button"
                       className="text-[11px] text-zinc-500 transition hover:text-zinc-200"
-                      onClick={() => onRemoveAssetRef(assetRef.assetId)}
+                      onClick={() => onRemoveInputAsset(assetRef.assetId)}
                     >
                       Remove
                     </button>
@@ -1171,14 +1204,15 @@ export function ImagePromptInput({
                             <button
                               key={model.id}
                               type="button"
-                              className={cn(
-                                "flex w-full items-start gap-3 rounded-[18px] px-3 py-3 text-left transition",
-                                active
-                                  ? "bg-white/[0.1] text-zinc-100"
-                                  : "text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-100"
-                              )}
-                              onClick={() => selectModel(model.id)}
-                            >
+                            className={cn(
+                              "flex w-full items-start gap-3 rounded-[18px] px-3 py-3 text-left transition",
+                              active
+                                ? "bg-white/[0.1] text-zinc-100"
+                                : "text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-100"
+                            )}
+                            disabled={active}
+                            onClick={() => selectModel(model.id)}
+                          >
                               <span className="mt-1 h-2.5 w-2.5 rounded-full border border-white/20 bg-white/10" />
                               <span className="min-w-0 flex-1">
                                 <span className="block text-sm font-medium">{model.name}</span>
@@ -1229,26 +1263,24 @@ export function ImagePromptInput({
                 </div>
               ))}
 
-              {providerFeatures.referenceImages.enabled ? (
-                <div
-                  className="relative"
-                  onMouseEnter={() => openHoverPanel("refs")}
-                  onMouseLeave={() => scheduleHoverClose("refs")}
-                  onFocusCapture={() => openHoverPanel("refs")}
-                  onBlurCapture={(event) => {
-                    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                      scheduleHoverClose("refs");
-                    }
-                  }}
-                >
-                  <PillButton
-                    icon={<ImagePlus className="h-4 w-4" />}
-                    label={refsLabel}
-                    active={activeHoverPanel === "refs"}
-                  />
-                  <AnimatePresence>{renderHoverPanel("refs")}</AnimatePresence>
-                </div>
-              ) : null}
+              <div
+                className="relative"
+                onMouseEnter={() => openHoverPanel("refs")}
+                onMouseLeave={() => scheduleHoverClose("refs")}
+                onFocusCapture={() => openHoverPanel("refs")}
+                onBlurCapture={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                    scheduleHoverClose("refs");
+                  }
+                }}
+              >
+                <PillButton
+                  icon={<ImagePlus className="h-4 w-4" />}
+                  label={refsLabel}
+                  active={activeHoverPanel === "refs"}
+                />
+                <AnimatePresence>{renderHoverPanel("refs")}</AnimatePresence>
+              </div>
 
               {(
                 [
