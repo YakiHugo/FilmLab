@@ -20,7 +20,6 @@ const createRequest = (
     aspectRatio: "1:1",
     batchSize: 1,
     style: "none",
-    referenceImages: [],
     modelParams: {
       promptExtend: true,
     },
@@ -94,42 +93,64 @@ describe("prompt compiler", () => {
   it.each([
     {
       name: "generate",
-      assetRefs: [{ assetId: "thread-asset-ref-1", role: "reference" as const }],
+      inputAssets: [
+        {
+          assetId: "thread-asset-ref-1",
+          binding: "guide" as const,
+          guideType: "content" as const,
+          weight: 1,
+        },
+      ],
       expectedOperation: "image.generate",
     },
     {
       name: "edit",
-      assetRefs: [
-        { assetId: "thread-asset-source-1", role: "edit" as const },
-        { assetId: "thread-asset-ref-1", role: "reference" as const },
+      operation: "edit" as const,
+      inputAssets: [
+        { assetId: "thread-asset-source-1", binding: "source" as const },
+        {
+          assetId: "thread-asset-ref-1",
+          binding: "guide" as const,
+          guideType: "content" as const,
+          weight: 1,
+        },
       ],
       expectedOperation: "image.edit",
     },
     {
       name: "variation",
-      assetRefs: [
-        { assetId: "thread-asset-source-1", role: "variation" as const },
-        { assetId: "thread-asset-ref-1", role: "reference" as const },
+      operation: "variation" as const,
+      inputAssets: [
+        { assetId: "thread-asset-source-1", binding: "source" as const },
+        {
+          assetId: "thread-asset-ref-1",
+          binding: "guide" as const,
+          guideType: "content" as const,
+          weight: 1,
+        },
       ],
       expectedOperation: "image.variation",
     },
-  ])("builds %s prompt IR with explicit source/reference assets", ({ assetRefs, expectedOperation }) => {
-    const request = createRequest({ assetRefs });
+  ])(
+    "builds %s prompt IR with explicit source/reference assets",
+    ({ inputAssets, operation, expectedOperation }) => {
+      const request = createRequest({ inputAssets, operation });
     const promptIr = buildPromptIR(request, createCandidateState());
 
     expect(promptIr.operation).toBe(expectedOperation);
     expect(promptIr.goal).toBe("Refine the neon skyline with cleaner typography");
     expect(promptIr.sourceAssets).toEqual(
-      request.assetRefs.filter((entry) => entry.role !== "reference")
+      request.inputAssets.filter((entry) => entry.binding === "source")
     );
     expect(promptIr.referenceAssets).toEqual(
-      request.assetRefs.filter((entry) => entry.role === "reference")
+      request.inputAssets.filter((entry) => entry.binding === "guide")
     );
-  });
+    }
+  );
 
   it("carries committed reference asset ids forward as generic reference guidance", () => {
     const request = createRequest({
-      assetRefs: [],
+      inputAssets: [],
     });
     const state = {
       ...createCandidateState(),
@@ -148,7 +169,12 @@ describe("prompt compiler", () => {
     expect(promptIr.operation).toBe("image.generate");
     expect(promptIr.sourceAssets).toEqual([]);
     expect(promptIr.referenceAssets).toEqual([
-      { assetId: "thread-asset-ref-committed", role: "reference" },
+      {
+        assetId: "thread-asset-ref-committed",
+        binding: "guide",
+        guideType: "content",
+        weight: 1,
+      },
     ]);
   });
 
@@ -207,7 +233,8 @@ describe("prompt compiler", () => {
     const state = createCandidateState();
     const request = createRequest({
       negativePrompt: "avoid lens flare",
-      assetRefs: [{ assetId: "thread-asset-source-1", role: "edit" }],
+      operation: "edit",
+      inputAssets: [{ assetId: "thread-asset-source-1", binding: "source" }],
     });
     const promptIr = buildPromptIR(request, state);
     const capabilities: ImageModelPromptCompilerCapabilities = {

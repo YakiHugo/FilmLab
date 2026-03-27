@@ -13,7 +13,7 @@ import type { ChatStateRepository } from "../persistence/types";
 import { createId } from "../../../../shared/createId";
 import type {
   ImageGenerationResponse,
-  ImageGenerationAssetRef,
+  ImageInputAssetBinding,
   ImagePromptCompilerOperationId,
   ImageProviderId,
 } from "../../../../shared/imageGeneration";
@@ -41,7 +41,13 @@ import {
   type ParsedImageGenerationRequest,
   validateImageGenerationRequestAgainstModel,
 } from "../../shared/imageGenerationSchema";
-import { resolveImagePromptCompilerOperation } from "../../../../shared/imageGeneration";
+import {
+  LEGACY_INPUT_IMAGES_UNAVAILABLE_WARNING,
+  hasLegacyUnrestorableInputImages,
+  resolveExactRetryNegativePrompt,
+  resolveImagePromptCompilerOperation,
+} from "../../../../shared/imageGeneration";
+import { projectInputAssetsForModelExecution } from "../../shared/imageInputAssetExecution";
 
 const GENERATED_IMAGE_NORMALIZATION_CONCURRENCY = 2;
 
@@ -116,17 +122,21 @@ const SOURCE_ASSET_DEGRADATION_CODES = new Set<string>([
 ]);
 
 const resolveEdgeType = (
-  role: "reference" | "edit" | "variation",
+  inputAsset: ImageInputAssetBinding,
+  operation: ParsedImageGenerationRequest["operation"],
   prompt: PersistedPromptSnapshot | null
 ): PersistedAssetEdgeType => {
+  if (inputAsset.binding === "guide") {
+    return "referenced_in_turn";
+  }
+
   if (
-    role !== "reference" &&
     prompt?.semanticLosses.some((loss) => SOURCE_ASSET_DEGRADATION_CODES.has(loss.code))
   ) {
     return "referenced_in_turn";
   }
 
-  switch (role) {
+  switch (operation) {
     case "edit":
       return "edited_from_asset";
     case "variation":
@@ -137,59 +147,83 @@ const resolveEdgeType = (
 };
 
 const resolveRequestedOperation = (
-  assetRefs: ImageGenerationAssetRef[] | undefined
-): ImagePromptCompilerOperationId => resolveImagePromptCompilerOperation(assetRefs);
+  operation: ParsedImageGenerationRequest["operation"]
+): ImagePromptCompilerOperationId => resolveImagePromptCompilerOperation(operation);
+
+const toLegacyAssetRefs = (
+  inputAssets: ImageInputAssetBinding[],
+  operation: ParsedImageGenerationRequest["operation"]
+) =>
+  inputAssets.map((inputAsset) => {
+    if (inputAsset.binding === "guide") {
+      return {
+        assetId: inputAsset.assetId,
+        role: "reference" as const,
+        referenceType: inputAsset.guideType ?? "content",
+        weight: inputAsset.weight,
+      };
+    }
+
+    return {
+      assetId: inputAsset.assetId,
+      role: operation === "variation" ? ("variation" as const) : ("edit" as const),
+    };
+  });
+
+const resolveProviderInputAssetsWithCompatibility = async (
+  assetService: AssetService,
+  userId: string,
+  inputAssets: ImageInputAssetBinding[],
+  operation: ParsedImageGenerationRequest["operation"]
+) => {
+  const compatibleAssetService = assetService as AssetService & {
+    resolveProviderAssetRefs?: (
+      userId: string,
+      assetRefs: ReturnType<typeof toLegacyAssetRefs>
+    ) => Promise<Awaited<ReturnType<AssetService["resolveProviderInputAssets"]>>>;
+  };
+
+  if (typeof compatibleAssetService.resolveProviderInputAssets === "function") {
+    return compatibleAssetService.resolveProviderInputAssets(userId, inputAssets);
+  }
+
+  if (typeof compatibleAssetService.resolveProviderAssetRefs === "function") {
+    return compatibleAssetService.resolveProviderAssetRefs(
+      userId,
+      toLegacyAssetRefs(inputAssets, operation)
+    );
+  }
+
+  throw new Error("Asset service cannot resolve provider input assets.");
+};
+
+const resolveDispatchInputAssets = (
+  target: ResolvedRouteTarget,
+  payload: ParsedImageGenerationRequest
+) =>
+  projectInputAssetsForModelExecution({
+    inputAssets: payload.inputAssets ?? [],
+    operation: payload.operation,
+    promptCompiler: target.frontendModel.promptCompiler,
+  });
+
+const resolveExactRetryInputAssets = (payload: ParsedImageGenerationRequest) =>
+  (payload.inputAssets ?? []).map((entry) => ({ ...entry }));
+
+const resolveLegacyInputCompatibilityWarnings = (
+  requestSnapshot: PersistedImageGenerationRequestSnapshot | null | undefined
+) =>
+  hasLegacyUnrestorableInputImages(requestSnapshot?.referenceImages)
+    ? [LEGACY_INPUT_IMAGES_UNAVAILABLE_WARNING]
+    : [];
 
 const toPersistedRequestSnapshot = (
   payload: unknown
-): PersistedImageGenerationRequestSnapshot => {
-  const snapshot = cloneSnapshot(payload) as Record<string, unknown> & {
-    referenceImages?: Array<Record<string, unknown>>;
-  };
+): PersistedImageGenerationRequestSnapshot =>
+  cloneSnapshot(payload) as PersistedImageGenerationRequestSnapshot;
 
-  if (!Array.isArray(snapshot.referenceImages)) {
-    return snapshot as PersistedImageGenerationRequestSnapshot;
-  }
-
-  return {
-    ...snapshot,
-    referenceImages: snapshot.referenceImages.map((referenceImage, index) => ({
-      ...referenceImage,
-      id:
-        typeof referenceImage.id === "string" && referenceImage.id.trim()
-          ? referenceImage.id
-          : createId(`ref-${index}`),
-    })),
-  } as PersistedImageGenerationRequestSnapshot;
-};
-
-const toPersistedConfigSnapshot = (payload: unknown): Record<string, unknown> => {
-  const snapshot = cloneSnapshot(payload) as Record<string, unknown> & {
-    referenceImages?: Array<Record<string, unknown>>;
-  };
-
-  if (!Array.isArray(snapshot.referenceImages)) {
-    return snapshot;
-  }
-
-  return {
-    ...snapshot,
-    referenceImages: snapshot.referenceImages.map((referenceImage, index) => ({
-      id:
-        typeof referenceImage.id === "string" && referenceImage.id.trim()
-          ? referenceImage.id
-          : createId(`ref-${index}`),
-      fileName:
-        typeof referenceImage.fileName === "string" ? referenceImage.fileName : undefined,
-      type: referenceImage.type,
-      weight: referenceImage.weight,
-      sourceAssetId:
-        typeof referenceImage.sourceAssetId === "string"
-          ? referenceImage.sourceAssetId
-          : undefined,
-    })),
-  };
-};
+const toPersistedConfigSnapshot = (payload: unknown): Record<string, unknown> =>
+  cloneSnapshot(payload) as Record<string, unknown>;
 
 const assertGeneratedImageSize = (buffer: Buffer, maxBytes: number) => {
   if (buffer.byteLength > maxBytes) {
@@ -472,6 +506,7 @@ export class ImageGenerationService {
           conversationId: payload.conversationId ?? conversation.id,
         };
         let exactRetrySourceRun: PersistedRunRecord | null = null;
+        let exactRetryRequestSnapshot: PersistedImageGenerationRequestSnapshot | null = null;
 
         if (effectiveRetryMode === "exact" && payload.retryOfTurnId) {
           const snapshot = await repository.getConversationSnapshot(userId, conversation.id);
@@ -492,6 +527,7 @@ export class ImageGenerationService {
             retryOfTurnId: payload.retryOfTurnId,
           });
           exactRetrySourceRun = retryRun;
+          exactRetryRequestSnapshot = retryJob.requestSnapshot;
         }
 
         const frontendModel = getFrontendImageModelById(effectivePayload.modelId);
@@ -502,7 +538,7 @@ export class ImageGenerationService {
           });
         }
 
-        const requestedOperation = resolveRequestedOperation(effectivePayload.assetRefs);
+        const requestedOperation = resolveRequestedOperation(effectivePayload.operation);
         const promptContext = createPromptCompilationContext(
           conversation.promptState,
           rewriteModel,
@@ -510,16 +546,18 @@ export class ImageGenerationService {
           effectiveRetryMode
         );
 
-        const compatibilityProbe = imageGenerationRequestSchema.superRefine((nextPayload, ctx) => {
-          validateImageGenerationRequestAgainstModel(nextPayload, frontendModel, ctx);
-        });
-        const validationResult = compatibilityProbe.safeParse(effectivePayload);
-        if (!validationResult.success) {
-          const firstIssue = validationResult.error.issues[0];
-          throw new ImageGenerationCommandError({
-            statusCode: 400,
-            message: firstIssue?.message ?? "Request is incompatible with selected model.",
+        if (effectiveRetryMode !== "exact") {
+          const compatibilityProbe = imageGenerationRequestSchema.superRefine((nextPayload, ctx) => {
+            validateImageGenerationRequestAgainstModel(nextPayload, frontendModel, ctx);
           });
+          const validationResult = compatibilityProbe.safeParse(effectivePayload);
+          if (!validationResult.success) {
+            const firstIssue = validationResult.error.issues[0];
+            throw new ImageGenerationCommandError({
+              statusCode: 400,
+              message: firstIssue?.message ?? "Request is incompatible with selected model.",
+            });
+          }
         }
 
         const persistedRequestSnapshot = toPersistedRequestSnapshot(effectivePayload);
@@ -537,6 +575,10 @@ export class ImageGenerationService {
         let initialPromptSnapshot: PersistedPromptSnapshot;
         let selectedTarget: ResolvedRouteTarget;
         let requestedTargetSnapshot: PersistedRunTargetSnapshot;
+        const exactRetryCompatibilityWarnings =
+          effectiveRetryMode === "exact"
+            ? resolveLegacyInputCompatibilityWarnings(exactRetryRequestSnapshot)
+            : [];
 
         if (effectiveRetryMode === "exact" && payload.retryOfTurnId) {
           const retryRun = exactRetrySourceRun;
@@ -569,7 +611,7 @@ export class ImageGenerationService {
             compiledPrompt: exactRetryPrompt.compiledPrompt,
             dispatchedPrompt: exactRetryPrompt.dispatchedPrompt,
             semanticLosses: exactRetryPrompt.semanticLosses,
-            warnings: uniqueWarnings([rewriteWarning]),
+            warnings: uniqueWarnings([rewriteWarning, ...exactRetryCompatibilityWarnings]),
           });
           rewritePromptVersion = null;
           compilePromptVersions = [];
@@ -721,7 +763,7 @@ export class ImageGenerationService {
           jobId,
           runIds: [rewriteRunId, imageRunId],
           referencedAssetIds:
-            effectivePayload.assetRefs?.map((assetRef) => assetRef.assetId) ?? [],
+            effectivePayload.inputAssets?.map((inputAsset) => inputAsset.assetId) ?? [],
           primaryAssetIds: [],
           results: [],
         };
@@ -743,10 +785,10 @@ export class ImageGenerationService {
             executedTarget: rewriteTarget,
             prompt: rewritePromptSnapshot,
             error: null,
-            warnings: uniqueWarnings([rewriteWarning]),
+            warnings: uniqueWarnings([rewriteWarning, ...exactRetryCompatibilityWarnings]),
             assetIds: [],
             referencedAssetIds:
-              effectivePayload.assetRefs?.map((assetRef) => assetRef.assetId) ?? [],
+              effectivePayload.inputAssets?.map((inputAsset) => inputAsset.assetId) ?? [],
             createdAt,
             completedAt: createdAt,
             telemetry: {
@@ -811,7 +853,7 @@ export class ImageGenerationService {
             warnings: initialPromptSnapshot.warnings,
             assetIds: [],
             referencedAssetIds:
-              effectivePayload.assetRefs?.map((assetRef) => assetRef.assetId) ?? [],
+              effectivePayload.inputAssets?.map((inputAsset) => inputAsset.assetId) ?? [],
             createdAt,
             completedAt: null,
             telemetry: {
@@ -846,6 +888,7 @@ export class ImageGenerationService {
         let dispatchAttempt = 0;
         let finalPromptSnapshot = initialPromptSnapshot;
         let finalDispatchWarnings = [...initialPromptSnapshot.warnings];
+        let finalDispatchNegativePrompt: string | undefined;
         const generated = await imageRuntimeRouter.generate(routingRequest, {
           signal,
           traceId,
@@ -854,6 +897,10 @@ export class ImageGenerationService {
             dispatchAttempt += 1;
 
             if (effectiveRetryMode === "exact" && exactRetryPrompt) {
+              const exactRetryNegativePrompt = resolveExactRetryNegativePrompt({
+                negativePrompt: effectivePayload.negativePrompt,
+                semanticLosses: exactRetryPrompt.semanticLosses,
+              });
               const dispatchedPrompt =
                 exactRetryPrompt.dispatchedPrompt ?? exactRetryPrompt.compiledPrompt;
               await repository.createPromptVersions({
@@ -876,7 +923,11 @@ export class ImageGenerationService {
                     compiledPrompt: exactRetryPrompt.compiledPrompt,
                     dispatchedPrompt,
                     semanticLosses: exactRetryPrompt.semanticLosses,
-                    warnings: uniqueWarnings([rewriteWarning, ...exactRetryPrompt.warnings]),
+                    warnings: uniqueWarnings([
+                      rewriteWarning,
+                      ...exactRetryCompatibilityWarnings,
+                      ...exactRetryPrompt.warnings,
+                    ]),
                     hashes: createPromptHashes({
                       committedStateBefore: null,
                       candidateStateAfter: null,
@@ -884,6 +935,7 @@ export class ImageGenerationService {
                       prefix: exactRetryPrompt.compiledPrompt,
                       payload: {
                         prompt: dispatchedPrompt,
+                        negativePrompt: exactRetryNegativePrompt,
                         targetKey: `${target.provider.id}:${target.deployment.providerModel}`,
                       },
                     }),
@@ -897,21 +949,28 @@ export class ImageGenerationService {
                 compiledPrompt: exactRetryPrompt.compiledPrompt,
                 dispatchedPrompt,
                 semanticLosses: exactRetryPrompt.semanticLosses,
-                warnings: uniqueWarnings([rewriteWarning, ...exactRetryPrompt.warnings]),
+                warnings: uniqueWarnings([
+                  rewriteWarning,
+                  ...exactRetryCompatibilityWarnings,
+                  ...exactRetryPrompt.warnings,
+                ]),
               });
               finalDispatchWarnings = [...finalPromptSnapshot.warnings];
+              finalDispatchNegativePrompt = exactRetryNegativePrompt;
               return {
                 ...routingRequest,
                 requestedTarget: {
                   deploymentId: target.deployment.id,
                   provider: target.provider.id,
                 },
-                resolvedAssetRefs: await assetService.resolveProviderAssetRefs(
+                resolvedInputAssets: await resolveProviderInputAssetsWithCompatibility(
+                  assetService,
                   userId,
-                  effectivePayload.assetRefs ?? []
+                  resolveExactRetryInputAssets(effectivePayload),
+                  effectivePayload.operation
                 ),
                 prompt: dispatchedPrompt,
-                negativePrompt: undefined,
+                negativePrompt: exactRetryNegativePrompt,
               };
             }
 
@@ -972,6 +1031,7 @@ export class ImageGenerationService {
               warnings: uniqueWarnings([rewriteWarning, ...compiled.warnings]),
             });
             finalDispatchWarnings = [...finalPromptSnapshot.warnings];
+            finalDispatchNegativePrompt = compiled.negativePrompt ?? undefined;
 
             return {
               ...routingRequest,
@@ -979,9 +1039,11 @@ export class ImageGenerationService {
                 deploymentId: target.deployment.id,
                 provider: target.provider.id,
               },
-              resolvedAssetRefs: await assetService.resolveProviderAssetRefs(
+              resolvedInputAssets: await resolveProviderInputAssetsWithCompatibility(
+                assetService,
                 userId,
-                effectivePayload.assetRefs ?? []
+                resolveDispatchInputAssets(target, effectivePayload),
+                effectivePayload.operation
               ),
               prompt: compiled.dispatchedPrompt,
               negativePrompt: compiled.negativePrompt ?? undefined,
@@ -1063,7 +1125,10 @@ export class ImageGenerationService {
           throw new ProviderError("Provider did not return any image.");
         }
 
-        const capabilityWarnings = getImageGenerationCapabilityWarnings(effectivePayload);
+        const capabilityWarnings =
+          effectiveRetryMode === "exact"
+            ? []
+            : getImageGenerationCapabilityWarnings(effectivePayload);
         const mergedWarnings = uniqueWarnings([
           ...capabilityWarnings,
           ...(generated.warnings ?? []),
@@ -1148,12 +1213,12 @@ export class ImageGenerationService {
           ],
           createdAt: completedAt,
         }));
-        const assetEdges = (effectivePayload.assetRefs ?? []).flatMap((assetRef) =>
+        const assetEdges = (effectivePayload.inputAssets ?? []).flatMap((inputAsset) =>
           assets.map((asset) => ({
             id: createId("thread-edge"),
-            sourceAssetId: assetRef.assetId,
+            sourceAssetId: inputAsset.assetId,
             targetAssetId: asset.id,
-            edgeType: resolveEdgeType(assetRef.role, completedPrompt),
+            edgeType: resolveEdgeType(inputAsset, effectivePayload.operation, completedPrompt),
             turnId,
             runId: imageRunId,
             createdAt: completedAt,
@@ -1216,6 +1281,7 @@ export class ImageGenerationService {
                 prefix: completedPrompt.compiledPrompt,
                 payload: {
                   prompt: completedPrompt.dispatchedPrompt,
+                  negativePrompt: finalDispatchNegativePrompt,
                   providerEffectivePrompt: completedPrompt.providerEffectivePrompt,
                   targetKey: `${generated.runtimeProvider}:${generated.providerModel}`,
                   attempt: dispatchAttempt,
@@ -1259,7 +1325,7 @@ export class ImageGenerationService {
             prompt: completedPrompt,
             assetIds: assets.map((asset) => asset.id),
             referencedAssetIds:
-              effectivePayload.assetRefs?.map((assetRef) => assetRef.assetId) ?? [],
+              effectivePayload.inputAssets?.map((inputAsset) => inputAsset.assetId) ?? [],
             telemetry: {
               traceId,
               providerRequestId: generated.providerRequestId ?? null,

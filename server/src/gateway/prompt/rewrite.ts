@@ -49,8 +49,8 @@ const buildDeterministicTurnDelta = (
   continuityTargets: [...(request.promptIntent?.continuityTargets ?? [])],
   editOps: (request.promptIntent?.editOps ?? []).map((entry) => ({ ...entry })),
   referenceAssetIds: dedupe(
-    request.assetRefs
-      .filter((entry) => entry.role === "reference")
+    request.inputAssets
+      .filter((entry) => entry.binding === "guide")
       .map((entry) => entry.assetId)
   ),
 });
@@ -90,19 +90,8 @@ ${request.prompt.trim()}
 ## Structured Intent
 ${JSON.stringify(request.promptIntent ?? null, null, 2)}
 
-## Asset Refs
-${JSON.stringify(request.assetRefs, null, 2)}
-
-## Reference Images
-${JSON.stringify(
-  request.referenceImages.map((entry) => ({
-    id: entry.id,
-    type: entry.type,
-    sourceAssetId: entry.sourceAssetId ?? null,
-  })),
-  null,
-  2
-)}
+## Input Assets
+${JSON.stringify(request.inputAssets, null, 2)}
 `.trim();
 
 const parseChatCompletionContent = (payload: unknown) => {

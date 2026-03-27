@@ -52,7 +52,8 @@ describe("image generation capability facts", () => {
         modelParams: {
           promptExtend: true,
         },
-        assetRefs: [{ assetId: "thread-asset-1", role: "edit", referenceType: "content" }],
+        operation: "edit",
+        inputAssets: [{ assetId: "thread-asset-1", binding: "source" }],
       });
 
     expect(validationResult.success).toBe(false);
@@ -81,11 +82,11 @@ describe("image generation capability facts", () => {
         modelId: "qwen-image-2-pro",
         aspectRatio: "1:1",
         style: "none",
-        assetRefs: [
+        inputAssets: [
           {
             assetId: "asset-ref-1",
-            role: "reference",
-            referenceType: "content",
+            binding: "guide",
+            guideType: "content",
             weight: 0.5,
           },
         ],
@@ -103,7 +104,7 @@ describe("image generation capability facts", () => {
     expect(validationResult.error.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          path: ["assetRefs", 0, "weight"],
+          path: ["inputAssets", 0, "weight"],
         }),
       ])
     );

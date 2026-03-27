@@ -603,32 +603,36 @@ export class AssetService {
     await this.repository.deleteAssetEdges(edgeIds);
   }
 
-  async resolveProviderAssetRefs(
+  async resolveProviderInputAssets(
     userId: string,
-    assetRefs: Array<{
+    inputAssets: Array<{
       assetId: string;
-      role: "reference" | "edit" | "variation";
-      referenceType?: "style" | "content" | "controlnet";
+      binding: "guide" | "source";
+      guideType?: "style" | "content" | "controlnet";
       weight?: number;
     }>
   ): Promise<ResolvedProviderAssetRef[]> {
     const resolved: ResolvedProviderAssetRef[] = [];
-    for (const assetRef of assetRefs) {
-      const asset = await this.repository.findAssetById(userId, assetRef.assetId);
+    for (const inputAsset of inputAssets) {
+      const asset = await this.repository.findAssetById(userId, inputAsset.assetId);
       if (!asset) {
-        throw new Error(`Referenced asset ${assetRef.assetId} was not found.`);
+        throw new Error(`Referenced asset ${inputAsset.assetId} was not found.`);
       }
 
       const original = asset.files.find((file) => file.kind === "original");
       if (!original) {
-        throw new Error(`Referenced asset ${assetRef.assetId} is missing its original file.`);
+        throw new Error(`Referenced asset ${inputAsset.assetId} is missing its original file.`);
       }
 
       resolved.push({
-        assetId: assetRef.assetId,
-        role: assetRef.role,
-        referenceType: assetRef.referenceType ?? "content",
-        weight: typeof assetRef.weight === "number" ? assetRef.weight : 1,
+        assetId: inputAsset.assetId,
+        binding: inputAsset.binding,
+        ...(inputAsset.binding === "guide"
+          ? {
+              guideType: inputAsset.guideType ?? "content",
+              weight: typeof inputAsset.weight === "number" ? inputAsset.weight : 1,
+            }
+          : {}),
         signedUrl: await this.storage.createSignedReadUrl(
           original.path,
           DEFAULT_SIGNED_READ_TTL_SECONDS

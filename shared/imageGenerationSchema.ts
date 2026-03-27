@@ -2,13 +2,15 @@ import { z } from "zod";
 import {
   IMAGE_PROVIDER_IDS,
   IMAGE_ASPECT_RATIOS,
-  IMAGE_GENERATION_ASSET_REF_ROLES,
   IMAGE_GENERATION_RETRY_MODES,
+  IMAGE_GENERATION_OPERATIONS,
+  IMAGE_INPUT_ASSET_BINDINGS,
   IMAGE_PROMPT_CONTINUITY_TARGETS,
   IMAGE_PROMPT_EDIT_OPS,
   IMAGE_STYLE_IDS,
   REFERENCE_IMAGE_TYPES,
-  validateImageAssetRefs,
+  resolveLegacyImageGenerationInputs,
+  validateImageInputAssets,
 } from "./imageGeneration";
 import { FRONTEND_IMAGE_MODEL_IDS, LOGICAL_IMAGE_MODEL_IDS } from "./imageModelCatalog";
 import { appendImageModelParamIssues } from "./imageModelParams";
@@ -19,7 +21,8 @@ export const imageProviderSchema = z.enum(IMAGE_PROVIDER_IDS);
 export const imageAspectRatioSchema = z.enum(IMAGE_ASPECT_RATIOS);
 export const imageStyleSchema = z.enum(IMAGE_STYLE_IDS);
 export const referenceImageTypeSchema = z.enum(REFERENCE_IMAGE_TYPES);
-export const imageGenerationAssetRefRoleSchema = z.enum(IMAGE_GENERATION_ASSET_REF_ROLES);
+export const imageGenerationOperationSchema = z.enum(IMAGE_GENERATION_OPERATIONS);
+export const imageInputAssetBindingSchema = z.enum(IMAGE_INPUT_ASSET_BINDINGS);
 export const imageGenerationRetryModeSchema = z.enum(IMAGE_GENERATION_RETRY_MODES);
 export const imagePromptContinuityTargetSchema = z.enum(IMAGE_PROMPT_CONTINUITY_TARGETS);
 export const imagePromptEditOperationSchema = z.enum(IMAGE_PROMPT_EDIT_OPS);
@@ -33,14 +36,24 @@ export const IMAGE_GENERATION_LIMITS = {
   batchSize: { min: 1, max: 9 },
 } as const;
 
-export const referenceImageSchema = z.object({
+const legacyReferenceImageSchema = z.object({
   id: z.string().optional(),
-  url: z.string().min(1),
+  url: z.string().min(1).optional(),
   fileName: z.string().optional(),
   weight: z.number().min(0).max(1).optional(),
   type: referenceImageTypeSchema.default("content"),
   sourceAssetId: z.string().trim().min(1).optional(),
 });
+
+const legacyImageGenerationAssetRefSchema = z.object({
+  assetId: z.string().trim().min(1),
+  role: z.enum(["reference", "edit", "variation"]).default("reference"),
+  referenceType: referenceImageTypeSchema.optional(),
+  weight: z.number().min(0).max(1).optional(),
+});
+
+export const referenceImageSchema = legacyReferenceImageSchema;
+export const imageGenerationAssetRefSchema = legacyImageGenerationAssetRefSchema;
 
 export const requestedImageGenerationTargetSchema = z.object({
   modelId: frontendImageModelSchema.optional(),
@@ -49,10 +62,10 @@ export const requestedImageGenerationTargetSchema = z.object({
   provider: imageProviderSchema.optional(),
 });
 
-export const imageGenerationAssetRefSchema = z.object({
+export const imageInputAssetSchema = z.object({
   assetId: z.string().trim().min(1),
-  role: imageGenerationAssetRefRoleSchema.default("reference"),
-  referenceType: referenceImageTypeSchema.default("content"),
+  binding: imageInputAssetBindingSchema.default("guide"),
+  guideType: referenceImageTypeSchema.optional(),
   weight: z.number().min(0).max(1).optional(),
 });
 
@@ -70,64 +83,100 @@ export const imagePromptIntentSchema = z.object({
   editOps: z.array(imagePromptIntentEditOpSchema).max(16).default([]),
 });
 
+const imageGenerationRequestBaseSchema = z.object({
+  prompt: z.string().trim().min(1),
+  promptIntent: imagePromptIntentSchema.optional(),
+  negativePrompt: z.string().trim().optional(),
+  conversationId: z.string().trim().min(1).optional(),
+  threadId: z.string().trim().min(1).optional(),
+  retryOfTurnId: z.string().trim().min(1).optional(),
+  retryMode: imageGenerationRetryModeSchema.default("exact"),
+  clientTurnId: z.string().trim().min(1).optional(),
+  clientJobId: z.string().trim().min(1).optional(),
+  modelId: frontendImageModelSchema.default("seedream-v5"),
+  aspectRatio: imageAspectRatioSchema.default("1:1"),
+  width: z
+    .number()
+    .int()
+    .min(IMAGE_GENERATION_LIMITS.width.min)
+    .max(IMAGE_GENERATION_LIMITS.width.max)
+    .optional(),
+  height: z
+    .number()
+    .int()
+    .min(IMAGE_GENERATION_LIMITS.height.min)
+    .max(IMAGE_GENERATION_LIMITS.height.max)
+    .optional(),
+  style: imageStyleSchema.default("none"),
+  stylePreset: z.string().trim().optional(),
+  operation: imageGenerationOperationSchema.default("generate"),
+  inputAssets: z.array(imageInputAssetSchema).max(8).default([]),
+  referenceImages: z.array(legacyReferenceImageSchema).max(4).default([]),
+  assetRefs: z.array(legacyImageGenerationAssetRefSchema).max(8).default([]),
+  seed: z
+    .number()
+    .int()
+    .min(IMAGE_GENERATION_LIMITS.seed.min)
+    .max(IMAGE_GENERATION_LIMITS.seed.max)
+    .optional(),
+  guidanceScale: z
+    .number()
+    .min(IMAGE_GENERATION_LIMITS.guidanceScale.min)
+    .max(IMAGE_GENERATION_LIMITS.guidanceScale.max)
+    .optional(),
+  steps: z
+    .number()
+    .int()
+    .min(IMAGE_GENERATION_LIMITS.steps.min)
+    .max(IMAGE_GENERATION_LIMITS.steps.max)
+    .optional(),
+  sampler: z.string().trim().optional(),
+  batchSize: z
+    .number()
+    .int()
+    .min(IMAGE_GENERATION_LIMITS.batchSize.min)
+    .max(IMAGE_GENERATION_LIMITS.batchSize.max)
+    .default(1),
+  modelParams: z
+    .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
+    .default({}),
+  requestedTarget: requestedImageGenerationTargetSchema.optional(),
+});
+
 export const imageGenerationRequestSchema = z
-  .object({
-    prompt: z.string().trim().min(1),
-    promptIntent: imagePromptIntentSchema.optional(),
-    negativePrompt: z.string().trim().optional(),
-    conversationId: z.string().trim().min(1).optional(),
-    threadId: z.string().trim().min(1).optional(),
-    retryOfTurnId: z.string().trim().min(1).optional(),
-    retryMode: imageGenerationRetryModeSchema.default("exact"),
-    clientTurnId: z.string().trim().min(1).optional(),
-    clientJobId: z.string().trim().min(1).optional(),
-    modelId: frontendImageModelSchema.default("seedream-v5"),
-    aspectRatio: imageAspectRatioSchema.default("1:1"),
-    width: z
-      .number()
-      .int()
-      .min(IMAGE_GENERATION_LIMITS.width.min)
-      .max(IMAGE_GENERATION_LIMITS.width.max)
-      .optional(),
-    height: z
-      .number()
-      .int()
-      .min(IMAGE_GENERATION_LIMITS.height.min)
-      .max(IMAGE_GENERATION_LIMITS.height.max)
-      .optional(),
-    style: imageStyleSchema.default("none"),
-    stylePreset: z.string().trim().optional(),
-    referenceImages: z.array(referenceImageSchema).max(4).default([]),
-    seed: z
-      .number()
-      .int()
-      .min(IMAGE_GENERATION_LIMITS.seed.min)
-      .max(IMAGE_GENERATION_LIMITS.seed.max)
-      .optional(),
-    guidanceScale: z
-      .number()
-      .min(IMAGE_GENERATION_LIMITS.guidanceScale.min)
-      .max(IMAGE_GENERATION_LIMITS.guidanceScale.max)
-      .optional(),
-    steps: z
-      .number()
-      .int()
-      .min(IMAGE_GENERATION_LIMITS.steps.min)
-      .max(IMAGE_GENERATION_LIMITS.steps.max)
-      .optional(),
-    sampler: z.string().trim().optional(),
-    batchSize: z
-      .number()
-      .int()
-      .min(IMAGE_GENERATION_LIMITS.batchSize.min)
-      .max(IMAGE_GENERATION_LIMITS.batchSize.max)
-      .default(1),
-    modelParams: z
-      .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
-      .default({}),
-    assetRefs: z.array(imageGenerationAssetRefSchema).max(8).default([]),
-    requestedTarget: requestedImageGenerationTargetSchema.optional(),
-  })
+  .preprocess((value) => {
+    if (typeof value !== "object" || value === null) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    const normalizedInputs = resolveLegacyImageGenerationInputs({
+      operation:
+        typeof record.operation === "string"
+          ? (record.operation as "generate" | "edit" | "variation")
+          : undefined,
+      inputAssets: Array.isArray(record.inputAssets)
+        ? (record.inputAssets as Parameters<typeof resolveLegacyImageGenerationInputs>[0]["inputAssets"])
+        : undefined,
+      referenceImages: Array.isArray(record.referenceImages)
+        ? (record.referenceImages as Parameters<typeof resolveLegacyImageGenerationInputs>[0]["referenceImages"])
+        : undefined,
+      assetRefs: Array.isArray(record.assetRefs)
+        ? (record.assetRefs as Parameters<typeof resolveLegacyImageGenerationInputs>[0]["assetRefs"])
+        : undefined,
+    });
+
+    return {
+      ...record,
+      operation: normalizedInputs.operation,
+      inputAssets: normalizedInputs.inputAssets,
+    };
+  }, imageGenerationRequestBaseSchema)
+  .transform((payload) => ({
+    ...payload,
+    referenceImages: undefined,
+    assetRefs: undefined,
+  }))
   .superRefine((payload, ctx) => {
     const hasExplicitSize =
       typeof payload.width === "number" || typeof payload.height === "number";
@@ -171,7 +220,10 @@ export const imageGenerationRequestSchema = z
 
     appendImageModelParamIssues(payload.modelId, payload.modelParams, ctx);
 
-    for (const issue of validateImageAssetRefs(payload.assetRefs)) {
+    for (const issue of validateImageInputAssets({
+      operation: payload.operation,
+      inputAssets: payload.inputAssets,
+    })) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: issue.message,

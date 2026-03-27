@@ -6,7 +6,6 @@ const basePayload = {
   modelId: "seedream-v5" as const,
   aspectRatio: "1:1" as const,
   style: "none" as const,
-  referenceImages: [],
   batchSize: 1,
   modelParams: {},
 };
@@ -102,14 +101,44 @@ describe("imageGenerationRequestSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects multiple source asset roles in the same turn", () => {
+  it("rejects generate requests with source input assets", () => {
     const issuePaths = getIssuePaths({
+      inputAssets: [{ assetId: "asset-source-1", binding: "source" }],
+    });
+
+    expect(issuePaths).toContain("inputAssets");
+  });
+
+  it("accepts legacy assetRefs and referenceImages by mapping them into the new input model", () => {
+    const result = imageGenerationRequestSchema.safeParse({
+      ...basePayload,
+      referenceImages: [
+        {
+          sourceAssetId: "asset-guide-1",
+          type: "style",
+          weight: 0.4,
+        },
+      ],
       assetRefs: [
         { assetId: "asset-edit-1", role: "edit" },
-        { assetId: "asset-var-1", role: "variation" },
+        { assetId: "asset-guide-1", role: "reference" },
       ],
     });
 
-    expect(issuePaths).toContain("assetRefs");
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      return;
+    }
+
+    expect(result.data.operation).toBe("edit");
+    expect(result.data.inputAssets).toEqual([
+      { assetId: "asset-edit-1", binding: "source" },
+      {
+        assetId: "asset-guide-1",
+        binding: "guide",
+        guideType: "style",
+        weight: 0.4,
+      },
+    ]);
   });
 });
