@@ -12,6 +12,7 @@ import type {
 } from "@/types";
 import { createId } from "@/utils";
 import { normalizeCanvasTextElement } from "../textStyle";
+import { canonicalizeCanvasImageNode } from "../imageRenderState";
 import {
   collectWorldTransformById,
   getBoundsFromPoints,
@@ -108,8 +109,7 @@ const applyNodePropertyPatch = (
       locked: patch.locked ?? node.locked,
       opacity: patch.opacity ?? node.opacity,
       visible: patch.visible ?? node.visible,
-      filmProfileId: hasPatchKey(patch, "filmProfileId") ? patch.filmProfileId : node.filmProfileId,
-      adjustments: hasPatchKey(patch, "adjustments") ? patch.adjustments : node.adjustments,
+      renderState: hasPatchKey(patch, "renderState") ? clone(patch.renderState) : node.renderState,
     };
   }
 
@@ -146,6 +146,7 @@ const applyNodePropertyPatch = (
     visible: patch.visible ?? node.visible,
     arrowHead: hasPatchKey(patch, "arrowHead") ? patch.arrowHead : node.arrowHead,
     fill: patch.fill ?? node.fill,
+    fillStyle: hasPatchKey(patch, "fillStyle") ? clone(patch.fillStyle) : node.fillStyle,
     points: hasPatchKey(patch, "points") ? patch.points : node.points,
     radius: hasPatchKey(patch, "radius") ? patch.radius : node.radius,
     shapeType: patch.shapeType ?? node.shapeType,
@@ -337,10 +338,12 @@ export const executeCanvasCommand = (
       const explicitGroupChildren: Record<string, CanvasNodeId[]> = {};
 
       for (const node of command.nodes) {
-        insertedNodeMap[node.id] = normalizeNode(node);
-        parentHints[node.id] = node.parentId ?? null;
-        if (node.type === "group" && node.childIds?.length) {
-          explicitGroupChildren[node.id] = node.childIds.slice();
+        const nextNode =
+          node.type === "image" ? canonicalizeCanvasImageNode(node) : node;
+        insertedNodeMap[nextNode.id] = normalizeNode(nextNode);
+        parentHints[nextNode.id] = nextNode.parentId ?? null;
+        if (nextNode.type === "group" && nextNode.childIds?.length) {
+          explicitGroupChildren[nextNode.id] = nextNode.childIds.slice();
         }
       }
 
@@ -734,12 +737,14 @@ export const executeCanvasCommand = (
         visible: !node.visible,
       });
     }
-  } else if (command.type === "APPLY_IMAGE_ADJUSTMENTS") {
+  } else if (command.type === "SET_IMAGE_RENDER_STATE") {
     const node = next.nodes[command.id];
-    if (node?.type === "image" && !areEqual(node.adjustments, command.adjustments)) {
+    if (node?.type === "image" && !areEqual(node.renderState, command.renderState)) {
       putNode(next, recorder, {
         ...node,
-        adjustments: command.adjustments,
+        renderState: clone(command.renderState),
+        adjustments: undefined,
+        filmProfileId: undefined,
       });
     }
   }

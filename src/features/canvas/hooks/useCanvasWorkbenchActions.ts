@@ -17,7 +17,7 @@ export function useCanvasWorkbenchActions() {
   const navigate = useNavigate();
   const { activeWorkbench, activeWorkbenchId } = useCanvasActiveWorkbenchState();
   const { patchWorkbench } = useCanvasActiveWorkbenchCommands();
-  const workbenches = useCanvasStore((state) => state.workbenches);
+  const workbenches = useCanvasStore((state) => state.workbenchList);
   const createWorkbench = useCanvasStore((state) => state.createWorkbench);
   const deleteWorkbench = useCanvasStore((state) => state.deleteWorkbench);
 
@@ -53,7 +53,7 @@ export function useCanvasWorkbenchActions() {
   const createWorkbenchAndNavigate = useCallback(
     async (name?: string, options?: CreateWorkbenchOptions) => {
       const created = await createWorkbench(name, {
-        activate: false,
+        openAfterCreate: false,
         ...options,
       });
       if (!created) {
@@ -93,7 +93,7 @@ export function useCanvasWorkbenchActions() {
       return false;
     }
 
-    return deleteWorkbench(activeWorkbenchId, { nextActiveWorkbenchId: null });
+    return deleteWorkbench(activeWorkbenchId);
   }, [activeWorkbenchId, deleteWorkbench]);
 
   return {

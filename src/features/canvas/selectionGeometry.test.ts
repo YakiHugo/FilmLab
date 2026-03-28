@@ -49,9 +49,13 @@ describe("selection geometry", () => {
 
   it("merges marquee hits into the base selection only for additive drags", () => {
     expect(mergeSelectionIds(["base-a"], ["hit-a", "hit-b"], true)).toEqual([
-      "base-a",
       "hit-a",
       "hit-b",
+      "base-a",
+    ]);
+    expect(mergeSelectionIds(["base-a"], ["base-a", "hit-b"], true)).toEqual([
+      "hit-b",
+      "base-a",
     ]);
     expect(mergeSelectionIds(["base-a"], ["hit-a", "hit-b"], false)).toEqual(["hit-a", "hit-b"]);
   });

@@ -1,4 +1,5 @@
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import { legacyEditingAdjustmentsToCanvasImageRenderState } from "@/render/image";
 import type {
   CanvasWorkbench,
   CanvasGroupNode,
@@ -60,6 +61,7 @@ export const createImageNode = ({
   adjustments = createDefaultAdjustments(),
   assetId = "asset-1",
   filmProfileId,
+  renderState,
   id,
   parentId = null,
   x,
@@ -74,6 +76,7 @@ export const createImageNode = ({
   adjustments?: CanvasImageElement["adjustments"];
   assetId?: string;
   filmProfileId?: string;
+  renderState?: CanvasImageElement["renderState"];
   id: CanvasNodeId;
   parentId?: CanvasNodeId | null;
   x: number;
@@ -104,6 +107,20 @@ export const createImageNode = ({
   opacity,
   locked,
   visible,
+  renderState:
+    renderState ??
+    legacyEditingAdjustmentsToCanvasImageRenderState({
+      asset: {
+        id: assetId,
+        name: assetId,
+        type: "image/png",
+        size: 1,
+        createdAt: "2026-03-17T00:00:00.000Z",
+        objectUrl: `blob:${assetId}`,
+      },
+      adjustments,
+      filmProfileId,
+    }),
   adjustments,
   filmProfileId,
 });

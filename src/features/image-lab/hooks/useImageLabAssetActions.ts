@@ -290,8 +290,8 @@ export function useImageLabAssetActions(input: {
 
       let canvasStore = useCanvasStore.getState();
       if (
-        !canvasStore.activeWorkbenchId &&
-        (canvasStore.workbenches.length === 0 || canvasStore.isLoading)
+        !canvasStore.loadedWorkbenchId &&
+        (canvasStore.workbenchList.length === 0 || canvasStore.isLoading)
       ) {
         await canvasStore.init();
         canvasStore = useCanvasStore.getState();
@@ -302,10 +302,13 @@ export function useImageLabAssetActions(input: {
         return null;
       }
       const startEpoch = getCanvasResetEpoch();
-      let workbenchId = canvasStore.activeWorkbenchId;
+      let workbenchId = canvasStore.loadedWorkbenchId;
       let insertionIndex = 1;
       if (workbenchId) {
-        const activeWorkbench = canvasStore.workbenches.find((item) => item.id === workbenchId);
+        const activeWorkbench =
+          canvasStore.loadedWorkbenchId === workbenchId
+            ? canvasStore.workbenchDraft ?? canvasStore.workbench
+            : null;
         insertionIndex = (activeWorkbench?.rootIds.length ?? 0) + 1;
       } else {
         const created = await canvasStore.createWorkbench("AI 宸ヤ綔鍙?");
@@ -348,7 +351,7 @@ export function useImageLabAssetActions(input: {
 
       await canvasStore.upsertElementInWorkbench(workbenchId, element);
       const latestCanvasStore = useCanvasStore.getState();
-      if (latestCanvasStore.activeWorkbenchId === workbenchId) {
+      if (latestCanvasStore.loadedWorkbenchId === workbenchId) {
         latestCanvasStore.setSelectedElementIds([element.id]);
       }
       return { workbenchId, elementId: element.id };

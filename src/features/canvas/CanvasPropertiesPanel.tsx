@@ -68,6 +68,7 @@ export const CanvasPropertiesPanel = memo(function CanvasPropertiesPanel({
 }: CanvasPropertiesPanelProps) {
   const {
     activeWorkbench,
+    selectedImageRenderState,
     selected,
     selectedAsset,
     setFilmProfileId,
@@ -188,7 +189,7 @@ export const CanvasPropertiesPanel = memo(function CanvasPropertiesPanel({
               </div>
 
               <Select
-                value={selected.filmProfileId ?? "none"}
+                value={selectedImageRenderState?.film.profileId ?? "none"}
                 onValueChange={setFilmProfileId}
               >
                 <SelectTrigger className={canvasDockSelectTriggerClassName}>

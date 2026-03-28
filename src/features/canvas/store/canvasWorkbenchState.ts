@@ -1,9 +1,9 @@
 import type { CanvasCommand, CanvasHistoryEntry, CanvasWorkbench } from "@/types";
+import { materializeCanvasWorkbenchListEntry } from "./canvasWorkbenchListEntry";
 import type {
   CanvasHistoryState,
   CanvasStoreDataState,
   CreateWorkbenchOptions,
-  DeleteWorkbenchOptions,
   ExecuteCommandOptions,
 } from "./canvasStoreTypes";
 
@@ -65,32 +65,19 @@ export const createHistoryEntry = (
   inverseChangeSet: result.inverseChangeSet,
 });
 
-const replaceWorkbenchInState = (
-  workbenches: CanvasWorkbench[],
-  workbenchId: string,
-  nextWorkbench: CanvasWorkbench
-) =>
-  workbenches.map((workbench) =>
-    workbench.id === workbenchId ? nextWorkbench : workbench
-  );
-
 const applyCommandHistory = (
-  historyByWorkbenchId: Record<string, CanvasHistoryState>,
-  workbenchId: string,
+  history: CanvasHistoryState | null,
   historyEntry: CanvasHistoryEntry,
   trackHistory: boolean
 ) => {
   if (!trackHistory) {
-    return historyByWorkbenchId;
+    return history;
   }
 
-  const history = historyByWorkbenchId[workbenchId] ?? createEmptyHistoryState();
+  const currentHistory = history ?? createEmptyHistoryState();
   return {
-    ...historyByWorkbenchId,
-    [workbenchId]: {
-      past: [...history.past, historyEntry].slice(-MAX_CANVAS_HISTORY),
-      future: [],
-    },
+    past: [...currentHistory.past, historyEntry].slice(-MAX_CANVAS_HISTORY),
+    future: [],
   };
 };
 
@@ -103,64 +90,58 @@ export const appendCanvasHistoryEntry = (
 });
 
 const applyHistoryTransition = (
-  historyByWorkbenchId: Record<string, CanvasHistoryState>,
-  workbenchId: string,
   mode: CanvasHistoryTransitionMode,
   historyEntry: CanvasHistoryEntry,
   historyState: CanvasHistoryState
-) => ({
-  ...historyByWorkbenchId,
-  [workbenchId]:
-    mode === "undo"
-      ? {
-          past: historyState.past.slice(0, -1),
-          future: [historyEntry, ...historyState.future].slice(0, MAX_CANVAS_HISTORY),
-        }
-      : {
-          past: [...historyState.past, historyEntry].slice(-MAX_CANVAS_HISTORY),
-          future: historyState.future.slice(1),
-        },
-});
+): CanvasHistoryState =>
+  mode === "undo"
+    ? {
+        past: historyState.past.slice(0, -1),
+        future: [historyEntry, ...historyState.future].slice(0, MAX_CANVAS_HISTORY),
+      }
+    : {
+        past: [...historyState.past, historyEntry].slice(-MAX_CANVAS_HISTORY),
+        future: historyState.future.slice(1),
+      };
+
+const upsertWorkbenchListEntry = (
+  workbenchList: CanvasStoreDataState["workbenchList"],
+  workbench: CanvasWorkbench
+) => {
+  const nextEntry = materializeCanvasWorkbenchListEntry(workbench);
+  const nextList = (workbenchList ?? []).filter((entry) => entry.id !== nextEntry.id);
+  return [nextEntry, ...nextList];
+};
 
 export const commitCommandResultToState = (
   state: CanvasStoreDataState,
   descriptor: WorkbenchCommitDescriptor,
   selectedElementIds?: string[]
-):
-  | Pick<CanvasStoreDataState, "workbenches" | "historyByWorkbenchId">
-  | Pick<CanvasStoreDataState, "workbenches" | "historyByWorkbenchId" | "selectedElementIds"> => {
-  const workbenches = replaceWorkbenchInState(
-    state.workbenches,
-    descriptor.workbenchId,
-    descriptor.nextWorkbench
-  );
-  const historyByWorkbenchId =
+) => {
+  if (state.loadedWorkbenchId !== descriptor.workbenchId) {
+    return state;
+  }
+
+  const workbenchHistory =
     descriptor.historyMode === "command"
       ? applyCommandHistory(
-          state.historyByWorkbenchId,
-          descriptor.workbenchId,
+          state.workbenchHistory,
           descriptor.historyEntry,
           descriptor.trackHistory
         )
       : applyHistoryTransition(
-            state.historyByWorkbenchId,
-            descriptor.workbenchId,
-            descriptor.historyMode,
-            descriptor.historyEntry,
-            descriptor.historyState
-          );
-
-  if (selectedElementIds === undefined) {
-    return {
-      workbenches,
-      historyByWorkbenchId,
-    };
-  }
+          descriptor.historyMode,
+          descriptor.historyEntry,
+          descriptor.historyState
+        );
 
   return {
-    workbenches,
-    historyByWorkbenchId,
-    selectedElementIds,
+    workbench: descriptor.nextWorkbench,
+    workbenchDraft: null,
+    workbenchHistory,
+    workbenchInteraction: state.workbenchInteraction,
+    workbenchList: upsertWorkbenchListEntry(state.workbenchList, descriptor.nextWorkbench),
+    ...(selectedElementIds === undefined ? {} : { selectedElementIds }),
   };
 };
 
@@ -168,55 +149,42 @@ export const commitCreatedWorkbenchToState = (
   state: CanvasStoreDataState,
   workbench: CanvasWorkbench,
   options?: CreateWorkbenchOptions
-) => ({
-  workbenches: [workbench, ...state.workbenches],
-  activeWorkbenchId: options?.activate === false ? state.activeWorkbenchId : workbench.id,
-  selectedElementIds: options?.activate === false ? state.selectedElementIds : [],
-  historyByWorkbenchId: {
-    ...state.historyByWorkbenchId,
-    [workbench.id]: createEmptyHistoryState(),
-  },
-  interactionStatusByWorkbenchId: {
-    ...state.interactionStatusByWorkbenchId,
-  },
-  viewport: options?.activate === false ? state.viewport : { x: 0, y: 0 },
-  zoom: options?.activate === false ? state.zoom : 1,
-});
+) => {
+  const workbenchList = upsertWorkbenchListEntry(state.workbenchList, workbench);
+  if (options?.openAfterCreate === false) {
+    return {
+      workbenchList,
+    };
+  }
+
+  return {
+    workbenchList,
+    loadedWorkbenchId: workbench.id,
+    workbench,
+    workbenchDraft: null,
+    selectedElementIds: [],
+    workbenchHistory: createEmptyHistoryState(),
+    workbenchInteraction: null,
+    viewport: { x: 0, y: 0 },
+    zoom: 1,
+  };
+};
 
 export const commitDeletedWorkbenchToState = (
   state: CanvasStoreDataState,
-  id: string,
-  options?: DeleteWorkbenchOptions
+  id: string
 ) => {
-  const workbenches = state.workbenches.filter((item) => item.id !== id);
-  const isValidNextActiveWorkbenchId = (candidate: string | null | undefined) =>
-    candidate !== null && candidate !== undefined
-      ? workbenches.some((workbench) => workbench.id === candidate)
-      : candidate === null;
-  const nextActiveWorkbenchId =
-    options?.nextActiveWorkbenchId !== undefined
-      ? options.nextActiveWorkbenchId === null
-        ? state.activeWorkbenchId === id
-          ? null
-          : state.activeWorkbenchId
-        : isValidNextActiveWorkbenchId(options.nextActiveWorkbenchId)
-          ? options.nextActiveWorkbenchId
-          : null
-      : state.activeWorkbenchId === id
-        ? (workbenches[0]?.id ?? null)
-        : state.activeWorkbenchId;
-  const nextHistory = { ...state.historyByWorkbenchId };
-  delete nextHistory[id];
-  const nextInteractionStatus = { ...state.interactionStatusByWorkbenchId };
-  delete nextInteractionStatus[id];
-  const activeChanged = nextActiveWorkbenchId !== state.activeWorkbenchId;
+  const workbenchList = (state.workbenchList ?? []).filter((entry) => entry.id !== id);
+  const deletingLoadedWorkbench = state.loadedWorkbenchId === id;
 
   return {
-    workbenches,
-    activeWorkbenchId: nextActiveWorkbenchId,
-    selectedElementIds: activeChanged ? [] : state.selectedElementIds,
-    historyByWorkbenchId: nextHistory,
-    interactionStatusByWorkbenchId: nextInteractionStatus,
+    workbenchList,
+    loadedWorkbenchId: deletingLoadedWorkbench ? null : state.loadedWorkbenchId,
+    workbench: deletingLoadedWorkbench ? null : state.workbench,
+    workbenchDraft: deletingLoadedWorkbench ? null : state.workbenchDraft,
+    selectedElementIds: deletingLoadedWorkbench ? [] : state.selectedElementIds,
+    workbenchHistory: deletingLoadedWorkbench ? null : state.workbenchHistory,
+    workbenchInteraction: deletingLoadedWorkbench ? null : state.workbenchInteraction,
   };
 };
 
@@ -228,20 +196,17 @@ export const commitPreviewCommandResultToState = (
   state: CanvasStoreDataState,
   descriptor: Pick<CommandCommitDescriptor, "workbenchId" | "nextWorkbench">
 ) => {
-  const history = state.historyByWorkbenchId[descriptor.workbenchId] ?? createEmptyHistoryState();
+  if (state.loadedWorkbenchId !== descriptor.workbenchId) {
+    return state;
+  }
 
+  const history = state.workbenchHistory ?? createEmptyHistoryState();
   return {
-    workbenches: replaceWorkbenchInState(
-      state.workbenches,
-      descriptor.workbenchId,
-      descriptor.nextWorkbench
-    ),
-    historyByWorkbenchId: {
-      ...state.historyByWorkbenchId,
-      [descriptor.workbenchId]: {
-        past: history.past,
-        future: [],
-      },
+    workbenchDraft: descriptor.nextWorkbench,
+    workbenchHistory: {
+      past: history.past,
+      future: [],
     },
+    workbenchList: upsertWorkbenchListEntry(state.workbenchList, descriptor.nextWorkbench),
   };
 };

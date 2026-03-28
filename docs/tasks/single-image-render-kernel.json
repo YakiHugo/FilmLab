@@ -1,6 +1,6 @@
 {
   "baseline": "single-image-render-kernel",
-  "current": "after-develop-and-analysis",
+  "current": "done",
   "tasks": [
     {
       "id": "contracts-and-legacy-adapter",
@@ -27,9 +27,54 @@
     },
     {
       "id": "after-develop-and-analysis",
-      "status": "pending",
+      "status": "done",
       "passes": [
-        "single-image runtime supports afterDevelop effects with explicit analysis inputs"
+        "single-image runtime supports explicit afterDevelop analysis inputs",
+        "pnpm exec vitest --run src/render/image/snapshotPlan.test.ts src/render/image/asciiAnalysis.test.ts src/render/image/asciiEffect.test.ts src/render/image/renderSingleImage.test.ts"
+      ]
+    },
+    {
+      "id": "pre-film-effect-placement",
+      "status": "done",
+      "passes": [
+        "single-image runtime supports true placement: afterDevelop execution before film and post-optics",
+        "pnpm exec vitest --run src/render/image/snapshotPlan.test.ts src/render/image/renderSingleImage.test.ts src/features/editor/renderDocumentCanvas.test.ts"
+      ]
+    },
+    {
+      "id": "canvas-render-state-persisted-model",
+      "status": "done",
+      "passes": [
+        "CanvasWorkbenchSnapshot.version is 4",
+        "image nodes write canonical renderState and stop normatively writing top-level adjustments/filmProfileId"
+      ]
+    },
+    {
+      "id": "mask-execution-and-stage-hardening",
+      "status": "done",
+      "passes": [
+        "single-image raster effects honor maskId with real mask compositing",
+        "pnpm exec vitest --run src/render/image src/features/editor/renderDocumentCanvas.test.ts",
+        "pnpm exec vitest --run src/features/canvas",
+        "pnpm exec tsc -p tsconfig.json --noEmit"
+      ]
+    },
+    {
+      "id": "post-cutover-hardening",
+      "status": "done",
+      "passes": [
+        "new image-node insertion snapshots canonical renderState from the asset",
+        "image property canonicalization uses the real asset when available",
+        "duplicate/reinsert flows canonicalize legacy image nodes instead of propagating legacy top-level fields",
+        "single-image runtime uses ImageRenderDocument.source as the authoritative render source",
+        "single-image runtime no longer requires unused runtime asset ownership inputs",
+        "canvas image-state resolution is owned by the image-state boundary instead of the preview render module",
+        "single-image timestamp overlay is restored from canonical output state",
+        "legacy image snapshots are canonicalized before becoming live workbench state",
+        "masked effect gating uses stable placement-stage snapshots",
+        "legacy ascii mapping preserves replacement semantics",
+        "pnpm exec vitest --run src/render/image src/features/canvas",
+        "pnpm exec tsc -p tsconfig.json --noEmit"
       ]
     }
   ]

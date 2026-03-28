@@ -101,7 +101,8 @@ export const TextElement = memo(function TextElement({
   const effectiveLocked = layoutElement.effectiveLocked ?? layoutElement.locked;
   const effectiveVisible = layoutElement.effectiveVisible ?? layoutElement.visible;
   const renderOpacity = layoutElement.worldOpacity ?? layoutElement.opacity;
-  const handleDoubleClick = canEditText ? () => onDoubleClick(layoutElement.id) : undefined;
+  const handleDoubleClick =
+    canDrag && canEditText ? () => onDoubleClick(layoutElement.id) : undefined;
 
   return (
     <Text

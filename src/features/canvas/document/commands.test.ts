@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import { createDefaultCanvasImageRenderState } from "@/render/image";
 import { getCanvasNodeWorldTransform, worldPointToLocalPoint } from "./geometry";
 import { getCanvasWorkbenchSnapshot } from "./model";
 import { executeCanvasCommand } from "./commands";
@@ -310,6 +311,35 @@ describe("document commands", () => {
     });
   });
 
+  it("preserves unresolved legacy image nodes instead of fabricating generic render state", () => {
+    const document = createCanvasTestDocument({
+      nodes: {},
+      rootIds: [],
+    });
+
+    const result = executeCanvasCommand(document, {
+      type: "INSERT_NODES",
+      nodes: [
+        {
+          ...createImageNode({
+            id: "image-1",
+            x: 40,
+            y: 60,
+          }),
+          renderState: undefined,
+        },
+      ],
+    });
+
+    expect(result.didChange).toBe(true);
+    expect(result.document.nodes["image-1"]).toMatchObject({
+      id: "image-1",
+      type: "image",
+      renderState: undefined,
+      adjustments: expect.any(Object),
+    });
+  });
+
   it("marks invalid commands as unchanged and emits no patch operations", () => {
     const document = createCanvasTestDocument({
       nodes: {
@@ -382,11 +412,11 @@ describe("document commands", () => {
     expect(result.inverseChangeSet.operations).toEqual([]);
   });
 
-  it("applies image adjustment commands and round-trips their patches", () => {
+  it("applies canonical image render-state commands and round-trips their patches", () => {
     const originalAdjustments = createDefaultAdjustments();
-    const nextAdjustments = createDefaultAdjustments();
-    nextAdjustments.exposure = 24;
-    nextAdjustments.contrast = 12;
+    const nextRenderState = createDefaultCanvasImageRenderState();
+    nextRenderState.develop.tone.exposure = 24;
+    nextRenderState.develop.tone.contrast = 12;
     const document = createCanvasTestDocument({
       nodes: {
         "image-1": createImageNode({
@@ -400,14 +430,63 @@ describe("document commands", () => {
     });
 
     const result = executeCanvasCommand(document, {
-      type: "APPLY_IMAGE_ADJUSTMENTS",
-      adjustments: nextAdjustments,
+      type: "SET_IMAGE_RENDER_STATE",
+      renderState: nextRenderState,
       id: "image-1",
     });
 
     expect(result.didChange).toBe(true);
     expect(result.document.nodes["image-1"]).toMatchObject({
-      adjustments: nextAdjustments,
+      adjustments: undefined,
+      renderState: nextRenderState,
+    });
+
+    const forwardApplied = applyCanvasDocumentChangeSet(document, result.forwardChangeSet);
+    const inverseApplied = applyCanvasDocumentChangeSet(result.document, result.inverseChangeSet);
+
+    expect(getCanvasWorkbenchSnapshot(forwardApplied)).toEqual(getCanvasWorkbenchSnapshot(result.document));
+    expect(getCanvasWorkbenchSnapshot(inverseApplied)).toEqual(getCanvasWorkbenchSnapshot(document));
+  });
+
+  it("persists shape fillStyle through node property patches and change-set replay", () => {
+    const document = createCanvasTestDocument({
+      nodes: {
+        "shape-1": createShapeNode({
+          id: "shape-1",
+          x: 40,
+          y: 60,
+        }),
+      },
+      rootIds: ["shape-1"],
+    });
+
+    const result = executeCanvasCommand(document, {
+      type: "UPDATE_NODE_PROPS",
+      updates: [
+        {
+          id: "shape-1",
+          patch: {
+            fill: "#ff0066",
+            fillStyle: {
+              kind: "linear-gradient",
+              angle: 45,
+              from: "#ff0066",
+              to: "#1e90ff",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result.didChange).toBe(true);
+    expect(result.document.nodes["shape-1"]).toMatchObject({
+      fill: "#ff0066",
+      fillStyle: {
+        kind: "linear-gradient",
+        angle: 45,
+        from: "#ff0066",
+        to: "#1e90ff",
+      },
     });
 
     const forwardApplied = applyCanvasDocumentChangeSet(document, result.forwardChangeSet);

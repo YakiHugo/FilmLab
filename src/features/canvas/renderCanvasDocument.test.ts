@@ -42,9 +42,14 @@ const createAsset = (): Asset => ({
 });
 
 const createContext = () => ({
+  arcTo: vi.fn(),
   arc: vi.fn(),
   beginPath: vi.fn(),
   clearRect: vi.fn(),
+  closePath: vi.fn(),
+  createLinearGradient: vi.fn(() => ({
+    addColorStop: vi.fn(),
+  })),
   drawImage: vi.fn(),
   fill: vi.fn(),
   fillRect: vi.fn(),
@@ -64,6 +69,8 @@ const createContext = () => ({
   set globalAlpha(_value: number) {},
   set imageSmoothingEnabled(_value: boolean) {},
   set imageSmoothingQuality(_value: "low" | "medium" | "high") {},
+  set lineCap(_value: CanvasLineCap) {},
+  set lineJoin(_value: CanvasLineJoin) {},
   set lineWidth(_value: number) {},
   set strokeStyle(_value: string) {},
   set textAlign(_value: CanvasTextAlign) {},
@@ -288,9 +295,6 @@ describe("renderCanvasWorkbench", () => {
           height: 200,
         },
       },
-      runtime: {
-        asset: expect.objectContaining({ id: "asset-1" }),
-      },
     });
     expect(mainContext.drawImage).toHaveBeenCalled();
     expect(mainContext.fillText).toHaveBeenCalledWith("工作台 export", 0, 0);
@@ -354,6 +358,89 @@ describe("renderCanvasWorkbench", () => {
     expect(mainContext.fillText).toHaveBeenCalledTimes(1);
   });
 
+  it("renders shape gradients through the export fill pipeline", async () => {
+    const gradient = {
+      addColorStop: vi.fn(),
+    };
+    const mainContext = createContext();
+    mainContext.createLinearGradient = vi.fn(() => gradient);
+    const mainCanvas = createCanvas(mainContext);
+    vi.stubGlobal("document", {
+      createElement: vi.fn(() => createCanvas()),
+    });
+
+    const canvasDocument = normalizeCanvasWorkbench({
+      id: "doc-shape-gradient",
+      version: 3,
+      name: "Gradient Shape",
+      width: 1000,
+      height: 800,
+      presetId: "custom",
+      backgroundColor: "#101010",
+      nodes: {
+        "shape-1": {
+          id: "shape-1",
+          type: "shape",
+          parentId: null,
+          shapeType: "rect",
+          fill: "#ff0066",
+          fillStyle: {
+            kind: "linear-gradient",
+            angle: 0,
+            from: "#ff0066",
+            to: "#1e90ff",
+          },
+          stroke: "#ffffff",
+          strokeWidth: 2,
+          x: 120,
+          y: 140,
+          width: 240,
+          height: 160,
+          rotation: 0,
+          transform: {
+            x: 120,
+            y: 140,
+            width: 240,
+            height: 160,
+            rotation: 0,
+          },
+          opacity: 1,
+          locked: false,
+          visible: true,
+        },
+      },
+      rootIds: ["shape-1"],
+      slices: [],
+      guides: {
+        showCenter: false,
+        showThirds: false,
+        showSafeArea: false,
+      },
+      safeArea: {
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+      },
+      createdAt: "2026-03-17T00:00:00.000Z",
+      updatedAt: "2026-03-17T00:00:00.000Z",
+    });
+
+    await renderCanvasWorkbenchToCanvas({
+      assets: [],
+      canvas: mainCanvas as unknown as HTMLCanvasElement,
+      document: canvasDocument,
+      height: 800,
+      pixelRatio: 1,
+      width: 1000,
+    });
+
+    expect(mainContext.createLinearGradient).toHaveBeenCalledTimes(1);
+    expect(gradient.addColorStop).toHaveBeenNthCalledWith(1, 0, "#ff0066");
+    expect(gradient.addColorStop).toHaveBeenNthCalledWith(2, 1, "#1e90ff");
+    expect(mainContext.fillRect).toHaveBeenCalledWith(0, 0, 240, 160);
+  });
+
   it("crops rendered slice regions using the 工作台 export scale", () => {
     const sliceContext = createContext();
     const sliceCanvas = createCanvas(sliceContext);
@@ -390,5 +477,184 @@ describe("renderCanvasWorkbench", () => {
       200,
       160
     );
+  });
+
+  it("keeps line and arrow export styling aligned with the stage renderer", async () => {
+    const mainContext = createContext();
+    const mainCanvas = createCanvas(mainContext);
+    vi.stubGlobal("document", {
+      createElement: vi.fn(() => createCanvas()),
+    });
+
+    const canvasDocument = normalizeCanvasWorkbench({
+      id: "doc-shape-line-arrow",
+      version: 3,
+      name: "Line Arrow",
+      width: 400,
+      height: 300,
+      presetId: "custom",
+      backgroundColor: "#101010",
+      nodes: {
+        "line-1": {
+          id: "line-1",
+          type: "shape",
+          parentId: null,
+          shapeType: "line",
+          fill: "transparent",
+          stroke: "#ff0066",
+          strokeWidth: 6,
+          points: [
+            { x: 0, y: 40 },
+            { x: 120, y: 40 },
+          ],
+          x: 20,
+          y: 20,
+          width: 120,
+          height: 80,
+          rotation: 0,
+          transform: {
+            x: 20,
+            y: 20,
+            width: 120,
+            height: 80,
+            rotation: 0,
+          },
+          opacity: 1,
+          locked: false,
+          visible: true,
+        },
+        "arrow-1": {
+          id: "arrow-1",
+          type: "shape",
+          parentId: null,
+          shapeType: "arrow",
+          fill: "transparent",
+          stroke: "#1e90ff",
+          strokeWidth: 4,
+          points: [
+            { x: 0, y: 40 },
+            { x: 120, y: 40 },
+          ],
+          arrowHead: {
+            start: false,
+            end: true,
+          },
+          x: 20,
+          y: 120,
+          width: 120,
+          height: 80,
+          rotation: 0,
+          transform: {
+            x: 20,
+            y: 120,
+            width: 120,
+            height: 80,
+            rotation: 0,
+          },
+          opacity: 1,
+          locked: false,
+          visible: true,
+        },
+      },
+      rootIds: ["line-1", "arrow-1"],
+      slices: [],
+      guides: {
+        showCenter: false,
+        showThirds: false,
+        showSafeArea: false,
+      },
+      safeArea: {
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+      },
+      createdAt: "2026-03-17T00:00:00.000Z",
+      updatedAt: "2026-03-17T00:00:00.000Z",
+    });
+
+    await renderCanvasWorkbenchToCanvas({
+      assets: [],
+      canvas: mainCanvas as unknown as HTMLCanvasElement,
+      document: canvasDocument,
+      height: 300,
+      pixelRatio: 1,
+      width: 400,
+    });
+
+    expect(mainContext.stroke).toHaveBeenCalledTimes(3);
+    expect(mainContext.fill).toHaveBeenCalledTimes(1);
+    expect(mainContext.closePath).toHaveBeenCalledTimes(1);
+  });
+
+  it("exports rounded rect shapes through a rounded path", async () => {
+    const mainContext = createContext();
+    const mainCanvas = createCanvas(mainContext);
+    vi.stubGlobal("document", {
+      createElement: vi.fn(() => createCanvas()),
+    });
+
+    const canvasDocument = normalizeCanvasWorkbench({
+      id: "doc-shape-rounded-rect",
+      version: 3,
+      name: "Rounded Rect",
+      width: 400,
+      height: 300,
+      presetId: "custom",
+      backgroundColor: "#101010",
+      nodes: {
+        "shape-1": {
+          id: "shape-1",
+          type: "shape",
+          parentId: null,
+          shapeType: "rect",
+          fill: "#ff0066",
+          stroke: "#ffffff",
+          strokeWidth: 2,
+          radius: 24,
+          x: 20,
+          y: 20,
+          width: 120,
+          height: 80,
+          rotation: 0,
+          transform: {
+            x: 20,
+            y: 20,
+            width: 120,
+            height: 80,
+            rotation: 0,
+          },
+          opacity: 1,
+          locked: false,
+          visible: true,
+        },
+      },
+      rootIds: ["shape-1"],
+      slices: [],
+      guides: {
+        showCenter: false,
+        showThirds: false,
+        showSafeArea: false,
+      },
+      safeArea: {
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+      },
+      createdAt: "2026-03-17T00:00:00.000Z",
+      updatedAt: "2026-03-17T00:00:00.000Z",
+    });
+
+    await renderCanvasWorkbenchToCanvas({
+      assets: [],
+      canvas: mainCanvas as unknown as HTMLCanvasElement,
+      document: canvasDocument,
+      height: 300,
+      pixelRatio: 1,
+      width: 400,
+    });
+
+    expect(mainContext.arcTo).toHaveBeenCalledTimes(4);
   });
 });

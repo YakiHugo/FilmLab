@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import { createDefaultCanvasImageRenderState } from "@/render/image";
 import type { Asset, CanvasImageElement, CanvasWorkbench } from "@/types";
 import { normalizeCanvasWorkbench } from "@/features/canvas/studioPresets";
 import {
@@ -105,14 +106,16 @@ const createScopeInput = (): CanvasRuntimeScopeInput => {
 describe("canvasPreviewRuntimeState", () => {
   it("resolves preview task input from explicit runtime scope input", () => {
     const input = createScopeInput();
-    const nextDraftAdjustments = {
-      ...createDefaultAdjustments(),
-      brightness: 12,
-    };
+    const nextDraftRenderState = createDefaultCanvasImageRenderState({
+      adjustments: {
+        ...createDefaultAdjustments(),
+        brightness: 12,
+      },
+    });
 
     const taskInput = resolvePreviewTaskInput({
-      draftAdjustmentsByElementId: {
-        "image-1": nextDraftAdjustments,
+      draftRenderStateByElementId: {
+        "image-1": nextDraftRenderState,
       },
       elementId: "image-1",
       input,
@@ -122,7 +125,11 @@ describe("canvasPreviewRuntimeState", () => {
     expect(taskInput).not.toBeNull();
     expect(taskInput?.asset.id).toBe("asset-1");
     expect(taskInput?.element.id).toBe("image-1");
-    expect(taskInput?.draftAdjustments?.brightness).toBe(12);
+    expect(taskInput?.draftRenderState?.effects.find((effect) => effect.type === "filter2d")).toMatchObject({
+      params: {
+        brightness: 12,
+      },
+    });
     expect(taskInput?.viewportScale).toBe(1.25);
     expect(taskInput?.cacheKey).toContain("variant:interactive");
     expect(taskInput?.dependencyAssetIds).toEqual(["asset-1"]);
@@ -176,8 +183,8 @@ describe("canvasPreviewRuntimeState", () => {
     const secondCanvas = { height: 60, width: 100 } as HTMLCanvasElement;
 
     const disposePlan = resolveCanvasRuntimeDisposePlan({
-      draftAdjustmentsByElementId: {
-        "image-1": createDefaultAdjustments(),
+      draftRenderStateByElementId: {
+        "image-1": createDefaultCanvasImageRenderState(),
       },
       previewEntries: {
         "image-1": {
@@ -202,7 +209,7 @@ describe("canvasPreviewRuntimeState", () => {
       selectionPreviewElementIds: ["image-1"],
     });
 
-    expect(disposePlan.draftAdjustmentElementIds).toEqual(["image-1"]);
+    expect(disposePlan.draftRenderStateElementIds).toEqual(["image-1"]);
     expect(disposePlan.hasSelectionPreview).toBe(true);
     expect(disposePlan.previewSources).toEqual([firstCanvas, secondCanvas]);
   });

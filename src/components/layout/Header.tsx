@@ -14,9 +14,11 @@ const controlClass =
   "h-7 rounded-sm border border-white/10 bg-black/45 text-zinc-200 hover:border-white/20 hover:bg-white/[0.08] focus-visible:border-yellow-500/60 focus-visible:ring-0";
 
 const selectActiveWorkbenchName = (state: {
-  activeWorkbenchId: string | null;
-  workbenches: Array<{ id: string; name: string }>;
-}) => state.workbenches.find((entry) => entry.id === state.activeWorkbenchId)?.name ?? "\u672a\u547d\u540d\u5de5\u4f5c\u53f0";
+  loadedWorkbenchId: string | null;
+  workbenchList: Array<{ id: string; name: string }>;
+}) =>
+  state.workbenchList.find((entry) => entry.id === state.loadedWorkbenchId)?.name ??
+  "\u672a\u547d\u540d\u5de5\u4f5c\u53f0";
 
 function ContextActions() {
   const navigate = useNavigate();
@@ -36,7 +38,7 @@ function ContextActions() {
           onClick={() => {
             void (async () => {
               const created = await useCanvasStore.getState().createWorkbench(undefined, {
-                activate: false,
+                openAfterCreate: false,
               });
               if (!created) {
                 return;

@@ -48,6 +48,7 @@ export interface CanvasToolActionPort {
   selection: {
     clear: () => void;
     select: (elementId: string) => void;
+    suppressElementActivation: () => void;
   };
   shape: {
     activeShapeType: CanvasShapeType;
@@ -82,6 +83,14 @@ export interface CanvasToolController {
   ) => void;
 }
 
+export const shouldCanvasToolSelectElements = ({
+  shouldPan,
+  tool,
+}: {
+  shouldPan: boolean;
+  tool: CanvasToolName;
+}) => !shouldPan && tool === "select";
+
 const selectToolController: CanvasToolController = {
   onPointerDown: (context, payload) => {
     if (!payload.isBackgroundTarget || !payload.canvasPoint || !payload.screenPoint) {
@@ -109,7 +118,7 @@ const selectToolController: CanvasToolController = {
 
 const handToolController: CanvasToolController = {
   onPointerDown: (context, payload) => {
-    if (!payload.isBackgroundTarget || !payload.screenPoint) {
+    if (!payload.screenPoint) {
       return;
     }
     context.pan.begin(payload.screenPoint);
@@ -166,11 +175,7 @@ const textToolController: CanvasToolController = {
 
 const shapeToolController: CanvasToolController = {
   onPointerDown: (context, payload) => {
-    if (
-      !payload.isBackgroundTarget ||
-      !payload.canvasPoint ||
-      !context.workbench.activeWorkbenchId
-    ) {
+    if (!payload.isBackgroundTarget || !payload.canvasPoint || !context.workbench.activeWorkbenchId) {
       return;
     }
 
@@ -182,8 +187,8 @@ const shapeToolController: CanvasToolController = {
     });
 
     context.selection.clear();
+    context.selection.suppressElementActivation();
     context.shape.insert(nextShape);
-    context.selection.select(nextShape.id);
     context.toolState.setTool("select");
   },
 };

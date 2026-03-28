@@ -221,6 +221,7 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
   const baseOutlineRectsRef = useRef(baseOutlineRects);
   const selectedElementsRef = useRef(selectedElements);
   const syncOutlineRectsRef = useRef<(() => void) | null>(null);
+  const syncOutlineRectsFrameRef = useRef<number | null>(null);
   const hideSingleSelectionOutline =
     suppressSingleSelectionOutline && selectedElements.length === 1;
   const [liveOutlineState, setLiveOutlineState] = useState<{
@@ -238,6 +239,10 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
 
   useEffect(() => {
     if (hideSingleSelectionOutline) {
+      if (syncOutlineRectsFrameRef.current !== null) {
+        window.cancelAnimationFrame(syncOutlineRectsFrameRef.current);
+        syncOutlineRectsFrameRef.current = null;
+      }
       syncOutlineRectsRef.current = null;
       setLiveOutlineState((current) =>
         current.selectionSnapshotKey === selectionSnapshotKey && current.rects === null
@@ -252,6 +257,10 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
 
     const stage = stageRef.current;
     if (!stage || selectionSnapshotKey.length === 0) {
+      if (syncOutlineRectsFrameRef.current !== null) {
+        window.cancelAnimationFrame(syncOutlineRectsFrameRef.current);
+        syncOutlineRectsFrameRef.current = null;
+      }
       syncOutlineRectsRef.current = null;
       setLiveOutlineState((current) =>
         current.selectionSnapshotKey === selectionSnapshotKey && current.rects === null
@@ -284,6 +293,10 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
       .filter((node): node is Konva.Node => Boolean(node));
 
     if (trackedNodes.length === 0) {
+      if (syncOutlineRectsFrameRef.current !== null) {
+        window.cancelAnimationFrame(syncOutlineRectsFrameRef.current);
+        syncOutlineRectsFrameRef.current = null;
+      }
       syncOutlineRectsRef.current = null;
       setLiveOutlineState((current) =>
         current.selectionSnapshotKey === selectionSnapshotKey && current.rects === null
@@ -314,19 +327,36 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
             }
       );
     };
-    syncOutlineRectsRef.current = syncOutlineRects;
+    const scheduleSyncOutlineRects = () => {
+      if (typeof window === "undefined") {
+        syncOutlineRects();
+        return;
+      }
+      if (syncOutlineRectsFrameRef.current !== null) {
+        return;
+      }
+      syncOutlineRectsFrameRef.current = window.requestAnimationFrame(() => {
+        syncOutlineRectsFrameRef.current = null;
+        syncOutlineRects();
+      });
+    };
+    syncOutlineRectsRef.current = scheduleSyncOutlineRects;
 
     syncOutlineRects();
 
     trackedNodes.forEach((node) => {
-      node.on("dragmove transform dragend transformend", syncOutlineRects);
+      node.on("dragmove transform dragend transformend", scheduleSyncOutlineRects);
     });
 
     return () => {
+      if (syncOutlineRectsFrameRef.current !== null) {
+        window.cancelAnimationFrame(syncOutlineRectsFrameRef.current);
+        syncOutlineRectsFrameRef.current = null;
+      }
       trackedNodes.forEach((node) => {
-        node.off("dragmove transform dragend transformend", syncOutlineRects);
+        node.off("dragmove transform dragend transformend", scheduleSyncOutlineRects);
       });
-      if (syncOutlineRectsRef.current === syncOutlineRects) {
+      if (syncOutlineRectsRef.current === scheduleSyncOutlineRects) {
         syncOutlineRectsRef.current = null;
       }
     };
@@ -550,7 +580,7 @@ interface CanvasViewportStageShellProps {
   };
 }
 
-export function CanvasViewportStageShell({
+export const CanvasViewportStageShell = memo(function CanvasViewportStageShell({
   interaction,
   resize,
   scene,
@@ -648,4 +678,4 @@ export function CanvasViewportStageShell({
       </Stage>
     </div>
   );
-}
+});

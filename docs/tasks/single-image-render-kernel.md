@@ -1,70 +1,139 @@
 # Single Image Render Kernel
 
-- Baseline: current `canvas image element -> RenderDocument -> renderDocumentToCanvas -> renderImageToCanvas -> canvasImagePostProcessing`
-- Scope: establish the new single-image render-kernel boundary and rewire canvas single-image preview/export onto one bridge entry
+- Baseline: `canvas image node(renderState) -> ImageRenderDocument -> render/image runtime -> imageProcessing stage helpers -> preview/export`
+- Scope: finish the single-image cutover so canvas image nodes own canonical render state, single-image preview/export use one render kernel entry, and raster effects honor real masks
 
 ## Decisions
 
-- Use a new neutral module under `src/render/image`.
-- Make `renderSingleImageToCanvas(...)` the only single-image runtime bridge used by canvas preview and single-image export.
-- Keep the bridge on top of `createRenderDocument -> renderDocumentToCanvas` in this phase; do not replace the legacy renderer yet.
-- Preserve legacy `EditingAdjustments` compatibility through a dedicated adapter instead of changing persisted data now.
-- Extract legacy `ascii` and canvas-only `brightness / hue / blur / dilate` into ordered effect nodes.
-- Preserve current legacy effect order exactly: `ascii -> timestamp -> canvas-only filter`.
-- Keep generic mask lookup in the new document contract, even while masks are still populated from legacy local-adjustment payloads.
-- Extract the canvas-only filter implementation into a shared helper under `src/lib/filter2dPostProcessing.ts`; keep `canvasImagePostProcessing.ts` as a compatibility wrapper only.
-- Keep preview cache invalidation dependency-aware by retaining the old texture dependency fingerprint in the canvas preview cache key.
-- Treat an explicit unresolved `filmProfileId` override as a miss; do not fall back to the asset film profile.
-- Treat this as a long task; keep slices small and independently verifiable.
+- `canvas` remains the only product entry for single-image authoring and preview/export orchestration.
+- `src/render/image` is the canonical single-image render boundary. It no longer imports `editor` document builders or `renderDocumentToCanvas`.
+- Canvas image nodes now write `renderState` as the normative persisted authoring shape. Legacy top-level `adjustments` and `filmProfileId` remain read-only compatibility fields.
+- `CanvasWorkbenchSnapshot.version` is `4`.
+- New image-node defaults are snapshot-based: asset defaults are copied once when canonical state is created; nodes do not keep live inheritance.
+- `ImageRenderDevelopState` is structured into `tone / color / detail / fx / regions`; it no longer stores a raw `EditingAdjustments` blob.
+- `renderSingleImageToCanvas(...)` owns single-image stage ordering:
+  - `develop-base`
+  - `afterDevelop`
+  - `film-stage`
+  - `afterFilm`
+  - `timestamp`
+  - `afterOutput`
+- ASCII and `filter2d` are effect nodes. `maskId` now executes through real mask rasterization and masked compositing, not lookup-only plumbing.
+- ASCII analysis cache keys include `revisionKey + placement + analysisSource + targetSize + quality + maskRevisionKey`.
+- Legacy compatibility remains ingress-only:
+  - legacy node/image fields can still be read
+  - `legacyEditingAdjustmentsToCanvasImageRenderState(...)` is retained for migration and fallback
+  - duplicate and reinsert flows canonicalize legacy image nodes back into `renderState`
+  - store init now canonicalizes legacy image nodes against the current asset map before they become live workbench state
+  - `renderSingleImageToCanvas(...)` now treats `ImageRenderDocument.source` as the authoritative image source instead of reading the runtime asset URL directly
+  - `INSERT_NODES` now reuses the same asset-aware ingress as commit/preview; unresolved legacy image nodes are preserved instead of being rewritten to generic defaults
+
+## Architecture
+
+```mermaid
+flowchart LR
+  A["Canvas image node (renderState)"] --> B["ImageRenderDocument"]
+  B --> C["renderSingleImageToCanvas"]
+  C --> D["compileImageRenderDocumentToProcessSettings"]
+  D --> E["imageProcessing stage helpers"]
+  E --> F["develop-base"]
+  F --> G["afterDevelop effects"]
+  G --> H["film-stage"]
+  H --> I["afterFilm effects"]
+  I --> J["timestamp / afterOutput"]
+  J --> K["preview canvas / single-image export"]
+```
 
 ## Files
 
 - `src/render/image/types.ts`
-  - Defines `ImageRenderDocument`, `ImageRenderRequest`, effect placements, mask registry, film provenance, and document revision keys.
+  - Canonical single-image contract: structured develop state, effect nodes, mask registry, `CanvasImageRenderStateV1`, `ImageRenderDocument`, and revision-key helpers.
+- `src/render/image/stateCompiler.ts`
+  - Bridge compiler between canonical render state and legacy low-level settings.
+  - Owns default render-state construction, legacy ingress adaptation, structured-to-legacy adjustment compilation, and stripped process settings for runtime execution.
+  - Also owns the canonical output-to-legacy timestamp bridge so runtime output staging does not rebuild timestamp settings ad hoc.
 - `src/render/image/legacyAdapter.ts`
-  - Maps legacy asset/adjustment inputs into the new document shape and strips legacy-executed effect fields out of `develop.adjustments`.
+  - Legacy ingress only. Converts legacy asset/adjustment inputs into canonical render state or `ImageRenderDocument`.
 - `src/render/image/renderSingleImage.ts`
-  - Runtime bridge that renders the legacy base document, then applies effect nodes in legacy order: `afterFilm` -> timestamp -> `afterOutput`.
-- `src/render/image/index.ts`
-  - Stable re-export surface for the new single-image module.
-- `src/lib/filter2dPostProcessing.ts`
-  - Shared implementation for legacy `brightness / hue / blur / dilate` post-processing.
-- `src/features/canvas/canvasImagePostProcessing.ts`
-  - Thin compatibility wrapper over the shared filter helper.
+  - Canonical single-image runtime entry.
+  - Buckets effects by placement, generates explicit snapshots, restores timestamp overlay from canonical output state, executes masked raster effects against stable stage snapshots, and drives `imageProcessing` stage helpers.
+  - Output-stage execution now awaits timestamp rendering before `afterOutput` effects run.
+- `src/render/image/asciiAnalysis.ts`
+  - ASCII analysis cache keyed by document revision, placement, quality, target size, and mask revision.
+- `src/render/image/asciiEffect.ts`
+  - Dedicated ASCII renderer with richer params and analysis-source selection.
+- `src/render/image/effectMask.ts`
+  - Shared raster mask renderer for single-image effect compositing. Supports radial, linear, and brush masks plus luma/hue/sat gating.
 - `src/features/canvas/boardImageRendering.ts`
-  - Canvas preview entry now builds `ImageRenderDocument`, keeps dependency-aware preview cache keys, and calls `renderSingleImageToCanvas(...)`.
+  - Canvas preview entry. Builds `ImageRenderDocument`, preserves dependency-aware cache invalidation, and calls `renderSingleImageToCanvas(...)`.
+- `src/features/canvas/imageRenderState.ts`
+  - Canonical image-state resolution boundary for canvas nodes. Authoring surfaces and preview/export entrypoints share this resolver instead of importing from the preview render module.
+  - Asset-backed canonicalization is explicit: if the asset is missing, live mutation paths preserve legacy node fields or surface the image as temporarily non-editable instead of fabricating generic render state.
 - `src/features/canvas/renderCanvasDocument.ts`
-  - Single-image export path now calls `renderSingleImageToCanvas(...)` instead of driving the legacy document renderer directly.
-- `src/render/image/types.test.ts`
-  - Pure-function tests for document revisions and effect placement helpers.
-- `src/render/image/legacyAdapter.test.ts`
-  - Pure-function tests for legacy adaptation, film provenance, mask registry, and invalid explicit film-profile misses.
-- `src/render/image/renderSingleImage.test.ts`
-  - Runtime bridge tests for legacy intent mapping and `ascii -> timestamp -> filter2d` ordering.
-- `src/features/canvas/boardImageRendering.test.ts`
-  - Canvas preview tests for cache variants, zoom buckets, film-profile folding, and texture dependency invalidation.
-- `src/features/canvas/renderCanvasDocument.test.ts`
-  - Export wiring tests that assert image elements now route through `renderSingleImageToCanvas(...)`.
+  - Single-image export path now shares the same runtime entry.
+- `src/features/canvas/runtime/canvasPreviewRuntimeState.ts`
+  - Preview runtime now tracks `draftRenderStateByElementId` instead of draft adjustments.
+- `src/features/canvas/runtime/canvasRuntimeScope.ts`
+  - Draft render-state mutation boundary for preview interactions.
+- `src/features/canvas/runtime/canvasRuntimeHooks.ts`
+  - Hooks now expose `useCanvasElementDraftRenderState(...)` and draft render-state preview actions.
+- `src/features/canvas/CanvasImageEditPanel.tsx`
+  - Image panel now edits `renderState`, while still presenting the current slider UI through a direct canonical-state view instead of round-tripping through the legacy compiler.
+- `src/features/canvas/imageRenderStateEditing.ts`
+  - Intent-level mutators and direct UI projections for render state: numeric slider application, ASCII updates, resets, film profile changes, and panel value resolution without recompiling legacy adjustments.
+- `src/features/canvas/imagePropertyState.ts`
+  - Property panel intents now emit `SET_IMAGE_RENDER_STATE` and canonicalize legacy nodes with the real asset when one is available.
+- `src/features/canvas/imageNodeFactory.ts`
+  - Canonical insertion helper for new image nodes. Snapshots asset defaults into `renderState` at insert time.
+- `src/features/canvas/store/canvasWorkbenchNodeHelpers.ts`
+  - Clone and duplicate helpers now rehydrate image nodes into canonical `renderState` instead of propagating legacy top-level adjustment fields.
+- `src/features/canvas/store/canvasWorkbenchService.ts`
+  - Store ingress now canonicalizes loaded legacy image nodes with asset-aware defaults and canonicalizes legacy image inserts before command execution.
+- `src/features/canvas/hooks/useCanvasImagePropertyActions.ts`
+  - Commits image property intents through canonical render-state commands.
+- `src/features/canvas/editPanelSelection.ts`
+  - Image edit selection now tracks `renderState`.
+- `src/features/canvas/elements/ImageElement.tsx`
+  - Preview invalidation and memo equality now fingerprint canonical render state instead of legacy top-level adjustment fields.
+- `src/features/canvas/document/model.ts`
+  - Snapshot writes normalize nodes and omit legacy top-level image fields when `renderState` exists.
+- `src/features/canvas/document/migration.ts`
+  - Version `4` read compatibility; preserves legacy image fields while accepting canonical `renderState`.
+- `src/features/canvas/document/commands.ts`
+  - `SET_IMAGE_RENDER_STATE` is the canonical image write command and clears legacy top-level fields on write.
+- `src/types/canvas.ts`
+  - Version `4` snapshot shape and canonical `renderState` field on persisted image elements.
 
 ## Risks
 
-- `canvas` files are already dirty in the working tree; continue avoiding unrelated edits.
-- The runtime bridge still depends on the legacy document renderer; the new kernel boundary exists, but execution is not independent yet.
-- `develop.adjustments` remains a transitional legacy payload for the old renderer.
-- `localAdjustments` remain compatibility data; true mask extraction is deferred.
-- `afterDevelop` execution and explicit analysis inputs are still not implemented.
+- Legacy image nodes are still read-compatible. Eager asset-aware canonicalization of old snapshots is still deferred; legacy nodes only become canonical when they are inserted, duplicated, edited through the image property path, or rendered with an asset in hand.
+- `src/lib/imageProcessing.ts` still executes legacy-shaped low-level settings internally; canonical state is compiled down before entering that layer.
+- Board/global stylization is intentionally out of scope. This task only completes the single-image kernel.
 
 ## Validation
 
 - Passed:
-  - `pnpm exec vitest --run src/render/image/types.test.ts src/render/image/legacyAdapter.test.ts`
-  - `pnpm exec vitest --run src/render/image/types.test.ts src/render/image/legacyAdapter.test.ts src/render/image/renderSingleImage.test.ts src/features/canvas/boardImageRendering.test.ts src/features/canvas/renderCanvasDocument.test.ts`
+  - `pnpm exec vitest --run src/render/image`
+  - `pnpm exec vitest --run src/features/editor/renderDocumentCanvas.test.ts`
+  - `pnpm exec vitest --run src/features/canvas`
   - `pnpm exec tsc -p tsconfig.json --noEmit`
-  - Architecture review: no issues found
-  - Bug/regression review: no issues found after compatibility fixes
 
 ## Handoff
 
-- Canvas single-image preview and single-image export now share the same runtime entry and request contract.
-- The next slice should stop being bridge-only: either add `afterDevelop` plus explicit analysis inputs, or start decomposing the legacy base render stage behind `renderSingleImageToCanvas(...)`.
-- Do not drop the dependency-aware preview cache key or explicit film-profile miss semantics during that next slice.
+- The original single-image architecture target is now in place:
+  - canvas image nodes persist canonical `renderState`
+  - preview and single-image export share one runtime entry
+  - `render/image` is the single-image kernel boundary
+  - raster effects support real masked execution
+  - insertion, duplication, and image-property edits all preserve canonical `renderState`
+  - legacy image snapshots are canonicalized before becoming live workbench state
+  - document source ownership now lives on `ImageRenderDocument` instead of the runtime asset URL
+  - canonical canvas image-state resolution no longer lives inside the preview render entry
+  - `renderSingleImageToCanvas(...)` no longer advertises runtime asset ownership it does not use
+  - timestamp overlay is restored from canonical output state in the single-image kernel
+  - masked effect gating uses stable placement-stage snapshots instead of already-mutated bucket output
+  - unresolved legacy image nodes are preserved until an asset-backed canonicalization boundary is reached; live mutation paths no longer fabricate generic render state
+- Follow-up work should move to separate tasks:
+  - eager asset-aware canonicalization of legacy image nodes when assets are available
+  - further low-level `imageProcessing` cleanup if the legacy adjustment bridge becomes a maintenance hotspot
+  - board/global stylization and scene-level effect graph work

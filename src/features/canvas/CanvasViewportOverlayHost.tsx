@@ -1,6 +1,7 @@
 import type Konva from "konva";
 import {
   useEffect,
+  memo,
   useRef,
   useSyncExternalStore,
   type KeyboardEventHandler,
@@ -66,7 +67,7 @@ interface CanvasViewportOverlayHostProps {
   };
 }
 
-export function CanvasViewportOverlayHost({
+export const CanvasViewportOverlayHost = memo(function CanvasViewportOverlayHost({
   overlay,
   textEditing,
 }: CanvasViewportOverlayHostProps) {
@@ -257,4 +258,4 @@ export function CanvasViewportOverlayHost({
       ) : null}
     </>
   );
-}
+});

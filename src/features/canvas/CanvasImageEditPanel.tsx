@@ -9,23 +9,30 @@ import {
 import { EditorSection } from "@/features/editor/EditorSection";
 import { SliderControl } from "@/features/editor/components/controls/SliderControl";
 import type { NumericAdjustmentKey } from "@/features/editor/types";
-import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
+import { createDefaultAdjustments } from "@/lib/adjustments";
 import { asciiAdjustmentsEqual } from "@/lib/asciiRaster";
 import { cn } from "@/lib/utils";
 import {
-  useCanvasElementDraftAdjustments,
+  useCanvasElementDraftRenderState,
   useCanvasPreviewActions,
   useCanvasRuntimeAsset,
 } from "@/features/canvas/runtime/canvasRuntimeHooks";
-import type { AsciiAdjustments, EditingAdjustments } from "@/types";
+import { resolveCanvasImageRenderState } from "@/features/canvas/imageRenderState";
+import type { CanvasImageRenderStateV1 } from "@/render/image";
+import type { AsciiAdjustments } from "@/types";
 import {
   canvasDockBodyTextClassName,
   canvasDockSelectContentClassName,
   canvasDockSelectTriggerClassName,
 } from "./editDockTheme";
+import type { CanvasImageEditTarget } from "./editPanelSelection";
+import {
+  applyAsciiAdjustmentsToRenderState,
+  applyNumericAdjustmentToRenderState,
+  getCanvasImageAdjustmentView,
+  resetRenderStateForAdjustmentKeys,
+} from "./imageRenderStateEditing";
 import { useCanvasImagePropertyActions } from "./hooks/useCanvasImagePropertyActions";
-import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
-import { resolvePrimarySelectedImageElement } from "./selectionModel";
 
 const DEFAULT_ADJUSTMENTS = createDefaultAdjustments();
 
@@ -41,12 +48,11 @@ interface ProjectSliderDefinition {
 }
 
 interface ProjectEditControlsProps {
-  adjustments: EditingAdjustments;
+  adjustments: ReturnType<typeof getCanvasImageAdjustmentView>;
   asciiAdjustments: AsciiAdjustments;
   asciiHasChanges: boolean;
   colorHasChanges: boolean;
   commitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
-  commitAdjustments: (nextAdjustments: EditingAdjustments) => void;
   detailHasChanges: boolean;
   disabled: boolean;
   effectsHasChanges: boolean;
@@ -61,6 +67,7 @@ interface ProjectEditControlsProps {
 
 interface CanvasImageEditPanelProps {
   children?: ReactNode;
+  imageElement: CanvasImageEditTarget | null;
 }
 
 const formatSigned = (value: number) => (value > 0 ? `+${value}` : `${value}`);
@@ -210,7 +217,7 @@ const ProjectSliderRow = memo(function ProjectSliderRow({
 });
 
 const renderSliderRows = (
-  adjustments: EditingAdjustments,
+  adjustments: ReturnType<typeof getCanvasImageAdjustmentView>,
   sliders: ProjectSliderDefinition[],
   onPreviewAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void,
   onCommitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void
@@ -231,7 +238,7 @@ const renderSliderRows = (
   ));
 
 const hasSliderSectionChanges = (
-  adjustments: EditingAdjustments,
+  adjustments: ReturnType<typeof getCanvasImageAdjustmentView>,
   sliders: ProjectSliderDefinition[]
 ) =>
   sliders.some(
@@ -239,19 +246,12 @@ const hasSliderSectionChanges = (
       Number(adjustments[slider.key] ?? 0) !== Number(DEFAULT_ADJUSTMENTS[slider.key] ?? 0)
   );
 
-const createResetPatch = (sliders: ProjectSliderDefinition[]): Partial<EditingAdjustments> =>
-  sliders.reduce<Partial<EditingAdjustments>>((patch, slider) => {
-    patch[slider.key] = DEFAULT_ADJUSTMENTS[slider.key] as EditingAdjustments[typeof slider.key];
-    return patch;
-  }, {});
-
 const ProjectEditControls = memo(function ProjectEditControls({
   adjustments,
   asciiAdjustments,
   asciiHasChanges,
   colorHasChanges,
   commitAdjustmentValue,
-  commitAdjustments,
   detailHasChanges,
   disabled,
   effectsHasChanges,
@@ -357,14 +357,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
         onToggle={() => onToggleSection("ascii")}
         hasChanges={asciiHasChanges}
         canResetChanges={asciiHasChanges}
-        onResetChanges={() =>
-          commitAdjustments(
-            normalizeAdjustments({
-              ...adjustments,
-              ascii: { ...DEFAULT_ADJUSTMENTS.ascii! },
-            })
-          )
-        }
+        onResetChanges={() => updateAsciiAdjustments({ ...DEFAULT_ADJUSTMENTS.ascii! })}
       >
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-2">
@@ -503,38 +496,40 @@ const ProjectEditControls = memo(function ProjectEditControls({
   );
 });
 
-export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
+export function CanvasImageEditPanel({
+  children,
+  imageElement,
+}: CanvasImageEditPanelProps) {
   const {
-    clearElementDraftAdjustments,
+    clearElementDraftRenderState,
     requestBoardPreview,
-    setElementDraftAdjustments,
+    setElementDraftRenderState,
   } = useCanvasPreviewActions();
   const [openSections, setOpenSections] = useState(createInitialOpenSections);
-  const { activeWorkbench, committedSelectedElementIds, primarySelectedImageElement: imageElement } =
-    useCanvasSelectionModel();
-  const { setAdjustments } = useCanvasImagePropertyActions(imageElement);
-
-  const committedImageElement = useMemo(
-    () => resolvePrimarySelectedImageElement(activeWorkbench, committedSelectedElementIds),
-    [activeWorkbench, committedSelectedElementIds]
-  );
+  const { setRenderState } = useCanvasImagePropertyActions(imageElement);
+  const committedImageElement = imageElement;
   const displayedImageElementId = imageElement?.id ?? null;
   const committedImageElementId = committedImageElement?.id ?? null;
   const committedImageElementIdRef = useRef<string | null>(committedImageElementId);
   const displayedImageElementIdRef = useRef<string | null>(displayedImageElementId);
   const { asset } = useCanvasRuntimeAsset(imageElement?.assetId ?? null);
-  const draftAdjustments = useCanvasElementDraftAdjustments(imageElement?.id ?? null);
+  const draftRenderState = useCanvasElementDraftRenderState(imageElement?.id ?? null);
 
-  const adjustments = useMemo(
+  const renderState = useMemo(
     () =>
-      normalizeAdjustments(
-        draftAdjustments ?? imageElement?.adjustments ?? asset?.adjustments ?? DEFAULT_ADJUSTMENTS
-      ),
-    [asset?.adjustments, draftAdjustments, imageElement?.adjustments]
+      imageElement
+        ? resolveCanvasImageRenderState(imageElement, asset, draftRenderState)
+        : null,
+    [asset, draftRenderState, imageElement]
   );
-  const disabled = !imageElement;
-  const adjustmentsRef = useRef(adjustments);
-  adjustmentsRef.current = adjustments;
+  const adjustments = useMemo(
+    () => (renderState ? getCanvasImageAdjustmentView(renderState) : DEFAULT_ADJUSTMENTS),
+    [renderState]
+  );
+  const hasEditableRenderState = Boolean(renderState);
+  const disabled = !imageElement || !hasEditableRenderState;
+  const renderStateRef = useRef(renderState);
+  renderStateRef.current = renderState;
 
   const toggleSection = useCallback((sectionId: CanvasEditSectionId) => {
     setOpenSections((current) => ({
@@ -549,10 +544,10 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
       previousCommittedImageElementId &&
       previousCommittedImageElementId !== committedImageElementId
     ) {
-      clearElementDraftAdjustments(previousCommittedImageElementId);
+      clearElementDraftRenderState(previousCommittedImageElementId);
     }
     committedImageElementIdRef.current = committedImageElementId;
-  }, [clearElementDraftAdjustments, committedImageElementId]);
+  }, [clearElementDraftRenderState, committedImageElementId]);
 
   useEffect(() => {
     const previousDisplayedImageElementId = displayedImageElementIdRef.current;
@@ -561,11 +556,11 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
       previousDisplayedImageElementId !== displayedImageElementId &&
       previousDisplayedImageElementId !== committedImageElementId
     ) {
-      clearElementDraftAdjustments(previousDisplayedImageElementId);
+      clearElementDraftRenderState(previousDisplayedImageElementId);
     }
     displayedImageElementIdRef.current = displayedImageElementId;
   }, [
-    clearElementDraftAdjustments,
+    clearElementDraftRenderState,
     committedImageElementId,
     displayedImageElementId,
   ]);
@@ -578,74 +573,73 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
         currentDisplayedImageElementId &&
         currentDisplayedImageElementId !== currentCommittedImageElementId
       ) {
-        clearElementDraftAdjustments(currentDisplayedImageElementId);
+        clearElementDraftRenderState(currentDisplayedImageElementId);
       }
       if (currentCommittedImageElementId) {
-        clearElementDraftAdjustments(currentCommittedImageElementId);
+        clearElementDraftRenderState(currentCommittedImageElementId);
       }
     },
-    [clearElementDraftAdjustments]
+    [clearElementDraftRenderState]
   );
 
-  const previewAdjustments = useCallback(
-    (nextAdjustments: EditingAdjustments) => {
-      if (!imageElement) {
+  const previewRenderState = useCallback(
+    (nextRenderState: CanvasImageRenderStateV1) => {
+      if (!imageElement || !nextRenderState) {
         return;
       }
-      setElementDraftAdjustments(imageElement.id, nextAdjustments);
+      setElementDraftRenderState(imageElement.id, nextRenderState);
       void requestBoardPreview(imageElement.id, "interactive");
     },
-    [imageElement, requestBoardPreview, setElementDraftAdjustments]
+    [imageElement, requestBoardPreview, setElementDraftRenderState]
   );
 
   const commitAdjustments = useCallback(
-    async (nextAdjustments: EditingAdjustments) => {
-      if (!imageElement) {
+    async (nextRenderState: CanvasImageRenderStateV1) => {
+      if (!imageElement || !nextRenderState) {
         return;
       }
-      setElementDraftAdjustments(imageElement.id, nextAdjustments);
-      await setAdjustments(nextAdjustments);
-      clearElementDraftAdjustments(imageElement.id);
+      setElementDraftRenderState(imageElement.id, nextRenderState);
+      await setRenderState(nextRenderState);
+      clearElementDraftRenderState(imageElement.id);
     },
     [
-      clearElementDraftAdjustments,
+      clearElementDraftRenderState,
       imageElement,
-      setElementDraftAdjustments,
-      setAdjustments,
+      setElementDraftRenderState,
+      setRenderState,
     ]
   );
 
   const previewAdjustmentValue = useCallback(
     (key: NumericAdjustmentKey, value: number) => {
-      previewAdjustments(
-        normalizeAdjustments({
-          ...adjustmentsRef.current,
-          [key]: value,
-        })
-      );
+      if (!renderStateRef.current) {
+        return;
+      }
+      previewRenderState(applyNumericAdjustmentToRenderState(renderStateRef.current, key, value));
     },
-    [previewAdjustments]
+    [previewRenderState]
   );
 
   const commitAdjustmentValue = useCallback(
     (key: NumericAdjustmentKey, value: number) => {
-      void commitAdjustments(
-        normalizeAdjustments({
-          ...adjustmentsRef.current,
-          [key]: value,
-        })
-      );
+      if (!renderStateRef.current) {
+        return;
+      }
+      void commitAdjustments(applyNumericAdjustmentToRenderState(renderStateRef.current, key, value));
     },
     [commitAdjustments]
   );
 
   const resetSection = useCallback(
     (sliders: ProjectSliderDefinition[]) => {
+      if (!renderStateRef.current) {
+        return;
+      }
       void commitAdjustments(
-        normalizeAdjustments({
-          ...adjustmentsRef.current,
-          ...createResetPatch(sliders),
-        })
+        resetRenderStateForAdjustmentKeys(
+          renderStateRef.current,
+          sliders.map((slider) => slider.key)
+        )
       );
     },
     [commitAdjustments]
@@ -661,22 +655,17 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
 
   const updateAsciiAdjustments = useCallback(
     (partial: Partial<AsciiAdjustments>, mode: "preview" | "commit" = "commit") => {
-      const currentAdjustments = adjustmentsRef.current;
-      const currentAsciiAdjustments = currentAdjustments.ascii ?? DEFAULT_ADJUSTMENTS.ascii!;
-      const nextAdjustments = normalizeAdjustments({
-        ...currentAdjustments,
-        ascii: {
-          ...currentAsciiAdjustments,
-          ...partial,
-        },
-      });
-      if (mode === "preview") {
-        previewAdjustments(nextAdjustments);
+      if (!renderStateRef.current) {
         return;
       }
-      void commitAdjustments(nextAdjustments);
+      const nextRenderState = applyAsciiAdjustmentsToRenderState(renderStateRef.current, partial);
+      if (mode === "preview") {
+        previewRenderState(nextRenderState);
+        return;
+      }
+      void commitAdjustments(nextRenderState);
     },
-    [commitAdjustments, previewAdjustments]
+    [commitAdjustments, previewRenderState]
   );
 
   return (
@@ -684,7 +673,9 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
       {disabled ? (
         <div className="py-5">
           <p className={canvasDockBodyTextClassName}>
-            Select an image on the canvas to start editing.
+            {imageElement
+              ? "Image controls will unlock once the source asset is available."
+              : "Select an image on the canvas to start editing."}
           </p>
         </div>
       ) : (
@@ -694,7 +685,6 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
           asciiHasChanges={asciiHasChanges}
           colorHasChanges={colorHasChanges}
           commitAdjustmentValue={commitAdjustmentValue}
-          commitAdjustments={commitAdjustments}
           detailHasChanges={detailHasChanges}
           disabled={disabled}
           effectsHasChanges={effectsHasChanges}

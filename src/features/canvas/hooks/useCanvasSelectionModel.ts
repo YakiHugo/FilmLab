@@ -2,6 +2,7 @@ import { useMemo, useRef } from "react";
 import { useCanvasSelectionPreview } from "@/features/canvas/runtime/canvasRuntimeHooks";
 import { useCanvasStore } from "@/stores/canvasStore";
 import {
+  createCanvasSelectionNodeById,
   createCanvasSelectionModel,
   resolveDisplaySelectedElementIds,
   selectionIdsEqual,
@@ -10,18 +11,13 @@ import { selectActiveWorkbench } from "../store/canvasStoreSelectors";
 
 const EMPTY_SELECTED_ELEMENT_IDS: string[] = [];
 
-export function useCanvasSelectionModel() {
-  const activeWorkbench = useCanvasStore(selectActiveWorkbench);
+const useDisplaySelectedElementIds = () => {
   const committedSelectedElementIds = useCanvasStore(
     (state) => state.selectedElementIds,
     selectionIdsEqual
   );
   const { selectionPreviewElementIds } = useCanvasSelectionPreview();
   const stabilizedDisplaySelectedElementIdsRef = useRef<string[]>(EMPTY_SELECTED_ELEMENT_IDS);
-  const nodeById = useMemo(
-    () => new Map((activeWorkbench?.allNodes ?? []).map((node) => [node.id, node])),
-    [activeWorkbench?.allNodes]
-  );
 
   const rawDisplaySelectedElementIds = useMemo(
     () =>
@@ -39,6 +35,27 @@ export function useCanvasSelectionModel() {
     return rawDisplaySelectedElementIds;
   }, [rawDisplaySelectedElementIds]);
 
+  return {
+    committedSelectedElementIds,
+    displaySelectedElementIds,
+    hasPreviewSelection: selectionPreviewElementIds !== null,
+  };
+};
+
+export function useCanvasDisplaySelectedElementIds() {
+  return useDisplaySelectedElementIds().displaySelectedElementIds;
+}
+
+export function useCanvasDisplaySelectionState() {
+  return useDisplaySelectedElementIds();
+}
+
+export function useCanvasSelectionModel() {
+  const activeWorkbench = useCanvasStore(selectActiveWorkbench);
+  const { committedSelectedElementIds, displaySelectedElementIds, hasPreviewSelection } =
+    useDisplaySelectedElementIds();
+  const nodeById = useMemo(() => createCanvasSelectionNodeById(activeWorkbench), [activeWorkbench]);
+
   return useMemo(
     () =>
       createCanvasSelectionModel({
@@ -46,14 +63,14 @@ export function useCanvasSelectionModel() {
         committedSelectedElementIds,
         displaySelectedElementIds,
         nodeById,
-        hasPreviewSelection: selectionPreviewElementIds !== null,
+        hasPreviewSelection,
       }),
     [
       activeWorkbench,
       committedSelectedElementIds,
       displaySelectedElementIds,
+      hasPreviewSelection,
       nodeById,
-      selectionPreviewElementIds,
     ]
   );
 }

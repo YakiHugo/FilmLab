@@ -15,6 +15,7 @@ const PATCHABLE_DOCUMENT_META_KEYS = [
   "height",
   "name",
   "presetId",
+  "preferredCoverAssetId",
   "safeArea",
   "slices",
   "thumbnailBlob",

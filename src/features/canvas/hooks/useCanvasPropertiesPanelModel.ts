@@ -1,47 +1,22 @@
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { useAssetStore } from "@/stores/assetStore";
 import type { CanvasTextFontSizeTier } from "@/types";
+import { resolveCanvasImageRenderState } from "../imageRenderState";
 import {
   CANVAS_TEXT_COLOR_OPTIONS,
   CANVAS_TEXT_FONT_OPTIONS,
   getCanvasTextColorOption,
   getCanvasTextFontOption,
 } from "../textStyle";
-import { planCanvasNodePropertyCommand } from "../propertyPanelState";
-import { useCanvasActiveWorkbenchCommands } from "./useCanvasActiveWorkbenchCommands";
-import { useCanvasActiveWorkbenchState } from "./useCanvasActiveWorkbenchState";
 import { useCanvasImagePropertyActions } from "./useCanvasImagePropertyActions";
+import { useCanvasNodePropertyActions } from "./useCanvasNodePropertyActions";
 import { useCanvasSelectionModel } from "./useCanvasSelectionModel";
 
 export function useCanvasPropertiesPanelModel() {
-  const { activeWorkbench } = useCanvasActiveWorkbenchState();
-  const { executeCommand } = useCanvasActiveWorkbenchCommands();
   const assets = useAssetStore((state) => state.assets);
-  const { primarySelectedElement: selected } = useCanvasSelectionModel();
-  const {
-    setAdjustments: setImageAdjustments,
-    setFilmProfileId: commitImageFilmProfileId,
-  } = useCanvasImagePropertyActions(selected?.type === "image" ? selected : null);
-
-  const commitIntent = useCallback(
-    (intent: Parameters<typeof planCanvasNodePropertyCommand>[0]["intent"]) => {
-      if (!activeWorkbench || !selected) {
-        return;
-      }
-
-      const command = planCanvasNodePropertyCommand({
-        intent,
-        node: selected,
-        workbench: activeWorkbench,
-      });
-      if (!command) {
-        return;
-      }
-
-      void executeCommand(command);
-    },
-    [activeWorkbench, executeCommand, selected]
-  );
+  const { primarySelectedElement } = useCanvasSelectionModel();
+  const selected = primarySelectedElement;
+  const { activeWorkbench, commitIntent } = useCanvasNodePropertyActions(selected);
 
   const selectedAsset = useMemo(() => {
     if (!selected || selected.type !== "image") {
@@ -50,6 +25,11 @@ export function useCanvasPropertiesPanelModel() {
 
     return assets.find((asset) => asset.id === selected.assetId) ?? null;
   }, [assets, selected]);
+
+  const {
+    setRenderState: setImageRenderState,
+    setFilmProfileId: commitImageFilmProfileId,
+  } = useCanvasImagePropertyActions(selected?.type === "image" ? selected : null, selectedAsset);
 
   const textFontOptions = useMemo(() => {
     if (!selected || selected.type !== "text") {
@@ -73,13 +53,21 @@ export function useCanvasPropertiesPanelModel() {
       : [...CANVAS_TEXT_COLOR_OPTIONS, current];
   }, [selected]);
 
+  const selectedImageRenderState = useMemo(() => {
+    if (!selected || selected.type !== "image") {
+      return null;
+    }
+    return resolveCanvasImageRenderState(selected, selectedAsset);
+  }, [selected, selectedAsset]);
+
   return {
     activeWorkbench,
+    selectedImageRenderState,
     selected,
     selectedAsset,
     setFilmProfileId: (value: string) =>
       commitImageFilmProfileId(value === "none" ? undefined : value),
-    setImageAdjustments,
+    setImageRenderState,
     setFill: (value: string) => commitIntent({ type: "set-shape-fill", value }),
     setFontFamily: (value: string) => commitIntent({ type: "set-text-font-family", value }),
     setFontSizeTier: (value: CanvasTextFontSizeTier) =>

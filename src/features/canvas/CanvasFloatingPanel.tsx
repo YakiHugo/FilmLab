@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, type CanvasFloatingPanel as PanelType } from "@/stores/canvasStore";
 import { CanvasAssetPicker } from "./CanvasAssetPicker";
-import { CanvasImageEditPanel } from "./CanvasImageEditPanel";
+import { CanvasEditPanel } from "./CanvasEditPanel";
 import { CanvasLayerPanel } from "./CanvasLayerPanel";
 import {
   canvasEditDockBoundsClassName,
@@ -71,7 +71,7 @@ function PanelContent({
 }) {
   switch (panel) {
     case "edit":
-      return <CanvasImageEditPanel />;
+      return <CanvasEditPanel />;
     case "layers":
       return <CanvasLayerPanel />;
     case "library":

@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 import { useAssetStore } from "@/stores/assetStore";
-import { useCanvasActiveWorkbenchState } from "./useCanvasActiveWorkbenchState";
+import { useCanvasCommittedWorkbenchState } from "./useCanvasCommittedWorkbenchState";
 import { useCanvasActiveWorkbenchStructure } from "./useCanvasActiveWorkbenchStructure";
 
 export function useCanvasLayers() {
-  const { activeWorkbench, activeWorkbenchId } = useCanvasActiveWorkbenchState();
+  const { activeWorkbench, activeWorkbenchId } = useCanvasCommittedWorkbenchState();
   const {
     deleteNodes,
     groupNodes,

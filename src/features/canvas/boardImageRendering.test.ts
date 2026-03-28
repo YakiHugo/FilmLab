@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import { createDefaultCanvasImageRenderState } from "@/render/image";
 import type { Asset, CanvasImageElement } from "@/types";
 import {
   createCanvasImageRenderContext,
-  resolveCanvasImageAdjustments,
   resolveCanvasImagePreviewTargetSize,
 } from "./boardImageRendering";
+import { resolveCanvasImageRenderState } from "./imageRenderState";
 
 const createAsset = (overrides?: Partial<Asset>): Asset => ({
   id: overrides?.id ?? "asset-1",
@@ -124,7 +125,7 @@ describe("boardImageRendering", () => {
     expect(targetSize.width / targetSize.height).toBeCloseTo(401 / 267, 2);
   });
 
-  it("folds draft adjustments and per-element film profiles into the render context", () => {
+  it("folds draft render state and per-element film profiles into the render context", () => {
     const asset = createAsset({
       adjustments: {
         ...createDefaultAdjustments(),
@@ -135,22 +136,43 @@ describe("boardImageRendering", () => {
     const element = createElement({
       filmProfileId: "film-portrait-soft-v1",
     });
-    const draftAdjustments = {
-      ...createDefaultAdjustments(),
-      exposure: 24,
-    };
+    const draftRenderState = createDefaultCanvasImageRenderState({
+      adjustments: {
+        ...createDefaultAdjustments(),
+        exposure: 24,
+      },
+      filmProfileId: element.filmProfileId,
+    });
 
     const context = createCanvasImageRenderContext({
       asset,
       assetById,
-      draftAdjustments,
+      draftRenderState,
       element,
       priority: "interactive",
     });
 
-    expect(resolveCanvasImageAdjustments(element, asset, draftAdjustments).exposure).toBe(24);
-    expect(context.adjustments.exposure).toBe(24);
+    expect(resolveCanvasImageRenderState(element, asset, draftRenderState).develop.tone.exposure).toBe(24);
+    expect(context.renderState.develop.tone.exposure).toBe(24);
     expect(context.filmProfile?.id).toBe("film-portrait-soft-v1");
+  });
+
+  it("resolves persisted renderState without requiring runtime asset availability", () => {
+    const renderState = createDefaultCanvasImageRenderState({
+      adjustments: {
+        ...createDefaultAdjustments(),
+        exposure: 11,
+      },
+    });
+    const element = {
+      ...createElement({
+        adjustments: undefined,
+        filmProfileId: undefined,
+      }),
+      renderState,
+    };
+
+    expect(resolveCanvasImageRenderState(element, undefined, undefined)).toBe(renderState);
   });
 
   it("invalidates preview cache keys when referenced texture assets change", () => {

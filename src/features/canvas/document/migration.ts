@@ -61,6 +61,7 @@ type LegacyCanvasImageElement = {
   adjustments?: Extract<CanvasNode, { type: "image" }>["adjustments"];
   assetId: string;
   filmProfileId?: string;
+  renderState?: Extract<CanvasNode, { type: "image" }>["renderState"];
   height: number;
   id: string;
   locked: boolean;
@@ -164,6 +165,7 @@ const normalizeLegacyElement = (
     visible: element.visible,
     zIndex: element.zIndex,
     assetId: element.assetId,
+    renderState: element.renderState,
     adjustments: element.adjustments,
     filmProfileId: element.filmProfileId,
   };
@@ -173,7 +175,7 @@ const isLegacyNodeMap = (
   version: number | undefined,
   nodes: Record<string, CanvasPersistedNode | CanvasNode> | undefined
 ): nodes is LegacyCanvasNodeMap =>
-  Boolean(nodes && version !== 3);
+  Boolean(nodes && version !== 4);
 
 export const normalizeCanvasWorkbenchWithCleanup = (
   document: NormalizableCanvasWorkbench
@@ -185,7 +187,7 @@ export const normalizeCanvasWorkbenchWithCleanup = (
   let explicitRootIds = document.rootIds?.slice();
   let explicitGroupChildren = document.groupChildren ? clone(document.groupChildren) : undefined;
 
-  if (document.version === 3 && document.nodes) {
+  if (document.version === 4 && document.nodes) {
     for (const [nodeId, node] of Object.entries(document.nodes)) {
       normalizedNodes[nodeId] = normalizeNode(node);
     }
@@ -221,7 +223,7 @@ export const normalizeCanvasWorkbenchWithCleanup = (
 
   const snapshot: CanvasWorkbenchSnapshot = {
     id: document.id ?? createId("workbench-id"),
-    version: 3,
+    version: 4,
     ownerRef: document.ownerRef ?? { userId: getCurrentUserId() },
     name: document.name ?? "Untitled Workbench",
     width: Math.max(1, Number(document.width) || 1080),
@@ -243,6 +245,10 @@ export const normalizeCanvasWorkbenchWithCleanup = (
       bottom: Math.max(0, Number(document.safeArea?.bottom) || 0),
       left: Math.max(0, Number(document.safeArea?.left) || 0),
     },
+    preferredCoverAssetId:
+      typeof document.preferredCoverAssetId === "string"
+        ? document.preferredCoverAssetId
+        : null,
     createdAt: document.createdAt ?? new Date().toISOString(),
     updatedAt: document.updatedAt ?? new Date().toISOString(),
     thumbnailBlob: document.thumbnailBlob,

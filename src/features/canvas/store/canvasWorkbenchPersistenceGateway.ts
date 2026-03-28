@@ -1,40 +1,62 @@
 import { getCurrentUserId } from "@/lib/authToken";
-import {
-  deleteCanvasWorkbench,
-  loadCanvasWorkbench,
-  loadCanvasWorkbenchesByUser,
-  saveCanvasWorkbench,
-} from "@/lib/db";
 import { getCanvasWorkbenchSnapshot } from "@/features/canvas/documentGraph";
-import type { CanvasWorkbench, CanvasWorkbenchSnapshot } from "@/types";
+import {
+  deleteCanvasWorkbenchRecord,
+  loadCanvasWorkbench,
+  loadCanvasWorkbenchListEntriesByUser,
+  saveCanvasWorkbenchRecord,
+} from "@/lib/db";
+import type {
+  CanvasWorkbench,
+  CanvasWorkbenchListEntry,
+  CanvasWorkbenchSnapshot,
+} from "@/types";
+import { materializeCanvasWorkbenchListEntry } from "./canvasWorkbenchListEntry";
 
-export type StoredCanvasWorkbench = Awaited<ReturnType<typeof loadCanvasWorkbenchesByUser>>[number];
+export type StoredCanvasWorkbench = NonNullable<Awaited<ReturnType<typeof loadCanvasWorkbench>>>;
+export type StoredCanvasWorkbenchListEntry = Awaited<
+  ReturnType<typeof loadCanvasWorkbenchListEntriesByUser>
+>[number];
 export type CanvasWorkbenchPersistStatus =
   | "persisted"
   | "persist_failed"
   | "epoch_invalidated_before_persist"
   | "epoch_invalidated_after_persist";
 
+interface CanvasWorkbenchPersistRecord {
+  listEntry: CanvasWorkbenchListEntry;
+  snapshot: CanvasWorkbenchSnapshot;
+}
+
 const pendingCanvasWorkbenchCleanupById = new Map<string, string>();
-const pendingCanvasWorkbenchRestoreSnapshots = new Map<string, CanvasWorkbenchSnapshot>();
+const pendingCanvasWorkbenchRestoreRecords = new Map<string, CanvasWorkbenchPersistRecord>();
 
 const canQueueCompensation = (userId: string) => userId.trim().length > 0;
 
-export const loadCanvasWorkbenchesForCurrentUser = async (): Promise<StoredCanvasWorkbench[]> => {
-  return loadCanvasWorkbenchesByUser(getCurrentUserId());
-};
+const createPersistRecord = (workbench: CanvasWorkbench): CanvasWorkbenchPersistRecord => ({
+  snapshot: getCanvasWorkbenchSnapshot(workbench),
+  listEntry: materializeCanvasWorkbenchListEntry(workbench),
+});
 
-export const deletePersistedCanvasWorkbench = async (workbenchId: string) => {
-  return deleteCanvasWorkbench(workbenchId);
-};
+export const loadCanvasWorkbenchListForCurrentUser = async (): Promise<
+  StoredCanvasWorkbenchListEntry[]
+> => loadCanvasWorkbenchListEntriesByUser(getCurrentUserId());
 
-export const savePersistedCanvasWorkbenchSnapshot = async (
-  snapshot: CanvasWorkbenchSnapshot
-) => {
-  return saveCanvasWorkbench(snapshot);
-};
+export const loadPersistedCanvasWorkbench = async (workbenchId: string) =>
+  loadCanvasWorkbench(workbenchId);
 
-export const persistCanvasWorkbenchSnapshot = async ({
+export const deletePersistedCanvasWorkbenchRecord = async (workbenchId: string) =>
+  deleteCanvasWorkbenchRecord(workbenchId);
+
+export const savePersistedCanvasWorkbenchRecord = async ({
+  listEntry,
+  snapshot,
+}: CanvasWorkbenchPersistRecord) => saveCanvasWorkbenchRecord(snapshot, listEntry);
+
+export const savePersistedCanvasWorkbench = async (workbench: CanvasWorkbench) =>
+  savePersistedCanvasWorkbenchRecord(createPersistRecord(workbench));
+
+export const persistCanvasWorkbenchRecord = async ({
   epoch,
   getResetEpoch,
   workbench,
@@ -47,7 +69,7 @@ export const persistCanvasWorkbenchSnapshot = async ({
     return "epoch_invalidated_before_persist";
   }
 
-  const saved = await saveCanvasWorkbench(getCanvasWorkbenchSnapshot(workbench));
+  const saved = await savePersistedCanvasWorkbenchRecord(createPersistRecord(workbench));
   if (!saved) {
     return "persist_failed";
   }
@@ -72,12 +94,12 @@ export const queueCanvasWorkbenchCleanupCompensation = ({
 };
 
 export const queueCanvasWorkbenchRestoreCompensation = ({
-  snapshot,
+  workbench,
 }: {
-  snapshot: CanvasWorkbenchSnapshot;
+  workbench: CanvasWorkbench;
 }) => {
-  if (canQueueCompensation(snapshot.ownerRef.userId)) {
-    pendingCanvasWorkbenchRestoreSnapshots.set(snapshot.id, snapshot);
+  if (canQueueCompensation(workbench.ownerRef.userId)) {
+    pendingCanvasWorkbenchRestoreRecords.set(workbench.id, createPersistRecord(workbench));
   }
 };
 
@@ -92,11 +114,11 @@ export const flushPendingCanvasWorkbenchCompensation = async ({
   const pendingCleanupIds = Array.from(pendingCanvasWorkbenchCleanupById.entries())
     .filter(([, userId]) => userId === currentUserId)
     .map(([workbenchId]) => workbenchId);
-  const pendingRestoreSnapshots = Array.from(
-    pendingCanvasWorkbenchRestoreSnapshots.values()
-  ).filter((snapshot) => snapshot.ownerRef.userId === currentUserId);
+  const pendingRestoreRecords = Array.from(
+    pendingCanvasWorkbenchRestoreRecords.values()
+  ).filter((record) => record.snapshot.ownerRef.userId === currentUserId);
 
-  if (pendingCleanupIds.length === 0 && pendingRestoreSnapshots.length === 0) {
+  if (pendingCleanupIds.length === 0 && pendingRestoreRecords.length === 0) {
     return;
   }
 
@@ -104,32 +126,32 @@ export const flushPendingCanvasWorkbenchCompensation = async ({
     if (epoch !== getResetEpoch() || getCurrentUserId() !== currentUserId) {
       return;
     }
-    const deleted = await deleteCanvasWorkbench(workbenchId);
+    const deleted = await deleteCanvasWorkbenchRecord(workbenchId);
     if (deleted) {
       pendingCanvasWorkbenchCleanupById.delete(workbenchId);
     }
   }
 
-  for (const snapshot of pendingRestoreSnapshots) {
+  for (const record of pendingRestoreRecords) {
     if (epoch !== getResetEpoch() || getCurrentUserId() !== currentUserId) {
       return;
     }
-    const existing = await loadCanvasWorkbench(snapshot.id);
+    const existing = await loadCanvasWorkbench(record.snapshot.id);
     if (existing) {
-      pendingCanvasWorkbenchRestoreSnapshots.delete(snapshot.id);
+      pendingCanvasWorkbenchRestoreRecords.delete(record.snapshot.id);
       continue;
     }
     if (epoch !== getResetEpoch() || getCurrentUserId() !== currentUserId) {
       return;
     }
-    const restored = await saveCanvasWorkbench(snapshot);
+    const restored = await savePersistedCanvasWorkbenchRecord(record);
     if (restored) {
-      pendingCanvasWorkbenchRestoreSnapshots.delete(snapshot.id);
+      pendingCanvasWorkbenchRestoreRecords.delete(record.snapshot.id);
     }
   }
 };
 
 export const resetCanvasWorkbenchPersistenceGateway = () => {
   pendingCanvasWorkbenchCleanupById.clear();
-  pendingCanvasWorkbenchRestoreSnapshots.clear();
+  pendingCanvasWorkbenchRestoreRecords.clear();
 };

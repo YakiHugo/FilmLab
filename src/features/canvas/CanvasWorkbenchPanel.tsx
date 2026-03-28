@@ -194,8 +194,8 @@ export function CanvasWorkbenchPanel() {
                       {workbench.name || `Workbench ${String(index + 1).padStart(2, "0")}`}
                     </p>
                     <p className="mt-1 text-xs text-[color:var(--canvas-edit-text-muted)]">
-                      {preset.shortLabel} - {workbench.elements.length} element
-                      {workbench.elements.length === 1 ? "" : "s"}
+                      {preset.shortLabel} - {workbench.elementCount} element
+                      {workbench.elementCount === 1 ? "" : "s"}
                     </p>
                   </div>
                   <span className={canvasDockBadgeClassName}>

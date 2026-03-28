@@ -39,19 +39,22 @@ export const getCanvasWorkbenchSnapshot = (
   document: CanvasWorkbench | CanvasWorkbenchSnapshot
 ): CanvasWorkbenchSnapshot => ({
   id: document.id,
-  version: 3,
+  version: 4,
   ownerRef: document.ownerRef ?? { userId: getCurrentUserId() },
   name: document.name,
   width: document.width,
   height: document.height,
   presetId: document.presetId,
   backgroundColor: document.backgroundColor,
-  nodes: clone(document.nodes),
+  nodes: Object.fromEntries(
+    Object.entries(document.nodes).map(([nodeId, node]) => [nodeId, normalizeNode(node)])
+  ),
   rootIds: document.rootIds.slice(),
   groupChildren: clone(document.groupChildren),
   slices: clone(document.slices),
   guides: clone(document.guides),
   safeArea: clone(document.safeArea),
+  preferredCoverAssetId: document.preferredCoverAssetId ?? null,
   createdAt: document.createdAt,
   updatedAt: document.updatedAt,
   thumbnailBlob: document.thumbnailBlob,
@@ -98,6 +101,7 @@ export const normalizeNode = (node: CanvasPersistedNode | CanvasNode): CanvasPer
       visible: node.visible,
       shapeType: node.shapeType,
       fill: node.fill,
+      fillStyle: node.fillStyle ? clone(node.fillStyle) : undefined,
       stroke: node.stroke,
       strokeWidth: Math.max(0, Number(node.strokeWidth) || 0),
       radius: typeof node.radius === "number" ? Math.max(0, node.radius) : undefined,
@@ -136,8 +140,9 @@ export const normalizeNode = (node: CanvasPersistedNode | CanvasNode): CanvasPer
     locked: node.locked,
     visible: node.visible,
     assetId: node.assetId,
-    adjustments: node.adjustments,
-    filmProfileId: node.filmProfileId,
+    renderState: node.renderState ? clone(node.renderState) : undefined,
+    adjustments: node.renderState ? undefined : node.adjustments,
+    filmProfileId: node.renderState ? undefined : node.filmProfileId,
   };
 };
 
@@ -210,6 +215,10 @@ export const createDefaultShapeNode = ({
   visible: true,
   shapeType,
   fill,
+  fillStyle: {
+    kind: "solid",
+    color: fill,
+  },
   stroke,
   strokeWidth,
   ...(shapeType === "line" || shapeType === "arrow"

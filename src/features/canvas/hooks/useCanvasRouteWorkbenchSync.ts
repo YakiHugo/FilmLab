@@ -14,14 +14,14 @@ export function useCanvasRouteWorkbenchSync() {
   const [hasInitializedCanvas, setHasInitializedCanvas] = useState(false);
   const [pendingRecoveryToken, setPendingRecoveryToken] = useState<number | null>(null);
   const workbenchIds = useCanvasStore(
-    (state) => state.workbenches.map((workbench) => workbench.id),
+    (state) => state.workbenchList.map((workbench) => workbench.id),
     shallow
   );
-  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
+  const loadedWorkbenchId = useCanvasStore((state) => state.loadedWorkbenchId);
   const isLoading = useCanvasStore((state) => state.isLoading);
   const init = useCanvasStore((state) => state.init);
   const createWorkbench = useCanvasStore((state) => state.createWorkbench);
-  const setActiveWorkbenchId = useCanvasStore((state) => state.setActiveWorkbenchId);
+  const openWorkbench = useCanvasStore((state) => state.openWorkbench);
 
   routeWorkbenchIdRef.current = routeWorkbenchId;
 
@@ -35,13 +35,13 @@ export function useCanvasRouteWorkbenchSync() {
       if (
         pendingRecoveryTokenRef.current !== token ||
         routeWorkbenchIdRef.current !== targetWorkbenchId ||
-        useCanvasStore.getState().activeWorkbenchId === targetWorkbenchId
+        useCanvasStore.getState().loadedWorkbenchId === targetWorkbenchId
       ) {
         return;
       }
-      setActiveWorkbenchId(targetWorkbenchId);
+      await openWorkbench(targetWorkbenchId);
     },
-    [setActiveWorkbenchId]
+    [openWorkbench]
   );
 
   useEffect(() => {
@@ -60,7 +60,7 @@ export function useCanvasRouteWorkbenchSync() {
 
   useEffect(() => {
     const recoveryPlan = resolveCanvasPageRecoveryPlan({
-      activeWorkbenchId,
+      activeWorkbenchId: loadedWorkbenchId,
       hasInitialized: hasInitializedCanvas,
       hasPendingRecovery: pendingRecoveryToken !== null,
       isLoading,
@@ -73,7 +73,7 @@ export function useCanvasRouteWorkbenchSync() {
     }
 
     if (recoveryPlan.type === "activate-route") {
-      setActiveWorkbenchId(recoveryPlan.workbenchId);
+      void openWorkbench(recoveryPlan.workbenchId);
       return;
     }
 
@@ -104,7 +104,7 @@ export function useCanvasRouteWorkbenchSync() {
     setPendingRecoveryToken(recoveryToken);
     void (async () => {
       const recoveryEpoch = getCanvasResetEpoch();
-      const created = await createWorkbench(undefined, { activate: false });
+      const created = await createWorkbench(undefined, { openAfterCreate: false });
       if (!created || recoveryEpoch !== getCanvasResetEpoch()) {
         return;
       }
@@ -123,15 +123,15 @@ export function useCanvasRouteWorkbenchSync() {
       }
     });
   }, [
-    activeWorkbenchId,
     createWorkbench,
     finalizeRecoveryNavigation,
     hasInitializedCanvas,
     isLoading,
+    loadedWorkbenchId,
     navigate,
+    openWorkbench,
     pendingRecoveryToken,
     routeWorkbenchId,
-    setActiveWorkbenchId,
     workbenchIds,
   ]);
 }

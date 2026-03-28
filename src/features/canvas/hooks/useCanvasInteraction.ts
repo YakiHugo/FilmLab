@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useCanvasStore } from "@/stores/canvasStore";
+import type { CanvasRenderableNode } from "@/types";
 import { resolveSelectableSelectionIds } from "../selectionGeometry";
 import { selectionIdsEqual } from "../selectionModel";
-import { useCanvasActiveWorkbenchState } from "./useCanvasActiveWorkbenchState";
+import { selectActiveWorkbench } from "../store/canvasStoreSelectors";
 import { useCanvasActiveWorkbenchStructure } from "./useCanvasActiveWorkbenchStructure";
 import { useCanvasHistoryActions } from "./useCanvasHistoryActions";
+import { useCanvasSelectionActions } from "./useCanvasSelectionActions";
 
 const isEditableTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
@@ -18,7 +20,7 @@ const isEditableTarget = (target: EventTarget | null) => {
 };
 
 export function useCanvasInteraction() {
-  const { activeWorkbench, activeWorkbenchId } = useCanvasActiveWorkbenchState();
+  const activeWorkbenchId = useCanvasStore((state) => state.loadedWorkbenchId);
   const {
     deleteNodes,
     duplicateNodes,
@@ -27,53 +29,28 @@ export function useCanvasInteraction() {
     ungroupNode,
   } = useCanvasActiveWorkbenchStructure();
   const { redo, undo } = useCanvasHistoryActions();
-  const selectedElementIds = useCanvasStore((state) => state.selectedElementIds);
-  const setSelectedElementIds = useCanvasStore((state) => state.setSelectedElementIds);
+  const { clearSelection, selectAll, selectElement, selectedElementIds, setSelectedElementIds } =
+    useCanvasSelectionActions();
+  const selectedElementIdsRef = useRef(selectedElementIds);
+  const selectedSelectionStateKey = useCanvasStore(
+    useCallback((state) => {
+      const activeWorkbench = selectActiveWorkbench(state);
+      if (!activeWorkbench || selectedElementIds.length === 0) {
+        return "";
+      }
 
-  const selectableElementIds = useMemo(
-    () =>
-      activeWorkbench
-        ? resolveSelectableSelectionIds(
-            activeWorkbench.allNodes,
-            activeWorkbench.allNodes.map((node) => node.id)
-          )
-        : [],
-    [activeWorkbench]
-  );
-  const selectableElementIdSet = useMemo(
-    () => new Set(selectableElementIds),
-    [selectableElementIds]
+      return selectedElementIds
+        .map((selectedElementId) => {
+          const element = activeWorkbench.allNodes.find((node) => node.id === selectedElementId);
+          return element
+            ? `${selectedElementId}:${element.effectiveLocked ? 1 : 0}:${element.effectiveVisible ? 1 : 0}`
+            : `${selectedElementId}:missing`;
+        })
+        .join("|");
+    }, [selectedElementIds])
   );
 
   const clipboardIdsRef = useRef<string[]>([]);
-
-  const clearSelection = useCallback(() => {
-    setSelectedElementIds([]);
-  }, [setSelectedElementIds]);
-
-  const selectElement = useCallback(
-    (id: string, options?: { additive?: boolean }) => {
-      const { selectedElementIds: currentSelectedIds } = useCanvasStore.getState();
-      if (!selectableElementIdSet.has(id)) {
-        return;
-      }
-      const selectableCurrentSelectedIds = currentSelectedIds.filter((selectedId) =>
-        selectableElementIdSet.has(selectedId)
-      );
-      if (!options?.additive) {
-        setSelectedElementIds([id]);
-        return;
-      }
-      if (selectableCurrentSelectedIds.includes(id)) {
-        setSelectedElementIds(
-          selectableCurrentSelectedIds.filter((selectedId) => selectedId !== id)
-        );
-        return;
-      }
-      setSelectedElementIds([...selectableCurrentSelectedIds, id]);
-    },
-    [selectableElementIdSet, setSelectedElementIds]
-  );
 
   const deleteSelection = useCallback(async () => {
     if (selectedElementIds.length === 0) {
@@ -89,22 +66,26 @@ export function useCanvasInteraction() {
     await duplicateNodes(selectedElementIds);
   }, [duplicateNodes, selectedElementIds]);
 
-  const selectAll = useCallback(() => {
-    if (selectableElementIds.length === 0) {
-      return;
-    }
-    setSelectedElementIds(selectableElementIds);
-  }, [selectableElementIds, setSelectedElementIds]);
+  useEffect(() => {
+    selectedElementIdsRef.current = selectedElementIds;
+  }, [selectedElementIds]);
 
   useEffect(() => {
-    const nextSelectedIds = resolveSelectableSelectionIds(
-      activeWorkbench?.allNodes ?? [],
-      selectedElementIds
-    );
+    if (selectedElementIds.length === 0) {
+      return;
+    }
+
+    const activeWorkbench = selectActiveWorkbench(useCanvasStore.getState());
+    const selectedNodes = selectedElementIds
+      .map((selectedElementId) =>
+        activeWorkbench?.allNodes.find((node) => node.id === selectedElementId)
+      )
+      .filter((node): node is CanvasRenderableNode => Boolean(node));
+    const nextSelectedIds = resolveSelectableSelectionIds(selectedNodes, selectedElementIds);
     if (!selectionIdsEqual(selectedElementIds, nextSelectedIds)) {
       setSelectedElementIds(nextSelectedIds);
     }
-  }, [activeWorkbench?.allNodes, selectedElementIds, setSelectedElementIds]);
+  }, [selectedElementIds, selectedSelectionStateKey, setSelectedElementIds]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -121,16 +102,18 @@ export function useCanvasInteraction() {
       }
 
       if (metaOrCtrl && event.key.toLowerCase() === "c") {
-        if (selectedElementIds.length > 0) {
+        if (selectedElementIdsRef.current.length > 0) {
           event.preventDefault();
-          clipboardIdsRef.current = selectedElementIds;
+          clipboardIdsRef.current = selectedElementIdsRef.current;
         }
         return;
       }
 
       if (metaOrCtrl && event.key.toLowerCase() === "v") {
         const idsToDuplicate =
-          clipboardIdsRef.current.length > 0 ? clipboardIdsRef.current : selectedElementIds;
+          clipboardIdsRef.current.length > 0
+            ? clipboardIdsRef.current
+            : selectedElementIdsRef.current;
         if (idsToDuplicate.length > 0) {
           event.preventDefault();
           void duplicateNodes(idsToDuplicate);
@@ -157,42 +140,42 @@ export function useCanvasInteraction() {
       if (metaOrCtrl && event.key.toLowerCase() === "g") {
         event.preventDefault();
         if (event.shiftKey) {
-          if (selectedElementIds.length === 1) {
-            void ungroupNode(selectedElementIds[0]!);
+          if (selectedElementIdsRef.current.length === 1) {
+            void ungroupNode(selectedElementIdsRef.current[0]!);
           }
           return;
         }
-        if (selectedElementIds.length > 1) {
-          void groupNodes(selectedElementIds);
+        if (selectedElementIdsRef.current.length > 1) {
+          void groupNodes(selectedElementIdsRef.current);
         }
         return;
       }
 
       if (event.key === "Delete" || event.key === "Backspace") {
-        if (selectedElementIds.length > 0) {
+        if (selectedElementIdsRef.current.length > 0) {
           event.preventDefault();
-          void deleteNodes(selectedElementIds);
+          void deleteNodes(selectedElementIdsRef.current);
         }
         return;
       }
 
-      if (selectedElementIds.length === 0) {
+      if (selectedElementIdsRef.current.length === 0) {
         return;
       }
 
       const step = event.shiftKey ? 10 : 1;
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        void nudgeElements(selectedElementIds, 0, -step);
+        void nudgeElements(selectedElementIdsRef.current, 0, -step);
       } else if (event.key === "ArrowDown") {
         event.preventDefault();
-        void nudgeElements(selectedElementIds, 0, step);
+        void nudgeElements(selectedElementIdsRef.current, 0, step);
       } else if (event.key === "ArrowLeft") {
         event.preventDefault();
-        void nudgeElements(selectedElementIds, -step, 0);
+        void nudgeElements(selectedElementIdsRef.current, -step, 0);
       } else if (event.key === "ArrowRight") {
         event.preventDefault();
-        void nudgeElements(selectedElementIds, step, 0);
+        void nudgeElements(selectedElementIdsRef.current, step, 0);
       }
     };
 
@@ -208,13 +191,11 @@ export function useCanvasInteraction() {
     nudgeElements,
     redo,
     selectAll,
-    selectedElementIds,
     ungroupNode,
     undo,
   ]);
 
   return {
-    activeWorkbench,
     selectedElementIds,
     setSelectedElementIds,
     selectElement,

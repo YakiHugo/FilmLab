@@ -2,8 +2,9 @@ import type { CanvasImageElement } from "@/types";
 import { importAssetFiles } from "@/lib/assetImport";
 import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { createId, resolveCanvasImageInsertionSize } from "@/utils";
+import { resolveCanvasImageInsertionSize } from "@/utils";
 import { snapPoint } from "../grid";
+import { createCanvasImageElementFromAsset } from "../imageNodeFactory";
 import { useCanvasActiveWorkbenchId } from "./useCanvasActiveWorkbenchId";
 import {
   selectResolvedActiveWorkbenchId,
@@ -28,32 +29,21 @@ export function useCanvasEngine() {
 
     const index = workbench.rootIds.length + 1;
     const asset = useAssetStore.getState().assets.find((candidate) => candidate.id === assetId);
+    if (!asset) {
+      return;
+    }
     const initialSize = await resolveCanvasImageInsertionSize(asset);
     const initialPosition = snapPoint({
       x: 120 + index * 18,
       y: 100 + index * 18,
     });
-    const element: CanvasImageElement = {
-      id: createId("node-id"),
-      type: "image",
-      parentId: null,
-      assetId,
+    const element: CanvasImageElement = createCanvasImageElementFromAsset({
+      asset,
       x: initialPosition.x,
       y: initialPosition.y,
       width: initialSize.width,
       height: initialSize.height,
-      rotation: 0,
-      transform: {
-        x: initialPosition.x,
-        y: initialPosition.y,
-        width: initialSize.width,
-        height: initialSize.height,
-        rotation: 0,
-      },
-      opacity: 1,
-      locked: false,
-      visible: true,
-    };
+    });
     await upsertElementInWorkbench(workbenchId, element);
   };
 

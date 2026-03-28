@@ -86,22 +86,29 @@ const useLoadedImage = (src?: string) => {
 const areImageElementsEqual = (
   left: CanvasImageRenderState,
   right: CanvasImageRenderState
-) =>
-  left.id === right.id &&
-  left.assetId === right.assetId &&
-  left.x === right.x &&
-  left.y === right.y &&
-  left.width === right.width &&
-  left.height === right.height &&
-  left.rotation === right.rotation &&
-  left.opacity === right.opacity &&
-  left.worldOpacity === right.worldOpacity &&
-  left.visible === right.visible &&
-  left.effectiveVisible === right.effectiveVisible &&
-  left.locked === right.locked &&
-  left.effectiveLocked === right.effectiveLocked &&
-  left.filmProfileId === right.filmProfileId &&
-  areEqual(left.adjustments, right.adjustments);
+) => {
+  const renderStateEqual =
+    left.renderState || right.renderState
+      ? areEqual(left.renderState, right.renderState)
+      : left.filmProfileId === right.filmProfileId && areEqual(left.adjustments, right.adjustments);
+
+  return (
+    left.id === right.id &&
+    left.assetId === right.assetId &&
+    left.x === right.x &&
+    left.y === right.y &&
+    left.width === right.width &&
+    left.height === right.height &&
+    left.rotation === right.rotation &&
+    left.opacity === right.opacity &&
+    left.worldOpacity === right.worldOpacity &&
+    left.visible === right.visible &&
+    left.effectiveVisible === right.effectiveVisible &&
+    left.locked === right.locked &&
+    left.effectiveLocked === right.effectiveLocked &&
+    renderStateEqual
+  );
+};
 
 const areImageElementPropsEqual = (
   previous: ImageElementProps,
@@ -142,23 +149,27 @@ export const ImageElement = memo(function ImageElement({
   const effectiveVisible = element.effectiveVisible ?? element.visible;
   const renderOpacity = element.worldOpacity ?? element.opacity;
   const hadPreviewEntryRef = useRef(previewEntry !== undefined);
-  const elementAdjustmentsFingerprint = useMemo(
-    () => hashString(JSON.stringify(element.adjustments ?? null)),
-    [element.adjustments]
-  );
+  const elementRenderFingerprint = useMemo(() => {
+    const renderInput =
+      element.renderState ??
+      {
+        adjustments: element.adjustments ?? null,
+        filmProfileId: element.filmProfileId ?? null,
+      };
+    return hashString(JSON.stringify(renderInput));
+  }, [element.adjustments, element.filmProfileId, element.renderState]);
   const previewKey = useMemo(
     () =>
       [
         element.assetId,
         assetRenderFingerprint ?? "missing",
-        element.filmProfileId ?? "none",
         resolveCanvasImagePreviewTargetSizeKey(element, previewPriority, zoom),
-        elementAdjustmentsFingerprint,
+        elementRenderFingerprint,
         Number(zoom.toFixed(3)).toString(),
       ].join("|"),
     [
       assetRenderFingerprint,
-      elementAdjustmentsFingerprint,
+      elementRenderFingerprint,
       element,
       previewPriority,
       zoom,

@@ -18,7 +18,7 @@ export function useCanvasTextSessionPort({
 }): CanvasTextSessionPort {
   const activeWorkbenchId = useCanvasActiveWorkbenchId();
   const availableWorkbenchIds = useCanvasStore(
-    (state) => state.workbenches.map((workbench) => workbench.id),
+    (state) => state.workbenchList.map((workbench) => workbench.id),
     shallow
   );
   const storeApi = useCanvasStore(selectCanvasTextSessionStoreApi, shallow);

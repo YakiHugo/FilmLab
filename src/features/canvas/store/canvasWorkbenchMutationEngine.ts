@@ -1,13 +1,11 @@
 import {
   applyCanvasDocumentChangeSet,
   executeCanvasCommand,
-  getCanvasWorkbenchSnapshot,
 } from "@/features/canvas/documentGraph";
 import type {
   CanvasCommand,
   CanvasHistoryEntry,
   CanvasWorkbench,
-  CanvasWorkbenchSnapshot,
 } from "@/types";
 import {
   commitCommandResultToState,
@@ -27,7 +25,6 @@ import type {
   CanvasHistoryState,
   CanvasStoreDataSetter,
   CreateWorkbenchOptions,
-  DeleteWorkbenchOptions,
   ExecuteCommandOptions,
 } from "./canvasStoreTypes";
 import type { CanvasWorkbenchPersistStatus } from "./canvasWorkbenchPersistenceGateway";
@@ -43,9 +40,9 @@ interface CanvasWorkbenchMutationEngineOptions {
     workbenchId: string,
     userId: string
   ) => void;
-  queueWorkbenchRestoreCompensation: (snapshot: CanvasWorkbenchSnapshot) => void;
+  queueWorkbenchRestoreCompensation: (workbench: CanvasWorkbench) => void;
   resolveCommandTarget: (workbenchId: string) => CanvasWorkbench | null;
-  savePersistedWorkbenchSnapshot: (snapshot: CanvasWorkbenchSnapshot) => Promise<boolean>;
+  savePersistedWorkbench: (workbench: CanvasWorkbench) => Promise<boolean>;
   setState: CanvasStoreDataSetter;
 }
 
@@ -56,7 +53,7 @@ export const createCanvasWorkbenchMutationEngine = ({
   queueWorkbenchCleanupCompensation,
   queueWorkbenchRestoreCompensation,
   resolveCommandTarget,
-  savePersistedWorkbenchSnapshot,
+  savePersistedWorkbench,
   setState,
 }: CanvasWorkbenchMutationEngineOptions) => {
   const resolveCommitFailureStatus = (
@@ -194,8 +191,7 @@ export const createCanvasWorkbenchMutationEngine = ({
 
   const commitDeletedWorkbenchToStore = async (
     workbenchId: string,
-    epoch: number,
-    options?: DeleteWorkbenchOptions
+    epoch: number
   ): Promise<CanvasCommitOutcome<true>> => {
     if (epoch !== getResetEpoch()) {
       return createCommitFailureOutcome("epoch_invalidated_before_persist");
@@ -217,17 +213,16 @@ export const createCanvasWorkbenchMutationEngine = ({
       }
 
       didCommit = true;
-      return commitDeletedWorkbenchToState(state, workbenchId, options);
+      return commitDeletedWorkbenchToState(state, workbenchId);
     });
 
     if (didCommit) {
       return { status: "committed", value: true };
     }
 
-    const existingSnapshot = getCanvasWorkbenchSnapshot(existingWorkbench);
-    const restored = await savePersistedWorkbenchSnapshot(existingSnapshot);
+    const restored = await savePersistedWorkbench(existingWorkbench);
     if (!restored) {
-      queueWorkbenchRestoreCompensation(existingSnapshot);
+      queueWorkbenchRestoreCompensation(existingWorkbench);
       return createCommitFailureOutcome("persist_failed");
     }
 

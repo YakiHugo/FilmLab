@@ -1,24 +1,26 @@
 import { useCallback } from "react";
-import type { CanvasCommand, CanvasRenderableElement, EditingAdjustments } from "@/types";
+import type { CanvasImageRenderStateV1 } from "@/render/image";
+import type { Asset, CanvasCommand } from "@/types";
+import type { CanvasImageEditTarget } from "../editPanelSelection";
 import {
   planCanvasImagePropertyCommand,
   type CanvasImagePropertyIntent,
 } from "../imagePropertyState";
 import { useCanvasActiveWorkbenchCommands } from "./useCanvasActiveWorkbenchCommands";
 
-type CanvasRenderableImageElement = Extract<CanvasRenderableElement, { type: "image" }>;
-
 interface CommitCanvasImagePropertyIntentOptions {
   executeCommand: (
     command: CanvasCommand,
     options?: { trackHistory?: boolean }
   ) => Promise<unknown>;
-  imageElement: CanvasRenderableImageElement | null;
+  imageAsset?: Asset | null;
+  imageElement: CanvasImageEditTarget | null;
   intent: CanvasImagePropertyIntent;
 }
 
 export const commitCanvasImagePropertyIntent = async ({
   executeCommand,
+  imageAsset,
   imageElement,
   intent,
 }: CommitCanvasImagePropertyIntentOptions) => {
@@ -28,7 +30,7 @@ export const commitCanvasImagePropertyIntent = async ({
 
   const command = planCanvasImagePropertyCommand({
     intent,
-    node: imageElement,
+    node: imageElement ? { ...imageElement, asset: imageAsset } : null,
   });
   if (!command) {
     return;
@@ -37,22 +39,26 @@ export const commitCanvasImagePropertyIntent = async ({
   await executeCommand(command);
 };
 
-export function useCanvasImagePropertyActions(selectedImageElement: CanvasRenderableImageElement | null) {
+export function useCanvasImagePropertyActions(
+  selectedImageElement: CanvasImageEditTarget | null,
+  selectedImageAsset?: Asset | null
+) {
   const { executeCommand } = useCanvasActiveWorkbenchCommands();
 
   const commitIntent = useCallback(
     (intent: CanvasImagePropertyIntent) =>
       commitCanvasImagePropertyIntent({
         executeCommand,
+        imageAsset: selectedImageAsset,
         imageElement: selectedImageElement,
         intent,
       }),
-    [executeCommand, selectedImageElement]
+    [executeCommand, selectedImageAsset, selectedImageElement]
   );
 
-  const setAdjustments = useCallback(
-    (value: EditingAdjustments | undefined) =>
-      commitIntent({ type: "set-image-adjustments", value }),
+  const setRenderState = useCallback(
+    (value: CanvasImageRenderStateV1) =>
+      commitIntent({ type: "set-image-render-state", value }),
     [commitIntent]
   );
 
@@ -68,7 +74,7 @@ export function useCanvasImagePropertyActions(selectedImageElement: CanvasRender
   return {
     commitIntent,
     imageElement: selectedImageElement,
-    setAdjustments,
+    setRenderState,
     setFilmProfileId,
   };
 }

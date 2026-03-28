@@ -7,6 +7,10 @@ import { useCanvasActiveWorkbenchId } from "./useCanvasActiveWorkbenchId";
 const selectCommandStoreApi = (state: CanvasState) => ({
   patchWorkbench: state.patchWorkbench,
   executeCommandInWorkbench: state.executeCommandInWorkbench,
+  beginInteractionInWorkbench: state.beginInteractionInWorkbench,
+  previewCommandInWorkbench: state.previewCommandInWorkbench,
+  commitInteractionInWorkbench: state.commitInteractionInWorkbench,
+  rollbackInteractionInWorkbench: state.rollbackInteractionInWorkbench,
   upsertElementInWorkbench: state.upsertElementInWorkbench,
   upsertElementsInWorkbench: state.upsertElementsInWorkbench,
 });

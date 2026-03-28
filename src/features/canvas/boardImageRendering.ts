@@ -1,14 +1,15 @@
-import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import { ensureAssetLayers } from "@/lib/editorLayers";
 import { buildRenderDocumentDependencyKey } from "@/features/editor/renderDependencies";
 import type { RenderIntent } from "@/lib/renderIntent";
 import {
-  legacyEditingAdjustmentsToImageRenderDocument,
+  createImageRenderDocumentFromState,
   renderSingleImageToCanvas,
+  type CanvasImageRenderStateV1,
   type ImageRenderDocument,
 } from "@/render/image";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
-import type { Asset, CanvasImageElement, EditingAdjustments } from "@/types";
+import type { Asset, CanvasImageElement } from "@/types";
+import { resolveCanvasImageRenderState } from "./imageRenderState";
 
 export type BoardPreviewPriority = "interactive" | "background";
 
@@ -18,23 +19,21 @@ export interface CanvasImageRenderTargetSize {
 }
 
 export interface CanvasImageRenderContext {
-  adjustments: EditingAdjustments;
   cacheKey: string;
   filmProfile: Asset["filmProfile"] | undefined;
   imageDocument: ImageRenderDocument;
   renderVariant: BoardPreviewPriority;
+  renderState: CanvasImageRenderStateV1;
   targetSize: CanvasImageRenderTargetSize;
   timestampText: string | null;
 }
 
 export interface CanvasImageDocumentRenderContext {
-  adjustments: EditingAdjustments;
   filmProfile: Asset["filmProfile"] | undefined;
   imageDocument: ImageRenderDocument;
+  renderState: CanvasImageRenderStateV1;
   timestampText: string | null;
 }
-
-const DEFAULT_ADJUSTMENTS = createDefaultAdjustments();
 const PREVIEW_TARGET_LIMITS: Record<BoardPreviewPriority, number> = {
   interactive: 2560,
   background: 3072,
@@ -57,12 +56,6 @@ const resolveBucketedPreviewDimension = (value: number, maxDimension: number) =>
   const bucket = PREVIEW_TARGET_BUCKETS.find((candidate) => candidate >= clamped);
   return Math.min(maxDimension, bucket ?? maxDimension);
 };
-
-export const resolveCanvasImageAdjustments = (
-  element: CanvasImageElement,
-  asset: Asset,
-  draftAdjustments?: EditingAdjustments
-) => normalizeAdjustments(draftAdjustments ?? element.adjustments ?? asset.adjustments ?? DEFAULT_ADJUSTMENTS);
 
 export const resolveCanvasImagePreviewTargetSize = (
   element: Pick<CanvasImageElement, "width" | "height">,
@@ -112,25 +105,35 @@ export const resolveCanvasImagePreviewTargetSizeKey = (
 
 export const createCanvasImageDocumentRenderContext = ({
   asset,
-  draftAdjustments,
+  draftRenderState,
   element,
 }: {
   asset: Asset;
-  draftAdjustments?: EditingAdjustments;
+  draftRenderState?: CanvasImageRenderStateV1;
   element: CanvasImageElement;
 }): CanvasImageDocumentRenderContext => {
-  const adjustments = resolveCanvasImageAdjustments(element, asset, draftAdjustments);
-  const imageDocument = legacyEditingAdjustmentsToImageRenderDocument({
+  const renderState = resolveCanvasImageRenderState(element, asset, draftRenderState);
+  if (!renderState) {
+    throw new Error(`Missing canonical render state for canvas image element ${element.id}.`);
+  }
+  const imageDocument = createImageRenderDocumentFromState({
     id: `board:${element.id}`,
-    asset,
-    adjustments,
-    filmProfileId: element.filmProfileId,
+    source: {
+      assetId: asset.id,
+      objectUrl: asset.objectUrl,
+      contentHash: asset.contentHash ?? null,
+      name: asset.name,
+      mimeType: asset.type,
+      width: asset.metadata?.width,
+      height: asset.metadata?.height,
+    },
+    state: renderState,
   });
 
   return {
-    adjustments,
     filmProfile: imageDocument.film.profile ?? undefined,
     imageDocument,
+    renderState,
     timestampText: resolveAssetTimestampText(asset.metadata, asset.createdAt),
   };
 };
@@ -138,21 +141,21 @@ export const createCanvasImageDocumentRenderContext = ({
 export const createCanvasImageRenderContext = ({
   asset,
   assetById,
-  draftAdjustments,
+  draftRenderState,
   element,
   priority,
   viewportScale = 1,
 }: {
   asset: Asset;
   assetById: Map<string, Asset>;
-  draftAdjustments?: EditingAdjustments;
+  draftRenderState?: CanvasImageRenderStateV1;
   element: CanvasImageElement;
   priority: BoardPreviewPriority;
   viewportScale?: number;
 }): CanvasImageRenderContext => {
   const documentContext = createCanvasImageDocumentRenderContext({
     asset,
-    draftAdjustments,
+    draftRenderState,
     element,
   });
   const targetSize = resolveCanvasImagePreviewTargetSize(element, priority, viewportScale);
@@ -181,7 +184,7 @@ export const renderCanvasImageElementToCanvas = async ({
   asset,
   assetById,
   canvas,
-  draftAdjustments,
+  draftRenderState,
   element,
   intent,
   priority,
@@ -192,7 +195,7 @@ export const renderCanvasImageElementToCanvas = async ({
   asset: Asset;
   assetById: Map<string, Asset>;
   canvas: HTMLCanvasElement;
-  draftAdjustments?: EditingAdjustments;
+  draftRenderState?: CanvasImageRenderStateV1;
   element: CanvasImageElement;
   intent: RenderIntent;
   priority: BoardPreviewPriority;
@@ -203,7 +206,7 @@ export const renderCanvasImageElementToCanvas = async ({
   const context = createCanvasImageRenderContext({
     asset,
     assetById,
-    draftAdjustments,
+    draftRenderState,
     element,
     priority,
     viewportScale,
@@ -219,10 +222,6 @@ export const renderCanvasImageElementToCanvas = async ({
       timestampText: context.timestampText,
       signal,
       renderSlotId: renderSlotPrefix,
-    },
-    runtime: {
-      asset,
-      assetById,
     },
   });
 

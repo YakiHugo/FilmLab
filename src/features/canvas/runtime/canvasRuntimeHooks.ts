@@ -16,11 +16,11 @@ export const useCanvasPreviewEntry = (
   );
 };
 
-export const useCanvasElementDraftAdjustments = (elementId: string | null) => {
+export const useCanvasElementDraftRenderState = (elementId: string | null) => {
   const scope = useCanvasRuntimeScope();
   return useStoreWithEqualityFn(
     scope.store,
-    (state) => (elementId ? state.draftAdjustmentsByElementId[elementId] : undefined),
+    (state) => (elementId ? state.draftRenderStateByElementId[elementId] : undefined),
     Object.is
   );
 };
@@ -54,7 +54,7 @@ export const useCanvasPreviewActions = () => {
   const scope = useCanvasRuntimeScope();
   return useMemo(
     () => ({
-      clearElementDraftAdjustments: scope.clearElementDraftAdjustments,
+      clearElementDraftRenderState: scope.clearElementDraftRenderState,
       invalidateBoardPreview: scope.invalidateBoardPreview,
       releaseBoardPreview: scope.releaseBoardPreview,
       requestBoardPreview: (
@@ -63,7 +63,7 @@ export const useCanvasPreviewActions = () => {
       ) => {
         scope.requestBoardPreview(elementId, priority);
       },
-      setElementDraftAdjustments: scope.setElementDraftAdjustments,
+      setElementDraftRenderState: scope.setElementDraftRenderState,
     }),
     [scope]
   );
@@ -84,5 +84,14 @@ export const useCanvasSelectionPreview = () => {
       setSelectionPreviewElementIds: scope.setSelectionPreviewElementIds,
     }),
     [scope, selectionPreviewElementIds]
+  );
+};
+
+export const useCanvasPrimarySelectionPreviewElementId = () => {
+  const scope = useCanvasRuntimeScope();
+  return useStoreWithEqualityFn(
+    scope.store,
+    (state) => state.selectionPreviewElementIds?.[0] ?? null,
+    Object.is
   );
 };
