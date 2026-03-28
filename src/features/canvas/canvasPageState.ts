@@ -1,5 +1,3 @@
-import type { CanvasFloatingPanel } from "./store/canvasStoreTypes";
-
 export type CanvasPageRecoveryPlan =
   | { type: "wait" }
   | { type: "activate-route"; workbenchId: string }
@@ -63,16 +61,3 @@ export const resolveCanvasPageRecoveryPlan = ({
     ? { type: "navigate-to-fallback", workbenchId: fallbackWorkbenchId }
     : { type: "create-and-navigate" };
 };
-
-export const shouldAutoOpenCanvasEditPanel = ({
-  activePanel,
-  currentSelectedImageId,
-  previousSelectedImageId,
-}: {
-  activePanel: CanvasFloatingPanel;
-  currentSelectedImageId: string | null;
-  previousSelectedImageId: string | null;
-}) =>
-  activePanel !== "edit" &&
-  currentSelectedImageId !== null &&
-  currentSelectedImageId !== previousSelectedImageId;

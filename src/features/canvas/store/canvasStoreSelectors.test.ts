@@ -12,19 +12,64 @@ import {
 } from "./canvasStoreSelectors";
 
 const createState = (): CanvasStoreDataState => ({
-  workbenches: [
+  workbenchList: [
     {
       id: "workbench-1",
       name: "Workbench One",
-      rootIds: ["node-1", "node-2"],
+      createdAt: "2026-03-28T00:00:00.000Z",
+      updatedAt: "2026-03-28T00:00:00.000Z",
+      presetId: "custom",
+      width: 1080,
+      height: 1350,
+      elementCount: 0,
+      coverAssetId: null,
     },
     {
       id: "workbench-2",
       name: "Workbench Two",
-      rootIds: [],
+      createdAt: "2026-03-28T00:00:00.000Z",
+      updatedAt: "2026-03-28T00:00:00.000Z",
+      presetId: "custom",
+      width: 1080,
+      height: 1350,
+      elementCount: 0,
+      coverAssetId: null,
     },
-  ] as CanvasStoreDataState["workbenches"],
-  activeWorkbenchId: "workbench-1",
+  ],
+  loadedWorkbenchId: "workbench-1",
+  workbench: {
+    id: "workbench-1",
+    version: 4,
+    ownerRef: {
+      userId: "user-1",
+    },
+    name: "Workbench One",
+    width: 1080,
+    height: 1350,
+    presetId: "custom",
+    backgroundColor: "#000000",
+    nodes: {},
+    rootIds: ["node-1", "node-2"],
+    groupChildren: {},
+    slices: [],
+    guides: {
+      showCenter: false,
+      showThirds: false,
+      showSafeArea: false,
+    },
+    safeArea: {
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+    },
+    preferredCoverAssetId: null,
+    createdAt: "2026-03-28T00:00:00.000Z",
+    updatedAt: "2026-03-28T00:00:00.000Z",
+    allNodes: [],
+    elements: [],
+  } as CanvasStoreDataState["workbench"],
+  workbenchDraft: null,
   selectedElementIds: [],
   tool: "select",
   activeShapeType: "rect",
@@ -32,29 +77,17 @@ const createState = (): CanvasStoreDataState => ({
   viewport: { x: 0, y: 0 },
   activePanel: null,
   isLoading: false,
-  historyByWorkbenchId: {
-    "workbench-1": {
-      past: [
-        {
-          commandType: "PATCH_DOCUMENT",
-          forwardChangeSet: { operations: [] },
-          inverseChangeSet: { operations: [] },
-        },
-      ],
-      future: [],
-    },
-    "workbench-2": {
-      past: [],
-      future: [
-        {
-          commandType: "PATCH_DOCUMENT",
-          forwardChangeSet: { operations: [] },
-          inverseChangeSet: { operations: [] },
-        },
-      ],
-    },
+  workbenchHistory: {
+    past: [
+      {
+        commandType: "PATCH_DOCUMENT",
+        forwardChangeSet: { operations: [] },
+        inverseChangeSet: { operations: [] },
+      },
+    ],
+    future: [],
   },
-  interactionStatusByWorkbenchId: {},
+  workbenchInteraction: null,
 });
 
 describe("canvasStoreSelectors", () => {
@@ -65,7 +98,7 @@ describe("canvasStoreSelectors", () => {
     expect(selectResolvedActiveWorkbenchId(state)).toBe("workbench-1");
     expect(selectActiveWorkbenchRootCount(state)).toBe(2);
     expect(selectCanvasActiveWorkbenchState(state)).toMatchObject({
-      activeWorkbench: state.workbenches[0],
+      activeWorkbench: state.workbench,
       activeWorkbenchId: "workbench-1",
       activeWorkbenchRootCount: 2,
       slices: [],
@@ -78,21 +111,16 @@ describe("canvasStoreSelectors", () => {
     expect(selectCanUndoInWorkbench(state, "workbench-1")).toBe(true);
     expect(selectCanRedoInWorkbench(state, "workbench-1")).toBe(false);
     expect(selectCanUndoInWorkbench(state, "workbench-2")).toBe(false);
-    expect(selectCanRedoInWorkbench(state, "workbench-2")).toBe(true);
+    expect(selectCanRedoInWorkbench(state, "workbench-2")).toBe(false);
     expect(selectCanUndoInWorkbench(state, null)).toBe(false);
     expect(selectCanRedoInWorkbench(state, null)).toBe(false);
   });
 
   it("suppresses undo and redo while interaction history is still pending", () => {
     const state = createState();
-    state.interactionStatusByWorkbenchId["workbench-1"] = {
+    state.workbenchInteraction = {
       active: false,
       pendingCommits: 1,
-      queuedMutations: 0,
-    };
-    state.interactionStatusByWorkbenchId["workbench-2"] = {
-      active: true,
-      pendingCommits: 0,
       queuedMutations: 0,
     };
 
@@ -102,7 +130,7 @@ describe("canvasStoreSelectors", () => {
 
   it("suppresses undo and redo while queued mutations still block interactions", () => {
     const state = createState();
-    state.interactionStatusByWorkbenchId["workbench-1"] = {
+    state.workbenchInteraction = {
       active: false,
       pendingCommits: 0,
       queuedMutations: 1,
@@ -115,8 +143,9 @@ describe("canvasStoreSelectors", () => {
   it("treats missing active workbench ids as unavailable history", () => {
     const state = createState();
 
-    state.activeWorkbenchId = "missing-workbench";
-    state.historyByWorkbenchId["missing-workbench"] = {
+    state.loadedWorkbenchId = "missing-workbench";
+    state.workbench = null;
+    state.workbenchHistory = {
       past: [
         {
           commandType: "PATCH_DOCUMENT",
@@ -139,7 +168,8 @@ describe("canvasStoreSelectors", () => {
 
   it("collapses missing active workbench state to the null-safe read model", () => {
     const state = createState();
-    state.activeWorkbenchId = "missing-workbench";
+    state.loadedWorkbenchId = "missing-workbench";
+    state.workbench = null;
 
     expect(selectResolvedActiveWorkbenchId(state)).toBeNull();
     expect(selectCanvasActiveWorkbenchState(state)).toEqual({

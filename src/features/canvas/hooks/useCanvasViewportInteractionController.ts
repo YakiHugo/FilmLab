@@ -8,6 +8,7 @@ import type {
   CanvasTextElement,
   CanvasWorkbench,
 } from "@/types";
+import { shouldOpenCanvasEditPanelForElement } from "../editPanelSelection";
 import { isCanvasTextElementEditable } from "../elements/TextElement";
 import { quantizeDragPosition } from "../grid";
 import { resolveSelectedRootRenderableElementIds } from "../selectionModel";
@@ -46,9 +47,10 @@ interface UseCanvasViewportInteractionControllerOptions {
   fitView: CanvasViewportTransform | null;
   isSpacePressed: boolean;
   onInteractionError: (message: string) => void;
+  openEditPanel: () => void;
   previewCommand: (interactionId: string, command: CanvasCommand) => CanvasWorkbench | null;
   rollbackInteraction: (interactionId: string) => CanvasWorkbench | null;
-  selectElement: (elementId: string, options?: { additive?: boolean }) => void;
+  selectElement: (elementId: string, options?: { additive?: boolean }) => boolean;
   selectedElementIds: string[];
   setSelectedElementIds: (ids: string[]) => void;
   setTool: (tool: CanvasToolName) => void;
@@ -78,6 +80,7 @@ export function useCanvasViewportInteractionController({
   fitView,
   isSpacePressed,
   onInteractionError,
+  openEditPanel,
   previewCommand,
   rollbackInteraction,
   selectElement,
@@ -95,6 +98,7 @@ export function useCanvasViewportInteractionController({
   zoom,
 }: UseCanvasViewportInteractionControllerOptions) {
   const dragSessionRef = useRef<CanvasElementDragSession | null>(null);
+  const elementActivationSuppressedRef = useRef(false);
   const shouldPan = tool === "hand" || isSpacePressed;
   const {
     adjustZoom,
@@ -150,7 +154,7 @@ export function useCanvasViewportInteractionController({
   );
 
   const {
-    handleWorkspacePointerDown,
+    handleWorkspacePointerDown: handleToolWorkspacePointerDown,
     handleWorkspacePointerMove,
     handleWorkspacePointerUp,
   } = useCanvasViewportToolOrchestrator({
@@ -170,6 +174,9 @@ export function useCanvasViewportInteractionController({
     setTool,
     shouldPan,
     stageRef,
+    suppressElementActivation: () => {
+      elementActivationSuppressedRef.current = true;
+    },
     toCanvasPoint,
     toScreenPoint,
     tool,
@@ -177,8 +184,20 @@ export function useCanvasViewportInteractionController({
     updatePanInteraction,
   });
 
+  const handleWorkspacePointerDown = useCallback(
+    (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+      elementActivationSuppressedRef.current = false;
+      handleToolWorkspacePointerDown(event);
+    },
+    [handleToolWorkspacePointerDown]
+  );
+
   const handleElementSelect = useCallback(
     (elementId: string, additive: boolean) => {
+      if (elementActivationSuppressedRef.current) {
+        elementActivationSuppressedRef.current = false;
+        return;
+      }
       if (
         !shouldCanvasToolSelectElements({
           shouldPan,
@@ -193,9 +212,19 @@ export function useCanvasViewportInteractionController({
         return;
       }
 
-      selectElement(elementId, { additive });
+      const didSelect = selectElement(elementId, { additive });
+      if (
+        didSelect &&
+        shouldOpenCanvasEditPanelForElement({
+          activeWorkbench,
+          additive,
+          elementId,
+        })
+      ) {
+        openEditPanel();
+      }
     },
-    [elementByIdRef, selectElement, shouldPan, tool]
+    [activeWorkbench, elementByIdRef, openEditPanel, selectElement, shouldPan, tool]
   );
   const canManipulateElements = shouldCanvasToolSelectElements({
     shouldPan,
@@ -412,6 +441,13 @@ export function useCanvasViewportInteractionController({
 
   const handleTextElementDoubleClick = useCallback(
     (elementId: string) => {
+      if (elementActivationSuppressedRef.current) {
+        elementActivationSuppressedRef.current = false;
+        return;
+      }
+      if (!canManipulateElements) {
+        return;
+      }
       const element = elementByIdRef.current?.get(elementId);
       if (!element?.type || element.type !== "text" || !isCanvasTextElementEditable(element)) {
         return;
@@ -419,7 +455,7 @@ export function useCanvasViewportInteractionController({
 
       beginTextEdit(element as CanvasTextElement);
     },
-    [beginTextEdit, elementByIdRef]
+    [beginTextEdit, canManipulateElements, elementByIdRef]
   );
 
   const controls = useMemo(

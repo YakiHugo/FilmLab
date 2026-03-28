@@ -16,7 +16,6 @@ import type {
   CanvasTool,
   CanvasWorkbenchEditablePatch,
   CreateWorkbenchOptions,
-  DeleteWorkbenchOptions,
   ExecuteCommandOptions,
   PatchWorkbenchOptions,
 } from "@/features/canvas/store/canvasStoreTypes";
@@ -33,21 +32,23 @@ export { getCanvasResetEpoch } from "@/features/canvas/store/canvasWorkbenchServ
 
 export interface CanvasState extends CanvasStoreDataState {
   init: () => Promise<void>;
+  openWorkbench: (workbenchId: string) => Promise<CanvasWorkbench | null>;
+  closeWorkbench: () => void;
   createWorkbench: (name?: string, options?: CreateWorkbenchOptions) => Promise<CanvasWorkbench | null>;
   patchWorkbench: (
     workbenchId: string,
     patch: CanvasWorkbenchEditablePatch,
     options?: PatchWorkbenchOptions
   ) => Promise<CanvasWorkbench | null>;
-  setActiveWorkbenchId: (id: string | null) => void;
   setSelectedElementIds: (ids: string[]) => void;
   setTool: (tool: CanvasTool) => void;
   setActiveShapeType: (shapeType: CanvasShapeType) => void;
   setZoom: (zoom: number) => void;
   setViewport: (viewport: { x: number; y: number }) => void;
+  openEditPanel: () => void;
   setActivePanel: (panel: CanvasFloatingPanel) => void;
   togglePanel: (panel: CanvasFloatingPanel) => void;
-  deleteWorkbench: (id: string, options?: DeleteWorkbenchOptions) => Promise<boolean>;
+  deleteWorkbench: (id: string) => Promise<boolean>;
   executeCommandInWorkbench: (
     workbenchId: string,
     command: CanvasCommand,
@@ -105,8 +106,10 @@ export interface CanvasState extends CanvasStoreDataState {
 }
 
 const createInitialCanvasStoreDataState = (): CanvasStoreDataState => ({
-  workbenches: [],
-  activeWorkbenchId: null,
+  workbenchList: [],
+  loadedWorkbenchId: null,
+  workbench: null,
+  workbenchDraft: null,
   selectedElementIds: [],
   tool: "select",
   activeShapeType: "rect",
@@ -114,8 +117,8 @@ const createInitialCanvasStoreDataState = (): CanvasStoreDataState => ({
   viewport: { x: 0, y: 0 },
   activePanel: null,
   isLoading: false,
-  historyByWorkbenchId: {},
-  interactionStatusByWorkbenchId: {},
+  workbenchHistory: null,
+  workbenchInteraction: null,
 });
 
 export const useCanvasStore = create<CanvasState>()(
@@ -130,22 +133,20 @@ export const useCanvasStore = create<CanvasState>()(
         setState: setCanvasDataState,
       });
 
-      const hasWorkbench = (workbenchId: string | null) =>
-        Boolean(workbenchId && get().workbenches.some((workbench) => workbench.id === workbenchId));
+      const hasLoadedWorkbench = (workbenchId: string | null) =>
+        Boolean(
+          workbenchId &&
+            get().loadedWorkbenchId === workbenchId &&
+            (get().workbenchDraft ?? get().workbench)
+        );
 
       return {
         ...createInitialCanvasStoreDataState(),
         init: service.init,
+        openWorkbench: service.openWorkbench,
+        closeWorkbench: service.closeWorkbench,
         createWorkbench: service.createWorkbench,
         patchWorkbench: service.patchWorkbench,
-        setActiveWorkbenchId: (activeWorkbenchId) =>
-          set(() => {
-            if (activeWorkbenchId !== null && !hasWorkbench(activeWorkbenchId)) {
-              return { activeWorkbenchId: null, selectedElementIds: [] };
-            }
-
-            return { activeWorkbenchId, selectedElementIds: [] };
-          }),
         setSelectedElementIds: (selectedElementIds) =>
           set((state) => {
             const nextSelectedElementIds = Array.from(new Set(selectedElementIds));
@@ -161,6 +162,11 @@ export const useCanvasStore = create<CanvasState>()(
         setActiveShapeType: (activeShapeType) => set({ activeShapeType }),
         setZoom: (zoom) => set({ zoom }),
         setViewport: (viewport) => set({ viewport }),
+        openEditPanel: () =>
+          set({
+            activePanel: "edit",
+            tool: "select",
+          }),
         setActivePanel: (activePanel) =>
           set({
             activePanel,
@@ -174,39 +180,39 @@ export const useCanvasStore = create<CanvasState>()(
         deleteWorkbench: service.deleteWorkbench,
         executeCommandInWorkbench: service.executeCommandInWorkbench,
         beginInteractionInWorkbench: (workbenchId) =>
-          hasWorkbench(workbenchId)
+          hasLoadedWorkbench(workbenchId)
             ? service.beginInteractionInWorkbench(workbenchId)
             : null,
         previewCommandInWorkbench: (workbenchId, interactionId, command) =>
-          hasWorkbench(workbenchId)
+          hasLoadedWorkbench(workbenchId)
             ? service.previewCommandInWorkbench(workbenchId, interactionId, command)
             : null,
         commitInteractionInWorkbench: (workbenchId, interactionId) =>
-          hasWorkbench(workbenchId)
+          hasLoadedWorkbench(workbenchId)
             ? service.commitInteractionInWorkbench(workbenchId, interactionId)
             : Promise.resolve(null),
         rollbackInteractionInWorkbench: (workbenchId, interactionId) =>
-          hasWorkbench(workbenchId)
+          hasLoadedWorkbench(workbenchId)
             ? service.rollbackInteractionInWorkbench(workbenchId, interactionId)
             : null,
         upsertElementInWorkbench: service.upsertElementInWorkbench,
         upsertElementsInWorkbench: service.upsertElementsInWorkbench,
         deleteNodesInWorkbench: async (workbenchId, ids) => {
-          if (!hasWorkbench(workbenchId) || ids.length === 0) {
+          if (!hasLoadedWorkbench(workbenchId) || ids.length === 0) {
             return [];
           }
 
           return service.deleteNodesInWorkbench(workbenchId, ids);
         },
         duplicateNodesInWorkbench: async (workbenchId, ids) => {
-          if (!hasWorkbench(workbenchId) || ids.length === 0) {
+          if (!hasLoadedWorkbench(workbenchId) || ids.length === 0) {
             return [];
           }
 
           return service.duplicateNodesInWorkbench(workbenchId, ids);
         },
         reorderElementsInWorkbench: async (workbenchId, orderedIds, parentId = null) => {
-          if (!hasWorkbench(workbenchId) || orderedIds.length === 0) {
+          if (!hasLoadedWorkbench(workbenchId) || orderedIds.length === 0) {
             return;
           }
 
@@ -217,7 +223,7 @@ export const useCanvasStore = create<CanvasState>()(
           });
         },
         reparentNodesInWorkbench: async (workbenchId, ids, parentId, index) => {
-          if (!hasWorkbench(workbenchId) || ids.length === 0) {
+          if (!hasLoadedWorkbench(workbenchId) || ids.length === 0) {
             return;
           }
 
@@ -229,7 +235,7 @@ export const useCanvasStore = create<CanvasState>()(
           });
         },
         toggleElementVisibilityInWorkbench: async (workbenchId, id) => {
-          if (!hasWorkbench(workbenchId)) {
+          if (!hasLoadedWorkbench(workbenchId)) {
             return;
           }
 
@@ -239,7 +245,7 @@ export const useCanvasStore = create<CanvasState>()(
           });
         },
         toggleElementLockInWorkbench: async (workbenchId, id) => {
-          if (!hasWorkbench(workbenchId)) {
+          if (!hasLoadedWorkbench(workbenchId)) {
             return;
           }
 
@@ -249,7 +255,7 @@ export const useCanvasStore = create<CanvasState>()(
           });
         },
         nudgeElementsInWorkbench: async (workbenchId, ids, dx, dy) => {
-          if (!hasWorkbench(workbenchId) || ids.length === 0 || (dx === 0 && dy === 0)) {
+          if (!hasLoadedWorkbench(workbenchId) || ids.length === 0 || (dx === 0 && dy === 0)) {
             return;
           }
 
@@ -262,14 +268,14 @@ export const useCanvasStore = create<CanvasState>()(
         },
         groupNodesInWorkbench: async (workbenchId, ids) => {
           const uniqueIds = Array.from(new Set(ids));
-          if (!hasWorkbench(workbenchId) || uniqueIds.length < 2) {
+          if (!hasLoadedWorkbench(workbenchId) || uniqueIds.length < 2) {
             return null;
           }
 
           return service.groupNodesInWorkbench(workbenchId, uniqueIds);
         },
         ungroupNodeInWorkbench: async (workbenchId, id) => {
-          if (!hasWorkbench(workbenchId)) {
+          if (!hasLoadedWorkbench(workbenchId)) {
             return;
           }
 
@@ -281,12 +287,14 @@ export const useCanvasStore = create<CanvasState>()(
             return;
           }
 
-          set({ selectedElementIds: [] });
+          set({
+            selectedElementIds: [],
+          });
         },
         canUndoInWorkbench: (workbenchId) =>
-          hasWorkbench(workbenchId) && selectCanUndoInWorkbench(get(), workbenchId),
+          hasLoadedWorkbench(workbenchId) && selectCanUndoInWorkbench(get(), workbenchId),
         canRedoInWorkbench: (workbenchId) =>
-          hasWorkbench(workbenchId) && selectCanRedoInWorkbench(get(), workbenchId),
+          hasLoadedWorkbench(workbenchId) && selectCanRedoInWorkbench(get(), workbenchId),
         undoInWorkbench: (workbenchId) => service.undo(workbenchId),
         redoInWorkbench: (workbenchId) => service.redo(workbenchId),
       };
@@ -298,11 +306,13 @@ export const useCanvasStore = create<CanvasState>()(
 on("currentUser:reset", () => {
   resetCanvasWorkbenchService();
   useCanvasStore.setState({
-    workbenches: [],
-    activeWorkbenchId: null,
+    workbenchList: [],
+    loadedWorkbenchId: null,
+    workbench: null,
+    workbenchDraft: null,
     selectedElementIds: [],
-    historyByWorkbenchId: {},
-    interactionStatusByWorkbenchId: {},
+    workbenchHistory: null,
+    workbenchInteraction: null,
     viewport: { x: 0, y: 0 },
     zoom: 1,
     activePanel: null,

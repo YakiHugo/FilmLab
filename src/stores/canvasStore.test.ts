@@ -1,178 +1,105 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { materializeCanvasWorkbenchListEntry } from "@/features/canvas/store/canvasWorkbenchListEntry";
+import { createEmptyHistoryState } from "@/features/canvas/store/canvasWorkbenchState";
+import { normalizeCanvasWorkbench } from "@/features/canvas/studioPresets";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import { emit } from "@/lib/storeEvents";
-import type { CanvasHistoryEntry, CanvasWorkbench } from "@/types";
-import { normalizeCanvasWorkbench } from "@/features/canvas/studioPresets";
+import { createDefaultCanvasImageRenderState } from "@/render/image";
+import type {
+  Asset,
+  CanvasEditableImageElement,
+  CanvasEditableTextElement,
+  CanvasWorkbench,
+  CurrentUser,
+} from "@/types";
+import { useAssetStore } from "./assetStore";
 import { useCanvasStore } from "./canvasStore";
 
-const deleteCanvasWorkbenchMock = vi.fn();
-const loadCanvasWorkbenchesMock = vi.fn();
-const saveCanvasWorkbenchMock = vi.fn();
+const loadCanvasWorkbenchListEntriesByUserMock = vi.fn();
+const loadCanvasWorkbenchMock = vi.fn();
+const saveCanvasWorkbenchRecordMock = vi.fn();
+const deleteCanvasWorkbenchRecordMock = vi.fn();
 
-vi.mock("@/lib/db", () => ({
-  deleteCanvasWorkbench: (...args: unknown[]) => deleteCanvasWorkbenchMock(...args),
-  loadCanvasWorkbenches: (...args: unknown[]) => loadCanvasWorkbenchesMock(...args),
-  loadCanvasWorkbenchesByUser: (...args: unknown[]) => loadCanvasWorkbenchesMock(...args),
-  saveCanvasWorkbench: (...args: unknown[]) => saveCanvasWorkbenchMock(...args),
-}));
+vi.mock("@/lib/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/db")>();
+  return {
+    ...actual,
+    deleteCanvasWorkbenchRecord: (...args: unknown[]) =>
+      deleteCanvasWorkbenchRecordMock(...args),
+    loadCanvasWorkbench: (...args: unknown[]) => loadCanvasWorkbenchMock(...args),
+    loadCanvasWorkbenchListEntriesByUser: (...args: unknown[]) =>
+      loadCanvasWorkbenchListEntriesByUserMock(...args),
+    saveCanvasWorkbenchRecord: (...args: unknown[]) => saveCanvasWorkbenchRecordMock(...args),
+  };
+});
 
-const createWorkbench = (): CanvasWorkbench =>
+const currentUser: CurrentUser = {
+  id: "local-user",
+  name: "Local User",
+  createdAt: "2026-03-28T00:00:00.000Z",
+  updatedAt: "2026-03-28T00:00:00.000Z",
+};
+
+const createWorkbench = (id = "doc-1", name = "Workbench"): CanvasWorkbench =>
   normalizeCanvasWorkbench({
-  id: "doc-1",
-  version: 2,
-  name: "工作台",
-  width: 1200,
-  height: 800,
-  presetId: "custom",
-  backgroundColor: "#000000",
-  elements: [
-    {
-      id: "image-1",
-      type: "image",
-      assetId: "asset-1",
-      parentId: null,
-      x: 10,
-      y: 20,
-      width: 300,
-      height: 200,
-      rotation: 0,
-      transform: {
+    id,
+    version: 2,
+    ownerRef: { userId: currentUser.id },
+    name,
+    width: 1200,
+    height: 800,
+    presetId: "custom",
+    backgroundColor: "#000000",
+    elements: [
+      {
+        id: "image-1",
+        type: "image",
+        assetId: "asset-1",
+        parentId: null,
         x: 10,
         y: 20,
         width: 300,
         height: 200,
         rotation: 0,
+        transform: {
+          x: 10,
+          y: 20,
+          width: 300,
+          height: 200,
+          rotation: 0,
+        },
+        opacity: 1,
+        locked: false,
+        visible: true,
+        adjustments: createDefaultAdjustments(),
       },
-      opacity: 1,
-      locked: false,
-      visible: true,
-      adjustments: createDefaultAdjustments(),
-    },
-    {
-      id: "text-1",
-      type: "text",
-      parentId: null,
-      content: "Hello",
-      fontFamily: "Georgia",
-      fontSize: 24,
-      fontSizeTier: "small",
-      color: "#ffffff",
-      textAlign: "left",
-      x: 40,
-      y: 60,
-      width: 180,
-      height: 80,
-      rotation: 0,
-      transform: {
+      {
+        id: "text-1",
+        type: "text",
+        parentId: null,
+        content: "Hello",
+        fontFamily: "Georgia",
+        fontSize: 24,
+        fontSizeTier: "small",
+        color: "#ffffff",
+        textAlign: "left",
         x: 40,
         y: 60,
         width: 180,
         height: 80,
         rotation: 0,
-      },
-      opacity: 1,
-      locked: false,
-      visible: true,
-    },
-  ],
-  slices: [],
-  guides: {
-    showCenter: false,
-    showThirds: false,
-    showSafeArea: false,
-  },
-  safeArea: {
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-  },
-  createdAt: "2026-03-17T00:00:00.000Z",
-  updatedAt: "2026-03-17T00:00:00.000Z",
-});
-
-const createCrossParentGroupingDocument = (): CanvasWorkbench =>
-  normalizeCanvasWorkbench({
-    id: "doc-1",
-    version: 2,
-    name: "工作台",
-    width: 1200,
-    height: 800,
-    presetId: "custom",
-    backgroundColor: "#000000",
-    nodes: {
-      "group-1": {
-        id: "group-1",
-        type: "group",
-        parentId: null,
-        x: 100,
-        y: 120,
-        width: 1,
-        height: 1,
-        rotation: 0,
         transform: {
-          x: 100,
-          y: 120,
-          width: 1,
-          height: 1,
-          rotation: 0,
-        },
-        opacity: 1,
-        locked: false,
-        visible: true,
-        childIds: ["shape-1"],
-        name: "Group",
-      },
-      "shape-1": {
-        id: "shape-1",
-        type: "shape",
-        parentId: "group-1",
-        x: 10,
-        y: 20,
-        width: 120,
-        height: 80,
-        rotation: 0,
-        transform: {
-          x: 10,
-          y: 20,
-          width: 120,
+          x: 40,
+          y: 60,
+          width: 180,
           height: 80,
           rotation: 0,
         },
         opacity: 1,
         locked: false,
         visible: true,
-        shapeType: "rect",
-        fill: "#ffffff",
-        stroke: "#111111",
-        strokeWidth: 1,
       },
-      "shape-2": {
-        id: "shape-2",
-        type: "shape",
-        parentId: null,
-        x: 260,
-        y: 200,
-        width: 120,
-        height: 80,
-        rotation: 0,
-        transform: {
-          x: 260,
-          y: 200,
-          width: 120,
-          height: 80,
-          rotation: 0,
-        },
-        opacity: 1,
-        locked: false,
-        visible: true,
-        shapeType: "rect",
-        fill: "#ffffff",
-        stroke: "#111111",
-        strokeWidth: 1,
-      },
-    },
-    rootIds: ["group-1", "shape-2"],
+    ],
     slices: [],
     guides: {
       showCenter: false,
@@ -185,110 +112,64 @@ const createCrossParentGroupingDocument = (): CanvasWorkbench =>
       bottom: 0,
       left: 0,
     },
+    preferredCoverAssetId: null,
     createdAt: "2026-03-17T00:00:00.000Z",
     updatedAt: "2026-03-17T00:00:00.000Z",
   });
 
-const createLegacyShapeDocument = () =>
-  ({
-    id: "doc-1",
-    name: "工作台",
-    width: 1200,
-    height: 800,
-    presetId: "custom",
-    backgroundColor: "#000000",
-    elements: [
-      {
-        ...(createWorkbench().elements[0] as CanvasWorkbench["elements"][number]),
-      },
-      {
-        ...(createWorkbench().elements[1] as CanvasWorkbench["elements"][number]),
-        fontSizeTier: undefined,
-      },
-      {
-        id: "shape-1",
-        type: "shape",
-        fill: "#ffcc00",
-        stroke: "#000000",
-        strokeWidth: 2,
-        parentId: null,
-        x: 32,
-        y: 48,
-        width: 96,
-        height: 64,
-        rotation: 0,
-        transform: {
-          x: 32,
-          y: 48,
-          width: 96,
-          height: 64,
-          rotation: 0,
-        },
-        opacity: 1,
-        locked: false,
-        visible: true,
-      },
-    ],
-    slices: [],
-    guides: {
-      showCenter: false,
-      showThirds: false,
-      showSafeArea: false,
-    },
-    safeArea: {
-      top: 0,
-      right: 0,
-      bottom: 0,
-      left: 0,
-    },
-    createdAt: "2026-03-17T00:00:00.000Z",
-    updatedAt: "2026-03-17T00:00:00.000Z",
-  }) as unknown as CanvasWorkbench;
-
-const createLegacyTextTierDocument = () => {
-  const document = createWorkbench();
-  const textElement = document.elements[1];
-  if (!textElement || textElement.type !== "text") {
-    throw new Error("Expected text element.");
-  }
-
-  return {
-    id: "doc-1",
-    name: "工作台",
-    width: 1200,
-    height: 800,
-    presetId: "custom",
-    backgroundColor: "#000000",
-    elements: [
-      document.elements[0],
-      {
-        ...textElement,
-        fontSizeTier: undefined,
-      },
-    ],
-    slices: [],
-    guides: {
-      showCenter: false,
-      showThirds: false,
-      showSafeArea: false,
-    },
-    safeArea: {
-      top: 0,
-      right: 0,
-      bottom: 0,
-      left: 0,
-    },
-    createdAt: "2026-03-17T00:00:00.000Z",
-    updatedAt: "2026-03-17T00:00:00.000Z",
-  } as unknown as CanvasWorkbench;
+const installLoadedWorkbench = (workbench = createWorkbench()) => {
+  useCanvasStore.setState({
+    workbenchList: [materializeCanvasWorkbenchListEntry(workbench)],
+    loadedWorkbenchId: workbench.id,
+    workbench,
+    workbenchDraft: null,
+    workbenchHistory: createEmptyHistoryState(),
+    workbenchInteraction: null,
+    selectedElementIds: [],
+    activePanel: null,
+    tool: "select",
+    viewport: { x: 0, y: 0 },
+    zoom: 1,
+  });
+  return workbench;
 };
 
-const createHistoryEntry = (
-  commandType: CanvasHistoryEntry["commandType"] = "PATCH_DOCUMENT"
-): CanvasHistoryEntry => ({
-  commandType,
-  forwardChangeSet: { operations: [] },
-  inverseChangeSet: { operations: [] },
+const getLoadedWorkbench = () => {
+  const state = useCanvasStore.getState();
+  return state.workbenchDraft ?? state.workbench;
+};
+
+const getImageElement = (workbench: CanvasWorkbench) => {
+  const element = workbench.elements.find((candidate) => candidate.id === "image-1");
+  if (!element || element.type !== "image") {
+    throw new Error("Expected image element.");
+  }
+  return element;
+};
+
+const getTextElement = (workbench: CanvasWorkbench) => {
+  const element = workbench.elements.find((candidate) => candidate.id === "text-1");
+  if (!element || element.type !== "text") {
+    throw new Error("Expected text element.");
+  }
+  return element;
+};
+
+const createAsset = (overrides: Partial<Asset> = {}): Asset => ({
+  id: overrides.id ?? "asset-1",
+  name: overrides.name ?? "asset-1.jpg",
+  type: overrides.type ?? "image/jpeg",
+  size: overrides.size ?? 1024,
+  createdAt: overrides.createdAt ?? "2026-03-28T00:00:00.000Z",
+  objectUrl: overrides.objectUrl ?? "blob:asset-1",
+  thumbnailUrl: overrides.thumbnailUrl ?? "blob:asset-1-thumb",
+  adjustments: overrides.adjustments,
+  filmProfileId: overrides.filmProfileId,
+  filmOverrides: overrides.filmOverrides,
+  filmProfile: overrides.filmProfile,
+  metadata: overrides.metadata,
+  contentHash: overrides.contentHash,
+  ownerRef: overrides.ownerRef,
 });
 
 const createDeferred = <T>() => {
@@ -298,11 +179,7 @@ const createDeferred = <T>() => {
     resolve = nextResolve;
     reject = nextReject;
   });
-  return {
-    promise,
-    resolve,
-    reject,
-  };
+  return { promise, resolve, reject };
 };
 
 const flushMicrotasks = async (count = 8) => {
@@ -313,167 +190,40 @@ const flushMicrotasks = async (count = 8) => {
 
 describe("canvasStore", () => {
   beforeEach(() => {
+    loadCanvasWorkbenchListEntriesByUserMock.mockReset();
+    loadCanvasWorkbenchMock.mockReset();
+    saveCanvasWorkbenchRecordMock.mockReset();
+    deleteCanvasWorkbenchRecordMock.mockReset();
+    loadCanvasWorkbenchListEntriesByUserMock.mockResolvedValue([]);
+    loadCanvasWorkbenchMock.mockResolvedValue(null);
+    saveCanvasWorkbenchRecordMock.mockResolvedValue(true);
+    deleteCanvasWorkbenchRecordMock.mockResolvedValue(true);
     emit("currentUser:reset");
-    deleteCanvasWorkbenchMock.mockReset();
-    deleteCanvasWorkbenchMock.mockResolvedValue(true);
-    loadCanvasWorkbenchesMock.mockReset();
-    loadCanvasWorkbenchesMock.mockResolvedValue([]);
-    saveCanvasWorkbenchMock.mockClear();
-    saveCanvasWorkbenchMock.mockResolvedValue(true);
+    useAssetStore.setState({
+      assets: [],
+      currentUser,
+      isLoading: false,
+    });
     useCanvasStore.setState({
-      activeWorkbenchId: "doc-1",
-      workbenches: [createWorkbench()],
-      historyByWorkbenchId: {},
-      activePanel: null,
-      selectedElementIds: [],
       tool: "select",
-      viewport: { x: 0, y: 0 },
-      zoom: 1,
+      activeShapeType: "rect",
     });
   });
 
-  it("persists image-only adjustment updates even when geometry is unchanged", async () => {
-    const element = useCanvasStore
-      .getState()
-      .workbenches[0]?.elements.find((candidate) => candidate.id === "image-1");
-    if (!element || element.type !== "image") {
-      throw new Error("Expected image element.");
-    }
-    const nextAdjustments = {
-      ...createDefaultAdjustments(),
-      ...(element.adjustments ?? {}),
-      exposure: 18,
-    };
+  it("deduplicates selection ids and opens the edit panel through an explicit action", () => {
+    useCanvasStore.getState().setSelectedElementIds(["image-1", "text-1", "image-1"]);
+    expect(useCanvasStore.getState().selectedElementIds).toEqual(["image-1", "text-1"]);
 
-    await useCanvasStore.getState().upsertElementInWorkbench("doc-1", {
-      id: element.id,
-      type: "image",
-      parentId: element.parentId,
-      transform: { ...element.transform },
-      x: element.transform.x,
-      y: element.transform.y,
-      width: element.transform.width,
-      height: element.transform.height,
-      rotation: element.transform.rotation,
-      zIndex: element.zIndex,
-      opacity: element.opacity,
-      locked: element.locked,
-      visible: element.visible,
-      assetId: element.assetId,
-      adjustments: nextAdjustments,
-      filmProfileId: element.filmProfileId,
+    useCanvasStore.setState({
+      tool: "shape",
+      activePanel: null,
     });
-
-    const updated = useCanvasStore
-      .getState()
-      .workbenches[0]?.elements.find((candidate) => candidate.id === "image-1");
-    expect(updated?.type).toBe("image");
-    if (updated?.type !== "image") {
-      return;
-    }
-    expect(updated.adjustments?.exposure).toBe(18);
-    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
+    useCanvasStore.getState().openEditPanel();
+    expect(useCanvasStore.getState().activePanel).toBe("edit");
+    expect(useCanvasStore.getState().tool).toBe("select");
   });
 
-  it("persists text content updates without requiring transform changes", async () => {
-    const element = useCanvasStore
-      .getState()
-      .workbenches[0]?.elements.find((candidate) => candidate.id === "text-1");
-    if (!element || element.type !== "text") {
-      throw new Error("Expected text element.");
-    }
-
-    await useCanvasStore.getState().upsertElementInWorkbench("doc-1", {
-      id: element.id,
-      type: "text",
-      parentId: element.parentId,
-      transform: { ...element.transform },
-      x: element.transform.x,
-      y: element.transform.y,
-      width: element.transform.width,
-      height: element.transform.height,
-      rotation: element.transform.rotation,
-      zIndex: element.zIndex,
-      opacity: element.opacity,
-      locked: element.locked,
-      visible: element.visible,
-      color: element.color,
-      content: "Updated copy",
-      fontFamily: element.fontFamily,
-      fontSize: element.fontSize,
-      fontSizeTier: element.fontSizeTier,
-      textAlign: element.textAlign,
-    });
-
-    const updated = useCanvasStore
-      .getState()
-      .workbenches[0]?.elements.find((candidate) => candidate.id === "text-1");
-    expect(updated?.type).toBe("text");
-    if (updated?.type !== "text") {
-      return;
-    }
-    expect(updated.content).toBe("Updated copy");
-    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("migrates legacy shape elements into v2 nodes during init", async () => {
-    loadCanvasWorkbenchesMock.mockResolvedValue([createLegacyShapeDocument()]);
-
-    await useCanvasStore.getState().init();
-
-    const workbenches = useCanvasStore.getState().workbenches;
-    expect(workbenches).toHaveLength(1);
-    expect(workbenches[0]?.elements).toHaveLength(3);
-    expect(workbenches[0]?.elements.map((element) => element.type)).toEqual([
-      "image",
-      "text",
-      "shape",
-    ]);
-    expect(workbenches[0]?.nodes["shape-1"]).toMatchObject({
-      id: "shape-1",
-      type: "shape",
-      shapeType: "rect",
-    });
-    expect(saveCanvasWorkbenchMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: "doc-1",
-        nodes: expect.objectContaining({
-          "image-1": expect.objectContaining({ id: "image-1", type: "image" }),
-          "shape-1": expect.objectContaining({ id: "shape-1", type: "shape" }),
-          "text-1": expect.objectContaining({ id: "text-1", type: "text" }),
-        }),
-      })
-    );
-  });
-
-  it("persists legacy text tier normalization during init", async () => {
-    loadCanvasWorkbenchesMock.mockResolvedValue([createLegacyTextTierDocument()]);
-
-    await useCanvasStore.getState().init();
-
-    const workbenches = useCanvasStore.getState().workbenches;
-    expect(workbenches).toHaveLength(1);
-    expect(workbenches[0]?.elements[1]).toMatchObject({
-      id: "text-1",
-      type: "text",
-      fontSizeTier: "small",
-    });
-    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
-    expect(saveCanvasWorkbenchMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: "doc-1",
-        nodes: expect.objectContaining({
-          "text-1": expect.objectContaining({
-            id: "text-1",
-            type: "text",
-            fontSizeTier: "small",
-          }),
-        }),
-      })
-    );
-  });
-
-  it("keeps the left rail exclusive between text mode and panels", () => {
+  it("keeps panels exclusive with text and shape tools", () => {
     useCanvasStore.setState({
       activePanel: "library",
       tool: "select",
@@ -483,405 +233,225 @@ describe("canvasStore", () => {
     expect(useCanvasStore.getState().tool).toBe("text");
     expect(useCanvasStore.getState().activePanel).toBeNull();
 
-    useCanvasStore.getState().setActivePanel("edit");
+    useCanvasStore.getState().setActivePanel("layers");
     expect(useCanvasStore.getState().tool).toBe("select");
-    expect(useCanvasStore.getState().activePanel).toBe("edit");
+    expect(useCanvasStore.getState().activePanel).toBe("layers");
 
-    useCanvasStore.getState().togglePanel("edit");
-    expect(useCanvasStore.getState().tool).toBe("select");
+    useCanvasStore.getState().togglePanel("layers");
+    expect(useCanvasStore.getState().activePanel).toBeNull();
+
+    useCanvasStore.getState().setTool("shape");
+    expect(useCanvasStore.getState().tool).toBe("shape");
     expect(useCanvasStore.getState().activePanel).toBeNull();
   });
 
-  it("returns to select when a floating panel is closed through setActivePanel(null)", () => {
-    useCanvasStore.setState({
-      activePanel: "edit",
-      tool: "hand",
-    });
-
-    useCanvasStore.getState().setActivePanel(null);
-
-    expect(useCanvasStore.getState().activePanel).toBeNull();
-    expect(useCanvasStore.getState().tool).toBe("select");
-  });
-
-  it("skips persistence, history, and selection changes when grouping is invalid", async () => {
-    useCanvasStore.setState({
-      activeWorkbenchId: "doc-1",
-      workbenches: [createCrossParentGroupingDocument()],
-      historyByWorkbenchId: {
-        "doc-1": { past: [], future: [] },
-      },
-      selectedElementIds: ["shape-1", "shape-2"],
-    });
-
-    const result = await useCanvasStore.getState().groupNodesInWorkbench("doc-1", [
-      "shape-1",
-      "shape-2",
-    ]);
-
-    expect(result).toBeNull();
-    expect(useCanvasStore.getState().selectedElementIds).toEqual(["shape-1", "shape-2"]);
-    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]?.past).toEqual([]);
-    expect(saveCanvasWorkbenchMock).not.toHaveBeenCalled();
-  });
-
-  it("short-circuits committed selection updates when ids are unchanged", () => {
-    useCanvasStore.getState().setSelectedElementIds(["image-1", "text-1"]);
-    const firstSelectedElementIds = useCanvasStore.getState().selectedElementIds;
-
-    useCanvasStore.getState().setSelectedElementIds(["image-1", "text-1"]);
-
-    expect(useCanvasStore.getState().selectedElementIds).toBe(firstSelectedElementIds);
-  });
-
-  it("records command history and clears future entries by default", async () => {
-    const staleFutureEntry = createHistoryEntry("MOVE_NODES");
-    useCanvasStore.setState({
-      historyByWorkbenchId: {
-        "doc-1": {
-          past: [],
-          future: [staleFutureEntry],
+  it("persists image render-state updates even when geometry is unchanged", async () => {
+    const workbench = installLoadedWorkbench();
+    const imageElement = getImageElement(workbench);
+    const nextRenderState =
+      imageElement.renderState ??
+      createDefaultCanvasImageRenderState({
+        adjustments: {
+          ...createDefaultAdjustments(),
+          ...(imageElement.adjustments ?? {}),
+          exposure: 18,
         },
-      },
-    });
+        filmProfileId: imageElement.filmProfileId,
+      });
+    nextRenderState.develop.tone.exposure = 18;
+    saveCanvasWorkbenchRecordMock.mockClear();
 
-    const result = await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
-      type: "PATCH_DOCUMENT",
-      patch: {
-        name: "Renamed workbench",
-      },
-    });
+    const nextElement: CanvasEditableImageElement = {
+      id: imageElement.id,
+      type: "image",
+      parentId: imageElement.parentId,
+      x: imageElement.x,
+      y: imageElement.y,
+      width: imageElement.width,
+      height: imageElement.height,
+      rotation: imageElement.rotation,
+      transform: { ...imageElement.transform },
+      opacity: imageElement.opacity,
+      locked: imageElement.locked,
+      visible: imageElement.visible,
+      assetId: imageElement.assetId,
+      renderState: nextRenderState,
+      adjustments: imageElement.adjustments,
+      filmProfileId: imageElement.filmProfileId,
+    };
 
-    expect(result?.name).toBe("Renamed workbench");
-    expect(useCanvasStore.getState().workbenches[0]?.name).toBe("Renamed workbench");
-    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
-      past: [
-        expect.objectContaining({
-          commandType: "PATCH_DOCUMENT",
+    await useCanvasStore.getState().upsertElementInWorkbench(workbench.id, nextElement);
+
+    const updatedWorkbench = getLoadedWorkbench();
+    const updatedImageElement = updatedWorkbench ? getImageElement(updatedWorkbench) : null;
+    expect(updatedImageElement?.renderState?.develop.tone.exposure).toBe(18);
+    expect(saveCanvasWorkbenchRecordMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("persists text content updates without requiring transform changes", async () => {
+    const workbench = installLoadedWorkbench();
+    const textElement = getTextElement(workbench);
+    saveCanvasWorkbenchRecordMock.mockClear();
+
+    const nextElement: CanvasEditableTextElement = {
+      id: textElement.id,
+      type: "text",
+      parentId: textElement.parentId,
+      x: textElement.x,
+      y: textElement.y,
+      width: textElement.width,
+      height: textElement.height,
+      rotation: textElement.rotation,
+      transform: { ...textElement.transform },
+      opacity: textElement.opacity,
+      locked: textElement.locked,
+      visible: textElement.visible,
+      content: "Updated copy",
+      fontFamily: textElement.fontFamily,
+      fontSize: textElement.fontSize,
+      fontSizeTier: textElement.fontSizeTier,
+      color: textElement.color,
+      textAlign: textElement.textAlign,
+    };
+
+    await useCanvasStore.getState().upsertElementInWorkbench(workbench.id, nextElement);
+
+    const updatedWorkbench = getLoadedWorkbench();
+    const updatedTextElement = updatedWorkbench ? getTextElement(updatedWorkbench) : null;
+    expect(updatedTextElement?.content).toBe("Updated copy");
+    expect(saveCanvasWorkbenchRecordMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("canonicalizes inserted image nodes through the same asset-aware render-state ingress", async () => {
+    const workbench = installLoadedWorkbench();
+    useAssetStore.setState({
+      assets: [
+        createAsset({
+          id: "asset-2",
+          objectUrl: "blob:asset-2",
+          adjustments: {
+            ...createDefaultAdjustments(),
+            exposure: 24,
+          },
         }),
       ],
-      future: [],
+      currentUser,
+      isLoading: false,
     });
-  });
 
-  it("keeps history unchanged when trackHistory is false", async () => {
-    const existingHistory = {
-      past: [createHistoryEntry("MOVE_NODES")],
-      future: [createHistoryEntry("TOGGLE_NODE_LOCK")],
-    };
-    useCanvasStore.setState({
-      historyByWorkbenchId: {
-        "doc-1": existingHistory,
+    const insertedElement: CanvasEditableImageElement = {
+      id: "image-2",
+      type: "image",
+      assetId: "asset-2",
+      parentId: null,
+      x: 120,
+      y: 140,
+      width: 320,
+      height: 180,
+      rotation: 0,
+      transform: {
+        x: 120,
+        y: 140,
+        width: 320,
+        height: 180,
+        rotation: 0,
       },
-    });
+      opacity: 1,
+      locked: false,
+      visible: true,
+    };
 
-    const result = await useCanvasStore.getState().executeCommandInWorkbench(
-      "doc-1",
-      {
-        type: "PATCH_DOCUMENT",
-        patch: {
-          name: "Renamed without history",
+    await useCanvasStore.getState().upsertElementInWorkbench(workbench.id, insertedElement);
+
+    const updatedWorkbench = getLoadedWorkbench();
+    const nextImageElement = updatedWorkbench?.elements.find(
+      (candidate) => candidate.id === "image-2" && candidate.type === "image"
+    );
+
+    expect(nextImageElement).toMatchObject({
+      id: "image-2",
+      assetId: "asset-2",
+      renderState: {
+        develop: {
+          tone: {
+            exposure: 24,
+          },
         },
       },
-      { trackHistory: false }
-    );
-
-    expect(result?.name).toBe("Renamed without history");
-    expect(useCanvasStore.getState().workbenches[0]?.name).toBe("Renamed without history");
-    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual(existingHistory);
+    });
+    expect(nextImageElement?.adjustments).toBeUndefined();
+    expect(nextImageElement?.filmProfileId).toBeUndefined();
   });
 
-  it("skips persistence and history changes for no-op commands", async () => {
-    const existing = useCanvasStore.getState().workbenches[0]!;
-    const previousHistory = {
-      past: [createHistoryEntry("MOVE_NODES")],
-      future: [createHistoryEntry("TOGGLE_NODE_VISIBILITY")],
-    };
-    useCanvasStore.setState({
-      historyByWorkbenchId: {
-        "doc-1": previousHistory,
-      },
-    });
-    saveCanvasWorkbenchMock.mockClear();
-
-    const result = await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
-      type: "PATCH_DOCUMENT",
-      patch: {
-        name: existing.name,
-      },
-    });
-
-    expect(result).toBe(existing);
-    expect(saveCanvasWorkbenchMock).not.toHaveBeenCalled();
-    expect(useCanvasStore.getState().workbenches[0]).toBe(existing);
-    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual(previousHistory);
-  });
-
-  it("keeps interaction preview in memory only and clears redo history without persisting", () => {
-    const baselineHistory = {
-      past: [createHistoryEntry("PATCH_DOCUMENT")],
-      future: [createHistoryEntry("MOVE_NODES")],
-    };
-    useCanvasStore.setState({
-      historyByWorkbenchId: {
-        "doc-1": baselineHistory,
-      },
-    });
-    saveCanvasWorkbenchMock.mockClear();
-
-    const interaction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
-
-    expect(interaction).toEqual({
-      interactionId: expect.any(String),
-    });
-
-    const previewed = useCanvasStore.getState().previewCommandInWorkbench(
-      "doc-1",
-      interaction!.interactionId,
-      {
-        type: "MOVE_NODES",
-        ids: ["image-1"],
-        dx: 10,
-        dy: 5,
-      }
-    );
-
-    expect(previewed?.nodes["image-1"]).toMatchObject({
-      id: "image-1",
-      transform: expect.objectContaining({
-        x: 20,
-        y: 25,
-      }),
-    });
-    expect(useCanvasStore.getState().workbenches[0]?.nodes["image-1"]).toMatchObject({
-      id: "image-1",
-      transform: expect.objectContaining({
-        x: 20,
-        y: 25,
-      }),
-    });
-    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
-      past: baselineHistory.past,
-      future: [],
-    });
-    expect(saveCanvasWorkbenchMock).not.toHaveBeenCalled();
-  });
-
-  it("restores baseline history and skips persistence for a net-no-op interaction", async () => {
-    const baselineHistory = {
-      past: [createHistoryEntry("PATCH_DOCUMENT")],
-      future: [createHistoryEntry("MOVE_NODES")],
-    };
-    const baselineWorkbench = useCanvasStore.getState().workbenches[0];
-    useCanvasStore.setState({
-      historyByWorkbenchId: {
-        "doc-1": baselineHistory,
-      },
-    });
-    saveCanvasWorkbenchMock.mockClear();
-
-    const interaction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
+  it("previews interaction updates in draft state and commits them into the loaded workbench", async () => {
+    const workbench = installLoadedWorkbench();
+    const interaction = useCanvasStore.getState().beginInteractionInWorkbench(workbench.id);
     if (!interaction) {
       throw new Error("Expected interaction.");
     }
 
-    useCanvasStore.getState().previewCommandInWorkbench("doc-1", interaction.interactionId, {
+    expect(useCanvasStore.getState().workbenchInteraction).toEqual({
+      active: true,
+      pendingCommits: 0,
+      queuedMutations: 0,
+    });
+
+    const preview = useCanvasStore.getState().previewCommandInWorkbench(workbench.id, interaction.interactionId, {
       type: "MOVE_NODES",
       ids: ["image-1"],
       dx: 10,
       dy: 0,
     });
-    useCanvasStore.getState().previewCommandInWorkbench("doc-1", interaction.interactionId, {
-      type: "MOVE_NODES",
-      ids: ["image-1"],
-      dx: -10,
-      dy: 0,
-    });
+
+    expect(preview?.nodes["image-1"]?.transform.x).toBe(20);
+    expect(useCanvasStore.getState().workbench?.nodes["image-1"]?.transform.x).toBe(10);
+    expect(useCanvasStore.getState().workbenchDraft?.nodes["image-1"]?.transform.x).toBe(20);
 
     const committed = await useCanvasStore
       .getState()
-      .commitInteractionInWorkbench("doc-1", interaction.interactionId);
+      .commitInteractionInWorkbench(workbench.id, interaction.interactionId);
 
-    expect(committed?.nodes["image-1"]).toMatchObject({
-      id: "image-1",
-      transform: expect.objectContaining({
-        x: 10,
-        y: 20,
-      }),
-    });
-    expect(committed?.updatedAt).toBe(baselineWorkbench?.updatedAt);
-    expect(useCanvasStore.getState().workbenches[0]?.updatedAt).toBe(
-      baselineWorkbench?.updatedAt
-    );
-    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual(baselineHistory);
-    expect(saveCanvasWorkbenchMock).not.toHaveBeenCalled();
+    expect(committed?.nodes["image-1"]?.transform.x).toBe(20);
+    expect(useCanvasStore.getState().workbenchDraft).toBeNull();
+    expect(useCanvasStore.getState().workbench?.nodes["image-1"]?.transform.x).toBe(20);
+    expect(useCanvasStore.getState().workbenchInteraction).toBeNull();
+    expect(useCanvasStore.getState().workbenchHistory?.past).toHaveLength(1);
+    expect(saveCanvasWorkbenchRecordMock).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects mixed preview command types inside a single interaction", () => {
-    const interaction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
+  it("rolls back interaction previews to the last committed workbench", () => {
+    const workbench = installLoadedWorkbench();
+    const interaction = useCanvasStore.getState().beginInteractionInWorkbench(workbench.id);
     if (!interaction) {
       throw new Error("Expected interaction.");
     }
 
-    const firstPreview = useCanvasStore.getState().previewCommandInWorkbench(
-      "doc-1",
-      interaction.interactionId,
-      {
-        type: "MOVE_NODES",
-        ids: ["image-1"],
-        dx: 10,
-        dy: 0,
-      }
-    );
-
-    expect(firstPreview).not.toBeNull();
-    expect(
-      useCanvasStore.getState().previewCommandInWorkbench("doc-1", interaction.interactionId, {
-        type: "PATCH_DOCUMENT",
-        patch: {
-          name: "should-fail",
-        },
-      })
-    ).toBeNull();
-    expect(
-      useCanvasStore.getState().rollbackInteractionInWorkbench("doc-1", interaction.interactionId)
-    ).toMatchObject({
-      id: "doc-1",
-    });
-  });
-
-  it("serializes consecutive interactions and records one history entry per gesture", async () => {
-    const firstSave = createDeferred<boolean>();
-    saveCanvasWorkbenchMock.mockReset();
-    saveCanvasWorkbenchMock.mockReturnValueOnce(firstSave.promise).mockResolvedValue(true);
-
-    const firstInteraction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
-    if (!firstInteraction) {
-      throw new Error("Expected first interaction.");
-    }
-    useCanvasStore.getState().previewCommandInWorkbench("doc-1", firstInteraction.interactionId, {
+    useCanvasStore.getState().previewCommandInWorkbench(workbench.id, interaction.interactionId, {
       type: "MOVE_NODES",
       ids: ["image-1"],
       dx: 10,
       dy: 0,
     });
-    const firstCommitPromise = useCanvasStore
+
+    const rolledBack = useCanvasStore
       .getState()
-      .commitInteractionInWorkbench("doc-1", firstInteraction.interactionId);
+      .rollbackInteractionInWorkbench(workbench.id, interaction.interactionId);
 
-    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
-      past: [expect.objectContaining({ commandType: "MOVE_NODES" })],
-      future: [],
-    });
-
-    const secondInteraction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
-    if (!secondInteraction) {
-      throw new Error("Expected second interaction.");
-    }
-    useCanvasStore.getState().previewCommandInWorkbench("doc-1", secondInteraction.interactionId, {
-      type: "MOVE_NODES",
-      ids: ["image-1"],
-      dx: 5,
-      dy: 0,
-    });
-    const secondCommitPromise = useCanvasStore
-      .getState()
-      .commitInteractionInWorkbench("doc-1", secondInteraction.interactionId);
-
-    await flushMicrotasks();
-
-    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
-    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
-      past: [
-        expect.objectContaining({ commandType: "MOVE_NODES" }),
-        expect.objectContaining({ commandType: "MOVE_NODES" }),
-      ],
-      future: [],
-    });
-
-    firstSave.resolve(true);
-
-    const [firstCommitted, secondCommitted] = await Promise.all([
-      firstCommitPromise,
-      secondCommitPromise,
-    ]);
-
-    expect(firstCommitted?.nodes["image-1"]).toMatchObject({
-      id: "image-1",
-      transform: expect.objectContaining({ x: 20, y: 20 }),
-    });
-    expect(secondCommitted?.nodes["image-1"]).toMatchObject({
-      id: "image-1",
-      transform: expect.objectContaining({ x: 25, y: 20 }),
-    });
-    expect(useCanvasStore.getState().workbenches[0]?.nodes["image-1"]).toMatchObject({
-      id: "image-1",
-      transform: expect.objectContaining({ x: 25, y: 20 }),
-    });
-    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("rolls back the workbench and clears later pending gestures when an interaction commit fails", async () => {
-    const firstSave = createDeferred<boolean>();
-    saveCanvasWorkbenchMock.mockReset();
-    saveCanvasWorkbenchMock.mockReturnValueOnce(firstSave.promise);
-
-    const firstInteraction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
-    if (!firstInteraction) {
-      throw new Error("Expected first interaction.");
-    }
-    useCanvasStore.getState().previewCommandInWorkbench("doc-1", firstInteraction.interactionId, {
-      type: "MOVE_NODES",
-      ids: ["image-1"],
-      dx: 10,
-      dy: 0,
-    });
-    const firstCommitPromise = useCanvasStore
-      .getState()
-      .commitInteractionInWorkbench("doc-1", firstInteraction.interactionId);
-
-    const secondInteraction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
-    if (!secondInteraction) {
-      throw new Error("Expected second interaction.");
-    }
-    useCanvasStore.getState().previewCommandInWorkbench("doc-1", secondInteraction.interactionId, {
-      type: "MOVE_NODES",
-      ids: ["image-1"],
-      dx: 5,
-      dy: 0,
-    });
-    const secondCommitPromise = useCanvasStore
-      .getState()
-      .commitInteractionInWorkbench("doc-1", secondInteraction.interactionId);
-
-    await flushMicrotasks();
-    firstSave.resolve(false);
-
-    const [firstCommitted, secondCommitted] = await Promise.all([
-      firstCommitPromise,
-      secondCommitPromise,
-    ]);
-
-    expect(firstCommitted).toBeNull();
-    expect(secondCommitted).toBeNull();
-    expect(useCanvasStore.getState().workbenches[0]?.nodes["image-1"]).toMatchObject({
-      id: "image-1",
-      transform: expect.objectContaining({ x: 10, y: 20 }),
-    });
-    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
-      past: [],
-      future: [],
-    });
-    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
+    expect(rolledBack?.nodes["image-1"]?.transform.x).toBe(10);
+    expect(useCanvasStore.getState().workbench?.nodes["image-1"]?.transform.x).toBe(10);
+    expect(useCanvasStore.getState().workbenchDraft).toBeNull();
+    expect(useCanvasStore.getState().workbenchHistory).toEqual(createEmptyHistoryState());
+    expect(useCanvasStore.getState().workbenchInteraction).toBeNull();
   });
 
   it("blocks ordinary commands while an interaction is open", async () => {
-    const interaction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
+    const workbench = installLoadedWorkbench();
+    const interaction = useCanvasStore.getState().beginInteractionInWorkbench(workbench.id);
     if (!interaction) {
       throw new Error("Expected interaction.");
     }
 
-    const result = await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+    const result = await useCanvasStore.getState().executeCommandInWorkbench(workbench.id, {
       type: "PATCH_DOCUMENT",
       patch: {
         name: "Blocked during interaction",
@@ -889,20 +459,22 @@ describe("canvasStore", () => {
     });
 
     expect(result).toBeNull();
-    expect(useCanvasStore.getState().workbenches[0]?.name).not.toBe("Blocked during interaction");
-    expect(saveCanvasWorkbenchMock).not.toHaveBeenCalled();
+    expect(useCanvasStore.getState().workbench?.name).toBe("Workbench");
+    expect(saveCanvasWorkbenchRecordMock).not.toHaveBeenCalled();
   });
 
   it("blocks ordinary commands while an interaction commit is still pending", async () => {
-    const firstSave = createDeferred<boolean>();
-    saveCanvasWorkbenchMock.mockReset();
-    saveCanvasWorkbenchMock.mockReturnValueOnce(firstSave.promise);
+    const workbench = installLoadedWorkbench();
+    const deferredSave = createDeferred<boolean>();
+    saveCanvasWorkbenchRecordMock.mockReset();
+    saveCanvasWorkbenchRecordMock.mockReturnValueOnce(deferredSave.promise);
 
-    const interaction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
+    const interaction = useCanvasStore.getState().beginInteractionInWorkbench(workbench.id);
     if (!interaction) {
       throw new Error("Expected interaction.");
     }
-    useCanvasStore.getState().previewCommandInWorkbench("doc-1", interaction.interactionId, {
+
+    useCanvasStore.getState().previewCommandInWorkbench(workbench.id, interaction.interactionId, {
       type: "MOVE_NODES",
       ids: ["image-1"],
       dx: 10,
@@ -910,11 +482,17 @@ describe("canvasStore", () => {
     });
     const commitPromise = useCanvasStore
       .getState()
-      .commitInteractionInWorkbench("doc-1", interaction.interactionId);
+      .commitInteractionInWorkbench(workbench.id, interaction.interactionId);
 
     await flushMicrotasks();
 
-    const blockedCommand = await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+    expect(useCanvasStore.getState().workbenchInteraction).toEqual({
+      active: false,
+      pendingCommits: 1,
+      queuedMutations: 0,
+    });
+
+    const blockedCommand = await useCanvasStore.getState().executeCommandInWorkbench(workbench.id, {
       type: "PATCH_DOCUMENT",
       patch: {
         name: "Blocked while pending",
@@ -922,73 +500,27 @@ describe("canvasStore", () => {
     });
 
     expect(blockedCommand).toBeNull();
-    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
-
-    firstSave.resolve(true);
-    await commitPromise;
-
-    expect(useCanvasStore.getState().workbenches[0]?.name).not.toBe("Blocked while pending");
-  });
-
-  it("does not start an interaction while a queued non-interaction mutation is in flight", async () => {
-    const deferredSave = createDeferred<boolean>();
-    saveCanvasWorkbenchMock.mockReset();
-    saveCanvasWorkbenchMock.mockReturnValueOnce(deferredSave.promise);
-
-    const commandPromise = useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
-      type: "PATCH_DOCUMENT",
-      patch: {
-        name: "Queued rename",
-      },
-    });
-
-    await flushMicrotasks();
-
-    expect(useCanvasStore.getState().interactionStatusByWorkbenchId["doc-1"]).toEqual({
-      active: false,
-      pendingCommits: 0,
-      queuedMutations: 1,
-    });
-    expect(useCanvasStore.getState().beginInteractionInWorkbench("doc-1")).toBeNull();
+    expect(saveCanvasWorkbenchRecordMock).toHaveBeenCalledTimes(1);
 
     deferredSave.resolve(true);
-    await commandPromise;
-    expect(useCanvasStore.getState().interactionStatusByWorkbenchId["doc-1"]).toBeUndefined();
+    await commitPromise;
+
+    expect(useCanvasStore.getState().workbench?.name).toBe("Workbench");
   });
 
-  it("returns null when rolling back a stale interaction handle", () => {
-    const interaction = useCanvasStore.getState().beginInteractionInWorkbench("doc-1");
-    if (!interaction) {
-      throw new Error("Expected interaction.");
-    }
-
-    expect(
-      useCanvasStore
-        .getState()
-        .rollbackInteractionInWorkbench("doc-1", "stale-interaction-id")
-    ).toBeNull();
-
-    expect(
-      useCanvasStore
-        .getState()
-        .rollbackInteractionInWorkbench("doc-1", interaction.interactionId)
-    ).toMatchObject({
-      id: "doc-1",
-    });
-  });
-
-  it("serializes commands on the same workbench so later commits see the latest state", async () => {
+  it("serializes commands on the loaded workbench so later commits see the latest state", async () => {
+    const workbench = installLoadedWorkbench();
     const firstSave = createDeferred<boolean>();
-    saveCanvasWorkbenchMock.mockReset();
-    saveCanvasWorkbenchMock.mockReturnValueOnce(firstSave.promise).mockResolvedValue(true);
+    saveCanvasWorkbenchRecordMock.mockReset();
+    saveCanvasWorkbenchRecordMock.mockReturnValueOnce(firstSave.promise).mockResolvedValue(true);
 
-    const renamePromise = useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+    const renamePromise = useCanvasStore.getState().executeCommandInWorkbench(workbench.id, {
       type: "PATCH_DOCUMENT",
       patch: {
         name: "Renamed workbench",
       },
     });
-    const recolorPromise = useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+    const recolorPromise = useCanvasStore.getState().executeCommandInWorkbench(workbench.id, {
       type: "PATCH_DOCUMENT",
       patch: {
         backgroundColor: "#ffffff",
@@ -996,8 +528,7 @@ describe("canvasStore", () => {
     });
 
     await flushMicrotasks();
-
-    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
+    expect(saveCanvasWorkbenchRecordMock).toHaveBeenCalledTimes(1);
 
     firstSave.resolve(true);
 
@@ -1006,16 +537,18 @@ describe("canvasStore", () => {
     expect(renamed?.name).toBe("Renamed workbench");
     expect(recolored?.name).toBe("Renamed workbench");
     expect(recolored?.backgroundColor).toBe("#ffffff");
-    expect(useCanvasStore.getState().workbenches[0]).toMatchObject({
+    expect(useCanvasStore.getState().workbench).toMatchObject({
       name: "Renamed workbench",
       backgroundColor: "#ffffff",
     });
-    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(2);
+    expect(saveCanvasWorkbenchRecordMock).toHaveBeenCalledTimes(2);
   });
 
-  it("undo applies inverse patches, moves history to future, and clears selection", async () => {
-    const originalName = useCanvasStore.getState().workbenches[0]?.name;
-    await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+  it("undo and redo clear selection and move the single-session history", async () => {
+    const workbench = installLoadedWorkbench();
+    const originalName = workbench.name;
+
+    await useCanvasStore.getState().executeCommandInWorkbench(workbench.id, {
       type: "PATCH_DOCUMENT",
       patch: {
         name: "Renamed workbench",
@@ -1025,207 +558,92 @@ describe("canvasStore", () => {
       selectedElementIds: ["image-1", "text-1"],
     });
 
-    const undone = await useCanvasStore.getState().undoInWorkbench("doc-1");
+    const undone = await useCanvasStore.getState().undoInWorkbench(workbench.id);
 
     expect(undone).toBe(true);
-    expect(useCanvasStore.getState().workbenches[0]?.name).toBe(originalName);
+    expect(useCanvasStore.getState().workbench?.name).toBe(originalName);
     expect(useCanvasStore.getState().selectedElementIds).toEqual([]);
-    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
+    expect(useCanvasStore.getState().workbenchHistory).toEqual({
       past: [],
-      future: [
-        expect.objectContaining({
-          commandType: "PATCH_DOCUMENT",
-        }),
-      ],
+      future: [expect.objectContaining({ commandType: "PATCH_DOCUMENT" })],
     });
-  });
 
-  it("redo reapplies forward patches, restores past history, and clears selection", async () => {
-    await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
-      type: "PATCH_DOCUMENT",
-      patch: {
-        name: "Renamed workbench",
-      },
-    });
-    await useCanvasStore.getState().undoInWorkbench("doc-1");
     useCanvasStore.setState({
       selectedElementIds: ["image-1"],
     });
 
-    const redone = await useCanvasStore.getState().redoInWorkbench("doc-1");
+    const redone = await useCanvasStore.getState().redoInWorkbench(workbench.id);
 
     expect(redone).toBe(true);
-    expect(useCanvasStore.getState().workbenches[0]?.name).toBe("Renamed workbench");
+    expect(useCanvasStore.getState().workbench?.name).toBe("Renamed workbench");
     expect(useCanvasStore.getState().selectedElementIds).toEqual([]);
-    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
-      past: [
-        expect.objectContaining({
-          commandType: "PATCH_DOCUMENT",
-        }),
-      ],
-      future: [],
-    });
-  });
-
-  it("does not commit command state when persistence fails", async () => {
-    const originalName = useCanvasStore.getState().workbenches[0]?.name;
-    useCanvasStore.setState({
-      historyByWorkbenchId: {
-        "doc-1": {
-          past: [],
-          future: [],
-        },
-      },
-    });
-    saveCanvasWorkbenchMock.mockResolvedValue(false);
-
-    const result = await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
-      type: "PATCH_DOCUMENT",
-      patch: {
-        name: "Should not persist",
-      },
-    });
-
-    expect(result).toBeNull();
-    expect(useCanvasStore.getState().workbenches[0]?.name).toBe(originalName);
-    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
-      past: [],
-      future: [],
-    });
-  });
-
-  it("does not commit undo state when persistence fails", async () => {
-    await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
-      type: "PATCH_DOCUMENT",
-      patch: {
-        name: "Renamed workbench",
-      },
-    });
-    useCanvasStore.setState({
-      selectedElementIds: ["image-1"],
-    });
-    saveCanvasWorkbenchMock.mockResolvedValue(false);
-
-    const undone = await useCanvasStore.getState().undoInWorkbench("doc-1");
-
-    expect(undone).toBe(false);
-    expect(useCanvasStore.getState().workbenches[0]?.name).toBe("Renamed workbench");
-    expect(useCanvasStore.getState().selectedElementIds).toEqual(["image-1"]);
-    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
-      past: [
-        expect.objectContaining({
-          commandType: "PATCH_DOCUMENT",
-        }),
-      ],
-      future: [],
-    });
-  });
-
-  it("does not commit redo state when persistence fails", async () => {
-    const originalName = useCanvasStore.getState().workbenches[0]?.name;
-    await useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
-      type: "PATCH_DOCUMENT",
-      patch: {
-        name: "Renamed workbench",
-      },
-    });
-    await useCanvasStore.getState().undoInWorkbench("doc-1");
-    useCanvasStore.setState({
-      selectedElementIds: ["image-1"],
-    });
-    saveCanvasWorkbenchMock.mockResolvedValue(false);
-
-    const redone = await useCanvasStore.getState().redoInWorkbench("doc-1");
-
-    expect(redone).toBe(false);
-    expect(useCanvasStore.getState().workbenches[0]?.name).toBe(originalName);
-    expect(useCanvasStore.getState().selectedElementIds).toEqual(["image-1"]);
-    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
-      past: [],
-      future: [
-        expect.objectContaining({
-          commandType: "PATCH_DOCUMENT",
-        }),
-      ],
-    });
-  });
-
-  it("returns null and leaves state untouched when createWorkbench persistence fails", async () => {
-    useCanvasStore.setState({
-      activeWorkbenchId: null,
-      workbenches: [],
-      historyByWorkbenchId: {},
-      selectedElementIds: [],
-    });
-    saveCanvasWorkbenchMock.mockResolvedValue(false);
-
-    const created = await useCanvasStore.getState().createWorkbench("Failed create");
-
-    expect(created).toBeNull();
-    expect(useCanvasStore.getState().workbenches).toEqual([]);
-    expect(useCanvasStore.getState().activeWorkbenchId).toBeNull();
-  });
-
-  it("does not patch a missing workbench", async () => {
-    useCanvasStore.setState({
-      activeWorkbenchId: null,
-      workbenches: [],
-      historyByWorkbenchId: {},
-    });
-    saveCanvasWorkbenchMock.mockClear();
-
-    const result = await useCanvasStore.getState().patchWorkbench("doc-1", {
-      name: "Missing workbench",
-    });
-
-    expect(result).toBeNull();
-    expect(useCanvasStore.getState().workbenches).toEqual([]);
-    expect(saveCanvasWorkbenchMock).not.toHaveBeenCalled();
-  });
-
-  it("returns false and preserves state when deleteWorkbench persistence fails", async () => {
-    useCanvasStore.setState({
-      historyByWorkbenchId: {
-        "doc-1": {
-          past: [createHistoryEntry("PATCH_DOCUMENT")],
-          future: [],
-        },
-      },
-      selectedElementIds: ["image-1"],
-    });
-    deleteCanvasWorkbenchMock.mockResolvedValue(false);
-
-    const deleted = await useCanvasStore
-      .getState()
-      .deleteWorkbench("doc-1", { nextActiveWorkbenchId: null });
-
-    expect(deleted).toBe(false);
-    expect(useCanvasStore.getState().workbenches).toHaveLength(1);
-    expect(useCanvasStore.getState().activeWorkbenchId).toBe("doc-1");
-    expect(useCanvasStore.getState().selectedElementIds).toEqual(["image-1"]);
-    expect(useCanvasStore.getState().historyByWorkbenchId["doc-1"]).toEqual({
+    expect(useCanvasStore.getState().workbenchHistory).toEqual({
       past: [expect.objectContaining({ commandType: "PATCH_DOCUMENT" })],
       future: [],
     });
   });
 
-  it("returns false without deleting when deleteWorkbench target is missing", async () => {
-    deleteCanvasWorkbenchMock.mockClear();
+  it("returns false and preserves state when deleteWorkbench persistence fails", async () => {
+    const workbench = installLoadedWorkbench();
+    useCanvasStore.setState({
+      selectedElementIds: ["image-1"],
+      workbenchHistory: {
+        past: [
+          {
+            commandType: "PATCH_DOCUMENT",
+            forwardChangeSet: { operations: [] },
+            inverseChangeSet: { operations: [] },
+          },
+        ],
+        future: [],
+      },
+    });
+    deleteCanvasWorkbenchRecordMock.mockResolvedValue(false);
 
-    const deleted = await useCanvasStore
-      .getState()
-      .deleteWorkbench("missing-doc", { nextActiveWorkbenchId: null });
+    const deleted = await useCanvasStore.getState().deleteWorkbench(workbench.id);
 
     expect(deleted).toBe(false);
-    expect(deleteCanvasWorkbenchMock).not.toHaveBeenCalled();
+    expect(useCanvasStore.getState().loadedWorkbenchId).toBe(workbench.id);
+    expect(useCanvasStore.getState().workbench?.id).toBe(workbench.id);
+    expect(useCanvasStore.getState().selectedElementIds).toEqual(["image-1"]);
+    expect(useCanvasStore.getState().workbenchHistory?.past).toHaveLength(1);
+  });
+
+  it("deletes the loaded workbench session and clears selection and history", async () => {
+    const workbench = installLoadedWorkbench();
+    useCanvasStore.setState({
+      selectedElementIds: ["image-1"],
+      workbenchHistory: {
+        past: [
+          {
+            commandType: "PATCH_DOCUMENT",
+            forwardChangeSet: { operations: [] },
+            inverseChangeSet: { operations: [] },
+          },
+        ],
+        future: [],
+      },
+    });
+
+    const deleted = await useCanvasStore.getState().deleteWorkbench(workbench.id);
+
+    expect(deleted).toBe(true);
+    expect(useCanvasStore.getState().workbenchList).toEqual([]);
+    expect(useCanvasStore.getState().loadedWorkbenchId).toBeNull();
+    expect(useCanvasStore.getState().workbench).toBeNull();
+    expect(useCanvasStore.getState().workbenchDraft).toBeNull();
+    expect(useCanvasStore.getState().selectedElementIds).toEqual([]);
+    expect(useCanvasStore.getState().workbenchHistory).toBeNull();
+    expect(useCanvasStore.getState().workbenchInteraction).toBeNull();
   });
 
   it("drops queued command commits after current user reset", async () => {
+    const workbench = installLoadedWorkbench();
     const deferredSave = createDeferred<boolean>();
-    saveCanvasWorkbenchMock.mockReset();
-    saveCanvasWorkbenchMock.mockReturnValueOnce(deferredSave.promise);
+    saveCanvasWorkbenchRecordMock.mockReset();
+    saveCanvasWorkbenchRecordMock.mockReturnValueOnce(deferredSave.promise);
 
-    const commandPromise = useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+    const commandPromise = useCanvasStore.getState().executeCommandInWorkbench(workbench.id, {
       type: "PATCH_DOCUMENT",
       patch: {
         name: "Should be discarded",
@@ -1238,16 +656,19 @@ describe("canvasStore", () => {
     const result = await commandPromise;
 
     expect(result).toBeNull();
-    expect(useCanvasStore.getState().workbenches).toEqual([]);
-    expect(useCanvasStore.getState().activeWorkbenchId).toBeNull();
+    expect(useCanvasStore.getState().workbenchList).toEqual([]);
+    expect(useCanvasStore.getState().loadedWorkbenchId).toBeNull();
+    expect(useCanvasStore.getState().workbench).toBeNull();
+    expect(useCanvasStore.getState().workbenchDraft).toBeNull();
   });
 
   it("skips queued createWorkbench work after current user reset", async () => {
+    const workbench = installLoadedWorkbench();
     const deferredSave = createDeferred<boolean>();
-    saveCanvasWorkbenchMock.mockReset();
-    saveCanvasWorkbenchMock.mockReturnValueOnce(deferredSave.promise).mockResolvedValue(true);
+    saveCanvasWorkbenchRecordMock.mockReset();
+    saveCanvasWorkbenchRecordMock.mockReturnValueOnce(deferredSave.promise).mockResolvedValue(true);
 
-    const commandPromise = useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+    const commandPromise = useCanvasStore.getState().executeCommandInWorkbench(workbench.id, {
       type: "PATCH_DOCUMENT",
       patch: {
         name: "Block lifecycle queue",
@@ -1256,64 +677,46 @@ describe("canvasStore", () => {
     const createPromise = useCanvasStore.getState().createWorkbench("Queued create");
 
     await flushMicrotasks();
-    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
+    expect(saveCanvasWorkbenchRecordMock).toHaveBeenCalledTimes(1);
 
     emit("currentUser:reset");
     deferredSave.resolve(true);
 
     const [commandResult, created] = await Promise.all([commandPromise, createPromise]);
 
-    expect(commandResult).toMatchObject({
-      id: "doc-1",
-    });
+    expect(commandResult?.id).toBe(workbench.id);
     expect(created).toBeNull();
-    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
-    expect(useCanvasStore.getState().workbenches).toEqual([]);
+    expect(saveCanvasWorkbenchRecordMock).toHaveBeenCalledTimes(1);
+    expect(useCanvasStore.getState().workbenchList).toEqual([]);
+    expect(useCanvasStore.getState().loadedWorkbenchId).toBeNull();
   });
 
   it("skips queued deleteWorkbench work after current user reset", async () => {
-    const queuedDeleteId = "queued-delete";
+    const workbench = installLoadedWorkbench();
     const deferredSave = createDeferred<boolean>();
-    saveCanvasWorkbenchMock.mockReset();
-    saveCanvasWorkbenchMock.mockReturnValueOnce(deferredSave.promise);
+    saveCanvasWorkbenchRecordMock.mockReset();
+    saveCanvasWorkbenchRecordMock.mockReturnValueOnce(deferredSave.promise);
 
-    const commandPromise = useCanvasStore.getState().executeCommandInWorkbench("doc-1", {
+    const commandPromise = useCanvasStore.getState().executeCommandInWorkbench(workbench.id, {
       type: "PATCH_DOCUMENT",
       patch: {
         name: "Block delete",
       },
     });
-    const deletePromise = useCanvasStore
-      .getState()
-      .deleteWorkbench(queuedDeleteId, { nextActiveWorkbenchId: null });
+    const deletePromise = useCanvasStore.getState().deleteWorkbench(workbench.id);
 
     await flushMicrotasks();
-    expect(saveCanvasWorkbenchMock).toHaveBeenCalledTimes(1);
+    expect(saveCanvasWorkbenchRecordMock).toHaveBeenCalledTimes(1);
 
     emit("currentUser:reset");
     deferredSave.resolve(true);
 
     const [commandResult, deleted] = await Promise.all([commandPromise, deletePromise]);
 
-    expect(commandResult).toMatchObject({
-      id: "doc-1",
-    });
+    expect(commandResult?.id).toBe(workbench.id);
     expect(deleted).toBe(false);
-    expect(deleteCanvasWorkbenchMock).not.toHaveBeenCalledWith(queuedDeleteId);
-    expect(useCanvasStore.getState().workbenches).toEqual([]);
-  });
-
-  it("returns null without side effects when the command target workbench is missing", async () => {
-    saveCanvasWorkbenchMock.mockClear();
-
-    const result = await useCanvasStore.getState().executeCommandInWorkbench("missing-doc", {
-      type: "PATCH_DOCUMENT",
-      patch: {
-        name: "Missing",
-      },
-    });
-
-    expect(result).toBeNull();
-    expect(saveCanvasWorkbenchMock).not.toHaveBeenCalled();
+    expect(deleteCanvasWorkbenchRecordMock).not.toHaveBeenCalled();
+    expect(useCanvasStore.getState().workbenchList).toEqual([]);
+    expect(useCanvasStore.getState().loadedWorkbenchId).toBeNull();
   });
 });

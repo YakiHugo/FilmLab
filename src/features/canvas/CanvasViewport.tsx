@@ -9,8 +9,8 @@ import { CanvasViewportStageShell } from "./CanvasViewportStageShell";
 import { VIEWPORT_INSETS } from "./canvasViewportConstants";
 import { useCanvasActiveWorkbenchCommands } from "./hooks/useCanvasActiveWorkbenchCommands";
 import { useCanvasActiveWorkbenchState } from "./hooks/useCanvasActiveWorkbenchState";
-import { useCanvasInteraction } from "./hooks/useCanvasInteraction";
 import { useCanvasDisplaySelectedElementIds } from "./hooks/useCanvasSelectionModel";
+import { useCanvasSelectionActions } from "./hooks/useCanvasSelectionActions";
 import { useCanvasTextSessionPort } from "./hooks/useCanvasTextSessionPort";
 import { useCanvasViewportInteractionController } from "./hooks/useCanvasViewportInteractionController";
 import { useCanvasViewportLifecycle } from "./hooks/useCanvasViewportLifecycle";
@@ -89,8 +89,8 @@ function CanvasViewportControls({
         type="button"
         onClick={resetView}
         className="flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-300 transition hover:bg-white/10"
-        aria-label="Center 宸ヤ綔鍙?"
-        title="Center 宸ヤ綔鍙?"
+        aria-label="Center view"
+        title="Center view"
       >
         <Crosshair className="h-4 w-4" />
       </button>
@@ -120,6 +120,7 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
   const tool = useCanvasStore((state) => state.tool);
   const activeShapeType = useCanvasStore((state) => state.activeShapeType);
   const setTool = useCanvasStore((state) => state.setTool);
+  const openEditPanel = useCanvasStore((state) => state.openEditPanel);
   const zoom = useCanvasStore((state) => state.zoom);
   const setZoom = useCanvasStore((state) => state.setZoom);
   const viewport = useCanvasStore((state) => state.viewport);
@@ -127,9 +128,9 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
   const assets = useAssetStore((state) => state.assets);
   const displaySelectedElementIds = useCanvasDisplaySelectedElementIds();
   const { selectedElementIds, setSelectedElementIds, selectElement, clearSelection } =
-    useCanvasInteraction();
+    useCanvasSelectionActions();
   const activeWorkbenchInteractionStatus = useCanvasStore((state) =>
-    activeWorkbenchId ? state.interactionStatusByWorkbenchId[activeWorkbenchId] ?? null : null
+    state.loadedWorkbenchId === activeWorkbenchId ? state.workbenchInteraction : null
   );
   const isViewportInteractionBlocked =
     (activeWorkbenchInteractionStatus?.queuedMutations ?? 0) > 0;
@@ -171,7 +172,6 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
   });
   const sceneState = useCanvasViewportSceneState({
     activeWorkbench,
-    displaySelectedElementIds,
     selectedElementIds,
     stageSize,
     viewport,
@@ -205,6 +205,7 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
     fitView,
     isSpacePressed,
     onInteractionError: handleInteractionError,
+    openEditPanel,
     previewCommand,
     rollbackInteraction,
     selectElement,
@@ -252,59 +253,106 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
     singleSelectedElement: sceneState.singleSelectedElement,
   });
 
-  if (!activeWorkbench) {
+  const scene = useMemo(
+    () =>
+      activeWorkbench
+        ? {
+            activeWorkbench,
+            interactivePreviewElementId: sceneState.interactivePreviewElementId,
+            workspaceGridBounds: sceneState.workspaceGridBounds,
+          }
+        : null,
+    [activeWorkbench, sceneState.interactivePreviewElementId, sceneState.workspaceGridBounds]
+  );
+  const interaction = useMemo(
+    () => ({
+      ...interactionState.stage,
+      handleElementTransform: resizeState.handleElementTransform,
+      handleElementTransformEnd: resizeState.handleElementTransformEnd,
+      handleElementTransformStart: resizeState.handleElementTransformStart,
+      isMarqueeDragging: interactionState.marquee.isMarqueeDragging,
+      marqueeRect: interactionState.marquee.marqueeRect,
+      showTransformer: resizeState.showTransformer,
+    }),
+    [
+      interactionState.marquee.isMarqueeDragging,
+      interactionState.marquee.marqueeRect,
+      interactionState.stage,
+      resizeState.handleElementTransform,
+      resizeState.handleElementTransformEnd,
+      resizeState.handleElementTransformStart,
+      resizeState.showTransformer,
+    ]
+  );
+  const textEditing = useMemo(
+    () => ({
+      activeEditingTextId: textEditingState.textRuntimeViewModel.activeEditingTextId,
+      editingTextDraft: textEditingState.textRuntimeViewModel.renderedEditingTextDraft,
+      onCancelTextEdit: textSessionState.textSessionActions.cancel,
+      onCommitTextEdit: textSessionState.textSessionActions.commit,
+      onFontFamilyChange: textEditingState.handleTextFontFamilyChange,
+      onFontSizeTierChange: textEditingState.handleTextFontSizeTierChange,
+      onTextColorChange: textEditingState.handleTextColorChange,
+      onTextInputKeyDown: textSessionState.textSessionActions.handleInputKeyDown,
+      onTextValueChange: textSessionState.textSessionActions.changeValue,
+      runtimeViewModel: textEditingState.textRuntimeViewModel,
+      selectedElements: textEditingState.textRuntimeViewModel.displaySelectedElements,
+      session: textSessionState.textSession,
+    }),
+    [
+      textEditingState.handleTextColorChange,
+      textEditingState.handleTextFontFamilyChange,
+      textEditingState.handleTextFontSizeTierChange,
+      textEditingState.textRuntimeViewModel,
+      textSessionState.textSession,
+      textSessionState.textSessionActions.cancel,
+      textSessionState.textSessionActions.changeValue,
+      textSessionState.textSessionActions.commit,
+      textSessionState.textSessionActions.handleInputKeyDown,
+    ]
+  );
+  const overlay = useMemo(
+    () => ({
+      activeWorkbenchUpdatedAt: activeWorkbench?.updatedAt,
+      interactionNotice,
+      suspendDocumentOverlaySync: Boolean(activeWorkbenchInteractionStatus?.active),
+      previewDimensionsStore: resizeState.previewDimensionsStore,
+      selectedElementCount: selectedElementIds.length,
+      singleSelectedNonTextElement: sceneState.singleSelectedNonTextElement,
+      stageRef,
+      stageSize,
+      viewport,
+      zoom,
+    }),
+    [
+      activeWorkbench?.updatedAt,
+      activeWorkbenchInteractionStatus?.active,
+      interactionNotice,
+      resizeState.previewDimensionsStore,
+      sceneState.singleSelectedNonTextElement,
+      selectedElementIds.length,
+      stageRef,
+      stageSize,
+      viewport,
+      zoom,
+    ]
+  );
+  const resize = useMemo(
+    () => ({
+      showTransformer: resizeState.showTransformer,
+      transformer: resizeState.transformer,
+      transformerElementId: resizeState.transformerElementId,
+    }),
+    [resizeState.showTransformer, resizeState.transformer, resizeState.transformerElementId]
+  );
+
+  if (!activeWorkbench || !scene) {
     return (
       <div className="absolute inset-0 flex items-center justify-center text-sm text-zinc-500">
-        Create or open a 宸ヤ綔鍙?to start composing on canvas.
+        Create or open a workbench to start composing on canvas.
       </div>
     );
   }
-
-  const scene = {
-    activeWorkbench,
-    interactivePreviewElementId: sceneState.interactivePreviewElementId,
-    workspaceGridBounds: sceneState.workspaceGridBounds,
-  };
-  const interaction = {
-    ...interactionState.stage,
-    handleElementTransform: resizeState.handleElementTransform,
-    handleElementTransformEnd: resizeState.handleElementTransformEnd,
-    handleElementTransformStart: resizeState.handleElementTransformStart,
-    isMarqueeDragging: interactionState.marquee.isMarqueeDragging,
-    marqueeRect: interactionState.marquee.marqueeRect,
-    showTransformer: resizeState.showTransformer,
-    };
-  const textEditing = {
-    activeEditingTextId: textEditingState.textRuntimeViewModel.activeEditingTextId,
-    editingTextDraft: textEditingState.textRuntimeViewModel.renderedEditingTextDraft,
-    onCancelTextEdit: textSessionState.textSessionActions.cancel,
-    onCommitTextEdit: textSessionState.textSessionActions.commit,
-    onFontFamilyChange: textEditingState.handleTextFontFamilyChange,
-    onFontSizeTierChange: textEditingState.handleTextFontSizeTierChange,
-    onTextColorChange: textEditingState.handleTextColorChange,
-    onTextInputKeyDown: textSessionState.textSessionActions.handleInputKeyDown,
-    onTextValueChange: textSessionState.textSessionActions.changeValue,
-    runtimeViewModel: textEditingState.textRuntimeViewModel,
-    selectedElements: textEditingState.textRuntimeViewModel.displaySelectedElements,
-    session: textSessionState.textSession,
-  };
-  const overlay = {
-    activeWorkbenchUpdatedAt: activeWorkbench.updatedAt,
-    interactionNotice,
-    suspendDocumentOverlaySync: Boolean(activeWorkbenchInteractionStatus?.active),
-    previewDimensionsStore: resizeState.previewDimensionsStore,
-    selectedElementCount: selectedElementIds.length,
-    singleSelectedNonTextElement: sceneState.singleSelectedNonTextElement,
-    stageRef,
-    stageSize,
-    viewport,
-    zoom,
-  };
-  const resize = {
-    showTransformer: resizeState.showTransformer,
-    transformer: resizeState.transformer,
-    transformerElementId: resizeState.transformerElementId,
-  };
 
   return (
     <div className="absolute inset-0">
@@ -315,10 +363,7 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
         textEditing={textEditing}
       />
 
-      <CanvasViewportOverlayHost
-        overlay={overlay}
-        textEditing={textEditing}
-      />
+      <CanvasViewportOverlayHost overlay={overlay} textEditing={textEditing} />
 
       <CanvasViewportControls
         adjustZoom={interactionState.controls.adjustZoom}

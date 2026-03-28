@@ -40,8 +40,22 @@ const createWorkbench = (id = "doc-1", name = "Workbench"): CanvasWorkbench =>
   });
 
 const createStoreState = (overrides?: Partial<CanvasStoreDataState>): CanvasStoreDataState => ({
-  workbenches: [createWorkbench()],
-  activeWorkbenchId: "doc-1",
+  workbenchList: [
+    {
+      id: "doc-1",
+      name: "Workbench",
+      createdAt: "2026-03-17T00:00:00.000Z",
+      updatedAt: "2026-03-17T00:00:00.000Z",
+      presetId: "custom",
+      width: 1200,
+      height: 800,
+      elementCount: 0,
+      coverAssetId: null,
+    },
+  ],
+  loadedWorkbenchId: "doc-1",
+  workbench: createWorkbench(),
+  workbenchDraft: null,
   selectedElementIds: [],
   tool: "select",
   activeShapeType: "rect",
@@ -49,8 +63,8 @@ const createStoreState = (overrides?: Partial<CanvasStoreDataState>): CanvasStor
   viewport: { x: 20, y: 32 },
   activePanel: null,
   isLoading: false,
-  historyByWorkbenchId: {},
-  interactionStatusByWorkbenchId: {},
+  workbenchHistory: null,
+  workbenchInteraction: null,
   ...overrides,
 });
 
@@ -61,12 +75,13 @@ describe("canvasWorkbenchState", () => {
 
     const nextState = commitCreatedWorkbenchToState(state, created);
 
-    expect(nextState.workbenches[0]?.id).toBe("doc-2");
-    expect(nextState.activeWorkbenchId).toBe("doc-2");
+    expect(nextState.workbenchList[0]?.id).toBe("doc-2");
+    expect(nextState.loadedWorkbenchId).toBe("doc-2");
+    expect(nextState.workbench?.id).toBe("doc-2");
     expect(nextState.selectedElementIds).toEqual([]);
     expect(nextState.viewport).toEqual({ x: 0, y: 0 });
     expect(nextState.zoom).toBe(1);
-    expect(nextState.historyByWorkbenchId["doc-2"]).toEqual({
+    expect(nextState.workbenchHistory).toEqual({
       past: [],
       future: [],
     });
@@ -74,38 +89,59 @@ describe("canvasWorkbenchState", () => {
 
   it("removes deleted workbench state and clears selection when active workbench changes", () => {
     const state = createStoreState({
-      workbenches: [createWorkbench("doc-1", "One"), createWorkbench("doc-2", "Two")],
+      workbenchList: [
+        {
+          id: "doc-1",
+          name: "One",
+          createdAt: "2026-03-17T00:00:00.000Z",
+          updatedAt: "2026-03-17T00:00:00.000Z",
+          presetId: "custom",
+          width: 1200,
+          height: 800,
+          elementCount: 0,
+          coverAssetId: null,
+        },
+        {
+          id: "doc-2",
+          name: "Two",
+          createdAt: "2026-03-17T00:00:00.000Z",
+          updatedAt: "2026-03-17T00:00:00.000Z",
+          presetId: "custom",
+          width: 1200,
+          height: 800,
+          elementCount: 0,
+          coverAssetId: null,
+        },
+      ],
       selectedElementIds: ["node-1"],
-      historyByWorkbenchId: {
-        "doc-1": {
-          past: [createHistoryEntry({ type: "PATCH_DOCUMENT", patch: { name: "One" } }, {
+      workbenchHistory: {
+        past: [
+          createHistoryEntry({ type: "PATCH_DOCUMENT", patch: { name: "One" } }, {
             forwardChangeSet: { operations: [] },
             inverseChangeSet: { operations: [] },
-          })],
-          future: [],
-        },
+          }),
+        ],
+        future: [],
       },
     });
 
     const nextState = commitDeletedWorkbenchToState(state, "doc-1");
 
-    expect(nextState.workbenches.map((workbench) => workbench.id)).toEqual(["doc-2"]);
-    expect(nextState.activeWorkbenchId).toBe("doc-2");
+    expect(nextState.workbenchList.map((workbench) => workbench.id)).toEqual(["doc-2"]);
+    expect(nextState.loadedWorkbenchId).toBeNull();
     expect(nextState.selectedElementIds).toEqual([]);
-    expect(nextState.historyByWorkbenchId["doc-1"]).toBeUndefined();
+    expect(nextState.workbenchHistory).toBeNull();
   });
 
   it("updates workbench and history without touching selection when selection override is omitted", () => {
     const state = createStoreState({
       selectedElementIds: ["node-1"],
-      historyByWorkbenchId: {
-        "doc-1": {
-          past: [],
-          future: [createHistoryEntry({ type: "MOVE_NODES", dx: 1, dy: 1, ids: ["node-1"] }, {
+      workbenchHistory: {
+        past: [],
+        future: [createHistoryEntry({ type: "MOVE_NODES", dx: 1, dy: 1, ids: ["node-1"] }, {
             forwardChangeSet: { operations: [] },
             inverseChangeSet: { operations: [] },
           })],
-        },
       },
     });
     const command: CanvasCommand = {
@@ -127,8 +163,8 @@ describe("canvasWorkbenchState", () => {
       trackHistory: true,
     });
 
-    expect(nextState.workbenches[0]?.name).toBe("Renamed");
-    expect(nextState.historyByWorkbenchId["doc-1"]).toEqual({
+    expect(nextState.workbench?.name).toBe("Renamed");
+    expect(nextState.workbenchHistory).toEqual({
       past: [expect.objectContaining({ commandType: "PATCH_DOCUMENT" })],
       future: [],
     });
@@ -137,17 +173,15 @@ describe("canvasWorkbenchState", () => {
 
   it("commits preview updates without appending history entries and clears redo history", () => {
     const state = createStoreState({
-      historyByWorkbenchId: {
-        "doc-1": {
-          past: [createHistoryEntry({ type: "PATCH_DOCUMENT", patch: { name: "Past" } }, {
+      workbenchHistory: {
+        past: [createHistoryEntry({ type: "PATCH_DOCUMENT", patch: { name: "Past" } }, {
             forwardChangeSet: { operations: [] },
             inverseChangeSet: { operations: [] },
           })],
-          future: [createHistoryEntry({ type: "PATCH_DOCUMENT", patch: { name: "Future" } }, {
+        future: [createHistoryEntry({ type: "PATCH_DOCUMENT", patch: { name: "Future" } }, {
             forwardChangeSet: { operations: [] },
             inverseChangeSet: { operations: [] },
           })],
-        },
       },
     });
 
@@ -156,8 +190,9 @@ describe("canvasWorkbenchState", () => {
       nextWorkbench: createWorkbench("doc-1", "Preview Name"),
     });
 
-    expect(nextState.workbenches[0]?.name).toBe("Preview Name");
-    expect(nextState.historyByWorkbenchId["doc-1"]).toEqual({
+    expect("workbench" in nextState).toBe(false);
+    expect(nextState.workbenchDraft?.name).toBe("Preview Name");
+    expect(nextState.workbenchHistory).toEqual({
       past: [expect.objectContaining({ commandType: "PATCH_DOCUMENT" })],
       future: [],
     });

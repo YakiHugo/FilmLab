@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  resolveCanvasPageRecoveryPlan,
-  shouldAutoOpenCanvasEditPanel,
-} from "./canvasPageState";
+import { resolveCanvasPageRecoveryPlan } from "./canvasPageState";
 
 describe("canvasPageState", () => {
   it("waits until canvas initialization completes", () => {
@@ -115,36 +112,5 @@ describe("canvasPageState", () => {
         workbenchIds: [],
       })
     ).toEqual({ type: "create-and-navigate" });
-  });
-
-  it("opens the edit panel only when the selected image context changes outside edit", () => {
-    expect(
-      shouldAutoOpenCanvasEditPanel({
-        activePanel: "layers",
-        currentSelectedImageId: "image-1",
-        previousSelectedImageId: null,
-      })
-    ).toBe(true);
-    expect(
-      shouldAutoOpenCanvasEditPanel({
-        activePanel: "edit",
-        currentSelectedImageId: "image-2",
-        previousSelectedImageId: "image-1",
-      })
-    ).toBe(false);
-    expect(
-      shouldAutoOpenCanvasEditPanel({
-        activePanel: null,
-        currentSelectedImageId: null,
-        previousSelectedImageId: "image-1",
-      })
-    ).toBe(false);
-    expect(
-      shouldAutoOpenCanvasEditPanel({
-        activePanel: "layers",
-        currentSelectedImageId: "image-1",
-        previousSelectedImageId: "image-1",
-      })
-    ).toBe(false);
   });
 });
