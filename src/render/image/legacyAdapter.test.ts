@@ -87,12 +87,18 @@ describe("legacyEditingAdjustmentsToImageRenderDocument", () => {
         dilate: 6,
       },
     });
-    expect(document.develop.adjustments.ascii?.enabled).toBe(false);
-    expect(document.develop.adjustments.brightness).toBe(0);
-    expect(document.develop.adjustments.hue).toBe(0);
-    expect(document.develop.adjustments.blur).toBe(0);
-    expect(document.develop.adjustments.dilate).toBe(0);
-    expect(document.develop.adjustments.timestampEnabled).toBe(false);
+    expect(document.develop.tone.exposure).toBe(adjustments.exposure);
+    expect(document.develop.color.hue).toBe(0);
+    expect(document.develop.regions).toHaveLength(1);
+    expect(document.develop.regions[0]).toMatchObject({
+      id: "local-1",
+      enabled: true,
+      amount: 75,
+      maskId: "local-1",
+      adjustments: {
+        exposure: 10,
+      },
+    });
     expect(document.output.timestamp).toEqual({
       enabled: true,
       position: "top-left",
@@ -104,7 +110,6 @@ describe("legacyEditingAdjustmentsToImageRenderDocument", () => {
       kind: "legacy-local-adjustment",
       sourceLocalAdjustmentId: "local-1",
     });
-    expect(document.masks.localAdjustments).toHaveLength(1);
   });
 
   it("omits inactive legacy effects while keeping geometry and film state", () => {

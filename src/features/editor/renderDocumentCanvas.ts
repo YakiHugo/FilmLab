@@ -1,4 +1,4 @@
-import { renderImageToCanvas } from "@/lib/imageProcessing";
+import { renderDevelopBaseToCanvas, renderImageToCanvas } from "@/lib/imageProcessing";
 import { applyTimestampOverlay } from "@/lib/timestampOverlay";
 import type { Asset } from "@/types";
 import type { RenderIntent } from "@/lib/renderIntent";
@@ -34,6 +34,7 @@ interface RenderDocumentToCanvasOptions {
   strictErrors?: boolean;
   signal?: AbortSignal;
   renderSlotPrefix?: string;
+  stage?: "full" | "develop-base";
 }
 
 const resolveAssetRenderSource = (asset: Asset) => asset.blob ?? asset.objectUrl;
@@ -127,20 +128,25 @@ export const renderDocumentToCanvas = async ({
   strictErrors = intent === "export-full",
   signal,
   renderSlotPrefix,
+  stage = "full",
 }: RenderDocumentToCanvasOptions) => {
   const normalizedRenderSlotPrefix = renderSlotPrefix?.trim();
   const resolveRenderSlot = (suffix: string, fallback: string) =>
     normalizedRenderSlotPrefix ? `${normalizedRenderSlotPrefix}:${suffix}` : fallback;
+  const renderLeafImage = stage === "develop-base" ? renderDevelopBaseToCanvas : renderImageToCanvas;
   const source = resolveAssetRenderSource(renderDocument.sourceAsset);
   const singleLayerNode = resolveSingleRenderableLayerEntry(renderDocument.renderGraph.layers);
 
   if (singleLayerNode && !requiresLayerComposite(singleLayerNode)) {
-    await renderImageToCanvas({
+    await renderLeafImage({
       canvas,
       source: resolveAssetRenderSource(singleLayerNode.sourceAsset),
       adjustments: singleLayerNode.adjustments,
-      filmProfile: resolveLayerFilmProfile(renderDocument, singleLayerNode.sourceAsset),
-      timestampText,
+      filmProfile:
+        stage === "develop-base"
+          ? undefined
+          : resolveLayerFilmProfile(renderDocument, singleLayerNode.sourceAsset),
+      timestampText: stage === "full" ? timestampText : null,
       targetSize,
       seedKey: `${renderDocument.renderGraph.key}:${singleLayerNode.id}`,
       sourceCacheKey: `${intent}:${renderDocument.renderGraph.key}:layer:${singleLayerNode.sourceAsset.id}:${singleLayerNode.id}:${singleLayerNode.sourceAsset.size}`,
@@ -156,12 +162,12 @@ export const renderDocumentToCanvas = async ({
   }
 
   if (renderDocument.renderGraph.layers.length === 0) {
-    await renderImageToCanvas({
+    await renderLeafImage({
       canvas,
       source,
       adjustments: renderDocument.adjustments,
-      filmProfile: renderDocument.filmProfile ?? undefined,
-      timestampText,
+      filmProfile: stage === "develop-base" ? undefined : renderDocument.filmProfile ?? undefined,
+      timestampText: stage === "full" ? timestampText : null,
       targetSize,
       seedKey: `${renderDocument.renderGraph.key}:base`,
       sourceCacheKey: `${intent}:${renderDocument.renderGraph.key}:${renderDocument.sourceAssetId}:${renderDocument.sourceAsset.size}`,
@@ -196,11 +202,14 @@ export const renderDocumentToCanvas = async ({
           sourceBlobCache.set(layerNode.sourceAssetId, layerSource);
         }
 
-        await renderImageToCanvas({
+        await renderLeafImage({
           canvas: layerCanvas,
           source: layerSource,
           adjustments: layerNode.adjustments,
-          filmProfile: resolveLayerFilmProfile(renderDocument, layerNode.sourceAsset),
+          filmProfile:
+            stage === "develop-base"
+              ? undefined
+              : resolveLayerFilmProfile(renderDocument, layerNode.sourceAsset),
           timestampText: null,
           targetSize: {
             width: targetSize?.width ?? canvas.width,
@@ -223,7 +232,9 @@ export const renderDocumentToCanvas = async ({
       throw new Error("Failed to initialize composite render context.");
     }
 
-    applyTimestampOverlay(canvas, renderDocument.adjustments, timestampText);
+    if (stage === "full") {
+      applyTimestampOverlay(canvas, renderDocument.adjustments, timestampText);
+    }
   } finally {
     release();
   }

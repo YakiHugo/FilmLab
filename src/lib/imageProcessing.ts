@@ -165,10 +165,18 @@ const throwIfAborted = (signal?: AbortSignal) => {
 };
 
 const loadImageSource = async (
-  source: Blob | string,
+  source: RenderImageSource,
   options?: LoadImageSourceOptions
 ): Promise<LoadedImageSource> => {
   throwIfAborted(options?.signal);
+
+  if (source instanceof HTMLCanvasElement) {
+    return {
+      source: source as CanvasImageSource,
+      width: source.width,
+      height: source.height,
+    };
+  }
 
   if (source instanceof Blob) {
     const cacheKey = options?.useCache ? options?.cacheKey : undefined;
@@ -293,10 +301,51 @@ interface RenderTargetSize {
 }
 
 export type RenderQualityProfile = "interactive" | "full";
+export type RenderImageSource = Blob | string | HTMLCanvasElement;
+
+interface RenderStageOptions {
+  id: "full" | "develop-base" | "film-stage";
+  applyGeometry: boolean;
+  applyDevelop: boolean;
+  applyLocalAdjustments: boolean;
+  applyFilm: boolean;
+  applyPostOptics: boolean;
+  applyLegacyOutputEffects: boolean;
+}
+
+const FULL_RENDER_STAGE: RenderStageOptions = {
+  id: "full",
+  applyGeometry: true,
+  applyDevelop: true,
+  applyLocalAdjustments: true,
+  applyFilm: true,
+  applyPostOptics: true,
+  applyLegacyOutputEffects: true,
+};
+
+const DEVELOP_BASE_RENDER_STAGE: RenderStageOptions = {
+  id: "develop-base",
+  applyGeometry: true,
+  applyDevelop: true,
+  applyLocalAdjustments: true,
+  applyFilm: false,
+  applyPostOptics: false,
+  applyLegacyOutputEffects: false,
+};
+
+const FILM_STAGE_RENDER_STAGE: RenderStageOptions = {
+  id: "film-stage",
+  applyGeometry: false,
+  applyDevelop: false,
+  applyLocalAdjustments: false,
+  applyFilm: true,
+  applyPostOptics: true,
+  applyLegacyOutputEffects: false,
+};
 
 export interface RenderImageOptions {
   canvas: HTMLCanvasElement;
-  source: Blob | string;
+  source: RenderImageSource;
   adjustments: EditingAdjustments;
   filmProfile?: FilmProfileAny;
   timestampText?: string | null;
@@ -326,7 +375,7 @@ const hashSeedKey = (seedKey: string) => {
 };
 
 const resolveSourceCacheKey = (
-  source: Blob | string,
+  source: RenderImageSource,
   seedKey?: string,
   explicitCacheKey?: string
 ) => {
@@ -383,6 +432,8 @@ interface RenderWithPipelineOptions {
   grainSeed: number;
   forceRerender?: boolean;
   captureLinearOutput?: boolean;
+  skipGeometry?: boolean;
+  skipMaster?: boolean;
   skipHsl?: boolean;
   skipCurve?: boolean;
   skipDetail?: boolean;
@@ -703,12 +754,15 @@ const getCanvasRuntimeId = (canvas: HTMLCanvasElement) => {
 };
 
 const createSourceIdentityKey = (
-  source: Blob | string,
+  source: RenderImageSource,
   loaded: LoadedImageSource,
   resolvedSourceCacheKey?: string
 ) => {
   if (resolvedSourceCacheKey) {
     return resolvedSourceCacheKey;
+  }
+  if (source instanceof HTMLCanvasElement) {
+    return `canvas:${getCanvasRuntimeId(source)}:${loaded.width}x${loaded.height}`;
   }
   if (typeof source === "string") {
     return `url:${source}`;
@@ -1096,16 +1150,21 @@ const createOutputKey = (params: {
   localAdjustmentsKey: string;
   timestampText?: string | null;
   adjustments: EditingAdjustments;
+  stage: RenderStageOptions;
 }) => {
-  const timestampToken = params.adjustments.timestampEnabled
+  const timestampToken =
+    params.stage.applyLegacyOutputEffects && params.adjustments.timestampEnabled
     ? `${params.adjustments.timestampPosition}:${toNumberKey(
         params.adjustments.timestampSize,
         0
       )}:${toNumberKey(params.adjustments.timestampOpacity, 0)}:${params.timestampText ?? ""}`
     : "off";
-  const asciiToken = buildAsciiOutputToken(params.adjustments.ascii);
+  const asciiToken = params.stage.applyLegacyOutputEffects
+    ? buildAsciiOutputToken(params.adjustments.ascii)
+    : "off";
   return [
     "out",
+    params.stage.id,
     getCanvasRuntimeId(params.canvas),
     `${params.canvas.width}x${params.canvas.height}`,
     params.pipelineKey,
@@ -1228,6 +1287,8 @@ const renderWithPipeline = async (
       options.detailKey,
       options.filmKey,
       options.opticsKey,
+      options.skipGeometry ? "g:0" : "g:1",
+      options.skipMaster ? "m:0" : "m:1",
       options.skipHsl ? "h:0" : "h:1",
       options.skipCurve ? "c:0" : "c:1",
       options.skipDetail ? "d:0" : "d:1",
@@ -1374,6 +1435,8 @@ const renderWithPipeline = async (
         detailUniforms,
         filmUniforms,
         {
+          skipGeometry: options.skipGeometry,
+          skipMaster: options.skipMaster,
           skipHsl: options.skipHsl,
           skipCurve: options.skipCurve,
           skipDetail: options.skipDetail,
@@ -2048,7 +2111,8 @@ if (import.meta.hot) {
   );
 }
 
-export const renderImageToCanvas = async ({
+const renderImageStageToCanvas = async (
+  {
   canvas,
   source,
   adjustments,
@@ -2068,7 +2132,9 @@ export const renderImageToCanvas = async ({
   sourceCacheKey,
   renderSlot,
   viewportRoi,
-}: RenderImageOptions) => {
+}: RenderImageOptions,
+  stage: RenderStageOptions
+) => {
   const callStartAt = performance.now();
   const intentConfig = intent ? resolveRenderIntent(intent) : null;
   const mode = intentConfig?.mode ?? modeOption ?? "preview";
@@ -2079,11 +2145,12 @@ export const renderImageToCanvas = async ({
   const featureFlags = runtimeConfig.features;
   const incrementalPipeline = featureFlags.incrementalPipeline;
   const useGpuGeometryPass = featureFlags.gpuGeometryPass;
-  const skipHslPass = !featureFlags.enableHslPass;
-  const skipCurvePass = !featureFlags.enableCurvePass;
-  const skipDetailPass = !featureFlags.enableDetailPass;
-  const skipFilmPass = !featureFlags.enableFilmPass;
-  const skipOpticsPass = skipHalationBloom || !featureFlags.enableOpticsPass;
+  const skipMasterPass = !stage.applyDevelop;
+  const skipHslPass = skipMasterPass || !featureFlags.enableHslPass;
+  const skipCurvePass = skipMasterPass || !featureFlags.enableCurvePass;
+  const skipDetailPass = skipMasterPass || !featureFlags.enableDetailPass;
+  const skipFilmPass = !stage.applyFilm || !featureFlags.enableFilmPass;
+  const skipOpticsPass = !stage.applyPostOptics || skipHalationBloom || !featureFlags.enableOpticsPass;
   const timings: RenderTimings = {
     decodeMs: 0,
     geometryMs: 0,
@@ -2117,35 +2184,39 @@ export const renderImageToCanvas = async ({
     throwIfAborted(signal);
     timings.decodeMs = performance.now() - decodeStartAt;
 
-    orientedSource = createOrientedSource(loaded, normalizedAdjustments.rightAngleRotation);
+    orientedSource = stage.applyGeometry
+      ? createOrientedSource(loaded, normalizedAdjustments.rightAngleRotation)
+      : loaded;
 
     const fallbackRatio = targetSize
       ? targetSize.width / Math.max(1, targetSize.height)
       : orientedSource.width / Math.max(1, orientedSource.height);
-    const targetRatio = resolveAspectRatio(
-      normalizedAdjustments.aspectRatio,
-      normalizedAdjustments.customAspectRatio,
-      fallbackRatio
-    );
+    const targetRatio = stage.applyGeometry
+      ? resolveAspectRatio(
+          normalizedAdjustments.aspectRatio,
+          normalizedAdjustments.customAspectRatio,
+          fallbackRatio
+        )
+      : fallbackRatio;
     const sourceRatio = orientedSource.width / Math.max(1, orientedSource.height);
     let cropWidth = orientedSource.width;
     let cropHeight = orientedSource.height;
-    if (Math.abs(sourceRatio - targetRatio) > 0.001) {
+    if (stage.applyGeometry && Math.abs(sourceRatio - targetRatio) > 0.001) {
       if (sourceRatio > targetRatio) {
         cropWidth = orientedSource.height * targetRatio;
       } else {
         cropHeight = orientedSource.width / targetRatio;
       }
     }
-    const cropX = (orientedSource.width - cropWidth) / 2;
-    const cropY = (orientedSource.height - cropHeight) / 2;
+    const cropX = stage.applyGeometry ? (orientedSource.width - cropWidth) / 2 : 0;
+    const cropY = stage.applyGeometry ? (orientedSource.height - cropHeight) / 2 : 0;
 
-    let outputWidth = cropWidth;
-    let outputHeight = cropHeight;
+    let outputWidth = stage.applyGeometry ? cropWidth : orientedSource.width;
+    let outputHeight = stage.applyGeometry ? cropHeight : orientedSource.height;
     if (targetSize?.width && targetSize?.height) {
       outputWidth = targetSize.width;
       outputHeight = targetSize.height;
-    } else if (maxDimension) {
+    } else if (stage.applyGeometry && maxDimension) {
       const scale = Math.min(1, maxDimension / Math.max(cropWidth, cropHeight));
       outputWidth = Math.max(1, Math.round(cropWidth * scale));
       outputHeight = Math.max(1, Math.round(cropHeight * scale));
@@ -2187,7 +2258,7 @@ export const renderImageToCanvas = async ({
     const fullOutputWidth = Math.max(1, Math.round(outputWidth));
     const fullOutputHeight = Math.max(1, Math.round(outputHeight));
     const viewportRenderRegion =
-      mode === "preview" && !normalizedAdjustments.timestampEnabled
+      stage.applyGeometry && mode === "preview" && !normalizedAdjustments.timestampEnabled
         ? resolveViewportRenderRegion(fullOutputWidth, fullOutputHeight, viewportRoi)
         : null;
     const renderOffsetX = viewportRenderRegion?.x ?? 0;
@@ -2209,49 +2280,63 @@ export const renderImageToCanvas = async ({
     }
 
     const sourceKey = createSourceIdentityKey(source, loaded, resolvedSourceCacheKey);
-    const geometryKey = createGeometryKey({
-      sourceKey,
-      rightAngleRotation: normalizedAdjustments.rightAngleRotation,
-      cropX,
-      cropY,
-      cropWidth,
-      cropHeight,
-      outputWidth: renderTargetWidth,
-      outputHeight: renderTargetHeight,
-      fullOutputWidth,
-      fullOutputHeight,
-      outputOffsetX: renderOffsetX,
-      outputOffsetY: renderOffsetY,
-      rotate: normalizedAdjustments.rotate,
-      perspectiveEnabled: Boolean(normalizedAdjustments.perspectiveEnabled),
-      perspectiveHorizontal: normalizedAdjustments.perspectiveHorizontal ?? 0,
-      perspectiveVertical: normalizedAdjustments.perspectiveVertical ?? 0,
-      scale: normalizedAdjustments.scale,
-      horizontal: normalizedAdjustments.horizontal,
-      vertical: normalizedAdjustments.vertical,
-      flipHorizontal: normalizedAdjustments.flipHorizontal,
-      flipVertical: normalizedAdjustments.flipVertical,
-      opticsProfile: normalizedAdjustments.opticsProfile,
-      opticsCA: normalizedAdjustments.opticsCA,
-      opticsDistortionK1: normalizedAdjustments.opticsDistortionK1 ?? 0,
-      opticsDistortionK2: normalizedAdjustments.opticsDistortionK2 ?? 0,
-      opticsCaAmount: normalizedAdjustments.opticsCaAmount ?? 0,
-      opticsVignette: normalizedAdjustments.opticsVignette,
-      opticsVignetteMidpoint: normalizedAdjustments.opticsVignetteMidpoint ?? 50,
-      qualityProfile,
-    });
+    const geometryKey = stage.applyGeometry
+      ? createGeometryKey({
+          sourceKey,
+          rightAngleRotation: normalizedAdjustments.rightAngleRotation,
+          cropX,
+          cropY,
+          cropWidth,
+          cropHeight,
+          outputWidth: renderTargetWidth,
+          outputHeight: renderTargetHeight,
+          fullOutputWidth,
+          fullOutputHeight,
+          outputOffsetX: renderOffsetX,
+          outputOffsetY: renderOffsetY,
+          rotate: normalizedAdjustments.rotate,
+          perspectiveEnabled: Boolean(normalizedAdjustments.perspectiveEnabled),
+          perspectiveHorizontal: normalizedAdjustments.perspectiveHorizontal ?? 0,
+          perspectiveVertical: normalizedAdjustments.perspectiveVertical ?? 0,
+          scale: normalizedAdjustments.scale,
+          horizontal: normalizedAdjustments.horizontal,
+          vertical: normalizedAdjustments.vertical,
+          flipHorizontal: normalizedAdjustments.flipHorizontal,
+          flipVertical: normalizedAdjustments.flipVertical,
+          opticsProfile: normalizedAdjustments.opticsProfile,
+          opticsCA: normalizedAdjustments.opticsCA,
+          opticsDistortionK1: normalizedAdjustments.opticsDistortionK1 ?? 0,
+          opticsDistortionK2: normalizedAdjustments.opticsDistortionK2 ?? 0,
+          opticsCaAmount: normalizedAdjustments.opticsCaAmount ?? 0,
+          opticsVignette: normalizedAdjustments.opticsVignette,
+          opticsVignetteMidpoint: normalizedAdjustments.opticsVignetteMidpoint ?? 50,
+          qualityProfile,
+        })
+      : [
+          "g",
+          "passthrough",
+          stage.id,
+          sourceKey,
+          `${renderTargetWidth}x${renderTargetHeight}`,
+          `${fullOutputWidth}x${fullOutputHeight}`,
+        ].join("|");
     const masterKey = createMasterKey(normalizedAdjustments);
     const hslKey = createHslKey(normalizedAdjustments);
     const curveKey = createCurveKey(normalizedAdjustments);
     const detailKey = createDetailKey(normalizedAdjustments);
     const filmKey = createFilmKey(resolvedProfile, grainSeed);
     const opticsKey = createOpticsKey(resolvedProfile, skipOpticsPass);
-    const activeLocalAdjustments = resolveActiveLocalAdjustments(
-      normalizedAdjustments.localAdjustments
-    );
-    const localAdjustmentsKey = createLocalAdjustmentsKey(activeLocalAdjustments);
+    const activeLocalAdjustments = stage.applyLocalAdjustments
+      ? resolveActiveLocalAdjustments(normalizedAdjustments.localAdjustments)
+      : [];
+    const localAdjustmentsKey = stage.applyLocalAdjustments
+      ? createLocalAdjustmentsKey(activeLocalAdjustments)
+      : "local:none";
     const useHdrLocalComposition =
-      activeLocalAdjustments.length > 0 && !exportTilePlan && !viewportRenderRegion;
+      stage.applyLocalAdjustments &&
+      activeLocalAdjustments.length > 0 &&
+      !exportTilePlan &&
+      !viewportRenderRegion;
 
     const sourceDirty = !incrementalPipeline || frameState.sourceKey !== sourceKey;
     const geometryDirty =
@@ -2294,7 +2379,7 @@ export const renderImageToCanvas = async ({
           collectMetrics: boolean
         ): Promise<RenderWithPipelineResult["renderMetrics"]> => {
           const layerMetrics = createEmptyPipelineMetrics();
-          const tileGeometryCanvas = document.createElement("canvas");
+          const tileStageCanvas = document.createElement("canvas");
           const tileRenderMode: RenderMode = "export";
           const tileSlotId = `${slotId}:tile:${layerId}`;
           const tileFrameState = renderManager.getFrameState(tileRenderMode, tileSlotId);
@@ -2305,30 +2390,68 @@ export const renderImageToCanvas = async ({
             const tile = exportTilePlan[tileIndex]!;
             throwIfAborted(signal);
 
-            drawGeometryStage({
-              geometryCanvas: tileGeometryCanvas,
-              orientedSource: tiledOrientedSource,
-              cropX,
-              cropY,
-              cropWidth,
-              cropHeight,
-              outputWidth: tile.width,
-              outputHeight: tile.height,
-              fullOutputWidth: canvas.width,
-              fullOutputHeight: canvas.height,
-              outputOffsetX: tile.x,
-              outputOffsetY: tile.y,
-              adjustments: layerAdjustments,
-              qualityProfile,
-            });
-
-            const tileGeometryUniforms = createPassthroughGeometryUniforms(tile.width, tile.height);
-            const tileUploadKey = `tile:${tile.x},${tile.y},${tile.width}x${tile.height}|${layerId}`;
+            let tileGeometryUniforms: GeometryUniforms;
+            let tileUploadKey: string;
             const tileSourceKey = `${sourceKey}|${layerId}|tile:${tileIndex}`;
-            const tileGeometryKey = `${geometryKey}|tile:${tile.x},${tile.y},${tile.width}x${tile.height}`;
+            let tileGeometryKey: string;
+            let tileSource: CanvasImageSource;
+            let tileSourceWidth: number;
+            let tileSourceHeight: number;
+
+            if (stage.applyGeometry) {
+              drawGeometryStage({
+                geometryCanvas: tileStageCanvas,
+                orientedSource: tiledOrientedSource,
+                cropX,
+                cropY,
+                cropWidth,
+                cropHeight,
+                outputWidth: tile.width,
+                outputHeight: tile.height,
+                fullOutputWidth: canvas.width,
+                fullOutputHeight: canvas.height,
+                outputOffsetX: tile.x,
+                outputOffsetY: tile.y,
+                adjustments: layerAdjustments,
+                qualityProfile,
+              });
+              tileGeometryUniforms = createPassthroughGeometryUniforms(tile.width, tile.height);
+              tileUploadKey = `tile:${tile.x},${tile.y},${tile.width}x${tile.height}|${layerId}`;
+              tileGeometryKey = `${geometryKey}|tile:${tile.x},${tile.y},${tile.width}x${tile.height}`;
+              tileSource = tileStageCanvas;
+              tileSourceWidth = tile.width;
+              tileSourceHeight = tile.height;
+            } else {
+              tileStageCanvas.width = tile.width;
+              tileStageCanvas.height = tile.height;
+              const tileContext = tileStageCanvas.getContext("2d", { willReadFrequently: true });
+              if (!tileContext) {
+                throw new RenderError("Failed to acquire tiled stage context.");
+              }
+              const sourceScaleX = tiledOrientedSource.width / Math.max(1, canvas.width);
+              const sourceScaleY = tiledOrientedSource.height / Math.max(1, canvas.height);
+              tileContext.clearRect(0, 0, tile.width, tile.height);
+              tileContext.drawImage(
+                tiledOrientedSource.source,
+                tile.x * sourceScaleX,
+                tile.y * sourceScaleY,
+                tile.width * sourceScaleX,
+                tile.height * sourceScaleY,
+                0,
+                0,
+                tile.width,
+                tile.height
+              );
+              tileGeometryUniforms = createPassthroughGeometryUniforms(tile.width, tile.height);
+              tileUploadKey = `tile:passthrough:${tile.x},${tile.y},${tile.width}x${tile.height}|${layerId}`;
+              tileGeometryKey = `${geometryKey}|passthrough:${tile.x},${tile.y},${tile.width}x${tile.height}`;
+              tileSource = tileStageCanvas;
+              tileSourceWidth = tile.width;
+              tileSourceHeight = tile.height;
+            }
 
             const tileResult = await renderWithPipeline(
-              tileGeometryCanvas,
+              tileSource,
               layerAdjustments,
               tileFrameState,
               {
@@ -2337,8 +2460,8 @@ export const renderImageToCanvas = async ({
                 strictErrors,
                 resolvedProfile,
                 geometryUniforms: tileGeometryUniforms,
-                sourceWidth: tile.width,
-                sourceHeight: tile.height,
+                sourceWidth: tileSourceWidth,
+                sourceHeight: tileSourceHeight,
                 targetWidth: tile.width,
                 targetHeight: tile.height,
                 uploadKey: tileUploadKey,
@@ -2352,6 +2475,8 @@ export const renderImageToCanvas = async ({
                 opticsKey,
                 grainSeed,
                 forceRerender: true,
+                skipGeometry: !stage.applyGeometry,
+                skipMaster: !stage.applyDevelop,
                 skipHsl: skipHslPass,
                 skipCurve: skipCurvePass,
                 skipDetail: skipDetailPass,
@@ -2379,8 +2504,8 @@ export const renderImageToCanvas = async ({
             );
           }
 
-          tileGeometryCanvas.width = 0;
-          tileGeometryCanvas.height = 0;
+          tileStageCanvas.width = 0;
+          tileStageCanvas.height = 0;
           return layerMetrics;
         };
 
@@ -2390,6 +2515,7 @@ export const renderImageToCanvas = async ({
           localAdjustmentsKey,
           timestampText,
           adjustments: normalizedAdjustments,
+          stage,
         });
         outputDirty = !incrementalPipeline || frameState.outputKey !== outputKey;
 
@@ -2451,12 +2577,14 @@ export const renderImageToCanvas = async ({
             }
           }
 
-          applyAsciiRasterEffect({
-            canvas,
-            ascii: normalizedAdjustments.ascii,
-            qualityProfile,
-          });
-          applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
+          if (stage.applyLegacyOutputEffects) {
+            applyAsciiRasterEffect({
+              canvas,
+              ascii: normalizedAdjustments.ascii,
+              qualityProfile,
+            });
+            applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
+          }
           timings.composeMs = performance.now() - composeStartAt;
 
           frameState.sourceKey = sourceKey;
@@ -2495,26 +2623,34 @@ export const renderImageToCanvas = async ({
         }
         console.warn("[FilmLab] Tiled export failed, trying geometry fallback:", e);
         const fallbackGeometryCanvas = getGeometryCanvas(frameState);
-        drawGeometryStage({
-          geometryCanvas: fallbackGeometryCanvas,
-          orientedSource,
-          cropX,
-          cropY,
-          cropWidth,
-          cropHeight,
-          outputWidth: canvas.width,
-          outputHeight: canvas.height,
-          adjustments: normalizedAdjustments,
-          qualityProfile,
-        });
         outputContext.clearRect(0, 0, canvas.width, canvas.height);
-        outputContext.drawImage(fallbackGeometryCanvas, 0, 0, canvas.width, canvas.height);
-        applyAsciiRasterEffect({
-          canvas,
-          ascii: normalizedAdjustments.ascii,
-          qualityProfile,
-        });
-        applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
+        if (stage.applyGeometry) {
+          drawGeometryStage({
+            geometryCanvas: fallbackGeometryCanvas,
+            orientedSource,
+            cropX,
+            cropY,
+            cropWidth,
+            cropHeight,
+            outputWidth: canvas.width,
+            outputHeight: canvas.height,
+            adjustments: normalizedAdjustments,
+            qualityProfile,
+          });
+          outputContext.drawImage(fallbackGeometryCanvas, 0, 0, canvas.width, canvas.height);
+        } else {
+          outputContext.drawImage(tiledOrientedSource.source, 0, 0, canvas.width, canvas.height);
+        }
+        if (stage.applyLegacyOutputEffects) {
+          if (stage.applyLegacyOutputEffects) {
+            applyAsciiRasterEffect({
+              canvas,
+              ascii: normalizedAdjustments.ascii,
+              qualityProfile,
+            });
+            applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
+          }
+        }
         return;
       } finally {
         releaseMutex();
@@ -2522,21 +2658,23 @@ export const renderImageToCanvas = async ({
     }
 
     const geometryStartAt = performance.now();
-    let geometryUniforms = createGeometryUniforms({
-      cropX,
-      cropY,
-      cropWidth,
-      cropHeight,
-      sourceWidth: orientedSource.width,
-      sourceHeight: orientedSource.height,
-      outputWidth: renderTargetWidth,
-      outputHeight: renderTargetHeight,
-      fullOutputWidth,
-      fullOutputHeight,
-      outputOffsetX: renderOffsetX,
-      outputOffsetY: renderOffsetY,
-      adjustments: normalizedAdjustments,
-    });
+    let geometryUniforms = stage.applyGeometry
+      ? createGeometryUniforms({
+          cropX,
+          cropY,
+          cropWidth,
+          cropHeight,
+          sourceWidth: orientedSource.width,
+          sourceHeight: orientedSource.height,
+          outputWidth: renderTargetWidth,
+          outputHeight: renderTargetHeight,
+          fullOutputWidth,
+          fullOutputHeight,
+          outputOffsetX: renderOffsetX,
+          outputOffsetY: renderOffsetY,
+          adjustments: normalizedAdjustments,
+        })
+      : createPassthroughGeometryUniforms(renderTargetWidth, renderTargetHeight);
     let uploadKey = createUploadKey({
       sourceKey,
       sourceWidth: orientedSource.width,
@@ -2548,7 +2686,7 @@ export const renderImageToCanvas = async ({
     let pipelineSourceWidth = orientedSource.width;
     let pipelineSourceHeight = orientedSource.height;
 
-    if (!useGpuGeometryPass || viewportRenderRegion) {
+    if (stage.applyGeometry && (!useGpuGeometryPass || viewportRenderRegion)) {
       const geometryCanvas = getGeometryCanvas(frameState);
       const needsCpuGeometryDraw =
         !incrementalPipeline ||
@@ -2623,6 +2761,8 @@ export const renderImageToCanvas = async ({
           grainSeed,
           forceRerender: !incrementalPipeline,
           captureLinearOutput: useHdrLocalComposition,
+          skipGeometry: !stage.applyGeometry,
+          skipMaster: skipMasterPass,
           skipHsl: skipHslPass,
           skipCurve: skipCurvePass,
           skipDetail: skipDetailPass,
@@ -2639,6 +2779,7 @@ export const renderImageToCanvas = async ({
         localAdjustmentsKey,
         timestampText,
         adjustments: normalizedAdjustments,
+        stage,
       });
       outputDirty = !incrementalPipeline || frameState.outputKey !== outputKey;
 
@@ -2701,6 +2842,8 @@ export const renderImageToCanvas = async ({
                   opticsKey,
                   grainSeed,
                   forceRerender: !incrementalPipeline,
+                  skipGeometry: !stage.applyGeometry,
+                  skipMaster: skipMasterPass,
                   skipHsl: skipHslPass,
                   skipCurve: skipCurvePass,
                   skipDetail: skipDetailPass,
@@ -2787,6 +2930,8 @@ export const renderImageToCanvas = async ({
                       opticsKey,
                       grainSeed,
                       captureLinearOutput: true,
+                      skipGeometry: !stage.applyGeometry,
+                      skipMaster: skipMasterPass,
                       skipHsl: skipHslPass,
                       skipCurve: skipCurvePass,
                       skipDetail: skipDetailPass,
@@ -2846,12 +2991,14 @@ export const renderImageToCanvas = async ({
           }
         }
 
-        applyAsciiRasterEffect({
-          canvas,
-          ascii: normalizedAdjustments.ascii,
-          qualityProfile,
-        });
-        applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
+        if (stage.applyLegacyOutputEffects) {
+          applyAsciiRasterEffect({
+            canvas,
+            ascii: normalizedAdjustments.ascii,
+            qualityProfile,
+          });
+          applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
+        }
         frameState.outputKey = outputKey;
         frameState.lastRenderError = null;
       }
@@ -2937,52 +3084,59 @@ export const renderImageToCanvas = async ({
       }
       const composeStartAt = performance.now();
       const fallbackGeometryCanvas = getGeometryCanvas(frameState);
-      drawGeometryStage({
-        geometryCanvas: fallbackGeometryCanvas,
-        orientedSource,
-        cropX,
-        cropY,
-        cropWidth,
-        cropHeight,
-        outputWidth: renderTargetWidth,
-        outputHeight: renderTargetHeight,
-        fullOutputWidth,
-        fullOutputHeight,
-        outputOffsetX: renderOffsetX,
-        outputOffsetY: renderOffsetY,
-        adjustments: normalizedAdjustments,
-        qualityProfile,
-      });
-      if (viewportRenderRegion) {
-        outputContext.clearRect(
-          renderOffsetX,
-          renderOffsetY,
-          renderTargetWidth,
-          renderTargetHeight
-        );
-        outputContext.drawImage(
-          fallbackGeometryCanvas,
-          renderOffsetX,
-          renderOffsetY,
-          renderTargetWidth,
-          renderTargetHeight
-        );
+      outputContext.clearRect(0, 0, canvas.width, canvas.height);
+      if (stage.applyGeometry) {
+        drawGeometryStage({
+          geometryCanvas: fallbackGeometryCanvas,
+          orientedSource,
+          cropX,
+          cropY,
+          cropWidth,
+          cropHeight,
+          outputWidth: renderTargetWidth,
+          outputHeight: renderTargetHeight,
+          fullOutputWidth,
+          fullOutputHeight,
+          outputOffsetX: renderOffsetX,
+          outputOffsetY: renderOffsetY,
+          adjustments: normalizedAdjustments,
+          qualityProfile,
+        });
+        if (viewportRenderRegion) {
+          outputContext.clearRect(
+            renderOffsetX,
+            renderOffsetY,
+            renderTargetWidth,
+            renderTargetHeight
+          );
+          outputContext.drawImage(
+            fallbackGeometryCanvas,
+            renderOffsetX,
+            renderOffsetY,
+            renderTargetWidth,
+            renderTargetHeight
+          );
+        } else {
+          outputContext.drawImage(fallbackGeometryCanvas, 0, 0, canvas.width, canvas.height);
+        }
       } else {
-        outputContext.clearRect(0, 0, canvas.width, canvas.height);
-        outputContext.drawImage(fallbackGeometryCanvas, 0, 0, canvas.width, canvas.height);
+        outputContext.drawImage(orientedSource.source, 0, 0, canvas.width, canvas.height);
       }
-      applyAsciiRasterEffect({
-        canvas,
-        ascii: normalizedAdjustments.ascii,
-        qualityProfile,
-      });
-      applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
+      if (stage.applyLegacyOutputEffects) {
+        applyAsciiRasterEffect({
+          canvas,
+          ascii: normalizedAdjustments.ascii,
+          qualityProfile,
+        });
+        applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
+      }
       frameState.outputKey = createOutputKey({
         canvas,
         pipelineKey: `fallback:${geometryKey}`,
         localAdjustmentsKey,
         timestampText,
         adjustments: normalizedAdjustments,
+        stage,
       });
       timings.composeMs = performance.now() - composeStartAt;
 
@@ -3009,3 +3163,12 @@ export const renderImageToCanvas = async ({
     loaded?.cleanup?.();
   }
 };
+
+export const renderDevelopBaseToCanvas = async (options: RenderImageOptions) =>
+  renderImageStageToCanvas(options, DEVELOP_BASE_RENDER_STAGE);
+
+export const renderFilmStageToCanvas = async (options: RenderImageOptions) =>
+  renderImageStageToCanvas(options, FILM_STAGE_RENDER_STAGE);
+
+export const renderImageToCanvas = async (options: RenderImageOptions) =>
+  renderImageStageToCanvas(options, FULL_RENDER_STAGE);

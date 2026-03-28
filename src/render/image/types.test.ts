@@ -1,5 +1,5 @@
-import { createDefaultAdjustments } from "@/lib/adjustments";
 import { describe, expect, it } from "vitest";
+import { createDefaultCanvasImageRenderState } from "./stateCompiler";
 import {
   createImageRenderDocument,
   resolveImageRenderEffectsForPlacement,
@@ -17,34 +17,7 @@ const createDocumentInput = (): Omit<ImageRenderDocument, "revisionKey"> => ({
     width: 1200,
     height: 800,
   },
-  geometry: {
-    rotate: 0,
-    rightAngleRotation: 0,
-    perspectiveEnabled: false,
-    perspectiveHorizontal: 0,
-      perspectiveVertical: 0,
-      vertical: 0,
-      horizontal: 0,
-      scale: 100,
-      flipHorizontal: false,
-      flipVertical: false,
-      aspectRatio: "free",
-      customAspectRatio: 1,
-      opticsProfile: false,
-      opticsCA: false,
-      opticsDistortionK1: 0,
-      opticsDistortionK2: 0,
-      opticsCaAmount: 0,
-      opticsVignette: 0,
-      opticsVignetteMidpoint: 50,
-    },
-    develop: {
-      adjustments: createDefaultAdjustments(),
-    },
-    masks: {
-      byId: {},
-      localAdjustments: [],
-    },
+  ...createDefaultCanvasImageRenderState(),
   effects: [
     {
       id: "ascii-1",
@@ -88,15 +61,9 @@ const createDocumentInput = (): Omit<ImageRenderDocument, "revisionKey"> => ({
     },
   ],
   film: {
+    profileId: null,
     profile: null,
-  },
-  output: {
-    timestamp: {
-      enabled: false,
-      position: "bottom-right",
-      size: 24,
-      opacity: 100,
-    },
+    profileOverrides: null,
   },
 });
 
@@ -110,17 +77,18 @@ describe("image render types", () => {
 
   it("changes the revision key when semantic effect data changes", () => {
     const first = createImageRenderDocument(createDocumentInput());
+    const base = createDocumentInput();
     const second = createImageRenderDocument({
-      ...createDocumentInput(),
+      ...base,
       effects: [
         {
-          ...createDocumentInput().effects[0]!,
+          ...base.effects[0]!,
           params: {
-            ...createDocumentInput().effects[0]!.params,
+            ...base.effects[0]!.params,
             contrast: 1.4,
           },
         },
-        createDocumentInput().effects[1]!,
+        base.effects[1]!,
       ],
     });
 
@@ -128,15 +96,16 @@ describe("image render types", () => {
   });
 
   it("resolves enabled effects for a placement in stable order", () => {
+    const base = createDocumentInput();
     const document = createImageRenderDocument({
-      ...createDocumentInput(),
+      ...base,
       effects: [
         {
-          ...createDocumentInput().effects[0]!,
+          ...base.effects[0]!,
           placement: "afterDevelop",
         },
         {
-          ...createDocumentInput().effects[1]!,
+          ...base.effects[1]!,
           placement: "afterOutput",
         },
         {
@@ -154,13 +123,12 @@ describe("image render types", () => {
       ],
     });
 
-    expect(resolveImageRenderEffectsForPlacement(document.effects, "afterDevelop").map((effect) => effect.id)).toEqual([
-      "ascii-1",
-    ]);
-    expect(resolveImageRenderEffectsForPlacement(document.effects, "afterFilm").map((effect) => effect.id)).toEqual([
-    ]);
-    expect(resolveImageRenderEffectsForPlacement(document.effects, "afterOutput").map((effect) => effect.id)).toEqual([
-      "filter-1",
-    ]);
+    expect(
+      resolveImageRenderEffectsForPlacement(document.effects, "afterDevelop").map((effect) => effect.id)
+    ).toEqual(["ascii-1"]);
+    expect(resolveImageRenderEffectsForPlacement(document.effects, "afterFilm")).toEqual([]);
+    expect(
+      resolveImageRenderEffectsForPlacement(document.effects, "afterOutput").map((effect) => effect.id)
+    ).toEqual(["filter-1"]);
   });
 });

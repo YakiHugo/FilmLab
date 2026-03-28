@@ -1,4 +1,17 @@
-import type { Asset, AsciiAdjustments, EditingAdjustments, FilmProfile, LocalAdjustment } from "@/types";
+import type {
+  AspectRatio,
+  Asset,
+  AsciiAdjustments,
+  BwMixAdjustments,
+  CalibrationAdjustments,
+  ColorGradingAdjustments,
+  FilmProfile,
+  FilmProfileOverrides,
+  HslAdjustments,
+  LocalAdjustmentDelta,
+  LocalAdjustmentMask,
+  PointCurveAdjustments,
+} from "@/types";
 
 export const IMAGE_RENDER_INTENTS = ["preview", "export"] as const;
 export type ImageRenderIntent = (typeof IMAGE_RENDER_INTENTS)[number];
@@ -43,7 +56,7 @@ export interface ImageRenderGeometry {
   scale: number;
   flipHorizontal: boolean;
   flipVertical: boolean;
-  aspectRatio: EditingAdjustments["aspectRatio"];
+  aspectRatio: AspectRatio;
   customAspectRatio: number;
   opticsProfile: boolean;
   opticsCA: boolean;
@@ -54,32 +67,98 @@ export interface ImageRenderGeometry {
   opticsVignetteMidpoint: number;
 }
 
+export interface ImageRenderToneState {
+  exposure: number;
+  contrast: number;
+  highlights: number;
+  shadows: number;
+  whites: number;
+  blacks: number;
+}
+
+export interface ImageRenderColorState {
+  temperature: number;
+  tint: number;
+  hue: number;
+  temperatureKelvin?: number;
+  tintMG?: number;
+  vibrance: number;
+  saturation: number;
+  pointCurve: PointCurveAdjustments;
+  hsl: HslAdjustments;
+  bwEnabled: boolean;
+  bwMix: BwMixAdjustments;
+  calibration: CalibrationAdjustments;
+  colorGrading: ColorGradingAdjustments;
+}
+
+export interface ImageRenderDetailState {
+  texture: number;
+  clarity: number;
+  dehaze: number;
+  sharpening: number;
+  sharpenRadius: number;
+  sharpenDetail: number;
+  masking: number;
+  noiseReduction: number;
+  colorNoiseReduction: number;
+}
+
+export interface ImageRenderFxState {
+  vignette: number;
+  grain: number;
+  grainSize: number;
+  grainRoughness: number;
+  glowIntensity: number;
+  glowMidtoneFocus: number;
+  glowBias: number;
+  glowRadius: number;
+  customLut?: {
+    enabled: boolean;
+    path: string;
+    size: 8 | 16;
+    intensity: number;
+  };
+  pushPullEv?: number;
+}
+
+export interface ImageRenderDevelopRegion {
+  id: string;
+  enabled: boolean;
+  amount: number;
+  maskId: string;
+  adjustments: LocalAdjustmentDelta;
+}
+
 export interface ImageRenderDevelopState {
-  // Transitional bundle until the new kernel fully stops reading legacy adjustment shapes.
-  adjustments: EditingAdjustments;
+  tone: ImageRenderToneState;
+  color: ImageRenderColorState;
+  detail: ImageRenderDetailState;
+  fx: ImageRenderFxState;
+  regions: ImageRenderDevelopRegion[];
 }
 
 export interface ImageRenderMaskDefinition {
   id: string;
-  kind: "legacy-local-adjustment";
+  kind: "local-adjustment" | "legacy-local-adjustment";
   sourceLocalAdjustmentId: string;
-  mask: LocalAdjustment["mask"];
+  mask: LocalAdjustmentMask;
 }
 
 export interface ImageRenderMaskState {
   byId: Record<string, ImageRenderMaskDefinition>;
-  localAdjustments: LocalAdjustment[];
 }
 
 export interface ImageRenderFilmState {
   profileId: string | null;
   profile: FilmProfile | null | undefined;
+  profileOverrides?: FilmProfileOverrides | null;
 }
 
 export interface ImageRenderOutputState {
   timestamp: {
     enabled: boolean;
-    position: EditingAdjustments["timestampPosition"];
+    position: "bottom-right" | "bottom-left" | "top-right" | "top-left";
     size: number;
     opacity: number;
   };
@@ -97,6 +176,7 @@ export interface ImageFilter2dEffectNode {
   type: "filter2d";
   enabled: boolean;
   placement: ImageEffectPlacement;
+  maskId?: string;
   params: ImageFilter2dEffectParams;
 }
 
@@ -138,15 +218,18 @@ export interface ImageAsciiEffectNode {
 
 export type ImageEffectNode = ImageAsciiEffectNode | ImageFilter2dEffectNode;
 
-export interface ImageRenderDocument {
-  id: string;
-  source: ImageRenderSource;
+export interface CanvasImageRenderStateV1 {
   geometry: ImageRenderGeometry;
   develop: ImageRenderDevelopState;
   masks: ImageRenderMaskState;
   effects: ImageEffectNode[];
   film: ImageRenderFilmState;
   output: ImageRenderOutputState;
+}
+
+export interface ImageRenderDocument extends CanvasImageRenderStateV1 {
+  id: string;
+  source: ImageRenderSource;
   revisionKey: string;
 }
 
@@ -191,6 +274,21 @@ export const createImageRenderDocument = (
   ...document,
   revisionKey: buildImageRenderDocumentRevisionKey(document),
 });
+
+export const createImageRenderDocumentFromState = ({
+  id,
+  source,
+  state,
+}: {
+  id: string;
+  source: ImageRenderSource;
+  state: CanvasImageRenderStateV1;
+}) =>
+  createImageRenderDocument({
+    id,
+    source,
+    ...state,
+  });
 
 export const resolveImageRenderEffectsForPlacement = (
   effects: readonly ImageEffectNode[],

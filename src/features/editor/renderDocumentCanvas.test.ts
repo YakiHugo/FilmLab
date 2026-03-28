@@ -5,14 +5,17 @@ import { createRenderDocument } from "./document";
 import { renderDocumentToCanvas } from "./renderDocumentCanvas";
 
 const renderImageToCanvasMock = vi.fn();
+const renderDevelopBaseToCanvasMock = vi.fn();
 const composeRenderGraphToCanvasMock = vi.fn();
+const applyTimestampOverlayMock = vi.fn();
 
 vi.mock("@/lib/imageProcessing", () => ({
   renderImageToCanvas: (...args: unknown[]) => renderImageToCanvasMock(...args),
+  renderDevelopBaseToCanvas: (...args: unknown[]) => renderDevelopBaseToCanvasMock(...args),
 }));
 
 vi.mock("@/lib/timestampOverlay", () => ({
-  applyTimestampOverlay: vi.fn(),
+  applyTimestampOverlay: (...args: unknown[]) => applyTimestampOverlayMock(...args),
 }));
 
 vi.mock("./renderGraphComposition", async () => {
@@ -46,6 +49,7 @@ describe("renderDocumentToCanvas", () => {
       })),
     });
     renderImageToCanvasMock.mockResolvedValue(undefined);
+    renderDevelopBaseToCanvasMock.mockResolvedValue(undefined);
     composeRenderGraphToCanvasMock.mockResolvedValue(true);
   });
 
@@ -232,5 +236,53 @@ describe("renderDocumentToCanvas", () => {
       },
       renderSlot: expect.stringContaining(":single"),
     });
+  });
+
+  it("routes develop-base single-layer renders through the pre-film helper without timestamp overlay", async () => {
+    const asset = createAsset("asset-a");
+    const renderDocument = createRenderDocument({
+      key: "editor:asset-a:develop-base",
+      assetById: new Map([[asset.id, asset]]),
+      documentAsset: asset,
+      layers: [
+        {
+          id: "base",
+          name: "Base",
+          type: "base",
+          visible: true,
+          opacity: 100,
+          blendMode: "normal",
+          adjustments: createDefaultAdjustments(),
+        },
+      ],
+      adjustments: createDefaultAdjustments(),
+      filmProfile: asset.filmProfile,
+    });
+    const canvas = globalThis.document.createElement("canvas");
+
+    await renderDocumentToCanvas({
+      canvas,
+      document: renderDocument,
+      intent: "export-full",
+      targetSize: {
+        width: 800,
+        height: 600,
+      },
+      stage: "develop-base",
+      timestampText: "2026.03.28",
+    });
+
+    expect(renderDevelopBaseToCanvasMock).toHaveBeenCalledTimes(1);
+    expect(renderDevelopBaseToCanvasMock.mock.calls[0]?.[0]).toMatchObject({
+      canvas,
+      filmProfile: undefined,
+      timestampText: null,
+      targetSize: {
+        width: 800,
+        height: 600,
+      },
+    });
+    expect(renderImageToCanvasMock).not.toHaveBeenCalled();
+    expect(applyTimestampOverlayMock).not.toHaveBeenCalled();
   });
 });
