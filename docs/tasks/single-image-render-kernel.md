@@ -109,18 +109,49 @@ flowchart LR
 - Legacy image nodes are still read-compatible. Eager asset-aware canonicalization of old snapshots is still deferred; legacy nodes only become canonical when they are inserted, duplicated, edited through the image property path, or rendered with an asset in hand.
 - `src/lib/imageProcessing.ts` still executes legacy-shaped low-level settings internally; canonical state is compiled down before entering that layer.
 - Board/global stylization is intentionally out of scope. This task only completes the single-image kernel.
+- This task does **not** mean the old renderer can be deleted wholesale. The canvas single-image path is on the new kernel, but the low-level bridge and non-canvas callers still exist.
+
+## Current Status
+
+- Scoped target: done.
+- The new single-image pipeline is now the canonical path for:
+  - canvas image authoring state
+  - canvas single-image preview
+  - canvas single-image export
+  - raster effects such as ASCII and `filter2d`
+- It is **not** yet the green light for:
+  - deleting the old single-image-compatible renderer helpers from `imageProcessing`
+  - deleting legacy adjustment compilation
+  - treating editor or scene/global render paths as migrated
+
+## Remaining Work
+
+- `legacy-pipeline-retirement-readiness`
+  - Confirm the remaining live callers that still depend on legacy-shaped low-level settings.
+  - Add a short parity checklist before deleting any old single-image-specific branches:
+    - plain photo
+    - film only
+    - film + ASCII
+    - `afterDevelop` ASCII
+    - masked ASCII / masked `filter2d`
+    - invalid or missing film profile id
+  - Only remove old single-image branches after parity is stable across preview/export.
+- `low-level-settings-cutover`
+  - Decide whether `stateCompiler -> imageProcessing` remains an acceptable long-term bridge.
+  - If not, introduce a real low-level canonical process contract and retire legacy-shaped settings incrementally.
+- `scene-level-follow-up`
+  - Board/global stylization and scene-level effect graph work remain separate tasks.
 
 ## Validation
 
 - Passed:
-  - `pnpm exec vitest --run src/render/image`
-  - `pnpm exec vitest --run src/features/editor/renderDocumentCanvas.test.ts`
-  - `pnpm exec vitest --run src/features/canvas`
+  - `pnpm exec vitest --run src/render/image src/features/editor/renderDocumentCanvas.test.ts`
+  - `pnpm exec vitest --run src/features/canvas src/stores/canvasStore.test.ts`
   - `pnpm exec tsc -p tsconfig.json --noEmit`
 
 ## Handoff
 
-- The original single-image architecture target is now in place:
+- The original single-image architecture target is now in place for canvas single-image work:
   - canvas image nodes persist canonical `renderState`
   - preview and single-image export share one runtime entry
   - `render/image` is the single-image kernel boundary
@@ -133,7 +164,6 @@ flowchart LR
   - timestamp overlay is restored from canonical output state in the single-image kernel
   - masked effect gating uses stable placement-stage snapshots instead of already-mutated bucket output
   - unresolved legacy image nodes are preserved until an asset-backed canonicalization boundary is reached; live mutation paths no longer fabricate generic render state
-- Follow-up work should move to separate tasks:
-  - eager asset-aware canonicalization of legacy image nodes when assets are available
-  - further low-level `imageProcessing` cleanup if the legacy adjustment bridge becomes a maintenance hotspot
-  - board/global stylization and scene-level effect graph work
+- The next agent should treat this task as **completed for its scoped target** and start from the follow-up tasks above instead of reopening the cutover blindly.
+- Do **not** remove the old renderer wholesale from this task alone.
+- If a later agent wants to delete old single-image branches, that agent should first prove parity and inventory remaining live callers.

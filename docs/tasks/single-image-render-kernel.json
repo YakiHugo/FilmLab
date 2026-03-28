@@ -1,6 +1,8 @@
 {
   "baseline": "single-image-render-kernel",
   "current": "done",
+  "safeToRemoveLegacyPipeline": false,
+  "nextTaskId": "legacy-pipeline-retirement-readiness",
   "tasks": [
     {
       "id": "contracts-and-legacy-adapter",
@@ -75,6 +77,28 @@
         "legacy ascii mapping preserves replacement semantics",
         "pnpm exec vitest --run src/render/image src/features/canvas",
         "pnpm exec tsc -p tsconfig.json --noEmit"
+      ]
+    },
+    {
+      "id": "legacy-pipeline-retirement-readiness",
+      "status": "pending",
+      "passes": [
+        "remaining live callers of legacy-shaped low-level settings are inventoried",
+        "preview/export parity checklist is green before deleting old single-image branches"
+      ]
+    },
+    {
+      "id": "low-level-settings-cutover",
+      "status": "pending",
+      "passes": [
+        "single-image runtime no longer depends on legacy-shaped low-level settings, or the bridge is explicitly accepted as permanent"
+      ]
+    },
+    {
+      "id": "scene-level-follow-up",
+      "status": "pending",
+      "passes": [
+        "board/global stylization work is tracked separately from the single-image kernel task"
       ]
     }
   ]
