@@ -200,6 +200,7 @@ const syncNowIso = () => new Date().toISOString();
 let isSyncRunning = false;
 let assetStoreEpoch = 0;
 let lastRemoteChangeCursor: string | undefined;
+let pendingAssetInitPromise: Promise<void> | null = null;
 const THUMBNAIL_REFRESH_DEBOUNCE_MS = 220;
 const pendingThumbnailRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const thumbnailRefreshVersions = new Map<string, number>();
@@ -605,15 +606,20 @@ export const useAssetStore = create<CurrentUserState>()(
         selectedAssetIds: [],
 
       init: async () => {
-        set({ isLoading: true });
-        assetStoreEpoch += 1;
-        const initScope = captureAssetStoreScope();
-        let currentUser = defaultCurrentUser();
-        let committed = false;
-        const hydratedAssets: Asset[] = [];
-        const hydratedPairs: Array<{ asset: Asset; stored: StoredAsset }> = [];
+        if (pendingAssetInitPromise) {
+          return pendingAssetInitPromise;
+        }
 
-        try {
+        pendingAssetInitPromise = (async () => {
+          set({ isLoading: true });
+          assetStoreEpoch += 1;
+          const initScope = captureAssetStoreScope();
+          let currentUser = defaultCurrentUser();
+          let committed = false;
+          const hydratedAssets: Asset[] = [];
+          const hydratedPairs: Array<{ asset: Asset; stored: StoredAsset }> = [];
+
+          try {
           const userId = initScope.userId;
           lastRemoteChangeCursor = undefined;
           const storedCurrentUser = await loadCurrentUser(userId);
@@ -780,16 +786,21 @@ export const useAssetStore = create<CurrentUserState>()(
             }));
             Array.from(recoveredDeletes.values()).forEach(persistAsset);
           }
-        } catch (error) {
-          if (!committed && hydratedAssets.length > 0) {
-            revokeAssetUrls(hydratedAssets);
+          } catch (error) {
+            if (!committed && hydratedAssets.length > 0) {
+              revokeAssetUrls(hydratedAssets);
+            }
+            console.warn("Asset store initialization failed.", error);
+            set((state) => ({
+              currentUser: state.currentUser ?? currentUser,
+              isLoading: false,
+            }));
           }
-          console.warn("Asset store initialization failed.", error);
-          set((state) => ({
-            currentUser: state.currentUser ?? currentUser,
-            isLoading: false,
-          }));
-        }
+        })().finally(() => {
+          pendingAssetInitPromise = null;
+        });
+
+        return pendingAssetInitPromise;
       },
 
       importAssets: async (filesInput, options) => {
