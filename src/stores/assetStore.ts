@@ -71,7 +71,6 @@ import type {
   CurrentUserState,
   MaterializedRemoteAssetInput,
 } from "./currentUser/types";
-import { useEditorStore } from "./editorStore";
 
 const findPresetById = (presetId: string) => {
   const builtIn = presets.find((preset) => preset.id === presetId);
@@ -592,7 +591,6 @@ export const useAssetStore = create<CurrentUserState>()(
 
         persistAsset(queuedAsset);
         enqueueUploadJobs([queuedAsset]);
-        useEditorStore.getState().clearHistory(assetId);
         scheduleReferencedThumbnailRefreshes(assetId, set, get);
         return true;
       };

@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
-import { createEditorAssetSnapshot } from "@/features/editor/history";
 import type { RenderMaterializationOutput } from "@/features/editor/renderMaterialization";
 import type { Asset } from "@/types";
 
@@ -148,7 +147,6 @@ describe("assetStore render materialization", () => {
     );
 
     const { useAssetStore } = await import("./assetStore");
-    const { useEditorStore } = await import("./editorStore");
 
     useAssetStore.setState({
       currentUser: null,
@@ -157,11 +155,6 @@ describe("assetStore render materialization", () => {
       isImporting: false,
       importProgress: null,
       selectedAssetIds: [],
-    });
-    useEditorStore.setState({
-      selectedAssetId: "asset-1",
-      selectedLayerId: "layer-top",
-      historyByAssetId: {},
     });
 
     isRenderMaterializationPlanCurrentMock.mockReturnValue(true);
@@ -193,20 +186,19 @@ describe("assetStore render materialization", () => {
     executeRenderMaterializationMock.mockResolvedValue(createMaterializationOutput());
   });
 
-  it("clears editor history after a successful flatten materialization", async () => {
+  it("updates the asset after a successful flatten materialization", async () => {
     const { useAssetStore } = await import("./assetStore");
-    const { useEditorStore } = await import("./editorStore");
-
-    useEditorStore
-      .getState()
-      .pushHistory("asset-1", createEditorAssetSnapshot(createAsset()));
-
-    expect(useEditorStore.getState().historyByAssetId["asset-1"]?.past).toHaveLength(1);
 
     const result = await useAssetStore.getState().flattenLayers("asset-1");
 
     expect(result).toBe(true);
-    expect(useEditorStore.getState().historyByAssetId["asset-1"]).toBeUndefined();
+    const asset = useAssetStore.getState().assets[0];
+    expect(asset?.layers).toHaveLength(1);
+    expect(asset?.layers?.[0]).toMatchObject({
+      id: "base-asset-1",
+      type: "base",
+    });
+    expect(asset?.contentHash).toBe("hash-rendered");
   });
 
   it("abandons materialization if authoring state changes while render is in flight", async () => {

@@ -1,4 +1,3 @@
-import { createDefaultAdjustments } from "@/lib/adjustments";
 import { buildEditorLayerRenderEntries, type EditorLayerRenderEntry } from "./renderPreparation";
 import { buildRenderDocumentDependencyKey } from "./renderDependencies";
 import {
@@ -9,35 +8,7 @@ import {
   type DirtyReason,
   type RenderGraph,
 } from "./renderGraph";
-import { resolveSelectedLocalAdjustment } from "./localAdjustments";
-import type { RenderIntent as EditorRenderIntent } from "@/lib/renderIntent";
-import type {
-  Asset,
-  EditingAdjustments,
-  EditorAdjustmentGroupVisibility,
-  EditorLayer,
-  LocalAdjustment,
-} from "@/types";
-
-export type RenderIntent = EditorRenderIntent;
-
-export interface EditorDocument {
-  key: string;
-  documentKey: string;
-  asset: Asset;
-  sourceAsset: Asset;
-  sourceAssetId: string;
-  assetById: Map<string, Asset>;
-  layers: EditorLayer[];
-  selectedLayer: EditorLayer | null;
-  selectedLayerId: string | null;
-  selectedLayerAdjustments: EditingAdjustments | null;
-  selectedLayerAdjustmentVisibility: EditorAdjustmentGroupVisibility;
-  localAdjustments: LocalAdjustment[];
-  selectedLocalAdjustmentId: string | null;
-  selectedLocalAdjustment: LocalAdjustment | null;
-  dependencyKeys: Omit<DirtyKeyMap, "roi">;
-}
+import type { Asset, EditingAdjustments, EditorLayer } from "@/types";
 
 export interface RenderDocument {
   key: string;
@@ -53,80 +24,6 @@ export interface RenderDocument {
   layerEntries: EditorLayerRenderEntry[];
   showOriginal: boolean;
 }
-
-interface CreateEditorDocumentInput {
-  assets: Asset[];
-  selectedAsset: Asset;
-  layers: EditorLayer[];
-  selectedLayer: EditorLayer | null;
-  selectedLayerAdjustments: EditingAdjustments | null;
-  selectedLayerAdjustmentVisibility: EditorAdjustmentGroupVisibility;
-  selectedLocalAdjustmentId: string | null;
-}
-
-export const createEditorDocument = ({
-  assets,
-  selectedAsset,
-  layers,
-  selectedLayer,
-  selectedLayerAdjustments,
-  selectedLayerAdjustmentVisibility,
-  selectedLocalAdjustmentId,
-}: CreateEditorDocumentInput): EditorDocument => {
-  const assetById = new Map(assets.map((asset) => [asset.id, asset]));
-  const localAdjustments = selectedLayerAdjustments?.localAdjustments ?? [];
-  const documentKey = `editor:${selectedAsset.id}`;
-  const layerEntries = buildEditorLayerRenderEntries({
-    assetById,
-    documentAsset: selectedAsset,
-    layers,
-  });
-  const renderGraph = buildRenderGraph({
-    documentKey,
-    sourceAsset: selectedAsset,
-    filmProfile: selectedAsset.filmProfile ?? undefined,
-    layerEntries,
-    showOriginal: false,
-  });
-  const dependencyKeys = buildRenderDocumentDirtyKeys({
-    documentKey,
-    sourceAsset: selectedAsset,
-    adjustments:
-      selectedLayerAdjustments ?? selectedAsset.adjustments ?? createDefaultAdjustments(),
-    filmProfile: selectedAsset.filmProfile ?? undefined,
-    showOriginal: false,
-    renderGraph,
-  });
-
-  return {
-    key: documentKey,
-    documentKey,
-    asset: selectedAsset,
-    sourceAsset: selectedAsset,
-    sourceAssetId: selectedAsset.id,
-    assetById,
-    layers,
-    selectedLayer,
-    selectedLayerId: selectedLayer?.id ?? null,
-    selectedLayerAdjustments,
-    selectedLayerAdjustmentVisibility,
-    localAdjustments,
-    selectedLocalAdjustmentId,
-    selectedLocalAdjustment: resolveSelectedLocalAdjustment(
-      localAdjustments,
-      selectedLocalAdjustmentId
-    ),
-    dependencyKeys: {
-      source: dependencyKeys.source,
-      "layer-stack": dependencyKeys["layer-stack"],
-      "layer-adjustments": dependencyKeys["layer-adjustments"],
-      "layer-mask": dependencyKeys["layer-mask"],
-      "document-adjustments": dependencyKeys["document-adjustments"],
-      "film-profile": dependencyKeys["film-profile"],
-      "local-adjustments": dependencyKeys["local-adjustments"],
-    },
-  };
-};
 
 interface CreateRenderDocumentInput {
   key: string;

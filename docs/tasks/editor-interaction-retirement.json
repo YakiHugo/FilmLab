@@ -1,0 +1,21 @@
+{
+  "baseline": "editor-interaction-retirement",
+  "current": "in_progress",
+  "nextTaskId": "shared-editor-boundary-cleanup",
+  "tasks": [
+    {
+      "id": "legacy-interaction-state-retirement",
+      "status": "done",
+      "passes": [
+        "dead editor interaction/session modules are removed without breaking retained asset or canvas flows"
+      ]
+    },
+    {
+      "id": "shared-editor-boundary-cleanup",
+      "status": "pending",
+      "passes": [
+        "retained shared render/materialization helpers are renamed or moved behind non-editor ownership"
+      ]
+    }
+  ]
+}
