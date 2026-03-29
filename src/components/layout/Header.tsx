@@ -2,7 +2,7 @@ import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { CirclePlus, Film, Sparkles } from "lucide-react";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { useOptionalCanvasWorkbenchTransitionGuard } from "@/features/canvas/canvasWorkbenchTransitionGuard";
+import { useOptionalCanvasWorkbenchTransitionGuard } from "@/features/canvas/canvasWorkbenchTransitionGuardHooks";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { selectLoadedWorkbenchName } from "@/features/canvas/store/canvasStoreSelectors";

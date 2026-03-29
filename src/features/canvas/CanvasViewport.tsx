@@ -6,7 +6,8 @@ import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { CanvasViewportOverlayHost } from "./CanvasViewportOverlayHost";
 import { CanvasViewportStageShell } from "./CanvasViewportStageShell";
-import { useRegisterCanvasWorkbenchTransitionGuard } from "./canvasWorkbenchTransitionGuard";
+import { runCanvasWorkbenchTransitionGuard } from "./canvasWorkbenchTransition";
+import { useRegisterCanvasWorkbenchTransitionGuard } from "./canvasWorkbenchTransitionGuardHooks";
 import { VIEWPORT_INSETS } from "./canvasViewportConstants";
 import { useCanvasLoadedWorkbenchCommands } from "./hooks/useCanvasLoadedWorkbenchCommands";
 import { useCanvasLoadedWorkbenchState } from "./hooks/useCanvasLoadedWorkbenchState";
@@ -238,24 +239,13 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
     textSession: textSessionState.textSession,
     textSessionActions: textSessionState.textSessionActions,
   });
-  useRegisterCanvasWorkbenchTransitionGuard(async () => {
-    if (
-      loadedWorkbenchInteractionStatus?.active ||
-      (loadedWorkbenchInteractionStatus?.pendingCommits ?? 0) > 0 ||
-      (loadedWorkbenchInteractionStatus?.queuedMutations ?? 0) > 0
-    ) {
-      throw new Error("Cannot switch workbenches while a canvas interaction is still settling.");
-    }
-
-    if (!textSessionState.textSession.id) {
-      return;
-    }
-
-    const result = await textSessionState.textSessionActions.commit();
-    if (result === "skipped") {
-      throw new Error("Failed to commit active text session before switching workbenches.");
-    }
-  });
+  useRegisterCanvasWorkbenchTransitionGuard(() =>
+    runCanvasWorkbenchTransitionGuard({
+      commitTextSession: textSessionState.textSessionActions.commit,
+      hasActiveTextSession: Boolean(textSessionState.textSession.id),
+      interactionStatus: loadedWorkbenchInteractionStatus,
+    })
+  );
   const resizeState = useCanvasViewportResizeController({
     activeEditingTextId: textEditingState.textRuntimeViewModel.activeEditingTextId,
     assetById,
