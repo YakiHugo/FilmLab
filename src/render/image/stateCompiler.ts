@@ -1,13 +1,11 @@
 import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
-import { getBuiltInFilmProfile, resolveFilmProfile } from "@/lib/film";
+import { getBuiltInFilmProfile } from "@/lib/film";
 import type {
   Asset,
   AsciiAdjustments,
   EditingAdjustments,
   FilmProfile,
-  FilmProfileAny,
   FilmProfileOverrides,
-  LocalAdjustment,
 } from "@/types";
 import type {
   CanvasImageRenderStateV1,
@@ -15,7 +13,6 @@ import type {
   ImageEffectNode,
   ImageFilter2dEffectNode,
   ImageRenderDevelopRegion,
-  ImageRenderDocument,
   ImageRenderFilmState,
   ImageRenderGeometry,
   ImageRenderMaskState,
@@ -205,42 +202,6 @@ export const resolveLegacyMasks = (adjustments: EditingAdjustments): ImageRender
   };
 };
 
-export const resolveLegacyFilmState = ({
-  asset,
-  filmProfile,
-  filmProfileId,
-}: {
-  asset: Asset;
-  filmProfile?: FilmProfile | null | undefined;
-  filmProfileId?: string | null | undefined;
-}): ImageRenderFilmState => {
-  if (filmProfile !== undefined) {
-    return resolveLegacyFilmStateFromInputs({
-      filmProfile,
-      filmProfileOverrides: asset.filmOverrides ?? null,
-    });
-  }
-
-  if (typeof filmProfileId === "string" && filmProfileId.length > 0) {
-    return resolveLegacyFilmStateFromInputs({
-      filmProfileId,
-      filmProfileOverrides: asset.filmOverrides ?? null,
-    });
-  }
-
-  const resolvedProfile =
-    asset.filmProfile ??
-    (asset.filmProfileId ? getBuiltInFilmProfile(asset.filmProfileId) ?? undefined : undefined) ??
-    undefined;
-  const resolvedProfileId = resolvedProfile?.id ?? asset.filmProfileId ?? null;
-
-  return resolveLegacyFilmStateFromInputs({
-    filmProfile: resolvedProfile,
-    filmProfileId: resolvedProfileId,
-    filmProfileOverrides: asset.filmOverrides ?? null,
-  });
-};
-
 const resolveLegacyRegions = (adjustments: EditingAdjustments): ImageRenderDevelopRegion[] =>
   (adjustments.localAdjustments ?? []).map((local, index) => ({
     id: local.id || `legacy-local-${index}`,
@@ -335,56 +296,6 @@ export const createDefaultCanvasImageRenderState = ({
   });
 };
 
-export const createCanvasImageRenderStateFromAsset = ({
-  asset,
-  adjustments,
-  filmProfileId,
-  filmProfile,
-}: {
-  asset: Asset;
-  adjustments?: EditingAdjustments;
-  filmProfileId?: string | null | undefined;
-  filmProfile?: FilmProfile | null | undefined;
-}): CanvasImageRenderStateV1 => {
-  const normalized = normalizeAdjustments(adjustments ?? asset.adjustments ?? DEFAULT_ADJUSTMENTS);
-  return createCanvasImageRenderStateFromNormalizedLegacyInputs({
-    adjustments: normalized,
-    filmState: resolveLegacyFilmState({ asset, filmProfileId, filmProfile }),
-  });
-};
-
-const resolveAsciiAdjustmentsFromEffects = (
-  effects: readonly ImageEffectNode[]
-): AsciiAdjustments => {
-  const effect = effects.find(
-    (candidate): candidate is ImageAsciiEffectNode =>
-      candidate.type === "ascii" && candidate.enabled
-  );
-  return {
-    ...(DEFAULT_ADJUSTMENTS.ascii ?? {
-      enabled: false,
-      charsetPreset: "standard",
-      colorMode: "grayscale",
-      cellSize: 12,
-      characterSpacing: 1,
-      contrast: 1,
-      dither: "none",
-      invert: false,
-    }),
-    enabled: Boolean(effect),
-    charsetPreset:
-      effect?.params.preset === "blocks" || effect?.params.preset === "detailed"
-        ? effect.params.preset
-        : "standard",
-    colorMode: effect?.params.colorMode === "full-color" ? "full-color" : "grayscale",
-    cellSize: effect?.params.cellSize ?? 12,
-    characterSpacing: effect?.params.characterSpacing ?? 1,
-    contrast: effect?.params.contrast ?? 1,
-    dither: effect?.params.dither ?? "none",
-    invert: Boolean(effect?.params.invert),
-  };
-};
-
 const resolveFilter2dFromEffects = (effects: readonly ImageEffectNode[]) => {
   const effect = effects.find(
     (candidate): candidate is ImageFilter2dEffectNode =>
@@ -397,25 +308,6 @@ const resolveFilter2dFromEffects = (effects: readonly ImageEffectNode[]) => {
     dilate: effect?.params.dilate ?? 0,
   };
 };
-
-const resolveLocalAdjustmentsFromState = (
-  state: CanvasImageRenderStateV1
-): LocalAdjustment[] =>
-  state.develop.regions
-    .map((region) => {
-      const maskDefinition = state.masks.byId[region.maskId];
-      if (!maskDefinition) {
-        return null;
-      }
-      return {
-        id: region.id,
-        enabled: region.enabled,
-        amount: region.amount,
-        mask: structuredClone(maskDefinition.mask),
-        adjustments: structuredClone(region.adjustments),
-      } satisfies LocalAdjustment;
-    })
-    .filter((entry): entry is LocalAdjustment => Boolean(entry));
 
 export const compileImageRenderOutputToLegacyTimestampAdjustments = (
   output: ImageRenderOutputState

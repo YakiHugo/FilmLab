@@ -1,20 +1,22 @@
 {
   "baseline": "editor-interaction-retirement",
-  "current": "in_progress",
-  "nextTaskId": "shared-editor-boundary-cleanup",
+  "current": "done",
+  "nextTaskId": null,
   "tasks": [
     {
       "id": "legacy-interaction-state-retirement",
       "status": "done",
       "passes": [
-        "dead editor interaction/session modules are removed without breaking retained asset or canvas flows"
+        "dead editor interaction/session modules are removed without breaking retained flows"
       ]
     },
     {
-      "id": "shared-editor-boundary-cleanup",
-      "status": "pending",
+      "id": "asset-authored-state-retirement",
+      "status": "done",
       "passes": [
-        "retained shared render/materialization helpers are renamed or moved behind non-editor ownership"
+        "asset records no longer persist editor-authored render state",
+        "canvas preview and export depend only on source assets plus node renderState",
+        "no live source imports remain for retired editor modules"
       ]
     }
   ]

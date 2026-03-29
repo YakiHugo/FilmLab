@@ -1,99 +1,101 @@
 # Editor Interaction Retirement
 
-- Baseline: `the standalone editor interaction/state stack is no longer on an active page route, but editor-named render/materialization helpers are still used by asset and canvas flows`
-- Scope: retire the unused legacy editor interaction/session layer first, while preserving shared render/materialization, thumbnail, dependency, and canvas-reused UI helpers
+- Baseline: `asset records and canvas fallback paths still carried legacy editor-authored image state even though canvas renderState was already the real editing source`
+- Scope: retire the remaining asset-level editor rendering surface so imported assets are source-only and canvas image nodes own all editable render state
 
 ## Decisions
 
-- Retire only modules whose runtime consumers are the old editor interaction stack itself.
-- Keep `src/features/editor/render*`, `thumbnail`, `history` snapshot equality helpers, `presetUtils`, and canvas-reused UI primitives for this slice.
-- Remove `editorStore` instead of keeping a dead state container with one remaining `clearHistory` caller.
-- If a helper is only retained because of the retired interaction stack, remove it in the same slice instead of leaving dead leaf modules behind.
+- `CanvasImageElement.renderState` is the only editable image-render source of truth.
+- Asset records now keep only source media, thumbnail data, metadata, sync state, and ownership fields.
+- Legacy IndexedDB asset fields such as `adjustments`, `layers`, `presetId`, `intensity`, and `filmProfile*` are ignored on hydrate and never persisted again.
+- Library thumbnails fall back to source thumbnails only; no local editor re-render or materialization path remains.
+- The entire `src/features/editor` tree, asset-side editor helpers in `src/lib/editor*`, and the render-image legacy adapter are retired instead of being renamed in place.
+- Canvas UI primitives and numeric adjustment typing were moved under `src/features/canvas` so live code no longer imports from an editor namespace.
 
 ## Slice Boundary
 
 - In scope:
-  - legacy editor session/store state
-  - legacy editor hooks and keyboard/viewport interaction helpers
-  - editor-only selection/color/crop-guide/histogram/waveform helpers with no remaining live consumers
-  - tests that only cover retired modules
+  - asset model, persistence, import pipeline, and DB cleanup for retired editor-authored fields
+  - asset-store and current-user API cleanup for preset/layer/materialization operations
+  - library batch preset UI removal
+  - canvas default render-state ingress and preview dependency cleanup
+  - deletion of dead editor render/materialization/history/thumbnail modules and their tests
 - Out of scope:
-  - render-backed asset thumbnail generation
-  - render-backed materialization / flatten / merge-down
-  - render document / graph / composition seams still used by asset or canvas flows
-  - canvas image edit panel UI primitives that currently live under `src/features/editor`
-
-## Validation Boundary
-
-- Prove no live source imports remain for the retired interaction/session modules.
-- Pass focused tests for retained editor render/materialization and affected asset-store behavior.
-- Pass typecheck for the changed surface or record the first actionable failure and stop.
+  - changing the underlying single-image render core in `src/render/image/*`
+  - changing server asset sync payloads beyond dropping unused local-only fields
 
 ## Execution Record
 
-- Completed first slice:
-  - removed the dead legacy editor session/store layer by deleting `src/stores/editorStore.ts` and its store-only tests
-  - removed the dead editor interaction hooks: `src/features/editor/useEditorAdjustments.ts`, `src/features/editor/useEditorColorGrading.ts`, `src/features/editor/useEditorFilmProfile.ts`, `src/features/editor/useEditorHistory.ts`, `src/features/editor/useEditorKeyboard.ts`, `src/features/editor/useEditorSlices.ts`, `src/features/editor/useEditorState.ts`, `src/features/editor/useViewportZoom.ts`
-  - removed editor-only helper leaves that existed only for the retired interaction stack: `src/features/editor/colorUtils.ts`, `src/features/editor/cropGeometry.ts`, `src/features/editor/cropGuides.ts`, `src/features/editor/editorPanelConfig.ts`, `src/features/editor/histogram.ts`, `src/features/editor/localAdjustments.ts`, `src/features/editor/selection.ts`, `src/features/editor/utils.ts`, `src/features/editor/waveform.ts`
-  - trimmed `src/features/editor/document.ts` down to the retained render-document boundary by removing `createEditorDocument(...)` and the retired `EditorDocument` shape
-  - updated `src/stores/assetStore.ts` so render-backed materialization no longer reaches into a dead `editorStore.clearHistory(...)` branch
-  - updated retained tests:
-    - `src/features/editor/document.test.ts` now covers only the retained render-document helpers
-    - `src/stores/assetStore.materialization.test.ts` now asserts successful flatten output instead of clearing retired editor history
+- Completed the asset/public API retirement:
+  - removed asset-level editor fields from `Asset`, `AssetUpdate`, stored asset persistence, runtime hydrate, DB records, and import defaults
+  - removed asset-store/current-user preset and layer mutation APIs
+  - stopped writing, reading, or migrating authoring-layer state through IndexedDB
+- Completed the library/runtime decoupling:
+  - removed library batch preset controls and the related batch operation hook surface
+  - removed rendered-thumbnail refresh/materialization/dependency logic from the asset store
+  - switched canvas insert/canonicalization paths to neutral default render state
+- Completed the canvas/editor split:
+  - moved reused section/slider UI and numeric adjustment typing into `src/features/canvas`
+  - removed legacy canvas image node fields so persisted image nodes keep only `assetId` plus `renderState`
+  - simplified preview invalidation to source-asset identity/content plus node render state
+- Completed the editor retirement:
+  - deleted the remaining `src/features/editor/*` implementation and tests
+  - deleted `src/lib/editorAdjustmentVisibility.ts`, `src/lib/editorLayerMasks.ts`, `src/lib/editorLayers.ts`, and their tests
+  - deleted `src/render/image/legacyAdapter.ts` and its test, and removed the public export
 
 ## Files
 
-- `src/features/editor/document.ts`
-  - Retained only the render-document path used by shared render/materialization flows.
-- `src/features/editor/document.test.ts`
-  - Removed coverage for the retired editor-session document builder.
+- `src/types/index.ts`
+  - removed asset-level editor authoring fields from `Asset` and `AssetUpdate`
+- `src/stores/currentUser/persistence.ts`
+  - stopped persisting/normalizing retired editor authoring state
+- `src/stores/currentUser/runtimeAsset.ts`
+  - hydrates source-only assets and drops legacy stored editor fields
+- `src/stores/currentUser/importPipeline.ts`
+  - imports assets without preset, film, or layer defaults
+- `src/lib/db.ts`
+  - removed asset authoring fields from stored records and deleted mask hydration logic tied to those fields
 - `src/stores/assetStore.ts`
-  - Removed the last runtime dependency on `editorStore`.
-- `src/stores/assetStore.materialization.test.ts`
-  - Replaced the retired history-clearing assertion with a successful-flatten assertion.
-- Deleted runtime modules:
-  - `src/stores/editorStore.ts`
-  - `src/features/editor/useEditorAdjustments.ts`
-  - `src/features/editor/useEditorColorGrading.ts`
-  - `src/features/editor/useEditorFilmProfile.ts`
-  - `src/features/editor/useEditorHistory.ts`
-  - `src/features/editor/useEditorKeyboard.ts`
-  - `src/features/editor/useEditorSlices.ts`
-  - `src/features/editor/useEditorState.ts`
-  - `src/features/editor/useViewportZoom.ts`
-  - `src/features/editor/colorUtils.ts`
-  - `src/features/editor/cropGeometry.ts`
-  - `src/features/editor/cropGuides.ts`
-  - `src/features/editor/editorPanelConfig.ts`
-  - `src/features/editor/histogram.ts`
-  - `src/features/editor/localAdjustments.ts`
-  - `src/features/editor/selection.ts`
-  - `src/features/editor/utils.ts`
-  - `src/features/editor/waveform.ts`
-- Deleted test-only modules for retired code:
-  - `src/stores/editorStore.history.test.ts`
-  - `src/stores/editorStore.layers.test.ts`
-  - `src/stores/editorStore.ui.test.ts`
-  - `src/features/editor/histogram.test.ts`
-  - `src/features/editor/localAdjustments.test.ts`
-  - `src/features/editor/selection.test.ts`
+  - removed preset/layer/materialization APIs and rendered-thumbnail refresh flow
+- `src/features/library/hooks/useBatchOperations.ts`
+  - removed batch preset application support
+- `src/features/library/AssetMetadataPanel.tsx`
+  - removed batch preset UI
+- `src/features/canvas/CanvasImageEditPanel.tsx`
+  - now depends only on canvas-owned edit components and node render state
+- `src/features/canvas/store/canvasWorkbenchService.ts`
+  - canonicalizes missing image render state with neutral defaults
+- `src/features/canvas/components/CanvasEditSection.tsx`
+  - new home for the canvas edit section primitive
+- `src/features/canvas/components/CanvasSliderRow.tsx`
+  - new home for the canvas slider-row primitive
+- `src/features/canvas/components/controls/SliderControl.tsx`
+  - new canvas-local slider wrapper
+- `src/features/canvas/imageAdjustmentTypes.ts`
+  - new canvas-local numeric adjustment key typing
+- `src/render/image/index.ts`
+  - removed the legacy asset adapter export
+- Deleted module trees:
+  - `src/features/editor/*`
+  - `src/lib/editorAdjustmentVisibility.ts`
+  - `src/lib/editorLayerMasks.ts`
+  - `src/lib/editorLayers.ts`
+  - `src/render/image/legacyAdapter.ts`
 
 ## Validation
 
 - Passed type validation:
   - `pnpm exec tsc -p tsconfig.json --noEmit`
-- Passed focused retained-flow regression:
-  - `pnpm exec vitest --run src/stores/assetStore.materialization.test.ts src/features/editor/document.test.ts src/features/editor/renderDocumentCanvas.test.ts src/features/editor/renderMaterialization.test.ts src/features/editor/renderGraph.test.ts`
-- Passed live-source inventory for retired interaction/session symbols:
-  - `rg -n --hidden "useEditorStore|useEditorState|useEditorSlices|useEditorAdjustments|useEditorColorGrading|useEditorFilmProfile|useEditorHistory|useViewportZoom|useEditorKeyboard|editorPanelConfig|cropGuides|colorUtils|cropGeometry" src`
-  - no matches
-  - `rg -n --hidden "createEditorDocument\(|EditorDocument\b" src`
-  - no matches
+- Passed focused regression suite:
+  - `pnpm exec vitest --run src/features/canvas/boardImageRendering.test.ts src/stores/canvasStore.test.ts src/features/canvas/runtime/canvasPreviewRuntimeState.test.ts src/features/canvas/imageNodeFactory.test.ts src/features/canvas/selectionModel.test.ts src/features/canvas/hooks/useCanvasImagePropertyActions.test.ts src/features/canvas/imagePropertyState.test.ts src/features/canvas/renderCanvasDocument.test.ts src/features/canvas/store/canvasWorkbenchNodeHelpers.test.ts src/render/image/stateCompiler.test.ts src/stores/currentUser/runtimeAsset.test.ts src/stores/currentUserStore.import.test.ts`
+- Passed live-source inventory:
+  - no matches for `@/features/editor`
+  - no matches for `editorAdjustmentVisibility`
+  - no matches for `editorLayers`
+  - no matches for `createCanvasImageRenderStateFromAsset`
+  - no matches for `legacyAdapter`
 
 ## Handoff
 
-- After this slice, any remaining `src/features/editor/*` modules should be treated as shared asset/canvas support until proven otherwise.
-- A follow-up slice can rename or move the retained shared modules out of `features/editor` once the dead interaction layer is gone.
-- Still open after this slice:
-  - editor-named shared render/materialization modules remain in place
-  - editor render graph stage taxonomy still carries the older `develop / film / fx / output` naming and should be cleaned up separately
+- Old locally stored assets now render as source images in the library; preserving previous editor-authored appearance is intentionally unsupported.
+- Canvas continues to own all editable image rendering state through node `renderState`; no data migration was required for existing workbenches.
