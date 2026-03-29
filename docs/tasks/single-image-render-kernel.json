@@ -80,11 +80,20 @@
       ]
     },
     {
+      "id": "editor-render-entry-cutover",
+      "status": "done",
+      "passes": [
+        "renderDocumentToCanvas routes direct and per-layer editor image renders through renderSingleImageToCanvas",
+        "unused editor preview render-pipeline modules are removed",
+        "pnpm exec vitest --run src/features/editor/renderDocumentCanvas.test.ts src/features/editor/renderMaterialization.test.ts src/render/image/renderSingleImage.test.ts",
+        "pnpm exec tsc -p tsconfig.json --noEmit"
+      ]
+    },
+    {
       "id": "legacy-pipeline-retirement-readiness",
       "status": "pending",
       "passes": [
-        "remaining live callers of legacy-shaped low-level settings are inventoried",
-        "preview/export parity checklist is green before deleting old single-image branches"
+        "preview/export/materialization parity checklist is green before deleting low-level legacy-shaped branches"
       ]
     },
     {

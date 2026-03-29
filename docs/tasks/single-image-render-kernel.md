@@ -18,6 +18,10 @@
   - `afterFilm`
   - `timestamp`
   - `afterOutput`
+- Editor render-backed export paths now reuse the same single-image kernel per renderable image:
+  - `renderDocumentToCanvas(...)` adapts editor document/layer inputs into `ImageRenderDocument`
+  - direct single-image renders call `renderSingleImageToCanvas(...)`
+  - multi-layer renders still composite in the editor backend, but each rendered layer now comes from the single-image kernel
 - ASCII and `filter2d` are effect nodes. `maskId` now executes through real mask rasterization and masked compositing, not lookup-only plumbing.
 - ASCII analysis cache keys include `revisionKey + placement + analysisSource + targetSize + quality + maskRevisionKey`.
 - Legacy compatibility remains ingress-only:
@@ -42,6 +46,15 @@ flowchart LR
   H --> I["afterFilm effects"]
   I --> J["timestamp / afterOutput"]
   J --> K["preview canvas / single-image export"]
+```
+
+```mermaid
+flowchart LR
+  A["Editor RenderDocument / RenderLayerNode"] --> B["editor imageRenderAdapter"]
+  B --> C["renderSingleImageToCanvas"]
+  C --> D["per-layer canvas output"]
+  D --> E["canvas2d layer composite (only when multiple layers need stacking)"]
+  E --> F["thumbnail / materialization / render-backed export"]
 ```
 
 ## Files
@@ -71,6 +84,13 @@ flowchart LR
   - Asset-backed canonicalization is explicit: if the asset is missing, live mutation paths preserve legacy node fields or surface the image as temporarily non-editable instead of fabricating generic render state.
 - `src/features/canvas/renderCanvasDocument.ts`
   - Single-image export path now shares the same runtime entry.
+- `src/features/editor/imageRenderAdapter.ts`
+  - Editor-to-kernel boundary. Converts editor document and layer render inputs into `ImageRenderDocument` plus kernel request metadata without leaving the canonical single-image runtime boundary once rendering starts.
+- `src/features/editor/renderDocumentCanvas.ts`
+  - Render-backed editor export/materialization/thumbnail entry.
+  - Direct document renders and per-layer renders now call `renderSingleImageToCanvas(...)`; multi-layer composition still happens through the existing canvas2d backend, followed by one final timestamp overlay pass.
+- `src/features/editor/preview/*`
+  - Removed. The old editor-only preview scheduler, retained-canvas pipeline, and related preview helpers no longer have live product callers and have been retired instead of being kept on the old render entry.
 - `src/features/canvas/runtime/canvasPreviewRuntimeState.ts`
   - Preview runtime now tracks `draftRenderStateByElementId` instead of draft adjustments.
 - `src/features/canvas/runtime/canvasRuntimeScope.ts`
@@ -109,7 +129,7 @@ flowchart LR
 - Legacy image nodes are still read-compatible. Eager asset-aware canonicalization of old snapshots is still deferred; legacy nodes only become canonical when they are inserted, duplicated, edited through the image property path, or rendered with an asset in hand.
 - `src/lib/imageProcessing.ts` still executes legacy-shaped low-level settings internally; canonical state is compiled down before entering that layer.
 - Board/global stylization is intentionally out of scope. This task only completes the single-image kernel.
-- This task does **not** mean the old renderer can be deleted wholesale. The canvas single-image path is on the new kernel, but the low-level bridge and non-canvas callers still exist.
+- This task still does **not** mean the low-level renderer can be deleted wholesale. The remaining legacy boundary is now the canonical-to-low-level settings bridge inside `src/render/image/stateCompiler.ts` and `src/lib/imageProcessing.ts`, not the old editor render entrypoints.
 
 ## Current Status
 
@@ -118,24 +138,25 @@ flowchart LR
   - canvas image authoring state
   - canvas single-image preview
   - canvas single-image export
+  - editor render-backed export/materialization/thumbnail image rendering
   - raster effects such as ASCII and `filter2d`
+- The old editor preview-only render pipeline has been removed because it no longer had live callers.
 - It is **not** yet the green light for:
-  - deleting the old single-image-compatible renderer helpers from `imageProcessing`
+  - deleting the low-level stage helpers from `imageProcessing`
   - deleting legacy adjustment compilation
-  - treating editor or scene/global render paths as migrated
+  - treating scene/global render paths as migrated
 
 ## Remaining Work
 
 - `legacy-pipeline-retirement-readiness`
-  - Confirm the remaining live callers that still depend on legacy-shaped low-level settings.
-  - Add a short parity checklist before deleting any old single-image-specific branches:
+  - Keep the parity checklist explicit while the low-level canonical-to-legacy bridge still exists:
     - plain photo
     - film only
     - film + ASCII
     - `afterDevelop` ASCII
     - masked ASCII / masked `filter2d`
     - invalid or missing film profile id
-  - Only remove old single-image branches after parity is stable across preview/export.
+  - Only remove low-level legacy-shaped branches after parity is stable across preview/export/materialization.
 - `low-level-settings-cutover`
   - Decide whether `stateCompiler -> imageProcessing` remains an acceptable long-term bridge.
   - If not, introduce a real low-level canonical process contract and retire legacy-shaped settings incrementally.
@@ -147,6 +168,7 @@ flowchart LR
 - Passed:
   - `pnpm exec vitest --run src/render/image src/features/editor/renderDocumentCanvas.test.ts`
   - `pnpm exec vitest --run src/features/canvas src/stores/canvasStore.test.ts`
+  - `pnpm exec vitest --run src/features/editor/renderDocumentCanvas.test.ts src/features/editor/renderMaterialization.test.ts src/render/image/renderSingleImage.test.ts`
   - `pnpm exec tsc -p tsconfig.json --noEmit`
 
 ## Handoff
@@ -154,6 +176,7 @@ flowchart LR
 - The original single-image architecture target is now in place for canvas single-image work:
   - canvas image nodes persist canonical `renderState`
   - preview and single-image export share one runtime entry
+  - editor render-backed export/materialization/thumbnail now route renderable images through the same runtime entry
   - `render/image` is the single-image kernel boundary
   - raster effects support real masked execution
   - insertion, duplication, and image-property edits all preserve canonical `renderState`
@@ -164,6 +187,7 @@ flowchart LR
   - timestamp overlay is restored from canonical output state in the single-image kernel
   - masked effect gating uses stable placement-stage snapshots instead of already-mutated bucket output
   - unresolved legacy image nodes are preserved until an asset-backed canonicalization boundary is reached; live mutation paths no longer fabricate generic render state
+  - editor-only preview scheduler modules were removed instead of being carried forward as dead render-pipeline compatibility code
 - The next agent should treat this task as **completed for its scoped target** and start from the follow-up tasks above instead of reopening the cutover blindly.
-- Do **not** remove the old renderer wholesale from this task alone.
-- If a later agent wants to delete old single-image branches, that agent should first prove parity and inventory remaining live callers.
+- Do **not** remove the low-level renderer wholesale from this task alone.
+- If a later agent wants to delete low-level legacy-shaped branches, that agent should first prove parity and inventory the remaining bridge assumptions.
