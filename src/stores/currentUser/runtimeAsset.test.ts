@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createDefaultAdjustments } from "@/lib/adjustments";
 import type { StoredAsset } from "@/lib/db";
 import { materializeStoredAsset } from "./runtimeAsset";
 
@@ -10,7 +9,6 @@ const createStoredAsset = (overrides: Partial<StoredAsset> = {}): StoredAsset =>
   size: 3,
   createdAt: "2026-03-14T00:00:00.000Z",
   blob: new Blob([new Uint8Array([1, 2, 3])], { type: "image/jpeg" }),
-  adjustments: createDefaultAdjustments(),
   ...overrides,
 });
 

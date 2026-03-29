@@ -490,18 +490,11 @@ export interface Asset {
   importDay?: string;
   /** User-defined labels for filtering and batch management. */
   tags?: string[];
-  presetId?: string;
-  intensity?: number;
-  filmProfileId?: string;
-  filmOverrides?: FilmProfileOverrides;
-  filmProfile?: FilmProfile;
   /** @deprecated Legacy field kept for backward-compat reads only. */
   group?: string;
   blob?: Blob;
   thumbnailBlob?: Blob;
   metadata?: AssetMetadata;
-  adjustments?: EditingAdjustments;
-  layers?: EditorLayer[];
   source?: "imported" | "ai-generated";
   origin?: AssetOrigin;
   contentHash?: string;
@@ -513,17 +506,10 @@ export interface Asset {
 export type AssetUpdate = Partial<
   Pick<
     Asset,
-    | "presetId"
-    | "intensity"
-    | "filmProfileId"
-    | "filmProfile"
-    | "filmOverrides"
     | "group"
     | "importDay"
     | "tags"
     | "metadata"
-    | "adjustments"
-    | "layers"
     | "source"
     | "origin"
     | "contentHash"

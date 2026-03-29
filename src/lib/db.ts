@@ -8,11 +8,6 @@ import type {
   AssetSyncJobOperation,
   CanvasWorkbenchListEntry,
   CanvasWorkbenchSnapshot,
-  EditorLayer,
-  EditingAdjustments,
-  FilmProfile,
-  FilmProfileOverrides,
-  LocalBrushPoint,
 } from "@/types";
 
 interface FilmLabDB extends DBSchema {
@@ -25,18 +20,11 @@ interface FilmLabDB extends DBSchema {
       size: number;
       createdAt: string;
       blob: Blob;
-      presetId?: string;
-      intensity?: number;
-      filmProfileId?: string;
-      filmOverrides?: FilmProfileOverrides;
       group?: string;
       importDay?: string;
       tags?: string[];
       thumbnailBlob?: Blob;
       metadata?: AssetMetadata;
-      adjustments?: EditingAdjustments;
-      layers?: EditorLayer[];
-      filmProfile?: FilmProfile;
       source?: "imported" | "ai-generated";
       origin?: AssetOrigin;
       contentHash?: string;
@@ -238,49 +226,6 @@ const getDB = (): Promise<IDBPDatabase<FilmLabDB> | null> => {
   return dbInitPromise;
 };
 
-const BRUSH_MASK_BLOB_POINT_THRESHOLD = 256;
-
-const clampValue = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-
-const normalizeBrushPoints = (points: LocalBrushPoint[]) =>
-  points.map((point) => ({
-    x: clampValue(Number(point.x) || 0, 0, 1),
-    y: clampValue(Number(point.y) || 0, 0, 1),
-    pressure: clampValue(Number(point.pressure ?? 1) || 1, 0.05, 1),
-  }));
-
-const parseBrushPointsFromBlob = async (blob: Blob): Promise<LocalBrushPoint[] | null> => {
-  try {
-    const raw = JSON.parse(await blob.text()) as {
-      version?: number;
-      points?: Array<{ x?: unknown; y?: unknown; pressure?: unknown }>;
-    };
-    if (raw.version !== 1 || !Array.isArray(raw.points)) {
-      return null;
-    }
-    const nextPoints: LocalBrushPoint[] = [];
-    for (const point of raw.points) {
-      if (!point || typeof point !== "object") {
-        continue;
-      }
-      const x = Number(point.x);
-      const y = Number(point.y);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) {
-        continue;
-      }
-      const pressure = Number(point.pressure ?? 1);
-      nextPoints.push({
-        x: clampValue(x, 0, 1),
-        y: clampValue(y, 0, 1),
-        pressure: clampValue(Number.isFinite(pressure) ? pressure : 1, 0.05, 1),
-      });
-    }
-    return nextPoints;
-  } catch {
-    return null;
-  }
-};
-
 const deleteMaskBlobsByAssetId = async (db: IDBPDatabase<FilmLabDB>, assetId: string) => {
   if (!db.objectStoreNames.contains("localMaskBlobs")) {
     return;
@@ -307,143 +252,6 @@ const deleteSyncJobsByAssetId = async (db: IDBPDatabase<FilmLabDB>, assetId: str
     cursor = await cursor.continue();
   }
   await tx.done;
-};
-
-const maybeOffloadBrushMaskBlobs = async (
-  db: IDBPDatabase<FilmLabDB>,
-  assetId: string,
-  adjustments: EditingAdjustments | undefined
-): Promise<EditingAdjustments | undefined> => {
-  if (
-    !adjustments?.localAdjustments ||
-    adjustments.localAdjustments.length === 0 ||
-    !db.objectStoreNames.contains("localMaskBlobs")
-  ) {
-    return adjustments;
-  }
-
-  const tx = db.transaction("localMaskBlobs", "readwrite");
-  const nextLocals = await Promise.all(
-    adjustments.localAdjustments.map(async (local, index) => {
-      if (local.mask.mode !== "brush") {
-        return local;
-      }
-      const points = normalizeBrushPoints(local.mask.points ?? []);
-      if (points.length < BRUSH_MASK_BLOB_POINT_THRESHOLD) {
-        if (!local.mask.pointsBlobId) {
-          return local;
-        }
-        return {
-          ...local,
-          mask: {
-            ...local.mask,
-            points,
-            pointsBlobId: undefined,
-          },
-        };
-      }
-
-      const blobId = `asset:${assetId}:local:${local.id || index}:brush:v1`;
-      const payload = JSON.stringify({
-        version: 1,
-        points,
-      });
-      await tx.store.put({
-        id: blobId,
-        assetId,
-        blob: new Blob([payload], { type: "application/json" }),
-        updatedAt: new Date().toISOString(),
-      });
-      return {
-        ...local,
-        mask: {
-          ...local.mask,
-          points: [],
-          pointsBlobId: blobId,
-        },
-      };
-    })
-  );
-  await tx.done;
-
-  return {
-    ...adjustments,
-    localAdjustments: nextLocals,
-  };
-};
-
-const hydrateBrushMaskBlobs = async (
-  db: IDBPDatabase<FilmLabDB>,
-  adjustments: EditingAdjustments | undefined
-): Promise<EditingAdjustments | undefined> => {
-  if (
-    !adjustments?.localAdjustments ||
-    adjustments.localAdjustments.length === 0 ||
-    !db.objectStoreNames.contains("localMaskBlobs")
-  ) {
-    return adjustments;
-  }
-
-  let changed = false;
-  const nextLocals = await Promise.all(
-    adjustments.localAdjustments.map(async (local, index) => {
-      try {
-        const mask =
-          local &&
-          typeof local === "object" &&
-          "mask" in local &&
-          local.mask &&
-          typeof local.mask === "object"
-            ? (local.mask as {
-                mode?: unknown;
-                pointsBlobId?: unknown;
-                points?: unknown;
-              })
-            : undefined;
-
-        if (
-          mask?.mode !== "brush" ||
-          typeof mask.pointsBlobId !== "string" ||
-          mask.pointsBlobId.length === 0 ||
-          (Array.isArray(mask.points) && mask.points.length > 0)
-        ) {
-          return local;
-        }
-
-        const blobRecord = await db.get("localMaskBlobs", mask.pointsBlobId);
-        if (!blobRecord?.blob) {
-          return local;
-        }
-        const points = await parseBrushPointsFromBlob(blobRecord.blob);
-        if (!points || points.length === 0) {
-          return local;
-        }
-        changed = true;
-        return {
-          ...local,
-          mask: {
-            ...local.mask,
-            points,
-          },
-        };
-      } catch (error) {
-        console.warn(
-          `IndexedDB hydrateBrushMaskBlobs skipped invalid local adjustment at index ${index}.`,
-          error
-        );
-        return local;
-      }
-    })
-  );
-
-  if (!changed) {
-    return adjustments;
-  }
-
-  return {
-    ...adjustments,
-    localAdjustments: nextLocals,
-  };
 };
 
 export async function saveCurrentUser(
@@ -476,11 +284,9 @@ export async function saveAsset(asset: FilmLabDB["assets"]["value"]): Promise<bo
   if (!db) return false;
   try {
     await deleteMaskBlobsByAssetId(db, asset.id);
-    const storedAdjustments = await maybeOffloadBrushMaskBlobs(db, asset.id, asset.adjustments);
     await db.put("assets", {
       ...asset,
       ownerRef: { userId: getCurrentUserId() },
-      adjustments: storedAdjustments,
     });
     return true;
   } catch (error) {
@@ -495,20 +301,7 @@ export async function loadAssets() {
   const db = await getDB();
   if (!db) return [];
   try {
-    const assets = await db.getAll("assets");
-    return Promise.all(
-      assets.map(async (asset) => {
-        try {
-          return {
-            ...asset,
-            adjustments: await hydrateBrushMaskBlobs(db, asset.adjustments),
-          };
-        } catch (error) {
-          console.warn(`IndexedDB loadAssets skipped hydration for asset ${asset.id}.`, error);
-          return asset;
-        }
-      })
-    );
+    return await db.getAll("assets");
   } catch (error) {
     console.warn("IndexedDB loadAssets failed:", error);
     return [];
@@ -519,24 +312,11 @@ export async function loadAssetsByUser(userId: string): Promise<StoredAsset[]> {
   const db = await getDB();
   if (!db || !db.objectStoreNames.contains("assets")) return [];
   try {
-    const assets = db.objectStoreNames.contains("assets")
+    return db.objectStoreNames.contains("assets")
       ? db.transaction("assets").store.indexNames.contains("byOwnerUserId")
         ? await db.getAllFromIndex("assets", "byOwnerUserId", userId)
         : (await db.getAll("assets")).filter((asset) => asset.ownerRef?.userId === userId)
       : [];
-    return Promise.all(
-      assets.map(async (asset) => {
-        try {
-          return {
-            ...asset,
-            adjustments: await hydrateBrushMaskBlobs(db, asset.adjustments),
-          };
-        } catch (error) {
-          console.warn(`IndexedDB loadAssetsByUser skipped hydration for asset ${asset.id}.`, error);
-          return asset;
-        }
-      })
-    );
   } catch (error) {
     console.warn("IndexedDB loadAssetsByUser failed:", error);
     return [];

@@ -1,5 +1,3 @@
-import { normalizeAdjustments } from "@/lib/adjustments";
-import { ensureAssetLayers, resolveBaseAdjustmentsFromLayers } from "@/lib/editorLayers";
 import { saveAsset, type StoredAsset } from "@/lib/db";
 import type { Asset, AssetUpdate } from "@/types";
 import { normalizeTags } from "./tagging";
@@ -31,18 +29,11 @@ export const toStoredAsset = (asset: Asset): StoredAsset | null => {
     size: asset.size,
     createdAt: asset.createdAt,
     blob,
-    presetId: asset.presetId,
-    intensity: asset.intensity,
-    filmProfileId: asset.filmProfileId,
-    filmOverrides: asset.filmOverrides,
-    filmProfile: asset.filmProfile,
     group: asset.group ?? asset.importDay,
     importDay: asset.importDay,
     tags: normalizeTags(asset.tags ?? []),
     thumbnailBlob: asset.thumbnailBlob,
     metadata: asset.metadata,
-    adjustments: asset.adjustments ? normalizeAdjustments(asset.adjustments) : undefined,
-    layers: ensureAssetLayers(asset),
     source: asset.source,
     origin: asset.origin,
     contentHash: asset.contentHash,
@@ -53,18 +44,6 @@ export const toStoredAsset = (asset: Asset): StoredAsset | null => {
 
 export const normalizeAssetUpdate = (update: AssetUpdate): AssetUpdate => {
   const next: AssetUpdate = { ...update };
-  if (next.layers) {
-    const normalizedLayers = ensureAssetLayers({
-      id: "asset-update",
-      adjustments: next.adjustments,
-      layers: next.layers,
-    });
-    next.layers = normalizedLayers;
-    next.adjustments = resolveBaseAdjustmentsFromLayers(normalizedLayers, next.adjustments);
-  }
-  if (next.adjustments) {
-    next.adjustments = normalizeAdjustments(next.adjustments);
-  }
   if (next.tags) {
     next.tags = normalizeTags(next.tags);
   }
@@ -131,4 +110,3 @@ export const ensurePersistFlushOnUnload = () => {
 
   isBeforeUnloadBound = true;
 };
-
