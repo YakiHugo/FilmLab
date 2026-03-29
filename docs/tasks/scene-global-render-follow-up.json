@@ -1,0 +1,14 @@
+{
+  "baseline": "scene-global-render-follow-up",
+  "current": "pending",
+  "nextTaskId": "define-scene-global-slice",
+  "tasks": [
+    {
+      "id": "define-scene-global-slice",
+      "status": "pending",
+      "passes": [
+        "one concrete scene/global use case is scoped with state ownership, stage ordering, preview/export parity expectations, and bounded validation"
+      ]
+    }
+  ]
+}

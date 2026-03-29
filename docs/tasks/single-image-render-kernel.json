@@ -1,8 +1,8 @@
 {
   "baseline": "single-image-render-kernel",
   "current": "done",
-  "safeToRemoveLegacyPipeline": false,
-  "nextTaskId": "legacy-pipeline-retirement-readiness",
+  "safeToRemoveLegacyPipeline": true,
+  "nextTaskId": "scene-global-render-follow-up",
   "tasks": [
     {
       "id": "contracts-and-legacy-adapter",
@@ -47,8 +47,8 @@
       "id": "canvas-render-state-persisted-model",
       "status": "done",
       "passes": [
-        "CanvasWorkbenchSnapshot.version is 4",
-        "image nodes write canonical renderState and stop normatively writing top-level adjustments/filmProfileId"
+        "CanvasWorkbenchSnapshot.version is 5",
+        "image nodes persist canonical renderState only"
       ]
     },
     {
@@ -66,15 +66,11 @@
       "status": "done",
       "passes": [
         "new image-node insertion snapshots canonical renderState from the asset",
-        "image property canonicalization uses the real asset when available",
-        "duplicate/reinsert flows canonicalize legacy image nodes instead of propagating legacy top-level fields",
+        "image property updates require canonical renderState instead of fabricating legacy fallback state",
+        "duplicate/reinsert flows preserve canonical renderState instead of propagating legacy top-level fields",
         "single-image runtime uses ImageRenderDocument.source as the authoritative render source",
-        "single-image runtime no longer requires unused runtime asset ownership inputs",
-        "canvas image-state resolution is owned by the image-state boundary instead of the preview render module",
         "single-image timestamp overlay is restored from canonical output state",
-        "legacy image snapshots are canonicalized before becoming live workbench state",
         "masked effect gating uses stable placement-stage snapshots",
-        "legacy ascii mapping preserves replacement semantics",
         "pnpm exec vitest --run src/render/image src/features/canvas",
         "pnpm exec tsc -p tsconfig.json --noEmit"
       ]
@@ -91,23 +87,18 @@
     },
     {
       "id": "legacy-pipeline-retirement-readiness",
-      "status": "pending",
+      "status": "done",
       "passes": [
-        "preview/export/materialization parity checklist is green before deleting low-level legacy-shaped branches"
+        "plain photo / film only / film + ASCII / afterDevelop ASCII / masked ASCII / masked filter2d / invalid film profile regressions are covered by pnpm exec vitest --run src/render/image src/features/canvas src/features/editor",
+        "runtime bridge inventory grep returns no matches"
       ]
     },
     {
       "id": "low-level-settings-cutover",
-      "status": "pending",
+      "status": "done",
       "passes": [
-        "single-image runtime no longer depends on legacy-shaped low-level settings, or the bridge is explicitly accepted as permanent"
-      ]
-    },
-    {
-      "id": "scene-level-follow-up",
-      "status": "pending",
-      "passes": [
-        "board/global stylization work is tracked separately from the single-image kernel task"
+        "runtime imageProcessing entry consumes canonical state instead of runtime adjustments or filmProfile",
+        "runtime low-level uniform and film resolvers consume canonical state directly"
       ]
     }
   ]
