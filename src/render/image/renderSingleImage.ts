@@ -76,7 +76,7 @@ const renderSnapshotToCanvas = async ({
     targetSize: request.targetSize,
     seedKey: stage === "full" ? resolveFilmSeedKey(document) : `${document.id}:${stage}`,
     sourceCacheKey: `${document.revisionKey}:${stage}:${request.targetSize.width}x${request.targetSize.height}`,
-    strictErrors: request.intent === "export",
+    strictErrors: request.strictErrors ?? request.intent === "export",
     intent: resolveLegacyRenderIntent(request),
     signal: request.signal,
     renderSlot: request.renderSlotId
@@ -194,7 +194,7 @@ export const renderSingleImageToCanvas = async ({
         targetSize: request.targetSize,
         seedKey: resolveFilmSeedKey(document),
         sourceCacheKey: `${document.revisionKey}:film-stage:${request.targetSize.width}x${request.targetSize.height}`,
-        strictErrors: request.intent === "export",
+        strictErrors: request.strictErrors ?? request.intent === "export",
         intent: resolveLegacyRenderIntent(request),
         signal: request.signal,
         renderSlot: request.renderSlotId ? `${request.renderSlotId}:base-film-stage` : undefined,

@@ -239,6 +239,7 @@ export interface ImageRenderRequest {
   targetSize: ImageRenderTargetSize;
   roi?: NormalizedRect | null;
   timestampText?: string | null;
+  strictErrors?: boolean;
   signal?: AbortSignal;
   renderSlotId?: string;
 }
