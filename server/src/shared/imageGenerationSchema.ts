@@ -5,7 +5,6 @@ import {
   imageGenerationRequestSchema,
   imageAspectRatioSchema,
   imageStyleSchema,
-  referenceImageSchema,
   referenceImageTypeSchema,
   frontendImageModelSchema,
 } from "../../../shared/imageGenerationSchema";
@@ -187,7 +186,6 @@ export {
   imageAspectRatioSchema,
   imageGenerationRequestSchema,
   imageStyleSchema,
-  referenceImageSchema,
   referenceImageTypeSchema,
 };
 

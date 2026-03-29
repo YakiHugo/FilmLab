@@ -4,7 +4,6 @@ export {
   imageAspectRatioSchema,
   imageGenerationRequestSchema,
   imageStyleSchema,
-  referenceImageSchema,
   referenceImageTypeSchema,
   type ImageGenerationRequest,
   type ParsedImageGenerationRequest,

@@ -49,8 +49,7 @@ const createRequest = (
     aspectRatio: "1:1",
     batchSize: 1,
     style: "none",
-    referenceImages: [],
-    assetRefs: [],
+    inputAssets: [],
     modelParams: {
       promptExtend: true,
     },
@@ -140,7 +139,9 @@ describe("prompt evals", () => {
         continuityTargets: ["text"],
         editOps: [{ op: "remove", target: "coffee cup" }],
       },
-      assetRefs: [{ assetId: "thread-asset-ref-1", role: "reference" }],
+      inputAssets: [
+        { assetId: "thread-asset-ref-1", binding: "guide", guideType: "content" },
+      ],
     });
 
     const result = await rewriteTurn(
@@ -224,7 +225,8 @@ describe("prompt evals", () => {
       name: "degraded edit flows preserve stable hashes and explicit loss codes",
       request: createRequest({
         negativePrompt: "avoid lens flare",
-        assetRefs: [{ assetId: "thread-asset-source-1", role: "edit" }],
+        operation: "edit",
+        inputAssets: [{ assetId: "thread-asset-source-1", binding: "source" }],
       }),
       target: createTarget("qwen-image-2-pro", {
         acceptedOperations: ["image.generate", "image.edit", "image.variation"],

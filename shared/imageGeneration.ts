@@ -57,7 +57,7 @@ export type ImageInputAssetBindingKind = (typeof IMAGE_INPUT_ASSET_BINDINGS)[num
 export const IMAGE_PROMPT_ASSET_ROLES = ["reference", "edit", "variation"] as const;
 export type ImagePromptAssetRole = (typeof IMAGE_PROMPT_ASSET_ROLES)[number];
 
-// Legacy alias retained for model capability contracts while request/input state migrates.
+// Alias retained for model capability contracts.
 export type ImageGenerationAssetRefRole = ImagePromptAssetRole;
 
 export const IMAGE_PROMPT_COMPILER_OPERATION_IDS = [
@@ -111,58 +111,10 @@ export interface ImageInputAssetBinding {
   weight?: number;
 }
 
-export interface LegacyReferenceImage {
-  id?: string;
-  url?: string;
-  fileName?: string;
-  weight?: number;
-  type?: ReferenceImageType;
-  sourceAssetId?: string;
-}
-
-export interface LegacyImageGenerationAssetRef {
-  assetId: string;
-  role: ImageGenerationAssetRefRole;
-  referenceType?: ReferenceImageType;
-  weight?: number;
-}
-
-export const LEGACY_INPUT_IMAGES_UNAVAILABLE_WARNING =
-  "Some legacy input images could not be restored because this historical request was stored without reusable asset handles.";
-
 export interface ImageInputAssetValidationIssue {
   path: Array<string | number>;
   message: string;
 }
-
-const normalizeGuideMetadataByAssetId = (
-  referenceImages: LegacyReferenceImage[] | undefined
-) => {
-  const byAssetId = new Map<
-    string,
-    { guideType?: ReferenceImageType; weight?: number }
-  >();
-  for (const entry of referenceImages ?? []) {
-    if (!entry.sourceAssetId) {
-      continue;
-    }
-    byAssetId.set(entry.sourceAssetId, {
-      ...(entry.type ? { guideType: entry.type } : {}),
-      ...(typeof entry.weight === "number" ? { weight: entry.weight } : {}),
-    });
-  }
-  return byAssetId;
-};
-
-export const hasLegacyUnrestorableInputImages = (
-  referenceImages: LegacyReferenceImage[] | null | undefined
-) =>
-  (referenceImages ?? []).some(
-    (entry) =>
-      typeof entry.url === "string" &&
-      entry.url.trim().length > 0 &&
-      typeof entry.sourceAssetId !== "string"
-  );
 
 export const dedupeImageInputAssets = (
   inputAssets: ImageInputAssetBinding[] | undefined
@@ -199,83 +151,6 @@ export const dedupeImageInputAssets = (
   }
 
   return Array.from(dedupedByAssetId.values());
-};
-
-export const resolveLegacyImageGenerationInputs = (input: {
-  operation?: ImageGenerationOperation | null;
-  inputAssets?: ImageInputAssetBinding[] | null;
-  referenceImages?: LegacyReferenceImage[] | null;
-  assetRefs?: LegacyImageGenerationAssetRef[] | null;
-}): {
-  operation: ImageGenerationOperation;
-  inputAssets: ImageInputAssetBinding[];
-} => {
-  const guideMetadataByAssetId = normalizeGuideMetadataByAssetId(input.referenceImages ?? undefined);
-  const mappedLegacyAssetRefs = (input.assetRefs ?? []).map<ImageInputAssetBinding>((assetRef) => {
-    if (assetRef.role === "reference") {
-      const guideMetadata = guideMetadataByAssetId.get(assetRef.assetId);
-      return {
-        assetId: assetRef.assetId,
-        binding: "guide",
-        guideType:
-          assetRef.referenceType ?? guideMetadata?.guideType ?? "content",
-        ...(typeof assetRef.weight === "number"
-          ? { weight: assetRef.weight }
-          : typeof guideMetadata?.weight === "number"
-            ? { weight: guideMetadata.weight }
-            : {}),
-      };
-    }
-
-    return {
-      assetId: assetRef.assetId,
-      binding: "source",
-    };
-  });
-
-  for (const referenceImage of input.referenceImages ?? []) {
-    if (!referenceImage.sourceAssetId) {
-      continue;
-    }
-
-    mappedLegacyAssetRefs.push({
-      assetId: referenceImage.sourceAssetId,
-      binding: "guide",
-      guideType: referenceImage.type ?? "content",
-      ...(typeof referenceImage.weight === "number"
-        ? { weight: referenceImage.weight }
-        : {}),
-    });
-  }
-
-  const hasEditSource = (input.assetRefs ?? []).some((assetRef) => assetRef.role === "edit");
-  const hasVariationSource = (input.assetRefs ?? []).some(
-    (assetRef) => assetRef.role === "variation"
-  );
-  const inferredOperation = hasEditSource
-    ? "edit"
-    : hasVariationSource
-      ? "variation"
-      : "generate";
-  const explicitInputAssets = Array.isArray(input.inputAssets)
-    ? dedupeImageInputAssets(input.inputAssets)
-    : [];
-  const normalizedInputAssets = dedupeImageInputAssets([
-    ...explicitInputAssets,
-    ...mappedLegacyAssetRefs,
-  ]);
-
-  if (input.operation && (input.operation !== "generate" || inferredOperation === "generate")) {
-    return {
-      operation: input.operation,
-      inputAssets: normalizedInputAssets,
-    };
-  }
-
-  return {
-    operation: inferredOperation,
-    inputAssets: normalizedInputAssets,
-  };
 };
 
 export const getImageInputSourceAssets = (

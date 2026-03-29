@@ -32,7 +32,10 @@ describe("validateImageGenerationRequestAgainstModel", () => {
       modelParams: {},
     });
 
-    expect(result.success).toBe(false);
+    if (result.success) {
+      throw new Error("Expected createCompatibilitySchema.safeParse to fail.");
+    }
+
     expect(result.error.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -59,7 +62,10 @@ describe("validateImageGenerationRequestAgainstModel", () => {
       modelParams: {},
     });
 
-    expect(result.success).toBe(false);
+    if (result.success) {
+      throw new Error("Expected createCompatibilitySchema.safeParse to fail.");
+    }
+
     expect(result.error.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

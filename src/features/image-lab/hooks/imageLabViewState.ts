@@ -14,7 +14,6 @@ import {
 import { sanitizeGenerationConfig, type GenerationConfig } from "@/stores/generationConfigStore";
 import {
   getImageInputGuideAssets,
-  resolveLegacyImageGenerationInputs,
   type ImageGenerationRequest,
 } from "@/types/imageGeneration";
 
@@ -111,13 +110,6 @@ export const cloneGenerationConfig = (config: GenerationConfig): GenerationConfi
 export const toGenerationConfigFromRequest = (
   request: ImageLabTurnRequestView
 ) => {
-  const normalizedInputs = resolveLegacyImageGenerationInputs(
-    request as ImageLabTurnRequestView & {
-      referenceImages?: unknown;
-      assetRefs?: unknown;
-    }
-  );
-
   return {
     modelId: request.modelId,
     aspectRatio: request.aspectRatio as GenerationConfig["aspectRatio"],
@@ -133,8 +125,8 @@ export const toGenerationConfigFromRequest = (
       continuityTargets: [...request.promptIntent.continuityTargets],
       editOps: request.promptIntent.editOps.map((entry) => ({ ...entry })),
     },
-    operation: normalizedInputs.operation,
-    inputAssets: normalizedInputs.inputAssets.map((entry) => ({ ...entry })),
+    operation: request.operation,
+    inputAssets: request.inputAssets.map((entry) => ({ ...entry })),
     seed: request.seed,
     guidanceScale: request.guidanceScale,
     steps: request.steps,

@@ -11,7 +11,7 @@ import {
 } from "./imageLabViewState";
 
 describe("image generation request snapshots", () => {
-  it("maps legacy request views into the new operation plus inputAssets model", () => {
+  it("maps canonical request views into generation config snapshots", () => {
     const config = toGenerationConfigFromRequest({
       modelId: "qwen-image-2-pro",
       aspectRatio: "1:1",
@@ -27,25 +27,17 @@ describe("image generation request snapshots", () => {
         continuityTargets: [],
         editOps: [],
       },
-      operation: "generate",
-      inputAssets: undefined as never,
-      referenceImages: [
-        {
-          id: "ref-1",
-          fileName: "guide.png",
-          type: "style",
-          weight: 0.35,
-          sourceAssetId: "asset-guide-1",
-        },
-      ],
-      assetRefs: [
+      operation: "edit",
+      inputAssets: [
         {
           assetId: "asset-guide-1",
-          role: "reference",
+          binding: "guide",
+          guideType: "style",
+          weight: 0.35,
         },
         {
           assetId: "asset-source-1",
-          role: "edit",
+          binding: "source",
         },
       ],
       seed: null,
@@ -54,7 +46,7 @@ describe("image generation request snapshots", () => {
       sampler: "",
       batchSize: 1,
       modelParams: {},
-    } as never);
+    });
 
     expect(config.operation).toBe("edit");
     expect(config.inputAssets).toEqual([
@@ -121,8 +113,9 @@ describe("image generation request snapshots", () => {
     const request = toImageGenerationRequest("Rainy alley", config);
     expect(request.operation).toBe("variation");
     expect(request.inputAssets).toEqual(config.inputAssets);
-    expect("referenceImages" in (request as Record<string, unknown>)).toBe(false);
-    expect("assetRefs" in (request as Record<string, unknown>)).toBe(false);
+    const requestRecord = request as unknown as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(requestRecord, "referenceImages")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(requestRecord, "assetRefs")).toBe(false);
   });
 
   it("only fetches prompt artifacts lazily when they are not already cached", () => {
