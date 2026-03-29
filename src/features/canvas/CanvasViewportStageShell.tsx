@@ -113,10 +113,6 @@ interface CanvasElementsLayerProps {
   interactivePreviewElementId: string | null;
   onElementDragEnd: (elementId: string, x: number, y: number) => void;
   onElementSelect: (elementId: string, additive: boolean) => void;
-  onElementTransform: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
-  onElementTransformEnd: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
-  onElementTransformStart: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
-  onTextElementDoubleClick: (elementId: string) => void;
 }
 
 const CanvasElementsLayer = memo(function CanvasElementsLayer({
@@ -130,10 +126,6 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
   interactivePreviewElementId,
   onElementDragEnd,
   onElementSelect,
-  onElementTransform,
-  onElementTransformEnd,
-  onElementTransformStart,
-  onTextElementDoubleClick,
 }: CanvasElementsLayerProps) {
   return (
     <>
@@ -152,9 +144,6 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
               onDragMove={onElementDragMove}
               onDragStart={onElementDragStart}
               onDragEnd={onElementDragEnd}
-              onTransform={onElementTransform}
-              onTransformEnd={onElementTransformEnd}
-              onTransformStart={onElementTransformStart}
             />
           );
         }
@@ -170,9 +159,6 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
               onDragMove={onElementDragMove}
               onDragStart={onElementDragStart}
               onDragEnd={onElementDragEnd}
-              onTransform={onElementTransform}
-              onTransformEnd={onElementTransformEnd}
-              onTransformStart={onElementTransformStart}
             />
           );
         }
@@ -189,11 +175,7 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
             onSelect={onElementSelect}
             onDragMove={onElementDragMove}
             onDragStart={onElementDragStart}
-            onDoubleClick={onTextElementDoubleClick}
             onDragEnd={onElementDragEnd}
-            onTransform={onElementTransform}
-            onTransformEnd={onElementTransformEnd}
-            onTransformStart={onElementTransformStart}
           />
         );
       })}
@@ -459,10 +441,16 @@ const selectionOutlineRectsEqual = (
   });
 
 const CanvasSelectionTransformerLayer = memo(function CanvasSelectionTransformerLayer({
+  onTransform,
+  onTransformEnd,
+  onTransformStart,
   stageRef,
   transformer,
   transformerElementId,
 }: {
+  onTransform: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
+  onTransformEnd: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
+  onTransformStart: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
   stageRef: RefObject<Konva.Stage>;
   transformer: CanvasResizeTransformerConfig | null;
   transformerElementId: string | null;
@@ -514,6 +502,24 @@ const CanvasSelectionTransformerLayer = memo(function CanvasSelectionTransformer
       ref={transformerRef}
       {...transformerProps}
       anchorStyleFunc={anchorStyleFunc}
+      onTransformStart={(event) => {
+        if (!transformerElementId) {
+          return;
+        }
+        onTransformStart(transformerElementId, event);
+      }}
+      onTransform={(event) => {
+        if (!transformerElementId) {
+          return;
+        }
+        onTransform(transformerElementId, event);
+      }}
+      onTransformEnd={(event) => {
+        if (!transformerElementId) {
+          return;
+        }
+        onTransformEnd(transformerElementId, event);
+      }}
       boundBoxFunc={(oldBox, newBox) =>
         boundBoxFunc(oldBox, newBox, {
           activeAnchor: transformerRef.current?.getActiveAnchor() ?? null,
@@ -537,7 +543,6 @@ interface CanvasViewportStageShellProps {
     handleElementTransformEnd: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
     handleElementTransformStart: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
     handleStageWheel: (event: Konva.KonvaEventObject<WheelEvent>) => void;
-    handleTextElementDoubleClick: (elementId: string) => void;
     handleWorkspacePointerDown: (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
     handleWorkspacePointerMove: (
       event?: Konva.KonvaEventObject<MouseEvent | TouchEvent>
@@ -638,10 +643,6 @@ export const CanvasViewportStageShell = memo(function CanvasViewportStageShell({
             onElementDragStart={interaction.handleElementDragStart}
             onElementDragEnd={interaction.handleElementDragEnd}
             onElementSelect={interaction.handleElementSelect}
-            onElementTransform={interaction.handleElementTransform}
-            onElementTransformEnd={interaction.handleElementTransformEnd}
-            onElementTransformStart={interaction.handleElementTransformStart}
-            onTextElementDoubleClick={interaction.handleTextElementDoubleClick}
           />
         </Layer>
 
@@ -655,6 +656,9 @@ export const CanvasViewportStageShell = memo(function CanvasViewportStageShell({
 
         <Layer>
           <CanvasSelectionTransformerLayer
+            onTransform={interaction.handleElementTransform}
+            onTransformEnd={interaction.handleElementTransformEnd}
+            onTransformStart={interaction.handleElementTransformStart}
             stageRef={interaction.stageRef}
             transformer={resize.transformer}
             transformerElementId={resize.transformerElementId}

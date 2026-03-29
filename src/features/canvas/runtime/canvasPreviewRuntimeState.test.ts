@@ -89,7 +89,7 @@ const createWorkbench = (element: CanvasImageElement): CanvasWorkbench =>
     },
     slices: [],
     updatedAt: "2026-03-17T00:00:00.000Z",
-    version: 2,
+    version: 5,
     width: 1200,
   });
 

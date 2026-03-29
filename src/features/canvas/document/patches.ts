@@ -1,7 +1,7 @@
 import type {
+  CanvasDocumentDelta,
+  CanvasDocumentDeltaOp,
   CanvasDocumentMetaPatch,
-  CanvasDocumentChangeSet,
-  CanvasDocumentOp,
   CanvasWorkbench,
   CanvasWorkbenchSnapshot,
 } from "@/types";
@@ -22,66 +22,50 @@ const PATCHABLE_DOCUMENT_META_KEYS = [
   "width",
 ] as const satisfies ReadonlyArray<keyof CanvasDocumentMetaPatch>;
 
-export const diffCanvasDocumentChangeSet = (
+export const diffCanvasDocumentDelta = (
   beforeDocument: CanvasWorkbench | CanvasWorkbenchSnapshot,
   afterDocument: CanvasWorkbench | CanvasWorkbenchSnapshot
 ) => {
   const before = getCanvasWorkbenchSnapshot(beforeDocument);
   const after = getCanvasWorkbenchSnapshot(afterDocument);
-  const forward: CanvasDocumentOp[] = [];
-  const inverse: CanvasDocumentOp[] = [];
-  const recordOperation = (nextForward: CanvasDocumentOp, nextInverse: CanvasDocumentOp) => {
-    forward.push(nextForward);
-    inverse.unshift(nextInverse);
-  };
+  const operations: CanvasDocumentDeltaOp[] = [];
 
-  const changedPatch = {} as CanvasDocumentMetaPatch;
-  const inversePatch = {} as CanvasDocumentMetaPatch;
+  const beforePatch = {} as CanvasDocumentMetaPatch;
+  const afterPatch = {} as CanvasDocumentMetaPatch;
   for (const key of PATCHABLE_DOCUMENT_META_KEYS) {
     if (areEqual(before[key], after[key])) {
       continue;
     }
 
-    (changedPatch as Record<string, unknown>)[key] = clone(after[key]);
-    (inversePatch as Record<string, unknown>)[key] = clone(before[key]);
+    (beforePatch as Record<string, unknown>)[key] = clone(before[key]);
+    (afterPatch as Record<string, unknown>)[key] = clone(after[key]);
   }
 
-  if (Object.keys(changedPatch).length > 0) {
-    recordOperation(
-      { type: "patchDocumentMeta", patch: changedPatch },
-      { type: "patchDocumentMeta", patch: inversePatch }
-    );
+  if (Object.keys(afterPatch).length > 0) {
+    operations.push({
+      type: "patchDocumentMeta",
+      before: beforePatch,
+      after: afterPatch,
+    });
   }
 
   const nodeIds = Array.from(
     new Set([...Object.keys(before.nodes), ...Object.keys(after.nodes)])
   ).sort();
   for (const nodeId of nodeIds) {
-    const previousNode = before.nodes[nodeId];
-    const nextNode = after.nodes[nodeId];
+    const previousNode = before.nodes[nodeId] ?? null;
+    const nextNode = after.nodes[nodeId] ?? null;
 
-    if (!previousNode && nextNode) {
-      recordOperation(
-        { type: "putNode", node: clone(nextNode) },
-        { type: "deleteNode", nodeId }
-      );
+    if (areEqual(previousNode, nextNode)) {
       continue;
     }
 
-    if (previousNode && !nextNode) {
-      recordOperation(
-        { type: "deleteNode", nodeId },
-        { type: "putNode", node: clone(previousNode) }
-      );
-      continue;
-    }
-
-    if (previousNode && nextNode && !areEqual(previousNode, nextNode)) {
-      recordOperation(
-        { type: "putNode", node: clone(nextNode) },
-        { type: "putNode", node: clone(previousNode) }
-      );
-    }
+    operations.push({
+      type: "setNode",
+      nodeId,
+      before: previousNode ? clone(previousNode) : null,
+      after: nextNode ? clone(nextNode) : null,
+    });
   }
 
   const groupIds = Array.from(
@@ -99,67 +83,75 @@ export const diffCanvasDocumentChangeSet = (
       continue;
     }
 
-    recordOperation(
-      {
-        type: "setGroupChildren",
-        groupId,
-        childIds: nextChildIds.slice(),
-      },
-      {
-        type: "setGroupChildren",
-        groupId,
-        childIds: previousChildIds.slice(),
-      }
-    );
+    operations.push({
+      type: "setGroupChildren",
+      groupId,
+      before: previousChildIds.slice(),
+      after: nextChildIds.slice(),
+    });
   }
 
   if (!areEqual(before.rootIds, after.rootIds)) {
-    recordOperation(
-      {
-        type: "setRootOrder",
-        rootIds: after.rootIds.slice(),
-      },
-      {
-        type: "setRootOrder",
-        rootIds: before.rootIds.slice(),
-      }
-    );
+    operations.push({
+      type: "setRootOrder",
+      before: before.rootIds.slice(),
+      after: after.rootIds.slice(),
+    });
+  }
+
+  if (!areEqual(before.updatedAt, after.updatedAt) && operations.length > 0) {
+    operations.unshift({
+      type: "patchDocumentMeta",
+      before: { updatedAt: clone(before.updatedAt) },
+      after: { updatedAt: clone(after.updatedAt) },
+    });
   }
 
   return {
-    didChange: forward.length > 0,
-    forwardChangeSet: { operations: forward },
-    inverseChangeSet: { operations: inverse },
+    didChange: operations.length > 0,
+    delta: { operations },
   };
 };
 
-export const applyCanvasDocumentChangeSet = (
+export const applyCanvasDocumentDelta = (
   document: CanvasWorkbench | CanvasWorkbenchSnapshot,
-  changeSet: CanvasDocumentChangeSet
+  delta: CanvasDocumentDelta,
+  direction: "undo" | "redo"
 ): CanvasWorkbench => {
   const nextSnapshot = getCanvasWorkbenchSnapshot(document);
-  for (const operation of changeSet.operations) {
+  const operations =
+    direction === "redo"
+      ? delta.operations
+      : [...delta.operations].reverse();
+
+  for (const operation of operations) {
     if (operation.type === "patchDocumentMeta") {
-      Object.assign(nextSnapshot, clone(operation.patch));
+      Object.assign(nextSnapshot, clone(direction === "undo" ? operation.before : operation.after));
       continue;
     }
+
     if (operation.type === "setRootOrder") {
-      nextSnapshot.rootIds = operation.rootIds.slice();
+      nextSnapshot.rootIds = (direction === "undo" ? operation.before : operation.after).slice();
       continue;
     }
+
     if (operation.type === "setGroupChildren") {
-      if (operation.childIds.length > 0) {
-        nextSnapshot.groupChildren[operation.groupId] = operation.childIds.slice();
+      const childIds = direction === "undo" ? operation.before : operation.after;
+      if (childIds.length > 0) {
+        nextSnapshot.groupChildren[operation.groupId] = childIds.slice();
       } else {
         delete nextSnapshot.groupChildren[operation.groupId];
       }
       continue;
     }
-    if (operation.type === "putNode") {
-      nextSnapshot.nodes[operation.node.id] = clone(operation.node);
-      continue;
+
+    const node = direction === "undo" ? operation.before : operation.after;
+    if (node) {
+      nextSnapshot.nodes[operation.nodeId] = clone(node);
+    } else {
+      delete nextSnapshot.nodes[operation.nodeId];
     }
-    delete nextSnapshot.nodes[operation.nodeId];
   }
+
   return resolveCanvasWorkbench(nextSnapshot);
 };

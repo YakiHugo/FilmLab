@@ -38,11 +38,11 @@ const formatUpdatedAt = (value: string) => {
 
 export function CanvasWorkbenchPanel() {
   const {
-    activeWorkbenchId,
-    activeWorkbenchMeta,
+    loadedWorkbenchId,
+    loadedWorkbenchMeta,
     createSequentialWorkbench,
-    deleteActiveWorkbench,
-    renameActiveWorkbench,
+    deleteLoadedWorkbench,
+    renameLoadedWorkbench,
     selectWorkbench,
     workbenches,
   } = useCanvasWorkbenchActions();
@@ -71,8 +71,8 @@ export function CanvasWorkbenchPanel() {
             {workbenchCount || 1} workbench{workbenchCount === 1 ? "" : "es"}
           </span>
           <span className={canvasDockBadgeClassName}>
-            {activeWorkbenchMeta.id
-              ? getStudioCanvasPreset(activeWorkbenchMeta.presetId).shortLabel
+            {loadedWorkbenchMeta.id
+              ? getStudioCanvasPreset(loadedWorkbenchMeta.presetId).shortLabel
               : "4:5"}
           </span>
         </div>
@@ -87,8 +87,8 @@ export function CanvasWorkbenchPanel() {
           <div className={canvasDockMetricCardClassName}>
             <p className={canvasDockFieldLabelClassName}>Ratio</p>
             <p className="mt-2 text-lg font-semibold text-[color:var(--canvas-edit-text)]">
-              {activeWorkbenchMeta.id
-                ? getStudioCanvasPreset(activeWorkbenchMeta.presetId).shortLabel
+              {loadedWorkbenchMeta.id
+                ? getStudioCanvasPreset(loadedWorkbenchMeta.presetId).shortLabel
                 : "4:5"}
             </p>
           </div>
@@ -106,12 +106,12 @@ export function CanvasWorkbenchPanel() {
           </div>
         </div>
 
-        {activeWorkbenchMeta.id ? (
+        {loadedWorkbenchMeta.id ? (
           <div className="mt-4 space-y-4">
             <Input
-              value={activeWorkbenchMeta.name}
+              value={loadedWorkbenchMeta.name}
               onChange={(event) => {
-                void renameActiveWorkbench(event.target.value);
+                void renameLoadedWorkbench(event.target.value);
               }}
               className={canvasDockFieldClassName}
             />
@@ -120,13 +120,13 @@ export function CanvasWorkbenchPanel() {
               <div className={canvasDockMetricCardClassName}>
                 <p className={canvasDockFieldLabelClassName}>Canvas</p>
                 <p className="mt-2 font-medium text-[color:var(--canvas-edit-text)]">
-                  {activeWorkbenchMeta.width} x {activeWorkbenchMeta.height}
+                  {loadedWorkbenchMeta.width} x {loadedWorkbenchMeta.height}
                 </p>
               </div>
               <div className={canvasDockMetricCardClassName}>
                 <p className={canvasDockFieldLabelClassName}>Updated</p>
                 <p className="mt-2 font-medium text-[color:var(--canvas-edit-text)]">
-                  {formatUpdatedAt(activeWorkbenchMeta.updatedAt)}
+                  {formatUpdatedAt(loadedWorkbenchMeta.updatedAt)}
                 </p>
               </div>
             </div>
@@ -171,7 +171,7 @@ export function CanvasWorkbenchPanel() {
         <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
           {workbenches.map((workbench, index) => {
             const preset = getStudioCanvasPreset(workbench.presetId);
-            const active = workbench.id === activeWorkbenchId;
+            const active = workbench.id === loadedWorkbenchId;
             return (
               <button
                 key={workbench.id}
@@ -225,8 +225,8 @@ export function CanvasWorkbenchPanel() {
             size="sm"
             variant="secondary"
             className={cn(canvasDockActionChipClassName, "text-rose-200 hover:text-rose-100")}
-            disabled={!activeWorkbenchMeta.id || workbenches.length <= 1}
-            onClick={() => void deleteActiveWorkbench()}
+            disabled={!loadedWorkbenchMeta.id || workbenches.length <= 1}
+            onClick={() => void deleteLoadedWorkbench()}
           >
             <Trash2 className="mr-2 h-4 w-4" />
             Delete Current

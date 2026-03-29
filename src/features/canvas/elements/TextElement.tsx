@@ -35,10 +35,6 @@ interface TextElementProps {
   onDragMove: (elementId: string, x: number, y: number) => void;
   onDragStart: (elementId: string, event: Konva.KonvaEventObject<DragEvent>) => void;
   onDragEnd: (elementId: string, x: number, y: number) => void;
-  onDoubleClick: (elementId: string) => void;
-  onTransform: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
-  onTransformEnd: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
-  onTransformStart: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
 }
 
 const areTextElementsEqual = (
@@ -76,10 +72,6 @@ const areTextElementPropsEqual = (
   previous.onDragMove === next.onDragMove &&
   previous.onDragStart === next.onDragStart &&
   previous.onDragEnd === next.onDragEnd &&
-  previous.onDoubleClick === next.onDoubleClick &&
-  previous.onTransform === next.onTransform &&
-  previous.onTransformEnd === next.onTransformEnd &&
-  previous.onTransformStart === next.onTransformStart &&
   areTextElementsEqual(previous.element, next.element);
 
 export const TextElement = memo(function TextElement({
@@ -91,18 +83,19 @@ export const TextElement = memo(function TextElement({
   onDragMove,
   onDragStart,
   onDragEnd,
-  onDoubleClick,
-  onTransform,
-  onTransformEnd,
-  onTransformStart,
 }: TextElementProps) {
   const layoutElement = useMemo(() => fitCanvasTextElementToContent(element), [element]);
   const canEditText = isCanvasTextElementEditable(layoutElement);
   const effectiveLocked = layoutElement.effectiveLocked ?? layoutElement.locked;
   const effectiveVisible = layoutElement.effectiveVisible ?? layoutElement.visible;
   const renderOpacity = layoutElement.worldOpacity ?? layoutElement.opacity;
-  const handleDoubleClick =
-    canDrag && canEditText ? () => onDoubleClick(layoutElement.id) : undefined;
+  const handleSelect = (additive: boolean) => {
+    if (!canDrag || !canEditText) {
+      return;
+    }
+
+    onSelect(layoutElement.id, additive);
+  };
 
   return (
     <Text
@@ -123,16 +116,11 @@ export const TextElement = memo(function TextElement({
       wrap="none"
       draggable={canDrag && !effectiveLocked}
       dragBoundFunc={dragBoundFunc}
-      onClick={(event) => onSelect(layoutElement.id, Boolean(event.evt.shiftKey))}
-      onTap={() => onSelect(layoutElement.id, false)}
-      onDblClick={handleDoubleClick}
-      onDblTap={handleDoubleClick}
+      onClick={(event) => handleSelect(Boolean(event.evt.shiftKey))}
+      onTap={() => handleSelect(false)}
       onDragStart={(event) => onDragStart(layoutElement.id, event)}
       onDragMove={(event) => onDragMove(layoutElement.id, event.target.x(), event.target.y())}
       onDragEnd={(event) => onDragEnd(layoutElement.id, event.target.x(), event.target.y())}
-      onTransformStart={(event) => onTransformStart(layoutElement.id, event)}
-      onTransform={(event) => onTransform(layoutElement.id, event)}
-      onTransformEnd={(event) => onTransformEnd(layoutElement.id, event)}
     />
   );
 }, areTextElementPropsEqual);

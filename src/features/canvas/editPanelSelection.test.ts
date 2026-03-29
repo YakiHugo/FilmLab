@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultAdjustments } from "@/lib/adjustments";
 import { createDefaultCanvasImageRenderState } from "@/render/image";
 import { createCanvasTestDocument, createGroupNode, createImageNode, createShapeNode } from "./document/testUtils";
 import {
@@ -105,7 +104,6 @@ describe("edit panel selection", () => {
   });
 
   it("compares only edit-relevant target fields", () => {
-    const imageAdjustments = createDefaultAdjustments();
     const imageRenderState = createDefaultCanvasImageRenderState();
 
     expect(
@@ -114,16 +112,12 @@ describe("edit panel selection", () => {
           id: "image-1",
           type: "image",
           assetId: "asset-1",
-          filmProfileId: undefined,
-          adjustments: imageAdjustments,
           renderState: imageRenderState,
         },
         {
           id: "image-1",
           type: "image",
           assetId: "asset-1",
-          filmProfileId: undefined,
-          adjustments: imageAdjustments,
           renderState: imageRenderState,
         }
       )

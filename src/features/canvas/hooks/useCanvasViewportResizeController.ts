@@ -51,6 +51,7 @@ export interface CanvasResizeTransformerConfig {
   ignoreStroke: boolean;
   keepRatio: boolean;
   rotateEnabled: boolean;
+  shouldOverdrawWholeArea: boolean;
   shiftBehavior: TransformerShiftBehavior;
   useSingleNodeRotation: boolean;
 }
@@ -142,6 +143,7 @@ export const canShowCanvasSelectionTransformer = ({
   canManipulateSelection,
   hasMarqueeSession,
   interactionBlocked,
+  isTransforming,
   isMarqueeDragging,
   selectedElement,
   selectedElementIds,
@@ -150,13 +152,14 @@ export const canShowCanvasSelectionTransformer = ({
   canManipulateSelection: boolean;
   hasMarqueeSession: boolean;
   interactionBlocked: boolean;
+  isTransforming: boolean;
   isMarqueeDragging: boolean;
   selectedElement: CanvasRenderableNode | null;
   selectedElementIds: string[];
 }) =>
   Boolean(
     canManipulateSelection &&
-    !interactionBlocked &&
+    (!interactionBlocked || isTransforming) &&
     selectedElement &&
       selectedElement.type !== "group" &&
       !selectedElement.effectiveLocked &&
@@ -244,8 +247,8 @@ const previewDimensionsEqual = (
     left.width === right.width &&
     left.height === right.height);
 
-const resolveShiftKeyState = (event: Event) =>
-  "shiftKey" in event && typeof event.shiftKey === "boolean" ? event.shiftKey : false;
+const resolveShiftKeyState = (event: Event | undefined | null) =>
+  Boolean(event && "shiftKey" in event && typeof event.shiftKey === "boolean" && event.shiftKey);
 
 interface CanvasResizeSessionState {
   commitInteraction: ((interactionId: string) => Promise<CanvasWorkbench | null>) | null;
@@ -360,6 +363,7 @@ export function useCanvasViewportResizeController({
         canManipulateSelection,
         hasMarqueeSession,
         interactionBlocked,
+        isTransforming,
         isMarqueeDragging,
         selectedElement,
         selectedElementIds,
@@ -369,6 +373,7 @@ export function useCanvasViewportResizeController({
       canManipulateSelection,
       hasMarqueeSession,
       interactionBlocked,
+      isTransforming,
       isMarqueeDragging,
       selectedElement,
       selectedElementIds,
@@ -491,6 +496,8 @@ export function useCanvasViewportResizeController({
       ignoreStroke: true,
       keepRatio: ratioConfig.keepRatio,
       rotateEnabled: false,
+      // Let the selected bounds proxy drag gestures so explicit selection stays movable.
+      shouldOverdrawWholeArea: true,
       shiftBehavior: ratioConfig.shiftBehavior,
       useSingleNodeRotation: true,
     };

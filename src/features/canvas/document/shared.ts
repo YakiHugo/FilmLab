@@ -8,17 +8,33 @@ export const DEFAULT_TRANSFORM: CanvasNodeTransform = {
   rotation: 0,
 };
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" &&
+  value !== null &&
+  (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
+
 export const clone = <T>(value: T): T => {
+  if (value instanceof Blob || value === null || value === undefined) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => clone(entry)) as T;
+  }
+
+  if (isPlainObject(value)) {
+    const next: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      next[key] = clone(entry);
+    }
+    return next as T;
+  }
+
   if (typeof structuredClone === "function") {
     return structuredClone(value);
   }
   return JSON.parse(JSON.stringify(value)) as T;
 };
-
-const isPlainObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" &&
-  value !== null &&
-  (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
 
 export const areEqual = (left: unknown, right: unknown): boolean => {
   if (Object.is(left, right)) {

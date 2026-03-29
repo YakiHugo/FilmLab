@@ -149,7 +149,7 @@ export const resolveCanvasWorkbench = (snapshot: CanvasWorkbenchSnapshot): Canva
 
   return {
     ...snapshot,
-    version: 4,
+    version: 5,
     nodes: clone(snapshot.nodes),
     rootIds: snapshot.rootIds.slice(),
     groupChildren: clone(snapshot.groupChildren),

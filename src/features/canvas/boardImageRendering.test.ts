@@ -53,8 +53,12 @@ const createElement = (overrides?: Partial<CanvasImageElement>): CanvasImageElem
   locked: overrides?.locked ?? false,
   visible: overrides?.visible ?? true,
   zIndex: overrides?.zIndex ?? 1,
-  adjustments: overrides?.adjustments,
-  filmProfileId: overrides?.filmProfileId,
+  renderState:
+    overrides?.renderState ??
+    createDefaultCanvasImageRenderState({
+      adjustments: overrides?.adjustments ?? createDefaultAdjustments(),
+      filmProfileId: overrides?.filmProfileId,
+    }),
 });
 
 describe("boardImageRendering", () => {
@@ -141,7 +145,7 @@ describe("boardImageRendering", () => {
         ...createDefaultAdjustments(),
         exposure: 24,
       },
-      filmProfileId: element.filmProfileId,
+      filmProfileId: element.renderState?.film.profileId ?? undefined,
     });
 
     const context = createCanvasImageRenderContext({
@@ -152,7 +156,9 @@ describe("boardImageRendering", () => {
       priority: "interactive",
     });
 
-    expect(resolveCanvasImageRenderState(element, asset, draftRenderState).develop.tone.exposure).toBe(24);
+    expect(
+      resolveCanvasImageRenderState(element, asset, draftRenderState)?.develop.tone.exposure
+    ).toBe(24);
     expect(context.renderState.develop.tone.exposure).toBe(24);
     expect(context.filmProfile?.id).toBe("film-portrait-soft-v1");
   });
@@ -166,10 +172,8 @@ describe("boardImageRendering", () => {
     });
     const element = {
       ...createElement({
-        adjustments: undefined,
-        filmProfileId: undefined,
+        renderState,
       }),
-      renderState,
     };
 
     expect(resolveCanvasImageRenderState(element, undefined, undefined)).toBe(renderState);
@@ -197,7 +201,7 @@ describe("boardImageRendering", () => {
           opacity: 100,
           blendMode: "overlay",
           textureAssetId: "texture-1",
-        } as Asset["layers"][number],
+        } as NonNullable<Asset["layers"]>[number],
       ],
     });
 

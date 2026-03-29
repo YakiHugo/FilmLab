@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultCanvasImageRenderState } from "@/render/image";
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import { createDefaultCanvasImageRenderState } from "@/render/image";
 import { createCanvasTestDocument, createImageNode, createShapeNode } from "./document/testUtils";
 import { planCanvasImagePropertyCommand } from "./imagePropertyState";
 
@@ -53,7 +53,7 @@ describe("imagePropertyState", () => {
     });
   });
 
-  it("uses the real asset defaults when canonicalizing a legacy image node", () => {
+  it("rejects film-profile mutations for image nodes missing renderState", () => {
     const adjustments = createDefaultAdjustments();
     adjustments.exposure = 32;
     const command = planCanvasImagePropertyCommand({
@@ -62,8 +62,6 @@ describe("imagePropertyState", () => {
         id: "image-legacy",
         type: "image",
         renderState: undefined,
-        adjustments: undefined,
-        filmProfileId: undefined,
         asset: {
           id: "asset-1",
           name: "asset-1.jpg",
@@ -73,8 +71,10 @@ describe("imagePropertyState", () => {
           objectUrl: "blob:asset-1",
           adjustments,
           filmOverrides: {
-            halation: {
-              amount: 21,
+            scan: {
+              params: {
+                halationAmount: 0.21,
+              },
             },
           },
           layers: [],
@@ -82,25 +82,7 @@ describe("imagePropertyState", () => {
       },
     });
 
-    expect(command).toMatchObject({
-      type: "SET_IMAGE_RENDER_STATE",
-      id: "image-legacy",
-      renderState: {
-        develop: {
-          tone: {
-            exposure: 32,
-          },
-        },
-        film: {
-          profileId: "profile-1",
-          profileOverrides: {
-            halation: {
-              amount: 21,
-            },
-          },
-        },
-      },
-    });
+    expect(command).toBeNull();
   });
 
   it("rejects lossy film-profile mutations for unresolved legacy image nodes", () => {
@@ -110,8 +92,6 @@ describe("imagePropertyState", () => {
         id: "image-legacy",
         type: "image",
         renderState: undefined,
-        adjustments: createDefaultAdjustments(),
-        filmProfileId: "film-portrait-soft-v1",
         asset: null,
       },
     });

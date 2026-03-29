@@ -1,5 +1,5 @@
-import type { CanvasImageRenderStateV1 } from "@/render/image/types";
 import type { EditingAdjustments } from "./index";
+import type { CanvasImageRenderStateV1 } from "@/render/image/types";
 
 export type CanvasNodeId = string;
 export type CanvasNodeType = "group" | "image" | "text" | "shape";
@@ -62,11 +62,9 @@ export interface CanvasPersistedGroupNode extends CanvasPersistedNodeBase {
 export interface CanvasPersistedImageElement extends CanvasPersistedNodeBase {
   type: "image";
   assetId: string;
-  renderState?: CanvasImageRenderStateV1;
-  /** @deprecated Legacy read-compat only. */
-  filmProfileId?: string;
-  /** @deprecated Legacy read-compat only. */
   adjustments?: EditingAdjustments;
+  filmProfileId?: string;
+  renderState?: CanvasImageRenderStateV1;
 }
 
 export interface CanvasPersistedTextElement extends CanvasPersistedNodeBase {
@@ -245,7 +243,7 @@ export type CanvasRenderableNode = CanvasRenderableGroupNode | CanvasRenderableE
 
 export interface CanvasWorkbenchSnapshot {
   id: string;
-  version: 4;
+  version: 5;
   ownerRef: {
     userId: string;
   };
@@ -302,21 +300,37 @@ export type CanvasDocumentMetaPatch = Partial<
   >
 >;
 
-export type CanvasDocumentOp =
-  | { type: "patchDocumentMeta"; patch: CanvasDocumentMetaPatch }
-  | { type: "putNode"; node: CanvasPersistedNode }
-  | { type: "deleteNode"; nodeId: CanvasNodeId }
-  | { type: "setRootOrder"; rootIds: CanvasNodeId[] }
-  | { type: "setGroupChildren"; groupId: CanvasNodeId; childIds: CanvasNodeId[] };
+export type CanvasDocumentDeltaOp =
+  | {
+      type: "patchDocumentMeta";
+      before: CanvasDocumentMetaPatch;
+      after: CanvasDocumentMetaPatch;
+    }
+  | {
+      type: "setNode";
+      nodeId: CanvasNodeId;
+      before: CanvasPersistedNode | null;
+      after: CanvasPersistedNode | null;
+    }
+  | {
+      type: "setRootOrder";
+      before: CanvasNodeId[];
+      after: CanvasNodeId[];
+    }
+  | {
+      type: "setGroupChildren";
+      groupId: CanvasNodeId;
+      before: CanvasNodeId[];
+      after: CanvasNodeId[];
+    };
 
-export interface CanvasDocumentChangeSet {
-  operations: CanvasDocumentOp[];
+export interface CanvasDocumentDelta {
+  operations: CanvasDocumentDeltaOp[];
 }
 
 export interface CanvasHistoryEntry {
   commandType: CanvasCommand["type"];
-  forwardChangeSet: CanvasDocumentChangeSet;
-  inverseChangeSet: CanvasDocumentChangeSet;
+  delta: CanvasDocumentDelta;
 }
 
 export type CanvasNodePropertyPatch = Partial<

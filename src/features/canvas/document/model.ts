@@ -39,7 +39,7 @@ export const getCanvasWorkbenchSnapshot = (
   document: CanvasWorkbench | CanvasWorkbenchSnapshot
 ): CanvasWorkbenchSnapshot => ({
   id: document.id,
-  version: 4,
+  version: 5,
   ownerRef: document.ownerRef ?? { userId: getCurrentUserId() },
   name: document.name,
   width: document.width,
@@ -140,9 +140,7 @@ export const normalizeNode = (node: CanvasPersistedNode | CanvasNode): CanvasPer
     locked: node.locked,
     visible: node.visible,
     assetId: node.assetId,
-    renderState: node.renderState ? clone(node.renderState) : undefined,
-    adjustments: node.renderState ? undefined : node.adjustments,
-    filmProfileId: node.renderState ? undefined : node.filmProfileId,
+    renderState: clone(node.renderState),
   };
 };
 

@@ -25,9 +25,6 @@ interface ImageElementProps {
   onDragMove: (elementId: string, x: number, y: number) => void;
   onDragStart: (elementId: string, event: Konva.KonvaEventObject<DragEvent>) => void;
   onDragEnd: (elementId: string, x: number, y: number) => void;
-  onTransform: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
-  onTransformEnd: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
-  onTransformStart: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
 }
 
 const hashString = (value: string) => {
@@ -87,11 +84,6 @@ const areImageElementsEqual = (
   left: CanvasImageRenderState,
   right: CanvasImageRenderState
 ) => {
-  const renderStateEqual =
-    left.renderState || right.renderState
-      ? areEqual(left.renderState, right.renderState)
-      : left.filmProfileId === right.filmProfileId && areEqual(left.adjustments, right.adjustments);
-
   return (
     left.id === right.id &&
     left.assetId === right.assetId &&
@@ -106,7 +98,7 @@ const areImageElementsEqual = (
     left.effectiveVisible === right.effectiveVisible &&
     left.locked === right.locked &&
     left.effectiveLocked === right.effectiveLocked &&
-    renderStateEqual
+    areEqual(left.renderState, right.renderState)
   );
 };
 
@@ -121,9 +113,6 @@ const areImageElementPropsEqual = (
   previous.onDragMove === next.onDragMove &&
   previous.onDragStart === next.onDragStart &&
   previous.onDragEnd === next.onDragEnd &&
-  previous.onTransform === next.onTransform &&
-  previous.onTransformEnd === next.onTransformEnd &&
-  previous.onTransformStart === next.onTransformStart &&
   areImageElementsEqual(previous.element, next.element);
 
 export const ImageElement = memo(function ImageElement({
@@ -135,9 +124,6 @@ export const ImageElement = memo(function ImageElement({
   onDragMove,
   onDragStart,
   onDragEnd,
-  onTransform,
-  onTransformEnd,
-  onTransformStart,
 }: ImageElementProps) {
   const { asset, assetRenderFingerprint } = useCanvasRuntimeAsset(element.assetId);
   const zoom = useCanvasStore((state) => state.zoom);
@@ -150,14 +136,8 @@ export const ImageElement = memo(function ImageElement({
   const renderOpacity = element.worldOpacity ?? element.opacity;
   const hadPreviewEntryRef = useRef(previewEntry !== undefined);
   const elementRenderFingerprint = useMemo(() => {
-    const renderInput =
-      element.renderState ??
-      {
-        adjustments: element.adjustments ?? null,
-        filmProfileId: element.filmProfileId ?? null,
-      };
-    return hashString(JSON.stringify(renderInput));
-  }, [element.adjustments, element.filmProfileId, element.renderState]);
+    return hashString(JSON.stringify(element.renderState));
+  }, [element.renderState]);
   const previewKey = useMemo(
     () =>
       [
@@ -251,9 +231,6 @@ export const ImageElement = memo(function ImageElement({
         onDragStart={(event) => onDragStart(element.id, event)}
         onDragMove={(event) => onDragMove(element.id, event.target.x(), event.target.y())}
         onDragEnd={(event) => onDragEnd(element.id, event.target.x(), event.target.y())}
-        onTransformStart={(event) => onTransformStart(element.id, event)}
-        onTransform={(event) => onTransform(element.id, event)}
-        onTransformEnd={(event) => onTransformEnd(element.id, event)}
       />
     );
   }
@@ -276,9 +253,6 @@ export const ImageElement = memo(function ImageElement({
       onDragStart={(event) => onDragStart(element.id, event)}
       onDragMove={(event) => onDragMove(element.id, event.target.x(), event.target.y())}
       onDragEnd={(event) => onDragEnd(element.id, event.target.x(), event.target.y())}
-      onTransformStart={(event) => onTransformStart(element.id, event)}
-      onTransform={(event) => onTransform(element.id, event)}
-      onTransformEnd={(event) => onTransformEnd(element.id, event)}
     />
   );
 }, areImageElementPropsEqual);

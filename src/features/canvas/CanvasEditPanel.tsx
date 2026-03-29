@@ -4,7 +4,7 @@ import {
   canvasEditTargetEqual,
   resolveCanvasEditTargetFromPrimarySelection,
 } from "./editPanelSelection";
-import { selectActiveWorkbench } from "./store/canvasStoreSelectors";
+import { selectLoadedWorkbench } from "./store/canvasStoreSelectors";
 import { CanvasImageEditPanel } from "./CanvasImageEditPanel";
 import { CanvasShapeEditPanel } from "./CanvasShapeEditPanel";
 import { canvasDockBodyTextClassName } from "./editDockTheme";
@@ -12,9 +12,9 @@ import { canvasDockBodyTextClassName } from "./editDockTheme";
 function useCanvasEditTarget() {
   const primarySelectedElementId = useCanvasStore((state) => state.selectedElementIds[0] ?? null);
   const selectEditTarget = useCallback(
-    (state: Parameters<typeof selectActiveWorkbench>[0]) =>
+    (state: Parameters<typeof selectLoadedWorkbench>[0]) =>
       resolveCanvasEditTargetFromPrimarySelection(
-        selectActiveWorkbench(state),
+        selectLoadedWorkbench(state),
         primarySelectedElementId
       ),
     [primarySelectedElementId]

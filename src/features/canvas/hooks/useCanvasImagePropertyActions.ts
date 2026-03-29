@@ -6,7 +6,7 @@ import {
   planCanvasImagePropertyCommand,
   type CanvasImagePropertyIntent,
 } from "../imagePropertyState";
-import { useCanvasActiveWorkbenchCommands } from "./useCanvasActiveWorkbenchCommands";
+import { useCanvasLoadedWorkbenchCommands } from "./useCanvasLoadedWorkbenchCommands";
 
 interface CommitCanvasImagePropertyIntentOptions {
   executeCommand: (
@@ -43,7 +43,7 @@ export function useCanvasImagePropertyActions(
   selectedImageElement: CanvasImageEditTarget | null,
   selectedImageAsset?: Asset | null
 ) {
-  const { executeCommand } = useCanvasActiveWorkbenchCommands();
+  const { executeCommand } = useCanvasLoadedWorkbenchCommands();
 
   const commitIntent = useCallback(
     (intent: CanvasImagePropertyIntent) =>

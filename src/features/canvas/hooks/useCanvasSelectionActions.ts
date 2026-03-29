@@ -8,23 +8,23 @@ import {
   resolveNextAdditiveSelectionIds,
   selectionIdsEqual,
 } from "../selectionModel";
-import { selectActiveWorkbench } from "../store/canvasStoreSelectors";
+import { selectLoadedWorkbench } from "../store/canvasStoreSelectors";
 
 const resolveSelectableElementIdSet = () => {
-  const activeWorkbench = selectActiveWorkbench(useCanvasStore.getState());
+  const loadedWorkbench = selectLoadedWorkbench(useCanvasStore.getState());
   return new Set(
-    (activeWorkbench?.allNodes ?? [])
+    (loadedWorkbench?.allNodes ?? [])
       .filter(isSelectableSelectionTarget)
       .map((node) => node.id)
   );
 };
 
 const resolveSelectableElementIds = () => {
-  const activeWorkbench = selectActiveWorkbench(useCanvasStore.getState());
-  return activeWorkbench
+  const loadedWorkbench = selectLoadedWorkbench(useCanvasStore.getState());
+  return loadedWorkbench
     ? resolveSelectableSelectionIds(
-        activeWorkbench.allNodes,
-        activeWorkbench.allNodes.map((node) => node.id)
+        loadedWorkbench.allNodes,
+        loadedWorkbench.allNodes.map((node) => node.id)
       )
     : [];
 };

@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { shallow } from "zustand/shallow";
 import { useCanvasStore, type CanvasState } from "@/stores/canvasStore";
-import { bindCanvasActiveWorkbenchCommands } from "../store/canvasActiveWorkbenchPorts";
-import { useCanvasActiveWorkbenchId } from "./useCanvasActiveWorkbenchId";
+import { bindCanvasLoadedWorkbenchCommands } from "../store/canvasLoadedWorkbenchPorts";
+import { useCanvasLoadedWorkbenchId } from "./useCanvasLoadedWorkbenchId";
 
 const selectCommandStoreApi = (state: CanvasState) => ({
   patchWorkbench: state.patchWorkbench,
@@ -15,16 +15,16 @@ const selectCommandStoreApi = (state: CanvasState) => ({
   upsertElementsInWorkbench: state.upsertElementsInWorkbench,
 });
 
-export function useCanvasActiveWorkbenchCommands() {
-  const activeWorkbenchId = useCanvasActiveWorkbenchId();
+export function useCanvasLoadedWorkbenchCommands() {
+  const loadedWorkbenchId = useCanvasLoadedWorkbenchId();
   const storeApi = useCanvasStore(selectCommandStoreApi, shallow);
 
   return useMemo(
     () =>
-      bindCanvasActiveWorkbenchCommands({
+      bindCanvasLoadedWorkbenchCommands({
         storeApi,
-        workbenchId: activeWorkbenchId,
+        workbenchId: loadedWorkbenchId,
       }),
-    [activeWorkbenchId, storeApi]
+    [loadedWorkbenchId, storeApi]
   );
 }

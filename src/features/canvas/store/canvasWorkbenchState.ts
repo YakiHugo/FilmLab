@@ -48,8 +48,8 @@ export type WorkbenchCommitDescriptor =
 const MAX_CANVAS_HISTORY = 50;
 
 export const createEmptyHistoryState = (): CanvasHistoryState => ({
-  past: [],
-  future: [],
+  entries: [],
+  cursor: 0,
 });
 
 export const createCommitFailureOutcome = (
@@ -58,12 +58,36 @@ export const createCommitFailureOutcome = (
 
 export const createHistoryEntry = (
   command: CanvasCommand,
-  result: Pick<CanvasHistoryEntry, "forwardChangeSet" | "inverseChangeSet">
+  result: Pick<CanvasHistoryEntry, "delta">
 ): CanvasHistoryEntry => ({
   commandType: command.type,
-  forwardChangeSet: result.forwardChangeSet,
-  inverseChangeSet: result.inverseChangeSet,
+  delta: result.delta,
 });
+
+const appendHistoryEntry = (
+  history: CanvasHistoryState,
+  historyEntry: CanvasHistoryEntry
+): CanvasHistoryState => {
+  const truncatedEntries = history.entries.slice(0, history.cursor);
+  const nextEntries = [...truncatedEntries, historyEntry];
+  const trimmedEntries =
+    nextEntries.length > MAX_CANVAS_HISTORY
+      ? nextEntries.slice(nextEntries.length - MAX_CANVAS_HISTORY)
+      : nextEntries;
+
+  return {
+    entries: trimmedEntries,
+    cursor: trimmedEntries.length,
+  };
+};
+
+const clearFutureHistory = (history: CanvasHistoryState): CanvasHistoryState => {
+  const nextEntries = history.entries.slice(0, history.cursor);
+  return {
+    entries: nextEntries,
+    cursor: nextEntries.length,
+  };
+};
 
 const applyCommandHistory = (
   history: CanvasHistoryState | null,
@@ -71,37 +95,30 @@ const applyCommandHistory = (
   trackHistory: boolean
 ) => {
   if (!trackHistory) {
-    return history;
+    return history ? clearFutureHistory(history) : history;
   }
 
   const currentHistory = history ?? createEmptyHistoryState();
-  return {
-    past: [...currentHistory.past, historyEntry].slice(-MAX_CANVAS_HISTORY),
-    future: [],
-  };
+  return appendHistoryEntry(currentHistory, historyEntry);
 };
 
 export const appendCanvasHistoryEntry = (
   history: CanvasHistoryState,
   historyEntry: CanvasHistoryEntry
-): CanvasHistoryState => ({
-  past: [...history.past, historyEntry].slice(-MAX_CANVAS_HISTORY),
-  future: [],
-});
+): CanvasHistoryState => appendHistoryEntry(history, historyEntry);
 
 const applyHistoryTransition = (
   mode: CanvasHistoryTransitionMode,
-  historyEntry: CanvasHistoryEntry,
   historyState: CanvasHistoryState
 ): CanvasHistoryState =>
   mode === "undo"
     ? {
-        past: historyState.past.slice(0, -1),
-        future: [historyEntry, ...historyState.future].slice(0, MAX_CANVAS_HISTORY),
+        entries: historyState.entries,
+        cursor: Math.max(0, historyState.cursor - 1),
       }
     : {
-        past: [...historyState.past, historyEntry].slice(-MAX_CANVAS_HISTORY),
-        future: historyState.future.slice(1),
+        entries: historyState.entries,
+        cursor: Math.min(historyState.entries.length, historyState.cursor + 1),
       };
 
 const upsertWorkbenchListEntry = (
@@ -131,7 +148,6 @@ export const commitCommandResultToState = (
         )
       : applyHistoryTransition(
           descriptor.historyMode,
-          descriptor.historyEntry,
           descriptor.historyState
         );
 
@@ -203,10 +219,7 @@ export const commitPreviewCommandResultToState = (
   const history = state.workbenchHistory ?? createEmptyHistoryState();
   return {
     workbenchDraft: descriptor.nextWorkbench,
-    workbenchHistory: {
-      past: history.past,
-      future: [],
-    },
+    workbenchHistory: clearFutureHistory(history),
     workbenchList: upsertWorkbenchListEntry(state.workbenchList, descriptor.nextWorkbench),
   };
 };

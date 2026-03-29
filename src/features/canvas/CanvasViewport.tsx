@@ -6,9 +6,10 @@ import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { CanvasViewportOverlayHost } from "./CanvasViewportOverlayHost";
 import { CanvasViewportStageShell } from "./CanvasViewportStageShell";
+import { useRegisterCanvasWorkbenchTransitionGuard } from "./canvasWorkbenchTransitionGuard";
 import { VIEWPORT_INSETS } from "./canvasViewportConstants";
-import { useCanvasActiveWorkbenchCommands } from "./hooks/useCanvasActiveWorkbenchCommands";
-import { useCanvasActiveWorkbenchState } from "./hooks/useCanvasActiveWorkbenchState";
+import { useCanvasLoadedWorkbenchCommands } from "./hooks/useCanvasLoadedWorkbenchCommands";
+import { useCanvasLoadedWorkbenchState } from "./hooks/useCanvasLoadedWorkbenchState";
 import { useCanvasDisplaySelectedElementIds } from "./hooks/useCanvasSelectionModel";
 import { useCanvasSelectionActions } from "./hooks/useCanvasSelectionActions";
 import { useCanvasTextSessionPort } from "./hooks/useCanvasTextSessionPort";
@@ -108,7 +109,7 @@ function CanvasViewportControls({
 }
 
 export function CanvasViewport({ stageRef }: CanvasViewportProps) {
-  const { activeWorkbench, activeWorkbenchId } = useCanvasActiveWorkbenchState();
+  const { loadedWorkbench, loadedWorkbenchId } = useCanvasLoadedWorkbenchState();
   const {
     beginInteraction,
     commitInteraction,
@@ -116,7 +117,7 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
     previewCommand,
     rollbackInteraction,
     upsertElement,
-  } = useCanvasActiveWorkbenchCommands();
+  } = useCanvasLoadedWorkbenchCommands();
   const tool = useCanvasStore((state) => state.tool);
   const activeShapeType = useCanvasStore((state) => state.activeShapeType);
   const setTool = useCanvasStore((state) => state.setTool);
@@ -129,11 +130,13 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
   const displaySelectedElementIds = useCanvasDisplaySelectedElementIds();
   const { selectedElementIds, setSelectedElementIds, selectElement, clearSelection } =
     useCanvasSelectionActions();
-  const activeWorkbenchInteractionStatus = useCanvasStore((state) =>
-    state.loadedWorkbenchId === activeWorkbenchId ? state.workbenchInteraction : null
+  const loadedWorkbenchInteractionStatus = useCanvasStore((state) =>
+    state.loadedWorkbenchId === loadedWorkbenchId ? state.workbenchInteraction : null
   );
   const isViewportInteractionBlocked =
-    (activeWorkbenchInteractionStatus?.queuedMutations ?? 0) > 0;
+    Boolean(loadedWorkbenchInteractionStatus?.active) ||
+    (loadedWorkbenchInteractionStatus?.pendingCommits ?? 0) > 0 ||
+    (loadedWorkbenchInteractionStatus?.queuedMutations ?? 0) > 0;
   const [interactionNotice, setInteractionNotice] = useState<CanvasInteractionNotice | null>(null);
   const assetById = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
 
@@ -159,8 +162,8 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
 
   const { fitView, isSpacePressed, stageSize, viewportContainerRef } =
     useCanvasViewportLifecycle({
-      activeWorkbench,
-      activeWorkbenchId,
+      activeWorkbench: loadedWorkbench,
+      activeWorkbenchId: loadedWorkbenchId,
       insets: VIEWPORT_INSETS,
       stageRef,
       setViewport,
@@ -171,7 +174,7 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
     tool,
   });
   const sceneState = useCanvasViewportSceneState({
-    activeWorkbench,
+    activeWorkbench: loadedWorkbench,
     selectedElementIds,
     stageSize,
     viewport,
@@ -195,8 +198,8 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
   });
   const interactionState = useCanvasViewportInteractionController({
     activeShapeType,
-    activeWorkbench,
-    activeWorkbenchId,
+    activeWorkbench: loadedWorkbench,
+    activeWorkbenchId: loadedWorkbenchId,
     beginInteraction,
     beginTextEdit: textSessionState.textSessionActions.begin,
     clearSelection,
@@ -223,8 +226,8 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
     zoom,
   });
   const textEditingState = useCanvasViewportTextEditingController({
-    activeWorkbench,
-    activeWorkbenchId,
+    activeWorkbench: loadedWorkbench,
+    activeWorkbenchId: loadedWorkbenchId,
     displaySelectedElementIds,
     elementById: sceneState.elementById,
     executeCommand,
@@ -235,11 +238,29 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
     textSession: textSessionState.textSession,
     textSessionActions: textSessionState.textSessionActions,
   });
+  useRegisterCanvasWorkbenchTransitionGuard(async () => {
+    if (
+      loadedWorkbenchInteractionStatus?.active ||
+      (loadedWorkbenchInteractionStatus?.pendingCommits ?? 0) > 0 ||
+      (loadedWorkbenchInteractionStatus?.queuedMutations ?? 0) > 0
+    ) {
+      throw new Error("Cannot switch workbenches while a canvas interaction is still settling.");
+    }
+
+    if (!textSessionState.textSession.id) {
+      return;
+    }
+
+    const result = await textSessionState.textSessionActions.commit();
+    if (result === "skipped") {
+      throw new Error("Failed to commit active text session before switching workbenches.");
+    }
+  });
   const resizeState = useCanvasViewportResizeController({
     activeEditingTextId: textEditingState.textRuntimeViewModel.activeEditingTextId,
     assetById,
-    activeWorkbench,
-    activeWorkbenchId,
+    activeWorkbench: loadedWorkbench,
+    activeWorkbenchId: loadedWorkbenchId,
     canManipulateSelection,
     beginInteraction,
     commitInteraction,
@@ -255,14 +276,14 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
 
   const scene = useMemo(
     () =>
-      activeWorkbench
+      loadedWorkbench
         ? {
-            activeWorkbench,
+            activeWorkbench: loadedWorkbench,
             interactivePreviewElementId: sceneState.interactivePreviewElementId,
             workspaceGridBounds: sceneState.workspaceGridBounds,
           }
         : null,
-    [activeWorkbench, sceneState.interactivePreviewElementId, sceneState.workspaceGridBounds]
+    [loadedWorkbench, sceneState.interactivePreviewElementId, sceneState.workspaceGridBounds]
   );
   const interaction = useMemo(
     () => ({
@@ -313,9 +334,9 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
   );
   const overlay = useMemo(
     () => ({
-      activeWorkbenchUpdatedAt: activeWorkbench?.updatedAt,
+      activeWorkbenchUpdatedAt: loadedWorkbench?.updatedAt,
       interactionNotice,
-      suspendDocumentOverlaySync: Boolean(activeWorkbenchInteractionStatus?.active),
+      suspendDocumentOverlaySync: Boolean(loadedWorkbenchInteractionStatus?.active),
       previewDimensionsStore: resizeState.previewDimensionsStore,
       selectedElementCount: selectedElementIds.length,
       singleSelectedNonTextElement: sceneState.singleSelectedNonTextElement,
@@ -325,8 +346,8 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
       zoom,
     }),
     [
-      activeWorkbench?.updatedAt,
-      activeWorkbenchInteractionStatus?.active,
+      loadedWorkbench?.updatedAt,
+      loadedWorkbenchInteractionStatus?.active,
       interactionNotice,
       resizeState.previewDimensionsStore,
       sceneState.singleSelectedNonTextElement,
@@ -346,7 +367,7 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
     [resizeState.showTransformer, resizeState.transformer, resizeState.transformerElementId]
   );
 
-  if (!activeWorkbench || !scene) {
+  if (!loadedWorkbench || !scene) {
     return (
       <div className="absolute inset-0 flex items-center justify-center text-sm text-zinc-500">
         Create or open a workbench to start composing on canvas.

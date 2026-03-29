@@ -53,6 +53,30 @@ interface UseCanvasViewportToolOrchestratorResult {
   handleWorkspacePointerUp: (event?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
 }
 
+const resolveCanvasWorkspacePointerTarget = (
+  stage: Konva.Stage,
+  fallbackTarget: Konva.Node
+) => {
+  const pointer = stage.getPointerPosition();
+  if (!pointer) {
+    return fallbackTarget;
+  }
+
+  return stage.getIntersection(pointer) ?? fallbackTarget;
+};
+
+export const isCanvasWorkspaceBackgroundTarget = (
+  stage: Konva.Stage,
+  target: Konva.Node
+) => {
+  const resolvedTarget = resolveCanvasWorkspacePointerTarget(stage, target);
+  return (
+    resolvedTarget === stage ||
+    resolvedTarget.getType() === "Layer" ||
+    resolvedTarget.id() === WORKSPACE_BACKGROUND_NODE_ID
+  );
+};
+
 export function useCanvasViewportToolOrchestrator({
   activeShapeType,
   activeWorkbench,
@@ -138,8 +162,8 @@ export function useCanvasViewportToolOrchestrator({
         return;
       }
 
-      const isBackgroundTarget =
-        event.target === stage || event.target.id() === WORKSPACE_BACKGROUND_NODE_ID;
+      stage.setPointersPositions(event.evt);
+      const isBackgroundTarget = isCanvasWorkspaceBackgroundTarget(stage, event.target);
 
       event.evt.preventDefault();
       activeToolController.onPointerDown(actionPort, {

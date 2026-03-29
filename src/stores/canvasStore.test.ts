@@ -43,7 +43,7 @@ const currentUser: CurrentUser = {
 const createWorkbench = (id = "doc-1", name = "Workbench"): CanvasWorkbench =>
   normalizeCanvasWorkbench({
     id,
-    version: 2,
+    version: 5,
     ownerRef: { userId: currentUser.id },
     name,
     width: 1200,
@@ -364,9 +364,12 @@ describe("canvasStore", () => {
     await useCanvasStore.getState().upsertElementInWorkbench(workbench.id, insertedElement);
 
     const updatedWorkbench = getLoadedWorkbench();
-    const nextImageElement = updatedWorkbench?.elements.find(
-      (candidate) => candidate.id === "image-2" && candidate.type === "image"
-    );
+    const nextElement =
+      updatedWorkbench?.elements.find((candidate) => candidate.id === "image-2") ?? null;
+    if (!nextElement || nextElement.type !== "image") {
+      throw new Error("Expected inserted image element.");
+    }
+    const nextImageElement = nextElement;
 
     expect(nextImageElement).toMatchObject({
       id: "image-2",
@@ -415,8 +418,29 @@ describe("canvasStore", () => {
     expect(useCanvasStore.getState().workbenchDraft).toBeNull();
     expect(useCanvasStore.getState().workbench?.nodes["image-1"]?.transform.x).toBe(20);
     expect(useCanvasStore.getState().workbenchInteraction).toBeNull();
-    expect(useCanvasStore.getState().workbenchHistory?.past).toHaveLength(1);
+    expect(useCanvasStore.getState().workbenchHistory?.entries).toHaveLength(1);
+    expect(useCanvasStore.getState().workbenchHistory?.cursor).toBe(1);
     expect(saveCanvasWorkbenchRecordMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears tracked interaction state when switching workbenches", async () => {
+    const workbench = installLoadedWorkbench(createWorkbench("doc-1", "One"));
+    const otherWorkbench = createWorkbench("doc-2", "Two");
+    const interaction = useCanvasStore.getState().beginInteractionInWorkbench(workbench.id);
+    if (!interaction) {
+      throw new Error("Expected interaction.");
+    }
+
+    loadCanvasWorkbenchMock.mockResolvedValueOnce(otherWorkbench).mockResolvedValueOnce(workbench);
+
+    const openedOther = await useCanvasStore.getState().openWorkbench(otherWorkbench.id);
+    expect(openedOther?.id).toBe(otherWorkbench.id);
+
+    const reopened = await useCanvasStore.getState().openWorkbench(workbench.id);
+    expect(reopened?.id).toBe(workbench.id);
+
+    const nextInteraction = useCanvasStore.getState().beginInteractionInWorkbench(workbench.id);
+    expect(nextInteraction).not.toBeNull();
   });
 
   it("rolls back interaction previews to the last committed workbench", () => {
@@ -544,6 +568,28 @@ describe("canvasStore", () => {
     expect(saveCanvasWorkbenchRecordMock).toHaveBeenCalledTimes(2);
   });
 
+  it("ignores stale background init results after a mutation updates the workbench list", async () => {
+    const deferredList = createDeferred<ReturnType<typeof materializeCanvasWorkbenchListEntry>[]>();
+    loadCanvasWorkbenchListEntriesByUserMock.mockReset();
+    loadCanvasWorkbenchListEntriesByUserMock
+      .mockReturnValueOnce(deferredList.promise)
+      .mockImplementation(() => Promise.resolve(useCanvasStore.getState().workbenchList));
+
+    const initPromise = useCanvasStore.getState().init();
+    await flushMicrotasks();
+
+    const created = await useCanvasStore.getState().createWorkbench("Created from mutation");
+    expect(created).not.toBeNull();
+    expect(useCanvasStore.getState().workbenchList[0]?.id).toBe(created?.id);
+
+    deferredList.resolve([]);
+    await initPromise;
+
+    expect(useCanvasStore.getState().workbenchList.map((entry) => entry.id)).toContain(
+      created?.id ?? ""
+    );
+  });
+
   it("undo and redo clear selection and move the single-session history", async () => {
     const workbench = installLoadedWorkbench();
     const originalName = workbench.name;
@@ -564,8 +610,8 @@ describe("canvasStore", () => {
     expect(useCanvasStore.getState().workbench?.name).toBe(originalName);
     expect(useCanvasStore.getState().selectedElementIds).toEqual([]);
     expect(useCanvasStore.getState().workbenchHistory).toEqual({
-      past: [],
-      future: [expect.objectContaining({ commandType: "PATCH_DOCUMENT" })],
+      entries: [expect.objectContaining({ commandType: "PATCH_DOCUMENT" })],
+      cursor: 0,
     });
 
     useCanvasStore.setState({
@@ -578,8 +624,8 @@ describe("canvasStore", () => {
     expect(useCanvasStore.getState().workbench?.name).toBe("Renamed workbench");
     expect(useCanvasStore.getState().selectedElementIds).toEqual([]);
     expect(useCanvasStore.getState().workbenchHistory).toEqual({
-      past: [expect.objectContaining({ commandType: "PATCH_DOCUMENT" })],
-      future: [],
+      entries: [expect.objectContaining({ commandType: "PATCH_DOCUMENT" })],
+      cursor: 1,
     });
   });
 
@@ -588,14 +634,13 @@ describe("canvasStore", () => {
     useCanvasStore.setState({
       selectedElementIds: ["image-1"],
       workbenchHistory: {
-        past: [
+        entries: [
           {
             commandType: "PATCH_DOCUMENT",
-            forwardChangeSet: { operations: [] },
-            inverseChangeSet: { operations: [] },
+            delta: { operations: [] },
           },
         ],
-        future: [],
+        cursor: 1,
       },
     });
     deleteCanvasWorkbenchRecordMock.mockResolvedValue(false);
@@ -606,7 +651,8 @@ describe("canvasStore", () => {
     expect(useCanvasStore.getState().loadedWorkbenchId).toBe(workbench.id);
     expect(useCanvasStore.getState().workbench?.id).toBe(workbench.id);
     expect(useCanvasStore.getState().selectedElementIds).toEqual(["image-1"]);
-    expect(useCanvasStore.getState().workbenchHistory?.past).toHaveLength(1);
+    expect(useCanvasStore.getState().workbenchHistory?.entries).toHaveLength(1);
+    expect(useCanvasStore.getState().workbenchHistory?.cursor).toBe(1);
   });
 
   it("deletes the loaded workbench session and clears selection and history", async () => {
@@ -614,14 +660,13 @@ describe("canvasStore", () => {
     useCanvasStore.setState({
       selectedElementIds: ["image-1"],
       workbenchHistory: {
-        past: [
+        entries: [
           {
             commandType: "PATCH_DOCUMENT",
-            forwardChangeSet: { operations: [] },
-            inverseChangeSet: { operations: [] },
+            delta: { operations: [] },
           },
         ],
-        future: [],
+        cursor: 1,
       },
     });
 
@@ -689,6 +734,26 @@ describe("canvasStore", () => {
     expect(saveCanvasWorkbenchRecordMock).toHaveBeenCalledTimes(1);
     expect(useCanvasStore.getState().workbenchList).toEqual([]);
     expect(useCanvasStore.getState().loadedWorkbenchId).toBeNull();
+  });
+
+  it("does not reopen a workbench after current user reset invalidates an in-flight open", async () => {
+    const workbench = createWorkbench("doc-open", "Open target");
+    const deferredLoad = createDeferred<CanvasWorkbench | null>();
+    loadCanvasWorkbenchMock.mockReset();
+    loadCanvasWorkbenchMock.mockReturnValueOnce(deferredLoad.promise);
+
+    const openPromise = useCanvasStore.getState().openWorkbench(workbench.id);
+    await flushMicrotasks();
+
+    emit("currentUser:reset");
+    deferredLoad.resolve(workbench);
+
+    const opened = await openPromise;
+
+    expect(opened).toBeNull();
+    expect(useCanvasStore.getState().workbenchList).toEqual([]);
+    expect(useCanvasStore.getState().loadedWorkbenchId).toBeNull();
+    expect(useCanvasStore.getState().workbench).toBeNull();
   });
 
   it("skips queued deleteWorkbench work after current user reset", async () => {

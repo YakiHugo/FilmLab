@@ -212,7 +212,18 @@ export function useCanvasViewportInteractionController({
         return;
       }
 
+      const wasExclusivelySelected =
+        !additive && selectedElementIds.length === 1 && selectedElementIds[0] === elementId;
       const didSelect = selectElement(elementId, { additive });
+      if (
+        didSelect &&
+        !additive &&
+        !wasExclusivelySelected &&
+        element.type === "text" &&
+        isCanvasTextElementEditable(element)
+      ) {
+        beginTextEdit(element as CanvasTextElement);
+      }
       if (
         didSelect &&
         shouldOpenCanvasEditPanelForElement({
@@ -224,7 +235,16 @@ export function useCanvasViewportInteractionController({
         openEditPanel();
       }
     },
-    [activeWorkbench, elementByIdRef, openEditPanel, selectElement, shouldPan, tool]
+    [
+      activeWorkbench,
+      beginTextEdit,
+      elementByIdRef,
+      openEditPanel,
+      selectElement,
+      selectedElementIds,
+      shouldPan,
+      tool,
+    ]
   );
   const canManipulateElements = shouldCanvasToolSelectElements({
     shouldPan,
@@ -439,25 +459,6 @@ export function useCanvasViewportInteractionController({
     ]
   );
 
-  const handleTextElementDoubleClick = useCallback(
-    (elementId: string) => {
-      if (elementActivationSuppressedRef.current) {
-        elementActivationSuppressedRef.current = false;
-        return;
-      }
-      if (!canManipulateElements) {
-        return;
-      }
-      const element = elementByIdRef.current?.get(elementId);
-      if (!element?.type || element.type !== "text" || !isCanvasTextElementEditable(element)) {
-        return;
-      }
-
-      beginTextEdit(element as CanvasTextElement);
-    },
-    [beginTextEdit, canManipulateElements, elementByIdRef]
-  );
-
   const controls = useMemo(
     () => ({
       adjustZoom,
@@ -487,7 +488,6 @@ export function useCanvasViewportInteractionController({
       handleElementDragEnd,
       handleElementSelect,
       handleStageWheel,
-      handleTextElementDoubleClick,
       handleWorkspacePointerDown,
       handleWorkspacePointerMove,
       handleWorkspacePointerUp,
@@ -505,7 +505,6 @@ export function useCanvasViewportInteractionController({
       handleElementDragEnd,
       handleElementSelect,
       handleStageWheel,
-      handleTextElementDoubleClick,
       handleWorkspacePointerDown,
       handleWorkspacePointerMove,
       handleWorkspacePointerUp,

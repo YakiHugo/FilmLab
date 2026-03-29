@@ -3,8 +3,8 @@ import { useCanvasStore } from "@/stores/canvasStore";
 import type { CanvasRenderableNode } from "@/types";
 import { resolveSelectableSelectionIds } from "../selectionGeometry";
 import { selectionIdsEqual } from "../selectionModel";
-import { selectActiveWorkbench } from "../store/canvasStoreSelectors";
-import { useCanvasActiveWorkbenchStructure } from "./useCanvasActiveWorkbenchStructure";
+import { selectLoadedWorkbench } from "../store/canvasStoreSelectors";
+import { useCanvasLoadedWorkbenchStructure } from "./useCanvasLoadedWorkbenchStructure";
 import { useCanvasHistoryActions } from "./useCanvasHistoryActions";
 import { useCanvasSelectionActions } from "./useCanvasSelectionActions";
 
@@ -20,28 +20,28 @@ const isEditableTarget = (target: EventTarget | null) => {
 };
 
 export function useCanvasInteraction() {
-  const activeWorkbenchId = useCanvasStore((state) => state.loadedWorkbenchId);
+  const loadedWorkbenchId = useCanvasStore((state) => state.loadedWorkbenchId);
   const {
     deleteNodes,
     duplicateNodes,
     groupNodes,
     nudgeElements,
     ungroupNode,
-  } = useCanvasActiveWorkbenchStructure();
+  } = useCanvasLoadedWorkbenchStructure();
   const { redo, undo } = useCanvasHistoryActions();
   const { clearSelection, selectAll, selectElement, selectedElementIds, setSelectedElementIds } =
     useCanvasSelectionActions();
   const selectedElementIdsRef = useRef(selectedElementIds);
   const selectedSelectionStateKey = useCanvasStore(
     useCallback((state) => {
-      const activeWorkbench = selectActiveWorkbench(state);
-      if (!activeWorkbench || selectedElementIds.length === 0) {
+      const loadedWorkbench = selectLoadedWorkbench(state);
+      if (!loadedWorkbench || selectedElementIds.length === 0) {
         return "";
       }
 
       return selectedElementIds
         .map((selectedElementId) => {
-          const element = activeWorkbench.allNodes.find((node) => node.id === selectedElementId);
+          const element = loadedWorkbench.allNodes.find((node) => node.id === selectedElementId);
           return element
             ? `${selectedElementId}:${element.effectiveLocked ? 1 : 0}:${element.effectiveVisible ? 1 : 0}`
             : `${selectedElementId}:missing`;
@@ -75,10 +75,10 @@ export function useCanvasInteraction() {
       return;
     }
 
-    const activeWorkbench = selectActiveWorkbench(useCanvasStore.getState());
+    const loadedWorkbench = selectLoadedWorkbench(useCanvasStore.getState());
     const selectedNodes = selectedElementIds
       .map((selectedElementId) =>
-        activeWorkbench?.allNodes.find((node) => node.id === selectedElementId)
+        loadedWorkbench?.allNodes.find((node) => node.id === selectedElementId)
       )
       .filter((node): node is CanvasRenderableNode => Boolean(node));
     const nextSelectedIds = resolveSelectableSelectionIds(selectedNodes, selectedElementIds);
@@ -89,7 +89,7 @@ export function useCanvasInteraction() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (isEditableTarget(event.target) || !activeWorkbenchId) {
+      if (isEditableTarget(event.target) || !loadedWorkbenchId) {
         return;
       }
 
@@ -184,7 +184,7 @@ export function useCanvasInteraction() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [
-    activeWorkbenchId,
+    loadedWorkbenchId,
     deleteNodes,
     duplicateNodes,
     groupNodes,

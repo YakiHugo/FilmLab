@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
-import { renderSingleImageToCanvas } from "@/render/image";
+import { createDefaultCanvasImageRenderState, renderSingleImageToCanvas } from "@/render/image";
 import type { Asset, CanvasWorkbench } from "@/types";
 import { normalizeCanvasWorkbench } from "./studioPresets";
 import { cropRenderedCanvasSlice, renderCanvasWorkbenchToCanvas } from "./renderCanvasWorkbench";
@@ -98,6 +98,7 @@ const createCanvasWorkbench = (): CanvasWorkbench =>
         type: "image",
         parentId: null,
         assetId: "asset-1",
+        renderState: createDefaultCanvasImageRenderState(),
         x: 100,
         y: 120,
         width: 200,
@@ -165,7 +166,7 @@ const createNestedVisibilityDocument = (): CanvasWorkbench =>
     height: 800,
     presetId: "custom",
     backgroundColor: "#101010",
-    version: 2,
+    version: 5,
     nodes: {
       "group-1": {
         id: "group-1",
@@ -194,6 +195,7 @@ const createNestedVisibilityDocument = (): CanvasWorkbench =>
         type: "image",
         parentId: "group-1",
         assetId: "asset-1",
+        renderState: createDefaultCanvasImageRenderState(),
         x: 24,
         y: 18,
         width: 200,

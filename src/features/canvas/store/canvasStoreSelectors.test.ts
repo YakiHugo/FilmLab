@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasStoreDataState } from "./canvasStoreTypes";
 import {
-  selectCanvasActiveWorkbenchState,
-  selectActiveWorkbench,
-  selectActiveWorkbenchRootCount,
-  selectCanRedoOnActiveWorkbench,
+  selectCanvasLoadedWorkbenchState,
+  selectLoadedWorkbench,
+  selectLoadedWorkbenchRootCount,
+  selectCanRedoOnLoadedWorkbench,
   selectCanRedoInWorkbench,
-  selectCanUndoOnActiveWorkbench,
+  selectCanUndoOnLoadedWorkbench,
   selectCanUndoInWorkbench,
-  selectResolvedActiveWorkbenchId,
+  selectResolvedLoadedWorkbenchId,
 } from "./canvasStoreSelectors";
 
 const createState = (): CanvasStoreDataState => ({
@@ -39,7 +39,7 @@ const createState = (): CanvasStoreDataState => ({
   loadedWorkbenchId: "workbench-1",
   workbench: {
     id: "workbench-1",
-    version: 4,
+    version: 5,
     ownerRef: {
       userId: "user-1",
     },
@@ -78,29 +78,28 @@ const createState = (): CanvasStoreDataState => ({
   activePanel: null,
   isLoading: false,
   workbenchHistory: {
-    past: [
+    entries: [
       {
         commandType: "PATCH_DOCUMENT",
-        forwardChangeSet: { operations: [] },
-        inverseChangeSet: { operations: [] },
+        delta: { operations: [] },
       },
     ],
-    future: [],
+    cursor: 1,
   },
   workbenchInteraction: null,
 });
 
 describe("canvasStoreSelectors", () => {
-  it("resolves the active workbench and root count from canonical selectors", () => {
+  it("resolves the loaded workbench and root count from canonical selectors", () => {
     const state = createState();
 
-    expect(selectActiveWorkbench(state)?.id).toBe("workbench-1");
-    expect(selectResolvedActiveWorkbenchId(state)).toBe("workbench-1");
-    expect(selectActiveWorkbenchRootCount(state)).toBe(2);
-    expect(selectCanvasActiveWorkbenchState(state)).toMatchObject({
-      activeWorkbench: state.workbench,
-      activeWorkbenchId: "workbench-1",
-      activeWorkbenchRootCount: 2,
+    expect(selectLoadedWorkbench(state)?.id).toBe("workbench-1");
+    expect(selectResolvedLoadedWorkbenchId(state)).toBe("workbench-1");
+    expect(selectLoadedWorkbenchRootCount(state)).toBe(2);
+    expect(selectCanvasLoadedWorkbenchState(state)).toMatchObject({
+      loadedWorkbench: state.workbench,
+      loadedWorkbenchId: "workbench-1",
+      loadedWorkbenchRootCount: 2,
       slices: [],
     });
   });
@@ -140,42 +139,58 @@ describe("canvasStoreSelectors", () => {
     expect(selectCanRedoInWorkbench(state, "workbench-1")).toBe(false);
   });
 
-  it("treats missing active workbench ids as unavailable history", () => {
+  it("treats missing loaded workbench ids as unavailable history", () => {
     const state = createState();
 
     state.loadedWorkbenchId = "missing-workbench";
     state.workbench = null;
     state.workbenchHistory = {
-      past: [
+      entries: [
         {
           commandType: "PATCH_DOCUMENT",
-          forwardChangeSet: { operations: [] },
-          inverseChangeSet: { operations: [] },
+          delta: { operations: [] },
         },
-      ],
-      future: [
         {
           commandType: "PATCH_DOCUMENT",
-          forwardChangeSet: { operations: [] },
-          inverseChangeSet: { operations: [] },
+          delta: { operations: [] },
         },
       ],
+      cursor: 1,
     };
 
-    expect(selectCanUndoOnActiveWorkbench(state)).toBe(false);
-    expect(selectCanRedoOnActiveWorkbench(state)).toBe(false);
+    expect(selectCanUndoOnLoadedWorkbench(state)).toBe(false);
+    expect(selectCanRedoOnLoadedWorkbench(state)).toBe(false);
   });
 
-  it("collapses missing active workbench state to the null-safe read model", () => {
+  it("treats missing loaded workbench ids as unavailable history even with redo entries", () => {
+    const state = createState();
+
+    state.loadedWorkbenchId = "missing-workbench";
+    state.workbench = null;
+    state.workbenchHistory = {
+      entries: [
+        {
+          commandType: "PATCH_DOCUMENT",
+          delta: { operations: [] },
+        },
+      ],
+      cursor: 0,
+    };
+
+    expect(selectCanUndoOnLoadedWorkbench(state)).toBe(false);
+    expect(selectCanRedoOnLoadedWorkbench(state)).toBe(false);
+  });
+
+  it("collapses missing loaded workbench state to the null-safe read model", () => {
     const state = createState();
     state.loadedWorkbenchId = "missing-workbench";
     state.workbench = null;
 
-    expect(selectResolvedActiveWorkbenchId(state)).toBeNull();
-    expect(selectCanvasActiveWorkbenchState(state)).toEqual({
-      activeWorkbench: null,
-      activeWorkbenchId: null,
-      activeWorkbenchRootCount: 0,
+    expect(selectResolvedLoadedWorkbenchId(state)).toBeNull();
+    expect(selectCanvasLoadedWorkbenchState(state)).toEqual({
+      loadedWorkbench: null,
+      loadedWorkbenchId: null,
+      loadedWorkbenchRootCount: 0,
       slices: [],
     });
   });

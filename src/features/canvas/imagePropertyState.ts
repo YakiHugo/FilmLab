@@ -20,10 +20,18 @@ type CanvasImagePropertyTarget =
   | CanvasRenderableElement
   | (Pick<
       CanvasPersistedImageElement,
-      "id" | "type" | "renderState" | "adjustments" | "filmProfileId"
+      "id" | "type" | "renderState"
     > & {
       asset?: Asset | null;
     });
+
+type CanvasImagePropertyImageTarget = Extract<CanvasRenderableElement, { type: "image" }> | (Pick<
+  CanvasPersistedImageElement,
+  "id" | "type" | "renderState"
+> & {
+  type: "image";
+  asset?: Asset | null;
+});
 
 export const isCanvasImagePropertyIntent = (
   intent: { type: string }
@@ -46,12 +54,9 @@ export const planCanvasImagePropertyCommand = ({
 
 const resolveCanvasImagePropertyCommand = (
   intent: CanvasImagePropertyIntent,
-  node: CanvasImagePropertyTarget
+  node: CanvasImagePropertyImageTarget
 ): CanvasImagePropertyCommand | null => {
-  const baseRenderState =
-    resolveCanvasImageRenderStateForMutation(node, "asset" in node ? node.asset : null) ??
-    node.renderState ??
-    null;
+  const baseRenderState = resolveCanvasImageRenderStateForMutation(node) ?? node.renderState ?? null;
 
   switch (intent.type) {
     case "set-image-render-state":

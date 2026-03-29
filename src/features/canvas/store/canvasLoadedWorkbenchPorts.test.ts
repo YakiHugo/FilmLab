@@ -5,11 +5,11 @@ import type {
 } from "@/types";
 import { describe, expect, it, vi } from "vitest";
 import {
-  bindCanvasActiveWorkbenchHistoryActions,
-  bindCanvasActiveWorkbenchCommands,
-  bindCanvasActiveWorkbenchHistory,
-  bindCanvasActiveWorkbenchStructure,
-} from "./canvasActiveWorkbenchPorts";
+  bindCanvasLoadedWorkbenchHistoryActions,
+  bindCanvasLoadedWorkbenchCommands,
+  bindCanvasLoadedWorkbenchHistory,
+  bindCanvasLoadedWorkbenchStructure,
+} from "./canvasLoadedWorkbenchPorts";
 
 const renderableTextNode = null as unknown as CanvasRenderableTextElement;
 // @ts-expect-error runtime renderable nodes must not satisfy editable write inputs
@@ -20,8 +20,8 @@ const editableGroupNode = null as unknown as CanvasEditableGroupNode;
 const blockedGroupEditableElement: CanvasEditableElement = editableGroupNode;
 void blockedGroupEditableElement;
 
-describe("canvasActiveWorkbenchPorts", () => {
-  it("binds command ports to the active workbench id", async () => {
+describe("canvasLoadedWorkbenchPorts", () => {
+  it("binds command ports to the loaded workbench id", async () => {
     const patchWorkbench = vi.fn().mockResolvedValue({ id: "workbench-1" });
     const executeCommandInWorkbench = vi.fn().mockResolvedValue({ id: "workbench-1" });
     const beginInteractionInWorkbench = vi.fn().mockReturnValue({ interactionId: "interaction-1" });
@@ -30,7 +30,7 @@ describe("canvasActiveWorkbenchPorts", () => {
     const rollbackInteractionInWorkbench = vi.fn().mockReturnValue({ id: "workbench-1" });
     const upsertElementInWorkbench = vi.fn().mockResolvedValue(undefined);
     const upsertElementsInWorkbench = vi.fn().mockResolvedValue(undefined);
-    const commands = bindCanvasActiveWorkbenchCommands({
+    const commands = bindCanvasLoadedWorkbenchCommands({
       storeApi: {
         patchWorkbench,
         executeCommandInWorkbench,
@@ -103,7 +103,7 @@ describe("canvasActiveWorkbenchPorts", () => {
     ]);
   });
 
-  it("returns null-safe no-op command contracts when no active workbench exists", async () => {
+  it("returns null-safe no-op command contracts when no loaded workbench exists", async () => {
     const patchWorkbench = vi.fn();
     const executeCommandInWorkbench = vi.fn();
     const beginInteractionInWorkbench = vi.fn();
@@ -112,7 +112,7 @@ describe("canvasActiveWorkbenchPorts", () => {
     const rollbackInteractionInWorkbench = vi.fn();
     const upsertElementInWorkbench = vi.fn();
     const upsertElementsInWorkbench = vi.fn();
-    const commands = bindCanvasActiveWorkbenchCommands({
+    const commands = bindCanvasLoadedWorkbenchCommands({
       storeApi: {
         patchWorkbench,
         executeCommandInWorkbench,
@@ -173,7 +173,7 @@ describe("canvasActiveWorkbenchPorts", () => {
     expect(upsertElementsInWorkbench).not.toHaveBeenCalled();
   });
 
-  it("binds structure ports and keeps null-safe defaults for missing active workbench", async () => {
+  it("binds structure ports and keeps null-safe defaults for missing loaded workbench", async () => {
     const deleteNodesInWorkbench = vi.fn().mockResolvedValue(["node-1"]);
     const duplicateNodesInWorkbench = vi.fn().mockResolvedValue(["node-2"]);
     const groupNodesInWorkbench = vi.fn().mockResolvedValue("group-1");
@@ -184,7 +184,7 @@ describe("canvasActiveWorkbenchPorts", () => {
     const toggleElementVisibilityInWorkbench = vi.fn().mockResolvedValue(undefined);
     const ungroupNodeInWorkbench = vi.fn().mockResolvedValue(undefined);
 
-    const structure = bindCanvasActiveWorkbenchStructure({
+    const structure = bindCanvasLoadedWorkbenchStructure({
       storeApi: {
         deleteNodesInWorkbench,
         duplicateNodesInWorkbench,
@@ -209,7 +209,7 @@ describe("canvasActiveWorkbenchPorts", () => {
     await expect(structure.toggleElementVisibility("node-1")).resolves.toBeUndefined();
     await expect(structure.ungroupNode("group-1")).resolves.toBeUndefined();
 
-    const nullStructure = bindCanvasActiveWorkbenchStructure({
+    const nullStructure = bindCanvasLoadedWorkbenchStructure({
       storeApi: {
         deleteNodesInWorkbench,
         duplicateNodesInWorkbench,
@@ -239,7 +239,7 @@ describe("canvasActiveWorkbenchPorts", () => {
     const redoInWorkbench = vi.fn().mockResolvedValue(true);
     const undoInWorkbench = vi.fn().mockResolvedValue(true);
 
-    const history = bindCanvasActiveWorkbenchHistory({
+    const history = bindCanvasLoadedWorkbenchHistory({
       canRedo: true,
       canUndo: true,
       storeApi: {
@@ -254,7 +254,7 @@ describe("canvasActiveWorkbenchPorts", () => {
     await expect(history.undo()).resolves.toBe(true);
     await expect(history.redo()).resolves.toBe(true);
 
-    const nullHistory = bindCanvasActiveWorkbenchHistory({
+    const nullHistory = bindCanvasLoadedWorkbenchHistory({
       canRedo: false,
       canUndo: false,
       storeApi: {
@@ -274,7 +274,7 @@ describe("canvasActiveWorkbenchPorts", () => {
     const redoInWorkbench = vi.fn().mockResolvedValue(true);
     const undoInWorkbench = vi.fn().mockResolvedValue(true);
 
-    const actions = bindCanvasActiveWorkbenchHistoryActions({
+    const actions = bindCanvasLoadedWorkbenchHistoryActions({
       storeApi: {
         redoInWorkbench,
         undoInWorkbench,
@@ -287,7 +287,7 @@ describe("canvasActiveWorkbenchPorts", () => {
     expect(undoInWorkbench).toHaveBeenCalledWith("workbench-1");
     expect(redoInWorkbench).toHaveBeenCalledWith("workbench-1");
 
-    const nullActions = bindCanvasActiveWorkbenchHistoryActions({
+    const nullActions = bindCanvasLoadedWorkbenchHistoryActions({
       storeApi: {
         redoInWorkbench,
         undoInWorkbench,

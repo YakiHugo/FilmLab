@@ -23,19 +23,13 @@ interface UseCanvasViewportTextSessionControllerOptions {
 }
 
 export function useCanvasViewportTextSessionController({
-  elementById,
   port,
-  selectedElementIds,
-  singleSelectedTextElement,
 }: UseCanvasViewportTextSessionControllerOptions) {
   const {
     actions: textSessionActions,
     session: textSession,
   } = useCanvasTextSession({
-    elementById,
     port,
-    selectedElementIds,
-    singleSelectedTextElement,
   });
 
   return {

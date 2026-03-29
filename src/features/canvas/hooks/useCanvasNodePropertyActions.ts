@@ -5,8 +5,8 @@ import {
   type CanvasNodePropertyIntent,
   type CanvasNodePropertyPlannerTarget,
 } from "../propertyPanelState";
-import { useCanvasActiveWorkbenchCommands } from "./useCanvasActiveWorkbenchCommands";
-import { useCanvasActiveWorkbenchState } from "./useCanvasActiveWorkbenchState";
+import { useCanvasLoadedWorkbenchCommands } from "./useCanvasLoadedWorkbenchCommands";
+import { useCanvasLoadedWorkbenchState } from "./useCanvasLoadedWorkbenchState";
 
 interface CommitCanvasNodePropertyIntentOptions {
   executeCommand: (
@@ -41,8 +41,8 @@ export const commitCanvasNodePropertyIntent = async ({
 };
 
 export function useCanvasNodePropertyActions(selectedNode: CanvasRenderableNode | null) {
-  const { activeWorkbench } = useCanvasActiveWorkbenchState();
-  const { executeCommand } = useCanvasActiveWorkbenchCommands();
+  const { loadedWorkbench } = useCanvasLoadedWorkbenchState();
+  const { executeCommand } = useCanvasLoadedWorkbenchCommands();
 
   const commitIntent = useCallback(
     (intent: CanvasNodePropertyIntent) => {
@@ -50,14 +50,14 @@ export function useCanvasNodePropertyActions(selectedNode: CanvasRenderableNode 
         executeCommand,
         intent,
         node: selectedNode,
-        workbench: activeWorkbench,
+        workbench: loadedWorkbench,
       });
     },
-    [activeWorkbench, executeCommand, selectedNode]
+    [executeCommand, loadedWorkbench, selectedNode]
   );
 
   return {
-    activeWorkbench,
+    activeWorkbench: loadedWorkbench,
     commitIntent,
     selectedNode,
   };

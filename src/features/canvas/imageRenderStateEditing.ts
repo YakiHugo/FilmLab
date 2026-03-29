@@ -1,6 +1,6 @@
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import type { NumericAdjustmentKey } from "@/features/editor/types";
-import type { AsciiAdjustments } from "@/types";
+import type { AsciiAdjustments, EditingAdjustments } from "@/types";
 import {
   type CanvasImageRenderStateV1,
   type ImageAsciiEffectNode,
@@ -8,6 +8,36 @@ import {
 } from "@/render/image";
 
 const DEFAULT_ADJUSTMENTS = createDefaultAdjustments();
+const DEFAULT_ASCII_ADJUSTMENTS: AsciiAdjustments = DEFAULT_ADJUSTMENTS.ascii ?? {
+  enabled: false,
+  charsetPreset: "standard",
+  colorMode: "grayscale",
+  cellSize: 12,
+  characterSpacing: 1,
+  contrast: 1,
+  dither: "none",
+  invert: false,
+};
+
+export type CanvasImageAdjustmentView = Omit<
+  EditingAdjustments,
+  "ascii" | "blur" | "brightness" | "dilate" | "hue"
+> & {
+  ascii: AsciiAdjustments;
+  blur: number;
+  brightness: number;
+  dilate: number;
+  hue: number;
+};
+
+export const DEFAULT_CANVAS_IMAGE_ADJUSTMENT_VIEW: CanvasImageAdjustmentView = {
+  ...DEFAULT_ADJUSTMENTS,
+  ascii: DEFAULT_ASCII_ADJUSTMENTS,
+  blur: DEFAULT_ADJUSTMENTS.blur ?? 0,
+  brightness: DEFAULT_ADJUSTMENTS.brightness ?? 0,
+  dilate: DEFAULT_ADJUSTMENTS.dilate ?? 0,
+  hue: DEFAULT_ADJUSTMENTS.hue ?? 0,
+};
 
 const cloneState = (state: CanvasImageRenderStateV1): CanvasImageRenderStateV1 => {
   if (typeof structuredClone === "function") {
@@ -91,9 +121,11 @@ const upsertFilter2dEffect = (
   return next;
 };
 
-export const getCanvasImageAdjustmentView = (state: CanvasImageRenderStateV1) =>
+export const getCanvasImageAdjustmentView = (
+  state: CanvasImageRenderStateV1
+): CanvasImageAdjustmentView =>
   ({
-    ...DEFAULT_ADJUSTMENTS,
+    ...DEFAULT_CANVAS_IMAGE_ADJUSTMENT_VIEW,
     exposure: state.develop.tone.exposure,
     contrast: state.develop.tone.contrast,
     highlights: state.develop.tone.highlights,
@@ -126,7 +158,7 @@ export const getCanvasImageAdjustmentView = (state: CanvasImageRenderStateV1) =>
     blur: resolveFilter2dPreviewValues(state).blur,
     dilate: resolveFilter2dPreviewValues(state).dilate,
     ascii: resolveAsciiAdjustmentsFromState(state),
-  });
+  }) as CanvasImageAdjustmentView;
 
 const resolveAsciiAdjustmentsFromState = (state: CanvasImageRenderStateV1): AsciiAdjustments => {
   const effect = state.effects.find(
@@ -134,16 +166,7 @@ const resolveAsciiAdjustmentsFromState = (state: CanvasImageRenderStateV1): Asci
       candidate.type === "ascii" && candidate.enabled
   );
   return {
-    ...(DEFAULT_ADJUSTMENTS.ascii ?? {
-      enabled: false,
-      charsetPreset: "standard",
-      colorMode: "grayscale",
-      cellSize: 12,
-      characterSpacing: 1,
-      contrast: 1,
-      dither: "none",
-      invert: false,
-    }),
+    ...DEFAULT_ASCII_ADJUSTMENTS,
     enabled: Boolean(effect),
     charsetPreset:
       effect?.params.preset === "blocks" || effect?.params.preset === "detailed"

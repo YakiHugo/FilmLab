@@ -8,7 +8,7 @@ import type {
 
 export type CanvasImageEditTarget = Pick<
   CanvasPersistedImageElement,
-  "adjustments" | "assetId" | "filmProfileId" | "id" | "renderState" | "type"
+  "assetId" | "id" | "renderState" | "type"
 >;
 
 export type CanvasShapeEditTarget = Pick<
@@ -54,12 +54,7 @@ export const canvasEditTargetEqual = (
   }
 
   if (left.type === "image" && right.type === "image") {
-    return (
-      left.assetId === right.assetId &&
-      left.filmProfileId === right.filmProfileId &&
-      left.renderState === right.renderState &&
-      left.adjustments === right.adjustments
-    );
+    return left.assetId === right.assetId && left.renderState === right.renderState;
   }
 
   return (
@@ -95,9 +90,7 @@ export const resolveCanvasEditTargetForElementId = (
 
   if (element.type === "image") {
     return {
-      adjustments: element.adjustments,
       assetId: element.assetId,
-      filmProfileId: element.filmProfileId,
       id: element.id,
       renderState: element.renderState,
       type: "image",

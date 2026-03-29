@@ -1,6 +1,6 @@
 import type {
   CanvasCommand,
-  CanvasDocumentChangeSet,
+  CanvasDocumentDelta,
   CanvasDocumentMetaPatch,
   CanvasNodeId,
   CanvasNodePropertyPatch,
@@ -12,7 +12,6 @@ import type {
 } from "@/types";
 import { createId } from "@/utils";
 import { normalizeCanvasTextElement } from "../textStyle";
-import { canonicalizeCanvasImageNode } from "../imageRenderState";
 import {
   collectWorldTransformById,
   getBoundsFromPoints,
@@ -30,7 +29,7 @@ import {
 import { resolveCanvasWorkbench } from "./resolve";
 import { areEqual, clone, toNodeTransform } from "./shared";
 
-const EMPTY_CHANGE_SET: CanvasDocumentChangeSet = { operations: [] };
+const EMPTY_DELTA: CanvasDocumentDelta = { operations: [] };
 
 const moveIdsInOrder = (ids: CanvasNodeId[], movingIds: CanvasNodeId[], index: number) => {
   const remaining = ids.filter((entry) => !movingIds.includes(entry));
@@ -103,13 +102,17 @@ const applyNodePropertyPatch = (
   }
 
   if (node.type === "image") {
+    const nextRenderState =
+      hasPatchKey(patch, "renderState") && patch.renderState
+        ? clone(patch.renderState)
+        : node.renderState;
     return {
       ...node,
       transform: toNodeTransform(nextTransform),
       locked: patch.locked ?? node.locked,
       opacity: patch.opacity ?? node.opacity,
       visible: patch.visible ?? node.visible,
-      renderState: hasPatchKey(patch, "renderState") ? clone(patch.renderState) : node.renderState,
+      renderState: nextRenderState,
     };
   }
 
@@ -157,24 +160,20 @@ const applyNodePropertyPatch = (
 
 interface MutationRecorder {
   didChange: boolean;
-  forward: CanvasDocumentChangeSet["operations"];
-  inverse: CanvasDocumentChangeSet["operations"];
+  operations: CanvasDocumentDelta["operations"];
 }
 
 const createMutationRecorder = (): MutationRecorder => ({
   didChange: false,
-  forward: [],
-  inverse: [],
+  operations: [],
 });
 
 const recordOperation = (
   recorder: MutationRecorder,
-  forward: CanvasDocumentChangeSet["operations"][number],
-  inverse: CanvasDocumentChangeSet["operations"][number]
+  operation: CanvasDocumentDelta["operations"][number]
 ) => {
   recorder.didChange = true;
-  recorder.forward.push(forward);
-  recorder.inverse.unshift(inverse);
+  recorder.operations.push(operation);
 };
 
 const applyDocumentMetaPatch = (
@@ -182,8 +181,8 @@ const applyDocumentMetaPatch = (
   recorder: MutationRecorder,
   patch: CanvasDocumentMetaPatch
 ) => {
-  const changedPatch: Record<string, unknown> = {};
-  const inversePatch: Record<string, unknown> = {};
+  const beforePatch: Record<string, unknown> = {};
+  const afterPatch: Record<string, unknown> = {};
   const mutableSnapshot = snapshot as unknown as Record<string, unknown>;
 
   for (const [key, value] of Object.entries(patch) as Array<
@@ -196,17 +195,17 @@ const applyDocumentMetaPatch = (
     if (areEqual(currentValue, value)) {
       continue;
     }
-    changedPatch[key as string] = clone(value);
-    inversePatch[key as string] = clone(currentValue);
+    beforePatch[key as string] = clone(currentValue);
+    afterPatch[key as string] = clone(value);
     mutableSnapshot[key as string] = clone(value);
   }
 
-  if (Object.keys(changedPatch).length > 0) {
-    recordOperation(
-      recorder,
-      { type: "patchDocumentMeta", patch: changedPatch as CanvasDocumentMetaPatch },
-      { type: "patchDocumentMeta", patch: inversePatch as CanvasDocumentMetaPatch }
-    );
+  if (Object.keys(afterPatch).length > 0) {
+    recordOperation(recorder, {
+      type: "patchDocumentMeta",
+      before: beforePatch as CanvasDocumentMetaPatch,
+      after: afterPatch as CanvasDocumentMetaPatch,
+    });
   }
 };
 
@@ -221,13 +220,12 @@ const putNode = (
   }
 
   snapshot.nodes[node.id] = clone(node);
-  recordOperation(
-    recorder,
-    { type: "putNode", node: clone(node) },
-    current
-      ? { type: "putNode", node: clone(current) }
-      : { type: "deleteNode", nodeId: node.id }
-  );
+  recordOperation(recorder, {
+    type: "setNode",
+    nodeId: node.id,
+    before: current ? clone(current) : null,
+    after: clone(node),
+  });
 };
 
 const deleteNode = (
@@ -241,11 +239,12 @@ const deleteNode = (
   }
 
   delete snapshot.nodes[nodeId];
-  recordOperation(
-    recorder,
-    { type: "deleteNode", nodeId },
-    { type: "putNode", node: clone(current) }
-  );
+  recordOperation(recorder, {
+    type: "setNode",
+    nodeId,
+    before: clone(current),
+    after: null,
+  });
 };
 
 const setRootOrder = (
@@ -259,11 +258,11 @@ const setRootOrder = (
 
   const previous = snapshot.rootIds.slice();
   snapshot.rootIds = rootIds.slice();
-  recordOperation(
-    recorder,
-    { type: "setRootOrder", rootIds: rootIds.slice() },
-    { type: "setRootOrder", rootIds: previous }
-  );
+  recordOperation(recorder, {
+    type: "setRootOrder",
+    before: previous,
+    after: rootIds.slice(),
+  });
 };
 
 const setGroupChildren = (
@@ -283,11 +282,12 @@ const setGroupChildren = (
     delete snapshot.groupChildren[groupId];
   }
 
-  recordOperation(
-    recorder,
-    { type: "setGroupChildren", groupId, childIds: childIds.slice() },
-    { type: "setGroupChildren", groupId, childIds: previous.slice() }
-  );
+  recordOperation(recorder, {
+    type: "setGroupChildren",
+    groupId,
+    before: previous.slice(),
+    after: childIds.slice(),
+  });
 };
 
 const collectSubtreeIdsPostOrder = (
@@ -313,8 +313,7 @@ const removeIdsFromOrder = (ids: CanvasNodeId[], removedIds: CanvasNodeId[]) =>
 export interface ExecuteCanvasCommandResult {
   didChange: boolean;
   document: CanvasWorkbench;
-  forwardChangeSet: CanvasDocumentChangeSet;
-  inverseChangeSet: CanvasDocumentChangeSet;
+  delta: CanvasDocumentDelta;
 }
 
 export const executeCanvasCommand = (
@@ -338,8 +337,7 @@ export const executeCanvasCommand = (
       const explicitGroupChildren: Record<string, CanvasNodeId[]> = {};
 
       for (const node of command.nodes) {
-        const nextNode =
-          node.type === "image" ? canonicalizeCanvasImageNode(node) : node;
+        const nextNode = node;
         insertedNodeMap[nextNode.id] = normalizeNode(nextNode);
         parentHints[nextNode.id] = nextNode.parentId ?? null;
         if (nextNode.type === "group" && nextNode.childIds?.length) {
@@ -484,8 +482,7 @@ export const executeCanvasCommand = (
       return {
         didChange: false,
         document,
-        forwardChangeSet: EMPTY_CHANGE_SET,
-        inverseChangeSet: EMPTY_CHANGE_SET,
+        delta: EMPTY_DELTA,
       };
     }
     const parentById = buildCanvasHierarchyIndex(next).parentById;
@@ -743,8 +740,6 @@ export const executeCanvasCommand = (
       putNode(next, recorder, {
         ...node,
         renderState: clone(command.renderState),
-        adjustments: undefined,
-        filmProfileId: undefined,
       });
     }
   }
@@ -753,8 +748,7 @@ export const executeCanvasCommand = (
     return {
       didChange: false,
       document,
-      forwardChangeSet: EMPTY_CHANGE_SET,
-      inverseChangeSet: EMPTY_CHANGE_SET,
+      delta: EMPTY_DELTA,
     };
   }
 
@@ -766,7 +760,6 @@ export const executeCanvasCommand = (
   return {
     didChange: true,
     document: nextDocument,
-    forwardChangeSet: { operations: recorder.forward },
-    inverseChangeSet: { operations: recorder.inverse },
+    delta: { operations: recorder.operations },
   };
 };

@@ -21,7 +21,7 @@ import {
 const createWorkbench = (): CanvasWorkbench =>
   normalizeCanvasWorkbench({
   id: "doc-1",
-  version: 2,
+  version: 5,
   name: "工作台",
   width: 1200,
   height: 800,

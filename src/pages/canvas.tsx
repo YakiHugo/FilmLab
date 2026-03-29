@@ -5,7 +5,8 @@ import { CanvasExportDialog } from "@/features/canvas/CanvasExportDialog";
 import { CanvasFloatingPanel } from "@/features/canvas/CanvasFloatingPanel";
 import { CanvasToolRail } from "@/features/canvas/CanvasToolRail";
 import { CanvasViewport } from "@/features/canvas/CanvasViewport";
-import { useCanvasActiveWorkbenchState } from "@/features/canvas/hooks/useCanvasActiveWorkbenchState";
+import { CanvasWorkbenchTransitionGuardProvider } from "@/features/canvas/canvasWorkbenchTransitionGuard";
+import { useCanvasLoadedWorkbenchState } from "@/features/canvas/hooks/useCanvasLoadedWorkbenchState";
 import { useCanvasInteraction } from "@/features/canvas/hooks/useCanvasInteraction";
 import { useCanvasRouteWorkbenchSync } from "@/features/canvas/hooks/useCanvasRouteWorkbenchSync";
 import { CanvasRuntimeProvider } from "@/features/canvas/runtime/CanvasRuntimeProvider";
@@ -18,13 +19,13 @@ function CanvasPageEffects() {
 }
 
 function CanvasPreviewSurface({ stageRef }: { stageRef: RefObject<Konva.Stage> }) {
-  const { activeWorkbench, activeWorkbenchId } = useCanvasActiveWorkbenchState();
+  const { loadedWorkbench, loadedWorkbenchId } = useCanvasLoadedWorkbenchState();
 
   return (
     <CanvasRuntimeProvider
-      key={activeWorkbenchId ?? "canvas-runtime:empty"}
-      workbench={activeWorkbench}
-      workbenchId={activeWorkbenchId}
+      key={loadedWorkbenchId ?? "canvas-runtime:empty"}
+      workbench={loadedWorkbench}
+      workbenchId={loadedWorkbenchId}
     >
       <CanvasViewport stageRef={stageRef} />
       <CanvasFloatingPanel />
@@ -37,20 +38,22 @@ export function CanvasPage() {
   const [exportOpen, setExportOpen] = useState(false);
 
   return (
-    <div className="absolute inset-0 overflow-hidden">
-      <CanvasPageEffects />
-      <CanvasPreviewSurface stageRef={stageRef} />
-      <CanvasAppBar
-        onExport={() => {
-          setExportOpen(true);
-        }}
-      />
-      <CanvasToolRail />
-      <CanvasExportDialog
-        open={exportOpen}
-        onOpenChange={setExportOpen}
-        stage={stageRef.current}
-      />
-    </div>
+    <CanvasWorkbenchTransitionGuardProvider>
+      <div className="absolute inset-0 overflow-hidden">
+        <CanvasPageEffects />
+        <CanvasPreviewSurface stageRef={stageRef} />
+        <CanvasAppBar
+          onExport={() => {
+            setExportOpen(true);
+          }}
+        />
+        <CanvasToolRail />
+        <CanvasExportDialog
+          open={exportOpen}
+          onOpenChange={setExportOpen}
+          stage={stageRef.current}
+        />
+      </div>
+    </CanvasWorkbenchTransitionGuardProvider>
   );
 }

@@ -7,7 +7,7 @@ import {
   resolveDisplaySelectedElementIds,
   selectionIdsEqual,
 } from "../selectionModel";
-import { selectActiveWorkbench } from "../store/canvasStoreSelectors";
+import { selectLoadedWorkbench } from "../store/canvasStoreSelectors";
 
 const EMPTY_SELECTED_ELEMENT_IDS: string[] = [];
 
@@ -51,7 +51,7 @@ export function useCanvasDisplaySelectionState() {
 }
 
 export function useCanvasSelectionModel() {
-  const activeWorkbench = useCanvasStore(selectActiveWorkbench);
+  const activeWorkbench = useCanvasStore(selectLoadedWorkbench);
   const { committedSelectedElementIds, displaySelectedElementIds, hasPreviewSelection } =
     useDisplaySelectedElementIds();
   const nodeById = useMemo(() => createCanvasSelectionNodeById(activeWorkbench), [activeWorkbench]);

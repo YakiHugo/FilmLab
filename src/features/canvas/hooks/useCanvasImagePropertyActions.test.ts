@@ -89,7 +89,7 @@ describe("useCanvasImagePropertyActions", () => {
     expect(executeCommand).not.toHaveBeenCalled();
   });
 
-  it("preserves asset-backed defaults when updating a legacy image selection", async () => {
+  it("rejects film-profile updates for image selections missing renderState", async () => {
     const executeCommand = vi.fn().mockResolvedValue(null);
     const adjustments = createDefaultAdjustments();
     adjustments.exposure = 14;
@@ -98,8 +98,6 @@ describe("useCanvasImagePropertyActions", () => {
       type: "image" as const,
       assetId: "asset-1",
       renderState: undefined,
-      adjustments: undefined,
-      filmProfileId: undefined,
     };
 
     await commitCanvasImagePropertyIntent({
@@ -118,18 +116,6 @@ describe("useCanvasImagePropertyActions", () => {
       intent: { type: "set-image-film-profile", value: "film-portrait-soft-v1" },
     });
 
-    expect(executeCommand).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "SET_IMAGE_RENDER_STATE",
-        id: "image-legacy",
-        renderState: expect.objectContaining({
-          develop: expect.objectContaining({
-            tone: expect.objectContaining({
-              exposure: 14,
-            }),
-          }),
-        }),
-      })
-    );
+    expect(executeCommand).not.toHaveBeenCalled();
   });
 });

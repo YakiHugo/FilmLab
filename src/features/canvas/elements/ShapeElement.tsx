@@ -24,9 +24,6 @@ interface ShapeElementProps {
   onDragMove: (elementId: string, x: number, y: number) => void;
   onDragStart: (elementId: string, event: Konva.KonvaEventObject<DragEvent>) => void;
   onDragEnd: (elementId: string, x: number, y: number) => void;
-  onTransform: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
-  onTransformEnd: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
-  onTransformStart: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
 }
 
 const areShapeElementsEqual = (
@@ -64,9 +61,6 @@ const areShapeElementPropsEqual = (
   previous.onDragMove === next.onDragMove &&
   previous.onDragStart === next.onDragStart &&
   previous.onDragEnd === next.onDragEnd &&
-  previous.onTransform === next.onTransform &&
-  previous.onTransformEnd === next.onTransformEnd &&
-  previous.onTransformStart === next.onTransformStart &&
   areShapeElementsEqual(previous.element, next.element);
 
 export const ShapeElement = memo(function ShapeElement({
@@ -77,9 +71,6 @@ export const ShapeElement = memo(function ShapeElement({
   onDragMove,
   onDragStart,
   onDragEnd,
-  onTransform,
-  onTransformEnd,
-  onTransformStart,
 }: ShapeElementProps) {
   const effectiveLocked = element.effectiveLocked ?? element.locked;
   const effectiveVisible = element.effectiveVisible ?? element.visible;
@@ -100,9 +91,6 @@ export const ShapeElement = memo(function ShapeElement({
       onDragStart={(event) => onDragStart(element.id, event)}
       onDragMove={(event) => onDragMove(element.id, event.target.x(), event.target.y())}
       onDragEnd={(event) => onDragEnd(element.id, event.target.x(), event.target.y())}
-      onTransformStart={(event) => onTransformStart(element.id, event)}
-      onTransform={(event) => onTransform(element.id, event)}
-      onTransformEnd={(event) => onTransformEnd(element.id, event)}
     >
       {element.shapeType === "rect" ? (
         <Rect

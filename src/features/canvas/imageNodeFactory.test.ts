@@ -1,4 +1,5 @@
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import type { Asset } from "@/types";
 import { describe, expect, it } from "vitest";
 import { createCanvasImageElementFromAsset } from "./imageNodeFactory";
 
@@ -7,7 +8,7 @@ describe("imageNodeFactory", () => {
     const adjustments = createDefaultAdjustments();
     adjustments.exposure = 18;
     adjustments.contrast = -12;
-    const asset = {
+    const asset: Asset = {
       id: "asset-1",
       name: "asset-1.jpg",
       type: "image/jpeg",
@@ -17,12 +18,14 @@ describe("imageNodeFactory", () => {
       adjustments,
       filmProfileId: "film-portrait-soft-v1",
       filmOverrides: {
-        halation: {
-          amount: 42,
+        scan: {
+          params: {
+            halationAmount: 0.42,
+          },
         },
       },
       layers: [],
-    } as const;
+    };
 
     const element = createCanvasImageElementFromAsset({
       asset,
@@ -43,8 +46,10 @@ describe("imageNodeFactory", () => {
       film: {
         profileId: "film-portrait-soft-v1",
         profileOverrides: {
-          halation: {
-            amount: 42,
+          scan: {
+            params: {
+              halationAmount: 0.42,
+            },
           },
         },
       },

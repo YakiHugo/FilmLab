@@ -1,5 +1,5 @@
 import {
-  applyCanvasDocumentChangeSet,
+  applyCanvasDocumentDelta,
   executeCanvasCommand,
 } from "@/features/canvas/documentGraph";
 import type {
@@ -276,12 +276,7 @@ export const createCanvasWorkbenchMutationEngine = ({
     historyState: CanvasHistoryState
   ): HistoryTransitionCommitDescriptor => ({
     workbenchId,
-    nextWorkbench: applyCanvasDocumentChangeSet(
-      workbench,
-      historyMode === "undo"
-        ? historyEntry.inverseChangeSet
-        : historyEntry.forwardChangeSet
-    ),
+    nextWorkbench: applyCanvasDocumentDelta(workbench, historyEntry.delta, historyMode),
     historyMode,
     historyEntry,
     historyState,

@@ -14,7 +14,7 @@ import type { CanvasStoreDataState } from "./canvasStoreTypes";
 const createWorkbench = (id = "doc-1", name = "Workbench"): CanvasWorkbench =>
   normalizeCanvasWorkbench({
     id,
-    version: 2,
+    version: 5,
     ownerRef: { userId: "user-1" },
     name,
     width: 1200,
@@ -68,6 +68,8 @@ const createStoreState = (overrides?: Partial<CanvasStoreDataState>): CanvasStor
   ...overrides,
 });
 
+const emptyDelta = { operations: [] };
+
 describe("canvasWorkbenchState", () => {
   it("commits created workbench state and resets viewport when activated", () => {
     const state = createStoreState();
@@ -82,8 +84,8 @@ describe("canvasWorkbenchState", () => {
     expect(nextState.viewport).toEqual({ x: 0, y: 0 });
     expect(nextState.zoom).toBe(1);
     expect(nextState.workbenchHistory).toEqual({
-      past: [],
-      future: [],
+      entries: [],
+      cursor: 0,
     });
   });
 
@@ -115,13 +117,10 @@ describe("canvasWorkbenchState", () => {
       ],
       selectedElementIds: ["node-1"],
       workbenchHistory: {
-        past: [
-          createHistoryEntry({ type: "PATCH_DOCUMENT", patch: { name: "One" } }, {
-            forwardChangeSet: { operations: [] },
-            inverseChangeSet: { operations: [] },
-          }),
+        entries: [
+          createHistoryEntry({ type: "PATCH_DOCUMENT", patch: { name: "One" } }, { delta: emptyDelta }),
         ],
-        future: [],
+        cursor: 1,
       },
     });
 
@@ -137,11 +136,13 @@ describe("canvasWorkbenchState", () => {
     const state = createStoreState({
       selectedElementIds: ["node-1"],
       workbenchHistory: {
-        past: [],
-        future: [createHistoryEntry({ type: "MOVE_NODES", dx: 1, dy: 1, ids: ["node-1"] }, {
-            forwardChangeSet: { operations: [] },
-            inverseChangeSet: { operations: [] },
-          })],
+        entries: [
+          createHistoryEntry(
+            { type: "MOVE_NODES", dx: 1, dy: 1, ids: ["node-1"] },
+            { delta: emptyDelta }
+          ),
+        ],
+        cursor: 0,
       },
     });
     const command: CanvasCommand = {
@@ -150,23 +151,19 @@ describe("canvasWorkbenchState", () => {
         name: "Renamed",
       },
     };
-    const result = {
-      forwardChangeSet: { operations: [] },
-      inverseChangeSet: { operations: [] },
-    };
 
     const nextState = commitCommandResultToState(state, {
       workbenchId: "doc-1",
       nextWorkbench: createWorkbench("doc-1", "Renamed"),
       historyMode: "command",
-      historyEntry: createHistoryEntry(command, result),
+      historyEntry: createHistoryEntry(command, { delta: emptyDelta }),
       trackHistory: true,
     });
 
     expect(nextState.workbench?.name).toBe("Renamed");
     expect(nextState.workbenchHistory).toEqual({
-      past: [expect.objectContaining({ commandType: "PATCH_DOCUMENT" })],
-      future: [],
+      entries: [expect.objectContaining({ commandType: "PATCH_DOCUMENT" })],
+      cursor: 1,
     });
     expect("selectedElementIds" in nextState).toBe(false);
   });
@@ -174,14 +171,17 @@ describe("canvasWorkbenchState", () => {
   it("commits preview updates without appending history entries and clears redo history", () => {
     const state = createStoreState({
       workbenchHistory: {
-        past: [createHistoryEntry({ type: "PATCH_DOCUMENT", patch: { name: "Past" } }, {
-            forwardChangeSet: { operations: [] },
-            inverseChangeSet: { operations: [] },
-          })],
-        future: [createHistoryEntry({ type: "PATCH_DOCUMENT", patch: { name: "Future" } }, {
-            forwardChangeSet: { operations: [] },
-            inverseChangeSet: { operations: [] },
-          })],
+        entries: [
+          createHistoryEntry(
+            { type: "PATCH_DOCUMENT", patch: { name: "Past" } },
+            { delta: emptyDelta }
+          ),
+          createHistoryEntry(
+            { type: "PATCH_DOCUMENT", patch: { name: "Future" } },
+            { delta: emptyDelta }
+          ),
+        ],
+        cursor: 1,
       },
     });
 
@@ -193,21 +193,24 @@ describe("canvasWorkbenchState", () => {
     expect("workbench" in nextState).toBe(false);
     expect(nextState.workbenchDraft?.name).toBe("Preview Name");
     expect(nextState.workbenchHistory).toEqual({
-      past: [expect.objectContaining({ commandType: "PATCH_DOCUMENT" })],
-      future: [],
+      entries: [expect.objectContaining({ commandType: "PATCH_DOCUMENT" })],
+      cursor: 1,
     });
   });
 
-  it("appends a history entry and clears future history", () => {
+  it("appends a history entry and clears redo history", () => {
     const history = {
-      past: [createHistoryEntry({ type: "PATCH_DOCUMENT", patch: { name: "Before" } }, {
-        forwardChangeSet: { operations: [] },
-        inverseChangeSet: { operations: [] },
-      })],
-      future: [createHistoryEntry({ type: "PATCH_DOCUMENT", patch: { name: "Future" } }, {
-        forwardChangeSet: { operations: [] },
-        inverseChangeSet: { operations: [] },
-      })],
+      entries: [
+        createHistoryEntry(
+          { type: "PATCH_DOCUMENT", patch: { name: "Before" } },
+          { delta: emptyDelta }
+        ),
+        createHistoryEntry(
+          { type: "PATCH_DOCUMENT", patch: { name: "Future" } },
+          { delta: emptyDelta }
+        ),
+      ],
+      cursor: 1,
     };
 
     const nextHistory = appendCanvasHistoryEntry(
@@ -215,18 +218,59 @@ describe("canvasWorkbenchState", () => {
       createHistoryEntry(
         { type: "UPDATE_NODE_PROPS", updates: [] },
         {
-          forwardChangeSet: { operations: [{ type: "patchDocumentMeta", patch: { name: "After" } }] },
-          inverseChangeSet: { operations: [{ type: "patchDocumentMeta", patch: { name: "Before" } }] },
+          delta: {
+            operations: [
+              {
+                type: "patchDocumentMeta",
+                before: { name: "Before" },
+                after: { name: "After" },
+              },
+            ],
+          },
         }
       )
     );
 
     expect(nextHistory).toEqual({
-      past: [
+      entries: [
         expect.objectContaining({ commandType: "PATCH_DOCUMENT" }),
         expect.objectContaining({ commandType: "UPDATE_NODE_PROPS" }),
       ],
-      future: [],
+      cursor: 2,
+    });
+  });
+
+  it("clears redo history for changed commands that opt out of history tracking", () => {
+    const state = createStoreState({
+      workbenchHistory: {
+        entries: [
+          createHistoryEntry(
+            { type: "PATCH_DOCUMENT", patch: { name: "Past" } },
+            { delta: emptyDelta }
+          ),
+          createHistoryEntry(
+            { type: "PATCH_DOCUMENT", patch: { name: "Future" } },
+            { delta: emptyDelta }
+          ),
+        ],
+        cursor: 1,
+      },
+    });
+
+    const nextState = commitCommandResultToState(state, {
+      workbenchId: "doc-1",
+      nextWorkbench: createWorkbench("doc-1", "Non-tracked rename"),
+      historyMode: "command",
+      historyEntry: createHistoryEntry(
+        { type: "PATCH_DOCUMENT", patch: { name: "Non-tracked rename" } },
+        { delta: emptyDelta }
+      ),
+      trackHistory: false,
+    });
+
+    expect(nextState.workbenchHistory).toEqual({
+      entries: [expect.objectContaining({ commandType: "PATCH_DOCUMENT" })],
+      cursor: 1,
     });
   });
 });

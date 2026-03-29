@@ -1,6 +1,4 @@
-import { legacyEditingAdjustmentsToCanvasImageRenderState } from "@/render/image";
 import type {
-  Asset,
   CanvasEditableImageElement,
   CanvasImageElement,
   CanvasPersistedImageElement,
@@ -9,63 +7,26 @@ import type { CanvasImageRenderStateV1 } from "@/render/image";
 
 type CanvasImageRenderStateSource = Pick<
   CanvasImageElement | CanvasPersistedImageElement,
-  "adjustments" | "filmProfileId" | "renderState"
+  "renderState"
 >;
-
-const resolveLegacyCanvasImageRenderState = (
-  element: CanvasImageRenderStateSource,
-  asset?: Asset | null
-) => {
-  if (element.renderState) {
-    return element.renderState;
-  }
-
-  if (asset) {
-    return legacyEditingAdjustmentsToCanvasImageRenderState({
-      asset,
-      adjustments: element.adjustments,
-      filmProfileId: element.filmProfileId,
-    });
-  }
-  return null;
-};
 
 export const resolveCanvasImageRenderState = (
   element: CanvasImageRenderStateSource,
-  asset?: Asset | null,
+  _asset?: unknown,
   draftRenderState?: CanvasImageRenderStateV1
-) =>
-  draftRenderState ?? resolveLegacyCanvasImageRenderState(element, asset);
+) => draftRenderState ?? element.renderState ?? null;
 
 export const resolveCanvasImageRenderStateForMutation = (
-  element: CanvasImageRenderStateSource,
-  asset?: Asset | null
-) => resolveLegacyCanvasImageRenderState(element, asset);
+  element: CanvasImageRenderStateSource
+) => element.renderState ?? null;
 
 export const canonicalizeCanvasImageNode = <
   T extends CanvasEditableImageElement | CanvasPersistedImageElement,
 >(
-  element: T,
-  asset?: Asset | null
+  element: T
 ): T => {
-  if (
-    element.renderState &&
-    element.adjustments === undefined &&
-    element.filmProfileId === undefined
-  ) {
+  if (element.renderState) {
     return element;
   }
-
-  const renderState = resolveLegacyCanvasImageRenderState(element, asset);
-
-  if (!renderState) {
-    return element;
-  }
-
-  return {
-    ...element,
-    adjustments: undefined,
-    filmProfileId: undefined,
-    renderState,
-  };
+  throw new Error(`Canvas image node ${element.id} is missing renderState.`);
 };

@@ -15,8 +15,8 @@ export type CanvasFloatingPanel =
   | null;
 
 export interface CanvasHistoryState {
-  past: CanvasHistoryEntry[];
-  future: CanvasHistoryEntry[];
+  entries: CanvasHistoryEntry[];
+  cursor: number;
 }
 
 export interface CanvasWorkbenchInteractionStatus {

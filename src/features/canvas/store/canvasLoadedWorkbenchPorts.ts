@@ -15,7 +15,7 @@ const noopPromiseNull = async () => null;
 const noopPromiseArray = async () => [] as string[];
 const noopNull = () => null;
 
-export interface CanvasActiveWorkbenchCommands {
+export interface CanvasLoadedWorkbenchCommands {
   patchWorkbench: (
     patch: CanvasWorkbenchEditablePatch,
     options?: PatchWorkbenchOptions
@@ -32,7 +32,7 @@ export interface CanvasActiveWorkbenchCommands {
   upsertElements: (elements: CanvasEditableElement[]) => Promise<void>;
 }
 
-export interface CanvasActiveWorkbenchStructure {
+export interface CanvasLoadedWorkbenchStructure {
   deleteNodes: (ids: string[]) => Promise<string[]>;
   duplicateNodes: (ids: string[]) => Promise<string[]>;
   groupNodes: (ids: string[]) => Promise<string | null>;
@@ -44,19 +44,19 @@ export interface CanvasActiveWorkbenchStructure {
   ungroupNode: (id: string) => Promise<void>;
 }
 
-export interface CanvasActiveWorkbenchHistory {
+export interface CanvasLoadedWorkbenchHistory {
   canRedo: boolean;
   canUndo: boolean;
   redo: () => Promise<boolean>;
   undo: () => Promise<boolean>;
 }
 
-export interface CanvasActiveWorkbenchHistoryActions {
+export interface CanvasLoadedWorkbenchHistoryActions {
   redo: () => Promise<boolean>;
   undo: () => Promise<boolean>;
 }
 
-export interface CanvasActiveWorkbenchCommandStoreApi {
+export interface CanvasLoadedWorkbenchCommandStoreApi {
   patchWorkbench: (
     workbenchId: string,
     patch: CanvasWorkbenchEditablePatch,
@@ -91,7 +91,7 @@ export interface CanvasActiveWorkbenchCommandStoreApi {
   ) => Promise<void>;
 }
 
-export interface CanvasActiveWorkbenchStructureStoreApi {
+export interface CanvasLoadedWorkbenchStructureStoreApi {
   deleteNodesInWorkbench: (workbenchId: string, ids: string[]) => Promise<string[]>;
   duplicateNodesInWorkbench: (workbenchId: string, ids: string[]) => Promise<string[]>;
   groupNodesInWorkbench: (workbenchId: string, ids: string[]) => Promise<string | null>;
@@ -117,29 +117,29 @@ export interface CanvasActiveWorkbenchStructureStoreApi {
   ungroupNodeInWorkbench: (workbenchId: string, id: string) => Promise<void>;
 }
 
-export interface CanvasActiveWorkbenchHistoryStoreApi {
+export interface CanvasLoadedWorkbenchHistoryStoreApi {
   redoInWorkbench: (workbenchId: string | null) => Promise<boolean>;
   undoInWorkbench: (workbenchId: string | null) => Promise<boolean>;
 }
 
-export const bindCanvasActiveWorkbenchHistoryActions = ({
+export const bindCanvasLoadedWorkbenchHistoryActions = ({
   storeApi,
   workbenchId,
 }: {
-  storeApi: CanvasActiveWorkbenchHistoryStoreApi;
+  storeApi: CanvasLoadedWorkbenchHistoryStoreApi;
   workbenchId: string | null;
-}): CanvasActiveWorkbenchHistoryActions => ({
+}): CanvasLoadedWorkbenchHistoryActions => ({
   redo: () => (workbenchId ? storeApi.redoInWorkbench(workbenchId) : noopPromiseFalse()),
   undo: () => (workbenchId ? storeApi.undoInWorkbench(workbenchId) : noopPromiseFalse()),
 });
 
-export const bindCanvasActiveWorkbenchCommands = ({
+export const bindCanvasLoadedWorkbenchCommands = ({
   storeApi,
   workbenchId,
 }: {
-  storeApi: CanvasActiveWorkbenchCommandStoreApi;
+  storeApi: CanvasLoadedWorkbenchCommandStoreApi;
   workbenchId: string | null;
-}): CanvasActiveWorkbenchCommands => ({
+}): CanvasLoadedWorkbenchCommands => ({
   patchWorkbench: (patch, options) =>
     workbenchId ? storeApi.patchWorkbench(workbenchId, patch, options) : noopPromiseNull(),
   executeCommand: (command, options) =>
@@ -166,13 +166,13 @@ export const bindCanvasActiveWorkbenchCommands = ({
     workbenchId ? storeApi.upsertElementsInWorkbench(workbenchId, elements) : noopPromiseVoid(),
 });
 
-export const bindCanvasActiveWorkbenchStructure = ({
+export const bindCanvasLoadedWorkbenchStructure = ({
   storeApi,
   workbenchId,
 }: {
-  storeApi: CanvasActiveWorkbenchStructureStoreApi;
+  storeApi: CanvasLoadedWorkbenchStructureStoreApi;
   workbenchId: string | null;
-}): CanvasActiveWorkbenchStructure => ({
+}): CanvasLoadedWorkbenchStructure => ({
   deleteNodes: (ids) =>
     workbenchId ? storeApi.deleteNodesInWorkbench(workbenchId, ids) : noopPromiseArray(),
   duplicateNodes: (ids) =>
@@ -201,7 +201,7 @@ export const bindCanvasActiveWorkbenchStructure = ({
     workbenchId ? storeApi.ungroupNodeInWorkbench(workbenchId, id) : noopPromiseVoid(),
 });
 
-export const bindCanvasActiveWorkbenchHistory = ({
+export const bindCanvasLoadedWorkbenchHistory = ({
   canRedo,
   canUndo,
   storeApi,
@@ -209,12 +209,12 @@ export const bindCanvasActiveWorkbenchHistory = ({
 }: {
   canRedo: boolean;
   canUndo: boolean;
-  storeApi: CanvasActiveWorkbenchHistoryStoreApi;
+  storeApi: CanvasLoadedWorkbenchHistoryStoreApi;
   workbenchId: string | null;
-}): CanvasActiveWorkbenchHistory => ({
+}): CanvasLoadedWorkbenchHistory => ({
   canRedo,
   canUndo,
-  ...bindCanvasActiveWorkbenchHistoryActions({
+  ...bindCanvasLoadedWorkbenchHistoryActions({
     storeApi,
     workbenchId,
   }),

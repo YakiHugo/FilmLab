@@ -1,5 +1,4 @@
 import { getCurrentUserId } from "@/lib/authToken";
-import { canonicalizeCanvasImageNode } from "@/features/canvas/imageRenderState";
 import {
   createDefaultCanvasWorkbenchFields,
   normalizeCanvasWorkbench,
@@ -24,8 +23,7 @@ const clone = <T>(value: T): T => {
 
 const toEditableNodeFromPersisted = (
   source: CanvasWorkbench["nodes"][string],
-  parentId: CanvasNodeId | null,
-  assetById?: ReadonlyMap<string, Asset>
+  parentId: CanvasNodeId | null
 ): CanvasNode => {
   const baseNode = {
     id: source.id,
@@ -68,18 +66,12 @@ const toEditableNodeFromPersisted = (
   }
 
   if (source.type === "image") {
-    const asset = assetById?.get(source.assetId);
-    return canonicalizeCanvasImageNode(
-      {
-        ...baseNode,
-        type: "image",
-        assetId: source.assetId,
-        adjustments: source.renderState ? undefined : source.adjustments,
-        filmProfileId: source.renderState ? undefined : source.filmProfileId,
-        renderState: source.renderState ? clone(source.renderState) : undefined,
-      },
-      asset ?? null
-    );
+    return {
+      ...baseNode,
+      type: "image",
+      assetId: source.assetId,
+      renderState: clone(source.renderState),
+    };
   }
 
   if (source.type === "text") {
@@ -157,7 +149,7 @@ export const makeDefaultWorkbench = (name = "Untitled Workbench"): CanvasWorkben
   const defaults = createDefaultCanvasWorkbenchFields();
   return normalizeCanvasWorkbench({
     id: createId("workbench-id"),
-    version: 4,
+    version: 5,
     ownerRef: { userId: getCurrentUserId() },
     name,
     ...defaults,
@@ -188,7 +180,7 @@ export const cloneNodeTree = (
   const nextId = claimUniqueNodeId(usedIds);
   idMap.set(nodeId, nextId);
   const cloneNode: CanvasNode = {
-    ...toEditableNodeFromPersisted(source, parentId, assetById),
+    ...toEditableNodeFromPersisted(source, parentId),
     id: nextId,
     transform: {
       ...source.transform,

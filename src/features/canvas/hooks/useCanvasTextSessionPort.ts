@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { shallow } from "zustand/shallow";
 import { useCanvasStore, type CanvasState } from "@/stores/canvasStore";
 import type { CanvasTextSessionPort } from "../textSessionRunner";
-import { useCanvasActiveWorkbenchId } from "./useCanvasActiveWorkbenchId";
+import { useCanvasLoadedWorkbenchId } from "./useCanvasLoadedWorkbenchId";
 
 const selectCanvasTextSessionStoreApi = (state: CanvasState) => ({
   executeCommandInWorkbench: state.executeCommandInWorkbench,
@@ -16,11 +16,7 @@ export function useCanvasTextSessionPort({
   clearSelection: () => void;
   selectElement: (elementId: string) => void;
 }): CanvasTextSessionPort {
-  const activeWorkbenchId = useCanvasActiveWorkbenchId();
-  const availableWorkbenchIds = useCanvasStore(
-    (state) => state.workbenchList.map((workbench) => workbench.id),
-    shallow
-  );
+  const loadedWorkbenchId = useCanvasLoadedWorkbenchId();
   const storeApi = useCanvasStore(selectCanvasTextSessionStoreApi, shallow);
 
   return useMemo(
@@ -28,12 +24,11 @@ export function useCanvasTextSessionPort({
       clearSelection,
       executeCommandInWorkbench: (workbenchId, command, options) =>
         storeApi.executeCommandInWorkbench(workbenchId, command, options),
-      getActiveWorkbenchId: () => activeWorkbenchId,
-      getAvailableWorkbenchIds: () => availableWorkbenchIds,
+      getActiveWorkbenchId: () => loadedWorkbenchId,
       selectElement,
       upsertElementInWorkbench: (workbenchId, element) =>
         storeApi.upsertElementInWorkbench(workbenchId, element),
     }),
-    [activeWorkbenchId, availableWorkbenchIds, clearSelection, selectElement, storeApi]
+    [loadedWorkbenchId, clearSelection, selectElement, storeApi]
   );
 }

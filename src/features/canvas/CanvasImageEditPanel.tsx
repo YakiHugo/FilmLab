@@ -29,6 +29,8 @@ import type { CanvasImageEditTarget } from "./editPanelSelection";
 import {
   applyAsciiAdjustmentsToRenderState,
   applyNumericAdjustmentToRenderState,
+  type CanvasImageAdjustmentView,
+  DEFAULT_CANVAS_IMAGE_ADJUSTMENT_VIEW,
   getCanvasImageAdjustmentView,
   resetRenderStateForAdjustmentKeys,
 } from "./imageRenderStateEditing";
@@ -48,7 +50,7 @@ interface ProjectSliderDefinition {
 }
 
 interface ProjectEditControlsProps {
-  adjustments: ReturnType<typeof getCanvasImageAdjustmentView>;
+  adjustments: CanvasImageAdjustmentView;
   asciiAdjustments: AsciiAdjustments;
   asciiHasChanges: boolean;
   colorHasChanges: boolean;
@@ -217,7 +219,7 @@ const ProjectSliderRow = memo(function ProjectSliderRow({
 });
 
 const renderSliderRows = (
-  adjustments: ReturnType<typeof getCanvasImageAdjustmentView>,
+  adjustments: CanvasImageAdjustmentView,
   sliders: ProjectSliderDefinition[],
   onPreviewAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void,
   onCommitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void
@@ -238,7 +240,7 @@ const renderSliderRows = (
   ));
 
 const hasSliderSectionChanges = (
-  adjustments: ReturnType<typeof getCanvasImageAdjustmentView>,
+  adjustments: CanvasImageAdjustmentView,
   sliders: ProjectSliderDefinition[]
 ) =>
   sliders.some(
@@ -523,7 +525,7 @@ export function CanvasImageEditPanel({
     [asset, draftRenderState, imageElement]
   );
   const adjustments = useMemo(
-    () => (renderState ? getCanvasImageAdjustmentView(renderState) : DEFAULT_ADJUSTMENTS),
+    () => (renderState ? getCanvasImageAdjustmentView(renderState) : DEFAULT_CANVAS_IMAGE_ADJUSTMENT_VIEW),
     [renderState]
   );
   const hasEditableRenderState = Boolean(renderState);

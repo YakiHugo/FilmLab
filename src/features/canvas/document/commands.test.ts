@@ -4,7 +4,7 @@ import { createDefaultCanvasImageRenderState } from "@/render/image";
 import { getCanvasNodeWorldTransform, worldPointToLocalPoint } from "./geometry";
 import { getCanvasWorkbenchSnapshot } from "./model";
 import { executeCanvasCommand } from "./commands";
-import { applyCanvasDocumentChangeSet } from "./patches";
+import { applyCanvasDocumentDelta } from "./patches";
 import { createCanvasTestDocument, createGroupNode, createImageNode, createShapeNode } from "./testUtils";
 
 describe("document commands", () => {
@@ -89,8 +89,7 @@ describe("document commands", () => {
 
     expect(result.didChange).toBe(false);
     expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
-    expect(result.forwardChangeSet.operations).toEqual([]);
-    expect(result.inverseChangeSet.operations).toEqual([]);
+    expect(result.delta.operations).toEqual([]);
   });
 
   it("ungroups by preserving world transforms and materializing inherited flags", () => {
@@ -237,8 +236,7 @@ describe("document commands", () => {
 
     expect(result.didChange).toBe(false);
     expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
-    expect(result.forwardChangeSet.operations).toEqual([]);
-    expect(result.inverseChangeSet.operations).toEqual([]);
+    expect(result.delta.operations).toEqual([]);
   });
 
   it("treats inserts that collide with existing ids as a no-op", () => {
@@ -260,8 +258,7 @@ describe("document commands", () => {
 
     expect(result.didChange).toBe(false);
     expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
-    expect(result.forwardChangeSet.operations).toEqual([]);
-    expect(result.inverseChangeSet.operations).toEqual([]);
+    expect(result.delta.operations).toEqual([]);
   });
 
   it("keeps inserted subtree parents while only rebasing inserted roots", () => {
@@ -336,7 +333,6 @@ describe("document commands", () => {
       id: "image-1",
       type: "image",
       renderState: undefined,
-      adjustments: expect.any(Object),
     });
   });
 
@@ -360,8 +356,7 @@ describe("document commands", () => {
 
     expect(result.didChange).toBe(false);
     expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
-    expect(result.forwardChangeSet.operations).toEqual([]);
-    expect(result.inverseChangeSet.operations).toEqual([]);
+    expect(result.delta.operations).toEqual([]);
   });
 
   it("rejects reorder commands that do not preserve the current sibling set", () => {
@@ -382,8 +377,7 @@ describe("document commands", () => {
 
     expect(result.didChange).toBe(false);
     expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
-    expect(result.forwardChangeSet.operations).toEqual([]);
-    expect(result.inverseChangeSet.operations).toEqual([]);
+    expect(result.delta.operations).toEqual([]);
   });
 
   it("treats no-op document patches as unchanged", () => {
@@ -408,8 +402,7 @@ describe("document commands", () => {
 
     expect(result.didChange).toBe(false);
     expect(result.document).toBe(document);
-    expect(result.forwardChangeSet.operations).toEqual([]);
-    expect(result.inverseChangeSet.operations).toEqual([]);
+    expect(result.delta.operations).toEqual([]);
   });
 
   it("applies canonical image render-state commands and round-trips their patches", () => {
@@ -437,15 +430,14 @@ describe("document commands", () => {
 
     expect(result.didChange).toBe(true);
     expect(result.document.nodes["image-1"]).toMatchObject({
-      adjustments: undefined,
       renderState: nextRenderState,
     });
 
-    const forwardApplied = applyCanvasDocumentChangeSet(document, result.forwardChangeSet);
-    const inverseApplied = applyCanvasDocumentChangeSet(result.document, result.inverseChangeSet);
+    const redone = applyCanvasDocumentDelta(document, result.delta, "redo");
+    const undone = applyCanvasDocumentDelta(result.document, result.delta, "undo");
 
-    expect(getCanvasWorkbenchSnapshot(forwardApplied)).toEqual(getCanvasWorkbenchSnapshot(result.document));
-    expect(getCanvasWorkbenchSnapshot(inverseApplied)).toEqual(getCanvasWorkbenchSnapshot(document));
+    expect(getCanvasWorkbenchSnapshot(redone)).toEqual(getCanvasWorkbenchSnapshot(result.document));
+    expect(getCanvasWorkbenchSnapshot(undone)).toEqual(getCanvasWorkbenchSnapshot(document));
   });
 
   it("persists shape fillStyle through node property patches and change-set replay", () => {
@@ -489,10 +481,10 @@ describe("document commands", () => {
       },
     });
 
-    const forwardApplied = applyCanvasDocumentChangeSet(document, result.forwardChangeSet);
-    const inverseApplied = applyCanvasDocumentChangeSet(result.document, result.inverseChangeSet);
+    const redone = applyCanvasDocumentDelta(document, result.delta, "redo");
+    const undone = applyCanvasDocumentDelta(result.document, result.delta, "undo");
 
-    expect(getCanvasWorkbenchSnapshot(forwardApplied)).toEqual(getCanvasWorkbenchSnapshot(result.document));
-    expect(getCanvasWorkbenchSnapshot(inverseApplied)).toEqual(getCanvasWorkbenchSnapshot(document));
+    expect(getCanvasWorkbenchSnapshot(redone)).toEqual(getCanvasWorkbenchSnapshot(result.document));
+    expect(getCanvasWorkbenchSnapshot(undone)).toEqual(getCanvasWorkbenchSnapshot(document));
   });
 });

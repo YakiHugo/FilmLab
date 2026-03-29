@@ -1,12 +1,12 @@
 import { createDefaultAdjustments } from "@/lib/adjustments";
-import { legacyEditingAdjustmentsToCanvasImageRenderState } from "@/render/image";
+import { createCanvasImageRenderStateFromAsset } from "@/render/image";
 import type {
-  CanvasWorkbench,
   CanvasGroupNode,
   CanvasImageElement,
   CanvasNode,
   CanvasNodeId,
   CanvasShapeElement,
+  CanvasWorkbench,
 } from "@/types";
 import { normalizeCanvasWorkbench } from "../studioPresets";
 
@@ -73,7 +73,7 @@ export const createImageNode = ({
   locked = false,
   visible = true,
 }: {
-  adjustments?: CanvasImageElement["adjustments"];
+  adjustments?: ReturnType<typeof createDefaultAdjustments>;
   assetId?: string;
   filmProfileId?: string;
   renderState?: CanvasImageElement["renderState"];
@@ -109,7 +109,7 @@ export const createImageNode = ({
   visible,
   renderState:
     renderState ??
-    legacyEditingAdjustmentsToCanvasImageRenderState({
+    createCanvasImageRenderStateFromAsset({
       asset: {
         id: assetId,
         name: assetId,
@@ -183,8 +183,8 @@ export const createCanvasTestDocument = ({
 }): CanvasWorkbench =>
   normalizeCanvasWorkbench({
     id: "doc-1",
-    version: 2,
-    name: "工作台",
+    version: 5,
+    name: "Workbench",
     width: 1200,
     height: 900,
     presetId: "custom",

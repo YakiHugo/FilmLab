@@ -1,13 +1,13 @@
 import { useCallback, useMemo } from "react";
 import type { CanvasShapeEditTarget } from "../editPanelSelection";
 import { resolveCanvasShapeEffectiveFillStyle } from "../shapeStyle";
-import { useCanvasActiveWorkbenchCommands } from "./useCanvasActiveWorkbenchCommands";
+import { useCanvasLoadedWorkbenchCommands } from "./useCanvasLoadedWorkbenchCommands";
 import { commitCanvasNodePropertyIntent } from "./useCanvasNodePropertyActions";
 
 export function useCanvasShapeEditPanelModel(
   shape: CanvasShapeEditTarget | null
 ) {
-  const { executeCommand } = useCanvasActiveWorkbenchCommands();
+  const { executeCommand } = useCanvasLoadedWorkbenchCommands();
 
   const commitIntent = useCallback(
     (intent: Parameters<typeof commitCanvasNodePropertyIntent>[0]["intent"]) => {

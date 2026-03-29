@@ -5,20 +5,20 @@ import { useCanvasStore } from "@/stores/canvasStore";
 import { resolveCanvasImageInsertionSize } from "@/utils";
 import { snapPoint } from "../grid";
 import { createCanvasImageElementFromAsset } from "../imageNodeFactory";
-import { useCanvasActiveWorkbenchId } from "./useCanvasActiveWorkbenchId";
+import { useCanvasLoadedWorkbenchId } from "./useCanvasLoadedWorkbenchId";
 import {
-  selectResolvedActiveWorkbenchId,
+  selectResolvedLoadedWorkbenchId,
   selectWorkbenchById,
 } from "../store/canvasStoreSelectors";
 
 export function useCanvasEngine() {
-  const activeWorkbenchId = useCanvasActiveWorkbenchId();
+  const loadedWorkbenchId = useCanvasLoadedWorkbenchId();
   const upsertElementInWorkbench = useCanvasStore((state) => state.upsertElementInWorkbench);
   const assets = useAssetStore((state) => state.assets);
 
   const addAssetToCanvas = async (assetId: string, explicitWorkbenchId?: string) => {
     const canvasState = useCanvasStore.getState();
-    const workbenchId = explicitWorkbenchId ?? selectResolvedActiveWorkbenchId(canvasState);
+    const workbenchId = explicitWorkbenchId ?? selectResolvedLoadedWorkbenchId(canvasState);
     if (!workbenchId) {
       return;
     }
@@ -48,7 +48,7 @@ export function useCanvasEngine() {
   };
 
   const importAssetsToCanvas = async (filesInput: File[] | FileList) => {
-    const targetWorkbenchId = selectResolvedActiveWorkbenchId(useCanvasStore.getState());
+    const targetWorkbenchId = selectResolvedLoadedWorkbenchId(useCanvasStore.getState());
     if (!targetWorkbenchId) {
       return;
     }
@@ -62,7 +62,7 @@ export function useCanvasEngine() {
   return {
     assets,
     addAssetToCanvas,
-    canAddAssetsToCanvas: Boolean(activeWorkbenchId),
+    canAddAssetsToCanvas: Boolean(loadedWorkbenchId),
     importAssetsToCanvas,
   };
 }
