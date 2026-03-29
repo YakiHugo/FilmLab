@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import { createDefaultCanvasImageRenderState } from "@/render/image";
 import type { FilmProfile } from "@/types";
 import type { FilmProfileV2, FilmProfileV3 } from "@/types/film";
-import { resolveRenderProfile } from "./renderProfile";
+import { resolveRenderProfile, resolveRenderProfileFromState } from "./renderProfile";
 
 const createV3BaseProfile = (): FilmProfileV3 => ({
   id: "film-v3-base",
@@ -255,5 +256,36 @@ describe("resolveRenderProfile", () => {
     expect(resolved.v3.print?.targetWhiteKelvin).toBe(6500);
     expect(resolved.v3.gateWeave?.amount).toBe(1);
     expect(resolved.v3.gateWeave?.seed).toBe(0);
+  });
+
+  it("preserves grain and vignette when runtime state has no explicit film profile", () => {
+    const adjustments = createDefaultAdjustments();
+    adjustments.exposure = 14;
+    adjustments.highlights = 22;
+    adjustments.shadows = -18;
+    adjustments.temperature = 12;
+    adjustments.tint = -9;
+    adjustments.vibrance = 17;
+    adjustments.saturation = 11;
+    adjustments.texture = 26;
+    adjustments.clarity = 19;
+    adjustments.dehaze = 7;
+    adjustments.grain = 48;
+    adjustments.grainSize = 62;
+    adjustments.grainRoughness = 73;
+    adjustments.vignette = 28;
+    const renderState = createDefaultCanvasImageRenderState({ adjustments });
+
+    const legacyResolved = resolveRenderProfile(adjustments);
+
+    const resolved = resolveRenderProfileFromState({
+      film: renderState.film,
+      develop: renderState.develop,
+    });
+
+    expect(resolved.mode).toBe("legacy-v1");
+    expect(resolved.legacyV1).toEqual(legacyResolved.legacyV1);
+    expect(resolved.v3.grain).toEqual(legacyResolved.v3.grain);
+    expect(resolved.v3.vignette).toEqual(legacyResolved.v3.vignette);
   });
 });

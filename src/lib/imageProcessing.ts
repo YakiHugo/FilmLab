@@ -1,19 +1,24 @@
-import { resolveRenderProfile } from "@/lib/film";
-import { normalizeAdjustments } from "@/lib/adjustments";
-import { applyAsciiRasterEffect, buildAsciiOutputToken } from "@/lib/asciiRaster";
-import { applyTimestampOverlay } from "@/lib/timestampOverlay";
+import { resolveRenderProfileFromState } from "@/lib/film";
 import { clamp } from "@/lib/math";
 import { resolveRenderIntent, type RenderIntent } from "@/lib/renderIntent";
 import { getRendererRuntimeConfig } from "@/lib/renderer/config";
 import { createTilePlan } from "@/lib/renderer/gpu/TiledRenderer";
 import { resolveViewportRenderRegion, type ViewportRoi } from "@/lib/renderer/viewportRegion";
 import type {
-  EditingAdjustments,
+  ImageProcessState,
+  ImageRenderColorState,
+  ImageRenderDetailState,
+  ImageRenderFilmState,
+  ImageRenderGeometry,
+  ImageRenderMaskState,
+  ImageRenderToneState,
+} from "@/render/image/types";
+import type {
   LocalAdjustment,
   LocalAdjustmentDelta,
   LocalAdjustmentMask,
 } from "@/types";
-import type { FilmProfileAny, ResolvedRenderProfile } from "@/types/film";
+import type { ResolvedRenderProfile } from "@/types/film";
 import type { RenderMode, FrameState } from "@/lib/renderer/RenderManager";
 import type {
   GeometryUniforms,
@@ -33,7 +38,7 @@ export class RenderError extends Error {
 }
 
 export const resolveAspectRatio = (
-  value: EditingAdjustments["aspectRatio"],
+  value: ImageRenderGeometry["aspectRatio"],
   customAspectRatio: number,
   fallback?: number
 ) => {
@@ -65,15 +70,15 @@ export const resolveOrientedAspectRatio = (aspectRatio: number, rightAngleRotati
     : safeAspectRatio;
 };
 
-const resolveTransform = (adjustments: EditingAdjustments, width: number, height: number) => {
-  const scale = clamp(adjustments.scale / 100, 0.5, 2.0);
-  const translateX = clamp(adjustments.horizontal / 5, -20, 20);
-  const translateY = clamp(adjustments.vertical / 5, -20, 20);
-  const flipHorizontal = adjustments.flipHorizontal ? -1 : 1;
-  const flipVertical = adjustments.flipVertical ? -1 : 1;
+const resolveTransform = (geometry: ImageRenderGeometry, width: number, height: number) => {
+  const scale = clamp(geometry.scale / 100, 0.5, 2.0);
+  const translateX = clamp(geometry.horizontal / 5, -20, 20);
+  const translateY = clamp(geometry.vertical / 5, -20, 20);
+  const flipHorizontal = geometry.flipHorizontal ? -1 : 1;
+  const flipVertical = geometry.flipVertical ? -1 : 1;
   return {
     scale,
-    rotate: (adjustments.rotate * Math.PI) / 180,
+    rotate: (geometry.rotate * Math.PI) / 180,
     translateX: (translateX / 100) * width,
     translateY: (translateY / 100) * height,
     flipHorizontal,
@@ -310,7 +315,6 @@ interface RenderStageOptions {
   applyLocalAdjustments: boolean;
   applyFilm: boolean;
   applyPostOptics: boolean;
-  applyLegacyOutputEffects: boolean;
 }
 
 const FULL_RENDER_STAGE: RenderStageOptions = {
@@ -320,7 +324,6 @@ const FULL_RENDER_STAGE: RenderStageOptions = {
   applyLocalAdjustments: true,
   applyFilm: true,
   applyPostOptics: true,
-  applyLegacyOutputEffects: true,
 };
 
 const DEVELOP_BASE_RENDER_STAGE: RenderStageOptions = {
@@ -330,7 +333,6 @@ const DEVELOP_BASE_RENDER_STAGE: RenderStageOptions = {
   applyLocalAdjustments: true,
   applyFilm: false,
   applyPostOptics: false,
-  applyLegacyOutputEffects: false,
 };
 
 const FILM_STAGE_RENDER_STAGE: RenderStageOptions = {
@@ -340,15 +342,12 @@ const FILM_STAGE_RENDER_STAGE: RenderStageOptions = {
   applyLocalAdjustments: false,
   applyFilm: true,
   applyPostOptics: true,
-  applyLegacyOutputEffects: false,
 };
 
 export interface RenderImageOptions {
   canvas: HTMLCanvasElement;
   source: RenderImageSource;
-  adjustments: EditingAdjustments;
-  filmProfile?: FilmProfileAny;
-  timestampText?: string | null;
+  state: ImageProcessState;
   targetSize?: RenderTargetSize;
   maxDimension?: number;
   seedKey?: string;
@@ -502,10 +501,10 @@ const mergePipelineMetrics = (
 
 interface PipelineModuleCache {
   RenderManager: typeof import("@/lib/renderer/RenderManager").RenderManager;
-  resolveFromAdjustments: typeof import("@/lib/renderer/uniformResolvers").resolveFromAdjustments;
-  resolveHslUniforms: typeof import("@/lib/renderer/uniformResolvers").resolveHslUniforms;
-  resolveCurveUniforms: typeof import("@/lib/renderer/uniformResolvers").resolveCurveUniforms;
-  resolveDetailUniforms: typeof import("@/lib/renderer/uniformResolvers").resolveDetailUniforms;
+  resolveMasterUniforms: typeof import("@/lib/renderer/uniformResolvers").resolveMasterUniforms;
+  resolveHslUniformsFromState: typeof import("@/lib/renderer/uniformResolvers").resolveHslUniformsFromState;
+  resolveCurveUniformsFromState: typeof import("@/lib/renderer/uniformResolvers").resolveCurveUniformsFromState;
+  resolveDetailUniformsFromState: typeof import("@/lib/renderer/uniformResolvers").resolveDetailUniformsFromState;
   resolveFilmUniforms: typeof import("@/lib/renderer/uniformResolvers").resolveFilmUniforms;
   resolveHalationBloomUniforms: typeof import("@/lib/renderer/uniformResolvers").resolveHalationBloomUniforms;
   resolveFilmUniformsV3: typeof import("@/lib/renderer/uniformResolvers").resolveFilmUniformsV3;
@@ -580,7 +579,30 @@ const LOCAL_DELTA_KEYS: Array<keyof LocalAdjustmentDelta> = [
 const hasLocalAdjustmentDelta = (delta: LocalAdjustmentDelta) =>
   LOCAL_DELTA_KEYS.some((key) => Math.abs(delta[key] ?? 0) > 0.0001);
 
-const resolveActiveLocalAdjustments = (localAdjustments: LocalAdjustment[] | undefined) =>
+const resolveActiveLocalAdjustmentsFromState = (state: ImageProcessState) =>
+  state.develop.regions
+    .map((region) => {
+      const maskDefinition = state.masks.byId[region.maskId];
+      if (!maskDefinition) {
+        return null;
+      }
+      return {
+        id: region.id,
+        enabled: region.enabled,
+        amount: region.amount,
+        mask: structuredClone(maskDefinition.mask),
+        adjustments: structuredClone(region.adjustments),
+      } satisfies LocalAdjustment;
+    })
+    .filter(
+      (local): local is LocalAdjustment =>
+        Boolean(local) &&
+        local.enabled &&
+        local.amount > 0.0001 &&
+        hasLocalAdjustmentDelta(local.adjustments)
+    );
+
+const filterActiveLocalAdjustments = (localAdjustments: LocalAdjustment[] | undefined) =>
   (localAdjustments ?? []).filter(
     (local) => local.enabled && local.amount > 0.0001 && hasLocalAdjustmentDelta(local.adjustments)
   );
@@ -679,12 +701,24 @@ const createLocalAdjustmentsKey = (localAdjustments: LocalAdjustment[]) => {
 };
 
 const applyLocalAdjustmentDelta = (
-  base: EditingAdjustments,
+  base: ImageProcessState,
   local: LocalAdjustment
-): EditingAdjustments => {
-  const next: EditingAdjustments = {
+): ImageProcessState => {
+  const next: ImageProcessState = {
     ...base,
-    localAdjustments: [],
+    develop: {
+      ...base.develop,
+      tone: {
+        ...base.develop.tone,
+      },
+      color: {
+        ...base.develop.color,
+      },
+      detail: {
+        ...base.develop.detail,
+      },
+      regions: [],
+    },
   };
   const delta = local.adjustments;
   const applySigned = (
@@ -709,7 +743,41 @@ const applyLocalAdjustmentDelta = (
     if (!Number.isFinite(value ?? NaN)) {
       return;
     }
-    next[key] = clamp((base[key] ?? 0) + (value as number), min, max);
+    switch (key) {
+      case "exposure":
+      case "contrast":
+      case "highlights":
+      case "shadows":
+      case "whites":
+      case "blacks":
+        next.develop.tone[key] = clamp(
+          (base.develop.tone[key] ?? 0) + (value as number),
+          min,
+          max
+        );
+        break;
+      case "temperature":
+      case "tint":
+      case "vibrance":
+      case "saturation":
+        next.develop.color[key] = clamp(
+          (base.develop.color[key] ?? 0) + (value as number),
+          min,
+          max
+        );
+        break;
+      case "texture":
+      case "clarity":
+      case "dehaze":
+        next.develop.detail[key] = clamp(
+          (base.develop.detail[key] ?? 0) + (value as number),
+          min,
+          max
+        );
+        break;
+      default:
+        break;
+    }
   };
   applySigned("exposure");
   applySigned("contrast");
@@ -734,7 +802,11 @@ const applyLocalAdjustmentDelta = (
     if (!Number.isFinite(value ?? NaN)) {
       return;
     }
-    next[key] = clamp((base[key] ?? 0) + (value as number), min, max);
+    next.develop.detail[key] = clamp(
+      (base.develop.detail[key] ?? 0) + (value as number),
+      min,
+      max
+    );
   };
   applyUnsigned("sharpening");
   applyUnsigned("noiseReduction");
@@ -770,113 +842,103 @@ const createSourceIdentityKey = (
   return `blob:${source.type}:${source.size}:${loaded.width}x${loaded.height}`;
 };
 
-const createMasterKey = (adj: EditingAdjustments) =>
+const createMasterKey = (
+  tone: ImageRenderToneState,
+  color: ImageRenderColorState,
+  detail: Pick<ImageRenderDetailState, "dehaze">
+) =>
   [
     "m",
-    toNumberKey(adj.exposure, 3),
-    toNumberKey(adj.contrast, 3),
-    toNumberKey(adj.highlights, 3),
-    toNumberKey(adj.shadows, 3),
-    toNumberKey(adj.whites, 3),
-    toNumberKey(adj.blacks, 3),
-    toNumberKey(adj.temperature, 3),
-    toNumberKey(adj.tint, 3),
-    Number.isFinite(adj.temperatureKelvin ?? NaN)
-      ? toNumberKey(adj.temperatureKelvin as number, 2)
+    toNumberKey(tone.exposure, 3),
+    toNumberKey(tone.contrast, 3),
+    toNumberKey(tone.highlights, 3),
+    toNumberKey(tone.shadows, 3),
+    toNumberKey(tone.whites, 3),
+    toNumberKey(tone.blacks, 3),
+    toNumberKey(color.temperature, 3),
+    toNumberKey(color.tint, 3),
+    Number.isFinite(color.temperatureKelvin ?? NaN)
+      ? toNumberKey(color.temperatureKelvin as number, 2)
       : "kelvin:na",
-    Number.isFinite(adj.tintMG ?? NaN) ? toNumberKey(adj.tintMG as number, 2) : "tintmg:na",
-    toNumberKey(adj.saturation, 3),
-    toNumberKey(adj.vibrance, 3),
-    toNumberKey(adj.colorGrading.shadows.hue, 3),
-    toNumberKey(adj.colorGrading.shadows.saturation, 3),
-    toNumberKey(adj.colorGrading.shadows.luminance, 3),
-    toNumberKey(adj.colorGrading.midtones.hue, 3),
-    toNumberKey(adj.colorGrading.midtones.saturation, 3),
-    toNumberKey(adj.colorGrading.midtones.luminance, 3),
-    toNumberKey(adj.colorGrading.highlights.hue, 3),
-    toNumberKey(adj.colorGrading.highlights.saturation, 3),
-    toNumberKey(adj.colorGrading.highlights.luminance, 3),
-    toNumberKey(adj.colorGrading.blend, 3),
-    toNumberKey(adj.colorGrading.balance, 3),
-    toNumberKey(adj.dehaze, 3),
+    Number.isFinite(color.tintMG ?? NaN) ? toNumberKey(color.tintMG as number, 2) : "tintmg:na",
+    toNumberKey(color.saturation, 3),
+    toNumberKey(color.vibrance, 3),
+    toNumberKey(color.colorGrading.shadows.hue, 3),
+    toNumberKey(color.colorGrading.shadows.saturation, 3),
+    toNumberKey(color.colorGrading.shadows.luminance, 3),
+    toNumberKey(color.colorGrading.midtones.hue, 3),
+    toNumberKey(color.colorGrading.midtones.saturation, 3),
+    toNumberKey(color.colorGrading.midtones.luminance, 3),
+    toNumberKey(color.colorGrading.highlights.hue, 3),
+    toNumberKey(color.colorGrading.highlights.saturation, 3),
+    toNumberKey(color.colorGrading.highlights.luminance, 3),
+    toNumberKey(color.colorGrading.blend, 3),
+    toNumberKey(color.colorGrading.balance, 3),
+    toNumberKey(detail.dehaze, 3),
   ].join("|");
 
-const createHslKey = (adj: EditingAdjustments) =>
+const createHslKey = (color: ImageRenderColorState) =>
   [
     "h",
-    toNumberKey(adj.hsl.red.hue, 2),
-    toNumberKey(adj.hsl.red.saturation, 2),
-    toNumberKey(adj.hsl.red.luminance, 2),
-    toNumberKey(adj.hsl.orange.hue, 2),
-    toNumberKey(adj.hsl.orange.saturation, 2),
-    toNumberKey(adj.hsl.orange.luminance, 2),
-    toNumberKey(adj.hsl.yellow.hue, 2),
-    toNumberKey(adj.hsl.yellow.saturation, 2),
-    toNumberKey(adj.hsl.yellow.luminance, 2),
-    toNumberKey(adj.hsl.green.hue, 2),
-    toNumberKey(adj.hsl.green.saturation, 2),
-    toNumberKey(adj.hsl.green.luminance, 2),
-    toNumberKey(adj.hsl.aqua.hue, 2),
-    toNumberKey(adj.hsl.aqua.saturation, 2),
-    toNumberKey(adj.hsl.aqua.luminance, 2),
-    toNumberKey(adj.hsl.blue.hue, 2),
-    toNumberKey(adj.hsl.blue.saturation, 2),
-    toNumberKey(adj.hsl.blue.luminance, 2),
-    toNumberKey(adj.hsl.purple.hue, 2),
-    toNumberKey(adj.hsl.purple.saturation, 2),
-    toNumberKey(adj.hsl.purple.luminance, 2),
-    toNumberKey(adj.hsl.magenta.hue, 2),
-    toNumberKey(adj.hsl.magenta.saturation, 2),
-    toNumberKey(adj.hsl.magenta.luminance, 2),
-    adj.bwEnabled ? "bw:1" : "bw:0",
-    toNumberKey(adj.bwMix?.red ?? 0, 2),
-    toNumberKey(adj.bwMix?.green ?? 0, 2),
-    toNumberKey(adj.bwMix?.blue ?? 0, 2),
-    toNumberKey(adj.calibration?.redHue ?? 0, 2),
-    toNumberKey(adj.calibration?.redSaturation ?? 0, 2),
-    toNumberKey(adj.calibration?.greenHue ?? 0, 2),
-    toNumberKey(adj.calibration?.greenSaturation ?? 0, 2),
-    toNumberKey(adj.calibration?.blueHue ?? 0, 2),
-    toNumberKey(adj.calibration?.blueSaturation ?? 0, 2),
+    toNumberKey(color.hsl.red.hue, 2),
+    toNumberKey(color.hsl.red.saturation, 2),
+    toNumberKey(color.hsl.red.luminance, 2),
+    toNumberKey(color.hsl.orange.hue, 2),
+    toNumberKey(color.hsl.orange.saturation, 2),
+    toNumberKey(color.hsl.orange.luminance, 2),
+    toNumberKey(color.hsl.yellow.hue, 2),
+    toNumberKey(color.hsl.yellow.saturation, 2),
+    toNumberKey(color.hsl.yellow.luminance, 2),
+    toNumberKey(color.hsl.green.hue, 2),
+    toNumberKey(color.hsl.green.saturation, 2),
+    toNumberKey(color.hsl.green.luminance, 2),
+    toNumberKey(color.hsl.aqua.hue, 2),
+    toNumberKey(color.hsl.aqua.saturation, 2),
+    toNumberKey(color.hsl.aqua.luminance, 2),
+    toNumberKey(color.hsl.blue.hue, 2),
+    toNumberKey(color.hsl.blue.saturation, 2),
+    toNumberKey(color.hsl.blue.luminance, 2),
+    toNumberKey(color.hsl.purple.hue, 2),
+    toNumberKey(color.hsl.purple.saturation, 2),
+    toNumberKey(color.hsl.purple.luminance, 2),
+    toNumberKey(color.hsl.magenta.hue, 2),
+    toNumberKey(color.hsl.magenta.saturation, 2),
+    toNumberKey(color.hsl.magenta.luminance, 2),
+    color.bwEnabled ? "bw:1" : "bw:0",
+    toNumberKey(color.bwMix?.red ?? 0, 2),
+    toNumberKey(color.bwMix?.green ?? 0, 2),
+    toNumberKey(color.bwMix?.blue ?? 0, 2),
+    toNumberKey(color.calibration?.redHue ?? 0, 2),
+    toNumberKey(color.calibration?.redSaturation ?? 0, 2),
+    toNumberKey(color.calibration?.greenHue ?? 0, 2),
+    toNumberKey(color.calibration?.greenSaturation ?? 0, 2),
+    toNumberKey(color.calibration?.blueHue ?? 0, 2),
+    toNumberKey(color.calibration?.blueSaturation ?? 0, 2),
   ].join("|");
 
-const serializeCurvePoints = (points: EditingAdjustments["pointCurve"]["rgb"]) =>
+const serializeCurvePoints = (points: ImageRenderColorState["pointCurve"]["rgb"]) =>
   points.map((point) => `${toNumberKey(point.x, 0)}:${toNumberKey(point.y, 0)}`).join(",");
 
-const createCurveKey = (adj: EditingAdjustments) =>
+const createCurveKey = (color: Pick<ImageRenderColorState, "pointCurve">) =>
   [
     "c",
-    toNumberKey(adj.curveHighlights, 2),
-    toNumberKey(adj.curveLights, 2),
-    toNumberKey(adj.curveDarks, 2),
-    toNumberKey(adj.curveShadows, 2),
-    serializeCurvePoints(adj.pointCurve.rgb),
-    serializeCurvePoints(adj.pointCurve.red),
-    serializeCurvePoints(adj.pointCurve.green),
-    serializeCurvePoints(adj.pointCurve.blue),
+    serializeCurvePoints(color.pointCurve.rgb),
+    serializeCurvePoints(color.pointCurve.red),
+    serializeCurvePoints(color.pointCurve.green),
+    serializeCurvePoints(color.pointCurve.blue),
   ].join("|");
 
-const createDetailKey = (adj: EditingAdjustments) =>
+const createDetailKey = (detail: ImageRenderDetailState) =>
   [
     "d",
-    toNumberKey(adj.texture, 2),
-    toNumberKey(adj.clarity, 2),
-    toNumberKey(adj.sharpening, 2),
-    toNumberKey(adj.sharpenRadius, 2),
-    toNumberKey(adj.sharpenDetail, 2),
-    toNumberKey(adj.masking, 2),
-    toNumberKey(adj.noiseReduction, 2),
-    toNumberKey(adj.colorNoiseReduction, 2),
-    (() => {
-      const raw = adj as unknown as Record<string, unknown>;
-      const candidates = [raw.u_shortEdgePx, raw.shortEdgePx];
-      for (const candidate of candidates) {
-        if (typeof candidate === "number" && Number.isFinite(candidate) && candidate > 0) {
-          return toNumberKey(candidate, 2);
-        }
-      }
-      return "auto";
-    })(),
+    toNumberKey(detail.texture, 2),
+    toNumberKey(detail.clarity, 2),
+    toNumberKey(detail.sharpening, 2),
+    toNumberKey(detail.sharpenRadius, 2),
+    toNumberKey(detail.sharpenDetail, 2),
+    toNumberKey(detail.masking, 2),
+    toNumberKey(detail.noiseReduction, 2),
+    toNumberKey(detail.colorNoiseReduction, 2),
   ].join("|");
 
 const createFilmKey = (resolvedProfile: ResolvedRenderProfile, grainSeed: number) => {
@@ -1032,7 +1094,7 @@ const createGeometryUniforms = (params: {
   fullOutputHeight?: number;
   outputOffsetX?: number;
   outputOffsetY?: number;
-  adjustments: EditingAdjustments;
+  geometry: ImageRenderGeometry;
 }): GeometryUniforms => {
   const sourceWidth = Math.max(1, params.sourceWidth);
   const sourceHeight = Math.max(1, params.sourceHeight);
@@ -1040,30 +1102,30 @@ const createGeometryUniforms = (params: {
   const outputHeight = Math.max(1, params.outputHeight);
   const fullOutputWidth = Math.max(1, params.fullOutputWidth ?? outputWidth);
   const fullOutputHeight = Math.max(1, params.fullOutputHeight ?? outputHeight);
-  const transform = resolveTransform(params.adjustments, fullOutputWidth, fullOutputHeight);
-  const perspectiveHorizontal = params.adjustments.perspectiveHorizontal ?? 0;
-  const perspectiveVertical = params.adjustments.perspectiveVertical ?? 0;
-  const perspectiveEnabled = Boolean(params.adjustments.perspectiveEnabled);
+  const transform = resolveTransform(params.geometry, fullOutputWidth, fullOutputHeight);
+  const perspectiveHorizontal = params.geometry.perspectiveHorizontal ?? 0;
+  const perspectiveVertical = params.geometry.perspectiveVertical ?? 0;
+  const perspectiveEnabled = Boolean(params.geometry.perspectiveEnabled);
   const kx = (perspectiveHorizontal / 100) * 0.35;
   const ky = (perspectiveVertical / 100) * 0.35;
   const homography = perspectiveEnabled
     ? [1, 0, 0, 0, 1, 0, kx, ky, 1]
     : [1, 0, 0, 0, 1, 0, 0, 0, 1];
-  const lensEnabled = params.adjustments.opticsProfile;
+  const lensEnabled = params.geometry.opticsProfile;
   // Vignette removal is independent of lens profile
-  const opticsVignetteStrength = clamp(params.adjustments.opticsVignette / 100, 0, 1);
-  const lensK1Control = clamp((params.adjustments.opticsDistortionK1 ?? 0) / 100, -1, 1);
-  const lensK2Control = clamp((params.adjustments.opticsDistortionK2 ?? 0) / 100, -1, 1);
+  const opticsVignetteStrength = clamp(params.geometry.opticsVignette / 100, 0, 1);
+  const lensK1Control = clamp((params.geometry.opticsDistortionK1 ?? 0) / 100, -1, 1);
+  const lensK2Control = clamp((params.geometry.opticsDistortionK2 ?? 0) / 100, -1, 1);
   const lensK1 = lensEnabled ? lensK1Control * 0.5 : 0;
   const lensK2 = lensEnabled ? lensK2Control * 0.3 : 0;
   const vignetteMidpointControl = clamp(
-    (params.adjustments.opticsVignetteMidpoint ?? 50) / 100,
+    (params.geometry.opticsVignetteMidpoint ?? 50) / 100,
     0,
     1
   );
   const lensVignetteMidpoint = 0.05 + vignetteMidpointControl * 0.4;
-  const caEnabled = params.adjustments.opticsCA;
-  const caAmountControl = clamp((params.adjustments.opticsCaAmount ?? 0) / 100, 0, 1);
+  const caEnabled = params.geometry.opticsCA;
+  const caAmountControl = clamp((params.geometry.opticsCaAmount ?? 0) / 100, 0, 1);
   const caAmountBasePx = caEnabled ? caAmountControl * 2.5 : 0;
 
   return {
@@ -1148,29 +1210,13 @@ const createOutputKey = (params: {
   canvas: HTMLCanvasElement;
   pipelineKey: string;
   localAdjustmentsKey: string;
-  timestampText?: string | null;
-  adjustments: EditingAdjustments;
-  stage: RenderStageOptions;
 }) => {
-  const timestampToken =
-    params.stage.applyLegacyOutputEffects && params.adjustments.timestampEnabled
-    ? `${params.adjustments.timestampPosition}:${toNumberKey(
-        params.adjustments.timestampSize,
-        0
-      )}:${toNumberKey(params.adjustments.timestampOpacity, 0)}:${params.timestampText ?? ""}`
-    : "off";
-  const asciiToken = params.stage.applyLegacyOutputEffects
-    ? buildAsciiOutputToken(params.adjustments.ascii)
-    : "off";
   return [
     "out",
-    params.stage.id,
     getCanvasRuntimeId(params.canvas),
     `${params.canvas.width}x${params.canvas.height}`,
     params.pipelineKey,
     params.localAdjustmentsKey,
-    timestampToken,
-    asciiToken,
   ].join("|");
 };
 
@@ -1186,10 +1232,10 @@ const ensurePipelineModules = async (): Promise<PipelineModuleCache> => {
 
   _pipelineModuleCache = {
     RenderManager: managerMod.RenderManager,
-    resolveFromAdjustments: uniformsMod.resolveFromAdjustments,
-    resolveHslUniforms: uniformsMod.resolveHslUniforms,
-    resolveCurveUniforms: uniformsMod.resolveCurveUniforms,
-    resolveDetailUniforms: uniformsMod.resolveDetailUniforms,
+    resolveMasterUniforms: uniformsMod.resolveMasterUniforms,
+    resolveHslUniformsFromState: uniformsMod.resolveHslUniformsFromState,
+    resolveCurveUniformsFromState: uniformsMod.resolveCurveUniformsFromState,
+    resolveDetailUniformsFromState: uniformsMod.resolveDetailUniformsFromState,
     resolveFilmUniforms: uniformsMod.resolveFilmUniforms,
     resolveHalationBloomUniforms: uniformsMod.resolveHalationBloomUniforms,
     resolveFilmUniformsV3: uniformsMod.resolveFilmUniformsV3,
@@ -1222,7 +1268,7 @@ export const releaseRenderSlots = async (mode: RenderMode, slotPrefix?: string) 
  */
 const renderWithPipeline = async (
   sourceImage: CanvasImageSource,
-  adjustments: EditingAdjustments,
+  state: ImageProcessState,
   frameState: FrameState,
   options: RenderWithPipelineOptions
 ): Promise<RenderWithPipelineResult> => {
@@ -1308,14 +1354,25 @@ const renderWithPipeline = async (
 
     if (renderNeeded) {
       const scratch = _uniformScratchByMode[options.mode];
-      const masterUniforms = modules.resolveFromAdjustments(adjustments, scratch.master);
+      const masterUniforms = modules.resolveMasterUniforms(
+        state.develop.tone,
+        state.develop.color,
+        state.develop.detail,
+        scratch.master
+      );
       scratch.master = masterUniforms;
-      const hslUniforms = modules.resolveHslUniforms(adjustments, scratch.hsl);
+      const hslUniforms = modules.resolveHslUniformsFromState(
+        state.develop.color,
+        scratch.hsl
+      );
       scratch.hsl = hslUniforms;
-      const curveUniforms = modules.resolveCurveUniforms(adjustments, scratch.curve);
+      const curveUniforms = modules.resolveCurveUniformsFromState(
+        state.develop.color,
+        scratch.curve
+      );
       scratch.curve = curveUniforms;
-      const detailUniforms = modules.resolveDetailUniforms(
-        adjustments,
+      const detailUniforms = modules.resolveDetailUniformsFromState(
+        state.develop.detail,
         {
           shortEdgePx: Math.min(options.targetWidth, options.targetHeight),
         },
@@ -1599,7 +1656,7 @@ const drawGeometryStage = (params: {
   fullOutputHeight?: number;
   outputOffsetX?: number;
   outputOffsetY?: number;
-  adjustments: EditingAdjustments;
+  geometry: ImageRenderGeometry;
   qualityProfile: RenderQualityProfile;
 }) => {
   const geometryCanvas = params.geometryCanvas;
@@ -1619,7 +1676,7 @@ const drawGeometryStage = (params: {
   geometryContext.clearRect(0, 0, geometryCanvas.width, geometryCanvas.height);
   geometryContext.imageSmoothingQuality = params.qualityProfile === "full" ? "high" : "medium";
 
-  const transform = resolveTransform(params.adjustments, fullOutputWidth, fullOutputHeight);
+  const transform = resolveTransform(params.geometry, fullOutputWidth, fullOutputHeight);
   geometryContext.save();
   geometryContext.translate(
     fullOutputWidth / 2 + transform.translateX - outputOffsetX,
@@ -2113,26 +2170,24 @@ if (import.meta.hot) {
 
 const renderImageStageToCanvas = async (
   {
-  canvas,
-  source,
-  adjustments,
-  filmProfile,
-  timestampText,
-  targetSize,
-  maxDimension,
-  seedKey,
-  renderSeed,
-  exportSeed,
-  skipHalationBloom: skipHalationBloomOption,
-  signal,
-  intent,
-  mode: modeOption,
-  qualityProfile: qualityProfileOption,
-  strictErrors: strictErrorsOption,
-  sourceCacheKey,
-  renderSlot,
-  viewportRoi,
-}: RenderImageOptions,
+    canvas,
+    source,
+    state,
+    targetSize,
+    maxDimension,
+    seedKey,
+    renderSeed,
+    exportSeed,
+    skipHalationBloom: skipHalationBloomOption,
+    signal,
+    intent,
+    mode: modeOption,
+    qualityProfile: qualityProfileOption,
+    strictErrors: strictErrorsOption,
+    sourceCacheKey,
+    renderSlot,
+    viewportRoi,
+  }: RenderImageOptions,
   stage: RenderStageOptions
 ) => {
   const callStartAt = performance.now();
@@ -2159,8 +2214,11 @@ const renderImageStageToCanvas = async (
     totalMs: 0,
   };
 
-  const normalizedAdjustments = normalizeAdjustments(adjustments);
-  const resolvedProfile = resolveRenderProfile(normalizedAdjustments, filmProfile);
+  const renderState = state;
+  const resolvedProfile = resolveRenderProfileFromState({
+    film: renderState.film,
+    develop: renderState.develop,
+  });
   const resolvedSourceCacheKey = resolveSourceCacheKey(source, seedKey, sourceCacheKey);
   const grainSeed = exportSeed ?? renderSeed ?? (seedKey ? hashSeedKey(seedKey) : Date.now());
   const slotId = renderSlot?.trim()
@@ -2185,7 +2243,7 @@ const renderImageStageToCanvas = async (
     timings.decodeMs = performance.now() - decodeStartAt;
 
     orientedSource = stage.applyGeometry
-      ? createOrientedSource(loaded, normalizedAdjustments.rightAngleRotation)
+      ? createOrientedSource(loaded, renderState.geometry.rightAngleRotation)
       : loaded;
 
     const fallbackRatio = targetSize
@@ -2193,8 +2251,8 @@ const renderImageStageToCanvas = async (
       : orientedSource.width / Math.max(1, orientedSource.height);
     const targetRatio = stage.applyGeometry
       ? resolveAspectRatio(
-          normalizedAdjustments.aspectRatio,
-          normalizedAdjustments.customAspectRatio,
+          renderState.geometry.aspectRatio,
+          renderState.geometry.customAspectRatio,
           fallbackRatio
         )
       : fallbackRatio;
@@ -2258,7 +2316,7 @@ const renderImageStageToCanvas = async (
     const fullOutputWidth = Math.max(1, Math.round(outputWidth));
     const fullOutputHeight = Math.max(1, Math.round(outputHeight));
     const viewportRenderRegion =
-      stage.applyGeometry && mode === "preview" && !normalizedAdjustments.timestampEnabled
+      stage.applyGeometry && mode === "preview"
         ? resolveViewportRenderRegion(fullOutputWidth, fullOutputHeight, viewportRoi)
         : null;
     const renderOffsetX = viewportRenderRegion?.x ?? 0;
@@ -2283,7 +2341,7 @@ const renderImageStageToCanvas = async (
     const geometryKey = stage.applyGeometry
       ? createGeometryKey({
           sourceKey,
-          rightAngleRotation: normalizedAdjustments.rightAngleRotation,
+          rightAngleRotation: renderState.geometry.rightAngleRotation,
           cropX,
           cropY,
           cropWidth,
@@ -2294,22 +2352,22 @@ const renderImageStageToCanvas = async (
           fullOutputHeight,
           outputOffsetX: renderOffsetX,
           outputOffsetY: renderOffsetY,
-          rotate: normalizedAdjustments.rotate,
-          perspectiveEnabled: Boolean(normalizedAdjustments.perspectiveEnabled),
-          perspectiveHorizontal: normalizedAdjustments.perspectiveHorizontal ?? 0,
-          perspectiveVertical: normalizedAdjustments.perspectiveVertical ?? 0,
-          scale: normalizedAdjustments.scale,
-          horizontal: normalizedAdjustments.horizontal,
-          vertical: normalizedAdjustments.vertical,
-          flipHorizontal: normalizedAdjustments.flipHorizontal,
-          flipVertical: normalizedAdjustments.flipVertical,
-          opticsProfile: normalizedAdjustments.opticsProfile,
-          opticsCA: normalizedAdjustments.opticsCA,
-          opticsDistortionK1: normalizedAdjustments.opticsDistortionK1 ?? 0,
-          opticsDistortionK2: normalizedAdjustments.opticsDistortionK2 ?? 0,
-          opticsCaAmount: normalizedAdjustments.opticsCaAmount ?? 0,
-          opticsVignette: normalizedAdjustments.opticsVignette,
-          opticsVignetteMidpoint: normalizedAdjustments.opticsVignetteMidpoint ?? 50,
+          rotate: renderState.geometry.rotate,
+          perspectiveEnabled: Boolean(renderState.geometry.perspectiveEnabled),
+          perspectiveHorizontal: renderState.geometry.perspectiveHorizontal ?? 0,
+          perspectiveVertical: renderState.geometry.perspectiveVertical ?? 0,
+          scale: renderState.geometry.scale,
+          horizontal: renderState.geometry.horizontal,
+          vertical: renderState.geometry.vertical,
+          flipHorizontal: renderState.geometry.flipHorizontal,
+          flipVertical: renderState.geometry.flipVertical,
+          opticsProfile: renderState.geometry.opticsProfile,
+          opticsCA: renderState.geometry.opticsCA,
+          opticsDistortionK1: renderState.geometry.opticsDistortionK1 ?? 0,
+          opticsDistortionK2: renderState.geometry.opticsDistortionK2 ?? 0,
+          opticsCaAmount: renderState.geometry.opticsCaAmount ?? 0,
+          opticsVignette: renderState.geometry.opticsVignette,
+          opticsVignetteMidpoint: renderState.geometry.opticsVignetteMidpoint ?? 50,
           qualityProfile,
         })
       : [
@@ -2320,14 +2378,18 @@ const renderImageStageToCanvas = async (
           `${renderTargetWidth}x${renderTargetHeight}`,
           `${fullOutputWidth}x${fullOutputHeight}`,
         ].join("|");
-    const masterKey = createMasterKey(normalizedAdjustments);
-    const hslKey = createHslKey(normalizedAdjustments);
-    const curveKey = createCurveKey(normalizedAdjustments);
-    const detailKey = createDetailKey(normalizedAdjustments);
+    const masterKey = createMasterKey(
+      renderState.develop.tone,
+      renderState.develop.color,
+      renderState.develop.detail
+    );
+    const hslKey = createHslKey(renderState.develop.color);
+    const curveKey = createCurveKey(renderState.develop.color);
+    const detailKey = createDetailKey(renderState.develop.detail);
     const filmKey = createFilmKey(resolvedProfile, grainSeed);
     const opticsKey = createOpticsKey(resolvedProfile, skipOpticsPass);
     const activeLocalAdjustments = stage.applyLocalAdjustments
-      ? resolveActiveLocalAdjustments(normalizedAdjustments.localAdjustments)
+      ? resolveActiveLocalAdjustmentsFromState(renderState)
       : [];
     const localAdjustmentsKey = stage.applyLocalAdjustments
       ? createLocalAdjustmentsKey(activeLocalAdjustments)
@@ -2367,7 +2429,7 @@ const renderImageStageToCanvas = async (
       try {
         throwIfAborted(signal);
         const renderTiledLayer = async (
-          layerAdjustments: EditingAdjustments,
+          layerState: ImageProcessState,
           layerKeys: {
             master: string;
             hsl: string;
@@ -2412,7 +2474,7 @@ const renderImageStageToCanvas = async (
                 fullOutputHeight: canvas.height,
                 outputOffsetX: tile.x,
                 outputOffsetY: tile.y,
-                adjustments: layerAdjustments,
+                geometry: layerState.geometry,
                 qualityProfile,
               });
               tileGeometryUniforms = createPassthroughGeometryUniforms(tile.width, tile.height);
@@ -2452,7 +2514,7 @@ const renderImageStageToCanvas = async (
 
             const tileResult = await renderWithPipeline(
               tileSource,
-              layerAdjustments,
+              layerState,
               tileFrameState,
               {
                 mode: tileRenderMode,
@@ -2513,16 +2575,13 @@ const renderImageStageToCanvas = async (
           canvas,
           pipelineKey: tiledPipelineKey,
           localAdjustmentsKey,
-          timestampText,
-          adjustments: normalizedAdjustments,
-          stage,
         });
         outputDirty = !incrementalPipeline || frameState.outputKey !== outputKey;
 
         if (outputDirty) {
           const pipelineStartAt = performance.now();
           const baseMetrics = await renderTiledLayer(
-            normalizedAdjustments,
+            renderState,
             {
               master: masterKey,
               hsl: hslKey,
@@ -2539,7 +2598,7 @@ const renderImageStageToCanvas = async (
           const composeStartAt = performance.now();
           for (let localIndex = 0; localIndex < activeLocalAdjustments.length; localIndex += 1) {
             const local = activeLocalAdjustments[localIndex]!;
-            const localAdjustments = applyLocalAdjustmentDelta(normalizedAdjustments, local);
+            const localState = applyLocalAdjustmentDelta(renderState, local);
             const localCanvas = document.createElement("canvas");
             localCanvas.width = canvas.width;
             localCanvas.height = canvas.height;
@@ -2552,12 +2611,16 @@ const renderImageStageToCanvas = async (
 
             try {
               await renderTiledLayer(
-                localAdjustments,
+                localState,
                 {
-                  master: createMasterKey(localAdjustments),
-                  hsl: createHslKey(localAdjustments),
-                  curve: createCurveKey(localAdjustments),
-                  detail: createDetailKey(localAdjustments),
+                  master: createMasterKey(
+                    localState.develop.tone,
+                    localState.develop.color,
+                    localState.develop.detail
+                  ),
+                  hsl: createHslKey(localState.develop.color),
+                  curve: createCurveKey(localState.develop.color),
+                  detail: createDetailKey(localState.develop.detail),
                 },
                 localContext,
                 `local:${local.id || localIndex}`,
@@ -2575,15 +2638,6 @@ const renderImageStageToCanvas = async (
               localCanvas.width = 0;
               localCanvas.height = 0;
             }
-          }
-
-          if (stage.applyLegacyOutputEffects) {
-            applyAsciiRasterEffect({
-              canvas,
-              ascii: normalizedAdjustments.ascii,
-              qualityProfile,
-            });
-            applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
           }
           timings.composeMs = performance.now() - composeStartAt;
 
@@ -2634,22 +2688,12 @@ const renderImageStageToCanvas = async (
             cropHeight,
             outputWidth: canvas.width,
             outputHeight: canvas.height,
-            adjustments: normalizedAdjustments,
+            geometry: renderState.geometry,
             qualityProfile,
           });
           outputContext.drawImage(fallbackGeometryCanvas, 0, 0, canvas.width, canvas.height);
         } else {
           outputContext.drawImage(tiledOrientedSource.source, 0, 0, canvas.width, canvas.height);
-        }
-        if (stage.applyLegacyOutputEffects) {
-          if (stage.applyLegacyOutputEffects) {
-            applyAsciiRasterEffect({
-              canvas,
-              ascii: normalizedAdjustments.ascii,
-              qualityProfile,
-            });
-            applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
-          }
         }
         return;
       } finally {
@@ -2672,7 +2716,7 @@ const renderImageStageToCanvas = async (
           fullOutputHeight,
           outputOffsetX: renderOffsetX,
           outputOffsetY: renderOffsetY,
-          adjustments: normalizedAdjustments,
+          geometry: renderState.geometry,
         })
       : createPassthroughGeometryUniforms(renderTargetWidth, renderTargetHeight);
     let uploadKey = createUploadKey({
@@ -2707,7 +2751,7 @@ const renderImageStageToCanvas = async (
           fullOutputHeight,
           outputOffsetX: renderOffsetX,
           outputOffsetY: renderOffsetY,
-          adjustments: normalizedAdjustments,
+          geometry: renderState.geometry,
           qualityProfile,
         });
       }
@@ -2737,7 +2781,7 @@ const renderImageStageToCanvas = async (
       const pipelineStartAt = performance.now();
       const pipelineResult = await renderWithPipeline(
         pipelineSource,
-        normalizedAdjustments,
+        renderState,
         frameState,
         {
           mode,
@@ -2777,9 +2821,6 @@ const renderImageStageToCanvas = async (
         canvas,
         pipelineKey: pipelineResult.pipelineKey,
         localAdjustmentsKey,
-        timestampText,
-        adjustments: normalizedAdjustments,
-        stage,
       });
       outputDirty = !incrementalPipeline || frameState.outputKey !== outputKey;
 
@@ -2807,11 +2848,15 @@ const renderImageStageToCanvas = async (
 
           for (let localIndex = 0; localIndex < activeLocalAdjustments.length; localIndex += 1) {
             const local = activeLocalAdjustments[localIndex]!;
-            const localAdjustments = applyLocalAdjustmentDelta(normalizedAdjustments, local);
-            const localMasterKey = createMasterKey(localAdjustments);
-            const localHslKey = createHslKey(localAdjustments);
-            const localCurveKey = createCurveKey(localAdjustments);
-            const localDetailKey = createDetailKey(localAdjustments);
+            const localState = applyLocalAdjustmentDelta(renderState, local);
+            const localMasterKey = createMasterKey(
+              localState.develop.tone,
+              localState.develop.color,
+              localState.develop.detail
+            );
+            const localHslKey = createHslKey(localState.develop.color);
+            const localCurveKey = createCurveKey(localState.develop.color);
+            const localDetailKey = createDetailKey(localState.develop.detail);
             const localRenderMode: RenderMode = mode;
             const localSlotId = `${slotId}:local:${local.id || localIndex}`;
             const localFrameState = renderManager.getFrameState(localRenderMode, localSlotId);
@@ -2819,7 +2864,7 @@ const renderImageStageToCanvas = async (
             try {
               const localResult = await renderWithPipeline(
                 pipelineSource,
-                localAdjustments,
+                localState,
                 localFrameState,
                 {
                   mode: localRenderMode,
@@ -2895,11 +2940,15 @@ const renderImageStageToCanvas = async (
                 localIndex += 1
               ) {
                 const local = activeLocalAdjustments[localIndex]!;
-                const localAdjustments = applyLocalAdjustmentDelta(normalizedAdjustments, local);
-                const localMasterKey = createMasterKey(localAdjustments);
-                const localHslKey = createHslKey(localAdjustments);
-                const localCurveKey = createCurveKey(localAdjustments);
-                const localDetailKey = createDetailKey(localAdjustments);
+                const localState = applyLocalAdjustmentDelta(renderState, local);
+                const localMasterKey = createMasterKey(
+                  localState.develop.tone,
+                  localState.develop.color,
+                  localState.develop.detail
+                );
+                const localHslKey = createHslKey(localState.develop.color);
+                const localCurveKey = createCurveKey(localState.develop.color);
+                const localDetailKey = createDetailKey(localState.develop.detail);
                 const localRenderMode: RenderMode = mode;
                 const localSlotId = `${slotId}:local:${local.id || localIndex}`;
                 const localFrameState = renderManager.getFrameState(localRenderMode, localSlotId);
@@ -2907,7 +2956,7 @@ const renderImageStageToCanvas = async (
                 try {
                   const localResult = await renderWithPipeline(
                     pipelineSource,
-                    localAdjustments,
+                    localState,
                     localFrameState,
                     {
                       mode: localRenderMode,
@@ -2990,15 +3039,6 @@ const renderImageStageToCanvas = async (
             }
           }
         }
-
-        if (stage.applyLegacyOutputEffects) {
-          applyAsciiRasterEffect({
-            canvas,
-            ascii: normalizedAdjustments.ascii,
-            qualityProfile,
-          });
-          applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
-        }
         frameState.outputKey = outputKey;
         frameState.lastRenderError = null;
       }
@@ -3054,12 +3094,6 @@ const renderImageStageToCanvas = async (
             outputContext.clearRect(0, 0, canvas.width, canvas.height);
             outputContext.drawImage(previewRenderer.canvas, 0, 0, canvas.width, canvas.height);
           }
-          applyAsciiRasterEffect({
-            canvas,
-            ascii: normalizedAdjustments.ascii,
-            qualityProfile,
-          });
-          applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
           timings.composeMs = performance.now() - composeStartAt;
           timings.totalMs = performance.now() - callStartAt;
           logRenderTimings(mode, runtimeConfig, timings, {
@@ -3099,7 +3133,7 @@ const renderImageStageToCanvas = async (
           fullOutputHeight,
           outputOffsetX: renderOffsetX,
           outputOffsetY: renderOffsetY,
-          adjustments: normalizedAdjustments,
+          geometry: renderState.geometry,
           qualityProfile,
         });
         if (viewportRenderRegion) {
@@ -3122,21 +3156,10 @@ const renderImageStageToCanvas = async (
       } else {
         outputContext.drawImage(orientedSource.source, 0, 0, canvas.width, canvas.height);
       }
-      if (stage.applyLegacyOutputEffects) {
-        applyAsciiRasterEffect({
-          canvas,
-          ascii: normalizedAdjustments.ascii,
-          qualityProfile,
-        });
-        applyTimestampOverlay(canvas, normalizedAdjustments, timestampText);
-      }
       frameState.outputKey = createOutputKey({
         canvas,
         pipelineKey: `fallback:${geometryKey}`,
         localAdjustmentsKey,
-        timestampText,
-        adjustments: normalizedAdjustments,
-        stage,
       });
       timings.composeMs = performance.now() - composeStartAt;
 
