@@ -1,5 +1,5 @@
 import { createDefaultAdjustments } from "@/lib/adjustments";
-import type { NumericAdjustmentKey } from "@/features/editor/types";
+import type { NumericAdjustmentKey } from "@/features/canvas/imageAdjustmentTypes";
 import type { AsciiAdjustments, EditingAdjustments } from "@/types";
 import {
   type CanvasImageRenderStateV1,

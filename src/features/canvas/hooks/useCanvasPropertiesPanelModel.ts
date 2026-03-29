@@ -29,7 +29,7 @@ export function useCanvasPropertiesPanelModel() {
   const {
     setRenderState: setImageRenderState,
     setFilmProfileId: commitImageFilmProfileId,
-  } = useCanvasImagePropertyActions(selected?.type === "image" ? selected : null, selectedAsset);
+  } = useCanvasImagePropertyActions(selected?.type === "image" ? selected : null);
 
   const textFontOptions = useMemo(() => {
     if (!selected || selected.type !== "text") {

@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createDefaultAdjustments } from "@/lib/adjustments";
 import { createDefaultCanvasImageRenderState, renderSingleImageToCanvas } from "@/render/image";
 import type { Asset, CanvasWorkbench } from "@/types";
 import { normalizeCanvasWorkbench } from "./studioPresets";
@@ -26,8 +25,6 @@ const createAsset = (): Asset => ({
   createdAt: "2026-03-17T00:00:00.000Z",
   objectUrl: "blob:asset-1",
   thumbnailUrl: "blob:asset-1-thumb",
-  adjustments: createDefaultAdjustments(),
-  layers: [],
   tags: [],
   importDay: "2026-03-17",
   group: "2026-03-17",

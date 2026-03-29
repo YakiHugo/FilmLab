@@ -6,16 +6,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { EditorSection } from "@/features/editor/EditorSection";
-import { SliderControl } from "@/features/editor/components/controls/SliderControl";
-import type { NumericAdjustmentKey } from "@/features/editor/types";
+import { CanvasEditSection } from "@/features/canvas/components/CanvasEditSection";
+import { SliderControl } from "@/features/canvas/components/controls/SliderControl";
+import type { NumericAdjustmentKey } from "@/features/canvas/imageAdjustmentTypes";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import { asciiAdjustmentsEqual } from "@/lib/asciiRaster";
 import { cn } from "@/lib/utils";
 import {
   useCanvasElementDraftRenderState,
   useCanvasPreviewActions,
-  useCanvasRuntimeAsset,
 } from "@/features/canvas/runtime/canvasRuntimeHooks";
 import { resolveCanvasImageRenderState } from "@/features/canvas/imageRenderState";
 import type { CanvasImageRenderStateV1 } from "@/render/image";
@@ -267,7 +266,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
 }: ProjectEditControlsProps) {
   return (
     <section>
-      <EditorSection
+      <CanvasEditSection
         variant="canvasDock"
         title="光线与对比"
         isOpen={openSections.light}
@@ -282,9 +281,9 @@ const ProjectEditControls = memo(function ProjectEditControls({
           previewAdjustmentValue,
           commitAdjustmentValue
         )}
-      </EditorSection>
+      </CanvasEditSection>
 
-      <EditorSection
+      <CanvasEditSection
         variant="canvasDock"
         title="色彩与白平衡"
         isOpen={openSections.color}
@@ -299,9 +298,9 @@ const ProjectEditControls = memo(function ProjectEditControls({
           previewAdjustmentValue,
           commitAdjustmentValue
         )}
-      </EditorSection>
+      </CanvasEditSection>
 
-      <EditorSection
+      <CanvasEditSection
         variant="canvasDock"
         title="高光与阴影"
         isOpen={openSections.tones}
@@ -316,9 +315,9 @@ const ProjectEditControls = memo(function ProjectEditControls({
           previewAdjustmentValue,
           commitAdjustmentValue
         )}
-      </EditorSection>
+      </CanvasEditSection>
 
-      <EditorSection
+      <CanvasEditSection
         variant="canvasDock"
         title="效果与滤镜"
         isOpen={openSections.effects}
@@ -333,9 +332,9 @@ const ProjectEditControls = memo(function ProjectEditControls({
           previewAdjustmentValue,
           commitAdjustmentValue
         )}
-      </EditorSection>
+      </CanvasEditSection>
 
-      <EditorSection
+      <CanvasEditSection
         variant="canvasDock"
         title="细节与辉光"
         isOpen={openSections.detail}
@@ -350,9 +349,9 @@ const ProjectEditControls = memo(function ProjectEditControls({
           previewAdjustmentValue,
           commitAdjustmentValue
         )}
-      </EditorSection>
+      </CanvasEditSection>
 
-      <EditorSection
+      <CanvasEditSection
         variant="canvasDock"
         title="ASCII 光栅"
         isOpen={openSections.ascii}
@@ -493,7 +492,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
             onCommit={(value) => updateAsciiAdjustments({ contrast: value })}
           />
         </div>
-      </EditorSection>
+      </CanvasEditSection>
     </section>
   );
 });
@@ -514,15 +513,14 @@ export function CanvasImageEditPanel({
   const committedImageElementId = committedImageElement?.id ?? null;
   const committedImageElementIdRef = useRef<string | null>(committedImageElementId);
   const displayedImageElementIdRef = useRef<string | null>(displayedImageElementId);
-  const { asset } = useCanvasRuntimeAsset(imageElement?.assetId ?? null);
   const draftRenderState = useCanvasElementDraftRenderState(imageElement?.id ?? null);
 
   const renderState = useMemo(
     () =>
       imageElement
-        ? resolveCanvasImageRenderState(imageElement, asset, draftRenderState)
+        ? resolveCanvasImageRenderState(imageElement, undefined, draftRenderState)
         : null,
-    [asset, draftRenderState, imageElement]
+    [draftRenderState, imageElement]
   );
   const adjustments = useMemo(
     () => (renderState ? getCanvasImageAdjustmentView(renderState) : DEFAULT_CANVAS_IMAGE_ADJUSTMENT_VIEW),

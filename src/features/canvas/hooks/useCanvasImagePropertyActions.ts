@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import type { CanvasImageRenderStateV1 } from "@/render/image";
-import type { Asset, CanvasCommand } from "@/types";
+import type { CanvasCommand } from "@/types";
 import type { CanvasImageEditTarget } from "../editPanelSelection";
 import {
   planCanvasImagePropertyCommand,
@@ -13,14 +13,12 @@ interface CommitCanvasImagePropertyIntentOptions {
     command: CanvasCommand,
     options?: { trackHistory?: boolean }
   ) => Promise<unknown>;
-  imageAsset?: Asset | null;
   imageElement: CanvasImageEditTarget | null;
   intent: CanvasImagePropertyIntent;
 }
 
 export const commitCanvasImagePropertyIntent = async ({
   executeCommand,
-  imageAsset,
   imageElement,
   intent,
 }: CommitCanvasImagePropertyIntentOptions) => {
@@ -30,7 +28,7 @@ export const commitCanvasImagePropertyIntent = async ({
 
   const command = planCanvasImagePropertyCommand({
     intent,
-    node: imageElement ? { ...imageElement, asset: imageAsset } : null,
+    node: imageElement,
   });
   if (!command) {
     return;
@@ -40,8 +38,7 @@ export const commitCanvasImagePropertyIntent = async ({
 };
 
 export function useCanvasImagePropertyActions(
-  selectedImageElement: CanvasImageEditTarget | null,
-  selectedImageAsset?: Asset | null
+  selectedImageElement: CanvasImageEditTarget | null
 ) {
   const { executeCommand } = useCanvasLoadedWorkbenchCommands();
 
@@ -49,11 +46,10 @@ export function useCanvasImagePropertyActions(
     (intent: CanvasImagePropertyIntent) =>
       commitCanvasImagePropertyIntent({
         executeCommand,
-        imageAsset: selectedImageAsset,
         imageElement: selectedImageElement,
         intent,
       }),
-    [executeCommand, selectedImageAsset, selectedImageElement]
+    [executeCommand, selectedImageElement]
   );
 
   const setRenderState = useCallback(

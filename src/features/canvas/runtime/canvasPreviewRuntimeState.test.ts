@@ -22,8 +22,6 @@ const createAsset = (overrides: Partial<Asset> = {}): Asset => ({
   createdAt: "2026-03-17T00:00:00.000Z",
   objectUrl: "blob:asset-1",
   thumbnailUrl: "blob:asset-1-thumb",
-  adjustments: createDefaultAdjustments(),
-  layers: [],
   tags: [],
   importDay: "2026-03-17",
   group: "2026-03-17",
@@ -39,7 +37,6 @@ const createAsset = (overrides: Partial<Asset> = {}): Asset => ({
 });
 
 const createImageElement = (): CanvasImageElement => ({
-  adjustments: createDefaultAdjustments(),
   assetId: "asset-1",
   height: 180,
   id: "image-1",
@@ -59,6 +56,7 @@ const createImageElement = (): CanvasImageElement => ({
   width: 320,
   x: 24,
   y: 32,
+  renderState: createDefaultCanvasImageRenderState(),
 });
 
 const createWorkbench = (element: CanvasImageElement): CanvasWorkbench =>
@@ -214,25 +212,10 @@ describe("canvasPreviewRuntimeState", () => {
     expect(disposePlan.previewSources).toEqual([firstCanvas, secondCanvas]);
   });
 
-  it("tracks texture asset dependencies for preview invalidation", () => {
-    const asset = createAsset({
-      layers: [
-        {
-          blendMode: "multiply",
-          id: "texture-layer-1",
-          name: "Texture 1",
-          opacity: 100,
-          textureAssetId: "texture-asset-1",
-          type: "texture",
-          visible: true,
-        },
-      ],
-    });
+  it("tracks only the source asset for preview invalidation", () => {
+    const asset = createAsset();
 
-    expect(resolveCanvasPreviewDependencyAssetIds(asset)).toEqual([
-      "asset-1",
-      "texture-asset-1",
-    ]);
+    expect(resolveCanvasPreviewDependencyAssetIds(asset)).toEqual(["asset-1"]);
   });
 
   it("computes changed asset ids and applies them back into the runtime asset map", () => {
