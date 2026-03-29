@@ -5,8 +5,10 @@ const getOrCreateAsciiAnalysisEntryMock = vi.fn();
 const getAsciiBlurredSourceCanvasMock = vi.fn((entry) => entry.sourceCanvas);
 
 vi.mock("./asciiAnalysis", () => ({
-  getOrCreateAsciiAnalysisEntry: (...args: unknown[]) => getOrCreateAsciiAnalysisEntryMock(...args),
-  getAsciiBlurredSourceCanvas: (...args: unknown[]) => getAsciiBlurredSourceCanvasMock(...args),
+  getOrCreateAsciiAnalysisEntry: (...args: unknown[]) =>
+    Reflect.apply(getOrCreateAsciiAnalysisEntryMock, undefined, args),
+  getAsciiBlurredSourceCanvas: (...args: unknown[]) =>
+    Reflect.apply(getAsciiBlurredSourceCanvasMock, undefined, args),
 }));
 
 const createMockContext = () => ({

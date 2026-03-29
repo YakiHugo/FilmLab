@@ -6,6 +6,19 @@ import {
   type ImageRenderDocument,
 } from "./types";
 
+const getAsciiEffect = <T extends { effects: readonly { type: string }[] }>(
+  document: T
+): Extract<T["effects"][number], { type: "ascii" }> => {
+  const effect = document.effects.find(
+    (candidate): candidate is Extract<T["effects"][number], { type: "ascii" }> =>
+      candidate.type === "ascii"
+  );
+  if (!effect) {
+    throw new Error("Missing ascii effect.");
+  }
+  return effect;
+};
+
 const createDocumentInput = (): Omit<ImageRenderDocument, "revisionKey"> => ({
   id: "image:test",
   source: {
@@ -78,13 +91,14 @@ describe("image render types", () => {
   it("changes the revision key when semantic effect data changes", () => {
     const first = createImageRenderDocument(createDocumentInput());
     const base = createDocumentInput();
+    const asciiEffect = getAsciiEffect(base);
     const second = createImageRenderDocument({
       ...base,
       effects: [
         {
-          ...base.effects[0]!,
+          ...asciiEffect,
           params: {
-            ...base.effects[0]!.params,
+            ...asciiEffect.params,
             contrast: 1.4,
           },
         },

@@ -168,21 +168,26 @@ export const renderSingleImageToCanvas = async ({
     }
 
     if (hasDevelopEffects) {
+      const developCanvas = developBaseCanvas;
+      if (!developCanvas) {
+        throw new Error("Expected develop base canvas to be initialized.");
+      }
+
       applyImageEffects({
-        canvas: developBaseCanvas!,
+        canvas: developCanvas,
         document,
         effects: snapshotPlan.developEffects,
         request,
         snapshots: {
-          develop: developSnapshotCanvas ?? developBaseCanvas,
-          style: developBaseCanvas,
+          develop: developSnapshotCanvas ?? developCanvas,
+          style: developCanvas,
         },
-        stageReferenceCanvas: developSnapshotCanvas ?? developBaseCanvas!,
+        stageReferenceCanvas: developSnapshotCanvas ?? developCanvas,
       });
 
       await renderFilmStageToCanvas({
         canvas,
-        source: developBaseCanvas!,
+        source: developCanvas,
         state: extractImageProcessState(document),
         targetSize: request.targetSize,
         seedKey: resolveFilmSeedKey(document),

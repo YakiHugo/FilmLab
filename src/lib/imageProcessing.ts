@@ -8,9 +8,7 @@ import type {
   ImageProcessState,
   ImageRenderColorState,
   ImageRenderDetailState,
-  ImageRenderFilmState,
   ImageRenderGeometry,
-  ImageRenderMaskState,
   ImageRenderToneState,
 } from "@/render/image/types";
 import type {
@@ -594,18 +592,16 @@ const resolveActiveLocalAdjustmentsFromState = (state: ImageProcessState) =>
         adjustments: structuredClone(region.adjustments),
       } satisfies LocalAdjustment;
     })
-    .filter(
-      (local): local is LocalAdjustment =>
-        Boolean(local) &&
+    .filter((local): local is LocalAdjustment => {
+      if (!local) {
+        return false;
+      }
+      return (
         local.enabled &&
         local.amount > 0.0001 &&
         hasLocalAdjustmentDelta(local.adjustments)
-    );
-
-const filterActiveLocalAdjustments = (localAdjustments: LocalAdjustment[] | undefined) =>
-  (localAdjustments ?? []).filter(
-    (local) => local.enabled && local.amount > 0.0001 && hasLocalAdjustmentDelta(local.adjustments)
-  );
+      );
+    });
 
 const serializeLocalMask = (mask: LocalAdjustmentMask) => {
   const lumaMin = clamp(mask.lumaMin ?? 0, 0, 1);

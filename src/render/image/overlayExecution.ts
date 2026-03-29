@@ -67,10 +67,6 @@ export const applyImageOverlays = async ({
       case "timestamp":
         await applyTimestampOverlay(canvas, overlay.adjustments, overlay.text);
         break;
-      default: {
-        const exhaustiveCheck: never = overlay;
-        throw new Error(`Unsupported image overlay: ${String(exhaustiveCheck)}`);
-      }
     }
   }
 };

@@ -13,26 +13,33 @@ const buildImageRenderMaskRevisionKeyMock = vi.fn(() => "mask-revision");
 const renderImageEffectMaskToCanvasMock = vi.fn(({ targetCanvas }) => targetCanvas ?? createSnapshotCanvas());
 
 vi.mock("@/lib/imageProcessing", () => ({
-  renderDevelopBaseToCanvas: (...args: unknown[]) => renderDevelopBaseToCanvasMock(...args),
-  renderFilmStageToCanvas: (...args: unknown[]) => renderFilmStageToCanvasMock(...args),
-  renderImageToCanvas: (...args: unknown[]) => renderImageToCanvasMock(...args),
+  renderDevelopBaseToCanvas: (...args: unknown[]) =>
+    Reflect.apply(renderDevelopBaseToCanvasMock, undefined, args),
+  renderFilmStageToCanvas: (...args: unknown[]) =>
+    Reflect.apply(renderFilmStageToCanvasMock, undefined, args),
+  renderImageToCanvas: (...args: unknown[]) => Reflect.apply(renderImageToCanvasMock, undefined, args),
 }));
 
 vi.mock("./asciiEffect", () => ({
-  applyImageAsciiEffect: (...args: unknown[]) => applyImageAsciiEffectMock(...args),
+  applyImageAsciiEffect: (...args: unknown[]) =>
+    Reflect.apply(applyImageAsciiEffectMock, undefined, args),
 }));
 
 vi.mock("@/lib/timestampOverlay", () => ({
-  applyTimestampOverlay: (...args: unknown[]) => applyTimestampOverlayMock(...args),
+  applyTimestampOverlay: (...args: unknown[]) =>
+    Reflect.apply(applyTimestampOverlayMock, undefined, args),
 }));
 
 vi.mock("@/lib/filter2dPostProcessing", () => ({
-  applyFilter2dPostProcessing: (...args: unknown[]) => applyFilter2dPostProcessingMock(...args),
+  applyFilter2dPostProcessing: (...args: unknown[]) =>
+    Reflect.apply(applyFilter2dPostProcessingMock, undefined, args),
 }));
 
 vi.mock("./effectMask", () => ({
-  buildImageRenderMaskRevisionKey: (...args: unknown[]) => buildImageRenderMaskRevisionKeyMock(...args),
-  renderImageEffectMaskToCanvas: (...args: unknown[]) => renderImageEffectMaskToCanvasMock(...args),
+  buildImageRenderMaskRevisionKey: (...args: unknown[]) =>
+    Reflect.apply(buildImageRenderMaskRevisionKeyMock, undefined, args),
+  renderImageEffectMaskToCanvas: (...args: unknown[]) =>
+    Reflect.apply(renderImageEffectMaskToCanvasMock, undefined, args),
 }));
 
 const createCanvas = () =>
@@ -54,7 +61,7 @@ const createSnapshotCanvas = () =>
       })),
       clearRect: vi.fn(),
       drawImage: vi.fn(),
-      getImageData: vi.fn((x: number, y: number, width: number, height: number) => ({
+      getImageData: vi.fn((_: number, __: number, width: number, height: number) => ({
         data: new Uint8ClampedArray(width * height * 4),
         width,
         height,
@@ -62,6 +69,19 @@ const createSnapshotCanvas = () =>
       putImageData: vi.fn(),
     })),
   }) as unknown as HTMLCanvasElement;
+
+const getAsciiEffect = <T extends { effects: readonly { type: string }[] }>(
+  document: T
+): Extract<T["effects"][number], { type: "ascii" }> => {
+  const effect = document.effects.find(
+    (candidate): candidate is Extract<T["effects"][number], { type: "ascii" }> =>
+      candidate.type === "ascii"
+  );
+  if (!effect) {
+    throw new Error("Missing ascii effect.");
+  }
+  return effect;
+};
 
 const createDeferred = <T>() => {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -320,10 +340,11 @@ describe("renderSingleImageToCanvas", () => {
 
   it("renders an explicit develop snapshot when ascii analysis requests develop output", async () => {
     const base = createDocument();
+    const asciiEffect = getAsciiEffect(base);
     const document = createDocument({
       effects: [
         {
-          ...base.effects[0],
+          ...asciiEffect,
           analysisSource: "develop",
         },
       ],
@@ -365,15 +386,16 @@ describe("renderSingleImageToCanvas", () => {
 
   it("executes develop effects before film-stage rendering and style effects afterward", async () => {
     const baseDocument = createDocument();
+    const asciiEffect = getAsciiEffect(baseDocument);
     const document = createDocument({
       effects: [
         {
-          ...baseDocument.effects[0],
+          ...asciiEffect,
           placement: "develop",
           analysisSource: "develop",
         },
         {
-          ...baseDocument.effects[0],
+          ...asciiEffect,
           id: "ascii-style",
           placement: "style",
           analysisSource: "style",
@@ -449,17 +471,18 @@ describe("renderSingleImageToCanvas", () => {
     applyTimestampOverlayMock.mockResolvedValue(undefined);
     buildImageRenderMaskRevisionKeyMock.mockReturnValue("mask-revision");
     renderImageEffectMaskToCanvasMock.mockImplementation(({ targetCanvas }) => targetCanvas ?? createSnapshotCanvas());
+    const asciiEffect = getAsciiEffect(baseDocument);
 
     await renderSingleImageToCanvas({
       canvas: createCanvas(),
       document: createDocument({
         effects: [
           {
-            ...baseDocument.effects[0],
+            ...asciiEffect,
             placement: "develop",
             analysisSource: "develop",
             params: {
-              ...baseDocument.effects[0].params,
+              ...asciiEffect.params,
               brightness: 0,
               contrast: 1,
             },
