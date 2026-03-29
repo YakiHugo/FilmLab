@@ -5,8 +5,8 @@ describe("asciiAnalysis", () => {
   it("builds a stable cache key for equivalent requests", () => {
     const first = buildAsciiAnalysisCacheKey({
       revisionKey: "rev-1",
-      placement: "afterFilm",
-      analysisSource: "afterFilm",
+      placement: "style",
+      analysisSource: "style",
       targetSize: {
         width: 1280,
         height: 720,
@@ -15,8 +15,8 @@ describe("asciiAnalysis", () => {
     });
     const second = buildAsciiAnalysisCacheKey({
       revisionKey: "rev-1",
-      placement: "afterFilm",
-      analysisSource: "afterFilm",
+      placement: "style",
+      analysisSource: "style",
       targetSize: {
         width: 1280,
         height: 720,
@@ -28,20 +28,20 @@ describe("asciiAnalysis", () => {
   });
 
   it("changes the cache key when the snapshot source or quality changes", () => {
-    const afterFilm = buildAsciiAnalysisCacheKey({
+    const styleAnalysis = buildAsciiAnalysisCacheKey({
       revisionKey: "rev-1",
-      placement: "afterFilm",
-      analysisSource: "afterFilm",
+      placement: "style",
+      analysisSource: "style",
       targetSize: {
         width: 1280,
         height: 720,
       },
       quality: "full",
     });
-    const afterDevelop = buildAsciiAnalysisCacheKey({
+    const developAnalysis = buildAsciiAnalysisCacheKey({
       revisionKey: "rev-1",
-      placement: "afterFilm",
-      analysisSource: "afterDevelop",
+      placement: "style",
+      analysisSource: "develop",
       targetSize: {
         width: 1280,
         height: 720,
@@ -50,8 +50,8 @@ describe("asciiAnalysis", () => {
     });
     const interactive = buildAsciiAnalysisCacheKey({
       revisionKey: "rev-1",
-      placement: "afterFilm",
-      analysisSource: "afterFilm",
+      placement: "style",
+      analysisSource: "style",
       targetSize: {
         width: 1280,
         height: 720,
@@ -59,15 +59,15 @@ describe("asciiAnalysis", () => {
       quality: "interactive",
     });
 
-    expect(afterFilm).not.toBe(afterDevelop);
-    expect(afterFilm).not.toBe(interactive);
+    expect(styleAnalysis).not.toBe(developAnalysis);
+    expect(styleAnalysis).not.toBe(interactive);
   });
 
   it("changes the cache key when placement or mask revision changes", () => {
     const base = buildAsciiAnalysisCacheKey({
       revisionKey: "rev-1",
-      placement: "afterFilm",
-      analysisSource: "afterFilm",
+      placement: "style",
+      analysisSource: "style",
       targetSize: {
         width: 640,
         height: 360,
@@ -77,8 +77,8 @@ describe("asciiAnalysis", () => {
     });
     const differentPlacement = buildAsciiAnalysisCacheKey({
       revisionKey: "rev-1",
-      placement: "afterDevelop",
-      analysisSource: "afterFilm",
+      placement: "develop",
+      analysisSource: "style",
       targetSize: {
         width: 640,
         height: 360,
@@ -88,8 +88,8 @@ describe("asciiAnalysis", () => {
     });
     const differentMask = buildAsciiAnalysisCacheKey({
       revisionKey: "rev-1",
-      placement: "afterFilm",
-      analysisSource: "afterFilm",
+      placement: "style",
+      analysisSource: "style",
       targetSize: {
         width: 640,
         height: 360,

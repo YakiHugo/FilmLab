@@ -1,11 +1,11 @@
 {
   "baseline": "media-native-render-pipeline",
   "current": "in_progress",
-  "nextTaskId": "formalize-stage-vocabulary",
+  "nextTaskId": "semantic-overlay-layer-system",
   "tasks": [
     {
       "id": "formalize-stage-vocabulary",
-      "status": "pending",
+      "status": "done",
       "passes": [
         "single-image stage names are responsibility-based and existing render behavior remains parity-clean"
       ]

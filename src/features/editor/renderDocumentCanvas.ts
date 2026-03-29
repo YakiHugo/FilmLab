@@ -1,5 +1,5 @@
 import { renderSingleImageToCanvas } from "@/render/image";
-import { applyTimestampOverlay } from "@/lib/timestampOverlay";
+import { applyImageOverlays, resolveLegacyTimestampOverlays } from "@/render/image";
 import type { RenderIntent } from "@/lib/renderIntent";
 import {
   defaultCompositeBackend,
@@ -204,7 +204,13 @@ export const renderDocumentToCanvas = async ({
       throw new Error("Failed to initialize composite render context.");
     }
 
-    await applyTimestampOverlay(canvas, renderDocument.adjustments, timestampText);
+    await applyImageOverlays({
+      canvas,
+      overlays: resolveLegacyTimestampOverlays({
+        adjustments: renderDocument.adjustments,
+        timestampText,
+      }),
+    });
   } finally {
     release();
   }

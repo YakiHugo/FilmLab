@@ -115,8 +115,8 @@ const resolveLegacyAsciiEffect = (
     id: "legacy-ascii",
     type: "ascii",
     enabled: true,
-    placement: "afterFilm",
-    analysisSource: "afterFilm",
+    placement: "style",
+    analysisSource: "style",
     params: {
       renderMode: "glyph",
       preset: ascii.charsetPreset,
@@ -162,7 +162,7 @@ const resolveLegacyFilter2dEffect = (
     id: "legacy-filter2d",
     type: "filter2d",
     enabled: true,
-    placement: "afterOutput",
+    placement: "finalize",
     params: {
       brightness,
       hue,

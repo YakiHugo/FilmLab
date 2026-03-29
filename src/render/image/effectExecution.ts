@@ -13,8 +13,8 @@ import type {
 } from "./types";
 
 interface ImageEffectSnapshots {
-  afterDevelop: HTMLCanvasElement | null;
-  afterFilm: HTMLCanvasElement;
+  develop: HTMLCanvasElement | null;
+  style: HTMLCanvasElement;
 }
 
 const createCanvasLayer = (sourceCanvas: HTMLCanvasElement) => {
@@ -247,9 +247,9 @@ export const applyImageEffects = ({
   for (const effect of effects) {
     const sourceCanvas =
       effect.type === "ascii"
-        ? effect.analysisSource === "afterDevelop"
-          ? snapshots.afterDevelop ?? snapshots.afterFilm
-          : snapshots.afterFilm
+        ? effect.analysisSource === "develop"
+          ? snapshots.develop ?? snapshots.style
+          : snapshots.style
         : stageReferenceCanvas;
     applyMaskedEffect({
       canvas,

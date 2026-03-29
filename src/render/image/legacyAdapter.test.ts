@@ -67,8 +67,8 @@ describe("createAssetImageRenderDocument", () => {
     expect(document.effects.map((effect) => effect.type)).toEqual(["ascii", "filter2d"]);
     expect(document.effects[0]).toMatchObject({
       type: "ascii",
-      placement: "afterFilm",
-      analysisSource: "afterFilm",
+      placement: "style",
+      analysisSource: "style",
       params: {
         renderMode: "glyph",
         preset: "blocks",
@@ -79,7 +79,7 @@ describe("createAssetImageRenderDocument", () => {
     });
     expect(document.effects[1]).toMatchObject({
       type: "filter2d",
-      placement: "afterOutput",
+      placement: "finalize",
       params: {
         brightness: 12,
         hue: -20,

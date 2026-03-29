@@ -23,8 +23,8 @@ const createDocumentInput = (): Omit<ImageRenderDocument, "revisionKey"> => ({
       id: "ascii-1",
       type: "ascii",
       enabled: true,
-      placement: "afterFilm",
-      analysisSource: "afterFilm",
+      placement: "style",
+      analysisSource: "style",
       params: {
         renderMode: "glyph",
         preset: "standard",
@@ -51,7 +51,7 @@ const createDocumentInput = (): Omit<ImageRenderDocument, "revisionKey"> => ({
       id: "filter-1",
       type: "filter2d",
       enabled: true,
-      placement: "afterFilm",
+      placement: "style",
       params: {
         brightness: 0,
         hue: 0,
@@ -102,17 +102,17 @@ describe("image render types", () => {
       effects: [
         {
           ...base.effects[0]!,
-          placement: "afterDevelop",
+          placement: "develop",
         },
         {
           ...base.effects[1]!,
-          placement: "afterOutput",
+          placement: "finalize",
         },
         {
           id: "disabled-filter",
           type: "filter2d",
           enabled: false,
-          placement: "afterFilm",
+          placement: "style",
           params: {
             brightness: 5,
             hue: 0,
@@ -124,11 +124,11 @@ describe("image render types", () => {
     });
 
     expect(
-      resolveImageRenderEffectsForPlacement(document.effects, "afterDevelop").map((effect) => effect.id)
+      resolveImageRenderEffectsForPlacement(document.effects, "develop").map((effect) => effect.id)
     ).toEqual(["ascii-1"]);
-    expect(resolveImageRenderEffectsForPlacement(document.effects, "afterFilm")).toEqual([]);
+    expect(resolveImageRenderEffectsForPlacement(document.effects, "style")).toEqual([]);
     expect(
-      resolveImageRenderEffectsForPlacement(document.effects, "afterOutput").map((effect) => effect.id)
+      resolveImageRenderEffectsForPlacement(document.effects, "finalize").map((effect) => effect.id)
     ).toEqual(["filter-1"]);
   });
 });

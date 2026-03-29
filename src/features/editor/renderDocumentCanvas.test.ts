@@ -95,6 +95,7 @@ describe("renderDocumentToCanvas", () => {
         width: 800,
         height: 600,
       },
+      timestampText: "2026.03.28",
     });
 
     expect(composeRenderGraphToCanvasMock).toHaveBeenCalledTimes(1);
@@ -114,6 +115,11 @@ describe("renderDocumentToCanvas", () => {
 
   it("provides distinct layer surfaces to deferred multi-layer composition", async () => {
     const asset = createAsset("asset-a");
+    const adjustments = createDefaultAdjustments();
+    adjustments.timestampEnabled = true;
+    adjustments.timestampPosition = "top-left";
+    adjustments.timestampSize = 18;
+    adjustments.timestampOpacity = 70;
     const renderDocument = createRenderDocument({
       key: "editor:asset-a:export",
       assetById: new Map([[asset.id, asset]]),
@@ -138,7 +144,7 @@ describe("renderDocumentToCanvas", () => {
           adjustments: createDefaultAdjustments(),
         },
       ],
-      adjustments: createDefaultAdjustments(),
+      adjustments,
       filmProfile: undefined,
     });
     const canvas = globalThis.document.createElement("canvas");
@@ -190,6 +196,7 @@ describe("renderDocumentToCanvas", () => {
         width: 800,
         height: 600,
       },
+      timestampText: "2026.03.28",
     });
 
     expect(renderedLayerCanvases).toHaveLength(2);
@@ -208,6 +215,8 @@ describe("renderDocumentToCanvas", () => {
         strictErrors: true,
       },
     });
+    expect(applyTimestampOverlayMock).toHaveBeenCalledTimes(1);
+    expect(applyTimestampOverlayMock.mock.calls[0]?.[2]).toEqual("2026.03.28");
   });
 
   it("keeps single-layer documents on the direct render fast path", async () => {
@@ -240,6 +249,7 @@ describe("renderDocumentToCanvas", () => {
         width: 800,
         height: 600,
       },
+      timestampText: "2026.03.28",
     });
 
     expect(composeRenderGraphToCanvasMock).not.toHaveBeenCalled();

@@ -50,8 +50,8 @@ const createDefaultAsciiEffect = (): ImageAsciiEffectNode => ({
   id: "canvas-ascii",
   type: "ascii",
   enabled: false,
-  placement: "afterFilm",
-  analysisSource: "afterFilm",
+  placement: "style",
+  analysisSource: "style",
   params: {
     renderMode: "glyph",
     preset: "standard",
@@ -79,7 +79,7 @@ const createDefaultFilter2dEffect = (): ImageFilter2dEffectNode => ({
   id: "canvas-filter2d",
   type: "filter2d",
   enabled: false,
-  placement: "afterOutput",
+  placement: "finalize",
   params: {
     brightness: 0,
     hue: 0,

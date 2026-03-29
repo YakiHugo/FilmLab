@@ -13,11 +13,11 @@
   - `createAssetImageRenderDocument(...)`
 - `renderSingleImageToCanvas(...)` still owns single-image stage ordering:
   - `develop-base`
-  - `afterDevelop`
+  - `develop`
   - `film-stage`
-  - `afterFilm`
-  - `timestamp`
-  - `afterOutput`
+  - `style`
+  - `overlay`
+  - `finalize`
 - Runtime low-level rendering now consumes canonical process state directly:
   - `geometry`
   - `develop`
@@ -36,10 +36,10 @@ flowchart LR
   C --> D["extractImageProcessState"]
   D --> E["imageProcessing stage helpers"]
   E --> F["develop-base"]
-  F --> G["afterDevelop effects"]
+  F --> G["develop effects"]
   G --> H["film-stage"]
-  H --> I["afterFilm effects"]
-  I --> J["timestamp / afterOutput"]
+  H --> I["style effects"]
+  I --> J["overlay / finalize"]
   J --> K["preview canvas / export canvas"]
 ```
 

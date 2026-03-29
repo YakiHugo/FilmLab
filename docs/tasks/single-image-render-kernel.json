@@ -28,10 +28,10 @@
       ]
     },
     {
-      "id": "after-develop-and-analysis",
+      "id": "develop-stage-and-analysis",
       "status": "done",
       "passes": [
-        "single-image runtime supports explicit afterDevelop analysis inputs",
+        "single-image runtime supports explicit develop-stage analysis inputs",
         "pnpm exec vitest --run src/render/image/snapshotPlan.test.ts src/render/image/asciiAnalysis.test.ts src/render/image/asciiEffect.test.ts src/render/image/renderSingleImage.test.ts"
       ]
     },
@@ -39,7 +39,7 @@
       "id": "pre-film-effect-placement",
       "status": "done",
       "passes": [
-        "single-image runtime supports true placement: afterDevelop execution before film and post-optics",
+        "single-image runtime supports true placement: develop-stage execution before film and post-optics",
         "pnpm exec vitest --run src/render/image/snapshotPlan.test.ts src/render/image/renderSingleImage.test.ts src/features/editor/renderDocumentCanvas.test.ts"
       ]
     },
@@ -89,7 +89,7 @@
       "id": "legacy-pipeline-retirement-readiness",
       "status": "done",
       "passes": [
-        "plain photo / film only / film + ASCII / afterDevelop ASCII / masked ASCII / masked filter2d / invalid film profile regressions are covered by pnpm exec vitest --run src/render/image src/features/canvas src/features/editor",
+        "plain photo / film only / film + ASCII / develop-stage ASCII / masked ASCII / masked filter2d / invalid film profile regressions are covered by pnpm exec vitest --run src/render/image src/features/canvas src/features/editor",
         "runtime bridge inventory grep returns no matches"
       ]
     },

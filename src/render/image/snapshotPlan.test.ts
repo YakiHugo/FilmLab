@@ -8,8 +8,8 @@ const createAsciiEffect = (
   id: overrides.id ?? "ascii-1",
   type: "ascii",
   enabled: overrides.enabled ?? true,
-  placement: overrides.placement ?? "afterFilm",
-  analysisSource: overrides.analysisSource ?? "afterFilm",
+  placement: overrides.placement ?? "style",
+  analysisSource: overrides.analysisSource ?? "style",
   params: {
     renderMode: "glyph",
     preset: "standard",
@@ -35,27 +35,27 @@ const createAsciiEffect = (
 });
 
 describe("image render snapshot plan", () => {
-  it("requests a develop snapshot when an enabled ascii effect analyzes afterDevelop", () => {
+  it("requests a develop snapshot when an enabled ascii effect analyzes develop output", () => {
     const plan = createImageRenderSnapshotPlan([
       createAsciiEffect({
         id: "ascii-develop",
-        analysisSource: "afterDevelop",
+        analysisSource: "develop",
       }),
     ]);
 
     expect(plan.requiresDevelopAnalysisSnapshot).toBe(true);
-    expect(plan.requiresFilmAnalysisSnapshot).toBe(false);
+    expect(plan.requiresStyleAnalysisSnapshot).toBe(false);
   });
 
-  it("keeps afterDevelop, afterFilm and afterOutput effects in stable order", () => {
+  it("keeps develop, style and finalize effects in stable order", () => {
     const plan = createImageRenderSnapshotPlan([
-      createAsciiEffect({ id: "ascii-after-develop", placement: "afterDevelop" }),
-      createAsciiEffect({ id: "ascii-after-film", placement: "afterFilm" }),
+      createAsciiEffect({ id: "ascii-develop", placement: "develop" }),
+      createAsciiEffect({ id: "ascii-style", placement: "style" }),
       {
-        id: "filter-after-output",
+        id: "filter-finalize",
         type: "filter2d",
         enabled: true,
-        placement: "afterOutput",
+        placement: "finalize",
         params: {
           brightness: 0,
           hue: 0,
@@ -65,19 +65,19 @@ describe("image render snapshot plan", () => {
       },
     ]);
 
-    expect(plan.afterDevelopEffects.map((effect) => effect.id)).toEqual(["ascii-after-develop"]);
-    expect(plan.afterFilmEffects.map((effect) => effect.id)).toEqual(["ascii-after-film"]);
-    expect(plan.afterOutputEffects.map((effect) => effect.id)).toEqual(["filter-after-output"]);
+    expect(plan.developEffects.map((effect) => effect.id)).toEqual(["ascii-develop"]);
+    expect(plan.styleEffects.map((effect) => effect.id)).toEqual(["ascii-style"]);
+    expect(plan.finalizeEffects.map((effect) => effect.id)).toEqual(["filter-finalize"]);
   });
 
-  it("keeps afterFilm and afterOutput effects in stable order", () => {
+  it("keeps style and finalize effects in stable order", () => {
     const plan = createImageRenderSnapshotPlan([
-      createAsciiEffect({ id: "ascii-after-film", placement: "afterFilm" }),
+      createAsciiEffect({ id: "ascii-style", placement: "style" }),
       {
-        id: "filter-after-output",
+        id: "filter-finalize",
         type: "filter2d",
         enabled: true,
-        placement: "afterOutput",
+        placement: "finalize",
         params: {
           brightness: 0,
           hue: 0,
@@ -87,21 +87,21 @@ describe("image render snapshot plan", () => {
       },
     ]);
 
-    expect(plan.afterFilmEffects.map((effect) => effect.id)).toEqual(["ascii-after-film"]);
-    expect(plan.afterOutputEffects.map((effect) => effect.id)).toEqual(["filter-after-output"]);
+    expect(plan.styleEffects.map((effect) => effect.id)).toEqual(["ascii-style"]);
+    expect(plan.finalizeEffects.map((effect) => effect.id)).toEqual(["filter-finalize"]);
   });
 
-  it("fails fast when an afterDevelop ascii effect asks for afterFilm analysis", () => {
+  it("fails fast when a develop-stage ascii effect asks for style analysis", () => {
     const plan = createImageRenderSnapshotPlan([
       createAsciiEffect({
-        id: "ascii-after-develop",
-        placement: "afterDevelop",
-        analysisSource: "afterFilm",
+        id: "ascii-develop",
+        placement: "develop",
+        analysisSource: "style",
       }),
     ]);
 
     expect(() => assertSupportedImageRenderSnapshotPlan(plan)).toThrow(
-      "afterDevelop effects cannot analyze afterFilm snapshots"
+      "develop-stage effects cannot analyze style snapshots"
     );
   });
 });

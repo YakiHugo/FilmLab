@@ -138,8 +138,8 @@ describe("asciiEffect", () => {
         id: "legacy-ascii",
         type: "ascii",
         enabled: true,
-        placement: "afterFilm",
-        analysisSource: "afterFilm",
+        placement: "style",
+        analysisSource: "style",
         params: {
           renderMode: "glyph",
           preset: "standard",

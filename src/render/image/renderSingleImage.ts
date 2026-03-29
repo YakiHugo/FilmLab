@@ -4,15 +4,12 @@ import {
   renderImageToCanvas,
 } from "@/lib/imageProcessing";
 import type { RenderIntent } from "@/lib/renderIntent";
-import { applyTimestampOverlay } from "@/lib/timestampOverlay";
 import { applyImageEffects } from "./effectExecution";
+import { applyImageOverlays, resolveImageOverlays } from "./overlayExecution";
 import {
   assertSupportedImageRenderSnapshotPlan,
   createImageRenderSnapshotPlan,
 } from "./snapshotPlan";
-import {
-  compileImageRenderOutputToLegacyTimestampAdjustments,
-} from "./stateCompiler";
 import type {
   ImageRenderDocument,
   ImageRenderRequest,
@@ -91,44 +88,46 @@ const renderSnapshotToCanvas = async ({
   await renderImageToCanvas(renderOptions);
 };
 
-const applyImageOutputStages = async ({
-  afterOutputEffects,
+const applyImageFinalizeStages = async ({
   canvas,
   developSnapshotCanvas,
   document,
-  filmSnapshotCanvas,
+  styleSnapshotCanvas,
+  finalizeEffects,
   request,
-  timestampAdjustments,
-  timestampText,
 }: {
-  afterOutputEffects: ImageRenderDocument["effects"];
   canvas: HTMLCanvasElement;
   developSnapshotCanvas: HTMLCanvasElement | null;
   document: ImageRenderDocument;
-  filmSnapshotCanvas: HTMLCanvasElement | null;
+  styleSnapshotCanvas: HTMLCanvasElement | null;
+  finalizeEffects: ImageRenderDocument["effects"];
   request: ImageRenderRequest;
-  timestampAdjustments: ReturnType<typeof compileImageRenderOutputToLegacyTimestampAdjustments>;
-  timestampText?: string | null;
 }) => {
-  await applyTimestampOverlay(canvas, timestampAdjustments, timestampText);
+  await applyImageOverlays({
+    canvas,
+    overlays: resolveImageOverlays({
+      output: document.output,
+      timestampText: request.timestampText,
+    }),
+  });
 
-  if (afterOutputEffects.length === 0) {
+  if (finalizeEffects.length === 0) {
     return null;
   }
 
-  const afterOutputSnapshotCanvas = cloneCanvasSnapshot(canvas);
+  const finalizeSnapshotCanvas = cloneCanvasSnapshot(canvas);
   applyImageEffects({
     canvas,
     document,
-    effects: afterOutputEffects,
+    effects: finalizeEffects,
     request,
     snapshots: {
-      afterDevelop: developSnapshotCanvas,
-      afterFilm: filmSnapshotCanvas ?? canvas,
+      develop: developSnapshotCanvas,
+      style: styleSnapshotCanvas ?? canvas,
     },
-    stageReferenceCanvas: afterOutputSnapshotCanvas,
+    stageReferenceCanvas: finalizeSnapshotCanvas,
   });
-  return afterOutputSnapshotCanvas;
+  return finalizeSnapshotCanvas;
 };
 
 export const renderSingleImageToCanvas = async ({
@@ -143,15 +142,15 @@ export const renderSingleImageToCanvas = async ({
   const snapshotPlan = createImageRenderSnapshotPlan(document.effects);
   assertSupportedImageRenderSnapshotPlan(snapshotPlan);
 
-  let filmSnapshotCanvas: HTMLCanvasElement | null = null;
+  let styleSnapshotCanvas: HTMLCanvasElement | null = null;
   let developBaseCanvas: HTMLCanvasElement | null = null;
   let developSnapshotCanvas: HTMLCanvasElement | null = null;
-  let afterOutputSnapshotCanvas: HTMLCanvasElement | null = null;
+  let finalizeSnapshotCanvas: HTMLCanvasElement | null = null;
 
   try {
-    const hasAfterDevelopEffects = snapshotPlan.afterDevelopEffects.length > 0;
+    const hasDevelopEffects = snapshotPlan.developEffects.length > 0;
     const requiresDevelopBase =
-      hasAfterDevelopEffects || snapshotPlan.requiresDevelopAnalysisSnapshot;
+      hasDevelopEffects || snapshotPlan.requiresDevelopAnalysisSnapshot;
 
     if (requiresDevelopBase) {
       developBaseCanvas = createSnapshotCanvas(request.targetSize);
@@ -159,24 +158,24 @@ export const renderSingleImageToCanvas = async ({
         canvas: developBaseCanvas,
         document,
         request,
-        renderSlotSuffix: hasAfterDevelopEffects ? "base-develop" : "analysis-develop",
+        renderSlotSuffix: hasDevelopEffects ? "base-develop" : "analysis-develop",
         stage: "develop-base",
       });
       developSnapshotCanvas =
-        hasAfterDevelopEffects || snapshotPlan.requiresDevelopAnalysisSnapshot
-        ? cloneCanvasSnapshot(developBaseCanvas)
-        : null;
+        hasDevelopEffects || snapshotPlan.requiresDevelopAnalysisSnapshot
+          ? cloneCanvasSnapshot(developBaseCanvas)
+          : null;
     }
 
-    if (hasAfterDevelopEffects) {
+    if (hasDevelopEffects) {
       applyImageEffects({
         canvas: developBaseCanvas!,
         document,
-        effects: snapshotPlan.afterDevelopEffects,
+        effects: snapshotPlan.developEffects,
         request,
         snapshots: {
-          afterDevelop: developSnapshotCanvas ?? developBaseCanvas,
-          afterFilm: developBaseCanvas,
+          develop: developSnapshotCanvas ?? developBaseCanvas,
+          style: developBaseCanvas,
         },
         stageReferenceCanvas: developSnapshotCanvas ?? developBaseCanvas!,
       });
@@ -203,42 +202,38 @@ export const renderSingleImageToCanvas = async ({
       });
     }
 
-    filmSnapshotCanvas =
-      snapshotPlan.afterFilmEffects.length > 0 || snapshotPlan.requiresFilmAnalysisSnapshot
+    styleSnapshotCanvas =
+      snapshotPlan.styleEffects.length > 0 || snapshotPlan.requiresStyleAnalysisSnapshot
         ? cloneCanvasSnapshot(canvas)
         : null;
 
     applyImageEffects({
       canvas,
       document,
-      effects: snapshotPlan.afterFilmEffects,
+      effects: snapshotPlan.styleEffects,
       request,
       snapshots: {
-        afterDevelop: developSnapshotCanvas,
-        afterFilm: filmSnapshotCanvas ?? canvas,
+        develop: developSnapshotCanvas,
+        style: styleSnapshotCanvas ?? canvas,
       },
-      stageReferenceCanvas: filmSnapshotCanvas ?? canvas,
+      stageReferenceCanvas: styleSnapshotCanvas ?? canvas,
     });
-    afterOutputSnapshotCanvas = await applyImageOutputStages({
-    afterOutputEffects: snapshotPlan.afterOutputEffects,
+    finalizeSnapshotCanvas = await applyImageFinalizeStages({
       canvas,
       developSnapshotCanvas,
       document,
-      filmSnapshotCanvas,
+      styleSnapshotCanvas,
+      finalizeEffects: snapshotPlan.finalizeEffects,
       request,
-      timestampAdjustments: compileImageRenderOutputToLegacyTimestampAdjustments(
-        document.output
-      ),
-      timestampText: request.timestampText,
     });
   } finally {
-    if (afterOutputSnapshotCanvas) {
-      afterOutputSnapshotCanvas.width = 0;
-      afterOutputSnapshotCanvas.height = 0;
+    if (finalizeSnapshotCanvas) {
+      finalizeSnapshotCanvas.width = 0;
+      finalizeSnapshotCanvas.height = 0;
     }
-    if (filmSnapshotCanvas) {
-      filmSnapshotCanvas.width = 0;
-      filmSnapshotCanvas.height = 0;
+    if (styleSnapshotCanvas) {
+      styleSnapshotCanvas.width = 0;
+      styleSnapshotCanvas.height = 0;
     }
     if (developBaseCanvas) {
       developBaseCanvas.width = 0;

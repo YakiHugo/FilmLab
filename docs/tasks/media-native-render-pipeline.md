@@ -90,7 +90,10 @@ flowchart LR
 
 ### 1. Formalize Stage Vocabulary
 
-- Replace `afterDevelop` / `afterFilm` / `afterOutput` naming with explicit responsibility-based stages.
+- Replace legacy placement naming with explicit responsibility-based stages:
+  - `develop`
+  - `style`
+  - `finalize`
 - Keep runtime behavior equivalent in this slice; this is a naming and contract hardening pass, not a visual change pass.
 - Validation:
   - render snapshot plan tests still pass
@@ -186,8 +189,39 @@ flowchart LR
   - export packaging exists
   - one end-to-end preset is validated in still and motion forms
 
+## Execution Record
+
+- Completed first slice:
+  - hard-cut legacy effect placement naming from `afterDevelop` / `afterFilm` / `afterOutput` to `develop` / `style` / `finalize`
+  - introduced a shared overlay runtime entry and routed timestamp handling through it
+  - kept authored output state stable; this slice does not add a persisted `semanticOverlays` model yet
+- Explicitly not done in this slice:
+  - authored overlay item schema
+  - board/global overlay ownership
+  - carrier/signal family split
+  - analysis-layer inputs
+  - motion/live contract
+  - preview/export quality-tier split
+
+## Validation
+
+- Passed focused regression:
+  - `pnpm exec vitest --run src/render/image src/features/canvas/boardImageRendering.test.ts src/features/canvas/renderCanvasDocument.test.ts src/features/editor/renderDocumentCanvas.test.ts src/features/editor/renderMaterialization.test.ts`
+- Passed type validation:
+  - `pnpm exec tsc -p tsconfig.json --noEmit`
+- Passed live-source inventory:
+  - `rg -n "\bafterDevelop\b|\bafterFilm\b|\bafterOutput\b" src`
+  - no matches
+
 ## Handoff
 
 - Start with Slice 1 plus a concrete overlay prototype, not the whole roadmap at once.
 - The first implementation slice should avoid new media codecs or browser-worker architecture changes unless they are required for the chosen prototype.
 - This task is the concrete planning follow-up for `scene-global-render-follow-up`, not a replacement for the current single-image kernel.
+- Implemented in the first slice:
+  - canonical stage naming is now `develop -> style -> overlay -> finalize`
+  - timestamp handling now flows through a shared overlay runtime entry instead of direct per-call special casing
+- Still open after the first slice:
+  - authored `semanticOverlays` model
+  - board/global overlay ownership rules
+  - non-timestamp overlay types

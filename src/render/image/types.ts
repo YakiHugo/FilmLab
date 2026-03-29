@@ -19,9 +19,9 @@ export type ImageRenderIntent = (typeof IMAGE_RENDER_INTENTS)[number];
 export const IMAGE_RENDER_QUALITIES = ["interactive", "full"] as const;
 export type ImageRenderQuality = (typeof IMAGE_RENDER_QUALITIES)[number];
 
-export const IMAGE_EFFECT_PLACEMENTS = ["afterDevelop", "afterFilm", "afterOutput"] as const;
+export const IMAGE_EFFECT_PLACEMENTS = ["develop", "style", "finalize"] as const;
 export type ImageEffectPlacement = (typeof IMAGE_EFFECT_PLACEMENTS)[number];
-export type ImageAnalysisSource = Exclude<ImageEffectPlacement, "afterOutput">;
+export type ImageAnalysisSource = Exclude<ImageEffectPlacement, "finalize">;
 
 export interface ImageRenderTargetSize {
   width: number;

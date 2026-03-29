@@ -106,8 +106,8 @@ const createDocument = ({
           id: "legacy-ascii",
           type: "ascii",
           enabled: true,
-          placement: "afterFilm",
-          analysisSource: "afterFilm",
+          placement: "style",
+          analysisSource: "style",
           params: {
             renderMode: "glyph",
             preset: "blocks",
@@ -134,7 +134,7 @@ const createDocument = ({
           id: "legacy-filter2d",
           type: "filter2d",
           enabled: true,
-          placement: "afterOutput",
+          placement: "finalize",
           params: {
             brightness: 12,
             hue: -20,
@@ -259,7 +259,7 @@ describe("renderSingleImageToCanvas", () => {
     );
   });
 
-  it("awaits timestamp overlay before running afterOutput effects and resolving", async () => {
+  it("awaits timestamp overlay before running finalize effects and resolving", async () => {
     const deferred = createDeferred<void>();
     applyTimestampOverlayMock.mockReturnValueOnce(deferred.promise);
     const document = createDocument();
@@ -318,13 +318,13 @@ describe("renderSingleImageToCanvas", () => {
     );
   });
 
-  it("renders an explicit develop snapshot when ascii analysis requests afterDevelop", async () => {
+  it("renders an explicit develop snapshot when ascii analysis requests develop output", async () => {
     const base = createDocument();
     const document = createDocument({
       effects: [
         {
           ...base.effects[0],
-          analysisSource: "afterDevelop",
+          analysisSource: "develop",
         },
       ],
     });
@@ -363,20 +363,20 @@ describe("renderSingleImageToCanvas", () => {
     );
   });
 
-  it("executes afterDevelop effects before film-stage rendering and afterFilm effects afterward", async () => {
+  it("executes develop effects before film-stage rendering and style effects afterward", async () => {
     const baseDocument = createDocument();
     const document = createDocument({
       effects: [
         {
           ...baseDocument.effects[0],
-          placement: "afterDevelop",
-          analysisSource: "afterDevelop",
+          placement: "develop",
+          analysisSource: "develop",
         },
         {
           ...baseDocument.effects[0],
-          id: "ascii-after-film",
-          placement: "afterFilm",
-          analysisSource: "afterFilm",
+          id: "ascii-style",
+          placement: "style",
+          analysisSource: "style",
         },
       ],
     });
@@ -456,8 +456,8 @@ describe("renderSingleImageToCanvas", () => {
         effects: [
           {
             ...baseDocument.effects[0],
-            placement: "afterDevelop",
-            analysisSource: "afterDevelop",
+            placement: "develop",
+            analysisSource: "develop",
             params: {
               ...baseDocument.effects[0].params,
               brightness: 0,
@@ -549,7 +549,7 @@ describe("renderSingleImageToCanvas", () => {
           id: "filter-1",
           type: "filter2d",
           enabled: true,
-          placement: "afterFilm",
+          placement: "style",
           maskId: "mask-1",
           params: {
             brightness: 12,
@@ -562,7 +562,7 @@ describe("renderSingleImageToCanvas", () => {
           id: "filter-2",
           type: "filter2d",
           enabled: true,
-          placement: "afterFilm",
+          placement: "style",
           maskId: "mask-1",
           params: {
             brightness: -12,
