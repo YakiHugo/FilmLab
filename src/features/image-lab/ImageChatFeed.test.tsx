@@ -4,10 +4,10 @@ import type { ImageLabObservabilityView } from "../../../shared/imageLabViews";
 import {
   ImageChatFeed,
   PromptObservabilityPanel,
-  shouldAutoLoadPromptObservability,
   TurnPromptArtifactsPanel,
 } from "./ImageChatFeed";
 import type { ImageGenerationTurn } from "./hooks/useImageGeneration";
+import { shouldAutoLoadPromptObservability } from "./imageChatFeedUtils";
 
 const buildTurn = (overrides?: Partial<ImageGenerationTurn>): ImageGenerationTurn => ({
   id: "turn-1",

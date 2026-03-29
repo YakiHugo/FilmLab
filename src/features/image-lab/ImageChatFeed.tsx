@@ -9,6 +9,7 @@ import { IMAGE_STYLE_PRESETS } from "@/lib/ai/imageStylePresets";
 import { IMAGE_STYLES } from "@/lib/ai/imageStyles";
 import { cn } from "@/lib/utils";
 import type { ImageGenerationTurn } from "./hooks/useImageGeneration";
+import { shouldAutoLoadPromptObservability } from "./imageChatFeedUtils";
 import { ImageResultCard } from "./ImageResultCard";
 
 interface ImageChatFeedProps {
@@ -167,12 +168,6 @@ function SummaryPill({ label, value }: { label: string; value: number }) {
     </div>
   );
 }
-
-export const shouldAutoLoadPromptObservability = (
-  isOpen: boolean,
-  turnCount: number,
-  status: "idle" | "loading" | "loaded" | "error"
-) => isOpen && turnCount > 0 && status === "idle";
 
 const PROMPT_ARTIFACT_STAGE_ORDER = ["rewrite", "compile", "dispatch"] as const;
 const PROMPT_ARTIFACT_STAGE_LABELS: Record<
