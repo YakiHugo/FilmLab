@@ -1,6 +1,6 @@
 import type { RenderIntent } from "@/lib/renderIntent";
 import {
-  legacyEditingAdjustmentsToImageRenderDocument,
+  createAssetImageRenderDocument,
   type ImageRenderDocument,
   type ImageRenderRequest,
   type ImageRenderTargetSize,
@@ -46,7 +46,7 @@ export const createEditorImageRenderRequest = ({
 export const createRenderDocumentImageRenderDocument = (
   document: RenderDocument
 ): ImageRenderDocument =>
-  legacyEditingAdjustmentsToImageRenderDocument({
+  createAssetImageRenderDocument({
     id: `${document.key}:base`,
     asset: document.sourceAsset,
     adjustments: document.adjustments,
@@ -57,7 +57,7 @@ export const createRenderLayerImageRenderDocument = (
   document: RenderDocument,
   layerNode: RenderLayerNode
 ): ImageRenderDocument =>
-  legacyEditingAdjustmentsToImageRenderDocument({
+  createAssetImageRenderDocument({
     id: `${document.key}:layer:${layerNode.id}`,
     asset: layerNode.sourceAsset,
     adjustments: layerNode.adjustments,

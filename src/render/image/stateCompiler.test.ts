@@ -2,14 +2,12 @@ import { createDefaultAdjustments } from "@/lib/adjustments";
 import { createDefaultFilmProfile } from "@/lib/film";
 import { describe, expect, it } from "vitest";
 import {
-  compileImageRenderDocumentToProcessSettings,
   compileImageRenderOutputToLegacyTimestampAdjustments,
   createDefaultCanvasImageRenderState,
 } from "./stateCompiler";
-import { createImageRenderDocument } from "./types";
 
 describe("stateCompiler", () => {
-  it("applies film profile overrides before entering the low-level render pipeline", () => {
+  it("preserves film profile overrides on canonical film state", () => {
     const baseProfile = createDefaultFilmProfile();
     const moduleId = baseProfile.modules[0]?.id;
     if (!moduleId) {
@@ -25,22 +23,12 @@ describe("stateCompiler", () => {
         },
       },
     });
-    const document = createImageRenderDocument({
-      id: "image-1",
-      source: {
-        assetId: "asset-1",
-        objectUrl: "blob:asset-1",
-        contentHash: null,
-        name: "asset-1.jpg",
-        mimeType: "image/jpeg",
+
+    expect(state.film.profileOverrides).toEqual({
+      [moduleId]: {
+        amount: 37,
       },
-      ...state,
     });
-
-    const processSettings = compileImageRenderDocumentToProcessSettings(document);
-    const resolvedModule = processSettings.filmProfile?.modules.find((module) => module.id === moduleId);
-
-    expect(resolvedModule?.amount).toBe(37);
   });
 
   it("compiles canonical output timestamp state into the legacy overlay shape", () => {

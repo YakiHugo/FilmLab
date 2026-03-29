@@ -335,7 +335,7 @@ export const createDefaultCanvasImageRenderState = ({
   });
 };
 
-export const legacyEditingAdjustmentsToCanvasImageRenderState = ({
+export const createCanvasImageRenderStateFromAsset = ({
   asset,
   adjustments,
   filmProfileId,
@@ -417,12 +417,6 @@ const resolveLocalAdjustmentsFromState = (
     })
     .filter((entry): entry is LocalAdjustment => Boolean(entry));
 
-export interface ImageProcessSettings {
-  adjustments: EditingAdjustments;
-  filmProfile?: FilmProfileAny;
-  output: ImageRenderOutputState;
-}
-
 export const compileImageRenderOutputToLegacyTimestampAdjustments = (
   output: ImageRenderOutputState
 ): Pick<
@@ -433,116 +427,6 @@ export const compileImageRenderOutputToLegacyTimestampAdjustments = (
   timestampPosition: output.timestamp.position,
   timestampSize: output.timestamp.size,
   timestampOpacity: output.timestamp.opacity,
-});
-
-const resolveProcessFilmProfile = (document: ImageRenderDocument): FilmProfileAny | undefined => {
-  const baseProfile = document.film.profile ?? undefined;
-  const overrides = document.film.profileOverrides ?? undefined;
-  if (!baseProfile) {
-    return undefined;
-  }
-  if (!overrides || Object.keys(overrides).length === 0) {
-    return baseProfile;
-  }
-  return resolveFilmProfile({
-    adjustments: createDefaultAdjustments(),
-    filmProfile: baseProfile,
-    overrides,
-  });
-};
-
-export const compileCanvasImageRenderStateToLegacyAdjustments = (
-  state: CanvasImageRenderStateV1,
-  options?: {
-    stripEffects?: boolean;
-    stripTimestamp?: boolean;
-  }
-): EditingAdjustments =>
-  normalizeAdjustments({
-    ...createDefaultAdjustments(),
-    exposure: state.develop.tone.exposure,
-    contrast: state.develop.tone.contrast,
-    highlights: state.develop.tone.highlights,
-    shadows: state.develop.tone.shadows,
-    whites: state.develop.tone.whites,
-    blacks: state.develop.tone.blacks,
-    temperature: state.develop.color.temperature,
-    tint: state.develop.color.tint,
-    hue: 0,
-    temperatureKelvin: state.develop.color.temperatureKelvin,
-    tintMG: state.develop.color.tintMG,
-    vibrance: state.develop.color.vibrance,
-    saturation: state.develop.color.saturation,
-    pointCurve: structuredClone(state.develop.color.pointCurve),
-    hsl: structuredClone(state.develop.color.hsl),
-    bwEnabled: state.develop.color.bwEnabled,
-    bwMix: structuredClone(state.develop.color.bwMix),
-    calibration: structuredClone(state.develop.color.calibration),
-    colorGrading: structuredClone(state.develop.color.colorGrading),
-    texture: state.develop.detail.texture,
-    clarity: state.develop.detail.clarity,
-    dehaze: state.develop.detail.dehaze,
-    sharpening: state.develop.detail.sharpening,
-    sharpenRadius: state.develop.detail.sharpenRadius,
-    sharpenDetail: state.develop.detail.sharpenDetail,
-    masking: state.develop.detail.masking,
-    noiseReduction: state.develop.detail.noiseReduction,
-    colorNoiseReduction: state.develop.detail.colorNoiseReduction,
-    vignette: state.develop.fx.vignette,
-    grain: state.develop.fx.grain,
-    grainSize: state.develop.fx.grainSize,
-    grainRoughness: state.develop.fx.grainRoughness,
-    glowIntensity: state.develop.fx.glowIntensity,
-    glowMidtoneFocus: state.develop.fx.glowMidtoneFocus,
-    glowBias: state.develop.fx.glowBias,
-    glowRadius: state.develop.fx.glowRadius,
-    customLut: state.develop.fx.customLut ? structuredClone(state.develop.fx.customLut) : undefined,
-    pushPullEv: state.develop.fx.pushPullEv,
-    rotate: state.geometry.rotate,
-    rightAngleRotation: state.geometry.rightAngleRotation,
-    perspectiveEnabled: state.geometry.perspectiveEnabled,
-    perspectiveHorizontal: state.geometry.perspectiveHorizontal,
-    perspectiveVertical: state.geometry.perspectiveVertical,
-    vertical: state.geometry.vertical,
-    horizontal: state.geometry.horizontal,
-    scale: state.geometry.scale,
-    flipHorizontal: state.geometry.flipHorizontal,
-    flipVertical: state.geometry.flipVertical,
-    aspectRatio: state.geometry.aspectRatio,
-    customAspectRatio: state.geometry.customAspectRatio,
-    opticsProfile: state.geometry.opticsProfile,
-    opticsCA: state.geometry.opticsCA,
-    opticsDistortionK1: state.geometry.opticsDistortionK1,
-    opticsDistortionK2: state.geometry.opticsDistortionK2,
-    opticsCaAmount: state.geometry.opticsCaAmount,
-    opticsVignette: state.geometry.opticsVignette,
-    opticsVignetteMidpoint: state.geometry.opticsVignetteMidpoint,
-    localAdjustments: resolveLocalAdjustmentsFromState(state),
-    ascii: options?.stripEffects
-      ? {
-          ...resolveAsciiAdjustmentsFromEffects(state.effects),
-          enabled: false,
-        }
-      : resolveAsciiAdjustmentsFromEffects(state.effects),
-    brightness: options?.stripEffects ? 0 : resolveFilter2dFromEffects(state.effects).brightness,
-    hue: options?.stripEffects ? 0 : resolveFilter2dFromEffects(state.effects).hue,
-    blur: options?.stripEffects ? 0 : resolveFilter2dFromEffects(state.effects).blur,
-    dilate: options?.stripEffects ? 0 : resolveFilter2dFromEffects(state.effects).dilate,
-    timestampEnabled: options?.stripTimestamp ? false : state.output.timestamp.enabled,
-    timestampPosition: state.output.timestamp.position,
-    timestampSize: state.output.timestamp.size,
-    timestampOpacity: state.output.timestamp.opacity,
-  });
-
-export const compileImageRenderDocumentToProcessSettings = (
-  document: ImageRenderDocument
-): ImageProcessSettings => ({
-  adjustments: compileCanvasImageRenderStateToLegacyAdjustments(document, {
-    stripEffects: true,
-    stripTimestamp: true,
-  }),
-  filmProfile: resolveProcessFilmProfile(document),
-  output: document.output,
 });
 
 export const resolveFilter2dPreviewValuesFromState = (state: CanvasImageRenderStateV1) =>

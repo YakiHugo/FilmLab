@@ -195,8 +195,13 @@ describe("renderSingleImageToCanvas", () => {
       expect.objectContaining({
         canvas,
         intent: "export-full",
-        timestampText: null,
         renderSlot: "board-export:base-film",
+        state: expect.objectContaining({
+          geometry: document.geometry,
+          develop: document.develop,
+          film: document.film,
+          masks: document.masks,
+        }),
         targetSize: {
           width: 400,
           height: 225,

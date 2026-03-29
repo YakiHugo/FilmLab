@@ -2,7 +2,7 @@ import { createDefaultAdjustments } from "@/lib/adjustments";
 import type { Asset, LocalAdjustment } from "@/types";
 import { listBuiltInFilmProfiles } from "@/lib/film";
 import { describe, expect, it } from "vitest";
-import { legacyEditingAdjustmentsToImageRenderDocument } from "./legacyAdapter";
+import { createAssetImageRenderDocument } from "./legacyAdapter";
 
 const createAsset = (): Asset => ({
   id: "asset-1",
@@ -34,7 +34,7 @@ const createLocalAdjustment = (): LocalAdjustment => ({
   },
 });
 
-describe("legacyEditingAdjustmentsToImageRenderDocument", () => {
+describe("createAssetImageRenderDocument", () => {
   it("extracts ordered legacy effects and output metadata", () => {
     const adjustments = createDefaultAdjustments();
     adjustments.ascii = {
@@ -58,7 +58,7 @@ describe("legacyEditingAdjustmentsToImageRenderDocument", () => {
     adjustments.timestampOpacity = 70;
     adjustments.localAdjustments = [createLocalAdjustment()];
 
-    const document = legacyEditingAdjustmentsToImageRenderDocument({
+    const document = createAssetImageRenderDocument({
       id: "image:asset-1",
       asset: createAsset(),
       adjustments,
@@ -124,7 +124,7 @@ describe("legacyEditingAdjustmentsToImageRenderDocument", () => {
     adjustments.opticsVignette = 22;
     adjustments.opticsVignetteMidpoint = 61;
 
-    const document = legacyEditingAdjustmentsToImageRenderDocument({
+    const document = createAssetImageRenderDocument({
       id: "image:asset-1",
       asset: {
         ...createAsset(),
@@ -158,7 +158,7 @@ describe("legacyEditingAdjustmentsToImageRenderDocument", () => {
     const builtInProfile = listBuiltInFilmProfiles()[0];
     expect(builtInProfile).toBeTruthy();
 
-    const document = legacyEditingAdjustmentsToImageRenderDocument({
+    const document = createAssetImageRenderDocument({
       id: "image:asset-1",
       asset: {
         ...createAsset(),
@@ -177,7 +177,7 @@ describe("legacyEditingAdjustmentsToImageRenderDocument", () => {
     const builtInProfile = listBuiltInFilmProfiles()[0];
     expect(builtInProfile).toBeTruthy();
 
-    const document = legacyEditingAdjustmentsToImageRenderDocument({
+    const document = createAssetImageRenderDocument({
       id: "image:asset-1",
       asset: {
         ...createAsset(),
@@ -197,7 +197,7 @@ describe("legacyEditingAdjustmentsToImageRenderDocument", () => {
   });
 
   it("does not inherit the asset film profile when an explicit filmProfileId misses", () => {
-    const document = legacyEditingAdjustmentsToImageRenderDocument({
+    const document = createAssetImageRenderDocument({
       id: "image:asset-1",
       asset: {
         ...createAsset(),

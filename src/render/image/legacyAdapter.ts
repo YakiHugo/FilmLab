@@ -1,11 +1,11 @@
 import type { Asset, EditingAdjustments, FilmProfile } from "@/types";
 import { createImageRenderDocumentFromState, type CanvasImageRenderStateV1, type ImageRenderDocument } from "./types";
 import {
-  legacyEditingAdjustmentsToCanvasImageRenderState,
+  createCanvasImageRenderStateFromAsset,
   resolveImageRenderSource,
 } from "./stateCompiler";
 
-export interface LegacyImageRenderDocumentOptions {
+export interface AssetImageRenderDocumentOptions {
   id: string;
   asset: Asset;
   adjustments?: EditingAdjustments;
@@ -13,7 +13,7 @@ export interface LegacyImageRenderDocumentOptions {
   filmProfile?: FilmProfile | null | undefined;
 }
 
-export const legacyEditingAdjustmentsToCanvasImageRenderStateDocument = ({
+export const createImageRenderDocumentFromStateAndAsset = ({
   id,
   asset,
   state,
@@ -28,17 +28,17 @@ export const legacyEditingAdjustmentsToCanvasImageRenderStateDocument = ({
     state,
   });
 
-export const legacyEditingAdjustmentsToImageRenderDocument = ({
+export const createAssetImageRenderDocument = ({
   id,
   asset,
   adjustments,
   filmProfileId,
   filmProfile,
-}: LegacyImageRenderDocumentOptions): ImageRenderDocument =>
-  legacyEditingAdjustmentsToCanvasImageRenderStateDocument({
+}: AssetImageRenderDocumentOptions): ImageRenderDocument =>
+  createImageRenderDocumentFromStateAndAsset({
     id,
     asset,
-    state: legacyEditingAdjustmentsToCanvasImageRenderState({
+    state: createCanvasImageRenderStateFromAsset({
       asset,
       adjustments,
       filmProfileId,
@@ -46,4 +46,4 @@ export const legacyEditingAdjustmentsToImageRenderDocument = ({
     }),
   });
 
-export { legacyEditingAdjustmentsToCanvasImageRenderState } from "./stateCompiler";
+export { createCanvasImageRenderStateFromAsset } from "./stateCompiler";

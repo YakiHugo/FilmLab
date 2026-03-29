@@ -11,7 +11,6 @@ import {
   createImageRenderSnapshotPlan,
 } from "./snapshotPlan";
 import {
-  compileImageRenderDocumentToProcessSettings,
   compileImageRenderOutputToLegacyTimestampAdjustments,
 } from "./stateCompiler";
 import type {
@@ -19,6 +18,7 @@ import type {
   ImageRenderRequest,
   ImageRenderTargetSize,
 } from "./types";
+import { extractImageProcessState } from "./types";
 
 const resolveLegacyRenderIntent = (request: ImageRenderRequest): RenderIntent => {
   if (request.intent === "export") {
@@ -66,13 +66,10 @@ const renderSnapshotToCanvas = async ({
   renderSlotSuffix?: string;
   stage: "full" | "develop-base";
 }) => {
-  const processSettings = compileImageRenderDocumentToProcessSettings(document);
   const renderOptions = {
     canvas,
     source: resolveRuntimeSource(document),
-    adjustments: processSettings.adjustments,
-    filmProfile: stage === "full" ? processSettings.filmProfile : undefined,
-    timestampText: null,
+    state: extractImageProcessState(document),
     targetSize: request.targetSize,
     seedKey: stage === "full" ? resolveFilmSeedKey(document) : `${document.id}:${stage}`,
     sourceCacheKey: `${document.revisionKey}:${stage}:${request.targetSize.width}x${request.targetSize.height}`,
@@ -145,7 +142,6 @@ export const renderSingleImageToCanvas = async ({
 }) => {
   const snapshotPlan = createImageRenderSnapshotPlan(document.effects);
   assertSupportedImageRenderSnapshotPlan(snapshotPlan);
-  const processSettings = compileImageRenderDocumentToProcessSettings(document);
 
   let filmSnapshotCanvas: HTMLCanvasElement | null = null;
   let developBaseCanvas: HTMLCanvasElement | null = null;
@@ -188,9 +184,7 @@ export const renderSingleImageToCanvas = async ({
       await renderFilmStageToCanvas({
         canvas,
         source: developBaseCanvas!,
-        adjustments: processSettings.adjustments,
-        filmProfile: processSettings.filmProfile,
-        timestampText: null,
+        state: extractImageProcessState(document),
         targetSize: request.targetSize,
         seedKey: resolveFilmSeedKey(document),
         sourceCacheKey: `${document.revisionKey}:film-stage:${request.targetSize.width}x${request.targetSize.height}`,
@@ -233,7 +227,7 @@ export const renderSingleImageToCanvas = async ({
       filmSnapshotCanvas,
       request,
       timestampAdjustments: compileImageRenderOutputToLegacyTimestampAdjustments(
-        processSettings.output
+        document.output
       ),
       timestampText: request.timestampText,
     });

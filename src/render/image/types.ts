@@ -227,6 +227,13 @@ export interface CanvasImageRenderStateV1 {
   output: ImageRenderOutputState;
 }
 
+export interface ImageProcessState {
+  geometry: ImageRenderGeometry;
+  develop: ImageRenderDevelopState;
+  masks: ImageRenderMaskState;
+  film: ImageRenderFilmState;
+}
+
 export interface ImageRenderDocument extends CanvasImageRenderStateV1 {
   id: string;
   source: ImageRenderSource;
@@ -290,6 +297,15 @@ export const createImageRenderDocumentFromState = ({
     source,
     ...state,
   });
+
+export const extractImageProcessState = (
+  state: Pick<CanvasImageRenderStateV1, "geometry" | "develop" | "masks" | "film">
+): ImageProcessState => ({
+  geometry: state.geometry,
+  develop: state.develop,
+  masks: state.masks,
+  film: state.film,
+});
 
 export const resolveImageRenderEffectsForPlacement = (
   effects: readonly ImageEffectNode[],
