@@ -40,3 +40,4 @@
 
 - Current status is planning only.
 - The next implementation agent should start by turning one concrete scene/global use case into a scoped slice instead of treating "scene-level follow-up" as one large feature bucket.
+- The concrete long-form planning task for that work now lives in `docs/tasks/media-native-render-pipeline.md`.
