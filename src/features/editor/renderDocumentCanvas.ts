@@ -1,6 +1,5 @@
-import { renderDevelopBaseToCanvas, renderImageToCanvas } from "@/lib/imageProcessing";
+import { renderSingleImageToCanvas } from "@/render/image";
 import { applyTimestampOverlay } from "@/lib/timestampOverlay";
-import type { Asset } from "@/types";
 import type { RenderIntent } from "@/lib/renderIntent";
 import {
   defaultCompositeBackend,
@@ -19,6 +18,11 @@ import {
   requiresLayerComposite,
   resolveSingleRenderableLayerEntry,
 } from "./rendering";
+import {
+  createEditorImageRenderRequest,
+  createRenderDocumentImageRenderDocument,
+  createRenderLayerImageRenderDocument,
+} from "./imageRenderAdapter";
 
 interface RenderTargetSize {
   width: number;
@@ -34,15 +38,7 @@ interface RenderDocumentToCanvasOptions {
   strictErrors?: boolean;
   signal?: AbortSignal;
   renderSlotPrefix?: string;
-  stage?: "full" | "develop-base";
 }
-
-const resolveAssetRenderSource = (asset: Asset) => asset.blob ?? asset.objectUrl;
-
-const resolveLayerFilmProfile = (document: RenderDocument, sourceAsset: Asset) =>
-  sourceAsset.id === document.sourceAssetId
-    ? document.filmProfile ?? undefined
-    : sourceAsset.filmProfile ?? undefined;
 
 const getWorkspaceCanvas = (
   map: Map<string, HTMLCanvasElement>,
@@ -128,62 +124,55 @@ export const renderDocumentToCanvas = async ({
   strictErrors = intent === "export-full",
   signal,
   renderSlotPrefix,
-  stage = "full",
 }: RenderDocumentToCanvasOptions) => {
   const normalizedRenderSlotPrefix = renderSlotPrefix?.trim();
   const resolveRenderSlot = (suffix: string, fallback: string) =>
     normalizedRenderSlotPrefix ? `${normalizedRenderSlotPrefix}:${suffix}` : fallback;
-  const renderLeafImage = stage === "develop-base" ? renderDevelopBaseToCanvas : renderImageToCanvas;
-  const source = resolveAssetRenderSource(renderDocument.sourceAsset);
+  const normalizedTargetSize = {
+    width: targetSize?.width ?? canvas.width,
+    height: targetSize?.height ?? canvas.height,
+  };
   const singleLayerNode = resolveSingleRenderableLayerEntry(renderDocument.renderGraph.layers);
 
   if (singleLayerNode && !requiresLayerComposite(singleLayerNode)) {
-    await renderLeafImage({
+    await renderSingleImageToCanvas({
       canvas,
-      source: resolveAssetRenderSource(singleLayerNode.sourceAsset),
-      adjustments: singleLayerNode.adjustments,
-      filmProfile:
-        stage === "develop-base"
-          ? undefined
-          : resolveLayerFilmProfile(renderDocument, singleLayerNode.sourceAsset),
-      timestampText: stage === "full" ? timestampText : null,
-      targetSize,
-      seedKey: `${renderDocument.renderGraph.key}:${singleLayerNode.id}`,
-      sourceCacheKey: `${intent}:${renderDocument.renderGraph.key}:layer:${singleLayerNode.sourceAsset.id}:${singleLayerNode.id}:${singleLayerNode.sourceAsset.size}`,
-      strictErrors,
-      intent,
-      signal,
-      renderSlot: resolveRenderSlot(
-        `layer:${singleLayerNode.id}:single`,
-        `${intent}:${renderDocument.key}:${renderDocument.renderGraph.key}:layer:${singleLayerNode.id}:single`
-      ),
+      document: createRenderLayerImageRenderDocument(renderDocument, singleLayerNode),
+      request: createEditorImageRenderRequest({
+        intent,
+        targetSize: normalizedTargetSize,
+        timestampText,
+        strictErrors,
+        signal,
+        renderSlotId: resolveRenderSlot(
+          `layer:${singleLayerNode.id}:single`,
+          `${intent}:${renderDocument.key}:${renderDocument.renderGraph.key}:layer:${singleLayerNode.id}:single`
+        ),
+      }),
     });
     return;
   }
 
   if (renderDocument.renderGraph.layers.length === 0) {
-    await renderLeafImage({
+    await renderSingleImageToCanvas({
       canvas,
-      source,
-      adjustments: renderDocument.adjustments,
-      filmProfile: stage === "develop-base" ? undefined : renderDocument.filmProfile ?? undefined,
-      timestampText: stage === "full" ? timestampText : null,
-      targetSize,
-      seedKey: `${renderDocument.renderGraph.key}:base`,
-      sourceCacheKey: `${intent}:${renderDocument.renderGraph.key}:${renderDocument.sourceAssetId}:${renderDocument.sourceAsset.size}`,
-      strictErrors,
-      intent,
-      signal,
-      renderSlot: resolveRenderSlot(
-        "base",
-        `${intent}:${renderDocument.key}:${renderDocument.renderGraph.key}:base`
-      ),
+      document: createRenderDocumentImageRenderDocument(renderDocument),
+      request: createEditorImageRenderRequest({
+        intent,
+        targetSize: normalizedTargetSize,
+        timestampText,
+        strictErrors,
+        signal,
+        renderSlotId: resolveRenderSlot(
+          "base",
+          `${intent}:${renderDocument.key}:${renderDocument.renderGraph.key}:base`
+        ),
+      }),
     });
     return;
   }
 
   const { workspace, release } = createTemporaryWorkspace();
-  const sourceBlobCache = new Map<string, Blob | string>();
 
   try {
     const didCompose = await composeRenderGraphToCanvas({
@@ -191,50 +180,31 @@ export const renderDocumentToCanvas = async ({
       renderGraph: renderDocument.renderGraph,
       backend: defaultCompositeBackend,
       workspace,
-      targetSize: {
-        width: targetSize?.width ?? canvas.width,
-        height: targetSize?.height ?? canvas.height,
-      },
+      targetSize: normalizedTargetSize,
       renderLayerNode: async (layerNode, layerCanvas, layerIndex) => {
-        let layerSource = sourceBlobCache.get(layerNode.sourceAssetId);
-        if (!layerSource) {
-          layerSource = resolveAssetRenderSource(layerNode.sourceAsset);
-          sourceBlobCache.set(layerNode.sourceAssetId, layerSource);
-        }
-
-        await renderLeafImage({
+        await renderSingleImageToCanvas({
           canvas: layerCanvas,
-          source: layerSource,
-          adjustments: layerNode.adjustments,
-          filmProfile:
-            stage === "develop-base"
-              ? undefined
-              : resolveLayerFilmProfile(renderDocument, layerNode.sourceAsset),
-          timestampText: null,
-          targetSize: {
-            width: targetSize?.width ?? canvas.width,
-            height: targetSize?.height ?? canvas.height,
-          },
-          seedKey: `${renderDocument.renderGraph.key}:${layerNode.id}`,
-        sourceCacheKey: `${intent}:${renderDocument.renderGraph.key}:layer:${layerNode.sourceAsset.id}:${layerNode.id}:${layerNode.sourceAsset.size}`,
-        strictErrors,
-        intent,
-        signal,
-        renderSlot: resolveRenderSlot(
-          `layer:${layerNode.id}:${layerIndex}`,
-          `${intent}:${renderDocument.key}:${renderDocument.renderGraph.key}:layer:${layerNode.id}:${layerIndex}`
-        ),
-      });
-    },
-  });
+          document: createRenderLayerImageRenderDocument(renderDocument, layerNode),
+          request: createEditorImageRenderRequest({
+            intent,
+            targetSize: normalizedTargetSize,
+            timestampText: null,
+            strictErrors,
+            signal,
+            renderSlotId: resolveRenderSlot(
+              `layer:${layerNode.id}:${layerIndex}`,
+              `${intent}:${renderDocument.key}:${renderDocument.renderGraph.key}:layer:${layerNode.id}:${layerIndex}`
+            ),
+          }),
+        });
+      },
+    });
 
     if (!didCompose) {
       throw new Error("Failed to initialize composite render context.");
     }
 
-    if (stage === "full") {
-      applyTimestampOverlay(canvas, renderDocument.adjustments, timestampText);
-    }
+    await applyTimestampOverlay(canvas, renderDocument.adjustments, timestampText);
   } finally {
     release();
   }
