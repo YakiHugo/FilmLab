@@ -12,7 +12,7 @@ import {
 } from "./editDockTheme";
 
 const PANEL_TITLES: Record<NonNullable<PanelType>, string> = {
-  edit: "Edit",
+  edit: "编辑",
   layers: "Layers",
   library: "Library",
 };
@@ -45,7 +45,7 @@ export function CanvasFloatingPanel() {
               type="button"
               onClick={() => setActivePanel(null)}
               className="flex h-8 w-8 items-center justify-center text-[color:var(--canvas-edit-text-muted)] transition hover:text-[color:var(--canvas-edit-text)]"
-              aria-label="Close panel"
+              aria-label="关闭面板"
             >
               <X className="h-5 w-5" />
             </button>

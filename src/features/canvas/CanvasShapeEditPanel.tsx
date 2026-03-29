@@ -21,6 +21,13 @@ import { useCanvasShapeEditPanelModel } from "./hooks/useCanvasShapeEditPanelMod
 const formatNumberFieldValue = (value: number) =>
   `${Number.isFinite(value) ? Math.round(value * 1000) / 1000 : 0}`;
 
+const SHAPE_TYPE_LABELS: Record<NonNullable<CanvasShapeEditTarget>["shapeType"], string> = {
+  rect: "矩形",
+  ellipse: "椭圆",
+  line: "直线",
+  arrow: "箭头",
+};
+
 const TextField = ({
   label,
   onCommit,
@@ -175,7 +182,7 @@ export function CanvasShapeEditPanel({ shape }: CanvasShapeEditPanelProps) {
       <section className="flex min-h-0 flex-1 flex-col overflow-y-auto pr-1">
         <div className="py-5">
           <p className={canvasDockBodyTextClassName}>
-            Select a shape on the canvas to start editing.
+            在画布上选择一个形状后，即可开始编辑。
           </p>
         </div>
       </section>
@@ -185,14 +192,14 @@ export function CanvasShapeEditPanel({ shape }: CanvasShapeEditPanelProps) {
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
       <div className={canvasDockSectionClassName}>
-        <p className={canvasDockFieldLabelClassName}>Selected Shape</p>
+        <p className={canvasDockFieldLabelClassName}>当前形状</p>
         <p className="mt-2 text-sm font-medium text-[color:var(--canvas-edit-text)]">
-          {shape.shapeType}
+          {SHAPE_TYPE_LABELS[shape.shapeType]}
         </p>
       </div>
 
       <div className={canvasDockSectionClassName}>
-        <p className={canvasDockFieldLabelClassName}>Fill</p>
+        <p className={canvasDockFieldLabelClassName}>填充</p>
         {supportsFillControls ? (
           <div className="mt-3 space-y-3">
             <Select
@@ -202,34 +209,34 @@ export function CanvasShapeEditPanel({ shape }: CanvasShapeEditPanelProps) {
               }
             >
               <SelectTrigger className={canvasDockSelectTriggerClassName}>
-                <SelectValue placeholder="Fill mode" />
+                <SelectValue placeholder="填充模式" />
               </SelectTrigger>
               <SelectContent className={canvasDockSelectContentClassName}>
-                <SelectItem value="solid">Solid</SelectItem>
-                <SelectItem value="linear-gradient">Linear Gradient</SelectItem>
+                <SelectItem value="solid">纯色</SelectItem>
+                <SelectItem value="linear-gradient">线性渐变</SelectItem>
               </SelectContent>
             </Select>
 
             {shapeFillStyle.kind === "solid" ? (
               <TextField
-                label="Color"
+                label="颜色"
                 value={shapeFillStyle.color}
                 onCommit={setFill}
               />
             ) : (
               <div className="grid grid-cols-1 gap-3">
                 <TextField
-                  label="From"
+                  label="起点颜色"
                   value={shapeFillStyle.from}
                   onCommit={setShapeFillGradientFrom}
                 />
                 <TextField
-                  label="To"
+                  label="终点颜色"
                   value={shapeFillStyle.to}
                   onCommit={setShapeFillGradientTo}
                 />
                 <NumberField
-                  label="Angle"
+                  label="角度"
                   value={shapeFillStyle.angle}
                   step={1}
                   onChange={setShapeFillGradientAngle}
@@ -239,28 +246,28 @@ export function CanvasShapeEditPanel({ shape }: CanvasShapeEditPanelProps) {
           </div>
         ) : (
           <p className="mt-3 text-sm leading-6 text-[color:var(--canvas-edit-text-muted)]">
-            Fill controls currently apply to rectangles and ellipses only.
+            填充控制目前仅支持矩形和椭圆。
           </p>
         )}
       </div>
 
       <div className={canvasDockSectionClassName}>
-        <p className={canvasDockFieldLabelClassName}>Stroke & Opacity</p>
+        <p className={canvasDockFieldLabelClassName}>描边与不透明度</p>
         <div className="mt-3 grid grid-cols-1 gap-3">
           <TextField
-            label="Stroke"
+            label="描边"
             value={shape.stroke}
             onCommit={setStroke}
           />
           <NumberField
-            label="Stroke Width"
+            label="描边宽度"
             value={shape.strokeWidth}
             min={0}
             step={0.5}
             onChange={setStrokeWidth}
           />
           <NumberField
-            label="Opacity"
+            label="不透明度"
             value={shape.opacity}
             min={0}
             max={1}

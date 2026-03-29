@@ -38,7 +38,7 @@ export function CanvasEditPanel() {
     <section className="flex min-h-0 flex-1 flex-col overflow-y-auto pr-1">
       <div className="py-5">
         <p className={canvasDockBodyTextClassName}>
-          Select an image or shape on the canvas to start editing.
+          在画布上选择图片或形状后，即可开始编辑。
         </p>
       </div>
     </section>

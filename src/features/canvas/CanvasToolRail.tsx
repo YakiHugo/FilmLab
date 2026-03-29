@@ -31,7 +31,7 @@ const shapeButtons = [
 const panelButtons = [
   { panel: "library" as const, icon: Images, label: "Library" },
   { panel: "layers" as const, icon: Layers3, label: "Layers" },
-  { panel: "edit" as const, icon: SlidersHorizontal, label: "Edit" },
+  { panel: "edit" as const, icon: SlidersHorizontal, label: "编辑" },
 ] as const;
 
 export function CanvasToolRail() {
