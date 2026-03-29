@@ -49,7 +49,6 @@ const repositoryMock = {
   getPromptObservabilityForConversation: vi.fn(),
   clearActiveConversation: vi.fn(),
   deleteTurn: vi.fn(),
-  getGeneratedImageByCapability: vi.fn(),
   createTurn: vi.fn(),
   createGeneration: vi.fn(),
   createRun: vi.fn(),
@@ -65,22 +64,26 @@ let generatedAssetCounter = 0;
 
 const assetServiceMock = {
   close: vi.fn(),
-  resolveProviderAssetRefs: vi.fn(
+  resolveProviderInputAssets: vi.fn(
     async (
       _userId: string,
-      assetRefs: Array<{
+      inputAssets: Array<{
         assetId: string;
-        role: "reference" | "edit" | "variation";
-        referenceType?: "style" | "content" | "controlnet";
+        binding: "guide" | "source";
+        guideType?: "style" | "content" | "controlnet";
         weight?: number;
       }>
     ) =>
-      assetRefs.map((assetRef) => ({
-        assetId: assetRef.assetId,
-        role: assetRef.role,
-        referenceType: assetRef.referenceType ?? "content",
-        weight: assetRef.weight ?? 1,
-        signedUrl: `https://assets.example.com/${assetRef.assetId}.png`,
+      inputAssets.map((inputAsset) => ({
+        assetId: inputAsset.assetId,
+        binding: inputAsset.binding,
+        ...(inputAsset.binding === "guide"
+          ? {
+              guideType: inputAsset.guideType ?? "content",
+              weight: inputAsset.weight ?? 1,
+            }
+          : {}),
+        signedUrl: `https://assets.example.com/${inputAsset.assetId}.png`,
         mimeType: "image/png",
       }))
   ),
@@ -291,13 +294,13 @@ describe("imageGenerateRoute", () => {
         aspectRatio: "1:1",
         batchSize: 1,
         style: "none",
-        assetRefs: [
+        inputAssets: [
           {
             assetId: "asset-reference-1",
-            role: "reference",
+            binding: "guide",
+            guideType: "content",
           },
         ],
-        referenceImages: [],
         modelParams: {},
       },
     });
@@ -339,11 +342,9 @@ describe("imageGenerateRoute", () => {
         aspectRatio: "1:1",
         batchSize: 1,
         style: "none",
-        referenceImages: [],
         modelParams: {},
       },
     });
-
     expect(response.statusCode).toBe(200);
     expect(repositoryMock.createGeneration).toHaveBeenCalled();
     expect(repositoryMock.completeGenerationSuccess).toHaveBeenCalled();
@@ -388,7 +389,6 @@ describe("imageGenerateRoute", () => {
         aspectRatio: "1:1",
         batchSize: 1,
         style: "none",
-        referenceImages: [],
         modelParams: {},
       },
     });
@@ -405,7 +405,6 @@ describe("imageGenerateRoute", () => {
     expect(repositoryMock.completeGenerationSuccess).toHaveBeenCalledWith(
       expect.objectContaining({
         conversationId: "conversation-1",
-        generatedImages: [],
         assets: [
           expect.objectContaining({
             id: "asset-generated-1",
@@ -472,16 +471,13 @@ describe("imageGenerateRoute", () => {
         aspectRatio: "1:1",
         batchSize: 1,
         style: "none",
-        referenceImages: [
+        inputAssets: [
           {
-            id: "ref-1",
-            url: "data:image/png;base64,AAA",
-            fileName: "turn-result.png",
-            type: "content",
-            sourceAssetId: "thread-asset-1",
+            assetId: "thread-asset-1",
+            binding: "guide",
+            guideType: "content",
           },
         ],
-        assetRefs: [{ assetId: "thread-asset-1", role: "reference" }],
         modelParams: {
           promptExtend: true,
         },
@@ -557,8 +553,8 @@ describe("imageGenerateRoute", () => {
         aspectRatio: "1:1",
         batchSize: 1,
         style: "none",
-        referenceImages: [],
-        assetRefs: [{ assetId: "thread-asset-1", role: "edit" }],
+        operation: "edit",
+        inputAssets: [{ assetId: "thread-asset-1", binding: "source" }],
         modelParams: {
           promptExtend: true,
         },
@@ -747,7 +743,6 @@ describe("imageGenerateRoute", () => {
             aspectRatio: "1:1",
             batchSize: 1,
             style: "none",
-            referenceImages: [],
             modelParams: {},
           },
           status: "succeeded",
@@ -771,7 +766,6 @@ describe("imageGenerateRoute", () => {
             aspectRatio: "16:9",
             batchSize: 2,
             style: "none",
-            referenceImages: [],
             seed: 17,
             modelParams: {
               promptExtend: true,
@@ -814,7 +808,6 @@ describe("imageGenerateRoute", () => {
         aspectRatio: "1:1",
         batchSize: 1,
         style: "none",
-        referenceImages: [],
         modelParams: {},
         retryOfTurnId: "turn-1",
         retryMode: "exact",
@@ -1020,8 +1013,8 @@ describe("imageGenerateRoute", () => {
             aspectRatio: "1:1",
             batchSize: 1,
             style: "none",
-            referenceImages: [],
-            assetRefs: [{ assetId: "thread-asset-1", role: "edit" }],
+            operation: "edit",
+            inputAssets: [{ assetId: "thread-asset-1", binding: "source" }],
             modelParams: {
               promptExtend: true,
             },
@@ -1063,7 +1056,6 @@ describe("imageGenerateRoute", () => {
         aspectRatio: "16:9",
         batchSize: 4,
         style: "none",
-        referenceImages: [],
         modelParams: {},
         retryOfTurnId: "turn-1",
         retryMode: "exact",
@@ -1222,8 +1214,8 @@ describe("imageGenerateRoute", () => {
         batchSize: 1,
         style: "none",
         negativePrompt: "blurry text, watermark",
-        referenceImages: [],
-        assetRefs: [{ assetId: "thread-asset-1", role: "edit" }],
+        operation: "edit",
+        inputAssets: [{ assetId: "thread-asset-1", binding: "source" }],
         promptIntent: {
           preserve: [],
           avoid: [],
@@ -1415,7 +1407,6 @@ describe("imageGenerateRoute", () => {
         aspectRatio: "1:1",
         batchSize: 1,
         style: "none",
-        referenceImages: [],
         modelParams: {
           promptExtend: true,
         },
@@ -1488,7 +1479,6 @@ describe("imageGenerateRoute", () => {
         aspectRatio: "1:1",
         batchSize: 1,
         style: "none",
-        referenceImages: [],
         modelParams: {},
       },
     });
@@ -1531,7 +1521,6 @@ describe("imageGenerateRoute", () => {
         aspectRatio: "1:1",
         batchSize: 1,
         style: "none",
-        referenceImages: [],
         modelParams: {},
       },
     });
@@ -1563,7 +1552,6 @@ describe("imageGenerateRoute", () => {
         aspectRatio: "1:1",
         batchSize: 1,
         style: "none",
-        referenceImages: [],
         modelParams: {},
       },
     });

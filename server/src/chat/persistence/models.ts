@@ -161,7 +161,6 @@ export interface PersistedResultItem {
   id: string;
   imageUrl: string;
   imageId: string | null;
-  threadAssetId: string | null;
   runtimeProvider: string;
   providerModel: string;
   mimeType?: string;

@@ -17,7 +17,6 @@ import type {
   CreateChatTurnInput,
   UpdateConversationPromptStateInput,
 } from "./types";
-import { hashGeneratedImageToken } from "../../shared/generatedImageCapability";
 import { getConversationSnapshotQuery } from "./postgres/conversationQueries";
 import {
   acceptConversationTurnMutation,
@@ -447,34 +446,6 @@ export class PostgresChatStateRepository implements ChatStateRepository {
       getConversationSnapshot: (nextUserId, conversationId) =>
         this.getConversationSnapshot(nextUserId, conversationId),
     });
-  }
-
-  async getGeneratedImageByCapability(imageId: string, token: string) {
-    await this.ensureReady();
-    const result = await this.pool.query<{
-      blob_data: Buffer;
-      mime_type: string;
-    }>(
-      `
-        SELECT blob_data, mime_type
-        FROM generated_images
-        WHERE id = $1
-          AND private_token_hash = $2
-          AND deleted_at IS NULL
-        LIMIT 1;
-      `,
-      [imageId, hashGeneratedImageToken(token)]
-    );
-
-    const row = result.rows[0];
-    if (!row) {
-      return null;
-    }
-
-    return {
-      buffer: row.blob_data,
-      mimeType: row.mime_type,
-    };
   }
 
   async createGeneration(input: CreateChatGenerationInput) {

@@ -2,7 +2,6 @@ import {
   cloneConversationCreativeState,
   createInitialConversationCreativeState,
 } from "../../../gateway/prompt/types";
-import { resolveLegacyImageGenerationInputs } from "../../../../../shared/imageGeneration";
 import type {
   GenerationJobSnapshot,
   PersistedAssetEdgeRecord,
@@ -55,7 +54,7 @@ export interface ChatResultRow {
   turn_id: string;
   image_url: string;
   image_id: string | null;
-  thread_asset_id: string | null;
+  asset_id: string | null;
   runtime_provider: string;
   provider_model: string;
   mime_type: string | null;
@@ -288,80 +287,6 @@ const parseInputAssets = (
         }))
     : [];
 
-const parseLegacyAssetRefs = (
-  value: unknown
-): Array<{
-  assetId: string;
-  role: "reference" | "edit" | "variation";
-  referenceType?: "style" | "content" | "controlnet";
-  weight?: number;
-}> =>
-  Array.isArray(value)
-    ? value
-        .filter(
-          (
-            entry
-          ): entry is Array<{
-            assetId: string;
-            role: "reference" | "edit" | "variation";
-            referenceType?: "style" | "content" | "controlnet";
-            weight?: number;
-          }>[number] =>
-            isRecord(entry) &&
-            typeof entry.assetId === "string" &&
-            (entry.role === "reference" || entry.role === "edit" || entry.role === "variation")
-        )
-        .map((entry) => ({
-          assetId: entry.assetId,
-          role: entry.role,
-          ...(entry.referenceType === "style" ||
-          entry.referenceType === "content" ||
-          entry.referenceType === "controlnet"
-            ? { referenceType: entry.referenceType }
-            : {}),
-          ...(typeof entry.weight === "number" ? { weight: entry.weight } : {}),
-        }))
-    : [];
-
-const parseLegacyReferenceImages = (
-  value: unknown
-): Array<{
-  id?: string;
-  url?: string;
-  fileName?: string;
-  weight?: number;
-  type?: "style" | "content" | "controlnet";
-  sourceAssetId?: string;
-}> =>
-  Array.isArray(value)
-    ? value
-        .filter(
-          (
-            entry
-          ): entry is Array<{
-            id?: string;
-            url?: string;
-            fileName?: string;
-            weight?: number;
-            type?: "style" | "content" | "controlnet";
-            sourceAssetId?: string;
-          }>[number] =>
-            isRecord(entry)
-        )
-        .map((entry) => ({
-          ...(typeof entry.id === "string" ? { id: entry.id } : {}),
-          ...(typeof entry.url === "string" ? { url: entry.url } : {}),
-          ...(typeof entry.fileName === "string" ? { fileName: entry.fileName } : {}),
-          ...(typeof entry.weight === "number" ? { weight: entry.weight } : {}),
-          ...(entry.type === "style" || entry.type === "content" || entry.type === "controlnet"
-            ? { type: entry.type }
-            : {}),
-          ...(typeof entry.sourceAssetId === "string"
-            ? { sourceAssetId: entry.sourceAssetId }
-            : {}),
-        }))
-    : [];
-
 const parsePromptArtifactSemanticLosses = (
   value: unknown
 ): PersistedPromptArtifactRecord["semanticLosses"] =>
@@ -444,28 +369,19 @@ const parsePromptArtifactPromptIR = (
   }
 
   const output = isRecord(value.output) ? value.output : {};
-  const normalizedInputs = resolveLegacyImageGenerationInputs({
-    operation:
-      operation === "image.edit"
-        ? "edit"
-        : operation === "image.variation"
-          ? "variation"
-          : "generate",
-    inputAssets: [
-      ...parseInputAssets(value.inputAssets),
-      ...parseInputAssets(value.sourceAssets).filter((entry) => entry.binding === "source"),
-      ...parseInputAssets(value.referenceAssets).filter((entry) => entry.binding === "guide"),
-    ],
-    referenceImages: parseLegacyReferenceImages(value.referenceImages),
-    assetRefs: [
-      ...parseLegacyAssetRefs(value.sourceAssets),
-      ...parseLegacyAssetRefs(value.referenceAssets),
-      ...parseLegacyAssetRefs(value.assetRefs),
-    ],
-  });
-  const inputAssets = normalizedInputs.inputAssets;
-  const sourceAssets = inputAssets.filter((entry) => entry.binding === "source");
-  const referenceAssets = inputAssets.filter((entry) => entry.binding === "guide");
+  const sourceAssets = parseInputAssets(value.sourceAssets).filter(
+    (entry) => entry.binding === "source"
+  );
+  const referenceAssets = parseInputAssets(value.referenceAssets).filter(
+    (entry) => entry.binding === "guide"
+  );
+  const parsedInputAssets = parseInputAssets(value.inputAssets);
+  const inputAssets =
+    parsedInputAssets.length > 0
+      ? parsedInputAssets
+      : [...sourceAssets, ...referenceAssets];
+  const normalizedSourceAssets = inputAssets.filter((entry) => entry.binding === "source");
+  const normalizedReferenceAssets = inputAssets.filter((entry) => entry.binding === "guide");
 
   return {
     operation,
@@ -475,8 +391,8 @@ const parsePromptArtifactPromptIR = (
     styleDirectives: parseStringArray(value.styleDirectives),
     continuityTargets: parseContinuityTargets(value.continuityTargets),
     editOps: parsePromptEditOps(value.editOps),
-    sourceAssets,
-    referenceAssets,
+    sourceAssets: normalizedSourceAssets,
+    referenceAssets: normalizedReferenceAssets,
     inputAssets,
     output: {
       aspectRatio: typeof output.aspectRatio === "string" ? output.aspectRatio : "1:1",
@@ -573,14 +489,13 @@ export const mapResultRows = (rows: ChatResultRow[]) =>
       id: row.id,
       imageUrl: row.image_url,
       imageId: row.image_id,
-      threadAssetId: row.thread_asset_id,
       runtimeProvider: row.runtime_provider,
       providerModel: row.provider_model,
       mimeType: row.mime_type ?? undefined,
       revisedPrompt: row.revised_prompt,
       index: row.image_index,
-      assetId: null,
-      saved: false,
+      assetId: row.asset_id,
+      saved: row.asset_id !== null,
     });
     map.set(row.turn_id, current);
     return map;

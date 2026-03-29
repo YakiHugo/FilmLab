@@ -9,9 +9,6 @@ import type {
 import {
   IMAGE_ASPECT_RATIOS,
   IMAGE_STYLE_IDS,
-  LEGACY_INPUT_IMAGES_UNAVAILABLE_WARNING,
-  hasLegacyUnrestorableInputImages,
-  resolveLegacyImageGenerationInputs,
   type ImagePromptIntentInput,
 } from "../../../../shared/imageGeneration";
 import type {
@@ -120,23 +117,8 @@ const toModelParams = (value: unknown): ImageLabTurnRequestView["modelParams"] =
 };
 
 const toTurnRequestView = (snapshot: Record<string, unknown>): ImageLabTurnRequestView => ({
-  ...(() => {
-    const normalizedInputs = resolveLegacyImageGenerationInputs({
-      operation: toOperation(snapshot.operation),
-      inputAssets: toInputAssets(snapshot.inputAssets),
-      referenceImages: Array.isArray(snapshot.referenceImages)
-        ? (snapshot.referenceImages as Parameters<typeof resolveLegacyImageGenerationInputs>[0]["referenceImages"])
-        : undefined,
-      assetRefs: Array.isArray(snapshot.assetRefs)
-        ? (snapshot.assetRefs as Parameters<typeof resolveLegacyImageGenerationInputs>[0]["assetRefs"])
-        : undefined,
-    });
-
-    return {
-      operation: normalizedInputs.operation,
-      inputAssets: normalizedInputs.inputAssets.map((entry) => ({ ...entry })),
-    };
-  })(),
+  operation: toOperation(snapshot.operation),
+  inputAssets: (toInputAssets(snapshot.inputAssets) ?? []).map((entry) => ({ ...entry })),
   modelId:
     typeof snapshot.modelId === "string" && snapshot.modelId.trim().length > 0
       ? (snapshot.modelId as ImageLabTurnRequestView["modelId"])
@@ -206,16 +188,7 @@ export const projectConversationView = (
       retryOfTurnId: turn.retryOfTurnId,
       status: turn.status,
       error: turn.error,
-      warnings:
-        hasLegacyUnrestorableInputImages(
-          Array.isArray(turn.configSnapshot.referenceImages)
-            ? (turn.configSnapshot.referenceImages as Parameters<
-                typeof hasLegacyUnrestorableInputImages
-              >[0])
-            : undefined
-        )
-        ? [...turn.warnings, LEGACY_INPUT_IMAGES_UNAVAILABLE_WARNING]
-        : [...turn.warnings],
+      warnings: [...turn.warnings],
       request: toTurnRequestView(turn.configSnapshot),
       runtimeProvider: turn.runtimeProvider,
       providerModel: turn.providerModel,

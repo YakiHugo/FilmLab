@@ -58,9 +58,20 @@ describe("PostgresChatStateRepository#getPromptArtifactsForTurn", () => {
                 continuityTargets: ["subject"],
                 editOps: [{ op: "remove", target: "cup" }],
                 sourceAssets: [],
-                referenceAssets: [{ assetId: "thread-asset-1", role: "reference" }],
-                assetRefs: [{ assetId: "thread-asset-1", role: "reference" }],
-                referenceImages: [],
+                referenceAssets: [
+                  {
+                    assetId: "thread-asset-1",
+                    binding: "guide",
+                    guideType: "content",
+                  },
+                ],
+                inputAssets: [
+                  {
+                    assetId: "thread-asset-1",
+                    binding: "guide",
+                    guideType: "content",
+                  },
+                ],
                 output: {
                   aspectRatio: "1:1",
                   width: 1024,

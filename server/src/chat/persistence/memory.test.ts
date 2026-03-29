@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { MemoryChatStateRepository } from "./memory";
-import { hashGeneratedImageToken } from "../../shared/generatedImageCapability";
 
 const createGenerationInput = (overrides?: {
   conversationId?: string;
@@ -158,20 +157,6 @@ describe("MemoryChatStateRepository", () => {
       providerRequestId: "req-1",
       warnings: ["provider warning"],
       completedAt: "2026-03-12T00:00:05.000Z",
-      generatedImages: [
-        {
-          id: "result-1",
-          ownerUserId: "user-1",
-          conversationId: conversation.id,
-          turnId: "turn-1",
-          mimeType: "image/png",
-          sizeBytes: 3,
-          blobData: Buffer.from([1, 2, 3]),
-          visibility: "private",
-          privateTokenHash: hashGeneratedImageToken("secret-token"),
-          createdAt: "2026-03-12T00:00:05.000Z",
-        },
-      ],
       assets: [
         {
           id: "thread-asset-1",
@@ -215,16 +200,15 @@ describe("MemoryChatStateRepository", () => {
       results: [
         {
           id: "result-1",
-          imageUrl: "/api/generated-images/result-1?token=secret-token",
-          imageId: "result-1",
-          threadAssetId: "thread-asset-1",
+          imageUrl: "/api/assets/thread-asset-1/original?token=secret-token",
+          imageId: null,
           runtimeProvider: "ark",
           providerModel: "doubao-seedream-5-0-260128",
           mimeType: "image/png",
           revisedPrompt: null,
           index: 0,
-          assetId: null,
-          saved: false,
+          assetId: "thread-asset-1",
+          saved: true,
         },
       ],
     });
@@ -268,7 +252,9 @@ describe("MemoryChatStateRepository", () => {
       results: [
         expect.objectContaining({
           id: "result-1",
-          imageId: "result-1",
+          imageId: null,
+          assetId: "thread-asset-1",
+          saved: true,
         }),
       ],
     });
@@ -299,20 +285,6 @@ describe("MemoryChatStateRepository", () => {
       providerModel: "doubao-seedream-5-0-260128",
       warnings: [],
       completedAt: "2026-03-12T00:00:05.000Z",
-      generatedImages: [
-        {
-          id: "result-1",
-          ownerUserId: "user-1",
-          conversationId: conversation.id,
-          turnId: "turn-1",
-          mimeType: "image/png",
-          sizeBytes: 3,
-          blobData: Buffer.from([1, 2, 3]),
-          visibility: "private",
-          privateTokenHash: hashGeneratedImageToken("secret-token"),
-          createdAt: "2026-03-12T00:00:05.000Z",
-        },
-      ],
       assets: [
         {
           id: "thread-asset-1",
@@ -356,16 +328,15 @@ describe("MemoryChatStateRepository", () => {
       results: [
         {
           id: "result-1",
-          imageUrl: "/api/generated-images/result-1?token=secret-token",
-          imageId: "result-1",
-          threadAssetId: "thread-asset-1",
+          imageUrl: "/api/assets/thread-asset-1/original?token=secret-token",
+          imageId: null,
           runtimeProvider: "ark",
           providerModel: "doubao-seedream-5-0-260128",
           mimeType: "image/png",
           revisedPrompt: null,
           index: 0,
-          assetId: null,
-          saved: false,
+          assetId: "thread-asset-1",
+          saved: true,
         },
       ],
     });
@@ -777,99 +748,6 @@ describe("MemoryChatStateRepository", () => {
         executedTargetKey: null,
       },
     ]);
-  });
-
-  it("revokes generated image capabilities when a turn is deleted", async () => {
-    const repository = new MemoryChatStateRepository();
-    const conversation = await repository.getOrCreateActiveConversation("user-1");
-
-    await repository.createGeneration(
-      createGenerationInput({
-        conversationId: conversation.id,
-        runId: "run-1",
-      })
-    );
-    await repository.completeGenerationSuccess({
-      conversationId: conversation.id,
-      turnId: "turn-1",
-      jobId: "job-1",
-      runId: "run-1",
-      attemptId: "attempt-1",
-      logicalModel: "image.seedream.v5",
-      deploymentId: "ark-seedream-v5-primary",
-      runtimeProvider: "ark",
-      providerModel: "doubao-seedream-5-0-260128",
-      warnings: [],
-      completedAt: "2026-03-12T00:00:05.000Z",
-      generatedImages: [
-        {
-          id: "result-1",
-          ownerUserId: "user-1",
-          conversationId: conversation.id,
-          turnId: "turn-1",
-          mimeType: "image/png",
-          sizeBytes: 3,
-          blobData: Buffer.from([1, 2, 3]),
-          visibility: "private",
-          privateTokenHash: hashGeneratedImageToken("secret-token"),
-          createdAt: "2026-03-12T00:00:05.000Z",
-        },
-      ],
-      assets: [],
-      assetEdges: [],
-      run: {
-        status: "completed",
-        prompt: {
-          originalPrompt: "Studio portrait",
-          compiledPrompt: "Studio portrait",
-          dispatchedPrompt: "Studio portrait",
-          providerEffectivePrompt: "Studio portrait",
-          semanticLosses: [],
-          warnings: [],
-        },
-        assetIds: [],
-        referencedAssetIds: [],
-        telemetry: {
-          traceId: "trace-run-1",
-          providerRequestId: null,
-          providerTaskId: null,
-          latencyMs: 5000,
-        },
-        executedTarget: {
-          modelId: "seedream-v5",
-          logicalModel: "image.seedream.v5",
-          deploymentId: "ark-seedream-v5-primary",
-          runtimeProvider: "ark",
-          providerModel: "doubao-seedream-5-0-260128",
-          pinned: false,
-        },
-      },
-      results: [
-        {
-          id: "result-1",
-          imageUrl: "/api/generated-images/result-1?token=secret-token",
-          imageId: "result-1",
-          threadAssetId: null,
-          runtimeProvider: "ark",
-          providerModel: "doubao-seedream-5-0-260128",
-          mimeType: "image/png",
-          revisedPrompt: null,
-          index: 0,
-          assetId: null,
-          saved: false,
-        },
-      ],
-    });
-
-    expect(await repository.getGeneratedImageByCapability("result-1", "wrong-token")).toBeNull();
-    expect(await repository.getGeneratedImageByCapability("result-1", "secret-token")).toEqual({
-      buffer: Buffer.from([1, 2, 3]),
-      mimeType: "image/png",
-    });
-
-    await repository.deleteTurn("user-1", "turn-1");
-
-    expect(await repository.getGeneratedImageByCapability("result-1", "secret-token")).toBeNull();
   });
 
   it("clears the active conversation and creates a fresh one", async () => {

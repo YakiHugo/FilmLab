@@ -110,7 +110,7 @@ export const getConversationSnapshotQuery = async (input: {
           turn_id,
           image_url,
           image_id,
-          thread_asset_id,
+          thread_asset_id AS asset_id,
           runtime_provider,
           provider_model,
           mime_type,
