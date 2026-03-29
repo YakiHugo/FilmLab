@@ -1,4 +1,5 @@
 import type { PersistedAssetEdgeType } from "../chat/persistence/models";
+import type { ImageInputAssetBinding } from "../../../shared/imageGeneration";
 
 export type AssetSource = "imported" | "ai-generated";
 export type AssetFileKind = "original" | "thumbnail";
@@ -127,14 +128,12 @@ export interface AssetEdgeInsert {
   createdAt: string;
 }
 
-export interface ResolvedProviderAssetRef {
-  assetId: string;
-  role: "reference" | "edit" | "variation";
-  referenceType: "style" | "content" | "controlnet";
-  weight: number;
+export interface ResolvedProviderInputAsset extends ImageInputAssetBinding {
   signedUrl: string;
   mimeType: string;
 }
+
+export type ResolvedProviderAssetRef = ResolvedProviderInputAsset;
 
 export interface AssetStorageObject {
   buffer: Buffer;

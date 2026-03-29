@@ -151,8 +151,8 @@ const LayerRow = memo(function LayerRow({
 export function CanvasLayerPanel() {
   const {
     assetById,
-    displaySelectedElementIdSet,
-    displaySelectedElementIds,
+    selectedElementIdSet,
+    selectedElementIds,
     handleDelete,
     handleDragStart,
     handleDrop,
@@ -186,12 +186,12 @@ export function CanvasLayerPanel() {
           <span className={canvasDockBadgeClassName}>
             {layers.length} layer{layers.length === 1 ? "" : "s"}
           </span>
-          {displaySelectedElementIds.length > 0 ? (
+          {selectedElementIds.length > 0 ? (
             <span className={canvasDockBadgeClassName}>
-              {displaySelectedElementIds.length} selected
+              {selectedElementIds.length} selected
             </span>
           ) : null}
-          {displaySelectedElementIds.length > 1 ? (
+          {selectedElementIds.length > 1 ? (
             <button type="button" className={canvasDockActionChipClassName} onClick={handleGroup}>
               Group
             </button>
@@ -221,7 +221,7 @@ export function CanvasLayerPanel() {
               onSelect={handleSelect}
               onToggleLock={handleToggleLock}
               onToggleVisibility={handleToggleVisibility}
-              selected={displaySelectedElementIdSet.has(layer.id)}
+              selected={selectedElementIdSet.has(layer.id)}
             />
           ))}
 

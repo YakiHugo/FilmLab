@@ -9,8 +9,9 @@ import type {
 import {
   IMAGE_ASPECT_RATIOS,
   IMAGE_STYLE_IDS,
-  REFERENCE_IMAGE_TYPES,
-  type ReferenceImageType,
+  LEGACY_INPUT_IMAGES_UNAVAILABLE_WARNING,
+  hasLegacyUnrestorableInputImages,
+  resolveLegacyImageGenerationInputs,
   type ImagePromptIntentInput,
 } from "../../../../shared/imageGeneration";
 import type {
@@ -68,59 +69,34 @@ const toPromptIntent = (value: unknown): ImagePromptIntentInput => {
   };
 };
 
-const isReferenceImageType = (value: unknown): value is ReferenceImageType =>
-  typeof value === "string" && (REFERENCE_IMAGE_TYPES as readonly string[]).includes(value);
+const toOperation = (value: unknown): ImageLabTurnRequestView["operation"] =>
+  value === "edit" || value === "variation" ? value : "generate";
 
-const toReferenceImages = (value: unknown): ImageLabTurnRequestView["referenceImages"] =>
+const toInputAssets = (value: unknown): ImageLabTurnRequestView["inputAssets"] | undefined =>
   Array.isArray(value)
-    ? value.reduce<ImageLabTurnRequestView["referenceImages"]>((next, entry, index) => {
-        if (!isRecord(entry)) {
+    ? value.reduce<ImageLabTurnRequestView["inputAssets"]>((next, entry) => {
+        if (
+          !isRecord(entry) ||
+          typeof entry.assetId !== "string" ||
+          (entry.binding !== "guide" && entry.binding !== "source")
+        ) {
           return next;
         }
 
-        const type = isReferenceImageType(entry.type) ? entry.type : "content";
-
-        next.push({
-          id:
-            typeof entry.id === "string" && entry.id.trim().length > 0
-              ? entry.id
-              : `persisted-ref-${index}`,
-          ...(typeof entry.url === "string" && entry.url.trim().length > 0
-            ? { url: entry.url }
-            : {}),
-          ...(typeof entry.fileName === "string" ? { fileName: entry.fileName } : {}),
-          type,
-          ...(typeof entry.weight === "number" ? { weight: entry.weight } : {}),
-          ...(typeof entry.sourceAssetId === "string"
-            ? { sourceAssetId: entry.sourceAssetId }
-            : {}),
-        });
-        return next;
-      }, [])
-    : [];
-
-const toAssetRefs = (value: unknown): ImageLabTurnRequestView["assetRefs"] =>
-  Array.isArray(value)
-    ? value.reduce<ImageLabTurnRequestView["assetRefs"]>((next, entry) => {
-        if (!isRecord(entry) || typeof entry.assetId !== "string") {
-          return next;
-        }
-
-        const role =
-          entry.role === "edit" || entry.role === "variation" ? entry.role : "reference";
-        const referenceType =
-          role === "reference" && isReferenceImageType(entry.referenceType)
-            ? entry.referenceType
-            : undefined;
         next.push({
           assetId: entry.assetId,
-          role,
-          ...(referenceType ? { referenceType } : {}),
+          binding: entry.binding,
+          ...(entry.binding === "guide" &&
+          (entry.guideType === "style" ||
+            entry.guideType === "content" ||
+            entry.guideType === "controlnet")
+            ? { guideType: entry.guideType }
+            : {}),
           ...(typeof entry.weight === "number" ? { weight: entry.weight } : {}),
         });
         return next;
       }, [])
-    : [];
+    : undefined;
 
 const toModelParams = (value: unknown): ImageLabTurnRequestView["modelParams"] => {
   if (!isRecord(value)) {
@@ -144,6 +120,23 @@ const toModelParams = (value: unknown): ImageLabTurnRequestView["modelParams"] =
 };
 
 const toTurnRequestView = (snapshot: Record<string, unknown>): ImageLabTurnRequestView => ({
+  ...(() => {
+    const normalizedInputs = resolveLegacyImageGenerationInputs({
+      operation: toOperation(snapshot.operation),
+      inputAssets: toInputAssets(snapshot.inputAssets),
+      referenceImages: Array.isArray(snapshot.referenceImages)
+        ? (snapshot.referenceImages as Parameters<typeof resolveLegacyImageGenerationInputs>[0]["referenceImages"])
+        : undefined,
+      assetRefs: Array.isArray(snapshot.assetRefs)
+        ? (snapshot.assetRefs as Parameters<typeof resolveLegacyImageGenerationInputs>[0]["assetRefs"])
+        : undefined,
+    });
+
+    return {
+      operation: normalizedInputs.operation,
+      inputAssets: normalizedInputs.inputAssets.map((entry) => ({ ...entry })),
+    };
+  })(),
   modelId:
     typeof snapshot.modelId === "string" && snapshot.modelId.trim().length > 0
       ? (snapshot.modelId as ImageLabTurnRequestView["modelId"])
@@ -162,8 +155,6 @@ const toTurnRequestView = (snapshot: Record<string, unknown>): ImageLabTurnReque
   stylePreset: typeof snapshot.stylePreset === "string" ? snapshot.stylePreset : "",
   negativePrompt: typeof snapshot.negativePrompt === "string" ? snapshot.negativePrompt : "",
   promptIntent: toPromptIntent(snapshot.promptIntent),
-  referenceImages: toReferenceImages(snapshot.referenceImages),
-  assetRefs: toAssetRefs(snapshot.assetRefs),
   seed: typeof snapshot.seed === "number" ? snapshot.seed : null,
   guidanceScale: typeof snapshot.guidanceScale === "number" ? snapshot.guidanceScale : null,
   steps: typeof snapshot.steps === "number" ? snapshot.steps : null,
@@ -215,7 +206,16 @@ export const projectConversationView = (
       retryOfTurnId: turn.retryOfTurnId,
       status: turn.status,
       error: turn.error,
-      warnings: [...turn.warnings],
+      warnings:
+        hasLegacyUnrestorableInputImages(
+          Array.isArray(turn.configSnapshot.referenceImages)
+            ? (turn.configSnapshot.referenceImages as Parameters<
+                typeof hasLegacyUnrestorableInputImages
+              >[0])
+            : undefined
+        )
+        ? [...turn.warnings, LEGACY_INPUT_IMAGES_UNAVAILABLE_WARNING]
+        : [...turn.warnings],
       request: toTurnRequestView(turn.configSnapshot),
       runtimeProvider: turn.runtimeProvider,
       providerModel: turn.providerModel,
@@ -284,8 +284,7 @@ export const projectPromptArtifactsView = (
             editOps: version.promptIR.editOps.map((entry) => ({ ...entry })),
             sourceAssets: version.promptIR.sourceAssets.map((entry) => ({ ...entry })),
             referenceAssets: version.promptIR.referenceAssets.map((entry) => ({ ...entry })),
-            assetRefs: version.promptIR.assetRefs.map((entry) => ({ ...entry })),
-            referenceImages: version.promptIR.referenceImages.map((entry) => ({ ...entry })),
+            inputAssets: version.promptIR.inputAssets.map((entry) => ({ ...entry })),
             output: { ...version.promptIR.output },
           }
         : null,

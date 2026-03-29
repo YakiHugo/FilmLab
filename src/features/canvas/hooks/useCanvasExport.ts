@@ -3,7 +3,7 @@ import { useCallback } from "react";
 import type { CanvasSlice } from "@/types";
 import { useAssetStore } from "@/stores/assetStore";
 import { cropRenderedCanvasSlice, renderCanvasWorkbenchToCanvas } from "../renderCanvasWorkbench";
-import { useCanvasActiveWorkbenchState } from "./useCanvasActiveWorkbenchState";
+import { useCanvasLoadedWorkbenchState } from "./useCanvasLoadedWorkbenchState";
 
 export type CanvasExportFormat = "png" | "jpeg";
 
@@ -96,7 +96,7 @@ export const exportStageDataUrl = (
 
 export function useCanvasExport() {
   const assets = useAssetStore((state) => state.assets);
-  const { activeWorkbench } = useCanvasActiveWorkbenchState();
+  const { loadedWorkbench } = useCanvasLoadedWorkbenchState();
 
   const exportDataUrl = useCallback(
     (
@@ -120,17 +120,17 @@ export function useCanvasExport() {
       options?: Partial<CanvasExportOptions> & { fileName?: string }
     ) => {
       const merged = {
-        ...(stage ? defaultExportOptions(stage) : defaultExportOptionsFromDocument(activeWorkbench)),
+        ...(stage ? defaultExportOptions(stage) : defaultExportOptionsFromDocument(loadedWorkbench)),
         ...options,
       };
       let dataUrl: string | null = null;
-      if (activeWorkbench) {
+      if (loadedWorkbench) {
         const exportCanvas = document.createElement("canvas");
         try {
           await renderCanvasWorkbenchToCanvas({
             assets,
             canvas: exportCanvas,
-            document: activeWorkbench,
+            document: loadedWorkbench,
             height: merged.height,
             pixelRatio: merged.pixelRatio,
             width: merged.width,
@@ -156,7 +156,7 @@ export function useCanvasExport() {
       link.click();
       return dataUrl;
     },
-    [activeWorkbench, assets, exportDataUrl]
+    [assets, exportDataUrl, loadedWorkbench]
   );
 
   const exportSlices = useCallback(
@@ -165,12 +165,12 @@ export function useCanvasExport() {
       slices: CanvasSlice[],
       options?: Partial<CanvasExportOptions> & { filePrefix?: string }
     ): Promise<CanvasSliceExportResult[]> => {
-      if (slices.length === 0 || !activeWorkbench) {
+      if (slices.length === 0 || !loadedWorkbench) {
         return [];
       }
 
       const merged = {
-        ...(stage ? defaultExportOptions(stage) : defaultExportOptionsFromDocument(activeWorkbench)),
+        ...(stage ? defaultExportOptions(stage) : defaultExportOptionsFromDocument(loadedWorkbench)),
         ...options,
       };
       const extension = merged.format === "jpeg" ? "jpg" : "png";
@@ -180,10 +180,10 @@ export function useCanvasExport() {
         await renderCanvasWorkbenchToCanvas({
           assets,
           canvas: fullCanvas,
-          document: activeWorkbench,
-          height: activeWorkbench.height,
+          document: loadedWorkbench,
+          height: loadedWorkbench.height,
           pixelRatio: merged.pixelRatio,
-          width: activeWorkbench.width,
+          width: loadedWorkbench.width,
         });
 
         return slices
@@ -192,7 +192,7 @@ export function useCanvasExport() {
           .map((slice) => {
             const sliceCanvas = cropRenderedCanvasSlice({
               canvas: fullCanvas,
-              document: activeWorkbench,
+              document: loadedWorkbench,
               pixelRatio: merged.pixelRatio,
               slice,
             });
@@ -219,7 +219,7 @@ export function useCanvasExport() {
         fullCanvas.height = 0;
       }
     },
-    [activeWorkbench, assets]
+    [assets, loadedWorkbench]
   );
 
   const downloadSlices = useCallback(

@@ -66,7 +66,17 @@ export const mergeSelectionIds = (
   baseSelectedIds: string[],
   intersectingIds: string[],
   additive: boolean
-) => (additive ? Array.from(new Set([...baseSelectedIds, ...intersectingIds])) : intersectingIds);
+) => {
+  if (!additive) {
+    return intersectingIds;
+  }
+
+  const baseSelectedIdSet = new Set(baseSelectedIds);
+  return [
+    ...intersectingIds.filter((intersectingId) => !baseSelectedIdSet.has(intersectingId)),
+    ...baseSelectedIds,
+  ];
+};
 
 export const resolveMarqueeSelectionIds = (
   selectionRect: CanvasOverlayRect,

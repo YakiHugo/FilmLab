@@ -1,0 +1,49 @@
+{
+  "baseline": "media-native-render-pipeline",
+  "current": "in_progress",
+  "nextTaskId": "semantic-overlay-layer-system",
+  "tasks": [
+    {
+      "id": "formalize-stage-vocabulary",
+      "status": "done",
+      "passes": [
+        "single-image stage names are responsibility-based and existing render behavior remains parity-clean"
+      ]
+    },
+    {
+      "id": "semantic-overlay-layer-system",
+      "status": "pending",
+      "passes": [
+        "caption/HUD/browser-chrome style overlays have an authored model and preview/export parity"
+      ]
+    },
+    {
+      "id": "carrier-and-signal-families",
+      "status": "pending",
+      "passes": [
+        "carrier transforms and signal damage are first-class authored families rather than generic effect placement only"
+      ]
+    },
+    {
+      "id": "analysis-layer-boundary",
+      "status": "pending",
+      "passes": [
+        "analysis-driven overlays/effects use explicit analysis inputs with bounded validation"
+      ]
+    },
+    {
+      "id": "motion-live-render-contract",
+      "status": "pending",
+      "passes": [
+        "a time-parameterized render contract exists for short-loop/live output and one preset is validated end-to-end"
+      ]
+    },
+    {
+      "id": "preview-export-quality-split",
+      "status": "pending",
+      "passes": [
+        "interactive preview, quality preview, and export render are explicitly modeled without a second authored-state source of truth"
+      ]
+    }
+  ]
+}

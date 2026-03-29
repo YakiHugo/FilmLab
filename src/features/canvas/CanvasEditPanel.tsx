@@ -1,0 +1,46 @@
+import { useCallback } from "react";
+import { useCanvasStore } from "@/stores/canvasStore";
+import {
+  canvasEditTargetEqual,
+  resolveCanvasEditTargetFromPrimarySelection,
+} from "./editPanelSelection";
+import { selectLoadedWorkbench } from "./store/canvasStoreSelectors";
+import { CanvasImageEditPanel } from "./CanvasImageEditPanel";
+import { CanvasShapeEditPanel } from "./CanvasShapeEditPanel";
+import { canvasDockBodyTextClassName } from "./editDockTheme";
+
+function useCanvasEditTarget() {
+  const primarySelectedElementId = useCanvasStore((state) => state.selectedElementIds[0] ?? null);
+  const selectEditTarget = useCallback(
+    (state: Parameters<typeof selectLoadedWorkbench>[0]) =>
+      resolveCanvasEditTargetFromPrimarySelection(
+        selectLoadedWorkbench(state),
+        primarySelectedElementId
+      ),
+    [primarySelectedElementId]
+  );
+
+  return useCanvasStore(selectEditTarget, canvasEditTargetEqual);
+}
+
+export function CanvasEditPanel() {
+  const editTarget = useCanvasEditTarget();
+
+  if (editTarget?.type === "image") {
+    return <CanvasImageEditPanel imageElement={editTarget} />;
+  }
+
+  if (editTarget?.type === "shape") {
+    return <CanvasShapeEditPanel shape={editTarget} />;
+  }
+
+  return (
+    <section className="flex min-h-0 flex-1 flex-col overflow-y-auto pr-1">
+      <div className="py-5">
+        <p className={canvasDockBodyTextClassName}>
+          在画布上选择图片或形状后，即可开始编辑。
+        </p>
+      </div>
+    </section>
+  );
+}

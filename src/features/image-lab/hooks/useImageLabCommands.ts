@@ -11,7 +11,6 @@ import type { ImageModelCatalog, ImageModelCatalogEntry } from "@/lib/ai/imageMo
 import { createId } from "@/utils";
 import type { GenerationConfig } from "@/stores/generationConfigStore";
 import {
-  omitUnavailableReferenceImages,
   toImageGenerationRequest,
   type ImageGenerationTurn,
   type PendingConversationTurn,
@@ -76,7 +75,13 @@ export function useImageLabCommands(input: {
       if (!trimmedPrompt) {
         return null;
       }
-      if (!input.catalog || !input.modelConfig) {
+      if (!input.catalog) {
+        return null;
+      }
+      const pendingModel =
+        input.catalog.models.find((model) => model.id === configSnapshot.modelId) ??
+        input.modelConfig;
+      if (!pendingModel) {
         return null;
       }
 
@@ -105,8 +110,8 @@ export function useImageLabCommands(input: {
         prompt: trimmedPrompt,
         request: configSnapshot,
         createdAt: new Date().toISOString(),
-        runtimeProvider: input.modelConfig.defaultProvider,
-        providerModel: input.modelConfig.providerModel,
+        runtimeProvider: pendingModel.defaultProvider,
+        providerModel: pendingModel.providerModel,
       });
 
       try {
@@ -197,14 +202,8 @@ export function useImageLabCommands(input: {
         return null;
       }
 
-      const retryConfig = omitUnavailableReferenceImages(uiTurn.configSnapshot);
-      if (retryConfig.warnings.length > 0) {
-        input.setNotice(retryConfig.warnings[0] ?? null);
-      }
-
-      return runGeneration(uiTurn.prompt, retryConfig.config, {
+      return runGeneration(uiTurn.prompt, uiTurn.configSnapshot, {
         retryOfTurnId: turnId,
-        localWarnings: retryConfig.warnings,
       });
     },
     [input, runGeneration]

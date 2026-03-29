@@ -15,9 +15,11 @@ import type {
 } from "../../../shared/imageGenerationSchema";
 import {
   resolveImagePromptCompilerOperation,
+  validateImageInputAssets,
   type ImageAspectRatio,
   type ReferenceImageType,
 } from "../../../shared/imageGeneration";
+import { countModelExecutableInputAssets } from "./imageInputAssetExecution";
 
 const appendIssue = (
   ctx: z.RefinementCtx,
@@ -39,7 +41,7 @@ export const validateImageGenerationRequestAgainstModel = (
   const capability = frontendModel.constraints;
   const label = frontendModel.label;
   const unsupportedFields = new Set(capability.unsupportedFields);
-  const operation = resolveImagePromptCompilerOperation(payload.assetRefs);
+  const operation = resolveImagePromptCompilerOperation(payload.operation);
 
   if (!capability.supportedAspectRatios.includes(payload.aspectRatio)) {
     appendIssue(
@@ -115,25 +117,40 @@ export const validateImageGenerationRequestAgainstModel = (
     }
   }
 
-  const referenceAssetRefs = payload.assetRefs.filter((assetRef) => assetRef.role === "reference");
+  for (const issue of validateImageInputAssets({
+    operation: payload.operation,
+    inputAssets: payload.inputAssets,
+  })) {
+    appendIssue(ctx, issue.path, issue.message);
+  }
+
   if (capability.referenceImages.enabled) {
-    if (referenceAssetRefs.length > capability.referenceImages.maxImages) {
+    const executableInputAssetCount = countModelExecutableInputAssets({
+      inputAssets: payload.inputAssets,
+      operation: payload.operation,
+      promptCompiler: frontendModel.promptCompiler,
+    });
+    if (executableInputAssetCount > capability.referenceImages.maxImages) {
       appendIssue(
         ctx,
-        ["assetRefs"],
-        `${label} supports at most ${capability.referenceImages.maxImages} reference images.`
+        ["inputAssets"],
+        `${label} supports at most ${capability.referenceImages.maxImages} executable input images.`
       );
     }
 
-    referenceAssetRefs.forEach((referenceImage, index) => {
+    payload.inputAssets.forEach((referenceImage, index) => {
+      if (referenceImage.binding !== "guide") {
+        return;
+      }
+
       if (
-        referenceImage.referenceType &&
-        !capability.referenceImages.supportedTypes.includes(referenceImage.referenceType)
+        referenceImage.guideType &&
+        !capability.referenceImages.supportedTypes.includes(referenceImage.guideType)
       ) {
         appendIssue(
           ctx,
-          ["assetRefs", index, "referenceType"],
-          `${label} does not support reference image type ${referenceImage.referenceType}.`
+          ["inputAssets", index, "guideType"],
+          `${label} does not support reference image type ${referenceImage.guideType}.`
         );
       }
 
@@ -144,17 +161,11 @@ export const validateImageGenerationRequestAgainstModel = (
       ) {
         appendIssue(
           ctx,
-          ["assetRefs", index, "weight"],
+          ["inputAssets", index, "weight"],
           `${label} does not support reference image weights.`
         );
       }
     });
-  } else if (referenceAssetRefs.length > 0) {
-    appendIssue(
-      ctx,
-      ["assetRefs"],
-      `${label} does not support reference images.`
-    );
   }
 
   if (payload.batchSize > capability.maxBatchSize) {
@@ -166,7 +177,7 @@ export const validateImageGenerationRequestAgainstModel = (
   }
 
   if (!frontendModel.promptCompiler.acceptedOperations.includes(operation)) {
-    appendIssue(ctx, ["assetRefs"], `${label} does not accept ${operation} requests.`);
+    appendIssue(ctx, ["operation"], `${label} does not accept ${operation} requests.`);
   }
 };
 

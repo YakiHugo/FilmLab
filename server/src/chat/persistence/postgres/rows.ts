@@ -2,6 +2,7 @@ import {
   cloneConversationCreativeState,
   createInitialConversationCreativeState,
 } from "../../../gateway/prompt/types";
+import { resolveLegacyImageGenerationInputs } from "../../../../../shared/imageGeneration";
 import type {
   GenerationJobSnapshot,
   PersistedAssetEdgeRecord,
@@ -261,15 +262,51 @@ const parsePromptIntent = (value: unknown): PersistedPromptArtifactRecord["promp
   };
 };
 
-const parseAssetRefs = (
+const parseInputAssets = (
   value: unknown
-): NonNullable<PersistedPromptArtifactRecord["promptIR"]>["assetRefs"] =>
+): NonNullable<PersistedPromptArtifactRecord["promptIR"]>["inputAssets"] =>
   Array.isArray(value)
     ? value
         .filter(
           (
             entry
-          ): entry is NonNullable<PersistedPromptArtifactRecord["promptIR"]>["assetRefs"][number] =>
+          ): entry is NonNullable<PersistedPromptArtifactRecord["promptIR"]>["inputAssets"][number] =>
+            isRecord(entry) &&
+            typeof entry.assetId === "string" &&
+            (entry.binding === "guide" || entry.binding === "source")
+        )
+        .map((entry) => ({
+          assetId: entry.assetId,
+          binding: entry.binding,
+          ...(entry.binding === "guide" &&
+          (entry.guideType === "style" ||
+            entry.guideType === "content" ||
+            entry.guideType === "controlnet")
+            ? { guideType: entry.guideType }
+            : {}),
+          ...(typeof entry.weight === "number" ? { weight: entry.weight } : {}),
+        }))
+    : [];
+
+const parseLegacyAssetRefs = (
+  value: unknown
+): Array<{
+  assetId: string;
+  role: "reference" | "edit" | "variation";
+  referenceType?: "style" | "content" | "controlnet";
+  weight?: number;
+}> =>
+  Array.isArray(value)
+    ? value
+        .filter(
+          (
+            entry
+          ): entry is Array<{
+            assetId: string;
+            role: "reference" | "edit" | "variation";
+            referenceType?: "style" | "content" | "controlnet";
+            weight?: number;
+          }>[number] =>
             isRecord(entry) &&
             typeof entry.assetId === "string" &&
             (entry.role === "reference" || entry.role === "edit" || entry.role === "variation")
@@ -277,6 +314,51 @@ const parseAssetRefs = (
         .map((entry) => ({
           assetId: entry.assetId,
           role: entry.role,
+          ...(entry.referenceType === "style" ||
+          entry.referenceType === "content" ||
+          entry.referenceType === "controlnet"
+            ? { referenceType: entry.referenceType }
+            : {}),
+          ...(typeof entry.weight === "number" ? { weight: entry.weight } : {}),
+        }))
+    : [];
+
+const parseLegacyReferenceImages = (
+  value: unknown
+): Array<{
+  id?: string;
+  url?: string;
+  fileName?: string;
+  weight?: number;
+  type?: "style" | "content" | "controlnet";
+  sourceAssetId?: string;
+}> =>
+  Array.isArray(value)
+    ? value
+        .filter(
+          (
+            entry
+          ): entry is Array<{
+            id?: string;
+            url?: string;
+            fileName?: string;
+            weight?: number;
+            type?: "style" | "content" | "controlnet";
+            sourceAssetId?: string;
+          }>[number] =>
+            isRecord(entry)
+        )
+        .map((entry) => ({
+          ...(typeof entry.id === "string" ? { id: entry.id } : {}),
+          ...(typeof entry.url === "string" ? { url: entry.url } : {}),
+          ...(typeof entry.fileName === "string" ? { fileName: entry.fileName } : {}),
+          ...(typeof entry.weight === "number" ? { weight: entry.weight } : {}),
+          ...(entry.type === "style" || entry.type === "content" || entry.type === "controlnet"
+            ? { type: entry.type }
+            : {}),
+          ...(typeof entry.sourceAssetId === "string"
+            ? { sourceAssetId: entry.sourceAssetId }
+            : {}),
         }))
     : [];
 
@@ -362,6 +444,28 @@ const parsePromptArtifactPromptIR = (
   }
 
   const output = isRecord(value.output) ? value.output : {};
+  const normalizedInputs = resolveLegacyImageGenerationInputs({
+    operation:
+      operation === "image.edit"
+        ? "edit"
+        : operation === "image.variation"
+          ? "variation"
+          : "generate",
+    inputAssets: [
+      ...parseInputAssets(value.inputAssets),
+      ...parseInputAssets(value.sourceAssets).filter((entry) => entry.binding === "source"),
+      ...parseInputAssets(value.referenceAssets).filter((entry) => entry.binding === "guide"),
+    ],
+    referenceImages: parseLegacyReferenceImages(value.referenceImages),
+    assetRefs: [
+      ...parseLegacyAssetRefs(value.sourceAssets),
+      ...parseLegacyAssetRefs(value.referenceAssets),
+      ...parseLegacyAssetRefs(value.assetRefs),
+    ],
+  });
+  const inputAssets = normalizedInputs.inputAssets;
+  const sourceAssets = inputAssets.filter((entry) => entry.binding === "source");
+  const referenceAssets = inputAssets.filter((entry) => entry.binding === "guide");
 
   return {
     operation,
@@ -371,27 +475,9 @@ const parsePromptArtifactPromptIR = (
     styleDirectives: parseStringArray(value.styleDirectives),
     continuityTargets: parseContinuityTargets(value.continuityTargets),
     editOps: parsePromptEditOps(value.editOps),
-    sourceAssets: parseAssetRefs(value.sourceAssets),
-    referenceAssets: parseAssetRefs(value.referenceAssets),
-    assetRefs: parseAssetRefs(value.assetRefs),
-    referenceImages: Array.isArray(value.referenceImages)
-      ? value.referenceImages
-          .filter(
-            (
-              entry
-            ): entry is NonNullable<PersistedPromptArtifactRecord["promptIR"]>["referenceImages"][number] =>
-              isRecord(entry) &&
-              typeof entry.id === "string" &&
-              typeof entry.type === "string"
-          )
-          .map((entry) => ({
-            id: entry.id,
-            type: entry.type,
-            ...(typeof entry.sourceAssetId === "string"
-              ? { sourceAssetId: entry.sourceAssetId }
-              : {}),
-          }))
-      : [],
+    sourceAssets,
+    referenceAssets,
+    inputAssets,
     output: {
       aspectRatio: typeof output.aspectRatio === "string" ? output.aspectRatio : "1:1",
       width: typeof output.width === "number" ? output.width : null,

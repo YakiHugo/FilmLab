@@ -1,6 +1,11 @@
 import { clamp } from "@/lib/math";
 import type { EditingAdjustments } from "@/types";
 
+export type TimestampOverlayAdjustments = Pick<
+  EditingAdjustments,
+  "timestampEnabled" | "timestampOpacity" | "timestampPosition" | "timestampSize"
+>;
+
 const TIMESTAMP_FONTS = '"Space Grotesk", "Work Sans", sans-serif';
 
 /**
@@ -24,7 +29,7 @@ void ensureFontLoaded();
 
 export const applyTimestampOverlay = async (
   canvas: HTMLCanvasElement,
-  adjustments: EditingAdjustments,
+  adjustments: TimestampOverlayAdjustments,
   timestampText?: string | null
 ) => {
   if (!adjustments.timestampEnabled || !timestampText) {

@@ -1,5 +1,5 @@
-import { renderDocumentToCanvas } from "@/features/editor/renderDocumentCanvas";
 import { releaseRenderSlots } from "@/lib/imageProcessing";
+import { renderSingleImageToCanvas } from "@/render/image";
 import type {
   Asset,
   CanvasWorkbench,
@@ -10,7 +10,7 @@ import type {
   CanvasTextElement,
 } from "@/types";
 import { createCanvasImageDocumentRenderContext } from "./boardImageRendering";
-import { applyCanvasImagePostProcessing } from "./canvasImagePostProcessing";
+import { resolveCanvasShapeFillPaint } from "./shapeStyle";
 import {
   CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER,
   fitCanvasTextElementToContent,
@@ -94,35 +94,104 @@ const drawArrowHead = (
   context: CanvasRenderingContext2D,
   from: { x: number; y: number },
   to: { x: number; y: number },
-  size: number
+  length: number,
+  width: number
 ) => {
   const angle = Math.atan2(to.y - from.y, to.x - from.x);
+  const base = {
+    x: to.x - Math.cos(angle) * length,
+    y: to.y - Math.sin(angle) * length,
+  };
+  const halfWidth = width / 2;
   const left = {
-    x: to.x - Math.cos(angle - Math.PI / 6) * size,
-    y: to.y - Math.sin(angle - Math.PI / 6) * size,
+    x: base.x - Math.sin(angle) * halfWidth,
+    y: base.y + Math.cos(angle) * halfWidth,
   };
   const right = {
-    x: to.x - Math.cos(angle + Math.PI / 6) * size,
-    y: to.y - Math.sin(angle + Math.PI / 6) * size,
+    x: base.x + Math.sin(angle) * halfWidth,
+    y: base.y - Math.cos(angle) * halfWidth,
   };
-  context.moveTo(left.x, left.y);
   context.lineTo(to.x, to.y);
+  context.lineTo(left.x, left.y);
   context.lineTo(right.x, right.y);
+  context.lineTo(to.x, to.y);
+  context.closePath();
+};
+
+const traceRoundedRectPath = (
+  context: CanvasRenderingContext2D,
+  {
+    height,
+    radius,
+    width,
+  }: {
+    height: number;
+    radius: number;
+    width: number;
+  }
+) => {
+  const boundedRadius = Math.max(0, Math.min(radius, width / 2, height / 2));
+  context.moveTo(boundedRadius, 0);
+  context.lineTo(width - boundedRadius, 0);
+  context.arcTo(width, 0, width, boundedRadius, boundedRadius);
+  context.lineTo(width, height - boundedRadius);
+  context.arcTo(width, height, width - boundedRadius, height, boundedRadius);
+  context.lineTo(boundedRadius, height);
+  context.arcTo(0, height, 0, height - boundedRadius, boundedRadius);
+  context.lineTo(0, boundedRadius);
+  context.arcTo(0, 0, boundedRadius, 0, boundedRadius);
+  context.closePath();
 };
 
 const drawShapeElement = (context: CanvasRenderingContext2D, element: CanvasShapeElement) => {
+  const resolveShapeFill = () => {
+    const fillPaint = resolveCanvasShapeFillPaint(element);
+    if (fillPaint.kind === "solid") {
+      return fillPaint.color === "transparent" ? null : fillPaint.color;
+    }
+
+    const gradient = context.createLinearGradient(
+      fillPaint.startPoint.x,
+      fillPaint.startPoint.y,
+      fillPaint.endPoint.x,
+      fillPaint.endPoint.y
+    );
+    gradient.addColorStop(fillPaint.colorStops[0], fillPaint.colorStops[1]);
+    gradient.addColorStop(fillPaint.colorStops[2], fillPaint.colorStops[3]);
+    return gradient;
+  };
+
   withElementTransform(context, element, () => {
     context.beginPath();
 
     if (element.shapeType === "rect") {
-      if (element.fill && element.fill !== "transparent") {
-        context.fillStyle = element.fill;
-        context.fillRect(0, 0, element.width, element.height);
-      }
-      if (element.strokeWidth > 0) {
-        context.lineWidth = element.strokeWidth;
-        context.strokeStyle = element.stroke;
-        context.strokeRect(0, 0, element.width, element.height);
+      const radius = Math.max(element.radius ?? 0, 0);
+      const fill = resolveShapeFill();
+      if (radius > 0) {
+        traceRoundedRectPath(context, {
+          height: element.height,
+          radius,
+          width: element.width,
+        });
+        if (fill) {
+          context.fillStyle = fill;
+          context.fill();
+        }
+        if (element.strokeWidth > 0) {
+          context.lineWidth = element.strokeWidth;
+          context.strokeStyle = element.stroke;
+          context.stroke();
+        }
+      } else {
+        if (fill) {
+          context.fillStyle = fill;
+          context.fillRect(0, 0, element.width, element.height);
+        }
+        if (element.strokeWidth > 0) {
+          context.lineWidth = element.strokeWidth;
+          context.strokeStyle = element.stroke;
+          context.strokeRect(0, 0, element.width, element.height);
+        }
       }
       return;
     }
@@ -133,8 +202,9 @@ const drawShapeElement = (context: CanvasRenderingContext2D, element: CanvasShap
       context.scale(Math.max(element.width / 2, 1), Math.max(element.height / 2, 1));
       context.arc(0, 0, 1, 0, Math.PI * 2);
       context.restore();
-      if (element.fill && element.fill !== "transparent") {
-        context.fillStyle = element.fill;
+      const fill = resolveShapeFill();
+      if (fill) {
+        context.fillStyle = fill;
         context.fill();
       }
       if (element.strokeWidth > 0) {
@@ -151,6 +221,8 @@ const drawShapeElement = (context: CanvasRenderingContext2D, element: CanvasShap
       return;
     }
 
+    context.lineCap = "round";
+    context.lineJoin = "round";
     context.moveTo(firstPoint.x, firstPoint.y);
     for (const point of restPoints) {
       context.lineTo(point.x, point.y);
@@ -160,14 +232,25 @@ const drawShapeElement = (context: CanvasRenderingContext2D, element: CanvasShap
     context.stroke();
 
     if (element.shapeType === "arrow" && points.length >= 2) {
-      const headSize = Math.max(10, element.strokeWidth * 4);
+      const pointerLength = 10;
+      const pointerWidth = 10;
       context.beginPath();
       if (element.arrowHead?.start) {
-        drawArrowHead(context, points[1]!, points[0]!, headSize);
+        context.moveTo(points[0]!.x, points[0]!.y);
+        drawArrowHead(context, points[1]!, points[0]!, pointerLength, pointerWidth);
       }
       if (element.arrowHead?.end ?? true) {
-        drawArrowHead(context, points[points.length - 2]!, points[points.length - 1]!, headSize);
+        context.moveTo(points[points.length - 1]!.x, points[points.length - 1]!.y);
+        drawArrowHead(
+          context,
+          points[points.length - 2]!,
+          points[points.length - 1]!,
+          pointerLength,
+          pointerWidth
+        );
       }
+      context.fillStyle = element.stroke;
+      context.fill();
       context.lineWidth = element.strokeWidth;
       context.strokeStyle = element.stroke;
       context.stroke();
@@ -195,23 +278,23 @@ const drawImageElement = async ({
   try {
     const renderContext = createCanvasImageDocumentRenderContext({
       asset,
-      assetById,
       element,
     });
 
-    await renderDocumentToCanvas({
+    await renderSingleImageToCanvas({
       canvas: imageCanvas,
-      document: renderContext.renderDocument,
-      intent: "export-full",
-      targetSize: {
-        width: Math.max(1, Math.round(element.width * outputScale.x)),
-        height: Math.max(1, Math.round(element.height * outputScale.y)),
+      document: renderContext.imageDocument,
+      request: {
+        intent: "export",
+        quality: "full",
+        targetSize: {
+          width: Math.max(1, Math.round(element.width * outputScale.x)),
+          height: Math.max(1, Math.round(element.height * outputScale.y)),
+        },
+        timestampText: renderContext.timestampText,
+        renderSlotId: EXPORT_RENDER_SLOT_PREFIX,
       },
-      timestampText: renderContext.timestampText,
-      strictErrors: true,
-      renderSlotPrefix: EXPORT_RENDER_SLOT_PREFIX,
     });
-    applyCanvasImagePostProcessing(imageCanvas, renderContext.adjustments);
 
     withElementTransform(context, element, () => {
       context.drawImage(imageCanvas, 0, 0, element.width, element.height);

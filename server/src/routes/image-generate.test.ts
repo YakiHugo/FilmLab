@@ -493,35 +493,36 @@ describe("imageGenerateRoute", () => {
     const createdGeneration = repositoryMock.createGeneration.mock.calls[0]?.[0] as {
       turn: {
         configSnapshot: {
-          referenceImages?: Array<Record<string, unknown>>;
+          operation?: string;
+          inputAssets?: Array<Record<string, unknown>>;
         };
       };
       job: {
         requestSnapshot: {
-          referenceImages?: Array<Record<string, unknown>>;
+          operation?: string;
+          inputAssets?: Array<Record<string, unknown>>;
         };
       };
     };
 
-    expect(createdGeneration.turn.configSnapshot.referenceImages).toEqual([
+    expect(createdGeneration.turn.configSnapshot.operation).toBe("generate");
+    expect(createdGeneration.turn.configSnapshot.inputAssets).toEqual([
       expect.objectContaining({
-        id: "ref-1",
-        fileName: "turn-result.png",
-        type: "content",
-        sourceAssetId: "thread-asset-1",
+        assetId: "thread-asset-1",
+        binding: "guide",
+        guideType: "content",
       }),
     ]);
-    expect(createdGeneration.turn.configSnapshot.referenceImages?.[0]).not.toHaveProperty("url");
-
-    expect(createdGeneration.job.requestSnapshot.referenceImages).toEqual([
+    expect(createdGeneration.job.requestSnapshot.operation).toBe("generate");
+    expect(createdGeneration.job.requestSnapshot.inputAssets).toEqual([
       expect.objectContaining({
-        id: "ref-1",
-        url: "data:image/png;base64,AAA",
-        fileName: "turn-result.png",
-        type: "content",
-        sourceAssetId: "thread-asset-1",
+        assetId: "thread-asset-1",
+        binding: "guide",
+        guideType: "content",
       }),
     ]);
+    expect(createdGeneration.turn.configSnapshot).not.toHaveProperty("referenceImages");
+    expect(createdGeneration.job.requestSnapshot).not.toHaveProperty("referenceImages");
 
     await app.close();
   });

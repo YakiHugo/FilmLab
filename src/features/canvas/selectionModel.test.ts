@@ -1,20 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
 import type { CanvasWorkbench } from "@/types";
+import { createCanvasTestDocument, createGroupNode, createShapeNode } from "./document/testUtils";
 import { normalizeCanvasWorkbench } from "./studioPresets";
 import {
   createCanvasSelectionModel,
   hasSelectedImageElement,
   resolveDisplaySelectedElementIds,
+  resolveNextAdditiveSelectionIds,
+  resolvePrimarySelectedEditableElement,
+  resolvePrimarySelectedEditableElementFromNodeRecord,
+  resolvePrimarySelectedEditableElementKey,
   resolvePrimarySelectedElement,
   resolvePrimarySelectedImageElement,
+  resolveSelectedRootElementIds,
+  resolveSelectedRootRenderableElementIds,
   selectionIdsEqual,
 } from "./selectionModel";
 
 const createWorkbench = (): CanvasWorkbench =>
   normalizeCanvasWorkbench({
   id: "doc-1",
-  version: 2,
+  version: 5,
   name: "工作台",
   width: 1200,
   height: 800,
@@ -141,5 +148,131 @@ describe("selection model", () => {
 
     expect(model.primarySelectedImageElement?.id).toBe("image-1");
     expect(hasSelectedImageElement(document, model.committedSelectedElementIds)).toBe(false);
+  });
+
+  it("keeps the editable selection target aligned with the primary selection owner", () => {
+    const document = createCanvasTestDocument({
+      nodes: {
+        "shape-1": createShapeNode({
+          id: "shape-1",
+          x: 30,
+          y: 40,
+        }),
+        group: createGroupNode({
+          id: "group",
+          x: 120,
+          y: 80,
+        }),
+      },
+      rootIds: ["shape-1", "group"],
+    });
+
+    expect(resolvePrimarySelectedEditableElement(document, ["group", "shape-1"])).toBeNull();
+    expect(resolvePrimarySelectedEditableElement(document, ["shape-1", "group"])?.id).toBe(
+      "shape-1"
+    );
+
+    const model = createCanvasSelectionModel({
+      activeWorkbench: document,
+      committedSelectedElementIds: ["group"],
+      displaySelectedElementIds: ["group", "shape-1"],
+      hasPreviewSelection: true,
+    });
+
+    expect(model.primarySelectedEditableElement).toBeNull();
+  });
+
+  it("resolves the primary selected editable element key from persisted workbench nodes", () => {
+    const document = createCanvasTestDocument({
+      nodes: {
+        "shape-1": createShapeNode({
+          id: "shape-1",
+          x: 30,
+          y: 40,
+        }),
+        group: createGroupNode({
+          id: "group",
+          x: 120,
+          y: 80,
+        }),
+      },
+      rootIds: ["shape-1", "group"],
+    });
+
+    expect(resolvePrimarySelectedEditableElementKey(document, ["group", "shape-1"])).toBeNull();
+    expect(resolvePrimarySelectedEditableElementKey(document, ["shape-1", "group"])).toBe(
+      "shape:shape-1"
+    );
+    expect(resolvePrimarySelectedEditableElementKey(document, ["group"])).toBeNull();
+  });
+
+  it("resolves the primary selected editable element directly from persisted node records", () => {
+    const document = createCanvasTestDocument({
+      nodes: {
+        "shape-1": createShapeNode({
+          id: "shape-1",
+          x: 30,
+          y: 40,
+        }),
+        group: createGroupNode({
+          id: "group",
+          x: 120,
+          y: 80,
+        }),
+      },
+      rootIds: ["shape-1", "group"],
+    });
+
+    expect(
+      resolvePrimarySelectedEditableElementFromNodeRecord(document, ["group", "shape-1"])
+    ).toBeNull();
+    expect(
+      resolvePrimarySelectedEditableElementFromNodeRecord(document, ["shape-1", "group"])?.id
+    ).toBe("shape-1");
+  });
+
+  it("promotes a newly added additive selection to the primary slot", () => {
+    expect(resolveNextAdditiveSelectionIds(["image-1"], "shape-1")).toEqual(["shape-1", "image-1"]);
+    expect(resolveNextAdditiveSelectionIds(["shape-1", "image-1"], "shape-1")).toEqual([
+      "image-1",
+    ]);
+  });
+
+  it("filters selected descendants when their ancestor group is already selected", () => {
+    const document = createCanvasTestDocument({
+      nodes: {
+        group: createGroupNode({
+          id: "group",
+          x: 120,
+          y: 80,
+          childIds: ["shape-a", "shape-b"],
+        }),
+        "shape-a": createShapeNode({
+          id: "shape-a",
+          parentId: "group",
+          x: 20,
+          y: 30,
+        }),
+        "shape-b": createShapeNode({
+          id: "shape-b",
+          parentId: "group",
+          x: 180,
+          y: 60,
+        }),
+        "shape-c": createShapeNode({
+          id: "shape-c",
+          x: 420,
+          y: 220,
+        }),
+      },
+      rootIds: ["group", "shape-c"],
+    });
+
+    expect(resolveSelectedRootElementIds(document, ["shape-a", "group", "shape-c", "shape-b"])).toEqual(
+      ["group", "shape-c"]
+    );
+    expect(
+      resolveSelectedRootRenderableElementIds(document, ["shape-a", "group", "shape-c", "shape-b"])
+    ).toEqual(["shape-c"]);
   });
 });

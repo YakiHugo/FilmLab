@@ -1,137 +1,175 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useCallback, useEffect, useRef } from "react";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import { shallow } from "zustand/shallow";
-import { getCanvasResetEpoch, useCanvasStore } from "@/stores/canvasStore";
+import { useCanvasStore } from "@/stores/canvasStore";
+import { useCanvasWorkbenchTransitionGuard } from "../canvasWorkbenchTransitionGuard";
 import { resolveCanvasPageRecoveryPlan } from "../canvasPageState";
+
+const getCurrentWorkbenchIds = () =>
+  useCanvasStore.getState().workbenchList.map((workbench) => workbench.id);
+
+export const resolveCanvasRouteWorkbenchId = (pathname: string): string | null => {
+  if (!pathname.startsWith("/canvas/")) {
+    return null;
+  }
+
+  const encodedWorkbenchId = pathname.slice("/canvas/".length).trim();
+  if (!encodedWorkbenchId || encodedWorkbenchId.includes("/")) {
+    return null;
+  }
+
+  return decodeURIComponent(encodedWorkbenchId);
+};
 
 export function useCanvasRouteWorkbenchSync() {
   const navigate = useNavigate();
-  const params = useParams({ from: "/canvas/$workbenchId", shouldThrow: false });
-  const routeWorkbenchId = params?.workbenchId ?? null;
+  const pathname = useLocation({
+    select: (state) => state.pathname,
+  });
+  const routeWorkbenchId = resolveCanvasRouteWorkbenchId(pathname);
   const recoveryTokenRef = useRef(0);
-  const pendingRecoveryTokenRef = useRef<number | null>(null);
-  const routeWorkbenchIdRef = useRef(routeWorkbenchId);
-  const [hasInitializedCanvas, setHasInitializedCanvas] = useState(false);
-  const [pendingRecoveryToken, setPendingRecoveryToken] = useState<number | null>(null);
+  const loadedWorkbenchId = useCanvasStore((state) => state.loadedWorkbenchId);
+  const loadedWorkbenchInteraction = useCanvasStore((state) =>
+    state.loadedWorkbenchId === loadedWorkbenchId ? state.workbenchInteraction : null
+  );
   const workbenchIds = useCanvasStore(
-    (state) => state.workbenches.map((workbench) => workbench.id),
+    (state) => state.workbenchList.map((workbench) => workbench.id),
     shallow
   );
-  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
-  const isLoading = useCanvasStore((state) => state.isLoading);
   const init = useCanvasStore((state) => state.init);
   const createWorkbench = useCanvasStore((state) => state.createWorkbench);
-  const setActiveWorkbenchId = useCanvasStore((state) => state.setActiveWorkbenchId);
+  const openWorkbench = useCanvasStore((state) => state.openWorkbench);
+  const runBeforeWorkbenchTransition = useCanvasWorkbenchTransitionGuard();
+  const loadedWorkbenchInteractionKey = `${loadedWorkbenchInteraction?.active ? 1 : 0}:${
+    loadedWorkbenchInteraction?.pendingCommits ?? 0
+  }:${loadedWorkbenchInteraction?.queuedMutations ?? 0}`;
 
-  routeWorkbenchIdRef.current = routeWorkbenchId;
-
-  const finalizeRecoveryNavigation = useCallback(
-    async (targetWorkbenchId: string, token: number) => {
-      if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
-        await new Promise<void>((resolve) => {
-          window.requestAnimationFrame(() => resolve());
-        });
-      }
-      if (
-        pendingRecoveryTokenRef.current !== token ||
-        routeWorkbenchIdRef.current !== targetWorkbenchId ||
-        useCanvasStore.getState().activeWorkbenchId === targetWorkbenchId
-      ) {
-        return;
-      }
-      setActiveWorkbenchId(targetWorkbenchId);
-    },
-    [setActiveWorkbenchId]
-  );
+  const awaitWorkbenchTransitionGuard = useCallback(async () => {
+    try {
+      await runBeforeWorkbenchTransition();
+      return true;
+    } catch {
+      return false;
+    }
+  }, [runBeforeWorkbenchTransition]);
 
   useEffect(() => {
-    let isMounted = true;
-
-    void init().finally(() => {
-      if (isMounted) {
-        setHasInitializedCanvas(true);
-      }
-    });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [init]);
-
-  useEffect(() => {
-    const recoveryPlan = resolveCanvasPageRecoveryPlan({
-      activeWorkbenchId,
-      hasInitialized: hasInitializedCanvas,
-      hasPendingRecovery: pendingRecoveryToken !== null,
-      isLoading,
-      routeWorkbenchId,
-      workbenchIds,
-    });
-
-    if (recoveryPlan.type === "wait") {
-      return;
-    }
-
-    if (recoveryPlan.type === "activate-route") {
-      setActiveWorkbenchId(recoveryPlan.workbenchId);
-      return;
-    }
-
-    if (recoveryPlan.type === "navigate-to-fallback") {
-      const recoveryToken = recoveryTokenRef.current + 1;
-      recoveryTokenRef.current = recoveryToken;
-      pendingRecoveryTokenRef.current = recoveryToken;
-      setPendingRecoveryToken(recoveryToken);
-      void navigate({
-        to: "/canvas/$workbenchId",
-        params: { workbenchId: recoveryPlan.workbenchId },
-      })
-        .then(() => finalizeRecoveryNavigation(recoveryPlan.workbenchId, recoveryToken))
-        .finally(() => {
-          if (pendingRecoveryTokenRef.current === recoveryToken) {
-            pendingRecoveryTokenRef.current = null;
-            setPendingRecoveryToken((currentToken) =>
-              currentToken === recoveryToken ? null : currentToken
-            );
-          }
-        });
-      return;
-    }
-
+    let disposed = false;
     const recoveryToken = recoveryTokenRef.current + 1;
     recoveryTokenRef.current = recoveryToken;
-    pendingRecoveryTokenRef.current = recoveryToken;
-    setPendingRecoveryToken(recoveryToken);
-    void (async () => {
-      const recoveryEpoch = getCanvasResetEpoch();
-      const created = await createWorkbench(undefined, { activate: false });
-      if (!created || recoveryEpoch !== getCanvasResetEpoch()) {
+
+    const isStale = () => disposed || recoveryTokenRef.current !== recoveryToken;
+
+    const navigateToWorkbench = async (workbenchId: string) => {
+      await navigate({
+        to: "/canvas/$workbenchId",
+        params: { workbenchId },
+      });
+    };
+
+    const refreshWorkbenchList = async () => {
+      await init();
+      return getCurrentWorkbenchIds();
+    };
+
+    const createAndNavigate = async () => {
+      if (!(await awaitWorkbenchTransitionGuard()) || isStale()) {
         return;
       }
 
-      await navigate({
-        to: "/canvas/$workbenchId",
-        params: { workbenchId: created.id },
-      });
-      await finalizeRecoveryNavigation(created.id, recoveryToken);
-    })().finally(() => {
-      if (pendingRecoveryTokenRef.current === recoveryToken) {
-        pendingRecoveryTokenRef.current = null;
-        setPendingRecoveryToken((currentToken) =>
-          currentToken === recoveryToken ? null : currentToken
-        );
+      const created = await createWorkbench(undefined, { openAfterCreate: false });
+      if (!created || isStale()) {
+        return;
       }
-    });
+
+      await navigateToWorkbench(created.id);
+    };
+
+    void (async () => {
+      if (routeWorkbenchId) {
+        if (routeWorkbenchId === loadedWorkbenchId) {
+          void init();
+          return;
+        }
+
+        if (!(await awaitWorkbenchTransitionGuard()) || isStale()) {
+          return;
+        }
+
+        const opened = await openWorkbench(routeWorkbenchId);
+        if (isStale()) {
+          return;
+        }
+
+        void init();
+        if (opened) {
+          return;
+        }
+
+        const latestWorkbenchIds = await refreshWorkbenchList();
+        if (isStale()) {
+          return;
+        }
+
+        const recoveryPlan = resolveCanvasPageRecoveryPlan({
+          activeWorkbenchId: useCanvasStore.getState().loadedWorkbenchId,
+          workbenchIds: latestWorkbenchIds,
+        });
+        if (recoveryPlan.type === "navigate-to-fallback") {
+          if (recoveryPlan.workbenchId !== routeWorkbenchId) {
+            await navigateToWorkbench(recoveryPlan.workbenchId);
+          }
+          return;
+        }
+
+        await createAndNavigate();
+        return;
+      }
+
+      void init();
+      if (loadedWorkbenchId) {
+        if (!(await awaitWorkbenchTransitionGuard()) || isStale()) {
+          return;
+        }
+
+        await navigateToWorkbench(loadedWorkbenchId);
+        return;
+      }
+
+      const latestWorkbenchIds = await refreshWorkbenchList();
+      if (isStale()) {
+        return;
+      }
+
+      const recoveryPlan = resolveCanvasPageRecoveryPlan({
+        activeWorkbenchId: useCanvasStore.getState().loadedWorkbenchId,
+        workbenchIds: latestWorkbenchIds,
+      });
+      if (recoveryPlan.type === "navigate-to-fallback") {
+        if (!(await awaitWorkbenchTransitionGuard()) || isStale()) {
+          return;
+        }
+
+        await navigateToWorkbench(recoveryPlan.workbenchId);
+        return;
+      }
+
+      await createAndNavigate();
+    })();
+
+    return () => {
+      disposed = true;
+    };
   }, [
-    activeWorkbenchId,
     createWorkbench,
-    finalizeRecoveryNavigation,
-    hasInitializedCanvas,
-    isLoading,
+    init,
+    loadedWorkbenchInteractionKey,
+    loadedWorkbenchId,
     navigate,
-    pendingRecoveryToken,
+    openWorkbench,
+    pathname,
     routeWorkbenchId,
-    setActiveWorkbenchId,
+    awaitWorkbenchTransitionGuard,
     workbenchIds,
   ]);
 }

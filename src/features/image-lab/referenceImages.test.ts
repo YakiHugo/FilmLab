@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { GenerationConfig } from "@/stores/generationConfigStore";
-import type { ReferenceImage } from "@/types/imageGeneration";
 import {
-  bindResultAssetToConfig,
-  bindResultReferenceToConfig,
-  clearBoundResultReferencesFromConfig,
-  clearReferenceImagesFromConfig,
-  clearReferenceInputsForUnsupportedModel,
-  removeBoundResultReferenceFromConfig,
-  updateAssetRefRoleInConfig,
+  bindGuideAssetToConfig,
+  clearGuideAssetsFromConfig,
+  clearSourceAssetFromConfig,
+  removeGuideAssetFromConfig,
+  removeInputAssetFromConfig,
+  setSourceAssetInConfig,
+  updateGuideAssetInConfig,
 } from "./referenceImages";
 
-const createConfig = (): GenerationConfig => ({
+const createConfig = (patch: Partial<GenerationConfig> = {}): GenerationConfig => ({
   modelId: "qwen-image-2-pro",
   aspectRatio: "1:1",
   width: 1024,
@@ -26,200 +25,210 @@ const createConfig = (): GenerationConfig => ({
     continuityTargets: [],
     editOps: [],
   },
-  referenceImages: [],
-  assetRefs: [],
+  operation: "generate",
+  inputAssets: [],
   seed: null,
   guidanceScale: null,
   steps: null,
   sampler: "",
   batchSize: 1,
-  modelParams: {
-    promptExtend: true,
-  },
+  modelParams: {},
+  ...patch,
 });
 
-const createReferenceImage = (id: string): ReferenceImage => ({
-  id,
-  url: `data:image/png;base64,${id}`,
-  type: "content",
-  weight: 1,
-});
-
-describe("reference image config helpers", () => {
-  it("binds a generated result as both a replayable reference image and an asset ref", () => {
-    const nextConfig = bindResultReferenceToConfig(createConfig(), {
-      assetId: "thread-asset-1",
-      referenceImage: createReferenceImage("ref-1"),
+describe("image input config helpers", () => {
+  it("binds a guide asset with default metadata", () => {
+    const nextConfig = bindGuideAssetToConfig(createConfig(), {
+      assetId: "asset-guide-1",
     });
 
-    expect(nextConfig.referenceImages).toEqual([
-      expect.objectContaining({
-        id: "ref-1",
-        url: "data:image/png;base64,ref-1",
-        sourceAssetId: "thread-asset-1",
-      }),
-    ]);
-    expect(nextConfig.assetRefs).toEqual([
+    expect(nextConfig.operation).toBe("generate");
+    expect(nextConfig.inputAssets).toEqual([
       {
-        assetId: "thread-asset-1",
-        role: "reference",
-        referenceType: "content",
+        assetId: "asset-guide-1",
+        binding: "guide",
+        guideType: "content",
         weight: 1,
       },
     ]);
   });
 
-  it("removes both the materialized reference image and asset ref together", () => {
-    const boundConfig = bindResultReferenceToConfig(createConfig(), {
-      assetId: "thread-asset-1",
-      referenceImage: createReferenceImage("ref-1"),
-    });
-
-    const nextConfig = removeBoundResultReferenceFromConfig(boundConfig, "thread-asset-1");
-
-    expect(nextConfig.referenceImages).toEqual([]);
-    expect(nextConfig.assetRefs).toEqual([]);
-  });
-
-  it("clears only result-bound references while preserving uploaded refs", () => {
-    const baseConfig = bindResultReferenceToConfig(createConfig(), {
-      assetId: "thread-asset-1",
-      referenceImage: createReferenceImage("ref-1"),
-    });
-    baseConfig.assetRefs.push({
-      assetId: "manual-asset-1",
-      role: "reference",
-    });
-    baseConfig.referenceImages.push({
-      id: "upload-1",
-      url: "data:image/png;base64,upload",
-      type: "content",
-      weight: 1,
-    });
-
-    const nextConfig = clearBoundResultReferencesFromConfig(baseConfig);
-
-    expect(nextConfig.referenceImages).toEqual([
-      expect.objectContaining({
-        id: "upload-1",
-        url: "data:image/png;base64,upload",
+  it("switches a source asset back to guide mode and resets the operation when no source remains", () => {
+    const nextConfig = bindGuideAssetToConfig(
+      createConfig({
+        operation: "edit",
+        inputAssets: [{ assetId: "asset-source-1", binding: "source" }],
       }),
-    ]);
-    expect(nextConfig.assetRefs).toEqual([]);
-  });
+      {
+        assetId: "asset-source-1",
+        guideType: "style",
+        weight: 0.4,
+      }
+    );
 
-  it("drops all reference inputs when switching to an unsupported model", () => {
-    const baseConfig = bindResultReferenceToConfig(createConfig(), {
-      assetId: "thread-asset-1",
-      referenceImage: createReferenceImage("ref-1"),
-    });
-    baseConfig.referenceImages.push({
-      id: "upload-1",
-      url: "data:image/png;base64,upload",
-      type: "content",
-      weight: 1,
-    });
-
-    const { nextConfig, removedReferenceImageCount, removedAssetRefCount } =
-      clearReferenceInputsForUnsupportedModel(baseConfig);
-
-    expect(removedReferenceImageCount).toBe(2);
-    expect(removedAssetRefCount).toBe(1);
-    expect(nextConfig.referenceImages).toEqual([]);
-    expect(nextConfig.assetRefs).toEqual([]);
-  });
-
-  it("clears reference images without dropping edit or variation asset refs", () => {
-    const baseConfig = bindResultReferenceToConfig(createConfig(), {
-      assetId: "thread-asset-1",
-      referenceImage: createReferenceImage("ref-1"),
-    });
-    baseConfig.assetRefs.push({
-      assetId: "thread-asset-2",
-      role: "edit",
-    });
-    baseConfig.assetRefs.push({
-      assetId: "thread-asset-3",
-      role: "variation",
-    });
-
-    const nextConfig = clearReferenceImagesFromConfig(baseConfig);
-
-    expect(nextConfig.referenceImages).toEqual([]);
-    expect(nextConfig.assetRefs).toEqual([
-      { assetId: "thread-asset-2", role: "edit" },
-      { assetId: "thread-asset-3", role: "variation" },
+    expect(nextConfig.operation).toBe("generate");
+    expect(nextConfig.inputAssets).toEqual([
+      {
+        assetId: "asset-source-1",
+        binding: "guide",
+        guideType: "style",
+        weight: 0.4,
+      },
     ]);
   });
 
-  it("binds edit and variation roles without materializing reference images when native refs are unavailable", () => {
-    const editBinding = bindResultAssetToConfig(createConfig(), {
-      assetId: "thread-asset-1",
-      role: "edit",
-      includeReferenceImage: false,
-      referenceImage: createReferenceImage("ref-1"),
-    });
-    const variationBinding = bindResultAssetToConfig(createConfig(), {
-      assetId: "thread-asset-2",
-      role: "variation",
-      includeReferenceImage: false,
-      referenceImage: createReferenceImage("ref-2"),
-    });
-
-    expect(editBinding.error).toBeNull();
-    expect(editBinding.nextConfig.referenceImages).toEqual([]);
-    expect(editBinding.nextConfig.assetRefs).toEqual([
-      { assetId: "thread-asset-1", role: "edit" },
-    ]);
-    expect(variationBinding.error).toBeNull();
-    expect(variationBinding.nextConfig.referenceImages).toEqual([]);
-    expect(variationBinding.nextConfig.assetRefs).toEqual([
-      { assetId: "thread-asset-2", role: "variation" },
-    ]);
-  });
-
-  it("rejects multiple source asset roles in the same turn", () => {
-    const firstBinding = bindResultAssetToConfig(createConfig(), {
-      assetId: "thread-asset-1",
-      role: "edit",
-      includeReferenceImage: false,
-      referenceImage: createReferenceImage("ref-1"),
-    });
-    const nextBinding = bindResultAssetToConfig(firstBinding.nextConfig, {
-      assetId: "thread-asset-2",
-      role: "variation",
-      includeReferenceImage: false,
-      referenceImage: createReferenceImage("ref-2"),
-    });
-
-    expect(firstBinding.error).toBeNull();
-    expect(nextBinding.error).toContain("Only one source asset is allowed");
-    expect(nextBinding.nextConfig.assetRefs).toEqual([
-      { assetId: "thread-asset-1", role: "edit" },
-    ]);
-  });
-
-  it("updates an existing asset ref role while preserving the bound reference image when available", () => {
-    const baseConfig = bindResultReferenceToConfig(createConfig(), {
-      assetId: "thread-asset-1",
-      referenceImage: createReferenceImage("ref-1"),
-    });
-
-    const nextBinding = updateAssetRefRoleInConfig(baseConfig, {
-      assetId: "thread-asset-1",
-      role: "variation",
-      includeReferenceImage: true,
-    });
-
-    expect(nextBinding.error).toBeNull();
-    expect(nextBinding.nextConfig.assetRefs).toEqual([
-      { assetId: "thread-asset-1", role: "variation" },
-    ]);
-    expect(nextBinding.nextConfig.referenceImages).toEqual([
-      expect.objectContaining({
-        id: "ref-1",
-        sourceAssetId: "thread-asset-1",
+  it("sets a single source asset and preserves guide bindings", () => {
+    const nextConfig = setSourceAssetInConfig(
+      createConfig({
+        inputAssets: [
+          {
+            assetId: "asset-guide-1",
+            binding: "guide",
+            guideType: "content",
+            weight: 0.8,
+          },
+        ],
       }),
+      {
+        assetId: "asset-source-1",
+        operation: "variation",
+      }
+    );
+
+    expect(nextConfig.operation).toBe("variation");
+    expect(nextConfig.inputAssets).toEqual([
+      { assetId: "asset-source-1", binding: "source" },
+      {
+        assetId: "asset-guide-1",
+        binding: "guide",
+        guideType: "content",
+        weight: 0.8,
+      },
+    ]);
+  });
+
+  it("updates guide metadata in place", () => {
+    const nextConfig = updateGuideAssetInConfig(
+      createConfig({
+        inputAssets: [
+          {
+            assetId: "asset-guide-1",
+            binding: "guide",
+            guideType: "content",
+            weight: 0.8,
+          },
+        ],
+      }),
+      "asset-guide-1",
+      {
+        guideType: "style",
+        weight: 0.25,
+      }
+    );
+
+    expect(nextConfig.inputAssets).toEqual([
+      {
+        assetId: "asset-guide-1",
+        binding: "guide",
+        guideType: "style",
+        weight: 0.25,
+      },
+    ]);
+  });
+
+  it("clears only guide assets while preserving the source operation", () => {
+    const nextConfig = clearGuideAssetsFromConfig(
+      createConfig({
+        operation: "edit",
+        inputAssets: [
+          { assetId: "asset-source-1", binding: "source" },
+          {
+            assetId: "asset-guide-1",
+            binding: "guide",
+            guideType: "content",
+            weight: 0.8,
+          },
+        ],
+      })
+    );
+
+    expect(nextConfig.operation).toBe("edit");
+    expect(nextConfig.inputAssets).toEqual([{ assetId: "asset-source-1", binding: "source" }]);
+  });
+
+  it("removes a single guide asset without touching the source binding", () => {
+    const nextConfig = removeGuideAssetFromConfig(
+      createConfig({
+        operation: "variation",
+        inputAssets: [
+          { assetId: "asset-source-1", binding: "source" },
+          {
+            assetId: "asset-guide-1",
+            binding: "guide",
+            guideType: "content",
+            weight: 0.8,
+          },
+        ],
+      }),
+      "asset-guide-1"
+    );
+
+    expect(nextConfig.operation).toBe("variation");
+    expect(nextConfig.inputAssets).toEqual([{ assetId: "asset-source-1", binding: "source" }]);
+  });
+
+  it("clears the source asset and resets the operation while preserving guides", () => {
+    const nextConfig = clearSourceAssetFromConfig(
+      createConfig({
+        operation: "edit",
+        inputAssets: [
+          { assetId: "asset-source-1", binding: "source" },
+          {
+            assetId: "asset-guide-1",
+            binding: "guide",
+            guideType: "content",
+            weight: 0.8,
+          },
+        ],
+      })
+    );
+
+    expect(nextConfig.operation).toBe("generate");
+    expect(nextConfig.inputAssets).toEqual([
+      {
+        assetId: "asset-guide-1",
+        binding: "guide",
+        guideType: "content",
+        weight: 0.8,
+      },
+    ]);
+  });
+
+  it("resets the operation when removing the last source asset", () => {
+    const nextConfig = removeInputAssetFromConfig(
+      createConfig({
+        operation: "edit",
+        inputAssets: [
+          { assetId: "asset-source-1", binding: "source" },
+          {
+            assetId: "asset-guide-1",
+            binding: "guide",
+            guideType: "content",
+            weight: 0.8,
+          },
+        ],
+      }),
+      "asset-source-1"
+    );
+
+    expect(nextConfig.operation).toBe("generate");
+    expect(nextConfig.inputAssets).toEqual([
+      {
+        assetId: "asset-guide-1",
+        binding: "guide",
+        guideType: "content",
+        weight: 0.8,
+      },
     ]);
   });
 });

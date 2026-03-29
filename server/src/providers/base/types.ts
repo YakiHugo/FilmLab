@@ -5,7 +5,7 @@ import type { ParsedImageUpscaleRequest } from "../../shared/imageUpscaleSchema"
 import type { FrontendImageModelId, ImageDeploymentId, LogicalImageModelId } from "../../../../shared/imageModelCatalog";
 import type { ResolvedRouteTarget, RuntimeProviderId } from "../../gateway/router/types";
 import type { ImageUpscaleScale } from "../../../../shared/imageGeneration";
-import type { ResolvedProviderAssetRef } from "../../assets/types";
+import type { ResolvedProviderInputAsset } from "../../assets/types";
 
 export interface ProviderGeneratedImage {
   imageUrl?: string;
@@ -47,7 +47,7 @@ export interface RuntimeProviderCredentials {
 export interface PlatformProviderGenerateInput {
   target: ResolvedRouteTarget;
   request: ParsedImageGenerationRequest & {
-    resolvedAssetRefs?: ResolvedProviderAssetRef[];
+    resolvedInputAssets?: ResolvedProviderInputAsset[];
   };
   credentials: RuntimeProviderCredentials;
   options?: { signal?: AbortSignal; timeoutMs?: number; traceId?: string };

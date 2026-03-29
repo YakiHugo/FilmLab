@@ -1,3 +1,4 @@
+import type Konva from "konva";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Image as KonvaImage, Rect } from "react-konva";
 import type { CanvasImageElement, CanvasRenderableElement } from "@/types";
@@ -7,6 +8,8 @@ import {
   useCanvasRuntimeAsset,
 } from "@/features/canvas/runtime/canvasRuntimeHooks";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { resolveCanvasImagePreviewTargetSizeKey } from "../boardImageRendering";
+import { areEqual } from "../document/shared";
 
 type CanvasImageRenderState = CanvasImageElement &
   Partial<
@@ -14,10 +17,13 @@ type CanvasImageRenderState = CanvasImageElement &
   >;
 
 interface ImageElementProps {
+  canDrag: boolean;
   element: CanvasImageRenderState;
   previewPriority: "interactive" | "background";
   dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
   onSelect: (elementId: string, additive: boolean) => void;
+  onDragMove: (elementId: string, x: number, y: number) => void;
+  onDragStart: (elementId: string, event: Konva.KonvaEventObject<DragEvent>) => void;
   onDragEnd: (elementId: string, x: number, y: number) => void;
 }
 
@@ -74,11 +80,49 @@ const useLoadedImage = (src?: string) => {
   return image;
 };
 
+const areImageElementsEqual = (
+  left: CanvasImageRenderState,
+  right: CanvasImageRenderState
+) => {
+  return (
+    left.id === right.id &&
+    left.assetId === right.assetId &&
+    left.x === right.x &&
+    left.y === right.y &&
+    left.width === right.width &&
+    left.height === right.height &&
+    left.rotation === right.rotation &&
+    left.opacity === right.opacity &&
+    left.worldOpacity === right.worldOpacity &&
+    left.visible === right.visible &&
+    left.effectiveVisible === right.effectiveVisible &&
+    left.locked === right.locked &&
+    left.effectiveLocked === right.effectiveLocked &&
+    areEqual(left.renderState, right.renderState)
+  );
+};
+
+const areImageElementPropsEqual = (
+  previous: ImageElementProps,
+  next: ImageElementProps
+) =>
+  previous.canDrag === next.canDrag &&
+  previous.previewPriority === next.previewPriority &&
+  previous.dragBoundFunc === next.dragBoundFunc &&
+  previous.onSelect === next.onSelect &&
+  previous.onDragMove === next.onDragMove &&
+  previous.onDragStart === next.onDragStart &&
+  previous.onDragEnd === next.onDragEnd &&
+  areImageElementsEqual(previous.element, next.element);
+
 export const ImageElement = memo(function ImageElement({
+  canDrag,
   element,
   previewPriority,
   dragBoundFunc,
   onSelect,
+  onDragMove,
+  onDragStart,
   onDragEnd,
 }: ImageElementProps) {
   const { asset, assetRenderFingerprint } = useCanvasRuntimeAsset(element.assetId);
@@ -91,27 +135,23 @@ export const ImageElement = memo(function ImageElement({
   const effectiveVisible = element.effectiveVisible ?? element.visible;
   const renderOpacity = element.worldOpacity ?? element.opacity;
   const hadPreviewEntryRef = useRef(previewEntry !== undefined);
-  const elementAdjustmentsFingerprint = useMemo(
-    () => hashString(JSON.stringify(element.adjustments ?? null)),
-    [element.adjustments]
-  );
+  const elementRenderFingerprint = useMemo(() => {
+    return hashString(JSON.stringify(element.renderState));
+  }, [element.renderState]);
   const previewKey = useMemo(
     () =>
       [
         element.assetId,
         assetRenderFingerprint ?? "missing",
-        element.filmProfileId ?? "none",
-        `${Math.round(element.width)}x${Math.round(element.height)}`,
-        elementAdjustmentsFingerprint,
+        resolveCanvasImagePreviewTargetSizeKey(element, previewPriority, zoom),
+        elementRenderFingerprint,
         Number(zoom.toFixed(3)).toString(),
       ].join("|"),
     [
-      element.assetId,
       assetRenderFingerprint,
-      elementAdjustmentsFingerprint,
-      element.filmProfileId,
-      element.height,
-      element.width,
+      elementRenderFingerprint,
+      element,
+      previewPriority,
       zoom,
     ]
   );
@@ -124,9 +164,6 @@ export const ImageElement = memo(function ImageElement({
     }
 
     void requestBoardPreview(element.id, previewPriority);
-    return () => {
-      releaseBoardPreview(element.id);
-    };
   }, [
     element.id,
     effectiveVisible,
@@ -136,6 +173,16 @@ export const ImageElement = memo(function ImageElement({
     releaseBoardPreview,
     requestBoardPreview,
   ]);
+
+  useEffect(() => {
+    if (!hasRenderableAsset || !effectiveVisible) {
+      return;
+    }
+
+    return () => {
+      releaseBoardPreview(element.id);
+    };
+  }, [element.id, effectiveVisible, hasRenderableAsset, releaseBoardPreview]);
 
   useEffect(() => {
     const hadPreviewEntry = hadPreviewEntryRef.current;
@@ -177,10 +224,12 @@ export const ImageElement = memo(function ImageElement({
         fill="#27272a"
         stroke="#52525b"
         strokeWidth={1}
-        draggable={!effectiveLocked}
+        draggable={canDrag && !effectiveLocked}
         dragBoundFunc={dragBoundFunc}
         onClick={(event) => onSelect(element.id, Boolean(event.evt.shiftKey))}
         onTap={() => onSelect(element.id, false)}
+        onDragStart={(event) => onDragStart(element.id, event)}
+        onDragMove={(event) => onDragMove(element.id, event.target.x(), event.target.y())}
         onDragEnd={(event) => onDragEnd(element.id, event.target.x(), event.target.y())}
       />
     );
@@ -197,11 +246,13 @@ export const ImageElement = memo(function ImageElement({
       rotation={element.rotation}
       opacity={renderOpacity}
       visible={effectiveVisible}
-      draggable={!effectiveLocked}
+      draggable={canDrag && !effectiveLocked}
       dragBoundFunc={dragBoundFunc}
       onClick={(event) => onSelect(element.id, Boolean(event.evt.shiftKey))}
       onTap={() => onSelect(element.id, false)}
+      onDragStart={(event) => onDragStart(element.id, event)}
+      onDragMove={(event) => onDragMove(element.id, event.target.x(), event.target.y())}
       onDragEnd={(event) => onDragEnd(element.id, event.target.x(), event.target.y())}
     />
   );
-});
+}, areImageElementPropsEqual);

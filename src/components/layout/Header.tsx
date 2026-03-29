@@ -2,8 +2,10 @@ import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { CirclePlus, Film, Sparkles } from "lucide-react";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
+import { useOptionalCanvasWorkbenchTransitionGuard } from "@/features/canvas/canvasWorkbenchTransitionGuard";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { selectLoadedWorkbenchName } from "@/features/canvas/store/canvasStoreSelectors";
 
 const NAV_ITEMS = [
   { label: "\u5de5\u4f5c\u53f0", to: "/" as const, matches: ["/", "/canvas"] },
@@ -13,15 +15,11 @@ const NAV_ITEMS = [
 const controlClass =
   "h-7 rounded-sm border border-white/10 bg-black/45 text-zinc-200 hover:border-white/20 hover:bg-white/[0.08] focus-visible:border-yellow-500/60 focus-visible:ring-0";
 
-const selectActiveWorkbenchName = (state: {
-  activeWorkbenchId: string | null;
-  workbenches: Array<{ id: string; name: string }>;
-}) => state.workbenches.find((entry) => entry.id === state.activeWorkbenchId)?.name ?? "\u672a\u547d\u540d\u5de5\u4f5c\u53f0";
-
 function ContextActions() {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (state) => state.pathname });
-  const activeWorkbenchName = useCanvasStore(selectActiveWorkbenchName);
+  const activeWorkbenchName = useCanvasStore(selectLoadedWorkbenchName);
+  const runBeforeWorkbenchTransition = useOptionalCanvasWorkbenchTransitionGuard();
 
   if (pathname === "/" || pathname.startsWith("/canvas")) {
     return (
@@ -35,8 +33,9 @@ function ContextActions() {
           className={controlClass}
           onClick={() => {
             void (async () => {
+              await runBeforeWorkbenchTransition();
               const created = await useCanvasStore.getState().createWorkbench(undefined, {
-                activate: false,
+                openAfterCreate: false,
               });
               if (!created) {
                 return;

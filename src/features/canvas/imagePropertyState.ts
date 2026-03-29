@@ -1,30 +1,49 @@
+import { getBuiltInFilmProfile } from "@/lib/film";
+import {
+  type CanvasImageRenderStateV1,
+} from "@/render/image";
+import type { Asset } from "@/types";
 import type {
   CanvasCommand,
+  CanvasPersistedImageElement,
   CanvasRenderableElement,
-  EditingAdjustments,
 } from "@/types";
+import { resolveCanvasImageRenderStateForMutation } from "./imageRenderState";
 
 export type CanvasImagePropertyIntent =
-  | { type: "set-image-adjustments"; value: EditingAdjustments | undefined }
+  | { type: "set-image-render-state"; value: CanvasImageRenderStateV1 }
   | { type: "set-image-film-profile"; value: string | undefined };
 
-export type CanvasImagePropertyCommand =
-  | Extract<CanvasCommand, { type: "APPLY_IMAGE_ADJUSTMENTS" }>
-  | Extract<CanvasCommand, { type: "UPDATE_NODE_PROPS" }>;
+export type CanvasImagePropertyCommand = Extract<CanvasCommand, { type: "SET_IMAGE_RENDER_STATE" }>;
 
-type CanvasRenderableImageElement = Extract<CanvasRenderableElement, { type: "image" }>;
+type CanvasImagePropertyTarget =
+  | CanvasRenderableElement
+  | (Pick<
+      CanvasPersistedImageElement,
+      "id" | "type" | "renderState"
+    > & {
+      asset?: Asset | null;
+    });
+
+type CanvasImagePropertyImageTarget = Extract<CanvasRenderableElement, { type: "image" }> | (Pick<
+  CanvasPersistedImageElement,
+  "id" | "type" | "renderState"
+> & {
+  type: "image";
+  asset?: Asset | null;
+});
 
 export const isCanvasImagePropertyIntent = (
   intent: { type: string }
 ): intent is CanvasImagePropertyIntent =>
-  intent.type === "set-image-adjustments" || intent.type === "set-image-film-profile";
+  intent.type === "set-image-render-state" || intent.type === "set-image-film-profile";
 
 export const planCanvasImagePropertyCommand = ({
   intent,
   node,
 }: {
   intent: CanvasImagePropertyIntent;
-  node: CanvasRenderableElement | null;
+  node: CanvasImagePropertyTarget | null;
 }): CanvasImagePropertyCommand | null => {
   if (node?.type !== "image") {
     return null;
@@ -35,26 +54,36 @@ export const planCanvasImagePropertyCommand = ({
 
 const resolveCanvasImagePropertyCommand = (
   intent: CanvasImagePropertyIntent,
-  node: CanvasRenderableImageElement
-): CanvasImagePropertyCommand => {
+  node: CanvasImagePropertyImageTarget
+): CanvasImagePropertyCommand | null => {
+  const baseRenderState = resolveCanvasImageRenderStateForMutation(node) ?? node.renderState ?? null;
+
   switch (intent.type) {
-    case "set-image-adjustments":
+    case "set-image-render-state":
       return {
-        type: "APPLY_IMAGE_ADJUSTMENTS",
-        adjustments: intent.value,
+        type: "SET_IMAGE_RENDER_STATE",
+        renderState: intent.value,
         id: node.id,
       };
     case "set-image-film-profile":
+      if (!baseRenderState) {
+        return null;
+      }
       return {
-        type: "UPDATE_NODE_PROPS",
-        updates: [
-          {
-            id: node.id,
-            patch: {
-              filmProfileId: intent.value,
-            },
+        type: "SET_IMAGE_RENDER_STATE",
+        id: node.id,
+        renderState: {
+          ...baseRenderState,
+          film: {
+            ...(baseRenderState.film ?? {
+              profile: undefined,
+              profileId: null,
+              profileOverrides: null,
+            }),
+            profileId: intent.value ?? null,
+            profile: intent.value ? getBuiltInFilmProfile(intent.value) ?? undefined : undefined,
           },
-        ],
+        } as CanvasImageRenderStateV1,
       };
   }
 };

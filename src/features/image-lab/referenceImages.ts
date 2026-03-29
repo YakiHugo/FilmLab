@@ -1,183 +1,136 @@
 import type { GenerationConfig } from "@/stores/generationConfigStore";
-import {
-  validateImageAssetRefs,
-  type ImageGenerationAssetRefRole,
-  type ReferenceImage,
-} from "@/types/imageGeneration";
+import { dedupeImageInputAssets, type ImageGenerationOperation } from "@/types/imageGeneration";
 
-const dedupeAssetRefs = (assetRefs: GenerationConfig["assetRefs"]) => {
-  const seen = new Set<string>();
-  return assetRefs.filter((assetRef) => {
-    const key = assetRef.assetId;
-    if (seen.has(key)) {
-      return false;
-    }
-    seen.add(key);
-    return true;
-  });
-};
+const getGuideInputAssets = (config: GenerationConfig) =>
+  config.inputAssets.filter((inputAsset) => inputAsset.binding === "guide");
 
-const toAssetRef = (
-  assetId: string,
-  role: ImageGenerationAssetRefRole,
-  referenceImage?: ReferenceImage | null
-): GenerationConfig["assetRefs"][number] => ({
-  assetId,
-  role,
-  ...(role === "reference" && referenceImage
-    ? {
-        referenceType: referenceImage.type,
-        weight: referenceImage.weight ?? 1,
-      }
-    : {}),
-});
+const getSourceInputAssets = (config: GenerationConfig) =>
+  config.inputAssets.filter((inputAsset) => inputAsset.binding === "source");
 
-const toBoundReferenceImage = (
-  assetId: string,
-  referenceImage: ReferenceImage
-): ReferenceImage => ({
-  ...referenceImage,
-  type: "content",
-  weight: 1,
-  sourceAssetId: assetId,
-});
-
-const resolveBoundReferenceImage = (
-  config: GenerationConfig,
-  assetId: string,
-  referenceImage?: ReferenceImage | null
-) =>
-  referenceImage ??
-  config.referenceImages.find(
-    (entry) => entry.sourceAssetId === assetId
-  ) ??
-  null;
-
-const withUpdatedAssetBinding = (
+export const bindGuideAssetToConfig = (
   config: GenerationConfig,
   input: {
     assetId: string;
-    role: ImageGenerationAssetRefRole;
-    includeReferenceImage: boolean;
-    referenceImage?: ReferenceImage | null;
+    guideType?: "style" | "content" | "controlnet";
+    weight?: number;
   }
-) => {
-  const nextAssetRefs = dedupeAssetRefs([
-    toAssetRef(input.assetId, input.role, input.referenceImage),
-    ...config.assetRefs.filter((assetRef) => assetRef.assetId !== input.assetId),
+): GenerationConfig => {
+  const nextInputAssets = dedupeImageInputAssets([
+    {
+      assetId: input.assetId,
+      binding: "guide",
+      guideType: input.guideType ?? "content",
+      ...(typeof input.weight === "number" ? { weight: input.weight } : { weight: 1 }),
+    },
+    ...config.inputAssets.filter((inputAsset) => inputAsset.assetId !== input.assetId),
   ]);
-  const issues = validateImageAssetRefs(nextAssetRefs);
-  if (issues.length > 0) {
-    return {
-      nextConfig: config,
-      error: issues[0]?.message ?? "Asset roles are incompatible for this turn.",
-    };
-  }
-
-  const nextReferenceImage = resolveBoundReferenceImage(
-    config,
-    input.assetId,
-    input.referenceImage
-  );
-  const referenceImages = input.includeReferenceImage && nextReferenceImage
-    ? [
-        toBoundReferenceImage(input.assetId, nextReferenceImage),
-        ...config.referenceImages.filter(
-          (referenceImage) => referenceImage.sourceAssetId !== input.assetId
-        ),
-      ]
-    : config.referenceImages.filter(
-        (referenceImage) => referenceImage.sourceAssetId !== input.assetId
-      );
+  const hasSourceAsset = nextInputAssets.some((inputAsset) => inputAsset.binding === "source");
 
   return {
-    nextConfig: {
-      ...config,
-      referenceImages,
-      assetRefs: nextAssetRefs,
-    },
-    error: null,
+    ...config,
+    operation: hasSourceAsset ? config.operation : "generate",
+    inputAssets: nextInputAssets,
   };
 };
 
-export const bindResultAssetToConfig = (
+export const updateGuideAssetInConfig = (
   config: GenerationConfig,
-  input: {
-    assetId: string;
-    role: ImageGenerationAssetRefRole;
-    includeReferenceImage: boolean;
-    referenceImage?: ReferenceImage | null;
+  assetId: string,
+  patch: {
+    guideType?: "style" | "content" | "controlnet";
+    weight?: number;
   }
-) => withUpdatedAssetBinding(config, input);
-
-export const updateAssetRefRoleInConfig = (
-  config: GenerationConfig,
-  input: {
-    assetId: string;
-    role: ImageGenerationAssetRefRole;
-    includeReferenceImage: boolean;
-  }
-) =>
-  withUpdatedAssetBinding(config, {
-    ...input,
-    referenceImage: null,
-  });
-
-export const bindResultReferenceToConfig = (
-  config: GenerationConfig,
-  input: {
-    assetId: string;
-    referenceImage: ReferenceImage;
-  }
-): GenerationConfig =>
-  bindResultAssetToConfig(config, {
-    assetId: input.assetId,
-    role: "reference",
-    includeReferenceImage: true,
-    referenceImage: input.referenceImage,
-  }).nextConfig;
-
-export const removeBoundResultReferenceFromConfig = (
-  config: GenerationConfig,
-  assetId: string
 ): GenerationConfig => ({
   ...config,
-  referenceImages: config.referenceImages.filter(
-    (referenceImage) => referenceImage.sourceAssetId !== assetId
+  inputAssets: config.inputAssets.map((inputAsset) =>
+    inputAsset.assetId === assetId && inputAsset.binding === "guide"
+      ? {
+          ...inputAsset,
+          ...(patch.guideType ? { guideType: patch.guideType } : {}),
+          ...(typeof patch.weight === "number" ? { weight: patch.weight } : {}),
+        }
+      : inputAsset
   ),
-  assetRefs: config.assetRefs.filter((assetRef) => assetRef.assetId !== assetId),
 });
 
-export const clearReferenceInputsForUnsupportedModel = (
+export const removeGuideAssetFromConfig = (
+  config: GenerationConfig,
+  assetId: string
+): GenerationConfig => {
+  const nextInputAssets = config.inputAssets.filter(
+    (inputAsset) =>
+      !(inputAsset.assetId === assetId && inputAsset.binding === "guide")
+  );
+  const hasSourceAsset = nextInputAssets.some((inputAsset) => inputAsset.binding === "source");
+
+  return {
+    ...config,
+    operation: hasSourceAsset ? config.operation : "generate",
+    inputAssets: nextInputAssets,
+  };
+};
+
+export const clearGuideAssetsFromConfig = (config: GenerationConfig): GenerationConfig => {
+  const nextInputAssets = config.inputAssets.filter((inputAsset) => inputAsset.binding !== "guide");
+  const hasSourceAsset = nextInputAssets.some((inputAsset) => inputAsset.binding === "source");
+
+  return {
+    ...config,
+    operation: hasSourceAsset ? config.operation : "generate",
+    inputAssets: nextInputAssets,
+  };
+};
+
+export const setSourceAssetInConfig = (
+  config: GenerationConfig,
+  input: {
+    assetId: string;
+    operation: Exclude<ImageGenerationOperation, "generate">;
+  }
+): GenerationConfig => ({
+  ...config,
+  operation: input.operation,
+  inputAssets: dedupeImageInputAssets([
+    {
+      assetId: input.assetId,
+      binding: "source",
+    },
+    ...getGuideInputAssets(config),
+  ]),
+});
+
+export const clearSourceAssetFromConfig = (config: GenerationConfig): GenerationConfig => ({
+  ...config,
+  operation: "generate",
+  inputAssets: getGuideInputAssets(config),
+});
+
+export const removeInputAssetFromConfig = (
+  config: GenerationConfig,
+  assetId: string
+): GenerationConfig => {
+  const remainingInputAssets = config.inputAssets.filter((inputAsset) => inputAsset.assetId !== assetId);
+  const stillHasSource = remainingInputAssets.some((inputAsset) => inputAsset.binding === "source");
+
+  return {
+    ...config,
+    operation: stillHasSource ? config.operation : "generate",
+    inputAssets: remainingInputAssets,
+  };
+};
+
+export const clearImageInputsForUnsupportedModel = (
   config: GenerationConfig
 ): {
   nextConfig: GenerationConfig;
-  removedReferenceImageCount: number;
-  removedAssetRefCount: number;
+  removedGuideCount: number;
+  removedSourceCount: number;
 } => ({
   nextConfig: {
     ...config,
-    referenceImages: [],
-    assetRefs: [],
+    operation: "generate",
+    inputAssets: [],
   },
-  removedReferenceImageCount: config.referenceImages.length,
-  removedAssetRefCount: config.assetRefs.length,
-});
-
-export const clearReferenceImagesFromConfig = (
-  config: GenerationConfig
-): GenerationConfig => ({
-  ...config,
-  referenceImages: [],
-  assetRefs: config.assetRefs.filter((assetRef) => assetRef.role !== "reference"),
-});
-
-export const clearBoundResultReferencesFromConfig = (
-  config: GenerationConfig
-): GenerationConfig => ({
-  ...config,
-  referenceImages: config.referenceImages.filter(
-    (referenceImage) => !referenceImage.sourceAssetId
-  ),
-  assetRefs: [],
+  removedGuideCount: getGuideInputAssets(config).length,
+  removedSourceCount: getSourceInputAssets(config).length,
 });

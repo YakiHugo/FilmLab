@@ -9,23 +9,32 @@ import {
 import { EditorSection } from "@/features/editor/EditorSection";
 import { SliderControl } from "@/features/editor/components/controls/SliderControl";
 import type { NumericAdjustmentKey } from "@/features/editor/types";
-import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
+import { createDefaultAdjustments } from "@/lib/adjustments";
 import { asciiAdjustmentsEqual } from "@/lib/asciiRaster";
 import { cn } from "@/lib/utils";
 import {
-  useCanvasElementDraftAdjustments,
+  useCanvasElementDraftRenderState,
   useCanvasPreviewActions,
   useCanvasRuntimeAsset,
 } from "@/features/canvas/runtime/canvasRuntimeHooks";
-import type { AsciiAdjustments, EditingAdjustments } from "@/types";
+import { resolveCanvasImageRenderState } from "@/features/canvas/imageRenderState";
+import type { CanvasImageRenderStateV1 } from "@/render/image";
+import type { AsciiAdjustments } from "@/types";
 import {
   canvasDockBodyTextClassName,
   canvasDockSelectContentClassName,
   canvasDockSelectTriggerClassName,
 } from "./editDockTheme";
+import type { CanvasImageEditTarget } from "./editPanelSelection";
+import {
+  applyAsciiAdjustmentsToRenderState,
+  applyNumericAdjustmentToRenderState,
+  type CanvasImageAdjustmentView,
+  DEFAULT_CANVAS_IMAGE_ADJUSTMENT_VIEW,
+  getCanvasImageAdjustmentView,
+  resetRenderStateForAdjustmentKeys,
+} from "./imageRenderStateEditing";
 import { useCanvasImagePropertyActions } from "./hooks/useCanvasImagePropertyActions";
-import { useCanvasSelectionModel } from "./hooks/useCanvasSelectionModel";
-import { resolvePrimarySelectedImageElement } from "./selectionModel";
 
 const DEFAULT_ADJUSTMENTS = createDefaultAdjustments();
 
@@ -41,12 +50,11 @@ interface ProjectSliderDefinition {
 }
 
 interface ProjectEditControlsProps {
-  adjustments: EditingAdjustments;
+  adjustments: CanvasImageAdjustmentView;
   asciiAdjustments: AsciiAdjustments;
   asciiHasChanges: boolean;
   colorHasChanges: boolean;
   commitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
-  commitAdjustments: (nextAdjustments: EditingAdjustments) => void;
   detailHasChanges: boolean;
   disabled: boolean;
   effectsHasChanges: boolean;
@@ -61,78 +69,79 @@ interface ProjectEditControlsProps {
 
 interface CanvasImageEditPanelProps {
   children?: ReactNode;
+  imageElement: CanvasImageEditTarget | null;
 }
 
 const formatSigned = (value: number) => (value > 0 ? `+${value}` : `${value}`);
 
 const LIGHT_AND_CONTRAST_SLIDERS: ProjectSliderDefinition[] = [
-  { key: "brightness", label: "Brightness", min: -100, max: 100, format: formatSigned },
-  { key: "exposure", label: "Exposure", min: -100, max: 100, format: formatSigned },
-  { key: "contrast", label: "Contrast", min: -100, max: 100, format: formatSigned },
-  { key: "clarity", label: "Clarity", min: -100, max: 100, format: formatSigned },
+  { key: "brightness", label: "亮度", min: -100, max: 100, format: formatSigned },
+  { key: "exposure", label: "曝光", min: -100, max: 100, format: formatSigned },
+  { key: "contrast", label: "对比度", min: -100, max: 100, format: formatSigned },
+  { key: "clarity", label: "清晰度", min: -100, max: 100, format: formatSigned },
 ];
 
 const COLOR_AND_WHITE_BALANCE_SLIDERS: ProjectSliderDefinition[] = [
-  { key: "temperature", label: "Temperature", min: -100, max: 100, format: formatSigned },
-  { key: "tint", label: "Tint", min: -100, max: 100, format: formatSigned },
-  { key: "saturation", label: "Saturation", min: -100, max: 100, format: formatSigned },
-  { key: "vibrance", label: "Vibrance", min: -100, max: 100, format: formatSigned },
-  { key: "hue", label: "Hue", min: -100, max: 100, format: formatSigned },
+  { key: "temperature", label: "色温", min: -100, max: 100, format: formatSigned },
+  { key: "tint", label: "色偏", min: -100, max: 100, format: formatSigned },
+  { key: "saturation", label: "饱和度", min: -100, max: 100, format: formatSigned },
+  { key: "vibrance", label: "自然饱和度", min: -100, max: 100, format: formatSigned },
+  { key: "hue", label: "色相", min: -100, max: 100, format: formatSigned },
 ];
 
 const HIGHLIGHTS_AND_SHADOWS_SLIDERS: ProjectSliderDefinition[] = [
-  { key: "highlights", label: "Highlights", min: -100, max: 100, format: formatSigned },
-  { key: "shadows", label: "Shadows", min: -100, max: 100, format: formatSigned },
-  { key: "whites", label: "White Level", min: -100, max: 100, format: formatSigned },
-  { key: "blacks", label: "Black Level", min: -100, max: 100, format: formatSigned },
+  { key: "highlights", label: "高光", min: -100, max: 100, format: formatSigned },
+  { key: "shadows", label: "阴影", min: -100, max: 100, format: formatSigned },
+  { key: "whites", label: "白色色阶", min: -100, max: 100, format: formatSigned },
+  { key: "blacks", label: "黑色色阶", min: -100, max: 100, format: formatSigned },
 ];
 
 const EFFECTS_AND_FILTERS_SLIDERS: ProjectSliderDefinition[] = [
-  { key: "texture", label: "Texture", min: -100, max: 100, format: formatSigned },
-  { key: "dehaze", label: "Dehaze", min: -100, max: 100, format: formatSigned },
-  { key: "vignette", label: "Vignette", min: -100, max: 100, format: formatSigned },
-  { key: "grain", label: "Grain", min: 0, max: 100 },
-  { key: "grainSize", label: "Grain Size", min: 0, max: 100 },
-  { key: "grainRoughness", label: "Grain Roughness", min: 0, max: 100 },
-  { key: "blur", label: "Blur", min: 0, max: 100 },
-  { key: "dilate", label: "Dilate", min: 0, max: 100 },
+  { key: "texture", label: "纹理", min: -100, max: 100, format: formatSigned },
+  { key: "dehaze", label: "去朦胧", min: -100, max: 100, format: formatSigned },
+  { key: "vignette", label: "暗角", min: -100, max: 100, format: formatSigned },
+  { key: "grain", label: "颗粒", min: 0, max: 100 },
+  { key: "grainSize", label: "颗粒大小", min: 0, max: 100 },
+  { key: "grainRoughness", label: "颗粒粗糙度", min: 0, max: 100 },
+  { key: "blur", label: "模糊", min: 0, max: 100 },
+  { key: "dilate", label: "膨胀", min: 0, max: 100 },
 ];
 
 const DETAIL_AND_GLOW_SLIDERS: ProjectSliderDefinition[] = [
-  { key: "sharpening", label: "Sharpening", min: 0, max: 100 },
-  { key: "sharpenRadius", label: "Sharpen Radius", min: 0, max: 100 },
-  { key: "sharpenDetail", label: "Sharpen Detail", min: 0, max: 100 },
-  { key: "masking", label: "Masking", min: 0, max: 100 },
-  { key: "noiseReduction", label: "Noise Reduction", min: 0, max: 100 },
-  { key: "colorNoiseReduction", label: "Color Noise", min: 0, max: 100 },
-  { key: "glowIntensity", label: "Glow Intensity", min: 0, max: 100 },
-  { key: "glowMidtoneFocus", label: "Glow Midtone Focus", min: 0, max: 100 },
-  { key: "glowBias", label: "Glow Bias", min: 0, max: 100 },
-  { key: "glowRadius", label: "Glow Radius", min: 0, max: 100 },
+  { key: "sharpening", label: "锐化", min: 0, max: 100 },
+  { key: "sharpenRadius", label: "锐化半径", min: 0, max: 100 },
+  { key: "sharpenDetail", label: "锐化细节", min: 0, max: 100 },
+  { key: "masking", label: "蒙版", min: 0, max: 100 },
+  { key: "noiseReduction", label: "降噪", min: 0, max: 100 },
+  { key: "colorNoiseReduction", label: "彩色噪点", min: 0, max: 100 },
+  { key: "glowIntensity", label: "辉光强度", min: 0, max: 100 },
+  { key: "glowMidtoneFocus", label: "中间调聚焦", min: 0, max: 100 },
+  { key: "glowBias", label: "辉光偏移", min: 0, max: 100 },
+  { key: "glowRadius", label: "辉光半径", min: 0, max: 100 },
 ];
 
 const ASCII_CHARSET_OPTIONS: Array<{
   label: string;
   value: AsciiAdjustments["charsetPreset"];
 }> = [
-  { label: "Standard", value: "standard" },
-  { label: "Blocks", value: "blocks" },
-  { label: "Detailed", value: "detailed" },
+  { label: "标准", value: "standard" },
+  { label: "方块", value: "blocks" },
+  { label: "细节", value: "detailed" },
 ];
 
 const ASCII_COLOR_MODE_OPTIONS: Array<{
   label: string;
   value: AsciiAdjustments["colorMode"];
 }> = [
-  { label: "Grayscale", value: "grayscale" },
-  { label: "Full Color", value: "full-color" },
+  { label: "灰度", value: "grayscale" },
+  { label: "全彩", value: "full-color" },
 ];
 
 const ASCII_DITHER_OPTIONS: Array<{
   label: string;
   value: AsciiAdjustments["dither"];
 }> = [
-  { label: "None", value: "none" },
+  { label: "无", value: "none" },
   { label: "Floyd-Steinberg", value: "floyd-steinberg" },
 ];
 
@@ -210,7 +219,7 @@ const ProjectSliderRow = memo(function ProjectSliderRow({
 });
 
 const renderSliderRows = (
-  adjustments: EditingAdjustments,
+  adjustments: CanvasImageAdjustmentView,
   sliders: ProjectSliderDefinition[],
   onPreviewAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void,
   onCommitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void
@@ -231,7 +240,7 @@ const renderSliderRows = (
   ));
 
 const hasSliderSectionChanges = (
-  adjustments: EditingAdjustments,
+  adjustments: CanvasImageAdjustmentView,
   sliders: ProjectSliderDefinition[]
 ) =>
   sliders.some(
@@ -239,19 +248,12 @@ const hasSliderSectionChanges = (
       Number(adjustments[slider.key] ?? 0) !== Number(DEFAULT_ADJUSTMENTS[slider.key] ?? 0)
   );
 
-const createResetPatch = (sliders: ProjectSliderDefinition[]): Partial<EditingAdjustments> =>
-  sliders.reduce<Partial<EditingAdjustments>>((patch, slider) => {
-    patch[slider.key] = DEFAULT_ADJUSTMENTS[slider.key] as EditingAdjustments[typeof slider.key];
-    return patch;
-  }, {});
-
 const ProjectEditControls = memo(function ProjectEditControls({
   adjustments,
   asciiAdjustments,
   asciiHasChanges,
   colorHasChanges,
   commitAdjustmentValue,
-  commitAdjustments,
   detailHasChanges,
   disabled,
   effectsHasChanges,
@@ -267,7 +269,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
     <section>
       <EditorSection
         variant="canvasDock"
-        title="Light & Contrast"
+        title="光线与对比"
         isOpen={openSections.light}
         onToggle={() => onToggleSection("light")}
         hasChanges={lightHasChanges}
@@ -284,7 +286,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
 
       <EditorSection
         variant="canvasDock"
-        title="Color & White Balance"
+        title="色彩与白平衡"
         isOpen={openSections.color}
         onToggle={() => onToggleSection("color")}
         hasChanges={colorHasChanges}
@@ -301,7 +303,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
 
       <EditorSection
         variant="canvasDock"
-        title="Highlights and Shadows"
+        title="高光与阴影"
         isOpen={openSections.tones}
         onToggle={() => onToggleSection("tones")}
         hasChanges={tonesHasChanges}
@@ -318,7 +320,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
 
       <EditorSection
         variant="canvasDock"
-        title="Effects & Filters"
+        title="效果与滤镜"
         isOpen={openSections.effects}
         onToggle={() => onToggleSection("effects")}
         hasChanges={effectsHasChanges}
@@ -335,7 +337,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
 
       <EditorSection
         variant="canvasDock"
-        title="Detail & Glow"
+        title="细节与辉光"
         isOpen={openSections.detail}
         onToggle={() => onToggleSection("detail")}
         hasChanges={detailHasChanges}
@@ -352,19 +354,12 @@ const ProjectEditControls = memo(function ProjectEditControls({
 
       <EditorSection
         variant="canvasDock"
-        title="ASCII Raster"
+        title="ASCII 光栅"
         isOpen={openSections.ascii}
         onToggle={() => onToggleSection("ascii")}
         hasChanges={asciiHasChanges}
         canResetChanges={asciiHasChanges}
-        onResetChanges={() =>
-          commitAdjustments(
-            normalizeAdjustments({
-              ...adjustments,
-              ascii: { ...DEFAULT_ADJUSTMENTS.ascii! },
-            })
-          )
-        }
+        onResetChanges={() => updateAsciiAdjustments({ ...DEFAULT_ADJUSTMENTS.ascii! })}
       >
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-2">
@@ -378,7 +373,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
               )}
               onClick={() => updateAsciiAdjustments({ enabled: !asciiAdjustments.enabled })}
             >
-              {asciiAdjustments.enabled ? "ASCII On" : "ASCII Off"}
+              {asciiAdjustments.enabled ? "ASCII 已开启" : "ASCII 已关闭"}
             </button>
             <button
               type="button"
@@ -391,7 +386,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
               )}
               onClick={() => updateAsciiAdjustments({ invert: !asciiAdjustments.invert })}
             >
-              Invert
+              反相
             </button>
           </div>
 
@@ -406,7 +401,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
               disabled={!asciiAdjustments.enabled || disabled}
             >
               <SelectTrigger className={canvasDockSelectTriggerClassName}>
-                <SelectValue placeholder="Character set" />
+                <SelectValue placeholder="字符集" />
               </SelectTrigger>
               <SelectContent className={canvasDockSelectContentClassName}>
                 {ASCII_CHARSET_OPTIONS.map((option) => (
@@ -427,7 +422,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
               disabled={!asciiAdjustments.enabled || disabled}
             >
               <SelectTrigger className={canvasDockSelectTriggerClassName}>
-                <SelectValue placeholder="Color mode" />
+                <SelectValue placeholder="颜色模式" />
               </SelectTrigger>
               <SelectContent className={canvasDockSelectContentClassName}>
                 {ASCII_COLOR_MODE_OPTIONS.map((option) => (
@@ -448,7 +443,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
               disabled={!asciiAdjustments.enabled || disabled}
             >
               <SelectTrigger className={canvasDockSelectTriggerClassName}>
-                <SelectValue placeholder="Dither" />
+                <SelectValue placeholder="抖动" />
               </SelectTrigger>
               <SelectContent className={canvasDockSelectContentClassName}>
                 {ASCII_DITHER_OPTIONS.map((option) => (
@@ -462,7 +457,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
 
           <SliderControl
             variant="canvasDock"
-            label="Cell Size"
+            label="单元尺寸"
             value={asciiAdjustments.cellSize}
             defaultValue={DEFAULT_ADJUSTMENTS.ascii?.cellSize ?? 12}
             min={6}
@@ -473,7 +468,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
           />
           <SliderControl
             variant="canvasDock"
-            label="Character Spacing"
+            label="字符间距"
             value={asciiAdjustments.characterSpacing}
             defaultValue={DEFAULT_ADJUSTMENTS.ascii?.characterSpacing ?? 1}
             min={0.7}
@@ -486,7 +481,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
           />
           <SliderControl
             variant="canvasDock"
-            label="ASCII Contrast"
+            label="ASCII 对比度"
             value={asciiAdjustments.contrast}
             defaultValue={DEFAULT_ADJUSTMENTS.ascii?.contrast ?? 1}
             min={0.5}
@@ -503,38 +498,40 @@ const ProjectEditControls = memo(function ProjectEditControls({
   );
 });
 
-export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
+export function CanvasImageEditPanel({
+  children,
+  imageElement,
+}: CanvasImageEditPanelProps) {
   const {
-    clearElementDraftAdjustments,
+    clearElementDraftRenderState,
     requestBoardPreview,
-    setElementDraftAdjustments,
+    setElementDraftRenderState,
   } = useCanvasPreviewActions();
   const [openSections, setOpenSections] = useState(createInitialOpenSections);
-  const { activeWorkbench, committedSelectedElementIds, primarySelectedImageElement: imageElement } =
-    useCanvasSelectionModel();
-  const { setAdjustments } = useCanvasImagePropertyActions(imageElement);
-
-  const committedImageElement = useMemo(
-    () => resolvePrimarySelectedImageElement(activeWorkbench, committedSelectedElementIds),
-    [activeWorkbench, committedSelectedElementIds]
-  );
+  const { setRenderState } = useCanvasImagePropertyActions(imageElement);
+  const committedImageElement = imageElement;
   const displayedImageElementId = imageElement?.id ?? null;
   const committedImageElementId = committedImageElement?.id ?? null;
   const committedImageElementIdRef = useRef<string | null>(committedImageElementId);
   const displayedImageElementIdRef = useRef<string | null>(displayedImageElementId);
   const { asset } = useCanvasRuntimeAsset(imageElement?.assetId ?? null);
-  const draftAdjustments = useCanvasElementDraftAdjustments(imageElement?.id ?? null);
+  const draftRenderState = useCanvasElementDraftRenderState(imageElement?.id ?? null);
 
-  const adjustments = useMemo(
+  const renderState = useMemo(
     () =>
-      normalizeAdjustments(
-        draftAdjustments ?? imageElement?.adjustments ?? asset?.adjustments ?? DEFAULT_ADJUSTMENTS
-      ),
-    [asset?.adjustments, draftAdjustments, imageElement?.adjustments]
+      imageElement
+        ? resolveCanvasImageRenderState(imageElement, asset, draftRenderState)
+        : null,
+    [asset, draftRenderState, imageElement]
   );
-  const disabled = !imageElement;
-  const adjustmentsRef = useRef(adjustments);
-  adjustmentsRef.current = adjustments;
+  const adjustments = useMemo(
+    () => (renderState ? getCanvasImageAdjustmentView(renderState) : DEFAULT_CANVAS_IMAGE_ADJUSTMENT_VIEW),
+    [renderState]
+  );
+  const hasEditableRenderState = Boolean(renderState);
+  const disabled = !imageElement || !hasEditableRenderState;
+  const renderStateRef = useRef(renderState);
+  renderStateRef.current = renderState;
 
   const toggleSection = useCallback((sectionId: CanvasEditSectionId) => {
     setOpenSections((current) => ({
@@ -549,10 +546,10 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
       previousCommittedImageElementId &&
       previousCommittedImageElementId !== committedImageElementId
     ) {
-      clearElementDraftAdjustments(previousCommittedImageElementId);
+      clearElementDraftRenderState(previousCommittedImageElementId);
     }
     committedImageElementIdRef.current = committedImageElementId;
-  }, [clearElementDraftAdjustments, committedImageElementId]);
+  }, [clearElementDraftRenderState, committedImageElementId]);
 
   useEffect(() => {
     const previousDisplayedImageElementId = displayedImageElementIdRef.current;
@@ -561,11 +558,11 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
       previousDisplayedImageElementId !== displayedImageElementId &&
       previousDisplayedImageElementId !== committedImageElementId
     ) {
-      clearElementDraftAdjustments(previousDisplayedImageElementId);
+      clearElementDraftRenderState(previousDisplayedImageElementId);
     }
     displayedImageElementIdRef.current = displayedImageElementId;
   }, [
-    clearElementDraftAdjustments,
+    clearElementDraftRenderState,
     committedImageElementId,
     displayedImageElementId,
   ]);
@@ -578,76 +575,73 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
         currentDisplayedImageElementId &&
         currentDisplayedImageElementId !== currentCommittedImageElementId
       ) {
-        clearElementDraftAdjustments(currentDisplayedImageElementId);
+        clearElementDraftRenderState(currentDisplayedImageElementId);
       }
       if (currentCommittedImageElementId) {
-        clearElementDraftAdjustments(currentCommittedImageElementId);
+        clearElementDraftRenderState(currentCommittedImageElementId);
       }
     },
-    [clearElementDraftAdjustments]
+    [clearElementDraftRenderState]
   );
 
-  const previewAdjustments = useCallback(
-    (nextAdjustments: EditingAdjustments) => {
-      if (!imageElement) {
+  const previewRenderState = useCallback(
+    (nextRenderState: CanvasImageRenderStateV1) => {
+      if (!imageElement || !nextRenderState) {
         return;
       }
-      setElementDraftAdjustments(imageElement.id, nextAdjustments);
+      setElementDraftRenderState(imageElement.id, nextRenderState);
       void requestBoardPreview(imageElement.id, "interactive");
     },
-    [imageElement, requestBoardPreview, setElementDraftAdjustments]
+    [imageElement, requestBoardPreview, setElementDraftRenderState]
   );
 
   const commitAdjustments = useCallback(
-    async (nextAdjustments: EditingAdjustments) => {
-      if (!imageElement) {
+    async (nextRenderState: CanvasImageRenderStateV1) => {
+      if (!imageElement || !nextRenderState) {
         return;
       }
-      setElementDraftAdjustments(imageElement.id, nextAdjustments);
-      await setAdjustments(nextAdjustments);
-      clearElementDraftAdjustments(imageElement.id);
-      void requestBoardPreview(imageElement.id, "interactive");
+      setElementDraftRenderState(imageElement.id, nextRenderState);
+      await setRenderState(nextRenderState);
+      clearElementDraftRenderState(imageElement.id);
     },
     [
-      clearElementDraftAdjustments,
+      clearElementDraftRenderState,
       imageElement,
-      requestBoardPreview,
-      setElementDraftAdjustments,
-      setAdjustments,
+      setElementDraftRenderState,
+      setRenderState,
     ]
   );
 
   const previewAdjustmentValue = useCallback(
     (key: NumericAdjustmentKey, value: number) => {
-      previewAdjustments(
-        normalizeAdjustments({
-          ...adjustmentsRef.current,
-          [key]: value,
-        })
-      );
+      if (!renderStateRef.current) {
+        return;
+      }
+      previewRenderState(applyNumericAdjustmentToRenderState(renderStateRef.current, key, value));
     },
-    [previewAdjustments]
+    [previewRenderState]
   );
 
   const commitAdjustmentValue = useCallback(
     (key: NumericAdjustmentKey, value: number) => {
-      void commitAdjustments(
-        normalizeAdjustments({
-          ...adjustmentsRef.current,
-          [key]: value,
-        })
-      );
+      if (!renderStateRef.current) {
+        return;
+      }
+      void commitAdjustments(applyNumericAdjustmentToRenderState(renderStateRef.current, key, value));
     },
     [commitAdjustments]
   );
 
   const resetSection = useCallback(
     (sliders: ProjectSliderDefinition[]) => {
+      if (!renderStateRef.current) {
+        return;
+      }
       void commitAdjustments(
-        normalizeAdjustments({
-          ...adjustmentsRef.current,
-          ...createResetPatch(sliders),
-        })
+        resetRenderStateForAdjustmentKeys(
+          renderStateRef.current,
+          sliders.map((slider) => slider.key)
+        )
       );
     },
     [commitAdjustments]
@@ -663,22 +657,17 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
 
   const updateAsciiAdjustments = useCallback(
     (partial: Partial<AsciiAdjustments>, mode: "preview" | "commit" = "commit") => {
-      const currentAdjustments = adjustmentsRef.current;
-      const currentAsciiAdjustments = currentAdjustments.ascii ?? DEFAULT_ADJUSTMENTS.ascii!;
-      const nextAdjustments = normalizeAdjustments({
-        ...currentAdjustments,
-        ascii: {
-          ...currentAsciiAdjustments,
-          ...partial,
-        },
-      });
-      if (mode === "preview") {
-        previewAdjustments(nextAdjustments);
+      if (!renderStateRef.current) {
         return;
       }
-      void commitAdjustments(nextAdjustments);
+      const nextRenderState = applyAsciiAdjustmentsToRenderState(renderStateRef.current, partial);
+      if (mode === "preview") {
+        previewRenderState(nextRenderState);
+        return;
+      }
+      void commitAdjustments(nextRenderState);
     },
-    [commitAdjustments, previewAdjustments]
+    [commitAdjustments, previewRenderState]
   );
 
   return (
@@ -686,7 +675,9 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
       {disabled ? (
         <div className="py-5">
           <p className={canvasDockBodyTextClassName}>
-            Select an image on the canvas to start editing.
+            {imageElement
+              ? "源素材可用后，这里的图像控制就会解锁。"
+              : "在画布上选择一张图片后，即可开始编辑。"}
           </p>
         </div>
       ) : (
@@ -696,7 +687,6 @@ export function CanvasImageEditPanel({ children }: CanvasImageEditPanelProps) {
           asciiHasChanges={asciiHasChanges}
           colorHasChanges={colorHasChanges}
           commitAdjustmentValue={commitAdjustmentValue}
-          commitAdjustments={commitAdjustments}
           detailHasChanges={detailHasChanges}
           disabled={disabled}
           effectsHasChanges={effectsHasChanges}

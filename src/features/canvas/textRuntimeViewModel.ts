@@ -103,6 +103,21 @@ const resolveEditingTextElement = ({
   return isEditableTextElement(editingTextElement) ? editingTextElement : null;
 };
 
+const resolveSelectedTextElement = ({
+  displaySelectedElementIds,
+  nodeById,
+}: Pick<
+  ResolveCanvasTextRuntimeViewModelOptions,
+  "displaySelectedElementIds" | "nodeById"
+>) => {
+  if (displaySelectedElementIds.length !== 1) {
+    return null;
+  }
+
+  const selectedElement = nodeById.get(displaySelectedElementIds[0]!);
+  return isEditableTextElement(selectedElement) ? selectedElement : null;
+};
+
 const resolveTrackedOverlayId = ({
   editingTextId,
   selectedElementIds,
@@ -163,7 +178,11 @@ export const resolveCanvasTextRuntimeViewModel = ({
     nodeById,
     textSession,
   });
-  const activeTextElement = editingTextElement;
+  const selectedTextElement = resolveSelectedTextElement({
+    displaySelectedElementIds,
+    nodeById,
+  });
+  const activeTextElement = editingTextElement ?? selectedTextElement;
   const activeTextEditorModel = activeTextElement
     ? toCanvasTextEditorModel(activeTextElement)
     : null;

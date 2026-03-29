@@ -130,13 +130,10 @@ const createTextSession = (
   ...createCanvasTextSessionSnapshot(),
   draft: null,
   hasMaterializedElement: true,
-  hasPersistedExistingDraft: false,
   id: "text-1",
-  initialElement: null,
   mode: "existing",
   sessionToken: 1,
   status: "editing",
-  transitionToken: 0,
   value: "Draft",
   workbenchId: "workbench-1",
   ...overrides,
@@ -185,7 +182,7 @@ describe("text runtime view model helpers", () => {
     expect(result.showEditingTextSelectionOutline).toBe(false);
   });
 
-  it("revokes the editing identity when the active workbench no longer owns the session", () => {
+  it("revokes the editing identity when the active workbench no longer owns the session but keeps selected-text toolbar state", () => {
     const textElement = createRenderableTextElement();
     const editingTextDraft = createEditingTextDraft();
     const result = resolveCanvasTextRuntimeViewModel({
@@ -202,7 +199,37 @@ describe("text runtime view model helpers", () => {
 
     expect(result.activeEditingTextId).toBeNull();
     expect(result.renderedEditingTextDraft).toBeNull();
-    expect(result.activeTextEditorModel).toBeNull();
+    expect(result.activeTextEditorModel?.id).toBe("text-1");
+    expect(result.showTextEditor).toBe(false);
+    expect(result.showTextToolbar).toBe(true);
+  });
+
+  it("shows the text toolbar for a single selected text node even without an active text session", () => {
+    const textElement = createRenderableTextElement();
+    const result = resolveCanvasTextRuntimeViewModel({
+      activeWorkbenchId: "workbench-1",
+      displaySelectedElementIds: ["text-1"],
+      hasMarqueeSession: false,
+      isMarqueeDragging: false,
+      nodeById: createNodeById([textElement]),
+      selectedElementIds: ["text-1"],
+      textSession: {
+        ...createCanvasTextSessionSnapshot(),
+        draft: null,
+        hasMaterializedElement: false,
+        id: null,
+        mode: null,
+        sessionToken: 0,
+        status: "idle",
+        value: "",
+        workbenchId: null,
+      },
+    });
+
+    expect(result.activeEditingTextId).toBeNull();
+    expect(result.activeTextEditorModel?.id).toBe("text-1");
+    expect(result.textOverlayModel?.id).toBe("text-1");
+    expect(result.showTextToolbar).toBe(true);
     expect(result.showTextEditor).toBe(false);
   });
 

@@ -1,8 +1,13 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useCanvasStore } from "@/stores/canvasStore";
+import { shouldOpenCanvasEditPanelForElement } from "../editPanelSelection";
 import { planCanvasLayerDrop } from "../layerPanelState";
-import { useCanvasInteraction } from "./useCanvasInteraction";
+import {
+  resolvePrimarySelectedElement,
+  selectionIdsEqual,
+} from "../selectionModel";
 import { useCanvasLayers } from "./useCanvasLayers";
-import { useCanvasSelectionModel } from "./useCanvasSelectionModel";
+import { useCanvasSelectionActions } from "./useCanvasSelectionActions";
 
 export function useCanvasLayerPanelModel() {
   const {
@@ -18,10 +23,21 @@ export function useCanvasLayerPanelModel() {
     toggleElementVisibility,
     ungroupNode,
   } = useCanvasLayers();
-  const { displaySelectedElementIdSet, displaySelectedElementIds, primarySelectedElement } =
-    useCanvasSelectionModel();
-  const { selectElement } = useCanvasInteraction();
+  const selectedElementIds = useCanvasStore(
+    (state) => state.selectedElementIds,
+    selectionIdsEqual
+  );
+  const openEditPanel = useCanvasStore((state) => state.openEditPanel);
+  const { selectElement } = useCanvasSelectionActions();
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const selectedElementIdSet = useMemo(
+    () => new Set(selectedElementIds),
+    [selectedElementIds]
+  );
+  const primarySelectedElement = useMemo(
+    () => resolvePrimarySelectedElement(activeWorkbench, selectedElementIds),
+    [activeWorkbench, selectedElementIds]
+  );
 
   const handleDrop = useCallback(
     (layerId: string) => {
@@ -49,48 +65,84 @@ export function useCanvasLayerPanelModel() {
     [activeWorkbench, activeWorkbenchId, draggingId, layers, reorderElements, reparentNodes]
   );
 
-  return {
-    assetById,
-    displaySelectedElementIdSet,
-    displaySelectedElementIds,
-    draggingId,
-    handleDelete: (layerId: string) => {
+  const handleDelete = useCallback(
+    (layerId: string) => {
       if (!activeWorkbenchId) {
         return;
       }
       void deleteNodes([layerId]);
     },
-    handleDragStart: (layerId: string) => {
-      setDraggingId(layerId);
-    },
-    handleDrop,
-    handleGroup: () => {
-      if (!activeWorkbenchId || displaySelectedElementIds.length < 2) {
-        return;
+    [activeWorkbenchId, deleteNodes]
+  );
+
+  const handleDragStart = useCallback((layerId: string) => {
+    setDraggingId(layerId);
+  }, []);
+
+  const handleGroup = useCallback(() => {
+    if (!activeWorkbenchId || selectedElementIds.length < 2) {
+      return;
+    }
+    void groupNodes(selectedElementIds);
+  }, [activeWorkbenchId, groupNodes, selectedElementIds]);
+
+  const handleSelect = useCallback(
+    (layerId: string, additive: boolean) => {
+      const didSelect = selectElement(layerId, { additive });
+      if (
+        didSelect &&
+        shouldOpenCanvasEditPanelForElement({
+          activeWorkbench,
+          additive,
+          elementId: layerId,
+        })
+      ) {
+        openEditPanel();
       }
-      void groupNodes(displaySelectedElementIds);
     },
-    handleSelect: (layerId: string, additive: boolean) => {
-      selectElement(layerId, { additive });
-    },
-    handleToggleLock: (layerId: string) => {
+    [activeWorkbench, openEditPanel, selectElement]
+  );
+
+  const handleToggleLock = useCallback(
+    (layerId: string) => {
       if (!activeWorkbenchId) {
         return;
       }
       void toggleElementLock(layerId);
     },
-    handleToggleVisibility: (layerId: string) => {
+    [activeWorkbenchId, toggleElementLock]
+  );
+
+  const handleToggleVisibility = useCallback(
+    (layerId: string) => {
       if (!activeWorkbenchId) {
         return;
       }
       void toggleElementVisibility(layerId);
     },
-    handleUngroup: () => {
-      if (!activeWorkbenchId || primarySelectedElement?.type !== "group") {
-        return;
-      }
-      void ungroupNode(primarySelectedElement.id);
-    },
+    [activeWorkbenchId, toggleElementVisibility]
+  );
+
+  const handleUngroup = useCallback(() => {
+    if (!activeWorkbenchId || primarySelectedElement?.type !== "group") {
+      return;
+    }
+    void ungroupNode(primarySelectedElement.id);
+  }, [activeWorkbenchId, primarySelectedElement, ungroupNode]);
+
+  return {
+    assetById,
+    selectedElementIdSet,
+    selectedElementIds,
+    draggingId,
+    handleDelete,
+    handleDragStart,
+    handleDrop,
+    handleGroup,
+    handleSelect,
+    handleToggleLock,
+    handleToggleVisibility,
+    handleUngroup,
     layers,
     primarySelectedElement,
   };

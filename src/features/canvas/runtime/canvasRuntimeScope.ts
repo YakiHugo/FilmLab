@@ -1,4 +1,5 @@
-import type { Asset, EditingAdjustments } from "@/types";
+import type { CanvasImageRenderStateV1 } from "@/render/image";
+import type { Asset } from "@/types";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { BoardPreviewPriority } from "../boardImageRendering";
 import {
@@ -16,7 +17,7 @@ import {
 } from "./canvasPreviewRuntimeState";
 
 export interface CanvasRuntimeScope {
-  clearElementDraftAdjustments: (elementId: string) => void;
+  clearElementDraftRenderState: (elementId: string) => void;
   clearSelectionPreview: () => void;
   dispose: () => void;
   refreshPreviewsForChangedAssets: (changedAssetIds: Iterable<string>) => void;
@@ -28,9 +29,9 @@ export interface CanvasRuntimeScope {
   releaseBoardPreview: (elementId: string) => void;
   requestBoardPreview: (elementId: string, priority: BoardPreviewPriority) => void;
   reset: () => void;
-  setElementDraftAdjustments: (
+  setElementDraftRenderState: (
     elementId: string,
-    adjustments: EditingAdjustments | undefined
+    renderState: CanvasImageRenderStateV1 | undefined
   ) => void;
   setSelectionPreviewElementIds: (ids: string[] | null) => void;
   subscribeRuntimeAsset: (assetId: string | null, listener: () => void) => () => void;
@@ -83,17 +84,17 @@ export const createCanvasRuntimeScope = (
     }
   };
 
-  const clearElementDraftAdjustments = (elementId: string) => {
+  const clearElementDraftRenderState = (elementId: string) => {
     setRuntimeState((state) => {
-      if (!(elementId in state.draftAdjustmentsByElementId)) {
+      if (!(elementId in state.draftRenderStateByElementId)) {
         return state;
       }
-      const nextDraftAdjustmentsByElementId = {
-        ...state.draftAdjustmentsByElementId,
+      const nextDraftRenderStateByElementId = {
+        ...state.draftRenderStateByElementId,
       };
-      delete nextDraftAdjustmentsByElementId[elementId];
+      delete nextDraftRenderStateByElementId[elementId];
       return {
-        draftAdjustmentsByElementId: nextDraftAdjustmentsByElementId,
+        draftRenderStateByElementId: nextDraftRenderStateByElementId,
       };
     });
   };
@@ -106,14 +107,14 @@ export const createCanvasRuntimeScope = (
     );
   };
 
-  const setElementDraftAdjustments = (
+  const setElementDraftRenderState = (
     elementId: string,
-    adjustments: EditingAdjustments | undefined
+    renderState: CanvasImageRenderStateV1 | undefined
   ) => {
     setRuntimeState((state) => ({
-      draftAdjustmentsByElementId: {
-        ...state.draftAdjustmentsByElementId,
-        [elementId]: adjustments,
+      draftRenderStateByElementId: {
+        ...state.draftRenderStateByElementId,
+        [elementId]: renderState,
       },
     }));
   };
@@ -145,7 +146,7 @@ export const createCanvasRuntimeScope = (
   };
 
   return {
-    clearElementDraftAdjustments,
+    clearElementDraftRenderState,
     clearSelectionPreview,
     dispose: () => {
       if (disposed) {
@@ -168,7 +169,7 @@ export const createCanvasRuntimeScope = (
     releaseBoardPreview: previewController.releaseBoardPreview,
     requestBoardPreview: previewController.requestBoardPreview,
     reset,
-    setElementDraftAdjustments,
+    setElementDraftRenderState,
     setSelectionPreviewElementIds,
     subscribeRuntimeAsset: (assetId, listener) => {
       if (!assetId) {

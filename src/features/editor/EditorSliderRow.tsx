@@ -130,6 +130,8 @@ export const EditorSliderRow = memo(function EditorSliderRow({
       ? "h-[2px] bg-[linear-gradient(90deg,#58ff69_0%,#86ff9f_30%,#d8b7d6_66%,#ef2dff_100%)]"
       : "h-[2px] bg-[color:var(--canvas-edit-range)]";
   const isCanvasDock = variant === "canvasDock";
+  const valueInputAriaLabel = isCanvasDock ? `${label} 数值输入` : `${label} value input`;
+  const resetAriaLabel = isCanvasDock ? `重置${label}` : `Reset ${label}`;
 
   if (!isCanvasDock) {
     return (
@@ -156,7 +158,7 @@ export const EditorSliderRow = memo(function EditorSliderRow({
                     handleCancelEditingValue();
                   }
                 }}
-                aria-label={`${label} value input`}
+                aria-label={valueInputAriaLabel}
                 className="absolute inset-0 border-b border-white/60 bg-transparent px-1 text-right text-xs text-slate-200 outline-none"
               />
             ) : (
@@ -226,7 +228,7 @@ export const EditorSliderRow = memo(function EditorSliderRow({
                   handleCancelEditingValue();
                 }
               }}
-              aria-label={`${label} value input`}
+              aria-label={valueInputAriaLabel}
               className="absolute inset-0 rounded-[6px] border border-[color:var(--canvas-edit-border)] bg-[color:var(--canvas-edit-pill)] px-2 text-left text-[12px] text-[color:var(--canvas-edit-pill-text)] outline-none"
             />
           ) : (
@@ -245,7 +247,7 @@ export const EditorSliderRow = memo(function EditorSliderRow({
           type="button"
           disabled={!canReset}
           onClick={canReset ? onReset : undefined}
-          aria-label={`Reset ${label}`}
+          aria-label={resetAriaLabel}
           className={cn(
             "flex h-6 w-6 items-center justify-center text-[color:var(--canvas-edit-text-soft)] transition",
             canReset

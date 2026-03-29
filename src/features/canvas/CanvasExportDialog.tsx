@@ -27,9 +27,9 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
   const [quality, setQuality] = useState(0.92);
   const [pixelRatio, setPixelRatio] = useState(2);
   const [mode, setMode] = useState<"whole" | "slices">("whole");
-  const activeWorkbenchId = useCanvasStore((state) => state.activeWorkbenchId);
+  const activeWorkbenchId = useCanvasStore((state) => state.loadedWorkbenchId);
   const activeWorkbenchSlices = useCanvasStore((state) => {
-    const activeWorkbench = state.workbenches.find((entry) => entry.id === state.activeWorkbenchId);
+    const activeWorkbench = state.workbenchDraft ?? state.workbench;
     return activeWorkbench?.slices ?? [];
   });
   const { download, downloadSlices, exportDataUrl } = useCanvasExport();
@@ -173,9 +173,11 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
           <AlertDialogCancel>{`\u53d6\u6d88`}</AlertDialogCancel>
           <AlertDialogAction
             onClick={() => {
-              const currentWorkbench = useCanvasStore
-                .getState()
-                .workbenches.find((workbench) => workbench.id === activeWorkbenchId);
+              const canvasState = useCanvasStore.getState();
+              const currentWorkbench =
+                canvasState.loadedWorkbenchId === activeWorkbenchId
+                  ? canvasState.workbenchDraft ?? canvasState.workbench
+                  : null;
 
               if (mode === "slices") {
                 void downloadSlices(stage, currentWorkbench?.slices ?? [], {

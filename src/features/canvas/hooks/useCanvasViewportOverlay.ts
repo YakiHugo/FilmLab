@@ -66,6 +66,7 @@ interface UseCanvasViewportOverlayOptions {
   };
   floatingToolbarGap: number;
   activeWorkbenchUpdatedAt?: string;
+  suspendDocumentOverlaySync?: boolean;
 }
 
 export function useCanvasViewportOverlay({
@@ -83,6 +84,7 @@ export function useCanvasViewportOverlay({
   dimensionsBadgeSize,
   floatingToolbarGap,
   activeWorkbenchUpdatedAt,
+  suspendDocumentOverlaySync = false,
 }: UseCanvasViewportOverlayOptions): {
   selectionOverlay: CanvasSelectionOverlayMetrics | null;
   toolbarPosition: { left: number; top: number };
@@ -134,8 +136,19 @@ export function useCanvasViewportOverlay({
   ]);
 
   useLayoutEffect(() => {
+    if (suspendDocumentOverlaySync && trackedOverlayId) {
+      return;
+    }
     syncSelectionOverlay();
-  }, [activeWorkbenchUpdatedAt, syncSelectionOverlay, viewport.x, viewport.y, zoom]);
+  }, [
+    activeWorkbenchUpdatedAt,
+    suspendDocumentOverlaySync,
+    syncSelectionOverlay,
+    trackedOverlayId,
+    viewport.x,
+    viewport.y,
+    zoom,
+  ]);
 
   const syncSelectionOverlayRef = useRef(syncSelectionOverlay);
 

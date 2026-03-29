@@ -1,11 +1,10 @@
 import type {
-  ImageGenerationAssetRef,
   ImageGenerationRequest,
+  ImageInputAssetBinding,
   ImagePromptCompilerOperationId,
   ImagePromptContinuityTarget,
   ImagePromptIntentInput,
   ImagePromptIntentEditOp,
-  ReferenceImage,
 } from "../../../../shared/imageGeneration";
 import type { FrontendImageModelId } from "../../../../shared/imageModelCatalog";
 
@@ -37,15 +36,9 @@ export type PersistedAssetEdgeType =
   | "referenced_in_turn"
   | "accepted_as_final";
 
-export interface PersistedReferenceImageSnapshot extends Omit<ReferenceImage, "url"> {
-  url?: string;
-}
-
 export interface PersistedImageGenerationRequestSnapshot
-  extends Omit<ImageGenerationRequest, "referenceImages">,
-    Record<string, unknown> {
-  referenceImages?: PersistedReferenceImageSnapshot[];
-}
+  extends ImageGenerationRequest,
+    Record<string, unknown> {}
 
 export interface PersistedCreativeState {
   prompt: string | null;
@@ -85,10 +78,9 @@ export interface PersistedPromptArtifactPromptIR {
   styleDirectives: string[];
   continuityTargets: PersistedCreativeState["continuityTargets"];
   editOps: PersistedCreativeState["editOps"];
-  sourceAssets: ImageGenerationAssetRef[];
-  referenceAssets: ImageGenerationAssetRef[];
-  assetRefs: ImageGenerationAssetRef[];
-  referenceImages: Array<Pick<ReferenceImage, "id" | "type" | "sourceAssetId">>;
+  sourceAssets: ImageInputAssetBinding[];
+  referenceAssets: ImageInputAssetBinding[];
+  inputAssets: ImageInputAssetBinding[];
   output: {
     aspectRatio: string;
     width: number | null;

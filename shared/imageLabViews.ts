@@ -1,23 +1,14 @@
 import type {
-  ImageGenerationAssetRef,
+  ImageInputAssetBinding,
   ImagePromptCompilerOperationId,
   ImagePromptContinuityTarget,
   ImagePromptIntentEditOp,
   ImagePromptIntentInput,
-  ReferenceImageType,
+  ImageGenerationOperation,
 } from "./imageGeneration";
 import type { FrontendImageModelId } from "./imageModelCatalog";
 
 export type ImageLabTurnStatus = "loading" | "done" | "error";
-
-export interface ImageLabReferenceImageView {
-  id: string;
-  url?: string;
-  fileName?: string;
-  weight?: number;
-  type: ReferenceImageType;
-  sourceAssetId?: string;
-}
 
 export interface ImageLabCreativeStateView {
   prompt: string | null;
@@ -46,8 +37,8 @@ export interface ImageLabTurnRequestView {
   stylePreset: string;
   negativePrompt: string;
   promptIntent: ImagePromptIntentInput;
-  referenceImages: ImageLabReferenceImageView[];
-  assetRefs: ImageGenerationAssetRef[];
+  operation: ImageGenerationOperation;
+  inputAssets: ImageInputAssetBinding[];
   seed: number | null;
   guidanceScale: number | null;
   steps: number | null;
@@ -122,10 +113,9 @@ export interface ImageLabPromptArtifactPromptIRView {
   styleDirectives: string[];
   continuityTargets: ImageLabCreativeStateView["continuityTargets"];
   editOps: ImageLabCreativeStateView["editOps"];
-  sourceAssets: ImageGenerationAssetRef[];
-  referenceAssets: ImageGenerationAssetRef[];
-  assetRefs: ImageGenerationAssetRef[];
-  referenceImages: Array<Pick<ImageLabReferenceImageView, "id" | "type" | "sourceAssetId">>;
+  sourceAssets: ImageInputAssetBinding[];
+  referenceAssets: ImageInputAssetBinding[];
+  inputAssets: ImageInputAssetBinding[];
   output: {
     aspectRatio: string;
     width: number | null;

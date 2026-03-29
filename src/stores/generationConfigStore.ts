@@ -10,10 +10,10 @@ import {
 } from "@/lib/ai/imageModelCatalog";
 import type {
   ImageAspectRatio,
-  ImageGenerationAssetRef,
+  ImageGenerationOperation,
+  ImageInputAssetBinding,
   ImagePromptIntentInput,
   ImageStyleId,
-  ReferenceImage,
 } from "@/types/imageGeneration";
 
 export interface GenerationConfig {
@@ -25,8 +25,8 @@ export interface GenerationConfig {
   stylePreset: string;
   negativePrompt: string;
   promptIntent: ImagePromptIntentInput;
-  referenceImages: ReferenceImage[];
-  assetRefs: ImageGenerationAssetRef[];
+  operation: ImageGenerationOperation;
+  inputAssets: ImageInputAssetBinding[];
   seed: number | null;
   guidanceScale: number | null;
   steps: number | null;
@@ -41,15 +41,10 @@ interface GenerationConfigState {
   initializeFromModel: (model: ImageModelCatalogEntry) => void;
   setModel: (model: ImageModelCatalogEntry) => void;
   updateConfig: (patch: Partial<GenerationConfig>, model?: ImageModelCatalogEntry | null) => void;
-  addReferenceImages: (entries: ReferenceImage[], model?: ImageModelCatalogEntry | null) => void;
-  updateReferenceImage: (
-    id: string,
-    patch: Partial<ReferenceImage>,
+  setInputAssets: (
+    inputAssets: ImageInputAssetBinding[],
     model?: ImageModelCatalogEntry | null
   ) => void;
-  removeReferenceImage: (id: string, model?: ImageModelCatalogEntry | null) => void;
-  clearReferenceImages: (model?: ImageModelCatalogEntry | null) => void;
-  setAssetRefs: (assetRefs: ImageGenerationAssetRef[], model?: ImageModelCatalogEntry | null) => void;
 }
 
 const toGenerationConfig = (
@@ -116,7 +111,7 @@ export const useGenerationConfigStore = create<GenerationConfigState>()(
             ),
           };
         }),
-      addReferenceImages: (entries, model) =>
+      setInputAssets: (inputAssets, model) =>
         set((state) => {
           if (!state.config) {
             return state;
@@ -125,74 +120,7 @@ export const useGenerationConfigStore = create<GenerationConfigState>()(
             config: sanitizeGenerationConfig(
               {
                 ...state.config,
-                referenceImages: [...state.config.referenceImages, ...entries],
-              },
-              model
-            ),
-          };
-        }),
-      updateReferenceImage: (id, patch, model) =>
-        set((state) => {
-          if (!state.config) {
-            return state;
-          }
-          return {
-            config: sanitizeGenerationConfig(
-              {
-                ...state.config,
-                referenceImages: state.config.referenceImages.map((entry) =>
-                  entry.id === id
-                    ? {
-                        ...entry,
-                        ...patch,
-                      }
-                    : entry
-                ),
-              },
-              model
-            ),
-          };
-        }),
-      removeReferenceImage: (id, model) =>
-        set((state) => {
-          if (!state.config) {
-            return state;
-          }
-          return {
-            config: sanitizeGenerationConfig(
-              {
-                ...state.config,
-                referenceImages: state.config.referenceImages.filter((entry) => entry.id !== id),
-              },
-              model
-            ),
-          };
-        }),
-      clearReferenceImages: (model) =>
-        set((state) => {
-          if (!state.config) {
-            return state;
-          }
-          return {
-            config: sanitizeGenerationConfig(
-              {
-                ...state.config,
-                referenceImages: [],
-              },
-              model
-            ),
-          };
-        }),
-      setAssetRefs: (assetRefs, model) =>
-        set((state) => {
-          if (!state.config) {
-            return state;
-          }
-          return {
-            config: sanitizeGenerationConfig(
-              {
-                ...state.config,
-                assetRefs: [...assetRefs],
+                inputAssets: [...inputAssets],
               },
               model
             ),

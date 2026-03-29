@@ -1,4 +1,9 @@
 import type { EditingAdjustments, FilmProfile } from "@/types";
+import type {
+  ImageRenderColorState,
+  ImageRenderDetailState,
+  ImageRenderToneState,
+} from "@/render/image/types";
 import type { FilmProfileV2, FilmProfileV3 } from "@/types/film";
 import type {
   MasterUniforms,
@@ -343,6 +348,165 @@ const buildLegacyRgbCurve = (adj: EditingAdjustments): CurveUniforms["rgb"] => [
   { x: 192, y: clampCurveValue(192 + adj.curveLights * 1.25) },
   { x: 255, y: clampCurveValue(255 + adj.curveHighlights * 0.7) },
 ];
+
+export function resolveMasterUniforms(
+  tone: ImageRenderToneState,
+  color: ImageRenderColorState,
+  detail: Pick<ImageRenderDetailState, "dehaze">,
+  out?: MasterUniforms
+): MasterUniforms {
+  const target = out ?? createMasterUniforms();
+  const grading = color.colorGrading;
+
+  target.exposure = (safeNumber(tone.exposure) / 100) * 5;
+  target.contrast = safeNumber(tone.contrast);
+  target.highlights = safeNumber(tone.highlights);
+  target.shadows = safeNumber(tone.shadows);
+  target.whites = safeNumber(tone.whites);
+  target.blacks = safeNumber(tone.blacks);
+
+  const legacyTemperature = safeNumber(color.temperature);
+  const legacyTint = safeNumber(color.tint);
+  const hasAbsoluteWhiteBalance =
+    Number.isFinite(color.temperatureKelvin ?? NaN) || Number.isFinite(color.tintMG ?? NaN);
+  const legacyWhiteBalanceActive =
+    Math.abs(legacyTemperature) > 0.001 || Math.abs(legacyTint) > 0.001;
+  if (hasAbsoluteWhiteBalance && !legacyWhiteBalanceActive) {
+    resolveAbsoluteWhiteBalanceLmsScale(
+      target.whiteBalanceLmsScale,
+      color.temperatureKelvin ?? 6500,
+      color.tintMG ?? 0
+    );
+  } else {
+    resolveLegacyWhiteBalanceLmsScale(target.whiteBalanceLmsScale, legacyTemperature, legacyTint);
+  }
+
+  target.hueShift = safeNumber(color.hue);
+  target.saturation = safeNumber(color.saturation);
+  target.vibrance = safeNumber(color.vibrance);
+  target.luminance = 0;
+  target.curveHighlights = 0;
+  target.curveLights = 0;
+  target.curveDarks = 0;
+  target.curveShadows = 0;
+
+  target.colorGradeShadows[0] = safeNumber(grading.shadows.hue);
+  target.colorGradeShadows[1] = safeNumber(grading.shadows.saturation) / 100;
+  target.colorGradeShadows[2] = safeNumber(grading.shadows.luminance) / 100;
+  target.colorGradeMidtones[0] = safeNumber(grading.midtones.hue);
+  target.colorGradeMidtones[1] = safeNumber(grading.midtones.saturation) / 100;
+  target.colorGradeMidtones[2] = safeNumber(grading.midtones.luminance) / 100;
+  target.colorGradeHighlights[0] = safeNumber(grading.highlights.hue);
+  target.colorGradeHighlights[1] = safeNumber(grading.highlights.saturation) / 100;
+  target.colorGradeHighlights[2] = safeNumber(grading.highlights.luminance) / 100;
+  target.colorGradeBlend = safeNumber(grading.blend, 50) / 100;
+  target.colorGradeBalance = safeNumber(grading.balance) / 100;
+  target.dehaze = safeNumber(detail.dehaze);
+
+  return target;
+}
+
+export function resolveHslUniformsFromState(
+  color: ImageRenderColorState,
+  out?: HSLUniforms
+): HSLUniforms {
+  const target = out ?? createHslUniforms();
+  let enabled = false;
+
+  for (let i = 0; i < HSL_CHANNELS.length; i += 1) {
+    const channel = color.hsl[HSL_CHANNELS[i]!];
+    target.hue[i] = safeNumber(channel.hue);
+    target.saturation[i] = safeNumber(channel.saturation);
+    target.luminance[i] = safeNumber(channel.luminance);
+    enabled =
+      enabled ||
+      Math.abs(safeNumber(channel.hue)) > 0.001 ||
+      Math.abs(safeNumber(channel.saturation)) > 0.001 ||
+      Math.abs(safeNumber(channel.luminance)) > 0.001;
+  }
+
+  target.bwEnabled = Boolean(color.bwEnabled);
+  const bwMix = color.bwMix ?? { red: 0, green: 0, blue: 0 };
+  const baseWeights: [number, number, number] = [0.2126, 0.7152, 0.0722];
+  target.bwMix[0] = Math.max(0, baseWeights[0] * (1 + bwMix.red * 0.01));
+  target.bwMix[1] = Math.max(0, baseWeights[1] * (1 + bwMix.green * 0.01));
+  target.bwMix[2] = Math.max(0, baseWeights[2] * (1 + bwMix.blue * 0.01));
+  const bwWeightSum = target.bwMix[0] + target.bwMix[1] + target.bwMix[2];
+  if (bwWeightSum > 1.0e-5) {
+    target.bwMix[0] /= bwWeightSum;
+    target.bwMix[1] /= bwWeightSum;
+    target.bwMix[2] /= bwWeightSum;
+  } else {
+    target.bwMix[0] = baseWeights[0];
+    target.bwMix[1] = baseWeights[1];
+    target.bwMix[2] = baseWeights[2];
+  }
+
+  const calibration = color.calibration;
+  target.calibrationHue[0] = safeNumber(calibration?.redHue ?? 0);
+  target.calibrationHue[1] = safeNumber(calibration?.greenHue ?? 0);
+  target.calibrationHue[2] = safeNumber(calibration?.blueHue ?? 0);
+  target.calibrationSaturation[0] = safeNumber(calibration?.redSaturation ?? 0);
+  target.calibrationSaturation[1] = safeNumber(calibration?.greenSaturation ?? 0);
+  target.calibrationSaturation[2] = safeNumber(calibration?.blueSaturation ?? 0);
+  target.calibrationEnabled =
+    Math.abs(target.calibrationHue[0]) > 0.001 ||
+    Math.abs(target.calibrationHue[1]) > 0.001 ||
+    Math.abs(target.calibrationHue[2]) > 0.001 ||
+    Math.abs(target.calibrationSaturation[0]) > 0.001 ||
+    Math.abs(target.calibrationSaturation[1]) > 0.001 ||
+    Math.abs(target.calibrationSaturation[2]) > 0.001;
+  enabled = enabled || target.bwEnabled || target.calibrationEnabled;
+
+  target.enabled = enabled;
+  return target;
+}
+
+export function resolveCurveUniformsFromState(
+  color: Pick<ImageRenderColorState, "pointCurve">,
+  out?: CurveUniforms
+): CurveUniforms {
+  const target = out ?? createCurveUniforms();
+  copyCurvePoints(target.rgb, color.pointCurve.rgb);
+  copyCurvePoints(target.red, color.pointCurve.red);
+  copyCurvePoints(target.green, color.pointCurve.green);
+  copyCurvePoints(target.blue, color.pointCurve.blue);
+  target.enabled =
+    !isIdentityCurve(target.rgb) ||
+    !isIdentityCurve(target.red) ||
+    !isIdentityCurve(target.green) ||
+    !isIdentityCurve(target.blue);
+  return target;
+}
+
+export function resolveDetailUniformsFromState(
+  detail: ImageRenderDetailState,
+  context?: { shortEdgePx?: number },
+  out?: DetailUniforms
+): DetailUniforms {
+  const target = out ?? createDetailUniforms();
+  target.texture = safeNumber(detail.texture);
+  target.clarity = safeNumber(detail.clarity);
+  target.sharpening = safeNumber(detail.sharpening);
+  target.sharpenRadius = safeNumber(detail.sharpenRadius, 40);
+  target.sharpenDetail = safeNumber(detail.sharpenDetail, 25);
+  target.masking = safeNumber(detail.masking);
+  target.noiseReduction = safeNumber(detail.noiseReduction);
+  target.colorNoiseReduction = safeNumber(detail.colorNoiseReduction);
+  target.u_shortEdgePx = Math.max(
+    1,
+    typeof context?.shortEdgePx === "number" && Number.isFinite(context.shortEdgePx)
+      ? context.shortEdgePx
+      : 1
+  );
+  target.enabled =
+    Math.abs(target.texture) > 0.001 ||
+    Math.abs(target.clarity) > 0.001 ||
+    target.sharpening > 0.001 ||
+    target.noiseReduction > 0.001 ||
+    target.colorNoiseReduction > 0.001;
+  return target;
+}
 
 /**
  * Map EditingAdjustments to MasterUniforms for the Master shader pass.

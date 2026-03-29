@@ -6,7 +6,7 @@ import type {
 import { PROMPT_COMPILER_CAPABILITY_VERSION } from "../../../../shared/imageModelCapabilityFacts";
 import {
   resolveImagePromptCompilerOperation,
-  type ImageGenerationAssetRef,
+  type ImageInputAssetBinding,
   type ImagePromptCompilerOperationId,
 } from "../../../../shared/imageGeneration";
 import type { ParsedImageGenerationRequest } from "../../shared/imageGenerationSchema";
@@ -59,22 +59,34 @@ const createSemanticLoss = (loss: PersistedSemanticLoss): SemanticLoss => ({
 const getActiveCreativeState = (state: ConversationCreativeState) =>
   state.candidate ?? state.committed;
 
-const toReferenceImageId = (value: string) => `ref-${hashValue(value).slice(0, 12)}`;
+const resolveSourceRole = (
+  operation: PromptIR["operation"]
+): "reference" | "edit" | "variation" =>
+  operation === "image.edit"
+    ? "edit"
+    : operation === "image.variation"
+      ? "variation"
+      : "reference";
 
 const describeAssetHandling = (
-  assetRef: ImageGenerationAssetRef,
+  inputAsset: ImageInputAssetBinding,
+  requestedOperation: PromptIR["operation"],
   handling:
     | "native"
     | "compiled_to_reference"
     | "compiled_to_text"
 ) => {
+  const assetRole =
+    inputAsset.binding === "guide"
+      ? "reference"
+      : resolveSourceRole(requestedOperation);
   if (handling === "native") {
-    return `${assetRef.role}:${assetRef.assetId}`;
+    return `${assetRole}:${inputAsset.assetId}`;
   }
   if (handling === "compiled_to_reference") {
-    return `${assetRef.role}:${assetRef.assetId} (compiled as reference guidance)`;
+    return `${assetRole}:${inputAsset.assetId} (compiled as reference guidance)`;
   }
-  return `${assetRef.role}:${assetRef.assetId} (compiled as textual guidance only)`;
+  return `${assetRole}:${inputAsset.assetId} (compiled as textual guidance only)`;
 };
 
 const toCompiledOperation = (
@@ -118,23 +130,23 @@ export const buildPromptIR = (
   state: ConversationCreativeState
 ): PromptIR => {
   const activeState = getActiveCreativeState(state);
-  const explicitAssetRefs = request.assetRefs.map((entry) => ({ ...entry }));
+  const explicitInputAssets = request.inputAssets.map((entry) => ({ ...entry }));
   const persistedReferenceAssets = activeState.referenceAssetIds
     .filter(
-      (assetId) => !explicitAssetRefs.some((entry) => entry.assetId === assetId)
+      (assetId) => !explicitInputAssets.some((entry) => entry.assetId === assetId)
     )
     .map((assetId) => ({
       assetId,
-      role: "reference" as const,
+      binding: "guide" as const,
+      guideType: "content" as const,
+      weight: 1,
     }));
-  const assetRefs = [...explicitAssetRefs, ...persistedReferenceAssets];
-  const sourceAssets = explicitAssetRefs.filter(
-    (entry) => entry.role === "edit" || entry.role === "variation"
-  );
-  const referenceAssets = assetRefs.filter((entry) => entry.role === "reference");
+  const inputAssets = [...explicitInputAssets, ...persistedReferenceAssets];
+  const sourceAssets = explicitInputAssets.filter((entry) => entry.binding === "source");
+  const referenceAssets = inputAssets.filter((entry) => entry.binding === "guide");
 
   return {
-    operation: resolveImagePromptCompilerOperation(explicitAssetRefs),
+    operation: resolveImagePromptCompilerOperation(request.operation),
     goal: normalizeText(activeState.prompt ?? request.prompt),
     preserve: dedupeStrings(activeState.preserve),
     negativeConstraints: dedupeStrings([
@@ -151,12 +163,7 @@ export const buildPromptIR = (
     editOps: activeState.editOps.map((entry) => ({ ...entry })),
     sourceAssets,
     referenceAssets,
-    assetRefs,
-    referenceImages: request.referenceImages.map((entry) => ({
-      id: entry.id ?? toReferenceImageId(entry.url),
-      type: entry.type,
-      sourceAssetId: entry.sourceAssetId,
-    })),
+    inputAssets,
     output: {
       aspectRatio: request.aspectRatio,
       width: request.width ?? null,
@@ -231,29 +238,21 @@ const buildCompiledPrompt = (
             (entry, index) =>
               `- #${index + 1} ${describeAssetHandling(
                 entry,
-                promptCompiler.referenceRoleHandling[entry.role]
+                ir.operation,
+                promptCompiler.referenceRoleHandling[resolveSourceRole(ir.operation)]
               )}`
           )
           .join("\n")}`
       : null,
     ir.referenceAssets.length > 0
-      ? `## Reference Assets\n${ir.referenceAssets
+      ? `## Guide Assets\n${ir.referenceAssets
           .map(
             (entry, index) =>
               `- #${index + 1} ${describeAssetHandling(
                 entry,
-                promptCompiler.referenceRoleHandling[entry.role]
+                ir.operation,
+                promptCompiler.referenceRoleHandling.reference
               )}`
-          )
-          .join("\n")}`
-      : null,
-    ir.referenceImages.length > 0
-      ? `## Reference Images\n${ir.referenceImages
-          .map(
-            (entry, index) =>
-              `- #${index + 1} ${entry.type}:${entry.id}${
-                entry.sourceAssetId ? ` (source ${entry.sourceAssetId})` : ""
-              }`
           )
           .join("\n")}`
       : null,
@@ -342,8 +341,9 @@ export const compilePromptForTarget = (
   if (
     hasSourceAssets &&
     ir.sourceAssets.some(
-      (entry) =>
-        promptCompiler.referenceRoleHandling[entry.role] === "compiled_to_reference"
+      () =>
+        promptCompiler.referenceRoleHandling[resolveSourceRole(ir.operation)] ===
+        "compiled_to_reference"
     )
   ) {
     semanticLosses.push(
@@ -361,7 +361,7 @@ export const compilePromptForTarget = (
   if (
     hasSourceAssets &&
     ir.sourceAssets.some(
-      (entry) => promptCompiler.referenceRoleHandling[entry.role] !== "native"
+      () => promptCompiler.referenceRoleHandling[resolveSourceRole(ir.operation)] !== "native"
     )
   ) {
     semanticLosses.push(

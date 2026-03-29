@@ -5,12 +5,8 @@ import {
 import { resolveReferencedTextureAssetIds } from "@/features/editor/renderDependencies";
 import { ensureAssetLayers } from "@/lib/editorLayers";
 import { selectionIdsEqual } from "@/features/canvas/selectionModel";
-import type {
-  Asset,
-  CanvasImageElement,
-  CanvasWorkbench,
-  EditingAdjustments,
-} from "@/types";
+import type { CanvasImageRenderStateV1 } from "@/render/image";
+import type { Asset, CanvasImageElement, CanvasWorkbench } from "@/types";
 
 export type CanvasPreviewRenderStatus =
   | "idle"
@@ -37,7 +33,7 @@ export interface CanvasRuntimeScopeInput {
 }
 
 export interface CanvasRuntimeState {
-  draftAdjustmentsByElementId: Record<string, EditingAdjustments | undefined>;
+  draftRenderStateByElementId: Record<string, CanvasImageRenderStateV1 | undefined>;
   previewEntries: Record<string, CanvasPreviewEntry | undefined>;
   selectionPreviewElementIds: string[] | null;
 }
@@ -47,14 +43,14 @@ export interface ResolvedPreviewTaskInput {
   assetById: Map<string, Asset>;
   cacheKey: string;
   dependencyAssetIds: string[];
-  draftAdjustments: EditingAdjustments | undefined;
+  draftRenderState: CanvasImageRenderStateV1 | undefined;
   element: CanvasImageElement;
   priority: BoardPreviewPriority;
   viewportScale: number;
 }
 
 export interface CanvasRuntimeDisposePlan {
-  draftAdjustmentElementIds: string[];
+  draftRenderStateElementIds: string[];
   hasSelectionPreview: boolean;
   previewSources: HTMLCanvasElement[];
 }
@@ -144,7 +140,7 @@ export const resolveCanvasRuntimeAssetRenderFingerprint = (
 };
 
 export const createInitialCanvasRuntimeState = (): CanvasRuntimeState => ({
-  draftAdjustmentsByElementId: {},
+  draftRenderStateByElementId: {},
   previewEntries: {},
   selectionPreviewElementIds: null,
 });
@@ -258,12 +254,12 @@ const resolveCanvasImageElement = (
 };
 
 export const resolvePreviewTaskInput = ({
-  draftAdjustmentsByElementId,
+  draftRenderStateByElementId,
   elementId,
   input,
   priority,
 }: {
-  draftAdjustmentsByElementId: Record<string, EditingAdjustments | undefined>;
+  draftRenderStateByElementId: Record<string, CanvasImageRenderStateV1 | undefined>;
   elementId: string;
   input: CanvasRuntimeScopeInput;
   priority: BoardPreviewPriority;
@@ -278,11 +274,11 @@ export const resolvePreviewTaskInput = ({
     return null;
   }
 
-  const draftAdjustments = draftAdjustmentsByElementId[elementId];
+  const draftRenderState = draftRenderStateByElementId[elementId];
   const renderContext = createCanvasImageRenderContext({
     asset,
     assetById: input.assetById,
-    draftAdjustments,
+    draftRenderState,
     element,
     priority,
     viewportScale: input.viewportScale,
@@ -293,7 +289,7 @@ export const resolvePreviewTaskInput = ({
     assetById: input.assetById,
     cacheKey: renderContext.cacheKey,
     dependencyAssetIds: resolveCanvasPreviewDependencyAssetIds(asset),
-    draftAdjustments,
+    draftRenderState,
     element,
     priority,
     viewportScale: input.viewportScale,
@@ -344,7 +340,7 @@ export const selectCanvasPreviewIdsForPrune = (
 export const resolveCanvasRuntimeDisposePlan = (
   state: CanvasRuntimeState
 ): CanvasRuntimeDisposePlan => ({
-  draftAdjustmentElementIds: Object.keys(state.draftAdjustmentsByElementId),
+  draftRenderStateElementIds: Object.keys(state.draftRenderStateByElementId),
   hasSelectionPreview: state.selectionPreviewElementIds !== null,
   previewSources: Object.values(state.previewEntries)
     .map((entry) => entry?.previewSource ?? null)

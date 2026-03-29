@@ -86,7 +86,6 @@ const createInput = (): PlatformProviderGenerateInput =>
       aspectRatio: "1:1",
       style: "none",
       negativePrompt: "avoid blur",
-      referenceImages: [],
       batchSize: 1,
       modelParams: {
         promptExtend: true,
@@ -172,19 +171,19 @@ describe("generateDashscopeQwen", () => {
 
     const { generateDashscopeQwen } = await import("./qwen");
     const input = createInput();
-    input.request.resolvedAssetRefs = [
+    input.request.resolvedInputAssets = [
       {
         assetId: "asset-ref-1",
-        role: "reference",
-        referenceType: "content",
+        binding: "guide",
+        guideType: "content",
         weight: 1,
         signedUrl: "https://assets.example.com/ref-1.png",
         mimeType: "image/png",
       },
       {
         assetId: "asset-ref-2",
-        role: "reference",
-        referenceType: "content",
+        binding: "guide",
+        guideType: "content",
         weight: 1,
         signedUrl: "https://assets.example.com/ref-2.png",
         mimeType: "image/png",

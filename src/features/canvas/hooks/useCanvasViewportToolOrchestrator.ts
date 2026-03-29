@@ -36,6 +36,7 @@ interface UseCanvasViewportToolOrchestratorOptions {
   setTool: (tool: CanvasToolName) => void;
   shouldPan: boolean;
   stageRef: RefObject<Konva.Stage>;
+  suppressElementActivation: () => void;
   toCanvasPoint: (stage: Konva.Stage) => CanvasToolPoint | null;
   toScreenPoint: (stage: Konva.Stage) => CanvasToolPoint | null;
   tool: CanvasToolName;
@@ -52,6 +53,30 @@ interface UseCanvasViewportToolOrchestratorResult {
   handleWorkspacePointerUp: (event?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
 }
 
+const resolveCanvasWorkspacePointerTarget = (
+  stage: Konva.Stage,
+  fallbackTarget: Konva.Node
+) => {
+  const pointer = stage.getPointerPosition();
+  if (!pointer) {
+    return fallbackTarget;
+  }
+
+  return stage.getIntersection(pointer) ?? fallbackTarget;
+};
+
+export const isCanvasWorkspaceBackgroundTarget = (
+  stage: Konva.Stage,
+  target: Konva.Node
+) => {
+  const resolvedTarget = resolveCanvasWorkspacePointerTarget(stage, target);
+  return (
+    resolvedTarget === stage ||
+    resolvedTarget.getType() === "Layer" ||
+    resolvedTarget.id() === WORKSPACE_BACKGROUND_NODE_ID
+  );
+};
+
 export function useCanvasViewportToolOrchestrator({
   activeShapeType,
   activeWorkbench,
@@ -67,6 +92,7 @@ export function useCanvasViewportToolOrchestrator({
   setTool,
   shouldPan,
   stageRef,
+  suppressElementActivation,
   toCanvasPoint,
   toScreenPoint,
   tool,
@@ -95,6 +121,7 @@ export function useCanvasViewportToolOrchestrator({
         select: (elementId: string) => {
           selectElement(elementId);
         },
+        suppressElementActivation,
       },
       shape: {
         activeShapeType,
@@ -122,6 +149,7 @@ export function useCanvasViewportToolOrchestrator({
       insertShapeElement,
       selectElement,
       setTool,
+      suppressElementActivation,
       updateMarqueeInteraction,
       updatePanInteraction,
     ]
@@ -134,11 +162,8 @@ export function useCanvasViewportToolOrchestrator({
         return;
       }
 
-      const isBackgroundTarget =
-        event.target === stage || event.target.id() === WORKSPACE_BACKGROUND_NODE_ID;
-      if (!isBackgroundTarget) {
-        return;
-      }
+      stage.setPointersPositions(event.evt);
+      const isBackgroundTarget = isCanvasWorkspaceBackgroundTarget(stage, event.target);
 
       event.evt.preventDefault();
       activeToolController.onPointerDown(actionPort, {
@@ -148,7 +173,14 @@ export function useCanvasViewportToolOrchestrator({
         screenPoint: toScreenPoint(stage),
       });
     },
-    [activeToolController, actionPort, activeWorkbench, stageRef, toCanvasPoint, toScreenPoint]
+    [
+      activeToolController,
+      actionPort,
+      activeWorkbench,
+      stageRef,
+      toCanvasPoint,
+      toScreenPoint,
+    ]
   );
 
   const handleWorkspacePointerMove = useCallback(

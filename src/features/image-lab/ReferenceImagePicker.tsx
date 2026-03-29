@@ -4,23 +4,38 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import type { ReferenceImage } from "@/types/imageGeneration";
+import type { ReferenceImageType } from "@/types/imageGeneration";
+
+export interface GuideInputAssetView {
+  assetId: string;
+  previewUrl: string | null;
+  fileName?: string;
+  guideType: ReferenceImageType;
+  weight?: number;
+}
 
 interface ReferenceImagePickerProps {
-  referenceImages: ReferenceImage[];
+  guideAssets: GuideInputAssetView[];
   maxImages: number;
-  supportedTypes: ReferenceImage["type"][];
+  nativeCapacity?: number | null;
+  capacityHint?: string | null;
+  supportedTypes: ReferenceImageType[];
   supportsWeight: boolean;
   disabled?: boolean;
   onAddFiles: (files: FileList) => void;
-  onUpdateImage: (id: string, patch: Partial<ReferenceImage>) => void;
-  onRemoveImage: (id: string) => void;
+  onUpdateImage: (
+    assetId: string,
+    patch: { guideType?: ReferenceImageType; weight?: number }
+  ) => void;
+  onRemoveImage: (assetId: string) => void;
   onClearImages: () => void;
 }
 
 export function ReferenceImagePicker({
-  referenceImages,
+  guideAssets,
   maxImages,
+  nativeCapacity = null,
+  capacityHint = null,
   supportedTypes,
   supportsWeight,
   disabled = false,
@@ -37,7 +52,7 @@ export function ReferenceImagePicker({
         <Label className="text-[11px] uppercase tracking-[0.16em] text-zinc-400">
           Reference Images
         </Label>
-        {referenceImages.length > 0 && (
+        {guideAssets.length > 0 && (
           <button
             type="button"
             onClick={onClearImages}
@@ -67,50 +82,60 @@ export function ReferenceImagePicker({
         size="sm"
         variant="secondary"
         className="h-8 w-full text-xs"
-        disabled={disabled || referenceImages.length >= maxImages}
+        disabled={disabled || guideAssets.length >= maxImages}
         onClick={() => fileInputRef.current?.click()}
       >
         <ImagePlus className="mr-1.5 h-3.5 w-3.5" />
-        Add Reference ({referenceImages.length}/{maxImages})
+        {nativeCapacity !== null
+          ? `Add Reference (${guideAssets.length}/${nativeCapacity})`
+          : "Add Reference"}
       </Button>
 
-      {referenceImages.length === 0 && (
+      {capacityHint ? (
+        <p className="text-[11px] text-zinc-500">{capacityHint}</p>
+      ) : guideAssets.length === 0 ? (
         <p className="text-[11px] text-zinc-500">
           Upload style/content reference images to guide composition.
         </p>
-      )}
+      ) : null}
 
       <div className="space-y-2">
-        {referenceImages.map((entry) => (
+        {guideAssets.map((entry) => (
           <div
-            key={entry.id}
+            key={entry.assetId}
             className="grid grid-cols-[56px_minmax(0,1fr)] gap-2 rounded-lg border border-white/10 bg-black/35 p-2"
           >
-            <img
-              src={entry.url}
-              alt={entry.fileName ?? "Reference image"}
-              className="h-14 w-14 rounded-md object-cover"
-            />
+            {entry.previewUrl ? (
+              <img
+                src={entry.previewUrl}
+                alt={entry.fileName ?? "Reference image"}
+                className="h-14 w-14 rounded-md object-cover"
+              />
+            ) : (
+              <div className="flex h-14 w-14 items-center justify-center rounded-md border border-dashed border-white/10 bg-black/30 text-[10px] text-zinc-500">
+                Missing
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <div className="flex items-center justify-between gap-1">
                 <p className="truncate text-[11px] text-zinc-300">
-                  {entry.fileName ?? "reference"}
+                  {entry.fileName ?? entry.assetId}
                 </p>
                 <button
                   type="button"
                   className="text-zinc-500 transition hover:text-rose-200"
-                  onClick={() => onRemoveImage(entry.id)}
+                  onClick={() => onRemoveImage(entry.assetId)}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
 
               <Select
-                value={entry.type}
+                value={entry.guideType}
                 onValueChange={(value) =>
-                  onUpdateImage(entry.id, {
-                    type: value as ReferenceImage["type"],
+                  onUpdateImage(entry.assetId, {
+                    guideType: value as ReferenceImageType,
                   })
                 }
               >
@@ -142,7 +167,7 @@ export function ReferenceImagePicker({
                     max={1}
                     step={0.05}
                     onValueChange={(value) =>
-                      onUpdateImage(entry.id, { weight: value[0] ?? 1 })
+                      onUpdateImage(entry.assetId, { weight: value[0] ?? 1 })
                     }
                   />
                 </div>

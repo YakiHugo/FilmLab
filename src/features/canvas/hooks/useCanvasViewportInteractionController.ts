@@ -1,5 +1,5 @@
 import type Konva from "konva";
-import { useCallback, useMemo, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
 import type {
   CanvasCommand,
   CanvasRenderableNode,
@@ -8,28 +8,49 @@ import type {
   CanvasTextElement,
   CanvasWorkbench,
 } from "@/types";
+import { shouldOpenCanvasEditPanelForElement } from "../editPanelSelection";
 import { isCanvasTextElementEditable } from "../elements/TextElement";
 import { quantizeDragPosition } from "../grid";
-import type { CanvasToolName } from "../tools/toolControllers";
+import { resolveSelectedRootRenderableElementIds } from "../selectionModel";
+import {
+  shouldCanvasToolSelectElements,
+  type CanvasToolName,
+} from "../tools/toolControllers";
 import type { CanvasViewportPoint, CanvasViewportTransform } from "../viewportNavigation";
 import { useCanvasMarqueeSelection } from "./useCanvasMarqueeSelection";
 import type { CanvasTextSessionActions } from "./useCanvasTextSession";
 import { useCanvasViewportNavigation } from "./useCanvasViewportNavigation";
 import { useCanvasViewportToolOrchestrator } from "./useCanvasViewportToolOrchestrator";
 
+interface CanvasElementDragSession {
+  commitInteraction: (interactionId: string) => Promise<CanvasWorkbench | null>;
+  draggedElementId: string;
+  interactionId: string | null;
+  lastPreviewPosition: { x: number; y: number };
+  latestDragPosition: { x: number; y: number };
+  movedElementIds: string[];
+  previewCommand: (interactionId: string, command: CanvasCommand) => CanvasWorkbench | null;
+  previewFrameId: number | null;
+  rollbackInteraction: (interactionId: string) => CanvasWorkbench | null;
+  sourceWorkbenchId: string | null;
+}
+
 interface UseCanvasViewportInteractionControllerOptions {
   activeShapeType: CanvasShapeType;
   activeWorkbench: CanvasWorkbench | null;
   activeWorkbenchId: string | null;
+  beginInteraction: () => { interactionId: string } | null;
+  beginTextEdit: CanvasTextSessionActions["begin"];
   clearSelection: () => void;
+  commitInteraction: (interactionId: string) => Promise<CanvasWorkbench | null>;
   elementByIdRef: RefObject<Map<string, CanvasRenderableNode>>;
-  executeCommand: (
-    command: CanvasCommand,
-    options?: { trackHistory?: boolean }
-  ) => Promise<CanvasWorkbench | null>;
   fitView: CanvasViewportTransform | null;
   isSpacePressed: boolean;
-  selectElement: (elementId: string, options?: { additive?: boolean }) => void;
+  onInteractionError: (message: string) => void;
+  openEditPanel: () => void;
+  previewCommand: (interactionId: string, command: CanvasCommand) => CanvasWorkbench | null;
+  rollbackInteraction: (interactionId: string) => CanvasWorkbench | null;
+  selectElement: (elementId: string, options?: { additive?: boolean }) => boolean;
   selectedElementIds: string[];
   setSelectedElementIds: (ids: string[]) => void;
   setTool: (tool: CanvasToolName) => void;
@@ -45,19 +66,23 @@ interface UseCanvasViewportInteractionControllerOptions {
   viewport: CanvasViewportPoint;
   viewportContainerRef: RefObject<HTMLDivElement>;
   zoom: number;
-  beginTextEdit: CanvasTextSessionActions["begin"];
 }
 
 export function useCanvasViewportInteractionController({
   activeShapeType,
   activeWorkbench,
   activeWorkbenchId,
+  beginInteraction,
   beginTextEdit,
   clearSelection,
+  commitInteraction,
   elementByIdRef,
-  executeCommand,
   fitView,
   isSpacePressed,
+  onInteractionError,
+  openEditPanel,
+  previewCommand,
+  rollbackInteraction,
   selectElement,
   selectedElementIds,
   setSelectedElementIds,
@@ -72,6 +97,8 @@ export function useCanvasViewportInteractionController({
   viewportContainerRef,
   zoom,
 }: UseCanvasViewportInteractionControllerOptions) {
+  const dragSessionRef = useRef<CanvasElementDragSession | null>(null);
+  const elementActivationSuppressedRef = useRef(false);
   const shouldPan = tool === "hand" || isSpacePressed;
   const {
     adjustZoom,
@@ -127,7 +154,7 @@ export function useCanvasViewportInteractionController({
   );
 
   const {
-    handleWorkspacePointerDown,
+    handleWorkspacePointerDown: handleToolWorkspacePointerDown,
     handleWorkspacePointerMove,
     handleWorkspacePointerUp,
   } = useCanvasViewportToolOrchestrator({
@@ -147,6 +174,9 @@ export function useCanvasViewportInteractionController({
     setTool,
     shouldPan,
     stageRef,
+    suppressElementActivation: () => {
+      elementActivationSuppressedRef.current = true;
+    },
     toCanvasPoint,
     toScreenPoint,
     tool,
@@ -154,51 +184,279 @@ export function useCanvasViewportInteractionController({
     updatePanInteraction,
   });
 
+  const handleWorkspacePointerDown = useCallback(
+    (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+      elementActivationSuppressedRef.current = false;
+      handleToolWorkspacePointerDown(event);
+    },
+    [handleToolWorkspacePointerDown]
+  );
+
   const handleElementSelect = useCallback(
     (elementId: string, additive: boolean) => {
+      if (elementActivationSuppressedRef.current) {
+        elementActivationSuppressedRef.current = false;
+        return;
+      }
+      if (
+        !shouldCanvasToolSelectElements({
+          shouldPan,
+          tool,
+        })
+      ) {
+        return;
+      }
+
       const element = elementByIdRef.current?.get(elementId);
       if (!element || element.effectiveLocked || !element.effectiveVisible) {
         return;
       }
 
-      selectElement(elementId, { additive });
+      const wasExclusivelySelected =
+        !additive && selectedElementIds.length === 1 && selectedElementIds[0] === elementId;
+      const didSelect = selectElement(elementId, { additive });
+      if (
+        didSelect &&
+        !additive &&
+        !wasExclusivelySelected &&
+        element.type === "text" &&
+        isCanvasTextElementEditable(element)
+      ) {
+        beginTextEdit(element as CanvasTextElement);
+      }
+      if (
+        didSelect &&
+        shouldOpenCanvasEditPanelForElement({
+          activeWorkbench,
+          additive,
+          elementId,
+        })
+      ) {
+        openEditPanel();
+      }
     },
-    [elementByIdRef, selectElement]
+    [
+      activeWorkbench,
+      beginTextEdit,
+      elementByIdRef,
+      openEditPanel,
+      selectElement,
+      selectedElementIds,
+      shouldPan,
+      tool,
+    ]
+  );
+  const canManipulateElements = shouldCanvasToolSelectElements({
+    shouldPan,
+    tool,
+  });
+
+  const flushDragPreview = useCallback(
+    (dragSession: CanvasElementDragSession) => {
+      if (!dragSession.interactionId) {
+        return true;
+      }
+
+      const dx = dragSession.latestDragPosition.x - dragSession.lastPreviewPosition.x;
+      const dy = dragSession.latestDragPosition.y - dragSession.lastPreviewPosition.y;
+      if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) {
+        return true;
+      }
+
+      const nextWorkbench = dragSession.previewCommand(dragSession.interactionId, {
+        type: "MOVE_NODES",
+        ids: dragSession.movedElementIds,
+        dx,
+        dy,
+      });
+      if (!nextWorkbench) {
+        dragSession.rollbackInteraction(dragSession.interactionId);
+        dragSession.interactionId = null;
+        return false;
+      }
+
+      dragSession.lastPreviewPosition = {
+        ...dragSession.latestDragPosition,
+      };
+      return true;
+    },
+    []
+  );
+
+  const scheduleDragPreview = useCallback(
+    (dragSession: CanvasElementDragSession) => {
+      if (dragSession.previewFrameId !== null) {
+        return;
+      }
+
+      dragSession.previewFrameId = window.requestAnimationFrame(() => {
+        dragSession.previewFrameId = null;
+        if (!flushDragPreview(dragSession)) {
+          onInteractionError("Drag preview failed and was rolled back.");
+        }
+      });
+    },
+    [flushDragPreview, onInteractionError]
+  );
+
+  useEffect(
+    () => () => {
+      const dragSession = dragSessionRef.current;
+      if (!dragSession) {
+        return;
+      }
+
+      if (dragSession.previewFrameId !== null) {
+        window.cancelAnimationFrame(dragSession.previewFrameId);
+      }
+      if (dragSession.interactionId) {
+        dragSession.rollbackInteraction(dragSession.interactionId);
+      }
+      dragSessionRef.current = null;
+    },
+    []
+  );
+
+  useEffect(() => {
+    const dragSession = dragSessionRef.current;
+    if (!dragSession) {
+      return;
+    }
+
+    if (dragSession.sourceWorkbenchId === activeWorkbenchId) {
+      return;
+    }
+
+    if (dragSession.previewFrameId !== null) {
+      window.cancelAnimationFrame(dragSession.previewFrameId);
+    }
+    if (dragSession.interactionId) {
+      dragSession.rollbackInteraction(dragSession.interactionId);
+    }
+    dragSessionRef.current = null;
+  }, [activeWorkbenchId]);
+
+  const handleElementDragStart = useCallback(
+    (elementId: string, event: Konva.KonvaEventObject<DragEvent>) => {
+      const element = elementByIdRef.current?.get(elementId);
+      if (!element || element.effectiveLocked || !element.effectiveVisible) {
+        dragSessionRef.current = null;
+        return;
+      }
+
+      const selectedRootIds = resolveSelectedRootRenderableElementIds(
+        activeWorkbench,
+        selectedElementIds
+      );
+      const movedElementIds =
+        selectedRootIds.length > 1 && selectedRootIds.includes(elementId)
+          ? selectedRootIds
+          : [elementId];
+      const elementIdSet = new Set(movedElementIds);
+      const validMovedIds = movedElementIds.filter((movedElementId) => {
+        const movedElement = elementByIdRef.current?.get(movedElementId);
+        return Boolean(
+          movedElement &&
+            !movedElement.effectiveLocked &&
+            movedElement.effectiveVisible &&
+            elementIdSet.has(movedElementId)
+        );
+      });
+      const draggedPosition = {
+        x: element.x,
+        y: element.y,
+      };
+      const interaction = beginInteraction();
+      if (!interaction) {
+        event.target.stopDrag();
+        event.target.position(draggedPosition);
+        event.target.getLayer()?.batchDraw();
+        dragSessionRef.current = null;
+        return;
+      }
+
+      dragSessionRef.current = {
+        commitInteraction,
+        draggedElementId: elementId,
+        interactionId: interaction.interactionId,
+        lastPreviewPosition: draggedPosition,
+        latestDragPosition: draggedPosition,
+        movedElementIds: validMovedIds.length > 0 ? validMovedIds : [elementId],
+        previewCommand,
+        previewFrameId: null,
+        rollbackInteraction,
+        sourceWorkbenchId: activeWorkbenchId,
+      };
+    },
+    [
+      activeWorkbench,
+      activeWorkbenchId,
+      beginInteraction,
+      commitInteraction,
+      elementByIdRef,
+      previewCommand,
+      rollbackInteraction,
+      selectedElementIds,
+    ]
+  );
+
+  const handleElementDragMove = useCallback(
+    (elementId: string, x: number, y: number) => {
+      const dragSession = dragSessionRef.current;
+      if (!dragSession || dragSession.draggedElementId !== elementId) {
+        return;
+      }
+
+      dragSession.latestDragPosition = { x, y };
+      scheduleDragPreview(dragSession);
+    },
+    [scheduleDragPreview]
   );
 
   const handleElementDragEnd = useCallback(
     (elementId: string, x: number, y: number) => {
+      const dragSession = dragSessionRef.current;
+      dragSessionRef.current = null;
+
       const element = elementByIdRef.current?.get(elementId);
       if (!activeWorkbenchId || !element || element.effectiveLocked || !element.effectiveVisible) {
         return;
       }
 
-      const dx = x - element.x;
-      const dy = y - element.y;
-      if (dx === 0 && dy === 0) {
+      if (!dragSession || dragSession.draggedElementId !== elementId) {
         return;
       }
 
-      void executeCommand({
-        type: "MOVE_NODES",
-        ids: [elementId],
-        dx,
-        dy,
-      });
-    },
-    [activeWorkbenchId, elementByIdRef, executeCommand]
-  );
+      dragSession.latestDragPosition = { x, y };
+      if (dragSession.previewFrameId !== null) {
+        window.cancelAnimationFrame(dragSession.previewFrameId);
+        dragSession.previewFrameId = null;
+      }
 
-  const handleTextElementDoubleClick = useCallback(
-    (elementId: string) => {
-      const element = elementByIdRef.current?.get(elementId);
-      if (!element?.type || element.type !== "text" || !isCanvasTextElementEditable(element)) {
+      if (!flushDragPreview(dragSession)) {
+        onInteractionError("Drag preview failed and was rolled back.");
+        return;
+      }
+      if (!dragSession.interactionId) {
         return;
       }
 
-      beginTextEdit(element as CanvasTextElement);
+      void dragSession.commitInteraction(dragSession.interactionId)
+        .then((nextWorkbench) => {
+          if (!nextWorkbench) {
+            onInteractionError("Drag commit failed and was rolled back.");
+          }
+        })
+        .catch(() => {
+          onInteractionError("Drag commit failed and was rolled back.");
+        });
     },
-    [beginTextEdit, elementByIdRef]
+    [
+      activeWorkbenchId,
+      elementByIdRef,
+      flushDragPreview,
+      onInteractionError,
+    ]
   );
 
   const controls = useMemo(
@@ -223,11 +481,13 @@ export function useCanvasViewportInteractionController({
     () => ({
       containerRef: viewportContainerRef,
       cursor,
+      canManipulateElements,
       dragBoundFunc,
+      handleElementDragMove,
+      handleElementDragStart,
       handleElementDragEnd,
       handleElementSelect,
       handleStageWheel,
-      handleTextElementDoubleClick,
       handleWorkspacePointerDown,
       handleWorkspacePointerMove,
       handleWorkspacePointerUp,
@@ -237,12 +497,14 @@ export function useCanvasViewportInteractionController({
       zoom,
     }),
     [
+      canManipulateElements,
       cursor,
       dragBoundFunc,
+      handleElementDragMove,
+      handleElementDragStart,
       handleElementDragEnd,
       handleElementSelect,
       handleStageWheel,
-      handleTextElementDoubleClick,
       handleWorkspacePointerDown,
       handleWorkspacePointerMove,
       handleWorkspacePointerUp,

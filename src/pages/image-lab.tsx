@@ -5,12 +5,18 @@ import type { ImageModelParamValue } from "@/lib/ai/imageModelParams";
 import { ImageChatFeed } from "@/features/image-lab/ImageChatFeed";
 import { ImagePromptInput } from "@/features/image-lab/ImagePromptInput";
 import { useImageGeneration } from "@/features/image-lab/hooks/useImageGeneration";
+import { useAssetStore } from "@/stores/assetStore";
 import {
   downloadAllResults,
   downloadImageFromUrl,
   getImageDownloadFilename,
 } from "@/features/image-lab/utils/downloadUtils";
-import { validateImageAssetRefs, type ImageStyleId } from "@/types/imageGeneration";
+import {
+  countExecutableInputAssetsForPromptCompiler,
+  getImageInputGuideAssets,
+  validateImageInputAssets,
+  type ImageStyleId,
+} from "@/types/imageGeneration";
 import { IMAGE_GENERATION_LIMITS } from "@/lib/ai/imageGenerationSchema";
 
 const resolveStepsForSpeed = (
@@ -53,6 +59,7 @@ export function ImageLabPage() {
   const imageGeneration = useImageGeneration();
   const [externalPrompt, setExternalPrompt] = useState<string | null>(null);
   const [downloadFeedback, setDownloadFeedback] = useState<string | null>(null);
+  const assets = useAssetStore((state) => state.assets);
   const updateGenerationConfig = imageGeneration.updateConfig;
   const {
     turns,
@@ -67,9 +74,6 @@ export function ImageLabPage() {
     useResultAsReference,
     editFromResult,
     varyFromResult,
-    removeAssetReference,
-    updateAssetRefRole,
-    clearAssetReferences,
     clearSession,
     loadPromptArtifacts,
   } = imageGeneration;
@@ -106,9 +110,117 @@ export function ImageLabPage() {
     [imageGeneration.config?.modelId, imageGeneration.modelConfig?.label]
   );
   const assetRefValidationMessage = useMemo(
+    () => {
+      const genericIssue = validateImageInputAssets({
+        operation: imageGeneration.config?.operation,
+        inputAssets: imageGeneration.config?.inputAssets,
+      })[0];
+      if (genericIssue) {
+        return genericIssue.message;
+      }
+
+      if (
+        !imageGeneration.config ||
+        !imageGeneration.modelConfig?.constraints.referenceImages.enabled
+      ) {
+        return null;
+      }
+
+      const executableInputAssetCount = countExecutableInputAssetsForPromptCompiler({
+        operation: imageGeneration.config.operation,
+        inputAssets: imageGeneration.config.inputAssets,
+        promptCompiler: imageGeneration.supportedFeatures.promptCompiler,
+      });
+      return executableInputAssetCount >
+        imageGeneration.modelConfig.constraints.referenceImages.maxImages
+        ? `${imageGeneration.modelConfig.label} supports at most ${imageGeneration.modelConfig.constraints.referenceImages.maxImages} executable input images.`
+        : null;
+    },
+    [
+      imageGeneration.config,
+      imageGeneration.modelConfig,
+      imageGeneration.supportedFeatures.promptCompiler,
+    ]
+  );
+  const assetById = useMemo(
+    () => new Map(assets.map((asset) => [asset.id, asset])),
+    [assets]
+  );
+  const guideImagesAreExecutable = useMemo(
     () =>
-      validateImageAssetRefs(imageGeneration.config?.assetRefs)[0]?.message ?? null,
-    [imageGeneration.config?.assetRefs]
+      imageGeneration.supportedFeatures.promptCompiler.referenceRoleHandling.reference !==
+      "compiled_to_text",
+    [imageGeneration.supportedFeatures.promptCompiler.referenceRoleHandling.reference]
+  );
+  const guideAssetBindLimit = useMemo(() => {
+    if (!guideImagesAreExecutable || !imageGeneration.modelConfig?.constraints.referenceImages.enabled) {
+      return 8;
+    }
+    if (!imageGeneration.config) {
+      return imageGeneration.modelConfig.constraints.referenceImages.maxImages;
+    }
+
+    const guideOnlyInputAssets = getImageInputGuideAssets(imageGeneration.config.inputAssets);
+    const totalExecutableInputAssets = countExecutableInputAssetsForPromptCompiler({
+      operation: imageGeneration.config.operation,
+      inputAssets: imageGeneration.config.inputAssets,
+      promptCompiler: imageGeneration.supportedFeatures.promptCompiler,
+    });
+    const executableGuideAssets = countExecutableInputAssetsForPromptCompiler({
+      operation: imageGeneration.config.operation,
+      inputAssets: guideOnlyInputAssets,
+      promptCompiler: imageGeneration.supportedFeatures.promptCompiler,
+    });
+    const sourceOccupancy = Math.max(0, totalExecutableInputAssets - executableGuideAssets);
+    return Math.max(
+      0,
+      imageGeneration.modelConfig.constraints.referenceImages.maxImages - sourceOccupancy
+    );
+  }, [
+    guideImagesAreExecutable,
+    imageGeneration.config,
+    imageGeneration.modelConfig,
+    imageGeneration.supportedFeatures.promptCompiler,
+  ]);
+  const guideAssetNativeCapacity = guideImagesAreExecutable ? guideAssetBindLimit : 0;
+  const guideAssetCapacityHint = useMemo(
+    () =>
+      guideImagesAreExecutable
+        ? null
+        : `${currentModelName} compiles guide images into text guidance; no native input-image slots are available.`,
+    [currentModelName, guideImagesAreExecutable]
+  );
+  const guideAssets = useMemo(
+    () =>
+      getImageInputGuideAssets(imageGeneration.config?.inputAssets).map((entry) => {
+        const asset = assetById.get(entry.assetId);
+        return {
+          assetId: entry.assetId,
+          previewUrl: asset?.thumbnailUrl ?? asset?.objectUrl ?? null,
+          fileName: asset?.name,
+          guideType: entry.guideType ?? "content",
+          weight: entry.weight ?? 1,
+        };
+      }),
+    [assetById, imageGeneration.config?.inputAssets]
+  );
+  const selectedInputAssets = useMemo(
+    () =>
+      (imageGeneration.config?.inputAssets ?? []).map((entry) => {
+        const asset = assetById.get(entry.assetId);
+        return {
+          assetId: entry.assetId,
+          label: asset?.name ?? entry.assetId,
+          available: Boolean(asset),
+          intent:
+            entry.binding === "guide"
+              ? "guide"
+              : imageGeneration.config?.operation === "variation"
+                ? "variation"
+                : "edit",
+        };
+      }),
+    [assetById, imageGeneration.config?.inputAssets, imageGeneration.config?.operation]
   );
 
   const selectStylePreset = (preset: ImageStylePreset) => {
@@ -357,8 +469,11 @@ export function ImageLabPage() {
         }}
         promptIntent={imageGeneration.config.promptIntent}
         modelParamDefinitions={imageGeneration.modelParamDefinitions}
-        referenceImages={imageGeneration.config.referenceImages}
-        selectedAssetRefs={imageGeneration.config.assetRefs}
+        guideAssets={guideAssets}
+        guideAssetLimit={guideAssetBindLimit}
+        guideAssetNativeCapacity={guideAssetNativeCapacity}
+        guideAssetCapacityHint={guideAssetCapacityHint}
+        selectedInputAssets={selectedInputAssets}
         assetRefValidationMessage={assetRefValidationMessage}
         externalPrompt={externalPrompt}
         onExternalPromptConsumed={handleExternalPromptConsumed}
@@ -383,15 +498,17 @@ export function ImageLabPage() {
           });
         }}
         onModelExtraParamChange={updateModelExtraParam}
-        onAddReferenceFiles={(files) => {
-          void imageGeneration.addReferenceFiles(files);
+        onAddGuideFiles={(files) => {
+          void imageGeneration.importInputAssets(files).then((assetIds) => {
+            imageGeneration.bindGuideAssets(assetIds);
+          });
         }}
-        onUpdateReferenceImage={imageGeneration.updateReferenceImage}
-        onRemoveReferenceImage={imageGeneration.removeReferenceImage}
-        onClearReferenceImages={imageGeneration.clearReferenceImages}
-        onRemoveAssetRef={removeAssetReference}
-        onUpdateAssetRefRole={updateAssetRefRole}
-        onClearAssetRefs={clearAssetReferences}
+        onUpdateGuideAsset={imageGeneration.updateGuideAsset}
+        onRemoveGuideAsset={imageGeneration.removeInputAsset}
+        onClearGuideAssets={imageGeneration.clearGuideAssets}
+        onRemoveInputAsset={imageGeneration.removeInputAsset}
+        onUpdateInputIntent={imageGeneration.updateInputIntent}
+        onClearInputAssets={imageGeneration.clearAllInputAssets}
         onGenerateImage={(input) => {
           void imageGeneration.generateFromPromptInput(input);
         }}

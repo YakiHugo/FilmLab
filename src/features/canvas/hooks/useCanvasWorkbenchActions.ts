@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { useCanvasWorkbenchTransitionGuard } from "../canvasWorkbenchTransitionGuard";
 import type {
   CanvasWorkbenchEditablePatch,
   CreateWorkbenchOptions,
@@ -10,50 +11,64 @@ import {
   resolveCanvasWorkbenchName,
   resolveCanvasWorkbenchSequenceName,
 } from "../workbenchPanelState";
-import { useCanvasActiveWorkbenchCommands } from "./useCanvasActiveWorkbenchCommands";
-import { useCanvasActiveWorkbenchState } from "./useCanvasActiveWorkbenchState";
+import { useCanvasLoadedWorkbenchCommands } from "./useCanvasLoadedWorkbenchCommands";
+import { useCanvasLoadedWorkbenchState } from "./useCanvasLoadedWorkbenchState";
 
 export function useCanvasWorkbenchActions() {
   const navigate = useNavigate();
-  const { activeWorkbench, activeWorkbenchId } = useCanvasActiveWorkbenchState();
-  const { patchWorkbench } = useCanvasActiveWorkbenchCommands();
-  const workbenches = useCanvasStore((state) => state.workbenches);
+  const runBeforeWorkbenchTransition = useCanvasWorkbenchTransitionGuard();
+  const { loadedWorkbench, loadedWorkbenchId } = useCanvasLoadedWorkbenchState();
+  const { patchWorkbench } = useCanvasLoadedWorkbenchCommands();
+  const workbenches = useCanvasStore((state) => state.workbenchList);
   const createWorkbench = useCanvasStore((state) => state.createWorkbench);
   const deleteWorkbench = useCanvasStore((state) => state.deleteWorkbench);
 
-  const activeWorkbenchMeta = useMemo(
+  const awaitWorkbenchTransitionGuard = useCallback(async () => {
+    try {
+      await runBeforeWorkbenchTransition();
+      return true;
+    } catch {
+      return false;
+    }
+  }, [runBeforeWorkbenchTransition]);
+
+  const loadedWorkbenchMeta = useMemo(
     () => ({
-      height: activeWorkbench?.height ?? 0,
-      id: activeWorkbench?.id ?? null,
-      name: activeWorkbench?.name ?? "",
-      presetId: activeWorkbench?.presetId ?? "custom",
-      updatedAt: activeWorkbench?.updatedAt ?? "",
-      width: activeWorkbench?.width ?? 0,
+      height: loadedWorkbench?.height ?? 0,
+      id: loadedWorkbench?.id ?? null,
+      name: loadedWorkbench?.name ?? "",
+      presetId: loadedWorkbench?.presetId ?? "custom",
+      updatedAt: loadedWorkbench?.updatedAt ?? "",
+      width: loadedWorkbench?.width ?? 0,
     }),
-    [activeWorkbench]
+    [loadedWorkbench]
   );
 
-  const patchActiveWorkbench = useCallback(
+  const patchLoadedWorkbench = useCallback(
     (patch: CanvasWorkbenchEditablePatch, options?: PatchWorkbenchOptions) =>
       patchWorkbench(patch, options),
     [patchWorkbench]
   );
 
-  const renameActiveWorkbench = useCallback(
+  const renameLoadedWorkbench = useCallback(
     async (name: string) =>
-      patchActiveWorkbench(
+      patchLoadedWorkbench(
         {
           name: resolveCanvasWorkbenchName(name),
         },
         { trackHistory: false }
       ),
-    [patchActiveWorkbench]
+    [patchLoadedWorkbench]
   );
 
   const createWorkbenchAndNavigate = useCallback(
     async (name?: string, options?: CreateWorkbenchOptions) => {
+      if (!(await awaitWorkbenchTransitionGuard())) {
+        return null;
+      }
+
       const created = await createWorkbench(name, {
-        activate: false,
+        openAfterCreate: false,
         ...options,
       });
       if (!created) {
@@ -66,7 +81,7 @@ export function useCanvasWorkbenchActions() {
       });
       return created;
     },
-    [createWorkbench, navigate]
+    [awaitWorkbenchTransitionGuard, createWorkbench, navigate]
   );
 
   const createSequentialWorkbench = useCallback(
@@ -76,35 +91,41 @@ export function useCanvasWorkbenchActions() {
 
   const selectWorkbench = useCallback(
     async (workbenchId: string) => {
-      if (workbenchId === activeWorkbenchId) {
+      if (workbenchId === loadedWorkbenchId) {
         return;
       }
 
+      if (!(await awaitWorkbenchTransitionGuard())) {
+        return;
+      }
       await navigate({
         to: "/canvas/$workbenchId",
         params: { workbenchId },
       });
     },
-    [activeWorkbenchId, navigate]
+    [awaitWorkbenchTransitionGuard, loadedWorkbenchId, navigate]
   );
 
-  const deleteActiveWorkbench = useCallback(async () => {
-    if (!activeWorkbenchId) {
+  const deleteLoadedWorkbench = useCallback(async () => {
+    if (!loadedWorkbenchId) {
       return false;
     }
 
-    return deleteWorkbench(activeWorkbenchId, { nextActiveWorkbenchId: null });
-  }, [activeWorkbenchId, deleteWorkbench]);
+    if (!(await awaitWorkbenchTransitionGuard())) {
+      return false;
+    }
+    return deleteWorkbench(loadedWorkbenchId);
+  }, [awaitWorkbenchTransitionGuard, deleteWorkbench, loadedWorkbenchId]);
 
   return {
-    activeWorkbench,
-    activeWorkbenchId,
-    activeWorkbenchMeta,
+    loadedWorkbench,
+    loadedWorkbenchId,
+    loadedWorkbenchMeta,
     createSequentialWorkbench,
     createWorkbenchAndNavigate,
-    deleteActiveWorkbench,
-    patchActiveWorkbench,
-    renameActiveWorkbench,
+    deleteLoadedWorkbench,
+    patchLoadedWorkbench,
+    renameLoadedWorkbench,
     selectWorkbench,
     workbenches,
   };

@@ -1,4 +1,5 @@
 import type { EditingAdjustments } from "./index";
+import type { CanvasImageRenderStateV1 } from "@/render/image/types";
 
 export type CanvasNodeId = string;
 export type CanvasNodeType = "group" | "image" | "text" | "shape";
@@ -61,8 +62,9 @@ export interface CanvasPersistedGroupNode extends CanvasPersistedNodeBase {
 export interface CanvasPersistedImageElement extends CanvasPersistedNodeBase {
   type: "image";
   assetId: string;
-  filmProfileId?: string;
   adjustments?: EditingAdjustments;
+  filmProfileId?: string;
+  renderState?: CanvasImageRenderStateV1;
 }
 
 export interface CanvasPersistedTextElement extends CanvasPersistedNodeBase {
@@ -85,10 +87,27 @@ export interface CanvasShapeArrowHead {
   end: boolean;
 }
 
+export interface CanvasShapeSolidFillStyle {
+  kind: "solid";
+  color: string;
+}
+
+export interface CanvasShapeLinearGradientFillStyle {
+  kind: "linear-gradient";
+  angle: number;
+  from: string;
+  to: string;
+}
+
+export type CanvasShapeFillStyle =
+  | CanvasShapeSolidFillStyle
+  | CanvasShapeLinearGradientFillStyle;
+
 export interface CanvasPersistedShapeElement extends CanvasPersistedNodeBase {
   type: "shape";
   shapeType: CanvasShapeType;
   fill: string;
+  fillStyle?: CanvasShapeFillStyle;
   stroke: string;
   strokeWidth: number;
   radius?: number;
@@ -224,7 +243,7 @@ export type CanvasRenderableNode = CanvasRenderableGroupNode | CanvasRenderableE
 
 export interface CanvasWorkbenchSnapshot {
   id: string;
-  version: 3;
+  version: 5;
   ownerRef: {
     userId: string;
   };
@@ -239,6 +258,7 @@ export interface CanvasWorkbenchSnapshot {
   slices: CanvasSlice[];
   guides: CanvasGuideSettings;
   safeArea: CanvasSafeArea;
+  preferredCoverAssetId: string | null;
   createdAt: string;
   updatedAt: string;
   thumbnailBlob?: Blob;
@@ -249,6 +269,20 @@ export interface CanvasWorkbench extends CanvasWorkbenchSnapshot {
   elements: CanvasRenderableElement[];
 }
 
+export type CanvasWorkbenchDraft = CanvasWorkbench;
+
+export interface CanvasWorkbenchListEntry {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  presetId: CanvasPresetId;
+  width: number;
+  height: number;
+  elementCount: number;
+  coverAssetId: string | null;
+}
+
 export type CanvasDocumentMetaPatch = Partial<
   Pick<
     CanvasWorkbenchSnapshot,
@@ -257,6 +291,7 @@ export type CanvasDocumentMetaPatch = Partial<
     | "height"
     | "name"
     | "presetId"
+    | "preferredCoverAssetId"
     | "safeArea"
     | "slices"
     | "thumbnailBlob"
@@ -265,21 +300,37 @@ export type CanvasDocumentMetaPatch = Partial<
   >
 >;
 
-export type CanvasDocumentOp =
-  | { type: "patchDocumentMeta"; patch: CanvasDocumentMetaPatch }
-  | { type: "putNode"; node: CanvasPersistedNode }
-  | { type: "deleteNode"; nodeId: CanvasNodeId }
-  | { type: "setRootOrder"; rootIds: CanvasNodeId[] }
-  | { type: "setGroupChildren"; groupId: CanvasNodeId; childIds: CanvasNodeId[] };
+export type CanvasDocumentDeltaOp =
+  | {
+      type: "patchDocumentMeta";
+      before: CanvasDocumentMetaPatch;
+      after: CanvasDocumentMetaPatch;
+    }
+  | {
+      type: "setNode";
+      nodeId: CanvasNodeId;
+      before: CanvasPersistedNode | null;
+      after: CanvasPersistedNode | null;
+    }
+  | {
+      type: "setRootOrder";
+      before: CanvasNodeId[];
+      after: CanvasNodeId[];
+    }
+  | {
+      type: "setGroupChildren";
+      groupId: CanvasNodeId;
+      before: CanvasNodeId[];
+      after: CanvasNodeId[];
+    };
 
-export interface CanvasDocumentChangeSet {
-  operations: CanvasDocumentOp[];
+export interface CanvasDocumentDelta {
+  operations: CanvasDocumentDeltaOp[];
 }
 
 export interface CanvasHistoryEntry {
   commandType: CanvasCommand["type"];
-  forwardChangeSet: CanvasDocumentChangeSet;
-  inverseChangeSet: CanvasDocumentChangeSet;
+  delta: CanvasDocumentDelta;
 }
 
 export type CanvasNodePropertyPatch = Partial<
@@ -288,14 +339,21 @@ export type CanvasNodePropertyPatch = Partial<
   Partial<CanvasNodeTransform> &
   Partial<
     Pick<CanvasPersistedGroupNode, "name"> &
-      Pick<CanvasPersistedImageElement, "adjustments" | "filmProfileId"> &
+      Pick<CanvasPersistedImageElement, "renderState"> &
       Pick<
         CanvasPersistedTextElement,
         "color" | "content" | "fontFamily" | "fontSize" | "fontSizeTier" | "textAlign"
       > &
       Pick<
         CanvasPersistedShapeElement,
-        "arrowHead" | "fill" | "points" | "radius" | "shapeType" | "stroke" | "strokeWidth"
+        | "arrowHead"
+        | "fill"
+        | "fillStyle"
+        | "points"
+        | "radius"
+        | "shapeType"
+        | "stroke"
+        | "strokeWidth"
       >
   >;
 
@@ -310,6 +368,7 @@ export type CanvasCommand =
           | "height"
           | "name"
           | "presetId"
+          | "preferredCoverAssetId"
           | "safeArea"
           | "slices"
           | "thumbnailBlob"
@@ -370,7 +429,7 @@ export type CanvasCommand =
       id: CanvasNodeId;
     }
   | {
-      type: "APPLY_IMAGE_ADJUSTMENTS";
-      adjustments: EditingAdjustments | undefined;
+      type: "SET_IMAGE_RENDER_STATE";
       id: CanvasNodeId;
+      renderState: CanvasImageRenderStateV1;
     };

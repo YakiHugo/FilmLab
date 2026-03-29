@@ -1,13 +1,12 @@
 import type Konva from "konva";
-import { Fragment, memo, useEffect, useMemo, useState, type RefObject } from "react";
-import { Layer, Line, Rect, Stage, Text as KonvaText } from "react-konva";
+import { memo, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Layer, Rect, Stage, Transformer } from "react-konva";
 import type {
   CanvasRenderableElement,
   CanvasRenderableTextElement,
   CanvasTextElement,
   CanvasWorkbench,
 } from "@/types";
-import { createId } from "@/utils";
 import {
   CANVAS_SELECTION_ACCENT,
   CANVAS_SELECTION_ACCENT_FILL,
@@ -17,10 +16,10 @@ import { ImageElement } from "./elements/ImageElement";
 import { ShapeElement } from "./elements/ShapeElement";
 import { TextElement } from "./elements/TextElement";
 import { GRID_SIZE } from "./grid";
+import type { CanvasResizeTransformerConfig } from "./hooks/useCanvasViewportResizeController";
 import { fitCanvasTextElementToContent } from "./textStyle";
 import type { CanvasTextRuntimeSelectedElement } from "./textRuntimeViewModel";
 
-const BOARD_SURFACE_NODE_ID = "canvas-background";
 const WORKSPACE_DOT_GRID_NODE_ID = "canvas-workspace-grid";
 const DOT_RADIUS = 0.72;
 const WORKSPACE_BACKGROUND_FILL = "rgb(38, 38, 38)";
@@ -105,24 +104,28 @@ function DotGrid({
 
 interface CanvasElementsLayerProps {
   activeEditingTextId: string | null;
+  canManipulateElements: boolean;
   dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
   editingTextDraft: CanvasRenderableTextElement | CanvasTextElement | null;
   elements: CanvasRenderableElement[];
+  onElementDragMove: (elementId: string, x: number, y: number) => void;
+  onElementDragStart: (elementId: string, event: Konva.KonvaEventObject<DragEvent>) => void;
   interactivePreviewElementId: string | null;
   onElementDragEnd: (elementId: string, x: number, y: number) => void;
   onElementSelect: (elementId: string, additive: boolean) => void;
-  onTextElementDoubleClick: (elementId: string) => void;
 }
 
 const CanvasElementsLayer = memo(function CanvasElementsLayer({
   activeEditingTextId,
+  canManipulateElements,
   dragBoundFunc,
   editingTextDraft,
   elements,
+  onElementDragMove,
+  onElementDragStart,
   interactivePreviewElementId,
   onElementDragEnd,
   onElementSelect,
-  onTextElementDoubleClick,
 }: CanvasElementsLayerProps) {
   return (
     <>
@@ -131,12 +134,15 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
           return (
             <ImageElement
               key={element.id}
+              canDrag={canManipulateElements}
               element={element}
               previewPriority={
                 element.id === interactivePreviewElementId ? "interactive" : "background"
               }
               dragBoundFunc={dragBoundFunc}
               onSelect={onElementSelect}
+              onDragMove={onElementDragMove}
+              onDragStart={onElementDragStart}
               onDragEnd={onElementDragEnd}
             />
           );
@@ -146,23 +152,29 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
           return (
             <ShapeElement
               key={element.id}
+              canDrag={canManipulateElements}
               element={element}
               dragBoundFunc={dragBoundFunc}
               onSelect={onElementSelect}
+              onDragMove={onElementDragMove}
+              onDragStart={onElementDragStart}
               onDragEnd={onElementDragEnd}
             />
           );
         }
 
-        const liveTextElement = editingTextDraft?.id === element.id ? editingTextDraft : element;
+        const liveTextElement =
+          editingTextDraft?.id === element.id ? editingTextDraft : element;
         return (
           <TextElement
             key={liveTextElement.id}
+            canDrag={canManipulateElements}
             element={liveTextElement}
             isEditing={activeEditingTextId === liveTextElement.id}
             dragBoundFunc={dragBoundFunc}
             onSelect={onElementSelect}
-            onDoubleClick={onTextElementDoubleClick}
+            onDragMove={onElementDragMove}
+            onDragStart={onElementDragStart}
             onDragEnd={onElementDragEnd}
           />
         );
@@ -174,19 +186,26 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
 const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
   stageRef,
   selectedElements,
+  suppressSingleSelectionOutline,
 }: {
   stageRef: RefObject<Konva.Stage>;
   selectedElements: CanvasTextRuntimeSelectedElement[];
+  suppressSingleSelectionOutline: boolean;
 }) {
   const baseOutlineRects = useMemo(
     () => selectedElements.map((element) => resolveBaseSelectionOutlineRect(element)),
     [selectedElements]
   );
   const selectionSnapshotKey = useMemo(
-    () =>
-      `${selectedElements.map((element) => element.id).join("|")}::${createId("selection-outline")}`,
+    () => selectedElements.map((element) => element.id).join("|"),
     [selectedElements]
   );
+  const baseOutlineRectsRef = useRef(baseOutlineRects);
+  const selectedElementsRef = useRef(selectedElements);
+  const syncOutlineRectsRef = useRef<(() => void) | null>(null);
+  const syncOutlineRectsFrameRef = useRef<number | null>(null);
+  const hideSingleSelectionOutline =
+    suppressSingleSelectionOutline && selectedElements.length === 1;
   const [liveOutlineState, setLiveOutlineState] = useState<{
     rects: CanvasSelectionOutlineRect[] | null;
     selectionSnapshotKey: string;
@@ -196,8 +215,17 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
   });
 
   useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage || selectedElements.length === 0) {
+    baseOutlineRectsRef.current = baseOutlineRects;
+    selectedElementsRef.current = selectedElements;
+  }, [baseOutlineRects, selectedElements]);
+
+  useEffect(() => {
+    if (hideSingleSelectionOutline) {
+      if (syncOutlineRectsFrameRef.current !== null) {
+        window.cancelAnimationFrame(syncOutlineRectsFrameRef.current);
+        syncOutlineRectsFrameRef.current = null;
+      }
+      syncOutlineRectsRef.current = null;
       setLiveOutlineState((current) =>
         current.selectionSnapshotKey === selectionSnapshotKey && current.rects === null
           ? current
@@ -209,8 +237,26 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
       return;
     }
 
-    const runtimeTargets = selectedElements.map((element, index) => {
-      const baseOutlineRect = baseOutlineRects[index]!;
+    const stage = stageRef.current;
+    if (!stage || selectionSnapshotKey.length === 0) {
+      if (syncOutlineRectsFrameRef.current !== null) {
+        window.cancelAnimationFrame(syncOutlineRectsFrameRef.current);
+        syncOutlineRectsFrameRef.current = null;
+      }
+      syncOutlineRectsRef.current = null;
+      setLiveOutlineState((current) =>
+        current.selectionSnapshotKey === selectionSnapshotKey && current.rects === null
+          ? current
+          : {
+              rects: null,
+              selectionSnapshotKey,
+            }
+      );
+      return;
+    }
+
+    const runtimeTargets = selectedElementsRef.current.map((element, index) => {
+      const baseOutlineRect = baseOutlineRectsRef.current[index]!;
       if (element.type === "group") {
         return {
           baseOutlineRect,
@@ -229,6 +275,11 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
       .filter((node): node is Konva.Node => Boolean(node));
 
     if (trackedNodes.length === 0) {
+      if (syncOutlineRectsFrameRef.current !== null) {
+        window.cancelAnimationFrame(syncOutlineRectsFrameRef.current);
+        syncOutlineRectsFrameRef.current = null;
+      }
+      syncOutlineRectsRef.current = null;
       setLiveOutlineState((current) =>
         current.selectionSnapshotKey === selectionSnapshotKey && current.rects === null
           ? current
@@ -241,10 +292,11 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
     }
 
     const syncOutlineRects = () => {
-      const nextOutlineRects = runtimeTargets.map((target) =>
+      const latestBaseOutlineRects = baseOutlineRectsRef.current;
+      const nextOutlineRects = runtimeTargets.map((target, index) =>
         target.node
-          ? resolveLiveSelectionOutlineRect(target.baseOutlineRect, target.node)
-          : target.baseOutlineRect
+          ? resolveLiveSelectionOutlineRect(latestBaseOutlineRects[index]!, target.node)
+          : latestBaseOutlineRects[index]!
       );
       setLiveOutlineState((current) =>
         current.selectionSnapshotKey === selectionSnapshotKey &&
@@ -257,24 +309,53 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
             }
       );
     };
+    const scheduleSyncOutlineRects = () => {
+      if (typeof window === "undefined") {
+        syncOutlineRects();
+        return;
+      }
+      if (syncOutlineRectsFrameRef.current !== null) {
+        return;
+      }
+      syncOutlineRectsFrameRef.current = window.requestAnimationFrame(() => {
+        syncOutlineRectsFrameRef.current = null;
+        syncOutlineRects();
+      });
+    };
+    syncOutlineRectsRef.current = scheduleSyncOutlineRects;
 
     syncOutlineRects();
 
     trackedNodes.forEach((node) => {
-      node.on("dragmove transform dragend transformend", syncOutlineRects);
+      node.on("dragmove transform dragend transformend", scheduleSyncOutlineRects);
     });
 
     return () => {
+      if (syncOutlineRectsFrameRef.current !== null) {
+        window.cancelAnimationFrame(syncOutlineRectsFrameRef.current);
+        syncOutlineRectsFrameRef.current = null;
+      }
       trackedNodes.forEach((node) => {
-        node.off("dragmove transform dragend transformend", syncOutlineRects);
+        node.off("dragmove transform dragend transformend", scheduleSyncOutlineRects);
       });
+      if (syncOutlineRectsRef.current === scheduleSyncOutlineRects) {
+        syncOutlineRectsRef.current = null;
+      }
     };
-  }, [baseOutlineRects, selectedElements, selectionSnapshotKey, stageRef]);
+  }, [hideSingleSelectionOutline, selectionSnapshotKey, stageRef]);
+
+  useEffect(() => {
+    syncOutlineRectsRef.current?.();
+  }, [baseOutlineRects, selectedElements]);
 
   const outlineRects =
     liveOutlineState.selectionSnapshotKey === selectionSnapshotKey && liveOutlineState.rects
       ? liveOutlineState.rects
       : baseOutlineRects;
+
+  if (hideSingleSelectionOutline) {
+    return null;
+  }
 
   return (
     <>
@@ -289,7 +370,7 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
             height={outlineElement.height}
             rotation={outlineElement.rotation}
             stroke={CANVAS_SELECTION_ACCENT}
-            strokeWidth={1.5}
+            strokeWidth={1}
             strokeScaleEnabled={false}
           />
         );
@@ -359,15 +440,109 @@ const selectionOutlineRectsEqual = (
     );
   });
 
+const CanvasSelectionTransformerLayer = memo(function CanvasSelectionTransformerLayer({
+  onTransform,
+  onTransformEnd,
+  onTransformStart,
+  stageRef,
+  transformer,
+  transformerElementId,
+}: {
+  onTransform: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
+  onTransformEnd: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
+  onTransformStart: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
+  stageRef: RefObject<Konva.Stage>;
+  transformer: CanvasResizeTransformerConfig | null;
+  transformerElementId: string | null;
+}) {
+  const transformerRef = useRef<Konva.Transformer>(null);
+  const hasTransformer = Boolean(transformer);
+
+  useEffect(() => {
+    const transformerNode = transformerRef.current;
+    const stage = stageRef.current;
+    if (!transformerNode) {
+      return;
+    }
+
+    if (!stage || !hasTransformer || !transformerElementId) {
+      transformerNode.nodes([]);
+      transformerNode.getLayer()?.batchDraw();
+      return;
+    }
+
+    const attachedNode = stage.findOne<Konva.Node>(`#${transformerElementId}`);
+    if (!attachedNode) {
+      transformerNode.nodes([]);
+      transformerNode.getLayer()?.batchDraw();
+      return;
+    }
+
+    transformerNode.nodes([attachedNode]);
+    transformerNode.getLayer()?.batchDraw();
+
+    return () => {
+      transformerNode.nodes([]);
+      transformerNode.getLayer()?.batchDraw();
+    };
+  }, [hasTransformer, stageRef, transformerElementId]);
+
+  if (!transformer || !transformerElementId) {
+    return null;
+  }
+
+  const {
+    anchorStyleFunc,
+    boundBoxFunc,
+    ...transformerProps
+  } = transformer;
+
+  return (
+    <Transformer
+      ref={transformerRef}
+      {...transformerProps}
+      anchorStyleFunc={anchorStyleFunc}
+      onTransformStart={(event) => {
+        if (!transformerElementId) {
+          return;
+        }
+        onTransformStart(transformerElementId, event);
+      }}
+      onTransform={(event) => {
+        if (!transformerElementId) {
+          return;
+        }
+        onTransform(transformerElementId, event);
+      }}
+      onTransformEnd={(event) => {
+        if (!transformerElementId) {
+          return;
+        }
+        onTransformEnd(transformerElementId, event);
+      }}
+      boundBoxFunc={(oldBox, newBox) =>
+        boundBoxFunc(oldBox, newBox, {
+          activeAnchor: transformerRef.current?.getActiveAnchor() ?? null,
+        })
+      }
+    />
+  );
+});
+
 interface CanvasViewportStageShellProps {
   interaction: {
+    canManipulateElements: boolean;
     containerRef: RefObject<HTMLDivElement>;
     cursor: string;
     dragBoundFunc: (position: { x: number; y: number }) => { x: number; y: number };
+    handleElementDragMove: (elementId: string, x: number, y: number) => void;
+    handleElementDragStart: (elementId: string, event: Konva.KonvaEventObject<DragEvent>) => void;
     handleElementDragEnd: (elementId: string, x: number, y: number) => void;
     handleElementSelect: (elementId: string, additive: boolean) => void;
+    handleElementTransform: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
+    handleElementTransformEnd: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
+    handleElementTransformStart: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
     handleStageWheel: (event: Konva.KonvaEventObject<WheelEvent>) => void;
-    handleTextElementDoubleClick: (elementId: string) => void;
     handleWorkspacePointerDown: (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
     handleWorkspacePointerMove: (
       event?: Konva.KonvaEventObject<MouseEvent | TouchEvent>
@@ -388,12 +563,14 @@ interface CanvasViewportStageShellProps {
     };
     zoom: number;
   };
+  resize: {
+    showTransformer: boolean;
+    transformer: CanvasResizeTransformerConfig | null;
+    transformerElementId: string | null;
+  };
   scene: {
     activeWorkbench: CanvasWorkbench;
-    centerGuideLines: number[][];
     interactivePreviewElementId: string | null;
-    selectedSliceId?: string | null;
-    thirdsGuideLines: number[][];
     workspaceGridBounds: {
       x: number;
       y: number;
@@ -408,8 +585,9 @@ interface CanvasViewportStageShellProps {
   };
 }
 
-export function CanvasViewportStageShell({
+export const CanvasViewportStageShell = memo(function CanvasViewportStageShell({
   interaction,
+  resize,
   scene,
   textEditing,
 }: CanvasViewportStageShellProps) {
@@ -451,74 +629,20 @@ export function CanvasViewportStageShell({
           />
 
           <DotGrid bounds={scene.workspaceGridBounds} />
-
-          <Rect
-            id={BOARD_SURFACE_NODE_ID}
-            x={0}
-            y={0}
-            width={scene.activeWorkbench.width}
-            height={scene.activeWorkbench.height}
-            fill={scene.activeWorkbench.backgroundColor}
-            listening={false}
-            perfectDrawEnabled={false}
-          />
-
-          {scene.activeWorkbench.guides.showSafeArea ? (
-            <Rect
-              x={scene.activeWorkbench.safeArea.left}
-              y={scene.activeWorkbench.safeArea.top}
-              width={Math.max(
-                1,
-                scene.activeWorkbench.width -
-                  scene.activeWorkbench.safeArea.left -
-                  scene.activeWorkbench.safeArea.right
-              )}
-              height={Math.max(
-                1,
-                scene.activeWorkbench.height -
-                  scene.activeWorkbench.safeArea.top -
-                  scene.activeWorkbench.safeArea.bottom
-              )}
-              stroke="rgba(255,255,255,0.22)"
-              strokeWidth={1}
-              dash={[10, 10]}
-              listening={false}
-            />
-          ) : null}
-
-          {scene.thirdsGuideLines.map((points, index) => (
-            <Line
-              key={`thirds-${index}`}
-              points={points}
-              stroke="rgba(255,255,255,0.14)"
-              strokeWidth={1}
-              dash={[10, 10]}
-              listening={false}
-            />
-          ))}
-
-          {scene.centerGuideLines.map((points, index) => (
-            <Line
-              key={`center-${index}`}
-              points={points}
-              stroke="rgba(251,191,36,0.22)"
-              strokeWidth={1}
-              dash={[14, 10]}
-              listening={false}
-            />
-          ))}
         </Layer>
 
         <Layer>
           <CanvasElementsLayer
             activeEditingTextId={textEditing.activeEditingTextId}
+            canManipulateElements={interaction.canManipulateElements}
             dragBoundFunc={interaction.dragBoundFunc}
             editingTextDraft={textEditing.editingTextDraft}
             elements={scene.activeWorkbench.elements}
             interactivePreviewElementId={scene.interactivePreviewElementId}
+            onElementDragMove={interaction.handleElementDragMove}
+            onElementDragStart={interaction.handleElementDragStart}
             onElementDragEnd={interaction.handleElementDragEnd}
             onElementSelect={interaction.handleElementSelect}
-            onTextElementDoubleClick={interaction.handleTextElementDoubleClick}
           />
         </Layer>
 
@@ -526,6 +650,18 @@ export function CanvasViewportStageShell({
           <CanvasSelectionOutlineLayer
             stageRef={interaction.stageRef}
             selectedElements={textEditing.selectedElements}
+            suppressSingleSelectionOutline={resize.showTransformer}
+          />
+        </Layer>
+
+        <Layer>
+          <CanvasSelectionTransformerLayer
+            onTransform={interaction.handleElementTransform}
+            onTransformEnd={interaction.handleElementTransformEnd}
+            onTransformStart={interaction.handleElementTransformStart}
+            stageRef={interaction.stageRef}
+            transformer={resize.transformer}
+            transformerElementId={resize.transformerElementId}
           />
         </Layer>
 
@@ -538,42 +674,12 @@ export function CanvasViewportStageShell({
               height={Math.max(1, interaction.marqueeRect.height)}
               fill={CANVAS_SELECTION_ACCENT_FILL}
               stroke={CANVAS_SELECTION_ACCENT}
-              strokeWidth={1.5}
-              dash={[8, 5]}
+              strokeWidth={1}
               strokeScaleEnabled={false}
             />
           ) : null}
         </Layer>
-
-        <Layer listening={false}>
-          {scene.activeWorkbench.slices.map((slice) => {
-            const selected = slice.id === scene.selectedSliceId;
-            return (
-              <Fragment key={slice.id}>
-                <Rect
-                  x={slice.x}
-                  y={slice.y}
-                  width={slice.width}
-                  height={slice.height}
-                  stroke={selected ? "#f5c97a" : "rgba(255,255,255,0.28)"}
-                  strokeWidth={selected ? 2 : 1}
-                  dash={selected ? [18, 10] : [10, 10]}
-                  fill={selected ? "rgba(245, 201, 122, 0.06)" : "rgba(255,255,255,0.015)"}
-                />
-                <KonvaText
-                  x={slice.x + 16}
-                  y={slice.y + 16}
-                  text={`${String(slice.order).padStart(2, "0")}  ${slice.name}`}
-                  fontFamily="Manrope"
-                  fontSize={18}
-                  fill={selected ? "#f7e0b2" : "rgba(255,255,255,0.68)"}
-                  padding={8}
-                />
-              </Fragment>
-            );
-          })}
-        </Layer>
       </Stage>
     </div>
   );
-}
+});

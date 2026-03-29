@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultAdjustments } from "@/lib/adjustments";
+import { createDefaultCanvasImageRenderState } from "@/render/image";
 import type { Asset, CanvasImageElement } from "@/types";
 import {
   createCanvasImageRenderContext,
-  resolveCanvasImageAdjustments,
+  resolveCanvasImagePreviewTargetSize,
 } from "./boardImageRendering";
+import { resolveCanvasImageRenderState } from "./imageRenderState";
 
 const createAsset = (overrides?: Partial<Asset>): Asset => ({
   id: overrides?.id ?? "asset-1",
@@ -51,8 +53,12 @@ const createElement = (overrides?: Partial<CanvasImageElement>): CanvasImageElem
   locked: overrides?.locked ?? false,
   visible: overrides?.visible ?? true,
   zIndex: overrides?.zIndex ?? 1,
-  adjustments: overrides?.adjustments,
-  filmProfileId: overrides?.filmProfileId,
+  renderState:
+    overrides?.renderState ??
+    createDefaultCanvasImageRenderState({
+      adjustments: overrides?.adjustments ?? createDefaultAdjustments(),
+      filmProfileId: overrides?.filmProfileId,
+    }),
 });
 
 describe("boardImageRendering", () => {
@@ -110,7 +116,20 @@ describe("boardImageRendering", () => {
     expect(zoomedIn.cacheKey).not.toBe(zoomedOut.cacheKey);
   });
 
-  it("folds draft adjustments and per-element film profiles into the render context", () => {
+  it("preserves the element aspect ratio when resolving preview target sizes", () => {
+    const targetSize = resolveCanvasImagePreviewTargetSize(
+      createElement({
+        width: 401,
+        height: 267,
+      }),
+      "background",
+      1
+    );
+
+    expect(targetSize.width / targetSize.height).toBeCloseTo(401 / 267, 2);
+  });
+
+  it("folds draft render state and per-element film profiles into the render context", () => {
     const asset = createAsset({
       adjustments: {
         ...createDefaultAdjustments(),
@@ -121,21 +140,91 @@ describe("boardImageRendering", () => {
     const element = createElement({
       filmProfileId: "film-portrait-soft-v1",
     });
-    const draftAdjustments = {
-      ...createDefaultAdjustments(),
-      exposure: 24,
-    };
+    const draftRenderState = createDefaultCanvasImageRenderState({
+      adjustments: {
+        ...createDefaultAdjustments(),
+        exposure: 24,
+      },
+      filmProfileId: element.renderState?.film.profileId ?? undefined,
+    });
 
     const context = createCanvasImageRenderContext({
       asset,
       assetById,
-      draftAdjustments,
+      draftRenderState,
       element,
       priority: "interactive",
     });
 
-    expect(resolveCanvasImageAdjustments(element, asset, draftAdjustments).exposure).toBe(24);
-    expect(context.adjustments.exposure).toBe(24);
+    expect(
+      resolveCanvasImageRenderState(element, asset, draftRenderState)?.develop.tone.exposure
+    ).toBe(24);
+    expect(context.renderState.develop.tone.exposure).toBe(24);
     expect(context.filmProfile?.id).toBe("film-portrait-soft-v1");
+  });
+
+  it("resolves persisted renderState without requiring runtime asset availability", () => {
+    const renderState = createDefaultCanvasImageRenderState({
+      adjustments: {
+        ...createDefaultAdjustments(),
+        exposure: 11,
+      },
+    });
+    const element = {
+      ...createElement({
+        renderState,
+      }),
+    };
+
+    expect(resolveCanvasImageRenderState(element, undefined, undefined)).toBe(renderState);
+  });
+
+  it("invalidates preview cache keys when referenced texture assets change", () => {
+    const element = createElement();
+    const textureA = createAsset({
+      id: "texture-1",
+      objectUrl: "blob:texture-a",
+      contentHash: "texture-a",
+    });
+    const textureB = createAsset({
+      id: "texture-1",
+      objectUrl: "blob:texture-b",
+      contentHash: "texture-b",
+    });
+    const asset = createAsset({
+      layers: [
+        {
+          id: "texture-layer-1",
+          name: "Texture 1",
+          type: "texture",
+          visible: true,
+          opacity: 100,
+          blendMode: "overlay",
+          textureAssetId: "texture-1",
+        } as NonNullable<Asset["layers"]>[number],
+      ],
+    });
+
+    const first = createCanvasImageRenderContext({
+      asset,
+      assetById: new Map([
+        [asset.id, asset],
+        [textureA.id, textureA],
+      ]),
+      element,
+      priority: "interactive",
+    });
+    const second = createCanvasImageRenderContext({
+      asset,
+      assetById: new Map([
+        [asset.id, asset],
+        [textureB.id, textureB],
+      ]),
+      element,
+      priority: "interactive",
+    });
+
+    expect(first.imageDocument.revisionKey).toBe(second.imageDocument.revisionKey);
+    expect(first.cacheKey).not.toBe(second.cacheKey);
   });
 });

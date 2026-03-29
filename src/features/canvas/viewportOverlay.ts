@@ -16,6 +16,11 @@ export interface CanvasTextEditorLayout {
   transformOrigin: "top left";
 }
 
+export interface CanvasInteractionNotice {
+  type: "error";
+  message: string;
+}
+
 export const selectionOverlayEqual = (
   left: CanvasSelectionOverlayMetrics | null,
   right: CanvasSelectionOverlayMetrics | null

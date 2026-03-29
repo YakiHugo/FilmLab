@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 import { useAssetStore } from "@/stores/assetStore";
-import { useCanvasActiveWorkbenchState } from "./useCanvasActiveWorkbenchState";
-import { useCanvasActiveWorkbenchStructure } from "./useCanvasActiveWorkbenchStructure";
+import { useCanvasCommittedLoadedWorkbenchState } from "./useCanvasCommittedLoadedWorkbenchState";
+import { useCanvasLoadedWorkbenchStructure } from "./useCanvasLoadedWorkbenchStructure";
 
 export function useCanvasLayers() {
-  const { activeWorkbench, activeWorkbenchId } = useCanvasActiveWorkbenchState();
+  const { loadedWorkbench, loadedWorkbenchId } = useCanvasCommittedLoadedWorkbenchState();
   const {
     deleteNodes,
     groupNodes,
@@ -13,17 +13,17 @@ export function useCanvasLayers() {
     toggleElementLock,
     toggleElementVisibility,
     ungroupNode,
-  } = useCanvasActiveWorkbenchStructure();
+  } = useCanvasLoadedWorkbenchStructure();
   const assets = useAssetStore((state) => state.assets);
 
   const layers = useMemo(() => {
-    if (!activeWorkbench) {
+    if (!loadedWorkbench) {
       return [];
     }
 
-    const ordered: typeof activeWorkbench.allNodes = [];
+    const ordered: typeof loadedWorkbench.allNodes = [];
     const visit = (nodeId: string) => {
-      const node = activeWorkbench.allNodes.find((candidate) => candidate.id === nodeId);
+      const node = loadedWorkbench.allNodes.find((candidate) => candidate.id === nodeId);
       if (!node) {
         return;
       }
@@ -38,7 +38,7 @@ export function useCanvasLayers() {
       }
     };
 
-    activeWorkbench.rootIds
+    loadedWorkbench.rootIds
       .slice()
       .reverse()
       .forEach((nodeId) => {
@@ -46,13 +46,13 @@ export function useCanvasLayers() {
       });
 
     return ordered;
-  }, [activeWorkbench]);
+  }, [loadedWorkbench]);
 
   const assetById = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
 
   return {
-    activeWorkbench,
-    activeWorkbenchId,
+    activeWorkbench: loadedWorkbench,
+    activeWorkbenchId: loadedWorkbenchId,
     layers,
     assetById,
     reparentNodes,

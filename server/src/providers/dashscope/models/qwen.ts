@@ -15,12 +15,15 @@ const getDashScopeGenerationUrl = () =>
 const resolvePromptExtend = (value: unknown) => (typeof value === "boolean" ? value : true);
 
 const buildQwenMessageContent = (input: PlatformProviderGenerateInput) => {
-  const referenceImages = (input.request.resolvedAssetRefs ?? [])
+  const referenceImages = (input.request.resolvedInputAssets ?? [])
     .filter((referenceImage) => Boolean(referenceImage.signedUrl.trim()))
-    .slice(0, 3)
     .map((referenceImage) => ({
       image: referenceImage.signedUrl.trim(),
     }));
+
+  if (referenceImages.length > 3) {
+    throw new ProviderError("Qwen supports at most 3 input images per request.", 400);
+  }
 
   if (referenceImages.length === 0) {
     return [

@@ -21,7 +21,7 @@ type StoryWorkbenchOverrides = Partial<
 const createWorkbench = (overrides?: StoryWorkbenchOverrides): CanvasWorkbench =>
   normalizeCanvasWorkbench({
     id: "workbench-1",
-    version: 2,
+  version: 5,
     ownerRef: { userId: "user-1" },
     name: "Workbench",
     width: 1080,

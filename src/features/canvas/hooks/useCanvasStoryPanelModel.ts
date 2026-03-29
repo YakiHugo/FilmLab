@@ -18,34 +18,34 @@ export function useCanvasStoryPanelModel({
   onSelectSlice,
   selectedSliceId,
 }: UseCanvasStoryPanelModelOptions) {
-  const { activeWorkbench, patchActiveWorkbench } = useCanvasWorkbenchActions();
+  const { loadedWorkbench, patchLoadedWorkbench } = useCanvasWorkbenchActions();
 
   const orderedSlices = useMemo(
-    () => resolveOrderedCanvasSlices(activeWorkbench),
-    [activeWorkbench]
+    () => resolveOrderedCanvasSlices(loadedWorkbench),
+    [loadedWorkbench]
   );
 
   const selectedSlice =
     orderedSlices.find((slice) => slice.id === selectedSliceId) ?? null;
-  const currentPreset = getStudioCanvasPreset(activeWorkbench?.presetId);
+  const currentPreset = getStudioCanvasPreset(loadedWorkbench?.presetId);
 
   const commitIntent = useCallback(
     (intent: Parameters<typeof planCanvasStoryPanelIntent>[0]["intent"]) => {
-      if (!activeWorkbench) {
+      if (!loadedWorkbench) {
         return;
       }
 
       const plan = planCanvasStoryPanelIntent({
         intent,
         selectedSliceId,
-        workbench: activeWorkbench,
+        workbench: loadedWorkbench,
       });
       if (plan.selectedSliceId !== selectedSliceId) {
         onSelectSlice(plan.selectedSliceId);
       }
-      void patchActiveWorkbench(plan.patch, { trackHistory: false });
+      void patchLoadedWorkbench(plan.patch, { trackHistory: false });
     },
-    [activeWorkbench, onSelectSlice, patchActiveWorkbench, selectedSliceId]
+    [loadedWorkbench, onSelectSlice, patchLoadedWorkbench, selectedSliceId]
   );
 
   const selectSlice = useCallback(
@@ -124,7 +124,7 @@ export function useCanvasStoryPanelModel({
   );
 
   return {
-    activeWorkbench,
+    activeWorkbench: loadedWorkbench,
     appendSlice: () => commitIntent({ type: "append-slice" }),
     applyPreset,
     buildStripSlices: (count: number) => commitIntent({ type: "build-strip-slices", count }),

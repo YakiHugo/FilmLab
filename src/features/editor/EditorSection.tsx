@@ -42,6 +42,14 @@ export const EditorSection = memo(function EditorSection({
   const visibilityToggleEnabled = canToggleVisibility ?? hasActualChanges;
   const resetEnabled = canResetChanges ?? hasActualChanges;
   const isCanvasDock = variant === "canvasDock";
+  const visibilityButtonTitle = changesVisible
+    ? isCanvasDock
+      ? "隐藏改动"
+      : "Hide changes"
+    : isCanvasDock
+      ? "显示改动"
+      : "Show changes";
+  const resetButtonTitle = isCanvasDock ? "重置当前分组" : "Reset section";
 
   return (
     <div
@@ -108,7 +116,7 @@ export const EditorSection = memo(function EditorSection({
                   )}
                   onClick={visibilityToggleEnabled ? onToggleVisibility : undefined}
                   disabled={!visibilityToggleEnabled}
-                  title={changesVisible ? "Hide changes" : "Show changes"}
+                  title={visibilityButtonTitle}
                 >
                   {changesVisible ? (
                     <EyeOff className="h-3.5 w-3.5" />
@@ -134,7 +142,7 @@ export const EditorSection = memo(function EditorSection({
                   )}
                   onClick={resetEnabled ? onResetChanges : undefined}
                   disabled={!resetEnabled}
-                  title="Reset section"
+                  title={resetButtonTitle}
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
                 </button>

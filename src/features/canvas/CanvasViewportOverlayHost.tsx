@@ -1,5 +1,12 @@
 import type Konva from "konva";
-import { useEffect, useRef, type KeyboardEventHandler, type RefObject } from "react";
+import {
+  useEffect,
+  memo,
+  useRef,
+  useSyncExternalStore,
+  type KeyboardEventHandler,
+  type RefObject,
+} from "react";
 import type { CanvasRenderableNode, CanvasTextFontSizeTier } from "@/types";
 import {
   CANVAS_SELECTION_ACCENT,
@@ -14,12 +21,25 @@ import {
   CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER,
 } from "./textStyle";
 import type { CanvasTextRuntimeViewModel } from "./textRuntimeViewModel";
+import type { CanvasInteractionNotice } from "./viewportOverlay";
 
 interface CanvasViewportOverlayHostProps {
   overlay: {
     activeWorkbenchUpdatedAt?: string;
+    suspendDocumentOverlaySync?: boolean;
+    previewDimensionsStore: {
+      getSnapshot: () =>
+        | {
+            elementId: string;
+            width: number;
+            height: number;
+          }
+        | null;
+      subscribe: (listener: () => void) => () => void;
+    };
     selectedElementCount: number;
     singleSelectedNonTextElement: Exclude<CanvasRenderableNode, { type: "text" }> | null;
+    interactionNotice: CanvasInteractionNotice | null;
     stageRef: RefObject<Konva.Stage>;
     stageSize: {
       width: number;
@@ -47,7 +67,7 @@ interface CanvasViewportOverlayHostProps {
   };
 }
 
-export function CanvasViewportOverlayHost({
+export const CanvasViewportOverlayHost = memo(function CanvasViewportOverlayHost({
   overlay,
   textEditing,
 }: CanvasViewportOverlayHostProps) {
@@ -71,9 +91,20 @@ export function CanvasViewportOverlayHost({
       dimensionsBadgeSize: DEFAULT_DIMENSIONS_BADGE_SIZE,
       floatingToolbarGap: FLOATING_TOOLBAR_GAP,
       activeWorkbenchUpdatedAt: overlay.activeWorkbenchUpdatedAt,
+      suspendDocumentOverlaySync: overlay.suspendDocumentOverlaySync,
     });
   const editingTextId = textEditing.session.id;
   const editingTextValue = textEditing.session.value;
+  const previewDimensions = useSyncExternalStore(
+    overlay.previewDimensionsStore.subscribe,
+    overlay.previewDimensionsStore.getSnapshot,
+    overlay.previewDimensionsStore.getSnapshot
+  );
+  const activePreviewDimensions =
+    overlay.singleSelectedNonTextElement &&
+    previewDimensions?.elementId === overlay.singleSelectedNonTextElement.id
+      ? previewDimensions
+      : null;
   const handleCancelTextEdit = textEditing.onCancelTextEdit;
   const handleCommitTextEdit = textEditing.onCommitTextEdit;
 
@@ -126,6 +157,12 @@ export function CanvasViewportOverlayHost({
 
   return (
     <>
+      {overlay.interactionNotice ? (
+        <div className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2 rounded-xl border border-red-500/40 bg-red-950/85 px-3 py-2 text-xs font-medium text-red-100 shadow-[0_16px_40px_-20px_rgba(0,0,0,0.95)] backdrop-blur-xl">
+          {overlay.interactionNotice.message}
+        </div>
+      ) : null}
+
       {textEditing.runtimeViewModel.showEditingTextSelectionOutline && selectionOverlay ? (
         <div
           className="pointer-events-none absolute z-10"
@@ -134,7 +171,7 @@ export function CanvasViewportOverlayHost({
             top: selectionOverlay.rect.y,
             width: Math.max(1, selectionOverlay.rect.width),
             height: Math.max(1, selectionOverlay.rect.height),
-            border: `1.5px solid ${CANVAS_SELECTION_ACCENT}`,
+            border: `1px solid ${CANVAS_SELECTION_ACCENT}`,
             boxSizing: "border-box",
           }}
         />
@@ -150,15 +187,17 @@ export function CanvasViewportOverlayHost({
           }}
         >
           {Math.round(
-            overlay.singleSelectedNonTextElement.type === "group"
-              ? overlay.singleSelectedNonTextElement.bounds.width
-              : overlay.singleSelectedNonTextElement.width
+            activePreviewDimensions?.width ??
+              (overlay.singleSelectedNonTextElement.type === "group"
+                ? overlay.singleSelectedNonTextElement.bounds.width
+                : overlay.singleSelectedNonTextElement.width)
           )}{" "}
           x{" "}
           {Math.round(
-            overlay.singleSelectedNonTextElement.type === "group"
-              ? overlay.singleSelectedNonTextElement.bounds.height
-              : overlay.singleSelectedNonTextElement.height
+            activePreviewDimensions?.height ??
+              (overlay.singleSelectedNonTextElement.type === "group"
+                ? overlay.singleSelectedNonTextElement.bounds.height
+                : overlay.singleSelectedNonTextElement.height)
           )}
         </div>
       ) : null}
@@ -219,4 +258,4 @@ export function CanvasViewportOverlayHost({
       ) : null}
     </>
   );
-}
+});

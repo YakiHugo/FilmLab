@@ -1,5 +1,10 @@
-import { normalizeAdjustments } from "@/lib/adjustments";
+import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import { getStockFilmProfileV2ById } from "@/data/filmStockProfiles";
+import type {
+  ImageRenderDevelopState,
+  ImageRenderFilmState,
+  ImageRenderFxState,
+} from "@/render/image/types";
 import type { EditingAdjustments, FilmProfile } from "@/types";
 import type {
   FilmProfileAny,
@@ -10,7 +15,7 @@ import type {
 } from "@/types/film";
 import { ensureFilmProfileV2, ensureFilmProfileV3 } from "./migrate";
 import { createFilmProfileFromAdjustments } from "./profile";
-import { ensureFilmProfile } from "./registry";
+import { ensureFilmProfile, resolveFilmProfile } from "./registry";
 
 const isFilmProfileV2 = (profile: FilmProfileAny | null | undefined): profile is FilmProfileV2 =>
   Boolean(profile && profile.version === 2);
@@ -53,6 +58,44 @@ const resolveAdjustmentPushPullEv = (adjustments: EditingAdjustments): number | 
   return null;
 };
 
+const resolveStatePushPullEv = (
+  fx: Pick<ImageRenderFxState, "pushPullEv">
+): number | null => {
+  const value = fx.pushPullEv;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+};
+
+const createFallbackAdjustmentsFromState = (
+  develop: Pick<ImageRenderDevelopState, "tone" | "color" | "detail" | "fx">
+): EditingAdjustments => {
+  const fallback = createDefaultAdjustments();
+  fallback.exposure = develop.tone.exposure;
+  fallback.contrast = develop.tone.contrast;
+  fallback.highlights = develop.tone.highlights;
+  fallback.shadows = develop.tone.shadows;
+  fallback.whites = develop.tone.whites;
+  fallback.blacks = develop.tone.blacks;
+  fallback.temperature = develop.color.temperature;
+  fallback.tint = develop.color.tint;
+  fallback.vibrance = develop.color.vibrance;
+  fallback.saturation = develop.color.saturation;
+  fallback.hsl = structuredClone(develop.color.hsl);
+  fallback.texture = develop.detail.texture;
+  fallback.clarity = develop.detail.clarity;
+  fallback.dehaze = develop.detail.dehaze;
+  fallback.vignette = develop.fx.vignette;
+  fallback.grain = develop.fx.grain;
+  fallback.grainSize = develop.fx.grainSize;
+  fallback.grainRoughness = develop.fx.grainRoughness;
+  fallback.customLut = develop.fx.customLut ? structuredClone(develop.fx.customLut) : undefined;
+  fallback.pushPullEv = develop.fx.pushPullEv;
+  fallback.glowIntensity = develop.fx.glowIntensity;
+  fallback.glowMidtoneFocus = develop.fx.glowMidtoneFocus;
+  fallback.glowBias = develop.fx.glowBias;
+  fallback.glowRadius = develop.fx.glowRadius;
+  return fallback;
+};
+
 const resolveEffectivePushPull = (
   profile: FilmProfileV3,
   adjustments: EditingAdjustments
@@ -70,6 +113,23 @@ const resolveEffectivePushPull = (
   return { enabled, ev, source, minEv, maxEv };
 };
 
+const resolveEffectivePushPullFromState = (
+  profile: FilmProfileV3,
+  fx: Pick<ImageRenderFxState, "pushPullEv">
+): Omit<ResolvedPushPull, "selectedStop"> & { minEv: number; maxEv: number } => {
+  const rawMinEv = toFiniteNumber(profile.pushPull?.minEv) ?? -2;
+  const rawMaxEv = toFiniteNumber(profile.pushPull?.maxEv) ?? 2;
+  const minEv = Math.min(rawMinEv, rawMaxEv);
+  const maxEv = Math.max(rawMinEv, rawMaxEv);
+  const adjustmentEv = resolveStatePushPullEv(fx);
+  const profileEv = toFiniteNumber(profile.pushPull?.ev);
+  const source: ResolvedPushPull["source"] =
+    adjustmentEv !== null ? "adjustments" : profileEv !== null ? "profile" : "none";
+  const ev = clampValue(adjustmentEv ?? profileEv ?? 0, minEv, maxEv);
+  const enabled = Boolean(profile.pushPull?.enabled) || Math.abs(ev) > 1.0e-4;
+  return { enabled, ev, source, minEv, maxEv };
+};
+
 const applyAdjustmentPushPull = (
   profile: FilmProfileV3,
   adjustments: EditingAdjustments
@@ -78,6 +138,34 @@ const applyAdjustmentPushPull = (
   pushPull: Omit<ResolvedPushPull, "selectedStop">;
 } => {
   const resolved = resolveEffectivePushPull(profile, adjustments);
+  const current = profile.pushPull;
+  return {
+    profile: {
+      ...profile,
+      pushPull: {
+        enabled: resolved.enabled,
+        ev: resolved.ev,
+        minEv: current?.minEv ?? resolved.minEv,
+        maxEv: current?.maxEv ?? resolved.maxEv,
+        lutByStop: current?.lutByStop,
+      },
+    },
+    pushPull: {
+      enabled: resolved.enabled,
+      ev: resolved.ev,
+      source: resolved.source,
+    },
+  };
+};
+
+const applyStatePushPull = (
+  profile: FilmProfileV3,
+  fx: Pick<ImageRenderFxState, "pushPullEv">
+): {
+  profile: FilmProfileV3;
+  pushPull: Omit<ResolvedPushPull, "selectedStop">;
+} => {
+  const resolved = resolveEffectivePushPullFromState(profile, fx);
   const current = profile.pushPull;
   return {
     profile: {
@@ -316,6 +404,29 @@ const applyAdjustmentCustomLUT = (
   };
 };
 
+const applyStateCustomLUT = (
+  profile: FilmProfileV3,
+  fx: Pick<ImageRenderFxState, "customLut">
+): FilmProfileV3 => {
+  const custom = fx.customLut;
+  if (!custom?.enabled || custom.intensity <= 0) {
+    return profile;
+  }
+  const trimmedPath = custom.path.trim();
+  if (!trimmedPath) {
+    return profile;
+  }
+  return {
+    ...profile,
+    customLut: {
+      enabled: true,
+      path: trimmedPath,
+      size: custom.size,
+      intensity: custom.intensity,
+    },
+  };
+};
+
 const applyAdjustmentGlow = (
   profile: FilmProfileV3,
   adjustments: EditingAdjustments
@@ -324,6 +435,43 @@ const applyAdjustmentGlow = (
   const midtoneFocus = Math.max(0, Math.min(1, adjustments.glowMidtoneFocus / 100));
   const bias = Math.max(0, Math.min(1, adjustments.glowBias / 100));
   const radius = Math.max(1, (Math.max(0, Math.min(100, adjustments.glowRadius)) / 100) * 20);
+
+  if (intensity <= 0.0001) {
+    return {
+      ...profile,
+      glow: {
+        enabled: false,
+        intensity: 0,
+        midtoneFocus,
+        bias,
+        radius,
+      },
+    };
+  }
+
+  return {
+    ...profile,
+    glow: {
+      enabled: true,
+      intensity,
+      midtoneFocus,
+      bias,
+      radius,
+    },
+  };
+};
+
+const applyStateGlow = (
+  profile: FilmProfileV3,
+  fx: Pick<
+    ImageRenderFxState,
+    "glowIntensity" | "glowMidtoneFocus" | "glowBias" | "glowRadius"
+  >
+): FilmProfileV3 => {
+  const intensity = Math.max(0, Math.min(1, fx.glowIntensity / 100));
+  const midtoneFocus = Math.max(0, Math.min(1, fx.glowMidtoneFocus / 100));
+  const bias = Math.max(0, Math.min(1, fx.glowBias / 100));
+  const radius = Math.max(1, (Math.max(0, Math.min(100, fx.glowRadius)) / 100) * 20);
 
   if (intensity <= 0.0001) {
     return {
@@ -418,6 +566,57 @@ const buildResolvedProfile = (
   };
 };
 
+const resolveStateFilmProfile = (film: ImageRenderFilmState): FilmProfileAny | undefined => {
+  const baseProfile = film.profile ?? undefined;
+  const overrides = film.profileOverrides ?? undefined;
+  if (!baseProfile) {
+    return undefined;
+  }
+  if (!overrides || Object.keys(overrides).length === 0) {
+    return baseProfile;
+  }
+  return resolveFilmProfile({
+    adjustments: createDefaultAdjustments(),
+    filmProfile: baseProfile,
+    overrides,
+  });
+};
+
+const buildResolvedProfileFromState = (
+  mode: ResolvedRenderProfile["mode"],
+  source: FilmProfileAny,
+  v3Base: FilmProfileV3,
+  fx: Pick<
+    ImageRenderFxState,
+    "customLut" | "pushPullEv" | "glowIntensity" | "glowMidtoneFocus" | "glowBias" | "glowRadius"
+  >,
+  legacyV1?: FilmProfile
+): ResolvedRenderProfile => {
+  const normalizedV3 = normalizeAdvancedFields(v3Base);
+  const pushPullApplied = applyStatePushPull(normalizedV3, fx);
+  const v3 = applyStateGlow(
+    applyStateCustomLUT(pushPullApplied.profile, fx),
+    fx
+  );
+  const v2 = ensureFilmProfileV2(v3);
+  const lut = resolveLUT(v3, pushPullApplied.pushPull.ev, pushPullApplied.pushPull.enabled);
+  return {
+    mode,
+    source,
+    legacyV1,
+    v2,
+    v3,
+    lut: lut.lut,
+    lutBlend: lut.lutBlend,
+    customLut: resolveCustomLUT(v3),
+    printLut: resolvePrintLUT(v3),
+    pushPull: {
+      ...pushPullApplied.pushPull,
+      selectedStop: lut.selectedStop,
+    },
+  };
+};
+
 export const resolveRenderProfile = (
   adjustments: EditingAdjustments,
   providedProfile?: FilmProfileAny | null
@@ -459,6 +658,47 @@ export const resolveRenderProfile = (
     legacyV1,
     ensureFilmProfileV3(v2),
     normalizedAdjustments,
+    legacyV1
+  );
+};
+
+export const resolveRenderProfileFromState = ({
+  film,
+  develop,
+}: {
+  film: ImageRenderFilmState;
+  develop: Pick<ImageRenderDevelopState, "tone" | "color" | "detail" | "fx">;
+}): ResolvedRenderProfile => {
+  const fx = develop.fx;
+  const providedProfile = resolveStateFilmProfile(film);
+
+  if (providedProfile && isFilmProfileV3(providedProfile)) {
+    return buildResolvedProfileFromState("v3", providedProfile, ensureFilmProfileV3(providedProfile), fx);
+  }
+
+  if (providedProfile && isFilmProfileV2(providedProfile)) {
+    const v2 = ensureFilmProfileV2(providedProfile);
+    return buildResolvedProfileFromState("v3", providedProfile, ensureFilmProfileV3(v2), fx);
+  }
+
+  if (providedProfile && !isFilmProfileV2(providedProfile) && !isFilmProfileV3(providedProfile)) {
+    const stockV2 = getStockFilmProfileV2ById(providedProfile.id);
+    if (stockV2) {
+      const v2 = ensureFilmProfileV2(stockV2);
+      return buildResolvedProfileFromState("v3", stockV2, ensureFilmProfileV3(v2), fx);
+    }
+  }
+
+  const runtimeProfile = createFilmProfileFromAdjustments(
+    createFallbackAdjustmentsFromState(develop)
+  );
+  const legacyV1 = ensureFilmProfile(runtimeProfile);
+  const v2 = ensureFilmProfileV2(legacyV1);
+  return buildResolvedProfileFromState(
+    "legacy-v1",
+    legacyV1,
+    ensureFilmProfileV3(v2),
+    fx,
     legacyV1
   );
 };

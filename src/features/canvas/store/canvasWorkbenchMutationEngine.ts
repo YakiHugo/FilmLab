@@ -1,16 +1,15 @@
 import {
-  applyCanvasDocumentChangeSet,
+  applyCanvasDocumentDelta,
   executeCanvasCommand,
-  getCanvasWorkbenchSnapshot,
 } from "@/features/canvas/documentGraph";
 import type {
   CanvasCommand,
   CanvasHistoryEntry,
   CanvasWorkbench,
-  CanvasWorkbenchSnapshot,
 } from "@/types";
 import {
   commitCommandResultToState,
+  commitPreviewCommandResultToState,
   commitCreatedWorkbenchToState,
   commitDeletedWorkbenchToState,
   createCommitFailureOutcome,
@@ -26,25 +25,24 @@ import type {
   CanvasHistoryState,
   CanvasStoreDataSetter,
   CreateWorkbenchOptions,
-  DeleteWorkbenchOptions,
   ExecuteCommandOptions,
 } from "./canvasStoreTypes";
+import type { CanvasWorkbenchPersistStatus } from "./canvasWorkbenchPersistenceGateway";
 
 interface CanvasWorkbenchMutationEngineOptions {
   deletePersistedWorkbench: (workbenchId: string) => Promise<boolean>;
   getResetEpoch: () => number;
-  persistCommittedWorkbench: (workbench: CanvasWorkbench, epoch: number) => Promise<boolean>;
+  persistCommittedWorkbench: (
+    workbench: CanvasWorkbench,
+    epoch: number
+  ) => Promise<CanvasWorkbenchPersistStatus>;
   queueWorkbenchCleanupCompensation: (
     workbenchId: string,
-    userId: string,
-    epoch: number
+    userId: string
   ) => void;
-  queueWorkbenchRestoreCompensation: (
-    snapshot: CanvasWorkbenchSnapshot,
-    epoch: number
-  ) => void;
+  queueWorkbenchRestoreCompensation: (workbench: CanvasWorkbench) => void;
   resolveCommandTarget: (workbenchId: string) => CanvasWorkbench | null;
-  savePersistedWorkbenchSnapshot: (snapshot: CanvasWorkbenchSnapshot) => Promise<boolean>;
+  savePersistedWorkbench: (workbench: CanvasWorkbench) => Promise<boolean>;
   setState: CanvasStoreDataSetter;
 }
 
@@ -55,14 +53,14 @@ export const createCanvasWorkbenchMutationEngine = ({
   queueWorkbenchCleanupCompensation,
   queueWorkbenchRestoreCompensation,
   resolveCommandTarget,
-  savePersistedWorkbenchSnapshot,
+  savePersistedWorkbench,
   setState,
 }: CanvasWorkbenchMutationEngineOptions) => {
   const resolveCommitFailureStatus = (
     epoch: number,
     fallback: Extract<CanvasCommitStatus, "delete_failed" | "persist_failed">
   ): Exclude<CanvasCommitStatus, "committed" | "noop" | "missing_target"> =>
-    epoch !== getResetEpoch() ? "epoch_invalidated" : fallback;
+    epoch !== getResetEpoch() ? "epoch_invalidated_before_persist" : fallback;
 
   const runWorkbenchCommand = (
     workbenchId: string,
@@ -87,13 +85,43 @@ export const createCanvasWorkbenchMutationEngine = ({
     };
   };
 
+  const commitPreviewDescriptorToStore = (
+    descriptor: Pick<CommandCommitDescriptor, "nextWorkbench" | "workbenchId">,
+    epoch: number
+  ): CanvasCommitOutcome<CanvasWorkbench> => {
+    let didCommit = false;
+    setState((state) => {
+      if (epoch !== getResetEpoch()) {
+        return state;
+      }
+
+      didCommit = true;
+      return commitPreviewCommandResultToState(state, descriptor);
+    });
+
+    return didCommit
+      ? { status: "committed", value: descriptor.nextWorkbench }
+      : createCommitFailureOutcome("epoch_invalidated_before_persist");
+  };
+
   const commitDescriptorToStore = async (
     descriptor: WorkbenchCommitDescriptor,
     epoch: number,
     selectedElementIds?: string[]
   ): Promise<CanvasCommitOutcome<CanvasWorkbench>> => {
-    if (!(await persistCommittedWorkbench(descriptor.nextWorkbench, epoch))) {
-      return createCommitFailureOutcome(resolveCommitFailureStatus(epoch, "persist_failed"));
+    const persistStatus = await persistCommittedWorkbench(descriptor.nextWorkbench, epoch);
+    if (persistStatus !== "persisted") {
+      if (persistStatus === "epoch_invalidated_after_persist") {
+        return {
+          status: "epoch_invalidated_after_persist",
+          value: descriptor.nextWorkbench,
+        };
+      }
+      return createCommitFailureOutcome(
+        persistStatus === "persist_failed"
+          ? "persist_failed"
+          : "epoch_invalidated_before_persist"
+      );
     }
 
     let didCommit = false;
@@ -108,7 +136,10 @@ export const createCanvasWorkbenchMutationEngine = ({
 
     return didCommit
       ? { status: "committed", value: descriptor.nextWorkbench }
-      : createCommitFailureOutcome("epoch_invalidated");
+      : {
+          status: "epoch_invalidated_after_persist",
+          value: descriptor.nextWorkbench,
+        };
   };
 
   const commitCreatedWorkbenchToStore = async (
@@ -116,8 +147,23 @@ export const createCanvasWorkbenchMutationEngine = ({
     epoch: number,
     options?: CreateWorkbenchOptions
   ): Promise<CanvasCommitOutcome<CanvasWorkbench>> => {
-    if (!(await persistCommittedWorkbench(workbench, epoch))) {
-      return createCommitFailureOutcome(resolveCommitFailureStatus(epoch, "persist_failed"));
+    const persistStatus = await persistCommittedWorkbench(workbench, epoch);
+    if (persistStatus !== "persisted") {
+      if (persistStatus !== "epoch_invalidated_after_persist") {
+        return createCommitFailureOutcome(
+          persistStatus === "persist_failed"
+            ? "persist_failed"
+            : "epoch_invalidated_before_persist"
+        );
+      }
+
+      const rolledBack = await deletePersistedWorkbench(workbench.id);
+      if (!rolledBack) {
+        queueWorkbenchCleanupCompensation(workbench.id, workbench.ownerRef.userId);
+      }
+      return createCommitFailureOutcome(
+        rolledBack ? "epoch_invalidated_after_persist" : "persist_failed"
+      );
     }
 
     let didCommit = false;
@@ -136,18 +182,19 @@ export const createCanvasWorkbenchMutationEngine = ({
 
     const rolledBack = await deletePersistedWorkbench(workbench.id);
     if (!rolledBack) {
-      queueWorkbenchCleanupCompensation(workbench.id, workbench.ownerRef.userId, epoch);
+      queueWorkbenchCleanupCompensation(workbench.id, workbench.ownerRef.userId);
     }
-    return createCommitFailureOutcome(rolledBack ? "epoch_invalidated" : "persist_failed");
+    return createCommitFailureOutcome(
+      rolledBack ? "epoch_invalidated_after_persist" : "persist_failed"
+    );
   };
 
   const commitDeletedWorkbenchToStore = async (
     workbenchId: string,
-    epoch: number,
-    options?: DeleteWorkbenchOptions
+    epoch: number
   ): Promise<CanvasCommitOutcome<true>> => {
     if (epoch !== getResetEpoch()) {
-      return createCommitFailureOutcome("epoch_invalidated");
+      return createCommitFailureOutcome("epoch_invalidated_before_persist");
     }
 
     const existingWorkbench = resolveCommandTarget(workbenchId);
@@ -166,21 +213,20 @@ export const createCanvasWorkbenchMutationEngine = ({
       }
 
       didCommit = true;
-      return commitDeletedWorkbenchToState(state, workbenchId, options);
+      return commitDeletedWorkbenchToState(state, workbenchId);
     });
 
     if (didCommit) {
       return { status: "committed", value: true };
     }
 
-    const existingSnapshot = getCanvasWorkbenchSnapshot(existingWorkbench);
-    const restored = await savePersistedWorkbenchSnapshot(existingSnapshot);
+    const restored = await savePersistedWorkbench(existingWorkbench);
     if (!restored) {
-      queueWorkbenchRestoreCompensation(existingSnapshot, epoch);
+      queueWorkbenchRestoreCompensation(existingWorkbench);
       return createCommitFailureOutcome("persist_failed");
     }
 
-    return createCommitFailureOutcome("epoch_invalidated");
+    return createCommitFailureOutcome("epoch_invalidated_after_persist");
   };
 
   const executeCommandAgainstWorkbench = async (
@@ -199,6 +245,29 @@ export const createCanvasWorkbenchMutationEngine = ({
     return commitDescriptorToStore(commandResult.descriptor, epoch, selectedElementIds);
   };
 
+  const previewCommandAgainstWorkbench = (
+    workbenchId: string,
+    existing: CanvasWorkbench,
+    command: CanvasCommand,
+    epoch: number
+  ) => {
+    const result = executeCanvasCommand(existing, command);
+    if (!result.didChange) {
+      return {
+        status: "noop" as const,
+        value: existing,
+      };
+    }
+
+    return commitPreviewDescriptorToStore(
+      {
+        workbenchId,
+        nextWorkbench: result.document,
+      },
+      epoch
+    );
+  };
+
   const createHistoryTransitionDescriptor = (
     workbenchId: string,
     workbench: CanvasWorkbench,
@@ -207,12 +276,7 @@ export const createCanvasWorkbenchMutationEngine = ({
     historyState: CanvasHistoryState
   ): HistoryTransitionCommitDescriptor => ({
     workbenchId,
-    nextWorkbench: applyCanvasDocumentChangeSet(
-      workbench,
-      historyMode === "undo"
-        ? historyEntry.inverseChangeSet
-        : historyEntry.forwardChangeSet
-    ),
+    nextWorkbench: applyCanvasDocumentDelta(workbench, historyEntry.delta, historyMode),
     historyMode,
     historyEntry,
     historyState,
@@ -224,6 +288,7 @@ export const createCanvasWorkbenchMutationEngine = ({
     commitDescriptorToStore,
     createHistoryTransitionDescriptor,
     executeCommandAgainstWorkbench,
+    previewCommandAgainstWorkbench,
     resolveCommitFailureStatus,
   };
 };

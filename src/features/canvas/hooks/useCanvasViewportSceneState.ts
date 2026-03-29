@@ -7,7 +7,6 @@ import { getVisibleWorldGridBounds } from "../grid";
 
 interface UseCanvasViewportSceneStateOptions {
   activeWorkbench: CanvasWorkbench | null;
-  displaySelectedElementIds: string[];
   selectedElementIds: string[];
   stageSize: {
     width: number;
@@ -22,7 +21,6 @@ interface UseCanvasViewportSceneStateOptions {
 
 export function useCanvasViewportSceneState({
   activeWorkbench,
-  displaySelectedElementIds,
   selectedElementIds,
   stageSize,
   viewport,
@@ -39,8 +37,8 @@ export function useCanvasViewportSceneState({
   }, [elementById]);
 
   const interactivePreviewElementId = useMemo(
-    () => (displaySelectedElementIds.length === 1 ? displaySelectedElementIds[0]! : null),
-    [displaySelectedElementIds]
+    () => (selectedElementIds.length === 1 ? selectedElementIds[0]! : null),
+    [selectedElementIds]
   );
 
   const singleSelectedElement = useMemo(() => {
@@ -97,6 +95,7 @@ export function useCanvasViewportSceneState({
     elementById,
     elementByIdRef,
     interactivePreviewElementId,
+    singleSelectedElement,
     singleSelectedNonTextElement,
     singleSelectedTextElement,
     thirdsGuideLines,

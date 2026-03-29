@@ -6,15 +6,9 @@ import {
   useState,
   type KeyboardEventHandler,
 } from "react";
-import type {
-  CanvasRenderableNode,
-  CanvasRenderableTextElement,
-  CanvasTextElement,
-} from "@/types";
-import { isCanvasTextElementEditable } from "../elements/TextElement";
-import { type EditingTextMode } from "../textSession";
+import type { CanvasRenderableTextElement, CanvasTextElement } from "@/types";
+import { fitCanvasTextElementToContent } from "../textStyle";
 import {
-  hasCanvasTextSessionPersistEffect,
   runCanvasTextSessionEffects,
   type CanvasTextSessionPort,
 } from "../textSessionRunner";
@@ -25,24 +19,19 @@ import {
   type CanvasTextSessionReducerOptions,
   type CanvasTextSessionSnapshot,
 } from "../textSessionState";
-import { createTextMutationQueue, type TextMutationQueue } from "../textMutationQueue";
-import { fitCanvasTextElementToContent } from "../textStyle";
 
 interface UseCanvasTextSessionOptions {
-  elementById: Map<string, CanvasRenderableNode>;
   port: CanvasTextSessionPort;
-  selectedElementIds: string[];
-  singleSelectedTextElement: CanvasRenderableTextElement | null;
 }
 
 export interface CanvasTextSessionActions {
   begin: (
     element: CanvasRenderableTextElement | CanvasTextElement,
-    options?: { mode?: EditingTextMode }
+    options?: { mode?: "existing" | "create" }
   ) => void;
   cancel: () => void;
   changeValue: (nextValue: string) => void;
-  commit: () => void;
+  commit: () => Promise<"committed" | "noop" | "skipped">;
   handleInputKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
   updateDraft: (updater: (element: CanvasTextElement) => CanvasTextElement) => void;
 }
@@ -57,19 +46,13 @@ const TEXT_SESSION_REDUCER_OPTIONS: CanvasTextSessionReducerOptions = {
 };
 
 export function useCanvasTextSession({
-  elementById,
   port,
-  selectedElementIds,
-  singleSelectedTextElement,
 }: UseCanvasTextSessionOptions): UseCanvasTextSessionResult {
   const [session, setSession] = useState(createCanvasTextSessionSnapshot);
   const sessionRef = useRef(session);
-  const textMutationQueueRef = useRef<TextMutationQueue | null>(null);
   const portRef = useRef(port);
-
-  if (!textMutationQueueRef.current) {
-    textMutationQueueRef.current = createTextMutationQueue();
-  }
+  const commitPromiseRef = useRef<Promise<"committed" | "noop" | "skipped"> | null>(null);
+  const queuedBeginRef = useRef<Parameters<CanvasTextSessionActions["begin"]> | null>(null);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -88,77 +71,14 @@ export function useCanvasTextSession({
       setSession(result.session);
     }
 
-    runCanvasTextSessionEffects({
-      effects: result.effects,
-      mutationQueue: textMutationQueueRef.current!,
-      onSourcePersistFinished: (payload) => {
-        dispatchEvent({
-          type: "source-persist-finished",
-          activeWorkbenchId: portRef.current.getActiveWorkbenchId(),
-          availableWorkbenchIds: portRef.current!.getAvailableWorkbenchIds(),
-          didPersistDraft: payload.didPersistDraft,
-          sessionToken: payload.sessionToken,
-          transitionToken: payload.transitionToken,
-        });
-      },
-      port: portRef.current!,
-    });
-
-    if (
-      previousSession.status !== "persisting-source" &&
-      result.session.status === "persisting-source" &&
-      !hasCanvasTextSessionPersistEffect(result.effects)
-    ) {
-      dispatchEvent({
-        type: "source-persist-finished",
-        activeWorkbenchId: portRef.current.getActiveWorkbenchId(),
-        availableWorkbenchIds: portRef.current!.getAvailableWorkbenchIds(),
-        didPersistDraft: false,
-        sessionToken: result.session.sessionToken,
-        transitionToken: result.session.transitionToken,
-      });
-    }
+    return result;
   }, []);
 
-  const editingTextElement = useMemo(() => {
-    if (!session.id) {
-      return null;
-    }
-
-    const element = elementById.get(session.id);
-    return element?.type === "text" ? element : null;
-  }, [elementById, session.id]);
-
-  const activeTextElement =
-    session.draft ??
-    editingTextElement ??
-    (session.id ? singleSelectedTextElement : null);
-  const isSessionElementEditable = isCanvasTextElementEditable(activeTextElement);
-
-  useEffect(() => {
-    if (!session.id) {
-      return;
-    }
-
-    dispatchEvent({
-      type: "sync-environment",
-      activeWorkbenchId: port.getActiveWorkbenchId(),
-      availableWorkbenchIds: port.getAvailableWorkbenchIds(),
-      hasEditingTextElement: Boolean(editingTextElement),
-      isEditingTextSelected: selectedElementIds.includes(session.id),
-      isSessionElementEditable,
-    });
-  }, [
-    dispatchEvent,
-    editingTextElement,
-    isSessionElementEditable,
-    port,
-    selectedElementIds,
-    session.id,
-  ]);
-
-  const begin = useCallback<CanvasTextSessionActions["begin"]>(
-    (element, options) => {
+  const beginSession = useCallback(
+    (
+      element: CanvasRenderableTextElement | CanvasTextElement,
+      options?: { mode?: "existing" | "create" }
+    ) => {
       dispatchEvent({
         type: "begin",
         activeWorkbenchId: portRef.current.getActiveWorkbenchId(),
@@ -169,27 +89,125 @@ export function useCanvasTextSession({
     [dispatchEvent]
   );
 
+  useEffect(() => {
+    if (!session.id) {
+      return;
+    }
+
+    const activeWorkbenchId = port.getActiveWorkbenchId();
+    if (session.workbenchId === activeWorkbenchId) {
+      return;
+    }
+
+    const result = dispatchEvent({
+      type: "sync-active-workbench",
+      activeWorkbenchId,
+    });
+    if (result.effects.length > 0) {
+      void runCanvasTextSessionEffects({
+        effects: result.effects,
+        port: portRef.current,
+      });
+    }
+  }, [dispatchEvent, port, session.id, session.workbenchId]);
+
+  const begin = useCallback<CanvasTextSessionActions["begin"]>(
+    (element, options) => {
+      if (sessionRef.current.status === "committing") {
+        queuedBeginRef.current = [element, options];
+        return;
+      }
+
+      queuedBeginRef.current = null;
+      beginSession(element, options);
+    },
+    [beginSession]
+  );
+
   const cancel = useCallback(() => {
-    dispatchEvent({
+    const result = dispatchEvent({
       type: "cancel",
-      availableWorkbenchIds: portRef.current!.getAvailableWorkbenchIds(),
+    });
+    if (result.effects.length === 0) {
+      return;
+    }
+
+    void runCanvasTextSessionEffects({
+      effects: result.effects,
+      port: portRef.current,
     });
   }, [dispatchEvent]);
 
-  const commit = useCallback(() => {
-    dispatchEvent({
-      type: "commit",
+  const commit = useCallback(async () => {
+    if (sessionRef.current.status === "committing" && commitPromiseRef.current) {
+      return commitPromiseRef.current;
+    }
+
+    const result = dispatchEvent({
+      type: "prepare-commit",
       activeWorkbenchId: portRef.current.getActiveWorkbenchId(),
     });
+
+    if (result.outcome === "noop") {
+      return "noop";
+    }
+    if (result.outcome !== "pending") {
+      return "skipped";
+    }
+
+    const commitPromise = (async () => {
+      try {
+        await runCanvasTextSessionEffects({
+          effects: result.effects,
+          port: portRef.current,
+        });
+        dispatchEvent({
+          type: "finish-commit",
+          didCommit: true,
+          sessionToken: result.session.sessionToken,
+        });
+        const queuedBegin = queuedBeginRef.current;
+        queuedBeginRef.current = null;
+        if (queuedBegin) {
+          beginSession(...queuedBegin);
+        }
+        return "committed" as const;
+      } catch {
+        dispatchEvent({
+          type: "finish-commit",
+          didCommit: false,
+          sessionToken: result.session.sessionToken,
+        });
+        queuedBeginRef.current = null;
+        return "skipped" as const;
+      } finally {
+        commitPromiseRef.current = null;
+      }
+    })();
+
+    commitPromiseRef.current = commitPromise;
+    return commitPromise;
   }, [dispatchEvent]);
 
-  const changeValue = useCallback((nextValue: string) => {
-    dispatchEvent({
-      type: "change-value",
-      activeWorkbenchId: portRef.current.getActiveWorkbenchId(),
-      nextValue,
-    });
-  }, [dispatchEvent]);
+  const changeValue = useCallback(
+    (nextValue: string) => {
+      const result = dispatchEvent({
+        type: "change-value",
+        activeWorkbenchId: portRef.current.getActiveWorkbenchId(),
+        nextValue,
+      });
+
+      if (result.effects.length === 0) {
+        return;
+      }
+
+      void runCanvasTextSessionEffects({
+        effects: result.effects,
+        port: portRef.current,
+      });
+    },
+    [dispatchEvent]
+  );
 
   const updateDraft = useCallback(
     (updater: (element: CanvasTextElement) => CanvasTextElement) => {
@@ -210,7 +228,7 @@ export function useCanvasTextSession({
       }
       if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
         event.preventDefault();
-        commit();
+        void commit();
       }
     },
     [cancel, commit]

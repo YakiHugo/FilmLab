@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { shallow } from "zustand/shallow";
 import { useCanvasStore, type CanvasState } from "@/stores/canvasStore";
-import { bindCanvasActiveWorkbenchHistoryActions } from "../store/canvasActiveWorkbenchPorts";
-import { useCanvasActiveWorkbenchId } from "./useCanvasActiveWorkbenchId";
+import { bindCanvasLoadedWorkbenchHistoryActions } from "../store/canvasLoadedWorkbenchPorts";
+import { useCanvasLoadedWorkbenchId } from "./useCanvasLoadedWorkbenchId";
 
 const selectHistoryActionStoreApi = (state: CanvasState) => ({
   redoInWorkbench: state.redoInWorkbench,
@@ -10,15 +10,15 @@ const selectHistoryActionStoreApi = (state: CanvasState) => ({
 });
 
 export function useCanvasHistoryActions() {
-  const activeWorkbenchId = useCanvasActiveWorkbenchId();
+  const loadedWorkbenchId = useCanvasLoadedWorkbenchId();
   const storeApi = useCanvasStore(selectHistoryActionStoreApi, shallow);
 
   return useMemo(
     () =>
-      bindCanvasActiveWorkbenchHistoryActions({
+      bindCanvasLoadedWorkbenchHistoryActions({
         storeApi,
-        workbenchId: activeWorkbenchId,
+        workbenchId: loadedWorkbenchId,
       }),
-    [activeWorkbenchId, storeApi]
+    [loadedWorkbenchId, storeApi]
   );
 }

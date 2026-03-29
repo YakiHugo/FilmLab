@@ -9,7 +9,7 @@ interface CanvasAppBarProps {
 }
 
 export function CanvasAppBar({ onExport }: CanvasAppBarProps) {
-  const { activeWorkbenchId, activeWorkbenchMeta, createWorkbenchAndNavigate, renameActiveWorkbench } =
+  const { loadedWorkbenchId, loadedWorkbenchMeta, createWorkbenchAndNavigate, renameLoadedWorkbench } =
     useCanvasWorkbenchActions();
   const zoom = useCanvasStore((state) => state.zoom);
   const { canUndo, canRedo, undo, redo } = useCanvasHistory();
@@ -17,11 +17,11 @@ export function CanvasAppBar({ onExport }: CanvasAppBarProps) {
   return (
     <div className="absolute inset-x-0 top-0 z-20 flex h-[52px] items-center justify-between gap-4 border-b border-white/6 bg-black/50 px-4 backdrop-blur-xl">
       <div className="flex items-center gap-3">
-        {activeWorkbenchId ? (
+        {loadedWorkbenchId ? (
           <Input
-            value={activeWorkbenchMeta.name}
+            value={loadedWorkbenchMeta.name}
             onChange={(event) => {
-              void renameActiveWorkbench(event.target.value);
+              void renameLoadedWorkbench(event.target.value);
             }}
             className="h-8 w-[220px] rounded-lg border-white/10 bg-white/[0.06] px-2.5 text-sm text-zinc-100 placeholder:text-zinc-500"
             placeholder="\u5de5\u4f5c\u53f0\u540d\u79f0"

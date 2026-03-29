@@ -2,7 +2,9 @@ import type {
   CanvasWorkbench,
   CanvasRenderableElement,
   CanvasRenderableNode,
+  CanvasPersistedElement,
 } from "@/types";
+import { getCanvasDescendantIds } from "./document/model";
 
 export interface CanvasSelectionModel {
   activeWorkbench: CanvasWorkbench | null;
@@ -11,15 +13,36 @@ export interface CanvasSelectionModel {
   displaySelectedElementIds: string[];
   hasPreviewSelection: boolean;
   primarySelectedElement: CanvasRenderableNode | null;
+  primarySelectedEditableElement: Extract<
+    CanvasRenderableElement,
+    { type: "image" | "shape" }
+  > | null;
   primarySelectedImageElement: Extract<CanvasRenderableElement, { type: "image" }> | null;
 }
 
-const createNodeById = (activeWorkbench: CanvasWorkbench | null) =>
-  new Map(
-    (((activeWorkbench as CanvasWorkbench | null)?.allNodes ??
-      ((activeWorkbench as unknown as { elements?: CanvasRenderableNode[] } | null)?.elements ?? [])) as CanvasRenderableNode[]
-    ).map((node) => [node.id, node])
-  );
+const canvasSelectionNodeByIdCache = new WeakMap<
+  CanvasWorkbench,
+  Map<string, CanvasRenderableNode>
+>();
+
+export const createCanvasSelectionNodeById = (activeWorkbench: CanvasWorkbench | null) =>
+  activeWorkbench
+    ? (() => {
+        const cached = canvasSelectionNodeByIdCache.get(activeWorkbench);
+        if (cached) {
+          return cached;
+        }
+
+        const next = new Map(
+          (((activeWorkbench as CanvasWorkbench | null)?.allNodes ??
+            ((activeWorkbench as unknown as { elements?: CanvasRenderableNode[] } | null)?.elements ??
+              [])) as CanvasRenderableNode[]
+          ).map((node) => [node.id, node])
+        );
+        canvasSelectionNodeByIdCache.set(activeWorkbench, next);
+        return next;
+      })()
+    : new Map();
 
 const resolvePrimarySelectedNodeFromLookup = (
   nodeById: Map<string, CanvasRenderableNode>,
@@ -32,7 +55,7 @@ const resolvePrimarySelectedNodeFromLookup = (
   return nodeById.get(selectedElementIds[0]!) ?? null;
 };
 
-const resolvePrimarySelectedImageNodeFromLookup = (
+export const resolvePrimarySelectedImageElementFromLookup = (
   nodeById: Map<string, CanvasRenderableNode>,
   selectedElementIds: string[]
 ): Extract<CanvasRenderableElement, { type: "image" }> | null => {
@@ -44,6 +67,44 @@ const resolvePrimarySelectedImageNodeFromLookup = (
   }
 
   return null;
+};
+
+export const resolvePrimarySelectedEditableElementFromLookup = (
+  nodeById: Map<string, CanvasRenderableNode>,
+  selectedElementIds: string[]
+): Extract<CanvasRenderableElement, { type: "image" | "shape" }> | null => {
+  const element = resolvePrimarySelectedNodeFromLookup(nodeById, selectedElementIds);
+  return element?.type === "image" || element?.type === "shape" ? element : null;
+};
+
+export const resolvePrimarySelectedEditableElementKey = (
+  activeWorkbench: Pick<CanvasWorkbench, "nodes"> | null,
+  selectedElementIds: string[]
+) => {
+  const primarySelectedElementId = selectedElementIds[0];
+  if (!activeWorkbench || !primarySelectedElementId) {
+    return null;
+  }
+
+  const element = activeWorkbench.nodes[primarySelectedElementId] as CanvasPersistedElement | undefined;
+  return element?.type === "image" || element?.type === "shape"
+    ? `${element.type}:${element.id}`
+    : null;
+};
+
+export const resolvePrimarySelectedEditableElementFromNodeRecord = (
+  activeWorkbench: Pick<CanvasWorkbench, "nodes"> | null,
+  selectedElementIds: string[]
+): Extract<CanvasRenderableElement, { type: "image" | "shape" }> | null => {
+  const primarySelectedElementId = selectedElementIds[0];
+  if (!activeWorkbench || !primarySelectedElementId) {
+    return null;
+  }
+
+  const element = activeWorkbench.nodes[primarySelectedElementId] as CanvasPersistedElement | undefined;
+  return element?.type === "image" || element?.type === "shape"
+    ? (element as Extract<CanvasRenderableElement, { type: "image" | "shape" }>)
+    : null;
 };
 
 export const selectionIdsEqual = (
@@ -100,6 +161,53 @@ export const resolvePrimarySelectedImageElement = (
   return null;
 };
 
+export const resolvePrimarySelectedEditableElement = (
+  activeWorkbench: CanvasWorkbench | null,
+  selectedElementIds: string[]
+): Extract<CanvasRenderableElement, { type: "image" | "shape" }> | null => {
+  const element = resolvePrimarySelectedElement(activeWorkbench, selectedElementIds);
+  return element?.type === "image" || element?.type === "shape" ? element : null;
+};
+
+export const resolveNextAdditiveSelectionIds = (
+  selectedElementIds: string[],
+  targetElementId: string
+) =>
+  selectedElementIds.includes(targetElementId)
+    ? selectedElementIds.filter((selectedElementId) => selectedElementId !== targetElementId)
+    : [targetElementId, ...selectedElementIds];
+
+export const resolveSelectedRootElementIds = (
+  activeWorkbench: Pick<CanvasWorkbench, "groupChildren" | "nodes"> | null,
+  selectedElementIds: string[]
+) => {
+  if (!activeWorkbench || selectedElementIds.length === 0) {
+    return [];
+  }
+
+  const uniqueIds = Array.from(new Set(selectedElementIds)).filter((elementId) =>
+    Boolean(activeWorkbench.nodes[elementId])
+  );
+
+  return uniqueIds.filter(
+    (elementId) =>
+      !uniqueIds.some(
+        (candidateId) =>
+          candidateId !== elementId &&
+          getCanvasDescendantIds(activeWorkbench, candidateId).includes(elementId)
+      )
+  );
+};
+
+export const resolveSelectedRootRenderableElementIds = (
+  activeWorkbench: Pick<CanvasWorkbench, "groupChildren" | "nodes"> | null,
+  selectedElementIds: string[]
+) =>
+  resolveSelectedRootElementIds(activeWorkbench, selectedElementIds).filter((elementId) => {
+    const element = activeWorkbench?.nodes[elementId];
+    return Boolean(element && element.type !== "group");
+  });
+
 export const hasSelectedImageElement = (
   activeWorkbench: CanvasWorkbench | null,
   selectedElementIds: string[]
@@ -118,7 +226,7 @@ export const createCanvasSelectionModel = ({
   nodeById?: Map<string, CanvasRenderableNode>;
   hasPreviewSelection: boolean;
 }): CanvasSelectionModel => {
-  const resolvedNodeById = nodeById ?? createNodeById(activeWorkbench);
+  const resolvedNodeById = nodeById ?? createCanvasSelectionNodeById(activeWorkbench);
 
   return {
     activeWorkbench,
@@ -130,7 +238,11 @@ export const createCanvasSelectionModel = ({
       resolvedNodeById,
       displaySelectedElementIds
     ),
-    primarySelectedImageElement: resolvePrimarySelectedImageNodeFromLookup(
+    primarySelectedEditableElement: resolvePrimarySelectedEditableElementFromLookup(
+      resolvedNodeById,
+      displaySelectedElementIds
+    ),
+    primarySelectedImageElement: resolvePrimarySelectedImageElementFromLookup(
       resolvedNodeById,
       displaySelectedElementIds
     ),

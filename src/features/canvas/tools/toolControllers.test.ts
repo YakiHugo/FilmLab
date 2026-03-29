@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CanvasShapeType } from "@/types";
-import { resolveCanvasToolController } from "./toolControllers";
+import {
+  resolveCanvasToolController,
+  shouldCanvasToolSelectElements,
+} from "./toolControllers";
 
 const createContext = () => ({
   marquee: {
@@ -16,6 +19,7 @@ const createContext = () => ({
   selection: {
     clear: vi.fn(),
     select: vi.fn(),
+    suppressElementActivation: vi.fn(),
   },
   shape: {
     activeShapeType: "rect" as CanvasShapeType,
@@ -58,7 +62,7 @@ describe("toolControllers", () => {
     controller.onPointerDown(context, {
       additive: false,
       canvasPoint: { x: 0, y: 0 },
-      isBackgroundTarget: true,
+      isBackgroundTarget: false,
       screenPoint: { x: 400, y: 300 },
     });
     controller.onPointerMove?.(context, {
@@ -109,16 +113,84 @@ describe("toolControllers", () => {
       screenPoint: { x: 0, y: 0 },
     });
 
-    expect(context.selection.clear).toHaveBeenCalled();
     expect(context.shape.insert).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "shape",
         shapeType: "arrow",
       })
     );
-    expect(context.selection.select).toHaveBeenCalledWith(
-      context.shape.insert.mock.calls[0]?.[0]?.id
-    );
+    expect(context.selection.clear).toHaveBeenCalled();
+    expect(context.selection.suppressElementActivation).toHaveBeenCalled();
+    expect(context.selection.select).not.toHaveBeenCalled();
     expect(context.toolState.setTool).toHaveBeenCalledWith("select");
+  });
+
+  it("uses rect as the default shape subtype", () => {
+    const controller = resolveCanvasToolController("shape", false);
+    const context = createContext();
+
+    controller.onPointerDown(context, {
+      additive: false,
+      canvasPoint: { x: 160, y: 240 },
+      isBackgroundTarget: true,
+      screenPoint: { x: 0, y: 0 },
+    });
+
+    expect(context.shape.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "shape",
+        shapeType: "rect",
+      })
+    );
+  });
+
+  it("keeps background gating inside the text tool controller", () => {
+    const controller = resolveCanvasToolController("text", false);
+    const context = createContext();
+
+    controller.onPointerDown(context, {
+      additive: false,
+      canvasPoint: { x: 123, y: 187 },
+      isBackgroundTarget: false,
+      screenPoint: { x: 0, y: 0 },
+    });
+
+    expect(context.text.beginEdit).not.toHaveBeenCalled();
+  });
+
+  it("keeps background gating inside the shape tool controller", () => {
+    const controller = resolveCanvasToolController("shape", false);
+    const context = createContext();
+
+    controller.onPointerDown(context, {
+      additive: false,
+      canvasPoint: { x: 160, y: 240 },
+      isBackgroundTarget: false,
+      screenPoint: { x: 0, y: 0 },
+    });
+
+    expect(context.shape.insert).not.toHaveBeenCalled();
+    expect(context.toolState.setTool).not.toHaveBeenCalled();
+  });
+
+  it("only allows element selection in select mode when not panning", () => {
+    expect(
+      shouldCanvasToolSelectElements({
+        shouldPan: false,
+        tool: "select",
+      })
+    ).toBe(true);
+    expect(
+      shouldCanvasToolSelectElements({
+        shouldPan: false,
+        tool: "shape",
+      })
+    ).toBe(false);
+    expect(
+      shouldCanvasToolSelectElements({
+        shouldPan: true,
+        tool: "select",
+      })
+    ).toBe(false);
   });
 });

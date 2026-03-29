@@ -1,0 +1,30 @@
+{
+  "baseline": "dirty",
+  "currentTaskId": null,
+  "tasks": [
+    {
+      "id": "1",
+      "title": "split workbench list entry, detail, and single loaded editor session",
+      "status": "done",
+      "passes": true
+    },
+    {
+      "id": "2",
+      "title": "adapt persistence and store consumers to the new session model",
+      "status": "done",
+      "passes": true
+    },
+    {
+      "id": "3",
+      "title": "run focused validation and record follow-up selector work",
+      "status": "done",
+      "passes": true
+    },
+    {
+      "id": "4",
+      "title": "replace selection-derived edit auto-open with explicit panel events",
+      "status": "done",
+      "passes": true
+    }
+  ]
+}

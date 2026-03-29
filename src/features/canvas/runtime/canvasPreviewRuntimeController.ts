@@ -239,7 +239,7 @@ export const createCanvasPreviewRuntimeController = ({
         asset: task.asset,
         assetById: task.assetById,
         canvas: renderCanvas,
-        draftAdjustments: task.draftAdjustments,
+        draftRenderState: task.draftRenderState,
         element: task.element,
         intent:
           task.priority === "interactive" ? "preview-interactive" : "preview-full",
@@ -336,7 +336,7 @@ export const createCanvasPreviewRuntimeController = ({
     }
 
     const taskInput = resolvePreviewTaskInput({
-      draftAdjustmentsByElementId: store.getState().draftAdjustmentsByElementId,
+      draftRenderStateByElementId: store.getState().draftRenderStateByElementId,
       elementId,
       input: getInput(),
       priority,

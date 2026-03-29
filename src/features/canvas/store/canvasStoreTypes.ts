@@ -1,32 +1,38 @@
-import type { CanvasCommand, CanvasHistoryEntry, CanvasShapeType, CanvasWorkbench } from "@/types";
+import type {
+  CanvasCommand,
+  CanvasHistoryEntry,
+  CanvasShapeType,
+  CanvasWorkbench,
+  CanvasWorkbenchDraft,
+  CanvasWorkbenchListEntry,
+} from "@/types";
 
 export type CanvasTool = "select" | "text" | "hand" | "shape";
 export type CanvasFloatingPanel =
   | "edit"
   | "layers"
   | "library"
-  | "story"
-  | "properties"
-  | "workbench"
   | null;
 
 export interface CanvasHistoryState {
-  past: CanvasHistoryEntry[];
-  future: CanvasHistoryEntry[];
+  entries: CanvasHistoryEntry[];
+  cursor: number;
+}
+
+export interface CanvasWorkbenchInteractionStatus {
+  active: boolean;
+  pendingCommits: number;
+  queuedMutations: number;
 }
 
 export interface ExecuteCommandOptions {
   trackHistory?: boolean;
 }
 
-export type PatchWorkbenchOptions = ExecuteCommandOptions;
+export type PatchWorkbenchOptions = Pick<ExecuteCommandOptions, "trackHistory">;
 
 export interface CreateWorkbenchOptions {
-  activate?: boolean;
-}
-
-export interface DeleteWorkbenchOptions {
-  nextActiveWorkbenchId?: string | null;
+  openAfterCreate?: boolean;
 }
 
 export type CanvasWorkbenchEditablePatch = Extract<
@@ -35,8 +41,10 @@ export type CanvasWorkbenchEditablePatch = Extract<
 >["patch"];
 
 export interface CanvasStoreDataState {
-  workbenches: CanvasWorkbench[];
-  activeWorkbenchId: string | null;
+  workbenchList: CanvasWorkbenchListEntry[];
+  loadedWorkbenchId: string | null;
+  workbench: CanvasWorkbench | null;
+  workbenchDraft: CanvasWorkbenchDraft | null;
   selectedElementIds: string[];
   tool: CanvasTool;
   activeShapeType: CanvasShapeType;
@@ -44,7 +52,8 @@ export interface CanvasStoreDataState {
   viewport: { x: number; y: number };
   activePanel: CanvasFloatingPanel;
   isLoading: boolean;
-  historyByWorkbenchId: Record<string, CanvasHistoryState>;
+  workbenchHistory: CanvasHistoryState | null;
+  workbenchInteraction: CanvasWorkbenchInteractionStatus | null;
 }
 
 export type CanvasStoreDataUpdate =

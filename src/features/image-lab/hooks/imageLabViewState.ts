@@ -12,7 +12,11 @@ import {
   type ImageModelCatalog,
 } from "@/lib/ai/imageModelCatalog";
 import { sanitizeGenerationConfig, type GenerationConfig } from "@/stores/generationConfigStore";
-import type { ImageGenerationRequest, ReferenceImage } from "@/types/imageGeneration";
+import {
+  getImageInputGuideAssets,
+  resolveLegacyImageGenerationInputs,
+  type ImageGenerationRequest,
+} from "@/types/imageGeneration";
 
 export interface GeneratedResultItem {
   imageUrl: string;
@@ -91,9 +95,6 @@ export interface PendingConversationTurn {
   providerModel: string;
 }
 
-export const RETRY_REFERENCE_IMAGES_OMITTED_WARNING =
-  "Reference images from history are no longer available and were omitted. This retry will run without them, so re-upload the reference images if you need the same result.";
-
 export const cloneGenerationConfig = (config: GenerationConfig): GenerationConfig => ({
   ...config,
   promptIntent: {
@@ -103,49 +104,45 @@ export const cloneGenerationConfig = (config: GenerationConfig): GenerationConfi
     continuityTargets: [...config.promptIntent.continuityTargets],
     editOps: config.promptIntent.editOps.map((entry) => ({ ...entry })),
   },
-  referenceImages: config.referenceImages.map((entry) => ({ ...entry })),
-  assetRefs: config.assetRefs.map((entry) => ({ ...entry })),
+  inputAssets: config.inputAssets.map((entry) => ({ ...entry })),
   modelParams: { ...config.modelParams },
-});
-
-const toReferenceImage = (
-  entry: ImageLabTurnRequestView["referenceImages"][number],
-  index: number
-): ReferenceImage => ({
-  id: entry.id || `persisted-ref-${index}`,
-  url: entry.url ?? "",
-  ...(entry.fileName ? { fileName: entry.fileName } : {}),
-  type: entry.type,
-  ...(typeof entry.weight === "number" ? { weight: entry.weight } : {}),
-  ...(entry.sourceAssetId ? { sourceAssetId: entry.sourceAssetId } : {}),
 });
 
 export const toGenerationConfigFromRequest = (
   request: ImageLabTurnRequestView
-): GenerationConfig => ({
-  modelId: request.modelId,
-  aspectRatio: request.aspectRatio as GenerationConfig["aspectRatio"],
-  width: request.width,
-  height: request.height,
-  style: request.style as GenerationConfig["style"],
-  stylePreset: request.stylePreset,
-  negativePrompt: request.negativePrompt,
-  promptIntent: {
-    preserve: [...request.promptIntent.preserve],
-    avoid: [...request.promptIntent.avoid],
-    styleDirectives: [...request.promptIntent.styleDirectives],
-    continuityTargets: [...request.promptIntent.continuityTargets],
-    editOps: request.promptIntent.editOps.map((entry) => ({ ...entry })),
-  },
-  referenceImages: request.referenceImages.map(toReferenceImage),
-  assetRefs: request.assetRefs.map((entry) => ({ ...entry })),
-  seed: request.seed,
-  guidanceScale: request.guidanceScale,
-  steps: request.steps,
-  sampler: request.sampler,
-  batchSize: request.batchSize,
-  modelParams: { ...request.modelParams },
-});
+) => {
+  const normalizedInputs = resolveLegacyImageGenerationInputs(
+    request as ImageLabTurnRequestView & {
+      referenceImages?: unknown;
+      assetRefs?: unknown;
+    }
+  );
+
+  return {
+    modelId: request.modelId,
+    aspectRatio: request.aspectRatio as GenerationConfig["aspectRatio"],
+    width: request.width,
+    height: request.height,
+    style: request.style as GenerationConfig["style"],
+    stylePreset: request.stylePreset,
+    negativePrompt: request.negativePrompt,
+    promptIntent: {
+      preserve: [...request.promptIntent.preserve],
+      avoid: [...request.promptIntent.avoid],
+      styleDirectives: [...request.promptIntent.styleDirectives],
+      continuityTargets: [...request.promptIntent.continuityTargets],
+      editOps: request.promptIntent.editOps.map((entry) => ({ ...entry })),
+    },
+    operation: normalizedInputs.operation,
+    inputAssets: normalizedInputs.inputAssets.map((entry) => ({ ...entry })),
+    seed: request.seed,
+    guidanceScale: request.guidanceScale,
+    steps: request.steps,
+    sampler: request.sampler,
+    batchSize: request.batchSize,
+    modelParams: { ...request.modelParams },
+  };
+};
 
 export const toImageGenerationRequest = (
   prompt: string,
@@ -166,8 +163,8 @@ export const toImageGenerationRequest = (
     continuityTargets: [...config.promptIntent.continuityTargets],
     editOps: config.promptIntent.editOps.map((entry) => ({ ...entry })),
   },
-  referenceImages: config.referenceImages.map((entry) => ({ ...entry })),
-  assetRefs: config.assetRefs.map((entry) => ({ ...entry })),
+  operation: config.operation,
+  inputAssets: config.inputAssets.map((entry) => ({ ...entry })),
   ...(typeof config.seed === "number" ? { seed: config.seed } : {}),
   ...(typeof config.guidanceScale === "number" ? { guidanceScale: config.guidanceScale } : {}),
   ...(typeof config.steps === "number" ? { steps: config.steps } : {}),
@@ -236,42 +233,6 @@ export const shouldFetchPromptObservability = (
   return currentState.status !== "loaded" && currentState.status !== "loading";
 };
 
-export const omitUnavailableReferenceImages = (
-  config: GenerationConfig
-): { config: GenerationConfig; warnings: string[] } => {
-  const unavailableReferenceImages = config.referenceImages.filter(
-    (referenceImage) => typeof referenceImage.url !== "string" || referenceImage.url.trim().length === 0
-  );
-
-  if (unavailableReferenceImages.length === 0) {
-    return {
-      config,
-      warnings: [],
-    };
-  }
-
-  const omittedSourceAssetIds = new Set(
-    unavailableReferenceImages
-      .map((referenceImage) => referenceImage.sourceAssetId)
-      .filter((assetId): assetId is string => typeof assetId === "string" && assetId.trim().length > 0)
-  );
-
-  return {
-    config: {
-      ...config,
-      referenceImages: config.referenceImages.filter(
-        (referenceImage) =>
-          typeof referenceImage.url === "string" && referenceImage.url.trim().length > 0
-      ),
-      assetRefs: config.assetRefs.filter(
-        (assetRef) =>
-          assetRef.role !== "reference" || !omittedSourceAssetIds.has(assetRef.assetId)
-      ),
-    },
-    warnings: [RETRY_REFERENCE_IMAGES_OMITTED_WARNING],
-  };
-};
-
 export const toImageGenerationTurn = (
   turn: ImageLabTurnView,
   runtimeState: Record<number, RuntimeResultState> | undefined,
@@ -300,7 +261,7 @@ export const toImageGenerationTurn = (
     displayAspectRatio: turn.request.aspectRatio,
     displayStyleId: turn.request.style,
     displayStylePresetId: turn.request.stylePreset,
-    displayReferenceImageCount: turn.request.referenceImages.length,
+    displayReferenceImageCount: getImageInputGuideAssets(turn.request.inputAssets).length,
     referencedAssetIds: [...turn.referencedAssetIds],
     primaryAssetIds: [...turn.primaryAssetIds],
     executedTargetLabel: turn.executedTargetLabel,
@@ -354,8 +315,8 @@ export const toPendingTurnView = (
     displayAspectRatio: pendingTurn.request.aspectRatio,
     displayStyleId: pendingTurn.request.style,
     displayStylePresetId: pendingTurn.request.stylePreset,
-    displayReferenceImageCount: pendingTurn.request.referenceImages.length,
-    referencedAssetIds: pendingTurn.request.assetRefs.map((entry) => entry.assetId),
+    displayReferenceImageCount: getImageInputGuideAssets(pendingTurn.request.inputAssets).length,
+    referencedAssetIds: pendingTurn.request.inputAssets.map((entry) => entry.assetId),
     primaryAssetIds: [],
     executedTargetLabel: null,
     runCount: 0,

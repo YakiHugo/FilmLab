@@ -1,11 +1,8 @@
 import {
   ArrowRight,
   Circle,
-  Frame,
   Images,
   Layers3,
-  PanelsTopLeft,
-  Settings2,
   Slash,
   SlidersHorizontal,
   Square,
@@ -34,10 +31,7 @@ const shapeButtons = [
 const panelButtons = [
   { panel: "library" as const, icon: Images, label: "Library" },
   { panel: "layers" as const, icon: Layers3, label: "Layers" },
-  { panel: "properties" as const, icon: Settings2, label: "Inspector" },
-  { panel: "workbench" as const, icon: PanelsTopLeft, label: "Workbench" },
-  { panel: "story" as const, icon: Frame, label: "Story" },
-  { panel: "edit" as const, icon: SlidersHorizontal, label: "Edit" },
+  { panel: "edit" as const, icon: SlidersHorizontal, label: "编辑" },
 ] as const;
 
 export function CanvasToolRail() {
@@ -121,26 +115,7 @@ export function CanvasToolRail() {
           )}
         />
 
-        {panelButtons.slice(0, 3).map((btn) => {
-          const Icon = btn.icon;
-          const active = activePanel === btn.panel;
-          return (
-            <button
-              key={btn.panel}
-              type="button"
-              onClick={() => togglePanel(btn.panel)}
-              className={buttonClassName(active)}
-              aria-label={btn.label}
-              title={btn.label}
-            >
-              <Icon className="h-[18px] w-[18px]" />
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="flex flex-col items-center gap-1.5">
-        {panelButtons.slice(3).map((btn) => {
+        {panelButtons.map((btn) => {
           const Icon = btn.icon;
           const active = activePanel === btn.panel;
           return (

@@ -5,6 +5,7 @@ import {
 } from "@/features/canvas/studioPresets";
 import { createId } from "@/utils";
 import type {
+  Asset,
   CanvasEditableElement,
   CanvasNode,
   CanvasNodeId,
@@ -69,8 +70,7 @@ const toEditableNodeFromPersisted = (
       ...baseNode,
       type: "image",
       assetId: source.assetId,
-      adjustments: source.adjustments,
-      filmProfileId: source.filmProfileId,
+      renderState: clone(source.renderState),
     };
   }
 
@@ -92,6 +92,7 @@ const toEditableNodeFromPersisted = (
     type: "shape",
     arrowHead: source.arrowHead,
     fill: source.fill,
+    fillStyle: source.fillStyle ? clone(source.fillStyle) : undefined,
     points: source.points ? clone(source.points) : undefined,
     radius: source.radius,
     shapeType: source.shapeType,
@@ -114,14 +115,14 @@ export const toEditableElementPropertyPatch = (node: CanvasEditableElement) => (
     : {}),
   ...(node.type === "image"
     ? {
-        adjustments: node.adjustments,
-        filmProfileId: node.filmProfileId,
+        renderState: node.renderState ? clone(node.renderState) : undefined,
       }
     : {}),
   ...(node.type === "shape"
     ? {
         arrowHead: node.arrowHead,
         fill: node.fill,
+        fillStyle: node.fillStyle ? clone(node.fillStyle) : undefined,
         points: node.points ? clone(node.points) : undefined,
         radius: node.radius,
         shapeType: node.shapeType,
@@ -148,7 +149,7 @@ export const makeDefaultWorkbench = (name = "Untitled Workbench"): CanvasWorkben
   const defaults = createDefaultCanvasWorkbenchFields();
   return normalizeCanvasWorkbench({
     id: createId("workbench-id"),
-    version: 3,
+    version: 5,
     ownerRef: { userId: getCurrentUserId() },
     name,
     ...defaults,
@@ -156,6 +157,7 @@ export const makeDefaultWorkbench = (name = "Untitled Workbench"): CanvasWorkben
     nodes: {},
     rootIds: [],
     groupChildren: {},
+    preferredCoverAssetId: null,
     createdAt: now,
     updatedAt: now,
   });
@@ -167,7 +169,8 @@ export const cloneNodeTree = (
   offset: { x: number; y: number },
   usedIds: Set<CanvasNodeId>,
   parentId: CanvasNodeId | null,
-  idMap = new Map<CanvasNodeId, CanvasNodeId>()
+  idMap = new Map<CanvasNodeId, CanvasNodeId>(),
+  assetById?: ReadonlyMap<string, Asset>
 ): CanvasNode[] => {
   const source = workbench.nodes[nodeId];
   if (!source) {
@@ -198,7 +201,7 @@ export const cloneNodeTree = (
     }
     const childIds = workbench.groupChildren[sourceGroup.id] ?? [];
     const children = childIds.flatMap((childId) =>
-      cloneNodeTree(workbench, childId, { x: 0, y: 0 }, usedIds, cloneNode.id, idMap)
+      cloneNodeTree(workbench, childId, { x: 0, y: 0 }, usedIds, cloneNode.id, idMap, assetById)
     );
     cloneNode.childIds = childIds
       .map((childId) => idMap.get(childId))

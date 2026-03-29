@@ -21,4 +21,4 @@ export {
   migrateFilmProfileV1ToV2,
   migrateFilmProfileV2ToV3,
 } from "./migrate";
-export { resolveRenderProfile } from "./renderProfile";
+export { resolveRenderProfile, resolveRenderProfileFromState } from "./renderProfile";
