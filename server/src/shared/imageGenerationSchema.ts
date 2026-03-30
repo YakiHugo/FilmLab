@@ -11,6 +11,7 @@ import {
 import type {
   ImageGenerationRequest,
   ParsedImageGenerationRequest,
+  RequestedImageGenerationTarget,
 } from "../../../shared/imageGenerationSchema";
 import {
   resolveImagePromptCompilerOperation,
@@ -193,5 +194,6 @@ export type {
   ImageAspectRatio,
   ImageGenerationRequest,
   ParsedImageGenerationRequest,
+  RequestedImageGenerationTarget,
   ReferenceImageType,
 };

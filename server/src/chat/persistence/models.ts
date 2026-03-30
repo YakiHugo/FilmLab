@@ -1,11 +1,11 @@
 import type {
-  ImageGenerationRequest,
   ImageInputAssetBinding,
   ImagePromptCompilerOperationId,
   ImagePromptContinuityTarget,
   ImagePromptIntentInput,
   ImagePromptIntentEditOp,
 } from "../../../../shared/imageGeneration";
+import type { ImageGenerationRequest } from "../../../../shared/imageGenerationSchema";
 import type { FrontendImageModelId } from "../../../../shared/imageModelCatalog";
 
 export type GenerationJobStatus = "running" | "succeeded" | "failed";

@@ -179,5 +179,8 @@ export const imageGenerationRequestSchema = imageGenerationRequestBaseSchema
     }
   });
 
-export type ParsedImageGenerationRequest = z.infer<typeof imageGenerationRequestSchema>;
+export type RequestedImageGenerationTarget = z.input<
+  typeof requestedImageGenerationTargetSchema
+>;
+export type ParsedImageGenerationRequest = z.output<typeof imageGenerationRequestSchema>;
 export type ImageGenerationRequest = z.input<typeof imageGenerationRequestSchema>;

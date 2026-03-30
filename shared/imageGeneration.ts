@@ -1,10 +1,11 @@
-import type { ImageModelPromptCompilerCapabilities } from "./imageModelCatalog";
+import type {
+  FrontendImageModelId,
+  ImageModelPromptCompilerCapabilities,
+  LogicalImageModelId,
+} from "./imageModelCatalog";
 
 export const IMAGE_PROVIDER_IDS = ["ark", "dashscope", "kling"] as const;
 export type ImageProviderId = (typeof IMAGE_PROVIDER_IDS)[number];
-
-export const IMAGE_RUNTIME_PROVIDER_IDS = IMAGE_PROVIDER_IDS;
-export type RuntimeImageProviderId = ImageProviderId;
 
 export const IMAGE_MODEL_FAMILY_IDS = ["seedream", "qwen", "zimage", "kling"] as const;
 export type ImageModelFamilyId = (typeof IMAGE_MODEL_FAMILY_IDS)[number];
@@ -13,7 +14,6 @@ export const IMAGE_PROVIDER_REF_IDS = ["seedream", "qwen", "zimage", "kling", "a
 export type ImageProviderRefId = (typeof IMAGE_PROVIDER_REF_IDS)[number];
 
 export const IMAGE_REQUEST_PROVIDER_IDS = IMAGE_PROVIDER_REF_IDS;
-export type ImageRequestProviderId = ImageProviderRefId;
 
 export const IMAGE_ASPECT_RATIOS = [
   "1:1",
@@ -56,9 +56,6 @@ export type ImageInputAssetBindingKind = (typeof IMAGE_INPUT_ASSET_BINDINGS)[num
 
 export const IMAGE_PROMPT_ASSET_ROLES = ["reference", "edit", "variation"] as const;
 export type ImagePromptAssetRole = (typeof IMAGE_PROMPT_ASSET_ROLES)[number];
-
-// Alias retained for model capability contracts.
-export type ImageGenerationAssetRefRole = ImagePromptAssetRole;
 
 export const IMAGE_PROMPT_COMPILER_OPERATION_IDS = [
   "image.generate",
@@ -293,40 +290,6 @@ export const validateImageInputAssets = (input: {
   return issues;
 };
 
-export interface RequestedImageGenerationTarget {
-  modelId?: import("./imageModelCatalog").FrontendImageModelId;
-  logicalModel?: import("./imageModelCatalog").LogicalImageModelId;
-  deploymentId?: import("./imageModelCatalog").ImageDeploymentId;
-  provider?: ImageProviderId;
-}
-
-export interface ImageGenerationRequest {
-  prompt: string;
-  promptIntent?: ImagePromptIntentInput;
-  negativePrompt?: string;
-  conversationId?: string;
-  threadId?: string;
-  retryOfTurnId?: string;
-  retryMode?: ImageGenerationRetryMode;
-  clientTurnId?: string;
-  clientJobId?: string;
-  modelId: import("./imageModelCatalog").FrontendImageModelId;
-  aspectRatio: ImageAspectRatio;
-  width?: number;
-  height?: number;
-  style?: ImageStyleId;
-  stylePreset?: string;
-  operation?: ImageGenerationOperation;
-  inputAssets?: ImageInputAssetBinding[];
-  seed?: number;
-  guidanceScale?: number;
-  steps?: number;
-  sampler?: string;
-  batchSize?: number;
-  modelParams?: Record<string, string | number | boolean | null>;
-  requestedTarget?: RequestedImageGenerationTarget;
-}
-
 export interface GeneratedImage {
   resultId?: string;
   imageUrl: string;
@@ -338,13 +301,6 @@ export interface GeneratedImage {
   revisedPrompt?: string | null;
 }
 
-export interface ImageUpscaleRequest {
-  provider: ImageProviderRefId;
-  model: string;
-  imageId: string;
-  scale?: ImageUpscaleScale;
-}
-
 export interface ImageGenerationResponse {
   conversationId: string;
   threadId: string;
@@ -352,9 +308,9 @@ export interface ImageGenerationResponse {
   jobId: string;
   runId: string;
   traceId: string;
-  modelId: import("./imageModelCatalog").FrontendImageModelId;
-  logicalModel: import("./imageModelCatalog").LogicalImageModelId;
-  deploymentId: import("./imageModelCatalog").ImageDeploymentId;
+  modelId: FrontendImageModelId;
+  logicalModel: LogicalImageModelId;
+  deploymentId: string;
   runtimeProvider: ImageProviderId;
   providerModel: string;
   createdAt: string;
