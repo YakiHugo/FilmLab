@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultAdjustments } from "@/lib/adjustments";
 import { createDefaultCanvasImageRenderState } from "@/render/image";
 import type { Asset, CanvasImageElement } from "@/types";
 import {
@@ -18,7 +17,6 @@ const createAsset = (overrides?: Partial<Asset>): Asset => ({
   thumbnailUrl: overrides?.thumbnailUrl ?? "blob:asset-1-thumb",
   tags: overrides?.tags ?? [],
   importDay: overrides?.importDay ?? "2026-03-17",
-  group: overrides?.group ?? "2026-03-17",
   origin: overrides?.origin ?? "file",
   remote: overrides?.remote ?? {
     status: "local_only",
@@ -118,17 +116,13 @@ describe("boardImageRendering", () => {
 
   it("folds draft render state and per-element film profiles into the render context", () => {
     const asset = createAsset();
+    const elementRenderState = createDefaultCanvasImageRenderState();
+    elementRenderState.film.profileId = "film-portrait-soft-v1";
+    const draftRenderState = createDefaultCanvasImageRenderState();
+    draftRenderState.develop.tone.exposure = 24;
+    draftRenderState.film.profileId = elementRenderState.film.profileId;
     const element = createElement({
-      renderState: createDefaultCanvasImageRenderState({
-        filmProfileId: "film-portrait-soft-v1",
-      }),
-    });
-    const draftRenderState = createDefaultCanvasImageRenderState({
-      adjustments: {
-        ...createDefaultAdjustments(),
-        exposure: 24,
-      },
-      filmProfileId: element.renderState?.film.profileId ?? undefined,
+      renderState: elementRenderState,
     });
 
     const context = createCanvasImageRenderContext({
@@ -146,12 +140,8 @@ describe("boardImageRendering", () => {
   });
 
   it("resolves persisted renderState without requiring runtime asset availability", () => {
-    const renderState = createDefaultCanvasImageRenderState({
-      adjustments: {
-        ...createDefaultAdjustments(),
-        exposure: 11,
-      },
-    });
+    const renderState = createDefaultCanvasImageRenderState();
+    renderState.develop.tone.exposure = 11;
     const element = {
       ...createElement({
         renderState,

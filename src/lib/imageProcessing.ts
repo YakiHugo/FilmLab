@@ -503,8 +503,6 @@ interface PipelineModuleCache {
   resolveHslUniformsFromState: typeof import("@/lib/renderer/uniformResolvers").resolveHslUniformsFromState;
   resolveCurveUniformsFromState: typeof import("@/lib/renderer/uniformResolvers").resolveCurveUniformsFromState;
   resolveDetailUniformsFromState: typeof import("@/lib/renderer/uniformResolvers").resolveDetailUniformsFromState;
-  resolveFilmUniforms: typeof import("@/lib/renderer/uniformResolvers").resolveFilmUniforms;
-  resolveHalationBloomUniforms: typeof import("@/lib/renderer/uniformResolvers").resolveHalationBloomUniforms;
   resolveFilmUniformsV3: typeof import("@/lib/renderer/uniformResolvers").resolveFilmUniformsV3;
   resolveHalationBloomUniformsV3: typeof import("@/lib/renderer/uniformResolvers").resolveHalationBloomUniformsV3;
 }
@@ -1232,8 +1230,6 @@ const ensurePipelineModules = async (): Promise<PipelineModuleCache> => {
     resolveHslUniformsFromState: uniformsMod.resolveHslUniformsFromState,
     resolveCurveUniformsFromState: uniformsMod.resolveCurveUniformsFromState,
     resolveDetailUniformsFromState: uniformsMod.resolveDetailUniformsFromState,
-    resolveFilmUniforms: uniformsMod.resolveFilmUniforms,
-    resolveHalationBloomUniforms: uniformsMod.resolveHalationBloomUniforms,
     resolveFilmUniformsV3: uniformsMod.resolveFilmUniformsV3,
     resolveHalationBloomUniformsV3: uniformsMod.resolveHalationBloomUniformsV3,
   };
@@ -1376,97 +1372,73 @@ const renderWithPipeline = async (
       );
       scratch.detail = detailUniforms;
 
-      let filmUniforms:
-        | ReturnType<typeof modules.resolveFilmUniforms>
-        | ReturnType<typeof modules.resolveFilmUniformsV3>
-        | null = null;
+      let filmUniforms: ReturnType<typeof modules.resolveFilmUniformsV3> | null = null;
       let halationBloomUniforms:
-        | ReturnType<typeof modules.resolveHalationBloomUniforms>
         | ReturnType<typeof modules.resolveHalationBloomUniformsV3>
         | null = null;
       const enableFilmPath = !options.skipFilm;
       const enableOpticsPath = !options.skipHalationBloom;
 
-      if (options.resolvedProfile.mode === "v3") {
-        if (enableFilmPath) {
-          filmUniforms = modules.resolveFilmUniformsV3(
-            options.resolvedProfile.v3,
-            {
-              grainSeed: options.grainSeed,
-            },
-            scratch.film
-          );
-          scratch.film = filmUniforms;
-          filmUniforms.u_lutEnabled = filmUniforms.u_lutEnabled && !!options.resolvedProfile.lut;
-          if (!filmUniforms.u_lutEnabled) {
-            filmUniforms.u_lutIntensity = 0;
-          }
-          filmUniforms.u_lutMixEnabled =
-            filmUniforms.u_lutEnabled && !!options.resolvedProfile.lutBlend;
-          filmUniforms.u_lutMixFactor = options.resolvedProfile.lutBlend?.mixFactor ?? 0;
-          filmUniforms.u_customLutEnabled =
-            filmUniforms.u_customLutEnabled && !!options.resolvedProfile.customLut;
-          if (!filmUniforms.u_customLutEnabled) {
-            filmUniforms.u_customLutIntensity = 0;
-          }
-          filmUniforms.u_printLutEnabled =
-            filmUniforms.u_printLutEnabled && !!options.resolvedProfile.printLut;
-          if (!filmUniforms.u_printLutEnabled) {
-            filmUniforms.u_printLutIntensity = 0;
-          }
+      if (enableFilmPath) {
+        filmUniforms = modules.resolveFilmUniformsV3(
+          options.resolvedProfile.v3,
+          {
+            grainSeed: options.grainSeed,
+          },
+          scratch.film
+        );
+        scratch.film = filmUniforms;
+        filmUniforms.u_lutEnabled = filmUniforms.u_lutEnabled && !!options.resolvedProfile.lut;
+        if (!filmUniforms.u_lutEnabled) {
+          filmUniforms.u_lutIntensity = 0;
+        }
+        filmUniforms.u_lutMixEnabled =
+          filmUniforms.u_lutEnabled && !!options.resolvedProfile.lutBlend;
+        filmUniforms.u_lutMixFactor = options.resolvedProfile.lutBlend?.mixFactor ?? 0;
+        filmUniforms.u_customLutEnabled =
+          filmUniforms.u_customLutEnabled && !!options.resolvedProfile.customLut;
+        if (!filmUniforms.u_customLutEnabled) {
+          filmUniforms.u_customLutIntensity = 0;
+        }
+        filmUniforms.u_printLutEnabled =
+          filmUniforms.u_printLutEnabled && !!options.resolvedProfile.printLut;
+        if (!filmUniforms.u_printLutEnabled) {
+          filmUniforms.u_printLutIntensity = 0;
+        }
 
-          if (options.resolvedProfile.lut) {
-            await renderer.ensureLUT({
-              url: options.resolvedProfile.lut.path,
-              level: options.resolvedProfile.lut.size,
-            });
-          }
-          if (options.resolvedProfile.lutBlend && typeof renderer.ensureLUTBlend === "function") {
-            await renderer.ensureLUTBlend({
-              url: options.resolvedProfile.lutBlend.path,
-              level: options.resolvedProfile.lutBlend.size,
-            });
-          }
+        if (options.resolvedProfile.lut) {
+          await renderer.ensureLUT({
+            url: options.resolvedProfile.lut.path,
+            level: options.resolvedProfile.lut.size,
+          });
+        }
+        if (options.resolvedProfile.lutBlend && typeof renderer.ensureLUTBlend === "function") {
+          await renderer.ensureLUTBlend({
+            url: options.resolvedProfile.lutBlend.path,
+            level: options.resolvedProfile.lutBlend.size,
+          });
+        }
 
-          if (options.resolvedProfile.customLut && typeof renderer.ensureCustomLUT === "function") {
-            await renderer.ensureCustomLUT({
-              url: options.resolvedProfile.customLut.path,
-              level: options.resolvedProfile.customLut.size,
-            });
-          }
+        if (options.resolvedProfile.customLut && typeof renderer.ensureCustomLUT === "function") {
+          await renderer.ensureCustomLUT({
+            url: options.resolvedProfile.customLut.path,
+            level: options.resolvedProfile.customLut.size,
+          });
+        }
 
-          if (options.resolvedProfile.printLut && typeof renderer.ensurePrintLUT === "function") {
-            await renderer.ensurePrintLUT({
-              url: options.resolvedProfile.printLut.path,
-              level: options.resolvedProfile.printLut.size,
-            });
-          }
+        if (options.resolvedProfile.printLut && typeof renderer.ensurePrintLUT === "function") {
+          await renderer.ensurePrintLUT({
+            url: options.resolvedProfile.printLut.path,
+            level: options.resolvedProfile.printLut.size,
+          });
         }
-        if (enableOpticsPath) {
-          halationBloomUniforms = modules.resolveHalationBloomUniformsV3(
-            options.resolvedProfile.v3,
-            scratch.halation
-          );
-          scratch.halation = halationBloomUniforms;
-        }
-      } else if (options.resolvedProfile.legacyV1) {
-        if (enableFilmPath) {
-          filmUniforms = modules.resolveFilmUniforms(
-            options.resolvedProfile.legacyV1,
-            {
-              grainSeed: options.grainSeed,
-            },
-            scratch.film
-          );
-          scratch.film = filmUniforms;
-        }
-        if (enableOpticsPath) {
-          halationBloomUniforms = modules.resolveHalationBloomUniforms(
-            options.resolvedProfile.legacyV1,
-            scratch.halation
-          );
-          scratch.halation = halationBloomUniforms;
-        }
+      }
+      if (enableOpticsPath) {
+        halationBloomUniforms = modules.resolveHalationBloomUniformsV3(
+          options.resolvedProfile.v3,
+          scratch.halation
+        );
+        scratch.halation = halationBloomUniforms;
       }
 
       const renderMetrics = structuredClone(emptyMetrics);

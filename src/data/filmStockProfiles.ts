@@ -1,7 +1,4 @@
-import type { FilmProfile } from "@/types";
 import type { FilmProfileV2 } from "@/types/film";
-
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const cloneV2 = (profile: FilmProfileV2): FilmProfileV2 => {
   if (typeof structuredClone === "function") {
@@ -417,98 +414,6 @@ const stockProfilesV2Source: FilmProfileV2[] = [
   },
 ];
 
-const toLegacyStockProfile = (profile: FilmProfileV2): FilmProfile => {
-  const warmthSource = profile.colorCast?.midtones ?? [0, 0, 0];
-  const warmth = clamp(((warmthSource[0] - warmthSource[2]) / 0.12) * 100, -100, 100);
-  return {
-    id: profile.id,
-    version: 1,
-    name: profile.name,
-    description: profile.description,
-    tags: profile.tags,
-    modules: [
-      {
-        id: "colorScience",
-        enabled: true,
-        amount: 100,
-        seedMode: "perAsset",
-        params: {
-          lutStrength: clamp(profile.lut.intensity, 0, 1),
-          rgbMix: [1, 1, 1],
-          temperatureShift: 0,
-          tintShift: 0,
-        },
-      },
-      {
-        id: "tone",
-        enabled: true,
-        amount: 100,
-        params: {
-          exposure: 0,
-          contrast: 0,
-          highlights: 0,
-          shadows: 0,
-          whites: 0,
-          blacks: 0,
-          curveHighlights: 0,
-          curveLights: 0,
-          curveDarks: 0,
-          curveShadows: 0,
-        },
-      },
-      {
-        id: "scan",
-        enabled: true,
-        amount: 100,
-        params: {
-          halationThreshold: profile.halation?.threshold ?? 0.9,
-          halationAmount: profile.halation?.intensity ?? 0,
-          bloomThreshold: profile.bloom?.threshold ?? 0.86,
-          bloomAmount: profile.bloom?.intensity ?? 0,
-          vignetteAmount: profile.vignette.amount,
-          scanWarmth: warmth,
-        },
-      },
-      {
-        id: "grain",
-        enabled: profile.grain.enabled,
-        amount: 100,
-        seedMode: "perAsset",
-        params: {
-          amount: profile.grain.amount,
-          size: clamp(profile.grain.size, 0, 1),
-          roughness: profile.grain.roughness,
-          color: profile.grain.colorGrain ? 0.1 : 0,
-          shadowBoost: profile.grain.shadowBias,
-        },
-      },
-      {
-        id: "defects",
-        enabled: false,
-        amount: 0,
-        seedMode: "perAsset",
-        params: {
-          leakProbability: 0,
-          leakStrength: 0,
-          dustAmount: 0,
-          scratchAmount: 0,
-        },
-      },
-    ],
-  };
-};
-
-const stockV2Map = new Map(stockProfilesV2Source.map((profile) => [profile.id, profile]));
-
-export const stockFilmProfilesV1: FilmProfile[] = stockProfilesV2Source.map((profile) =>
-  toLegacyStockProfile(profile)
+export const stockFilmProfilesV2: FilmProfileV2[] = stockProfilesV2Source.map((profile) =>
+  cloneV2(profile)
 );
-
-
-export const getStockFilmProfileV2ById = (id: string | undefined): FilmProfileV2 | null => {
-  if (!id) {
-    return null;
-  }
-  const profile = stockV2Map.get(id);
-  return profile ? cloneV2(profile) : null;
-};

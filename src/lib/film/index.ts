@@ -2,7 +2,6 @@ export {
   createDefaultFilmProfile,
   createDefaultFilmModules,
   cloneFilmProfile,
-  createFilmProfileFromAdjustments,
   getFilmModule,
   normalizeFilmProfile,
   scaleFilmProfileAmount,

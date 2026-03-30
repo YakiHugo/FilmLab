@@ -1,4 +1,5 @@
 import type { RenderIntent } from "@/lib/renderIntent";
+import { resolveFilmProfile } from "@/lib/film/registry";
 import {
   createImageRenderDocumentFromState,
   renderSingleImageToCanvas,
@@ -127,9 +128,14 @@ export const createCanvasImageDocumentRenderContext = ({
     },
     state: renderState,
   });
+  const filmProfile = resolveFilmProfile({
+    filmProfileId: imageDocument.film.profileId ?? undefined,
+    filmProfile: imageDocument.film.profile ?? null,
+    overrides: imageDocument.film.profileOverrides ?? undefined,
+  });
 
   return {
-    filmProfile: imageDocument.film.profile ?? undefined,
+    filmProfile: filmProfile ?? undefined,
     imageDocument,
     renderState,
     timestampText: resolveAssetTimestampText(asset.metadata, asset.createdAt),
