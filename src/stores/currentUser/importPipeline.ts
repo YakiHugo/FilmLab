@@ -176,7 +176,6 @@ export const runImportPipeline = async ({
             objectUrl,
             thumbnailUrl,
             importDay,
-            group: importDay,
             tags: [],
             blob: fileBlob,
             thumbnailBlob,

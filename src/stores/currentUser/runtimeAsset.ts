@@ -43,7 +43,6 @@ export const materializeStoredAsset = (
       thumbnailUrl,
       importDay,
       tags,
-      group: stored.group ?? importDay,
       blob: stored.blob,
       thumbnailBlob,
       metadata: stored.metadata,

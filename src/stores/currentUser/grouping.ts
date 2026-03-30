@@ -11,14 +11,18 @@ export const toLocalDayKey = (input?: Date | string): string => {
   return `${year}-${month}-${day}`;
 };
 
-export const resolveAssetImportDay = (asset: Pick<Asset, "importDay" | "createdAt" | "group">) => {
+const resolveLegacyGroupDay = (value: unknown): string | null =>
+  typeof value === "string" && DATE_KEY_RE.test(value) ? value : null;
+
+export const resolveAssetImportDay = (
+  asset: Pick<Asset, "importDay" | "createdAt"> & { ["group"]?: unknown }
+) => {
   if (asset.importDay && DATE_KEY_RE.test(asset.importDay)) {
     return asset.importDay;
   }
-  if (asset.group && DATE_KEY_RE.test(asset.group)) {
-    return asset.group;
+  const legacyGroupDay = resolveLegacyGroupDay(asset["group"]);
+  if (legacyGroupDay) {
+    return legacyGroupDay;
   }
   return toLocalDayKey(asset.createdAt);
 };
-
-

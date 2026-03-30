@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createDefaultAdjustments } from "@/lib/adjustments";
 
 describe("loadAssets", () => {
   beforeEach(() => {
@@ -15,7 +14,10 @@ describe("loadAssets", () => {
         size: 3,
         createdAt: "2026-03-14T00:00:00.000Z",
         blob: new Blob([new Uint8Array([1, 2, 3])], { type: "image/jpeg" }),
-        adjustments: createDefaultAdjustments(),
+        adjustments: {
+          exposure: 0,
+          contrast: 0,
+        },
         layers: [
           {
             id: "layer-1",

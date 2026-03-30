@@ -4,7 +4,7 @@ import {
 } from "@/features/canvas/documentGraph";
 import { diffCanvasDocumentDelta } from "@/features/canvas/document/patches";
 import { normalizeCanvasWorkbenchWithCleanup } from "@/features/canvas/studioPresets";
-import { createDefaultCanvasImageRenderState } from "@/render/image";
+import { createNeutralCanvasImageRenderState } from "@/render/image";
 import { useAssetStore } from "@/stores/assetStore";
 import type {
   CanvasCommand,
@@ -165,7 +165,7 @@ export const createCanvasWorkbenchService = ({
 
     return {
       ...element,
-      renderState: createDefaultCanvasImageRenderState(),
+      renderState: createNeutralCanvasImageRenderState(),
     };
   };
 

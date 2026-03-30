@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultAdjustments } from "@/lib/adjustments";
 import { createDefaultCanvasImageRenderState } from "@/render/image";
 import type { Asset, CanvasImageElement, CanvasWorkbench } from "@/types";
 import { normalizeCanvasWorkbench } from "@/features/canvas/studioPresets";
@@ -24,7 +23,6 @@ const createAsset = (overrides: Partial<Asset> = {}): Asset => ({
   thumbnailUrl: "blob:asset-1-thumb",
   tags: [],
   importDay: "2026-03-17",
-  group: "2026-03-17",
   origin: "file",
   remote: {
     status: "local_only",
@@ -104,10 +102,17 @@ const createScopeInput = (): CanvasRuntimeScopeInput => {
 describe("canvasPreviewRuntimeState", () => {
   it("resolves preview task input from explicit runtime scope input", () => {
     const input = createScopeInput();
-    const nextDraftRenderState = createDefaultCanvasImageRenderState({
-      adjustments: {
-        ...createDefaultAdjustments(),
+    const nextDraftRenderState = createDefaultCanvasImageRenderState();
+    nextDraftRenderState.effects.push({
+      id: "filter2d-preview",
+      type: "filter2d",
+      enabled: true,
+      placement: "finalize",
+      params: {
         brightness: 12,
+        hue: 0,
+        blur: 0,
+        dilate: 0,
       },
     });
 

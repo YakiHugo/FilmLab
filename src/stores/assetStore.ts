@@ -171,7 +171,6 @@ const mergeRemoteAsset = (
       ? (current.thumbnailUrl ?? current.objectUrl)
       : (input.thumbnailUrl ?? input.objectUrl),
     importDay,
-    group: current?.group ?? importDay,
     tags: current?.tags ?? normalizeTags(input.tags ?? []),
     metadata: metadata ?? current?.metadata,
     source: input.source ?? current?.source,
@@ -352,15 +351,15 @@ export const useAssetStore = create<CurrentUserState>()(
               .filter((job) => job.op === "delete")
               .map((job) => job.localAssetId)
           );
-          const legacyAssets = hydratedAssets.filter(
+          const recoveredUploadAssets = hydratedAssets.filter(
             (asset) =>
               (asset.remote?.status === "local_only" || !asset.remote) &&
               Boolean(asset.blob) &&
               !queuedUploadIds.has(asset.id)
           );
-          if (legacyAssets.length > 0) {
+          if (recoveredUploadAssets.length > 0) {
             const queuedAt = syncNowIso();
-            const jobs = legacyAssets.map((asset) =>
+            const jobs = recoveredUploadAssets.map((asset) =>
               createSyncJob({
                 localAssetId: asset.id,
                 op: "upload",
@@ -373,7 +372,7 @@ export const useAssetStore = create<CurrentUserState>()(
               return;
             }
 
-            const updatedIds = new Set(legacyAssets.map((asset) => asset.id));
+            const updatedIds = new Set(recoveredUploadAssets.map((asset) => asset.id));
             set((state) => ({
               assets: state.assets.map((asset) =>
                 updatedIds.has(asset.id)
@@ -381,7 +380,7 @@ export const useAssetStore = create<CurrentUserState>()(
                   : asset
               ),
             }));
-            legacyAssets
+            recoveredUploadAssets
               .map((asset) => withRemoteStatus(asset, "upload_queued", { lastError: undefined }))
               .forEach(persistAsset);
           }

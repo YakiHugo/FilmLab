@@ -1,14 +1,13 @@
-import { createDefaultAdjustments } from "@/lib/adjustments";
-import type { NumericAdjustmentKey } from "@/features/canvas/imageAdjustmentTypes";
-import type { AsciiAdjustments, EditingAdjustments } from "@/types";
+import type { CanvasImageNumericFieldId } from "@/features/canvas/imageAdjustmentTypes";
+import type { AsciiAdjustments } from "@/types";
 import {
+  createNeutralCanvasImageRenderState,
   type CanvasImageRenderStateV1,
   type ImageAsciiEffectNode,
   type ImageFilter2dEffectNode,
 } from "@/render/image";
 
-const DEFAULT_ADJUSTMENTS = createDefaultAdjustments();
-const DEFAULT_ASCII_ADJUSTMENTS: AsciiAdjustments = DEFAULT_ADJUSTMENTS.ascii ?? {
+const DEFAULT_ASCII_ADJUSTMENTS: AsciiAdjustments = {
   enabled: false,
   charsetPreset: "standard",
   colorMode: "grayscale",
@@ -19,24 +18,10 @@ const DEFAULT_ASCII_ADJUSTMENTS: AsciiAdjustments = DEFAULT_ADJUSTMENTS.ascii ??
   invert: false,
 };
 
-export type CanvasImageAdjustmentView = Omit<
-  EditingAdjustments,
-  "ascii" | "blur" | "brightness" | "dilate" | "hue"
-> & {
-  ascii: AsciiAdjustments;
-  blur: number;
-  brightness: number;
-  dilate: number;
-  hue: number;
-};
+export type CanvasImageNumericFieldValues = Record<CanvasImageNumericFieldId, number>;
 
-export const DEFAULT_CANVAS_IMAGE_ADJUSTMENT_VIEW: CanvasImageAdjustmentView = {
-  ...DEFAULT_ADJUSTMENTS,
-  ascii: DEFAULT_ASCII_ADJUSTMENTS,
-  blur: DEFAULT_ADJUSTMENTS.blur ?? 0,
-  brightness: DEFAULT_ADJUSTMENTS.brightness ?? 0,
-  dilate: DEFAULT_ADJUSTMENTS.dilate ?? 0,
-  hue: DEFAULT_ADJUSTMENTS.hue ?? 0,
+export type CanvasImageEditValues = CanvasImageNumericFieldValues & {
+  ascii: AsciiAdjustments;
 };
 
 const cloneState = (state: CanvasImageRenderStateV1): CanvasImageRenderStateV1 => {
@@ -44,6 +29,89 @@ const cloneState = (state: CanvasImageRenderStateV1): CanvasImageRenderStateV1 =
     return structuredClone(state) as CanvasImageRenderStateV1;
   }
   return JSON.parse(JSON.stringify(state)) as CanvasImageRenderStateV1;
+};
+
+const resolveAsciiAdjustmentsFromState = (state: CanvasImageRenderStateV1): AsciiAdjustments => {
+  const effect = state.effects.find(
+    (candidate): candidate is ImageAsciiEffectNode =>
+      candidate.type === "ascii" && candidate.enabled
+  );
+  return {
+    ...DEFAULT_ASCII_ADJUSTMENTS,
+    enabled: Boolean(effect),
+    charsetPreset:
+      effect?.params.preset === "blocks" || effect?.params.preset === "detailed"
+        ? effect.params.preset
+        : "standard",
+    colorMode: effect?.params.colorMode === "full-color" ? "full-color" : "grayscale",
+    cellSize: effect?.params.cellSize ?? 12,
+    characterSpacing: effect?.params.characterSpacing ?? 1,
+    contrast: effect?.params.contrast ?? 1,
+    dither: effect?.params.dither ?? "none",
+    invert: Boolean(effect?.params.invert),
+  };
+};
+
+const resolveFilter2dPreviewValues = (state: CanvasImageRenderStateV1) => {
+  const effect = state.effects.find(
+    (candidate): candidate is ImageFilter2dEffectNode =>
+      candidate.type === "filter2d" && candidate.enabled
+  );
+  return {
+    brightness: effect?.params.brightness ?? 0,
+    hue: effect?.params.hue ?? 0,
+    blur: effect?.params.blur ?? 0,
+    dilate: effect?.params.dilate ?? 0,
+  };
+};
+
+const createCanvasImageEditValues = (
+  state: CanvasImageRenderStateV1
+): CanvasImageEditValues => {
+  const filter2d = resolveFilter2dPreviewValues(state);
+  return {
+    exposure: state.develop.tone.exposure,
+    contrast: state.develop.tone.contrast,
+    highlights: state.develop.tone.highlights,
+    shadows: state.develop.tone.shadows,
+    whites: state.develop.tone.whites,
+    blacks: state.develop.tone.blacks,
+    temperature: state.develop.color.temperature,
+    tint: state.develop.color.tint,
+    hue: filter2d.hue,
+    vibrance: state.develop.color.vibrance,
+    saturation: state.develop.color.saturation,
+    texture: state.develop.detail.texture,
+    clarity: state.develop.detail.clarity,
+    dehaze: state.develop.detail.dehaze,
+    sharpening: state.develop.detail.sharpening,
+    sharpenRadius: state.develop.detail.sharpenRadius,
+    sharpenDetail: state.develop.detail.sharpenDetail,
+    masking: state.develop.detail.masking,
+    noiseReduction: state.develop.detail.noiseReduction,
+    colorNoiseReduction: state.develop.detail.colorNoiseReduction,
+    vignette: state.develop.fx.vignette,
+    grain: state.develop.fx.grain,
+    grainSize: state.develop.fx.grainSize,
+    grainRoughness: state.develop.fx.grainRoughness,
+    glowIntensity: state.develop.fx.glowIntensity,
+    glowMidtoneFocus: state.develop.fx.glowMidtoneFocus,
+    glowBias: state.develop.fx.glowBias,
+    glowRadius: state.develop.fx.glowRadius,
+    brightness: filter2d.brightness,
+    blur: filter2d.blur,
+    dilate: filter2d.dilate,
+    ascii: resolveAsciiAdjustmentsFromState(state),
+  };
+};
+
+const DEFAULT_NEUTRAL_CANVAS_IMAGE_RENDER_STATE = createNeutralCanvasImageRenderState();
+
+export const DEFAULT_CANVAS_IMAGE_EDIT_VALUES: CanvasImageEditValues =
+  createCanvasImageEditValues(DEFAULT_NEUTRAL_CANVAS_IMAGE_RENDER_STATE);
+
+export const DEFAULT_CANVAS_ASCII_ADJUSTMENTS: AsciiAdjustments = {
+  ...DEFAULT_CANVAS_IMAGE_EDIT_VALUES.ascii,
 };
 
 const createDefaultAsciiEffect = (): ImageAsciiEffectNode => ({
@@ -55,15 +123,15 @@ const createDefaultAsciiEffect = (): ImageAsciiEffectNode => ({
   params: {
     renderMode: "glyph",
     preset: "standard",
-    cellSize: DEFAULT_ADJUSTMENTS.ascii?.cellSize ?? 12,
-    characterSpacing: DEFAULT_ADJUSTMENTS.ascii?.characterSpacing ?? 1,
+    cellSize: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.cellSize,
+    characterSpacing: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.characterSpacing,
     density: 1,
     coverage: 1,
     edgeEmphasis: 0,
     brightness: 0,
-    contrast: DEFAULT_ADJUSTMENTS.ascii?.contrast ?? 1,
-    dither: DEFAULT_ADJUSTMENTS.ascii?.dither ?? "none",
-    colorMode: DEFAULT_ADJUSTMENTS.ascii?.colorMode ?? "grayscale",
+    contrast: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.contrast,
+    dither: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.dither,
+    colorMode: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.colorMode,
     foregroundOpacity: 1,
     foregroundBlendMode: "source-over",
     backgroundMode: "cell-solid",
@@ -121,99 +189,30 @@ const upsertFilter2dEffect = (
   return next;
 };
 
-export const getCanvasImageAdjustmentView = (
+export const getCanvasImageEditValues = (
   state: CanvasImageRenderStateV1
-): CanvasImageAdjustmentView =>
-  ({
-    ...DEFAULT_CANVAS_IMAGE_ADJUSTMENT_VIEW,
-    exposure: state.develop.tone.exposure,
-    contrast: state.develop.tone.contrast,
-    highlights: state.develop.tone.highlights,
-    shadows: state.develop.tone.shadows,
-    whites: state.develop.tone.whites,
-    blacks: state.develop.tone.blacks,
-    temperature: state.develop.color.temperature,
-    tint: state.develop.color.tint,
-    hue: resolveFilter2dPreviewValues(state).hue,
-    vibrance: state.develop.color.vibrance,
-    saturation: state.develop.color.saturation,
-    texture: state.develop.detail.texture,
-    clarity: state.develop.detail.clarity,
-    dehaze: state.develop.detail.dehaze,
-    sharpening: state.develop.detail.sharpening,
-    sharpenRadius: state.develop.detail.sharpenRadius,
-    sharpenDetail: state.develop.detail.sharpenDetail,
-    masking: state.develop.detail.masking,
-    noiseReduction: state.develop.detail.noiseReduction,
-    colorNoiseReduction: state.develop.detail.colorNoiseReduction,
-    vignette: state.develop.fx.vignette,
-    grain: state.develop.fx.grain,
-    grainSize: state.develop.fx.grainSize,
-    grainRoughness: state.develop.fx.grainRoughness,
-    glowIntensity: state.develop.fx.glowIntensity,
-    glowMidtoneFocus: state.develop.fx.glowMidtoneFocus,
-    glowBias: state.develop.fx.glowBias,
-    glowRadius: state.develop.fx.glowRadius,
-    brightness: resolveFilter2dPreviewValues(state).brightness,
-    blur: resolveFilter2dPreviewValues(state).blur,
-    dilate: resolveFilter2dPreviewValues(state).dilate,
-    ascii: resolveAsciiAdjustmentsFromState(state),
-  }) as CanvasImageAdjustmentView;
+): CanvasImageEditValues => createCanvasImageEditValues(state);
 
-const resolveAsciiAdjustmentsFromState = (state: CanvasImageRenderStateV1): AsciiAdjustments => {
-  const effect = state.effects.find(
-    (candidate): candidate is ImageAsciiEffectNode =>
-      candidate.type === "ascii" && candidate.enabled
-  );
-  return {
-    ...DEFAULT_ASCII_ADJUSTMENTS,
-    enabled: Boolean(effect),
-    charsetPreset:
-      effect?.params.preset === "blocks" || effect?.params.preset === "detailed"
-        ? effect.params.preset
-        : "standard",
-    colorMode: effect?.params.colorMode === "full-color" ? "full-color" : "grayscale",
-    cellSize: effect?.params.cellSize ?? 12,
-    characterSpacing: effect?.params.characterSpacing ?? 1,
-    contrast: effect?.params.contrast ?? 1,
-    dither: effect?.params.dither ?? "none",
-    invert: Boolean(effect?.params.invert),
-  };
-};
-
-const resolveFilter2dPreviewValues = (state: CanvasImageRenderStateV1) => {
-  const effect = state.effects.find(
-    (candidate): candidate is ImageFilter2dEffectNode =>
-      candidate.type === "filter2d" && candidate.enabled
-  );
-  return {
-    brightness: effect?.params.brightness ?? 0,
-    hue: effect?.params.hue ?? 0,
-    blur: effect?.params.blur ?? 0,
-    dilate: effect?.params.dilate ?? 0,
-  };
-};
-
-export const applyNumericAdjustmentToRenderState = (
+export const applyNumericFieldToRenderState = (
   state: CanvasImageRenderStateV1,
-  key: NumericAdjustmentKey,
+  fieldId: CanvasImageNumericFieldId,
   value: number
 ) => {
   const next = cloneState(state);
-  switch (key) {
+  switch (fieldId) {
     case "exposure":
     case "contrast":
     case "highlights":
     case "shadows":
     case "whites":
     case "blacks":
-      next.develop.tone[key] = value;
+      next.develop.tone[fieldId] = value;
       return next;
     case "temperature":
     case "tint":
     case "vibrance":
     case "saturation":
-      next.develop.color[key] = value;
+      next.develop.color[fieldId] = value;
       return next;
     case "texture":
     case "clarity":
@@ -224,7 +223,7 @@ export const applyNumericAdjustmentToRenderState = (
     case "masking":
     case "noiseReduction":
     case "colorNoiseReduction":
-      next.develop.detail[key] = value;
+      next.develop.detail[fieldId] = value;
       return next;
     case "vignette":
     case "grain":
@@ -234,12 +233,16 @@ export const applyNumericAdjustmentToRenderState = (
     case "glowMidtoneFocus":
     case "glowBias":
     case "glowRadius":
-      next.develop.fx[key] = value;
+      next.develop.fx[fieldId] = value;
       return next;
     case "hue":
       return upsertFilter2dEffect(next, (effect) => ({
         ...effect,
-        enabled: Math.abs(effect.params.brightness) > 0.001 || Math.abs(value) > 0.001 || effect.params.blur > 0.001 || effect.params.dilate > 0.001,
+        enabled:
+          Math.abs(effect.params.brightness) > 0.001 ||
+          Math.abs(value) > 0.001 ||
+          effect.params.blur > 0.001 ||
+          effect.params.dilate > 0.001,
         params: {
           ...effect.params,
           hue: value,
@@ -248,7 +251,11 @@ export const applyNumericAdjustmentToRenderState = (
     case "brightness":
       return upsertFilter2dEffect(next, (effect) => ({
         ...effect,
-        enabled: Math.abs(value) > 0.001 || Math.abs(effect.params.hue) > 0.001 || effect.params.blur > 0.001 || effect.params.dilate > 0.001,
+        enabled:
+          Math.abs(value) > 0.001 ||
+          Math.abs(effect.params.hue) > 0.001 ||
+          effect.params.blur > 0.001 ||
+          effect.params.dilate > 0.001,
         params: {
           ...effect.params,
           brightness: value,
@@ -257,7 +264,11 @@ export const applyNumericAdjustmentToRenderState = (
     case "blur":
       return upsertFilter2dEffect(next, (effect) => ({
         ...effect,
-        enabled: Math.abs(effect.params.brightness) > 0.001 || Math.abs(effect.params.hue) > 0.001 || value > 0.001 || effect.params.dilate > 0.001,
+        enabled:
+          Math.abs(effect.params.brightness) > 0.001 ||
+          Math.abs(effect.params.hue) > 0.001 ||
+          value > 0.001 ||
+          effect.params.dilate > 0.001,
         params: {
           ...effect.params,
           blur: value,
@@ -266,7 +277,11 @@ export const applyNumericAdjustmentToRenderState = (
     case "dilate":
       return upsertFilter2dEffect(next, (effect) => ({
         ...effect,
-        enabled: Math.abs(effect.params.brightness) > 0.001 || Math.abs(effect.params.hue) > 0.001 || effect.params.blur > 0.001 || value > 0.001,
+        enabled:
+          Math.abs(effect.params.brightness) > 0.001 ||
+          Math.abs(effect.params.hue) > 0.001 ||
+          effect.params.blur > 0.001 ||
+          value > 0.001,
         params: {
           ...effect.params,
           dilate: value,
@@ -296,16 +311,16 @@ export const applyAsciiAdjustmentsToRenderState = (
     },
   }));
 
-export const resetRenderStateForAdjustmentKeys = (
+export const resetRenderStateForNumericFields = (
   state: CanvasImageRenderStateV1,
-  keys: NumericAdjustmentKey[]
+  fieldIds: CanvasImageNumericFieldId[]
 ) =>
-  keys.reduce(
-    (current, key) =>
-      applyNumericAdjustmentToRenderState(
+  fieldIds.reduce(
+    (current, fieldId) =>
+      applyNumericFieldToRenderState(
         current,
-        key,
-        Number(DEFAULT_ADJUSTMENTS[key] ?? 0)
+        fieldId,
+        Number(DEFAULT_CANVAS_IMAGE_EDIT_VALUES[fieldId])
       ),
     state
   );

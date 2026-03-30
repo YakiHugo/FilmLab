@@ -1,7 +1,35 @@
-import type { EditingAdjustments } from "@/types";
+export const CANVAS_NUMERIC_FIELD_IDS = [
+  "brightness",
+  "exposure",
+  "contrast",
+  "clarity",
+  "temperature",
+  "tint",
+  "saturation",
+  "vibrance",
+  "hue",
+  "highlights",
+  "shadows",
+  "whites",
+  "blacks",
+  "texture",
+  "dehaze",
+  "vignette",
+  "grain",
+  "grainSize",
+  "grainRoughness",
+  "blur",
+  "dilate",
+  "sharpening",
+  "sharpenRadius",
+  "sharpenDetail",
+  "masking",
+  "noiseReduction",
+  "colorNoiseReduction",
+  "glowIntensity",
+  "glowMidtoneFocus",
+  "glowBias",
+  "glowRadius",
+] as const;
 
-type NumericKeyOf<T> = {
-  [K in keyof T]-?: NonNullable<T[K]> extends number ? K : never;
-}[keyof T];
-
-export type NumericAdjustmentKey = NumericKeyOf<EditingAdjustments>;
+export type CanvasImageNumericFieldId = (typeof CANVAS_NUMERIC_FIELD_IDS)[number];

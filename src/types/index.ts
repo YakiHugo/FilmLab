@@ -8,56 +8,13 @@ import type {
 
 export type PresetTag = "portrait" | "landscape" | "night" | "bw";
 
-/**
- * Single source of truth for preset-adjustable numeric keys.
- * `PresetAdjustmentKey` is derived from this array.
- */
-export const PRESET_ADJUSTMENT_KEYS = [
-  "exposure",
-  "contrast",
-  "highlights",
-  "shadows",
-  "whites",
-  "blacks",
-  "curveHighlights",
-  "curveLights",
-  "curveDarks",
-  "curveShadows",
-  "temperature",
-  "tint",
-  "vibrance",
-  "saturation",
-  "clarity",
-  "dehaze",
-  "vignette",
-  "grain",
-  "grainSize",
-  "grainRoughness",
-  "glowIntensity",
-  "glowMidtoneFocus",
-  "glowBias",
-  "glowRadius",
-  "sharpening",
-  "sharpenRadius",
-  "sharpenDetail",
-  "masking",
-  "noiseReduction",
-  "colorNoiseReduction",
-] as const;
-
-export type PresetAdjustmentKey = (typeof PRESET_ADJUSTMENT_KEYS)[number];
-
-export type PresetAdjustments = Partial<Record<PresetAdjustmentKey, number>>;
-
 export interface Preset {
   id: string;
   name: string;
   tags: PresetTag[];
   intensity: number;
   description: string;
-  adjustments: PresetAdjustments;
-  filmProfileId?: string;
-  filmProfile?: FilmProfile;
+  renderState: import("@/render/image/types").CanvasImageRenderStateV1;
 }
 
 export type FilmModuleId = "colorScience" | "tone" | "grain" | "defects" | "scan";
@@ -331,7 +288,7 @@ export interface EditorLayer {
   visible: boolean;
   opacity: number; // [0, 100]
   blendMode: EditorLayerBlendMode;
-  adjustments?: Partial<EditingAdjustments>;
+  renderStatePatch?: Partial<import("@/render/image/types").CanvasImageRenderStateV1>;
   adjustmentVisibility?: EditorAdjustmentGroupVisibility;
   textureAssetId?: string;
   mask?: Omit<EditorLayerMask, "data"> & { data?: EditorLayerMaskData };
@@ -373,84 +330,6 @@ export const ASPECT_RATIOS = [
 
 export type AspectRatio = (typeof ASPECT_RATIOS)[number];
 
-export interface EditingAdjustments {
-  brightness?: number;
-  exposure: number;
-  contrast: number;
-  highlights: number;
-  shadows: number;
-  whites: number;
-  blacks: number;
-  temperature: number;
-  tint: number;
-  hue?: number;
-  temperatureKelvin?: number;
-  tintMG?: number;
-  vibrance: number;
-  saturation: number;
-  texture: number;
-  clarity: number;
-  dehaze: number;
-  curveHighlights: number;
-  curveLights: number;
-  curveDarks: number;
-  curveShadows: number;
-  pointCurve: PointCurveAdjustments;
-  hsl: HslAdjustments;
-  bwEnabled?: boolean;
-  bwMix?: BwMixAdjustments;
-  calibration?: CalibrationAdjustments;
-  localAdjustments?: LocalAdjustment[];
-  colorGrading: ColorGradingAdjustments;
-  sharpening: number;
-  sharpenRadius: number;
-  sharpenDetail: number;
-  masking: number;
-  noiseReduction: number;
-  colorNoiseReduction: number;
-  vignette: number;
-  grain: number;
-  blur?: number;
-  dilate?: number;
-  grainSize: number;
-  grainRoughness: number;
-  glowIntensity: number;
-  glowMidtoneFocus: number;
-  glowBias: number;
-  glowRadius: number;
-  customLut?: {
-    enabled: boolean;
-    path: string;
-    size: 8 | 16;
-    intensity: number;
-  };
-  ascii?: AsciiAdjustments;
-  pushPullEv?: number;
-  rotate: number;
-  rightAngleRotation: number;
-  perspectiveEnabled?: boolean;
-  perspectiveHorizontal?: number;
-  perspectiveVertical?: number;
-  vertical: number;
-  horizontal: number;
-  scale: number;
-  flipHorizontal: boolean;
-  flipVertical: boolean;
-  aspectRatio: AspectRatio;
-  customAspectRatio: number;
-  timestampEnabled: boolean;
-  timestampPosition: "bottom-right" | "bottom-left" | "top-right" | "top-left";
-  timestampSize: number;
-  timestampOpacity: number;
-  opticsProfile: boolean;
-  opticsCA: boolean;
-  opticsDistortionK1?: number;
-  opticsDistortionK2?: number;
-  opticsCaAmount?: number;
-  opticsVignette: number;
-  opticsVignetteMidpoint?: number;
-}
-
 /** MIME types accepted for asset import. */
 export type AssetMimeType = "image/jpeg" | "image/png" | "image/tiff" | "image/webp" | "image/avif";
 
@@ -490,8 +369,6 @@ export interface Asset {
   importDay?: string;
   /** User-defined labels for filtering and batch management. */
   tags?: string[];
-  /** @deprecated Legacy field kept for backward-compat reads only. */
-  group?: string;
   blob?: Blob;
   thumbnailBlob?: Blob;
   metadata?: AssetMetadata;
@@ -506,7 +383,6 @@ export interface Asset {
 export type AssetUpdate = Partial<
   Pick<
     Asset,
-    | "group"
     | "importDay"
     | "tags"
     | "metadata"

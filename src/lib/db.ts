@@ -20,7 +20,6 @@ interface FilmLabDB extends DBSchema {
       size: number;
       createdAt: string;
       blob: Blob;
-      group?: string;
       importDay?: string;
       tags?: string[];
       thumbnailBlob?: Blob;
@@ -111,28 +110,30 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
     try {
       const db = await openDB<FilmLabDB>(DB_NAME, DB_VERSION, {
         upgrade(db, oldVersion, _newVersion, transaction) {
-          const legacyObjectStoreNames = db.objectStoreNames as unknown as DOMStringList;
-          const legacySchemaDb = db as unknown as { deleteObjectStore: (name: string) => void };
-          const recreateLocalStores = [
-            "project",
-            "canvasDocuments",
-            "assets",
-            "localMaskBlobs",
-            "assetSyncJobs",
-            "canvasWorkbenches",
-            "canvasWorkbenchListEntries",
-          ];
-          if (oldVersion < 11) {
-            for (const storeName of recreateLocalStores) {
-              if (legacyObjectStoreNames.contains(storeName)) {
-                legacySchemaDb.deleteObjectStore(storeName);
-              }
+          const existingStoreNames = db.objectStoreNames as unknown as DOMStringList;
+          const schemaDb = db as unknown as { deleteObjectStore: (name: string) => void };
+          const deleteStoreIfPresent = (storeName: string) => {
+            if (existingStoreNames.contains(storeName)) {
+              schemaDb.deleteObjectStore(storeName);
             }
+          };
+
+          if (oldVersion < 11) {
+            [
+              "project",
+              "canvasDocuments",
+              "assets",
+              "localMaskBlobs",
+              "assetSyncJobs",
+              "canvasWorkbenches",
+              "canvasWorkbenchListEntries",
+            ].forEach(deleteStoreIfPresent);
           }
+
           if (!db.objectStoreNames.contains("assets")) {
             const store = db.createObjectStore("assets", { keyPath: "id" });
             store.createIndex("byOwnerUserId", "ownerRef.userId", { unique: false });
-          } else if (oldVersion < 11) {
+          } else {
             const store = transaction.objectStore("assets");
             if (!store.indexNames.contains("byOwnerUserId")) {
               store.createIndex("byOwnerUserId", "ownerRef.userId", { unique: false });
@@ -144,20 +145,35 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
           if (!db.objectStoreNames.contains("localMaskBlobs")) {
             const store = db.createObjectStore("localMaskBlobs", { keyPath: "id" });
             store.createIndex("byAssetId", "assetId", { unique: false });
+          } else {
+            const store = transaction.objectStore("localMaskBlobs");
+            if (!store.indexNames.contains("byAssetId")) {
+              store.createIndex("byAssetId", "assetId", { unique: false });
+            }
           }
-          if (oldVersion < 14 && legacyObjectStoreNames.contains("canvasWorkbenchListEntries")) {
-            legacySchemaDb.deleteObjectStore("canvasWorkbenchListEntries");
+
+          if (oldVersion < 14) {
+            deleteStoreIfPresent("canvasWorkbenchListEntries");
+            deleteStoreIfPresent("canvasWorkbenches");
           }
-          if (oldVersion < 14 && legacyObjectStoreNames.contains("canvasWorkbenches")) {
-            legacySchemaDb.deleteObjectStore("canvasWorkbenches");
-          }
+
           if (!db.objectStoreNames.contains("canvasWorkbenches")) {
             const store = db.createObjectStore("canvasWorkbenches", { keyPath: "id" });
             store.createIndex("byOwnerUserId", "ownerRef.userId", { unique: false });
+          } else {
+            const store = transaction.objectStore("canvasWorkbenches");
+            if (!store.indexNames.contains("byOwnerUserId")) {
+              store.createIndex("byOwnerUserId", "ownerRef.userId", { unique: false });
+            }
           }
           if (!db.objectStoreNames.contains("canvasWorkbenchListEntries")) {
             const store = db.createObjectStore("canvasWorkbenchListEntries", { keyPath: "id" });
             store.createIndex("byOwnerUserId", "ownerRef.userId", { unique: false });
+          } else {
+            const store = transaction.objectStore("canvasWorkbenchListEntries");
+            if (!store.indexNames.contains("byOwnerUserId")) {
+              store.createIndex("byOwnerUserId", "ownerRef.userId", { unique: false });
+            }
           }
           if (!db.objectStoreNames.contains("assetSyncJobs")) {
             const syncStore = db.createObjectStore("assetSyncJobs", { keyPath: "jobId" });
@@ -166,16 +182,26 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
             syncStore.createIndex("byOwnerUserId", "ownerUserId", { unique: false });
             syncStore.createIndex("byOp", "op", { unique: false });
           } else if (oldVersion < 12) {
-            const legacySchemaDb = db as unknown as { deleteObjectStore: (name: string) => void };
-            legacySchemaDb.deleteObjectStore("assetSyncJobs");
+            deleteStoreIfPresent("assetSyncJobs");
             const syncStore = db.createObjectStore("assetSyncJobs", { keyPath: "jobId" });
             syncStore.createIndex("byLocalAssetId", "localAssetId", { unique: false });
             syncStore.createIndex("byNextRetryAt", "nextRetryAt", { unique: false });
             syncStore.createIndex("byOwnerUserId", "ownerUserId", { unique: false });
             syncStore.createIndex("byOp", "op", { unique: false });
-          }
-          if (legacyObjectStoreNames.contains("imageGenerationSessions")) {
-            legacySchemaDb.deleteObjectStore("imageGenerationSessions");
+          } else {
+            const syncStore = transaction.objectStore("assetSyncJobs");
+            if (!syncStore.indexNames.contains("byLocalAssetId")) {
+              syncStore.createIndex("byLocalAssetId", "localAssetId", { unique: false });
+            }
+            if (!syncStore.indexNames.contains("byNextRetryAt")) {
+              syncStore.createIndex("byNextRetryAt", "nextRetryAt", { unique: false });
+            }
+            if (!syncStore.indexNames.contains("byOwnerUserId")) {
+              syncStore.createIndex("byOwnerUserId", "ownerUserId", { unique: false });
+            }
+            if (!syncStore.indexNames.contains("byOp")) {
+              syncStore.createIndex("byOp", "op", { unique: false });
+            }
           }
           // v5+ only add optional value fields (`importDay`, `tags`, `source`, sync fields).
           // No value migration is needed because IndexedDB values are schemaless.
@@ -312,11 +338,7 @@ export async function loadAssetsByUser(userId: string): Promise<StoredAsset[]> {
   const db = await getDB();
   if (!db || !db.objectStoreNames.contains("assets")) return [];
   try {
-    return db.objectStoreNames.contains("assets")
-      ? db.transaction("assets").store.indexNames.contains("byOwnerUserId")
-        ? await db.getAllFromIndex("assets", "byOwnerUserId", userId)
-        : (await db.getAll("assets")).filter((asset) => asset.ownerRef?.userId === userId)
-      : [];
+    return await db.getAllFromIndex("assets", "byOwnerUserId", userId);
   } catch (error) {
     console.warn("IndexedDB loadAssetsByUser failed:", error);
     return [];
@@ -381,9 +403,7 @@ export async function loadAssetSyncJobsByUser(
   const db = await getDB();
   if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return [];
   try {
-    const jobs = db.transaction("assetSyncJobs").store.indexNames.contains("byOwnerUserId")
-      ? await db.getAllFromIndex("assetSyncJobs", "byOwnerUserId", userId)
-      : (await db.getAll("assetSyncJobs")).filter((job) => job.ownerUserId === userId);
+    const jobs = await db.getAllFromIndex("assetSyncJobs", "byOwnerUserId", userId);
     return jobs
       .sort((a, b) => a.nextRetryAt.localeCompare(b.nextRetryAt))
       .slice(0, Math.max(1, limit));
@@ -432,9 +452,7 @@ export async function clearAssetSyncJobsByUser(userId: string): Promise<boolean>
   const db = await getDB();
   if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return false;
   try {
-    const jobs = db.transaction("assetSyncJobs").store.indexNames.contains("byOwnerUserId")
-      ? await db.getAllFromIndex("assetSyncJobs", "byOwnerUserId", userId)
-      : (await db.getAll("assetSyncJobs")).filter((job) => job.ownerUserId === userId);
+    const jobs = await db.getAllFromIndex("assetSyncJobs", "byOwnerUserId", userId);
     await Promise.all(jobs.map((job) => db.delete("assetSyncJobs", job.jobId)));
     return true;
   } catch (error) {
@@ -465,9 +483,7 @@ export async function clearAssetsByUser(userId: string): Promise<boolean> {
   const db = await getDB();
   if (!db || !db.objectStoreNames.contains("assets")) return false;
   try {
-    const assets = db.transaction("assets").store.indexNames.contains("byOwnerUserId")
-      ? await db.getAllFromIndex("assets", "byOwnerUserId", userId)
-      : (await db.getAll("assets")).filter((asset) => asset.ownerRef?.userId === userId);
+    const assets = await db.getAllFromIndex("assets", "byOwnerUserId", userId);
     const results = await Promise.all(
       assets.map(async (asset) => {
         const [deletedSyncJobs, deletedAsset] = await Promise.all([

@@ -27,7 +27,6 @@ const createAsset = (): Asset => ({
   thumbnailUrl: "blob:asset-1-thumb",
   tags: [],
   importDay: "2026-03-17",
-  group: "2026-03-17",
   origin: "file",
   remote: {
     status: "local_only",

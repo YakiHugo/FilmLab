@@ -29,7 +29,6 @@ export const toStoredAsset = (asset: Asset): StoredAsset | null => {
     size: asset.size,
     createdAt: asset.createdAt,
     blob,
-    group: asset.group ?? asset.importDay,
     importDay: asset.importDay,
     tags: normalizeTags(asset.tags ?? []),
     thumbnailBlob: asset.thumbnailBlob,
