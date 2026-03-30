@@ -17,7 +17,7 @@ import type {
 } from "./types";
 import { extractImageProcessState } from "./types";
 
-const resolveLegacyRenderIntent = (request: ImageRenderRequest): RenderIntent => {
+const resolveImageProcessingRenderIntent = (request: ImageRenderRequest): RenderIntent => {
   if (request.intent === "export") {
     return "export-full";
   }
@@ -71,7 +71,7 @@ const renderSnapshotToCanvas = async ({
     seedKey: stage === "full" ? resolveFilmSeedKey(document) : `${document.id}:${stage}`,
     sourceCacheKey: `${document.revisionKey}:${stage}:${request.targetSize.width}x${request.targetSize.height}`,
     strictErrors: request.strictErrors ?? request.intent === "export",
-    intent: resolveLegacyRenderIntent(request),
+    intent: resolveImageProcessingRenderIntent(request),
     signal: request.signal,
     renderSlot: request.renderSlotId
       ? renderSlotSuffix
@@ -193,7 +193,7 @@ export const renderSingleImageToCanvas = async ({
         seedKey: resolveFilmSeedKey(document),
         sourceCacheKey: `${document.revisionKey}:film-stage:${request.targetSize.width}x${request.targetSize.height}`,
         strictErrors: request.strictErrors ?? request.intent === "export",
-        intent: resolveLegacyRenderIntent(request),
+        intent: resolveImageProcessingRenderIntent(request),
         signal: request.signal,
         renderSlot: request.renderSlotId ? `${request.renderSlotId}:base-film-stage` : undefined,
       });

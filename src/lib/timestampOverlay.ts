@@ -1,10 +1,11 @@
 import { clamp } from "@/lib/math";
-import type { EditingAdjustments } from "@/types";
 
-export type TimestampOverlayAdjustments = Pick<
-  EditingAdjustments,
-  "timestampEnabled" | "timestampOpacity" | "timestampPosition" | "timestampSize"
->;
+export interface TimestampOverlayAdjustments {
+  timestampEnabled: boolean;
+  timestampOpacity: number;
+  timestampPosition: "bottom-right" | "bottom-left" | "top-right" | "top-left";
+  timestampSize: number;
+}
 
 const TIMESTAMP_FONTS = '"Space Grotesk", "Work Sans", sans-serif';
 

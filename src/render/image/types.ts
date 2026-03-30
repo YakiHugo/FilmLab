@@ -5,13 +5,13 @@ import type {
   BwMixAdjustments,
   CalibrationAdjustments,
   ColorGradingAdjustments,
-  FilmProfile,
   FilmProfileOverrides,
   HslAdjustments,
   LocalAdjustmentDelta,
   LocalAdjustmentMask,
   PointCurveAdjustments,
 } from "@/types";
+import type { FilmProfileAny } from "@/types/film";
 
 export const IMAGE_RENDER_INTENTS = ["preview", "export"] as const;
 export type ImageRenderIntent = (typeof IMAGE_RENDER_INTENTS)[number];
@@ -140,7 +140,7 @@ export interface ImageRenderDevelopState {
 
 export interface ImageRenderMaskDefinition {
   id: string;
-  kind: "local-adjustment" | "legacy-local-adjustment";
+  kind: "local-adjustment";
   sourceLocalAdjustmentId: string;
   mask: LocalAdjustmentMask;
 }
@@ -151,7 +151,7 @@ export interface ImageRenderMaskState {
 
 export interface ImageRenderFilmState {
   profileId: string | null;
-  profile: FilmProfile | null | undefined;
+  profile: FilmProfileAny | null | undefined;
   profileOverrides?: FilmProfileOverrides | null;
 }
 

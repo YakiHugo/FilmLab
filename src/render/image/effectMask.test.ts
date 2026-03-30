@@ -5,7 +5,7 @@ describe("effectMask", () => {
   it("builds a stable revision key for equivalent masks", () => {
     const maskDefinition = {
       id: "mask-1",
-      kind: "legacy-local-adjustment" as const,
+      kind: "local-adjustment" as const,
       sourceLocalAdjustmentId: "local-1",
       mask: {
         mode: "radial" as const,
@@ -25,7 +25,7 @@ describe("effectMask", () => {
   it("changes the revision key when the mask shape changes", () => {
     const first = buildImageRenderMaskRevisionKey({
       id: "mask-1",
-      kind: "legacy-local-adjustment",
+      kind: "local-adjustment",
       sourceLocalAdjustmentId: "local-1",
       mask: {
         mode: "radial",
@@ -38,7 +38,7 @@ describe("effectMask", () => {
     });
     const second = buildImageRenderMaskRevisionKey({
       id: "mask-1",
-      kind: "legacy-local-adjustment",
+      kind: "local-adjustment",
       sourceLocalAdjustmentId: "local-1",
       mask: {
         mode: "radial",

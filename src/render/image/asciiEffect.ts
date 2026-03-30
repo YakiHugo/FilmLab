@@ -264,7 +264,6 @@ export const applyImageAsciiEffect = ({
     return false;
   }
 
-  const isLegacyAsciiEffect = effect.id === "legacy-ascii";
   const normalized = normalizeImageAsciiEffectParams(effect.params);
   const targetContext = targetCanvas.getContext("2d", { willReadFrequently: true });
   if (!targetContext) {
@@ -397,7 +396,7 @@ export const applyImageAsciiEffect = ({
       const drawWidth = Math.min(cellWidth, targetCanvas.width - cellX);
       const drawHeight = Math.min(cellHeight, targetCanvas.height - cellY);
 
-      if (normalized.backgroundMode === "cell-solid" && (isLegacyAsciiEffect || visibleTone > 0.001)) {
+      if (normalized.backgroundMode === "cell-solid" && visibleTone > 0.001) {
         backgroundContext.fillStyle = formatRgba(
           backgroundColor.red,
           backgroundColor.green,
@@ -453,9 +452,6 @@ export const applyImageAsciiEffect = ({
   }
 
   targetContext.save();
-  if (isLegacyAsciiEffect) {
-    targetContext.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-  }
   if (normalized.backgroundMode !== "none") {
     targetContext.globalCompositeOperation = "source-over";
     targetContext.drawImage(backgroundCanvas, 0, 0);

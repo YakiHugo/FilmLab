@@ -128,7 +128,7 @@ describe("asciiEffect", () => {
     });
   });
 
-  it("preserves legacy ascii replacement semantics instead of leaking the source image underneath", () => {
+  it("composites ascii output without clearing the target canvas first", () => {
     const targetContext = createMockContext();
     const targetCanvas = createMockCanvas({ context: targetContext });
     const sourceCanvas = createMockCanvas();
@@ -137,7 +137,7 @@ describe("asciiEffect", () => {
       targetCanvas,
       sourceCanvas,
       effect: {
-        id: "legacy-ascii",
+        id: "ascii-test",
         type: "ascii",
         enabled: true,
         placement: "style",
@@ -174,7 +174,7 @@ describe("asciiEffect", () => {
     });
 
     expect(didApply).toBe(true);
-    expect(targetContext.clearRect).toHaveBeenCalledWith(0, 0, 12, 12);
+    expect(targetContext.clearRect).not.toHaveBeenCalled();
     expect(targetContext.drawImage).toHaveBeenCalled();
   });
 });

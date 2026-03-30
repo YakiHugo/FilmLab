@@ -1,32 +1,88 @@
-import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
-import { getBuiltInFilmProfile } from "@/lib/film";
-import type {
-  Asset,
-  AsciiAdjustments,
-  EditingAdjustments,
-  FilmProfile,
-  FilmProfileOverrides,
-} from "@/types";
+import type { Asset } from "@/types";
 import type {
   CanvasImageRenderStateV1,
-  ImageAsciiEffectNode,
   ImageEffectNode,
   ImageFilter2dEffectNode,
-  ImageRenderDevelopRegion,
-  ImageRenderFilmState,
-  ImageRenderGeometry,
-  ImageRenderMaskState,
-  ImageRenderOutputState,
   ImageRenderSource,
 } from "./types";
 
-const DEFAULT_ADJUSTMENTS = createDefaultAdjustments();
+const DEFAULT_POINT_CURVE = {
+  rgb: [
+    { x: 0, y: 0 },
+    { x: 255, y: 255 },
+  ],
+  red: [
+    { x: 0, y: 0 },
+    { x: 255, y: 255 },
+  ],
+  green: [
+    { x: 0, y: 0 },
+    { x: 255, y: 255 },
+  ],
+  blue: [
+    { x: 0, y: 0 },
+    { x: 255, y: 255 },
+  ],
+} satisfies CanvasImageRenderStateV1["develop"]["color"]["pointCurve"];
 
-const clampEffectNumber = (value: number | undefined) => {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return 0;
+const DEFAULT_HSL_CHANNEL = {
+  hue: 0,
+  saturation: 0,
+  luminance: 0,
+};
+
+const DEFAULT_HSL = {
+  red: { ...DEFAULT_HSL_CHANNEL },
+  orange: { ...DEFAULT_HSL_CHANNEL },
+  yellow: { ...DEFAULT_HSL_CHANNEL },
+  green: { ...DEFAULT_HSL_CHANNEL },
+  aqua: { ...DEFAULT_HSL_CHANNEL },
+  blue: { ...DEFAULT_HSL_CHANNEL },
+  purple: { ...DEFAULT_HSL_CHANNEL },
+  magenta: { ...DEFAULT_HSL_CHANNEL },
+} satisfies CanvasImageRenderStateV1["develop"]["color"]["hsl"];
+
+const DEFAULT_BW_MIX = {
+  red: 0,
+  green: 0,
+  blue: 0,
+} satisfies CanvasImageRenderStateV1["develop"]["color"]["bwMix"];
+
+const DEFAULT_CALIBRATION = {
+  redHue: 0,
+  redSaturation: 0,
+  greenHue: 0,
+  greenSaturation: 0,
+  blueHue: 0,
+  blueSaturation: 0,
+} satisfies CanvasImageRenderStateV1["develop"]["color"]["calibration"];
+
+const DEFAULT_COLOR_GRADING_ZONE = {
+  hue: 0,
+  saturation: 0,
+  luminance: 0,
+};
+
+const DEFAULT_COLOR_GRADING = {
+  shadows: { ...DEFAULT_COLOR_GRADING_ZONE },
+  midtones: { ...DEFAULT_COLOR_GRADING_ZONE },
+  highlights: { ...DEFAULT_COLOR_GRADING_ZONE },
+  blend: 50,
+  balance: 0,
+} satisfies CanvasImageRenderStateV1["develop"]["color"]["colorGrading"];
+
+const DEFAULT_CUSTOM_LUT = {
+  enabled: false,
+  path: "",
+  size: 8,
+  intensity: 0,
+} satisfies NonNullable<CanvasImageRenderStateV1["develop"]["fx"]["customLut"]>;
+
+const cloneRenderStateValue = <T>(value: T): T => {
+  if (typeof structuredClone === "function") {
+    return structuredClone(value) as T;
   }
-  return value;
+  return JSON.parse(JSON.stringify(value)) as T;
 };
 
 export const resolveImageRenderSource = (asset: Asset): ImageRenderSource => ({
@@ -39,262 +95,98 @@ export const resolveImageRenderSource = (asset: Asset): ImageRenderSource => ({
   height: asset.metadata?.height,
 });
 
-export const resolveLegacyGeometry = (adjustments: EditingAdjustments): ImageRenderGeometry => ({
-  rotate: adjustments.rotate,
-  rightAngleRotation: adjustments.rightAngleRotation,
-  perspectiveEnabled: adjustments.perspectiveEnabled ?? false,
-  perspectiveHorizontal: adjustments.perspectiveHorizontal ?? 0,
-  perspectiveVertical: adjustments.perspectiveVertical ?? 0,
-  vertical: adjustments.vertical,
-  horizontal: adjustments.horizontal,
-  scale: adjustments.scale,
-  flipHorizontal: adjustments.flipHorizontal,
-  flipVertical: adjustments.flipVertical,
-  aspectRatio: adjustments.aspectRatio,
-  customAspectRatio: adjustments.customAspectRatio,
-  opticsProfile: adjustments.opticsProfile,
-  opticsCA: adjustments.opticsCA,
-  opticsDistortionK1: adjustments.opticsDistortionK1 ?? 0,
-  opticsDistortionK2: adjustments.opticsDistortionK2 ?? 0,
-  opticsCaAmount: adjustments.opticsCaAmount ?? 0,
-  opticsVignette: adjustments.opticsVignette,
-  opticsVignetteMidpoint: adjustments.opticsVignetteMidpoint ?? 50,
-});
-
-export const resolveLegacyOutput = (adjustments: EditingAdjustments): ImageRenderOutputState => ({
-  timestamp: {
-    enabled: adjustments.timestampEnabled,
-    position: adjustments.timestampPosition,
-    size: adjustments.timestampSize,
-    opacity: adjustments.timestampOpacity,
+export const createNeutralCanvasImageRenderState = (): CanvasImageRenderStateV1 => ({
+  geometry: {
+    rotate: 0,
+    rightAngleRotation: 0,
+    perspectiveEnabled: false,
+    perspectiveHorizontal: 0,
+    perspectiveVertical: 0,
+    vertical: 0,
+    horizontal: 0,
+    scale: 100,
+    flipHorizontal: false,
+    flipVertical: false,
+    aspectRatio: "original",
+    customAspectRatio: 4 / 3,
+    opticsProfile: false,
+    opticsCA: false,
+    opticsDistortionK1: 0,
+    opticsDistortionK2: 0,
+    opticsCaAmount: 0,
+    opticsVignette: 0,
+    opticsVignetteMidpoint: 50,
   },
-});
-
-export const resolveLegacyFilmStateFromInputs = ({
-  filmProfile,
-  filmProfileId,
-  filmProfileOverrides,
-}: {
-  filmProfile?: FilmProfile | null | undefined;
-  filmProfileId?: string | null | undefined;
-  filmProfileOverrides?: FilmProfileOverrides | null | undefined;
-}): ImageRenderFilmState => {
-  if (filmProfile !== undefined) {
-    return {
-      profileId: filmProfile?.id ?? null,
-      profile: filmProfile,
-      profileOverrides: filmProfileOverrides ?? null,
-    };
-  }
-
-  if (typeof filmProfileId === "string" && filmProfileId.length > 0) {
-    return {
-      profileId: filmProfileId,
-      profile: getBuiltInFilmProfile(filmProfileId) ?? undefined,
-      profileOverrides: filmProfileOverrides ?? null,
-    };
-  }
-
-  return {
-    profileId: null,
-    profile: undefined,
-    profileOverrides: filmProfileOverrides ?? null,
-  };
-};
-
-const resolveLegacyAsciiEffect = (
-  ascii: AsciiAdjustments | undefined
-): ImageAsciiEffectNode | null => {
-  if (!ascii?.enabled) {
-    return null;
-  }
-  return {
-    id: "legacy-ascii",
-    type: "ascii",
-    enabled: true,
-    placement: "style",
-    analysisSource: "style",
-    params: {
-      renderMode: "glyph",
-      preset: ascii.charsetPreset,
-      cellSize: ascii.cellSize,
-      characterSpacing: ascii.characterSpacing,
-      density: 1,
-      coverage: 1,
-      edgeEmphasis: 0,
-      brightness: 0,
-      contrast: ascii.contrast,
-      dither: ascii.dither,
-      colorMode: ascii.colorMode,
-      foregroundOpacity: 1,
-      foregroundBlendMode: "source-over",
-      backgroundMode: "cell-solid",
-      backgroundBlur: 0,
-      backgroundOpacity: 1,
-      backgroundColor: "#000000",
-      invert: ascii.invert,
-      gridOverlay: false,
-    },
-  };
-};
-
-const resolveLegacyFilter2dEffect = (
-  adjustments: EditingAdjustments
-): ImageFilter2dEffectNode | null => {
-  const brightness = clampEffectNumber(adjustments.brightness);
-  const hue = clampEffectNumber(adjustments.hue);
-  const blur = clampEffectNumber(adjustments.blur);
-  const dilate = clampEffectNumber(adjustments.dilate);
-
-  if (
-    Math.abs(brightness) <= 0.001 &&
-    Math.abs(hue) <= 0.001 &&
-    blur <= 0.001 &&
-    dilate <= 0.001
-  ) {
-    return null;
-  }
-
-  return {
-    id: "legacy-filter2d",
-    type: "filter2d",
-    enabled: true,
-    placement: "finalize",
-    params: {
-      brightness,
-      hue,
-      blur,
-      dilate,
-    },
-  };
-};
-
-export const resolveLegacyEffects = (adjustments: EditingAdjustments): ImageEffectNode[] => {
-  const effects: ImageEffectNode[] = [];
-  const ascii = resolveLegacyAsciiEffect(adjustments.ascii);
-  if (ascii) {
-    effects.push(ascii);
-  }
-  const filter2d = resolveLegacyFilter2dEffect(adjustments);
-  if (filter2d) {
-    effects.push(filter2d);
-  }
-  return effects;
-};
-
-export const resolveLegacyMasks = (adjustments: EditingAdjustments): ImageRenderMaskState => {
-  const localAdjustments = adjustments.localAdjustments ?? [];
-  return {
-    byId: Object.fromEntries(
-      localAdjustments.map((local, index) => {
-        const id = local.id || `legacy-local-${index}`;
-        return [
-          id,
-          {
-            id,
-            kind: "legacy-local-adjustment" as const,
-            sourceLocalAdjustmentId: local.id || id,
-            mask: local.mask,
-          },
-        ];
-      })
-    ),
-  };
-};
-
-const resolveLegacyRegions = (adjustments: EditingAdjustments): ImageRenderDevelopRegion[] =>
-  (adjustments.localAdjustments ?? []).map((local, index) => ({
-    id: local.id || `legacy-local-${index}`,
-    enabled: local.enabled,
-    amount: local.amount,
-    maskId: local.id || `legacy-local-${index}`,
-    adjustments: { ...local.adjustments },
-  }));
-
-const createCanvasImageRenderStateFromNormalizedLegacyInputs = ({
-  adjustments,
-  filmState,
-}: {
-  adjustments: EditingAdjustments;
-  filmState: ImageRenderFilmState;
-}): CanvasImageRenderStateV1 => ({
-  geometry: resolveLegacyGeometry(adjustments),
   develop: {
     tone: {
-      exposure: adjustments.exposure,
-      contrast: adjustments.contrast,
-      highlights: adjustments.highlights,
-      shadows: adjustments.shadows,
-      whites: adjustments.whites,
-      blacks: adjustments.blacks,
+      exposure: 0,
+      contrast: 0,
+      highlights: 0,
+      shadows: 0,
+      whites: 0,
+      blacks: 0,
     },
     color: {
-      temperature: adjustments.temperature,
-      tint: adjustments.tint,
+      temperature: 0,
+      tint: 0,
       hue: 0,
-      temperatureKelvin: adjustments.temperatureKelvin,
-      tintMG: adjustments.tintMG,
-      vibrance: adjustments.vibrance,
-      saturation: adjustments.saturation,
-      pointCurve: structuredClone(adjustments.pointCurve),
-      hsl: structuredClone(adjustments.hsl),
-      bwEnabled: Boolean(adjustments.bwEnabled),
-      bwMix: structuredClone(adjustments.bwMix ?? DEFAULT_ADJUSTMENTS.bwMix!),
-      calibration: structuredClone(adjustments.calibration ?? DEFAULT_ADJUSTMENTS.calibration!),
-      colorGrading: structuredClone(adjustments.colorGrading),
+      temperatureKelvin: undefined,
+      tintMG: undefined,
+      vibrance: 0,
+      saturation: 0,
+      pointCurve: cloneRenderStateValue(DEFAULT_POINT_CURVE),
+      hsl: cloneRenderStateValue(DEFAULT_HSL),
+      bwEnabled: false,
+      bwMix: cloneRenderStateValue(DEFAULT_BW_MIX),
+      calibration: cloneRenderStateValue(DEFAULT_CALIBRATION),
+      colorGrading: cloneRenderStateValue(DEFAULT_COLOR_GRADING),
     },
     detail: {
-      texture: adjustments.texture,
-      clarity: adjustments.clarity,
-      dehaze: adjustments.dehaze,
-      sharpening: adjustments.sharpening,
-      sharpenRadius: adjustments.sharpenRadius,
-      sharpenDetail: adjustments.sharpenDetail,
-      masking: adjustments.masking,
-      noiseReduction: adjustments.noiseReduction,
-      colorNoiseReduction: adjustments.colorNoiseReduction,
+      texture: 0,
+      clarity: 0,
+      dehaze: 0,
+      sharpening: 0,
+      sharpenRadius: 40,
+      sharpenDetail: 25,
+      masking: 0,
+      noiseReduction: 0,
+      colorNoiseReduction: 0,
     },
     fx: {
-      vignette: adjustments.vignette,
-      grain: adjustments.grain,
-      grainSize: adjustments.grainSize,
-      grainRoughness: adjustments.grainRoughness,
-      glowIntensity: adjustments.glowIntensity,
-      glowMidtoneFocus: adjustments.glowMidtoneFocus,
-      glowBias: adjustments.glowBias,
-      glowRadius: adjustments.glowRadius,
-      customLut: adjustments.customLut ? structuredClone(adjustments.customLut) : undefined,
-      pushPullEv: adjustments.pushPullEv,
+      vignette: 0,
+      grain: 0,
+      grainSize: 50,
+      grainRoughness: 50,
+      glowIntensity: 0,
+      glowMidtoneFocus: 50,
+      glowBias: 25,
+      glowRadius: 24,
+      customLut: cloneRenderStateValue(DEFAULT_CUSTOM_LUT),
+      pushPullEv: undefined,
     },
-    regions: resolveLegacyRegions(adjustments),
+    regions: [],
   },
-  masks: resolveLegacyMasks(adjustments),
-  effects: resolveLegacyEffects(adjustments),
-  film: filmState,
-  output: resolveLegacyOutput(adjustments),
+  masks: {
+    byId: {},
+  },
+  effects: [],
+  film: {
+    profileId: null,
+    profile: undefined,
+    profileOverrides: null,
+  },
+  output: {
+    timestamp: {
+      enabled: false,
+      position: "bottom-right",
+      size: 22,
+      opacity: 72,
+    },
+  },
 });
 
-export const createDefaultCanvasImageRenderState = ({
-  adjustments,
-  filmProfile,
-  filmProfileId,
-  filmProfileOverrides,
-}: {
-  adjustments?: EditingAdjustments;
-  filmProfile?: FilmProfile | null | undefined;
-  filmProfileId?: string | null | undefined;
-  filmProfileOverrides?: FilmProfileOverrides | null | undefined;
-} = {}): CanvasImageRenderStateV1 => {
-  const normalized = normalizeAdjustments(adjustments ?? DEFAULT_ADJUSTMENTS);
-  return createCanvasImageRenderStateFromNormalizedLegacyInputs({
-    adjustments: normalized,
-    filmState: resolveLegacyFilmStateFromInputs({
-      filmProfile,
-      filmProfileId,
-      filmProfileOverrides,
-    }),
-  });
-};
+export const createDefaultCanvasImageRenderState = (): CanvasImageRenderStateV1 =>
+  createNeutralCanvasImageRenderState();
 
 const resolveFilter2dFromEffects = (effects: readonly ImageEffectNode[]) => {
   const effect = effects.find(
@@ -308,18 +200,6 @@ const resolveFilter2dFromEffects = (effects: readonly ImageEffectNode[]) => {
     dilate: effect?.params.dilate ?? 0,
   };
 };
-
-export const compileImageRenderOutputToLegacyTimestampAdjustments = (
-  output: ImageRenderOutputState
-): Pick<
-  EditingAdjustments,
-  "timestampEnabled" | "timestampOpacity" | "timestampPosition" | "timestampSize"
-> => ({
-  timestampEnabled: output.timestamp.enabled,
-  timestampPosition: output.timestamp.position,
-  timestampSize: output.timestamp.size,
-  timestampOpacity: output.timestamp.opacity,
-});
 
 export const resolveFilter2dPreviewValuesFromState = (state: CanvasImageRenderStateV1) =>
   resolveFilter2dFromEffects(state.effects);

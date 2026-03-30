@@ -38,23 +38,6 @@ export const resolveImageOverlays = ({
       ]
     : [];
 
-export const resolveLegacyTimestampOverlays = ({
-  adjustments,
-  timestampText,
-}: {
-  adjustments: TimestampOverlayAdjustments;
-  timestampText?: string | null;
-}): ImageOverlayNode[] =>
-  adjustments.timestampEnabled
-    ? [
-        {
-          type: "timestamp",
-          adjustments,
-          text: timestampText,
-        },
-      ]
-    : [];
-
 export const applyImageOverlays = async ({
   canvas,
   overlays,

@@ -123,7 +123,7 @@ const createDocument = ({
       effects ??
       [
         {
-          id: "legacy-ascii",
+          id: "ascii-primary",
           type: "ascii",
           enabled: true,
           placement: "style",
@@ -151,7 +151,7 @@ const createDocument = ({
           },
         },
         {
-          id: "legacy-filter2d",
+          id: "filter2d-primary",
           type: "filter2d",
           enabled: true,
           placement: "finalize",
@@ -514,7 +514,7 @@ describe("renderSingleImageToCanvas", () => {
         byId: {
           "mask-1": {
             id: "mask-1",
-            kind: "legacy-local-adjustment",
+            kind: "local-adjustment",
             sourceLocalAdjustmentId: "local-1",
             mask: {
               mode: "radial",
@@ -553,7 +553,7 @@ describe("renderSingleImageToCanvas", () => {
   it("uses a stable stage snapshot for masked-effect gating within the same placement bucket", async () => {
     const maskDefinition = {
       id: "mask-1",
-      kind: "legacy-local-adjustment" as const,
+      kind: "local-adjustment" as const,
       sourceLocalAdjustmentId: "local-1",
       mask: {
         mode: "radial" as const,
