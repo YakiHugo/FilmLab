@@ -195,10 +195,17 @@ flowchart LR
   - hard-cut legacy effect placement naming from `afterDevelop` / `afterFilm` / `afterOutput` to `develop` / `style` / `finalize`
   - introduced a shared overlay runtime entry and routed timestamp handling through it
   - kept authored output state stable; this slice does not add a persisted `semanticOverlays` model yet
+- Active follow-up slice:
+  - `carrier-and-signal-families` is now in progress through an ASCII-first still-image implementation
+  - added authored `carrierTransforms` while keeping `effects` for non-carrier raster/post effects only
+  - legacy ASCII-in-`effects` documents normalize into in-memory `carrierTransforms`, and resave strips legacy ASCII effects back out
+  - inserted an explicit `carrier` stage into the single-image outer kernel: `develop -> film-stage -> carrier -> style -> overlay -> finalize`
+  - ASCII now executes as `snapshot analysis -> FeatureGrid -> GridSurface -> raster materialization`
+  - `ImageProcessState` and `imageProcessing` remain raster-trunk only; no carrier logic moved into the low-level WebGL/CPU pipeline
 - Explicitly not done in this slice:
   - authored overlay item schema
   - board/global overlay ownership
-  - carrier/signal family split
+  - signal-damage authored family or execution path
   - analysis-layer inputs
   - motion/live contract
   - preview/export quality-tier split
@@ -221,7 +228,15 @@ flowchart LR
 - Implemented in the first slice:
   - canonical stage naming is now `develop -> style -> overlay -> finalize`
   - timestamp handling now flows through a shared overlay runtime entry instead of direct per-call special casing
+- Implemented in the current ASCII-first carrier sub-slice:
+  - `CanvasImageRenderStateV1` now carries `carrierTransforms`
+  - ASCII authoring/editing moved out of `effects[]` and into `carrierTransforms`
+  - preview/export revision identity now includes carrier transforms
+  - legacy ASCII effect persistence is treated as read-only compatibility input, not a write-path schema
 - Still open after the first slice:
   - authored `semanticOverlays` model
   - board/global overlay ownership rules
   - non-timestamp overlay types
+  - signal-damage families
+  - carrier families beyond ASCII (`dither`, `halftone`, `palette`, `textmode`)
+  - motion/live render contract

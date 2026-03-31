@@ -19,7 +19,7 @@
     },
     {
       "id": "carrier-and-signal-families",
-      "status": "pending",
+      "status": "in_progress",
       "passes": [
         "carrier transforms and signal damage are first-class authored families rather than generic effect placement only"
       ]
