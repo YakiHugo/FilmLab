@@ -17,7 +17,7 @@ export interface CanvasTextEditorLayout {
 }
 
 export interface CanvasInteractionNotice {
-  type: "error";
+  type: "error" | "info";
   message: string;
 }
 
