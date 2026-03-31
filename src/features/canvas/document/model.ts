@@ -1,4 +1,5 @@
 import { getCurrentUserId } from "@/lib/authToken";
+import { normalizeCanvasImageRenderState } from "@/render/image";
 import { createId } from "@/utils";
 import type {
   CanvasNode,
@@ -140,7 +141,7 @@ export const normalizeNode = (node: CanvasPersistedNode | CanvasNode): CanvasPer
     locked: node.locked,
     visible: node.visible,
     assetId: node.assetId,
-    renderState: clone(node.renderState),
+    renderState: normalizeCanvasImageRenderState(clone(node.renderState)),
   };
 };
 

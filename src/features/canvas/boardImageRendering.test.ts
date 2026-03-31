@@ -176,4 +176,54 @@ describe("boardImageRendering", () => {
     expect(first.imageDocument.revisionKey).not.toBe(second.imageDocument.revisionKey);
     expect(first.cacheKey).not.toBe(second.cacheKey);
   });
+
+  it("invalidates preview cache keys when carrierTransforms change", () => {
+    const asset = createAsset();
+    const element = createElement();
+    const draftV1 = createDefaultCanvasImageRenderState();
+    const draftV2 = createDefaultCanvasImageRenderState();
+    draftV2.carrierTransforms.push({
+      id: "ascii-primary",
+      type: "ascii",
+      enabled: true,
+      analysisSource: "style",
+      params: {
+        renderMode: "glyph",
+        preset: "blocks",
+        cellSize: 12,
+        characterSpacing: 1,
+        density: 1,
+        coverage: 1,
+        edgeEmphasis: 0,
+        brightness: 0,
+        contrast: 1.5,
+        dither: "none",
+        colorMode: "grayscale",
+        foregroundOpacity: 1,
+        foregroundBlendMode: "source-over",
+        backgroundMode: "none",
+        backgroundBlur: 0,
+        backgroundOpacity: 0,
+        backgroundColor: null,
+        invert: false,
+        gridOverlay: false,
+      },
+    });
+
+    const first = createCanvasImageRenderContext({
+      asset,
+      draftRenderState: draftV1,
+      element,
+      priority: "interactive",
+    });
+    const second = createCanvasImageRenderContext({
+      asset,
+      draftRenderState: draftV2,
+      element,
+      priority: "interactive",
+    });
+
+    expect(first.imageDocument.revisionKey).not.toBe(second.imageDocument.revisionKey);
+    expect(first.cacheKey).not.toBe(second.cacheKey);
+  });
 });
