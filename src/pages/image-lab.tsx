@@ -214,10 +214,10 @@ export function ImageLabPage() {
           available: Boolean(asset),
           intent:
             entry.binding === "guide"
-              ? "guide"
+              ? ("guide" as const)
               : imageGeneration.config?.operation === "variation"
-                ? "variation"
-                : "edit",
+                ? ("variation" as const)
+                : ("edit" as const),
         };
       }),
     [assetById, imageGeneration.config?.inputAssets, imageGeneration.config?.operation]
