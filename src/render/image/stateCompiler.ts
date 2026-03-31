@@ -169,6 +169,7 @@ export const createNeutralCanvasImageRenderState = (): CanvasImageRenderStateV1 
   masks: {
     byId: {},
   },
+  carrierTransforms: [],
   effects: [],
   film: {
     profileId: null,

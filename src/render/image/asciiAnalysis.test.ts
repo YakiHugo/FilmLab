@@ -5,7 +5,7 @@ describe("asciiAnalysis", () => {
   it("builds a stable cache key for equivalent requests", () => {
     const first = buildAsciiAnalysisCacheKey({
       revisionKey: "rev-1",
-      placement: "style",
+      stage: "carrier",
       analysisSource: "style",
       targetSize: {
         width: 1280,
@@ -15,7 +15,7 @@ describe("asciiAnalysis", () => {
     });
     const second = buildAsciiAnalysisCacheKey({
       revisionKey: "rev-1",
-      placement: "style",
+      stage: "carrier",
       analysisSource: "style",
       targetSize: {
         width: 1280,
@@ -30,7 +30,7 @@ describe("asciiAnalysis", () => {
   it("changes the cache key when the snapshot source or quality changes", () => {
     const styleAnalysis = buildAsciiAnalysisCacheKey({
       revisionKey: "rev-1",
-      placement: "style",
+      stage: "carrier",
       analysisSource: "style",
       targetSize: {
         width: 1280,
@@ -40,7 +40,7 @@ describe("asciiAnalysis", () => {
     });
     const developAnalysis = buildAsciiAnalysisCacheKey({
       revisionKey: "rev-1",
-      placement: "style",
+      stage: "carrier",
       analysisSource: "develop",
       targetSize: {
         width: 1280,
@@ -50,7 +50,7 @@ describe("asciiAnalysis", () => {
     });
     const interactive = buildAsciiAnalysisCacheKey({
       revisionKey: "rev-1",
-      placement: "style",
+      stage: "carrier",
       analysisSource: "style",
       targetSize: {
         width: 1280,
@@ -63,21 +63,10 @@ describe("asciiAnalysis", () => {
     expect(styleAnalysis).not.toBe(interactive);
   });
 
-  it("changes the cache key when placement or mask revision changes", () => {
+  it("changes the cache key when mask revision changes", () => {
     const base = buildAsciiAnalysisCacheKey({
       revisionKey: "rev-1",
-      placement: "style",
-      analysisSource: "style",
-      targetSize: {
-        width: 640,
-        height: 360,
-      },
-      quality: "full",
-      maskRevisionKey: "mask-a",
-    });
-    const differentPlacement = buildAsciiAnalysisCacheKey({
-      revisionKey: "rev-1",
-      placement: "develop",
+      stage: "carrier",
       analysisSource: "style",
       targetSize: {
         width: 640,
@@ -88,17 +77,16 @@ describe("asciiAnalysis", () => {
     });
     const differentMask = buildAsciiAnalysisCacheKey({
       revisionKey: "rev-1",
-      placement: "style",
+      stage: "carrier",
       analysisSource: "style",
       targetSize: {
         width: 640,
         height: 360,
       },
       quality: "full",
-      maskRevisionKey: "mask-b",
+      maskRevisionKey: "mask-c",
     });
 
-    expect(base).not.toBe(differentPlacement);
     expect(base).not.toBe(differentMask);
   });
 });

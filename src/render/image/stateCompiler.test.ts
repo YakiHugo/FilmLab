@@ -10,6 +10,7 @@ describe("stateCompiler", () => {
     const state = createNeutralCanvasImageRenderState();
 
     expect(state).toMatchObject({
+      carrierTransforms: [],
       develop: {
         tone: {
           exposure: 0,

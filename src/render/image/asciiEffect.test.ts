@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyImageAsciiEffect, normalizeImageAsciiEffectParams } from "./asciiEffect";
+import {
+  applyImageAsciiCarrierTransform,
+  createAsciiFeatureGrid,
+  createAsciiGridSurface,
+  materializeAsciiGridSurface,
+  normalizeImageAsciiEffectParams,
+} from "./asciiEffect";
 
 const getOrCreateAsciiAnalysisEntryMock = vi.fn();
-const getAsciiBlurredSourceCanvasMock = vi.fn((entry) => entry.sourceCanvas);
 
 vi.mock("./asciiAnalysis", () => ({
   getOrCreateAsciiAnalysisEntry: (...args: unknown[]) =>
     Reflect.apply(getOrCreateAsciiAnalysisEntryMock, undefined, args),
-  getAsciiBlurredSourceCanvas: (...args: unknown[]) =>
-    Reflect.apply(getAsciiBlurredSourceCanvasMock, undefined, args),
 }));
 
 const createMockContext = () => ({
@@ -19,22 +22,14 @@ const createMockContext = () => ({
   fill: vi.fn(),
   fillRect: vi.fn(),
   fillText: vi.fn(),
-  getImageData: vi.fn(() => ({
-    data: new Uint8ClampedArray([
-      0, 0, 0, 255,
-      0, 0, 0, 255,
-      0, 0, 0, 255,
-      0, 0, 0, 255,
-    ]),
-  })),
   lineTo: vi.fn(),
   moveTo: vi.fn(),
   restore: vi.fn(),
   save: vi.fn(),
   stroke: vi.fn(),
   set fillStyle(_value: string) {},
+  set filter(_value: string) {},
   set font(_value: string) {},
-  set globalAlpha(_value: number) {},
   set globalCompositeOperation(_value: GlobalCompositeOperation) {},
   set lineWidth(_value: number) {},
   set strokeStyle(_value: string) {},
@@ -56,6 +51,34 @@ const createMockCanvas = ({
   getContext: vi.fn(() => context),
 }) as unknown as HTMLCanvasElement;
 
+const createAsciiTransform = () => ({
+  id: "ascii-test",
+  type: "ascii" as const,
+  enabled: true,
+  analysisSource: "style" as const,
+  params: {
+    renderMode: "glyph" as const,
+    preset: "standard" as const,
+    cellSize: 12,
+    characterSpacing: 1,
+    density: 1,
+    coverage: 1,
+    edgeEmphasis: 0,
+    brightness: 0,
+    contrast: 1,
+    dither: "none" as const,
+    colorMode: "grayscale" as const,
+    foregroundOpacity: 1,
+    foregroundBlendMode: "source-over" as const,
+    backgroundMode: "cell-solid" as const,
+    backgroundBlur: 0,
+    backgroundOpacity: 1,
+    backgroundColor: "#000000",
+    invert: false,
+    gridOverlay: false,
+  },
+});
+
 describe("asciiEffect", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -70,8 +93,8 @@ describe("asciiEffect", () => {
         16, 16, 16, 255,
       ]),
       alpha: new Float32Array([1, 1, 1, 1]),
-      luminance: new Float32Array([0, 0, 0, 0]),
-      edge: new Float32Array([0, 0, 0, 0]),
+      luminance: new Float32Array([0.25, 0.5, 0.75, 1]),
+      edge: new Float32Array([0, 0.1, 0.2, 0.3]),
       sourceCanvas: createMockCanvas(),
       blurredSourceCanvasByRadius: new Map(),
     });
@@ -84,7 +107,7 @@ describe("asciiEffect", () => {
     vi.unstubAllGlobals();
   });
 
-  it("normalizes and clamps the richer ascii effect params", () => {
+  it("normalizes and clamps the richer ascii carrier params", () => {
     const normalized = normalizeImageAsciiEffectParams({
       renderMode: "dot",
       preset: "custom",
@@ -128,42 +151,39 @@ describe("asciiEffect", () => {
     });
   });
 
-  it("composites ascii output without clearing the target canvas first", () => {
+  it("builds explicit FeatureGrid and GridSurface artifacts for the carrier stage", () => {
+    const featureGrid = createAsciiFeatureGrid({
+      sourceCanvas: createMockCanvas({ width: 24, height: 24 }),
+      transform: createAsciiTransform(),
+      quality: "full",
+      revisionKey: "rev-1",
+      targetSize: {
+        width: 24,
+        height: 24,
+      },
+      maskRevisionKey: null,
+    });
+    const gridSurface = createAsciiGridSurface({
+      featureGrid,
+      transform: createAsciiTransform(),
+    });
+
+    expect(featureGrid.columns).toBeGreaterThan(0);
+    expect(featureGrid.rows).toBeGreaterThan(0);
+    expect(featureGrid.cells.length).toBe(featureGrid.columns * featureGrid.rows);
+    expect(gridSurface.cells.length).toBe(featureGrid.cells.length);
+    expect(gridSurface.foregroundBlendMode).toBe("source-over");
+  });
+
+  it("materializes carrier output without clearing the target canvas first", () => {
     const targetContext = createMockContext();
     const targetCanvas = createMockCanvas({ context: targetContext });
     const sourceCanvas = createMockCanvas();
 
-    const didApply = applyImageAsciiEffect({
+    const didApply = applyImageAsciiCarrierTransform({
       targetCanvas,
       sourceCanvas,
-      effect: {
-        id: "ascii-test",
-        type: "ascii",
-        enabled: true,
-        placement: "style",
-        analysisSource: "style",
-        params: {
-          renderMode: "glyph",
-          preset: "standard",
-          cellSize: 12,
-          characterSpacing: 1,
-          density: 1,
-          coverage: 1,
-          edgeEmphasis: 0,
-          brightness: 0,
-          contrast: 1,
-          dither: "none",
-          colorMode: "grayscale",
-          foregroundOpacity: 1,
-          foregroundBlendMode: "source-over",
-          backgroundMode: "cell-solid",
-          backgroundBlur: 0,
-          backgroundOpacity: 1,
-          backgroundColor: "#000000",
-          invert: false,
-          gridOverlay: false,
-        },
-      },
+      transform: createAsciiTransform(),
       quality: "full",
       revisionKey: "rev-1",
       targetSize: {
@@ -175,6 +195,34 @@ describe("asciiEffect", () => {
 
     expect(didApply).toBe(true);
     expect(targetContext.clearRect).not.toHaveBeenCalled();
+    expect(targetContext.drawImage).toHaveBeenCalled();
+  });
+
+  it("can materialize a prebuilt GridSurface artifact directly", () => {
+    const targetContext = createMockContext();
+    const targetCanvas = createMockCanvas({ context: targetContext });
+    const featureGrid = createAsciiFeatureGrid({
+      sourceCanvas: createMockCanvas({ width: 24, height: 24 }),
+      transform: createAsciiTransform(),
+      quality: "full",
+      revisionKey: "rev-1",
+      targetSize: {
+        width: 24,
+        height: 24,
+      },
+      maskRevisionKey: null,
+    });
+    const gridSurface = createAsciiGridSurface({
+      featureGrid,
+      transform: createAsciiTransform(),
+    });
+
+    const didMaterialize = materializeAsciiGridSurface({
+      targetCanvas,
+      surface: gridSurface,
+    });
+
+    expect(didMaterialize).toBe(true);
     expect(targetContext.drawImage).toHaveBeenCalled();
   });
 });

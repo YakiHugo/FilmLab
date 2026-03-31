@@ -6,7 +6,7 @@ import { renderSingleImageToCanvas } from "./renderSingleImage";
 const renderDevelopBaseToCanvasMock = vi.fn();
 const renderFilmStageToCanvasMock = vi.fn();
 const renderImageToCanvasMock = vi.fn();
-const applyImageAsciiEffectMock = vi.fn();
+const applyImageCarrierTransformsMock = vi.fn();
 const applyTimestampOverlayMock = vi.fn();
 const applyFilter2dPostProcessingMock = vi.fn();
 const buildImageRenderMaskRevisionKeyMock = vi.fn(() => "mask-revision");
@@ -20,9 +20,9 @@ vi.mock("@/lib/imageProcessing", () => ({
   renderImageToCanvas: (...args: unknown[]) => Reflect.apply(renderImageToCanvasMock, undefined, args),
 }));
 
-vi.mock("./asciiEffect", () => ({
-  applyImageAsciiEffect: (...args: unknown[]) =>
-    Reflect.apply(applyImageAsciiEffectMock, undefined, args),
+vi.mock("./carrierExecution", () => ({
+  applyImageCarrierTransforms: (...args: unknown[]) =>
+    Reflect.apply(applyImageCarrierTransformsMock, undefined, args),
 }));
 
 vi.mock("@/lib/timestampOverlay", () => ({
@@ -70,19 +70,6 @@ const createSnapshotCanvas = () =>
     })),
   }) as unknown as HTMLCanvasElement;
 
-const getAsciiEffect = <T extends { effects: readonly { type: string }[] }>(
-  document: T
-): Extract<T["effects"][number], { type: "ascii" }> => {
-  const effect = document.effects.find(
-    (candidate): candidate is Extract<T["effects"][number], { type: "ascii" }> =>
-      candidate.type === "ascii"
-  );
-  if (!effect) {
-    throw new Error("Missing ascii effect.");
-  }
-  return effect;
-};
-
 const createDeferred = <T>() => {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
@@ -93,11 +80,26 @@ const createDeferred = <T>() => {
   return { promise, resolve, reject };
 };
 
+const getAsciiCarrierTransform = <T extends { carrierTransforms: readonly { type: string }[] }>(
+  document: T
+): Extract<T["carrierTransforms"][number], { type: "ascii" }> => {
+  const transform = document.carrierTransforms.find(
+    (candidate): candidate is Extract<T["carrierTransforms"][number], { type: "ascii" }> =>
+      candidate.type === "ascii"
+  );
+  if (!transform) {
+    throw new Error("Missing ascii carrier transform.");
+  }
+  return transform;
+};
+
 const createDocument = ({
+  carrierTransforms,
   effects,
   masks,
   output,
 }: {
+  carrierTransforms?: ReturnType<typeof createImageRenderDocument>["carrierTransforms"];
   effects?: ReturnType<typeof createImageRenderDocument>["effects"];
   masks?: ReturnType<typeof createImageRenderDocument>["masks"];
   output?: ReturnType<typeof createImageRenderDocument>["output"];
@@ -119,14 +121,13 @@ const createDocument = ({
       {
         byId: {},
       },
-    effects:
-      effects ??
+    carrierTransforms:
+      carrierTransforms ??
       [
         {
           id: "ascii-primary",
           type: "ascii",
           enabled: true,
-          placement: "style",
           analysisSource: "style",
           params: {
             renderMode: "glyph",
@@ -150,6 +151,10 @@ const createDocument = ({
             gridOverlay: false,
           },
         },
+      ],
+    effects:
+      effects ??
+      [
         {
           id: "filter2d-primary",
           type: "filter2d",
@@ -180,6 +185,7 @@ describe("renderSingleImageToCanvas", () => {
     renderDevelopBaseToCanvasMock.mockResolvedValue(undefined);
     renderFilmStageToCanvasMock.mockResolvedValue(undefined);
     renderImageToCanvasMock.mockResolvedValue(undefined);
+    applyImageCarrierTransformsMock.mockResolvedValue(undefined);
     applyTimestampOverlayMock.mockResolvedValue(undefined);
     buildImageRenderMaskRevisionKeyMock.mockReturnValue("mask-revision");
     renderImageEffectMaskToCanvasMock.mockImplementation(({ targetCanvas }) => targetCanvas ?? createSnapshotCanvas());
@@ -192,7 +198,7 @@ describe("renderSingleImageToCanvas", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders through the image-processing bridge and preserves legacy effect order", async () => {
+  it("renders through the image-processing bridge and preserves carrier -> overlay -> finalize order", async () => {
     const document = createDocument();
     const canvas = createCanvas();
 
@@ -229,7 +235,7 @@ describe("renderSingleImageToCanvas", () => {
       })
     );
     expect(renderDevelopBaseToCanvasMock).not.toHaveBeenCalled();
-    expect(applyImageAsciiEffectMock).toHaveBeenCalledTimes(1);
+    expect(applyImageCarrierTransformsMock).toHaveBeenCalledTimes(1);
     expect(applyTimestampOverlayMock).toHaveBeenCalledTimes(1);
     expect(applyFilter2dPostProcessingMock).toHaveBeenCalledTimes(1);
     expect(applyTimestampOverlayMock.mock.calls[0]?.[1]).toEqual(
@@ -241,17 +247,11 @@ describe("renderSingleImageToCanvas", () => {
       })
     );
     expect(applyTimestampOverlayMock.mock.invocationCallOrder[0]).toBeGreaterThan(
-      applyImageAsciiEffectMock.mock.invocationCallOrder[0]
+      applyImageCarrierTransformsMock.mock.invocationCallOrder[0]
     );
     expect(applyFilter2dPostProcessingMock.mock.invocationCallOrder[0]).toBeGreaterThan(
       applyTimestampOverlayMock.mock.invocationCallOrder[0]
     );
-    expect(applyImageAsciiEffectMock.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({
-        targetCanvas: canvas,
-      })
-    );
-    expect(applyImageAsciiEffectMock.mock.calls[0]?.[0]?.sourceCanvas).not.toBe(canvas);
     expect(renderFilmStageToCanvasMock).not.toHaveBeenCalled();
   });
 
@@ -301,10 +301,9 @@ describe("renderSingleImageToCanvas", () => {
       settled = true;
     });
 
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(applyTimestampOverlayMock).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(applyTimestampOverlayMock).toHaveBeenCalledTimes(1);
+    });
     expect(applyFilter2dPostProcessingMock).not.toHaveBeenCalled();
     expect(settled).toBe(false);
 
@@ -338,16 +337,17 @@ describe("renderSingleImageToCanvas", () => {
     );
   });
 
-  it("renders an explicit develop snapshot when ascii analysis requests develop output", async () => {
+  it("renders an explicit develop snapshot when carrier analysis requests develop output", async () => {
     const base = createDocument();
-    const asciiEffect = getAsciiEffect(base);
+    const asciiCarrier = getAsciiCarrierTransform(base);
     const document = createDocument({
-      effects: [
+      carrierTransforms: [
         {
-          ...asciiEffect,
+          ...asciiCarrier,
           analysisSource: "develop",
         },
       ],
+      effects: [],
     });
     const canvas = createCanvas();
 
@@ -372,33 +372,47 @@ describe("renderSingleImageToCanvas", () => {
       })
     );
     expect(renderImageToCanvasMock).toHaveBeenCalledTimes(1);
-    expect(renderImageToCanvasMock.mock.calls[0]?.[0]).toEqual(
+    expect(applyImageCarrierTransformsMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        canvas,
-        renderSlot: "board-export:base-film",
+        snapshots: expect.objectContaining({
+          develop: expect.any(Object),
+          style: expect.any(Object),
+        }),
       })
     );
-    expect(applyImageAsciiEffectMock.mock.calls[0]?.[0]?.sourceCanvas).not.toBe(canvas);
-    expect(applyImageAsciiEffectMock.mock.calls[0]?.[0]?.sourceCanvas).not.toBe(
-      renderDevelopBaseToCanvasMock.mock.calls[0]?.[0]?.canvas
-    );
+    expect(applyImageCarrierTransformsMock.mock.calls[0]?.[0]?.snapshots.develop).not.toBeNull();
+    expect(applyImageCarrierTransformsMock.mock.calls[0]?.[0]?.snapshots.style).not.toBe(canvas);
   });
 
-  it("executes develop effects before film-stage rendering and style effects afterward", async () => {
+  it("runs develop-stage raster effects before film-stage and carrier transforms before style effects", async () => {
     const baseDocument = createDocument();
-    const asciiEffect = getAsciiEffect(baseDocument);
+    const asciiCarrier = getAsciiCarrierTransform(baseDocument);
     const document = createDocument({
+      carrierTransforms: [asciiCarrier],
       effects: [
         {
-          ...asciiEffect,
+          id: "develop-filter",
+          type: "filter2d",
+          enabled: true,
           placement: "develop",
-          analysisSource: "develop",
+          params: {
+            brightness: 12,
+            hue: 0,
+            blur: 0,
+            dilate: 0,
+          },
         },
         {
-          ...asciiEffect,
-          id: "ascii-style",
+          id: "style-filter",
+          type: "filter2d",
+          enabled: true,
           placement: "style",
-          analysisSource: "style",
+          params: {
+            brightness: -12,
+            hue: 0,
+            blur: 0,
+            dilate: 0,
+          },
         },
       ],
     });
@@ -433,17 +447,41 @@ describe("renderSingleImageToCanvas", () => {
       })
     );
     expect(renderImageToCanvasMock).not.toHaveBeenCalled();
-    expect(applyImageAsciiEffectMock).toHaveBeenCalledTimes(2);
-    expect(applyImageAsciiEffectMock.mock.calls[0]?.[0]?.targetCanvas).toBe(
-      renderDevelopBaseToCanvasMock.mock.calls[0]?.[0]?.canvas
-    );
-    expect(applyImageAsciiEffectMock.mock.calls[1]?.[0]?.targetCanvas).toBe(canvas);
-    expect(applyImageAsciiEffectMock.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(applyFilter2dPostProcessingMock).toHaveBeenCalledTimes(2);
+    expect(applyImageCarrierTransformsMock).toHaveBeenCalledTimes(1);
+    expect(applyFilter2dPostProcessingMock.mock.invocationCallOrder[0]).toBeLessThan(
       renderFilmStageToCanvasMock.mock.invocationCallOrder[0]
     );
-    expect(applyImageAsciiEffectMock.mock.invocationCallOrder[1]).toBeGreaterThan(
+    expect(applyImageCarrierTransformsMock.mock.invocationCallOrder[0]).toBeGreaterThan(
       renderFilmStageToCanvasMock.mock.invocationCallOrder[0]
     );
+    expect(applyFilter2dPostProcessingMock.mock.invocationCallOrder[1]).toBeGreaterThan(
+      applyImageCarrierTransformsMock.mock.invocationCallOrder[0]
+    );
+  });
+
+  it("binds style analysis to the post-film pre-carrier snapshot", async () => {
+    const document = createDocument({
+      effects: [],
+    });
+
+    await renderSingleImageToCanvas({
+      canvas: createCanvas(),
+      document,
+      request: {
+        intent: "preview",
+        quality: "interactive",
+        targetSize: {
+          width: 256,
+          height: 144,
+        },
+        renderSlotId: "board-preview",
+      },
+    });
+
+    const call = applyImageCarrierTransformsMock.mock.calls[0]?.[0];
+    expect(call?.snapshots.style).toBe(call?.stageReferenceCanvas);
+    expect(call?.snapshots.style).not.toBe(call?.canvas);
   });
 
   it("keeps the film-stage seed stable between split and unsplit paths", async () => {
@@ -468,23 +506,25 @@ describe("renderSingleImageToCanvas", () => {
     renderDevelopBaseToCanvasMock.mockResolvedValue(undefined);
     renderFilmStageToCanvasMock.mockResolvedValue(undefined);
     renderImageToCanvasMock.mockResolvedValue(undefined);
+    applyImageCarrierTransformsMock.mockResolvedValue(undefined);
     applyTimestampOverlayMock.mockResolvedValue(undefined);
     buildImageRenderMaskRevisionKeyMock.mockReturnValue("mask-revision");
     renderImageEffectMaskToCanvasMock.mockImplementation(({ targetCanvas }) => targetCanvas ?? createSnapshotCanvas());
-    const asciiEffect = getAsciiEffect(baseDocument);
 
     await renderSingleImageToCanvas({
       canvas: createCanvas(),
       document: createDocument({
         effects: [
           {
-            ...asciiEffect,
+            id: "develop-filter",
+            type: "filter2d",
+            enabled: true,
             placement: "develop",
-            analysisSource: "develop",
             params: {
-              ...asciiEffect.params,
-              brightness: 0,
-              contrast: 1,
+              brightness: 12,
+              hue: 0,
+              blur: 0,
+              dilate: 0,
             },
           },
         ],
@@ -503,13 +543,27 @@ describe("renderSingleImageToCanvas", () => {
     expect(renderFilmStageToCanvasMock.mock.calls[0]?.[0]?.seedKey).toBe(unsplitSeedKey);
   });
 
-  it("rasterizes and applies masks when a raster effect declares maskId", async () => {
-    const maskedAsciiEffect = {
-      ...createDocument().effects[0],
+  it("rasterizes carrier masks when a carrier transform declares maskId", async () => {
+    const maskedCarrier = {
+      ...getAsciiCarrierTransform(createDocument()),
       maskId: "mask-1",
     };
+    applyImageCarrierTransformsMock.mockImplementation(async ({ carrierTransforms, document, stageReferenceCanvas }) => {
+      const transform = carrierTransforms[0];
+      if (!transform?.maskId) {
+        return;
+      }
+      const { applyMaskedStageOperation } = await import("./stageMaskComposite");
+      await applyMaskedStageOperation({
+        canvas: createSnapshotCanvas(),
+        maskDefinition: document.masks.byId[transform.maskId] ?? null,
+        maskReferenceCanvas: stageReferenceCanvas,
+        applyOperation: () => undefined,
+      });
+    });
     const document = createDocument({
-      effects: [maskedAsciiEffect],
+      carrierTransforms: [maskedCarrier],
+      effects: [],
       masks: {
         byId: {
           "mask-1": {
@@ -550,7 +604,7 @@ describe("renderSingleImageToCanvas", () => {
     );
   });
 
-  it("uses a stable stage snapshot for masked-effect gating within the same placement bucket", async () => {
+  it("uses a stable stage snapshot for masked raster effects within the same placement bucket", async () => {
     const maskDefinition = {
       id: "mask-1",
       kind: "local-adjustment" as const,

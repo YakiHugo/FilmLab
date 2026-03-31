@@ -4,6 +4,7 @@ import {
   renderImageToCanvas,
 } from "@/lib/imageProcessing";
 import type { RenderIntent } from "@/lib/renderIntent";
+import { applyImageCarrierTransforms } from "./carrierExecution";
 import { applyImageEffects } from "./effectExecution";
 import { applyImageOverlays, resolveImageOverlays } from "./overlayExecution";
 import {
@@ -90,16 +91,12 @@ const renderSnapshotToCanvas = async ({
 
 const applyImageFinalizeStages = async ({
   canvas,
-  developSnapshotCanvas,
   document,
-  styleSnapshotCanvas,
   finalizeEffects,
   request,
 }: {
   canvas: HTMLCanvasElement;
-  developSnapshotCanvas: HTMLCanvasElement | null;
   document: ImageRenderDocument;
-  styleSnapshotCanvas: HTMLCanvasElement | null;
   finalizeEffects: ImageRenderDocument["effects"];
   request: ImageRenderRequest;
 }) => {
@@ -116,15 +113,10 @@ const applyImageFinalizeStages = async ({
   }
 
   const finalizeSnapshotCanvas = cloneCanvasSnapshot(canvas);
-  applyImageEffects({
+  await applyImageEffects({
     canvas,
     document,
     effects: finalizeEffects,
-    request,
-    snapshots: {
-      develop: developSnapshotCanvas,
-      style: styleSnapshotCanvas ?? canvas,
-    },
     stageReferenceCanvas: finalizeSnapshotCanvas,
   });
   return finalizeSnapshotCanvas;
@@ -139,9 +131,13 @@ export const renderSingleImageToCanvas = async ({
   document: ImageRenderDocument;
   request: ImageRenderRequest;
 }) => {
-  const snapshotPlan = createImageRenderSnapshotPlan(document.effects);
+  const snapshotPlan = createImageRenderSnapshotPlan({
+    carrierTransforms: document.carrierTransforms,
+    effects: document.effects,
+  });
   assertSupportedImageRenderSnapshotPlan(snapshotPlan);
 
+  let carrierAnalysisSnapshotCanvas: HTMLCanvasElement | null = null;
   let styleSnapshotCanvas: HTMLCanvasElement | null = null;
   let developBaseCanvas: HTMLCanvasElement | null = null;
   let developSnapshotCanvas: HTMLCanvasElement | null = null;
@@ -173,15 +169,10 @@ export const renderSingleImageToCanvas = async ({
         throw new Error("Expected develop base canvas to be initialized.");
       }
 
-      applyImageEffects({
+      await applyImageEffects({
         canvas: developCanvas,
         document,
         effects: snapshotPlan.developEffects,
-        request,
-        snapshots: {
-          develop: developSnapshotCanvas ?? developCanvas,
-          style: developCanvas,
-        },
         stageReferenceCanvas: developSnapshotCanvas ?? developCanvas,
       });
 
@@ -207,27 +198,37 @@ export const renderSingleImageToCanvas = async ({
       });
     }
 
-    styleSnapshotCanvas =
-      snapshotPlan.styleEffects.length > 0 || snapshotPlan.requiresStyleAnalysisSnapshot
+    carrierAnalysisSnapshotCanvas =
+      snapshotPlan.carrierTransforms.length > 0 || snapshotPlan.requiresStyleAnalysisSnapshot
         ? cloneCanvasSnapshot(canvas)
         : null;
 
-    applyImageEffects({
+    if (snapshotPlan.carrierTransforms.length > 0) {
+      await applyImageCarrierTransforms({
+        canvas,
+        carrierTransforms: snapshotPlan.carrierTransforms,
+        document,
+        request,
+        snapshots: {
+          develop: developSnapshotCanvas,
+          style: carrierAnalysisSnapshotCanvas ?? canvas,
+        },
+        stageReferenceCanvas: carrierAnalysisSnapshotCanvas ?? canvas,
+      });
+    }
+
+    styleSnapshotCanvas =
+      snapshotPlan.styleEffects.length > 0 ? cloneCanvasSnapshot(canvas) : null;
+
+    await applyImageEffects({
       canvas,
       document,
       effects: snapshotPlan.styleEffects,
-      request,
-      snapshots: {
-        develop: developSnapshotCanvas,
-        style: styleSnapshotCanvas ?? canvas,
-      },
       stageReferenceCanvas: styleSnapshotCanvas ?? canvas,
     });
     finalizeSnapshotCanvas = await applyImageFinalizeStages({
       canvas,
-      developSnapshotCanvas,
       document,
-      styleSnapshotCanvas,
       finalizeEffects: snapshotPlan.finalizeEffects,
       request,
     });
@@ -239,6 +240,10 @@ export const renderSingleImageToCanvas = async ({
     if (styleSnapshotCanvas) {
       styleSnapshotCanvas.width = 0;
       styleSnapshotCanvas.height = 0;
+    }
+    if (carrierAnalysisSnapshotCanvas) {
+      carrierAnalysisSnapshotCanvas.width = 0;
+      carrierAnalysisSnapshotCanvas.height = 0;
     }
     if (developBaseCanvas) {
       developBaseCanvas.width = 0;

@@ -1,14 +1,13 @@
 import { clamp } from "@/lib/math";
 import type {
   ImageAnalysisSource,
-  ImageEffectPlacement,
   ImageRenderQuality,
   ImageRenderTargetSize,
 } from "./types";
 
 export interface AsciiAnalysisCacheKeyInput {
   revisionKey: string;
-  placement: ImageEffectPlacement;
+  stage: "carrier";
   analysisSource: ImageAnalysisSource;
   targetSize: ImageRenderTargetSize;
   quality: ImageRenderQuality;
@@ -133,7 +132,7 @@ const buildEdgeMap = (luminance: Float32Array, width: number, height: number) =>
 
 export const buildAsciiAnalysisCacheKey = ({
   revisionKey,
-  placement,
+  stage,
   analysisSource,
   targetSize,
   quality,
@@ -143,7 +142,7 @@ export const buildAsciiAnalysisCacheKey = ({
   return [
     "ascii-analysis",
     revisionKey,
-    placement,
+    stage,
     analysisSource,
     quality,
     maskRevisionKey ?? "none",
@@ -151,7 +150,7 @@ export const buildAsciiAnalysisCacheKey = ({
     hashString(
       [
         revisionKey,
-        placement,
+        stage,
         analysisSource,
         quality,
         maskRevisionKey ?? "none",
@@ -164,7 +163,7 @@ export const buildAsciiAnalysisCacheKey = ({
 
 export const getOrCreateAsciiAnalysisEntry = ({
   revisionKey,
-  placement,
+  stage,
   analysisSource,
   targetSize,
   quality,
@@ -175,7 +174,7 @@ export const getOrCreateAsciiAnalysisEntry = ({
 }) => {
   const key = buildAsciiAnalysisCacheKey({
     revisionKey,
-    placement,
+    stage,
     analysisSource,
     targetSize,
     quality,

@@ -1,18 +1,16 @@
 import { clamp } from "@/lib/math";
-import {
-  getAsciiBlurredSourceCanvas,
-  getOrCreateAsciiAnalysisEntry,
-  type AsciiAnalysisEntry,
-} from "./asciiAnalysis";
+import { getOrCreateAsciiAnalysisEntry } from "./asciiAnalysis";
 import type {
-  ImageAsciiEffectNode,
+  FeatureGrid,
+  GridSurface,
+  ImageAsciiCarrierTransformNode,
   ImageRenderQuality,
   ImageRenderTargetSize,
 } from "./types";
 
-const CHARSET_PRESETS: Record<NonNullable<ImageAsciiEffectNode["params"]["preset"]>, string[]> = {
+const CHARSET_PRESETS: Record<NonNullable<ImageAsciiCarrierTransformNode["params"]["preset"]>, string[]> = {
   standard: "@%#*+=-:. ".split(""),
-  blocks: "█▓▒░ ".split(""),
+  blocks: "鈻堚枔鈻掆枒 ".split(""),
   detailed:
     "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. ".split(""),
   custom: "@%#*+=-:. ".split(""),
@@ -53,8 +51,8 @@ const normalizeHexColor = (value: string | null) => {
     return trimmed.toLowerCase();
   }
   if (/^#[0-9a-fA-F]{3}$/.test(trimmed)) {
-    const [r, g, b] = trimmed.slice(1).split("");
-    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+    const [red, green, blue] = trimmed.slice(1).split("");
+    return `#${red}${red}${green}${green}${blue}${blue}`.toLowerCase();
   }
   return "#000000";
 };
@@ -116,8 +114,16 @@ const distributeDitherError = (
   apply(x + 1, y + 1, 1 / 16);
 };
 
+const createLayerCanvas = (width: number, height: number) => {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  return canvas;
+};
+
 const getAnalysisSampleIndex = (
-  analysis: AsciiAnalysisEntry,
+  analysisWidth: number,
+  analysisHeight: number,
   targetSize: ImageRenderTargetSize,
   x: number,
   y: number
@@ -125,18 +131,95 @@ const getAnalysisSampleIndex = (
   const normalizedX = targetSize.width <= 1 ? 0 : clamp(x / (targetSize.width - 1), 0, 1);
   const normalizedY = targetSize.height <= 1 ? 0 : clamp(y / (targetSize.height - 1), 0, 1);
   const analysisX = Math.min(
-    analysis.analysisWidth - 1,
-    Math.max(0, Math.round(normalizedX * (analysis.analysisWidth - 1)))
+    analysisWidth - 1,
+    Math.max(0, Math.round(normalizedX * (analysisWidth - 1)))
   );
   const analysisY = Math.min(
-    analysis.analysisHeight - 1,
-    Math.max(0, Math.round(normalizedY * (analysis.analysisHeight - 1)))
+    analysisHeight - 1,
+    Math.max(0, Math.round(normalizedY * (analysisHeight - 1)))
   );
-  return analysisY * analysis.analysisWidth + analysisX;
+  return analysisY * analysisWidth + analysisX;
+};
+
+const getSampleColor = ({
+  analysisHeight,
+  analysisWidth,
+  rgba,
+  targetSize,
+  x,
+  y,
+  normalized,
+  tone,
+}: {
+  analysisHeight: number;
+  analysisWidth: number;
+  rgba: Uint8ClampedArray;
+  targetSize: ImageRenderTargetSize;
+  x: number;
+  y: number;
+  normalized: NormalizedImageAsciiEffectParams;
+  tone: number;
+}) => {
+  const analysisIndex = getAnalysisSampleIndex(analysisWidth, analysisHeight, targetSize, x, y);
+  const pixelOffset = analysisIndex * 4;
+  const sampleColor = {
+    red: rgba[pixelOffset] ?? 0,
+    green: rgba[pixelOffset + 1] ?? 0,
+    blue: rgba[pixelOffset + 2] ?? 0,
+  };
+
+  if (normalized.colorMode === "full-color") {
+    return sampleColor;
+  }
+
+  if (normalized.colorMode === "duotone") {
+    const shadow = parseHexColor(normalized.backgroundColor);
+    const highlight = {
+      red: 245,
+      green: 245,
+      blue: 245,
+    };
+    return mixColor(shadow, highlight, tone);
+  }
+
+  return {
+    red: 245,
+    green: 245,
+    blue: 245,
+  };
+};
+
+const drawGridOverlay = (
+  canvas: HTMLCanvasElement,
+  cellWidth: number,
+  cellHeight: number,
+  alpha: number
+) => {
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    return;
+  }
+
+  context.save();
+  context.strokeStyle = `rgba(255, 255, 255, ${clamp(alpha, 0, 1).toFixed(3)})`;
+  context.lineWidth = 1;
+  for (let x = 0; x <= canvas.width; x += cellWidth) {
+    context.beginPath();
+    context.moveTo(x, 0);
+    context.lineTo(x, canvas.height);
+    context.stroke();
+  }
+  for (let y = 0; y <= canvas.height; y += cellHeight) {
+    context.beginPath();
+    context.moveTo(0, y);
+    context.lineTo(canvas.width, y);
+    context.stroke();
+  }
+  context.restore();
 };
 
 export const normalizeImageAsciiEffectParams = (
-  params: ImageAsciiEffectNode["params"]
+  params: ImageAsciiCarrierTransformNode["params"]
 ): NormalizedImageAsciiEffectParams => ({
   renderMode: params.renderMode === "dot" ? "dot" : "glyph",
   preset:
@@ -170,128 +253,56 @@ export const normalizeImageAsciiEffectParams = (
   gridOverlay: Boolean(params.gridOverlay),
 });
 
-const getSampleColor = (
-  analysis: AsciiAnalysisEntry,
-  targetSize: ImageRenderTargetSize,
-  x: number,
-  y: number,
-  normalized: NormalizedImageAsciiEffectParams,
-  tone: number
-) => {
-  const analysisIndex = getAnalysisSampleIndex(analysis, targetSize, x, y);
-  const pixelOffset = analysisIndex * 4;
-  const sampleColor = {
-    red: analysis.rgba[pixelOffset] ?? 0,
-    green: analysis.rgba[pixelOffset + 1] ?? 0,
-    blue: analysis.rgba[pixelOffset + 2] ?? 0,
-  };
-
-  if (normalized.colorMode === "full-color") {
-    return sampleColor;
-  }
-
-  if (normalized.colorMode === "duotone") {
-    const shadow = parseHexColor(normalized.backgroundColor);
-    const highlight = {
-      red: 245,
-      green: 245,
-      blue: 245,
-    };
-    return mixColor(shadow, highlight, tone);
-  }
-
-  return {
-    red: 245,
-    green: 245,
-    blue: 245,
-  };
-};
-
-const createLayerCanvas = (targetCanvas: HTMLCanvasElement) => {
-  const canvas = document.createElement("canvas");
-  canvas.width = targetCanvas.width;
-  canvas.height = targetCanvas.height;
-  return canvas;
-};
-
-const drawGridOverlay = (
-  canvas: HTMLCanvasElement,
-  cellWidth: number,
-  cellHeight: number,
-  alpha: number
-) => {
+const createBlurredBackgroundCanvas = ({
+  featureGrid,
+  normalized,
+}: {
+  featureGrid: FeatureGrid;
+  normalized: NormalizedImageAsciiEffectParams;
+}) => {
+  const canvas = createLayerCanvas(featureGrid.width, featureGrid.height);
   const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context) {
-    return;
+    canvas.width = 0;
+    canvas.height = 0;
+    throw new Error("Failed to acquire ASCII blurred-source context.");
   }
 
   context.save();
-  context.strokeStyle = `rgba(255, 255, 255, ${clamp(alpha, 0, 1).toFixed(3)})`;
-  context.lineWidth = 1;
-  for (let x = 0; x <= canvas.width; x += cellWidth) {
-    context.beginPath();
-    context.moveTo(x, 0);
-    context.lineTo(x, canvas.height);
-    context.stroke();
-  }
-  for (let y = 0; y <= canvas.height; y += cellHeight) {
-    context.beginPath();
-    context.moveTo(0, y);
-    context.lineTo(canvas.width, y);
-    context.stroke();
-  }
+  context.filter = `blur(${resolveBlurRadiusPx(
+    normalized.backgroundBlur,
+    Math.min(featureGrid.width, featureGrid.height)
+  ).toFixed(2)}px)`;
+  context.drawImage(featureGrid.sourceCanvas, 0, 0, canvas.width, canvas.height);
   context.restore();
+  return canvas;
 };
 
-export const applyImageAsciiEffect = ({
-  targetCanvas,
+export const createAsciiFeatureGrid = ({
   sourceCanvas,
-  effect,
+  transform,
   quality,
   revisionKey,
   targetSize,
   maskRevisionKey,
 }: {
-  targetCanvas: HTMLCanvasElement;
   sourceCanvas: HTMLCanvasElement;
-  effect: ImageAsciiEffectNode;
+  transform: ImageAsciiCarrierTransformNode;
   quality: ImageRenderQuality;
   revisionKey: string;
   targetSize: ImageRenderTargetSize;
   maskRevisionKey?: string | null;
-}) => {
-  if (targetCanvas.width <= 0 || targetCanvas.height <= 0 || typeof document === "undefined") {
-    return false;
-  }
-
-  const normalized = normalizeImageAsciiEffectParams(effect.params);
-  const targetContext = targetCanvas.getContext("2d", { willReadFrequently: true });
-  if (!targetContext) {
-    return false;
-  }
-
+}): FeatureGrid => {
+  const normalized = normalizeImageAsciiEffectParams(transform.params);
   const analysis = getOrCreateAsciiAnalysisEntry({
     revisionKey,
-    placement: effect.placement,
-    analysisSource: effect.analysisSource,
+    stage: "carrier",
+    analysisSource: transform.analysisSource,
     targetSize,
     quality,
     maskRevisionKey,
     sourceCanvas,
   });
-
-  const backgroundCanvas = createLayerCanvas(targetCanvas);
-  const foregroundCanvas = createLayerCanvas(targetCanvas);
-  const backgroundContext = backgroundCanvas.getContext("2d", { willReadFrequently: true });
-  const foregroundContext = foregroundCanvas.getContext("2d", { willReadFrequently: true });
-
-  if (!backgroundContext || !foregroundContext) {
-    backgroundCanvas.width = 0;
-    backgroundCanvas.height = 0;
-    foregroundCanvas.width = 0;
-    foregroundCanvas.height = 0;
-    return false;
-  }
 
   const effectiveCellSize = resolveEffectiveCellSize(normalized.cellSize, quality);
   const cellHeight = Math.max(6, Math.round(effectiveCellSize));
@@ -303,45 +314,29 @@ export const applyImageAsciiEffect = ({
         normalized.characterSpacing
     )
   );
-  const columns = Math.max(1, Math.ceil(targetCanvas.width / cellWidth));
-  const rows = Math.max(1, Math.ceil(targetCanvas.height / cellHeight));
-  const backgroundColor = parseHexColor(normalized.backgroundColor);
-  const charset = CHARSET_PRESETS[normalized.preset] ?? CHARSET_PRESETS.standard;
+  const width = Math.max(1, Math.round(targetSize.width));
+  const height = Math.max(1, Math.round(targetSize.height));
+  const columns = Math.max(1, Math.ceil(width / cellWidth));
+  const rows = Math.max(1, Math.ceil(height / cellHeight));
   const toneByCell = new Float32Array(columns * rows);
   const alphaByCell = new Float32Array(columns * rows);
-  const glyphSteps = Math.max(1, charset.length - 1);
-
-  foregroundContext.textAlign = "center";
-  foregroundContext.textBaseline = "middle";
-  foregroundContext.font = `${Math.max(6, Math.round(cellHeight * 0.9))}px monospace`;
-
-  if (normalized.backgroundMode === "solid") {
-    backgroundContext.fillStyle = formatRgba(
-      backgroundColor.red,
-      backgroundColor.green,
-      backgroundColor.blue,
-      normalized.backgroundOpacity
-    );
-    backgroundContext.fillRect(0, 0, backgroundCanvas.width, backgroundCanvas.height);
-  } else if (normalized.backgroundMode === "blurred-source") {
-    const blurredSource = getAsciiBlurredSourceCanvas(
-      analysis,
-      resolveBlurRadiusPx(normalized.backgroundBlur, Math.min(targetCanvas.width, targetCanvas.height))
-    );
-    backgroundContext.save();
-    backgroundContext.globalAlpha = normalized.backgroundOpacity;
-    backgroundContext.drawImage(blurredSource, 0, 0, backgroundCanvas.width, backgroundCanvas.height);
-    backgroundContext.restore();
-  }
+  const analysisIndexByCell = new Uint32Array(columns * rows);
 
   for (let row = 0; row < rows; row += 1) {
     for (let column = 0; column < columns; column += 1) {
       const index = row * columns + column;
       const cellX = column * cellWidth;
       const cellY = row * cellHeight;
-      const centerX = Math.min(targetCanvas.width - 1, cellX + cellWidth / 2);
-      const centerY = Math.min(targetCanvas.height - 1, cellY + cellHeight / 2);
-      const analysisIndex = getAnalysisSampleIndex(analysis, targetSize, centerX, centerY);
+      const centerX = Math.min(width - 1, cellX + cellWidth / 2);
+      const centerY = Math.min(height - 1, cellY + cellHeight / 2);
+      const analysisIndex = getAnalysisSampleIndex(
+        analysis.analysisWidth,
+        analysis.analysisHeight,
+        targetSize,
+        centerX,
+        centerY
+      );
+      analysisIndexByCell[index] = analysisIndex;
       const cellAlpha = analysis.alpha[analysisIndex] ?? 0;
       alphaByCell[index] = cellAlpha;
       if (cellAlpha <= ALPHA_CUTOFF) {
@@ -367,6 +362,7 @@ export const applyImageAsciiEffect = ({
 
   if (normalized.dither === "floyd-steinberg") {
     const dithered = Float32Array.from(toneByCell);
+    const glyphSteps = Math.max(1, (CHARSET_PRESETS[normalized.preset] ?? CHARSET_PRESETS.standard).length - 1);
     for (let row = 0; row < rows; row += 1) {
       for (let column = 0; column < columns; column += 1) {
         const index = row * columns + column;
@@ -382,81 +378,220 @@ export const applyImageAsciiEffect = ({
     toneByCell.set(dithered);
   }
 
+  const cells: FeatureGrid["cells"] = [];
   for (let row = 0; row < rows; row += 1) {
     for (let column = 0; column < columns; column += 1) {
       const index = row * columns + column;
-      const visibleTone = toneByCell[index] ?? 0;
-      const cellAlpha = alphaByCell[index] ?? 0;
-      if (cellAlpha <= ALPHA_CUTOFF) {
-        continue;
-      }
-
       const cellX = column * cellWidth;
       const cellY = row * cellHeight;
-      const drawWidth = Math.min(cellWidth, targetCanvas.width - cellX);
-      const drawHeight = Math.min(cellHeight, targetCanvas.height - cellY);
-
-      if (normalized.backgroundMode === "cell-solid" && visibleTone > 0.001) {
-        backgroundContext.fillStyle = formatRgba(
-          backgroundColor.red,
-          backgroundColor.green,
-          backgroundColor.blue,
-          normalized.backgroundOpacity * cellAlpha
-        );
-        backgroundContext.fillRect(cellX, cellY, drawWidth, drawHeight);
-      }
-
-      if (visibleTone <= 0.001) {
-        continue;
-      }
-
-      const sampleColor = getSampleColor(
-        analysis,
+      const drawWidth = Math.min(cellWidth, width - cellX);
+      const drawHeight = Math.min(cellHeight, height - cellY);
+      const visibleTone = toneByCell[index] ?? 0;
+      const analysisIndex = analysisIndexByCell[index] ?? 0;
+      const sampleColor = getSampleColor({
+        analysisHeight: analysis.analysisHeight,
+        analysisWidth: analysis.analysisWidth,
+        rgba: analysis.rgba,
         targetSize,
-        cellX + drawWidth / 2,
-        cellY + drawHeight / 2,
+        x: cellX + drawWidth / 2,
+        y: cellY + drawHeight / 2,
         normalized,
-        visibleTone
-      );
-      foregroundContext.fillStyle = formatRgba(
-        sampleColor.red,
-        sampleColor.green,
-        sampleColor.blue,
-        normalized.foregroundOpacity * Math.max(0.12, visibleTone) * cellAlpha
-      );
+        tone: visibleTone,
+      });
 
-      if (normalized.renderMode === "dot") {
-        foregroundContext.beginPath();
-        foregroundContext.arc(
-          cellX + drawWidth / 2,
-          cellY + drawHeight / 2,
-          Math.max(1, Math.min(drawWidth, drawHeight) * 0.45 * visibleTone),
-          0,
-          Math.PI * 2
-        );
-        foregroundContext.fill();
-        continue;
-      }
-
-      const glyphIndex = Math.round(clamp(visibleTone, 0, 1) * glyphSteps);
-      const glyph = charset[glyphIndex] ?? " ";
-      if (glyph === " ") {
-        continue;
-      }
-      foregroundContext.fillText(glyph, cellX + drawWidth / 2, cellY + drawHeight / 2);
+      cells.push({
+        x: cellX,
+        y: cellY,
+        width: drawWidth,
+        height: drawHeight,
+        alpha: alphaByCell[index] ?? 0,
+        tone: visibleTone,
+        edge: analysis.edge[analysisIndex] ?? 0,
+        sampleColor,
+      });
     }
   }
 
-  if (normalized.gridOverlay) {
-    drawGridOverlay(foregroundCanvas, cellWidth, cellHeight, 0.08 * normalized.foregroundOpacity);
+  return {
+    width,
+    height,
+    cellWidth,
+    cellHeight,
+    columns,
+    rows,
+    sourceCanvas,
+    cells,
+  };
+};
+
+export const createAsciiGridSurface = ({
+  featureGrid,
+  transform,
+}: {
+  featureGrid: FeatureGrid;
+  transform: ImageAsciiCarrierTransformNode;
+}): GridSurface => {
+  const normalized = normalizeImageAsciiEffectParams(transform.params);
+  const backgroundColor = parseHexColor(normalized.backgroundColor);
+  const charset = CHARSET_PRESETS[normalized.preset] ?? CHARSET_PRESETS.standard;
+  const glyphSteps = Math.max(1, charset.length - 1);
+
+  return {
+    width: featureGrid.width,
+    height: featureGrid.height,
+    cellWidth: featureGrid.cellWidth,
+    cellHeight: featureGrid.cellHeight,
+    backgroundFill:
+      normalized.backgroundMode === "solid"
+        ? formatRgba(
+            backgroundColor.red,
+            backgroundColor.green,
+            backgroundColor.blue,
+            normalized.backgroundOpacity
+          )
+        : null,
+    backgroundCanvas:
+      normalized.backgroundMode === "blurred-source"
+        ? createBlurredBackgroundCanvas({
+            featureGrid,
+            normalized,
+          })
+        : null,
+    foregroundBlendMode: normalized.foregroundBlendMode,
+    gridOverlay: normalized.gridOverlay,
+    gridOverlayAlpha: 0.08 * normalized.foregroundOpacity,
+    cells: featureGrid.cells.map((cell) => {
+      const foregroundFill =
+        cell.tone > 0.001 && cell.alpha > ALPHA_CUTOFF
+          ? formatRgba(
+              cell.sampleColor.red,
+              cell.sampleColor.green,
+              cell.sampleColor.blue,
+              normalized.foregroundOpacity * Math.max(0.12, cell.tone) * cell.alpha
+            )
+          : null;
+      const backgroundFill =
+        normalized.backgroundMode === "cell-solid" && cell.tone > 0.001 && cell.alpha > ALPHA_CUTOFF
+          ? formatRgba(
+              backgroundColor.red,
+              backgroundColor.green,
+              backgroundColor.blue,
+              normalized.backgroundOpacity * cell.alpha
+            )
+          : null;
+
+      if (normalized.renderMode === "dot") {
+        return {
+          x: cell.x,
+          y: cell.y,
+          width: cell.width,
+          height: cell.height,
+          backgroundFill,
+          foregroundFill,
+          glyph: null,
+          dotRadius:
+            cell.tone > 0.001 && cell.alpha > ALPHA_CUTOFF
+              ? Math.max(1, Math.min(cell.width, cell.height) * 0.45 * cell.tone)
+              : null,
+        };
+      }
+
+      const glyphIndex = Math.round(clamp(cell.tone, 0, 1) * glyphSteps);
+      const glyph = cell.tone > 0.001 && cell.alpha > ALPHA_CUTOFF ? charset[glyphIndex] ?? " " : " ";
+
+      return {
+        x: cell.x,
+        y: cell.y,
+        width: cell.width,
+        height: cell.height,
+        backgroundFill,
+        foregroundFill,
+        glyph: glyph === " " ? null : glyph,
+        dotRadius: null,
+      };
+    }),
+  };
+};
+
+export const materializeAsciiGridSurface = ({
+  targetCanvas,
+  surface,
+}: {
+  targetCanvas: HTMLCanvasElement;
+  surface: GridSurface;
+}) => {
+  if (targetCanvas.width <= 0 || targetCanvas.height <= 0 || typeof document === "undefined") {
+    return false;
+  }
+
+  const targetContext = targetCanvas.getContext("2d", { willReadFrequently: true });
+  if (!targetContext) {
+    return false;
+  }
+
+  const backgroundCanvas = createLayerCanvas(targetCanvas.width, targetCanvas.height);
+  const foregroundCanvas = createLayerCanvas(targetCanvas.width, targetCanvas.height);
+  const backgroundContext = backgroundCanvas.getContext("2d", { willReadFrequently: true });
+  const foregroundContext = foregroundCanvas.getContext("2d", { willReadFrequently: true });
+
+  if (!backgroundContext || !foregroundContext) {
+    backgroundCanvas.width = 0;
+    backgroundCanvas.height = 0;
+    foregroundCanvas.width = 0;
+    foregroundCanvas.height = 0;
+    return false;
+  }
+
+  foregroundContext.textAlign = "center";
+  foregroundContext.textBaseline = "middle";
+  foregroundContext.font = `${Math.max(6, Math.round(surface.cellHeight * 0.9))}px monospace`;
+
+  if (surface.backgroundFill) {
+    backgroundContext.fillStyle = surface.backgroundFill;
+    backgroundContext.fillRect(0, 0, backgroundCanvas.width, backgroundCanvas.height);
+  }
+  if (surface.backgroundCanvas) {
+    backgroundContext.drawImage(surface.backgroundCanvas, 0, 0, backgroundCanvas.width, backgroundCanvas.height);
+  }
+
+  for (const cell of surface.cells) {
+    if (cell.backgroundFill) {
+      backgroundContext.fillStyle = cell.backgroundFill;
+      backgroundContext.fillRect(cell.x, cell.y, cell.width, cell.height);
+    }
+    if (!cell.foregroundFill) {
+      continue;
+    }
+
+    foregroundContext.fillStyle = cell.foregroundFill;
+    if (cell.dotRadius) {
+      foregroundContext.beginPath();
+      foregroundContext.arc(
+        cell.x + cell.width / 2,
+        cell.y + cell.height / 2,
+        cell.dotRadius,
+        0,
+        Math.PI * 2
+      );
+      foregroundContext.fill();
+      continue;
+    }
+    if (!cell.glyph) {
+      continue;
+    }
+    foregroundContext.fillText(cell.glyph, cell.x + cell.width / 2, cell.y + cell.height / 2);
+  }
+
+  if (surface.gridOverlay) {
+    drawGridOverlay(foregroundCanvas, surface.cellWidth, surface.cellHeight, surface.gridOverlayAlpha);
   }
 
   targetContext.save();
-  if (normalized.backgroundMode !== "none") {
+  if (surface.backgroundFill || surface.backgroundCanvas || surface.cells.some((cell) => cell.backgroundFill)) {
     targetContext.globalCompositeOperation = "source-over";
     targetContext.drawImage(backgroundCanvas, 0, 0);
   }
-  targetContext.globalCompositeOperation = normalized.foregroundBlendMode;
+  targetContext.globalCompositeOperation = surface.foregroundBlendMode;
   targetContext.drawImage(foregroundCanvas, 0, 0);
   targetContext.restore();
 
@@ -465,4 +600,47 @@ export const applyImageAsciiEffect = ({
   foregroundCanvas.width = 0;
   foregroundCanvas.height = 0;
   return true;
+};
+
+export const applyImageAsciiCarrierTransform = ({
+  targetCanvas,
+  sourceCanvas,
+  transform,
+  quality,
+  revisionKey,
+  targetSize,
+  maskRevisionKey,
+}: {
+  targetCanvas: HTMLCanvasElement;
+  sourceCanvas: HTMLCanvasElement;
+  transform: ImageAsciiCarrierTransformNode;
+  quality: ImageRenderQuality;
+  revisionKey: string;
+  targetSize: ImageRenderTargetSize;
+  maskRevisionKey?: string | null;
+}) => {
+  const featureGrid = createAsciiFeatureGrid({
+    sourceCanvas,
+    transform,
+    quality,
+    revisionKey,
+    targetSize,
+    maskRevisionKey,
+  });
+  const gridSurface = createAsciiGridSurface({
+    featureGrid,
+    transform,
+  });
+
+  try {
+    return materializeAsciiGridSurface({
+      targetCanvas,
+      surface: gridSurface,
+    });
+  } finally {
+    if (gridSurface.backgroundCanvas) {
+      gridSurface.backgroundCanvas.width = 0;
+      gridSurface.backgroundCanvas.height = 0;
+    }
+  }
 };

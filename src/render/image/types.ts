@@ -206,22 +206,74 @@ export interface ImageAsciiEffectParams {
   gridOverlay: boolean;
 }
 
-export interface ImageAsciiEffectNode {
+export interface FeatureGridCell {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  alpha: number;
+  tone: number;
+  edge: number;
+  sampleColor: {
+    red: number;
+    green: number;
+    blue: number;
+  };
+}
+
+export interface FeatureGrid {
+  width: number;
+  height: number;
+  cellWidth: number;
+  cellHeight: number;
+  columns: number;
+  rows: number;
+  sourceCanvas: HTMLCanvasElement;
+  cells: FeatureGridCell[];
+}
+
+export interface GridSurfaceCell {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  backgroundFill: string | null;
+  foregroundFill: string | null;
+  glyph: string | null;
+  dotRadius: number | null;
+}
+
+export interface GridSurface {
+  width: number;
+  height: number;
+  cellWidth: number;
+  cellHeight: number;
+  backgroundFill: string | null;
+  backgroundCanvas: HTMLCanvasElement | null;
+  foregroundBlendMode: GlobalCompositeOperation;
+  gridOverlay: boolean;
+  gridOverlayAlpha: number;
+  cells: GridSurfaceCell[];
+}
+
+export interface ImageAsciiCarrierTransformNode {
   id: string;
   type: "ascii";
   enabled: boolean;
-  placement: ImageEffectPlacement;
   analysisSource: ImageAnalysisSource;
   maskId?: string;
   params: ImageAsciiEffectParams;
 }
 
-export type ImageEffectNode = ImageAsciiEffectNode | ImageFilter2dEffectNode;
+export type CarrierTransformNode = ImageAsciiCarrierTransformNode;
+
+export type ImageEffectNode = ImageFilter2dEffectNode;
 
 export interface CanvasImageRenderStateV1 {
   geometry: ImageRenderGeometry;
   develop: ImageRenderDevelopState;
   masks: ImageRenderMaskState;
+  carrierTransforms: CarrierTransformNode[];
   effects: ImageEffectNode[];
   film: ImageRenderFilmState;
   output: ImageRenderOutputState;
@@ -260,16 +312,90 @@ const hashString = (value: string) => {
   return (hash >>> 0).toString(16);
 };
 
+const cloneImageRenderValue = <T>(value: T): T => {
+  if (typeof structuredClone === "function") {
+    return structuredClone(value) as T;
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const isAsciiAnalysisSource = (value: unknown): value is ImageAnalysisSource =>
+  value === "develop" || value === "style";
+
+const isLegacyAsciiEffectNode = (
+  value: unknown
+): value is ImageAsciiCarrierTransformNode & { placement?: ImageEffectPlacement } => {
+  if (!isRecord(value) || value.type !== "ascii" || !("params" in value)) {
+    return false;
+  }
+
+  return isAsciiAnalysisSource(value.analysisSource);
+};
+
+const isFilter2dEffectNode = (value: unknown): value is ImageFilter2dEffectNode =>
+  isRecord(value) && value.type === "filter2d" && "params" in value;
+
+const isCarrierTransformNode = (value: unknown): value is CarrierTransformNode =>
+  isRecord(value) && value.type === "ascii" && isAsciiAnalysisSource(value.analysisSource);
+
+const mapLegacyAsciiEffectToCarrierTransform = (
+  effect: ImageAsciiCarrierTransformNode & { placement?: ImageEffectPlacement }
+): CarrierTransformNode => ({
+  id: effect.id,
+  type: "ascii",
+  enabled: effect.enabled,
+  analysisSource: effect.analysisSource,
+  ...(effect.maskId ? { maskId: effect.maskId } : {}),
+  params: cloneImageRenderValue(effect.params),
+});
+
+export const normalizeCanvasImageRenderState = (
+  state: CanvasImageRenderStateV1
+): CanvasImageRenderStateV1 => {
+  const rawCarrierTransforms = Array.isArray(
+    (state as CanvasImageRenderStateV1 & { carrierTransforms?: unknown[] }).carrierTransforms
+  )
+    ? ((state as CanvasImageRenderStateV1 & { carrierTransforms?: unknown[] }).carrierTransforms ??
+        [])
+    : [];
+  const rawEffects = Array.isArray((state as CanvasImageRenderStateV1 & { effects?: unknown[] }).effects)
+    ? ((state as CanvasImageRenderStateV1 & { effects?: unknown[] }).effects ?? [])
+    : [];
+
+  const explicitCarrierTransforms = rawCarrierTransforms
+    .filter(isCarrierTransformNode)
+    .map((transform) => cloneImageRenderValue(transform));
+  const rasterEffects = rawEffects
+    .filter(isFilter2dEffectNode)
+    .map((effect) => cloneImageRenderValue(effect));
+  const migratedCarrierTransforms =
+    explicitCarrierTransforms.length > 0
+      ? explicitCarrierTransforms
+      : rawEffects
+          .filter(isLegacyAsciiEffectNode)
+          .map((effect) => mapLegacyAsciiEffectToCarrierTransform(effect));
+
+  return {
+    ...cloneImageRenderValue({
+      geometry: state.geometry,
+      develop: state.develop,
+      masks: state.masks,
+      film: state.film,
+      output: state.output,
+    }),
+    carrierTransforms: migratedCarrierTransforms,
+    effects: rasterEffects,
+  };
+};
+
 const serializeRevisionPayload = (document: Omit<ImageRenderDocument, "revisionKey">) =>
   JSON.stringify({
     id: document.id,
     source: document.source,
-    geometry: document.geometry,
-    develop: document.develop,
-    masks: document.masks,
-    effects: document.effects,
-    film: document.film,
-    output: document.output,
+    ...normalizeCanvasImageRenderState(document),
   });
 
 export const buildImageRenderDocumentRevisionKey = (
@@ -278,10 +404,17 @@ export const buildImageRenderDocumentRevisionKey = (
 
 export const createImageRenderDocument = (
   document: Omit<ImageRenderDocument, "revisionKey">
-): ImageRenderDocument => ({
-  ...document,
-  revisionKey: buildImageRenderDocumentRevisionKey(document),
-});
+): ImageRenderDocument => {
+  const normalizedState = normalizeCanvasImageRenderState(document);
+  const normalizedDocument = {
+    ...document,
+    ...normalizedState,
+  };
+  return {
+    ...normalizedDocument,
+    revisionKey: buildImageRenderDocumentRevisionKey(normalizedDocument),
+  };
+};
 
 export const createImageRenderDocumentFromState = ({
   id,
@@ -311,3 +444,7 @@ export const resolveImageRenderEffectsForPlacement = (
   effects: readonly ImageEffectNode[],
   placement: ImageEffectPlacement
 ) => effects.filter((effect) => effect.enabled && effect.placement === placement);
+
+export const resolveImageCarrierTransforms = (
+  carrierTransforms: readonly CarrierTransformNode[]
+) => carrierTransforms.filter((transform) => transform.enabled);
