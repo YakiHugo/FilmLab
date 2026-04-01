@@ -17,6 +17,8 @@
 - if a hotspot keeps regressing, prefer a structural refactor over more local patches.
 - Keep shared helpers near their domain first; move them to `src/utils` only when they are stable, domain-neutral, and reused across boundaries.
 - do not add aliases over `string`, primitives, or existing unions unless they add a real invariant or boundary.
+- The project is not live yet; be aggressive about retiring historical-data compatibility instead of keeping dual paths by default.
+- Write a brief comment only when a future agent needs to know why the code is written this way and that reason cannot be inferred from the code; do not narrate behavior, translate code into natural language, or restate responsibilities.
 - When the project requires the use of newly added basic components, priority should be given to shadcn-related components.
 ## Long Tasks
 
