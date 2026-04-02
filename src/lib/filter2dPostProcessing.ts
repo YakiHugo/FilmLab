@@ -1,23 +1,13 @@
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+import {
+  clampFilter2dValue as clamp,
+  hasFilter2dPostProcessing,
+  resolveBlurRadiusPx,
+  resolveDilateRadiusPx,
+  type Filter2dPostProcessingParams,
+} from "@/lib/filter2dShared";
 
-export interface Filter2dPostProcessingParams {
-  brightness: number;
-  hue: number;
-  blur: number;
-  dilate: number;
-}
-
-export const hasFilter2dPostProcessing = (params: Filter2dPostProcessingParams) =>
-  Math.abs(params.brightness) > 0.001 ||
-  Math.abs(params.hue) > 0.001 ||
-  params.blur > 0.001 ||
-  params.dilate > 0.001;
-
-const resolveBlurRadiusPx = (value: number, shortEdge: number) =>
-  (clamp(value, 0, 100) / 100) * Math.max(1, Math.min(18, shortEdge * 0.03));
-
-const resolveDilateRadiusPx = (value: number, shortEdge: number) =>
-  Math.round((clamp(value, 0, 100) / 100) * Math.max(1, Math.min(4, shortEdge * 0.006)));
+export type { Filter2dPostProcessingParams } from "@/lib/filter2dShared";
+export { hasFilter2dPostProcessing } from "@/lib/filter2dShared";
 
 export const applyFilter2dPostProcessing = (
   canvas: HTMLCanvasElement,

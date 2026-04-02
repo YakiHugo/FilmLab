@@ -1,10 +1,15 @@
 import {
-  renderDevelopBaseToCanvas,
-  renderFilmStageToCanvas,
-  renderImageToCanvas,
+  renderDevelopBaseToSurface,
+  renderFilmStageToSurface,
+  renderImageToSurface,
 } from "@/lib/imageProcessing";
-import type { RenderImageStageDebugInfo, RenderImageStageResult } from "@/lib/imageProcessing";
+import type {
+  RenderImageStageDebugInfo,
+  RenderImageStageResult,
+  RenderImageStageSurfaceResult,
+} from "@/lib/imageProcessing";
 import { sha256FromCanvas } from "@/lib/hash";
+import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
 import type { RenderIntent } from "@/lib/renderIntent";
 import { applyImageCarrierTransforms } from "./carrierExecution";
 import { applyImageEffects } from "./effectExecution";
@@ -39,6 +44,10 @@ export interface ImageRenderTraceStage {
 export interface ImageRenderDebugResult {
   stages?: ImageRenderTraceStage[];
   outputHash?: string;
+  boundaries?: {
+    canvasMaterializations: number;
+    canvasClones: number;
+  };
 }
 
 export interface RenderSingleImageResult {
@@ -94,25 +103,32 @@ const cloneCanvasSnapshot = (sourceCanvas: HTMLCanvasElement) => {
   return canvas;
 };
 
+const hasMaskedEffects = (effects: readonly ImageRenderDocument["effects"][number][]) =>
+  effects.some((effect) => Boolean(effect.maskId));
+
+const cloneSurfaceSnapshot = (surface: RenderSurfaceHandle) => surface.cloneToCanvas();
+
+const materializeSurfaceToCanvas = (
+  surface: RenderSurfaceHandle,
+  targetCanvas?: HTMLCanvasElement | null
+) => surface.materializeToCanvas(targetCanvas);
+
 const resolveRuntimeSource = (document: ImageRenderDocument) => document.source.objectUrl;
 
 const resolveFilmSeedKey = (document: ImageRenderDocument) => `${document.id}:film-base`;
 
-const renderSnapshotToCanvas = async ({
-  canvas,
+const renderSnapshotToSurface = async ({
   document,
   request,
   renderSlotSuffix,
   stage,
 }: {
-  canvas: HTMLCanvasElement;
   document: ImageRenderDocument;
   request: ImageRenderRequest;
   renderSlotSuffix?: string;
   stage: "full" | "develop-base";
-}): Promise<RenderImageStageResult> => {
+}): Promise<RenderImageStageSurfaceResult> => {
   const renderOptions = {
-    canvas,
     source: resolveRuntimeSource(document),
     state: extractImageProcessState(document),
     targetSize: request.targetSize,
@@ -130,10 +146,10 @@ const renderSnapshotToCanvas = async ({
   };
 
   if (stage === "develop-base") {
-    return renderDevelopBaseToCanvas(renderOptions);
+    return renderDevelopBaseToSurface(renderOptions);
   }
 
-  return renderImageToCanvas(renderOptions);
+  return renderImageToSurface(renderOptions);
 };
 
 const applyImageFinalizeStages = async ({
@@ -141,11 +157,13 @@ const applyImageFinalizeStages = async ({
   document,
   finalizeEffects,
   request,
+  needsFinalizeSnapshot,
 }: {
   canvas: HTMLCanvasElement;
   document: ImageRenderDocument;
   finalizeEffects: ImageRenderDocument["effects"];
   request: ImageRenderRequest;
+  needsFinalizeSnapshot: boolean;
 }) => {
   const overlays = resolveImageOverlays({
     output: document.output,
@@ -163,12 +181,12 @@ const applyImageFinalizeStages = async ({
     };
   }
 
-  const finalizeSnapshotCanvas = cloneCanvasSnapshot(canvas);
+  const finalizeSnapshotCanvas = needsFinalizeSnapshot ? cloneCanvasSnapshot(canvas) : null;
   await applyImageEffects({
     canvas,
     document,
     effects: finalizeEffects,
-    stageReferenceCanvas: finalizeSnapshotCanvas,
+    stageReferenceCanvas: finalizeSnapshotCanvas ?? undefined,
   });
   return {
     finalizeSnapshotCanvas,
@@ -191,6 +209,30 @@ export const renderSingleImageToCanvas = async ({
   });
   assertSupportedImageRenderSnapshotPlan(snapshotPlan);
   const debugStages = request.debug?.trace ? ([] as ImageRenderTraceStage[]) : null;
+  const debugBoundaries = {
+    canvasMaterializations: 0,
+    canvasClones: 0,
+  };
+  const trackCanvasClone = (sourceCanvas: HTMLCanvasElement) => {
+    debugBoundaries.canvasClones += 1;
+    return cloneCanvasSnapshot(sourceCanvas);
+  };
+  const trackSurfaceClone = (surface: RenderSurfaceHandle) => {
+    debugBoundaries.canvasClones += 1;
+    return cloneSurfaceSnapshot(surface);
+  };
+  const trackSurfaceMaterialization = (
+    surface: RenderSurfaceHandle,
+    targetCanvas?: HTMLCanvasElement | null
+  ) => {
+    if (!targetCanvas || targetCanvas !== surface.sourceCanvas) {
+      debugBoundaries.canvasMaterializations += 1;
+    }
+    return materializeSurfaceToCanvas(surface, targetCanvas);
+  };
+  const hasMaskedDevelopEffects = hasMaskedEffects(snapshotPlan.developEffects);
+  const hasMaskedStyleEffects = hasMaskedEffects(snapshotPlan.styleEffects);
+  const hasMaskedFinalizeEffects = hasMaskedEffects(snapshotPlan.finalizeEffects);
 
   let carrierAnalysisSnapshotCanvas: HTMLCanvasElement | null = null;
   let styleSnapshotCanvas: HTMLCanvasElement | null = null;
@@ -204,9 +246,7 @@ export const renderSingleImageToCanvas = async ({
       hasDevelopEffects || snapshotPlan.requiresDevelopAnalysisSnapshot;
 
     if (requiresDevelopBase) {
-      developBaseCanvas = createSnapshotCanvas(request.targetSize);
-      const developBaseResult = await renderSnapshotToCanvas({
-        canvas: developBaseCanvas,
+      const developBaseResult = await renderSnapshotToSurface({
         document,
         request,
         renderSlotSuffix: hasDevelopEffects ? "base-develop" : "analysis-develop",
@@ -217,10 +257,18 @@ export const renderSingleImageToCanvas = async ({
         internalStageId: developBaseResult.stageId,
         lowLevel: developBaseResult.debug,
       });
-      developSnapshotCanvas =
-        hasDevelopEffects || snapshotPlan.requiresDevelopAnalysisSnapshot
-          ? cloneCanvasSnapshot(developBaseCanvas)
-          : null;
+      if (hasDevelopEffects) {
+        developBaseCanvas = trackSurfaceMaterialization(
+          developBaseResult.surface,
+          createSnapshotCanvas(request.targetSize)
+        );
+        developSnapshotCanvas =
+          hasMaskedDevelopEffects || snapshotPlan.requiresDevelopAnalysisSnapshot
+            ? trackCanvasClone(developBaseCanvas)
+            : null;
+      } else if (snapshotPlan.requiresDevelopAnalysisSnapshot) {
+        developSnapshotCanvas = trackSurfaceClone(developBaseResult.surface);
+      }
     }
 
     if (hasDevelopEffects) {
@@ -233,7 +281,9 @@ export const renderSingleImageToCanvas = async ({
         canvas: developCanvas,
         document,
         effects: snapshotPlan.developEffects,
-        stageReferenceCanvas: developSnapshotCanvas ?? developCanvas,
+        stageReferenceCanvas: hasMaskedDevelopEffects
+          ? developSnapshotCanvas ?? developCanvas
+          : undefined,
       });
       appendTraceOperation(debugStages, "develop", {
         kind: "effects",
@@ -241,8 +291,7 @@ export const renderSingleImageToCanvas = async ({
         effectCount: snapshotPlan.developEffects.length,
       });
 
-      const filmStageResult = await renderFilmStageToCanvas({
-        canvas,
+      const filmStageResult = await renderFilmStageToSurface({
         source: developCanvas,
         state: extractImageProcessState(document),
         targetSize: request.targetSize,
@@ -254,19 +303,20 @@ export const renderSingleImageToCanvas = async ({
         debug: request.debug,
         renderSlot: request.renderSlotId ? `${request.renderSlotId}:base-film-stage` : undefined,
       });
+      trackSurfaceMaterialization(filmStageResult.surface, canvas);
       appendTraceOperation(debugStages, "develop", {
         kind: "low-level",
         internalStageId: filmStageResult.stageId,
         lowLevel: filmStageResult.debug,
       });
     } else {
-      const fullRenderResult = await renderSnapshotToCanvas({
-        canvas,
+      const fullRenderResult = await renderSnapshotToSurface({
         document,
         request,
         renderSlotSuffix: "base-film",
         stage: "full",
       });
+      trackSurfaceMaterialization(fullRenderResult.surface, canvas);
       appendTraceOperation(debugStages, "develop", {
         kind: "low-level",
         internalStageId: fullRenderResult.stageId,
@@ -276,7 +326,7 @@ export const renderSingleImageToCanvas = async ({
 
     carrierAnalysisSnapshotCanvas =
       snapshotPlan.carrierTransforms.length > 0 || snapshotPlan.requiresStyleAnalysisSnapshot
-        ? cloneCanvasSnapshot(canvas)
+        ? trackCanvasClone(canvas)
         : null;
 
     if (snapshotPlan.carrierTransforms.length > 0) {
@@ -298,13 +348,13 @@ export const renderSingleImageToCanvas = async ({
     }
 
     styleSnapshotCanvas =
-      snapshotPlan.styleEffects.length > 0 ? cloneCanvasSnapshot(canvas) : null;
+      hasMaskedStyleEffects ? trackCanvasClone(canvas) : null;
 
     await applyImageEffects({
       canvas,
       document,
       effects: snapshotPlan.styleEffects,
-      stageReferenceCanvas: styleSnapshotCanvas ?? canvas,
+      stageReferenceCanvas: styleSnapshotCanvas ?? undefined,
     });
     if (snapshotPlan.styleEffects.length > 0) {
       appendTraceOperation(debugStages, "style", {
@@ -318,6 +368,7 @@ export const renderSingleImageToCanvas = async ({
       document,
       finalizeEffects: snapshotPlan.finalizeEffects,
       request,
+      needsFinalizeSnapshot: hasMaskedFinalizeEffects,
     });
     finalizeSnapshotCanvas = finalizeResult.finalizeSnapshotCanvas;
     if (finalizeResult.overlayCount > 0) {
@@ -362,6 +413,10 @@ export const renderSingleImageToCanvas = async ({
     if (debugStages) {
       debugResult.stages = debugStages;
     }
+    debugResult.boundaries = {
+      canvasMaterializations: debugBoundaries.canvasMaterializations,
+      canvasClones: debugBoundaries.canvasClones,
+    };
     if (request.debug.outputHash) {
       debugResult.outputHash = await sha256FromCanvas(canvas);
     }

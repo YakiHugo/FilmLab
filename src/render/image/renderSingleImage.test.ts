@@ -5,20 +5,31 @@ import { createImageRenderDocument } from "./types";
 import { renderSingleImageToCanvas } from "./renderSingleImage";
 
 const renderDevelopBaseToCanvasMock = vi.fn();
+const renderDevelopBaseToSurfaceMock = vi.fn();
 const renderFilmStageToCanvasMock = vi.fn();
+const renderFilmStageToSurfaceMock = vi.fn();
 const renderImageToCanvasMock = vi.fn();
+const renderImageToSurfaceMock = vi.fn();
 const applyImageCarrierTransformsMock = vi.fn();
 const applyTimestampOverlayMock = vi.fn();
 const applyFilter2dPostProcessingMock = vi.fn();
 const buildImageRenderMaskRevisionKeyMock = vi.fn(() => "mask-revision");
-const renderImageEffectMaskToCanvasMock = vi.fn(({ targetCanvas }) => targetCanvas ?? createSnapshotCanvas());
+const renderImageEffectMaskToCanvasMock = vi.fn(
+  async ({ targetCanvas }) => targetCanvas ?? createSnapshotCanvas()
+);
 
 vi.mock("@/lib/imageProcessing", () => ({
   renderDevelopBaseToCanvas: (...args: unknown[]) =>
     Reflect.apply(renderDevelopBaseToCanvasMock, undefined, args),
+  renderDevelopBaseToSurface: (...args: unknown[]) =>
+    Reflect.apply(renderDevelopBaseToSurfaceMock, undefined, args),
   renderFilmStageToCanvas: (...args: unknown[]) =>
     Reflect.apply(renderFilmStageToCanvasMock, undefined, args),
+  renderFilmStageToSurface: (...args: unknown[]) =>
+    Reflect.apply(renderFilmStageToSurfaceMock, undefined, args),
   renderImageToCanvas: (...args: unknown[]) => Reflect.apply(renderImageToCanvasMock, undefined, args),
+  renderImageToSurface: (...args: unknown[]) =>
+    Reflect.apply(renderImageToSurfaceMock, undefined, args),
 }));
 
 vi.mock("./carrierExecution", () => ({
@@ -66,6 +77,9 @@ const createMutableHashableCanvas = ({
     __setBytes(nextBytes: number[]) {
       currentBytes = Uint8ClampedArray.from(nextBytes);
     },
+    __getBytes() {
+      return [...currentBytes];
+    },
     getContext: vi.fn(() => ({
       getImageData: vi.fn(() => ({
         data: currentBytes,
@@ -75,13 +89,21 @@ const createMutableHashableCanvas = ({
     })),
   } as unknown as HTMLCanvasElement & {
     __setBytes: (nextBytes: number[]) => void;
+    __getBytes: () => number[];
   };
 };
 
-const createSnapshotCanvas = () =>
-  ({
+const createSnapshotCanvas = () => {
+  let currentBytes = new Uint8ClampedArray(16);
+  return {
     width: 0,
     height: 0,
+    __setBytes(nextBytes: number[]) {
+      currentBytes = Uint8ClampedArray.from(nextBytes);
+    },
+    __getBytes() {
+      return [...currentBytes];
+    },
     getContext: vi.fn(() => ({
       createImageData: vi.fn((width: number, height: number) => ({
         data: new Uint8ClampedArray(width * height * 4),
@@ -91,13 +113,19 @@ const createSnapshotCanvas = () =>
       clearRect: vi.fn(),
       drawImage: vi.fn(),
       getImageData: vi.fn((_: number, __: number, width: number, height: number) => ({
-        data: new Uint8ClampedArray(width * height * 4),
+        data: currentBytes.length === width * height * 4 ? currentBytes : new Uint8ClampedArray(width * height * 4),
         width,
         height,
       })),
-      putImageData: vi.fn(),
+      putImageData: vi.fn((imageData: { data: Uint8ClampedArray }) => {
+        currentBytes = new Uint8ClampedArray(imageData.data);
+      }),
     })),
-  }) as unknown as HTMLCanvasElement;
+  } as unknown as HTMLCanvasElement & {
+    __setBytes: (nextBytes: number[]) => void;
+    __getBytes: () => number[];
+  };
+};
 
 const createDeferred = <T>() => {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -109,8 +137,45 @@ const createDeferred = <T>() => {
   return { promise, resolve, reject };
 };
 
-const createStageResult = (stageId: "develop-base" | "film-stage" | "full") => ({
+const createStageResult = (
+  stageId: "develop-base" | "film-stage" | "full",
+  sourceCanvas = createSnapshotCanvas()
+) => ({
   stageId,
+  surface: {
+    kind: "renderer-slot",
+    mode: "preview",
+    slotId: `slot:${stageId}`,
+    width: 400,
+    height: 225,
+    sourceCanvas,
+    materializeToCanvas: vi.fn((targetCanvas?: HTMLCanvasElement | null) => {
+      const outputCanvas = targetCanvas ?? createSnapshotCanvas();
+      const bytes =
+        "__getBytes" in (sourceCanvas as object)
+          ? (sourceCanvas as HTMLCanvasElement & { __getBytes: () => number[] }).__getBytes()
+          : [];
+      if ("__setBytes" in (outputCanvas as object)) {
+        (outputCanvas as HTMLCanvasElement & { __setBytes: (nextBytes: number[]) => void }).__setBytes(
+          bytes
+        );
+      }
+      return outputCanvas;
+    }),
+    cloneToCanvas: vi.fn((targetCanvas?: HTMLCanvasElement | null) => {
+      const outputCanvas = targetCanvas ?? createSnapshotCanvas();
+      const bytes =
+        "__getBytes" in (sourceCanvas as object)
+          ? (sourceCanvas as HTMLCanvasElement & { __getBytes: () => number[] }).__getBytes()
+          : [];
+      if ("__setBytes" in (outputCanvas as object)) {
+        (outputCanvas as HTMLCanvasElement & { __setBytes: (nextBytes: number[]) => void }).__setBytes(
+          bytes
+        );
+      }
+      return outputCanvas;
+    }),
+  },
 });
 
 const createStageDebug = (stageId: "develop-base" | "film-stage" | "full", status: string) => ({
@@ -255,12 +320,17 @@ describe("renderSingleImageToCanvas", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     renderDevelopBaseToCanvasMock.mockResolvedValue(createStageResult("develop-base"));
+    renderDevelopBaseToSurfaceMock.mockResolvedValue(createStageResult("develop-base"));
     renderFilmStageToCanvasMock.mockResolvedValue(createStageResult("film-stage"));
+    renderFilmStageToSurfaceMock.mockResolvedValue(createStageResult("film-stage"));
     renderImageToCanvasMock.mockResolvedValue(createStageResult("full"));
+    renderImageToSurfaceMock.mockResolvedValue(createStageResult("full"));
     applyImageCarrierTransformsMock.mockResolvedValue(undefined);
     applyTimestampOverlayMock.mockResolvedValue(undefined);
     buildImageRenderMaskRevisionKeyMock.mockReturnValue("mask-revision");
-    renderImageEffectMaskToCanvasMock.mockImplementation(({ targetCanvas }) => targetCanvas ?? createSnapshotCanvas());
+    renderImageEffectMaskToCanvasMock.mockImplementation(
+      async ({ targetCanvas }) => targetCanvas ?? createSnapshotCanvas()
+    );
     vi.stubGlobal("document", {
       createElement: vi.fn(() => createSnapshotCanvas()),
     });
@@ -289,9 +359,8 @@ describe("renderSingleImageToCanvas", () => {
       },
     });
 
-    expect(renderImageToCanvasMock).toHaveBeenCalledWith(
+    expect(renderImageToSurfaceMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        canvas,
         intent: "export-full",
         renderSlot: "board-export:base-film",
         state: expect.objectContaining({
@@ -306,7 +375,7 @@ describe("renderSingleImageToCanvas", () => {
         },
       })
     );
-    expect(renderDevelopBaseToCanvasMock).not.toHaveBeenCalled();
+    expect(renderDevelopBaseToSurfaceMock).not.toHaveBeenCalled();
     expect(applyImageCarrierTransformsMock).toHaveBeenCalledTimes(1);
     expect(applyTimestampOverlayMock).toHaveBeenCalledTimes(1);
     expect(applyFilter2dPostProcessingMock).toHaveBeenCalledTimes(1);
@@ -324,7 +393,7 @@ describe("renderSingleImageToCanvas", () => {
     expect(applyFilter2dPostProcessingMock.mock.invocationCallOrder[0]).toBeGreaterThan(
       applyTimestampOverlayMock.mock.invocationCallOrder[0]
     );
-    expect(renderFilmStageToCanvasMock).not.toHaveBeenCalled();
+    expect(renderFilmStageToSurfaceMock).not.toHaveBeenCalled();
   });
 
   it("uses the document source as the authoritative image source", async () => {
@@ -344,7 +413,7 @@ describe("renderSingleImageToCanvas", () => {
       },
     });
 
-    expect(renderImageToCanvasMock).toHaveBeenCalledWith(
+    expect(renderImageToSurfaceMock).toHaveBeenCalledWith(
       expect.objectContaining({
         source: "blob:document-source",
       })
@@ -402,7 +471,7 @@ describe("renderSingleImageToCanvas", () => {
       },
     });
 
-    expect(renderImageToCanvasMock).toHaveBeenCalledWith(
+    expect(renderImageToSurfaceMock).toHaveBeenCalledWith(
       expect.objectContaining({
         intent: "preview-interactive",
       })
@@ -437,13 +506,13 @@ describe("renderSingleImageToCanvas", () => {
       },
     });
 
-    expect(renderDevelopBaseToCanvasMock).toHaveBeenCalledTimes(1);
-    expect(renderDevelopBaseToCanvasMock.mock.calls[0]?.[0]).toEqual(
+    expect(renderDevelopBaseToSurfaceMock).toHaveBeenCalledTimes(1);
+    expect(renderDevelopBaseToSurfaceMock.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({
         renderSlot: "board-export:analysis-develop",
       })
     );
-    expect(renderImageToCanvasMock).toHaveBeenCalledTimes(1);
+    expect(renderImageToSurfaceMock).toHaveBeenCalledTimes(1);
     expect(applyImageCarrierTransformsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         snapshots: expect.objectContaining({
@@ -504,28 +573,26 @@ describe("renderSingleImageToCanvas", () => {
       },
     });
 
-    expect(renderDevelopBaseToCanvasMock).toHaveBeenCalledTimes(1);
-    expect(renderDevelopBaseToCanvasMock.mock.calls[0]?.[0]).toEqual(
+    expect(renderDevelopBaseToSurfaceMock).toHaveBeenCalledTimes(1);
+    expect(renderDevelopBaseToSurfaceMock.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({
         renderSlot: "board-preview:base-develop",
       })
     );
-    expect(renderFilmStageToCanvasMock).toHaveBeenCalledTimes(1);
-    expect(renderFilmStageToCanvasMock.mock.calls[0]?.[0]).toEqual(
+    expect(renderFilmStageToSurfaceMock).toHaveBeenCalledTimes(1);
+    expect(renderFilmStageToSurfaceMock.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({
-        canvas,
-        source: renderDevelopBaseToCanvasMock.mock.calls[0]?.[0]?.canvas,
         renderSlot: "board-preview:base-film-stage",
       })
     );
-    expect(renderImageToCanvasMock).not.toHaveBeenCalled();
+    expect(renderImageToSurfaceMock).not.toHaveBeenCalled();
     expect(applyFilter2dPostProcessingMock).toHaveBeenCalledTimes(2);
     expect(applyImageCarrierTransformsMock).toHaveBeenCalledTimes(1);
     expect(applyFilter2dPostProcessingMock.mock.invocationCallOrder[0]).toBeLessThan(
-      renderFilmStageToCanvasMock.mock.invocationCallOrder[0]
+      renderFilmStageToSurfaceMock.mock.invocationCallOrder[0]
     );
     expect(applyImageCarrierTransformsMock.mock.invocationCallOrder[0]).toBeGreaterThan(
-      renderFilmStageToCanvasMock.mock.invocationCallOrder[0]
+      renderFilmStageToSurfaceMock.mock.invocationCallOrder[0]
     );
     expect(applyFilter2dPostProcessingMock.mock.invocationCallOrder[1]).toBeGreaterThan(
       applyImageCarrierTransformsMock.mock.invocationCallOrder[0]
@@ -572,16 +639,18 @@ describe("renderSingleImageToCanvas", () => {
       },
     });
 
-    const unsplitSeedKey = renderImageToCanvasMock.mock.calls[0]?.[0]?.seedKey;
+    const unsplitSeedKey = renderImageToSurfaceMock.mock.calls[0]?.[0]?.seedKey;
 
     vi.clearAllMocks();
-    renderDevelopBaseToCanvasMock.mockResolvedValue(createStageResult("develop-base"));
-    renderFilmStageToCanvasMock.mockResolvedValue(createStageResult("film-stage"));
-    renderImageToCanvasMock.mockResolvedValue(createStageResult("full"));
+    renderDevelopBaseToSurfaceMock.mockResolvedValue(createStageResult("develop-base"));
+    renderFilmStageToSurfaceMock.mockResolvedValue(createStageResult("film-stage"));
+    renderImageToSurfaceMock.mockResolvedValue(createStageResult("full"));
     applyImageCarrierTransformsMock.mockResolvedValue(undefined);
     applyTimestampOverlayMock.mockResolvedValue(undefined);
     buildImageRenderMaskRevisionKeyMock.mockReturnValue("mask-revision");
-    renderImageEffectMaskToCanvasMock.mockImplementation(({ targetCanvas }) => targetCanvas ?? createSnapshotCanvas());
+    renderImageEffectMaskToCanvasMock.mockImplementation(
+      async ({ targetCanvas }) => targetCanvas ?? createSnapshotCanvas()
+    );
 
     await renderSingleImageToCanvas({
       canvas: createCanvas(),
@@ -611,8 +680,8 @@ describe("renderSingleImageToCanvas", () => {
       },
     });
 
-    expect(renderFilmStageToCanvasMock).toHaveBeenCalledTimes(1);
-    expect(renderFilmStageToCanvasMock.mock.calls[0]?.[0]?.seedKey).toBe(unsplitSeedKey);
+    expect(renderFilmStageToSurfaceMock).toHaveBeenCalledTimes(1);
+    expect(renderFilmStageToSurfaceMock.mock.calls[0]?.[0]?.seedKey).toBe(unsplitSeedKey);
   });
 
   it("rasterizes carrier masks when a carrier transform declares maskId", async () => {
@@ -752,12 +821,14 @@ describe("renderSingleImageToCanvas", () => {
   });
 
   it("assembles an opt-in agent trace in execution order", async () => {
-    renderDevelopBaseToCanvasMock.mockResolvedValueOnce({
+    renderDevelopBaseToSurfaceMock.mockResolvedValueOnce({
       stageId: "develop-base",
+      surface: createStageResult("develop-base").surface,
       debug: createStageDebug("develop-base", "rendered"),
     });
-    renderFilmStageToCanvasMock.mockResolvedValueOnce({
+    renderFilmStageToSurfaceMock.mockResolvedValueOnce({
       stageId: "film-stage",
+      surface: createStageResult("film-stage").surface,
       debug: createStageDebug("film-stage", "rendered"),
     });
 
@@ -871,15 +942,20 @@ describe("renderSingleImageToCanvas", () => {
         ],
       })
     );
+    expect(result.debug?.boundaries).toEqual(
+      expect.objectContaining({
+        canvasMaterializations: expect.any(Number),
+        canvasClones: expect.any(Number),
+      })
+    );
   });
 
   it("computes stable output hashes only when requested", async () => {
-    renderImageToCanvasMock.mockImplementation(async ({ canvas, state }) => {
+    renderImageToSurfaceMock.mockImplementation(async ({ state }) => {
       const value = Math.max(0, Math.min(255, Math.round(state.develop.tone.exposure)));
-      (canvas as HTMLCanvasElement & { __setBytes: (nextBytes: number[]) => void }).__setBytes(
-        new Array(16).fill(value)
-      );
-      return createStageResult("full");
+      const sourceCanvas = createSnapshotCanvas();
+      sourceCanvas.__setBytes(new Array(16).fill(value));
+      return createStageResult("full", sourceCanvas);
     });
 
     const baseDocument = createDocument();
@@ -946,11 +1022,10 @@ describe("renderSingleImageToCanvas", () => {
   });
 
   it("includes canvas dimensions in the optional output hash", async () => {
-    renderImageToCanvasMock.mockImplementation(async ({ canvas }) => {
-      (canvas as HTMLCanvasElement & { __setBytes: (nextBytes: number[]) => void }).__setBytes(
-        new Array(16).fill(42)
-      );
-      return createStageResult("full");
+    renderImageToSurfaceMock.mockImplementation(async () => {
+      const sourceCanvas = createSnapshotCanvas();
+      sourceCanvas.__setBytes(new Array(16).fill(42));
+      return createStageResult("full", sourceCanvas);
     });
 
     const document = createDocument();

@@ -2,6 +2,7 @@ import {
   buildImageRenderMaskRevisionKey,
   renderImageEffectMaskToCanvas,
 } from "./effectMask";
+import { blendMaskedCanvasesOnGpu } from "@/lib/renderer/gpuMaskedCanvasBlend";
 import type { ImageRenderMaskDefinition } from "./types";
 
 export const createCanvasLayer = (sourceCanvas: HTMLCanvasElement) => {
@@ -19,7 +20,7 @@ export const createCanvasLayer = (sourceCanvas: HTMLCanvasElement) => {
   return canvas;
 };
 
-const blendMaskedLayerIntoCanvas = ({
+const blendMaskedLayerIntoCanvasFallback = ({
   baseCanvas,
   effectCanvas,
   maskCanvas,
@@ -112,7 +113,7 @@ export const applyMaskedStageOperation = async ({
       canvas: effectCanvas,
       maskRevisionKey: buildImageRenderMaskRevisionKey(maskDefinition),
     });
-    const renderedMaskCanvas = renderImageEffectMaskToCanvas({
+    const renderedMaskCanvas = await renderImageEffectMaskToCanvas({
       width: effectCanvas.width,
       height: effectCanvas.height,
       maskDefinition,
@@ -124,12 +125,21 @@ export const applyMaskedStageOperation = async ({
       return;
     }
 
-    blendMaskedLayerIntoCanvas({
+    const blendedOnGpu = await blendMaskedCanvasesOnGpu({
       baseCanvas,
-      effectCanvas,
+      layerCanvas: effectCanvas,
       maskCanvas: renderedMaskCanvas,
       targetCanvas: canvas,
+      slotId: `stage-mask:${maskDefinition.id}`,
     });
+    if (!blendedOnGpu) {
+      blendMaskedLayerIntoCanvasFallback({
+        baseCanvas,
+        effectCanvas,
+        maskCanvas: renderedMaskCanvas,
+        targetCanvas: canvas,
+      });
+    }
   } finally {
     baseCanvas.width = 0;
     baseCanvas.height = 0;

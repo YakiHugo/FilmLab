@@ -24,17 +24,29 @@ export const applyImageCarrierTransforms = async ({
   document: ImageRenderDocument;
   request: ImageRenderRequest;
   snapshots: CarrierSnapshots;
-  stageReferenceCanvas: HTMLCanvasElement;
+  stageReferenceCanvas?: HTMLCanvasElement;
 }) => {
   for (const transform of carrierTransforms) {
     const sourceCanvas =
       transform.analysisSource === "develop" ? snapshots.develop ?? snapshots.style : snapshots.style;
     const maskDefinition = transform.maskId ? document.masks.byId[transform.maskId] ?? null : null;
+    if (!maskDefinition) {
+      applyImageAsciiCarrierTransform({
+        targetCanvas: canvas,
+        sourceCanvas,
+        transform,
+        quality: request.quality,
+        revisionKey: document.revisionKey,
+        targetSize: request.targetSize,
+        maskRevisionKey: null,
+      });
+      continue;
+    }
 
     await applyMaskedStageOperation({
       canvas,
       maskDefinition,
-      maskReferenceCanvas: stageReferenceCanvas,
+      maskReferenceCanvas: stageReferenceCanvas ?? canvas,
       applyOperation: ({ canvas: targetCanvas, maskRevisionKey }) => {
         applyImageAsciiCarrierTransform({
           targetCanvas,
