@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { sha256FromCanvas } from "@/lib/hash";
 import { createDefaultCanvasImageRenderState } from "./stateCompiler";
 import { createImageRenderDocument } from "./types";
 import { renderSingleImageToCanvas } from "./renderSingleImage";
@@ -49,6 +50,34 @@ const createCanvas = () =>
     getContext: vi.fn(() => null),
   }) as unknown as HTMLCanvasElement;
 
+const createMutableHashableCanvas = ({
+  width = 2,
+  height = 2,
+  initialBytes,
+}: {
+  width?: number;
+  height?: number;
+  initialBytes?: number[];
+} = {}) => {
+  let currentBytes = Uint8ClampedArray.from(initialBytes ?? new Array(16).fill(0));
+  return {
+    width,
+    height,
+    __setBytes(nextBytes: number[]) {
+      currentBytes = Uint8ClampedArray.from(nextBytes);
+    },
+    getContext: vi.fn(() => ({
+      getImageData: vi.fn(() => ({
+        data: currentBytes,
+        width,
+        height,
+      })),
+    })),
+  } as unknown as HTMLCanvasElement & {
+    __setBytes: (nextBytes: number[]) => void;
+  };
+};
+
 const createSnapshotCanvas = () =>
   ({
     width: 0,
@@ -79,6 +108,49 @@ const createDeferred = <T>() => {
   });
   return { promise, resolve, reject };
 };
+
+const createStageResult = (stageId: "develop-base" | "film-stage" | "full") => ({
+  stageId,
+});
+
+const createStageDebug = (stageId: "develop-base" | "film-stage" | "full", status: string) => ({
+  stageId,
+  mode: "preview",
+  slotId: `slot:${stageId}`,
+  status,
+  dirty: {
+    sourceDirty: true,
+    geometryDirty: stageId !== "film-stage",
+    masterDirty: stageId !== "film-stage",
+    hslDirty: false,
+    curveDirty: false,
+    detailDirty: false,
+    filmDirty: stageId !== "develop-base",
+    opticsDirty: stageId === "full" || stageId === "film-stage",
+    outputDirty: true,
+  },
+  timings: {
+    decodeMs: 1,
+    geometryMs: 2,
+    pipelineMs: 3,
+    composeMs: 4,
+    totalMs: 10,
+  },
+  cache: {
+    sourceKey: "source",
+    geometryKey: "geometry",
+    pipelineKey: `pipeline:${stageId}`,
+    outputKey: `output:${stageId}`,
+    tilePlanKey: null,
+  },
+  activePasses: stageId === "develop-base" ? ["geometry", "master"] : ["film", "optics"],
+  pipelineRendered: status === "rendered",
+  usedCpuGeometry: stageId !== "film-stage",
+  usedViewportRoi: false,
+  usedTiledPipeline: false,
+  tileCount: 0,
+  error: null,
+});
 
 const getAsciiCarrierTransform = <T extends { carrierTransforms: readonly { type: string }[] }>(
   document: T
@@ -182,9 +254,9 @@ const createDocument = ({
 describe("renderSingleImageToCanvas", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    renderDevelopBaseToCanvasMock.mockResolvedValue(undefined);
-    renderFilmStageToCanvasMock.mockResolvedValue(undefined);
-    renderImageToCanvasMock.mockResolvedValue(undefined);
+    renderDevelopBaseToCanvasMock.mockResolvedValue(createStageResult("develop-base"));
+    renderFilmStageToCanvasMock.mockResolvedValue(createStageResult("film-stage"));
+    renderImageToCanvasMock.mockResolvedValue(createStageResult("full"));
     applyImageCarrierTransformsMock.mockResolvedValue(undefined);
     applyTimestampOverlayMock.mockResolvedValue(undefined);
     buildImageRenderMaskRevisionKeyMock.mockReturnValue("mask-revision");
@@ -503,9 +575,9 @@ describe("renderSingleImageToCanvas", () => {
     const unsplitSeedKey = renderImageToCanvasMock.mock.calls[0]?.[0]?.seedKey;
 
     vi.clearAllMocks();
-    renderDevelopBaseToCanvasMock.mockResolvedValue(undefined);
-    renderFilmStageToCanvasMock.mockResolvedValue(undefined);
-    renderImageToCanvasMock.mockResolvedValue(undefined);
+    renderDevelopBaseToCanvasMock.mockResolvedValue(createStageResult("develop-base"));
+    renderFilmStageToCanvasMock.mockResolvedValue(createStageResult("film-stage"));
+    renderImageToCanvasMock.mockResolvedValue(createStageResult("full"));
     applyImageCarrierTransformsMock.mockResolvedValue(undefined);
     applyTimestampOverlayMock.mockResolvedValue(undefined);
     buildImageRenderMaskRevisionKeyMock.mockReturnValue("mask-revision");
@@ -677,5 +749,245 @@ describe("renderSingleImageToCanvas", () => {
       renderImageEffectMaskToCanvasMock.mock.calls[1]?.[0]?.referenceSource;
     expect(firstReferenceSource).toBe(secondReferenceSource);
     expect(firstReferenceSource).not.toBe(canvas);
+  });
+
+  it("assembles an opt-in agent trace in execution order", async () => {
+    renderDevelopBaseToCanvasMock.mockResolvedValueOnce({
+      stageId: "develop-base",
+      debug: createStageDebug("develop-base", "rendered"),
+    });
+    renderFilmStageToCanvasMock.mockResolvedValueOnce({
+      stageId: "film-stage",
+      debug: createStageDebug("film-stage", "rendered"),
+    });
+
+    const baseDocument = createDocument();
+    const asciiCarrier = getAsciiCarrierTransform(baseDocument);
+    const document = createDocument({
+      carrierTransforms: [asciiCarrier],
+      effects: [
+        {
+          id: "develop-filter",
+          type: "filter2d",
+          enabled: true,
+          placement: "develop",
+          params: {
+            brightness: 12,
+            hue: 0,
+            blur: 0,
+            dilate: 0,
+          },
+        },
+        {
+          id: "style-filter",
+          type: "filter2d",
+          enabled: true,
+          placement: "style",
+          params: {
+            brightness: -12,
+            hue: 0,
+            blur: 0,
+            dilate: 0,
+          },
+        },
+        {
+          id: "finalize-filter",
+          type: "filter2d",
+          enabled: true,
+          placement: "finalize",
+          params: {
+            brightness: 0,
+            hue: 12,
+            blur: 0,
+            dilate: 0,
+          },
+        },
+      ],
+    });
+
+    const result = await renderSingleImageToCanvas({
+      canvas: createSnapshotCanvas(),
+      document,
+      request: {
+        intent: "preview",
+        quality: "interactive",
+        targetSize: {
+          width: 256,
+          height: 144,
+        },
+        debug: {
+          trace: true,
+        },
+      },
+    });
+
+    expect(result.debug?.stages?.map((stage) => stage.id)).toEqual([
+      "develop",
+      "style",
+      "overlay",
+      "finalize",
+    ]);
+    expect(result.debug?.stages?.[0]).toEqual(
+      expect.objectContaining({
+        id: "develop",
+        operations: [
+          expect.objectContaining({
+            kind: "low-level",
+            internalStageId: "develop-base",
+            lowLevel: expect.objectContaining({
+              status: "rendered",
+              activePasses: ["geometry", "master"],
+            }),
+          }),
+          expect.objectContaining({
+            kind: "effects",
+            effectPlacement: "develop",
+            effectCount: 1,
+          }),
+          expect.objectContaining({
+            kind: "low-level",
+            internalStageId: "film-stage",
+            lowLevel: expect.objectContaining({
+              status: "rendered",
+              activePasses: ["film", "optics"],
+            }),
+          }),
+        ],
+      })
+    );
+    expect(result.debug?.stages?.[1]).toEqual(
+      expect.objectContaining({
+        id: "style",
+        operations: [
+          expect.objectContaining({
+            kind: "carrier",
+            carrierCount: 1,
+          }),
+          expect.objectContaining({
+            kind: "effects",
+            effectPlacement: "style",
+            effectCount: 1,
+          }),
+        ],
+      })
+    );
+  });
+
+  it("computes stable output hashes only when requested", async () => {
+    renderImageToCanvasMock.mockImplementation(async ({ canvas, state }) => {
+      const value = Math.max(0, Math.min(255, Math.round(state.develop.tone.exposure)));
+      (canvas as HTMLCanvasElement & { __setBytes: (nextBytes: number[]) => void }).__setBytes(
+        new Array(16).fill(value)
+      );
+      return createStageResult("full");
+    });
+
+    const baseDocument = createDocument();
+    const changedDocument = createDocument();
+    changedDocument.develop.tone.exposure = 18;
+
+    const firstCanvas = createMutableHashableCanvas();
+    const secondCanvas = createMutableHashableCanvas();
+    const changedCanvas = createMutableHashableCanvas();
+
+    const first = await renderSingleImageToCanvas({
+      canvas: firstCanvas,
+      document: baseDocument,
+      request: {
+        intent: "preview",
+        quality: "interactive",
+        targetSize: {
+          width: 256,
+          height: 144,
+        },
+        debug: {
+          outputHash: true,
+        },
+      },
+    });
+    const second = await renderSingleImageToCanvas({
+      canvas: secondCanvas,
+      document: baseDocument,
+      request: {
+        intent: "preview",
+        quality: "interactive",
+        targetSize: {
+          width: 256,
+          height: 144,
+        },
+        debug: {
+          outputHash: true,
+        },
+      },
+    });
+    const changed = await renderSingleImageToCanvas({
+      canvas: changedCanvas,
+      document: changedDocument,
+      request: {
+        intent: "preview",
+        quality: "interactive",
+        targetSize: {
+          width: 256,
+          height: 144,
+        },
+        debug: {
+          outputHash: true,
+        },
+      },
+    });
+
+    const expectedBaseHash = await sha256FromCanvas(firstCanvas);
+    const expectedChangedHash = await sha256FromCanvas(changedCanvas);
+
+    expect(first.debug?.outputHash).toBe(expectedBaseHash);
+    expect(second.debug?.outputHash).toBe(expectedBaseHash);
+    expect(changed.debug?.outputHash).toBe(expectedChangedHash);
+    expect(first.debug?.outputHash).not.toBe(changed.debug?.outputHash);
+  });
+
+  it("includes canvas dimensions in the optional output hash", async () => {
+    renderImageToCanvasMock.mockImplementation(async ({ canvas }) => {
+      (canvas as HTMLCanvasElement & { __setBytes: (nextBytes: number[]) => void }).__setBytes(
+        new Array(16).fill(42)
+      );
+      return createStageResult("full");
+    });
+
+    const document = createDocument();
+    const squareCanvas = createMutableHashableCanvas({ width: 2, height: 2 });
+    const wideCanvas = createMutableHashableCanvas({ width: 1, height: 4 });
+
+    const square = await renderSingleImageToCanvas({
+      canvas: squareCanvas,
+      document,
+      request: {
+        intent: "preview",
+        quality: "interactive",
+        targetSize: {
+          width: 256,
+          height: 144,
+        },
+        debug: {
+          outputHash: true,
+        },
+      },
+    });
+    const wide = await renderSingleImageToCanvas({
+      canvas: wideCanvas,
+      document,
+      request: {
+        intent: "preview",
+        quality: "interactive",
+        targetSize: {
+          width: 256,
+          height: 144,
+        },
+        debug: {
+          outputHash: true,
+        },
+      },
+    });
+
+    expect(square.debug?.outputHash).not.toBe(wide.debug?.outputHash);
   });
 });

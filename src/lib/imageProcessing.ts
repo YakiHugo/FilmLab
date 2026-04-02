@@ -1,12 +1,12 @@
 import { resolveRenderProfileFromState } from "@/lib/film";
 import { clamp } from "@/lib/math";
 import { resolveRenderIntent, type RenderIntent } from "@/lib/renderIntent";
-import { getRendererRuntimeConfig } from "@/lib/renderer/config";
 import { createTilePlan } from "@/lib/renderer/gpu/TiledRenderer";
 import { resolveViewportRenderRegion, type ViewportRoi } from "@/lib/renderer/viewportRegion";
 import type {
   ImageProcessState,
   ImageRenderColorState,
+  ImageRenderDebugOptions,
   ImageRenderDetailState,
   ImageRenderGeometry,
   ImageRenderToneState,
@@ -33,6 +33,72 @@ export class RenderError extends Error {
     super(message, options);
     this.name = "RenderError";
   }
+}
+
+const INCREMENTAL_PIPELINE_ENABLED = true;
+const GPU_GEOMETRY_PASS_ENABLED = true;
+const HSL_PASS_ENABLED = true;
+const CURVE_PASS_ENABLED = true;
+const DETAIL_PASS_ENABLED = true;
+const FILM_PASS_ENABLED = true;
+const OPTICS_PASS_ENABLED = true;
+const KEEP_LAST_PREVIEW_FRAME_ON_ERROR = true;
+
+export interface RenderImageDirtyState {
+  sourceDirty: boolean;
+  geometryDirty: boolean;
+  masterDirty: boolean;
+  hslDirty: boolean;
+  curveDirty: boolean;
+  detailDirty: boolean;
+  filmDirty: boolean;
+  opticsDirty: boolean;
+  outputDirty: boolean;
+}
+
+export interface RenderImageStageTimings {
+  decodeMs: number;
+  geometryMs: number;
+  pipelineMs: number;
+  composeMs: number;
+  totalMs: number;
+  pipelineMetrics?: RenderWithPipelineResult["renderMetrics"];
+}
+
+export interface RenderImageStageCacheState {
+  sourceKey: string | null;
+  geometryKey: string | null;
+  pipelineKey: string | null;
+  outputKey: string | null;
+  tilePlanKey: string | null;
+}
+
+export type RenderImageStageStatus =
+  | "rendered"
+  | "reused-output"
+  | "reused-preview-frame"
+  | "geometry-fallback";
+
+export interface RenderImageStageDebugInfo {
+  stageId: RenderStageOptions["id"];
+  mode: RenderMode;
+  slotId: string;
+  status: RenderImageStageStatus;
+  dirty: RenderImageDirtyState;
+  timings: RenderImageStageTimings;
+  cache: RenderImageStageCacheState;
+  activePasses: string[];
+  pipelineRendered: boolean;
+  usedCpuGeometry: boolean;
+  usedViewportRoi: boolean;
+  usedTiledPipeline: boolean;
+  tileCount: number;
+  error: string | null;
+}
+
+export interface RenderImageStageResult {
+  stageId: RenderStageOptions["id"];
+  debug?: RenderImageStageDebugInfo;
 }
 
 export const resolveAspectRatio = (
@@ -360,6 +426,7 @@ export interface RenderImageOptions {
   sourceCacheKey?: string;
   renderSlot?: string;
   viewportRoi?: ViewportRoi | null;
+  debug?: ImageRenderDebugOptions;
 }
 
 const hashSeedKey = (seedKey: string) => {
@@ -1539,67 +1606,99 @@ const renderWithPipeline = async (
   }
 };
 
-interface RenderTimings {
-  decodeMs: number;
-  geometryMs: number;
-  pipelineMs: number;
-  composeMs: number;
-  totalMs: number;
-  pipelineMetrics?: RenderWithPipelineResult["renderMetrics"];
-}
+const cloneRenderStageTimings = (
+  timings: RenderImageStageTimings
+): RenderImageStageTimings => ({
+  decodeMs: timings.decodeMs,
+  geometryMs: timings.geometryMs,
+  pipelineMs: timings.pipelineMs,
+  composeMs: timings.composeMs,
+  totalMs: timings.totalMs,
+  pipelineMetrics: timings.pipelineMetrics
+    ? {
+        totalMs: timings.pipelineMetrics.totalMs,
+        updateUniformsMs: timings.pipelineMetrics.updateUniformsMs,
+        filterChainMs: timings.pipelineMetrics.filterChainMs,
+        drawMs: timings.pipelineMetrics.drawMs,
+        passCpuMs: {
+          geometry: timings.pipelineMetrics.passCpuMs.geometry,
+          master: timings.pipelineMetrics.passCpuMs.master,
+          hsl: timings.pipelineMetrics.passCpuMs.hsl,
+          curve: timings.pipelineMetrics.passCpuMs.curve,
+          detail: timings.pipelineMetrics.passCpuMs.detail,
+          film: timings.pipelineMetrics.passCpuMs.film,
+          optics: timings.pipelineMetrics.passCpuMs.optics,
+        },
+        activePasses: [...timings.pipelineMetrics.activePasses],
+      }
+    : undefined,
+});
 
-const shouldLogRenderTimings = (runtimeConfig: ReturnType<typeof getRendererRuntimeConfig>) =>
-  runtimeConfig.diagnostics.renderTimings;
+const createCacheStateSnapshot = (frameState: FrameState): RenderImageStageCacheState => ({
+  sourceKey: frameState.sourceKey,
+  geometryKey: frameState.geometryKey,
+  pipelineKey: frameState.pipelineKey,
+  outputKey: frameState.outputKey,
+  tilePlanKey: frameState.tilePlanKey,
+});
 
-const logRenderTimings = (
-  mode: RenderMode,
-  runtimeConfig: ReturnType<typeof getRendererRuntimeConfig>,
-  timings: RenderTimings,
-  dirty: {
-    sourceDirty: boolean;
-    geometryDirty: boolean;
-    masterDirty: boolean;
-    hslDirty: boolean;
-    curveDirty: boolean;
-    detailDirty: boolean;
-    filmDirty: boolean;
-    opticsDirty: boolean;
-    outputDirty: boolean;
+const createStageResult = ({
+  stage,
+  mode,
+  slotId,
+  debug,
+  status,
+  dirty,
+  timings,
+  frameState,
+  pipelineRendered,
+  usedCpuGeometry,
+  usedViewportRoi,
+  usedTiledPipeline,
+  tileCount,
+  error,
+}: {
+  stage: RenderStageOptions;
+  mode: RenderMode;
+  slotId: string;
+  debug?: ImageRenderDebugOptions;
+  status: RenderImageStageStatus;
+  dirty: RenderImageDirtyState;
+  timings: RenderImageStageTimings;
+  frameState: FrameState;
+  pipelineRendered: boolean;
+  usedCpuGeometry: boolean;
+  usedViewportRoi: boolean;
+  usedTiledPipeline: boolean;
+  tileCount: number;
+  error: string | null;
+}): RenderImageStageResult => {
+  if (!debug?.trace) {
+    return {
+      stageId: stage.id,
+    };
   }
-) => {
-  if (!shouldLogRenderTimings(runtimeConfig)) {
-    return;
-  }
-  const verbose = runtimeConfig.diagnostics.verboseRenderTimings;
-  const metrics = timings.pipelineMetrics;
-  const detailSuffix =
-    verbose && metrics
-      ? ` pipelineDetail(update=${metrics.updateUniformsMs.toFixed(
-          2
-        )}ms,chain=${metrics.filterChainMs.toFixed(2)}ms,draw=${metrics.drawMs.toFixed(
-          2
-        )}ms,passes=${metrics.activePasses.join(">")},cpu=[g:${metrics.passCpuMs.geometry.toFixed(
-          2
-        )},m:${metrics.passCpuMs.master.toFixed(2)},h:${metrics.passCpuMs.hsl.toFixed(
-          2
-        )},c:${metrics.passCpuMs.curve.toFixed(2)},d:${metrics.passCpuMs.detail.toFixed(
-          2
-        )},f:${metrics.passCpuMs.film.toFixed(2)},o:${metrics.passCpuMs.optics.toFixed(2)}])`
-      : "";
-  console.info(
-    `[FilmLab][${mode}] decode=${timings.decodeMs.toFixed(2)}ms geometry=${timings.geometryMs.toFixed(
-      2
-    )}ms pipeline=${timings.pipelineMs.toFixed(2)}ms compose=${timings.composeMs.toFixed(
-      2
-    )}ms total=${timings.totalMs.toFixed(2)}ms ` +
-      `dirty(s=${dirty.sourceDirty ? 1 : 0},g=${dirty.geometryDirty ? 1 : 0},m=${
-        dirty.masterDirty ? 1 : 0
-      },h=${dirty.hslDirty ? 1 : 0},c=${dirty.curveDirty ? 1 : 0},d=${
-        dirty.detailDirty ? 1 : 0
-      },f=${dirty.filmDirty ? 1 : 0},o=${dirty.opticsDirty ? 1 : 0},out=${
-        dirty.outputDirty ? 1 : 0
-      })${detailSuffix}`
-  );
+
+  const pipelineMetrics = timings.pipelineMetrics;
+  return {
+    stageId: stage.id,
+    debug: {
+      stageId: stage.id,
+      mode,
+      slotId,
+      status,
+      dirty: { ...dirty },
+      timings: cloneRenderStageTimings(timings),
+      cache: createCacheStateSnapshot(frameState),
+      activePasses: pipelineMetrics ? [...pipelineMetrics.activePasses] : [],
+      pipelineRendered,
+      usedCpuGeometry,
+      usedViewportRoi,
+      usedTiledPipeline,
+      tileCount,
+      error,
+    },
+  };
 };
 
 const describeRenderError = (error: unknown): string => {
@@ -2155,32 +2254,46 @@ const renderImageStageToCanvas = async (
     sourceCacheKey,
     renderSlot,
     viewportRoi,
+    debug,
   }: RenderImageOptions,
   stage: RenderStageOptions
-) => {
+): Promise<RenderImageStageResult> => {
   const callStartAt = performance.now();
   const intentConfig = intent ? resolveRenderIntent(intent) : null;
   const mode = intentConfig?.mode ?? modeOption ?? "preview";
   const qualityProfile = intentConfig?.qualityProfile ?? qualityProfileOption ?? "interactive";
   const strictErrors = strictErrorsOption ?? mode === "export";
   const skipHalationBloom = skipHalationBloomOption ?? intentConfig?.skipHalationBloom ?? false;
-  const runtimeConfig = getRendererRuntimeConfig();
-  const featureFlags = runtimeConfig.features;
-  const incrementalPipeline = featureFlags.incrementalPipeline;
-  const useGpuGeometryPass = featureFlags.gpuGeometryPass;
+  const pipelineOverrides = debug?.pipelineOverrides;
+  const incrementalPipeline =
+    pipelineOverrides?.incrementalPipeline ?? INCREMENTAL_PIPELINE_ENABLED;
+  const useGpuGeometryPass = pipelineOverrides?.gpuGeometryPass ?? GPU_GEOMETRY_PASS_ENABLED;
   const skipMasterPass = !stage.applyDevelop;
-  const skipHslPass = skipMasterPass || !featureFlags.enableHslPass;
-  const skipCurvePass = skipMasterPass || !featureFlags.enableCurvePass;
-  const skipDetailPass = skipMasterPass || !featureFlags.enableDetailPass;
-  const skipFilmPass = !stage.applyFilm || !featureFlags.enableFilmPass;
-  const skipOpticsPass = !stage.applyPostOptics || skipHalationBloom || !featureFlags.enableOpticsPass;
-  const timings: RenderTimings = {
+  const skipHslPass =
+    skipMasterPass || !(pipelineOverrides?.enableHslPass ?? HSL_PASS_ENABLED);
+  const skipCurvePass =
+    skipMasterPass || !(pipelineOverrides?.enableCurvePass ?? CURVE_PASS_ENABLED);
+  const skipDetailPass =
+    skipMasterPass || !(pipelineOverrides?.enableDetailPass ?? DETAIL_PASS_ENABLED);
+  const skipFilmPass = !stage.applyFilm || !(pipelineOverrides?.enableFilmPass ?? FILM_PASS_ENABLED);
+  const skipOpticsPass =
+    !stage.applyPostOptics ||
+    skipHalationBloom ||
+    !(pipelineOverrides?.enableOpticsPass ?? OPTICS_PASS_ENABLED);
+  const keepLastPreviewFrameOnError =
+    pipelineOverrides?.keepLastPreviewFrameOnError ?? KEEP_LAST_PREVIEW_FRAME_ON_ERROR;
+  const timings: RenderImageStageTimings = {
     decodeMs: 0,
     geometryMs: 0,
     pipelineMs: 0,
     composeMs: 0,
     totalMs: 0,
   };
+  let dirtyState: RenderImageDirtyState;
+  let stageStatus: RenderImageStageStatus;
+  let pipelineRendered: boolean;
+  let usedCpuGeometry = false;
+  let errorMessage: string | null = null;
 
   const renderState = state;
   const resolvedProfile = resolveRenderProfileFromState({
@@ -2378,10 +2491,23 @@ const renderImageStageToCanvas = async (
     const filmDirty = !incrementalPipeline || frameState.filmKey !== filmKey;
     const opticsDirty = !incrementalPipeline || frameState.opticsKey !== opticsKey;
     const tiledOrientedSource = orientedSource;
+    dirtyState = {
+      sourceDirty,
+      geometryDirty,
+      masterDirty,
+      hslDirty,
+      curveDirty,
+      detailDirty,
+      filmDirty,
+      opticsDirty,
+      outputDirty: false,
+    };
 
     if (exportTilePlan) {
       const releaseMutex = await acquireRenderMutex(mode, slotId);
       let outputDirty = false;
+      let pipelineStartAt = 0;
+      let composeStartAt = 0;
       const tiledPipelineKey = [
         "tiled",
         geometryKey,
@@ -2545,9 +2671,10 @@ const renderImageStageToCanvas = async (
           localAdjustmentsKey,
         });
         outputDirty = !incrementalPipeline || frameState.outputKey !== outputKey;
+        dirtyState.outputDirty = outputDirty;
 
         if (outputDirty) {
-          const pipelineStartAt = performance.now();
+          pipelineStartAt = performance.now();
           const baseMetrics = await renderTiledLayer(
             renderState,
             {
@@ -2563,7 +2690,7 @@ const renderImageStageToCanvas = async (
           timings.pipelineMs = performance.now() - pipelineStartAt;
           timings.pipelineMetrics = baseMetrics;
 
-          const composeStartAt = performance.now();
+          composeStartAt = performance.now();
           for (let localIndex = 0; localIndex < activeLocalAdjustments.length; localIndex += 1) {
             const local = activeLocalAdjustments[localIndex]!;
             const localState = applyLocalAdjustmentDelta(renderState, local);
@@ -2624,18 +2751,25 @@ const renderImageStageToCanvas = async (
         }
 
         timings.totalMs = performance.now() - callStartAt;
-        logRenderTimings(mode, runtimeConfig, timings, {
-          sourceDirty,
-          geometryDirty: true,
-          masterDirty,
-          hslDirty,
-          curveDirty,
-          detailDirty,
-          filmDirty,
-          opticsDirty,
-          outputDirty,
+        stageStatus = outputDirty ? "rendered" : "reused-output";
+        pipelineRendered = outputDirty;
+        usedCpuGeometry = stage.applyGeometry;
+        return createStageResult({
+          stage,
+          mode,
+          slotId,
+          debug,
+          status: stageStatus,
+          dirty: dirtyState,
+          timings,
+          frameState,
+          pipelineRendered,
+          usedCpuGeometry,
+          usedViewportRoi: false,
+          usedTiledPipeline: true,
+          tileCount: exportTilePlan.length,
+          error: errorMessage,
         });
-        return;
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") {
           throw e;
@@ -2644,7 +2778,15 @@ const renderImageStageToCanvas = async (
           throw e;
         }
         console.warn("[FilmLab] Tiled export failed, trying geometry fallback:", e);
+        errorMessage = describeRenderError(e);
+        if (pipelineStartAt > 0 && timings.pipelineMs === 0) {
+          timings.pipelineMs = performance.now() - pipelineStartAt;
+        }
+        if (composeStartAt > 0 && timings.composeMs === 0) {
+          timings.composeMs = performance.now() - composeStartAt;
+        }
         const fallbackGeometryCanvas = getGeometryCanvas(frameState);
+        const fallbackComposeStartAt = performance.now();
         outputContext.clearRect(0, 0, canvas.width, canvas.height);
         if (stage.applyGeometry) {
           drawGeometryStage({
@@ -2663,7 +2805,43 @@ const renderImageStageToCanvas = async (
         } else {
           outputContext.drawImage(tiledOrientedSource.source, 0, 0, canvas.width, canvas.height);
         }
-        return;
+        timings.composeMs += performance.now() - fallbackComposeStartAt;
+        timings.totalMs = performance.now() - callStartAt;
+        dirtyState.outputDirty = true;
+        frameState.sourceKey = sourceKey;
+        frameState.geometryKey = geometryKey;
+        frameState.masterKey = masterKey;
+        frameState.hslKey = hslKey;
+        frameState.curveKey = curveKey;
+        frameState.detailKey = detailKey;
+        frameState.filmKey = filmKey;
+        frameState.opticsKey = opticsKey;
+        frameState.uploadedGeometryKey = `fallback:tiled:${geometryKey}`;
+        frameState.pipelineKey = `fallback:tiled:${tiledPipelineKey}`;
+        frameState.outputKey = createOutputKey({
+          canvas,
+          pipelineKey: frameState.pipelineKey,
+          localAdjustmentsKey,
+        });
+        frameState.lastRenderError = errorMessage;
+        stageStatus = "geometry-fallback";
+        usedCpuGeometry = stage.applyGeometry;
+        return createStageResult({
+          stage,
+          mode,
+          slotId,
+          debug,
+          status: stageStatus,
+          dirty: dirtyState,
+          timings,
+          frameState,
+          pipelineRendered: false,
+          usedCpuGeometry,
+          usedViewportRoi: false,
+          usedTiledPipeline: true,
+          tileCount: exportTilePlan.length,
+          error: errorMessage,
+        });
       } finally {
         releaseMutex();
       }
@@ -2733,6 +2911,7 @@ const renderImageStageToCanvas = async (
       pipelineSource = geometryCanvas;
       pipelineSourceWidth = geometryCanvas.width;
       pipelineSourceHeight = geometryCanvas.height;
+      usedCpuGeometry = true;
     }
     timings.geometryMs = performance.now() - geometryStartAt;
 
@@ -2743,10 +2922,12 @@ const renderImageStageToCanvas = async (
 
     const releaseMutex = await acquireRenderMutex(mode, slotId);
     let outputDirty = false;
+    let pipelineStartAt = 0;
+    let composeStartAt = 0;
     try {
       throwIfAborted(signal);
 
-      const pipelineStartAt = performance.now();
+      pipelineStartAt = performance.now();
       const pipelineResult = await renderWithPipeline(
         pipelineSource,
         renderState,
@@ -2791,8 +2972,9 @@ const renderImageStageToCanvas = async (
         localAdjustmentsKey,
       });
       outputDirty = !incrementalPipeline || frameState.outputKey !== outputKey;
+      dirtyState.outputDirty = outputDirty;
 
-      const composeStartAt = performance.now();
+      composeStartAt = performance.now();
       if (pipelineResult.rendered || outputDirty) {
         const composeLocalWithCanvas = async () => {
           if (viewportRenderRegion) {
@@ -3013,16 +3195,23 @@ const renderImageStageToCanvas = async (
       timings.composeMs = performance.now() - composeStartAt;
 
       timings.totalMs = performance.now() - callStartAt;
-      logRenderTimings(mode, runtimeConfig, timings, {
-        sourceDirty,
-        geometryDirty,
-        masterDirty,
-        hslDirty,
-        curveDirty,
-        detailDirty,
-        filmDirty,
-        opticsDirty,
-        outputDirty,
+      stageStatus = pipelineResult.rendered || outputDirty ? "rendered" : "reused-output";
+      pipelineRendered = pipelineResult.rendered;
+      return createStageResult({
+        stage,
+        mode,
+        slotId,
+        debug,
+        status: stageStatus,
+        dirty: dirtyState,
+        timings,
+        frameState,
+        pipelineRendered,
+        usedCpuGeometry,
+        usedViewportRoi: !!viewportRenderRegion,
+        usedTiledPipeline: false,
+        tileCount: 0,
+        error: errorMessage,
       });
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") {
@@ -3031,11 +3220,18 @@ const renderImageStageToCanvas = async (
       const nextErrorMessage = describeRenderError(e);
       const repeatedRenderError = frameState.lastRenderError === nextErrorMessage;
       frameState.lastRenderError = nextErrorMessage;
+      errorMessage = nextErrorMessage;
+      if (pipelineStartAt > 0 && timings.pipelineMs === 0) {
+        timings.pipelineMs = performance.now() - pipelineStartAt;
+      }
+      if (composeStartAt > 0 && timings.composeMs === 0) {
+        timings.composeMs = performance.now() - composeStartAt;
+      }
       if (strictErrors) {
         throw e;
       }
 
-      if (mode === "preview" && featureFlags.keepLastPreviewFrameOnError && frameState.outputKey) {
+      if (mode === "preview" && keepLastPreviewFrameOnError && frameState.outputKey) {
         try {
           const previewRenderer = renderManager.getRenderer(
             mode,
@@ -3043,7 +3239,7 @@ const renderImageStageToCanvas = async (
             renderTargetHeight,
             slotId
           );
-          const composeStartAt = performance.now();
+          const fallbackComposeStartAt = performance.now();
           if (viewportRenderRegion) {
             outputContext.clearRect(
               renderOffsetX,
@@ -3062,20 +3258,26 @@ const renderImageStageToCanvas = async (
             outputContext.clearRect(0, 0, canvas.width, canvas.height);
             outputContext.drawImage(previewRenderer.canvas, 0, 0, canvas.width, canvas.height);
           }
-          timings.composeMs = performance.now() - composeStartAt;
+          timings.composeMs += performance.now() - fallbackComposeStartAt;
           timings.totalMs = performance.now() - callStartAt;
-          logRenderTimings(mode, runtimeConfig, timings, {
-            sourceDirty,
-            geometryDirty,
-            masterDirty,
-            hslDirty,
-            curveDirty,
-            detailDirty,
-            filmDirty,
-            opticsDirty,
-            outputDirty: false,
+          dirtyState.outputDirty = false;
+          stageStatus = "reused-preview-frame";
+          return createStageResult({
+            stage,
+            mode,
+            slotId,
+            debug,
+            status: stageStatus,
+            dirty: dirtyState,
+            timings,
+            frameState,
+            pipelineRendered: false,
+            usedCpuGeometry,
+            usedViewportRoi: !!viewportRenderRegion,
+            usedTiledPipeline: false,
+            tileCount: 0,
+            error: errorMessage,
           });
-          return;
         } catch {
           // Fallback below.
         }
@@ -3084,7 +3286,7 @@ const renderImageStageToCanvas = async (
       if (!repeatedRenderError) {
         console.warn("[FilmLab] Pipeline render failed, showing geometry fallback preview:", e);
       }
-      const composeStartAt = performance.now();
+      const fallbackComposeStartAt = performance.now();
       const fallbackGeometryCanvas = getGeometryCanvas(frameState);
       outputContext.clearRect(0, 0, canvas.width, canvas.height);
       if (stage.applyGeometry) {
@@ -3124,24 +3326,32 @@ const renderImageStageToCanvas = async (
       } else {
         outputContext.drawImage(orientedSource.source, 0, 0, canvas.width, canvas.height);
       }
+      frameState.pipelineKey = `fallback:${geometryKey}`;
       frameState.outputKey = createOutputKey({
         canvas,
-        pipelineKey: `fallback:${geometryKey}`,
+        pipelineKey: frameState.pipelineKey,
         localAdjustmentsKey,
       });
-      timings.composeMs = performance.now() - composeStartAt;
+      timings.composeMs += performance.now() - fallbackComposeStartAt;
 
       timings.totalMs = performance.now() - callStartAt;
-      logRenderTimings(mode, runtimeConfig, timings, {
-        sourceDirty,
-        geometryDirty,
-        masterDirty,
-        hslDirty,
-        curveDirty,
-        detailDirty,
-        filmDirty,
-        opticsDirty,
-        outputDirty: true,
+      dirtyState.outputDirty = true;
+      stageStatus = "geometry-fallback";
+      return createStageResult({
+        stage,
+        mode,
+        slotId,
+        debug,
+        status: stageStatus,
+        dirty: dirtyState,
+        timings,
+        frameState,
+        pipelineRendered: false,
+        usedCpuGeometry: stage.applyGeometry,
+        usedViewportRoi: !!viewportRenderRegion,
+        usedTiledPipeline: false,
+        tileCount: 0,
+        error: errorMessage,
       });
     } finally {
       releaseMutex();

@@ -3,6 +3,8 @@ import {
   renderFilmStageToCanvas,
   renderImageToCanvas,
 } from "@/lib/imageProcessing";
+import type { RenderImageStageDebugInfo, RenderImageStageResult } from "@/lib/imageProcessing";
+import { sha256FromCanvas } from "@/lib/hash";
 import type { RenderIntent } from "@/lib/renderIntent";
 import { applyImageCarrierTransforms } from "./carrierExecution";
 import { applyImageEffects } from "./effectExecution";
@@ -13,10 +15,55 @@ import {
 } from "./snapshotPlan";
 import type {
   ImageRenderDocument,
+  ImageEffectPlacement,
   ImageRenderRequest,
   ImageRenderTargetSize,
 } from "./types";
 import { extractImageProcessState } from "./types";
+
+export interface ImageRenderTraceOperation {
+  kind: "low-level" | "effects" | "carrier" | "overlay";
+  internalStageId?: RenderImageStageResult["stageId"];
+  lowLevel?: RenderImageStageDebugInfo;
+  effectPlacement?: ImageEffectPlacement;
+  effectCount?: number;
+  carrierCount?: number;
+  overlayCount?: number;
+}
+
+export interface ImageRenderTraceStage {
+  id: "develop" | "style" | "overlay" | "finalize";
+  operations: ImageRenderTraceOperation[];
+}
+
+export interface ImageRenderDebugResult {
+  stages?: ImageRenderTraceStage[];
+  outputHash?: string;
+}
+
+export interface RenderSingleImageResult {
+  revisionKey: string;
+  debug?: ImageRenderDebugResult;
+}
+
+const appendTraceOperation = (
+  stages: ImageRenderTraceStage[] | null,
+  stageId: ImageRenderTraceStage["id"],
+  operation: ImageRenderTraceOperation | null
+) => {
+  if (!stages || !operation) {
+    return;
+  }
+  const existing = stages.find((stage) => stage.id === stageId);
+  if (existing) {
+    existing.operations.push(operation);
+    return;
+  }
+  stages.push({
+    id: stageId,
+    operations: [operation],
+  });
+};
 
 const resolveImageProcessingRenderIntent = (request: ImageRenderRequest): RenderIntent => {
   if (request.intent === "export") {
@@ -63,7 +110,7 @@ const renderSnapshotToCanvas = async ({
   request: ImageRenderRequest;
   renderSlotSuffix?: string;
   stage: "full" | "develop-base";
-}) => {
+}): Promise<RenderImageStageResult> => {
   const renderOptions = {
     canvas,
     source: resolveRuntimeSource(document),
@@ -74,6 +121,7 @@ const renderSnapshotToCanvas = async ({
     strictErrors: request.strictErrors ?? request.intent === "export",
     intent: resolveImageProcessingRenderIntent(request),
     signal: request.signal,
+    debug: request.debug,
     renderSlot: request.renderSlotId
       ? renderSlotSuffix
         ? `${request.renderSlotId}:${renderSlotSuffix}`
@@ -82,11 +130,10 @@ const renderSnapshotToCanvas = async ({
   };
 
   if (stage === "develop-base") {
-    await renderDevelopBaseToCanvas(renderOptions);
-    return;
+    return renderDevelopBaseToCanvas(renderOptions);
   }
 
-  await renderImageToCanvas(renderOptions);
+  return renderImageToCanvas(renderOptions);
 };
 
 const applyImageFinalizeStages = async ({
@@ -100,16 +147,20 @@ const applyImageFinalizeStages = async ({
   finalizeEffects: ImageRenderDocument["effects"];
   request: ImageRenderRequest;
 }) => {
+  const overlays = resolveImageOverlays({
+    output: document.output,
+    timestampText: request.timestampText,
+  });
   await applyImageOverlays({
     canvas,
-    overlays: resolveImageOverlays({
-      output: document.output,
-      timestampText: request.timestampText,
-    }),
+    overlays,
   });
 
   if (finalizeEffects.length === 0) {
-    return null;
+    return {
+      finalizeSnapshotCanvas: null,
+      overlayCount: overlays.length,
+    };
   }
 
   const finalizeSnapshotCanvas = cloneCanvasSnapshot(canvas);
@@ -119,7 +170,10 @@ const applyImageFinalizeStages = async ({
     effects: finalizeEffects,
     stageReferenceCanvas: finalizeSnapshotCanvas,
   });
-  return finalizeSnapshotCanvas;
+  return {
+    finalizeSnapshotCanvas,
+    overlayCount: overlays.length,
+  };
 };
 
 export const renderSingleImageToCanvas = async ({
@@ -130,12 +184,13 @@ export const renderSingleImageToCanvas = async ({
   canvas: HTMLCanvasElement;
   document: ImageRenderDocument;
   request: ImageRenderRequest;
-}) => {
+}): Promise<RenderSingleImageResult> => {
   const snapshotPlan = createImageRenderSnapshotPlan({
     carrierTransforms: document.carrierTransforms,
     effects: document.effects,
   });
   assertSupportedImageRenderSnapshotPlan(snapshotPlan);
+  const debugStages = request.debug?.trace ? ([] as ImageRenderTraceStage[]) : null;
 
   let carrierAnalysisSnapshotCanvas: HTMLCanvasElement | null = null;
   let styleSnapshotCanvas: HTMLCanvasElement | null = null;
@@ -150,12 +205,17 @@ export const renderSingleImageToCanvas = async ({
 
     if (requiresDevelopBase) {
       developBaseCanvas = createSnapshotCanvas(request.targetSize);
-      await renderSnapshotToCanvas({
+      const developBaseResult = await renderSnapshotToCanvas({
         canvas: developBaseCanvas,
         document,
         request,
         renderSlotSuffix: hasDevelopEffects ? "base-develop" : "analysis-develop",
         stage: "develop-base",
+      });
+      appendTraceOperation(debugStages, "develop", {
+        kind: "low-level",
+        internalStageId: developBaseResult.stageId,
+        lowLevel: developBaseResult.debug,
       });
       developSnapshotCanvas =
         hasDevelopEffects || snapshotPlan.requiresDevelopAnalysisSnapshot
@@ -175,8 +235,13 @@ export const renderSingleImageToCanvas = async ({
         effects: snapshotPlan.developEffects,
         stageReferenceCanvas: developSnapshotCanvas ?? developCanvas,
       });
+      appendTraceOperation(debugStages, "develop", {
+        kind: "effects",
+        effectPlacement: "develop",
+        effectCount: snapshotPlan.developEffects.length,
+      });
 
-      await renderFilmStageToCanvas({
+      const filmStageResult = await renderFilmStageToCanvas({
         canvas,
         source: developCanvas,
         state: extractImageProcessState(document),
@@ -186,15 +251,26 @@ export const renderSingleImageToCanvas = async ({
         strictErrors: request.strictErrors ?? request.intent === "export",
         intent: resolveImageProcessingRenderIntent(request),
         signal: request.signal,
+        debug: request.debug,
         renderSlot: request.renderSlotId ? `${request.renderSlotId}:base-film-stage` : undefined,
       });
+      appendTraceOperation(debugStages, "develop", {
+        kind: "low-level",
+        internalStageId: filmStageResult.stageId,
+        lowLevel: filmStageResult.debug,
+      });
     } else {
-      await renderSnapshotToCanvas({
+      const fullRenderResult = await renderSnapshotToCanvas({
         canvas,
         document,
         request,
         renderSlotSuffix: "base-film",
         stage: "full",
+      });
+      appendTraceOperation(debugStages, "develop", {
+        kind: "low-level",
+        internalStageId: fullRenderResult.stageId,
+        lowLevel: fullRenderResult.debug,
       });
     }
 
@@ -215,6 +291,10 @@ export const renderSingleImageToCanvas = async ({
         },
         stageReferenceCanvas: carrierAnalysisSnapshotCanvas ?? canvas,
       });
+      appendTraceOperation(debugStages, "style", {
+        kind: "carrier",
+        carrierCount: snapshotPlan.carrierTransforms.length,
+      });
     }
 
     styleSnapshotCanvas =
@@ -226,12 +306,33 @@ export const renderSingleImageToCanvas = async ({
       effects: snapshotPlan.styleEffects,
       stageReferenceCanvas: styleSnapshotCanvas ?? canvas,
     });
-    finalizeSnapshotCanvas = await applyImageFinalizeStages({
+    if (snapshotPlan.styleEffects.length > 0) {
+      appendTraceOperation(debugStages, "style", {
+        kind: "effects",
+        effectPlacement: "style",
+        effectCount: snapshotPlan.styleEffects.length,
+      });
+    }
+    const finalizeResult = await applyImageFinalizeStages({
       canvas,
       document,
       finalizeEffects: snapshotPlan.finalizeEffects,
       request,
     });
+    finalizeSnapshotCanvas = finalizeResult.finalizeSnapshotCanvas;
+    if (finalizeResult.overlayCount > 0) {
+      appendTraceOperation(debugStages, "overlay", {
+        kind: "overlay",
+        overlayCount: finalizeResult.overlayCount,
+      });
+    }
+    if (snapshotPlan.finalizeEffects.length > 0) {
+      appendTraceOperation(debugStages, "finalize", {
+        kind: "effects",
+        effectPlacement: "finalize",
+        effectCount: snapshotPlan.finalizeEffects.length,
+      });
+    }
   } finally {
     if (finalizeSnapshotCanvas) {
       finalizeSnapshotCanvas.width = 0;
@@ -255,7 +356,19 @@ export const renderSingleImageToCanvas = async ({
     }
   }
 
+  let debugResult: ImageRenderDebugResult | undefined;
+  if (request.debug?.trace || request.debug?.outputHash) {
+    debugResult = {};
+    if (debugStages) {
+      debugResult.stages = debugStages;
+    }
+    if (request.debug.outputHash) {
+      debugResult.outputHash = await sha256FromCanvas(canvas);
+    }
+  }
+
   return {
     revisionKey: document.revisionKey,
+    debug: debugResult,
   };
 };

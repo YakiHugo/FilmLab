@@ -28,11 +28,19 @@ export interface ImageRenderTargetSize {
   height: number;
 }
 
-export interface NormalizedRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+export interface ImageRenderDebugOptions {
+  trace?: boolean;
+  outputHash?: boolean;
+  pipelineOverrides?: {
+    incrementalPipeline?: boolean;
+    gpuGeometryPass?: boolean;
+    enableHslPass?: boolean;
+    enableCurvePass?: boolean;
+    enableDetailPass?: boolean;
+    enableFilmPass?: boolean;
+    enableOpticsPass?: boolean;
+    keepLastPreviewFrameOnError?: boolean;
+  };
 }
 
 export interface ImageRenderSource {
@@ -296,11 +304,11 @@ export interface ImageRenderRequest {
   intent: ImageRenderIntent;
   quality: ImageRenderQuality;
   targetSize: ImageRenderTargetSize;
-  roi?: NormalizedRect | null;
   timestampText?: string | null;
   strictErrors?: boolean;
   signal?: AbortSignal;
   renderSlotId?: string;
+  debug?: ImageRenderDebugOptions;
 }
 
 const hashString = (value: string) => {
@@ -374,9 +382,9 @@ export const normalizeCanvasImageRenderState = (
   const migratedCarrierTransforms =
     explicitCarrierTransforms.length > 0
       ? explicitCarrierTransforms
-      : rawEffects
-          .filter(isLegacyAsciiEffectNode)
-          .map((effect) => mapLegacyAsciiEffectToCarrierTransform(effect));
+      : rawEffects.flatMap((effect) =>
+          isLegacyAsciiEffectNode(effect) ? [mapLegacyAsciiEffectToCarrierTransform(effect)] : []
+        );
 
   return {
     ...cloneImageRenderValue({

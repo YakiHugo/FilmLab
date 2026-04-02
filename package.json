@@ -6,7 +6,6 @@
   "scripts": {
     "generate:shaders": "tsx scripts/generate-shaders.ts",
     "generate:stock-luts": "python scripts/generate_stock_luts.py",
-    "baseline:render": "tsx scripts/render-baseline.ts",
     "dev": "pnpm run generate:shaders && concurrently -n server,client -c cyan,yellow \"pnpm run dev:server\" \"pnpm run dev:client\"",
     "dev:client": "vite",
     "dev:server": "pnpm --filter server dev",

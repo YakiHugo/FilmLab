@@ -141,7 +141,9 @@ export const normalizeNode = (node: CanvasPersistedNode | CanvasNode): CanvasPer
     locked: node.locked,
     visible: node.visible,
     assetId: node.assetId,
-    renderState: normalizeCanvasImageRenderState(clone(node.renderState)),
+    renderState: node.renderState
+      ? normalizeCanvasImageRenderState(clone(node.renderState))
+      : undefined,
   };
 };
 
