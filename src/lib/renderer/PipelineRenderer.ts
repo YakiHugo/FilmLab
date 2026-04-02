@@ -46,7 +46,21 @@ import { CURVE_LUT_SIZE, buildCurveLutPixels, createIdentityCurvePixels } from "
 import { encodeCurveLutToBytes, encodeCurveLutToHalfFloats } from "./CurveLutEncoding";
 import { runPostProcessing } from "./RenderPostProcessing";
 import { generateMaskTexture as generateLayerMaskTexture } from "@/lib/layerMaskTexture";
+import { clamp } from "@/lib/math";
+import {
+  clampFilter2dValue,
+  hasFilter2dPostProcessing,
+  resolveBlurRadiusPx,
+  resolveDilateRadiusPx,
+  type Filter2dPostProcessingParams,
+} from "@/lib/filter2dShared";
+import {
+  hasLocalMaskRangeConstraints,
+  resolveLocalMaskColorRange,
+  resolveLocalMaskLumaRange,
+} from "@/lib/localMaskShared";
 import type { EditorLayerBlendMode, EditorLayerMask } from "@/types";
+import type { LocalAdjustmentMask } from "@/types";
 import type {
   CurveUniforms,
   DetailUniforms,
@@ -96,6 +110,12 @@ export interface LinearRenderResult {
   height: number;
   format: "RGBA8" | "RGBA16F";
   release: () => void;
+}
+
+interface TexturePresentOptions {
+  inputLinear?: boolean;
+  applyToneMap?: boolean;
+  enableDither?: boolean;
 }
 
 interface PassCpuMs {
@@ -469,15 +489,43 @@ export class PipelineRenderer {
     };
   }
 
-  private drawLinearToCanvas(
+  private drawTextureToCanvas(
     texture: WebGLTexture,
     width: number,
     height: number,
-    format: "RGBA8" | "RGBA16F"
+    format: "RGBA8" | "RGBA16F",
+    options?: TexturePresentOptions
   ): void {
+    this.outputEncodeUniforms.u_inputLinear = options?.inputLinear ?? true;
     this.outputEncodeUniforms.u_outputSize[0] = this.lastTargetWidth;
     this.outputEncodeUniforms.u_outputSize[1] = this.lastTargetHeight;
-    this.outputEncodeUniforms.u_enableDither = true;
+    this.outputEncodeUniforms.u_enableDither = options?.enableDither ?? true;
+    this.outputEncodeUniforms.u_applyToneMap = options?.applyToneMap ?? false;
+    if (!this.outputEncodeUniforms.u_inputLinear && !this.outputEncodeUniforms.u_enableDither) {
+      this.filterPipeline.runToCanvas({
+        baseWidth: this.lastTargetWidth,
+        baseHeight: this.lastTargetHeight,
+        passes: [
+          {
+            id: "output-display-passthrough",
+            programInfo: this.programs.passthrough,
+            uniforms: {},
+            enabled: true,
+          },
+        ],
+        input: {
+          texture,
+          width,
+          height,
+          format,
+        },
+        canvasOutput: {
+          width: this.lastTargetWidth,
+          height: this.lastTargetHeight,
+        },
+      });
+      return;
+    }
     this.filterPipeline.runToCanvas({
       baseWidth: this.lastTargetWidth,
       baseHeight: this.lastTargetHeight,
@@ -506,7 +554,367 @@ export class PipelineRenderer {
     if (this.destroyed || this.contextLost) {
       return;
     }
-    this.drawLinearToCanvas(result.texture, result.width, result.height, result.format);
+    this.drawTextureToCanvas(result.texture, result.width, result.height, result.format);
+  }
+
+  presentTextureResult(result: LinearRenderResult, options?: TexturePresentOptions): void {
+    if (this.destroyed || this.contextLost) {
+      return;
+    }
+    this.drawTextureToCanvas(result.texture, result.width, result.height, result.format, options);
+  }
+
+  applyFilter2dSource(
+    source: TexImageSource,
+    sourceWidth: number,
+    sourceHeight: number,
+    params: Filter2dPostProcessingParams
+  ): boolean {
+    if (this.destroyed || this.contextLost) {
+      return false;
+    }
+
+    const targetWidth = Math.max(1, Math.round(sourceWidth));
+    const targetHeight = Math.max(1, Math.round(sourceHeight));
+    const shortEdge = Math.min(targetWidth, targetHeight);
+    if (!hasFilter2dPostProcessing(params)) {
+      try {
+        const passthrough = this.captureLinearSource(
+          source,
+          targetWidth,
+          targetHeight,
+          targetWidth,
+          targetHeight,
+          {
+            decodeSrgb: false,
+          }
+        );
+        try {
+          this.presentTextureResult(passthrough, {
+            inputLinear: false,
+            enableDither: false,
+          });
+          return true;
+        } finally {
+          passthrough.release();
+        }
+      } catch {
+        return false;
+      }
+    }
+
+    this.updateSource(source, targetWidth, targetHeight, targetWidth, targetHeight);
+    if (!this.currentSourceTexture) {
+      return false;
+    }
+
+    const brightnessFactor = Math.max(
+      0,
+      1 + clampFilter2dValue(params.brightness, -100, 100) / 100
+    );
+    const hueRadians = (clampFilter2dValue(params.hue, -100, 100) / 100) * Math.PI;
+    const blurRadius = resolveBlurRadiusPx(params.blur, shortEdge);
+    const dilateRadius = resolveDilateRadiusPx(params.dilate, shortEdge);
+    const blurDirectionH = new Float32Array([1 / targetWidth, 0]);
+    const blurDirectionV = new Float32Array([0, 1 / targetHeight]);
+    const dilateTexelSize = new Float32Array([1 / targetWidth, 1 / targetHeight]);
+
+    const passes = [
+      {
+        id: "filter2d-adjust",
+        programInfo: this.programs.filter2dAdjust,
+        uniforms: {
+          u_brightness: brightnessFactor,
+          u_hueRadians: hueRadians,
+        },
+        outputFormat: this.intermediateFormat,
+        enabled: Math.abs(params.brightness) > 0.001 || Math.abs(params.hue) > 0.001,
+      },
+      {
+        id: "filter2d-blur-h",
+        programInfo: this.programs.blur,
+        uniforms: {
+          u_blurDirection: blurDirectionH,
+          u_blurRadius: Math.max(blurRadius, 1),
+        },
+        outputFormat: this.intermediateFormat,
+        enabled: blurRadius > 0.001,
+      },
+      {
+        id: "filter2d-blur-v",
+        programInfo: this.programs.blur,
+        uniforms: {
+          u_blurDirection: blurDirectionV,
+          u_blurRadius: Math.max(blurRadius, 1),
+        },
+        outputFormat: this.intermediateFormat,
+        enabled: blurRadius > 0.001,
+      },
+      {
+        id: "filter2d-dilate",
+        programInfo: this.programs.dilate,
+        uniforms: {
+          u_texelSize: dilateTexelSize,
+          u_radius: dilateRadius,
+        },
+        outputFormat: this.intermediateFormat,
+        enabled: dilateRadius > 0,
+      },
+    ];
+
+    try {
+      const result = this.filterPipeline.runToTexture({
+        baseWidth: targetWidth,
+        baseHeight: targetHeight,
+        passes: [...passes],
+        input: {
+          texture: this.currentSourceTexture,
+          width: targetWidth,
+          height: targetHeight,
+          format: "RGBA8",
+        },
+      });
+      try {
+        this.presentTextureResult(result, {
+          inputLinear: false,
+          enableDither: false,
+        });
+      } finally {
+        result.release();
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  applyLocalMaskRangeGateSource(
+    referenceSource: TexImageSource,
+    referenceWidth: number,
+    referenceHeight: number,
+    maskSource: TexImageSource,
+    maskWidth: number,
+    maskHeight: number,
+    mask: LocalAdjustmentMask
+  ): boolean {
+    if (this.destroyed || this.contextLost) {
+      return false;
+    }
+    if (!hasLocalMaskRangeConstraints(mask)) {
+      return true;
+    }
+
+    const targetWidth = Math.max(1, Math.round(maskWidth));
+    const targetHeight = Math.max(1, Math.round(maskHeight));
+    this.updateSource(referenceSource, referenceWidth, referenceHeight, targetWidth, targetHeight);
+    if (!this.currentSourceTexture) {
+      return false;
+    }
+
+    const maskTexture = twgl.createTexture(this.gl, {
+      target: this.gl.TEXTURE_2D,
+      src: maskSource,
+      min: this.gl.LINEAR,
+      mag: this.gl.LINEAR,
+      wrapS: this.gl.CLAMP_TO_EDGE,
+      wrapT: this.gl.CLAMP_TO_EDGE,
+      auto: false,
+    });
+    const lumaRange = resolveLocalMaskLumaRange(mask);
+    const colorRange = resolveLocalMaskColorRange(mask);
+    const useLumaRange = !(lumaRange.min <= 0.0001 && lumaRange.max >= 0.9999);
+    const useColorRange = !(colorRange.hueRange >= 179.999 && colorRange.satMin <= 1e-4);
+
+    try {
+      const result = this.filterPipeline.runToTexture({
+        baseWidth: targetWidth,
+        baseHeight: targetHeight,
+        passes: [
+          {
+            id: "local-mask-range-gate",
+            programInfo: this.programs.localMaskRangeGate,
+            uniforms: {
+              u_useLumaRange: useLumaRange,
+              u_lumaMin: lumaRange.min,
+              u_lumaMax: lumaRange.max,
+              u_lumaFeather: lumaRange.feather,
+              u_useColorRange: useColorRange,
+              u_hueCenter: colorRange.hueCenter,
+              u_hueRange: colorRange.hueRange,
+              u_hueFeather: colorRange.hueFeather,
+              u_satMin: colorRange.satMin,
+              u_satFeather: colorRange.satFeather,
+            },
+            extraTextures: {
+              u_mask: maskTexture,
+            },
+            outputFormat: this.intermediateFormat,
+            enabled: true,
+          },
+        ],
+        input: {
+          texture: this.currentSourceTexture,
+          width: targetWidth,
+          height: targetHeight,
+          format: "RGBA8",
+        },
+      });
+      try {
+        this.presentTextureResult(result, {
+          inputLinear: false,
+          enableDither: false,
+        });
+      } finally {
+        result.release();
+      }
+      return true;
+    } catch {
+      return false;
+    } finally {
+      this.gl.deleteTexture(maskTexture);
+    }
+  }
+
+  renderLocalMaskShape(
+    mask: LocalAdjustmentMask,
+    targetWidth: number,
+    targetHeight: number,
+    options?: {
+      fullWidth?: number;
+      fullHeight?: number;
+      offsetX?: number;
+      offsetY?: number;
+    }
+  ): boolean {
+    if (this.destroyed || this.contextLost || mask.mode === "brush") {
+      return false;
+    }
+
+    const safeTargetWidth = Math.max(1, Math.round(targetWidth));
+    const safeTargetHeight = Math.max(1, Math.round(targetHeight));
+    if (safeTargetWidth !== this.lastTargetWidth || safeTargetHeight !== this.lastTargetHeight) {
+      this.canvasElement.width = safeTargetWidth;
+      this.canvasElement.height = safeTargetHeight;
+      this.gl.viewport(0, 0, safeTargetWidth, safeTargetHeight);
+      this.lastTargetWidth = safeTargetWidth;
+      this.lastTargetHeight = safeTargetHeight;
+    }
+
+    const fullWidth = Math.max(1, Math.round(options?.fullWidth ?? safeTargetWidth));
+    const fullHeight = Math.max(1, Math.round(options?.fullHeight ?? safeTargetHeight));
+    const offsetX = options?.offsetX ?? 0;
+    const offsetY = options?.offsetY ?? 0;
+    const localX = (value: number) =>
+      (clamp(value, 0, 1) * fullWidth - offsetX) / safeTargetWidth;
+    const localY = (value: number) =>
+      (clamp(value, 0, 1) * fullHeight - offsetY) / safeTargetHeight;
+    const linearStart = new Float32Array([localX(mask.mode === "linear" ? mask.startX : 0), localY(mask.mode === "linear" ? mask.startY : 0)]);
+    const linearEnd = new Float32Array([localX(mask.mode === "linear" ? mask.endX : 0), localY(mask.mode === "linear" ? mask.endY : 0)]);
+    if (
+      mask.mode === "linear" &&
+      (linearEnd[0] - linearStart[0]) * (linearEnd[0] - linearStart[0]) +
+        (linearEnd[1] - linearStart[1]) * (linearEnd[1] - linearStart[1]) <
+        1e-6
+    ) {
+      linearEnd[1] += 1 / safeTargetHeight;
+    }
+
+    const pass =
+      mask.mode === "linear"
+        ? {
+            id: "local-mask-shape-linear",
+            programInfo: this.programs.linearGradientMask,
+            uniforms: {
+              u_start: linearStart,
+              u_end: linearEnd,
+              u_feather: clamp(mask.feather, 0, 1),
+              u_invert: Boolean(mask.invert),
+            },
+            enabled: true,
+          }
+        : {
+            id: "local-mask-shape-radial",
+            programInfo: this.programs.radialGradientMask,
+            uniforms: {
+              u_center: new Float32Array([localX(mask.centerX), localY(mask.centerY)]),
+              u_radius: new Float32Array([
+                (Math.max(0.01, mask.radiusX) * fullWidth) / safeTargetWidth,
+                (Math.max(0.01, mask.radiusY) * fullHeight) / safeTargetHeight,
+              ]),
+              u_feather: clamp(mask.feather, 0, 1),
+              u_invert: Boolean(mask.invert),
+            },
+            enabled: true,
+          };
+
+    try {
+      this.filterPipeline.runToCanvas({
+        baseWidth: safeTargetWidth,
+        baseHeight: safeTargetHeight,
+        passes: [pass],
+        input: {
+          texture: this.fullMaskTexture,
+          width: 1,
+          height: 1,
+          format: "RGBA8",
+        },
+        canvasOutput: {
+          width: safeTargetWidth,
+          height: safeTargetHeight,
+        },
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  captureLinearSource(
+    source: TexImageSource,
+    sourceWidth: number,
+    sourceHeight: number,
+    targetWidth = sourceWidth,
+    targetHeight = sourceHeight,
+    options?: {
+      decodeSrgb?: boolean;
+    }
+  ): LinearRenderResult {
+    if (this.destroyed || this.contextLost) {
+      throw new Error("PipelineRenderer is not available.");
+    }
+
+    this.updateSource(source, sourceWidth, sourceHeight, targetWidth, targetHeight);
+    if (!this.currentSourceTexture) {
+      throw new Error("Source texture is not initialized.");
+    }
+
+    const captured = this.filterPipeline.runToTexture({
+      baseWidth: this.lastTargetWidth,
+      baseHeight: this.lastTargetHeight,
+      passes: [
+        {
+          id: "capture-linear-source",
+          programInfo: options?.decodeSrgb === false ? this.programs.passthrough : this.programs.inputDecode,
+          uniforms: {},
+          outputFormat: this.intermediateFormat,
+          enabled: true,
+        },
+      ],
+      input: {
+        texture: this.currentSourceTexture,
+        width: this.lastTargetWidth,
+        height: this.lastTargetHeight,
+        format: "RGBA8",
+      },
+    });
+
+    return {
+      texture: captured.texture,
+      width: captured.width,
+      height: captured.height,
+      format: captured.format,
+      release: captured.release,
+    };
   }
 
   generateMaskTexture(
@@ -878,7 +1286,7 @@ export class PipelineRenderer {
       captureLinearOutput: Boolean(options?.captureLinearOutput),
       captureLinearResult: (result) => this.setCapturedLinearResult(result),
       drawLinearToCanvas: (texture, width, height, format) =>
-        this.drawLinearToCanvas(texture, width, height, format),
+        this.drawTextureToCanvas(texture, width, height, format),
     });
 
     const filterChainMs = Math.max(

@@ -10,7 +10,7 @@ uniform float u_feather;
 uniform bool u_invert;
 
 void main() {
-  vec2 center = clamp(u_center, vec2(0.0), vec2(1.0));
+  vec2 center = u_center;
   vec2 radius = max(vec2(0.0001), u_radius);
   vec2 delta = (vTextureCoord - center) / radius;
   float dist = length(delta);
