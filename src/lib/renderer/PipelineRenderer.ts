@@ -47,6 +47,7 @@ import { encodeCurveLutToBytes, encodeCurveLutToHalfFloats } from "./CurveLutEnc
 import { runPostProcessing } from "./RenderPostProcessing";
 import { generateMaskTexture as generateLayerMaskTexture } from "@/lib/layerMaskTexture";
 import { clamp } from "@/lib/math";
+import type { TimestampOverlayGpuInput } from "@/lib/timestampOverlay";
 import {
   clampFilter2dValue,
   hasFilter2dPostProcessing,
@@ -154,6 +155,90 @@ interface LayerBlendOptions {
   invertMask?: boolean;
 }
 
+interface AsciiTextmodeSurfaceInput {
+  cacheKey: string;
+  width: number;
+  height: number;
+  cellWidth: number;
+  cellHeight: number;
+  columns: number;
+  rows: number;
+  renderMode: "glyph" | "dot";
+  backgroundFillRgba: Uint8ClampedArray | null;
+  backgroundSourceCanvas: HTMLCanvasElement | null;
+  backgroundBlurPx: number;
+  foregroundBlendMode: GlobalCompositeOperation;
+  gridOverlay: boolean;
+  gridOverlayAlpha: number;
+  charset: readonly string[];
+  emptyGlyphIndex: number;
+  glyphIndexByCell: Uint16Array;
+  foregroundRgbaByCell: Uint8ClampedArray;
+  backgroundRgbaByCell: Uint8ClampedArray;
+  dotRadiusByCell: Float32Array;
+}
+
+interface AsciiGpuCarrierInput {
+  width: number;
+  height: number;
+  cellWidth: number;
+  cellHeight: number;
+  columns: number;
+  rows: number;
+  renderMode: "glyph" | "dot";
+  colorMode: "grayscale" | "full-color" | "duotone";
+  density: number;
+  coverage: number;
+  edgeEmphasis: number;
+  brightness: number;
+  contrast: number;
+  foregroundOpacity: number;
+  foregroundBlendMode: GlobalCompositeOperation;
+  backgroundMode: "none" | "solid" | "cell-solid" | "blurred-source";
+  backgroundOpacity: number;
+  backgroundFillRgba: Uint8ClampedArray | null;
+  cellBackgroundRgba: Uint8ClampedArray | null;
+  backgroundSourceCanvas: HTMLCanvasElement | null;
+  backgroundBlurPx: number;
+  invert: boolean;
+  gridOverlay: boolean;
+  gridOverlayAlpha: number;
+  charset: readonly string[];
+  sourceCanvas: HTMLCanvasElement;
+}
+
+interface GlyphAtlasInput {
+  cellWidth: number;
+  cellHeight: number;
+  charset: readonly string[];
+  fontFamily: string;
+  fontSizePx?: number;
+  fontSizeScale?: number;
+}
+
+interface AsciiBackgroundSourceInput {
+  width: number;
+  height: number;
+  backgroundSourceCanvas: HTMLCanvasElement | null;
+  backgroundBlurPx: number;
+}
+
+interface AsciiGlyphAtlasRecord {
+  texture: WebGLTexture;
+  columns: number;
+  rows: number;
+  glyphCount: number;
+}
+
+interface AsciiSurfaceTextureCacheRecord {
+  foregroundTexture: WebGLTexture;
+  backgroundTexture: WebGLTexture;
+  glyphIndexTexture: WebGLTexture;
+  dotRadiusTexture: WebGLTexture;
+}
+
+type AsciiTextmodeLayerKind = "background" | "foreground";
+
 const LAYER_BLEND_MODE_MAP: Record<EditorLayerBlendMode, number> = {
   normal: 0,
   multiply: 1,
@@ -161,6 +246,8 @@ const LAYER_BLEND_MODE_MAP: Record<EditorLayerBlendMode, number> = {
   overlay: 3,
   softLight: 4,
 };
+
+const ASCII_GPU_EMPTY_GLYPH_INDEX = 255;
 
 const NO_OP_METRICS: PipelineRenderMetrics = {
   totalMs: 0,
@@ -227,6 +314,10 @@ export class PipelineRenderer {
   private readonly texturePool: TexturePool;
   private readonly filterPipeline: FilterPipeline;
   private readonly lutCache = new LUTCache(12);
+  private readonly asciiGlyphAtlasCache = new Map<string, AsciiGlyphAtlasRecord>();
+  private asciiGlyphAtlasLru: string[] = [];
+  private readonly asciiSurfaceTextureCache = new Map<string, AsciiSurfaceTextureCacheRecord>();
+  private asciiSurfaceTextureLru: string[] = [];
   private readonly rendererLabel: "preview" | "export";
   private readonly maxTextureSizeValue: number;
   private readonly intermediateFormat: "RGBA8" | "RGBA16F";
@@ -1003,6 +1094,774 @@ export class PipelineRenderer {
     };
   }
 
+  private hasVisibleAsciiCellData(data: Uint8ClampedArray): boolean {
+    for (let index = 3; index < data.length; index += 4) {
+      if ((data[index] ?? 0) > 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private createAsciiRgbaTexture(
+    data: Uint8Array | Uint8ClampedArray,
+    width: number,
+    height: number
+  ): WebGLTexture {
+    return twgl.createTexture(this.gl, {
+      target: this.gl.TEXTURE_2D,
+      src: data,
+      width,
+      height,
+      internalFormat: this.gl.RGBA8,
+      format: this.gl.RGBA,
+      type: this.gl.UNSIGNED_BYTE,
+      min: this.gl.NEAREST,
+      mag: this.gl.NEAREST,
+      wrapS: this.gl.CLAMP_TO_EDGE,
+      wrapT: this.gl.CLAMP_TO_EDGE,
+      auto: false,
+    });
+  }
+
+  private releaseAsciiSurfaceTextureCacheRecord(record: AsciiSurfaceTextureCacheRecord): void {
+    this.gl.deleteTexture(record.foregroundTexture);
+    this.gl.deleteTexture(record.backgroundTexture);
+    this.gl.deleteTexture(record.glyphIndexTexture);
+    this.gl.deleteTexture(record.dotRadiusTexture);
+  }
+
+  private pruneAsciiSurfaceTextureCache(maxEntries = 4): void {
+    while (this.asciiSurfaceTextureLru.length > maxEntries) {
+      const oldestKey = this.asciiSurfaceTextureLru.shift();
+      if (!oldestKey) {
+        break;
+      }
+      const record = this.asciiSurfaceTextureCache.get(oldestKey);
+      if (!record) {
+        continue;
+      }
+      this.releaseAsciiSurfaceTextureCacheRecord(record);
+      this.asciiSurfaceTextureCache.delete(oldestKey);
+    }
+  }
+
+  private createAsciiSurfaceTextureCacheRecord(
+    surface: AsciiTextmodeSurfaceInput
+  ): AsciiSurfaceTextureCacheRecord {
+    return {
+      foregroundTexture: this.createAsciiRgbaTexture(
+        surface.foregroundRgbaByCell,
+        surface.columns,
+        surface.rows
+      ),
+      backgroundTexture: this.createAsciiRgbaTexture(
+        surface.backgroundRgbaByCell,
+        surface.columns,
+        surface.rows
+      ),
+      glyphIndexTexture: this.createAsciiRgbaTexture(
+        this.buildAsciiGlyphIndexTextureData(surface),
+        surface.columns,
+        surface.rows
+      ),
+      dotRadiusTexture: this.createAsciiRgbaTexture(
+        this.buildAsciiDotRadiusTextureData(surface),
+        surface.columns,
+        surface.rows
+      ),
+    };
+  }
+
+  private getAsciiSurfaceTextureCacheRecord(
+    surface: AsciiTextmodeSurfaceInput
+  ): AsciiSurfaceTextureCacheRecord {
+    const cacheKey = surface.cacheKey.trim();
+    if (!cacheKey) {
+      return this.createAsciiSurfaceTextureCacheRecord(surface);
+    }
+
+    const cached = this.asciiSurfaceTextureCache.get(cacheKey);
+    if (cached) {
+      this.asciiSurfaceTextureLru = [
+        cacheKey,
+        ...this.asciiSurfaceTextureLru.filter((key) => key !== cacheKey),
+      ];
+      return cached;
+    }
+
+    const created = this.createAsciiSurfaceTextureCacheRecord(surface);
+
+    this.asciiSurfaceTextureCache.set(cacheKey, created);
+    this.asciiSurfaceTextureLru = [
+      cacheKey,
+      ...this.asciiSurfaceTextureLru.filter((key) => key !== cacheKey),
+    ];
+    this.pruneAsciiSurfaceTextureCache();
+    return created;
+  }
+
+  private buildAsciiGlyphIndexTextureData(surface: AsciiTextmodeSurfaceInput): Uint8Array {
+    const cellCount = surface.columns * surface.rows;
+    const data = new Uint8Array(cellCount * 4);
+    for (let cellIndex = 0; cellIndex < cellCount; cellIndex += 1) {
+      const glyphIndex = surface.glyphIndexByCell[cellIndex] ?? surface.emptyGlyphIndex;
+      data[cellIndex * 4] =
+        glyphIndex === surface.emptyGlyphIndex ? ASCII_GPU_EMPTY_GLYPH_INDEX : Math.min(254, glyphIndex);
+      data[cellIndex * 4 + 3] = 255;
+    }
+    return data;
+  }
+
+  private buildAsciiDotRadiusTextureData(surface: AsciiTextmodeSurfaceInput): Uint8Array {
+    const cellCount = surface.columns * surface.rows;
+    const data = new Uint8Array(cellCount * 4);
+    for (let cellIndex = 0; cellIndex < cellCount; cellIndex += 1) {
+      data[cellIndex * 4] = Math.round(clamp(surface.dotRadiusByCell[cellIndex] ?? 0, 0, 255));
+      data[cellIndex * 4 + 3] = 255;
+    }
+    return data;
+  }
+
+  private releaseAsciiGlyphAtlasRecord(record: AsciiGlyphAtlasRecord): void {
+    this.gl.deleteTexture(record.texture);
+  }
+
+  private pruneAsciiGlyphAtlasCache(maxEntries = 16): void {
+    while (this.asciiGlyphAtlasLru.length > maxEntries) {
+      const oldestKey = this.asciiGlyphAtlasLru.shift();
+      if (!oldestKey) {
+        break;
+      }
+      const record = this.asciiGlyphAtlasCache.get(oldestKey);
+      if (!record) {
+        continue;
+      }
+      this.releaseAsciiGlyphAtlasRecord(record);
+      this.asciiGlyphAtlasCache.delete(oldestKey);
+    }
+  }
+
+  private getGlyphAtlas(surface: GlyphAtlasInput): AsciiGlyphAtlasRecord {
+    const key = [
+      surface.fontFamily,
+      surface.fontSizePx ?? "",
+      surface.fontSizeScale ?? "",
+      `${surface.cellWidth}x${surface.cellHeight}`,
+      surface.charset.join(""),
+    ].join(":");
+    const cached = this.asciiGlyphAtlasCache.get(key);
+    if (cached) {
+      this.asciiGlyphAtlasLru = [key, ...this.asciiGlyphAtlasLru.filter((candidate) => candidate !== key)];
+      return cached;
+    }
+
+    const glyphCount = Math.max(1, surface.charset.length);
+    const columns = Math.max(1, Math.ceil(Math.sqrt(glyphCount)));
+    const rows = Math.max(1, Math.ceil(glyphCount / columns));
+    const atlasCanvas = document.createElement("canvas");
+    atlasCanvas.width = Math.max(1, columns * surface.cellWidth);
+    atlasCanvas.height = Math.max(1, rows * surface.cellHeight);
+    const context = atlasCanvas.getContext("2d", { willReadFrequently: true });
+    if (!context) {
+      atlasCanvas.width = 0;
+      atlasCanvas.height = 0;
+      throw new Error("Failed to acquire ASCII glyph atlas context.");
+    }
+
+    context.clearRect(0, 0, atlasCanvas.width, atlasCanvas.height);
+    context.fillStyle = "#ffffff";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.font = `${Math.max(
+      6,
+      Math.round(surface.fontSizePx ?? surface.cellHeight * (surface.fontSizeScale ?? 0.9))
+    )}px ${surface.fontFamily}`;
+
+    for (let glyphIndex = 0; glyphIndex < surface.charset.length; glyphIndex += 1) {
+      const glyph = surface.charset[glyphIndex] ?? "";
+      if (!glyph || glyph === " ") {
+        continue;
+      }
+      const column = glyphIndex % columns;
+      const row = Math.floor(glyphIndex / columns);
+      const x = column * surface.cellWidth + surface.cellWidth / 2;
+      const y = row * surface.cellHeight + surface.cellHeight / 2;
+      context.fillText(glyph, x, y);
+    }
+
+    const texture = twgl.createTexture(this.gl, {
+      target: this.gl.TEXTURE_2D,
+      src: atlasCanvas,
+      min: this.gl.LINEAR,
+      mag: this.gl.LINEAR,
+      wrapS: this.gl.CLAMP_TO_EDGE,
+      wrapT: this.gl.CLAMP_TO_EDGE,
+      auto: false,
+    });
+    atlasCanvas.width = 0;
+    atlasCanvas.height = 0;
+
+    const record = {
+      texture,
+      columns,
+      rows,
+      glyphCount,
+    };
+    this.asciiGlyphAtlasCache.set(key, record);
+    this.asciiGlyphAtlasLru = [key, ...this.asciiGlyphAtlasLru.filter((candidate) => candidate !== key)];
+    this.pruneAsciiGlyphAtlasCache();
+    return record;
+  }
+
+  private renderAsciiBackgroundSourceLayer(
+    surface: AsciiBackgroundSourceInput
+  ): LinearRenderResult | null {
+    if (!surface.backgroundSourceCanvas) {
+      return null;
+    }
+
+    const captured = this.captureLinearSource(
+      surface.backgroundSourceCanvas,
+      surface.width,
+      surface.height,
+      surface.width,
+      surface.height,
+      {
+        decodeSrgb: false,
+      }
+    );
+
+    if (surface.backgroundBlurPx <= 0.001) {
+      return captured;
+    }
+
+    const blurDirectionH = new Float32Array([1 / surface.width, 0]);
+    const blurDirectionV = new Float32Array([0, 1 / surface.height]);
+
+    try {
+      const blurred = this.filterPipeline.runToTexture({
+        baseWidth: surface.width,
+        baseHeight: surface.height,
+        passes: [
+          {
+            id: "ascii-background-blur-h",
+            programInfo: this.programs.blur,
+            uniforms: {
+              u_blurDirection: blurDirectionH,
+              u_blurRadius: Math.max(surface.backgroundBlurPx, 1),
+            },
+            outputFormat: this.intermediateFormat,
+            enabled: true,
+          },
+          {
+            id: "ascii-background-blur-v",
+            programInfo: this.programs.blur,
+            uniforms: {
+              u_blurDirection: blurDirectionV,
+              u_blurRadius: Math.max(surface.backgroundBlurPx, 1),
+            },
+            outputFormat: this.intermediateFormat,
+            enabled: true,
+          },
+        ],
+        input: {
+          texture: captured.texture,
+          width: captured.width,
+          height: captured.height,
+          format: captured.format,
+        },
+      });
+      return {
+        texture: blurred.texture,
+        width: blurred.width,
+        height: blurred.height,
+        format: blurred.format,
+        release: blurred.release,
+      };
+    } finally {
+      captured.release();
+    }
+  }
+
+  private renderAsciiTextmodeLayer(
+    surface: AsciiTextmodeSurfaceInput,
+    layerKind: AsciiTextmodeLayerKind
+  ): LinearRenderResult | null {
+    const hasBackground =
+      Boolean(surface.backgroundFillRgba) ||
+      Boolean(surface.backgroundSourceCanvas) ||
+      this.hasVisibleAsciiCellData(surface.backgroundRgbaByCell);
+    const hasForeground =
+      this.hasVisibleAsciiCellData(surface.foregroundRgbaByCell) || surface.gridOverlay;
+    if ((layerKind === "background" && !hasBackground) || (layerKind === "foreground" && !hasForeground)) {
+      return null;
+    }
+
+    const glyphAtlas =
+      layerKind === "foreground" && surface.renderMode === "glyph"
+        ? this.getGlyphAtlas({
+            cellWidth: surface.cellWidth,
+            cellHeight: surface.cellHeight,
+            charset: surface.charset,
+            fontFamily: "monospace",
+            fontSizeScale: 0.9,
+          })
+        : {
+            texture: this.emptyMaskTexture,
+            columns: 1,
+            rows: 1,
+            glyphCount: 0,
+          };
+    const cacheKey = surface.cacheKey.trim();
+    const usesCachedTextures = cacheKey.length > 0;
+    const textureRecord = this.getAsciiSurfaceTextureCacheRecord(surface);
+    const backgroundSourceLayer =
+      layerKind === "background" ? this.renderAsciiBackgroundSourceLayer(surface) : null;
+    const backgroundSourceTexture = backgroundSourceLayer?.texture ?? this.emptyMaskTexture;
+
+    try {
+      const rendered = this.filterPipeline.runToTexture({
+        baseWidth: surface.width,
+        baseHeight: surface.height,
+        passes: [
+          {
+            id: `ascii-textmode-${layerKind}`,
+            programInfo: this.programs.asciiTextmode,
+            uniforms: {
+              u_canvasSize: new Float32Array([surface.width, surface.height]),
+              u_gridSize: new Float32Array([surface.columns, surface.rows]),
+              u_cellSize: new Float32Array([surface.cellWidth, surface.cellHeight]),
+              u_glyphAtlasGrid: new Float32Array([glyphAtlas.columns, glyphAtlas.rows]),
+              u_backgroundFill: surface.backgroundFillRgba
+                ? new Float32Array([
+                    (surface.backgroundFillRgba[0] ?? 0) / 255,
+                    (surface.backgroundFillRgba[1] ?? 0) / 255,
+                    (surface.backgroundFillRgba[2] ?? 0) / 255,
+                    (surface.backgroundFillRgba[3] ?? 0) / 255,
+                  ])
+                : new Float32Array([0, 0, 0, 0]),
+              u_emptyGlyphIndex: ASCII_GPU_EMPTY_GLYPH_INDEX,
+              u_glyphCount: glyphAtlas.glyphCount,
+              u_layerMode: layerKind === "background" ? 0 : 1,
+              u_renderMode: surface.renderMode === "dot" ? 1 : 0,
+              u_useBackgroundCanvas: Boolean(backgroundSourceLayer),
+              u_useBackgroundFill: Boolean(surface.backgroundFillRgba),
+              u_gridOverlay: surface.gridOverlay,
+              u_gridOverlayAlpha: surface.gridOverlayAlpha,
+            },
+            extraTextures: {
+              u_backgroundCanvas: backgroundSourceTexture,
+              u_cellForeground: textureRecord.foregroundTexture,
+              u_cellBackground: textureRecord.backgroundTexture,
+              u_cellGlyphIndex: textureRecord.glyphIndexTexture,
+              u_cellDotRadius: textureRecord.dotRadiusTexture,
+              u_glyphAtlas: glyphAtlas.texture,
+            },
+            outputFormat: "RGBA8",
+            enabled: true,
+          },
+        ],
+        input: {
+          texture: this.emptyMaskTexture,
+          width: 1,
+          height: 1,
+          format: "RGBA8",
+        },
+      });
+
+      return {
+        texture: rendered.texture,
+        width: rendered.width,
+        height: rendered.height,
+        format: rendered.format,
+        release: rendered.release,
+      };
+    } finally {
+      backgroundSourceLayer?.release();
+      if (!usesCachedTextures) {
+        this.releaseAsciiSurfaceTextureCacheRecord(textureRecord);
+      }
+    }
+  }
+
+  private renderAsciiCarrierLayer(
+    carrier: AsciiGpuCarrierInput,
+    layerKind: AsciiTextmodeLayerKind,
+    analysisGrid: LinearRenderResult
+  ): LinearRenderResult | null {
+    const hasBackground =
+      Boolean(carrier.backgroundFillRgba) ||
+      Boolean(carrier.backgroundSourceCanvas) ||
+      Boolean(carrier.cellBackgroundRgba);
+    const hasForeground = carrier.foregroundOpacity > 0.001 || carrier.gridOverlay;
+    if ((layerKind === "background" && !hasBackground) || (layerKind === "foreground" && !hasForeground)) {
+      return null;
+    }
+
+    const glyphAtlas =
+      layerKind === "foreground" && carrier.renderMode === "glyph"
+        ? this.getGlyphAtlas({
+            cellWidth: carrier.cellWidth,
+            cellHeight: carrier.cellHeight,
+            charset: carrier.charset,
+            fontFamily: "monospace",
+            fontSizeScale: 0.9,
+          })
+        : {
+            texture: this.emptyMaskTexture,
+            columns: 1,
+            rows: 1,
+            glyphCount: 0,
+          };
+    const backgroundSourceLayer =
+      layerKind === "background" ? this.renderAsciiBackgroundSourceLayer(carrier) : null;
+    const backgroundSourceTexture = backgroundSourceLayer?.texture ?? this.emptyMaskTexture;
+    const backgroundFill =
+      carrier.backgroundFillRgba
+        ? new Float32Array([
+            (carrier.backgroundFillRgba[0] ?? 0) / 255,
+            (carrier.backgroundFillRgba[1] ?? 0) / 255,
+            (carrier.backgroundFillRgba[2] ?? 0) / 255,
+            (carrier.backgroundFillRgba[3] ?? 0) / 255,
+          ])
+        : new Float32Array([0, 0, 0, 0]);
+    const cellBackground =
+      carrier.cellBackgroundRgba
+        ? new Float32Array([
+            (carrier.cellBackgroundRgba[0] ?? 0) / 255,
+            (carrier.cellBackgroundRgba[1] ?? 0) / 255,
+            (carrier.cellBackgroundRgba[2] ?? 0) / 255,
+            (carrier.cellBackgroundRgba[3] ?? 0) / 255,
+          ])
+        : new Float32Array([0, 0, 0, 0]);
+
+    try {
+      const rendered = this.filterPipeline.runToTexture({
+        baseWidth: carrier.width,
+        baseHeight: carrier.height,
+        passes: [
+          {
+            id: `ascii-carrier-${layerKind}`,
+            programInfo: this.programs.asciiCarrier,
+            uniforms: {
+              u_canvasSize: new Float32Array([carrier.width, carrier.height]),
+              u_gridSize: new Float32Array([carrier.columns, carrier.rows]),
+              u_cellSize: new Float32Array([carrier.cellWidth, carrier.cellHeight]),
+              u_glyphAtlasGrid: new Float32Array([glyphAtlas.columns, glyphAtlas.rows]),
+              u_backgroundFill: backgroundFill,
+              u_cellBackgroundColor: cellBackground,
+              u_glyphCount: glyphAtlas.glyphCount,
+              u_layerMode: layerKind === "background" ? 0 : 1,
+              u_renderMode: carrier.renderMode === "dot" ? 1 : 0,
+              u_colorMode:
+                carrier.colorMode === "duotone" ? 2 : carrier.colorMode === "full-color" ? 1 : 0,
+              u_density: carrier.density,
+              u_coverage: carrier.coverage,
+              u_edgeEmphasis: carrier.edgeEmphasis,
+              u_brightness: carrier.brightness,
+              u_contrast: carrier.contrast,
+              u_foregroundOpacity: carrier.foregroundOpacity,
+              u_invert: carrier.invert,
+              u_useBackgroundCanvas: Boolean(backgroundSourceLayer),
+              u_useBackgroundFill: Boolean(carrier.backgroundFillRgba),
+              u_useCellBackground: Boolean(carrier.cellBackgroundRgba),
+              u_gridOverlay: carrier.gridOverlay,
+              u_gridOverlayAlpha: carrier.gridOverlayAlpha,
+            },
+            extraTextures: {
+              u_backgroundCanvas: backgroundSourceTexture,
+              u_glyphAtlas: glyphAtlas.texture,
+            },
+            outputFormat: "RGBA8",
+            enabled: true,
+          },
+        ],
+        input: {
+          texture: analysisGrid.texture,
+          width: analysisGrid.width,
+          height: analysisGrid.height,
+          format: analysisGrid.format,
+        },
+      });
+
+      return {
+        texture: rendered.texture,
+        width: rendered.width,
+        height: rendered.height,
+        format: rendered.format,
+        release: rendered.release,
+      };
+    } finally {
+      backgroundSourceLayer?.release();
+    }
+  }
+
+  renderAsciiTextmodeComposite(options: {
+    baseCanvas: HTMLCanvasElement;
+    surface: AsciiTextmodeSurfaceInput;
+    foregroundBlendMode: EditorLayerBlendMode;
+  }): boolean {
+    if (this.destroyed || this.contextLost) {
+      return false;
+    }
+
+    try {
+      let composited = this.captureLinearSource(
+        options.baseCanvas,
+        options.baseCanvas.width,
+        options.baseCanvas.height,
+        options.baseCanvas.width,
+        options.baseCanvas.height,
+        {
+          decodeSrgb: false,
+        }
+      );
+
+      try {
+        const backgroundLayer = this.renderAsciiTextmodeLayer(options.surface, "background");
+        if (backgroundLayer) {
+          try {
+            const blended = this.blendLinearLayers(composited, backgroundLayer, {
+              blendMode: "normal",
+              opacity: 1,
+            });
+            composited.release();
+            composited = blended;
+          } finally {
+            backgroundLayer.release();
+          }
+        }
+
+        const foregroundLayer = this.renderAsciiTextmodeLayer(options.surface, "foreground");
+        if (foregroundLayer) {
+          try {
+            const blended = this.blendLinearLayers(composited, foregroundLayer, {
+              blendMode: options.foregroundBlendMode,
+              opacity: 1,
+            });
+            composited.release();
+            composited = blended;
+          } finally {
+            foregroundLayer.release();
+          }
+        }
+
+        this.presentTextureResult(composited, {
+          inputLinear: false,
+          enableDither: false,
+        });
+        return true;
+      } finally {
+        composited.release();
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  renderAsciiCarrierComposite(options: {
+    baseCanvas: HTMLCanvasElement;
+    carrier: AsciiGpuCarrierInput;
+    foregroundBlendMode: EditorLayerBlendMode;
+  }): boolean {
+    if (this.destroyed || this.contextLost) {
+      return false;
+    }
+
+    try {
+      let composited = this.captureLinearSource(
+        options.baseCanvas,
+        options.baseCanvas.width,
+        options.baseCanvas.height,
+        options.baseCanvas.width,
+        options.baseCanvas.height,
+        {
+          decodeSrgb: false,
+        }
+      );
+      const analysisGrid = this.captureLinearSource(
+        options.carrier.sourceCanvas,
+        options.carrier.sourceCanvas.width,
+        options.carrier.sourceCanvas.height,
+        options.carrier.columns,
+        options.carrier.rows,
+        {
+          decodeSrgb: false,
+        }
+      );
+
+      try {
+        const backgroundLayer = this.renderAsciiCarrierLayer(options.carrier, "background", analysisGrid);
+        if (backgroundLayer) {
+          try {
+            const blended = this.blendLinearLayers(composited, backgroundLayer, {
+              blendMode: "normal",
+              opacity: 1,
+            });
+            composited.release();
+            composited = blended;
+          } finally {
+            backgroundLayer.release();
+          }
+        }
+
+        const foregroundLayer = this.renderAsciiCarrierLayer(options.carrier, "foreground", analysisGrid);
+        if (foregroundLayer) {
+          try {
+            const blended = this.blendLinearLayers(composited, foregroundLayer, {
+              blendMode: options.foregroundBlendMode,
+              opacity: 1,
+            });
+            composited.release();
+            composited = blended;
+          } finally {
+            foregroundLayer.release();
+          }
+        }
+
+        this.presentTextureResult(composited, {
+          inputLinear: false,
+          enableDither: false,
+        });
+        return true;
+      } finally {
+        analysisGrid.release();
+        composited.release();
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  private renderTimestampOverlayLayer(overlay: TimestampOverlayGpuInput): LinearRenderResult | null {
+    if (overlay.charCount <= 0) {
+      return null;
+    }
+
+    const glyphAtlas = this.getGlyphAtlas({
+      cellWidth: overlay.cellWidth,
+      cellHeight: overlay.cellHeight,
+      charset: overlay.charset,
+      fontFamily: overlay.fontFamily || "sans-serif",
+      fontSizePx: overlay.fontSizePx,
+    });
+
+    const backgroundColor = new Float32Array([
+      (overlay.backgroundColorRgba[0] ?? 0) / 255,
+      (overlay.backgroundColorRgba[1] ?? 0) / 255,
+      (overlay.backgroundColorRgba[2] ?? 0) / 255,
+      (overlay.backgroundColorRgba[3] ?? 0) / 255,
+    ]);
+    const textColor = new Float32Array([
+      (overlay.textColorRgba[0] ?? 0) / 255,
+      (overlay.textColorRgba[1] ?? 0) / 255,
+      (overlay.textColorRgba[2] ?? 0) / 255,
+      (overlay.textColorRgba[3] ?? 0) / 255,
+    ]);
+
+    const rendered = this.filterPipeline.runToTexture({
+      baseWidth: overlay.width,
+      baseHeight: overlay.height,
+      passes: [
+        {
+          id: "timestamp-overlay",
+          programInfo: this.programs.timestampOverlay,
+          uniforms: {
+            u_canvasSize: new Float32Array([overlay.width, overlay.height]),
+            u_rect: new Float32Array([
+              overlay.rectLeft,
+              overlay.rectTop,
+              overlay.rectWidth,
+              overlay.rectHeight,
+            ]),
+            u_textStart: new Float32Array([overlay.textStartX, overlay.textStartY]),
+            u_cellSize: new Float32Array([overlay.cellWidth, overlay.cellHeight]),
+            u_glyphAtlasGrid: new Float32Array([glyphAtlas.columns, glyphAtlas.rows]),
+            u_backgroundColor: backgroundColor,
+            u_textColor: textColor,
+            u_charCount: overlay.charCount,
+            u_glyphCount: glyphAtlas.glyphCount,
+            u_glyphIndices: overlay.glyphIndices,
+          },
+          extraTextures: {
+            u_glyphAtlas: glyphAtlas.texture,
+          },
+          outputFormat: "RGBA8",
+          enabled: true,
+        },
+      ],
+      input: {
+        texture: this.emptyMaskTexture,
+        width: 1,
+        height: 1,
+        format: "RGBA8",
+      },
+    });
+
+    return {
+      texture: rendered.texture,
+      width: rendered.width,
+      height: rendered.height,
+      format: rendered.format,
+      release: rendered.release,
+    };
+  }
+
+  renderTimestampOverlayComposite(options: {
+    baseCanvas: HTMLCanvasElement;
+    overlay: TimestampOverlayGpuInput;
+  }): boolean {
+    if (this.destroyed || this.contextLost) {
+      return false;
+    }
+
+    try {
+      let composited = this.captureLinearSource(
+        options.baseCanvas,
+        options.baseCanvas.width,
+        options.baseCanvas.height,
+        options.baseCanvas.width,
+        options.baseCanvas.height,
+        {
+          decodeSrgb: false,
+        }
+      );
+
+      try {
+        const overlayLayer = this.renderTimestampOverlayLayer(options.overlay);
+        if (!overlayLayer) {
+          this.presentTextureResult(composited, {
+            inputLinear: false,
+            enableDither: false,
+          });
+          return true;
+        }
+
+        try {
+          const blended = this.blendLinearLayers(composited, overlayLayer, {
+            blendMode: "normal",
+            opacity: 1,
+          });
+          composited.release();
+          composited = blended;
+        } finally {
+          overlayLayer.release();
+        }
+
+        this.presentTextureResult(composited, {
+          inputLinear: false,
+          enableDither: false,
+        });
+        return true;
+      } finally {
+        composited.release();
+      }
+    } catch {
+      return false;
+    }
+  }
+
   generateMaskTexture(
     mask: EditorLayerMask,
     width: number,
@@ -1520,6 +2379,17 @@ export class PipelineRenderer {
     this.sourceTextureCache.clear();
     this.sourceTextureLru = [];
     this.currentSourceTexture = null;
+
+    for (const atlas of this.asciiGlyphAtlasCache.values()) {
+      this.releaseAsciiGlyphAtlasRecord(atlas);
+    }
+    this.asciiGlyphAtlasCache.clear();
+    this.asciiGlyphAtlasLru = [];
+    for (const record of this.asciiSurfaceTextureCache.values()) {
+      this.releaseAsciiSurfaceTextureCacheRecord(record);
+    }
+    this.asciiSurfaceTextureCache.clear();
+    this.asciiSurfaceTextureLru = [];
 
     this.gl.deleteTexture(this.curveLutTexture);
     this.gl.deleteTexture(this.blueNoiseTexture);

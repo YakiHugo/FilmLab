@@ -32,6 +32,9 @@ import dilateFragSrc from "./shaders/Dilate.frag?raw";
 import localMaskRangeGateFragSrc from "./shaders/LocalMaskRangeGate.frag?raw";
 import brushMaskStampFragSrc from "./shaders/BrushMaskStamp.frag?raw";
 import maskInvertFragSrc from "./shaders/MaskInvert.frag?raw";
+import asciiCarrierFragSrc from "./shaders/AsciiCarrier.frag?raw";
+import asciiTextmodeFragSrc from "./shaders/AsciiTextmode.frag?raw";
+import timestampOverlayFragSrc from "./shaders/TimestampOverlay.frag?raw";
 
 export interface RendererPrograms {
   passthrough: ProgramInfo;
@@ -64,6 +67,9 @@ export interface RendererPrograms {
   localMaskRangeGate: ProgramInfo;
   brushMaskStamp: ProgramInfo;
   maskInvert: ProgramInfo;
+  asciiCarrier: ProgramInfo;
+  asciiTextmode: ProgramInfo;
+  timestampOverlay: ProgramInfo;
 }
 
 type ProgramName = keyof RendererPrograms;
@@ -99,6 +105,9 @@ const PROGRAM_FRAGMENTS: Record<ProgramName, string> = {
   localMaskRangeGate: localMaskRangeGateFragSrc,
   brushMaskStamp: brushMaskStampFragSrc,
   maskInvert: maskInvertFragSrc,
+  asciiCarrier: asciiCarrierFragSrc,
+  asciiTextmode: asciiTextmodeFragSrc,
+  timestampOverlay: timestampOverlayFragSrc,
 };
 
 const CORE_PRECOMPILE_PROGRAMS: readonly ProgramName[] = [
@@ -120,6 +129,9 @@ export const DEFERRED_WARMUP_PROGRAMS: readonly ProgramName[] = [
   "filmColorLutUber",
   "filmPrintUber",
   "filmEffectsUber",
+  "asciiCarrier",
+  "asciiTextmode",
+  "timestampOverlay",
 ];
 
 const defineLazyProgram = (

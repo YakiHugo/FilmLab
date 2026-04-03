@@ -101,6 +101,43 @@ export const runRendererSurfaceOperation = async ({
   }
 };
 
+export const runRendererPixelReadbackOperation = async ({
+  mode = "preview",
+  width,
+  height,
+  slotId,
+  render,
+}: {
+  mode?: RenderMode;
+  width: number;
+  height: number;
+  slotId?: string;
+  render: (renderer: PipelineRenderer) => boolean;
+}): Promise<Uint8Array | null> => {
+  const safeWidth = Math.max(1, Math.round(width));
+  const safeHeight = Math.max(1, Math.round(height));
+  if (safeWidth <= 0 || safeHeight <= 0) {
+    return null;
+  }
+
+  const resolvedSlotId = resolveSlotId(mode, slotId);
+  const releaseMutex = await acquireSurfaceOperationMutex(mode, resolvedSlotId);
+  try {
+    const renderManager = getSurfaceOperationRenderManager();
+    const renderer = renderManager.getRenderer(mode, safeWidth, safeHeight, resolvedSlotId);
+    const rendered = render(renderer);
+    if (!rendered) {
+      return null;
+    }
+    return await renderer.extractPixelsAsync();
+  } catch {
+    getSurfaceOperationRenderManager().dispose(mode, resolvedSlotId);
+    return null;
+  } finally {
+    releaseMutex();
+  }
+};
+
 export const runRendererCanvasOperation = async ({
   targetCanvas,
   ...options
