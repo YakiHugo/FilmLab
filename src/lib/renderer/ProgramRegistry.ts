@@ -30,6 +30,8 @@ import radialGradientMaskFragSrc from "./shaders/RadialGradientMask.frag?raw";
 import filter2dAdjustFragSrc from "./shaders/Filter2dAdjust.frag?raw";
 import dilateFragSrc from "./shaders/Dilate.frag?raw";
 import localMaskRangeGateFragSrc from "./shaders/LocalMaskRangeGate.frag?raw";
+import brushMaskStampFragSrc from "./shaders/BrushMaskStamp.frag?raw";
+import maskInvertFragSrc from "./shaders/MaskInvert.frag?raw";
 
 export interface RendererPrograms {
   passthrough: ProgramInfo;
@@ -60,6 +62,8 @@ export interface RendererPrograms {
   filter2dAdjust: ProgramInfo;
   dilate: ProgramInfo;
   localMaskRangeGate: ProgramInfo;
+  brushMaskStamp: ProgramInfo;
+  maskInvert: ProgramInfo;
 }
 
 type ProgramName = keyof RendererPrograms;
@@ -93,6 +97,8 @@ const PROGRAM_FRAGMENTS: Record<ProgramName, string> = {
   filter2dAdjust: filter2dAdjustFragSrc,
   dilate: dilateFragSrc,
   localMaskRangeGate: localMaskRangeGateFragSrc,
+  brushMaskStamp: brushMaskStampFragSrc,
+  maskInvert: maskInvertFragSrc,
 };
 
 const CORE_PRECOMPILE_PROGRAMS: readonly ProgramName[] = [

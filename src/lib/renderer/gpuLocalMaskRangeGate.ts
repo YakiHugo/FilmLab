@@ -1,49 +1,41 @@
 import type { LocalAdjustmentMask } from "@/types";
-import { RenderManager } from "./RenderManager";
+import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
+import {
+  materializeSurfaceToCanvas,
+  runRendererSurfaceOperation,
+} from "./gpuSurfaceOperation";
 
-let _localMaskRangeRenderManager: RenderManager | null = null;
-const _localMaskRangeMutexPromises = new Map<string, Promise<void>>();
-
-const getLocalMaskRangeRenderManager = () => {
-  if (!_localMaskRangeRenderManager) {
-    _localMaskRangeRenderManager = new RenderManager();
-  }
-  return _localMaskRangeRenderManager;
-};
-
-const acquireLocalMaskRangeMutex = (slotId: string): Promise<() => void> => {
-  const previous = _localMaskRangeMutexPromises.get(slotId) ?? Promise.resolve();
-  let release: () => void = () => {};
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
+export const applyLocalMaskRangeOnGpuToSurface = async ({
+  referenceSource,
+  maskSource,
+  width,
+  height,
+  mask,
+  slotId = "local-mask-range",
+}: {
+  referenceSource: CanvasImageSource;
+  maskSource: CanvasImageSource;
+  width: number;
+  height: number;
+  mask: LocalAdjustmentMask;
+  slotId?: string;
+}): Promise<RenderSurfaceHandle | null> =>
+  runRendererSurfaceOperation({
+    mode: "preview",
+    width,
+    height,
+    slotId,
+    render: (renderer) =>
+      renderer.applyLocalMaskRangeGateSource(
+        referenceSource as TexImageSource,
+        width,
+        height,
+        maskSource as TexImageSource,
+        width,
+        height,
+        mask
+      ),
   });
-  _localMaskRangeMutexPromises.set(slotId, current);
-  return previous.then(() => () => {
-    release();
-    if (_localMaskRangeMutexPromises.get(slotId) === current) {
-      _localMaskRangeMutexPromises.delete(slotId);
-    }
-  });
-};
-
-const drawRendererCanvasToTarget = (
-  rendererCanvas: HTMLCanvasElement,
-  targetCanvas: HTMLCanvasElement
-) => {
-  const targetContext = targetCanvas.getContext("2d", { willReadFrequently: true });
-  if (!targetContext) {
-    return false;
-  }
-  if (targetCanvas.width !== rendererCanvas.width) {
-    targetCanvas.width = rendererCanvas.width;
-  }
-  if (targetCanvas.height !== rendererCanvas.height) {
-    targetCanvas.height = rendererCanvas.height;
-  }
-  targetContext.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-  targetContext.drawImage(rendererCanvas, 0, 0, targetCanvas.width, targetCanvas.height);
-  return true;
-};
 
 export const applyLocalMaskRangeOnGpu = async ({
   maskCanvas,
@@ -60,47 +52,17 @@ export const applyLocalMaskRangeOnGpu = async ({
     return false;
   }
 
-  const releaseMutex = await acquireLocalMaskRangeMutex(slotId);
-  try {
-    const renderManager = getLocalMaskRangeRenderManager();
-    const renderer = renderManager.getRenderer(
-      "preview",
-      maskCanvas.width,
-      maskCanvas.height,
-      slotId
-    );
-    const applied = renderer.applyLocalMaskRangeGateSource(
-      referenceSource as TexImageSource,
-      maskCanvas.width,
-      maskCanvas.height,
-      maskCanvas,
-      maskCanvas.width,
-      maskCanvas.height,
-      mask
-    );
-    if (!applied) {
-      return false;
-    }
-    return drawRendererCanvasToTarget(renderer.canvas, maskCanvas);
-  } catch {
-    getLocalMaskRangeRenderManager().dispose("preview", slotId);
-    return false;
-  } finally {
-    releaseMutex();
-  }
-};
-
-const disposeLocalMaskRangeRenderManager = () => {
-  _localMaskRangeRenderManager?.disposeAll();
-  _localMaskRangeRenderManager = null;
-};
-
-if (typeof window !== "undefined") {
-  window.addEventListener("beforeunload", disposeLocalMaskRangeRenderManager);
-}
-
-if (import.meta.hot) {
-  import.meta.hot.dispose(() => {
-    disposeLocalMaskRangeRenderManager();
+  const surface = await applyLocalMaskRangeOnGpuToSurface({
+    referenceSource,
+    maskSource: maskCanvas,
+    width: maskCanvas.width,
+    height: maskCanvas.height,
+    mask,
+    slotId,
   });
-}
+
+  if (!surface) {
+    return false;
+  }
+  return materializeSurfaceToCanvas(surface, maskCanvas);
+};

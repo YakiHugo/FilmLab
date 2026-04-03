@@ -112,6 +112,8 @@ export interface LinearRenderResult {
   release: () => void;
 }
 
+const GPU_BRUSH_MASK_MAX_POINTS = 512;
+
 interface TexturePresentOptions {
   inputLinear?: boolean;
   applyToneMap?: boolean;
@@ -250,6 +252,7 @@ export class PipelineRenderer {
   private borderTexture: WebGLTexture;
   private fallback3DLutTexture: WebGLTexture;
   private fullMaskTexture: WebGLTexture;
+  private emptyMaskTexture: WebGLTexture;
   private destroyed = false;
   private contextLost = false;
   private onContextLost: (() => void) | null = null;
@@ -409,6 +412,20 @@ export class PipelineRenderer {
     this.fullMaskTexture = twgl.createTexture(gl, {
       target: gl.TEXTURE_2D,
       src: new Uint8Array([255, 255, 255, 255]),
+      width: 1,
+      height: 1,
+      internalFormat: gl.RGBA8,
+      format: gl.RGBA,
+      type: gl.UNSIGNED_BYTE,
+      min: gl.NEAREST,
+      mag: gl.NEAREST,
+      wrapS: gl.CLAMP_TO_EDGE,
+      wrapT: gl.CLAMP_TO_EDGE,
+      auto: false,
+    });
+    this.emptyMaskTexture = twgl.createTexture(gl, {
+      target: gl.TEXTURE_2D,
+      src: new Uint8Array([0, 0, 0, 0]),
       width: 1,
       height: 1,
       internalFormat: gl.RGBA8,
@@ -786,7 +803,7 @@ export class PipelineRenderer {
       offsetY?: number;
     }
   ): boolean {
-    if (this.destroyed || this.contextLost || mask.mode === "brush") {
+    if (this.destroyed || this.contextLost) {
       return false;
     }
 
@@ -804,6 +821,75 @@ export class PipelineRenderer {
     const fullHeight = Math.max(1, Math.round(options?.fullHeight ?? safeTargetHeight));
     const offsetX = options?.offsetX ?? 0;
     const offsetY = options?.offsetY ?? 0;
+
+    if (mask.mode === "brush") {
+      if (mask.points.length > GPU_BRUSH_MASK_MAX_POINTS) {
+        return false;
+      }
+
+      const minDimension = Math.max(1, Math.min(fullWidth, fullHeight));
+      const brushSizePx = Math.max(1, clamp(mask.brushSize, 0.005, 0.25) * minDimension);
+      const feather = clamp(mask.feather, 0, 1);
+      const flow = clamp(mask.flow, 0.05, 1);
+      const canvasSize = new Float32Array([safeTargetWidth, safeTargetHeight]);
+      const passes =
+        mask.points.length > 0
+          ? mask.points.map((point, index) => {
+              const pressure = clamp(point.pressure ?? 1, 0.1, 1);
+              const radius = Math.max(1, brushSizePx * pressure);
+              return {
+                id: `local-mask-shape-brush-${index}`,
+                programInfo: this.programs.brushMaskStamp,
+                uniforms: {
+                  u_canvasSize: canvasSize,
+                  u_centerPx: new Float32Array([
+                    clamp(point.x, 0, 1) * fullWidth - offsetX,
+                    clamp(point.y, 0, 1) * fullHeight - offsetY,
+                  ]),
+                  u_radiusPx: radius,
+                  u_innerRadiusPx: Math.max(0, radius * (1 - feather)),
+                  u_flow: flow,
+                },
+                outputFormat: "RGBA8" as const,
+                enabled: true,
+              };
+            })
+          : [];
+
+      if (mask.invert || passes.length === 0) {
+        passes.push({
+          id: mask.invert
+            ? "local-mask-shape-brush-invert"
+            : "local-mask-shape-brush-empty",
+          programInfo: mask.invert ? this.programs.maskInvert : this.programs.passthrough,
+          uniforms: {},
+          outputFormat: "RGBA8" as const,
+          enabled: true,
+        });
+      }
+
+      try {
+        this.filterPipeline.runToCanvas({
+          baseWidth: safeTargetWidth,
+          baseHeight: safeTargetHeight,
+          passes,
+          input: {
+            texture: this.emptyMaskTexture,
+            width: 1,
+            height: 1,
+            format: "RGBA8",
+          },
+          canvasOutput: {
+            width: safeTargetWidth,
+            height: safeTargetHeight,
+          },
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
     const localX = (value: number) =>
       (clamp(value, 0, 1) * fullWidth - offsetX) / safeTargetWidth;
     const localY = (value: number) =>
@@ -1441,12 +1527,14 @@ export class PipelineRenderer {
     this.gl.deleteTexture(this.borderTexture);
     this.gl.deleteTexture(this.fallback3DLutTexture);
     this.gl.deleteTexture(this.fullMaskTexture);
+    this.gl.deleteTexture(this.emptyMaskTexture);
     this.curveLutTexture = null as unknown as WebGLTexture;
     this.blueNoiseTexture = null as unknown as WebGLTexture;
     this.damageTexture = null as unknown as WebGLTexture;
     this.borderTexture = null as unknown as WebGLTexture;
     this.fallback3DLutTexture = null as unknown as WebGLTexture;
     this.fullMaskTexture = null as unknown as WebGLTexture;
+    this.emptyMaskTexture = null as unknown as WebGLTexture;
 
     this.lutTexture = null;
     this.currentLutKey = null;
