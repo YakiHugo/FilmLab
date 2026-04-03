@@ -214,21 +214,6 @@ export interface ImageAsciiEffectParams {
   gridOverlay: boolean;
 }
 
-export interface FeatureGridCell {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  alpha: number;
-  tone: number;
-  edge: number;
-  sampleColor: {
-    red: number;
-    green: number;
-    blue: number;
-  };
-}
-
 export interface FeatureGrid {
   width: number;
   height: number;
@@ -236,32 +221,70 @@ export interface FeatureGrid {
   cellHeight: number;
   columns: number;
   rows: number;
-  sourceCanvas: HTMLCanvasElement;
-  cells: FeatureGridCell[];
+  cellXByCell: Uint32Array;
+  cellYByCell: Uint32Array;
+  cellWidthByCell: Uint32Array;
+  cellHeightByCell: Uint32Array;
+  alphaByCell: Float32Array;
+  toneByCell: Float32Array;
+  edgeByCell: Float32Array;
+  sampleRgbaByCell: Uint8ClampedArray;
 }
 
-export interface GridSurfaceCell {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  backgroundFill: string | null;
-  foregroundFill: string | null;
-  glyph: string | null;
-  dotRadius: number | null;
-}
-
-export interface GridSurface {
+export interface AsciiGpuCarrierInput {
   width: number;
   height: number;
   cellWidth: number;
   cellHeight: number;
-  backgroundFill: string | null;
-  backgroundCanvas: HTMLCanvasElement | null;
+  columns: number;
+  rows: number;
+  renderMode: ImageAsciiRenderMode;
+  colorMode: ImageAsciiColorMode;
+  density: number;
+  coverage: number;
+  edgeEmphasis: number;
+  brightness: number;
+  contrast: number;
+  foregroundOpacity: number;
+  foregroundBlendMode: GlobalCompositeOperation;
+  backgroundMode: ImageAsciiBackgroundMode;
+  backgroundOpacity: number;
+  backgroundFillRgba: Uint8ClampedArray | null;
+  cellBackgroundRgba: Uint8ClampedArray | null;
+  backgroundSourceCanvas: HTMLCanvasElement | null;
+  backgroundBlurPx: number;
+  invert: boolean;
+  gridOverlay: boolean;
+  gridOverlayAlpha: number;
+  charset: readonly string[];
+  sourceCanvas: HTMLCanvasElement;
+}
+
+export interface AsciiTextmodeSurface {
+  cacheKey: string;
+  width: number;
+  height: number;
+  cellWidth: number;
+  cellHeight: number;
+  columns: number;
+  rows: number;
+  renderMode: ImageAsciiRenderMode;
+  backgroundFillRgba: Uint8ClampedArray | null;
+  backgroundSourceCanvas: HTMLCanvasElement | null;
+  backgroundBlurPx: number;
   foregroundBlendMode: GlobalCompositeOperation;
   gridOverlay: boolean;
   gridOverlayAlpha: number;
-  cells: GridSurfaceCell[];
+  charset: readonly string[];
+  emptyGlyphIndex: number;
+  cellXByCell: Uint32Array;
+  cellYByCell: Uint32Array;
+  cellWidthByCell: Uint32Array;
+  cellHeightByCell: Uint32Array;
+  glyphIndexByCell: Uint16Array;
+  foregroundRgbaByCell: Uint8ClampedArray;
+  backgroundRgbaByCell: Uint8ClampedArray;
+  dotRadiusByCell: Float32Array;
 }
 
 export interface ImageAsciiCarrierTransformNode {

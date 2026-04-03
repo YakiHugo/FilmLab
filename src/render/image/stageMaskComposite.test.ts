@@ -1,63 +1,52 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyMaskedStageOperationToSurfaceIfSupported } from "./stageMaskComposite";
 
-const renderImageEffectMaskToCanvasMock = vi.fn();
 const buildImageRenderMaskRevisionKeyMock = vi.fn(() => "mask-revision");
-const blendMaskedCanvasesOnGpuMock = vi.fn();
-
-class MockCanvasElement {
-  width = 64;
-  height = 64;
-
-  readonly context2d = {
-    clearRect: vi.fn(),
-    drawImage: vi.fn(),
-    getImageData: vi.fn((_: number, __: number, width: number, height: number) => ({
-      data: new Uint8ClampedArray(Math.max(1, width) * Math.max(1, height) * 4),
-      width,
-      height,
-    })),
-    createImageData: vi.fn((width: number, height: number) => ({
-      data: new Uint8ClampedArray(Math.max(1, width) * Math.max(1, height) * 4),
-      width,
-      height,
-    })),
-    putImageData: vi.fn(),
-  };
-
-  getContext(type: string) {
-    if (type === "2d") {
-      return this.context2d;
-    }
-    return null;
-  }
-}
+const renderImageEffectMaskToCanvasMock = vi.fn();
+const blendMaskedCanvasesOnGpuToSurfaceMock = vi.fn();
 
 vi.mock("./effectMask", () => ({
   buildImageRenderMaskRevisionKey: (...args: unknown[]) =>
-    Reflect.apply(buildImageRenderMaskRevisionKeyMock, null, args),
+    Reflect.apply(buildImageRenderMaskRevisionKeyMock, undefined, args),
   renderImageEffectMaskToCanvas: (...args: unknown[]) =>
-    Reflect.apply(renderImageEffectMaskToCanvasMock, null, args),
+    Reflect.apply(renderImageEffectMaskToCanvasMock, undefined, args),
 }));
 
 vi.mock("@/lib/renderer/gpuMaskedCanvasBlend", () => ({
-  blendMaskedCanvasesOnGpu: (...args: unknown[]) =>
-    Reflect.apply(blendMaskedCanvasesOnGpuMock, null, args),
+  blendMaskedCanvasesOnGpu: vi.fn(),
+  blendMaskedCanvasesOnGpuToSurface: (...args: unknown[]) =>
+    Reflect.apply(blendMaskedCanvasesOnGpuToSurfaceMock, undefined, args),
 }));
 
-const createCanvas = () => new MockCanvasElement();
+const createCanvas = () =>
+  ({
+    width: 128,
+    height: 72,
+    getContext: vi.fn(() => null),
+  }) as unknown as HTMLCanvasElement;
 
-describe("stageMaskComposite", () => {
+const createSurface = (slotId: string) =>
+  ({
+    kind: "renderer-slot",
+    mode: "preview",
+    slotId,
+    width: 128,
+    height: 72,
+    sourceCanvas: createCanvas(),
+    materializeToCanvas: vi.fn(),
+    cloneToCanvas: vi.fn(),
+  }) as const;
+
+describe("stageMaskComposite.applyMaskedStageOperationToSurfaceIfSupported", () => {
   beforeEach(() => {
-    buildImageRenderMaskRevisionKeyMock.mockReset();
-    buildImageRenderMaskRevisionKeyMock.mockReturnValue("mask-revision");
-    blendMaskedCanvasesOnGpuMock.mockReset();
-    renderImageEffectMaskToCanvasMock.mockReset();
-    renderImageEffectMaskToCanvasMock.mockImplementation(
-      async ({ targetCanvas }: { targetCanvas: HTMLCanvasElement }) => targetCanvas
-    );
-    vi.stubGlobal("HTMLCanvasElement", MockCanvasElement);
+    vi.clearAllMocks();
+    renderImageEffectMaskToCanvasMock.mockImplementation(async ({ targetCanvas }) => targetCanvas ?? createCanvas());
     vi.stubGlobal("document", {
-      createElement: vi.fn(() => new MockCanvasElement()),
+      createElement: vi.fn(() => ({
+        width: 0,
+        height: 0,
+        getContext: vi.fn(() => null),
+      })),
     });
   });
 
@@ -65,11 +54,33 @@ describe("stageMaskComposite", () => {
     vi.unstubAllGlobals();
   });
 
-  it("prefers GPU masked blending when available", async () => {
-    const { applyMaskedStageOperation } = await import("./stageMaskComposite");
-    const targetCanvas = createCanvas();
-    const referenceCanvas = createCanvas();
-    const effectMask = {
+  it("returns the surface operation result directly when no mask is present", async () => {
+    const baseSurface = createSurface("slot:base");
+    const effectSurface = createSurface("slot:effect");
+    const applyOperation = vi.fn(async () => effectSurface);
+
+    const result = await applyMaskedStageOperationToSurfaceIfSupported({
+      surface: baseSurface,
+      maskDefinition: null,
+      applyOperation,
+    });
+
+    expect(result).toBe(effectSurface);
+    expect(applyOperation).toHaveBeenCalledWith({
+      surface: baseSurface,
+      maskRevisionKey: null,
+    });
+    expect(renderImageEffectMaskToCanvasMock).not.toHaveBeenCalled();
+    expect(blendMaskedCanvasesOnGpuToSurfaceMock).not.toHaveBeenCalled();
+  });
+
+  it("renders the mask canvas and blends masked surface output on GPU", async () => {
+    const baseSurface = createSurface("slot:base");
+    const effectSurface = createSurface("slot:effect");
+    const blendedSurface = createSurface("slot:blended");
+    blendMaskedCanvasesOnGpuToSurfaceMock.mockResolvedValueOnce(blendedSurface);
+    const applyOperation = vi.fn(async () => effectSurface);
+    const maskDefinition = {
       id: "mask-1",
       kind: "local-adjustment" as const,
       sourceLocalAdjustmentId: "local-1",
@@ -77,60 +88,40 @@ describe("stageMaskComposite", () => {
         mode: "radial" as const,
         centerX: 0.5,
         centerY: 0.5,
-        radiusX: 0.2,
-        radiusY: 0.2,
-        feather: 0.1,
-      },
-    };
-    blendMaskedCanvasesOnGpuMock.mockResolvedValue(true);
-
-    await applyMaskedStageOperation({
-      canvas: targetCanvas as unknown as HTMLCanvasElement,
-      maskDefinition: effectMask,
-      maskReferenceCanvas: referenceCanvas as unknown as HTMLCanvasElement,
-      applyOperation: ({ maskRevisionKey }) => {
-        expect(maskRevisionKey).toBe("mask-revision");
-      },
-    });
-
-    expect(blendMaskedCanvasesOnGpuMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        baseCanvas: targetCanvas,
-        targetCanvas: targetCanvas,
-        slotId: "stage-mask:mask-1",
-      })
-    );
-    expect(targetCanvas.context2d.getImageData).not.toHaveBeenCalled();
-    expect(targetCanvas.context2d.putImageData).not.toHaveBeenCalled();
-  });
-
-  it("falls back to CPU pixel blending when GPU masked blend is unavailable", async () => {
-    const { applyMaskedStageOperation } = await import("./stageMaskComposite");
-    const targetCanvas = createCanvas();
-    const referenceCanvas = createCanvas();
-    const effectMask = {
-      id: "mask-2",
-      kind: "local-adjustment" as const,
-      sourceLocalAdjustmentId: "local-2",
-      mask: {
-        mode: "linear" as const,
-        startX: 0,
-        startY: 0,
-        endX: 1,
-        endY: 1,
+        radiusX: 0.3,
+        radiusY: 0.3,
         feather: 0.2,
       },
     };
-    blendMaskedCanvasesOnGpuMock.mockResolvedValue(false);
+    const referenceCanvas = createCanvas();
 
-    await applyMaskedStageOperation({
-      canvas: targetCanvas as unknown as HTMLCanvasElement,
-      maskDefinition: effectMask,
-      maskReferenceCanvas: referenceCanvas as unknown as HTMLCanvasElement,
-      applyOperation: () => undefined,
+    const result = await applyMaskedStageOperationToSurfaceIfSupported({
+      surface: baseSurface,
+      maskDefinition,
+      maskReferenceCanvas: referenceCanvas,
+      blendSlotId: "carrier-mask:ascii-1",
+      applyOperation,
     });
 
-    expect(targetCanvas.context2d.createImageData).toHaveBeenCalled();
-    expect(targetCanvas.context2d.putImageData).toHaveBeenCalled();
+    expect(result).toBe(blendedSurface);
+    expect(buildImageRenderMaskRevisionKeyMock).toHaveBeenCalledWith(maskDefinition);
+    expect(applyOperation).toHaveBeenCalledWith({
+      surface: baseSurface,
+      maskRevisionKey: "mask-revision",
+    });
+    expect(renderImageEffectMaskToCanvasMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        width: effectSurface.width,
+        height: effectSurface.height,
+        maskDefinition,
+        referenceSource: referenceCanvas,
+      })
+    );
+    expect(blendMaskedCanvasesOnGpuToSurfaceMock).toHaveBeenCalledWith({
+      baseCanvas: baseSurface.sourceCanvas,
+      layerCanvas: effectSurface.sourceCanvas,
+      maskCanvas: expect.any(Object),
+      slotId: "carrier-mask:ascii-1",
+    });
   });
 });
