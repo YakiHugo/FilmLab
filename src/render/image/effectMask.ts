@@ -8,7 +8,8 @@ import {
   resolveLocalMaskLumaWeight,
 } from "@/lib/localMaskShared";
 import { applyLocalMaskRangeOnGpu } from "@/lib/renderer/gpuLocalMaskRangeGate";
-import { renderLocalMaskShapeOnGpu } from "@/lib/renderer/gpuLocalMaskShape";
+import { applyLocalMaskRangeOnGpuToSurface } from "@/lib/renderer/gpuLocalMaskRangeGate";
+import { renderLocalMaskShapeOnGpuToSurface } from "@/lib/renderer/gpuLocalMaskShape";
 import type { LocalAdjustmentMask } from "@/types";
 import type { ImageRenderMaskDefinition } from "./types";
 
@@ -206,12 +207,13 @@ export const renderImageEffectMaskToCanvas = async ({
   }
   outputContext.clearRect(0, 0, width, height);
 
-  const renderedShapeOnGpu = await renderLocalMaskShapeOnGpu({
-    maskCanvas: output,
+  let maskSurface = await renderLocalMaskShapeOnGpuToSurface({
+    width,
+    height,
     mask: maskDefinition.mask,
     slotId: `effect-mask-shape:${maskDefinition.id}`,
   });
-  if (!renderedShapeOnGpu) {
+  if (!maskSurface) {
     if (maskDefinition.mask.invert) {
       outputContext.fillStyle = "rgba(255,255,255,1)";
       outputContext.fillRect(0, 0, width, height);
@@ -223,19 +225,44 @@ export const renderImageEffectMaskToCanvas = async ({
     }
   }
 
+  let needsCpuRangeFallback = false;
   if (referenceSource && hasLocalMaskRangeConstraints(maskDefinition.mask)) {
-    const appliedOnGpu = await applyLocalMaskRangeOnGpu({
-      maskCanvas: output,
-      referenceSource,
-      mask: maskDefinition.mask,
-      slotId: `effect-mask:${maskDefinition.id}`,
-    });
-    if (appliedOnGpu) {
+    if (maskSurface) {
+      const gatedSurface = await applyLocalMaskRangeOnGpuToSurface({
+        referenceSource,
+        maskSource: maskSurface.sourceCanvas,
+        width,
+        height,
+        mask: maskDefinition.mask,
+        slotId: `effect-mask:${maskDefinition.id}`,
+      });
+      if (gatedSurface) {
+        maskSurface = gatedSurface;
+      } else {
+        needsCpuRangeFallback = true;
+      }
+    } else {
+      const appliedOnGpu = await applyLocalMaskRangeOnGpu({
+        maskCanvas: output,
+        referenceSource,
+        mask: maskDefinition.mask,
+        slotId: `effect-mask:${maskDefinition.id}`,
+      });
+      if (appliedOnGpu) {
+        return output;
+      }
+      needsCpuRangeFallback = true;
+    }
+  }
+
+  if (maskSurface) {
+    maskSurface.materializeToCanvas(output);
+    if (!needsCpuRangeFallback) {
       return output;
     }
   }
 
-  if (referenceSource) {
+  if (referenceSource && needsCpuRangeFallback) {
     const referenceCanvas = scratchCanvas ?? document.createElement("canvas");
     ensureCanvasSize(referenceCanvas, width, height);
     const referenceContext = referenceCanvas.getContext("2d", { willReadFrequently: true });

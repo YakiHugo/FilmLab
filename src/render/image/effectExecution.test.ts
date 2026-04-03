@@ -1,11 +1,21 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const applyFilter2dOnGpuMock = vi.fn();
+const applyFilter2dOnGpuToSurfaceMock = vi.fn();
 const applyFilter2dPostProcessingMock = vi.fn();
 const applyMaskedStageOperationMock = vi.fn();
+const blendMaskedCanvasesOnGpuToSurfaceMock = vi.fn();
+const renderImageEffectMaskToCanvasMock = vi.fn();
 
 vi.mock("@/lib/renderer/gpuFilter2dPostProcessing", () => ({
   applyFilter2dOnGpu: (...args: unknown[]) => Reflect.apply(applyFilter2dOnGpuMock, null, args),
+  applyFilter2dOnGpuToSurface: (...args: unknown[]) =>
+    Reflect.apply(applyFilter2dOnGpuToSurfaceMock, null, args),
+}));
+
+vi.mock("@/lib/renderer/gpuMaskedCanvasBlend", () => ({
+  blendMaskedCanvasesOnGpuToSurface: (...args: unknown[]) =>
+    Reflect.apply(blendMaskedCanvasesOnGpuToSurfaceMock, null, args),
 }));
 
 vi.mock("@/lib/filter2dPostProcessing", () => ({
@@ -16,6 +26,11 @@ vi.mock("@/lib/filter2dPostProcessing", () => ({
 vi.mock("./stageMaskComposite", () => ({
   applyMaskedStageOperation: (...args: unknown[]) =>
     Reflect.apply(applyMaskedStageOperationMock, null, args),
+}));
+
+vi.mock("./effectMask", () => ({
+  renderImageEffectMaskToCanvas: (...args: unknown[]) =>
+    Reflect.apply(renderImageEffectMaskToCanvasMock, null, args),
 }));
 
 const createCanvas = () => ({ width: 128, height: 72 }) as HTMLCanvasElement;
@@ -61,8 +76,18 @@ const createEffect = (overrides?: Partial<{
 describe("effectExecution", () => {
   beforeEach(() => {
     applyFilter2dOnGpuMock.mockReset();
+    applyFilter2dOnGpuToSurfaceMock.mockReset();
     applyFilter2dPostProcessingMock.mockReset();
     applyMaskedStageOperationMock.mockReset();
+    blendMaskedCanvasesOnGpuToSurfaceMock.mockReset();
+    renderImageEffectMaskToCanvasMock.mockReset();
+    vi.stubGlobal("document", {
+      createElement: vi.fn(() => createCanvas()),
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("prefers the GPU filter2d path for unmasked effects", async () => {
@@ -134,5 +159,112 @@ describe("effectExecution", () => {
         slotId: "filter2d:effect-2",
       })
     );
+  });
+
+  it("can keep unmasked filter2d effects on renderer surfaces", async () => {
+    const { applyImageEffectsToSurfaceIfSupported } = await import("./effectExecution");
+    const initialSurface = {
+      kind: "renderer-slot" as const,
+      mode: "preview" as const,
+      slotId: "slot:initial",
+      width: 128,
+      height: 72,
+      sourceCanvas: createCanvas(),
+      materializeToCanvas: vi.fn(),
+      cloneToCanvas: vi.fn(),
+    };
+    const filteredSurface = {
+      ...initialSurface,
+      slotId: "slot:filtered",
+      sourceCanvas: createCanvas(),
+    };
+    applyFilter2dOnGpuToSurfaceMock.mockResolvedValue(filteredSurface);
+
+    const result = await applyImageEffectsToSurfaceIfSupported({
+      surface: initialSurface,
+      effects: [createEffect()],
+    });
+
+    expect(applyFilter2dOnGpuToSurfaceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        surface: initialSurface,
+        slotId: "filter2d:effect-1",
+      })
+    );
+    expect(result).toBe(filteredSurface);
+    expect(applyFilter2dOnGpuMock).not.toHaveBeenCalled();
+    expect(applyFilter2dPostProcessingMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects surface execution for masked effects", async () => {
+    const { applyImageEffectsToSurfaceIfSupported } = await import("./effectExecution");
+    const initialSurface = {
+      kind: "renderer-slot" as const,
+      mode: "preview" as const,
+      slotId: "slot:initial",
+      width: 128,
+      height: 72,
+      sourceCanvas: createCanvas(),
+      materializeToCanvas: vi.fn(),
+      cloneToCanvas: vi.fn(),
+    };
+
+    const result = await applyImageEffectsToSurfaceIfSupported({
+      surface: initialSurface,
+      effects: [createEffect({ maskId: "mask-1" })],
+    });
+
+    expect(result).toBeNull();
+    expect(applyFilter2dOnGpuToSurfaceMock).not.toHaveBeenCalled();
+  });
+
+  it("supports masked filter2d effects on renderer surfaces when document and snapshot are provided", async () => {
+    const { applyImageEffectsToSurfaceIfSupported } = await import("./effectExecution");
+    const initialSurface = {
+      kind: "renderer-slot" as const,
+      mode: "preview" as const,
+      slotId: "slot:initial",
+      width: 128,
+      height: 72,
+      sourceCanvas: createCanvas(),
+      materializeToCanvas: vi.fn(),
+      cloneToCanvas: vi.fn(),
+    };
+    const effectSurface = {
+      ...initialSurface,
+      slotId: "slot:effect",
+      sourceCanvas: createCanvas(),
+    };
+    const blendedSurface = {
+      ...initialSurface,
+      slotId: "slot:blended",
+      sourceCanvas: createCanvas(),
+    };
+    const stageReferenceCanvas = createCanvas();
+    applyFilter2dOnGpuToSurfaceMock.mockResolvedValue(effectSurface);
+    renderImageEffectMaskToCanvasMock.mockResolvedValue(createCanvas());
+    blendMaskedCanvasesOnGpuToSurfaceMock.mockResolvedValue(blendedSurface);
+
+    const result = await applyImageEffectsToSurfaceIfSupported({
+      surface: initialSurface,
+      document: createDocument() as never,
+      effects: [createEffect({ id: "effect-3", maskId: "mask-1" })],
+      stageReferenceCanvas,
+    });
+
+    expect(renderImageEffectMaskToCanvasMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maskDefinition: (createDocument() as never).masks.byId["mask-1"],
+        referenceSource: stageReferenceCanvas,
+      })
+    );
+    expect(blendMaskedCanvasesOnGpuToSurfaceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseCanvas: initialSurface.sourceCanvas,
+        layerCanvas: effectSurface.sourceCanvas,
+        slotId: "effect-mask-blend:effect-3",
+      })
+    );
+    expect(result).toBe(blendedSurface);
   });
 });

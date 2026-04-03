@@ -12,6 +12,10 @@ const renderImageToCanvasMock = vi.fn();
 const renderImageToSurfaceMock = vi.fn();
 const applyImageCarrierTransformsMock = vi.fn();
 const applyTimestampOverlayMock = vi.fn();
+const applyFilter2dOnGpuMock = vi.fn();
+const applyFilter2dOnGpuToSurfaceMock = vi.fn();
+const blendMaskedCanvasesOnGpuToSurfaceMock = vi.fn();
+const blendMaskedCanvasesOnGpuMock = vi.fn();
 const applyFilter2dPostProcessingMock = vi.fn();
 const buildImageRenderMaskRevisionKeyMock = vi.fn(() => "mask-revision");
 const renderImageEffectMaskToCanvasMock = vi.fn(
@@ -40,6 +44,20 @@ vi.mock("./carrierExecution", () => ({
 vi.mock("@/lib/timestampOverlay", () => ({
   applyTimestampOverlay: (...args: unknown[]) =>
     Reflect.apply(applyTimestampOverlayMock, undefined, args),
+}));
+
+vi.mock("@/lib/renderer/gpuFilter2dPostProcessing", () => ({
+  applyFilter2dOnGpu: (...args: unknown[]) =>
+    Reflect.apply(applyFilter2dOnGpuMock, undefined, args),
+  applyFilter2dOnGpuToSurface: (...args: unknown[]) =>
+    Reflect.apply(applyFilter2dOnGpuToSurfaceMock, undefined, args),
+}));
+
+vi.mock("@/lib/renderer/gpuMaskedCanvasBlend", () => ({
+  blendMaskedCanvasesOnGpu: (...args: unknown[]) =>
+    Reflect.apply(blendMaskedCanvasesOnGpuMock, undefined, args),
+  blendMaskedCanvasesOnGpuToSurface: (...args: unknown[]) =>
+    Reflect.apply(blendMaskedCanvasesOnGpuToSurfaceMock, undefined, args),
 }));
 
 vi.mock("@/lib/filter2dPostProcessing", () => ({
@@ -327,6 +345,10 @@ describe("renderSingleImageToCanvas", () => {
     renderImageToSurfaceMock.mockResolvedValue(createStageResult("full"));
     applyImageCarrierTransformsMock.mockResolvedValue(undefined);
     applyTimestampOverlayMock.mockResolvedValue(undefined);
+    applyFilter2dOnGpuMock.mockResolvedValue(false);
+    applyFilter2dOnGpuToSurfaceMock.mockResolvedValue(null);
+    blendMaskedCanvasesOnGpuMock.mockResolvedValue(false);
+    blendMaskedCanvasesOnGpuToSurfaceMock.mockResolvedValue(null);
     buildImageRenderMaskRevisionKeyMock.mockReturnValue("mask-revision");
     renderImageEffectMaskToCanvasMock.mockImplementation(
       async ({ targetCanvas }) => targetCanvas ?? createSnapshotCanvas()
@@ -596,6 +618,297 @@ describe("renderSingleImageToCanvas", () => {
     );
     expect(applyFilter2dPostProcessingMock.mock.invocationCallOrder[1]).toBeGreaterThan(
       applyImageCarrierTransformsMock.mock.invocationCallOrder[0]
+    );
+  });
+
+  it("keeps unmasked develop filter2d effects on surfaces before film stage when supported", async () => {
+    const developFilteredSurface = createStageResult("full", createSnapshotCanvas()).surface;
+    applyFilter2dOnGpuToSurfaceMock.mockResolvedValueOnce(developFilteredSurface);
+    const document = createDocument({
+      carrierTransforms: [],
+      effects: [
+        {
+          id: "develop-filter",
+          type: "filter2d",
+          enabled: true,
+          placement: "develop",
+          params: {
+            brightness: 12,
+            hue: 0,
+            blur: 0,
+            dilate: 0,
+          },
+        },
+      ],
+      output: {
+        timestamp: {
+          enabled: false,
+          position: "top-left",
+          size: 18,
+          opacity: 70,
+        },
+      },
+    });
+
+    const result = await renderSingleImageToCanvas({
+      canvas: createCanvas(),
+      document,
+      request: {
+        intent: "preview",
+        quality: "interactive",
+        targetSize: {
+          width: 256,
+          height: 144,
+        },
+        renderSlotId: "board-preview",
+        debug: {
+          trace: true,
+        },
+      },
+    });
+
+    expect(applyFilter2dOnGpuToSurfaceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        surface: expect.objectContaining({
+          slotId: "slot:develop-base",
+        }),
+        slotId: "filter2d:develop-filter",
+      })
+    );
+    expect(renderFilmStageToSurfaceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: developFilteredSurface.sourceCanvas,
+      })
+    );
+    expect(applyFilter2dPostProcessingMock).not.toHaveBeenCalled();
+    expect(result.debug?.boundaries).toEqual(
+      expect.objectContaining({
+        canvasMaterializations: 1,
+        canvasClones: 0,
+      })
+    );
+  });
+
+  it("keeps unmasked style filter2d effects on surfaces when there is no carrier stage", async () => {
+    const styleFilteredSurface = createStageResult("full", createSnapshotCanvas()).surface;
+    applyFilter2dOnGpuToSurfaceMock.mockResolvedValueOnce(styleFilteredSurface);
+    const document = createDocument({
+      carrierTransforms: [],
+      effects: [
+        {
+          id: "style-filter",
+          type: "filter2d",
+          enabled: true,
+          placement: "style",
+          params: {
+            brightness: -12,
+            hue: 0,
+            blur: 0,
+            dilate: 0,
+          },
+        },
+      ],
+      output: {
+        timestamp: {
+          enabled: false,
+          position: "top-left",
+          size: 18,
+          opacity: 70,
+        },
+      },
+    });
+
+    await renderSingleImageToCanvas({
+      canvas: createCanvas(),
+      document,
+      request: {
+        intent: "preview",
+        quality: "interactive",
+        targetSize: {
+          width: 256,
+          height: 144,
+        },
+      },
+    });
+
+    expect(applyFilter2dOnGpuToSurfaceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        surface: expect.objectContaining({
+          slotId: "slot:full",
+        }),
+        slotId: "filter2d:style-filter",
+      })
+    );
+    expect(applyFilter2dPostProcessingMock).not.toHaveBeenCalled();
+    expect(applyFilter2dOnGpuMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps masked develop filter2d effects on surfaces before film stage when supported", async () => {
+    const effectSurface = createStageResult("full", createSnapshotCanvas()).surface;
+    const blendedSurface = createStageResult("full", createSnapshotCanvas()).surface;
+    applyFilter2dOnGpuToSurfaceMock.mockResolvedValueOnce(effectSurface);
+    blendMaskedCanvasesOnGpuToSurfaceMock.mockResolvedValueOnce(blendedSurface);
+    const document = createDocument({
+      carrierTransforms: [],
+      effects: [
+        {
+          id: "develop-filter-masked",
+          type: "filter2d",
+          enabled: true,
+          placement: "develop",
+          maskId: "mask-1",
+          params: {
+            brightness: 12,
+            hue: 0,
+            blur: 0,
+            dilate: 0,
+          },
+        },
+      ],
+      masks: {
+        byId: {
+          "mask-1": {
+            id: "mask-1",
+            kind: "local-adjustment",
+            sourceLocalAdjustmentId: "local-1",
+            mask: {
+              mode: "radial",
+              centerX: 0.5,
+              centerY: 0.5,
+              radiusX: 0.3,
+              radiusY: 0.3,
+              feather: 0.2,
+            },
+          },
+        },
+      },
+      output: {
+        timestamp: {
+          enabled: false,
+          position: "top-left",
+          size: 18,
+          opacity: 70,
+        },
+      },
+    });
+
+    const result = await renderSingleImageToCanvas({
+      canvas: createCanvas(),
+      document,
+      request: {
+        intent: "preview",
+        quality: "interactive",
+        targetSize: {
+          width: 256,
+          height: 144,
+        },
+        debug: {
+          trace: true,
+        },
+      },
+    });
+
+    expect(renderFilmStageToSurfaceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: blendedSurface.sourceCanvas,
+      })
+    );
+    expect(renderImageEffectMaskToCanvasMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maskDefinition: document.masks.byId["mask-1"],
+      })
+    );
+    expect(blendMaskedCanvasesOnGpuToSurfaceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slotId: "effect-mask-blend:develop-filter-masked",
+      })
+    );
+    expect(applyFilter2dPostProcessingMock).not.toHaveBeenCalled();
+    expect(result.debug?.boundaries).toEqual(
+      expect.objectContaining({
+        canvasMaterializations: 1,
+        canvasClones: 1,
+      })
+    );
+  });
+
+  it("keeps masked style filter2d effects on surfaces when there is no carrier stage", async () => {
+    const effectSurface = createStageResult("full", createSnapshotCanvas()).surface;
+    const blendedSurface = createStageResult("full", createSnapshotCanvas()).surface;
+    applyFilter2dOnGpuToSurfaceMock.mockResolvedValueOnce(effectSurface);
+    blendMaskedCanvasesOnGpuToSurfaceMock.mockResolvedValueOnce(blendedSurface);
+    const document = createDocument({
+      carrierTransforms: [],
+      effects: [
+        {
+          id: "style-filter-masked",
+          type: "filter2d",
+          enabled: true,
+          placement: "style",
+          maskId: "mask-1",
+          params: {
+            brightness: -12,
+            hue: 0,
+            blur: 0,
+            dilate: 0,
+          },
+        },
+      ],
+      masks: {
+        byId: {
+          "mask-1": {
+            id: "mask-1",
+            kind: "local-adjustment",
+            sourceLocalAdjustmentId: "local-1",
+            mask: {
+              mode: "linear",
+              startX: 0,
+              startY: 0,
+              endX: 1,
+              endY: 1,
+              feather: 0.2,
+            },
+          },
+        },
+      },
+      output: {
+        timestamp: {
+          enabled: false,
+          position: "top-left",
+          size: 18,
+          opacity: 70,
+        },
+      },
+    });
+
+    const result = await renderSingleImageToCanvas({
+      canvas: createCanvas(),
+      document,
+      request: {
+        intent: "preview",
+        quality: "interactive",
+        targetSize: {
+          width: 256,
+          height: 144,
+        },
+        debug: {
+          trace: true,
+        },
+      },
+    });
+
+    expect(blendMaskedCanvasesOnGpuToSurfaceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slotId: "effect-mask-blend:style-filter-masked",
+      })
+    );
+    expect(applyFilter2dPostProcessingMock).not.toHaveBeenCalled();
+    expect(applyFilter2dOnGpuMock).not.toHaveBeenCalled();
+    expect(result.debug?.boundaries).toEqual(
+      expect.objectContaining({
+        canvasMaterializations: 1,
+        canvasClones: 1,
+      })
     );
   });
 

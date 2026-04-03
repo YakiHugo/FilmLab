@@ -10,6 +10,14 @@ const updateSourceMock = vi.fn();
 const disposeMock = vi.fn();
 const blendMaskedCanvasesOnGpuMock = vi.fn();
 const renderLocalMaskShapeOnGpuMock = vi.fn();
+const renderLocalMaskShapeOnGpuToSurfaceMock = vi.fn();
+const applyLocalMaskRangeOnGpuMock = vi.fn();
+const applyLocalMaskRangeOnGpuToSurfaceMock = vi.fn();
+const consumeCapturedLinearResultMock = vi.fn();
+const borrowCapturedLinearResultMock = vi.fn();
+const blendLinearWithMaskMock = vi.fn();
+const presentLinearResultMock = vi.fn();
+let createdCanvases: MockCanvasElement[] = [];
 
 class MockCanvasElement {
   width = 0;
@@ -145,6 +153,7 @@ vi.mock("@/lib/renderer/RenderManager", () => {
   };
 
   const frameStates = new Map<string, FrameState>();
+  const renderers = new Map<string, MockPipelineRenderer>();
 
   const createFrameState = (): FrameState => ({
     sourceKey: null,
@@ -178,22 +187,37 @@ vi.mock("@/lib/renderer/RenderManager", () => {
     dispose = (...args: unknown[]) => Reflect.apply(disposeMock, this, args);
 
     consumeCapturedLinearResult() {
-      return null;
+      return Reflect.apply(consumeCapturedLinearResultMock, this, []);
     }
 
     borrowCapturedLinearResult() {
-      return null;
+      return Reflect.apply(borrowCapturedLinearResultMock, this, []);
     }
 
     applyLocalMaskRangeGateSource() {
       return true;
     }
+
+    blendLinearWithMask(...args: unknown[]) {
+      return Reflect.apply(blendLinearWithMaskMock, this, args);
+    }
+
+    presentLinearResult(...args: unknown[]) {
+      return Reflect.apply(presentLinearResultMock, this, args);
+    }
   }
 
   return {
     RenderManager: class MockRenderManager {
-      getRenderer() {
-        return new MockPipelineRenderer();
+      getRenderer(mode: string, _width: number, _height: number, slotId?: string) {
+        const key = `${mode}:${slotId ?? "default"}`;
+        const existing = renderers.get(key);
+        if (existing) {
+          return existing;
+        }
+        const created = new MockPipelineRenderer();
+        renderers.set(key, created);
+        return created;
       }
 
       getFrameState(mode: string, slotId?: string) {
@@ -212,10 +236,12 @@ vi.mock("@/lib/renderer/RenderManager", () => {
       }
 
       dispose() {
+        renderers.clear();
         disposeMock();
       }
 
       disposeAll() {
+        renderers.clear();
         disposeMock();
       }
     },
@@ -230,6 +256,15 @@ vi.mock("@/lib/renderer/gpuMaskedCanvasBlend", () => ({
 vi.mock("@/lib/renderer/gpuLocalMaskShape", () => ({
   renderLocalMaskShapeOnGpu: (...args: unknown[]) =>
     Reflect.apply(renderLocalMaskShapeOnGpuMock, undefined, args),
+  renderLocalMaskShapeOnGpuToSurface: (...args: unknown[]) =>
+    Reflect.apply(renderLocalMaskShapeOnGpuToSurfaceMock, undefined, args),
+}));
+
+vi.mock("@/lib/renderer/gpuLocalMaskRangeGate", () => ({
+  applyLocalMaskRangeOnGpu: (...args: unknown[]) =>
+    Reflect.apply(applyLocalMaskRangeOnGpuMock, undefined, args),
+  applyLocalMaskRangeOnGpuToSurface: (...args: unknown[]) =>
+    Reflect.apply(applyLocalMaskRangeOnGpuToSurfaceMock, undefined, args),
 }));
 
 const createState = () =>
@@ -256,6 +291,25 @@ const createCanvas = (width = 64, height = 64) => {
   return canvas;
 };
 
+const createSurface = (sourceCanvas: HTMLCanvasElement) => ({
+  kind: "renderer-slot" as const,
+  mode: "preview" as const,
+  slotId: "surface-slot",
+  width: sourceCanvas.width,
+  height: sourceCanvas.height,
+  sourceCanvas,
+  materializeToCanvas: vi.fn((targetCanvas?: HTMLCanvasElement | null) => targetCanvas ?? sourceCanvas),
+  cloneToCanvas: vi.fn((targetCanvas?: HTMLCanvasElement | null) => targetCanvas ?? sourceCanvas),
+});
+
+const createLinearResult = () => ({
+  texture: {} as WebGLTexture,
+  width: 64,
+  height: 64,
+  format: "RGBA16F" as const,
+  release: vi.fn(),
+});
+
 describe("imageProcessing debug trace", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -266,10 +320,29 @@ describe("imageProcessing debug trace", () => {
     blendMaskedCanvasesOnGpuMock.mockResolvedValue(false);
     renderLocalMaskShapeOnGpuMock.mockReset();
     renderLocalMaskShapeOnGpuMock.mockResolvedValue(false);
+    renderLocalMaskShapeOnGpuToSurfaceMock.mockReset();
+    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(null);
+    applyLocalMaskRangeOnGpuMock.mockReset();
+    applyLocalMaskRangeOnGpuMock.mockResolvedValue(true);
+    applyLocalMaskRangeOnGpuToSurfaceMock.mockReset();
+    applyLocalMaskRangeOnGpuToSurfaceMock.mockImplementation(async ({ maskSource }: { maskSource: HTMLCanvasElement }) =>
+      createSurface(maskSource)
+    );
+    consumeCapturedLinearResultMock.mockReset();
+    consumeCapturedLinearResultMock.mockReturnValue(null);
+    borrowCapturedLinearResultMock.mockReset();
+    borrowCapturedLinearResultMock.mockReturnValue(null);
+    blendLinearWithMaskMock.mockReset();
+    presentLinearResultMock.mockReset();
     renderMock.mockReturnValue(createPipelineMetrics());
     vi.stubGlobal("HTMLCanvasElement", MockCanvasElement);
+    createdCanvases = [];
     vi.stubGlobal("document", {
-      createElement: vi.fn(() => new MockCanvasElement()),
+      createElement: vi.fn(() => {
+        const canvas = new MockCanvasElement();
+        createdCanvases.push(canvas);
+        return canvas;
+      }),
     });
   });
 
@@ -798,7 +871,69 @@ describe("imageProcessing debug trace", () => {
     );
   });
 
-  it("prefers GPU local mask shape generation for linear and radial masks", async () => {
+  it("falls back to CPU pixel reads when GPU shape succeeds but GPU range gating fails", async () => {
+    const { renderImageToCanvas } = await import("./imageProcessing");
+    const source = createCanvas();
+    const output = createCanvas();
+    const state = createState();
+    const shapeSurface = createSurface(createCanvas(64, 64));
+    state.develop.regions = [
+      {
+        id: "local-range-partial-fallback",
+        enabled: true,
+        amount: 100,
+        maskId: "mask-range-partial-fallback",
+        adjustments: {
+          exposure: 10,
+        },
+      },
+    ];
+    state.masks.byId["mask-range-partial-fallback"] = {
+      id: "mask-range-partial-fallback",
+      kind: "local-adjustment",
+      sourceLocalAdjustmentId: "local-range-partial-fallback",
+      mask: {
+        mode: "radial",
+        centerX: 0.5,
+        centerY: 0.5,
+        radiusX: 0.25,
+        radiusY: 0.25,
+        feather: 0.1,
+        lumaMin: 0.2,
+        lumaMax: 0.8,
+      },
+    };
+    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(shapeSurface);
+    applyLocalMaskRangeOnGpuToSurfaceMock.mockResolvedValue(null);
+
+    const result = await renderImageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "local-mask-partial-fallback-slot",
+      seedKey: "stable-seed:local-mask-partial-fallback",
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(shapeSurface.materializeToCanvas).toHaveBeenCalled();
+    expect(applyLocalMaskRangeOnGpuToSurfaceMock).toHaveBeenCalled();
+    expect(applyLocalMaskRangeOnGpuMock).not.toHaveBeenCalled();
+    expect(result.debug?.boundaries).toEqual(
+      expect.objectContaining({
+        cpuPixelReads: 1,
+      })
+    );
+  });
+
+  it("prefers GPU local mask shape generation for radial and brush masks", async () => {
     const { renderImageToCanvas } = await import("./imageProcessing");
     const source = createCanvas();
     const output = createCanvas();
@@ -827,7 +962,7 @@ describe("imageProcessing debug trace", () => {
         feather: 0.2,
       },
     };
-    renderLocalMaskShapeOnGpuMock.mockResolvedValue(true);
+    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(createSurface(createCanvas(64, 64)));
 
     await renderImageToCanvas({
       canvas: output,
@@ -846,11 +981,123 @@ describe("imageProcessing debug trace", () => {
       },
     });
 
-    expect(renderLocalMaskShapeOnGpuMock).toHaveBeenCalledWith(
+    expect(renderLocalMaskShapeOnGpuToSurfaceMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        width: 64,
+        height: 64,
         slotId: "local-mask-shape:local-shape",
+        mask: expect.objectContaining({
+          mode: "radial",
+        }),
       })
     );
+
+    renderLocalMaskShapeOnGpuToSurfaceMock.mockClear();
+    state.masks.byId["mask-shape"] = {
+      id: "mask-shape",
+      kind: "local-adjustment",
+      sourceLocalAdjustmentId: "local-shape",
+      mask: {
+        mode: "brush",
+        brushSize: 0.08,
+        feather: 0.25,
+        flow: 0.7,
+        points: [
+          { x: 0.2, y: 0.25, pressure: 1 },
+          { x: 0.7, y: 0.6, pressure: 0.8 },
+        ],
+      },
+    };
+
+    await renderImageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "local-shape-gpu-slot",
+      seedKey: "stable-seed:local-shape-gpu-brush",
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(renderLocalMaskShapeOnGpuToSurfaceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        width: 64,
+        height: 64,
+        slotId: "local-mask-shape:local-shape",
+        mask: expect.objectContaining({
+          mode: "brush",
+        }),
+      })
+    );
+  });
+
+  it("falls back to CPU brush painting for large local-adjustment point sets", async () => {
+    const { renderImageToCanvas } = await import("./imageProcessing");
+    const source = createCanvas();
+    const output = createCanvas();
+    const state = createState();
+    state.develop.regions = [
+      {
+        id: "local-brush-fallback",
+        enabled: true,
+        amount: 100,
+        maskId: "mask-brush-fallback",
+        adjustments: {
+          exposure: 4,
+        },
+      },
+    ];
+    state.masks.byId["mask-brush-fallback"] = {
+      id: "mask-brush-fallback",
+      kind: "local-adjustment",
+      sourceLocalAdjustmentId: "local-brush-fallback",
+      mask: {
+        mode: "brush",
+        brushSize: 0.08,
+        feather: 0.25,
+        flow: 0.7,
+        points: Array.from({ length: 513 }, (_, index) => ({
+          x: (index % 32) / 31,
+          y: (index % 16) / 15,
+          pressure: 1,
+        })),
+      },
+    };
+    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(null);
+
+    await renderImageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "local-brush-fallback-slot",
+      seedKey: "stable-seed:local-brush-fallback",
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(renderLocalMaskShapeOnGpuToSurfaceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slotId: "local-mask-shape:local-brush-fallback",
+        mask: expect.objectContaining({
+          mode: "brush",
+        }),
+      })
+    );
+    expect(createdCanvases.some((canvas) => canvas.context2d.arc.mock.calls.length > 0)).toBe(true);
   });
 
   it("prefers GPU masked blending for full-frame local adjustment composition when available", async () => {
@@ -974,5 +1221,88 @@ describe("imageProcessing debug trace", () => {
       ([x, y, width, height]) => x === 16 && y === 16 && width === 32 && height === 32
     );
     expect(roiClears).toHaveLength(2);
+  });
+
+  it("returns a renderer-slot surface for full-frame local adjustments when HDR local composition succeeds", async () => {
+    const { renderImageToSurface } = await import("./imageProcessing");
+    const source = createCanvas();
+    const state = createState();
+    state.develop.regions = [
+      {
+        id: "local-surface",
+        enabled: true,
+        amount: 100,
+        maskId: "mask-surface",
+        adjustments: {
+          exposure: 5,
+        },
+      },
+    ];
+    state.masks.byId["mask-surface"] = {
+      id: "mask-surface",
+      kind: "local-adjustment",
+      sourceLocalAdjustmentId: "local-surface",
+      mask: {
+        mode: "radial",
+        centerX: 0.5,
+        centerY: 0.5,
+        radiusX: 0.3,
+        radiusY: 0.3,
+        feather: 0.2,
+      },
+    };
+    consumeCapturedLinearResultMock.mockReturnValueOnce(createLinearResult());
+    borrowCapturedLinearResultMock.mockReturnValueOnce(createLinearResult());
+    blendLinearWithMaskMock.mockImplementation(() => createLinearResult());
+
+    const result = await renderImageToSurface({
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "local-surface-slot",
+      seedKey: "stable-seed:local-surface",
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(result.surface.kind).toBe("renderer-slot");
+    expect(result.debug).toEqual(
+      expect.objectContaining({
+        outputKind: "renderer-slot",
+      })
+    );
+    expect(presentLinearResultMock).toHaveBeenCalledTimes(1);
+
+    const reused = await renderImageToSurface({
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "local-surface-slot",
+      seedKey: "stable-seed:local-surface",
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(reused.surface.kind).toBe("renderer-slot");
+    expect(reused.surface.sourceCanvas).toBe(result.surface.sourceCanvas);
+    expect(reused.debug).toEqual(
+      expect.objectContaining({
+        status: "reused-output",
+        outputKind: "renderer-slot",
+      })
+    );
+    expect(presentLinearResultMock).toHaveBeenCalledTimes(1);
   });
 });

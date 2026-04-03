@@ -19,7 +19,8 @@ import {
 import { resolveRenderIntent, type RenderIntent } from "@/lib/renderIntent";
 import { blendMaskedCanvasesOnGpu } from "@/lib/renderer/gpuMaskedCanvasBlend";
 import { applyLocalMaskRangeOnGpu } from "@/lib/renderer/gpuLocalMaskRangeGate";
-import { renderLocalMaskShapeOnGpu } from "@/lib/renderer/gpuLocalMaskShape";
+import { applyLocalMaskRangeOnGpuToSurface } from "@/lib/renderer/gpuLocalMaskRangeGate";
+import { renderLocalMaskShapeOnGpuToSurface } from "@/lib/renderer/gpuLocalMaskShape";
 import { createTilePlan } from "@/lib/renderer/gpu/TiledRenderer";
 import { resolveViewportRenderRegion, type ViewportRoi } from "@/lib/renderer/viewportRegion";
 import type {
@@ -2095,61 +2096,76 @@ const buildLocalMask = async (
     return maskCanvas;
   }
 
-  if (local.mask.invert) {
-    const renderedShapeOnGpu = await renderLocalMaskShapeOnGpu({
-      maskCanvas,
-      mask: local.mask,
-      slotId: `local-mask-shape:${local.id || "anonymous"}`,
-      fullWidth: options?.fullWidth,
-      fullHeight: options?.fullHeight,
-      offsetX: options?.offsetX,
-      offsetY: options?.offsetY,
-    });
-    if (!renderedShapeOnGpu) {
+  let maskSurface = await renderLocalMaskShapeOnGpuToSurface({
+    width,
+    height,
+    mask: local.mask,
+    slotId: `local-mask-shape:${local.id || "anonymous"}`,
+    fullWidth: options?.fullWidth,
+    fullHeight: options?.fullHeight,
+    offsetX: options?.offsetX,
+    offsetY: options?.offsetY,
+  });
+
+  if (!maskSurface) {
+    if (local.mask.invert) {
       context.fillStyle = "rgba(255,255,255,1)";
       context.fillRect(0, 0, width, height);
       context.globalCompositeOperation = "destination-out";
       drawLocalMaskShape(context, local.mask, width, height, options);
       context.globalCompositeOperation = "source-over";
-    }
-  } else {
-    const renderedShapeOnGpu = await renderLocalMaskShapeOnGpu({
-      maskCanvas,
-      mask: local.mask,
-      slotId: `local-mask-shape:${local.id || "anonymous"}`,
-      fullWidth: options?.fullWidth,
-      fullHeight: options?.fullHeight,
-      offsetX: options?.offsetX,
-      offsetY: options?.offsetY,
-    });
-    if (!renderedShapeOnGpu) {
+    } else {
       drawLocalMaskShape(context, local.mask, width, height, options);
     }
   }
 
+  let needsCpuRangeFallback = false;
+  if (referenceContext && hasLocalMaskRangeConstraints(local.mask)) {
+    if (maskSurface) {
+      const gatedSurface = await applyLocalMaskRangeOnGpuToSurface({
+        referenceSource: referenceContext.canvas,
+        maskSource: maskSurface.sourceCanvas,
+        width,
+        height,
+        mask: local.mask,
+        slotId: `local-mask:${local.id || "anonymous"}`,
+      });
+      if (gatedSurface) {
+        maskSurface = gatedSurface;
+      } else {
+        needsCpuRangeFallback = true;
+      }
+    } else {
+      const appliedOnGpu = await applyLocalMaskRangeOnGpu({
+        maskCanvas,
+        referenceSource: referenceContext.canvas,
+        mask: local.mask,
+        slotId: `local-mask:${local.id || "anonymous"}`,
+      });
+      if (!appliedOnGpu) {
+        needsCpuRangeFallback = true;
+      }
+    }
+  }
+
+  if (maskSurface) {
+    maskSurface.materializeToCanvas(maskCanvas);
+  }
   if (amount < 0.999) {
     context.globalCompositeOperation = "destination-in";
     context.fillStyle = `rgba(255,255,255,${amount})`;
     context.fillRect(0, 0, width, height);
     context.globalCompositeOperation = "source-over";
   }
-  if (referenceContext && hasLocalMaskRangeConstraints(local.mask)) {
-    const appliedOnGpu = await applyLocalMaskRangeOnGpu({
-      maskCanvas,
-      referenceSource: referenceContext.canvas,
-      mask: local.mask,
-      slotId: `local-mask:${local.id || "anonymous"}`,
-    });
-    if (!appliedOnGpu) {
-      applyLocalMaskLumaRange(
-        context,
-        referenceContext,
-        local.mask,
-        width,
-        height,
-        options?.boundaryMetrics
-      );
-    }
+  if (needsCpuRangeFallback && referenceContext) {
+    applyLocalMaskLumaRange(
+      context,
+      referenceContext,
+      local.mask,
+      width,
+      height,
+      options?.boundaryMetrics
+    );
   }
 
   return maskCanvas;
@@ -2555,9 +2571,6 @@ const renderImageStageInternal = async (
       }
       return outputContext;
     };
-    const outputIdentity =
-      outputPreference === "surface" && !canvas ? `surface:${mode}:${slotId}` : undefined;
-
     const sourceKey = createSourceIdentityKey(source, loaded, resolvedSourceCacheKey);
     const geometryKey = stage.applyGeometry
       ? createGeometryKey({
@@ -2641,11 +2654,15 @@ const renderImageStageInternal = async (
       opticsDirty,
       outputDirty: false,
     };
-    const canReturnSlotSurface =
-      outputPreference === "surface" &&
-      !exportTilePlan &&
-      !viewportRenderRegion &&
-      activeLocalAdjustments.length === 0;
+    const canAttemptSlotSurface =
+      outputPreference === "surface" && !exportTilePlan && !viewportRenderRegion;
+    const canReturnBaseSlotSurface =
+      canAttemptSlotSurface && activeLocalAdjustments.length === 0;
+    const slotSurfaceOutputIdentity = canAttemptSlotSurface
+      ? `surface:${mode}:${slotId}`
+      : undefined;
+    const canReuseSlotSurfaceOutput =
+      canReturnBaseSlotSurface || (canAttemptSlotSurface && useHdrLocalComposition);
 
     if (exportTilePlan) {
       const resolvedOutputCanvas = ensureOutputCanvas();
@@ -3173,20 +3190,27 @@ const renderImageStageInternal = async (
       timings.pipelineMetrics = pipelineResult.renderMetrics;
 
       const outputKey = createOutputKey({
-        canvas: canReturnSlotSurface ? null : ensureOutputCanvas(),
-        outputIdentity: canReturnSlotSurface ? `surface:${mode}:${slotId}` : outputIdentity,
+        canvas: canReuseSlotSurfaceOutput ? null : ensureOutputCanvas(),
+        outputIdentity: canReuseSlotSurfaceOutput ? slotSurfaceOutputIdentity : undefined,
         width: fullOutputWidth,
         height: fullOutputHeight,
         pipelineKey: pipelineResult.pipelineKey,
         localAdjustmentsKey,
       });
       outputDirty = !incrementalPipeline || frameState.outputKey !== outputKey;
-      if (outputPreference === "surface" && !canReturnSlotSurface && !canvas && !outputDirty) {
+      if (outputPreference === "surface" && !canReuseSlotSurfaceOutput && !canvas && !outputDirty) {
         outputDirty = true;
       }
       dirtyState.outputDirty = outputDirty;
 
       composeStartAt = performance.now();
+      let resolvedOutputKind: RenderSurfaceKind = canReturnBaseSlotSurface
+        ? "renderer-slot"
+        : "output-canvas";
+      let resolvedSurfaceCanvas: HTMLCanvasElement | null = canReturnBaseSlotSurface
+        ? pipelineResult.canvas
+        : null;
+      let resolvedOutputKey = outputKey;
       if (pipelineResult.rendered || outputDirty) {
         const composeLocalWithCanvas = async () => {
           const outputContext = ensureOutputContext();
@@ -3293,11 +3317,20 @@ const renderImageStageInternal = async (
           }
         };
 
-        if (canReturnSlotSurface) {
-          frameState.outputKey = outputKey;
+        if (canReturnBaseSlotSurface) {
+          frameState.outputKey = resolvedOutputKey;
           frameState.lastRenderError = null;
         } else if (!useHdrLocalComposition) {
           await composeLocalWithCanvas();
+          resolvedOutputKind = "output-canvas";
+          resolvedSurfaceCanvas = null;
+          resolvedOutputKey = createOutputKey({
+            canvas: ensureOutputCanvas(),
+            width: fullOutputWidth,
+            height: fullOutputHeight,
+            pipelineKey: pipelineResult.pipelineKey,
+            localAdjustmentsKey,
+          });
         } else {
           const outputContext = ensureOutputContext();
           const resolvedOutputCanvas = ensureOutputCanvas();
@@ -3310,6 +3343,15 @@ const renderImageStageInternal = async (
           let compositedLinear = composeRenderer.consumeCapturedLinearResult();
           if (!compositedLinear) {
             await composeLocalWithCanvas();
+            resolvedOutputKind = "output-canvas";
+            resolvedSurfaceCanvas = null;
+            resolvedOutputKey = createOutputKey({
+              canvas: resolvedOutputCanvas,
+              width: fullOutputWidth,
+              height: fullOutputHeight,
+              pipelineKey: pipelineResult.pipelineKey,
+              localAdjustmentsKey,
+            });
           } else {
             try {
               for (
@@ -3412,20 +3454,47 @@ const renderImageStageInternal = async (
               }
 
               composeRenderer.presentLinearResult(compositedLinear);
-              outputContext.clearRect(0, 0, resolvedOutputCanvas.width, resolvedOutputCanvas.height);
-              outputContext.drawImage(
-                composeRenderer.canvas,
-                0,
-                0,
-                resolvedOutputCanvas.width,
-                resolvedOutputCanvas.height
-              );
+              if (canAttemptSlotSurface) {
+                resolvedOutputKind = "renderer-slot";
+                resolvedSurfaceCanvas = composeRenderer.canvas;
+                resolvedOutputKey = createOutputKey({
+                  canvas: null,
+                  outputIdentity: slotSurfaceOutputIdentity,
+                  width: fullOutputWidth,
+                  height: fullOutputHeight,
+                  pipelineKey: pipelineResult.pipelineKey,
+                  localAdjustmentsKey,
+                });
+              } else {
+                outputContext.clearRect(0, 0, resolvedOutputCanvas.width, resolvedOutputCanvas.height);
+                outputContext.drawImage(
+                  composeRenderer.canvas,
+                  0,
+                  0,
+                  resolvedOutputCanvas.width,
+                  resolvedOutputCanvas.height
+                );
+                resolvedOutputKind = "output-canvas";
+                resolvedSurfaceCanvas = null;
+                resolvedOutputKey = createOutputKey({
+                  canvas: resolvedOutputCanvas,
+                  width: fullOutputWidth,
+                  height: fullOutputHeight,
+                  pipelineKey: pipelineResult.pipelineKey,
+                  localAdjustmentsKey,
+                });
+              }
             } finally {
               compositedLinear.release();
             }
           }
         }
-        frameState.outputKey = outputKey;
+        frameState.outputKey = resolvedOutputKey;
+        frameState.lastRenderError = null;
+      } else if (canReuseSlotSurfaceOutput) {
+        resolvedOutputKind = "renderer-slot";
+        resolvedSurfaceCanvas = pipelineResult.canvas;
+        resolvedOutputKey = outputKey;
         frameState.lastRenderError = null;
       }
       timings.composeMs = performance.now() - composeStartAt;
@@ -3434,10 +3503,10 @@ const renderImageStageInternal = async (
       stageStatus = pipelineResult.rendered || outputDirty ? "rendered" : "reused-output";
       pipelineRendered = pipelineResult.rendered;
       const successSurface = createRenderSurfaceHandle({
-        kind: canReturnSlotSurface ? "renderer-slot" : "output-canvas",
+        kind: resolvedOutputKind,
         mode,
         slotId,
-        sourceCanvas: canReturnSlotSurface ? pipelineResult.canvas : ensureOutputCanvas(),
+        sourceCanvas: resolvedSurfaceCanvas ?? ensureOutputCanvas(),
         metrics: boundaryMetrics,
       });
       return createStageResult({

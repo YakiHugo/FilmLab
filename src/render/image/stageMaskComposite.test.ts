@@ -95,6 +95,7 @@ describe("stageMaskComposite", () => {
 
     expect(blendMaskedCanvasesOnGpuMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        baseCanvas: targetCanvas,
         targetCanvas: targetCanvas,
         slotId: "stage-mask:mask-1",
       })

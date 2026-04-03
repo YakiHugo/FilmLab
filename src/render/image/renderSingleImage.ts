@@ -12,7 +12,10 @@ import { sha256FromCanvas } from "@/lib/hash";
 import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
 import type { RenderIntent } from "@/lib/renderIntent";
 import { applyImageCarrierTransforms } from "./carrierExecution";
-import { applyImageEffects } from "./effectExecution";
+import {
+  applyImageEffects,
+  applyImageEffectsToSurfaceIfSupported,
+} from "./effectExecution";
 import { applyImageOverlays, resolveImageOverlays } from "./overlayExecution";
 import {
   assertSupportedImageRenderSnapshotPlan,
@@ -239,11 +242,14 @@ export const renderSingleImageToCanvas = async ({
   let developBaseCanvas: HTMLCanvasElement | null = null;
   let developSnapshotCanvas: HTMLCanvasElement | null = null;
   let finalizeSnapshotCanvas: HTMLCanvasElement | null = null;
+  let baseSurface: RenderSurfaceHandle | null = null;
+  let styleEffectsAppliedOnSurface = false;
 
   try {
     const hasDevelopEffects = snapshotPlan.developEffects.length > 0;
     const requiresDevelopBase =
       hasDevelopEffects || snapshotPlan.requiresDevelopAnalysisSnapshot;
+    let developBaseSurface: RenderSurfaceHandle | null = null;
 
     if (requiresDevelopBase) {
       const developBaseResult = await renderSnapshotToSurface({
@@ -257,14 +263,11 @@ export const renderSingleImageToCanvas = async ({
         internalStageId: developBaseResult.stageId,
         lowLevel: developBaseResult.debug,
       });
+      developBaseSurface = developBaseResult.surface;
       if (hasDevelopEffects) {
-        developBaseCanvas = trackSurfaceMaterialization(
-          developBaseResult.surface,
-          createSnapshotCanvas(request.targetSize)
-        );
         developSnapshotCanvas =
           hasMaskedDevelopEffects || snapshotPlan.requiresDevelopAnalysisSnapshot
-            ? trackCanvasClone(developBaseCanvas)
+            ? trackSurfaceClone(developBaseResult.surface)
             : null;
       } else if (snapshotPlan.requiresDevelopAnalysisSnapshot) {
         developSnapshotCanvas = trackSurfaceClone(developBaseResult.surface);
@@ -272,19 +275,30 @@ export const renderSingleImageToCanvas = async ({
     }
 
     if (hasDevelopEffects) {
-      const developCanvas = developBaseCanvas;
-      if (!developCanvas) {
-        throw new Error("Expected develop base canvas to be initialized.");
+      let developSourceSurface: RenderSurfaceHandle | null = null;
+      if (!developBaseSurface) {
+        throw new Error("Expected develop base surface to be initialized.");
       }
-
-      await applyImageEffects({
-        canvas: developCanvas,
+      developSourceSurface = await applyImageEffectsToSurfaceIfSupported({
+        surface: developBaseSurface,
         document,
         effects: snapshotPlan.developEffects,
-        stageReferenceCanvas: hasMaskedDevelopEffects
-          ? developSnapshotCanvas ?? developCanvas
-          : undefined,
+        stageReferenceCanvas: developSnapshotCanvas ?? undefined,
       });
+      if (!developSourceSurface) {
+        developBaseCanvas = trackSurfaceMaterialization(
+          developBaseSurface,
+          createSnapshotCanvas(request.targetSize)
+        );
+        await applyImageEffects({
+          canvas: developBaseCanvas,
+          document,
+          effects: snapshotPlan.developEffects,
+          stageReferenceCanvas: hasMaskedDevelopEffects
+            ? developSnapshotCanvas ?? developBaseCanvas
+            : undefined,
+        });
+      }
       appendTraceOperation(debugStages, "develop", {
         kind: "effects",
         effectPlacement: "develop",
@@ -292,7 +306,7 @@ export const renderSingleImageToCanvas = async ({
       });
 
       const filmStageResult = await renderFilmStageToSurface({
-        source: developCanvas,
+        source: developSourceSurface?.sourceCanvas ?? developBaseCanvas ?? document.source.objectUrl,
         state: extractImageProcessState(document),
         targetSize: request.targetSize,
         seedKey: resolveFilmSeedKey(document),
@@ -303,7 +317,7 @@ export const renderSingleImageToCanvas = async ({
         debug: request.debug,
         renderSlot: request.renderSlotId ? `${request.renderSlotId}:base-film-stage` : undefined,
       });
-      trackSurfaceMaterialization(filmStageResult.surface, canvas);
+      baseSurface = filmStageResult.surface;
       appendTraceOperation(debugStages, "develop", {
         kind: "low-level",
         internalStageId: filmStageResult.stageId,
@@ -316,13 +330,40 @@ export const renderSingleImageToCanvas = async ({
         renderSlotSuffix: "base-film",
         stage: "full",
       });
-      trackSurfaceMaterialization(fullRenderResult.surface, canvas);
+      baseSurface = fullRenderResult.surface;
       appendTraceOperation(debugStages, "develop", {
         kind: "low-level",
         internalStageId: fullRenderResult.stageId,
         lowLevel: fullRenderResult.debug,
       });
     }
+
+    if (!baseSurface) {
+      throw new Error("Expected base surface to be initialized.");
+    }
+
+    if (snapshotPlan.carrierTransforms.length === 0 && snapshotPlan.styleEffects.length > 0) {
+      if (hasMaskedStyleEffects && !styleSnapshotCanvas) {
+        styleSnapshotCanvas = trackSurfaceClone(baseSurface);
+      }
+      const styleSurface = await applyImageEffectsToSurfaceIfSupported({
+        surface: baseSurface,
+        document,
+        effects: snapshotPlan.styleEffects,
+        stageReferenceCanvas: styleSnapshotCanvas ?? undefined,
+      });
+      if (styleSurface) {
+        baseSurface = styleSurface;
+        styleEffectsAppliedOnSurface = true;
+        appendTraceOperation(debugStages, "style", {
+          kind: "effects",
+          effectPlacement: "style",
+          effectCount: snapshotPlan.styleEffects.length,
+        });
+      }
+    }
+
+    trackSurfaceMaterialization(baseSurface, canvas);
 
     carrierAnalysisSnapshotCanvas =
       snapshotPlan.carrierTransforms.length > 0 || snapshotPlan.requiresStyleAnalysisSnapshot
@@ -348,15 +389,19 @@ export const renderSingleImageToCanvas = async ({
     }
 
     styleSnapshotCanvas =
-      hasMaskedStyleEffects ? trackCanvasClone(canvas) : null;
+      hasMaskedStyleEffects && !styleEffectsAppliedOnSurface
+        ? styleSnapshotCanvas ?? trackCanvasClone(canvas)
+        : styleSnapshotCanvas;
 
-    await applyImageEffects({
-      canvas,
-      document,
-      effects: snapshotPlan.styleEffects,
-      stageReferenceCanvas: styleSnapshotCanvas ?? undefined,
-    });
-    if (snapshotPlan.styleEffects.length > 0) {
+    if (!styleEffectsAppliedOnSurface) {
+      await applyImageEffects({
+        canvas,
+        document,
+        effects: snapshotPlan.styleEffects,
+        stageReferenceCanvas: styleSnapshotCanvas ?? undefined,
+      });
+    }
+    if (snapshotPlan.styleEffects.length > 0 && !styleEffectsAppliedOnSurface) {
       appendTraceOperation(debugStages, "style", {
         kind: "effects",
         effectPlacement: "style",

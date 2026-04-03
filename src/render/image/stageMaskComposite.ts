@@ -103,7 +103,7 @@ export const applyMaskedStageOperation = async ({
     return;
   }
 
-  const baseCanvas = createCanvasLayer(canvas);
+  const baseCanvas = canvas;
   const effectCanvas = createCanvasLayer(canvas);
   const maskCanvas = document.createElement("canvas");
   const scratchCanvas = document.createElement("canvas");
@@ -141,8 +141,6 @@ export const applyMaskedStageOperation = async ({
       });
     }
   } finally {
-    baseCanvas.width = 0;
-    baseCanvas.height = 0;
     effectCanvas.width = 0;
     effectCanvas.height = 0;
     maskCanvas.width = 0;
