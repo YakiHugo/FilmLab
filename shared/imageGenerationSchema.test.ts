@@ -16,9 +16,8 @@ const getIssuePaths = (payload: Record<string, unknown>) => {
     ...payload,
   });
 
-  expect(result.success).toBe(false);
   if (result.success) {
-    return [];
+    throw new Error("Expected imageGenerationRequestSchema.safeParse to fail.");
   }
 
   return result.error.issues.map((issue) => issue.path.join("."));
@@ -109,36 +108,12 @@ describe("imageGenerationRequestSchema", () => {
     expect(issuePaths).toContain("inputAssets");
   });
 
-  it("accepts legacy assetRefs and referenceImages by mapping them into the new input model", () => {
-    const result = imageGenerationRequestSchema.safeParse({
-      ...basePayload,
-      referenceImages: [
-        {
-          sourceAssetId: "asset-guide-1",
-          type: "style",
-          weight: 0.4,
-        },
-      ],
-      assetRefs: [
-        { assetId: "asset-edit-1", role: "edit" },
-        { assetId: "asset-guide-1", role: "reference" },
-      ],
+  it("rejects legacy request fields after the hard cut", () => {
+    const issuePaths = getIssuePaths({
+      referenceImages: [{ sourceAssetId: "asset-guide-1", type: "style", weight: 0.4 }],
+      assetRefs: [{ assetId: "asset-edit-1", role: "edit" }],
     });
 
-    expect(result.success).toBe(true);
-    if (!result.success) {
-      return;
-    }
-
-    expect(result.data.operation).toBe("edit");
-    expect(result.data.inputAssets).toEqual([
-      { assetId: "asset-edit-1", binding: "source" },
-      {
-        assetId: "asset-guide-1",
-        binding: "guide",
-        guideType: "style",
-        weight: 0.4,
-      },
-    ]);
+    expect(issuePaths).toContain("");
   });
 });

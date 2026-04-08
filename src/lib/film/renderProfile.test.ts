@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultAdjustments } from "@/lib/adjustments";
 import { createDefaultCanvasImageRenderState } from "@/render/image";
 import type { FilmProfile } from "@/types";
 import type { FilmProfileV2, FilmProfileV3 } from "@/types/film";
@@ -30,12 +29,23 @@ const createV3BaseProfile = (): FilmProfileV3 => ({
   vignette: { enabled: false, amount: 0, midpoint: 0.5, roundness: 0.5 },
 });
 
+const createFilmState = (profile?: FilmProfile | FilmProfileV2 | FilmProfileV3 | null) => ({
+  profileId: profile?.id ?? null,
+  profile: profile ?? undefined,
+  profileOverrides: null,
+});
+
 describe("resolveRenderProfile", () => {
-  it("returns legacy-v1 mode for runtime adjustments", () => {
-    const resolved = resolveRenderProfile(createDefaultAdjustments());
-    expect(resolved.mode).toBe("legacy-v1");
+  it("returns v3 mode for a neutral canonical state", () => {
+    const renderState = createDefaultCanvasImageRenderState();
+
+    const resolved = resolveRenderProfileFromState({
+      film: renderState.film,
+      develop: renderState.develop,
+    });
+
+    expect(resolved.mode).toBe("v3");
     expect(resolved.mode).not.toBe("v2");
-    expect(resolved.legacyV1).toBeDefined();
     expect(resolved.lut).toBeNull();
   });
 
@@ -58,7 +68,10 @@ describe("resolveRenderProfile", () => {
       vignette: { enabled: false, amount: 0, midpoint: 0.5, roundness: 0.5 },
     };
 
-    const resolved = resolveRenderProfile(createDefaultAdjustments(), v2);
+    const resolved = resolveRenderProfile({
+      film: createFilmState(v2),
+      fx: createDefaultCanvasImageRenderState().develop.fx,
+    });
     expect(resolved.mode).toBe("v3");
     expect(resolved.lut).toEqual({
       path: "/luts/test.png",
@@ -67,14 +80,15 @@ describe("resolveRenderProfile", () => {
     });
   });
 
-  it("switches stock legacy profile ids to v3 LUT mode", () => {
-    const stockLegacy: FilmProfile = {
-      id: "stock-portra-400",
-      version: 1,
-      name: "Stock Legacy Stub",
-      modules: [],
-    };
-    const resolved = resolveRenderProfile(createDefaultAdjustments(), stockLegacy);
+  it("resolves stock profile ids through the built-in v2 registry", () => {
+    const resolved = resolveRenderProfile({
+      film: {
+        profileId: "stock-portra-400",
+        profile: undefined,
+        profileOverrides: null,
+      },
+      fx: createDefaultCanvasImageRenderState().develop.fx,
+    });
     expect(resolved.mode).toBe("v3");
     expect(resolved.v2.id).toBe("stock-portra-400");
     expect(resolved.lut).toEqual({
@@ -84,16 +98,19 @@ describe("resolveRenderProfile", () => {
     });
   });
 
-  it("applies custom LUT override from adjustments", () => {
-    const adjustments = createDefaultAdjustments();
-    adjustments.customLut = {
+  it("applies custom LUT override from state", () => {
+    const renderState = createDefaultCanvasImageRenderState();
+    renderState.develop.fx.customLut = {
       enabled: true,
       path: "luts/custom/test.cube",
       size: 16,
       intensity: 0.6,
     };
 
-    const resolved = resolveRenderProfile(adjustments);
+    const resolved = resolveRenderProfileFromState({
+      film: renderState.film,
+      develop: renderState.develop,
+    });
     expect(resolved.customLut).toEqual({
       path: "/luts/custom/test.cube",
       size: 16,
@@ -102,39 +119,23 @@ describe("resolveRenderProfile", () => {
   });
 
   it("resolves print custom LUT path/size for v3 print stock", () => {
-    const base = createDefaultAdjustments();
-    const resolved = resolveRenderProfile(base, {
-      id: "film-v3-print-custom",
-      version: 3,
-      name: "Print Custom",
-      type: "negative",
-      toneResponse: { enabled: false, shoulder: 0.8, toe: 0.3, gamma: 1 },
-      lut3d: { enabled: false, path: "", size: 16, intensity: 0 },
-      print: {
-        enabled: true,
-        stock: "custom",
-        density: 0,
-        contrast: 0,
-        warmth: 0,
-        lutPath: "luts/print/custom.cube",
-        lutSize: 16,
-      },
-      grain: {
-        enabled: false,
-        model: "blue-noise",
-        amount: 0,
-        size: 0.5,
-        colorGrain: false,
-        roughness: 0.5,
-        shadowBias: 0.5,
-        crystalDensity: 0.5,
-        crystalSizeMean: 0.5,
-        crystalSizeVariance: 0.35,
-        colorSeparation: [1, 1, 1],
-        scannerMTF: 0.55,
-        filmFormat: "35mm",
-      },
-      vignette: { enabled: false, amount: 0, midpoint: 0.5, roundness: 0.5 },
+    const resolved = resolveRenderProfile({
+      film: createFilmState({
+        ...createV3BaseProfile(),
+        id: "film-v3-print-custom",
+        name: "Print Custom",
+        lut3d: { enabled: false, path: "", size: 16, intensity: 0 },
+        print: {
+          enabled: true,
+          stock: "custom",
+          density: 0,
+          contrast: 0,
+          warmth: 0,
+          lutPath: "luts/print/custom.cube",
+          lutSize: 16,
+        },
+      }),
+      fx: createDefaultCanvasImageRenderState().develop.fx,
     });
 
     expect(resolved.mode).toBe("v3");
@@ -145,33 +146,36 @@ describe("resolveRenderProfile", () => {
   });
 
   it("applies push/pull override and resolves blended stop LUTs", () => {
-    const adjustments = createDefaultAdjustments();
-    adjustments.pushPullEv = -0.61;
+    const renderState = createDefaultCanvasImageRenderState();
+    renderState.develop.fx.pushPullEv = -0.61;
 
-    const resolved = resolveRenderProfile(adjustments, {
-      ...createV3BaseProfile(),
-      pushPull: {
-        enabled: true,
-        ev: 0,
-        minEv: -2,
-        maxEv: 2,
-        lutByStop: {
-          "-1": {
-            path: "luts/pushpull/m1.cube",
-            size: 16,
-            intensity: 0.7,
-          },
-          "1": {
-            path: "luts/pushpull/p1.cube",
-            size: 16,
-            intensity: 0.9,
+    const resolved = resolveRenderProfile({
+      film: createFilmState({
+        ...createV3BaseProfile(),
+        pushPull: {
+          enabled: true,
+          ev: 0,
+          minEv: -2,
+          maxEv: 2,
+          lutByStop: {
+            "-1": {
+              path: "luts/pushpull/m1.cube",
+              size: 16,
+              intensity: 0.7,
+            },
+            "1": {
+              path: "luts/pushpull/p1.cube",
+              size: 16,
+              intensity: 0.9,
+            },
           },
         },
-      },
+      }),
+      fx: renderState.develop.fx,
     });
 
     expect(resolved.mode).toBe("v3");
-    expect(resolved.pushPull.source).toBe("adjustments");
+    expect(resolved.pushPull.source).toBe("state");
     expect(resolved.pushPull.ev).toBeCloseTo(-0.61, 3);
     expect(resolved.pushPull.selectedStop).toBe(-1);
     expect(resolved.lut?.path).toBe("/luts/pushpull/m1.cube");
@@ -183,29 +187,32 @@ describe("resolveRenderProfile", () => {
   });
 
   it("uses nearest push/pull stop without blend at out-of-range EV", () => {
-    const adjustments = createDefaultAdjustments();
-    adjustments.pushPullEv = -2;
+    const renderState = createDefaultCanvasImageRenderState();
+    renderState.develop.fx.pushPullEv = -2;
 
-    const resolved = resolveRenderProfile(adjustments, {
-      ...createV3BaseProfile(),
-      pushPull: {
-        enabled: true,
-        ev: 0,
-        minEv: -2,
-        maxEv: 2,
-        lutByStop: {
-          "-1": {
-            path: "luts/pushpull/m1.cube",
-            size: 16,
-            intensity: 0.7,
-          },
-          "1": {
-            path: "luts/pushpull/p1.cube",
-            size: 16,
-            intensity: 0.9,
+    const resolved = resolveRenderProfile({
+      film: createFilmState({
+        ...createV3BaseProfile(),
+        pushPull: {
+          enabled: true,
+          ev: 0,
+          minEv: -2,
+          maxEv: 2,
+          lutByStop: {
+            "-1": {
+              path: "luts/pushpull/m1.cube",
+              size: 16,
+              intensity: 0.7,
+            },
+            "1": {
+              path: "luts/pushpull/p1.cube",
+              size: 16,
+              intensity: 0.9,
+            },
           },
         },
-      },
+      }),
+      fx: renderState.develop.fx,
     });
 
     expect(resolved.pushPull.selectedStop).toBe(-1);
@@ -218,39 +225,45 @@ describe("resolveRenderProfile", () => {
   });
 
   it("clamps push/pull EV into configured profile range", () => {
-    const adjustments = createDefaultAdjustments();
-    adjustments.pushPullEv = 2;
+    const renderState = createDefaultCanvasImageRenderState();
+    renderState.develop.fx.pushPullEv = 2;
 
-    const resolved = resolveRenderProfile(adjustments, {
-      ...createV3BaseProfile(),
-      pushPull: {
-        enabled: true,
-        ev: 0,
-        minEv: -0.5,
-        maxEv: 1,
-      },
+    const resolved = resolveRenderProfile({
+      film: createFilmState({
+        ...createV3BaseProfile(),
+        pushPull: {
+          enabled: true,
+          ev: 0,
+          minEv: -0.5,
+          maxEv: 1,
+        },
+      }),
+      fx: renderState.develop.fx,
     });
 
-    expect(resolved.pushPull.source).toBe("adjustments");
+    expect(resolved.pushPull.source).toBe("state");
     expect(resolved.pushPull.ev).toBe(1);
   });
 
   it("normalizes advanced v3 fields like print white and gate weave", () => {
-    const resolved = resolveRenderProfile(createDefaultAdjustments(), {
-      ...createV3BaseProfile(),
-      print: {
-        enabled: true,
-        stock: "kodak-2383",
-        density: 0,
-        contrast: 0,
-        warmth: 0,
-        targetWhiteKelvin: 7000,
-      },
-      gateWeave: {
-        enabled: true,
-        amount: 2,
-        seed: Number.NaN,
-      },
+    const resolved = resolveRenderProfile({
+      film: createFilmState({
+        ...createV3BaseProfile(),
+        print: {
+          enabled: true,
+          stock: "kodak-2383",
+          density: 0,
+          contrast: 0,
+          warmth: 0,
+          targetWhiteKelvin: 7000,
+        },
+        gateWeave: {
+          enabled: true,
+          amount: 2,
+          seed: Number.NaN,
+        },
+      }),
+      fx: createDefaultCanvasImageRenderState().develop.fx,
     });
 
     expect(resolved.v3.print?.targetWhiteKelvin).toBe(6500);
@@ -258,34 +271,24 @@ describe("resolveRenderProfile", () => {
     expect(resolved.v3.gateWeave?.seed).toBe(0);
   });
 
-  it("preserves grain and vignette when runtime state has no explicit film profile", () => {
-    const adjustments = createDefaultAdjustments();
-    adjustments.exposure = 14;
-    adjustments.highlights = 22;
-    adjustments.shadows = -18;
-    adjustments.temperature = 12;
-    adjustments.tint = -9;
-    adjustments.vibrance = 17;
-    adjustments.saturation = 11;
-    adjustments.texture = 26;
-    adjustments.clarity = 19;
-    adjustments.dehaze = 7;
-    adjustments.grain = 48;
-    adjustments.grainSize = 62;
-    adjustments.grainRoughness = 73;
-    adjustments.vignette = 28;
-    const renderState = createDefaultCanvasImageRenderState({ adjustments });
-
-    const legacyResolved = resolveRenderProfile(adjustments);
+  it("preserves grain and vignette from canonical runtime state without an explicit film profile", () => {
+    const renderState = createDefaultCanvasImageRenderState();
+    renderState.develop.fx.grain = 48;
+    renderState.develop.fx.grainSize = 62;
+    renderState.develop.fx.grainRoughness = 73;
+    renderState.develop.fx.vignette = 28;
 
     const resolved = resolveRenderProfileFromState({
       film: renderState.film,
       develop: renderState.develop,
     });
 
-    expect(resolved.mode).toBe("legacy-v1");
-    expect(resolved.legacyV1).toEqual(legacyResolved.legacyV1);
-    expect(resolved.v3.grain).toEqual(legacyResolved.v3.grain);
-    expect(resolved.v3.vignette).toEqual(legacyResolved.v3.vignette);
+    expect(resolved.mode).toBe("v3");
+    expect(resolved.v3.grain.enabled).toBe(true);
+    expect(resolved.v3.grain.amount).toBeCloseTo(0.48, 4);
+    expect(resolved.v3.grain.size).toBeCloseTo(0.62, 4);
+    expect(resolved.v3.grain.roughness).toBeCloseTo(0.73, 4);
+    expect(resolved.v3.vignette.enabled).toBe(true);
+    expect(resolved.v3.vignette.amount).toBeCloseTo(0.28, 4);
   });
 });

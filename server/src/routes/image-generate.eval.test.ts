@@ -50,7 +50,6 @@ const repositoryMock = {
   getPromptObservabilityForConversation: vi.fn(),
   clearActiveConversation: vi.fn(),
   deleteTurn: vi.fn(),
-  getGeneratedImageByCapability: vi.fn(),
   createTurn: vi.fn(),
   createGeneration: vi.fn(),
   createRun: vi.fn(),
@@ -66,22 +65,26 @@ let generatedAssetCounter = 0;
 
 const assetServiceMock = {
   close: vi.fn(),
-  resolveProviderAssetRefs: vi.fn(
+  resolveProviderInputAssets: vi.fn(
     async (
       _userId: string,
-      assetRefs: Array<{
+      inputAssets: Array<{
         assetId: string;
-        role: "reference" | "edit" | "variation";
-        referenceType?: "style" | "content" | "controlnet";
+        binding: "guide" | "source";
+        guideType?: "style" | "content" | "controlnet";
         weight?: number;
       }>
     ) =>
-      assetRefs.map((assetRef) => ({
-        assetId: assetRef.assetId,
-        role: assetRef.role,
-        referenceType: assetRef.referenceType ?? "content",
-        weight: assetRef.weight ?? 1,
-        signedUrl: `https://assets.example.com/${assetRef.assetId}.png`,
+      inputAssets.map((inputAsset) => ({
+        assetId: inputAsset.assetId,
+        binding: inputAsset.binding,
+        ...(inputAsset.binding === "guide"
+          ? {
+              guideType: inputAsset.guideType ?? "content",
+              weight: inputAsset.weight ?? 1,
+            }
+          : {}),
+        signedUrl: `https://assets.example.com/${inputAsset.assetId}.png`,
         mimeType: "image/png",
       }))
   ),
@@ -364,17 +367,17 @@ describe("imageGenerateRoute evals", () => {
             runtimeProvider: "dashscope",
             providerModel: "qwen-image-2.0-pro",
             compiledPrompt: "Compiled edit",
-            requestSnapshot: {
-              prompt: "Remove the coffee cup",
-              modelId: "qwen-image-2-pro",
-              aspectRatio: "1:1",
-              batchSize: 1,
-              style: "none",
-              referenceImages: [],
-              assetRefs: [{ assetId: "thread-asset-1", role: "edit" }],
-              modelParams: {
-                promptExtend: true,
-              },
+          requestSnapshot: {
+            prompt: "Remove the coffee cup",
+            modelId: "qwen-image-2-pro",
+            aspectRatio: "1:1",
+            batchSize: 1,
+            style: "none",
+            operation: "edit",
+            inputAssets: [{ assetId: "thread-asset-1", binding: "source" }],
+            modelParams: {
+              promptExtend: true,
+            },
             },
             status: "succeeded",
             error: null,
@@ -424,7 +427,6 @@ describe("imageGenerateRoute evals", () => {
         aspectRatio: "16:9",
         batchSize: 4,
         style: "none",
-        referenceImages: [],
         modelParams: {},
         retryOfTurnId: "turn-1",
         retryMode: "exact",
@@ -561,8 +563,8 @@ describe("imageGenerateRoute evals", () => {
         batchSize: 1,
         style: "none",
         negativePrompt: "blurry text, watermark",
-        referenceImages: [],
-        assetRefs: [{ assetId: "thread-asset-1", role: "edit" }],
+        operation: "edit",
+        inputAssets: [{ assetId: "thread-asset-1", binding: "source" }],
         promptIntent: {
           preserve: [],
           avoid: [],

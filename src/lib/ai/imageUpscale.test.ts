@@ -28,7 +28,7 @@ describe("upscaleImage", () => {
           model: "qwen-image-2.0-pro",
           assetId: "asset-upscaled-1",
           imageId: "img-upscaled-1",
-          imageUrl: "/api/generated-images/img-upscaled-1",
+          imageUrl: "/api/assets/asset-upscaled-1/original?token=test",
           mimeType: "image/png",
         }),
         {
@@ -59,7 +59,7 @@ describe("upscaleImage", () => {
       model: "qwen-image-2.0-pro",
       assetId: "asset-upscaled-1",
       imageId: "img-upscaled-1",
-      imageUrl: "/api/generated-images/img-upscaled-1",
+      imageUrl: "/api/assets/asset-upscaled-1/original?token=test",
       mimeType: "image/png",
     });
   });

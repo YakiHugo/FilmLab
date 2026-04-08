@@ -1,4 +1,4 @@
-import { createCanvasImageRenderStateFromAsset } from "@/render/image";
+import { createNeutralCanvasImageRenderState } from "@/render/image";
 import type { Asset, CanvasImageElement } from "@/types";
 import { createId } from "@/utils";
 
@@ -36,7 +36,5 @@ export const createCanvasImageElementFromAsset = ({
   opacity: 1,
   locked: false,
   visible: true,
-  renderState: createCanvasImageRenderStateFromAsset({
-    asset,
-  }),
+  renderState: createNeutralCanvasImageRenderState(),
 });

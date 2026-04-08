@@ -1,0 +1,1308 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  createDefaultCanvasImageRenderState,
+  createImageRenderDocument,
+  extractImageProcessState,
+} from "@/render/image";
+
+const renderMock = vi.fn();
+const updateSourceMock = vi.fn();
+const disposeMock = vi.fn();
+const blendMaskedCanvasesOnGpuMock = vi.fn();
+const renderLocalMaskShapeOnGpuMock = vi.fn();
+const renderLocalMaskShapeOnGpuToSurfaceMock = vi.fn();
+const applyLocalMaskRangeOnGpuMock = vi.fn();
+const applyLocalMaskRangeOnGpuToSurfaceMock = vi.fn();
+const consumeCapturedLinearResultMock = vi.fn();
+const borrowCapturedLinearResultMock = vi.fn();
+const blendLinearWithMaskMock = vi.fn();
+const presentLinearResultMock = vi.fn();
+let createdCanvases: MockCanvasElement[] = [];
+
+class MockCanvasElement {
+  width = 0;
+  height = 0;
+
+  private readonly gradient = {
+    addColorStop: vi.fn(),
+  };
+
+  private readonly context2d = {
+    canvas: null as MockCanvasElement | null,
+    clearRect: vi.fn(),
+    drawImage: vi.fn(),
+    save: vi.fn(),
+    restore: vi.fn(),
+    beginPath: vi.fn(),
+    rect: vi.fn(),
+    clip: vi.fn(),
+    translate: vi.fn(),
+    rotate: vi.fn(),
+    scale: vi.fn(),
+    createLinearGradient: vi.fn(() => this.gradient),
+    createRadialGradient: vi.fn(() => this.gradient),
+    arc: vi.fn(),
+    closePath: vi.fn(),
+    fill: vi.fn(),
+    fillRect: vi.fn(),
+    getImageData: vi.fn((_: number, __: number, width: number, height: number) => ({
+      data: new Uint8ClampedArray(Math.max(1, width) * Math.max(1, height) * 4),
+      width,
+      height,
+    })),
+    putImageData: vi.fn(),
+    createImageData: vi.fn((width: number, height: number) => ({
+      data: new Uint8ClampedArray(Math.max(1, width) * Math.max(1, height) * 4),
+      width,
+      height,
+    })),
+  };
+
+  constructor() {
+    this.context2d.canvas = this;
+  }
+
+  getContext(type: string) {
+    if (type === "2d") {
+      return this.context2d;
+    }
+    if (type === "webgl2") {
+      return {
+        MAX_TEXTURE_SIZE: 0x0d33,
+        getParameter: vi.fn(() => 8192),
+        getExtension: vi.fn(() => ({
+          loseContext: vi.fn(),
+        })),
+      };
+    }
+    return null;
+  }
+}
+
+const createPipelineMetrics = () => ({
+  totalMs: 4,
+  updateUniformsMs: 1,
+  filterChainMs: 2,
+  drawMs: 1,
+  passCpuMs: {
+    geometry: 0.5,
+    master: 0.75,
+    hsl: 0,
+    curve: 0,
+    detail: 0,
+    film: 0.5,
+    optics: 0.25,
+  },
+  activePasses: ["geometry", "master", "film", "optics"],
+});
+
+vi.mock("@/lib/film", () => ({
+  resolveRenderProfileFromState: vi.fn(() => ({
+    mode: "v3",
+    source: null,
+    v3: {},
+    lut: null,
+    lutBlend: null,
+    customLut: null,
+    printLut: null,
+    pushPull: {
+      enabled: false,
+      ev: 0,
+      source: "none",
+      selectedStop: null,
+    },
+  })),
+}));
+
+vi.mock("@/lib/renderer/uniformResolvers", () => ({
+  resolveMasterUniforms: vi.fn(() => ({})),
+  resolveHslUniformsFromState: vi.fn(() => ({})),
+  resolveCurveUniformsFromState: vi.fn(() => ({})),
+  resolveDetailUniformsFromState: vi.fn(() => ({})),
+  resolveFilmUniformsV3: vi.fn(() => ({
+    u_lutEnabled: false,
+    u_lutIntensity: 0,
+    u_lutMixEnabled: false,
+    u_lutMixFactor: 0,
+    u_customLutEnabled: false,
+    u_customLutIntensity: 0,
+    u_printLutEnabled: false,
+    u_printLutIntensity: 0,
+  })),
+  resolveHalationBloomUniformsV3: vi.fn(() => ({})),
+}));
+
+vi.mock("@/lib/renderer/RenderManager", () => {
+  type FrameState = {
+    sourceKey: string | null;
+    geometryKey: string | null;
+    masterKey: string | null;
+    hslKey: string | null;
+    curveKey: string | null;
+    detailKey: string | null;
+    filmKey: string | null;
+    opticsKey: string | null;
+    pipelineKey: string | null;
+    outputKey: string | null;
+    tilePlanKey: string | null;
+    uploadedGeometryKey: string | null;
+    geometryCanvas: MockCanvasElement | null;
+    localMaskCanvas: MockCanvasElement | null;
+    localBlendCanvas: MockCanvasElement | null;
+    lastRenderError: string | null;
+  };
+
+  const frameStates = new Map<string, FrameState>();
+  const renderers = new Map<string, MockPipelineRenderer>();
+
+  const createFrameState = (): FrameState => ({
+    sourceKey: null,
+    geometryKey: null,
+    masterKey: null,
+    hslKey: null,
+    curveKey: null,
+    detailKey: null,
+    filmKey: null,
+    opticsKey: null,
+    pipelineKey: null,
+    outputKey: null,
+    tilePlanKey: null,
+    uploadedGeometryKey: null,
+    geometryCanvas: null,
+    localMaskCanvas: null,
+    localBlendCanvas: null,
+    lastRenderError: null,
+  });
+
+  class MockPipelineRenderer {
+    canvas = new MockCanvasElement() as unknown as HTMLCanvasElement;
+    isWebGL2 = true;
+    isContextLost = false;
+    maxTextureSize = 8192;
+
+    updateSource = (...args: unknown[]) => Reflect.apply(updateSourceMock, this, args);
+
+    render = (...args: unknown[]) => Reflect.apply(renderMock, this, args);
+
+    dispose = (...args: unknown[]) => Reflect.apply(disposeMock, this, args);
+
+    consumeCapturedLinearResult() {
+      return Reflect.apply(consumeCapturedLinearResultMock, this, []);
+    }
+
+    borrowCapturedLinearResult() {
+      return Reflect.apply(borrowCapturedLinearResultMock, this, []);
+    }
+
+    applyLocalMaskRangeGateSource() {
+      return true;
+    }
+
+    blendLinearWithMask(...args: unknown[]) {
+      return Reflect.apply(blendLinearWithMaskMock, this, args);
+    }
+
+    presentLinearResult(...args: unknown[]) {
+      return Reflect.apply(presentLinearResultMock, this, args);
+    }
+  }
+
+  return {
+    RenderManager: class MockRenderManager {
+      getRenderer(mode: string, _width: number, _height: number, slotId?: string) {
+        const key = `${mode}:${slotId ?? "default"}`;
+        const existing = renderers.get(key);
+        if (existing) {
+          return existing;
+        }
+        const created = new MockPipelineRenderer();
+        renderers.set(key, created);
+        return created;
+      }
+
+      getFrameState(mode: string, slotId?: string) {
+        const key = `${mode}:${slotId ?? "default"}`;
+        const existing = frameStates.get(key);
+        if (existing) {
+          return existing;
+        }
+        const created = createFrameState();
+        frameStates.set(key, created);
+        return created;
+      }
+
+      getMaxTextureSize() {
+        return 8192;
+      }
+
+      dispose() {
+        renderers.clear();
+        disposeMock();
+      }
+
+      disposeAll() {
+        renderers.clear();
+        disposeMock();
+      }
+    },
+  };
+});
+
+vi.mock("@/lib/renderer/gpuMaskedCanvasBlend", () => ({
+  blendMaskedCanvasesOnGpu: (...args: unknown[]) =>
+    Reflect.apply(blendMaskedCanvasesOnGpuMock, undefined, args),
+}));
+
+vi.mock("@/lib/renderer/gpuLocalMaskShape", () => ({
+  renderLocalMaskShapeOnGpu: (...args: unknown[]) =>
+    Reflect.apply(renderLocalMaskShapeOnGpuMock, undefined, args),
+  renderLocalMaskShapeOnGpuToSurface: (...args: unknown[]) =>
+    Reflect.apply(renderLocalMaskShapeOnGpuToSurfaceMock, undefined, args),
+}));
+
+vi.mock("@/lib/renderer/gpuLocalMaskRangeGate", () => ({
+  applyLocalMaskRangeOnGpu: (...args: unknown[]) =>
+    Reflect.apply(applyLocalMaskRangeOnGpuMock, undefined, args),
+  applyLocalMaskRangeOnGpuToSurface: (...args: unknown[]) =>
+    Reflect.apply(applyLocalMaskRangeOnGpuToSurfaceMock, undefined, args),
+}));
+
+const createState = () =>
+  extractImageProcessState(
+    createImageRenderDocument({
+      id: "debug-doc",
+      source: {
+        assetId: "asset-1",
+        objectUrl: "blob:asset-1",
+        contentHash: null,
+        name: "asset-1.jpg",
+        mimeType: "image/jpeg",
+        width: 64,
+        height: 64,
+      },
+      ...createDefaultCanvasImageRenderState(),
+    })
+  );
+
+const createCanvas = (width = 64, height = 64) => {
+  const canvas = new MockCanvasElement() as unknown as HTMLCanvasElement;
+  canvas.width = width;
+  canvas.height = height;
+  return canvas;
+};
+
+const createSurface = (sourceCanvas: HTMLCanvasElement) => ({
+  kind: "renderer-slot" as const,
+  mode: "preview" as const,
+  slotId: "surface-slot",
+  width: sourceCanvas.width,
+  height: sourceCanvas.height,
+  sourceCanvas,
+  materializeToCanvas: vi.fn((targetCanvas?: HTMLCanvasElement | null) => targetCanvas ?? sourceCanvas),
+  cloneToCanvas: vi.fn((targetCanvas?: HTMLCanvasElement | null) => targetCanvas ?? sourceCanvas),
+});
+
+const createLinearResult = () => ({
+  texture: {} as WebGLTexture,
+  width: 64,
+  height: 64,
+  format: "RGBA16F" as const,
+  release: vi.fn(),
+});
+
+describe("imageProcessing debug trace", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    renderMock.mockReset();
+    updateSourceMock.mockReset();
+    disposeMock.mockReset();
+    blendMaskedCanvasesOnGpuMock.mockReset();
+    blendMaskedCanvasesOnGpuMock.mockResolvedValue(false);
+    renderLocalMaskShapeOnGpuMock.mockReset();
+    renderLocalMaskShapeOnGpuMock.mockResolvedValue(false);
+    renderLocalMaskShapeOnGpuToSurfaceMock.mockReset();
+    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(null);
+    applyLocalMaskRangeOnGpuMock.mockReset();
+    applyLocalMaskRangeOnGpuMock.mockResolvedValue(true);
+    applyLocalMaskRangeOnGpuToSurfaceMock.mockReset();
+    applyLocalMaskRangeOnGpuToSurfaceMock.mockImplementation(async ({ maskSource }: { maskSource: HTMLCanvasElement }) =>
+      createSurface(maskSource)
+    );
+    consumeCapturedLinearResultMock.mockReset();
+    consumeCapturedLinearResultMock.mockReturnValue(null);
+    borrowCapturedLinearResultMock.mockReset();
+    borrowCapturedLinearResultMock.mockReturnValue(null);
+    blendLinearWithMaskMock.mockReset();
+    presentLinearResultMock.mockReset();
+    renderMock.mockReturnValue(createPipelineMetrics());
+    vi.stubGlobal("HTMLCanvasElement", MockCanvasElement);
+    createdCanvases = [];
+    vi.stubGlobal("document", {
+      createElement: vi.fn(() => {
+        const canvas = new MockCanvasElement();
+        createdCanvases.push(canvas);
+        return canvas;
+      }),
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("reports rendered vs reused-output for repeated renders on the same slot", async () => {
+    const { renderImageToCanvas } = await import("./imageProcessing");
+    const source = createCanvas();
+    const output = createCanvas();
+    const state = createState();
+
+    const first = await renderImageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "debug-slot",
+      seedKey: "stable-seed",
+      debug: {
+        trace: true,
+      },
+    });
+    const second = await renderImageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "debug-slot",
+      seedKey: "stable-seed",
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(first.debug).toEqual(
+      expect.objectContaining({
+        status: "rendered",
+        pipelineRendered: true,
+        activePasses: ["geometry", "master", "film", "optics"],
+      })
+    );
+    expect(second.debug).toEqual(
+      expect.objectContaining({
+        status: "reused-output",
+        pipelineRendered: false,
+        activePasses: [],
+      })
+    );
+    expect(renderMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports preview-frame reuse when a preview rerender fails after a successful frame", async () => {
+    const { renderImageToCanvas } = await import("./imageProcessing");
+    const source = createCanvas();
+    const output = createCanvas();
+    const firstState = createState();
+    const changedState = createState();
+    changedState.develop.tone.exposure = 12;
+
+    renderMock
+      .mockReturnValueOnce(createPipelineMetrics())
+      .mockImplementationOnce(() => {
+        throw new Error("gpu exploded");
+      });
+
+    await renderImageToCanvas({
+      canvas: output,
+      source,
+      state: firstState,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "preview-fallback-slot",
+      seedKey: "stable-seed:first",
+      debug: {
+        trace: true,
+      },
+    });
+
+    const fallback = await renderImageToCanvas({
+      canvas: output,
+      source,
+      state: changedState,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "preview-fallback-slot",
+      seedKey: "stable-seed:changed",
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(fallback.debug).toEqual(
+      expect.objectContaining({
+        status: "reused-preview-frame",
+        pipelineRendered: false,
+        error: expect.stringContaining("gpu exploded"),
+      })
+    );
+  });
+
+  it("reports geometry fallback when no preview frame is available to reuse", async () => {
+    const { renderImageToCanvas } = await import("./imageProcessing");
+    const source = createCanvas();
+    const output = createCanvas();
+    const state = createState();
+    let tick = 0;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => {
+      tick += 1;
+      return tick;
+    });
+
+    renderMock.mockImplementationOnce(() => {
+      throw new Error("first frame failed");
+    });
+
+    const fallback = await renderImageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "geometry-fallback-slot",
+      seedKey: "stable-seed:first",
+      debug: {
+        trace: true,
+      },
+    });
+    nowSpy.mockRestore();
+
+    expect(fallback.debug).toEqual(
+      expect.objectContaining({
+        status: "geometry-fallback",
+        pipelineRendered: false,
+        usedCpuGeometry: true,
+        error: expect.stringContaining("first frame failed"),
+      })
+    );
+    expect(fallback.debug?.timings.pipelineMs).toBeGreaterThan(0);
+  });
+
+  it("avoids an extra oriented canvas clone when CPU geometry handles right-angle rotation", async () => {
+    const { renderImageToCanvas } = await import("./imageProcessing");
+    const source = createCanvas();
+    const output = createCanvas();
+    const state = createState();
+    state.geometry.rightAngleRotation = 90;
+
+    const result = await renderImageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "cpu-geometry-rotation-slot",
+      seedKey: "stable-seed:cpu-geometry-rotation",
+      debug: {
+        trace: true,
+        pipelineOverrides: {
+          gpuGeometryPass: false,
+        },
+      },
+    });
+
+    expect(result.debug).toEqual(
+      expect.objectContaining({
+        status: "rendered",
+        usedCpuGeometry: true,
+        boundaries: expect.objectContaining({
+          canvasClones: 0,
+        }),
+      })
+    );
+  });
+
+  it("lets debug overrides disable preview-frame reuse fallback", async () => {
+    const { renderImageToCanvas } = await import("./imageProcessing");
+    const source = createCanvas();
+    const output = createCanvas();
+    const firstState = createState();
+    const changedState = createState();
+    changedState.develop.tone.exposure = 12;
+
+    renderMock
+      .mockReturnValueOnce(createPipelineMetrics())
+      .mockImplementationOnce(() => {
+        throw new Error("gpu exploded");
+      });
+
+    await renderImageToCanvas({
+      canvas: output,
+      source,
+      state: firstState,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "preview-no-reuse-slot",
+      seedKey: "stable-seed:first",
+      debug: {
+        trace: true,
+      },
+    });
+
+    const fallback = await renderImageToCanvas({
+      canvas: output,
+      source,
+      state: changedState,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "preview-no-reuse-slot",
+      seedKey: "stable-seed:changed",
+      debug: {
+        trace: true,
+        pipelineOverrides: {
+          keepLastPreviewFrameOnError: false,
+        },
+      },
+    });
+
+    expect(fallback.debug).toEqual(
+      expect.objectContaining({
+        status: "geometry-fallback",
+        pipelineRendered: false,
+        error: expect.stringContaining("gpu exploded"),
+      })
+    );
+  });
+
+  it("reports no CPU geometry when a film-stage fallback bypasses geometry work", async () => {
+    const { renderFilmStageToCanvas } = await import("./imageProcessing");
+    const source = createCanvas();
+    const output = createCanvas();
+    const state = createState();
+
+    renderMock.mockImplementationOnce(() => {
+      throw new Error("film stage failed");
+    });
+
+    const fallback = await renderFilmStageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "film-stage-fallback-slot",
+      seedKey: "stable-seed:film",
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(fallback.debug).toEqual(
+      expect.objectContaining({
+        status: "geometry-fallback",
+        pipelineRendered: false,
+        usedCpuGeometry: false,
+        error: expect.stringContaining("film stage failed"),
+      })
+    );
+  });
+
+  it("reports tiled export trace details when export size exceeds max texture size", async () => {
+    const { renderImageToCanvas } = await import("./imageProcessing");
+    const source = createCanvas();
+    const output = createCanvas();
+    const state = createState();
+
+    const result = await renderImageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 9000,
+        height: 9000,
+      },
+      mode: "export",
+      qualityProfile: "full",
+      renderSlot: "tiled-export-slot",
+      seedKey: "stable-seed:export",
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(result.debug).toEqual(
+      expect.objectContaining({
+        status: "rendered",
+        usedTiledPipeline: true,
+        tileCount: expect.any(Number),
+      })
+    );
+    expect(result.debug?.tileCount).toBeGreaterThan(1);
+  });
+
+  it("keeps fallback cache snapshots coherent when tiled export falls back", async () => {
+    const { renderImageToCanvas } = await import("./imageProcessing");
+    const source = createCanvas();
+    const output = createCanvas();
+    const state = createState();
+    let tick = 0;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => {
+      tick += 1;
+      return tick;
+    });
+
+    renderMock.mockImplementation(() => {
+      throw new Error("tile render failed");
+    });
+
+    const result = await renderImageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 9000,
+        height: 9000,
+      },
+      mode: "export",
+      qualityProfile: "full",
+      strictErrors: false,
+      renderSlot: "tiled-export-fallback-slot",
+      seedKey: "stable-seed:export-fallback",
+      debug: {
+        trace: true,
+      },
+    });
+    nowSpy.mockRestore();
+
+    expect(result.debug).toEqual(
+      expect.objectContaining({
+        status: "geometry-fallback",
+        usedTiledPipeline: true,
+        error: expect.stringContaining("tile render failed"),
+        cache: expect.objectContaining({
+          sourceKey: expect.any(String),
+          geometryKey: expect.any(String),
+          pipelineKey: expect.stringContaining("fallback:tiled:"),
+          outputKey: expect.any(String),
+        }),
+      })
+    );
+    expect(result.debug?.timings.pipelineMs).toBeGreaterThan(0);
+    expect(result.debug?.timings.composeMs).toBeGreaterThan(0);
+    expect(result.debug?.timings.totalMs).toBeGreaterThan(0);
+  });
+
+  it("accumulates compose timing when tiled local-adjustment work fails before fallback", async () => {
+    const { renderImageToCanvas } = await import("./imageProcessing");
+    const { createTilePlan } = await import("@/lib/renderer/gpu/TiledRenderer");
+    const source = createCanvas();
+    const output = createCanvas();
+    const state = createState();
+    state.develop.regions = [
+      {
+        id: "local-1",
+        enabled: true,
+        amount: 100,
+        maskId: "mask-1",
+        adjustments: {
+          exposure: 12,
+        },
+      },
+    ];
+    state.masks.byId["mask-1"] = {
+      id: "mask-1",
+      kind: "local-adjustment",
+      sourceLocalAdjustmentId: "local-1",
+      mask: {
+        mode: "linear",
+        startX: 0,
+        startY: 0,
+        endX: 1,
+        endY: 1,
+        feather: 0.2,
+      },
+    };
+
+    const baseTileCount = createTilePlan({
+      width: 9000,
+      height: 9000,
+      tileSize: 8064,
+      overlap: 64,
+    }).length;
+
+    let renderCallCount = 0;
+    renderMock.mockImplementation(() => {
+      renderCallCount += 1;
+      if (renderCallCount === baseTileCount + 1) {
+        throw new Error("local tiled layer failed");
+      }
+      return createPipelineMetrics();
+    });
+
+    let tick = 0;
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => {
+      tick += 1;
+      return tick;
+    });
+
+    const result = await renderImageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 9000,
+        height: 9000,
+      },
+      mode: "export",
+      qualityProfile: "full",
+      strictErrors: false,
+      renderSlot: "tiled-export-local-fallback-slot",
+      seedKey: "stable-seed:export-local-fallback",
+      debug: {
+        trace: true,
+      },
+    });
+    nowSpy.mockRestore();
+
+    expect(result.debug).toEqual(
+      expect.objectContaining({
+        status: "geometry-fallback",
+        usedTiledPipeline: true,
+        error: expect.stringContaining("local tiled layer failed"),
+      })
+    );
+    expect(result.debug?.timings.composeMs).toBeGreaterThan(1);
+  });
+
+  it("keeps local mask range gating off the CPU pixel-read path when the GPU helper succeeds", async () => {
+    const { renderImageToCanvas } = await import("./imageProcessing");
+    const source = createCanvas();
+    const output = createCanvas();
+    const state = createState();
+    state.develop.regions = [
+      {
+        id: "local-range",
+        enabled: true,
+        amount: 100,
+        maskId: "mask-range",
+        adjustments: {
+          exposure: 10,
+        },
+      },
+    ];
+    state.masks.byId["mask-range"] = {
+      id: "mask-range",
+      kind: "local-adjustment",
+      sourceLocalAdjustmentId: "local-range",
+      mask: {
+        mode: "radial",
+        centerX: 0.5,
+        centerY: 0.5,
+        radiusX: 0.25,
+        radiusY: 0.25,
+        feather: 0.1,
+        lumaMin: 0.2,
+        lumaMax: 0.8,
+        lumaFeather: 0.1,
+        hueCenter: 30,
+        hueRange: 40,
+        hueFeather: 10,
+        satMin: 0.2,
+        satFeather: 0.1,
+      },
+    };
+
+    const result = await renderImageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "local-mask-gpu-slot",
+      seedKey: "stable-seed:local-mask-gpu",
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(result.debug?.boundaries).toEqual(
+      expect.objectContaining({
+        cpuPixelReads: 0,
+      })
+    );
+  });
+
+  it("falls back to CPU pixel reads when GPU shape succeeds but GPU range gating fails", async () => {
+    const { renderImageToCanvas } = await import("./imageProcessing");
+    const source = createCanvas();
+    const output = createCanvas();
+    const state = createState();
+    const shapeSurface = createSurface(createCanvas(64, 64));
+    state.develop.regions = [
+      {
+        id: "local-range-partial-fallback",
+        enabled: true,
+        amount: 100,
+        maskId: "mask-range-partial-fallback",
+        adjustments: {
+          exposure: 10,
+        },
+      },
+    ];
+    state.masks.byId["mask-range-partial-fallback"] = {
+      id: "mask-range-partial-fallback",
+      kind: "local-adjustment",
+      sourceLocalAdjustmentId: "local-range-partial-fallback",
+      mask: {
+        mode: "radial",
+        centerX: 0.5,
+        centerY: 0.5,
+        radiusX: 0.25,
+        radiusY: 0.25,
+        feather: 0.1,
+        lumaMin: 0.2,
+        lumaMax: 0.8,
+      },
+    };
+    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(shapeSurface);
+    applyLocalMaskRangeOnGpuToSurfaceMock.mockResolvedValue(null);
+
+    const result = await renderImageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "local-mask-partial-fallback-slot",
+      seedKey: "stable-seed:local-mask-partial-fallback",
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(shapeSurface.materializeToCanvas).toHaveBeenCalled();
+    expect(applyLocalMaskRangeOnGpuToSurfaceMock).toHaveBeenCalled();
+    expect(applyLocalMaskRangeOnGpuMock).not.toHaveBeenCalled();
+    expect(result.debug?.boundaries).toEqual(
+      expect.objectContaining({
+        cpuPixelReads: 1,
+      })
+    );
+  });
+
+  it("prefers GPU local mask shape generation for radial and brush masks", async () => {
+    const { renderImageToCanvas } = await import("./imageProcessing");
+    const source = createCanvas();
+    const output = createCanvas();
+    const state = createState();
+    state.develop.regions = [
+      {
+        id: "local-shape",
+        enabled: true,
+        amount: 100,
+        maskId: "mask-shape",
+        adjustments: {
+          exposure: 4,
+        },
+      },
+    ];
+    state.masks.byId["mask-shape"] = {
+      id: "mask-shape",
+      kind: "local-adjustment",
+      sourceLocalAdjustmentId: "local-shape",
+      mask: {
+        mode: "radial",
+        centerX: 0.5,
+        centerY: 0.5,
+        radiusX: 0.3,
+        radiusY: 0.3,
+        feather: 0.2,
+      },
+    };
+    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(createSurface(createCanvas(64, 64)));
+
+    await renderImageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "local-shape-gpu-slot",
+      seedKey: "stable-seed:local-shape-gpu",
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(renderLocalMaskShapeOnGpuToSurfaceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        width: 64,
+        height: 64,
+        slotId: "local-mask-shape:local-shape",
+        mask: expect.objectContaining({
+          mode: "radial",
+        }),
+      })
+    );
+
+    renderLocalMaskShapeOnGpuToSurfaceMock.mockClear();
+    state.masks.byId["mask-shape"] = {
+      id: "mask-shape",
+      kind: "local-adjustment",
+      sourceLocalAdjustmentId: "local-shape",
+      mask: {
+        mode: "brush",
+        brushSize: 0.08,
+        feather: 0.25,
+        flow: 0.7,
+        points: [
+          { x: 0.2, y: 0.25, pressure: 1 },
+          { x: 0.7, y: 0.6, pressure: 0.8 },
+        ],
+      },
+    };
+
+    await renderImageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "local-shape-gpu-slot",
+      seedKey: "stable-seed:local-shape-gpu-brush",
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(renderLocalMaskShapeOnGpuToSurfaceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        width: 64,
+        height: 64,
+        slotId: "local-mask-shape:local-shape",
+        mask: expect.objectContaining({
+          mode: "brush",
+        }),
+      })
+    );
+  });
+
+  it("falls back to CPU brush painting for large local-adjustment point sets", async () => {
+    const { renderImageToCanvas } = await import("./imageProcessing");
+    const source = createCanvas();
+    const output = createCanvas();
+    const state = createState();
+    state.develop.regions = [
+      {
+        id: "local-brush-fallback",
+        enabled: true,
+        amount: 100,
+        maskId: "mask-brush-fallback",
+        adjustments: {
+          exposure: 4,
+        },
+      },
+    ];
+    state.masks.byId["mask-brush-fallback"] = {
+      id: "mask-brush-fallback",
+      kind: "local-adjustment",
+      sourceLocalAdjustmentId: "local-brush-fallback",
+      mask: {
+        mode: "brush",
+        brushSize: 0.08,
+        feather: 0.25,
+        flow: 0.7,
+        points: Array.from({ length: 513 }, (_, index) => ({
+          x: (index % 32) / 31,
+          y: (index % 16) / 15,
+          pressure: 1,
+        })),
+      },
+    };
+    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(null);
+
+    await renderImageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "local-brush-fallback-slot",
+      seedKey: "stable-seed:local-brush-fallback",
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(renderLocalMaskShapeOnGpuToSurfaceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slotId: "local-mask-shape:local-brush-fallback",
+        mask: expect.objectContaining({
+          mode: "brush",
+        }),
+      })
+    );
+    expect(createdCanvases.some((canvas) => canvas.context2d.arc.mock.calls.length > 0)).toBe(true);
+  });
+
+  it("prefers GPU masked blending for full-frame local adjustment composition when available", async () => {
+    const { renderImageToCanvas } = await import("./imageProcessing");
+    const source = createCanvas();
+    const output = createCanvas();
+    const state = createState();
+    state.develop.regions = [
+      {
+        id: "local-blend",
+        enabled: true,
+        amount: 100,
+        maskId: "mask-blend",
+        adjustments: {
+          exposure: 8,
+        },
+      },
+    ];
+    state.masks.byId["mask-blend"] = {
+      id: "mask-blend",
+      kind: "local-adjustment",
+      sourceLocalAdjustmentId: "local-blend",
+      mask: {
+        mode: "radial",
+        centerX: 0.5,
+        centerY: 0.5,
+        radiusX: 0.35,
+        radiusY: 0.35,
+        feather: 0.2,
+      },
+    };
+    blendMaskedCanvasesOnGpuMock.mockResolvedValue(true);
+
+    await renderImageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "local-blend-gpu-slot",
+      seedKey: "stable-seed:local-blend-gpu",
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(blendMaskedCanvasesOnGpuMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseCanvas: output,
+        targetCanvas: output,
+        slotId: "local-blend-gpu-slot:local-compose:local-blend",
+      })
+    );
+  });
+
+  it("prefers GPU masked blending for ROI-sized local adjustment composition when available", async () => {
+    const { renderImageToCanvas } = await import("./imageProcessing");
+    const source = createCanvas();
+    const output = createCanvas();
+    const state = createState();
+    state.develop.regions = [
+      {
+        id: "local-roi",
+        enabled: true,
+        amount: 100,
+        maskId: "mask-roi",
+        adjustments: {
+          exposure: 6,
+        },
+      },
+    ];
+    state.masks.byId["mask-roi"] = {
+      id: "mask-roi",
+      kind: "local-adjustment",
+      sourceLocalAdjustmentId: "local-roi",
+      mask: {
+        mode: "linear",
+        startX: 0,
+        startY: 0,
+        endX: 1,
+        endY: 1,
+        feather: 0.2,
+      },
+    };
+    blendMaskedCanvasesOnGpuMock.mockResolvedValue(true);
+
+    await renderImageToCanvas({
+      canvas: output,
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "local-blend-roi-gpu-slot",
+      seedKey: "stable-seed:local-blend-roi-gpu",
+      viewportRoi: {
+        x: 0.25,
+        y: 0.25,
+        width: 0.5,
+        height: 0.5,
+      },
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(blendMaskedCanvasesOnGpuMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetCanvas: expect.any(MockCanvasElement),
+        slotId: "local-blend-roi-gpu-slot:local-compose:local-roi",
+      })
+    );
+    const roiClears = output.context2d.clearRect.mock.calls.filter(
+      ([x, y, width, height]) => x === 16 && y === 16 && width === 32 && height === 32
+    );
+    expect(roiClears).toHaveLength(2);
+  });
+
+  it("returns a renderer-slot surface for full-frame local adjustments when HDR local composition succeeds", async () => {
+    const { renderImageToSurface } = await import("./imageProcessing");
+    const source = createCanvas();
+    const state = createState();
+    state.develop.regions = [
+      {
+        id: "local-surface",
+        enabled: true,
+        amount: 100,
+        maskId: "mask-surface",
+        adjustments: {
+          exposure: 5,
+        },
+      },
+    ];
+    state.masks.byId["mask-surface"] = {
+      id: "mask-surface",
+      kind: "local-adjustment",
+      sourceLocalAdjustmentId: "local-surface",
+      mask: {
+        mode: "radial",
+        centerX: 0.5,
+        centerY: 0.5,
+        radiusX: 0.3,
+        radiusY: 0.3,
+        feather: 0.2,
+      },
+    };
+    consumeCapturedLinearResultMock.mockReturnValueOnce(createLinearResult());
+    borrowCapturedLinearResultMock.mockReturnValueOnce(createLinearResult());
+    blendLinearWithMaskMock.mockImplementation(() => createLinearResult());
+
+    const result = await renderImageToSurface({
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "local-surface-slot",
+      seedKey: "stable-seed:local-surface",
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(result.surface.kind).toBe("renderer-slot");
+    expect(result.debug).toEqual(
+      expect.objectContaining({
+        outputKind: "renderer-slot",
+      })
+    );
+    expect(presentLinearResultMock).toHaveBeenCalledTimes(1);
+
+    const reused = await renderImageToSurface({
+      source,
+      state,
+      targetSize: {
+        width: 64,
+        height: 64,
+      },
+      mode: "preview",
+      qualityProfile: "interactive",
+      renderSlot: "local-surface-slot",
+      seedKey: "stable-seed:local-surface",
+      debug: {
+        trace: true,
+      },
+    });
+
+    expect(reused.surface.kind).toBe("renderer-slot");
+    expect(reused.surface.sourceCanvas).toBe(result.surface.sourceCanvas);
+    expect(reused.debug).toEqual(
+      expect.objectContaining({
+        status: "reused-output",
+        outputKind: "renderer-slot",
+      })
+    );
+    expect(presentLinearResultMock).toHaveBeenCalledTimes(1);
+  });
+});

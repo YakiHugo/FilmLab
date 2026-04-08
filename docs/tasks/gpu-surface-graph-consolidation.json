@@ -1,0 +1,27 @@
+{
+  "status": "done",
+  "current_slice": "complete",
+  "passes": [
+    "src/render/image/effectExecution.test.ts",
+    "src/render/image/renderSingleImage.test.ts",
+    "src/lib/imageProcessing.debug.test.ts",
+    "src/render/image/stageMaskComposite.test.ts",
+    "src/render/image/effectMask.test.ts",
+    "git diff --check",
+    "pnpm exec tsc --noEmit --pretty false"
+  ],
+  "slices": [
+    {
+      "id": "shared_auxiliary_surface_ops_and_filter2d_surface_chaining",
+      "status": "done"
+    },
+    {
+      "id": "follow_up_auxiliary_surface_reuse_for_mask_helpers",
+      "status": "done"
+    },
+    {
+      "id": "follow_up_masked_blend_surface_boundary_evaluation",
+      "status": "done"
+    }
+  ]
+}

@@ -3,7 +3,6 @@ import {
   IMAGE_PROVIDER_IDS,
   IMAGE_MODEL_FAMILY_IDS,
   type ImageAspectRatio,
-  type ImageRequestProviderId,
   type ImageModelFamilyId,
   type ImageProviderId,
   type ImageProviderRefId,
@@ -265,13 +264,8 @@ export const isImageModelFamilyId = (value: string): value is ImageModelFamilyId
 export const isImageProviderId = (value: string): value is ImageProviderId =>
   (IMAGE_PROVIDER_IDS as readonly string[]).includes(value);
 
-export const isImageRuntimeProviderId = isImageProviderId;
-
 export const isImageProviderRefId = (value: string): value is ImageProviderRefId =>
   (IMAGE_REQUEST_PROVIDER_IDS as readonly string[]).includes(value);
-
-export const isImageRequestProviderId = (value: string): value is ImageRequestProviderId =>
-  isImageProviderRefId(value);
 
 export const normalizeImageProviderRef = (
   providerId: string,

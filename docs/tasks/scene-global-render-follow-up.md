@@ -1,12 +1,13 @@
 # Scene Global Render Follow-up
 
-- Baseline: `single-image kernel complete; board/global styling and scene-level effect orchestration still separate`
-- Scope: track the post-kernel work for board-wide styling, scene-level effect graph orchestration, and any future whole-scene render contract that sits above per-image rendering
+- Baseline: `the repo has a per-image kernel in src/render/image/* and board composition in src/features/canvas/*, but scene/global styling still has no explicit authored model`
+- Scope: track board-wide styling, scene-level effect orchestration, and any future whole-scene render contract that sits above per-image rendering.
 
 ## Decisions
 
 - Do not reopen the single-image runtime task for scene/global work.
 - Keep single-image rendering as the per-image execution primitive.
+- Treat `src/features/canvas/renderCanvasDocument.ts` as the current board-composition boundary until a dedicated scene-level contract exists.
 - Any scene/global feature must define:
   - where whole-scene state lives
   - when it executes relative to per-image rendering and board composition
@@ -35,6 +36,12 @@
   - stage ordering
   - preview/export parity expectations
   - a bounded regression plan
+
+## Files
+
+- `src/render/image/renderSingleImage.ts`
+- `src/features/canvas/boardImageRendering.ts`
+- `src/features/canvas/renderCanvasDocument.ts`
 
 ## Handoff
 

@@ -22,5 +22,5 @@ export const imageUpscaleRequestSchema = z
     }
   });
 
-export type ParsedImageUpscaleRequest = z.infer<typeof imageUpscaleRequestSchema>;
+export type ParsedImageUpscaleRequest = z.output<typeof imageUpscaleRequestSchema>;
 export type ImageUpscaleRequest = z.input<typeof imageUpscaleRequestSchema>;

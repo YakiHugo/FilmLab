@@ -1,4 +1,3 @@
-import type { ProviderModelId } from "../../../../shared/imageModelCatalog";
 import type { RuntimeProviderId } from "../../gateway/router/types";
 import { generateArkSeedream } from "../ark/models/seedream";
 import type { PlatformModelAdapter } from "./adapter";
@@ -6,7 +5,7 @@ import { generateDashscopeQwen } from "../dashscope/models/qwen";
 import { generateDashscopeZImage } from "../dashscope/models/zimage";
 import { generateKlingImage } from "../kling/models/image";
 
-const createAdapterKey = (provider: RuntimeProviderId, providerModel: ProviderModelId) =>
+const createAdapterKey = (provider: RuntimeProviderId, providerModel: string) =>
   `${provider}:${providerModel}`;
 
 const PLATFORM_MODEL_ADAPTERS: PlatformModelAdapter[] = [
@@ -65,5 +64,5 @@ export const getPlatformModelAdapters = () => [...PLATFORM_MODEL_ADAPTERS];
 
 export const getPlatformModelAdapter = (
   provider: RuntimeProviderId,
-  providerModel: ProviderModelId
+  providerModel: string
 ) => adaptersByKey.get(createAdapterKey(provider, providerModel)) ?? null;

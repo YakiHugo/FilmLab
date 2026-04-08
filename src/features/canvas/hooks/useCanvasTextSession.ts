@@ -187,7 +187,7 @@ export function useCanvasTextSession({
 
     commitPromiseRef.current = commitPromise;
     return commitPromise;
-  }, [dispatchEvent]);
+  }, [beginSession, dispatchEvent]);
 
   const changeValue = useCallback(
     (nextValue: string) => {

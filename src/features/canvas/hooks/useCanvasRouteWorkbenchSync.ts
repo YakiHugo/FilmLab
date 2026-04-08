@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { shallow } from "zustand/shallow";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { useCanvasWorkbenchTransitionGuard } from "../canvasWorkbenchTransitionGuard";
+import { useCanvasWorkbenchTransitionGuard } from "../canvasWorkbenchTransitionGuardHooks";
 import { resolveCanvasPageRecoveryPlan } from "../canvasPageState";
 
 const getCurrentWorkbenchIds = () =>

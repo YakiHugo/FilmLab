@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultAdjustments } from "@/lib/adjustments";
 import { createDefaultCanvasImageRenderState } from "@/render/image";
 import type { Asset, CanvasImageElement, CanvasWorkbench } from "@/types";
 import { normalizeCanvasWorkbench } from "@/features/canvas/studioPresets";
@@ -22,11 +21,8 @@ const createAsset = (overrides: Partial<Asset> = {}): Asset => ({
   createdAt: "2026-03-17T00:00:00.000Z",
   objectUrl: "blob:asset-1",
   thumbnailUrl: "blob:asset-1-thumb",
-  adjustments: createDefaultAdjustments(),
-  layers: [],
   tags: [],
   importDay: "2026-03-17",
-  group: "2026-03-17",
   origin: "file",
   remote: {
     status: "local_only",
@@ -39,7 +35,6 @@ const createAsset = (overrides: Partial<Asset> = {}): Asset => ({
 });
 
 const createImageElement = (): CanvasImageElement => ({
-  adjustments: createDefaultAdjustments(),
   assetId: "asset-1",
   height: 180,
   id: "image-1",
@@ -59,6 +54,7 @@ const createImageElement = (): CanvasImageElement => ({
   width: 320,
   x: 24,
   y: 32,
+  renderState: createDefaultCanvasImageRenderState(),
 });
 
 const createWorkbench = (element: CanvasImageElement): CanvasWorkbench =>
@@ -106,10 +102,17 @@ const createScopeInput = (): CanvasRuntimeScopeInput => {
 describe("canvasPreviewRuntimeState", () => {
   it("resolves preview task input from explicit runtime scope input", () => {
     const input = createScopeInput();
-    const nextDraftRenderState = createDefaultCanvasImageRenderState({
-      adjustments: {
-        ...createDefaultAdjustments(),
+    const nextDraftRenderState = createDefaultCanvasImageRenderState();
+    nextDraftRenderState.effects.push({
+      id: "filter2d-preview",
+      type: "filter2d",
+      enabled: true,
+      placement: "finalize",
+      params: {
         brightness: 12,
+        hue: 0,
+        blur: 0,
+        dilate: 0,
       },
     });
 
@@ -214,25 +217,10 @@ describe("canvasPreviewRuntimeState", () => {
     expect(disposePlan.previewSources).toEqual([firstCanvas, secondCanvas]);
   });
 
-  it("tracks texture asset dependencies for preview invalidation", () => {
-    const asset = createAsset({
-      layers: [
-        {
-          blendMode: "multiply",
-          id: "texture-layer-1",
-          name: "Texture 1",
-          opacity: 100,
-          textureAssetId: "texture-asset-1",
-          type: "texture",
-          visible: true,
-        },
-      ],
-    });
+  it("tracks only the source asset for preview invalidation", () => {
+    const asset = createAsset();
 
-    expect(resolveCanvasPreviewDependencyAssetIds(asset)).toEqual([
-      "asset-1",
-      "texture-asset-1",
-    ]);
+    expect(resolveCanvasPreviewDependencyAssetIds(asset)).toEqual(["asset-1"]);
   });
 
   it("computes changed asset ids and applies them back into the runtime asset map", () => {

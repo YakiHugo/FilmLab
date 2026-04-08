@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultAdjustments } from "@/lib/adjustments";
+import { createDefaultCanvasImageRenderState } from "@/render/image";
 import type { CanvasWorkbench } from "@/types";
 import { createCanvasTestDocument, createGroupNode, createShapeNode } from "./document/testUtils";
 import { normalizeCanvasWorkbench } from "./studioPresets";
@@ -48,7 +48,7 @@ const createWorkbench = (): CanvasWorkbench =>
       opacity: 1,
       locked: false,
       visible: true,
-      adjustments: createDefaultAdjustments(),
+      renderState: createDefaultCanvasImageRenderState(),
     },
     {
       id: "text-1",
@@ -96,7 +96,7 @@ const createWorkbench = (): CanvasWorkbench =>
       opacity: 1,
       locked: false,
       visible: true,
-      adjustments: createDefaultAdjustments(),
+      renderState: createDefaultCanvasImageRenderState(),
     },
   ],
   slices: [],

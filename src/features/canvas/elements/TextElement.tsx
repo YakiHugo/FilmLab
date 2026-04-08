@@ -3,6 +3,7 @@ import { memo, useMemo } from "react";
 import { Text } from "react-konva";
 import type { CanvasRenderableElement, CanvasTextElement } from "@/types";
 import { areEqual } from "../document/shared";
+import { isCanvasTextElementEditable } from "./textElementEditability";
 import {
   CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER,
   fitCanvasTextElementToContent,
@@ -15,16 +16,6 @@ type CanvasTextRenderState = CanvasTextElement &
       "effectiveLocked" | "effectiveVisible" | "worldOpacity"
     >
   >;
-
-export const isCanvasTextElementEditable = (
-  element:
-    | (Partial<Pick<CanvasTextElement, "locked" | "visible">> &
-        Partial<
-          Pick<Extract<CanvasRenderableElement, { type: "text" }>, "effectiveLocked" | "effectiveVisible">
-        >)
-    | null
-    | undefined
-) => Boolean(element && !(element.effectiveLocked ?? element.locked) && (element.effectiveVisible ?? element.visible));
 
 interface TextElementProps {
   canDrag: boolean;

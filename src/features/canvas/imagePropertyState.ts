@@ -2,7 +2,6 @@ import { getBuiltInFilmProfile } from "@/lib/film";
 import {
   type CanvasImageRenderStateV1,
 } from "@/render/image";
-import type { Asset } from "@/types";
 import type {
   CanvasCommand,
   CanvasPersistedImageElement,
@@ -18,20 +17,13 @@ export type CanvasImagePropertyCommand = Extract<CanvasCommand, { type: "SET_IMA
 
 type CanvasImagePropertyTarget =
   | CanvasRenderableElement
-  | (Pick<
-      CanvasPersistedImageElement,
-      "id" | "type" | "renderState"
-    > & {
-      asset?: Asset | null;
-    });
+  | Pick<CanvasPersistedImageElement, "id" | "type" | "renderState">;
 
-type CanvasImagePropertyImageTarget = Extract<CanvasRenderableElement, { type: "image" }> | (Pick<
-  CanvasPersistedImageElement,
-  "id" | "type" | "renderState"
-> & {
-  type: "image";
-  asset?: Asset | null;
-});
+type CanvasImagePropertyImageTarget =
+  | Extract<CanvasRenderableElement, { type: "image" }>
+  | (Pick<CanvasPersistedImageElement, "id" | "type" | "renderState"> & {
+      type: "image";
+    });
 
 export const isCanvasImagePropertyIntent = (
   intent: { type: string }

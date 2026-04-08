@@ -1,11 +1,9 @@
 # Canvas Preview Performance Follow-up
 
-## Status
+- Status: open
+- Scope: reduce drag/resize preview cost without reintroducing a second source of truth for canvas state.
 
-- Decision: do not implement the preview performance refactor in this slice.
-- Reason: the remaining issue is structural, not a safe local patch. Correctness/state issues are already closed; only preview hot-path cost remains.
-
-## Remaining Issue
+## Current State
 
 - Drag and resize preview still run an `O(scene size)` document round-trip on each `rAF`.
 - Current path:
@@ -28,19 +26,13 @@
 - `src/features/canvas/hooks/useCanvasViewportInteractionController.ts`
 - `src/features/canvas/hooks/useCanvasViewportResizeController.ts`
 
-## Why This Was Deferred
-
-- The current interaction model is now correct and review-clean on architecture/state and correctness.
-- The remaining hotspot sits at the document/runtime boundary.
-- A partial optimization here is likely to create a second preview path and reintroduce the same multi-source-of-truth problems that were just removed.
-
-## Recommended Next Slice
+## Next Slice
 
 - Keep `final commit` semantics as-is: one gesture, one history entry, one persistence.
 - Add a dedicated preview path that updates only affected nodes/subtrees instead of round-tripping the full workbench.
 - Avoid introducing a second persisted document model. The preview path should still derive from document state, but commit only touched runtime structures.
 
-## Recommended Direction
+## Suggested Direction
 
 1. Split preview execution from final command execution.
 2. Add specialized preview executors for:
@@ -59,13 +51,8 @@
 - Do not change history or persistence semantics for final commit.
 - Do not widen this slice into group/multi-select resize behavior.
 
-## Validation Baseline At Deferral
+## Validation Boundary
 
-- Review status:
-  - architecture/state: no issues found
-  - bug/regression: no issues found
-  - performance: one remaining high issue, the preview hot path above
-- Tests:
-  - `pnpm exec vitest --run src/features/canvas src/stores/canvasStore.test.ts`
-  - `36 files / 222 tests passed`
-
+- Targeted regression around drag preview and resize preview.
+- Manual smoke for drag, resize, marquee, and post-gesture undo/redo.
+- Final commit behavior must remain one history entry and one persistence boundary per gesture.

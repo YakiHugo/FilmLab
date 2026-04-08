@@ -1,11 +1,11 @@
 import type {
-  ImageGenerationRequest,
   ImageInputAssetBinding,
   ImagePromptCompilerOperationId,
   ImagePromptContinuityTarget,
   ImagePromptIntentInput,
   ImagePromptIntentEditOp,
 } from "../../../../shared/imageGeneration";
+import type { ImageGenerationRequest } from "../../../../shared/imageGenerationSchema";
 import type { FrontendImageModelId } from "../../../../shared/imageModelCatalog";
 
 export type GenerationJobStatus = "running" | "succeeded" | "failed";
@@ -161,7 +161,6 @@ export interface PersistedResultItem {
   id: string;
   imageUrl: string;
   imageId: string | null;
-  threadAssetId: string | null;
   runtimeProvider: string;
   providerModel: string;
   mimeType?: string;

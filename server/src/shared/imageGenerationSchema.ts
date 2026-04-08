@@ -5,13 +5,13 @@ import {
   imageGenerationRequestSchema,
   imageAspectRatioSchema,
   imageStyleSchema,
-  referenceImageSchema,
   referenceImageTypeSchema,
   frontendImageModelSchema,
 } from "../../../shared/imageGenerationSchema";
 import type {
   ImageGenerationRequest,
   ParsedImageGenerationRequest,
+  RequestedImageGenerationTarget,
 } from "../../../shared/imageGenerationSchema";
 import {
   resolveImagePromptCompilerOperation,
@@ -187,7 +187,6 @@ export {
   imageAspectRatioSchema,
   imageGenerationRequestSchema,
   imageStyleSchema,
-  referenceImageSchema,
   referenceImageTypeSchema,
 };
 
@@ -195,5 +194,6 @@ export type {
   ImageAspectRatio,
   ImageGenerationRequest,
   ParsedImageGenerationRequest,
+  RequestedImageGenerationTarget,
   ReferenceImageType,
 };

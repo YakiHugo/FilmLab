@@ -1,8 +1,5 @@
 import pLimit from "p-limit";
-import { presets } from "@/data/presets";
-import { createDefaultAdjustments } from "@/lib/adjustments";
 import { prepareAssetUpload } from "@/lib/assetSyncApi";
-import { createBaseLayer } from "@/lib/editorLayers";
 import { sha256FromBlob } from "@/lib/hash";
 import { prepareAssetPayload } from "@/lib/assetMetadata";
 import { saveAsset } from "@/lib/db";
@@ -132,7 +129,6 @@ export const runImportPipeline = async ({
 
   const timestamp = new Date().toISOString();
   const importDay = toLocalDayKey(timestamp);
-  const defaultPreset = presets[0];
   const source = importOptions?.source ?? "imported";
   const origin = importOptions?.origin ?? "file";
   const ownerRef = importOptions?.ownerRef;
@@ -180,17 +176,10 @@ export const runImportPipeline = async ({
             objectUrl,
             thumbnailUrl,
             importDay,
-            group: importDay,
             tags: [],
-            presetId: defaultPreset?.id,
-            intensity: defaultPreset?.intensity,
-            filmProfileId: defaultPreset?.filmProfileId,
-            filmProfile: defaultPreset?.filmProfile,
             blob: fileBlob,
             thumbnailBlob,
             metadata,
-            adjustments: createDefaultAdjustments(),
-            layers: [],
             source,
             origin,
             contentHash,
@@ -201,7 +190,6 @@ export const runImportPipeline = async ({
               lastSyncedAt: prepared.existing ? prepared.asset.updatedAt : undefined,
             },
           };
-          asset.layers = [createBaseLayer(asset)];
 
           const payload = toStoredAsset(asset);
           const persisted = payload ? await saveAsset(payload) : false;

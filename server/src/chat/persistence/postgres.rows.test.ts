@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { toPromptArtifactRecord, type ChatPromptArtifactRow } from "./postgres/rows";
 
 describe("prompt artifact row parsing", () => {
-  it("preserves legacy reference image metadata when normalizing prompt IR", () => {
+  it("reads canonical prompt IR input assets without legacy normalization", () => {
     const record = toPromptArtifactRecord({
       id: "artifact-1",
       run_id: "run-1",
@@ -27,11 +27,11 @@ describe("prompt artifact row parsing", () => {
         styleDirectives: [],
         continuityTargets: [],
         editOps: [],
-        assetRefs: [{ assetId: "thread-asset-1", role: "reference" }],
-        referenceImages: [
+        inputAssets: [
           {
-            sourceAssetId: "thread-asset-1",
-            type: "style",
+            assetId: "thread-asset-1",
+            binding: "guide",
+            guideType: "style",
             weight: 0.25,
           },
         ],

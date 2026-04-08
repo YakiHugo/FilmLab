@@ -1,14 +1,14 @@
-import { createDefaultAdjustments } from "@/lib/adjustments";
-import type { NumericAdjustmentKey } from "@/features/editor/types";
-import type { AsciiAdjustments, EditingAdjustments } from "@/types";
+import type { CanvasImageNumericFieldId } from "@/features/canvas/imageAdjustmentTypes";
+import type { AsciiAdjustments } from "@/types";
 import {
+  createNeutralCanvasImageRenderState,
   type CanvasImageRenderStateV1,
-  type ImageAsciiEffectNode,
+  normalizeCanvasImageRenderState,
+  type CarrierTransformNode,
   type ImageFilter2dEffectNode,
 } from "@/render/image";
 
-const DEFAULT_ADJUSTMENTS = createDefaultAdjustments();
-const DEFAULT_ASCII_ADJUSTMENTS: AsciiAdjustments = DEFAULT_ADJUSTMENTS.ascii ?? {
+const DEFAULT_ASCII_ADJUSTMENTS: AsciiAdjustments = {
   enabled: false,
   charsetPreset: "standard",
   colorMode: "grayscale",
@@ -19,51 +19,120 @@ const DEFAULT_ASCII_ADJUSTMENTS: AsciiAdjustments = DEFAULT_ADJUSTMENTS.ascii ??
   invert: false,
 };
 
-export type CanvasImageAdjustmentView = Omit<
-  EditingAdjustments,
-  "ascii" | "blur" | "brightness" | "dilate" | "hue"
-> & {
-  ascii: AsciiAdjustments;
-  blur: number;
-  brightness: number;
-  dilate: number;
-  hue: number;
-};
+export type CanvasImageNumericFieldValues = Record<CanvasImageNumericFieldId, number>;
 
-export const DEFAULT_CANVAS_IMAGE_ADJUSTMENT_VIEW: CanvasImageAdjustmentView = {
-  ...DEFAULT_ADJUSTMENTS,
-  ascii: DEFAULT_ASCII_ADJUSTMENTS,
-  blur: DEFAULT_ADJUSTMENTS.blur ?? 0,
-  brightness: DEFAULT_ADJUSTMENTS.brightness ?? 0,
-  dilate: DEFAULT_ADJUSTMENTS.dilate ?? 0,
-  hue: DEFAULT_ADJUSTMENTS.hue ?? 0,
+export type CanvasImageEditValues = CanvasImageNumericFieldValues & {
+  ascii: AsciiAdjustments;
 };
 
 const cloneState = (state: CanvasImageRenderStateV1): CanvasImageRenderStateV1 => {
   if (typeof structuredClone === "function") {
-    return structuredClone(state) as CanvasImageRenderStateV1;
+    return normalizeCanvasImageRenderState(structuredClone(state) as CanvasImageRenderStateV1);
   }
-  return JSON.parse(JSON.stringify(state)) as CanvasImageRenderStateV1;
+  return normalizeCanvasImageRenderState(JSON.parse(JSON.stringify(state)) as CanvasImageRenderStateV1);
 };
 
-const createDefaultAsciiEffect = (): ImageAsciiEffectNode => ({
+const resolveAsciiAdjustmentsFromState = (state: CanvasImageRenderStateV1): AsciiAdjustments => {
+  const carrierTransform = normalizeCanvasImageRenderState(state).carrierTransforms.find(
+    (candidate): candidate is Extract<CarrierTransformNode, { type: "ascii" }> =>
+      candidate.type === "ascii" && candidate.enabled
+  );
+  return {
+    ...DEFAULT_ASCII_ADJUSTMENTS,
+    enabled: Boolean(carrierTransform),
+    charsetPreset:
+      carrierTransform?.params.preset === "blocks" || carrierTransform?.params.preset === "detailed"
+        ? carrierTransform.params.preset
+        : "standard",
+    colorMode: carrierTransform?.params.colorMode === "full-color" ? "full-color" : "grayscale",
+    cellSize: carrierTransform?.params.cellSize ?? 12,
+    characterSpacing: carrierTransform?.params.characterSpacing ?? 1,
+    contrast: carrierTransform?.params.contrast ?? 1,
+    dither: carrierTransform?.params.dither ?? "none",
+    invert: Boolean(carrierTransform?.params.invert),
+  };
+};
+
+const resolveFilter2dPreviewValues = (state: CanvasImageRenderStateV1) => {
+  const effect = state.effects.find(
+    (candidate): candidate is ImageFilter2dEffectNode =>
+      candidate.type === "filter2d" && candidate.enabled
+  );
+  return {
+    brightness: effect?.params.brightness ?? 0,
+    hue: effect?.params.hue ?? 0,
+    blur: effect?.params.blur ?? 0,
+    dilate: effect?.params.dilate ?? 0,
+  };
+};
+
+const createCanvasImageEditValues = (
+  state: CanvasImageRenderStateV1
+): CanvasImageEditValues => {
+  const normalizedState = normalizeCanvasImageRenderState(state);
+  const filter2d = resolveFilter2dPreviewValues(normalizedState);
+  return {
+    exposure: normalizedState.develop.tone.exposure,
+    contrast: normalizedState.develop.tone.contrast,
+    highlights: normalizedState.develop.tone.highlights,
+    shadows: normalizedState.develop.tone.shadows,
+    whites: normalizedState.develop.tone.whites,
+    blacks: normalizedState.develop.tone.blacks,
+    temperature: normalizedState.develop.color.temperature,
+    tint: normalizedState.develop.color.tint,
+    hue: filter2d.hue,
+    vibrance: normalizedState.develop.color.vibrance,
+    saturation: normalizedState.develop.color.saturation,
+    texture: normalizedState.develop.detail.texture,
+    clarity: normalizedState.develop.detail.clarity,
+    dehaze: normalizedState.develop.detail.dehaze,
+    sharpening: normalizedState.develop.detail.sharpening,
+    sharpenRadius: normalizedState.develop.detail.sharpenRadius,
+    sharpenDetail: normalizedState.develop.detail.sharpenDetail,
+    masking: normalizedState.develop.detail.masking,
+    noiseReduction: normalizedState.develop.detail.noiseReduction,
+    colorNoiseReduction: normalizedState.develop.detail.colorNoiseReduction,
+    vignette: normalizedState.develop.fx.vignette,
+    grain: normalizedState.develop.fx.grain,
+    grainSize: normalizedState.develop.fx.grainSize,
+    grainRoughness: normalizedState.develop.fx.grainRoughness,
+    glowIntensity: normalizedState.develop.fx.glowIntensity,
+    glowMidtoneFocus: normalizedState.develop.fx.glowMidtoneFocus,
+    glowBias: normalizedState.develop.fx.glowBias,
+    glowRadius: normalizedState.develop.fx.glowRadius,
+    brightness: filter2d.brightness,
+    blur: filter2d.blur,
+    dilate: filter2d.dilate,
+    ascii: resolveAsciiAdjustmentsFromState(normalizedState),
+  };
+};
+
+const DEFAULT_NEUTRAL_CANVAS_IMAGE_RENDER_STATE = createNeutralCanvasImageRenderState();
+
+export const DEFAULT_CANVAS_IMAGE_EDIT_VALUES: CanvasImageEditValues =
+  createCanvasImageEditValues(DEFAULT_NEUTRAL_CANVAS_IMAGE_RENDER_STATE);
+
+export const DEFAULT_CANVAS_ASCII_ADJUSTMENTS: AsciiAdjustments = {
+  ...DEFAULT_CANVAS_IMAGE_EDIT_VALUES.ascii,
+};
+
+const createDefaultAsciiCarrierTransform = (): Extract<CarrierTransformNode, { type: "ascii" }> => ({
   id: "canvas-ascii",
   type: "ascii",
   enabled: false,
-  placement: "style",
   analysisSource: "style",
   params: {
     renderMode: "glyph",
     preset: "standard",
-    cellSize: DEFAULT_ADJUSTMENTS.ascii?.cellSize ?? 12,
-    characterSpacing: DEFAULT_ADJUSTMENTS.ascii?.characterSpacing ?? 1,
+    cellSize: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.cellSize,
+    characterSpacing: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.characterSpacing,
     density: 1,
     coverage: 1,
     edgeEmphasis: 0,
     brightness: 0,
-    contrast: DEFAULT_ADJUSTMENTS.ascii?.contrast ?? 1,
-    dither: DEFAULT_ADJUSTMENTS.ascii?.dither ?? "none",
-    colorMode: DEFAULT_ADJUSTMENTS.ascii?.colorMode ?? "grayscale",
+    contrast: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.contrast,
+    dither: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.dither,
+    colorMode: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.colorMode,
     foregroundOpacity: 1,
     foregroundBlendMode: "source-over",
     backgroundMode: "cell-solid",
@@ -88,18 +157,23 @@ const createDefaultFilter2dEffect = (): ImageFilter2dEffectNode => ({
   },
 });
 
-const upsertAsciiEffect = (
+const upsertAsciiCarrierTransform = (
   state: CanvasImageRenderStateV1,
-  updater: (effect: ImageAsciiEffectNode) => ImageAsciiEffectNode
+  updater: (
+    transform: Extract<CarrierTransformNode, { type: "ascii" }>
+  ) => Extract<CarrierTransformNode, { type: "ascii" }>
 ) => {
   const next = cloneState(state);
-  const index = next.effects.findIndex((effect) => effect.type === "ascii");
-  const current = index >= 0 ? (next.effects[index] as ImageAsciiEffectNode) : createDefaultAsciiEffect();
+  const index = next.carrierTransforms.findIndex((transform) => transform.type === "ascii");
+  const current =
+    index >= 0
+      ? (next.carrierTransforms[index] as Extract<CarrierTransformNode, { type: "ascii" }>)
+      : createDefaultAsciiCarrierTransform();
   const updated = updater(current);
   if (index >= 0) {
-    next.effects[index] = updated;
+    next.carrierTransforms[index] = updated;
   } else {
-    next.effects.push(updated);
+    next.carrierTransforms.push(updated);
   }
   return next;
 };
@@ -121,99 +195,30 @@ const upsertFilter2dEffect = (
   return next;
 };
 
-export const getCanvasImageAdjustmentView = (
+export const getCanvasImageEditValues = (
   state: CanvasImageRenderStateV1
-): CanvasImageAdjustmentView =>
-  ({
-    ...DEFAULT_CANVAS_IMAGE_ADJUSTMENT_VIEW,
-    exposure: state.develop.tone.exposure,
-    contrast: state.develop.tone.contrast,
-    highlights: state.develop.tone.highlights,
-    shadows: state.develop.tone.shadows,
-    whites: state.develop.tone.whites,
-    blacks: state.develop.tone.blacks,
-    temperature: state.develop.color.temperature,
-    tint: state.develop.color.tint,
-    hue: resolveFilter2dPreviewValues(state).hue,
-    vibrance: state.develop.color.vibrance,
-    saturation: state.develop.color.saturation,
-    texture: state.develop.detail.texture,
-    clarity: state.develop.detail.clarity,
-    dehaze: state.develop.detail.dehaze,
-    sharpening: state.develop.detail.sharpening,
-    sharpenRadius: state.develop.detail.sharpenRadius,
-    sharpenDetail: state.develop.detail.sharpenDetail,
-    masking: state.develop.detail.masking,
-    noiseReduction: state.develop.detail.noiseReduction,
-    colorNoiseReduction: state.develop.detail.colorNoiseReduction,
-    vignette: state.develop.fx.vignette,
-    grain: state.develop.fx.grain,
-    grainSize: state.develop.fx.grainSize,
-    grainRoughness: state.develop.fx.grainRoughness,
-    glowIntensity: state.develop.fx.glowIntensity,
-    glowMidtoneFocus: state.develop.fx.glowMidtoneFocus,
-    glowBias: state.develop.fx.glowBias,
-    glowRadius: state.develop.fx.glowRadius,
-    brightness: resolveFilter2dPreviewValues(state).brightness,
-    blur: resolveFilter2dPreviewValues(state).blur,
-    dilate: resolveFilter2dPreviewValues(state).dilate,
-    ascii: resolveAsciiAdjustmentsFromState(state),
-  }) as CanvasImageAdjustmentView;
+): CanvasImageEditValues => createCanvasImageEditValues(state);
 
-const resolveAsciiAdjustmentsFromState = (state: CanvasImageRenderStateV1): AsciiAdjustments => {
-  const effect = state.effects.find(
-    (candidate): candidate is ImageAsciiEffectNode =>
-      candidate.type === "ascii" && candidate.enabled
-  );
-  return {
-    ...DEFAULT_ASCII_ADJUSTMENTS,
-    enabled: Boolean(effect),
-    charsetPreset:
-      effect?.params.preset === "blocks" || effect?.params.preset === "detailed"
-        ? effect.params.preset
-        : "standard",
-    colorMode: effect?.params.colorMode === "full-color" ? "full-color" : "grayscale",
-    cellSize: effect?.params.cellSize ?? 12,
-    characterSpacing: effect?.params.characterSpacing ?? 1,
-    contrast: effect?.params.contrast ?? 1,
-    dither: effect?.params.dither ?? "none",
-    invert: Boolean(effect?.params.invert),
-  };
-};
-
-const resolveFilter2dPreviewValues = (state: CanvasImageRenderStateV1) => {
-  const effect = state.effects.find(
-    (candidate): candidate is ImageFilter2dEffectNode =>
-      candidate.type === "filter2d" && candidate.enabled
-  );
-  return {
-    brightness: effect?.params.brightness ?? 0,
-    hue: effect?.params.hue ?? 0,
-    blur: effect?.params.blur ?? 0,
-    dilate: effect?.params.dilate ?? 0,
-  };
-};
-
-export const applyNumericAdjustmentToRenderState = (
+export const applyNumericFieldToRenderState = (
   state: CanvasImageRenderStateV1,
-  key: NumericAdjustmentKey,
+  fieldId: CanvasImageNumericFieldId,
   value: number
 ) => {
   const next = cloneState(state);
-  switch (key) {
+  switch (fieldId) {
     case "exposure":
     case "contrast":
     case "highlights":
     case "shadows":
     case "whites":
     case "blacks":
-      next.develop.tone[key] = value;
+      next.develop.tone[fieldId] = value;
       return next;
     case "temperature":
     case "tint":
     case "vibrance":
     case "saturation":
-      next.develop.color[key] = value;
+      next.develop.color[fieldId] = value;
       return next;
     case "texture":
     case "clarity":
@@ -224,7 +229,7 @@ export const applyNumericAdjustmentToRenderState = (
     case "masking":
     case "noiseReduction":
     case "colorNoiseReduction":
-      next.develop.detail[key] = value;
+      next.develop.detail[fieldId] = value;
       return next;
     case "vignette":
     case "grain":
@@ -234,12 +239,16 @@ export const applyNumericAdjustmentToRenderState = (
     case "glowMidtoneFocus":
     case "glowBias":
     case "glowRadius":
-      next.develop.fx[key] = value;
+      next.develop.fx[fieldId] = value;
       return next;
     case "hue":
       return upsertFilter2dEffect(next, (effect) => ({
         ...effect,
-        enabled: Math.abs(effect.params.brightness) > 0.001 || Math.abs(value) > 0.001 || effect.params.blur > 0.001 || effect.params.dilate > 0.001,
+        enabled:
+          Math.abs(effect.params.brightness) > 0.001 ||
+          Math.abs(value) > 0.001 ||
+          effect.params.blur > 0.001 ||
+          effect.params.dilate > 0.001,
         params: {
           ...effect.params,
           hue: value,
@@ -248,7 +257,11 @@ export const applyNumericAdjustmentToRenderState = (
     case "brightness":
       return upsertFilter2dEffect(next, (effect) => ({
         ...effect,
-        enabled: Math.abs(value) > 0.001 || Math.abs(effect.params.hue) > 0.001 || effect.params.blur > 0.001 || effect.params.dilate > 0.001,
+        enabled:
+          Math.abs(value) > 0.001 ||
+          Math.abs(effect.params.hue) > 0.001 ||
+          effect.params.blur > 0.001 ||
+          effect.params.dilate > 0.001,
         params: {
           ...effect.params,
           brightness: value,
@@ -257,7 +270,11 @@ export const applyNumericAdjustmentToRenderState = (
     case "blur":
       return upsertFilter2dEffect(next, (effect) => ({
         ...effect,
-        enabled: Math.abs(effect.params.brightness) > 0.001 || Math.abs(effect.params.hue) > 0.001 || value > 0.001 || effect.params.dilate > 0.001,
+        enabled:
+          Math.abs(effect.params.brightness) > 0.001 ||
+          Math.abs(effect.params.hue) > 0.001 ||
+          value > 0.001 ||
+          effect.params.dilate > 0.001,
         params: {
           ...effect.params,
           blur: value,
@@ -266,7 +283,11 @@ export const applyNumericAdjustmentToRenderState = (
     case "dilate":
       return upsertFilter2dEffect(next, (effect) => ({
         ...effect,
-        enabled: Math.abs(effect.params.brightness) > 0.001 || Math.abs(effect.params.hue) > 0.001 || effect.params.blur > 0.001 || value > 0.001,
+        enabled:
+          Math.abs(effect.params.brightness) > 0.001 ||
+          Math.abs(effect.params.hue) > 0.001 ||
+          effect.params.blur > 0.001 ||
+          value > 0.001,
         params: {
           ...effect.params,
           dilate: value,
@@ -281,31 +302,31 @@ export const applyAsciiAdjustmentsToRenderState = (
   state: CanvasImageRenderStateV1,
   partial: Partial<AsciiAdjustments>
 ) =>
-  upsertAsciiEffect(state, (effect) => ({
-    ...effect,
-    enabled: partial.enabled ?? effect.enabled,
+  upsertAsciiCarrierTransform(state, (transform) => ({
+    ...transform,
+    enabled: partial.enabled ?? transform.enabled,
     params: {
-      ...effect.params,
-      preset: partial.charsetPreset ?? effect.params.preset,
-      colorMode: partial.colorMode ?? effect.params.colorMode,
-      cellSize: partial.cellSize ?? effect.params.cellSize,
-      characterSpacing: partial.characterSpacing ?? effect.params.characterSpacing,
-      contrast: partial.contrast ?? effect.params.contrast,
-      dither: partial.dither ?? effect.params.dither,
-      invert: partial.invert ?? effect.params.invert,
+      ...transform.params,
+      preset: partial.charsetPreset ?? transform.params.preset,
+      colorMode: partial.colorMode ?? transform.params.colorMode,
+      cellSize: partial.cellSize ?? transform.params.cellSize,
+      characterSpacing: partial.characterSpacing ?? transform.params.characterSpacing,
+      contrast: partial.contrast ?? transform.params.contrast,
+      dither: partial.dither ?? transform.params.dither,
+      invert: partial.invert ?? transform.params.invert,
     },
   }));
 
-export const resetRenderStateForAdjustmentKeys = (
+export const resetRenderStateForNumericFields = (
   state: CanvasImageRenderStateV1,
-  keys: NumericAdjustmentKey[]
+  fieldIds: CanvasImageNumericFieldId[]
 ) =>
-  keys.reduce(
-    (current, key) =>
-      applyNumericAdjustmentToRenderState(
+  fieldIds.reduce(
+    (current, fieldId) =>
+      applyNumericFieldToRenderState(
         current,
-        key,
-        Number(DEFAULT_ADJUSTMENTS[key] ?? 0)
+        fieldId,
+        Number(DEFAULT_CANVAS_IMAGE_EDIT_VALUES[fieldId])
       ),
     state
   );

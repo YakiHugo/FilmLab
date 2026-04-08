@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultAdjustments } from "@/lib/adjustments";
 import { createDefaultCanvasImageRenderState } from "@/render/image";
 import type { Asset, CanvasImageElement } from "@/types";
 import {
@@ -16,11 +15,8 @@ const createAsset = (overrides?: Partial<Asset>): Asset => ({
   createdAt: overrides?.createdAt ?? "2026-03-17T00:00:00.000Z",
   objectUrl: overrides?.objectUrl ?? "blob:asset-1",
   thumbnailUrl: overrides?.thumbnailUrl ?? "blob:asset-1-thumb",
-  adjustments: overrides?.adjustments ?? createDefaultAdjustments(),
-  layers: overrides?.layers ?? [],
   tags: overrides?.tags ?? [],
   importDay: overrides?.importDay ?? "2026-03-17",
-  group: overrides?.group ?? "2026-03-17",
   origin: overrides?.origin ?? "file",
   remote: overrides?.remote ?? {
     status: "local_only",
@@ -53,18 +49,12 @@ const createElement = (overrides?: Partial<CanvasImageElement>): CanvasImageElem
   locked: overrides?.locked ?? false,
   visible: overrides?.visible ?? true,
   zIndex: overrides?.zIndex ?? 1,
-  renderState:
-    overrides?.renderState ??
-    createDefaultCanvasImageRenderState({
-      adjustments: overrides?.adjustments ?? createDefaultAdjustments(),
-      filmProfileId: overrides?.filmProfileId,
-    }),
+  renderState: overrides?.renderState ?? createDefaultCanvasImageRenderState(),
 });
 
 describe("boardImageRendering", () => {
   it("keeps interactive and settled previews on distinct cache variants", () => {
     const asset = createAsset();
-    const assetById = new Map([[asset.id, asset]]);
     const element = createElement({
       width: 2000,
       height: 1500,
@@ -72,13 +62,11 @@ describe("boardImageRendering", () => {
 
     const interactive = createCanvasImageRenderContext({
       asset,
-      assetById,
       element,
       priority: "interactive",
     });
     const background = createCanvasImageRenderContext({
       asset,
-      assetById,
       element,
       priority: "background",
     });
@@ -90,7 +78,6 @@ describe("boardImageRendering", () => {
 
   it("scales preview targets with the current viewport zoom bucket", () => {
     const asset = createAsset();
-    const assetById = new Map([[asset.id, asset]]);
     const element = createElement({
       width: 800,
       height: 600,
@@ -98,14 +85,12 @@ describe("boardImageRendering", () => {
 
     const zoomedOut = createCanvasImageRenderContext({
       asset,
-      assetById,
       element,
       priority: "background",
       viewportScale: 0.5,
     });
     const zoomedIn = createCanvasImageRenderContext({
       asset,
-      assetById,
       element,
       priority: "background",
       viewportScale: 2,
@@ -130,27 +115,18 @@ describe("boardImageRendering", () => {
   });
 
   it("folds draft render state and per-element film profiles into the render context", () => {
-    const asset = createAsset({
-      adjustments: {
-        ...createDefaultAdjustments(),
-        exposure: 2,
-      },
-    });
-    const assetById = new Map([[asset.id, asset]]);
+    const asset = createAsset();
+    const elementRenderState = createDefaultCanvasImageRenderState();
+    elementRenderState.film.profileId = "film-portrait-soft-v1";
+    const draftRenderState = createDefaultCanvasImageRenderState();
+    draftRenderState.develop.tone.exposure = 24;
+    draftRenderState.film.profileId = elementRenderState.film.profileId;
     const element = createElement({
-      filmProfileId: "film-portrait-soft-v1",
-    });
-    const draftRenderState = createDefaultCanvasImageRenderState({
-      adjustments: {
-        ...createDefaultAdjustments(),
-        exposure: 24,
-      },
-      filmProfileId: element.renderState?.film.profileId ?? undefined,
+      renderState: elementRenderState,
     });
 
     const context = createCanvasImageRenderContext({
       asset,
-      assetById,
       draftRenderState,
       element,
       priority: "interactive",
@@ -164,12 +140,8 @@ describe("boardImageRendering", () => {
   });
 
   it("resolves persisted renderState without requiring runtime asset availability", () => {
-    const renderState = createDefaultCanvasImageRenderState({
-      adjustments: {
-        ...createDefaultAdjustments(),
-        exposure: 11,
-      },
-    });
+    const renderState = createDefaultCanvasImageRenderState();
+    renderState.develop.tone.exposure = 11;
     const element = {
       ...createElement({
         renderState,
@@ -179,52 +151,79 @@ describe("boardImageRendering", () => {
     expect(resolveCanvasImageRenderState(element, undefined, undefined)).toBe(renderState);
   });
 
-  it("invalidates preview cache keys when referenced texture assets change", () => {
+  it("invalidates preview cache keys when the source asset content changes", () => {
     const element = createElement();
-    const textureA = createAsset({
-      id: "texture-1",
-      objectUrl: "blob:texture-a",
-      contentHash: "texture-a",
+    const assetV1 = createAsset({
+      objectUrl: "blob:asset-1-v1",
+      contentHash: "asset-v1",
     });
-    const textureB = createAsset({
-      id: "texture-1",
-      objectUrl: "blob:texture-b",
-      contentHash: "texture-b",
+    const assetV2 = createAsset({
+      objectUrl: "blob:asset-1-v2",
+      contentHash: "asset-v2",
     });
-    const asset = createAsset({
-      layers: [
-        {
-          id: "texture-layer-1",
-          name: "Texture 1",
-          type: "texture",
-          visible: true,
-          opacity: 100,
-          blendMode: "overlay",
-          textureAssetId: "texture-1",
-        } as NonNullable<Asset["layers"]>[number],
-      ],
+
+    const first = createCanvasImageRenderContext({
+      asset: assetV1,
+      element,
+      priority: "interactive",
+    });
+    const second = createCanvasImageRenderContext({
+      asset: assetV2,
+      element,
+      priority: "interactive",
+    });
+
+    expect(first.imageDocument.revisionKey).not.toBe(second.imageDocument.revisionKey);
+    expect(first.cacheKey).not.toBe(second.cacheKey);
+  });
+
+  it("invalidates preview cache keys when carrierTransforms change", () => {
+    const asset = createAsset();
+    const element = createElement();
+    const draftV1 = createDefaultCanvasImageRenderState();
+    const draftV2 = createDefaultCanvasImageRenderState();
+    draftV2.carrierTransforms.push({
+      id: "ascii-primary",
+      type: "ascii",
+      enabled: true,
+      analysisSource: "style",
+      params: {
+        renderMode: "glyph",
+        preset: "blocks",
+        cellSize: 12,
+        characterSpacing: 1,
+        density: 1,
+        coverage: 1,
+        edgeEmphasis: 0,
+        brightness: 0,
+        contrast: 1.5,
+        dither: "none",
+        colorMode: "grayscale",
+        foregroundOpacity: 1,
+        foregroundBlendMode: "source-over",
+        backgroundMode: "none",
+        backgroundBlur: 0,
+        backgroundOpacity: 0,
+        backgroundColor: null,
+        invert: false,
+        gridOverlay: false,
+      },
     });
 
     const first = createCanvasImageRenderContext({
       asset,
-      assetById: new Map([
-        [asset.id, asset],
-        [textureA.id, textureA],
-      ]),
+      draftRenderState: draftV1,
       element,
       priority: "interactive",
     });
     const second = createCanvasImageRenderContext({
       asset,
-      assetById: new Map([
-        [asset.id, asset],
-        [textureB.id, textureB],
-      ]),
+      draftRenderState: draftV2,
       element,
       priority: "interactive",
     });
 
-    expect(first.imageDocument.revisionKey).toBe(second.imageDocument.revisionKey);
+    expect(first.imageDocument.revisionKey).not.toBe(second.imageDocument.revisionKey);
     expect(first.cacheKey).not.toBe(second.cacheKey);
   });
 });

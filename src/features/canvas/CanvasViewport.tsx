@@ -1,12 +1,14 @@
 import type Konva from "konva";
 import { Crosshair, Hand, Minus, MousePointer2, Plus } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type RefObject } from "react";
+import { useCallback, useMemo, type RefObject } from "react";
 import { cn } from "@/lib/utils";
 import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { CanvasViewportOverlayHost } from "./CanvasViewportOverlayHost";
+import { CanvasViewportContextMenu } from "./CanvasViewportContextMenu";
 import { CanvasViewportStageShell } from "./CanvasViewportStageShell";
-import { useRegisterCanvasWorkbenchTransitionGuard } from "./canvasWorkbenchTransitionGuard";
+import { runCanvasWorkbenchTransitionGuard } from "./canvasWorkbenchTransition";
+import { useRegisterCanvasWorkbenchTransitionGuard } from "./canvasWorkbenchTransitionGuardHooks";
 import { VIEWPORT_INSETS } from "./canvasViewportConstants";
 import { useCanvasLoadedWorkbenchCommands } from "./hooks/useCanvasLoadedWorkbenchCommands";
 import { useCanvasLoadedWorkbenchState } from "./hooks/useCanvasLoadedWorkbenchState";
@@ -21,13 +23,14 @@ import {
   useCanvasViewportTextEditingController,
   useCanvasViewportTextSessionController,
 } from "./hooks/useCanvasViewportTextEditingController";
-import {
-  shouldCanvasToolSelectElements,
-  type CanvasToolName,
-} from "./tools/toolControllers";
+import { shouldCanvasToolSelectElements, type CanvasToolName } from "./tools/toolControllers";
 import type { CanvasInteractionNotice } from "./viewportOverlay";
+import type { CanvasContextActionsModel } from "./hooks/useCanvasContextActions";
 
 interface CanvasViewportProps {
+  contextActions: CanvasContextActionsModel;
+  interactionNotice: CanvasInteractionNotice | null;
+  onNotice: (notice: CanvasInteractionNotice) => void;
   stageRef: RefObject<Konva.Stage>;
 }
 
@@ -108,7 +111,12 @@ function CanvasViewportControls({
   );
 }
 
-export function CanvasViewport({ stageRef }: CanvasViewportProps) {
+export function CanvasViewport({
+  contextActions,
+  interactionNotice,
+  onNotice,
+  stageRef,
+}: CanvasViewportProps) {
   const { loadedWorkbench, loadedWorkbenchId } = useCanvasLoadedWorkbenchState();
   const {
     beginInteraction,
@@ -137,38 +145,26 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
     Boolean(loadedWorkbenchInteractionStatus?.active) ||
     (loadedWorkbenchInteractionStatus?.pendingCommits ?? 0) > 0 ||
     (loadedWorkbenchInteractionStatus?.queuedMutations ?? 0) > 0;
-  const [interactionNotice, setInteractionNotice] = useState<CanvasInteractionNotice | null>(null);
   const assetById = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
 
-  useEffect(() => {
-    if (!interactionNotice) {
-      return;
-    }
+  const handleInteractionError = useCallback(
+    (message: string) => {
+      onNotice({
+        type: "error",
+        message,
+      });
+    },
+    [onNotice]
+  );
 
-    const timeoutId = window.setTimeout(() => {
-      setInteractionNotice(null);
-    }, 2400);
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [interactionNotice]);
-
-  const handleInteractionError = useCallback((message: string) => {
-    setInteractionNotice({
-      type: "error",
-      message,
-    });
-  }, []);
-
-  const { fitView, isSpacePressed, stageSize, viewportContainerRef } =
-    useCanvasViewportLifecycle({
-      activeWorkbench: loadedWorkbench,
-      activeWorkbenchId: loadedWorkbenchId,
-      insets: VIEWPORT_INSETS,
-      stageRef,
-      setViewport,
-      setZoom,
-    });
+  const { fitView, isSpacePressed, stageSize, viewportContainerRef } = useCanvasViewportLifecycle({
+    activeWorkbench: loadedWorkbench,
+    activeWorkbenchId: loadedWorkbenchId,
+    insets: VIEWPORT_INSETS,
+    stageRef,
+    setViewport,
+    setZoom,
+  });
   const canManipulateSelection = shouldCanvasToolSelectElements({
     shouldPan: tool === "hand" || isSpacePressed,
     tool,
@@ -238,24 +234,13 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
     textSession: textSessionState.textSession,
     textSessionActions: textSessionState.textSessionActions,
   });
-  useRegisterCanvasWorkbenchTransitionGuard(async () => {
-    if (
-      loadedWorkbenchInteractionStatus?.active ||
-      (loadedWorkbenchInteractionStatus?.pendingCommits ?? 0) > 0 ||
-      (loadedWorkbenchInteractionStatus?.queuedMutations ?? 0) > 0
-    ) {
-      throw new Error("Cannot switch workbenches while a canvas interaction is still settling.");
-    }
-
-    if (!textSessionState.textSession.id) {
-      return;
-    }
-
-    const result = await textSessionState.textSessionActions.commit();
-    if (result === "skipped") {
-      throw new Error("Failed to commit active text session before switching workbenches.");
-    }
-  });
+  useRegisterCanvasWorkbenchTransitionGuard(() =>
+    runCanvasWorkbenchTransitionGuard({
+      commitTextSession: textSessionState.textSessionActions.commit,
+      hasActiveTextSession: Boolean(textSessionState.textSession.id),
+      interactionStatus: loadedWorkbenchInteractionStatus,
+    })
+  );
   const resizeState = useCanvasViewportResizeController({
     activeEditingTextId: textEditingState.textRuntimeViewModel.activeEditingTextId,
     assetById,
@@ -377,12 +362,18 @@ export function CanvasViewport({ stageRef }: CanvasViewportProps) {
 
   return (
     <div className="absolute inset-0">
-      <CanvasViewportStageShell
-        interaction={interaction}
-        resize={resize}
-        scene={scene}
-        textEditing={textEditing}
-      />
+      <CanvasViewportContextMenu
+        actionStates={contextActions.actionStates}
+        onAction={contextActions.runAction}
+        onPrepareOpen={contextActions.handleContextMenuCapture}
+      >
+        <CanvasViewportStageShell
+          interaction={interaction}
+          resize={resize}
+          scene={scene}
+          textEditing={textEditing}
+        />
+      </CanvasViewportContextMenu>
 
       <CanvasViewportOverlayHost overlay={overlay} textEditing={textEditing} />
 

@@ -8,11 +8,6 @@ import type {
   AssetSyncJobOperation,
   CanvasWorkbenchListEntry,
   CanvasWorkbenchSnapshot,
-  EditorLayer,
-  EditingAdjustments,
-  FilmProfile,
-  FilmProfileOverrides,
-  LocalBrushPoint,
 } from "@/types";
 
 interface FilmLabDB extends DBSchema {
@@ -25,18 +20,10 @@ interface FilmLabDB extends DBSchema {
       size: number;
       createdAt: string;
       blob: Blob;
-      presetId?: string;
-      intensity?: number;
-      filmProfileId?: string;
-      filmOverrides?: FilmProfileOverrides;
-      group?: string;
       importDay?: string;
       tags?: string[];
       thumbnailBlob?: Blob;
       metadata?: AssetMetadata;
-      adjustments?: EditingAdjustments;
-      layers?: EditorLayer[];
-      filmProfile?: FilmProfile;
       source?: "imported" | "ai-generated";
       origin?: AssetOrigin;
       contentHash?: string;
@@ -123,28 +110,30 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
     try {
       const db = await openDB<FilmLabDB>(DB_NAME, DB_VERSION, {
         upgrade(db, oldVersion, _newVersion, transaction) {
-          const legacyObjectStoreNames = db.objectStoreNames as unknown as DOMStringList;
-          const legacySchemaDb = db as unknown as { deleteObjectStore: (name: string) => void };
-          const recreateLocalStores = [
-            "project",
-            "canvasDocuments",
-            "assets",
-            "localMaskBlobs",
-            "assetSyncJobs",
-            "canvasWorkbenches",
-            "canvasWorkbenchListEntries",
-          ];
-          if (oldVersion < 11) {
-            for (const storeName of recreateLocalStores) {
-              if (legacyObjectStoreNames.contains(storeName)) {
-                legacySchemaDb.deleteObjectStore(storeName);
-              }
+          const existingStoreNames = db.objectStoreNames as unknown as DOMStringList;
+          const schemaDb = db as unknown as { deleteObjectStore: (name: string) => void };
+          const deleteStoreIfPresent = (storeName: string) => {
+            if (existingStoreNames.contains(storeName)) {
+              schemaDb.deleteObjectStore(storeName);
             }
+          };
+
+          if (oldVersion < 11) {
+            [
+              "project",
+              "canvasDocuments",
+              "assets",
+              "localMaskBlobs",
+              "assetSyncJobs",
+              "canvasWorkbenches",
+              "canvasWorkbenchListEntries",
+            ].forEach(deleteStoreIfPresent);
           }
+
           if (!db.objectStoreNames.contains("assets")) {
             const store = db.createObjectStore("assets", { keyPath: "id" });
             store.createIndex("byOwnerUserId", "ownerRef.userId", { unique: false });
-          } else if (oldVersion < 11) {
+          } else {
             const store = transaction.objectStore("assets");
             if (!store.indexNames.contains("byOwnerUserId")) {
               store.createIndex("byOwnerUserId", "ownerRef.userId", { unique: false });
@@ -156,20 +145,35 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
           if (!db.objectStoreNames.contains("localMaskBlobs")) {
             const store = db.createObjectStore("localMaskBlobs", { keyPath: "id" });
             store.createIndex("byAssetId", "assetId", { unique: false });
+          } else {
+            const store = transaction.objectStore("localMaskBlobs");
+            if (!store.indexNames.contains("byAssetId")) {
+              store.createIndex("byAssetId", "assetId", { unique: false });
+            }
           }
-          if (oldVersion < 14 && legacyObjectStoreNames.contains("canvasWorkbenchListEntries")) {
-            legacySchemaDb.deleteObjectStore("canvasWorkbenchListEntries");
+
+          if (oldVersion < 14) {
+            deleteStoreIfPresent("canvasWorkbenchListEntries");
+            deleteStoreIfPresent("canvasWorkbenches");
           }
-          if (oldVersion < 14 && legacyObjectStoreNames.contains("canvasWorkbenches")) {
-            legacySchemaDb.deleteObjectStore("canvasWorkbenches");
-          }
+
           if (!db.objectStoreNames.contains("canvasWorkbenches")) {
             const store = db.createObjectStore("canvasWorkbenches", { keyPath: "id" });
             store.createIndex("byOwnerUserId", "ownerRef.userId", { unique: false });
+          } else {
+            const store = transaction.objectStore("canvasWorkbenches");
+            if (!store.indexNames.contains("byOwnerUserId")) {
+              store.createIndex("byOwnerUserId", "ownerRef.userId", { unique: false });
+            }
           }
           if (!db.objectStoreNames.contains("canvasWorkbenchListEntries")) {
             const store = db.createObjectStore("canvasWorkbenchListEntries", { keyPath: "id" });
             store.createIndex("byOwnerUserId", "ownerRef.userId", { unique: false });
+          } else {
+            const store = transaction.objectStore("canvasWorkbenchListEntries");
+            if (!store.indexNames.contains("byOwnerUserId")) {
+              store.createIndex("byOwnerUserId", "ownerRef.userId", { unique: false });
+            }
           }
           if (!db.objectStoreNames.contains("assetSyncJobs")) {
             const syncStore = db.createObjectStore("assetSyncJobs", { keyPath: "jobId" });
@@ -178,16 +182,26 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
             syncStore.createIndex("byOwnerUserId", "ownerUserId", { unique: false });
             syncStore.createIndex("byOp", "op", { unique: false });
           } else if (oldVersion < 12) {
-            const legacySchemaDb = db as unknown as { deleteObjectStore: (name: string) => void };
-            legacySchemaDb.deleteObjectStore("assetSyncJobs");
+            deleteStoreIfPresent("assetSyncJobs");
             const syncStore = db.createObjectStore("assetSyncJobs", { keyPath: "jobId" });
             syncStore.createIndex("byLocalAssetId", "localAssetId", { unique: false });
             syncStore.createIndex("byNextRetryAt", "nextRetryAt", { unique: false });
             syncStore.createIndex("byOwnerUserId", "ownerUserId", { unique: false });
             syncStore.createIndex("byOp", "op", { unique: false });
-          }
-          if (legacyObjectStoreNames.contains("imageGenerationSessions")) {
-            legacySchemaDb.deleteObjectStore("imageGenerationSessions");
+          } else {
+            const syncStore = transaction.objectStore("assetSyncJobs");
+            if (!syncStore.indexNames.contains("byLocalAssetId")) {
+              syncStore.createIndex("byLocalAssetId", "localAssetId", { unique: false });
+            }
+            if (!syncStore.indexNames.contains("byNextRetryAt")) {
+              syncStore.createIndex("byNextRetryAt", "nextRetryAt", { unique: false });
+            }
+            if (!syncStore.indexNames.contains("byOwnerUserId")) {
+              syncStore.createIndex("byOwnerUserId", "ownerUserId", { unique: false });
+            }
+            if (!syncStore.indexNames.contains("byOp")) {
+              syncStore.createIndex("byOp", "op", { unique: false });
+            }
           }
           // v5+ only add optional value fields (`importDay`, `tags`, `source`, sync fields).
           // No value migration is needed because IndexedDB values are schemaless.
@@ -238,49 +252,6 @@ const getDB = (): Promise<IDBPDatabase<FilmLabDB> | null> => {
   return dbInitPromise;
 };
 
-const BRUSH_MASK_BLOB_POINT_THRESHOLD = 256;
-
-const clampValue = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-
-const normalizeBrushPoints = (points: LocalBrushPoint[]) =>
-  points.map((point) => ({
-    x: clampValue(Number(point.x) || 0, 0, 1),
-    y: clampValue(Number(point.y) || 0, 0, 1),
-    pressure: clampValue(Number(point.pressure ?? 1) || 1, 0.05, 1),
-  }));
-
-const parseBrushPointsFromBlob = async (blob: Blob): Promise<LocalBrushPoint[] | null> => {
-  try {
-    const raw = JSON.parse(await blob.text()) as {
-      version?: number;
-      points?: Array<{ x?: unknown; y?: unknown; pressure?: unknown }>;
-    };
-    if (raw.version !== 1 || !Array.isArray(raw.points)) {
-      return null;
-    }
-    const nextPoints: LocalBrushPoint[] = [];
-    for (const point of raw.points) {
-      if (!point || typeof point !== "object") {
-        continue;
-      }
-      const x = Number(point.x);
-      const y = Number(point.y);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) {
-        continue;
-      }
-      const pressure = Number(point.pressure ?? 1);
-      nextPoints.push({
-        x: clampValue(x, 0, 1),
-        y: clampValue(y, 0, 1),
-        pressure: clampValue(Number.isFinite(pressure) ? pressure : 1, 0.05, 1),
-      });
-    }
-    return nextPoints;
-  } catch {
-    return null;
-  }
-};
-
 const deleteMaskBlobsByAssetId = async (db: IDBPDatabase<FilmLabDB>, assetId: string) => {
   if (!db.objectStoreNames.contains("localMaskBlobs")) {
     return;
@@ -307,143 +278,6 @@ const deleteSyncJobsByAssetId = async (db: IDBPDatabase<FilmLabDB>, assetId: str
     cursor = await cursor.continue();
   }
   await tx.done;
-};
-
-const maybeOffloadBrushMaskBlobs = async (
-  db: IDBPDatabase<FilmLabDB>,
-  assetId: string,
-  adjustments: EditingAdjustments | undefined
-): Promise<EditingAdjustments | undefined> => {
-  if (
-    !adjustments?.localAdjustments ||
-    adjustments.localAdjustments.length === 0 ||
-    !db.objectStoreNames.contains("localMaskBlobs")
-  ) {
-    return adjustments;
-  }
-
-  const tx = db.transaction("localMaskBlobs", "readwrite");
-  const nextLocals = await Promise.all(
-    adjustments.localAdjustments.map(async (local, index) => {
-      if (local.mask.mode !== "brush") {
-        return local;
-      }
-      const points = normalizeBrushPoints(local.mask.points ?? []);
-      if (points.length < BRUSH_MASK_BLOB_POINT_THRESHOLD) {
-        if (!local.mask.pointsBlobId) {
-          return local;
-        }
-        return {
-          ...local,
-          mask: {
-            ...local.mask,
-            points,
-            pointsBlobId: undefined,
-          },
-        };
-      }
-
-      const blobId = `asset:${assetId}:local:${local.id || index}:brush:v1`;
-      const payload = JSON.stringify({
-        version: 1,
-        points,
-      });
-      await tx.store.put({
-        id: blobId,
-        assetId,
-        blob: new Blob([payload], { type: "application/json" }),
-        updatedAt: new Date().toISOString(),
-      });
-      return {
-        ...local,
-        mask: {
-          ...local.mask,
-          points: [],
-          pointsBlobId: blobId,
-        },
-      };
-    })
-  );
-  await tx.done;
-
-  return {
-    ...adjustments,
-    localAdjustments: nextLocals,
-  };
-};
-
-const hydrateBrushMaskBlobs = async (
-  db: IDBPDatabase<FilmLabDB>,
-  adjustments: EditingAdjustments | undefined
-): Promise<EditingAdjustments | undefined> => {
-  if (
-    !adjustments?.localAdjustments ||
-    adjustments.localAdjustments.length === 0 ||
-    !db.objectStoreNames.contains("localMaskBlobs")
-  ) {
-    return adjustments;
-  }
-
-  let changed = false;
-  const nextLocals = await Promise.all(
-    adjustments.localAdjustments.map(async (local, index) => {
-      try {
-        const mask =
-          local &&
-          typeof local === "object" &&
-          "mask" in local &&
-          local.mask &&
-          typeof local.mask === "object"
-            ? (local.mask as {
-                mode?: unknown;
-                pointsBlobId?: unknown;
-                points?: unknown;
-              })
-            : undefined;
-
-        if (
-          mask?.mode !== "brush" ||
-          typeof mask.pointsBlobId !== "string" ||
-          mask.pointsBlobId.length === 0 ||
-          (Array.isArray(mask.points) && mask.points.length > 0)
-        ) {
-          return local;
-        }
-
-        const blobRecord = await db.get("localMaskBlobs", mask.pointsBlobId);
-        if (!blobRecord?.blob) {
-          return local;
-        }
-        const points = await parseBrushPointsFromBlob(blobRecord.blob);
-        if (!points || points.length === 0) {
-          return local;
-        }
-        changed = true;
-        return {
-          ...local,
-          mask: {
-            ...local.mask,
-            points,
-          },
-        };
-      } catch (error) {
-        console.warn(
-          `IndexedDB hydrateBrushMaskBlobs skipped invalid local adjustment at index ${index}.`,
-          error
-        );
-        return local;
-      }
-    })
-  );
-
-  if (!changed) {
-    return adjustments;
-  }
-
-  return {
-    ...adjustments,
-    localAdjustments: nextLocals,
-  };
 };
 
 export async function saveCurrentUser(
@@ -476,11 +310,9 @@ export async function saveAsset(asset: FilmLabDB["assets"]["value"]): Promise<bo
   if (!db) return false;
   try {
     await deleteMaskBlobsByAssetId(db, asset.id);
-    const storedAdjustments = await maybeOffloadBrushMaskBlobs(db, asset.id, asset.adjustments);
     await db.put("assets", {
       ...asset,
       ownerRef: { userId: getCurrentUserId() },
-      adjustments: storedAdjustments,
     });
     return true;
   } catch (error) {
@@ -495,20 +327,7 @@ export async function loadAssets() {
   const db = await getDB();
   if (!db) return [];
   try {
-    const assets = await db.getAll("assets");
-    return Promise.all(
-      assets.map(async (asset) => {
-        try {
-          return {
-            ...asset,
-            adjustments: await hydrateBrushMaskBlobs(db, asset.adjustments),
-          };
-        } catch (error) {
-          console.warn(`IndexedDB loadAssets skipped hydration for asset ${asset.id}.`, error);
-          return asset;
-        }
-      })
-    );
+    return await db.getAll("assets");
   } catch (error) {
     console.warn("IndexedDB loadAssets failed:", error);
     return [];
@@ -519,24 +338,7 @@ export async function loadAssetsByUser(userId: string): Promise<StoredAsset[]> {
   const db = await getDB();
   if (!db || !db.objectStoreNames.contains("assets")) return [];
   try {
-    const assets = db.objectStoreNames.contains("assets")
-      ? db.transaction("assets").store.indexNames.contains("byOwnerUserId")
-        ? await db.getAllFromIndex("assets", "byOwnerUserId", userId)
-        : (await db.getAll("assets")).filter((asset) => asset.ownerRef?.userId === userId)
-      : [];
-    return Promise.all(
-      assets.map(async (asset) => {
-        try {
-          return {
-            ...asset,
-            adjustments: await hydrateBrushMaskBlobs(db, asset.adjustments),
-          };
-        } catch (error) {
-          console.warn(`IndexedDB loadAssetsByUser skipped hydration for asset ${asset.id}.`, error);
-          return asset;
-        }
-      })
-    );
+    return await db.getAllFromIndex("assets", "byOwnerUserId", userId);
   } catch (error) {
     console.warn("IndexedDB loadAssetsByUser failed:", error);
     return [];
@@ -601,9 +403,7 @@ export async function loadAssetSyncJobsByUser(
   const db = await getDB();
   if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return [];
   try {
-    const jobs = db.transaction("assetSyncJobs").store.indexNames.contains("byOwnerUserId")
-      ? await db.getAllFromIndex("assetSyncJobs", "byOwnerUserId", userId)
-      : (await db.getAll("assetSyncJobs")).filter((job) => job.ownerUserId === userId);
+    const jobs = await db.getAllFromIndex("assetSyncJobs", "byOwnerUserId", userId);
     return jobs
       .sort((a, b) => a.nextRetryAt.localeCompare(b.nextRetryAt))
       .slice(0, Math.max(1, limit));
@@ -652,9 +452,7 @@ export async function clearAssetSyncJobsByUser(userId: string): Promise<boolean>
   const db = await getDB();
   if (!db || !db.objectStoreNames.contains("assetSyncJobs")) return false;
   try {
-    const jobs = db.transaction("assetSyncJobs").store.indexNames.contains("byOwnerUserId")
-      ? await db.getAllFromIndex("assetSyncJobs", "byOwnerUserId", userId)
-      : (await db.getAll("assetSyncJobs")).filter((job) => job.ownerUserId === userId);
+    const jobs = await db.getAllFromIndex("assetSyncJobs", "byOwnerUserId", userId);
     await Promise.all(jobs.map((job) => db.delete("assetSyncJobs", job.jobId)));
     return true;
   } catch (error) {
@@ -685,9 +483,7 @@ export async function clearAssetsByUser(userId: string): Promise<boolean> {
   const db = await getDB();
   if (!db || !db.objectStoreNames.contains("assets")) return false;
   try {
-    const assets = db.transaction("assets").store.indexNames.contains("byOwnerUserId")
-      ? await db.getAllFromIndex("assets", "byOwnerUserId", userId)
-      : (await db.getAll("assets")).filter((asset) => asset.ownerRef?.userId === userId);
+    const assets = await db.getAllFromIndex("assets", "byOwnerUserId", userId);
     const results = await Promise.all(
       assets.map(async (asset) => {
         const [deletedSyncJobs, deletedAsset] = await Promise.all([

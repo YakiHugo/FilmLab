@@ -237,7 +237,6 @@ export const createCanvasPreviewRuntimeController = ({
       const renderCanvas = document.createElement("canvas");
       void renderCanvasImageElementToCanvas({
         asset: task.asset,
-        assetById: task.assetById,
         canvas: renderCanvas,
         draftRenderState: task.draftRenderState,
         element: task.element,
