@@ -9,7 +9,7 @@ import {
 import { CanvasEditSection } from "@/features/canvas/components/CanvasEditSection";
 import { SliderControl } from "@/features/canvas/components/controls/SliderControl";
 import type { CanvasImageNumericFieldId } from "@/features/canvas/imageAdjustmentTypes";
-import { asciiAdjustmentsEqual } from "@/lib/asciiRaster";
+import { asciiAdjustmentsEqual } from "@/lib/asciiAdjustments";
 import { cn } from "@/lib/utils";
 import {
   useCanvasElementDraftRenderState,
