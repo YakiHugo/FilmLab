@@ -196,7 +196,7 @@ describe("asciiEffect", () => {
       sourceCanvas,
       transform: createAsciiTransform(),
       quality: "full",
-      revisionKey: "rev-1",
+      sourceRevisionKey: "rev-1",
       targetSize: {
         width: 24,
         height: 24,
@@ -228,7 +228,7 @@ describe("asciiEffect", () => {
       sourceCanvas,
       transform,
       quality: "full",
-      revisionKey: "rev-1",
+      sourceRevisionKey: "rev-1",
       targetSize: {
         width: 24,
         height: 24,
@@ -256,7 +256,7 @@ describe("asciiEffect", () => {
       sourceCanvas,
       transform: createAsciiTransform(),
       quality: "full",
-      revisionKey: "rev-1",
+      sourceRevisionKey: "rev-1",
       targetSize: {
         width: 12,
         height: 12,
@@ -279,7 +279,7 @@ describe("asciiEffect", () => {
       transform: createAsciiTransform(),
       quality: "full",
       mode: "export",
-      revisionKey: "rev-1",
+      sourceRevisionKey: "rev-1",
       targetSize: {
         width: 12,
         height: 12,
@@ -309,7 +309,7 @@ describe("asciiEffect", () => {
       transform: createAsciiTransform(),
       quality: "full",
       mode: "export",
-      revisionKey: "rev-1",
+      sourceRevisionKey: "rev-1",
       targetSize: {
         width: 12,
         height: 12,
@@ -335,7 +335,7 @@ describe("asciiEffect", () => {
       sourceCanvas,
       transform: createAsciiTransform(),
       quality: "full",
-      revisionKey: "rev-1",
+      sourceRevisionKey: "rev-1",
       targetSize: {
         width: 24,
         height: 24,

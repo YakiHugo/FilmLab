@@ -51,7 +51,7 @@ const createRequest = () =>
 
 const createDocument = () =>
   ({
-    revisionKey: "rev-1",
+    sourceRevisionKey: "rev-1",
     masks: {
       byId: {},
     },

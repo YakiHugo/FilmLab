@@ -471,6 +471,17 @@ export const extractImageProcessState = (
   film: state.film,
 });
 
+export const buildSourceRevisionKey = (document: ImageRenderDocument) =>
+  hashString(
+    JSON.stringify({
+      source: document.source,
+      geometry: document.geometry,
+      develop: document.develop,
+      masks: document.masks,
+      film: document.film,
+    })
+  );
+
 export const resolveImageRenderEffectsForPlacement = (
   effects: readonly ImageEffectNode[],
   placement: ImageEffectPlacement
