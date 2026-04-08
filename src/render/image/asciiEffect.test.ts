@@ -254,9 +254,11 @@ describe("asciiEffect", () => {
   });
 
   it("keeps blurred-source backgrounds as source canvas metadata for the GPU presenter", async () => {
-    const transform = createAsciiTransform();
-    transform.params.backgroundMode = "blurred-source";
-    transform.params.backgroundBlur = 100;
+    const base = createAsciiTransform();
+    const transform = {
+      ...base,
+      params: { ...base.params, backgroundMode: "blurred-source" as const, backgroundBlur: 100 },
+    };
     const sourceCanvas = createMockCanvas({ width: 24, height: 24 });
     const featureGrid = await createAsciiFeatureGrid({
       sourceCanvas,

@@ -1140,7 +1140,7 @@ export class PipelineRenderer {
             ? "local-mask-shape-brush-invert"
             : "local-mask-shape-brush-empty",
           programInfo: mask.invert ? this.programs.maskInvert : this.programs.passthrough,
-          uniforms: {},
+          uniforms: {} as Record<string, unknown>,
           outputFormat: "RGBA8" as const,
           enabled: true,
         });

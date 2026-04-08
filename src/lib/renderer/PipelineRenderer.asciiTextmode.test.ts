@@ -90,7 +90,7 @@ const createRendererStub = () => {
     rows: 1,
     glyphCount: 1,
   }));
-  const renderAsciiBackgroundSourceLayer = vi.fn(() => null);
+  const renderAsciiBackgroundSourceLayer = vi.fn((): unknown => null);
   const renderer = {
     hasVisibleAsciiCellData: (data: Uint8ClampedArray) => (data[3] ?? 0) > 0,
     getAsciiSurfaceTextureCacheRecord,
@@ -127,7 +127,7 @@ describe("PipelineRenderer.renderAsciiTextmodeLayer", () => {
     expect(rendered).not.toBeNull();
     expect(getAsciiSurfaceTextureCacheRecord).toHaveBeenCalledTimes(1);
     expect(releaseAsciiSurfaceTextureCacheRecord).not.toHaveBeenCalled();
-    const call = runToTexture.mock.calls[0]?.[0] as {
+    const call = runToTexture.mock.calls[0]?.[0] as unknown as {
       passes: MockPass[];
       input: { texture: unknown };
     };
@@ -187,7 +187,7 @@ describe("PipelineRenderer.renderAsciiTextmodeLayer", () => {
 
     expect(rendered).not.toBeNull();
     expect(renderAsciiBackgroundSourceLayer).toHaveBeenCalledTimes(1);
-    const call = runToTexture.mock.calls[0]?.[0] as {
+    const call = runToTexture.mock.calls[0]?.[0] as unknown as {
       passes: MockPass[];
     };
     expect(call.passes[0]?.extraTextures).toMatchObject({

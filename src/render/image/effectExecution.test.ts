@@ -254,7 +254,7 @@ describe("effectExecution", () => {
 
     expect(renderImageEffectMaskToCanvasMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        maskDefinition: (createDocument() as never).masks.byId["mask-1"],
+        maskDefinition: (createDocument() as unknown as { masks: { byId: Record<string, unknown> } }).masks.byId["mask-1"],
         referenceSource: stageReferenceCanvas,
       })
     );

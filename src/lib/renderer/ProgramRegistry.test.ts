@@ -24,8 +24,8 @@ describe("ProgramRegistry", () => {
     void programs.maskInvert;
 
     expect(createProgramInfoMock).toHaveBeenCalledTimes(2);
-    const brushSources = createProgramInfoMock.mock.calls[0]?.[1] as string[];
-    const invertSources = createProgramInfoMock.mock.calls[1]?.[1] as string[];
+    const brushSources = createProgramInfoMock.mock.calls[0]?.[1] as unknown as string[];
+    const invertSources = createProgramInfoMock.mock.calls[1]?.[1] as unknown as string[];
 
     expect(brushSources[1]).toContain("u_centerPx");
     expect(brushSources[1]).toContain("u_innerRadiusPx");
@@ -56,7 +56,7 @@ describe("ProgramRegistry", () => {
     void programs.asciiTextmode;
 
     expect(createProgramInfoMock).toHaveBeenCalledTimes(1);
-    const asciiSources = createProgramInfoMock.mock.calls[0]?.[1] as string[];
+    const asciiSources = createProgramInfoMock.mock.calls[0]?.[1] as unknown as string[];
     expect(asciiSources[1]).toContain("u_cellForeground");
     expect(asciiSources[1]).toContain("u_glyphAtlas");
     expect(asciiSources[1]).toContain("resolveForegroundLayer");
@@ -71,7 +71,7 @@ describe("ProgramRegistry", () => {
     void programs.asciiCarrier;
 
     expect(createProgramInfoMock).toHaveBeenCalledTimes(1);
-    const asciiSources = createProgramInfoMock.mock.calls[0]?.[1] as string[];
+    const asciiSources = createProgramInfoMock.mock.calls[0]?.[1] as unknown as string[];
     expect(asciiSources[1]).toContain("u_colorMode");
     expect(asciiSources[1]).toContain("resolveTone");
     expect(asciiSources[1]).toContain("u_cellBackgroundColor");
@@ -86,7 +86,7 @@ describe("ProgramRegistry", () => {
     void programs.timestampOverlay;
 
     expect(createProgramInfoMock).toHaveBeenCalledTimes(1);
-    const overlaySources = createProgramInfoMock.mock.calls[0]?.[1] as string[];
+    const overlaySources = createProgramInfoMock.mock.calls[0]?.[1] as unknown as string[];
     expect(overlaySources[1]).toContain("u_glyphIndices");
     expect(overlaySources[1]).toContain("resolveGlyphMask");
     expect(overlaySources[1]).toContain("u_backgroundColor");
