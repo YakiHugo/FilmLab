@@ -413,7 +413,7 @@ const createOrientedSource = (
   }
   orientedContext.drawImage(loaded.source, 0, 0, loaded.width, loaded.height);
   orientedContext.restore();
-  boundaryMetrics && (boundaryMetrics.canvasClones += 1);
+  if (boundaryMetrics) boundaryMetrics.canvasClones += 1;
 
   return {
     source: orientedCanvas as CanvasImageSource,
@@ -1584,7 +1584,7 @@ const renderWithPipeline = async (
 
       const renderMetrics = structuredClone(emptyMetrics);
       if (uploadNeeded) {
-        options.boundaryMetrics && (options.boundaryMetrics.textureUploads += 1);
+        if (options.boundaryMetrics) options.boundaryMetrics.textureUploads += 1;
         renderer.updateSource(
           sourceImage as TexImageSource,
           options.sourceWidth,
@@ -2037,7 +2037,7 @@ const applyLocalMaskLumaRange = (
     return;
   }
 
-  boundaryMetrics && (boundaryMetrics.cpuPixelReads += 1);
+  if (boundaryMetrics) boundaryMetrics.cpuPixelReads += 1;
   const maskImage = maskContext.getImageData(0, 0, width, height);
   const sourceImage = referenceContext.getImageData(0, 0, width, height);
   const maskPixels = maskImage.data;
