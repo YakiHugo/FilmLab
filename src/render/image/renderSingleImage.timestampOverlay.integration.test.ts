@@ -16,7 +16,7 @@ vi.mock("@/lib/imageProcessing", () => ({
     Reflect.apply(renderImageToSurfaceMock, undefined, args),
 }));
 
-vi.mock("./carrierExecution", () => ({
+vi.mock("./asciiEffect", () => ({
   applyImageCarrierTransforms: vi.fn(),
   applyImageCarrierTransformsToSurfaceIfSupported: vi.fn(),
 }));
