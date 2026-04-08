@@ -1,6 +1,7 @@
 import type {
   ColorScienceModule,
   DefectsModule,
+  EditingAdjustments,
   FilmModuleConfig,
   FilmModuleId,
   FilmProfile,
@@ -307,6 +308,140 @@ export const scaleFilmProfileAmount = (profile: FilmProfile, intensity: number) 
       amount: clamp(module.amount * ratio, 0, 100),
     })),
   });
+};
+
+const averageHslSaturation = (adjustments: EditingAdjustments) => {
+  const channels = Object.values(adjustments.hsl);
+  const total = channels.reduce((sum, channel) => sum + channel.saturation, 0);
+  return total / Math.max(1, channels.length);
+};
+
+export const createFilmProfileFromAdjustments = (
+  adjustments: EditingAdjustments,
+  options?: {
+    id?: string;
+    name?: string;
+  }
+): FilmProfile => {
+  const warmFactor = adjustments.temperature / 100;
+  const tintFactor = adjustments.tint / 100;
+  const hslAverage = averageHslSaturation(adjustments) / 100;
+  const redSat = adjustments.hsl.red.saturation / 100;
+  const blueSat = adjustments.hsl.blue.saturation / 100;
+
+  const defectsEnergy = clamp(
+    Math.max(0, adjustments.texture) * 0.42 +
+      Math.max(0, adjustments.clarity) * 0.3 +
+      Math.max(0, adjustments.dehaze) * 0.28,
+    0,
+    100
+  );
+
+  const profile: FilmProfile = {
+    id: options?.id ?? "runtime-adjustments-profile",
+    version: FILM_PROFILE_VERSION,
+    name: options?.name ?? "Runtime Film Profile",
+    modules: [
+      {
+        id: "colorScience",
+        enabled: true,
+        amount: 100,
+        seedMode: "perAsset",
+        params: {
+          lutStrength: clamp(
+            0.32 + adjustments.saturation / 280 + adjustments.vibrance / 260,
+            0,
+            1
+          ),
+          rgbMix: [
+            clamp(1 + warmFactor * 0.1 + redSat * 0.08 + hslAverage * 0.06, 0.7, 1.35),
+            clamp(1 - Math.abs(tintFactor) * 0.06 + hslAverage * 0.04, 0.7, 1.35),
+            clamp(1 - warmFactor * 0.1 + blueSat * 0.08 + hslAverage * 0.06, 0.7, 1.35),
+          ],
+          temperatureShift: adjustments.temperature,
+          tintShift: adjustments.tint,
+        },
+      },
+      {
+        id: "tone",
+        enabled: true,
+        amount: 100,
+        params: {
+          exposure: adjustments.exposure,
+          contrast: adjustments.contrast,
+          highlights: adjustments.highlights,
+          shadows: adjustments.shadows,
+          whites: adjustments.whites,
+          blacks: adjustments.blacks,
+          curveHighlights: adjustments.curveHighlights,
+          curveLights: adjustments.curveLights,
+          curveDarks: adjustments.curveDarks,
+          curveShadows: adjustments.curveShadows,
+        },
+      },
+      {
+        id: "scan",
+        enabled: true,
+        amount: 100,
+        seedMode: "perAsset",
+        params: {
+          halationThreshold: clamp(0.9 - adjustments.highlights / 500, 0.65, 0.98),
+          halationAmount: clamp(
+            Math.max(0, adjustments.highlights) / 260 + Math.max(0, adjustments.whites) / 380,
+            0,
+            1
+          ),
+          bloomThreshold: clamp(0.85 - adjustments.whites / 520, 0.55, 0.98),
+          bloomAmount: clamp(
+            Math.max(0, adjustments.whites) / 260 + Math.max(0, adjustments.dehaze) / 600,
+            0,
+            1
+          ),
+          vignetteAmount: clamp(adjustments.vignette / 100, -1, 1),
+          scanWarmth: adjustments.temperature,
+        },
+      },
+      {
+        id: "grain",
+        enabled: adjustments.grain > 0,
+        amount: Math.max(0, adjustments.grain),
+        seedMode: "perAsset",
+        params: {
+          amount: clamp(adjustments.grain / 100, 0, 1),
+          size: clamp(adjustments.grainSize / 100, 0, 1),
+          roughness: clamp(adjustments.grainRoughness / 100, 0, 1),
+          color: clamp(0.05 + adjustments.grainRoughness / 140, 0, 1),
+          shadowBoost: clamp(
+            0.35 + (100 - adjustments.shadows) / 400 + adjustments.grainRoughness / 260,
+            0,
+            1
+          ),
+        },
+      },
+      {
+        id: "defects",
+        enabled: defectsEnergy > 6,
+        amount: defectsEnergy,
+        seedMode: "perRender",
+        params: {
+          leakProbability: clamp(
+            (Math.max(0, adjustments.highlights) + Math.max(0, adjustments.whites)) / 280,
+            0,
+            1
+          ),
+          leakStrength: clamp(
+            Math.max(0, adjustments.vignette) / 220 + Math.max(0, adjustments.temperature) / 400,
+            0,
+            1
+          ),
+          dustAmount: clamp(Math.max(0, adjustments.texture) / 120, 0, 1),
+          scratchAmount: clamp(Math.max(0, adjustments.clarity) / 180, 0, 1),
+        },
+      },
+    ],
+  };
+
+  return normalizeFilmProfile(profile);
 };
 
 export const getFilmModule = <TId extends FilmModuleId>(profile: FilmProfile, moduleId: TId) =>

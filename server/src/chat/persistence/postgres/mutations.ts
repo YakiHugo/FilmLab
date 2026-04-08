@@ -110,6 +110,16 @@ export const deleteTurnQuery = async (input: {
     if (!updatedRow) {
       return null;
     }
+
+    await client.query(
+      `
+        UPDATE generated_images
+        SET deleted_at = COALESCE(deleted_at, NOW())
+        WHERE turn_id = $1
+          AND conversation_id = $2;
+      `,
+      [input.turnId, updatedRow.conversation_id]
+    );
     await input.touchConversation(updatedRow.conversation_id, undefined, client);
     return updatedRow;
   });
@@ -395,6 +405,15 @@ export const completeGenerationSuccessMutation = async (input: {
     );
     await client.query(
       `
+        UPDATE generated_images
+        SET deleted_at = COALESCE(deleted_at, $2::timestamptz)
+        WHERE turn_id = $1
+          AND deleted_at IS NULL;
+      `,
+      [input.params.turnId, input.params.completedAt]
+    );
+    await client.query(
+      `
         DELETE FROM chat_asset_edges
         WHERE run_id = $1;
       `,
@@ -418,6 +437,41 @@ export const completeGenerationSuccessMutation = async (input: {
       `,
       [input.params.runId]
     );
+
+    for (const image of input.params.generatedImages) {
+      await client.query(
+        `
+          INSERT INTO generated_images (
+            id,
+            owner_user_id,
+            conversation_id,
+            turn_id,
+            mime_type,
+            size_bytes,
+            blob_data,
+            visibility,
+            private_token_hash,
+            created_at,
+            deleted_at
+          )
+          VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, NULL
+          );
+        `,
+        [
+          image.id,
+          image.ownerUserId,
+          image.conversationId,
+          image.turnId,
+          image.mimeType,
+          image.sizeBytes,
+          image.blobData,
+          image.visibility,
+          image.privateTokenHash,
+          image.createdAt,
+        ]
+      );
+    }
 
     for (const asset of input.params.assets) {
       await client.query(
@@ -531,7 +585,7 @@ export const completeGenerationSuccessMutation = async (input: {
           result.index,
           result.imageUrl,
           result.imageId,
-          result.assetId,
+          result.threadAssetId,
           result.runtimeProvider,
           result.providerModel,
           result.mimeType ?? null,

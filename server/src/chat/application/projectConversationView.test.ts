@@ -62,7 +62,7 @@ const createSession = (configSnapshot: Record<string, unknown>): PersistedImageS
 });
 
 describe("projectConversationView", () => {
-  it("projects canonical operation and input assets from persisted snapshots", () => {
+  it("restores legacy asset refs when inputAssets is absent from historical snapshots", () => {
     const view = projectConversationView(
       createSession({
         modelId: "qwen-image-2-pro",
@@ -78,8 +78,7 @@ describe("projectConversationView", () => {
         },
         batchSize: 1,
         modelParams: {},
-        operation: "edit",
-        inputAssets: [{ assetId: "asset-source-1", binding: "source" }],
+        assetRefs: [{ assetId: "asset-source-1", role: "edit" }],
       })
     );
 
@@ -89,7 +88,7 @@ describe("projectConversationView", () => {
     ]);
   });
 
-  it("drops legacy-only input fields instead of restoring them", () => {
+  it("surfaces a warning when a historical turn only stored URL-based reference images", () => {
     const view = projectConversationView(
       createSession({
         modelId: "qwen-image-2-pro",
@@ -106,12 +105,11 @@ describe("projectConversationView", () => {
         batchSize: 1,
         modelParams: {},
         referenceImages: [{ url: "https://assets.example.com/ref.png", type: "content" }],
-        assetRefs: [{ assetId: "asset-source-1", role: "edit" }],
       })
     );
 
-    expect(view.turns[0]?.warnings).toEqual([]);
-    expect(view.turns[0]?.request.operation).toBe("generate");
-    expect(view.turns[0]?.request.inputAssets).toEqual([]);
+    expect(view.turns[0]?.warnings).toEqual([
+      "Some legacy input images could not be restored because this historical request was stored without reusable asset handles.",
+    ]);
   });
 });

@@ -2,7 +2,7 @@ import type {
   ParsedImageGenerationRequest,
 } from "../../shared/imageGenerationSchema";
 import type { ParsedImageUpscaleRequest } from "../../shared/imageUpscaleSchema";
-import type { FrontendImageModelId, LogicalImageModelId } from "../../../../shared/imageModelCatalog";
+import type { FrontendImageModelId, ImageDeploymentId, LogicalImageModelId } from "../../../../shared/imageModelCatalog";
 import type { ResolvedRouteTarget, RuntimeProviderId } from "../../gateway/router/types";
 import type { ImageUpscaleScale } from "../../../../shared/imageGeneration";
 import type { ResolvedProviderInputAsset } from "../../assets/types";
@@ -17,7 +17,7 @@ export interface ProviderGeneratedImage {
 export interface RuntimeGenerationResult {
   modelId: FrontendImageModelId;
   logicalModel: LogicalImageModelId;
-  deploymentId: string;
+  deploymentId: ImageDeploymentId;
   runtimeProvider: RuntimeProviderId;
   providerModel: string;
   providerRequestId?: string;

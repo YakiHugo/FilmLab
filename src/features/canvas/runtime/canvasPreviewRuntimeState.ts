@@ -2,6 +2,8 @@ import {
   createCanvasImageRenderContext,
   type BoardPreviewPriority,
 } from "@/features/canvas/boardImageRendering";
+import { resolveReferencedTextureAssetIds } from "@/features/editor/renderDependencies";
+import { ensureAssetLayers } from "@/lib/editorLayers";
 import { selectionIdsEqual } from "@/features/canvas/selectionModel";
 import type { CanvasImageRenderStateV1 } from "@/render/image";
 import type { Asset, CanvasImageElement, CanvasWorkbench } from "@/types";
@@ -38,6 +40,7 @@ export interface CanvasRuntimeState {
 
 export interface ResolvedPreviewTaskInput {
   asset: Asset;
+  assetById: Map<string, Asset>;
   cacheKey: string;
   dependencyAssetIds: string[];
   draftRenderState: CanvasImageRenderStateV1 | undefined;
@@ -127,6 +130,10 @@ export const resolveCanvasRuntimeAssetRenderFingerprint = (
       asset.contentHash ?? "",
       String(asset.size),
       asset.createdAt,
+      asset.filmProfileId ?? "",
+      serializeRuntimeAssetRenderInput(asset.filmProfile),
+      serializeRuntimeAssetRenderInput(asset.adjustments),
+      serializeRuntimeAssetRenderInput(asset.layers),
       serializeRuntimeAssetRenderInput(asset.metadata),
     ].join("|")
   );
@@ -142,7 +149,11 @@ export const createAssetByIdMap = (assets: Asset[]) =>
   new Map(assets.map((asset) => [asset.id, asset]));
 
 export const resolveCanvasPreviewDependencyAssetIds = (asset: Asset) => {
-  return [asset.id];
+  const dependencyAssetIds = new Set<string>([asset.id]);
+  for (const textureAssetId of resolveReferencedTextureAssetIds(ensureAssetLayers(asset))) {
+    dependencyAssetIds.add(textureAssetId);
+  }
+  return Array.from(dependencyAssetIds);
 };
 
 export const createCanvasRuntimeAssetSnapshotById = (assets: Asset[]) => {
@@ -266,6 +277,7 @@ export const resolvePreviewTaskInput = ({
   const draftRenderState = draftRenderStateByElementId[elementId];
   const renderContext = createCanvasImageRenderContext({
     asset,
+    assetById: input.assetById,
     draftRenderState,
     element,
     priority,
@@ -274,6 +286,7 @@ export const resolvePreviewTaskInput = ({
 
   return {
     asset,
+    assetById: input.assetById,
     cacheKey: renderContext.cacheKey,
     dependencyAssetIds: resolveCanvasPreviewDependencyAssetIds(asset),
     draftRenderState,

@@ -1,3 +1,4 @@
+import type { EditingAdjustments } from "./index";
 import type { CanvasImageRenderStateV1 } from "@/render/image/types";
 
 export type CanvasNodeId = string;
@@ -61,6 +62,8 @@ export interface CanvasPersistedGroupNode extends CanvasPersistedNodeBase {
 export interface CanvasPersistedImageElement extends CanvasPersistedNodeBase {
   type: "image";
   assetId: string;
+  adjustments?: EditingAdjustments;
+  filmProfileId?: string;
   renderState?: CanvasImageRenderStateV1;
 }
 

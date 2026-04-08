@@ -4,10 +4,10 @@ import type { ImageLabObservabilityView } from "../../../shared/imageLabViews";
 import {
   ImageChatFeed,
   PromptObservabilityPanel,
+  shouldAutoLoadPromptObservability,
   TurnPromptArtifactsPanel,
 } from "./ImageChatFeed";
 import type { ImageGenerationTurn } from "./hooks/useImageGeneration";
-import { shouldAutoLoadPromptObservability } from "./imageChatFeedUtils";
 
 const buildTurn = (overrides?: Partial<ImageGenerationTurn>): ImageGenerationTurn => ({
   id: "turn-1",
@@ -28,8 +28,8 @@ const buildTurn = (overrides?: Partial<ImageGenerationTurn>): ImageGenerationTur
       continuityTargets: [],
       editOps: [],
     },
-    operation: "generate",
-    inputAssets: [],
+    referenceImages: [],
+    assetRefs: [],
     seed: null,
     guidanceScale: null,
     steps: null,
@@ -272,7 +272,8 @@ describe("ImageChatFeed", () => {
               editOps: [],
               sourceAssets: [],
               referenceAssets: [],
-              inputAssets: [],
+              assetRefs: [],
+              referenceImages: [],
               output: {
                 aspectRatio: "1:1",
                 width: 1024,

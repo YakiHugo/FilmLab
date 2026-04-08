@@ -1,7 +1,7 @@
 {
-  "baseline": "2026-04-02",
+  "baseline": "scene-global-render-follow-up",
   "current": "pending",
-  "nextTaskId": "define-scene-global-slice",
+  "nextTaskId": "media-native-render-pipeline",
   "tasks": [
     {
       "id": "define-scene-global-slice",

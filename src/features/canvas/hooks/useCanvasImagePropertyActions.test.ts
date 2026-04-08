@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultCanvasImageRenderState } from "@/render/image";
+import { createDefaultAdjustments } from "@/lib/adjustments";
 import { createCanvasTestDocument, createImageNode } from "../document/testUtils";
 import { commitCanvasImagePropertyIntent } from "./useCanvasImagePropertyActions";
 
@@ -48,6 +49,16 @@ describe("useCanvasImagePropertyActions", () => {
 
     await commitCanvasImagePropertyIntent({
       executeCommand,
+      imageAsset: {
+        id: "asset-1",
+        name: "asset-1.jpg",
+        type: "image/jpeg",
+        size: 2048,
+        createdAt: "2026-03-28T00:00:00.000Z",
+        objectUrl: "blob:asset-1",
+        adjustments: createDefaultAdjustments(),
+        layers: [],
+      },
       imageElement,
       intent: { type: "set-image-film-profile", value: "film-portrait-soft-v1" },
     });
@@ -70,6 +81,7 @@ describe("useCanvasImagePropertyActions", () => {
 
     await commitCanvasImagePropertyIntent({
       executeCommand,
+      imageAsset: null,
       imageElement: null,
       intent: { type: "set-image-film-profile", value: "film-portrait-soft-v1" },
     });
@@ -79,6 +91,8 @@ describe("useCanvasImagePropertyActions", () => {
 
   it("rejects film-profile updates for image selections missing renderState", async () => {
     const executeCommand = vi.fn().mockResolvedValue(null);
+    const adjustments = createDefaultAdjustments();
+    adjustments.exposure = 14;
     const imageElement = {
       id: "image-legacy",
       type: "image" as const,
@@ -88,6 +102,16 @@ describe("useCanvasImagePropertyActions", () => {
 
     await commitCanvasImagePropertyIntent({
       executeCommand,
+      imageAsset: {
+        id: "asset-1",
+        name: "asset-1.jpg",
+        type: "image/jpeg",
+        size: 2048,
+        createdAt: "2026-03-28T00:00:00.000Z",
+        objectUrl: "blob:asset-1",
+        adjustments,
+        layers: [],
+      },
       imageElement,
       intent: { type: "set-image-film-profile", value: "film-portrait-soft-v1" },
     });

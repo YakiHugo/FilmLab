@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { KeyRound } from "lucide-react";
 import type { ImageRuntimeProviderEntry } from "@/lib/ai/imageModelCatalog";
 
@@ -6,10 +7,20 @@ interface ProviderApiKeyPanelProps {
   currentProviderId: string | null;
 }
 
+const LEGACY_IMAGE_PROVIDER_STORAGE_KEY = "filmlab-image-provider-keys";
+
 export function ProviderApiKeyPanel({
   providers,
   currentProviderId,
 }: ProviderApiKeyPanelProps) {
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.removeItem(LEGACY_IMAGE_PROVIDER_STORAGE_KEY);
+  }, []);
+
   return (
     <section className="rounded-xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-3">
       <div className="flex items-center gap-2">
@@ -27,8 +38,8 @@ export function ProviderApiKeyPanel({
       </div>
 
       <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/8 px-3 py-2 text-[11px] text-amber-100/90">
-        Local BYOK overrides are no longer used. Any older browser-stored keys are ignored by the
-        runtime.
+        Local BYOK overrides are no longer used. Any previously stored browser keys have been
+        cleared from this session.
       </div>
 
       <div className="mt-3 space-y-2">

@@ -1,7 +1,7 @@
 import type {
   ImageAspectRatio,
+  ImageGenerationAssetRefRole,
   ImageModelFamilyId,
-  ImagePromptAssetRole,
   ImagePromptCompilerOperationId,
   ImagePromptContinuityTarget,
   ImageProviderId,
@@ -35,6 +35,9 @@ export type LogicalImageModelId = (typeof LOGICAL_IMAGE_MODEL_IDS)[number];
 
 export const IMAGE_CAPABILITY_IDS = ["image.generate", "image.upscale"] as const;
 export type ImageCapabilityId = (typeof IMAGE_CAPABILITY_IDS)[number];
+
+export type ImageDeploymentId = string;
+export type ProviderModelId = string;
 
 export interface ImageReferenceImageConstraint {
   enabled: boolean;
@@ -73,7 +76,7 @@ export interface ImageModelPromptCompilerCapabilities {
   negativePromptStrategy: "native" | "merge_into_main";
   sourceImageExecution: "native" | "reference_guided" | "unsupported";
   referenceRoleHandling: Record<
-    ImagePromptAssetRole,
+    ImageGenerationAssetRefRole,
     "native" | "compiled_to_reference" | "compiled_to_text"
   >;
   continuityStrength: Record<
@@ -115,8 +118,8 @@ export interface FrontendImageModelCatalogEntry {
   promptCompiler: ImageModelPromptCompilerCapabilities;
   supportsUpscale: boolean;
   defaultProvider: ImageProviderId;
-  deploymentId: string;
-  providerModel: string;
+  deploymentId: ImageDeploymentId;
+  providerModel: ProviderModelId;
   configured: boolean;
   health: ImageModelHealthSnapshot;
 }

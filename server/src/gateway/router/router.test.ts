@@ -26,6 +26,7 @@ const createRequest = (
     aspectRatio: "1:1",
     batchSize: 1,
     style: "none",
+    referenceImages: [],
     modelParams: {
       promptExtend: true,
     },

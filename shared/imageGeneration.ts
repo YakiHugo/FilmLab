@@ -1,11 +1,10 @@
-import type {
-  FrontendImageModelId,
-  ImageModelPromptCompilerCapabilities,
-  LogicalImageModelId,
-} from "./imageModelCatalog";
+import type { ImageModelPromptCompilerCapabilities } from "./imageModelCatalog";
 
 export const IMAGE_PROVIDER_IDS = ["ark", "dashscope", "kling"] as const;
 export type ImageProviderId = (typeof IMAGE_PROVIDER_IDS)[number];
+
+export const IMAGE_RUNTIME_PROVIDER_IDS = IMAGE_PROVIDER_IDS;
+export type RuntimeImageProviderId = ImageProviderId;
 
 export const IMAGE_MODEL_FAMILY_IDS = ["seedream", "qwen", "zimage", "kling"] as const;
 export type ImageModelFamilyId = (typeof IMAGE_MODEL_FAMILY_IDS)[number];
@@ -14,6 +13,7 @@ export const IMAGE_PROVIDER_REF_IDS = ["seedream", "qwen", "zimage", "kling", "a
 export type ImageProviderRefId = (typeof IMAGE_PROVIDER_REF_IDS)[number];
 
 export const IMAGE_REQUEST_PROVIDER_IDS = IMAGE_PROVIDER_REF_IDS;
+export type ImageRequestProviderId = ImageProviderRefId;
 
 export const IMAGE_ASPECT_RATIOS = [
   "1:1",
@@ -56,6 +56,9 @@ export type ImageInputAssetBindingKind = (typeof IMAGE_INPUT_ASSET_BINDINGS)[num
 
 export const IMAGE_PROMPT_ASSET_ROLES = ["reference", "edit", "variation"] as const;
 export type ImagePromptAssetRole = (typeof IMAGE_PROMPT_ASSET_ROLES)[number];
+
+// Legacy alias retained for model capability contracts while request/input state migrates.
+export type ImageGenerationAssetRefRole = ImagePromptAssetRole;
 
 export const IMAGE_PROMPT_COMPILER_OPERATION_IDS = [
   "image.generate",
@@ -108,10 +111,58 @@ export interface ImageInputAssetBinding {
   weight?: number;
 }
 
+export interface LegacyReferenceImage {
+  id?: string;
+  url?: string;
+  fileName?: string;
+  weight?: number;
+  type?: ReferenceImageType;
+  sourceAssetId?: string;
+}
+
+export interface LegacyImageGenerationAssetRef {
+  assetId: string;
+  role: ImageGenerationAssetRefRole;
+  referenceType?: ReferenceImageType;
+  weight?: number;
+}
+
+export const LEGACY_INPUT_IMAGES_UNAVAILABLE_WARNING =
+  "Some legacy input images could not be restored because this historical request was stored without reusable asset handles.";
+
 export interface ImageInputAssetValidationIssue {
   path: Array<string | number>;
   message: string;
 }
+
+const normalizeGuideMetadataByAssetId = (
+  referenceImages: LegacyReferenceImage[] | undefined
+) => {
+  const byAssetId = new Map<
+    string,
+    { guideType?: ReferenceImageType; weight?: number }
+  >();
+  for (const entry of referenceImages ?? []) {
+    if (!entry.sourceAssetId) {
+      continue;
+    }
+    byAssetId.set(entry.sourceAssetId, {
+      ...(entry.type ? { guideType: entry.type } : {}),
+      ...(typeof entry.weight === "number" ? { weight: entry.weight } : {}),
+    });
+  }
+  return byAssetId;
+};
+
+export const hasLegacyUnrestorableInputImages = (
+  referenceImages: LegacyReferenceImage[] | null | undefined
+) =>
+  (referenceImages ?? []).some(
+    (entry) =>
+      typeof entry.url === "string" &&
+      entry.url.trim().length > 0 &&
+      typeof entry.sourceAssetId !== "string"
+  );
 
 export const dedupeImageInputAssets = (
   inputAssets: ImageInputAssetBinding[] | undefined
@@ -148,6 +199,83 @@ export const dedupeImageInputAssets = (
   }
 
   return Array.from(dedupedByAssetId.values());
+};
+
+export const resolveLegacyImageGenerationInputs = (input: {
+  operation?: ImageGenerationOperation | null;
+  inputAssets?: ImageInputAssetBinding[] | null;
+  referenceImages?: LegacyReferenceImage[] | null;
+  assetRefs?: LegacyImageGenerationAssetRef[] | null;
+}): {
+  operation: ImageGenerationOperation;
+  inputAssets: ImageInputAssetBinding[];
+} => {
+  const guideMetadataByAssetId = normalizeGuideMetadataByAssetId(input.referenceImages ?? undefined);
+  const mappedLegacyAssetRefs = (input.assetRefs ?? []).map<ImageInputAssetBinding>((assetRef) => {
+    if (assetRef.role === "reference") {
+      const guideMetadata = guideMetadataByAssetId.get(assetRef.assetId);
+      return {
+        assetId: assetRef.assetId,
+        binding: "guide",
+        guideType:
+          assetRef.referenceType ?? guideMetadata?.guideType ?? "content",
+        ...(typeof assetRef.weight === "number"
+          ? { weight: assetRef.weight }
+          : typeof guideMetadata?.weight === "number"
+            ? { weight: guideMetadata.weight }
+            : {}),
+      };
+    }
+
+    return {
+      assetId: assetRef.assetId,
+      binding: "source",
+    };
+  });
+
+  for (const referenceImage of input.referenceImages ?? []) {
+    if (!referenceImage.sourceAssetId) {
+      continue;
+    }
+
+    mappedLegacyAssetRefs.push({
+      assetId: referenceImage.sourceAssetId,
+      binding: "guide",
+      guideType: referenceImage.type ?? "content",
+      ...(typeof referenceImage.weight === "number"
+        ? { weight: referenceImage.weight }
+        : {}),
+    });
+  }
+
+  const hasEditSource = (input.assetRefs ?? []).some((assetRef) => assetRef.role === "edit");
+  const hasVariationSource = (input.assetRefs ?? []).some(
+    (assetRef) => assetRef.role === "variation"
+  );
+  const inferredOperation = hasEditSource
+    ? "edit"
+    : hasVariationSource
+      ? "variation"
+      : "generate";
+  const explicitInputAssets = Array.isArray(input.inputAssets)
+    ? dedupeImageInputAssets(input.inputAssets)
+    : [];
+  const normalizedInputAssets = dedupeImageInputAssets([
+    ...explicitInputAssets,
+    ...mappedLegacyAssetRefs,
+  ]);
+
+  if (input.operation && (input.operation !== "generate" || inferredOperation === "generate")) {
+    return {
+      operation: input.operation,
+      inputAssets: normalizedInputAssets,
+    };
+  }
+
+  return {
+    operation: inferredOperation,
+    inputAssets: normalizedInputAssets,
+  };
 };
 
 export const getImageInputSourceAssets = (
@@ -290,6 +418,40 @@ export const validateImageInputAssets = (input: {
   return issues;
 };
 
+export interface RequestedImageGenerationTarget {
+  modelId?: import("./imageModelCatalog").FrontendImageModelId;
+  logicalModel?: import("./imageModelCatalog").LogicalImageModelId;
+  deploymentId?: import("./imageModelCatalog").ImageDeploymentId;
+  provider?: ImageProviderId;
+}
+
+export interface ImageGenerationRequest {
+  prompt: string;
+  promptIntent?: ImagePromptIntentInput;
+  negativePrompt?: string;
+  conversationId?: string;
+  threadId?: string;
+  retryOfTurnId?: string;
+  retryMode?: ImageGenerationRetryMode;
+  clientTurnId?: string;
+  clientJobId?: string;
+  modelId: import("./imageModelCatalog").FrontendImageModelId;
+  aspectRatio: ImageAspectRatio;
+  width?: number;
+  height?: number;
+  style?: ImageStyleId;
+  stylePreset?: string;
+  operation?: ImageGenerationOperation;
+  inputAssets?: ImageInputAssetBinding[];
+  seed?: number;
+  guidanceScale?: number;
+  steps?: number;
+  sampler?: string;
+  batchSize?: number;
+  modelParams?: Record<string, string | number | boolean | null>;
+  requestedTarget?: RequestedImageGenerationTarget;
+}
+
 export interface GeneratedImage {
   resultId?: string;
   imageUrl: string;
@@ -301,6 +463,13 @@ export interface GeneratedImage {
   revisedPrompt?: string | null;
 }
 
+export interface ImageUpscaleRequest {
+  provider: ImageProviderRefId;
+  model: string;
+  imageId: string;
+  scale?: ImageUpscaleScale;
+}
+
 export interface ImageGenerationResponse {
   conversationId: string;
   threadId: string;
@@ -308,9 +477,9 @@ export interface ImageGenerationResponse {
   jobId: string;
   runId: string;
   traceId: string;
-  modelId: FrontendImageModelId;
-  logicalModel: LogicalImageModelId;
-  deploymentId: string;
+  modelId: import("./imageModelCatalog").FrontendImageModelId;
+  logicalModel: import("./imageModelCatalog").LogicalImageModelId;
+  deploymentId: import("./imageModelCatalog").ImageDeploymentId;
   runtimeProvider: ImageProviderId;
   providerModel: string;
   createdAt: string;

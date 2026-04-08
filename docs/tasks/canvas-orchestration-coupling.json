@@ -1,0 +1,30 @@
+{
+  "baseline": "HEAD",
+  "currentTaskId": null,
+  "tasks": [
+    {
+      "id": "1",
+      "title": "record task artifacts and split canvasWorkbenchService collaborators",
+      "status": "done",
+      "passes": true
+    },
+    {
+      "id": "2",
+      "title": "replace useCanvasPageModel with direct page composition",
+      "status": "done",
+      "passes": true
+    },
+    {
+      "id": "3",
+      "title": "shrink viewport orchestration and bind text persistence through one port",
+      "status": "done",
+      "passes": true
+    },
+    {
+      "id": "4",
+      "title": "run final validation and capture residual risks",
+      "status": "done",
+      "passes": true
+    }
+  ]
+}

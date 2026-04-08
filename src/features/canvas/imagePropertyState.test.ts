@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createDefaultAdjustments } from "@/lib/adjustments";
 import { createDefaultCanvasImageRenderState } from "@/render/image";
 import { createCanvasTestDocument, createImageNode, createShapeNode } from "./document/testUtils";
 import { planCanvasImagePropertyCommand } from "./imagePropertyState";
@@ -53,12 +54,31 @@ describe("imagePropertyState", () => {
   });
 
   it("rejects film-profile mutations for image nodes missing renderState", () => {
+    const adjustments = createDefaultAdjustments();
+    adjustments.exposure = 32;
     const command = planCanvasImagePropertyCommand({
       intent: { type: "set-image-film-profile", value: "profile-1" },
       node: {
         id: "image-legacy",
         type: "image",
         renderState: undefined,
+        asset: {
+          id: "asset-1",
+          name: "asset-1.jpg",
+          type: "image/jpeg",
+          size: 1024,
+          createdAt: "2026-03-28T00:00:00.000Z",
+          objectUrl: "blob:asset-1",
+          adjustments,
+          filmOverrides: {
+            scan: {
+              params: {
+                halationAmount: 0.21,
+              },
+            },
+          },
+          layers: [],
+        },
       },
     });
 
@@ -72,6 +92,7 @@ describe("imagePropertyState", () => {
         id: "image-legacy",
         type: "image",
         renderState: undefined,
+        asset: null,
       },
     });
 

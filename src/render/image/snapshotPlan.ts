@@ -1,34 +1,50 @@
-import type { CarrierTransformNode, ImageEffectNode } from "./types";
+import type { ImageAsciiEffectNode, ImageEffectNode } from "./types";
 
 export interface ImageRenderSnapshotPlan {
-  carrierTransforms: CarrierTransformNode[];
   developEffects: ImageEffectNode[];
   styleEffects: ImageEffectNode[];
   finalizeEffects: ImageEffectNode[];
   requiresDevelopAnalysisSnapshot: boolean;
   requiresStyleAnalysisSnapshot: boolean;
+  invalidDevelopAnalysisEffectIds: string[];
 }
 
+const effectUsesAsciiAnalysis = (effect: ImageEffectNode): effect is ImageAsciiEffectNode =>
+  effect.type === "ascii";
+
 export const createImageRenderSnapshotPlan = (
-  options: {
-    carrierTransforms: readonly CarrierTransformNode[];
-    effects: readonly ImageEffectNode[];
-  }
+  effects: readonly ImageEffectNode[]
 ): ImageRenderSnapshotPlan => {
-  const enabledCarrierTransforms = options.carrierTransforms.filter((transform) => transform.enabled);
-  const enabledEffects = options.effects.filter((effect) => effect.enabled);
+  const enabledEffects = effects.filter((effect) => effect.enabled);
   return {
-    carrierTransforms: enabledCarrierTransforms,
     developEffects: enabledEffects.filter((effect) => effect.placement === "develop"),
     styleEffects: enabledEffects.filter((effect) => effect.placement === "style"),
     finalizeEffects: enabledEffects.filter((effect) => effect.placement === "finalize"),
-    requiresDevelopAnalysisSnapshot: enabledCarrierTransforms.some(
-      (transform) => transform.analysisSource === "develop"
+    requiresDevelopAnalysisSnapshot: enabledEffects.some(
+      (effect) => effectUsesAsciiAnalysis(effect) && effect.analysisSource === "develop"
     ),
-    requiresStyleAnalysisSnapshot: enabledCarrierTransforms.some(
-      (transform) => transform.analysisSource === "style"
+    requiresStyleAnalysisSnapshot: enabledEffects.some(
+      (effect) => effectUsesAsciiAnalysis(effect) && effect.analysisSource === "style"
     ),
+    invalidDevelopAnalysisEffectIds: enabledEffects
+      .filter(
+        (effect) =>
+          effectUsesAsciiAnalysis(effect) &&
+          effect.placement === "develop" &&
+          effect.analysisSource === "style"
+      )
+      .map((effect) => effect.id),
   };
 };
 
-export const assertSupportedImageRenderSnapshotPlan = (_plan: ImageRenderSnapshotPlan) => {};
+export const assertSupportedImageRenderSnapshotPlan = (plan: ImageRenderSnapshotPlan) => {
+  if (plan.invalidDevelopAnalysisEffectIds.length === 0) {
+    return;
+  }
+
+  throw new Error(
+    `develop-stage effects cannot analyze style snapshots before film has run: ${plan.invalidDevelopAnalysisEffectIds.join(
+      ", "
+    )}`
+  );
+};

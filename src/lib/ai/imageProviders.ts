@@ -13,6 +13,8 @@ export {
   getImageProviderName,
   isImageModelFamilyId,
   isImageProviderRefId,
+  isImageRequestProviderId,
+  isImageRuntimeProviderId,
   isImageProviderId,
   normalizeImageProviderRef,
   normalizeImageRequestProvider,
@@ -28,4 +30,6 @@ export type {
   ImageModelFamilyId,
   ImageProviderId,
   ImageProviderRefId,
+  ImageRequestProviderId,
+  RuntimeImageProviderId,
 } from "../../../shared/imageGeneration";

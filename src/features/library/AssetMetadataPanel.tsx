@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Trash2, WandSparkles } from "lucide-react";
+import { presets } from "@/data/presets";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -9,6 +10,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useAssetStore } from "@/stores/assetStore";
 import type { Asset } from "@/types";
@@ -52,9 +60,14 @@ const syncStatusLabel = (
 
 export function AssetMetadataPanel({ asset, selectedCount, className }: AssetMetadataPanelProps) {
   const retryAssetSyncForAsset = useAssetStore((state) => state.retryAssetSyncForAsset);
-  const { selectedAssetIds, removeSelection } = useBatchOperations();
+  const { selectedAssetIds, removeSelection, applyPreset } = useBatchOperations();
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [presetId, setPresetId] = useState<string>("none");
+  const presetOptions = useMemo(
+    () => presets.map((preset) => ({ id: preset.id, name: preset.name })),
+    []
+  );
 
   const hasSelection = selectedAssetIds.length > 0;
   const isSingleSelection = selectedCount === 1 && Boolean(asset);
@@ -142,6 +155,32 @@ export function AssetMetadataPanel({ asset, selectedCount, className }: AssetMet
       <div className="mt-3 border border-white/10 bg-black/25 p-3">
         <CollapsibleSection title="Batch Actions" count={selectedAssetIds.length}>
           <div className="space-y-2">
+            <div className="grid grid-cols-[1fr_auto] gap-2">
+              <Select value={presetId} onValueChange={setPresetId} disabled={!hasSelection}>
+                <SelectTrigger className="h-8 rounded-sm border-white/10 bg-black/45 text-xs text-zinc-100 focus:border-yellow-500/60 focus:ring-0 focus:ring-offset-0">
+                  <SelectValue placeholder="Preset" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Select preset</SelectItem>
+                  {presetOptions.map((preset) => (
+                    <SelectItem key={preset.id} value={preset.id}>
+                      {preset.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className={cn("h-8", controlClass)}
+                disabled={!hasSelection || presetId === "none"}
+                onClick={() => applyPreset(presetId)}
+              >
+                <WandSparkles className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+
             <Button
               type="button"
               size="sm"

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { materializeCanvasWorkbenchListEntry } from "@/features/canvas/store/canvasWorkbenchListEntry";
 import { createEmptyHistoryState } from "@/features/canvas/store/canvasWorkbenchState";
 import { normalizeCanvasWorkbench } from "@/features/canvas/studioPresets";
+import { createDefaultAdjustments } from "@/lib/adjustments";
 import { emit } from "@/lib/storeEvents";
 import { createDefaultCanvasImageRenderState } from "@/render/image";
 import type {
@@ -70,7 +71,7 @@ const createWorkbench = (id = "doc-1", name = "Workbench"): CanvasWorkbench =>
         opacity: 1,
         locked: false,
         visible: true,
-        renderState: createDefaultCanvasImageRenderState(),
+        adjustments: createDefaultAdjustments(),
       },
       {
         id: "text-1",
@@ -162,6 +163,10 @@ const createAsset = (overrides: Partial<Asset> = {}): Asset => ({
   createdAt: overrides.createdAt ?? "2026-03-28T00:00:00.000Z",
   objectUrl: overrides.objectUrl ?? "blob:asset-1",
   thumbnailUrl: overrides.thumbnailUrl ?? "blob:asset-1-thumb",
+  adjustments: overrides.adjustments,
+  filmProfileId: overrides.filmProfileId,
+  filmOverrides: overrides.filmOverrides,
+  filmProfile: overrides.filmProfile,
   metadata: overrides.metadata,
   contentHash: overrides.contentHash,
   ownerRef: overrides.ownerRef,
@@ -243,7 +248,16 @@ describe("canvasStore", () => {
   it("persists image render-state updates even when geometry is unchanged", async () => {
     const workbench = installLoadedWorkbench();
     const imageElement = getImageElement(workbench);
-    const nextRenderState = imageElement.renderState ?? createDefaultCanvasImageRenderState();
+    const nextRenderState =
+      imageElement.renderState ??
+      createDefaultCanvasImageRenderState({
+        adjustments: {
+          ...createDefaultAdjustments(),
+          ...(imageElement.adjustments ?? {}),
+          exposure: 18,
+        },
+        filmProfileId: imageElement.filmProfileId,
+      });
     nextRenderState.develop.tone.exposure = 18;
     saveCanvasWorkbenchRecordMock.mockClear();
 
@@ -262,6 +276,8 @@ describe("canvasStore", () => {
       visible: imageElement.visible,
       assetId: imageElement.assetId,
       renderState: nextRenderState,
+      adjustments: imageElement.adjustments,
+      filmProfileId: imageElement.filmProfileId,
     };
 
     await useCanvasStore.getState().upsertElementInWorkbench(workbench.id, nextElement);
@@ -313,6 +329,10 @@ describe("canvasStore", () => {
         createAsset({
           id: "asset-2",
           objectUrl: "blob:asset-2",
+          adjustments: {
+            ...createDefaultAdjustments(),
+            exposure: 24,
+          },
         }),
       ],
       currentUser,
@@ -357,11 +377,13 @@ describe("canvasStore", () => {
       renderState: {
         develop: {
           tone: {
-            exposure: 0,
+            exposure: 24,
           },
         },
       },
     });
+    expect(nextImageElement?.adjustments).toBeUndefined();
+    expect(nextImageElement?.filmProfileId).toBeUndefined();
   });
 
   it("previews interaction updates in draft state and commits them into the loaded workbench", async () => {

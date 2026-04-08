@@ -10,8 +10,8 @@ uniform float u_feather;
 uniform bool u_invert;
 
 void main() {
-  vec2 start = u_start;
-  vec2 end = u_end;
+  vec2 start = clamp(u_start, vec2(0.0), vec2(1.0));
+  vec2 end = clamp(u_end, vec2(0.0), vec2(1.0));
   vec2 axis = end - start;
   float axisLenSq = max(dot(axis, axis), 1e-6);
   float t = dot(vTextureCoord - start, axis) / axisLenSq;

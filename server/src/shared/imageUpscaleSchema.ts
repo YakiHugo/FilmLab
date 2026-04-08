@@ -2,9 +2,9 @@ import { z } from "zod";
 import {
   IMAGE_REQUEST_PROVIDER_IDS,
   IMAGE_UPSCALE_SCALES,
-  type ImageProviderRefId,
   type ImageUpscaleScale,
 } from "../../../shared/imageGeneration";
+import type { ImageRequestProviderId } from "../../../shared/imageGeneration";
 
 export const imageUpscaleScaleSchema = z.enum(IMAGE_UPSCALE_SCALES);
 
@@ -16,7 +16,7 @@ export const imageUpscaleRequestSchema = z
     scale: imageUpscaleScaleSchema.default("2x"),
   });
 
-export type ParsedImageUpscaleRequest = z.output<typeof imageUpscaleRequestSchema>;
+export type ParsedImageUpscaleRequest = z.infer<typeof imageUpscaleRequestSchema>;
 export type ImageUpscaleRequest = z.input<typeof imageUpscaleRequestSchema>;
 
-export type { ImageProviderRefId, ImageUpscaleScale };
+export type { ImageRequestProviderId, ImageUpscaleScale };

@@ -16,7 +16,10 @@ import {
 } from "./canvasViewportConstants";
 import { CanvasTextToolbar } from "./CanvasTextToolbar";
 import { useCanvasViewportOverlay } from "./hooks/useCanvasViewportOverlay";
-import { CANVAS_TEXT_EDITOR_PLACEHOLDER, CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER } from "./textStyle";
+import {
+  CANVAS_TEXT_EDITOR_PLACEHOLDER,
+  CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER,
+} from "./textStyle";
 import type { CanvasTextRuntimeViewModel } from "./textRuntimeViewModel";
 import type { CanvasInteractionNotice } from "./viewportOverlay";
 
@@ -25,11 +28,13 @@ interface CanvasViewportOverlayHostProps {
     activeWorkbenchUpdatedAt?: string;
     suspendDocumentOverlaySync?: boolean;
     previewDimensionsStore: {
-      getSnapshot: () => {
-        elementId: string;
-        width: number;
-        height: number;
-      } | null;
+      getSnapshot: () =>
+        | {
+            elementId: string;
+            width: number;
+            height: number;
+          }
+        | null;
       subscribe: (listener: () => void) => () => void;
     };
     selectedElementCount: number;
@@ -145,19 +150,15 @@ export const CanvasViewportOverlayHost = memo(function CanvasViewportOverlayHost
   }, [editingTextId, handleCommitTextEdit]);
 
   const showDimensionsBadge = Boolean(
-    selectionOverlay && overlay.singleSelectedNonTextElement && overlay.selectedElementCount === 1
+    selectionOverlay &&
+      overlay.singleSelectedNonTextElement &&
+      overlay.selectedElementCount === 1
   );
 
   return (
     <>
       {overlay.interactionNotice ? (
-        <div
-          className={
-            overlay.interactionNotice.type === "error"
-              ? "pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2 rounded-xl border border-red-500/40 bg-red-950/85 px-3 py-2 text-xs font-medium text-red-100 shadow-[0_16px_40px_-20px_rgba(0,0,0,0.95)] backdrop-blur-xl"
-              : "pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2 rounded-xl border border-white/10 bg-black/80 px-3 py-2 text-xs font-medium text-zinc-100 shadow-[0_16px_40px_-20px_rgba(0,0,0,0.95)] backdrop-blur-xl"
-          }
-        >
+        <div className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2 rounded-xl border border-red-500/40 bg-red-950/85 px-3 py-2 text-xs font-medium text-red-100 shadow-[0_16px_40px_-20px_rgba(0,0,0,0.95)] backdrop-blur-xl">
           {overlay.interactionNotice.message}
         </div>
       ) : null}

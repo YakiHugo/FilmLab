@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { useCanvasWorkbenchTransitionGuard } from "../canvasWorkbenchTransitionGuardHooks";
+import { useCanvasWorkbenchTransitionGuard } from "../canvasWorkbenchTransitionGuard";
 import type {
   CanvasWorkbenchEditablePatch,
   CreateWorkbenchOptions,

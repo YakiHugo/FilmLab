@@ -4,10 +4,10 @@ export {
   imageAspectRatioSchema,
   imageGenerationRequestSchema,
   imageStyleSchema,
+  referenceImageSchema,
   referenceImageTypeSchema,
   type ImageGenerationRequest,
   type ParsedImageGenerationRequest,
-  type RequestedImageGenerationTarget,
 } from "../../../shared/imageGenerationSchema";
 
 export type { ImageProviderId as ImageProvider } from "../../../shared/imageGeneration";

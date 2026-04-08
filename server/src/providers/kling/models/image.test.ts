@@ -94,6 +94,7 @@ const createInput = (timeoutMs = 3000): PlatformProviderGenerateInput =>
       modelId: "kling-v3",
       aspectRatio: "1:1",
       style: "none",
+      referenceImages: [],
       batchSize: 1,
       modelParams: {},
     },

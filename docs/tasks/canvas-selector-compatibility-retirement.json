@@ -1,0 +1,24 @@
+{
+  "baseline": "dirty",
+  "currentTaskId": null,
+  "tasks": [
+    {
+      "id": "1",
+      "title": "record task artifacts and retire exported active-workbench compatibility naming",
+      "status": "done",
+      "passes": true
+    },
+    {
+      "id": "2",
+      "title": "clear canvas-owned typecheck noise and record residual non-canvas failures",
+      "status": "done",
+      "passes": true
+    },
+    {
+      "id": "3",
+      "title": "run focused validation and update status trackers",
+      "status": "done",
+      "passes": true
+    }
+  ]
+}

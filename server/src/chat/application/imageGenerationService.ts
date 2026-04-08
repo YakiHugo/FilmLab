@@ -42,6 +42,8 @@ import {
   validateImageGenerationRequestAgainstModel,
 } from "../../shared/imageGenerationSchema";
 import {
+  LEGACY_INPUT_IMAGES_UNAVAILABLE_WARNING,
+  hasLegacyUnrestorableInputImages,
   resolveExactRetryNegativePrompt,
   resolveImagePromptCompilerOperation,
 } from "../../../../shared/imageGeneration";
@@ -148,6 +150,53 @@ const resolveRequestedOperation = (
   operation: ParsedImageGenerationRequest["operation"]
 ): ImagePromptCompilerOperationId => resolveImagePromptCompilerOperation(operation);
 
+const toLegacyAssetRefs = (
+  inputAssets: ImageInputAssetBinding[],
+  operation: ParsedImageGenerationRequest["operation"]
+) =>
+  inputAssets.map((inputAsset) => {
+    if (inputAsset.binding === "guide") {
+      return {
+        assetId: inputAsset.assetId,
+        role: "reference" as const,
+        referenceType: inputAsset.guideType ?? "content",
+        weight: inputAsset.weight,
+      };
+    }
+
+    return {
+      assetId: inputAsset.assetId,
+      role: operation === "variation" ? ("variation" as const) : ("edit" as const),
+    };
+  });
+
+const resolveProviderInputAssetsWithCompatibility = async (
+  assetService: AssetService,
+  userId: string,
+  inputAssets: ImageInputAssetBinding[],
+  operation: ParsedImageGenerationRequest["operation"]
+) => {
+  const compatibleAssetService = assetService as AssetService & {
+    resolveProviderAssetRefs?: (
+      userId: string,
+      assetRefs: ReturnType<typeof toLegacyAssetRefs>
+    ) => Promise<Awaited<ReturnType<AssetService["resolveProviderInputAssets"]>>>;
+  };
+
+  if (typeof compatibleAssetService.resolveProviderInputAssets === "function") {
+    return compatibleAssetService.resolveProviderInputAssets(userId, inputAssets);
+  }
+
+  if (typeof compatibleAssetService.resolveProviderAssetRefs === "function") {
+    return compatibleAssetService.resolveProviderAssetRefs(
+      userId,
+      toLegacyAssetRefs(inputAssets, operation)
+    );
+  }
+
+  throw new Error("Asset service cannot resolve provider input assets.");
+};
+
 const resolveDispatchInputAssets = (
   target: ResolvedRouteTarget,
   payload: ParsedImageGenerationRequest
@@ -160,6 +209,13 @@ const resolveDispatchInputAssets = (
 
 const resolveExactRetryInputAssets = (payload: ParsedImageGenerationRequest) =>
   (payload.inputAssets ?? []).map((entry) => ({ ...entry }));
+
+const resolveLegacyInputCompatibilityWarnings = (
+  requestSnapshot: PersistedImageGenerationRequestSnapshot | null | undefined
+) =>
+  hasLegacyUnrestorableInputImages(requestSnapshot?.referenceImages)
+    ? [LEGACY_INPUT_IMAGES_UNAVAILABLE_WARNING]
+    : [];
 
 const toPersistedRequestSnapshot = (
   payload: unknown
@@ -450,6 +506,7 @@ export class ImageGenerationService {
           conversationId: payload.conversationId ?? conversation.id,
         };
         let exactRetrySourceRun: PersistedRunRecord | null = null;
+        let exactRetryRequestSnapshot: PersistedImageGenerationRequestSnapshot | null = null;
 
         if (effectiveRetryMode === "exact" && payload.retryOfTurnId) {
           const snapshot = await repository.getConversationSnapshot(userId, conversation.id);
@@ -470,6 +527,7 @@ export class ImageGenerationService {
             retryOfTurnId: payload.retryOfTurnId,
           });
           exactRetrySourceRun = retryRun;
+          exactRetryRequestSnapshot = retryJob.requestSnapshot;
         }
 
         const frontendModel = getFrontendImageModelById(effectivePayload.modelId);
@@ -517,6 +575,10 @@ export class ImageGenerationService {
         let initialPromptSnapshot: PersistedPromptSnapshot;
         let selectedTarget: ResolvedRouteTarget;
         let requestedTargetSnapshot: PersistedRunTargetSnapshot;
+        const exactRetryCompatibilityWarnings =
+          effectiveRetryMode === "exact"
+            ? resolveLegacyInputCompatibilityWarnings(exactRetryRequestSnapshot)
+            : [];
 
         if (effectiveRetryMode === "exact" && payload.retryOfTurnId) {
           const retryRun = exactRetrySourceRun;
@@ -549,7 +611,7 @@ export class ImageGenerationService {
             compiledPrompt: exactRetryPrompt.compiledPrompt,
             dispatchedPrompt: exactRetryPrompt.dispatchedPrompt,
             semanticLosses: exactRetryPrompt.semanticLosses,
-            warnings: uniqueWarnings([rewriteWarning]),
+            warnings: uniqueWarnings([rewriteWarning, ...exactRetryCompatibilityWarnings]),
           });
           rewritePromptVersion = null;
           compilePromptVersions = [];
@@ -723,7 +785,7 @@ export class ImageGenerationService {
             executedTarget: rewriteTarget,
             prompt: rewritePromptSnapshot,
             error: null,
-            warnings: uniqueWarnings([rewriteWarning]),
+            warnings: uniqueWarnings([rewriteWarning, ...exactRetryCompatibilityWarnings]),
             assetIds: [],
             referencedAssetIds:
               effectivePayload.inputAssets?.map((inputAsset) => inputAsset.assetId) ?? [],
@@ -863,6 +925,7 @@ export class ImageGenerationService {
                     semanticLosses: exactRetryPrompt.semanticLosses,
                     warnings: uniqueWarnings([
                       rewriteWarning,
+                      ...exactRetryCompatibilityWarnings,
                       ...exactRetryPrompt.warnings,
                     ]),
                     hashes: createPromptHashes({
@@ -888,6 +951,7 @@ export class ImageGenerationService {
                 semanticLosses: exactRetryPrompt.semanticLosses,
                 warnings: uniqueWarnings([
                   rewriteWarning,
+                  ...exactRetryCompatibilityWarnings,
                   ...exactRetryPrompt.warnings,
                 ]),
               });
@@ -899,9 +963,11 @@ export class ImageGenerationService {
                   deploymentId: target.deployment.id,
                   provider: target.provider.id,
                 },
-                resolvedInputAssets: await assetService.resolveProviderInputAssets(
+                resolvedInputAssets: await resolveProviderInputAssetsWithCompatibility(
+                  assetService,
                   userId,
-                  resolveExactRetryInputAssets(effectivePayload)
+                  resolveExactRetryInputAssets(effectivePayload),
+                  effectivePayload.operation
                 ),
                 prompt: dispatchedPrompt,
                 negativePrompt: exactRetryNegativePrompt,
@@ -973,9 +1039,11 @@ export class ImageGenerationService {
                 deploymentId: target.deployment.id,
                 provider: target.provider.id,
               },
-              resolvedInputAssets: await assetService.resolveProviderInputAssets(
+              resolvedInputAssets: await resolveProviderInputAssetsWithCompatibility(
+                assetService,
                 userId,
-                resolveDispatchInputAssets(target, effectivePayload)
+                resolveDispatchInputAssets(target, effectivePayload),
+                effectivePayload.operation
               ),
               prompt: compiled.dispatchedPrompt,
               negativePrompt: compiled.negativePrompt ?? undefined,
@@ -1236,10 +1304,12 @@ export class ImageGenerationService {
           providerRequestId: generated.providerRequestId,
           providerTaskId: generated.providerTaskId,
           warnings: mergedWarnings,
+          generatedImages: [],
           results: assetizedImages.map((image, index) => ({
             id: image.resultId,
             imageUrl: image.imageUrl,
             imageId: null,
+            threadAssetId: image.assetId,
             runtimeProvider: image.provider,
             providerModel: image.model,
             mimeType: image.mimeType,

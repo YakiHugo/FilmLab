@@ -6,14 +6,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CanvasEditSection } from "@/features/canvas/components/CanvasEditSection";
-import { SliderControl } from "@/features/canvas/components/controls/SliderControl";
-import type { CanvasImageNumericFieldId } from "@/features/canvas/imageAdjustmentTypes";
+import { EditorSection } from "@/features/editor/EditorSection";
+import { SliderControl } from "@/features/editor/components/controls/SliderControl";
+import type { NumericAdjustmentKey } from "@/features/editor/types";
+import { createDefaultAdjustments } from "@/lib/adjustments";
 import { asciiAdjustmentsEqual } from "@/lib/asciiRaster";
 import { cn } from "@/lib/utils";
 import {
   useCanvasElementDraftRenderState,
   useCanvasPreviewActions,
+  useCanvasRuntimeAsset,
 } from "@/features/canvas/runtime/canvasRuntimeHooks";
 import { resolveCanvasImageRenderState } from "@/features/canvas/imageRenderState";
 import type { CanvasImageRenderStateV1 } from "@/render/image";
@@ -26,19 +28,20 @@ import {
 import type { CanvasImageEditTarget } from "./editPanelSelection";
 import {
   applyAsciiAdjustmentsToRenderState,
-  applyNumericFieldToRenderState,
-  type CanvasImageEditValues,
-  DEFAULT_CANVAS_ASCII_ADJUSTMENTS,
-  DEFAULT_CANVAS_IMAGE_EDIT_VALUES,
-  getCanvasImageEditValues,
-  resetRenderStateForNumericFields,
+  applyNumericAdjustmentToRenderState,
+  type CanvasImageAdjustmentView,
+  DEFAULT_CANVAS_IMAGE_ADJUSTMENT_VIEW,
+  getCanvasImageAdjustmentView,
+  resetRenderStateForAdjustmentKeys,
 } from "./imageRenderStateEditing";
 import { useCanvasImagePropertyActions } from "./hooks/useCanvasImagePropertyActions";
+
+const DEFAULT_ADJUSTMENTS = createDefaultAdjustments();
 
 type CanvasEditSectionId = "light" | "color" | "tones" | "effects" | "detail" | "ascii";
 
 interface ProjectSliderDefinition {
-  key: CanvasImageNumericFieldId;
+  key: NumericAdjustmentKey;
   label: string;
   min: number;
   max: number;
@@ -47,18 +50,18 @@ interface ProjectSliderDefinition {
 }
 
 interface ProjectEditControlsProps {
-  fieldValues: CanvasImageEditValues;
+  adjustments: CanvasImageAdjustmentView;
   asciiAdjustments: AsciiAdjustments;
   asciiHasChanges: boolean;
   colorHasChanges: boolean;
-  commitFieldValue: (fieldId: CanvasImageNumericFieldId, value: number) => void;
+  commitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
   detailHasChanges: boolean;
   disabled: boolean;
   effectsHasChanges: boolean;
   lightHasChanges: boolean;
   onToggleSection: (sectionId: CanvasEditSectionId) => void;
   openSections: Record<CanvasEditSectionId, boolean>;
-  previewFieldValue: (fieldId: CanvasImageNumericFieldId, value: number) => void;
+  previewAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
   resetSection: (sliders: ProjectSliderDefinition[]) => void;
   tonesHasChanges: boolean;
   updateAsciiAdjustments: (partial: Partial<AsciiAdjustments>, mode?: "preview" | "commit") => void;
@@ -151,51 +154,51 @@ const createInitialOpenSections = (): Record<CanvasEditSectionId, boolean> => ({
   ascii: false,
 });
 
-const sliderToneForKey = (key: CanvasImageNumericFieldId) =>
+const sliderToneForKey = (key: NumericAdjustmentKey) =>
   key === "temperature" ? "temperature" : key === "tint" ? "tint" : "neutral";
 
 interface ProjectSliderRowProps {
-  fieldId: CanvasImageNumericFieldId;
+  adjustmentKey: NumericAdjustmentKey;
   format?: ProjectSliderDefinition["format"];
   label: string;
   max: number;
   min: number;
-  onCommitFieldValue: (fieldId: CanvasImageNumericFieldId, value: number) => void;
-  onPreviewFieldValue: (fieldId: CanvasImageNumericFieldId, value: number) => void;
+  onCommitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
+  onPreviewAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void;
   step?: number;
   value: number;
 }
 
 const ProjectSliderRow = memo(function ProjectSliderRow({
-  fieldId,
+  adjustmentKey,
   label,
   min,
   max,
   step,
   format,
-  onCommitFieldValue,
-  onPreviewFieldValue,
+  onCommitAdjustmentValue,
+  onPreviewAdjustmentValue,
   value,
 }: ProjectSliderRowProps) {
-  const defaultValue = Number(DEFAULT_CANVAS_IMAGE_EDIT_VALUES[fieldId]);
+  const defaultValue = Number(DEFAULT_ADJUSTMENTS[adjustmentKey] ?? 0);
 
   const handleChange = useCallback(
     (nextValue: number) => {
-      onPreviewFieldValue(fieldId, nextValue);
+      onPreviewAdjustmentValue(adjustmentKey, nextValue);
     },
-    [fieldId, onPreviewFieldValue]
+    [adjustmentKey, onPreviewAdjustmentValue]
   );
 
   const handleCommit = useCallback(
     (nextValue: number) => {
-      onCommitFieldValue(fieldId, nextValue);
+      onCommitAdjustmentValue(adjustmentKey, nextValue);
     },
-    [fieldId, onCommitFieldValue]
+    [adjustmentKey, onCommitAdjustmentValue]
   );
 
   const handleReset = useCallback(() => {
-    onCommitFieldValue(fieldId, defaultValue);
-  }, [defaultValue, fieldId, onCommitFieldValue]);
+    onCommitAdjustmentValue(adjustmentKey, defaultValue);
+  }, [adjustmentKey, defaultValue, onCommitAdjustmentValue]);
 
   return (
     <SliderControl
@@ -207,7 +210,7 @@ const ProjectSliderRow = memo(function ProjectSliderRow({
       max={max}
       step={step}
       format={format}
-      tone={sliderToneForKey(fieldId)}
+      tone={sliderToneForKey(adjustmentKey)}
       onChange={handleChange}
       onCommit={handleCommit}
       onReset={handleReset}
@@ -216,56 +219,55 @@ const ProjectSliderRow = memo(function ProjectSliderRow({
 });
 
 const renderSliderRows = (
-  fieldValues: CanvasImageEditValues,
+  adjustments: CanvasImageAdjustmentView,
   sliders: ProjectSliderDefinition[],
-  onPreviewFieldValue: (fieldId: CanvasImageNumericFieldId, value: number) => void,
-  onCommitFieldValue: (fieldId: CanvasImageNumericFieldId, value: number) => void
+  onPreviewAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void,
+  onCommitAdjustmentValue: (key: NumericAdjustmentKey, value: number) => void
 ) =>
   sliders.map((slider) => (
     <ProjectSliderRow
       key={slider.key}
-      fieldId={slider.key}
+      adjustmentKey={slider.key}
       label={slider.label}
       min={slider.min}
       max={slider.max}
       step={slider.step}
       format={slider.format}
-      value={Number(fieldValues[slider.key] ?? 0)}
-      onPreviewFieldValue={onPreviewFieldValue}
-      onCommitFieldValue={onCommitFieldValue}
+      value={Number(adjustments[slider.key] ?? 0)}
+      onPreviewAdjustmentValue={onPreviewAdjustmentValue}
+      onCommitAdjustmentValue={onCommitAdjustmentValue}
     />
   ));
 
 const hasSliderSectionChanges = (
-  fieldValues: CanvasImageEditValues,
+  adjustments: CanvasImageAdjustmentView,
   sliders: ProjectSliderDefinition[]
 ) =>
   sliders.some(
     (slider) =>
-      Number(fieldValues[slider.key] ?? 0) !==
-      Number(DEFAULT_CANVAS_IMAGE_EDIT_VALUES[slider.key])
+      Number(adjustments[slider.key] ?? 0) !== Number(DEFAULT_ADJUSTMENTS[slider.key] ?? 0)
   );
 
 const ProjectEditControls = memo(function ProjectEditControls({
-  fieldValues,
+  adjustments,
   asciiAdjustments,
   asciiHasChanges,
   colorHasChanges,
-  commitFieldValue,
+  commitAdjustmentValue,
   detailHasChanges,
   disabled,
   effectsHasChanges,
   lightHasChanges,
   onToggleSection,
   openSections,
-  previewFieldValue,
+  previewAdjustmentValue,
   resetSection,
   tonesHasChanges,
   updateAsciiAdjustments,
 }: ProjectEditControlsProps) {
   return (
     <section>
-      <CanvasEditSection
+      <EditorSection
         variant="canvasDock"
         title="光线与对比"
         isOpen={openSections.light}
@@ -275,14 +277,14 @@ const ProjectEditControls = memo(function ProjectEditControls({
         onResetChanges={() => resetSection(LIGHT_AND_CONTRAST_SLIDERS)}
       >
         {renderSliderRows(
-          fieldValues,
+          adjustments,
           LIGHT_AND_CONTRAST_SLIDERS,
-          previewFieldValue,
-          commitFieldValue
+          previewAdjustmentValue,
+          commitAdjustmentValue
         )}
-      </CanvasEditSection>
+      </EditorSection>
 
-      <CanvasEditSection
+      <EditorSection
         variant="canvasDock"
         title="色彩与白平衡"
         isOpen={openSections.color}
@@ -292,14 +294,14 @@ const ProjectEditControls = memo(function ProjectEditControls({
         onResetChanges={() => resetSection(COLOR_AND_WHITE_BALANCE_SLIDERS)}
       >
         {renderSliderRows(
-          fieldValues,
+          adjustments,
           COLOR_AND_WHITE_BALANCE_SLIDERS,
-          previewFieldValue,
-          commitFieldValue
+          previewAdjustmentValue,
+          commitAdjustmentValue
         )}
-      </CanvasEditSection>
+      </EditorSection>
 
-      <CanvasEditSection
+      <EditorSection
         variant="canvasDock"
         title="高光与阴影"
         isOpen={openSections.tones}
@@ -309,14 +311,14 @@ const ProjectEditControls = memo(function ProjectEditControls({
         onResetChanges={() => resetSection(HIGHLIGHTS_AND_SHADOWS_SLIDERS)}
       >
         {renderSliderRows(
-          fieldValues,
+          adjustments,
           HIGHLIGHTS_AND_SHADOWS_SLIDERS,
-          previewFieldValue,
-          commitFieldValue
+          previewAdjustmentValue,
+          commitAdjustmentValue
         )}
-      </CanvasEditSection>
+      </EditorSection>
 
-      <CanvasEditSection
+      <EditorSection
         variant="canvasDock"
         title="效果与滤镜"
         isOpen={openSections.effects}
@@ -326,14 +328,14 @@ const ProjectEditControls = memo(function ProjectEditControls({
         onResetChanges={() => resetSection(EFFECTS_AND_FILTERS_SLIDERS)}
       >
         {renderSliderRows(
-          fieldValues,
+          adjustments,
           EFFECTS_AND_FILTERS_SLIDERS,
-          previewFieldValue,
-          commitFieldValue
+          previewAdjustmentValue,
+          commitAdjustmentValue
         )}
-      </CanvasEditSection>
+      </EditorSection>
 
-      <CanvasEditSection
+      <EditorSection
         variant="canvasDock"
         title="细节与辉光"
         isOpen={openSections.detail}
@@ -343,21 +345,21 @@ const ProjectEditControls = memo(function ProjectEditControls({
         onResetChanges={() => resetSection(DETAIL_AND_GLOW_SLIDERS)}
       >
         {renderSliderRows(
-          fieldValues,
+          adjustments,
           DETAIL_AND_GLOW_SLIDERS,
-          previewFieldValue,
-          commitFieldValue
+          previewAdjustmentValue,
+          commitAdjustmentValue
         )}
-      </CanvasEditSection>
+      </EditorSection>
 
-      <CanvasEditSection
+      <EditorSection
         variant="canvasDock"
         title="ASCII 光栅"
         isOpen={openSections.ascii}
         onToggle={() => onToggleSection("ascii")}
         hasChanges={asciiHasChanges}
         canResetChanges={asciiHasChanges}
-        onResetChanges={() => updateAsciiAdjustments({ ...DEFAULT_CANVAS_ASCII_ADJUSTMENTS })}
+        onResetChanges={() => updateAsciiAdjustments({ ...DEFAULT_ADJUSTMENTS.ascii! })}
       >
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-2">
@@ -457,7 +459,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
             variant="canvasDock"
             label="单元尺寸"
             value={asciiAdjustments.cellSize}
-            defaultValue={DEFAULT_CANVAS_ASCII_ADJUSTMENTS.cellSize}
+            defaultValue={DEFAULT_ADJUSTMENTS.ascii?.cellSize ?? 12}
             min={6}
             max={24}
             disabled={!asciiAdjustments.enabled || disabled}
@@ -468,7 +470,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
             variant="canvasDock"
             label="字符间距"
             value={asciiAdjustments.characterSpacing}
-            defaultValue={DEFAULT_CANVAS_ASCII_ADJUSTMENTS.characterSpacing}
+            defaultValue={DEFAULT_ADJUSTMENTS.ascii?.characterSpacing ?? 1}
             min={0.7}
             max={1.6}
             step={0.05}
@@ -481,7 +483,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
             variant="canvasDock"
             label="ASCII 对比度"
             value={asciiAdjustments.contrast}
-            defaultValue={DEFAULT_CANVAS_ASCII_ADJUSTMENTS.contrast}
+            defaultValue={DEFAULT_ADJUSTMENTS.ascii?.contrast ?? 1}
             min={0.5}
             max={2.5}
             step={0.05}
@@ -491,7 +493,7 @@ const ProjectEditControls = memo(function ProjectEditControls({
             onCommit={(value) => updateAsciiAdjustments({ contrast: value })}
           />
         </div>
-      </CanvasEditSection>
+      </EditorSection>
     </section>
   );
 });
@@ -512,17 +514,18 @@ export function CanvasImageEditPanel({
   const committedImageElementId = committedImageElement?.id ?? null;
   const committedImageElementIdRef = useRef<string | null>(committedImageElementId);
   const displayedImageElementIdRef = useRef<string | null>(displayedImageElementId);
+  const { asset } = useCanvasRuntimeAsset(imageElement?.assetId ?? null);
   const draftRenderState = useCanvasElementDraftRenderState(imageElement?.id ?? null);
 
   const renderState = useMemo(
     () =>
       imageElement
-        ? resolveCanvasImageRenderState(imageElement, undefined, draftRenderState)
+        ? resolveCanvasImageRenderState(imageElement, asset, draftRenderState)
         : null,
-    [draftRenderState, imageElement]
+    [asset, draftRenderState, imageElement]
   );
-  const fieldValues = useMemo(
-    () => (renderState ? getCanvasImageEditValues(renderState) : DEFAULT_CANVAS_IMAGE_EDIT_VALUES),
+  const adjustments = useMemo(
+    () => (renderState ? getCanvasImageAdjustmentView(renderState) : DEFAULT_CANVAS_IMAGE_ADJUSTMENT_VIEW),
     [renderState]
   );
   const hasEditableRenderState = Boolean(renderState);
@@ -609,22 +612,22 @@ export function CanvasImageEditPanel({
     ]
   );
 
-  const previewFieldValue = useCallback(
-    (fieldId: CanvasImageNumericFieldId, value: number) => {
+  const previewAdjustmentValue = useCallback(
+    (key: NumericAdjustmentKey, value: number) => {
       if (!renderStateRef.current) {
         return;
       }
-      previewRenderState(applyNumericFieldToRenderState(renderStateRef.current, fieldId, value));
+      previewRenderState(applyNumericAdjustmentToRenderState(renderStateRef.current, key, value));
     },
     [previewRenderState]
   );
 
-  const commitFieldValue = useCallback(
-    (fieldId: CanvasImageNumericFieldId, value: number) => {
+  const commitAdjustmentValue = useCallback(
+    (key: NumericAdjustmentKey, value: number) => {
       if (!renderStateRef.current) {
         return;
       }
-      void commitAdjustments(applyNumericFieldToRenderState(renderStateRef.current, fieldId, value));
+      void commitAdjustments(applyNumericAdjustmentToRenderState(renderStateRef.current, key, value));
     },
     [commitAdjustments]
   );
@@ -635,7 +638,7 @@ export function CanvasImageEditPanel({
         return;
       }
       void commitAdjustments(
-        resetRenderStateForNumericFields(
+        resetRenderStateForAdjustmentKeys(
           renderStateRef.current,
           sliders.map((slider) => slider.key)
         )
@@ -644,16 +647,13 @@ export function CanvasImageEditPanel({
     [commitAdjustments]
   );
 
-  const lightHasChanges = hasSliderSectionChanges(fieldValues, LIGHT_AND_CONTRAST_SLIDERS);
-  const colorHasChanges = hasSliderSectionChanges(fieldValues, COLOR_AND_WHITE_BALANCE_SLIDERS);
-  const tonesHasChanges = hasSliderSectionChanges(fieldValues, HIGHLIGHTS_AND_SHADOWS_SLIDERS);
-  const effectsHasChanges = hasSliderSectionChanges(fieldValues, EFFECTS_AND_FILTERS_SLIDERS);
-  const detailHasChanges = hasSliderSectionChanges(fieldValues, DETAIL_AND_GLOW_SLIDERS);
-  const asciiAdjustments = fieldValues.ascii ?? DEFAULT_CANVAS_ASCII_ADJUSTMENTS;
-  const asciiHasChanges = !asciiAdjustmentsEqual(
-    asciiAdjustments,
-    DEFAULT_CANVAS_ASCII_ADJUSTMENTS
-  );
+  const lightHasChanges = hasSliderSectionChanges(adjustments, LIGHT_AND_CONTRAST_SLIDERS);
+  const colorHasChanges = hasSliderSectionChanges(adjustments, COLOR_AND_WHITE_BALANCE_SLIDERS);
+  const tonesHasChanges = hasSliderSectionChanges(adjustments, HIGHLIGHTS_AND_SHADOWS_SLIDERS);
+  const effectsHasChanges = hasSliderSectionChanges(adjustments, EFFECTS_AND_FILTERS_SLIDERS);
+  const detailHasChanges = hasSliderSectionChanges(adjustments, DETAIL_AND_GLOW_SLIDERS);
+  const asciiAdjustments = adjustments.ascii ?? DEFAULT_ADJUSTMENTS.ascii!;
+  const asciiHasChanges = !asciiAdjustmentsEqual(asciiAdjustments, DEFAULT_ADJUSTMENTS.ascii);
 
   const updateAsciiAdjustments = useCallback(
     (partial: Partial<AsciiAdjustments>, mode: "preview" | "commit" = "commit") => {
@@ -682,18 +682,18 @@ export function CanvasImageEditPanel({
         </div>
       ) : (
         <ProjectEditControls
-          fieldValues={fieldValues}
+          adjustments={adjustments}
           asciiAdjustments={asciiAdjustments}
           asciiHasChanges={asciiHasChanges}
           colorHasChanges={colorHasChanges}
-          commitFieldValue={commitFieldValue}
+          commitAdjustmentValue={commitAdjustmentValue}
           detailHasChanges={detailHasChanges}
           disabled={disabled}
           effectsHasChanges={effectsHasChanges}
           lightHasChanges={lightHasChanges}
           onToggleSection={toggleSection}
           openSections={openSections}
-          previewFieldValue={previewFieldValue}
+          previewAdjustmentValue={previewAdjustmentValue}
           resetSection={resetSection}
           tonesHasChanges={tonesHasChanges}
           updateAsciiAdjustments={updateAsciiAdjustments}

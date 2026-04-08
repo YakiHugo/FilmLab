@@ -40,7 +40,8 @@ const createRenderableImage = (
     rotation: 0,
   },
   assetId: overrides?.assetId ?? "asset-1",
-  renderState: overrides?.renderState,
+  adjustments: overrides?.adjustments,
+  filmProfileId: overrides?.filmProfileId,
 });
 
 const createRenderableText = (

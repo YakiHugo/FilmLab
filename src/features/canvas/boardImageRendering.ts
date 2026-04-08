@@ -1,5 +1,6 @@
+import { ensureAssetLayers } from "@/lib/editorLayers";
+import { buildRenderDocumentDependencyKey } from "@/features/editor/renderDependencies";
 import type { RenderIntent } from "@/lib/renderIntent";
-import { resolveFilmProfile } from "@/lib/film/registry";
 import {
   createImageRenderDocumentFromState,
   renderSingleImageToCanvas,
@@ -19,7 +20,7 @@ export interface CanvasImageRenderTargetSize {
 
 export interface CanvasImageRenderContext {
   cacheKey: string;
-  filmProfile: ImageRenderDocument["film"]["profile"] | undefined;
+  filmProfile: Asset["filmProfile"] | undefined;
   imageDocument: ImageRenderDocument;
   renderVariant: BoardPreviewPriority;
   renderState: CanvasImageRenderStateV1;
@@ -28,7 +29,7 @@ export interface CanvasImageRenderContext {
 }
 
 export interface CanvasImageDocumentRenderContext {
-  filmProfile: ImageRenderDocument["film"]["profile"] | undefined;
+  filmProfile: Asset["filmProfile"] | undefined;
   imageDocument: ImageRenderDocument;
   renderState: CanvasImageRenderStateV1;
   timestampText: string | null;
@@ -128,14 +129,9 @@ export const createCanvasImageDocumentRenderContext = ({
     },
     state: renderState,
   });
-  const filmProfile = resolveFilmProfile({
-    filmProfileId: imageDocument.film.profileId ?? undefined,
-    filmProfile: imageDocument.film.profile ?? null,
-    overrides: imageDocument.film.profileOverrides ?? undefined,
-  });
 
   return {
-    filmProfile: filmProfile ?? undefined,
+    filmProfile: imageDocument.film.profile ?? undefined,
     imageDocument,
     renderState,
     timestampText: resolveAssetTimestampText(asset.metadata, asset.createdAt),
@@ -144,12 +140,14 @@ export const createCanvasImageDocumentRenderContext = ({
 
 export const createCanvasImageRenderContext = ({
   asset,
+  assetById,
   draftRenderState,
   element,
   priority,
   viewportScale = 1,
 }: {
   asset: Asset;
+  assetById: Map<string, Asset>;
   draftRenderState?: CanvasImageRenderStateV1;
   element: CanvasImageElement;
   priority: BoardPreviewPriority;
@@ -161,10 +159,17 @@ export const createCanvasImageRenderContext = ({
     element,
   });
   const targetSize = resolveCanvasImagePreviewTargetSize(element, priority, viewportScale);
+  const dependencyKey = buildRenderDocumentDependencyKey(
+    documentContext.imageDocument.id,
+    assetById,
+    ensureAssetLayers(asset)
+  );
   const cacheKey = [
     `variant:${priority}`,
+    dependencyKey,
     documentContext.imageDocument.revisionKey,
     `${targetSize.width}x${targetSize.height}`,
+    documentContext.filmProfile?.id ?? "none",
   ].join("|");
 
   return {
@@ -177,6 +182,7 @@ export const createCanvasImageRenderContext = ({
 
 export const renderCanvasImageElementToCanvas = async ({
   asset,
+  assetById,
   canvas,
   draftRenderState,
   element,
@@ -187,6 +193,7 @@ export const renderCanvasImageElementToCanvas = async ({
   signal,
 }: {
   asset: Asset;
+  assetById: Map<string, Asset>;
   canvas: HTMLCanvasElement;
   draftRenderState?: CanvasImageRenderStateV1;
   element: CanvasImageElement;
@@ -198,6 +205,7 @@ export const renderCanvasImageElementToCanvas = async ({
 }) => {
   const context = createCanvasImageRenderContext({
     asset,
+    assetById,
     draftRenderState,
     element,
     priority,

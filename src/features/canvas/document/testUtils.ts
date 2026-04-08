@@ -1,4 +1,5 @@
-import { createDefaultCanvasImageRenderState } from "@/render/image";
+import { createDefaultAdjustments } from "@/lib/adjustments";
+import { createCanvasImageRenderStateFromAsset } from "@/render/image";
 import type {
   CanvasGroupNode,
   CanvasImageElement,
@@ -57,7 +58,9 @@ export const createShapeNode = ({
 });
 
 export const createImageNode = ({
+  adjustments = createDefaultAdjustments(),
   assetId = "asset-1",
+  filmProfileId,
   renderState,
   id,
   parentId = null,
@@ -70,7 +73,9 @@ export const createImageNode = ({
   locked = false,
   visible = true,
 }: {
+  adjustments?: ReturnType<typeof createDefaultAdjustments>;
   assetId?: string;
+  filmProfileId?: string;
   renderState?: CanvasImageElement["renderState"];
   id: CanvasNodeId;
   parentId?: CanvasNodeId | null;
@@ -102,7 +107,22 @@ export const createImageNode = ({
   opacity,
   locked,
   visible,
-  renderState: renderState ?? createDefaultCanvasImageRenderState(),
+  renderState:
+    renderState ??
+    createCanvasImageRenderStateFromAsset({
+      asset: {
+        id: assetId,
+        name: assetId,
+        type: "image/png",
+        size: 1,
+        createdAt: "2026-03-17T00:00:00.000Z",
+        objectUrl: `blob:${assetId}`,
+      },
+      adjustments,
+      filmProfileId,
+    }),
+  adjustments,
+  filmProfileId,
 });
 
 export const createGroupNode = ({

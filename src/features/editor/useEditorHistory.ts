@@ -1,0 +1,164 @@
+﻿import { useCallback, useEffect, useRef } from "react";
+import { useShallow } from "zustand/react/shallow";
+import {
+  createEditorAssetSnapshot,
+  createEditorAssetSnapshotRef,
+  editorSnapshotToAssetPatch,
+  isEditorAssetSnapshotEqual,
+  type EditorAssetSnapshot,
+} from "@/features/editor/history";
+import { useEditorStore } from "@/stores/editorStore";
+import { useAssetStore } from "@/stores/assetStore";
+import type { Asset, AssetUpdate } from "@/types";
+
+type PendingHistoryByKey = Record<string, EditorAssetSnapshot>;
+
+const createHistorySessionKey = (assetId: string, key: string) => `${assetId}:${key}`;
+
+export function useEditorHistory(selectedAsset: Asset | null) {
+  const { updateAsset, updateAssetOnly } = useAssetStore(
+    useShallow((state) => ({
+      updateAsset: state.updateAsset,
+      updateAssetOnly: state.updateAssetOnly,
+    }))
+  );
+
+  const { historyByAssetId, pushHistory, undoSnapshot, redoSnapshot } = useEditorStore(
+    useShallow((state) => ({
+      historyByAssetId: state.historyByAssetId,
+      pushHistory: state.pushHistory,
+      undoSnapshot: state.undoSnapshot,
+      redoSnapshot: state.redoSnapshot,
+    }))
+  );
+
+  const pendingHistoryRef = useRef<PendingHistoryByKey>({});
+
+  useEffect(() => {
+    pendingHistoryRef.current = {};
+  }, [selectedAsset?.id]);
+
+  const resolveLiveAsset = useCallback(() => {
+    const assetId = selectedAsset?.id;
+    if (!assetId) {
+      return null;
+    }
+    return useAssetStore.getState().assets.find((asset) => asset.id === assetId) ?? selectedAsset;
+  }, [selectedAsset]);
+
+  const clearPendingHistoryForAsset = useCallback((assetId: string) => {
+    const prefix = `${assetId}:`;
+    Object.keys(pendingHistoryRef.current).forEach((key) => {
+      if (key.startsWith(prefix)) {
+        delete pendingHistoryRef.current[key];
+      }
+    });
+  }, []);
+
+  const applyEditorPatch = useCallback(
+    (patch: AssetUpdate, options?: { before?: EditorAssetSnapshot }) => {
+      const liveAsset = resolveLiveAsset();
+      if (!liveAsset) {
+        return false;
+      }
+      const before = options?.before ?? createEditorAssetSnapshot(liveAsset);
+      const merged: Asset = { ...liveAsset, ...patch };
+      const after = createEditorAssetSnapshot(merged);
+      if (isEditorAssetSnapshotEqual(before, after)) {
+        return false;
+      }
+      pushHistory(liveAsset.id, before);
+      updateAsset(liveAsset.id, patch);
+      return true;
+    },
+    [pushHistory, resolveLiveAsset, updateAsset]
+  );
+
+  const stageEditorPatch = useCallback(
+    (historyKey: string, patch: AssetUpdate) => {
+      const liveAsset = resolveLiveAsset();
+      if (!liveAsset) {
+        return;
+      }
+      const sessionKey = createHistorySessionKey(liveAsset.id, historyKey);
+      if (!pendingHistoryRef.current[sessionKey]) {
+        pendingHistoryRef.current[sessionKey] = createEditorAssetSnapshot(liveAsset);
+      }
+      const before = pendingHistoryRef.current[sessionKey];
+      const merged: Asset = { ...liveAsset, ...patch };
+      const after = createEditorAssetSnapshotRef(merged);
+      if (isEditorAssetSnapshotEqual(before, after)) {
+        return;
+      }
+      updateAssetOnly(liveAsset.id, patch);
+    },
+    [resolveLiveAsset, updateAssetOnly]
+  );
+
+  const commitEditorPatch = useCallback(
+    (historyKey: string, patch: AssetUpdate) => {
+      const liveAsset = resolveLiveAsset();
+      if (!liveAsset) {
+        return false;
+      }
+      const sessionKey = createHistorySessionKey(liveAsset.id, historyKey);
+      const before =
+        pendingHistoryRef.current[sessionKey] ?? createEditorAssetSnapshot(liveAsset);
+      delete pendingHistoryRef.current[sessionKey];
+      return applyEditorPatch(patch, { before });
+    },
+    [applyEditorPatch, resolveLiveAsset]
+  );
+
+  const selectedAssetId = selectedAsset?.id ?? null;
+
+  const canUndo = Boolean(
+    selectedAssetId &&
+    historyByAssetId[selectedAssetId] &&
+    historyByAssetId[selectedAssetId].past.length > 0
+  );
+
+  const canRedo = Boolean(
+    selectedAssetId &&
+    historyByAssetId[selectedAssetId] &&
+    historyByAssetId[selectedAssetId].future.length > 0
+  );
+
+  const handleUndo = useCallback(() => {
+    if (!selectedAsset) {
+      return false;
+    }
+    clearPendingHistoryForAsset(selectedAsset.id);
+    const current = createEditorAssetSnapshot(selectedAsset);
+    const previous = undoSnapshot(selectedAsset.id, current);
+    if (!previous) {
+      return false;
+    }
+    updateAsset(selectedAsset.id, editorSnapshotToAssetPatch(previous));
+    return true;
+  }, [clearPendingHistoryForAsset, selectedAsset, undoSnapshot, updateAsset]);
+
+  const handleRedo = useCallback(() => {
+    if (!selectedAsset) {
+      return false;
+    }
+    clearPendingHistoryForAsset(selectedAsset.id);
+    const current = createEditorAssetSnapshot(selectedAsset);
+    const next = redoSnapshot(selectedAsset.id, current);
+    if (!next) {
+      return false;
+    }
+    updateAsset(selectedAsset.id, editorSnapshotToAssetPatch(next));
+    return true;
+  }, [clearPendingHistoryForAsset, redoSnapshot, selectedAsset, updateAsset]);
+
+  return {
+    canUndo,
+    canRedo,
+    applyEditorPatch,
+    stageEditorPatch,
+    commitEditorPatch,
+    handleUndo,
+    handleRedo,
+  };
+}

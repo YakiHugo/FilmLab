@@ -1,4 +1,4 @@
-import type { Asset, AssetOrigin, AssetUpdate, CurrentUser } from "@/types";
+import type { Asset, AssetOrigin, AssetUpdate, CurrentUser, EditorLayer } from "@/types";
 
 export interface ImportProgress {
   current: number;
@@ -64,8 +64,17 @@ export interface CurrentUserState {
   materializeRemoteAssets: (assets: MaterializedRemoteAssetInput[]) => void;
   runAssetSync: () => Promise<void>;
   retryAssetSyncForAsset: (assetId: string) => Promise<void>;
+  applyPresetToDay: (day: string, presetId: string, intensity: number) => void;
+  applyPresetToSelection: (assetIds: string[], presetId: string, intensity?: number) => void;
   updateAsset: (assetId: string, update: AssetUpdate) => void;
   updateAssetOnly: (assetId: string, update: AssetUpdate) => void;
+  addLayer: (assetId: string, layer: EditorLayer) => void;
+  removeLayer: (assetId: string, layerId: string) => void;
+  updateLayer: (assetId: string, layerId: string, patch: Partial<EditorLayer>) => void;
+  moveLayer: (assetId: string, layerId: string, direction: "up" | "down") => void;
+  duplicateLayer: (assetId: string, layerId: string) => void;
+  mergeLayerDown: (assetId: string, layerId: string) => Promise<boolean>;
+  flattenLayers: (assetId: string) => Promise<boolean>;
 
   setSelectedAssetIds: (assetIds: string[]) => void;
   clearAssetSelection: () => void;

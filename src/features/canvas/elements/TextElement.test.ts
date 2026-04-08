@@ -4,7 +4,7 @@ vi.mock("react-konva", () => ({
   Text: () => null,
 }));
 
-import { isCanvasTextElementEditable } from "./textElementEditability";
+import { isCanvasTextElementEditable } from "./TextElement";
 
 describe("TextElement", () => {
   it("treats inherited hidden or locked text as non-editable", () => {

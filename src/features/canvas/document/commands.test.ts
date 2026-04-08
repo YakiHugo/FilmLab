@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createDefaultAdjustments } from "@/lib/adjustments";
 import { createDefaultCanvasImageRenderState } from "@/render/image";
 import { getCanvasNodeWorldTransform, worldPointToLocalPoint } from "./geometry";
 import { getCanvasWorkbenchSnapshot } from "./model";
@@ -405,12 +406,14 @@ describe("document commands", () => {
   });
 
   it("applies canonical image render-state commands and round-trips their patches", () => {
+    const originalAdjustments = createDefaultAdjustments();
     const nextRenderState = createDefaultCanvasImageRenderState();
     nextRenderState.develop.tone.exposure = 24;
     nextRenderState.develop.tone.contrast = 12;
     const document = createCanvasTestDocument({
       nodes: {
         "image-1": createImageNode({
+          adjustments: originalAdjustments,
           id: "image-1",
           x: 40,
           y: 60,

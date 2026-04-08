@@ -1,4 +1,5 @@
 import type {
+  CanvasNode,
   CanvasNodeId,
   CanvasPersistedNode,
   CanvasWorkbenchSnapshot,
@@ -42,6 +43,22 @@ const sanitizeExplicitGroupChildren = (
     const ordered = sanitizeOrderedIds(childIds, nodes).filter((childId) => childId !== groupId);
     if (ordered.length > 0) {
       next[groupId] = ordered;
+    }
+  }
+  return next;
+};
+
+export const deriveLegacyGroupChildren = (nodes: Record<string, CanvasNode>) => {
+  const next: Record<string, CanvasNodeId[]> = {};
+  for (const node of Object.values(nodes)) {
+    if (node.type !== "group") {
+      continue;
+    }
+    const ordered = Array.from(new Set(node.childIds ?? [])).filter(
+      (childId) => Boolean(nodes[childId]) && childId !== node.id
+    );
+    if (ordered.length > 0) {
+      next[node.id] = ordered;
     }
   }
   return next;

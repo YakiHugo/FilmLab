@@ -41,13 +41,13 @@ describe("generateImage", () => {
           providerModel: "doubao-seedream-5-0-260128",
           createdAt: "2026-03-09T00:00:00.000Z",
           imageId: "img-1",
-          imageUrl: "/api/assets/thread-asset-1/original?token=test",
+          imageUrl: "/api/generated-images/img-1",
           warnings: ["Seedream returned 1 of 2 requested images."],
           images: [
             {
               resultId: "result-1",
               imageId: "img-1",
-              imageUrl: "/api/assets/thread-asset-1/original?token=test",
+              imageUrl: "/api/generated-images/img-1",
               assetId: "thread-asset-1",
               provider: "ark",
               model: "doubao-seedream-5-0-260128",
@@ -72,6 +72,7 @@ describe("generateImage", () => {
       modelId: "seedream-v5",
       aspectRatio: "1:1",
       style: "none",
+      referenceImages: [],
       batchSize: 1,
       modelParams: {},
     });
@@ -120,12 +121,12 @@ describe("generateImage", () => {
           providerModel: "qwen-image-2.0-pro",
           createdAt: "2026-03-09T00:00:00.000Z",
           imageId: "img-2",
-          imageUrl: "/api/assets/thread-asset-2/original?token=test",
+          imageUrl: "/api/generated-images/img-2",
           images: [
             {
               resultId: "result-2",
               imageId: "img-2",
-              imageUrl: "/api/assets/thread-asset-2/original?token=test",
+              imageUrl: "/api/generated-images/img-2",
               assetId: "thread-asset-2",
               provider: "dashscope",
               model: "qwen-image-2.0-pro",
@@ -150,6 +151,7 @@ describe("generateImage", () => {
       modelId: "qwen-image-2-pro",
       aspectRatio: "1:1",
       style: "none",
+      referenceImages: [],
       batchSize: 1,
       modelParams: {},
     });
@@ -205,6 +207,7 @@ describe("generateImage", () => {
         modelId: "qwen-image-2-pro",
         aspectRatio: "1:1",
         style: "none",
+        referenceImages: [],
         batchSize: 1,
         modelParams: {},
       })

@@ -1,4 +1,6 @@
+import { createDefaultAdjustments, normalizeAdjustments } from "@/lib/adjustments";
 import type { StoredAsset } from "@/lib/db";
+import { ensureAssetLayers, resolveBaseAdjustmentsFromLayers } from "@/lib/editorLayers";
 import type { Asset, AssetOwnerRef } from "@/types";
 import { resolveAssetImportDay } from "./grouping";
 import { normalizeTags } from "./tagging";
@@ -31,6 +33,14 @@ export const materializeStoredAsset = (
 
     const importDay = resolveAssetImportDay(stored);
     const tags = normalizeTags(stored.tags ?? []);
+    const normalizedAdjustments = normalizeAdjustments(
+      stored.adjustments ?? createDefaultAdjustments()
+    );
+    const normalizedLayers = ensureAssetLayers({
+      id: stored.id,
+      adjustments: normalizedAdjustments,
+      layers: stored.layers,
+    });
     const nowIso = options.nowIso ?? new Date().toISOString();
 
     return {
@@ -43,9 +53,17 @@ export const materializeStoredAsset = (
       thumbnailUrl,
       importDay,
       tags,
+      presetId: stored.presetId,
+      intensity: stored.intensity,
+      filmProfileId: stored.filmProfileId,
+      filmOverrides: stored.filmOverrides,
+      filmProfile: stored.filmProfile,
+      group: stored.group ?? importDay,
       blob: stored.blob,
       thumbnailBlob,
       metadata: stored.metadata,
+      adjustments: resolveBaseAdjustmentsFromLayers(normalizedLayers, normalizedAdjustments),
+      layers: normalizedLayers,
       source: stored.source,
       origin: stored.origin ?? "file",
       contentHash: stored.contentHash,

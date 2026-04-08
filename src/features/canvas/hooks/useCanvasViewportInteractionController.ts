@@ -9,7 +9,7 @@ import type {
   CanvasWorkbench,
 } from "@/types";
 import { shouldOpenCanvasEditPanelForElement } from "../editPanelSelection";
-import { isCanvasTextElementEditable } from "../elements/textElementEditability";
+import { isCanvasTextElementEditable } from "../elements/TextElement";
 import { quantizeDragPosition } from "../grid";
 import { resolveSelectedRootRenderableElementIds } from "../selectionModel";
 import {

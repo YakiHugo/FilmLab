@@ -1,13 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultCanvasImageRenderState } from "@/render/image";
+import { createDefaultAdjustments } from "@/lib/adjustments";
+import { createCanvasImageRenderStateFromAsset } from "@/render/image";
 import { normalizeCanvasWorkbench } from "@/features/canvas/studioPresets";
 import { cloneNodeTree } from "./canvasWorkbenchNodeHelpers";
 
 describe("canvasWorkbenchNodeHelpers", () => {
   it("duplicates renderState-backed image nodes without reintroducing legacy fields", () => {
-    const renderState = createDefaultCanvasImageRenderState();
-    renderState.develop.tone.exposure = 17;
-    renderState.film.profileId = "film-portrait-soft-v1";
+    const renderState = createCanvasImageRenderStateFromAsset({
+      asset: {
+        id: "asset-1",
+        name: "asset-1.jpg",
+        type: "image/jpeg",
+        size: 1024,
+        createdAt: "2026-03-28T00:00:00.000Z",
+        objectUrl: "blob:asset-1",
+        adjustments: {
+          ...createDefaultAdjustments(),
+          exposure: 17,
+        },
+      },
+      filmProfileId: "film-portrait-soft-v1",
+    });
     const workbench = normalizeCanvasWorkbench({
       id: "doc-1",
       version: 5,

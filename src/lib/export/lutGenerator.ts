@@ -1,25 +1,24 @@
-import { resolveRenderProfileFromState } from "@/lib/film";
+﻿import { normalizeAdjustments } from "@/lib/adjustments";
+import { resolveRenderProfile } from "@/lib/film";
 import type { PipelineRenderer } from "@/lib/renderer/PipelineRenderer";
-import {
-  resolveCurveUniformsFromState,
-  resolveDetailUniformsFromState,
-  resolveFilmUniformsV3,
-  resolveHalationBloomUniformsV3,
-  resolveHslUniformsFromState,
-  resolveMasterUniforms,
-} from "@/lib/renderer/uniformResolvers";
 import type { GeometryUniforms } from "@/lib/renderer/types";
-import type { CanvasImageRenderStateV1 } from "@/render/image";
-import type { FilmProfileV3 } from "@/types/film";
+import {
+  resolveCurveUniforms,
+  resolveDetailUniforms,
+  resolveFilmUniforms,
+  resolveFilmUniformsV3,
+  resolveFromAdjustments,
+  resolveHalationBloomUniforms,
+  resolveHalationBloomUniformsV3,
+  resolveHslUniforms,
+} from "@/lib/renderer/uniformResolvers";
+import type {
+  EditingAdjustments,
+  FilmProfile,
+} from "@/types";
+import type { FilmProfileAny, FilmProfileV2 } from "@/types/film";
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
-
-const cloneValue = <T>(value: T): T => {
-  if (typeof structuredClone === "function") {
-    return structuredClone(value) as T;
-  }
-  return JSON.parse(JSON.stringify(value)) as T;
-};
 
 const createIdentityLutCanvas = (size: number) => {
   const width = size * size;
@@ -74,84 +73,203 @@ const createPassthroughGeometryUniforms = (width: number, height: number): Geome
   caAmountPxRgb: [0, 0, 0],
 });
 
-const sanitizeRenderStateForLut = (state: CanvasImageRenderStateV1): CanvasImageRenderStateV1 => {
-  const next = cloneValue(state);
-  next.develop.detail.texture = 0;
-  next.develop.detail.clarity = 0;
-  next.develop.detail.sharpening = 0;
-  next.develop.detail.noiseReduction = 0;
-  next.develop.detail.colorNoiseReduction = 0;
-  next.develop.fx.grain = 0;
-  next.develop.fx.vignette = 0;
-  next.develop.fx.glowIntensity = 0;
-  next.develop.regions = [];
-  next.masks.byId = {};
-  next.effects = [];
-  return next;
-};
+const sanitizeForLut = (
+  adjustments: EditingAdjustments,
+  filmProfile: FilmProfileAny | null
+): { adjustments: EditingAdjustments; filmProfile: FilmProfileAny | null } => {
+  const cleanAdjustments: EditingAdjustments = {
+    ...adjustments,
+    texture: 0,
+    clarity: 0,
+    sharpening: 0,
+    noiseReduction: 0,
+    colorNoiseReduction: 0,
+    grain: 0,
+    vignette: 0,
+    glowIntensity: 0,
+    customLut: adjustments.customLut
+      ? {
+          ...adjustments.customLut,
+        }
+      : undefined,
+    localAdjustments: [],
+  };
 
-const sanitizeFilmProfileForLut = (profile: FilmProfileV3): FilmProfileV3 => ({
-  ...profile,
-  grain: {
-    ...profile.grain,
-    enabled: false,
-    amount: 0,
-  },
-  vignette: {
-    ...profile.vignette,
-    enabled: false,
-    amount: 0,
-  },
-  halation: profile.halation
-    ? {
-        ...profile.halation,
-        enabled: false,
-        intensity: 0,
+  if (!filmProfile) {
+    return {
+      adjustments: cleanAdjustments,
+      filmProfile,
+    };
+  }
+
+  if ((filmProfile as FilmProfileAny).version === 3) {
+    const profileV3 = filmProfile as FilmProfileAny & { version: 3 };
+    return {
+      adjustments: cleanAdjustments,
+      filmProfile: {
+        ...profileV3,
+        grain: {
+          ...profileV3.grain,
+          enabled: false,
+          amount: 0,
+        },
+        vignette: {
+          ...profileV3.vignette,
+          enabled: false,
+          amount: 0,
+        },
+        halation: profileV3.halation
+          ? {
+              ...profileV3.halation,
+              enabled: false,
+              intensity: 0,
+            }
+          : profileV3.halation,
+        bloom: profileV3.bloom
+          ? {
+              ...profileV3.bloom,
+              enabled: false,
+              intensity: 0,
+            }
+          : profileV3.bloom,
+        glow: profileV3.glow
+          ? {
+              ...profileV3.glow,
+              enabled: false,
+              intensity: 0,
+            }
+          : profileV3.glow,
+        filmBreath: profileV3.filmBreath
+          ? {
+              ...profileV3.filmBreath,
+              enabled: false,
+              amount: 0,
+            }
+          : profileV3.filmBreath,
+        filmDamage: profileV3.filmDamage
+          ? {
+              ...profileV3.filmDamage,
+              enabled: false,
+              amount: 0,
+            }
+          : profileV3.filmDamage,
+        gateWeave: profileV3.gateWeave
+          ? {
+              ...profileV3.gateWeave,
+              enabled: false,
+              amount: 0,
+            }
+          : profileV3.gateWeave,
+        overscan: profileV3.overscan
+          ? {
+              ...profileV3.overscan,
+              enabled: false,
+              amount: 0,
+            }
+          : profileV3.overscan,
+      },
+    };
+  }
+
+  if ((filmProfile as FilmProfileAny).version === 2) {
+    const profileV2 = filmProfile as FilmProfileV2;
+    return {
+      adjustments: cleanAdjustments,
+      filmProfile: {
+        ...profileV2,
+        grain: {
+          ...profileV2.grain,
+          enabled: false,
+          amount: 0,
+        },
+        vignette: {
+          ...profileV2.vignette,
+          enabled: false,
+          amount: 0,
+        },
+        halation: profileV2.halation
+          ? {
+              ...profileV2.halation,
+              enabled: false,
+              intensity: 0,
+            }
+          : profileV2.halation,
+        bloom: profileV2.bloom
+          ? {
+              ...profileV2.bloom,
+              enabled: false,
+              intensity: 0,
+            }
+          : profileV2.bloom,
+        defects: profileV2.defects
+          ? {
+              ...profileV2.defects,
+              enabled: false,
+              leakProbability: 0,
+              leakStrength: 0,
+              dustAmount: 0,
+              scratchAmount: 0,
+            }
+          : profileV2.defects,
+      },
+    };
+  }
+
+  if ((filmProfile as FilmProfile).version === 1) {
+    const profileV1 = filmProfile as FilmProfile;
+    const modules = profileV1.modules.map((module) => {
+      if (module.id === "grain") {
+        return {
+          ...module,
+          enabled: false,
+          amount: 0,
+          params: {
+            ...module.params,
+            amount: 0,
+          },
+        };
       }
-    : profile.halation,
-  bloom: profile.bloom
-    ? {
-        ...profile.bloom,
-        enabled: false,
-        intensity: 0,
+      if (module.id === "scan") {
+        return {
+          ...module,
+          params: {
+            ...module.params,
+            halationAmount: 0,
+            bloomAmount: 0,
+            vignetteAmount: 0,
+          },
+        };
       }
-    : profile.bloom,
-  glow: profile.glow
-    ? {
-        ...profile.glow,
-        enabled: false,
-        intensity: 0,
+      if (module.id === "defects") {
+        return {
+          ...module,
+          enabled: false,
+          amount: 0,
+          params: {
+            ...module.params,
+            leakProbability: 0,
+            leakStrength: 0,
+            dustAmount: 0,
+            scratchAmount: 0,
+          },
+        };
       }
-    : profile.glow,
-  filmBreath: profile.filmBreath
-    ? {
-        ...profile.filmBreath,
-        enabled: false,
-        amount: 0,
-      }
-    : profile.filmBreath,
-  filmDamage: profile.filmDamage
-    ? {
-        ...profile.filmDamage,
-        enabled: false,
-        amount: 0,
-      }
-    : profile.filmDamage,
-  gateWeave: profile.gateWeave
-    ? {
-        ...profile.gateWeave,
-        enabled: false,
-        amount: 0,
-      }
-    : profile.gateWeave,
-  overscan: profile.overscan
-    ? {
-        ...profile.overscan,
-        enabled: false,
-        amount: 0,
-      }
-    : profile.overscan,
-});
+      return module;
+    }) as FilmProfile["modules"];
+    return {
+      adjustments: cleanAdjustments,
+      filmProfile: {
+        ...profileV1,
+        modules,
+      },
+    };
+  }
+
+  return {
+    adjustments: cleanAdjustments,
+    filmProfile,
+  };
+};
 
 const pixelsToCube = (pixels: Uint8Array, width: number, height: number, size: number): string => {
   const lines: string[] = [];
@@ -181,15 +299,13 @@ const pixelsToCube = (pixels: Uint8Array, width: number, height: number, size: n
 
 export async function generateCubeLUT(
   renderer: PipelineRenderer,
-  state: CanvasImageRenderStateV1,
+  adjustments: EditingAdjustments,
+  filmProfile: FilmProfile | FilmProfileAny | null,
   size: 17 | 33 = 33
 ): Promise<string> {
-  const sanitizedState = sanitizeRenderStateForLut(state);
-  const resolvedProfile = resolveRenderProfileFromState({
-    film: sanitizedState.film,
-    develop: sanitizedState.develop,
-  });
-  const sanitizedFilmProfile = sanitizeFilmProfileForLut(resolvedProfile.v3);
+  const normalized = normalizeAdjustments(adjustments);
+  const sanitized = sanitizeForLut(normalized, filmProfile);
+  const resolvedProfile = resolveRenderProfile(sanitized.adjustments, sanitized.filmProfile);
 
   const source = createIdentityLutCanvas(size);
   const width = source.width;
@@ -223,40 +339,39 @@ export async function generateCubeLUT(
   }
 
   const geometry = createPassthroughGeometryUniforms(width, height);
-  const master = resolveMasterUniforms(
-    sanitizedState.develop.tone,
-    sanitizedState.develop.color,
-    sanitizedState.develop.detail
-  );
-  const hsl = resolveHslUniformsFromState(sanitizedState.develop.color);
-  const curve = resolveCurveUniformsFromState(sanitizedState.develop.color);
-  const detail = resolveDetailUniformsFromState(sanitizedState.develop.detail);
+  const master = resolveFromAdjustments(sanitized.adjustments);
+  const hsl = resolveHslUniforms(sanitized.adjustments);
+  const curve = resolveCurveUniforms(sanitized.adjustments);
+  const detail = resolveDetailUniforms(sanitized.adjustments);
 
-  const filmUniforms = resolveFilmUniformsV3(sanitizedFilmProfile, {
-    grainSeed: 0,
-  });
-  filmUniforms.u_lutEnabled = filmUniforms.u_lutEnabled && !!resolvedProfile.lut;
-  if (!filmUniforms.u_lutEnabled) {
-    filmUniforms.u_lutIntensity = 0;
+  let filmUniforms = null;
+  let halationUniforms = null;
+
+  if (resolvedProfile.mode === "v3") {
+    filmUniforms = resolveFilmUniformsV3(resolvedProfile.v3, {
+      grainSeed: 0,
+    });
+    filmUniforms.u_lutEnabled = filmUniforms.u_lutEnabled && !!resolvedProfile.lut;
+    if (!filmUniforms.u_lutEnabled) {
+      filmUniforms.u_lutIntensity = 0;
+    }
+    filmUniforms.u_lutMixEnabled = filmUniforms.u_lutEnabled && !!resolvedProfile.lutBlend;
+    filmUniforms.u_lutMixFactor = resolvedProfile.lutBlend?.mixFactor ?? 0;
+    halationUniforms = resolveHalationBloomUniformsV3(resolvedProfile.v3);
+  } else if (resolvedProfile.legacyV1) {
+    filmUniforms = resolveFilmUniforms(resolvedProfile.legacyV1, {
+      grainSeed: 0,
+    });
+    filmUniforms.u_lutMixEnabled = false;
+    filmUniforms.u_lutMixFactor = 0;
+    halationUniforms = resolveHalationBloomUniforms(resolvedProfile.legacyV1);
   }
-  filmUniforms.u_lutMixEnabled = filmUniforms.u_lutEnabled && !!resolvedProfile.lutBlend;
-  filmUniforms.u_lutMixFactor = resolvedProfile.lutBlend?.mixFactor ?? 0;
-  const halationUniforms = resolveHalationBloomUniformsV3(sanitizedFilmProfile);
 
-  renderer.render(
-    geometry,
-    master,
-    hsl,
-    curve,
-    detail,
-    filmUniforms,
-    {
-      skipGeometry: true,
-      skipDetail: true,
-      skipHalationBloom: true,
-    },
-    halationUniforms
-  );
+  renderer.render(geometry, master, hsl, curve, detail, filmUniforms, {
+    skipGeometry: true,
+    skipDetail: true,
+    skipHalationBloom: true,
+  }, halationUniforms);
 
   const pixels = await renderer.extractPixelsAsync();
   return pixelsToCube(pixels, width, height, size);

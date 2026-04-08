@@ -27,14 +27,6 @@ import outputEncodeFragSrc from "./shaders/OutputEncode.frag?raw";
 import layerBlendFragSrc from "./shaders/LayerBlend.frag?raw";
 import linearGradientMaskFragSrc from "./shaders/LinearGradientMask.frag?raw";
 import radialGradientMaskFragSrc from "./shaders/RadialGradientMask.frag?raw";
-import filter2dAdjustFragSrc from "./shaders/Filter2dAdjust.frag?raw";
-import dilateFragSrc from "./shaders/Dilate.frag?raw";
-import localMaskRangeGateFragSrc from "./shaders/LocalMaskRangeGate.frag?raw";
-import brushMaskStampFragSrc from "./shaders/BrushMaskStamp.frag?raw";
-import maskInvertFragSrc from "./shaders/MaskInvert.frag?raw";
-import asciiCarrierFragSrc from "./shaders/AsciiCarrier.frag?raw";
-import asciiTextmodeFragSrc from "./shaders/AsciiTextmode.frag?raw";
-import timestampOverlayFragSrc from "./shaders/TimestampOverlay.frag?raw";
 
 export interface RendererPrograms {
   passthrough: ProgramInfo;
@@ -62,14 +54,6 @@ export interface RendererPrograms {
   maskedBlend: ProgramInfo;
   linearGradientMask: ProgramInfo;
   radialGradientMask: ProgramInfo;
-  filter2dAdjust: ProgramInfo;
-  dilate: ProgramInfo;
-  localMaskRangeGate: ProgramInfo;
-  brushMaskStamp: ProgramInfo;
-  maskInvert: ProgramInfo;
-  asciiCarrier: ProgramInfo;
-  asciiTextmode: ProgramInfo;
-  timestampOverlay: ProgramInfo;
 }
 
 type ProgramName = keyof RendererPrograms;
@@ -100,14 +84,6 @@ const PROGRAM_FRAGMENTS: Record<ProgramName, string> = {
   maskedBlend: layerBlendFragSrc,
   linearGradientMask: linearGradientMaskFragSrc,
   radialGradientMask: radialGradientMaskFragSrc,
-  filter2dAdjust: filter2dAdjustFragSrc,
-  dilate: dilateFragSrc,
-  localMaskRangeGate: localMaskRangeGateFragSrc,
-  brushMaskStamp: brushMaskStampFragSrc,
-  maskInvert: maskInvertFragSrc,
-  asciiCarrier: asciiCarrierFragSrc,
-  asciiTextmode: asciiTextmodeFragSrc,
-  timestampOverlay: timestampOverlayFragSrc,
 };
 
 const CORE_PRECOMPILE_PROGRAMS: readonly ProgramName[] = [
@@ -129,9 +105,6 @@ export const DEFERRED_WARMUP_PROGRAMS: readonly ProgramName[] = [
   "filmColorLutUber",
   "filmPrintUber",
   "filmEffectsUber",
-  "asciiCarrier",
-  "asciiTextmode",
-  "timestampOverlay",
 ];
 
 const defineLazyProgram = (

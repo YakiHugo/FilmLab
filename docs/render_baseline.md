@@ -1,47 +1,48 @@
-# Render Validation Checklist
+# Render Baseline
 
-## Asset Set
+Generated: 2026-03-06T18:21:21.113Z
 
-Use the fixed sample set under `test-assets/images/`:
+## Asset Manifest
 
-- `R.jpeg`
-- `unsplash_4c7lecfas1M.jpg`
-- `unsplash_6z0Viul75Tg.jpg`
-- `unsplash_e3-Gw5ig2A8.jpg`
-- `unsplash_esZffT2hurY.jpg`
-- `unsplash_F-B7kWlkxDQ.jpg`
-- `unsplash_PhciG8fpRKw.jpg`
-- `unsplash_PVhiLxBe22M.jpg`
-- `unsplash_rPCAP-4bO-M.jpg`
-- `unsplash_uoHwIZx_HLo.jpg`
-- `unsplash_uQtRtfFF4Qk.jpg`
+| File | Size |
+| --- | ---: |
+| `R.jpeg` | 124.9 KB |
+| `unsplash_4c7lecfas1M.jpg` | 81.6 KB |
+| `unsplash_6z0Viul75Tg.jpg` | 293.3 KB |
+| `unsplash_e3-Gw5ig2A8.jpg` | 70.5 KB |
+| `unsplash_esZffT2hurY.jpg` | 210.4 KB |
+| `unsplash_F-B7kWlkxDQ.jpg` | 109.0 KB |
+| `unsplash_PhciG8fpRKw.jpg` | 43.1 KB |
+| `unsplash_PVhiLxBe22M.jpg` | 159.5 KB |
+| `unsplash_rPCAP-4bO-M.jpg` | 137.9 KB |
+| `unsplash_uoHwIZx_HLo.jpg` | 148.0 KB |
+| `unsplash_uQtRtfFF4Qk.jpg` | 53.8 KB |
+| **Total (11 files)** | **1.40 MB** |
 
-## Manual Visual Validation
+## Benchmark Procedure
 
-1. Run `pnpm dev` and open the app.
-2. Load assets from `test-assets/images/`.
-3. Validate preview interactions on a fixed image:
-   - 10s exposure drag
-   - 10s white-balance drag
-   - 10s clarity drag
-   - 10s crop translate drag in Crop mode
-   - 10s brush mask painting in Mask mode
-4. Validate export on the same image after each interaction flow.
-5. Compare preview and export visually for:
-   - stage ordering parity
-   - no missing overlays or masked effects
-   - no geometry drift after crop/rotate operations
-   - no obvious fallback-only artifacts
+1. Run `pnpm dev`, open the app, and load assets from `test-assets/images/`.
+2. Enable timing logs in DevTools:
+   - `localStorage.setItem("filmlab:renderTiming", "1")`
+   - optional: `localStorage.setItem("filmlab:renderTimingVerbose", "1")`
+   - `localStorage.setItem("filmlab:previewInteractionTiming", "1")`
+3. Reload and perform fixed interaction scripts:
+   - 10s exposure drag, 10s WB drag, 10s clarity drag.
+   - 10s crop translate drag in Crop mode.
+   - 10s brush mask painting in Mask mode.
+   - repeat for preview and export scenarios.
+4. Capture console timing logs and compute P50/P95 by mode.
+5. Treat preview interaction summaries as regression gates.
 
-## Visual Gates
+## Preview Interaction Gates
 
-- Crop drag should remain visually continuous without obvious jump-back frames.
-- Brush painting should keep the mask-aligned effect anchored to the painted region.
-- Preview and export should agree on geometry, overlay placement, and final effect order.
-- Renderer failures should degrade to a usable preview rather than a blank frame.
+| Interaction | Avg Frame Interval | Avg Main Thread | Min Samples |
+| --- | ---: | ---: | ---: |
+| Crop Drag | <= 22 ms | <= 10 ms | >= 6 |
+| Brush Paint | <= 20 ms | <= 8 ms | >= 6 |
 
 ## Notes
 
-- Agent-oriented debugging should use structured render trace data and output hashes from the render APIs.
-- There is no packaged CLI trace/hash capture flow; collect agent-oriented diagnostics through focused tests or direct render API calls.
-- Visual review remains the final check for perceptual quality, not the primary debugging workflow.
+- Runtime flags can be forced via `filmlab:feature:*` keys for rollback tests.
+- Export concurrency baseline can be pinned via `filmlab:exportConcurrency`.
+

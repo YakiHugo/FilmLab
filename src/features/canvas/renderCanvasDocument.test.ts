@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createDefaultAdjustments } from "@/lib/adjustments";
 import { createDefaultCanvasImageRenderState, renderSingleImageToCanvas } from "@/render/image";
 import type { Asset, CanvasWorkbench } from "@/types";
 import { normalizeCanvasWorkbench } from "./studioPresets";
@@ -25,8 +26,11 @@ const createAsset = (): Asset => ({
   createdAt: "2026-03-17T00:00:00.000Z",
   objectUrl: "blob:asset-1",
   thumbnailUrl: "blob:asset-1-thumb",
+  adjustments: createDefaultAdjustments(),
+  layers: [],
   tags: [],
   importDay: "2026-03-17",
+  group: "2026-03-17",
   origin: "file",
   remote: {
     status: "local_only",
@@ -354,34 +358,6 @@ describe("renderCanvasWorkbench", () => {
     expect(renderSingleImageToCanvas).not.toHaveBeenCalled();
     expect(mainContext.fillText).toHaveBeenCalledWith("Visible copy", 0, 0);
     expect(mainContext.fillText).toHaveBeenCalledTimes(1);
-  });
-
-  it("fails export for unresolved legacy image nodes instead of silently dropping them", async () => {
-    vi.stubGlobal("document", {
-      createElement: vi.fn(() => createCanvas()),
-    });
-
-    const mainContext = createContext();
-    const mainCanvas = createCanvas(mainContext);
-    const canvasDocument = createCanvasWorkbench();
-    const imageElement = canvasDocument.elements[0];
-    if (!imageElement || imageElement.type !== "image") {
-      throw new Error("Expected image element.");
-    }
-    delete imageElement.renderState;
-
-    await expect(
-      renderCanvasWorkbenchToCanvas({
-        assets: [createAsset()],
-        canvas: mainCanvas as unknown as HTMLCanvasElement,
-        document: canvasDocument,
-        height: 1600,
-        pixelRatio: 1,
-        width: 2000,
-      })
-    ).rejects.toThrow("Missing canonical render state for canvas image element image-1.");
-
-    expect(renderSingleImageToCanvas).not.toHaveBeenCalled();
   });
 
   it("renders shape gradients through the export fill pipeline", async () => {

@@ -1,0 +1,36 @@
+{
+  "baseline": "4629e83",
+  "currentTaskId": null,
+  "tasks": [
+    {
+      "id": "1",
+      "title": "add task artifacts and shared image-lab view contracts",
+      "status": "done",
+      "passes": true
+    },
+    {
+      "id": "2",
+      "title": "project conversation routes through application services and new DTOs",
+      "status": "done",
+      "passes": true
+    },
+    {
+      "id": "3",
+      "title": "rewrite frontend image-lab state around server conversation views and transient UI state",
+      "status": "done",
+      "passes": true
+    },
+    {
+      "id": "4",
+      "title": "remove browser session persistence and obsolete indexeddb/session store code",
+      "status": "done",
+      "passes": true
+    },
+    {
+      "id": "5",
+      "title": "run validation and resolve regressions",
+      "status": "done",
+      "passes": true
+    }
+  ]
+}

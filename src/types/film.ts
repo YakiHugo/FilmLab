@@ -262,13 +262,14 @@ export type FilmProfileAny = FilmProfile | FilmProfileV2 | FilmProfileV3;
 export interface ResolvedPushPull {
   enabled: boolean;
   ev: number;
-  source: "none" | "profile" | "state";
+  source: "none" | "profile" | "adjustments";
   selectedStop: number | null;
 }
 
 export interface ResolvedRenderProfile {
-  mode: "v3";
+  mode: "legacy-v1" | "v3";
   source: FilmProfileAny;
+  legacyV1?: FilmProfile;
   v2: FilmProfileV2;
   v3: FilmProfileV3;
   lut:

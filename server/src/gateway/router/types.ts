@@ -1,15 +1,17 @@
 import type {
   ImageModelFamilyId,
   ImageProviderId,
+  RequestedImageGenerationTarget,
 } from "../../../../shared/imageGeneration";
-import type { RequestedImageGenerationTarget } from "../../../../shared/imageGenerationSchema";
 import type {
   FrontendImageModelId,
   ImageCapabilityId,
+  ImageDeploymentId,
   ImageGenerationConstraintSummary,
   ImageModelDefaults,
   ImageModelPromptCompilerCapabilities,
   LogicalImageModelId,
+  ProviderModelId,
 } from "../../../../shared/imageModelCatalog";
 import type { ImageModelParamDefinition } from "../../../../shared/imageModelParamTypes";
 
@@ -34,10 +36,10 @@ export interface FrontendModelSpec {
 }
 
 export interface DeploymentSpec {
-  id: string;
+  id: ImageDeploymentId;
   logicalModel: LogicalImageModelId;
   provider: RuntimeProviderId;
-  providerModel: string;
+  providerModel: ProviderModelId;
   capability: ImageCapabilityId;
   enabled: boolean;
   priority: number;
