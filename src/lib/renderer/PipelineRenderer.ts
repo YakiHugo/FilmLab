@@ -890,7 +890,8 @@ export class PipelineRenderer {
         } finally {
           passthrough.release();
         }
-      } catch {
+      } catch (error) {
+        if (!this.contextLost) console.error(error);
         return false;
       }
     }
@@ -975,7 +976,8 @@ export class PipelineRenderer {
         result.release();
       }
       return true;
-    } catch {
+    } catch (error) {
+      if (!this.contextLost) console.error(error);
       return false;
     }
   }
@@ -1060,7 +1062,8 @@ export class PipelineRenderer {
         result.release();
       }
       return true;
-    } catch {
+    } catch (error) {
+      if (!this.contextLost) console.error(error);
       return false;
     } finally {
       this.gl.deleteTexture(maskTexture);
@@ -1160,7 +1163,8 @@ export class PipelineRenderer {
           },
         });
         return true;
-      } catch {
+      } catch (error) {
+        if (!this.contextLost) console.error(error);
         return false;
       }
     }
@@ -1225,7 +1229,8 @@ export class PipelineRenderer {
         },
       });
       return true;
-    } catch {
+    } catch (error) {
+      if (!this.contextLost) console.error(error);
       return false;
     }
   }
@@ -1889,7 +1894,8 @@ export class PipelineRenderer {
       } finally {
         composited.release();
       }
-    } catch {
+    } catch (error) {
+      if (!this.contextLost) console.error(error);
       return false;
     }
   }
@@ -1963,7 +1969,8 @@ export class PipelineRenderer {
         analysisGrid.release();
         composited.release();
       }
-    } catch {
+    } catch (error) {
+      if (!this.contextLost) console.error(error);
       return false;
     }
   }
@@ -2091,7 +2098,8 @@ export class PipelineRenderer {
       } finally {
         composited.release();
       }
-    } catch {
+    } catch (error) {
+      if (!this.contextLost) console.error(error);
       return false;
     }
   }
