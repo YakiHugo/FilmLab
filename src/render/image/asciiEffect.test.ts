@@ -5,28 +5,26 @@ import {
   createAsciiTextmodeSurface,
   materializeAsciiTextmodeSurface,
   normalizeImageAsciiEffectParams,
+  resolveAsciiForegroundBlendMode,
 } from "./asciiEffect";
 
 const getOrCreateAsciiAnalysisEntryMock = vi.fn();
-const applyAsciiCarrierOnGpuMock = vi.fn();
-const applyAsciiCarrierOnGpuToSurfaceMock = vi.fn();
-const applyAsciiTextmodeOnGpuMock = vi.fn();
-const applyAsciiTextmodeOnGpuToSurfaceMock = vi.fn();
+const runRendererCanvasOperationMock = vi.fn();
+const runRendererSurfaceOperationMock = vi.fn();
+const materializeSurfaceToCanvasMock = vi.fn();
 
 vi.mock("./asciiAnalysis", () => ({
   getOrCreateAsciiAnalysisEntry: (...args: unknown[]) =>
     Reflect.apply(getOrCreateAsciiAnalysisEntryMock, undefined, args),
 }));
 
-vi.mock("./asciiGpuPresentation", () => ({
-  applyAsciiCarrierOnGpu: (...args: unknown[]) =>
-    Reflect.apply(applyAsciiCarrierOnGpuMock, undefined, args),
-  applyAsciiCarrierOnGpuToSurface: (...args: unknown[]) =>
-    Reflect.apply(applyAsciiCarrierOnGpuToSurfaceMock, undefined, args),
-  applyAsciiTextmodeOnGpu: (...args: unknown[]) =>
-    Reflect.apply(applyAsciiTextmodeOnGpuMock, undefined, args),
-  applyAsciiTextmodeOnGpuToSurface: (...args: unknown[]) =>
-    Reflect.apply(applyAsciiTextmodeOnGpuToSurfaceMock, undefined, args),
+vi.mock("@/lib/renderer/gpuSurfaceOperation", () => ({
+  runRendererCanvasOperation: (...args: unknown[]) =>
+    Reflect.apply(runRendererCanvasOperationMock, undefined, args),
+  runRendererSurfaceOperation: (...args: unknown[]) =>
+    Reflect.apply(runRendererSurfaceOperationMock, undefined, args),
+  materializeSurfaceToCanvas: (...args: unknown[]) =>
+    Reflect.apply(materializeSurfaceToCanvasMock, undefined, args),
 }));
 
 const createMockContext = () => ({
@@ -132,10 +130,9 @@ const createMockAnalysisEntry = ({
 describe("asciiEffect", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    applyAsciiCarrierOnGpuMock.mockResolvedValue(false);
-    applyAsciiCarrierOnGpuToSurfaceMock.mockResolvedValue(null);
-    applyAsciiTextmodeOnGpuMock.mockResolvedValue(false);
-    applyAsciiTextmodeOnGpuToSurfaceMock.mockResolvedValue(null);
+    runRendererCanvasOperationMock.mockResolvedValue(false);
+    runRendererSurfaceOperationMock.mockResolvedValue(null);
+    materializeSurfaceToCanvasMock.mockReturnValue(false);
     getOrCreateAsciiAnalysisEntryMock.mockReturnValue(createMockAnalysisEntry());
     vi.stubGlobal("document", {
       createElement: vi.fn(() => createMockCanvas()),
@@ -144,6 +141,19 @@ describe("asciiEffect", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("maps supported canvas blend modes onto renderer blend modes", () => {
+    expect(resolveAsciiForegroundBlendMode("source-over")).toBe("normal");
+    expect(resolveAsciiForegroundBlendMode("multiply")).toBe("multiply");
+    expect(resolveAsciiForegroundBlendMode("screen")).toBe("screen");
+    expect(resolveAsciiForegroundBlendMode("overlay")).toBe("overlay");
+    expect(resolveAsciiForegroundBlendMode("soft-light")).toBe("softLight");
+  });
+
+  it("rejects unsupported canvas blend modes so callers can fall back to CPU", () => {
+    expect(resolveAsciiForegroundBlendMode("difference")).toBeNull();
+    expect(resolveAsciiForegroundBlendMode("hard-light")).toBeNull();
   });
 
   it("normalizes and clamps the richer ascii carrier params", () => {
@@ -265,13 +275,14 @@ describe("asciiEffect", () => {
     });
 
     expect(didApply).toBe(true);
-    expect(applyAsciiTextmodeOnGpuMock).toHaveBeenCalledTimes(1);
+    expect(runRendererCanvasOperationMock).toHaveBeenCalledTimes(1);
+    expect(runRendererSurfaceOperationMock).toHaveBeenCalledTimes(1);
     expect(targetContext.clearRect).not.toHaveBeenCalled();
     expect(targetContext.drawImage).toHaveBeenCalled();
   });
 
   it("prefers the direct GPU carrier path before building CPU analysis artifacts", async () => {
-    applyAsciiCarrierOnGpuMock.mockResolvedValue(true);
+    runRendererCanvasOperationMock.mockResolvedValue(true);
 
     const didApply = await applyImageAsciiCarrierTransform({
       targetCanvas: createMockCanvas({ context: createMockContext() }),
@@ -288,18 +299,20 @@ describe("asciiEffect", () => {
     });
 
     expect(didApply).toBe(true);
-    expect(applyAsciiCarrierOnGpuMock).toHaveBeenCalledTimes(1);
-    expect(applyAsciiCarrierOnGpuMock).toHaveBeenCalledWith(
+    expect(runRendererCanvasOperationMock).toHaveBeenCalledTimes(1);
+    expect(runRendererCanvasOperationMock).toHaveBeenCalledWith(
       expect.objectContaining({
         mode: "export",
       })
     );
     expect(getOrCreateAsciiAnalysisEntryMock).not.toHaveBeenCalled();
-    expect(applyAsciiTextmodeOnGpuMock).not.toHaveBeenCalled();
+    expect(runRendererSurfaceOperationMock).not.toHaveBeenCalled();
   });
 
   it("prefers the GPU textmode presenter when available", async () => {
-    applyAsciiTextmodeOnGpuMock.mockResolvedValue(true);
+    const mockSurface = { materializeToCanvas: vi.fn() };
+    runRendererSurfaceOperationMock.mockResolvedValue(mockSurface);
+    materializeSurfaceToCanvasMock.mockReturnValue(true);
     const targetContext = createMockContext();
     const targetCanvas = createMockCanvas({ context: targetContext });
 
@@ -318,12 +331,13 @@ describe("asciiEffect", () => {
     });
 
     expect(didApply).toBe(true);
-    expect(applyAsciiTextmodeOnGpuMock).toHaveBeenCalledTimes(1);
-    expect(applyAsciiTextmodeOnGpuMock).toHaveBeenCalledWith(
+    expect(runRendererSurfaceOperationMock).toHaveBeenCalledTimes(1);
+    expect(runRendererSurfaceOperationMock).toHaveBeenCalledWith(
       expect.objectContaining({
         mode: "export",
       })
     );
+    expect(materializeSurfaceToCanvasMock).toHaveBeenCalledTimes(1);
     expect(targetContext.drawImage).not.toHaveBeenCalled();
   });
 
