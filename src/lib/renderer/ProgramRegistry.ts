@@ -32,9 +32,15 @@ import dilateFragSrc from "./shaders/Dilate.frag?raw";
 import localMaskRangeGateFragSrc from "./shaders/LocalMaskRangeGate.frag?raw";
 import brushMaskStampFragSrc from "./shaders/BrushMaskStamp.frag?raw";
 import maskInvertFragSrc from "./shaders/MaskInvert.frag?raw";
-import asciiCarrierFragSrc from "./shaders/AsciiCarrier.frag?raw";
-import asciiTextmodeFragSrc from "./shaders/AsciiTextmode.frag?raw";
+import asciiCarrierFragRaw from "./shaders/AsciiCarrier.frag?raw";
+import asciiTextmodeFragRaw from "./shaders/AsciiTextmode.frag?raw";
+import asciiCommonGlsl from "./shaders/templates/asciiCommon.glsl?raw";
 import timestampOverlayFragSrc from "./shaders/TimestampOverlay.frag?raw";
+
+const ASCII_COMMON_MARKER = "// #ASCII_COMMON#";
+const injectAsciiCommon = (source: string) => source.replace(ASCII_COMMON_MARKER, asciiCommonGlsl);
+const asciiCarrierFragSrc = injectAsciiCommon(asciiCarrierFragRaw);
+const asciiTextmodeFragSrc = injectAsciiCommon(asciiTextmodeFragRaw);
 
 export interface RendererPrograms {
   passthrough: ProgramInfo;
