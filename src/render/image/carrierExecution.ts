@@ -12,6 +12,7 @@ import type {
   ImageRenderDocument,
   ImageRenderRequest,
 } from "./types";
+import { buildSourceRevisionKey } from "./types";
 
 interface CarrierSnapshots {
   develop: HTMLCanvasElement | null;
@@ -33,6 +34,7 @@ export const applyImageCarrierTransforms = async ({
   snapshots: CarrierSnapshots;
   stageReferenceCanvas?: HTMLCanvasElement;
 }) => {
+  const sourceRevisionKey = buildSourceRevisionKey(document);
   for (const transform of carrierTransforms) {
     const sourceCanvas =
       transform.analysisSource === "develop" ? snapshots.develop ?? snapshots.style : snapshots.style;
@@ -44,7 +46,7 @@ export const applyImageCarrierTransforms = async ({
         transform,
         quality: request.quality,
         mode: request.intent === "export" ? "export" : "preview",
-        revisionKey: document.revisionKey,
+        sourceRevisionKey,
         targetSize: request.targetSize,
         maskRevisionKey: null,
       });
@@ -62,7 +64,7 @@ export const applyImageCarrierTransforms = async ({
           transform,
           quality: request.quality,
           mode: request.intent === "export" ? "export" : "preview",
-          revisionKey: document.revisionKey,
+          sourceRevisionKey,
           targetSize: request.targetSize,
           maskRevisionKey,
         });
@@ -86,6 +88,7 @@ export const applyImageCarrierTransformsToSurfaceIfSupported = async ({
   snapshots: CarrierSnapshots;
   stageReferenceCanvas?: HTMLCanvasElement;
 }): Promise<RenderSurfaceHandle | null> => {
+  const sourceRevisionKey = buildSourceRevisionKey(document);
   let currentSurface = surface;
 
   for (const transform of carrierTransforms) {
@@ -103,7 +106,7 @@ export const applyImageCarrierTransformsToSurfaceIfSupported = async ({
           sourceCanvas,
           transform,
           quality: request.quality,
-          revisionKey: document.revisionKey,
+          sourceRevisionKey,
           targetSize: request.targetSize,
           maskRevisionKey,
         }),

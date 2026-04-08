@@ -305,14 +305,14 @@ export const createAsciiFeatureGrid = async ({
   sourceCanvas,
   transform,
   quality,
-  revisionKey,
+  sourceRevisionKey,
   targetSize,
   maskRevisionKey,
 }: {
   sourceCanvas: HTMLCanvasElement;
   transform: ImageAsciiCarrierTransformNode;
   quality: ImageRenderQuality;
-  revisionKey: string;
+  sourceRevisionKey: string;
   targetSize: ImageRenderTargetSize;
   maskRevisionKey?: string | null;
 }): Promise<FeatureGrid> => {
@@ -323,7 +323,7 @@ export const createAsciiFeatureGrid = async ({
     targetSize,
   });
   const analysis = await getOrCreateAsciiAnalysisEntry({
-    revisionKey,
+    sourceRevisionKey,
     stage: "carrier",
     analysisSource: transform.analysisSource,
     targetSize,
@@ -714,7 +714,7 @@ export const applyImageAsciiCarrierTransform = async ({
   transform,
   quality,
   mode = "preview",
-  revisionKey,
+  sourceRevisionKey,
   targetSize,
   maskRevisionKey,
 }: {
@@ -723,7 +723,7 @@ export const applyImageAsciiCarrierTransform = async ({
   transform: ImageAsciiCarrierTransformNode;
   quality: ImageRenderQuality;
   mode?: RenderMode;
-  revisionKey: string;
+  sourceRevisionKey: string;
   targetSize: ImageRenderTargetSize;
   maskRevisionKey?: string | null;
 }) => {
@@ -748,7 +748,7 @@ export const applyImageAsciiCarrierTransform = async ({
       sourceCanvas,
       transform,
       quality,
-      revisionKey,
+      sourceRevisionKey,
       targetSize,
       maskRevisionKey,
     }),
@@ -756,7 +756,7 @@ export const applyImageAsciiCarrierTransform = async ({
     transform,
     cacheKey: [
       "ascii-textmode",
-      revisionKey,
+      sourceRevisionKey,
       transform.id,
       quality,
       maskRevisionKey ?? "none",
@@ -784,7 +784,7 @@ export const applyImageAsciiCarrierTransformToSurfaceIfSupported = async ({
   sourceCanvas,
   transform,
   quality,
-  revisionKey,
+  sourceRevisionKey,
   targetSize,
   maskRevisionKey,
 }: {
@@ -792,7 +792,7 @@ export const applyImageAsciiCarrierTransformToSurfaceIfSupported = async ({
   sourceCanvas: HTMLCanvasElement;
   transform: ImageAsciiCarrierTransformNode;
   quality: ImageRenderQuality;
-  revisionKey: string;
+  sourceRevisionKey: string;
   targetSize: ImageRenderTargetSize;
   maskRevisionKey?: string | null;
 }): Promise<RenderSurfaceHandle | null> => {
@@ -816,7 +816,7 @@ export const applyImageAsciiCarrierTransformToSurfaceIfSupported = async ({
     sourceCanvas,
     transform,
     quality,
-    revisionKey,
+    sourceRevisionKey,
     targetSize,
     maskRevisionKey,
   });
@@ -826,7 +826,7 @@ export const applyImageAsciiCarrierTransformToSurfaceIfSupported = async ({
     transform,
     cacheKey: [
       "ascii-textmode",
-      revisionKey,
+      sourceRevisionKey,
       transform.id,
       quality,
       maskRevisionKey ?? "none",

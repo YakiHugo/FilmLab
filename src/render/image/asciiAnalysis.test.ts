@@ -60,7 +60,7 @@ describe("asciiAnalysis", () => {
 
   it("builds a stable cache key for equivalent requests", () => {
     const first = buildAsciiAnalysisCacheKey({
-      revisionKey: "rev-1",
+      sourceRevisionKey: "rev-1",
       stage: "carrier",
       analysisSource: "style",
       targetSize: {
@@ -71,7 +71,7 @@ describe("asciiAnalysis", () => {
       ...createLayout(),
     });
     const second = buildAsciiAnalysisCacheKey({
-      revisionKey: "rev-1",
+      sourceRevisionKey: "rev-1",
       stage: "carrier",
       analysisSource: "style",
       targetSize: {
@@ -87,7 +87,7 @@ describe("asciiAnalysis", () => {
 
   it("changes the cache key when the snapshot source or quality changes", () => {
     const styleAnalysis = buildAsciiAnalysisCacheKey({
-      revisionKey: "rev-1",
+      sourceRevisionKey: "rev-1",
       stage: "carrier",
       analysisSource: "style",
       targetSize: {
@@ -98,7 +98,7 @@ describe("asciiAnalysis", () => {
       ...createLayout(),
     });
     const developAnalysis = buildAsciiAnalysisCacheKey({
-      revisionKey: "rev-1",
+      sourceRevisionKey: "rev-1",
       stage: "carrier",
       analysisSource: "develop",
       targetSize: {
@@ -109,7 +109,7 @@ describe("asciiAnalysis", () => {
       ...createLayout(),
     });
     const interactive = buildAsciiAnalysisCacheKey({
-      revisionKey: "rev-1",
+      sourceRevisionKey: "rev-1",
       stage: "carrier",
       analysisSource: "style",
       targetSize: {
@@ -126,7 +126,7 @@ describe("asciiAnalysis", () => {
 
   it("changes the cache key when mask revision changes", () => {
     const base = buildAsciiAnalysisCacheKey({
-      revisionKey: "rev-1",
+      sourceRevisionKey: "rev-1",
       stage: "carrier",
       analysisSource: "style",
       targetSize: {
@@ -138,7 +138,7 @@ describe("asciiAnalysis", () => {
       maskRevisionKey: "mask-a",
     });
     const differentMask = buildAsciiAnalysisCacheKey({
-      revisionKey: "rev-1",
+      sourceRevisionKey: "rev-1",
       stage: "carrier",
       analysisSource: "style",
       targetSize: {
@@ -162,7 +162,7 @@ describe("asciiAnalysis", () => {
     );
 
     const entry = await getOrCreateAsciiAnalysisEntry({
-      revisionKey: "rev-gpu",
+      sourceRevisionKey: "rev-gpu",
       stage: "carrier",
       analysisSource: "style",
       targetSize: {
@@ -210,7 +210,7 @@ describe("asciiAnalysis", () => {
     });
 
     const entry = await getOrCreateAsciiAnalysisEntry({
-      revisionKey: "rev-cpu",
+      sourceRevisionKey: "rev-cpu",
       stage: "carrier",
       analysisSource: "style",
       targetSize: {

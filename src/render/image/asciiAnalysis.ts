@@ -7,7 +7,7 @@ import type {
 } from "./types";
 
 export interface AsciiAnalysisCacheKeyInput {
-  revisionKey: string;
+  sourceRevisionKey: string;
   stage: "carrier";
   analysisSource: ImageAnalysisSource;
   targetSize: ImageRenderTargetSize;
@@ -204,7 +204,7 @@ const readAsciiCellRgbaOnGpuIfSupported = async ({
 };
 
 export const buildAsciiAnalysisCacheKey = ({
-  revisionKey,
+  sourceRevisionKey,
   stage,
   analysisSource,
   targetSize,
@@ -217,7 +217,7 @@ export const buildAsciiAnalysisCacheKey = ({
 }: AsciiAnalysisCacheKeyInput) =>
   [
     "ascii-analysis",
-    revisionKey,
+    sourceRevisionKey,
     stage,
     analysisSource,
     quality,
@@ -227,7 +227,7 @@ export const buildAsciiAnalysisCacheKey = ({
     `${Math.max(1, Math.round(columns))}x${Math.max(1, Math.round(rows))}`,
     hashString(
       [
-        revisionKey,
+        sourceRevisionKey,
         stage,
         analysisSource,
         quality,
@@ -243,7 +243,7 @@ export const buildAsciiAnalysisCacheKey = ({
   ].join(":");
 
 export const getOrCreateAsciiAnalysisEntry = async ({
-  revisionKey,
+  sourceRevisionKey,
   stage,
   analysisSource,
   targetSize,
@@ -258,7 +258,7 @@ export const getOrCreateAsciiAnalysisEntry = async ({
   sourceCanvas: HTMLCanvasElement;
 }) => {
   const key = buildAsciiAnalysisCacheKey({
-    revisionKey,
+    sourceRevisionKey,
     stage,
     analysisSource,
     targetSize,
