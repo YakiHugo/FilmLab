@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
 import {
   applyImageAsciiCarrierTransform,
+  applyImageCarrierTransforms,
+  applyImageCarrierTransformsToSurfaceIfSupported,
   createAsciiFeatureGrid,
   createAsciiTextmodeSurface,
   materializeAsciiTextmodeSurface,
@@ -12,6 +15,8 @@ const getOrCreateAsciiAnalysisEntryMock = vi.fn();
 const runRendererCanvasOperationMock = vi.fn();
 const runRendererSurfaceOperationMock = vi.fn();
 const materializeSurfaceToCanvasMock = vi.fn();
+const applyMaskedStageOperationMock = vi.fn();
+const applyMaskedStageOperationToSurfaceIfSupportedMock = vi.fn();
 
 vi.mock("./asciiAnalysis", () => ({
   getOrCreateAsciiAnalysisEntry: (...args: unknown[]) =>
@@ -25,6 +30,13 @@ vi.mock("@/lib/renderer/gpuSurfaceOperation", () => ({
     Reflect.apply(runRendererSurfaceOperationMock, undefined, args),
   materializeSurfaceToCanvas: (...args: unknown[]) =>
     Reflect.apply(materializeSurfaceToCanvasMock, undefined, args),
+}));
+
+vi.mock("./stageMaskComposite", () => ({
+  applyMaskedStageOperation: (...args: unknown[]) =>
+    Reflect.apply(applyMaskedStageOperationMock, undefined, args),
+  applyMaskedStageOperationToSurfaceIfSupported: (...args: unknown[]) =>
+    Reflect.apply(applyMaskedStageOperationToSurfaceIfSupportedMock, undefined, args),
 }));
 
 const createMockContext = () => ({
@@ -134,6 +146,18 @@ describe("asciiEffect", () => {
     runRendererSurfaceOperationMock.mockResolvedValue(null);
     materializeSurfaceToCanvasMock.mockReturnValue(false);
     getOrCreateAsciiAnalysisEntryMock.mockReturnValue(createMockAnalysisEntry());
+    applyMaskedStageOperationMock.mockImplementation(
+      async ({ applyOperation, canvas }: { applyOperation: (args: { canvas: HTMLCanvasElement; maskRevisionKey: string | null }) => Promise<void>; canvas: HTMLCanvasElement }) =>
+        applyOperation({ canvas, maskRevisionKey: null })
+    );
+    applyMaskedStageOperationToSurfaceIfSupportedMock.mockImplementation(
+      async ({ surface, maskDefinition, applyOperation }: { surface: RenderSurfaceHandle; maskDefinition: { id: string } | null; applyOperation: (args: { surface: RenderSurfaceHandle; maskRevisionKey: string | null }) => Promise<RenderSurfaceHandle | null> }) => {
+        if (!maskDefinition) {
+          return applyOperation({ surface, maskRevisionKey: null });
+        }
+        return applyOperation({ surface, maskRevisionKey: `mask:${maskDefinition.id}` });
+      }
+    );
     vi.stubGlobal("document", {
       createElement: vi.fn(() => createMockCanvas()),
     });
@@ -369,5 +393,110 @@ describe("asciiEffect", () => {
 
     expect(didMaterialize).toBe(true);
     expect(targetContext.drawImage).toHaveBeenCalled();
+  });
+
+  it("chains unmasked ascii carriers on renderer surfaces", async () => {
+    const targetSize = { width: 128, height: 72 };
+    const createCarrierSurface = (id: string) =>
+      ({
+        sourceCanvas: createMockCanvas({ width: targetSize.width, height: targetSize.height }),
+        mode: "preview",
+        _testId: id,
+      }) as unknown as RenderSurfaceHandle;
+
+    const initialSurface = createCarrierSurface("initial");
+    const firstResult = createCarrierSurface("first");
+    const secondResult = createCarrierSurface("second");
+    runRendererSurfaceOperationMock
+      .mockResolvedValueOnce(firstResult)
+      .mockResolvedValueOnce(secondResult);
+
+    const transform = createAsciiTransform();
+    const result = await applyImageCarrierTransformsToSurfaceIfSupported({
+      surface: initialSurface,
+      carrierTransforms: [
+        { ...transform, id: "ascii-1", analysisSource: "style" as const },
+        { ...transform, id: "ascii-2", analysisSource: "style" as const },
+      ],
+      document: { sourceRevisionKey: "rev-1", masks: { byId: {} } } as never,
+      request: { intent: "preview", quality: "interactive", targetSize } as never,
+      snapshots: {
+        develop: null,
+        style: createMockCanvas({ width: targetSize.width, height: targetSize.height }),
+      },
+    });
+
+    expect(result).toBe(secondResult);
+    expect(runRendererSurfaceOperationMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("supports masked carriers through the surface-aware stage mask path", async () => {
+    const targetSize = { width: 128, height: 72 };
+    const initialSurface = {
+      sourceCanvas: createMockCanvas({ width: targetSize.width, height: targetSize.height }),
+      mode: "preview",
+    } as unknown as RenderSurfaceHandle;
+    const maskedResult = {
+      sourceCanvas: createMockCanvas({ width: targetSize.width, height: targetSize.height }),
+      mode: "preview",
+    } as unknown as RenderSurfaceHandle;
+    runRendererSurfaceOperationMock.mockResolvedValueOnce(maskedResult);
+
+    const transform = createAsciiTransform();
+    const result = await applyImageCarrierTransformsToSurfaceIfSupported({
+      surface: initialSurface,
+      carrierTransforms: [
+        { ...transform, id: "ascii-1", analysisSource: "style" as const, maskId: "mask-1" },
+      ],
+      document: {
+        sourceRevisionKey: "rev-1",
+        masks: {
+          byId: {
+            "mask-1": {
+              id: "mask-1",
+              kind: "local-adjustment",
+              sourceLocalAdjustmentId: "local-1",
+              mask: { mode: "radial", centerX: 0.5, centerY: 0.5, radiusX: 0.3, radiusY: 0.3, feather: 0.2 },
+            },
+          },
+        },
+      } as never,
+      request: { intent: "preview", quality: "interactive", targetSize } as never,
+      snapshots: {
+        develop: null,
+        style: createMockCanvas({ width: targetSize.width, height: targetSize.height }),
+      },
+    });
+
+    expect(result).toBe(maskedResult);
+    expect(applyMaskedStageOperationToSurfaceIfSupportedMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        surface: initialSurface,
+        maskDefinition: expect.objectContaining({ id: "mask-1" }),
+        blendSlotId: "carrier-mask:ascii-1",
+      })
+    );
+  });
+
+  it("passes export mode through the canvas carrier path", async () => {
+    runRendererCanvasOperationMock.mockResolvedValue(true);
+    const targetSize = { width: 128, height: 72 };
+
+    await applyImageCarrierTransforms({
+      canvas: createMockCanvas({ width: targetSize.width, height: targetSize.height }),
+      carrierTransforms: [
+        { ...createAsciiTransform(), id: "ascii-export", analysisSource: "style" as const },
+      ],
+      document: { sourceRevisionKey: "rev-1", masks: { byId: {} } } as never,
+      request: { intent: "export", quality: "full", targetSize } as never,
+      snapshots: {
+        develop: null,
+        style: createMockCanvas({ width: targetSize.width, height: targetSize.height }),
+      },
+    });
+
+    expect(runRendererCanvasOperationMock).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "export" })
+    );
   });
 });
