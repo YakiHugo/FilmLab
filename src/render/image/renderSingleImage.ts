@@ -207,7 +207,7 @@ export const renderSingleImageToCanvas = async ({
   let developBaseCanvas: HTMLCanvasElement | null = null;
   let developSnapshotCanvas: HTMLCanvasElement | null = null;
   let finalizeSnapshotCanvas: HTMLCanvasElement | null = null;
-  let baseSurface: RenderSurfaceHandle | null = null;
+  let baseSurface: RenderSurfaceHandle | null;
   let styleEffectsAppliedOnSurface = false;
 
   try {
