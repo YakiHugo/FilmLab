@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { asciiAdjustmentsEqual, buildAsciiOutputToken } from "./asciiRaster";
+import { asciiAdjustmentsEqual, buildAsciiOutputToken } from "./asciiAdjustments";
 
-describe("asciiRaster", () => {
+describe("asciiAdjustments", () => {
   it("builds a stable output token from enabled ascii settings", () => {
     expect(
       buildAsciiOutputToken({
