@@ -231,6 +231,8 @@ interface AsciiGlyphAtlasRecord {
 }
 
 interface AsciiSurfaceTextureCacheRecord {
+  columns: number;
+  rows: number;
   foregroundTexture: WebGLTexture;
   backgroundTexture: WebGLTexture;
   glyphIndexTexture: WebGLTexture;
@@ -318,6 +320,8 @@ export class PipelineRenderer {
   private asciiGlyphAtlasLru: string[] = [];
   private readonly asciiSurfaceTextureCache = new Map<string, AsciiSurfaceTextureCacheRecord>();
   private asciiSurfaceTextureLru: string[] = [];
+  private asciiGlyphIndexStaging: Uint8Array | null = null;
+  private asciiDotRadiusStaging: Uint8Array | null = null;
   private readonly rendererLabel: "preview" | "export";
   private readonly maxTextureSizeValue: number;
   private readonly intermediateFormat: "RGBA8" | "RGBA16F";
@@ -1150,6 +1154,8 @@ export class PipelineRenderer {
     surface: AsciiTextmodeSurfaceInput
   ): AsciiSurfaceTextureCacheRecord {
     return {
+      columns: surface.columns,
+      rows: surface.rows,
       foregroundTexture: this.createAsciiRgbaTexture(
         surface.foregroundRgbaByCell,
         surface.columns,
@@ -1173,6 +1179,37 @@ export class PipelineRenderer {
     };
   }
 
+  private updateAsciiRgbaTexture(
+    texture: WebGLTexture,
+    data: Uint8Array | Uint8ClampedArray,
+    width: number,
+    height: number
+  ): void {
+    this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+    this.gl.texSubImage2D(
+      this.gl.TEXTURE_2D,
+      0,
+      0,
+      0,
+      width,
+      height,
+      this.gl.RGBA,
+      this.gl.UNSIGNED_BYTE,
+      data
+    );
+    this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+  }
+
+  private updateAsciiSurfaceTextureCacheRecord(
+    record: AsciiSurfaceTextureCacheRecord,
+    surface: AsciiTextmodeSurfaceInput
+  ): void {
+    this.updateAsciiRgbaTexture(record.foregroundTexture, surface.foregroundRgbaByCell, surface.columns, surface.rows);
+    this.updateAsciiRgbaTexture(record.backgroundTexture, surface.backgroundRgbaByCell, surface.columns, surface.rows);
+    this.updateAsciiRgbaTexture(record.glyphIndexTexture, this.buildAsciiGlyphIndexTextureData(surface), surface.columns, surface.rows);
+    this.updateAsciiRgbaTexture(record.dotRadiusTexture, this.buildAsciiDotRadiusTextureData(surface), surface.columns, surface.rows);
+  }
+
   private getAsciiSurfaceTextureCacheRecord(
     surface: AsciiTextmodeSurfaceInput
   ): AsciiSurfaceTextureCacheRecord {
@@ -1183,11 +1220,18 @@ export class PipelineRenderer {
 
     const cached = this.asciiSurfaceTextureCache.get(cacheKey);
     if (cached) {
+      if (cached.columns === surface.columns && cached.rows === surface.rows) {
+        this.updateAsciiSurfaceTextureCacheRecord(cached, surface);
+      } else {
+        this.releaseAsciiSurfaceTextureCacheRecord(cached);
+        const recreated = this.createAsciiSurfaceTextureCacheRecord(surface);
+        this.asciiSurfaceTextureCache.set(cacheKey, recreated);
+      }
       this.asciiSurfaceTextureLru = [
         cacheKey,
         ...this.asciiSurfaceTextureLru.filter((key) => key !== cacheKey),
       ];
-      return cached;
+      return this.asciiSurfaceTextureCache.get(cacheKey)!;
     }
 
     const created = this.createAsciiSurfaceTextureCacheRecord(surface);
@@ -1203,24 +1247,34 @@ export class PipelineRenderer {
 
   private buildAsciiGlyphIndexTextureData(surface: AsciiTextmodeSurfaceInput): Uint8Array {
     const cellCount = surface.columns * surface.rows;
-    const data = new Uint8Array(cellCount * 4);
+    const requiredSize = cellCount * 4;
+    if (!this.asciiGlyphIndexStaging || this.asciiGlyphIndexStaging.length < requiredSize) {
+      this.asciiGlyphIndexStaging = new Uint8Array(requiredSize);
+    }
+    const data = this.asciiGlyphIndexStaging;
+    data.fill(0, 0, requiredSize);
     for (let cellIndex = 0; cellIndex < cellCount; cellIndex += 1) {
       const glyphIndex = surface.glyphIndexByCell[cellIndex] ?? surface.emptyGlyphIndex;
       data[cellIndex * 4] =
         glyphIndex === surface.emptyGlyphIndex ? ASCII_GPU_EMPTY_GLYPH_INDEX : Math.min(254, glyphIndex);
       data[cellIndex * 4 + 3] = 255;
     }
-    return data;
+    return data.subarray(0, requiredSize);
   }
 
   private buildAsciiDotRadiusTextureData(surface: AsciiTextmodeSurfaceInput): Uint8Array {
     const cellCount = surface.columns * surface.rows;
-    const data = new Uint8Array(cellCount * 4);
+    const requiredSize = cellCount * 4;
+    if (!this.asciiDotRadiusStaging || this.asciiDotRadiusStaging.length < requiredSize) {
+      this.asciiDotRadiusStaging = new Uint8Array(requiredSize);
+    }
+    const data = this.asciiDotRadiusStaging;
+    data.fill(0, 0, requiredSize);
     for (let cellIndex = 0; cellIndex < cellCount; cellIndex += 1) {
       data[cellIndex * 4] = Math.round(clamp(surface.dotRadiusByCell[cellIndex] ?? 0, 0, 255));
       data[cellIndex * 4 + 3] = 255;
     }
-    return data;
+    return data.subarray(0, requiredSize);
   }
 
   private releaseAsciiGlyphAtlasRecord(record: AsciiGlyphAtlasRecord): void {
@@ -2390,6 +2444,8 @@ export class PipelineRenderer {
     }
     this.asciiSurfaceTextureCache.clear();
     this.asciiSurfaceTextureLru = [];
+    this.asciiGlyphIndexStaging = null;
+    this.asciiDotRadiusStaging = null;
 
     this.gl.deleteTexture(this.curveLutTexture);
     this.gl.deleteTexture(this.blueNoiseTexture);
