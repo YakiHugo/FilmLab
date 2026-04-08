@@ -30,70 +30,30 @@ uniform bool u_useCellBackground;
 uniform bool u_gridOverlay;
 uniform float u_gridOverlayAlpha;
 
-const float ALPHA_CUTOFF = 0.05;
-const vec3 GRAYSCALE_HIGHLIGHT = vec3(245.0 / 255.0);
-
-vec4 sourceOver(vec4 base, vec4 layer) {
-  float outAlpha = layer.a + base.a * (1.0 - layer.a);
-  if (outAlpha <= 1e-5) {
-    return vec4(0.0);
-  }
-
-  vec3 outRgb =
-    (layer.rgb * layer.a + base.rgb * base.a * (1.0 - layer.a)) / outAlpha;
-  return vec4(clamp(outRgb, 0.0, 1.0), clamp(outAlpha, 0.0, 1.0));
-}
+// #ASCII_COMMON#
 
 ivec2 clampCellCoord(ivec2 cellCoord) {
   return ivec2(clamp(vec2(cellCoord), vec2(0.0), max(u_gridSize - vec2(1.0), vec2(0.0))));
-}
-
-ivec2 resolveCellCoord(vec2 pixel) {
-  vec2 safePixel = clamp(pixel, vec2(0.0), u_canvasSize - vec2(0.0001));
-  vec2 gridCoord = floor(safePixel / max(u_cellSize, vec2(1.0)));
-  return clampCellCoord(ivec2(gridCoord));
-}
-
-vec2 resolveCellLocalUv(vec2 pixel) {
-  vec2 safePixel = clamp(pixel, vec2(0.0), u_canvasSize - vec2(0.0001));
-  return fract(safePixel / max(u_cellSize, vec2(1.0)));
-}
-
-float resolveGridOverlayMask(vec2 pixel) {
-  if (!u_gridOverlay) {
-    return 0.0;
-  }
-  vec2 safeCellSize = max(u_cellSize, vec2(1.0));
-  vec2 local = mod(pixel, safeCellSize);
-  float distX = min(local.x, safeCellSize.x - local.x);
-  float distY = min(local.y, safeCellSize.y - local.y);
-  float vertical = 1.0 - step(1.0, distX);
-  float horizontal = 1.0 - step(1.0, distY);
-  return max(vertical, horizontal);
 }
 
 vec4 sampleCell(ivec2 cellCoord) {
   return texelFetch(uSampler, clampCellCoord(cellCoord), 0);
 }
 
-float resolveLuminance(vec3 color) {
-  return dot(color, vec3(0.2126, 0.7152, 0.0722));
-}
-
 float resolveEdge(ivec2 cellCoord) {
-  float left = resolveLuminance(sampleCell(ivec2(cellCoord.x - 1, cellCoord.y)).rgb);
-  float right = resolveLuminance(sampleCell(ivec2(cellCoord.x + 1, cellCoord.y)).rgb);
-  float up = resolveLuminance(sampleCell(ivec2(cellCoord.x, cellCoord.y - 1)).rgb);
-  float down = resolveLuminance(sampleCell(ivec2(cellCoord.x, cellCoord.y + 1)).rgb);
+  float left = asciiResolveLuminance(sampleCell(ivec2(cellCoord.x - 1, cellCoord.y)).rgb);
+  float right = asciiResolveLuminance(sampleCell(ivec2(cellCoord.x + 1, cellCoord.y)).rgb);
+  float up = asciiResolveLuminance(sampleCell(ivec2(cellCoord.x, cellCoord.y - 1)).rgb);
+  float down = asciiResolveLuminance(sampleCell(ivec2(cellCoord.x, cellCoord.y + 1)).rgb);
   return clamp(abs(right - left) + abs(down - up), 0.0, 1.0);
 }
 
 float resolveTone(ivec2 cellCoord, vec4 cellSample) {
-  if (cellSample.a <= ALPHA_CUTOFF) {
+  if (cellSample.a <= ASCII_ALPHA_CUTOFF) {
     return 0.0;
   }
 
-  float tone = resolveLuminance(cellSample.rgb);
+  float tone = asciiResolveLuminance(cellSample.rgb);
   if (u_invert) {
     tone = 1.0 - tone;
   }
@@ -114,12 +74,12 @@ float resolveTone(ivec2 cellCoord, vec4 cellSample) {
 
 vec3 resolveForegroundColor(vec4 cellSample, float tone) {
   if (u_colorMode > 1.5) {
-    return mix(u_cellBackgroundColor.rgb, GRAYSCALE_HIGHLIGHT, clamp(tone, 0.0, 1.0));
+    return mix(u_cellBackgroundColor.rgb, ASCII_GRAYSCALE_HIGHLIGHT, clamp(tone, 0.0, 1.0));
   }
   if (u_colorMode > 0.5) {
     return clamp(cellSample.rgb, 0.0, 1.0);
   }
-  return GRAYSCALE_HIGHLIGHT;
+  return ASCII_GRAYSCALE_HIGHLIGHT;
 }
 
 vec4 resolveBackgroundLayer(ivec2 cellCoord, vec4 cellSample) {
@@ -129,19 +89,19 @@ vec4 resolveBackgroundLayer(ivec2 cellCoord, vec4 cellSample) {
   } else if (u_useBackgroundFill) {
     color = u_backgroundFill;
   }
-  if (u_useCellBackground && cellSample.a > ALPHA_CUTOFF) {
+  if (u_useCellBackground && cellSample.a > ASCII_ALPHA_CUTOFF) {
     vec4 cellBackground = vec4(
       u_cellBackgroundColor.rgb,
       clamp(u_cellBackgroundColor.a * cellSample.a, 0.0, 1.0)
     );
-    color = sourceOver(color, cellBackground);
+    color = asciiSourceOver(color, cellBackground);
   }
   return color;
 }
 
 vec4 resolveForegroundLayer(vec2 pixel, ivec2 cellCoord, vec2 localUv, vec4 cellSample, float tone) {
   vec4 color = vec4(0.0);
-  if (tone > 0.001 && cellSample.a > ALPHA_CUTOFF) {
+  if (tone > 0.001 && cellSample.a > ASCII_ALPHA_CUTOFF) {
     vec3 foregroundColor = resolveForegroundColor(cellSample, tone);
     float foregroundAlpha =
       clamp(u_foregroundOpacity, 0.0, 1.0) *
@@ -168,18 +128,18 @@ vec4 resolveForegroundLayer(vec2 pixel, ivec2 cellCoord, vec2 localUv, vec4 cell
     }
   }
 
-  float overlayMask = resolveGridOverlayMask(pixel);
+  float overlayMask = asciiResolveGridOverlayMask(pixel, u_cellSize, u_gridOverlay);
   if (overlayMask > 0.0) {
     vec4 overlay = vec4(1.0, 1.0, 1.0, clamp(u_gridOverlayAlpha, 0.0, 1.0) * overlayMask);
-    color = sourceOver(color, overlay);
+    color = asciiSourceOver(color, overlay);
   }
   return color;
 }
 
 void main() {
   vec2 pixel = vTextureCoord * u_canvasSize;
-  ivec2 cellCoord = resolveCellCoord(pixel);
-  vec2 localUv = resolveCellLocalUv(pixel);
+  ivec2 cellCoord = asciiResolveCellCoord(pixel, u_canvasSize, u_cellSize, u_gridSize);
+  vec2 localUv = asciiResolveCellLocalUv(pixel, u_canvasSize, u_cellSize);
   vec4 cellSample = sampleCell(cellCoord);
 
   if (u_layerMode < 0.5) {

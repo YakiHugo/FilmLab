@@ -25,40 +25,7 @@ uniform bool u_useBackgroundFill;
 uniform bool u_gridOverlay;
 uniform float u_gridOverlayAlpha;
 
-vec4 sourceOver(vec4 base, vec4 layer) {
-  float outAlpha = layer.a + base.a * (1.0 - layer.a);
-  if (outAlpha <= 1e-5) {
-    return vec4(0.0);
-  }
-
-  vec3 outRgb =
-    (layer.rgb * layer.a + base.rgb * base.a * (1.0 - layer.a)) / outAlpha;
-  return vec4(clamp(outRgb, 0.0, 1.0), clamp(outAlpha, 0.0, 1.0));
-}
-
-ivec2 resolveCellCoord(vec2 pixel) {
-  vec2 safePixel = clamp(pixel, vec2(0.0), u_canvasSize - vec2(0.0001));
-  vec2 gridCoord = floor(safePixel / max(u_cellSize, vec2(1.0)));
-  return ivec2(clamp(gridCoord, vec2(0.0), max(u_gridSize - vec2(1.0), vec2(0.0))));
-}
-
-vec2 resolveCellLocalUv(vec2 pixel) {
-  vec2 safePixel = clamp(pixel, vec2(0.0), u_canvasSize - vec2(0.0001));
-  return fract(safePixel / max(u_cellSize, vec2(1.0)));
-}
-
-float resolveGridOverlayMask(vec2 pixel) {
-  if (!u_gridOverlay) {
-    return 0.0;
-  }
-  vec2 safeCellSize = max(u_cellSize, vec2(1.0));
-  vec2 local = mod(pixel, safeCellSize);
-  float distX = min(local.x, safeCellSize.x - local.x);
-  float distY = min(local.y, safeCellSize.y - local.y);
-  float vertical = 1.0 - step(1.0, distX);
-  float horizontal = 1.0 - step(1.0, distY);
-  return max(vertical, horizontal);
-}
+// #ASCII_COMMON#
 
 vec4 resolveBackgroundLayer(ivec2 cellCoord) {
   vec4 color = vec4(0.0);
@@ -68,7 +35,7 @@ vec4 resolveBackgroundLayer(ivec2 cellCoord) {
     color = u_backgroundFill;
   }
   vec4 cellBackground = texelFetch(u_cellBackground, cellCoord, 0);
-  return sourceOver(color, cellBackground);
+  return asciiSourceOver(color, cellBackground);
 }
 
 vec4 resolveForegroundLayer(vec2 pixel, ivec2 cellCoord, vec2 localUv) {
@@ -94,18 +61,18 @@ vec4 resolveForegroundLayer(vec2 pixel, ivec2 cellCoord, vec2 localUv) {
     }
   }
 
-  float overlayMask = resolveGridOverlayMask(pixel);
+  float overlayMask = asciiResolveGridOverlayMask(pixel, u_cellSize, u_gridOverlay);
   if (overlayMask > 0.0) {
     vec4 overlay = vec4(1.0, 1.0, 1.0, clamp(u_gridOverlayAlpha, 0.0, 1.0) * overlayMask);
-    color = sourceOver(color, overlay);
+    color = asciiSourceOver(color, overlay);
   }
   return color;
 }
 
 void main() {
   vec2 pixel = vTextureCoord * u_canvasSize;
-  ivec2 cellCoord = resolveCellCoord(pixel);
-  vec2 localUv = resolveCellLocalUv(pixel);
+  ivec2 cellCoord = asciiResolveCellCoord(pixel, u_canvasSize, u_cellSize, u_gridSize);
+  vec2 localUv = asciiResolveCellLocalUv(pixel, u_canvasSize, u_cellSize);
 
   if (u_layerMode < 0.5) {
     outColor = resolveBackgroundLayer(cellCoord);
