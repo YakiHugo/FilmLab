@@ -14,7 +14,7 @@ import type { RenderIntent } from "@/lib/renderIntent";
 import {
   applyImageCarrierTransforms,
   applyImageCarrierTransformsToSurfaceIfSupported,
-} from "./carrierExecution";
+} from "./asciiEffect";
 import {
   applyImageEffects,
   applyImageEffectsToSurfaceIfSupported,
