@@ -85,7 +85,13 @@ const QWEN_FEATURES: ImageProviderFeatureSupport = {
   guidanceScale: false,
   steps: false,
   styles: true,
-  referenceImages: NO_REFERENCE_SUPPORT,
+  referenceImages: {
+    enabled: true,
+    maxImages: 3,
+    supportedTypes: ["content"],
+    supportsWeight: false,
+    maxFileSizeBytes: 10 * 1024 * 1024,
+  },
 };
 
 const Z_IMAGE_FEATURES: ImageProviderFeatureSupport = {

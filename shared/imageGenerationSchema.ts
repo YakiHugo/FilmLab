@@ -27,6 +27,8 @@ export const imagePromptContinuityTargetSchema = z.enum(IMAGE_PROMPT_CONTINUITY_
 export const imagePromptEditOperationSchema = z.enum(IMAGE_PROMPT_EDIT_OPS);
 
 export const IMAGE_GENERATION_LIMITS = {
+  prompt: { maxLength: 10_000 },
+  negativePrompt: { maxLength: 2_000 },
   width: { min: 256, max: 4096 },
   height: { min: 256, max: 4096 },
   seed: { min: 0, max: 2_147_483_647 },
@@ -65,9 +67,9 @@ export const imagePromptIntentSchema = z.object({
 
 const imageGenerationRequestBaseSchema = z
   .object({
-    prompt: z.string().trim().min(1),
+    prompt: z.string().trim().min(1).max(IMAGE_GENERATION_LIMITS.prompt.maxLength),
     promptIntent: imagePromptIntentSchema.optional(),
-    negativePrompt: z.string().trim().optional(),
+    negativePrompt: z.string().trim().max(IMAGE_GENERATION_LIMITS.negativePrompt.maxLength).optional(),
     conversationId: z.string().trim().min(1).optional(),
     threadId: z.string().trim().min(1).optional(),
     retryOfTurnId: z.string().trim().min(1).optional(),
@@ -89,7 +91,7 @@ const imageGenerationRequestBaseSchema = z
       .max(IMAGE_GENERATION_LIMITS.height.max)
       .optional(),
     style: imageStyleSchema.default("none"),
-    stylePreset: z.string().trim().optional(),
+    stylePreset: z.string().trim().max(200).optional(),
     operation: imageGenerationOperationSchema.default("generate"),
     inputAssets: z.array(imageInputAssetSchema).max(8).default([]),
     seed: z
@@ -109,7 +111,7 @@ const imageGenerationRequestBaseSchema = z
       .min(IMAGE_GENERATION_LIMITS.steps.min)
       .max(IMAGE_GENERATION_LIMITS.steps.max)
       .optional(),
-    sampler: z.string().trim().optional(),
+    sampler: z.string().trim().max(100).optional(),
     batchSize: z
       .number()
       .int()
