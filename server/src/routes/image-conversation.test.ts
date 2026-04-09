@@ -47,10 +47,17 @@ const createBearerToken = (userId: string, secret = "test-secret") => {
 
 const createApp = async () => {
   const { default: Fastify } = await import("fastify");
+  const { createAuthPlugin } = await import("../plugins/auth");
   const { imageConversationRoute } = await import("./image-conversation");
 
   const app = Fastify();
   app.decorate("chatStateRepository", repositoryMock);
+  await app.register(createAuthPlugin({
+    authJwtSecret: "test-secret",
+    nodeEnv: "test",
+    allowUnsignedDevAuth: false,
+    devAuthAllowedUserIds: [],
+  }));
   await app.register(imageConversationRoute);
   return app;
 };

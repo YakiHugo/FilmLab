@@ -1,5 +1,4 @@
 import type { FastifyPluginAsync } from "fastify";
-import { requireAuthenticatedUser } from "../auth/user";
 import { ImageLabConversationService } from "../chat/application/conversationService";
 import { ChatConversationNotFoundError } from "../chat/persistence/types";
 
@@ -7,10 +6,7 @@ export const imageConversationRoute: FastifyPluginAsync = async (app) => {
   const conversationService = new ImageLabConversationService(app.chatStateRepository);
 
   app.get("/api/image-conversation", async (request, reply) => {
-    const userId = requireAuthenticatedUser(request);
-    if (!userId) {
-      return reply.code(401).send({ error: "Unauthorized." });
-    }
+    const userId = request.userId;
 
     const conversationId =
       typeof request.query === "object" &&
@@ -32,10 +28,7 @@ export const imageConversationRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/api/image-conversation/turns/:turnId/prompt-artifacts", async (request, reply) => {
-    const userId = requireAuthenticatedUser(request);
-    if (!userId) {
-      return reply.code(401).send({ error: "Unauthorized." });
-    }
+    const userId = request.userId;
 
     const { turnId } = request.params as { turnId: string };
 
@@ -53,10 +46,7 @@ export const imageConversationRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/api/image-conversation/observability", async (request, reply) => {
-    const userId = requireAuthenticatedUser(request);
-    if (!userId) {
-      return reply.code(401).send({ error: "Unauthorized." });
-    }
+    const userId = request.userId;
 
     const conversationId =
       typeof request.query === "object" &&
@@ -80,10 +70,7 @@ export const imageConversationRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.delete("/api/image-conversation", async (request, reply) => {
-    const userId = requireAuthenticatedUser(request);
-    if (!userId) {
-      return reply.code(401).send({ error: "Unauthorized." });
-    }
+    const userId = request.userId;
 
     try {
       return reply.code(200).send(await conversationService.clearConversation(userId));
@@ -94,10 +81,7 @@ export const imageConversationRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.delete("/api/image-conversation/turns/:turnId", async (request, reply) => {
-    const userId = requireAuthenticatedUser(request);
-    if (!userId) {
-      return reply.code(401).send({ error: "Unauthorized." });
-    }
+    const userId = request.userId;
 
     const { turnId } = request.params as { turnId: string };
 
@@ -115,10 +99,7 @@ export const imageConversationRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.post("/api/image-conversation/turns/:turnId/accept", async (request, reply) => {
-    const userId = requireAuthenticatedUser(request);
-    if (!userId) {
-      return reply.code(401).send({ error: "Unauthorized." });
-    }
+    const userId = request.userId;
 
     const { turnId } = request.params as { turnId: string };
     const assetId =
