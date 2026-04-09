@@ -21,7 +21,7 @@ import { blendMaskedCanvasesOnGpu } from "@/lib/renderer/gpuMaskedCanvasBlend";
 import { applyLocalMaskRangeOnGpu } from "@/lib/renderer/gpuLocalMaskRangeGate";
 import { applyLocalMaskRangeOnGpuToSurface } from "@/lib/renderer/gpuLocalMaskRangeGate";
 import { renderLocalMaskShapeOnGpuToSurface } from "@/lib/renderer/gpuLocalMaskShape";
-import { createTilePlan } from "@/lib/renderer/gpu/TiledRenderer";
+import { createTilePlan, type TileRect } from "@/lib/renderer/gpu/TiledRenderer";
 import { resolveViewportRenderRegion, type ViewportRoi } from "@/lib/renderer/viewportRegion";
 import {
   resolveAspectRatio,
@@ -66,7 +66,7 @@ import type {
   LocalAdjustmentMask,
 } from "@/types";
 import type { ResolvedRenderProfile } from "@/types/film";
-import type { RenderMode, FrameState } from "@/lib/renderer/RenderManager";
+import type { RenderManager, RenderMode, FrameState } from "@/lib/renderer/RenderManager";
 import type {
   GeometryUniforms,
   HSLUniforms,
@@ -1703,6 +1703,516 @@ if (import.meta.hot) {
   );
 }
 
+interface TiledExportParams {
+  canvas: HTMLCanvasElement | null;
+  fullOutputWidth: number;
+  fullOutputHeight: number;
+  loaded: LoadedImageSource | null;
+  sourceOrientation: { quarterTurns: number; width: number; height: number };
+  cropX: number;
+  cropY: number;
+  cropWidth: number;
+  cropHeight: number;
+  renderState: ImageProcessState;
+  resolvedProfile: ResolvedRenderProfile;
+  grainSeed: number;
+  sourceKey: string;
+  geometryKey: string;
+  masterKey: string;
+  hslKey: string;
+  curveKey: string;
+  detailKey: string;
+  filmKey: string;
+  opticsKey: string;
+  localAdjustmentsKey: string;
+  activeLocalAdjustments: LocalAdjustment[];
+  stage: RenderStageOptions;
+  frameState: FrameState;
+  renderManager: RenderManager;
+  mode: RenderMode;
+  slotId: string;
+  signal: AbortSignal | undefined;
+  incrementalPipeline: boolean;
+  strictErrors: boolean;
+  skipHslPass: boolean;
+  skipCurvePass: boolean;
+  skipDetailPass: boolean;
+  skipFilmPass: boolean;
+  skipOpticsPass: boolean;
+  qualityProfile: RenderQualityProfile;
+  outputPreference: string;
+  boundaryMetrics: RenderBoundaryMetrics;
+  debug: ImageRenderDebugOptions | undefined;
+  exportTilePlan: TileRect[];
+  callStartAt: number;
+  dirtyState: RenderImageDirtyState;
+  timings: RenderImageStageTimings;
+}
+
+const renderTiledExportPath = async (
+  params: TiledExportParams
+): Promise<RenderImageStageSurfaceResult> => {
+  const {
+    canvas,
+    fullOutputWidth,
+    fullOutputHeight,
+    loaded,
+    sourceOrientation,
+    cropX,
+    cropY,
+    cropWidth,
+    cropHeight,
+    renderState,
+    resolvedProfile,
+    grainSeed,
+    sourceKey,
+    geometryKey,
+    masterKey,
+    hslKey,
+    curveKey,
+    detailKey,
+    filmKey,
+    opticsKey,
+    localAdjustmentsKey,
+    activeLocalAdjustments,
+    stage,
+    frameState,
+    renderManager,
+    mode,
+    slotId,
+    signal,
+    incrementalPipeline,
+    strictErrors,
+    skipHslPass,
+    skipCurvePass,
+    skipDetailPass,
+    skipFilmPass,
+    skipOpticsPass,
+    qualityProfile,
+    outputPreference,
+    boundaryMetrics,
+    debug,
+    exportTilePlan,
+    callStartAt,
+    dirtyState,
+    timings,
+  } = params;
+
+  let outputCanvas = canvas;
+  if (!outputCanvas) {
+    outputCanvas = document.createElement("canvas");
+  }
+  if (outputCanvas.width !== fullOutputWidth) {
+    outputCanvas.width = fullOutputWidth;
+  }
+  if (outputCanvas.height !== fullOutputHeight) {
+    outputCanvas.height = fullOutputHeight;
+  }
+  const resolvedOutputCanvas = outputCanvas;
+  const outputContext = resolvedOutputCanvas.getContext("2d", {
+    willReadFrequently: true,
+  });
+  if (!outputContext) {
+    throw new RenderError("Failed to acquire 2D canvas context.");
+  }
+
+  const releaseMutex = await acquireRenderMutex(mode, slotId);
+  let outputDirty = false;
+  let pipelineStartAt = 0;
+  let composeStartAt = 0;
+  let stageStatus: RenderImageStageStatus;
+  let pipelineRendered: boolean;
+  let usedCpuGeometry = false;
+  let errorMessage: string | null = null;
+  const tiledPipelineKey = [
+    "tiled",
+    geometryKey,
+    masterKey,
+    hslKey,
+    curveKey,
+    detailKey,
+    filmKey,
+    opticsKey,
+    frameState.tilePlanKey ?? `${exportTilePlan.length}`,
+  ].join("|");
+
+  try {
+    throwIfAborted(signal);
+    const renderTiledLayer = async (
+      layerState: ImageProcessState,
+      layerKeys: {
+        master: string;
+        hsl: string;
+        curve: string;
+        detail: string;
+      },
+      layerContext: CanvasRenderingContext2D,
+      layerId: string,
+      collectMetrics: boolean
+    ): Promise<RenderWithPipelineResult["renderMetrics"]> => {
+      const layerMetrics = createEmptyPipelineMetrics();
+      const tileStageCanvas = document.createElement("canvas");
+      const tileRenderMode: RenderMode = "export";
+      const tileSlotId = `${slotId}:tile:${layerId}`;
+      const tileFrameState = renderManager.getFrameState(tileRenderMode, tileSlotId);
+
+      layerContext.clearRect(0, 0, resolvedOutputCanvas.width, resolvedOutputCanvas.height);
+
+      if (!loaded) {
+        throw new RenderError("Source image not loaded before tiled export.");
+      }
+
+      for (let tileIndex = 0; tileIndex < exportTilePlan.length; tileIndex += 1) {
+        const tile = exportTilePlan[tileIndex]!;
+        throwIfAborted(signal);
+
+        let tileGeometryUniforms: GeometryUniforms;
+        let tileUploadKey: string;
+        const tileSourceKey = `${sourceKey}|${layerId}|tile:${tileIndex}`;
+        let tileGeometryKey: string;
+        let tileSource: CanvasImageSource;
+        let tileSourceWidth: number;
+        let tileSourceHeight: number;
+
+        if (stage.applyGeometry) {
+          drawGeometryStage({
+            geometryCanvas: tileStageCanvas,
+            source: loaded.source,
+            sourceWidth: loaded.width,
+            sourceHeight: loaded.height,
+            orientedWidth: sourceOrientation.width,
+            orientedHeight: sourceOrientation.height,
+            sourceQuarterTurns: sourceOrientation.quarterTurns,
+            cropX,
+            cropY,
+            cropWidth,
+            cropHeight,
+            outputWidth: tile.width,
+            outputHeight: tile.height,
+            fullOutputWidth: resolvedOutputCanvas.width,
+            fullOutputHeight: resolvedOutputCanvas.height,
+            outputOffsetX: tile.x,
+            outputOffsetY: tile.y,
+            geometry: layerState.geometry,
+            qualityProfile,
+          });
+          tileGeometryUniforms = createPassthroughGeometryUniforms(tile.width, tile.height);
+          tileUploadKey = `tile:${tile.x},${tile.y},${tile.width}x${tile.height}|${layerId}`;
+          tileGeometryKey = `${geometryKey}|tile:${tile.x},${tile.y},${tile.width}x${tile.height}`;
+          tileSource = tileStageCanvas;
+          tileSourceWidth = tile.width;
+          tileSourceHeight = tile.height;
+        } else {
+          tileStageCanvas.width = tile.width;
+          tileStageCanvas.height = tile.height;
+          const tileContext = tileStageCanvas.getContext("2d", { willReadFrequently: true });
+          if (!tileContext) {
+            throw new RenderError("Failed to acquire tiled stage context.");
+          }
+          const sourceScaleX =
+            loaded.width / Math.max(1, resolvedOutputCanvas.width);
+          const sourceScaleY =
+            loaded.height / Math.max(1, resolvedOutputCanvas.height);
+          tileContext.clearRect(0, 0, tile.width, tile.height);
+          tileContext.drawImage(
+            loaded.source,
+            tile.x * sourceScaleX,
+            tile.y * sourceScaleY,
+            tile.width * sourceScaleX,
+            tile.height * sourceScaleY,
+            0,
+            0,
+            tile.width,
+            tile.height
+          );
+          tileGeometryUniforms = createPassthroughGeometryUniforms(tile.width, tile.height);
+          tileUploadKey = `tile:passthrough:${tile.x},${tile.y},${tile.width}x${tile.height}|${layerId}`;
+          tileGeometryKey = `${geometryKey}|passthrough:${tile.x},${tile.y},${tile.width}x${tile.height}`;
+          tileSource = tileStageCanvas;
+          tileSourceWidth = tile.width;
+          tileSourceHeight = tile.height;
+        }
+
+        const tileResult = await renderWithPipeline(
+          tileSource,
+          layerState,
+          tileFrameState,
+          {
+            mode: tileRenderMode,
+            slotId: tileSlotId,
+            strictErrors,
+            resolvedProfile,
+            geometryUniforms: tileGeometryUniforms,
+            sourceWidth: tileSourceWidth,
+            sourceHeight: tileSourceHeight,
+            targetWidth: tile.width,
+            targetHeight: tile.height,
+            uploadKey: tileUploadKey,
+            sourceKey: tileSourceKey,
+            geometryKey: tileGeometryKey,
+            masterKey: layerKeys.master,
+            hslKey: layerKeys.hsl,
+            curveKey: layerKeys.curve,
+            detailKey: layerKeys.detail,
+            filmKey,
+            opticsKey,
+            grainSeed,
+            boundaryMetrics,
+            forceRerender: true,
+            skipGeometry: !stage.applyGeometry,
+            skipMaster: !stage.applyDevelop,
+            skipHsl: skipHslPass,
+            skipCurve: skipCurvePass,
+            skipDetail: skipDetailPass,
+            skipFilm: skipFilmPass,
+            skipHalationBloom: skipOpticsPass,
+          }
+        );
+
+        if (collectMetrics) {
+          mergePipelineMetrics(layerMetrics, tileResult.renderMetrics);
+        }
+
+        const srcX = Math.max(0, tile.contentX - tile.x);
+        const srcY = Math.max(0, tile.contentY - tile.y);
+        layerContext.drawImage(
+          tileResult.canvas,
+          srcX,
+          srcY,
+          tile.contentWidth,
+          tile.contentHeight,
+          tile.contentX,
+          tile.contentY,
+          tile.contentWidth,
+          tile.contentHeight
+        );
+      }
+
+      tileStageCanvas.width = 0;
+      tileStageCanvas.height = 0;
+      return layerMetrics;
+    };
+
+    const outputKey = createOutputKey({
+      canvas: resolvedOutputCanvas,
+      pipelineKey: tiledPipelineKey,
+      localAdjustmentsKey,
+    });
+    outputDirty = !incrementalPipeline || frameState.outputKey !== outputKey;
+    if (outputPreference === "surface" && !canvas && !outputDirty) {
+      outputDirty = true;
+    }
+    dirtyState.outputDirty = outputDirty;
+
+    if (outputDirty) {
+      pipelineStartAt = performance.now();
+      const baseMetrics = await renderTiledLayer(
+        renderState,
+        {
+          master: masterKey,
+          hsl: hslKey,
+          curve: curveKey,
+          detail: detailKey,
+        },
+        outputContext,
+        "base",
+        true
+      );
+      timings.pipelineMs = performance.now() - pipelineStartAt;
+      timings.pipelineMetrics = baseMetrics;
+
+      composeStartAt = performance.now();
+      for (let localIndex = 0; localIndex < activeLocalAdjustments.length; localIndex += 1) {
+        const local = activeLocalAdjustments[localIndex]!;
+        const localState = applyLocalAdjustmentDelta(renderState, local);
+        const localCanvas = document.createElement("canvas");
+        localCanvas.width = resolvedOutputCanvas.width;
+        localCanvas.height = resolvedOutputCanvas.height;
+        const localContext = localCanvas.getContext("2d", { willReadFrequently: true });
+        if (!localContext) {
+          localCanvas.width = 0;
+          localCanvas.height = 0;
+          throw new RenderError("Failed to acquire tiled local layer context.");
+        }
+
+        try {
+          await renderTiledLayer(
+            localState,
+            {
+              master: createMasterKey(
+                localState.develop.tone,
+                localState.develop.color,
+                localState.develop.detail
+              ),
+              hsl: createHslKey(localState.develop.color),
+              curve: createCurveKey(localState.develop.color),
+              detail: createDetailKey(localState.develop.detail),
+            },
+            localContext,
+            `local:${local.id || localIndex}`,
+            false
+          );
+          await composeLocalLayer({
+            outputContext,
+            frameState,
+            layerCanvas: localCanvas,
+            local,
+            width: resolvedOutputCanvas.width,
+            height: resolvedOutputCanvas.height,
+            boundaryMetrics,
+            gpuBlendSlotId: `${slotId}:local-compose:${local.id || localIndex}`,
+          });
+        } finally {
+          localCanvas.width = 0;
+          localCanvas.height = 0;
+        }
+      }
+      timings.composeMs = performance.now() - composeStartAt;
+
+      frameState.sourceKey = sourceKey;
+      frameState.geometryKey = geometryKey;
+      frameState.masterKey = masterKey;
+      frameState.hslKey = hslKey;
+      frameState.curveKey = curveKey;
+      frameState.detailKey = detailKey;
+      frameState.filmKey = filmKey;
+      frameState.opticsKey = opticsKey;
+      frameState.uploadedGeometryKey = `tiled:${sourceKey}`;
+      frameState.pipelineKey = tiledPipelineKey;
+      frameState.outputKey = outputKey;
+      frameState.lastRenderError = null;
+    }
+
+    timings.totalMs = performance.now() - callStartAt;
+    stageStatus = outputDirty ? "rendered" : "reused-output";
+    pipelineRendered = outputDirty;
+    usedCpuGeometry = stage.applyGeometry;
+    return createStageResult({
+      stage,
+      mode,
+      slotId,
+      debug,
+      status: stageStatus,
+      dirty: dirtyState,
+      timings,
+      frameState,
+      pipelineRendered,
+      usedCpuGeometry,
+      usedViewportRoi: false,
+      usedTiledPipeline: true,
+      tileCount: exportTilePlan.length,
+      error: errorMessage,
+      surface: createRenderSurfaceHandle({
+        kind: "output-canvas",
+        mode,
+        slotId,
+        sourceCanvas: resolvedOutputCanvas,
+        metrics: boundaryMetrics,
+      }),
+      boundaries: boundaryMetrics,
+    });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw e;
+    }
+    if (strictErrors) {
+      throw e;
+    }
+    console.warn("[FilmLab] Tiled export failed, trying geometry fallback:", e);
+    errorMessage = describeRenderError(e);
+    if (pipelineStartAt > 0 && timings.pipelineMs === 0) {
+      timings.pipelineMs = performance.now() - pipelineStartAt;
+    }
+    if (composeStartAt > 0 && timings.composeMs === 0) {
+      timings.composeMs = performance.now() - composeStartAt;
+    }
+    const fallbackGeometryCanvas = getGeometryCanvas(frameState);
+    const fallbackComposeStartAt = performance.now();
+    outputContext.clearRect(0, 0, resolvedOutputCanvas.width, resolvedOutputCanvas.height);
+    if (stage.applyGeometry) {
+      drawGeometryStage({
+        geometryCanvas: fallbackGeometryCanvas,
+        source: loaded!.source,
+        sourceWidth: loaded!.width,
+        sourceHeight: loaded!.height,
+        orientedWidth: sourceOrientation.width,
+        orientedHeight: sourceOrientation.height,
+        sourceQuarterTurns: sourceOrientation.quarterTurns,
+        cropX,
+        cropY,
+        cropWidth,
+        cropHeight,
+        outputWidth: resolvedOutputCanvas.width,
+        outputHeight: resolvedOutputCanvas.height,
+        geometry: renderState.geometry,
+        qualityProfile,
+      });
+      outputContext.drawImage(
+        fallbackGeometryCanvas,
+        0,
+        0,
+        resolvedOutputCanvas.width,
+        resolvedOutputCanvas.height
+      );
+    } else {
+      outputContext.drawImage(
+        loaded!.source,
+        0,
+        0,
+        resolvedOutputCanvas.width,
+        resolvedOutputCanvas.height
+      );
+    }
+    timings.composeMs += performance.now() - fallbackComposeStartAt;
+    timings.totalMs = performance.now() - callStartAt;
+    dirtyState.outputDirty = true;
+    frameState.sourceKey = sourceKey;
+    frameState.geometryKey = geometryKey;
+    frameState.masterKey = masterKey;
+    frameState.hslKey = hslKey;
+    frameState.curveKey = curveKey;
+    frameState.detailKey = detailKey;
+    frameState.filmKey = filmKey;
+    frameState.opticsKey = opticsKey;
+    frameState.uploadedGeometryKey = `fallback:tiled:${geometryKey}`;
+    frameState.pipelineKey = `fallback:tiled:${tiledPipelineKey}`;
+    frameState.outputKey = createOutputKey({
+      canvas: resolvedOutputCanvas,
+      pipelineKey: frameState.pipelineKey,
+      localAdjustmentsKey,
+    });
+    frameState.lastRenderError = errorMessage;
+    stageStatus = "geometry-fallback";
+    usedCpuGeometry = stage.applyGeometry;
+    return createStageResult({
+      stage,
+      mode,
+      slotId,
+      debug,
+      status: stageStatus,
+      dirty: dirtyState,
+      timings,
+      frameState,
+      pipelineRendered: false,
+      usedCpuGeometry,
+      usedViewportRoi: false,
+      usedTiledPipeline: true,
+      tileCount: exportTilePlan.length,
+      error: errorMessage,
+      surface: createRenderSurfaceHandle({
+        kind: "geometry-fallback",
+        mode,
+        slotId,
+        sourceCanvas: resolvedOutputCanvas,
+        metrics: boundaryMetrics,
+      }),
+      boundaries: boundaryMetrics,
+    });
+  } finally {
+    releaseMutex();
+  }
+};
+
 const renderImageStageInternal = async (
   {
     canvas,
@@ -2003,14 +2513,20 @@ const renderImageStageInternal = async (
       canReturnBaseSlotSurface || (canAttemptSlotSurface && useHdrLocalComposition);
 
     if (exportTilePlan) {
-      const resolvedOutputCanvas = ensureOutputCanvas();
-      const outputContext = ensureOutputContext();
-      const releaseMutex = await acquireRenderMutex(mode, slotId);
-      let outputDirty = false;
-      let pipelineStartAt = 0;
-      let composeStartAt = 0;
-      const tiledPipelineKey = [
-        "tiled",
+      return renderTiledExportPath({
+        canvas: canvas ?? null,
+        fullOutputWidth,
+        fullOutputHeight,
+        loaded,
+        sourceOrientation,
+        cropX,
+        cropY,
+        cropWidth,
+        cropHeight,
+        renderState,
+        resolvedProfile,
+        grainSeed,
+        sourceKey,
         geometryKey,
         masterKey,
         hslKey,
@@ -2018,384 +2534,30 @@ const renderImageStageInternal = async (
         detailKey,
         filmKey,
         opticsKey,
-        frameState.tilePlanKey ?? `${exportTilePlan.length}`,
-      ].join("|");
-
-      try {
-        throwIfAborted(signal);
-        const renderTiledLayer = async (
-          layerState: ImageProcessState,
-          layerKeys: {
-            master: string;
-            hsl: string;
-            curve: string;
-            detail: string;
-          },
-          layerContext: CanvasRenderingContext2D,
-          layerId: string,
-          collectMetrics: boolean
-        ): Promise<RenderWithPipelineResult["renderMetrics"]> => {
-          const layerMetrics = createEmptyPipelineMetrics();
-          const tileStageCanvas = document.createElement("canvas");
-          const tileRenderMode: RenderMode = "export";
-          const tileSlotId = `${slotId}:tile:${layerId}`;
-          const tileFrameState = renderManager.getFrameState(tileRenderMode, tileSlotId);
-
-          layerContext.clearRect(0, 0, resolvedOutputCanvas.width, resolvedOutputCanvas.height);
-
-          if (!loaded) {
-            throw new RenderError("Source image not loaded before tiled export.");
-          }
-
-          for (let tileIndex = 0; tileIndex < exportTilePlan.length; tileIndex += 1) {
-            const tile = exportTilePlan[tileIndex]!;
-            throwIfAborted(signal);
-
-            let tileGeometryUniforms: GeometryUniforms;
-            let tileUploadKey: string;
-            const tileSourceKey = `${sourceKey}|${layerId}|tile:${tileIndex}`;
-            let tileGeometryKey: string;
-            let tileSource: CanvasImageSource;
-            let tileSourceWidth: number;
-            let tileSourceHeight: number;
-
-            if (stage.applyGeometry) {
-              drawGeometryStage({
-                geometryCanvas: tileStageCanvas,
-                source: loaded.source,
-                sourceWidth: loaded.width,
-                sourceHeight: loaded.height,
-                orientedWidth: sourceOrientation.width,
-                orientedHeight: sourceOrientation.height,
-                sourceQuarterTurns: sourceOrientation.quarterTurns,
-                cropX,
-                cropY,
-                cropWidth,
-                cropHeight,
-                outputWidth: tile.width,
-                outputHeight: tile.height,
-                fullOutputWidth: resolvedOutputCanvas.width,
-                fullOutputHeight: resolvedOutputCanvas.height,
-                outputOffsetX: tile.x,
-                outputOffsetY: tile.y,
-                geometry: layerState.geometry,
-                qualityProfile,
-              });
-              tileGeometryUniforms = createPassthroughGeometryUniforms(tile.width, tile.height);
-              tileUploadKey = `tile:${tile.x},${tile.y},${tile.width}x${tile.height}|${layerId}`;
-              tileGeometryKey = `${geometryKey}|tile:${tile.x},${tile.y},${tile.width}x${tile.height}`;
-              tileSource = tileStageCanvas;
-              tileSourceWidth = tile.width;
-              tileSourceHeight = tile.height;
-            } else {
-              tileStageCanvas.width = tile.width;
-              tileStageCanvas.height = tile.height;
-              const tileContext = tileStageCanvas.getContext("2d", { willReadFrequently: true });
-              if (!tileContext) {
-                throw new RenderError("Failed to acquire tiled stage context.");
-              }
-              const sourceScaleX =
-                loaded.width / Math.max(1, resolvedOutputCanvas.width);
-              const sourceScaleY =
-                loaded.height / Math.max(1, resolvedOutputCanvas.height);
-              tileContext.clearRect(0, 0, tile.width, tile.height);
-              tileContext.drawImage(
-                loaded.source,
-                tile.x * sourceScaleX,
-                tile.y * sourceScaleY,
-                tile.width * sourceScaleX,
-                tile.height * sourceScaleY,
-                0,
-                0,
-                tile.width,
-                tile.height
-              );
-              tileGeometryUniforms = createPassthroughGeometryUniforms(tile.width, tile.height);
-              tileUploadKey = `tile:passthrough:${tile.x},${tile.y},${tile.width}x${tile.height}|${layerId}`;
-              tileGeometryKey = `${geometryKey}|passthrough:${tile.x},${tile.y},${tile.width}x${tile.height}`;
-              tileSource = tileStageCanvas;
-              tileSourceWidth = tile.width;
-              tileSourceHeight = tile.height;
-            }
-
-            const tileResult = await renderWithPipeline(
-              tileSource,
-              layerState,
-              tileFrameState,
-              {
-                mode: tileRenderMode,
-                slotId: tileSlotId,
-                strictErrors,
-                resolvedProfile,
-                geometryUniforms: tileGeometryUniforms,
-                sourceWidth: tileSourceWidth,
-                sourceHeight: tileSourceHeight,
-                targetWidth: tile.width,
-                targetHeight: tile.height,
-                uploadKey: tileUploadKey,
-                sourceKey: tileSourceKey,
-                geometryKey: tileGeometryKey,
-                masterKey: layerKeys.master,
-                hslKey: layerKeys.hsl,
-                curveKey: layerKeys.curve,
-                detailKey: layerKeys.detail,
-                filmKey,
-                opticsKey,
-                grainSeed,
-                boundaryMetrics,
-                forceRerender: true,
-                skipGeometry: !stage.applyGeometry,
-                skipMaster: !stage.applyDevelop,
-                skipHsl: skipHslPass,
-                skipCurve: skipCurvePass,
-                skipDetail: skipDetailPass,
-                skipFilm: skipFilmPass,
-                skipHalationBloom: skipOpticsPass,
-              }
-            );
-
-            if (collectMetrics) {
-              mergePipelineMetrics(layerMetrics, tileResult.renderMetrics);
-            }
-
-            const srcX = Math.max(0, tile.contentX - tile.x);
-            const srcY = Math.max(0, tile.contentY - tile.y);
-            layerContext.drawImage(
-              tileResult.canvas,
-              srcX,
-              srcY,
-              tile.contentWidth,
-              tile.contentHeight,
-              tile.contentX,
-              tile.contentY,
-              tile.contentWidth,
-              tile.contentHeight
-            );
-          }
-
-          tileStageCanvas.width = 0;
-          tileStageCanvas.height = 0;
-          return layerMetrics;
-        };
-
-        const outputKey = createOutputKey({
-          canvas: resolvedOutputCanvas,
-          pipelineKey: tiledPipelineKey,
-          localAdjustmentsKey,
-        });
-        outputDirty = !incrementalPipeline || frameState.outputKey !== outputKey;
-        if (outputPreference === "surface" && !canvas && !outputDirty) {
-          outputDirty = true;
-        }
-        dirtyState.outputDirty = outputDirty;
-
-        if (outputDirty) {
-          pipelineStartAt = performance.now();
-          const baseMetrics = await renderTiledLayer(
-            renderState,
-            {
-              master: masterKey,
-              hsl: hslKey,
-              curve: curveKey,
-              detail: detailKey,
-            },
-            outputContext,
-            "base",
-            true
-          );
-          timings.pipelineMs = performance.now() - pipelineStartAt;
-          timings.pipelineMetrics = baseMetrics;
-
-          composeStartAt = performance.now();
-          for (let localIndex = 0; localIndex < activeLocalAdjustments.length; localIndex += 1) {
-            const local = activeLocalAdjustments[localIndex]!;
-            const localState = applyLocalAdjustmentDelta(renderState, local);
-            const localCanvas = document.createElement("canvas");
-            localCanvas.width = resolvedOutputCanvas.width;
-            localCanvas.height = resolvedOutputCanvas.height;
-            const localContext = localCanvas.getContext("2d", { willReadFrequently: true });
-            if (!localContext) {
-              localCanvas.width = 0;
-              localCanvas.height = 0;
-              throw new RenderError("Failed to acquire tiled local layer context.");
-            }
-
-            try {
-              await renderTiledLayer(
-                localState,
-                {
-                  master: createMasterKey(
-                    localState.develop.tone,
-                    localState.develop.color,
-                    localState.develop.detail
-                  ),
-                  hsl: createHslKey(localState.develop.color),
-                  curve: createCurveKey(localState.develop.color),
-                  detail: createDetailKey(localState.develop.detail),
-                },
-                localContext,
-                `local:${local.id || localIndex}`,
-                false
-              );
-              await composeLocalLayer({
-                outputContext,
-                frameState,
-                layerCanvas: localCanvas,
-                local,
-                width: resolvedOutputCanvas.width,
-                height: resolvedOutputCanvas.height,
-                boundaryMetrics,
-                gpuBlendSlotId: `${slotId}:local-compose:${local.id || localIndex}`,
-              });
-            } finally {
-              localCanvas.width = 0;
-              localCanvas.height = 0;
-            }
-          }
-          timings.composeMs = performance.now() - composeStartAt;
-
-          frameState.sourceKey = sourceKey;
-          frameState.geometryKey = geometryKey;
-          frameState.masterKey = masterKey;
-          frameState.hslKey = hslKey;
-          frameState.curveKey = curveKey;
-          frameState.detailKey = detailKey;
-          frameState.filmKey = filmKey;
-          frameState.opticsKey = opticsKey;
-          frameState.uploadedGeometryKey = `tiled:${sourceKey}`;
-          frameState.pipelineKey = tiledPipelineKey;
-          frameState.outputKey = outputKey;
-          frameState.lastRenderError = null;
-        }
-
-        timings.totalMs = performance.now() - callStartAt;
-        stageStatus = outputDirty ? "rendered" : "reused-output";
-        pipelineRendered = outputDirty;
-        usedCpuGeometry = stage.applyGeometry;
-        return createStageResult({
-          stage,
-          mode,
-          slotId,
-          debug,
-          status: stageStatus,
-          dirty: dirtyState,
-          timings,
-          frameState,
-          pipelineRendered,
-          usedCpuGeometry,
-          usedViewportRoi: false,
-          usedTiledPipeline: true,
-          tileCount: exportTilePlan.length,
-          error: errorMessage,
-          surface: createRenderSurfaceHandle({
-            kind: "output-canvas",
-            mode,
-            slotId,
-            sourceCanvas: resolvedOutputCanvas,
-            metrics: boundaryMetrics,
-          }),
-          boundaries: boundaryMetrics,
-        });
-      } catch (e) {
-        if (e instanceof DOMException && e.name === "AbortError") {
-          throw e;
-        }
-        if (strictErrors) {
-          throw e;
-        }
-        console.warn("[FilmLab] Tiled export failed, trying geometry fallback:", e);
-        errorMessage = describeRenderError(e);
-        if (pipelineStartAt > 0 && timings.pipelineMs === 0) {
-          timings.pipelineMs = performance.now() - pipelineStartAt;
-        }
-        if (composeStartAt > 0 && timings.composeMs === 0) {
-          timings.composeMs = performance.now() - composeStartAt;
-        }
-        const fallbackGeometryCanvas = getGeometryCanvas(frameState);
-        const fallbackComposeStartAt = performance.now();
-        outputContext.clearRect(0, 0, resolvedOutputCanvas.width, resolvedOutputCanvas.height);
-        if (stage.applyGeometry) {
-          drawGeometryStage({
-            geometryCanvas: fallbackGeometryCanvas,
-            source: loaded.source,
-            sourceWidth: loaded.width,
-            sourceHeight: loaded.height,
-            orientedWidth: sourceOrientation.width,
-            orientedHeight: sourceOrientation.height,
-            sourceQuarterTurns: sourceOrientation.quarterTurns,
-            cropX,
-            cropY,
-            cropWidth,
-            cropHeight,
-            outputWidth: resolvedOutputCanvas.width,
-            outputHeight: resolvedOutputCanvas.height,
-            geometry: renderState.geometry,
-            qualityProfile,
-          });
-          outputContext.drawImage(
-            fallbackGeometryCanvas,
-            0,
-            0,
-            resolvedOutputCanvas.width,
-            resolvedOutputCanvas.height
-          );
-        } else {
-          outputContext.drawImage(
-            loaded.source,
-            0,
-            0,
-            resolvedOutputCanvas.width,
-            resolvedOutputCanvas.height
-          );
-        }
-        timings.composeMs += performance.now() - fallbackComposeStartAt;
-        timings.totalMs = performance.now() - callStartAt;
-        dirtyState.outputDirty = true;
-        frameState.sourceKey = sourceKey;
-        frameState.geometryKey = geometryKey;
-        frameState.masterKey = masterKey;
-        frameState.hslKey = hslKey;
-        frameState.curveKey = curveKey;
-        frameState.detailKey = detailKey;
-        frameState.filmKey = filmKey;
-        frameState.opticsKey = opticsKey;
-        frameState.uploadedGeometryKey = `fallback:tiled:${geometryKey}`;
-        frameState.pipelineKey = `fallback:tiled:${tiledPipelineKey}`;
-        frameState.outputKey = createOutputKey({
-          canvas: resolvedOutputCanvas,
-          pipelineKey: frameState.pipelineKey,
-          localAdjustmentsKey,
-        });
-        frameState.lastRenderError = errorMessage;
-        stageStatus = "geometry-fallback";
-        usedCpuGeometry = stage.applyGeometry;
-        return createStageResult({
-          stage,
-          mode,
-          slotId,
-          debug,
-          status: stageStatus,
-          dirty: dirtyState,
-          timings,
-          frameState,
-          pipelineRendered: false,
-          usedCpuGeometry,
-          usedViewportRoi: false,
-          usedTiledPipeline: true,
-          tileCount: exportTilePlan.length,
-          error: errorMessage,
-          surface: createRenderSurfaceHandle({
-            kind: "geometry-fallback",
-            mode,
-            slotId,
-            sourceCanvas: resolvedOutputCanvas,
-            metrics: boundaryMetrics,
-          }),
-          boundaries: boundaryMetrics,
-        });
-      } finally {
-        releaseMutex();
-      }
+        localAdjustmentsKey,
+        activeLocalAdjustments,
+        stage,
+        frameState,
+        renderManager,
+        mode,
+        slotId,
+        signal,
+        incrementalPipeline,
+        strictErrors,
+        skipHslPass,
+        skipCurvePass,
+        skipDetailPass,
+        skipFilmPass,
+        skipOpticsPass,
+        qualityProfile,
+        outputPreference,
+        boundaryMetrics,
+        debug,
+        exportTilePlan,
+        callStartAt,
+        dirtyState,
+        timings,
+      });
     }
 
     const geometryStartAt = performance.now();
