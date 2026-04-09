@@ -26,7 +26,6 @@ import { resolveViewportRenderRegion, type ViewportRoi } from "@/lib/renderer/vi
 import {
   resolveAspectRatio,
   resolveOrientedDimensions,
-  resolveOrientedAspectRatio,
   resolveTransform,
   toNumberKey,
   hashString,
@@ -54,11 +53,8 @@ import {
 } from "./imageSourceLoader";
 import type {
   ImageProcessState,
-  ImageRenderColorState,
   ImageRenderDebugOptions,
-  ImageRenderDetailState,
   ImageRenderGeometry,
-  ImageRenderToneState,
 } from "@/render/image/types";
 import type {
   LocalAdjustment,
