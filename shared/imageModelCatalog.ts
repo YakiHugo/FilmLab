@@ -5,8 +5,11 @@ import type {
   ImagePromptCompilerOperationId,
   ImagePromptContinuityTarget,
   ImageProviderId,
+  ImageStyleId,
   ReferenceImageType,
 } from "./imageGeneration";
+
+export type ImageGenerationUnsupportedField = "negativePrompt" | "seed" | "guidanceScale" | "steps" | "style" | "stylePreset";
 import type { ImageModelParamDefinition, ImageModelParamValue } from "./imageModelParamTypes";
 
 export const FRONTEND_IMAGE_MODEL_IDS = [
@@ -49,7 +52,7 @@ export interface ImageGenerationConstraintSummary {
   supportedAspectRatios: ImageAspectRatio[];
   maxBatchSize: number;
   referenceImages: ImageReferenceImageConstraint;
-  unsupportedFields: string[];
+  unsupportedFields: ImageGenerationUnsupportedField[];
 }
 
 export interface ImageModelDefaults {
@@ -58,7 +61,7 @@ export interface ImageModelDefaults {
   height: number | null;
   batchSize: number;
   negativePrompt: string;
-  style: string;
+  style: ImageStyleId;
   stylePreset: string;
   seed: number | null;
   guidanceScale: number | null;
@@ -87,7 +90,7 @@ export interface ImageModelHealthSnapshot {
   state: "healthy" | "degraded" | "down" | "unknown";
   score: number;
   successRate: number;
-  averageLatencyMs: number;
+  averageLatencyMs: number | null;
   sampleSize: number;
   circuitOpen: boolean;
   lastErrorType: string | null;

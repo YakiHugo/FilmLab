@@ -1,12 +1,26 @@
-import type {
-  ImageInputAssetBinding,
-  ImagePromptCompilerOperationId,
-  ImagePromptContinuityTarget,
-  ImagePromptIntentInput,
-  ImagePromptIntentEditOp,
-} from "../../../../shared/imageGeneration";
 import type { ImageGenerationRequest } from "../../../../shared/imageGenerationSchema";
 import type { FrontendImageModelId } from "../../../../shared/imageModelCatalog";
+import type {
+  CreativeState,
+  ConversationCreativeState,
+  SemanticLoss,
+  TurnDelta,
+  PromptIR,
+  PromptVersionStage,
+  PromptVersionRecord,
+  PromptVersionHashes,
+} from "../../gateway/prompt/types";
+
+export type {
+  CreativeState as PersistedCreativeState,
+  ConversationCreativeState as PersistedConversationCreativeState,
+  SemanticLoss as PersistedSemanticLoss,
+  TurnDelta as PersistedPromptArtifactTurnDelta,
+  PromptIR as PersistedPromptArtifactPromptIR,
+  PromptVersionStage as PersistedPromptArtifactStage,
+  PromptVersionRecord as PersistedPromptArtifactRecord,
+  PromptVersionHashes as PersistedPromptArtifactHashes,
+};
 
 export type GenerationJobStatus = "running" | "succeeded" | "failed";
 export type PersistedGenerationTurnStatus = "loading" | "done" | "error";
@@ -40,105 +54,6 @@ export interface PersistedImageGenerationRequestSnapshot
   extends ImageGenerationRequest,
     Record<string, unknown> {}
 
-export interface PersistedCreativeState {
-  prompt: string | null;
-  preserve: string[];
-  avoid: string[];
-  styleDirectives: string[];
-  continuityTargets: ImagePromptContinuityTarget[];
-  editOps: ImagePromptIntentEditOp[];
-  referenceAssetIds: string[];
-}
-
-export interface PersistedConversationCreativeState {
-  committed: PersistedCreativeState;
-  candidate: PersistedCreativeState | null;
-  baseAssetId: string | null;
-  candidateTurnId: string | null;
-  revision: number;
-}
-
-export type PersistedPromptArtifactStage = "rewrite" | "compile" | "dispatch";
-
-export interface PersistedPromptArtifactTurnDelta {
-  prompt: string;
-  preserve: string[];
-  avoid: string[];
-  styleDirectives: string[];
-  continuityTargets: PersistedCreativeState["continuityTargets"];
-  editOps: PersistedCreativeState["editOps"];
-  referenceAssetIds: string[];
-}
-
-export interface PersistedPromptArtifactPromptIR {
-  operation: ImagePromptCompilerOperationId;
-  goal: string;
-  preserve: string[];
-  negativeConstraints: string[];
-  styleDirectives: string[];
-  continuityTargets: PersistedCreativeState["continuityTargets"];
-  editOps: PersistedCreativeState["editOps"];
-  sourceAssets: ImageInputAssetBinding[];
-  referenceAssets: ImageInputAssetBinding[];
-  inputAssets: ImageInputAssetBinding[];
-  output: {
-    aspectRatio: string;
-    width: number | null;
-    height: number | null;
-    batchSize: number;
-    style: string;
-    stylePreset: string | null;
-  };
-}
-
-export interface PersistedSemanticLoss {
-  code:
-    | "APPROXIMATED_AS_REGENERATION"
-    | "OPERATION_DEGRADED_TO_IMAGE_GENERATE"
-    | "ASSET_ROLE_DEGRADED_TO_REFERENCE_GUIDANCE"
-    | "SOURCE_IMAGE_NOT_EXECUTABLE"
-    | "EXACT_TEXT_CONTINUITY_AT_RISK"
-    | "NEGATIVE_PROMPT_DEGRADED_TO_TEXT"
-    | "STYLE_REFERENCE_ROLE_COLLAPSED";
-  severity: "info" | "warn" | "error";
-  fieldPath: string;
-  degradeMode: "dropped" | "approximated" | "merged" | "softened";
-  userMessage: string;
-  internalDetail?: string;
-}
-
-export interface PersistedPromptArtifactHashes {
-  stateHash: string;
-  irHash: string;
-  prefixHash: string;
-  payloadHash: string;
-}
-
-export interface PersistedPromptArtifactRecord {
-  id: string;
-  runId: string;
-  turnId: string;
-  traceId: string | null;
-  version: number;
-  stage: PersistedPromptArtifactStage;
-  targetKey: string | null;
-  attempt: number | null;
-  compilerVersion: string;
-  capabilityVersion: string;
-  originalPrompt: string;
-  promptIntent: ImagePromptIntentInput | null;
-  turnDelta: PersistedPromptArtifactTurnDelta | null;
-  committedStateBefore: PersistedCreativeState | null;
-  candidateStateAfter: PersistedCreativeState | null;
-  promptIR: PersistedPromptArtifactPromptIR | null;
-  compiledPrompt: string | null;
-  dispatchedPrompt: string | null;
-  providerEffectivePrompt: string | null;
-  semanticLosses: PersistedSemanticLoss[];
-  warnings: string[];
-  hashes: PersistedPromptArtifactHashes;
-  createdAt: string;
-}
 
 export interface GenerationJobSnapshot {
   id: string;
@@ -202,7 +117,7 @@ export interface PersistedThreadCreativeBrief {
 export interface PersistedThreadRecord {
   id: string;
   creativeBrief: PersistedThreadCreativeBrief;
-  promptState: PersistedConversationCreativeState;
+  promptState: ConversationCreativeState;
   createdAt: string;
   updatedAt: string;
 }
@@ -221,7 +136,7 @@ export interface PersistedPromptSnapshot {
   compiledPrompt: string;
   dispatchedPrompt: string | null;
   providerEffectivePrompt: string | null;
-  semanticLosses: PersistedSemanticLoss[];
+  semanticLosses: SemanticLoss[];
   warnings: string[];
 }
 
@@ -295,7 +210,7 @@ export interface PersistedImageSession {
 
 export interface TurnPromptArtifactsResponse {
   turnId: string;
-  versions: PersistedPromptArtifactRecord[];
+  versions: PromptVersionRecord[];
 }
 
 export interface PromptObservabilityOverview {
@@ -306,7 +221,7 @@ export interface PromptObservabilityOverview {
 }
 
 export interface PromptObservabilityLossSummary {
-  code: PersistedSemanticLoss["code"];
+  code: SemanticLoss["code"];
   occurrenceCount: number;
   turnCount: number;
   latestCreatedAt: string;
@@ -325,7 +240,7 @@ export interface PromptObservabilityTurnSummary {
   prompt: string;
   createdAt: string;
   artifactCount: number;
-  semanticLossCodes: PersistedSemanticLoss["code"][];
+  semanticLossCodes: SemanticLoss["code"][];
   degraded: boolean;
   fallback: boolean;
   selectedTargetKey: string | null;

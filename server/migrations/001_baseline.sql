@@ -249,6 +249,8 @@ CREATE TABLE IF NOT EXISTS asset_upload_sessions (
   original_uploaded_at TIMESTAMPTZ NULL,
   thumbnail_uploaded_at TIMESTAMPTZ NULL
 );
+CREATE INDEX IF NOT EXISTS asset_upload_sessions_owner_hash_idx
+  ON asset_upload_sessions(owner_user_id, content_hash);
 
 CREATE TABLE IF NOT EXISTS assets (
   id TEXT PRIMARY KEY,

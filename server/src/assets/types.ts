@@ -169,6 +169,7 @@ export interface AssetRepository {
     uploadedAt: string
   ): Promise<void>;
   deleteUploadSession(userId: string, assetId: string): Promise<void>;
+  deleteExpiredUploadSessions(olderThan: string): Promise<{ assetId: string; originalPath: string; thumbnailPath: string | null }[]>;
   withContentHashLock<T>(
     userId: string,
     contentHash: string,

@@ -32,7 +32,7 @@ const toCatalogHealth = (health: ProviderHealthSnapshot): FrontendImageModelCata
   state: toHealthState(health),
   score: health.score,
   successRate: health.successRate,
-  averageLatencyMs: health.averageLatencyMs ?? 0,
+  averageLatencyMs: health.averageLatencyMs,
   sampleSize: health.sampleSize,
   circuitOpen: health.circuitOpen,
   lastErrorType: health.lastErrorType,

@@ -32,7 +32,7 @@ const createCatalogModelFixture = (
       state: "healthy",
       score: 1,
       successRate: 1,
-      averageLatencyMs: 100,
+      averageLatencyMs: 100 as number | null,
       sampleSize: 1,
       circuitOpen: false,
       lastErrorType: null,
