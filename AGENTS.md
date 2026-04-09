@@ -13,9 +13,8 @@
 
 ## Code Convention
 
-- Split code when responsibilities or side-effect ownership are unclear.
+- Split a file or function only when the extracted piece can be understood and modified without reading back into the original. If it still needs the caller's internals (large param objects mirroring parent scope, shared mutable state), the split relocates complexity instead of reducing it. Prefer extracting stateless pure functions over stateful subsystems. Keep functions under ~500 lines so AST-based tools (Cursor) can chunk and retrieve them individually; line-range tools (Codex, OpenCode) are unaffected by size but benefit from the same boundary clarity.
 - If a hotspot keeps regressing, prefer a structural refactor over more local patches.
-- Do not split files for line count alone. Split only when the extracted module can be understood and changed without reading back into the original; if it still needs the caller's internals, the split just relocates complexity. Prefer extracting stateless pure functions over stateful subsystems that need a host callback interface.
 - Keep shared helpers near their domain first; move them to `src/utils` only when they are stable, domain-neutral, and reused across boundaries.
 - do not add aliases over `string`, primitives, or existing unions unless they add a real invariant or boundary.
 - The project is not live yet; be aggressive about retiring historical-data compatibility instead of keeping dual paths by default.
