@@ -458,9 +458,14 @@ describe("imageGenerateRoute evals", () => {
       })
     );
 
-    const promptVersions = repositoryMock.createPromptVersions.mock.calls.flatMap(
-      ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
-    ) as Array<{
+    const promptVersions = [
+      ...repositoryMock.createPromptVersions.mock.calls.flatMap(
+        ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
+      ),
+      ...repositoryMock.createGeneration.mock.calls.flatMap(
+        ([input]) => ((input as { promptVersions?: Array<Record<string, unknown>> }).promptVersions ?? [])
+      ),
+    ] as Array<{
       stage: string;
       attempt: number | null;
       traceId: string | null;
@@ -598,9 +603,14 @@ describe("imageGenerateRoute evals", () => {
     });
     expect(resolvedRequests[1]?.negativePrompt).toBeUndefined();
 
-    const promptVersions = repositoryMock.createPromptVersions.mock.calls.flatMap(
-      ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
-    ) as Array<{
+    const promptVersions = [
+      ...repositoryMock.createPromptVersions.mock.calls.flatMap(
+        ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
+      ),
+      ...repositoryMock.createGeneration.mock.calls.flatMap(
+        ([input]) => ((input as { promptVersions?: Array<Record<string, unknown>> }).promptVersions ?? [])
+      ),
+    ] as Array<{
       stage: string;
       targetKey: string | null;
       attempt: number | null;

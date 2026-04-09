@@ -570,9 +570,14 @@ describe("imageGenerateRoute", () => {
     };
     expect(createdGeneration.run.operation).toBe("image.edit");
 
-    const promptVersions = repositoryMock.createPromptVersions.mock.calls.flatMap(
-      ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
-    );
+    const promptVersions = [
+      ...repositoryMock.createPromptVersions.mock.calls.flatMap(
+        ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
+      ),
+      ...repositoryMock.createGeneration.mock.calls.flatMap(
+        ([input]) => ((input as { promptVersions?: Array<Record<string, unknown>> }).promptVersions ?? [])
+      ),
+    ];
     const compileArtifact = promptVersions.find(
       (version) => version.stage === "compile" && version.targetKey === "dashscope:qwen-image-2.0-pro"
     );
@@ -878,9 +883,14 @@ describe("imageGenerateRoute", () => {
       retryOfTurnId: "turn-1",
       retryMode: "exact",
     });
-    const promptVersions = repositoryMock.createPromptVersions.mock.calls.flatMap(
-      ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
-    );
+    const promptVersions = [
+      ...repositoryMock.createPromptVersions.mock.calls.flatMap(
+        ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
+      ),
+      ...repositoryMock.createGeneration.mock.calls.flatMap(
+        ([input]) => ((input as { promptVersions?: Array<Record<string, unknown>> }).promptVersions ?? [])
+      ),
+    ];
     expect(promptVersions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1094,9 +1104,14 @@ describe("imageGenerateRoute", () => {
       };
     };
     expect(createdGeneration.run.operation).toBe("image.edit");
-    const promptVersions = repositoryMock.createPromptVersions.mock.calls.flatMap(
-      ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
-    );
+    const promptVersions = [
+      ...repositoryMock.createPromptVersions.mock.calls.flatMap(
+        ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
+      ),
+      ...repositoryMock.createGeneration.mock.calls.flatMap(
+        ([input]) => ((input as { promptVersions?: Array<Record<string, unknown>> }).promptVersions ?? [])
+      ),
+    ];
     expect(
       promptVersions.some(
         (version) =>
@@ -1247,9 +1262,14 @@ describe("imageGenerateRoute", () => {
     });
     expect(resolvedRequests[1]?.negativePrompt).toBeUndefined();
 
-    const promptVersions = repositoryMock.createPromptVersions.mock.calls.flatMap(
-      ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
-    ) as Array<{
+    const promptVersions = [
+      ...repositoryMock.createPromptVersions.mock.calls.flatMap(
+        ([input]) => (input as { versions: Array<Record<string, unknown>> }).versions
+      ),
+      ...repositoryMock.createGeneration.mock.calls.flatMap(
+        ([input]) => ((input as { promptVersions?: Array<Record<string, unknown>> }).promptVersions ?? [])
+      ),
+    ] as Array<{
       stage: string;
       targetKey: string | null;
       attempt: number | null;
