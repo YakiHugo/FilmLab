@@ -1,9 +1,8 @@
 import cors from "@fastify/cors";
 import type { FastifyPluginAsync } from "fastify";
-import { getConfig } from "../config";
+import type { AppConfig } from "../config";
 
-export const registerCors: FastifyPluginAsync = async (app) => {
-  const config = getConfig();
+export const createCorsPlugin = (config: AppConfig): FastifyPluginAsync => async (app) => {
   await app.register(cors, {
     origin: config.corsOrigin,
     methods: ["GET", "POST", "DELETE", "OPTIONS"],

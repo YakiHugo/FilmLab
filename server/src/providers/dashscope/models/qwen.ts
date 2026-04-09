@@ -1,4 +1,3 @@
-import { getConfig } from "../../../config";
 import { buildDashScopePrompt, extractDashScopeImages, toDashScopeSize } from "../../dashscopeShared";
 import { createProviderRequestContext, fetchProviderResponse } from "../../base/client";
 import { ProviderError, readProviderError } from "../../base/errors";
@@ -6,10 +5,10 @@ import type { PlatformProviderGenerateInput, RuntimeGenerationResult } from "../
 
 const SUPPORTED_MODELS = new Set(["qwen-image-2.0-pro", "qwen-image-2.0"]);
 
-const getDashScopeGenerationUrl = () =>
+const getDashScopeGenerationUrl = (baseUrl: string) =>
   new URL(
     "/api/v1/services/aigc/multimodal-generation/generation",
-    `${getConfig().dashscopeApiBaseUrl}/`
+    `${baseUrl}/`
   ).toString();
 
 const resolvePromptExtend = (value: unknown) => (typeof value === "boolean" ? value : true);
@@ -56,7 +55,7 @@ export const generateDashscopeQwen = async (
 
   const context = createProviderRequestContext(input.options);
   const upstream = await fetchProviderResponse(
-    getDashScopeGenerationUrl(),
+    getDashScopeGenerationUrl(input.credentials.baseUrl),
     {
       method: "POST",
       headers: {

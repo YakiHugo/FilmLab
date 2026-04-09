@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DownloadGeneratedImageConfig } from "./downloadGeneratedImage";
 
 const { lookupMock } = vi.hoisted(() => ({
   lookupMock: vi.fn(),
@@ -10,11 +11,15 @@ vi.mock("node:dns/promises", () => ({
   },
 }));
 
+const defaultConfig: DownloadGeneratedImageConfig = {
+  providerRequestTimeoutMs: 1000,
+  generatedImageDownloadMaxBytes: 32 * 1024 * 1024,
+  nodeEnv: "test",
+};
+
 describe("downloadGeneratedImage", () => {
   beforeEach(() => {
     vi.resetModules();
-    process.env.PROVIDER_REQUEST_TIMEOUT_MS = "1000";
-    delete process.env.GENERATED_IMAGE_DOWNLOAD_MAX_MB;
     lookupMock.mockReset();
     lookupMock.mockResolvedValue([
       {
@@ -42,7 +47,7 @@ describe("downloadGeneratedImage", () => {
     );
 
     const { downloadGeneratedImage } = await import("./downloadGeneratedImage");
-    const result = await downloadGeneratedImage("https://example.com/image.png");
+    const result = await downloadGeneratedImage("https://example.com/image.png", defaultConfig);
 
     expect(result.mimeType).toBe("image/png");
     expect(Array.from(result.buffer)).toEqual([7, 8, 9]);
@@ -62,14 +67,17 @@ describe("downloadGeneratedImage", () => {
 
     const { downloadGeneratedImage } = await import("./downloadGeneratedImage");
 
-    await expect(downloadGeneratedImage("https://example.com/page")).rejects.toMatchObject({
+    await expect(downloadGeneratedImage("https://example.com/page", defaultConfig)).rejects.toMatchObject({
       message: "Generated image response did not contain an image.",
       statusCode: 502,
     });
   });
 
   it("enforces the configured cache download size limit", async () => {
-    process.env.GENERATED_IMAGE_DOWNLOAD_MAX_MB = "1";
+    const smallConfig: DownloadGeneratedImageConfig = {
+      ...defaultConfig,
+      generatedImageDownloadMaxBytes: 1024 * 1024,
+    };
 
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetchMock);
@@ -85,7 +93,7 @@ describe("downloadGeneratedImage", () => {
 
     const { downloadGeneratedImage } = await import("./downloadGeneratedImage");
 
-    await expect(downloadGeneratedImage("https://example.com/large.png")).rejects.toMatchObject({
+    await expect(downloadGeneratedImage("https://example.com/large.png", smallConfig)).rejects.toMatchObject({
       message: "Generated image is too large to cache.",
       statusCode: 413,
     });
@@ -121,7 +129,7 @@ describe("downloadGeneratedImage", () => {
 
     const { downloadGeneratedImage } = await import("./downloadGeneratedImage");
 
-    await expect(downloadGeneratedImage("https://example.com/image.png")).rejects.toMatchObject({
+    await expect(downloadGeneratedImage("https://example.com/image.png", defaultConfig)).rejects.toMatchObject({
       message: "Generated image URL points to a private or reserved network address.",
       statusCode: 502,
     });
@@ -129,7 +137,6 @@ describe("downloadGeneratedImage", () => {
   });
 
   it("allows fake-ip provider image hosts in development", async () => {
-    vi.stubEnv("NODE_ENV", "development");
     lookupMock.mockResolvedValue([
       {
         address: "198.18.1.8",
@@ -149,8 +156,13 @@ describe("downloadGeneratedImage", () => {
       })
     );
 
+    const devConfig: DownloadGeneratedImageConfig = {
+      ...defaultConfig,
+      nodeEnv: "development",
+    };
+
     const { downloadGeneratedImage } = await import("./downloadGeneratedImage");
-    const result = await downloadGeneratedImage("https://cdn.example.com/image.png");
+    const result = await downloadGeneratedImage("https://cdn.example.com/image.png", devConfig);
 
     expect(result.mimeType).toBe("image/png");
     expect(Array.from(result.buffer)).toEqual([7, 8, 9]);

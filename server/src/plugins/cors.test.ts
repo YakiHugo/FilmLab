@@ -1,16 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AppConfig } from "../config";
 
-describe("registerCors", () => {
+const testConfig = {
+  corsOrigin: "http://localhost:5173",
+} as AppConfig;
+
+describe("createCorsPlugin", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
   it("does not expose deprecated provider key headers in CORS preflight responses", async () => {
     const { default: Fastify } = await import("fastify");
-    const { registerCors } = await import("./cors");
+    const { createCorsPlugin } = await import("./cors");
 
     const app = Fastify();
-    await app.register(registerCors);
+    await app.register(createCorsPlugin(testConfig));
     app.post("/probe", async () => ({ ok: true }));
 
     const response = await app.inject({
@@ -33,10 +38,10 @@ describe("registerCors", () => {
 
   it("allows DELETE preflight requests for conversation mutation routes", async () => {
     const { default: Fastify } = await import("fastify");
-    const { registerCors } = await import("./cors");
+    const { createCorsPlugin } = await import("./cors");
 
     const app = Fastify();
-    await app.register(registerCors);
+    await app.register(createCorsPlugin(testConfig));
     app.delete("/probe", async () => ({ ok: true }));
 
     const response = await app.inject({

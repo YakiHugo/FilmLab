@@ -168,10 +168,10 @@ const createRouteTargetFixture = (input: {
 };
 
 vi.mock("../gateway/router/router", () => ({
-  imageRuntimeRouter: {
+  createImageRuntimeRouter: () => ({
     getRouteTargets: (...args: unknown[]) => getRouteTargetsMock(...args),
     generate: (...args: unknown[]) => generateMock(...args),
-  },
+  }),
 }));
 
 vi.mock("../shared/downloadGeneratedImage", () => ({
@@ -254,12 +254,24 @@ const createConversationSnapshot = (input: {
 
 const createApp = async () => {
   const { default: Fastify } = await import("fastify");
-  const { imageGenerateRoute } = await import("./image-generate");
+  const { createAuthPlugin } = await import("../plugins/auth");
+  const { createImageGenerateRoute } = await import("./image-generate");
+  const testConfig = {
+    authJwtSecret: "test-secret",
+    nodeEnv: "development",
+    allowUnsignedDevAuth: true,
+    devAuthAllowedUserIds: ["local-user"],
+    providerRequestTimeoutMs: 120_000,
+    generatedImageDownloadMaxBytes: 32 * 1024 * 1024,
+    imageGenerateRateLimitMax: 20,
+    imageGenerateRateLimitTimeWindowMs: 60_000,
+  } as import("../config").AppConfig;
 
   const app = Fastify();
   app.decorate("chatStateRepository", repositoryMock);
   app.decorate("assetService", assetServiceMock as unknown as AssetService);
-  await app.register(imageGenerateRoute);
+  await app.register(createAuthPlugin(testConfig));
+  await app.register(createImageGenerateRoute(testConfig));
   return app;
 };
 

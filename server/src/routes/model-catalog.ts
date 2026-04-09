@@ -1,7 +1,10 @@
 import type { FastifyPluginAsync } from "fastify";
-import { getImageModelCatalog } from "../capabilities/registry";
+import type { AppConfig } from "../config";
+import { createImageModelCatalogRegistry } from "../capabilities/registry";
 
-export const modelCatalogRoute: FastifyPluginAsync = async (app) => {
+export const createModelCatalogRoute = (config: AppConfig): FastifyPluginAsync => async (app) => {
+  const registry = createImageModelCatalogRegistry(config);
+
   app.get("/api/models/catalog", async (request, reply) => {
     const capability =
       typeof request.query === "object" &&
@@ -17,6 +20,6 @@ export const modelCatalogRoute: FastifyPluginAsync = async (app) => {
       });
     }
 
-    return reply.code(200).send(getImageModelCatalog());
+    return reply.code(200).send(registry.getCatalog());
   });
 };

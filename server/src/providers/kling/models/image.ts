@@ -1,4 +1,3 @@
-import { getConfig } from "../../../config";
 import { getStylePromptHint } from "../../../shared/imageStyleHints";
 import { createProviderRequestContext, fetchProviderResponse, toProviderRawResponse } from "../../base/client";
 import { ProviderError, readProviderError } from "../../base/errors";
@@ -16,8 +15,8 @@ const SUPPORTED_MODELS = new Set(["kling-v2-1", "kling-v3"]);
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
-const getKlingImageGenerationUrl = () =>
-  new URL("/v1/images/generations", `${getConfig().klingApiBaseUrl}/`).toString();
+const getKlingImageGenerationUrl = (baseUrl: string) =>
+  new URL("/v1/images/generations", `${baseUrl}/`).toString();
 
 const buildPrompt = (prompt: string, style: Parameters<typeof getStylePromptHint>[0]) => {
   const styleHint = style !== "none" ? getStylePromptHint(style) : "";
@@ -128,6 +127,7 @@ const waitForPoll = (signal: AbortSignal | undefined, durationMs: number) =>
 const pollKlingTask = async (
   taskId: string,
   bearerToken: string,
+  baseUrl: string,
   context: ReturnType<typeof createProviderRequestContext>
 ): Promise<ProviderRawResponse> => {
   const deadline = Date.now() + context.timeoutMs;
@@ -139,7 +139,7 @@ const pollKlingTask = async (
     }
 
     const pollResponse = await fetchProviderResponse(
-      `${getKlingImageGenerationUrl()}/${taskId}`,
+      `${getKlingImageGenerationUrl(baseUrl)}/${taskId}`,
       {
         method: "GET",
         headers: {
@@ -195,9 +195,10 @@ export const generateKlingImage = async (
   }
 
   const bearerToken = resolveKlingBearerToken(input.credentials);
+  const baseUrl = input.credentials.baseUrl;
   const context = createProviderRequestContext(input.options);
   const createResponse = await fetchProviderResponse(
-    getKlingImageGenerationUrl(),
+    getKlingImageGenerationUrl(baseUrl),
     {
       method: "POST",
       headers: {
@@ -242,7 +243,7 @@ export const generateKlingImage = async (
     throw new ProviderError("Kling provider did not return a task id.");
   }
 
-  const rawResponse = await pollKlingTask(taskId, bearerToken, context);
+  const rawResponse = await pollKlingTask(taskId, bearerToken, baseUrl, context);
   const images = extractKlingImages(rawResponse.payload);
   if (images.length === 0) {
     throw new ProviderError("Kling provider returned no image URL.");

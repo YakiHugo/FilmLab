@@ -93,6 +93,7 @@ const createInput = (): PlatformProviderGenerateInput =>
     },
     credentials: {
       apiKey: "dashscope-key",
+      baseUrl: "https://dashscope.aliyuncs.com",
     },
     options: {
       timeoutMs: 3_000,

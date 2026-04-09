@@ -129,7 +129,8 @@ describe("imageRuntimeRouter.generate", () => {
   });
 
   it("continues to the next target after a retriable provider error", async () => {
-    const { imageRuntimeRouter } = await import("./router");
+    const { createImageRuntimeRouter } = await import("./router");
+    const imageRuntimeRouter = createImageRuntimeRouter({} as import("../../config").AppConfig);
     const { ProviderError } = await import("../../providers/base/errors");
     const adapterGenerateMock = vi.fn();
     const adapterLookupCalls: Array<[string, string]> = [];
@@ -213,7 +214,8 @@ describe("imageRuntimeRouter.generate", () => {
   });
 
   it("stops immediately when the provider error is not retriable", async () => {
-    const { imageRuntimeRouter } = await import("./router");
+    const { createImageRuntimeRouter } = await import("./router");
+    const imageRuntimeRouter = createImageRuntimeRouter({} as import("../../config").AppConfig);
     const { ProviderError } = await import("../../providers/base/errors");
     const adapterGenerateMock = vi.fn();
     const adapterLookupCalls: Array<[string, string]> = [];

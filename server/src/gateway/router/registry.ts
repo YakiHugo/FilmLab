@@ -1,4 +1,4 @@
-import { getConfig } from "../../config";
+import type { AppConfig } from "../../config";
 import type { FrontendImageModelId } from "../../../../shared/imageModelCatalog";
 import { getFrontendImageModelById } from "../../models/frontendRegistry";
 import type {
@@ -137,31 +137,34 @@ export const getDeploymentsForLogicalModel = (
   }));
 
 export const getRuntimeProviderCredentials = (
-  providerId: RuntimeProviderId
+  providerId: RuntimeProviderId,
+  config: AppConfig
 ): RuntimeProviderCredentials => {
-  const config = getConfig();
   switch (providerId) {
     case "ark":
       return {
         apiKey: config.arkApiKey?.trim() ?? "",
+        baseUrl: config.arkApiBaseUrl,
       };
     case "dashscope":
       return {
         apiKey: config.dashscopeApiKey?.trim() ?? "",
+        baseUrl: config.dashscopeApiBaseUrl,
       };
     case "kling":
       return {
         accessKey: config.klingAccessKey?.trim() ?? "",
         secretKey: config.klingSecretKey?.trim() ?? "",
+        baseUrl: config.klingApiBaseUrl,
       };
   }
 };
 
-export const getRuntimeProviderKey = (providerId: RuntimeProviderId) =>
-  getRuntimeProviderCredentials(providerId).apiKey ?? "";
+export const getRuntimeProviderKey = (providerId: RuntimeProviderId, config: AppConfig) =>
+  getRuntimeProviderCredentials(providerId, config).apiKey ?? "";
 
-export const getRuntimeProviderConfiguration = (providerId: RuntimeProviderId) => {
-  const credentials = getRuntimeProviderCredentials(providerId);
+export const getRuntimeProviderConfiguration = (providerId: RuntimeProviderId, config: AppConfig) => {
+  const credentials = getRuntimeProviderCredentials(providerId, config);
   const configured =
     providerId === "kling"
       ? Boolean(credentials.accessKey && credentials.secretKey)

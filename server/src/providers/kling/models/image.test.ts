@@ -100,6 +100,7 @@ const createInput = (timeoutMs = 3000): PlatformProviderGenerateInput =>
     credentials: {
       accessKey: "access-key",
       secretKey: "secret-key",
+      baseUrl: "https://api-beijing.klingai.com",
     },
     options: {
       timeoutMs,

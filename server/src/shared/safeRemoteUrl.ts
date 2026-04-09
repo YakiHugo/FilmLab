@@ -1,6 +1,5 @@
 import dns from "node:dns/promises";
 import net from "node:net";
-import { getConfig } from "../config";
 import { ProviderError } from "../providers/base/errors";
 
 const IPV4_MAPPED_IPV6_PREFIX = "::ffff:";
@@ -119,7 +118,7 @@ const resolveHostnameAddresses = async (hostname: string) => {
   }
 };
 
-export const assertSafeRemoteUrl = async (value: string, label: string) => {
+export const assertSafeRemoteUrl = async (value: string, label: string, nodeEnv?: string) => {
   let parsedUrl: URL;
 
   try {
@@ -151,7 +150,7 @@ export const assertSafeRemoteUrl = async (value: string, label: string) => {
   }
 
   const effectiveAddresses =
-    getConfig().nodeEnv === "development" && !net.isIP(hostname)
+    nodeEnv === "development" && !net.isIP(hostname)
       ? addresses.filter((address) => !isDevelopmentFakeIpAddress(address))
       : addresses;
 

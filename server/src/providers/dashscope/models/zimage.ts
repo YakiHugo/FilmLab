@@ -1,13 +1,12 @@
-import { getConfig } from "../../../config";
 import { buildDashScopePrompt, extractDashScopeImages, toDashScopeSize } from "../../dashscopeShared";
 import { createProviderRequestContext, fetchProviderResponse } from "../../base/client";
 import { ProviderError, readProviderError } from "../../base/errors";
 import type { PlatformProviderGenerateInput, RuntimeGenerationResult } from "../../base/types";
 
-const getDashScopeGenerationUrl = () =>
+const getDashScopeGenerationUrl = (baseUrl: string) =>
   new URL(
     "/api/v1/services/aigc/multimodal-generation/generation",
-    `${getConfig().dashscopeApiBaseUrl}/`
+    `${baseUrl}/`
   ).toString();
 
 const resolvePromptExtend = (value: unknown) => (typeof value === "boolean" ? value : false);
@@ -27,7 +26,7 @@ export const generateDashscopeZImage = async (
 
   const context = createProviderRequestContext(input.options);
   const upstream = await fetchProviderResponse(
-    getDashScopeGenerationUrl(),
+    getDashScopeGenerationUrl(input.credentials.baseUrl),
     {
       method: "POST",
       headers: {

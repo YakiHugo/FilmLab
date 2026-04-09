@@ -1,36 +1,36 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import type { AppConfig } from "../../config";
+import {
+  getRuntimeProviderConfiguration,
+  getRuntimeProviderCredentials,
+  getRuntimeProviderKey,
+} from "./registry";
 
-const mockConfig = vi.hoisted(() => ({
+const mockConfig = {
   arkApiKey: "ark-server-key",
+  arkApiBaseUrl: "https://ark.cn-beijing.volces.com",
   dashscopeApiKey: "dashscope-server-key",
+  dashscopeApiBaseUrl: "https://dashscope.aliyuncs.com",
   klingAccessKey: "kling-access-key",
   klingSecretKey: "kling-secret-key",
-}));
-
-vi.mock("../../config", () => ({
-  getConfig: () => mockConfig,
-}));
+  klingApiBaseUrl: "https://api-beijing.klingai.com",
+} as AppConfig;
 
 describe("runtime route registry", () => {
-  it("maps canonical providers to managed credentials", async () => {
-    const {
-      getRuntimeProviderConfiguration,
-      getRuntimeProviderCredentials,
-      getRuntimeProviderKey,
-    } = await import("./registry");
-
-    expect(getRuntimeProviderKey("ark")).toBe("ark-server-key");
-    expect(getRuntimeProviderKey("dashscope")).toBe("dashscope-server-key");
-    expect(getRuntimeProviderKey("kling")).toBe("");
-    expect(getRuntimeProviderCredentials("kling")).toEqual({
+  it("maps canonical providers to managed credentials", () => {
+    expect(getRuntimeProviderKey("ark", mockConfig)).toBe("ark-server-key");
+    expect(getRuntimeProviderKey("dashscope", mockConfig)).toBe("dashscope-server-key");
+    expect(getRuntimeProviderKey("kling", mockConfig)).toBe("");
+    expect(getRuntimeProviderCredentials("kling", mockConfig)).toEqual({
       accessKey: "kling-access-key",
       secretKey: "kling-secret-key",
+      baseUrl: "https://api-beijing.klingai.com",
     });
-    expect(getRuntimeProviderConfiguration("ark")).toEqual({
+    expect(getRuntimeProviderConfiguration("ark", mockConfig)).toEqual({
       configured: true,
       missingCredential: false,
     });
-    expect(getRuntimeProviderConfiguration("kling")).toEqual({
+    expect(getRuntimeProviderConfiguration("kling", mockConfig)).toEqual({
       configured: true,
       missingCredential: false,
     });

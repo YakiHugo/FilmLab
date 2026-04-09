@@ -1,4 +1,3 @@
-import { getConfig } from "../../../config";
 import { getStylePromptHint } from "../../../shared/imageStyleHints";
 import { createProviderRequestContext, fetchProviderResponse, toProviderRawResponse } from "../../base/client";
 import { ProviderError, readProviderError } from "../../base/errors";
@@ -25,8 +24,8 @@ const SEEDREAM_SIZE_BY_ASPECT_RATIO = {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
-const getArkImageGenerationUrl = () =>
-  new URL("/api/v3/images/generations", `${getConfig().arkApiBaseUrl}/`).toString();
+const getArkImageGenerationUrl = (baseUrl: string) =>
+  new URL("/api/v3/images/generations", `${baseUrl}/`).toString();
 
 const toArkSize = (aspectRatio: string) =>
   aspectRatio === "custom"
@@ -143,7 +142,7 @@ export const generateArkSeedream = async (
 
   const context = createProviderRequestContext(input.options);
   const upstream = await fetchProviderResponse(
-    getArkImageGenerationUrl(),
+    getArkImageGenerationUrl(input.credentials.baseUrl),
     {
       method: "POST",
       headers: {

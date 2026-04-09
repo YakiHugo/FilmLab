@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
+import type { AppConfig } from "../config";
 import { createImageModelCatalogRegistry } from "./registry";
 import { ProviderHealthStore } from "./healthStore";
+
+const testConfig = {
+  arkApiKey: "test-ark-key",
+  arkApiBaseUrl: "https://ark.cn-beijing.volces.com",
+  dashscopeApiKey: "test-dashscope-key",
+  dashscopeApiBaseUrl: "https://dashscope.aliyuncs.com",
+  klingAccessKey: "test-kling-access",
+  klingSecretKey: "test-kling-secret",
+  klingApiBaseUrl: "https://api-beijing.klingai.com",
+} as AppConfig;
 
 describe("image model catalog registry", () => {
   it("builds a catalog with provider state and frontend models", () => {
     const healthStore = new ProviderHealthStore();
-    const registry = createImageModelCatalogRegistry({
+    const registry = createImageModelCatalogRegistry(testConfig, {
       record: (input) => healthStore.record(input),
       getSnapshot: (provider, model, operation, now) =>
         healthStore.getSnapshot(provider, model, operation, now),
@@ -44,7 +55,7 @@ describe("image model catalog registry", () => {
 
   it("maps health into catalog status", () => {
     const healthStore = new ProviderHealthStore();
-    const registry = createImageModelCatalogRegistry({
+    const registry = createImageModelCatalogRegistry(testConfig, {
       record: (input) => healthStore.record(input),
       getSnapshot: (provider, model, operation, now) =>
         healthStore.getSnapshot(provider, model, operation, now),

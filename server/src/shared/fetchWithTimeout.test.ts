@@ -10,7 +10,6 @@ describe("fetchWithTimeout", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.resetModules();
-    process.env.PROVIDER_REQUEST_TIMEOUT_MS = "1000";
   });
 
   afterEach(() => {
@@ -40,7 +39,8 @@ describe("fetchWithTimeout", () => {
       {
         method: "GET",
       },
-      "Provider timed out."
+      "Provider timed out.",
+      { timeoutMs: 1000 }
     );
     const expectation = expect(requestPromise).rejects.toMatchObject({
       message: "Provider timed out.",
@@ -77,6 +77,7 @@ describe("fetchWithTimeout", () => {
       "Provider timed out.",
       {
         signal: requestController.signal,
+        timeoutMs: 1000,
       }
     );
     const expectation = expect(requestPromise).rejects.toMatchObject({

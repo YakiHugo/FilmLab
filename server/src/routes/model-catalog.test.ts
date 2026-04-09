@@ -1,24 +1,29 @@
 import { describe, expect, it, vi } from "vitest";
+import type { AppConfig } from "../config";
 
-const getImageModelCatalogMock = vi.fn();
+const getCatalogMock = vi.fn();
 
 vi.mock("../capabilities/registry", () => ({
-  getImageModelCatalog: (...args: unknown[]) => getImageModelCatalogMock(...args),
+  createImageModelCatalogRegistry: () => ({
+    getCatalog: (...args: unknown[]) => getCatalogMock(...args),
+  }),
 }));
 
-describe("modelCatalogRoute", () => {
+const testConfig = {} as AppConfig;
+
+describe("createModelCatalogRoute", () => {
   it("returns the image.generate model catalog", async () => {
     const { default: Fastify } = await import("fastify");
-    const { modelCatalogRoute } = await import("./model-catalog");
+    const { createModelCatalogRoute } = await import("./model-catalog");
 
-    getImageModelCatalogMock.mockReturnValueOnce({
+    getCatalogMock.mockReturnValueOnce({
       generatedAt: "2026-03-11T00:00:00.000Z",
       providers: [{ id: "ark", name: "Ark", configured: true, missingCredential: false }],
       models: [{ id: "seedream-v5", label: "Seedream 5.0" }],
     });
 
     const app = Fastify();
-    await app.register(modelCatalogRoute);
+    await app.register(createModelCatalogRoute(testConfig));
 
     const response = await app.inject({
       method: "GET",
@@ -37,10 +42,10 @@ describe("modelCatalogRoute", () => {
 
   it("rejects unsupported capabilities", async () => {
     const { default: Fastify } = await import("fastify");
-    const { modelCatalogRoute } = await import("./model-catalog");
+    const { createModelCatalogRoute } = await import("./model-catalog");
 
     const app = Fastify();
-    await app.register(modelCatalogRoute);
+    await app.register(createModelCatalogRoute(testConfig));
 
     const response = await app.inject({
       method: "GET",

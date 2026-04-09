@@ -7,7 +7,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "pnpm run typecheck && tsup src/index.ts --format esm --target node20 --out-dir dist --clean",
     "start": "node dist/index.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "migrate:up": "node-pg-migrate up --migrations-dir migrations --migration-file-language sql",
+    "migrate:create": "node-pg-migrate create --migrations-dir migrations --migration-file-language sql"
   },
   "dependencies": {
     "@fastify/cors": "^11.0.1",
@@ -15,7 +17,10 @@
     "@supabase/supabase-js": "^2.100.0",
     "dotenv": "^17.2.3",
     "fastify": "^5.6.1",
+    "fastify-plugin": "^5.1.0",
     "image-size": "^2.0.2",
+    "jose": "^6.2.2",
+    "node-pg-migrate": "^8.0.4",
     "pg": "^8.20.0",
     "zod": "^4.3.6"
   },
