@@ -269,6 +269,39 @@ const buildCompiledPrompt = (
   return sections.filter((entry): entry is string => Boolean(entry)).join("\n");
 };
 
+const buildDispatchedPrompt = (
+  ir: PromptIR,
+  options: {
+    includeNegativeConstraints: boolean;
+  }
+): string => {
+  const parts: string[] = [ir.goal];
+
+  if (ir.preserve.length > 0) {
+    parts.push(`Preserve: ${ir.preserve.join(", ")}`);
+  }
+
+  if (ir.styleDirectives.length > 0) {
+    parts.push(ir.styleDirectives.join(", "));
+  }
+
+  if (ir.editOps.length > 0) {
+    parts.push(
+      ir.editOps
+        .map((entry) =>
+          entry.value ? `${entry.op} ${entry.target} -> ${entry.value}` : `${entry.op} ${entry.target}`
+        )
+        .join("; ")
+    );
+  }
+
+  if (options.includeNegativeConstraints && ir.negativeConstraints.length > 0) {
+    parts.push(`Avoid: ${ir.negativeConstraints.join(", ")}`);
+  }
+
+  return parts.filter(Boolean).join("\n");
+};
+
 export interface CompiledTargetPrompt {
   targetKey: string;
   compiledPrompt: string;
@@ -409,8 +442,7 @@ export const compilePromptForTarget = (
     compiledOperation,
     includeNegativeConstraints: !negativePromptIsNative,
   });
-  const dispatchedPrompt = buildCompiledPrompt(ir, state, context, target, {
-    compiledOperation,
+  const dispatchedPrompt = buildDispatchedPrompt(ir, {
     includeNegativeConstraints: !negativePromptIsNative,
   });
   const negativePrompt = negativePromptIsNative
