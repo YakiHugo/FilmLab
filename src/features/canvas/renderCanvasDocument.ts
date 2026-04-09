@@ -24,6 +24,7 @@ interface RenderCanvasWorkbenchOptions {
   height: number;
   pixelRatio: number;
   width: number;
+  onProgress?: (progress: number) => void;
 }
 
 const EXPORT_RENDER_SLOT_PREFIX = "board-export";
@@ -312,6 +313,7 @@ export const renderCanvasWorkbenchToCanvas = async ({
   height,
   pixelRatio,
   width,
+  onProgress,
 }: RenderCanvasWorkbenchOptions) => {
   ensureCanvasSize(canvas, width * pixelRatio, height * pixelRatio);
   const context = canvas.getContext("2d", { willReadFrequently: true });
@@ -335,7 +337,8 @@ export const renderCanvasWorkbenchToCanvas = async ({
   context.imageSmoothingQuality = "high";
 
   try {
-    for (const element of orderedElements) {
+    for (let i = 0; i < orderedElements.length; i++) {
+      const element = orderedElements[i]!;
       if (element.type === "image") {
         await drawImageElement({
           assetById,
@@ -343,17 +346,12 @@ export const renderCanvasWorkbenchToCanvas = async ({
           element,
           outputScale,
         });
-        continue;
-      }
-
-      if (element.type === "text") {
+      } else if (element.type === "text") {
         drawTextElement(context, element);
-        continue;
-      }
-
-      if (element.type === "shape") {
+      } else if (element.type === "shape") {
         drawShapeElement(context, element);
       }
+      onProgress?.((i + 1) / orderedElements.length);
     }
   } finally {
     context.restore();

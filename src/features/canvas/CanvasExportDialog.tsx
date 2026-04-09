@@ -2,12 +2,12 @@ import type Konva from "konva";
 import { useEffect, useState } from "react";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
@@ -27,6 +27,8 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
   const [quality, setQuality] = useState(0.92);
   const [pixelRatio, setPixelRatio] = useState(2);
   const [mode, setMode] = useState<"whole" | "slices">("whole");
+  const [exporting, setExporting] = useState(false);
+  const [progress, setProgress] = useState(0);
   const activeWorkbenchId = useCanvasStore((state) => state.loadedWorkbenchId);
   const activeWorkbenchSlices = useCanvasStore((state) => {
     const activeWorkbench = state.workbenchDraft ?? state.workbench;
@@ -88,6 +90,7 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
               <SelectContent>
                 <SelectItem value="png">PNG</SelectItem>
                 <SelectItem value="jpeg">JPEG</SelectItem>
+                <SelectItem value="tiff">TIFF</SelectItem>
               </SelectContent>
             </Select>
 
@@ -154,7 +157,7 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
               step={0.01}
               value={[quality]}
               onValueChange={(value) => setQuality(value[0] ?? 0.92)}
-              disabled={format === "png"}
+              disabled={format === "png" || format === "tiff"}
             />
           </div>
 
@@ -169,9 +172,21 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
           ) : null}
         </div>
 
+        {exporting ? (
+          <div className="mt-4">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full rounded-full bg-white/60 transition-[width] duration-150"
+                style={{ width: `${Math.round(progress * 100)}%` }}
+              />
+            </div>
+          </div>
+        ) : null}
+
         <div className="mt-5 flex justify-end gap-3">
-          <AlertDialogCancel>{`\u53d6\u6d88`}</AlertDialogCancel>
-          <AlertDialogAction
+          <AlertDialogCancel disabled={exporting}>{`\u53d6\u6d88`}</AlertDialogCancel>
+          <Button
+            disabled={exporting}
             onClick={() => {
               const canvasState = useCanvasStore.getState();
               const currentWorkbench =
@@ -179,30 +194,40 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
                   ? canvasState.workbenchDraft ?? canvasState.workbench
                   : null;
 
+              setExporting(true);
+              setProgress(0);
+
+              const finish = () => {
+                setExporting(false);
+                setProgress(0);
+                onOpenChange(false);
+              };
+
               if (mode === "slices") {
                 void downloadSlices(stage, currentWorkbench?.slices ?? [], {
                   format,
                   quality,
                   pixelRatio,
                   filePrefix: currentWorkbench?.name ?? "filmlab-workbench",
-                });
+                  onProgress: setProgress,
+                }).finally(finish);
                 return;
               }
 
+              const extension = format === "jpeg" ? "jpg" : format === "tiff" ? "tiff" : "png";
               void download(stage, {
                 format,
                 width,
                 height,
                 quality,
                 pixelRatio,
-                fileName: `${currentWorkbench?.name ?? "filmlab-workbench"}.${
-                  format === "jpeg" ? "jpg" : "png"
-                }`,
-              });
+                onProgress: setProgress,
+                fileName: `${currentWorkbench?.name ?? "filmlab-workbench"}.${extension}`,
+              }).finally(finish);
             }}
           >
-            {`\u4e0b\u8f7d`}
-          </AlertDialogAction>
+            {exporting ? `\u5bfc\u51fa\u4e2d\u2026` : `\u4e0b\u8f7d`}
+          </Button>
         </div>
       </AlertDialogContent>
     </AlertDialog>
