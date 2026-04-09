@@ -1,6 +1,7 @@
 import { ProviderError } from "../../providers/base/errors";
-import { getDeploymentsForLogicalModel, getRuntimeProviderById, resolveRouteTarget } from "./registry";
-import type { ResolvedRouteTarget, RouterSelectionInput } from "./types";
+import { getDeploymentsForLogicalModel, getRuntimeProviderById, getRuntimeProviderConfiguration, resolveRouteTarget } from "./registry";
+import { routerHealth } from "./health";
+import type { ImageOperation, ResolvedRouteTarget, RouterSelectionInput } from "./types";
 
 export const selectRouteTarget = (input: RouterSelectionInput): ResolvedRouteTarget => {
   const target = resolveRouteTarget(input);
@@ -56,6 +57,31 @@ export const selectRouteTargets = (input: RouterSelectionInput) => {
       candidates.findIndex((entry) => entry.deployment.id === candidate.deployment.id) === index
   );
 
+  if (!requestedTarget) {
+    const configuredCandidates = dedupedCandidates.filter(
+      (candidate) => getRuntimeProviderConfiguration(candidate.provider.id).configured
+    );
+    if (configuredCandidates.length > 0) {
+      dedupedCandidates.length = 0;
+      dedupedCandidates.push(...configuredCandidates);
+    }
+  }
+
+  const now = Date.now();
+  const operation = input.operation as ImageOperation;
+
+  const healthScores = new Map(
+    dedupedCandidates.map((candidate) => [
+      candidate.deployment.id,
+      routerHealth.getSnapshot(
+        candidate.provider.id,
+        candidate.deployment.providerModel,
+        operation,
+        now
+      ).score,
+    ])
+  );
+
   dedupedCandidates.sort((left, right) => {
     if (requestedTarget?.deploymentId) {
       const leftPinned = left.deployment.id === requestedTarget.deploymentId ? 1 : 0;
@@ -73,7 +99,12 @@ export const selectRouteTargets = (input: RouterSelectionInput) => {
       }
     }
 
-    return right.deployment.priority - left.deployment.priority;
+    const priorityDiff = right.deployment.priority - left.deployment.priority;
+    if (priorityDiff !== 0) {
+      return priorityDiff;
+    }
+
+    return (healthScores.get(right.deployment.id) ?? 100) - (healthScores.get(left.deployment.id) ?? 100);
   });
 
   return dedupedCandidates;
