@@ -4,7 +4,9 @@ import type {
   ImageLabPromptArtifactView,
   ImageLabPromptArtifactsView,
   ImageLabObservabilityView,
+  ImageLabResultView,
   ImageLabTurnRequestView,
+  ImageLabTurnView,
 } from "../../../../shared/imageLabViews";
 import {
   IMAGE_ASPECT_RATIOS,
@@ -126,13 +128,13 @@ const toTurnRequestView = (snapshot: Record<string, unknown>): ImageLabTurnReque
   aspectRatio:
     typeof snapshot.aspectRatio === "string" &&
     (IMAGE_ASPECT_RATIOS as readonly string[]).includes(snapshot.aspectRatio)
-      ? snapshot.aspectRatio
+      ? (snapshot.aspectRatio as ImageLabTurnRequestView["aspectRatio"])
       : "1:1",
   width: typeof snapshot.width === "number" ? snapshot.width : null,
   height: typeof snapshot.height === "number" ? snapshot.height : null,
   style:
     typeof snapshot.style === "string" && (IMAGE_STYLE_IDS as readonly string[]).includes(snapshot.style)
-      ? snapshot.style
+      ? (snapshot.style as ImageLabTurnRequestView["style"])
       : "none",
   stylePreset: typeof snapshot.stylePreset === "string" ? snapshot.stylePreset : "",
   negativePrompt: typeof snapshot.negativePrompt === "string" ? snapshot.negativePrompt : "",
@@ -190,7 +192,7 @@ export const projectConversationView = (
       error: turn.error,
       warnings: [...turn.warnings],
       request: toTurnRequestView(turn.configSnapshot),
-      runtimeProvider: turn.runtimeProvider,
+      runtimeProvider: turn.runtimeProvider as ImageLabTurnView["runtimeProvider"],
       providerModel: turn.providerModel,
       runCount: relatedRuns.length,
       executedTargetLabel: latestRun?.executedTarget
@@ -203,7 +205,7 @@ export const projectConversationView = (
         imageUrl: result.imageUrl,
         imageId: result.imageId,
         assetId: result.assetId,
-        provider: result.runtimeProvider,
+        provider: result.runtimeProvider as ImageLabResultView["provider"],
         model: result.providerModel,
         ...(result.mimeType ? { mimeType: result.mimeType } : {}),
         ...(result.revisedPrompt !== undefined ? { revisedPrompt: result.revisedPrompt } : {}),

@@ -1,10 +1,13 @@
 import type {
+  ImageAspectRatio,
   ImageInputAssetBinding,
+  ImageProviderId,
   ImagePromptCompilerOperationId,
   ImagePromptContinuityTarget,
   ImagePromptIntentEditOp,
   ImagePromptIntentInput,
   ImageGenerationOperation,
+  ImageStyleId,
 } from "./imageGeneration";
 import type { FrontendImageModelId } from "./imageModelCatalog";
 
@@ -30,10 +33,10 @@ export interface ImageLabPromptStateView {
 
 export interface ImageLabTurnRequestView {
   modelId: FrontendImageModelId;
-  aspectRatio: string;
+  aspectRatio: ImageAspectRatio;
   width: number | null;
   height: number | null;
-  style: string;
+  style: ImageStyleId;
   stylePreset: string;
   negativePrompt: string;
   promptIntent: ImagePromptIntentInput;
@@ -52,7 +55,7 @@ export interface ImageLabResultView {
   imageUrl: string;
   imageId: string | null;
   assetId: string | null;
-  provider: string;
+  provider: ImageProviderId;
   model: string;
   mimeType?: string;
   revisedPrompt?: string | null;
@@ -69,7 +72,7 @@ export interface ImageLabTurnView {
   error: string | null;
   warnings: string[];
   request: ImageLabTurnRequestView;
-  runtimeProvider: string;
+  runtimeProvider: ImageProviderId;
   providerModel: string;
   runCount: number;
   executedTargetLabel: string | null;

@@ -69,7 +69,10 @@ const imageGenerationRequestBaseSchema = z
   .object({
     prompt: z.string().trim().min(1).max(IMAGE_GENERATION_LIMITS.prompt.maxLength),
     promptIntent: imagePromptIntentSchema.optional(),
-    negativePrompt: z.string().trim().max(IMAGE_GENERATION_LIMITS.negativePrompt.maxLength).optional(),
+    negativePrompt: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.string().trim().min(1).max(IMAGE_GENERATION_LIMITS.negativePrompt.maxLength).optional()
+    ),
     conversationId: z.string().trim().min(1).optional(),
     threadId: z.string().trim().min(1).optional(),
     retryOfTurnId: z.string().trim().min(1).optional(),

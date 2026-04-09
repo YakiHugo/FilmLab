@@ -313,11 +313,28 @@ class PostgresAssetRepository implements AssetRepository {
   }
 
   async deleteUploadSession(userId: string, assetId: string) {
-
     await this.db.query(
       "DELETE FROM asset_upload_sessions WHERE owner_user_id = $1 AND asset_id = $2",
       [userId, assetId]
     );
+  }
+
+  async deleteExpiredUploadSessions(olderThan: string) {
+    const result = await this.db.query<{
+      asset_id: string;
+      original_path: string;
+      thumbnail_path: string | null;
+    }>(
+      `DELETE FROM asset_upload_sessions
+       WHERE updated_at < $1::timestamptz
+       RETURNING asset_id, original_path, thumbnail_path`,
+      [olderThan]
+    );
+    return result.rows.map((row) => ({
+      assetId: row.asset_id,
+      originalPath: row.original_path,
+      thumbnailPath: row.thumbnail_path,
+    }));
   }
 
   async withContentHashLock<T>(
@@ -577,6 +594,18 @@ class MemoryAssetRepository implements AssetRepository {
     if (session?.ownerUserId === userId) {
       this.uploadSessions.delete(assetId);
     }
+  }
+
+  async deleteExpiredUploadSessions(olderThan: string) {
+    const cutoff = new Date(olderThan).getTime();
+    const expired: { assetId: string; originalPath: string; thumbnailPath: string | null }[] = [];
+    for (const [assetId, session] of this.uploadSessions) {
+      if (new Date(session.updatedAt).getTime() < cutoff) {
+        expired.push({ assetId, originalPath: session.originalPath, thumbnailPath: session.thumbnailPath });
+        this.uploadSessions.delete(assetId);
+      }
+    }
+    return expired;
   }
 
   async withContentHashLock<T>(

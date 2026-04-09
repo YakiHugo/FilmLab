@@ -28,6 +28,7 @@ interface HealthState {
 
 export interface ProviderHealthSnapshot {
   score: number;
+  hasData: boolean;
   sampleSize: number;
   successRate: number;
   averageLatencyMs: number | null;
@@ -118,6 +119,7 @@ export class ProviderHealthStore {
     if (!state) {
       return {
         score: 100,
+        hasData: false,
         sampleSize: 0,
         successRate: 1,
         averageLatencyMs: null,
@@ -134,6 +136,7 @@ export class ProviderHealthStore {
     if (sampleSize === 0) {
       return {
         score: state.circuitOpen ? 25 : 100,
+        hasData: state.circuitOpen,
         sampleSize,
         successRate: 1,
         averageLatencyMs: null,
@@ -159,6 +162,7 @@ export class ProviderHealthStore {
 
     return {
       score,
+      hasData: true,
       sampleSize,
       successRate,
       averageLatencyMs: Math.round(averageLatencyMs),
