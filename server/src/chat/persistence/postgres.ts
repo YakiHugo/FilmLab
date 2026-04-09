@@ -33,281 +33,7 @@ import {
 } from "./postgres/promptQueries";
 import { type ChatConversationRow, toConversationRecord } from "./postgres/rows";
 
-const MIGRATIONS = [
-  {
-    name: "001_chat_state_base",
-    sql: `
-      CREATE TABLE IF NOT EXISTS chat_schema_migrations (
-        name TEXT PRIMARY KEY,
-        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS chat_conversations (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        is_active BOOLEAN NOT NULL DEFAULT TRUE,
-        created_at TIMESTAMPTZ NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS chat_conversations_active_user_idx
-        ON chat_conversations(user_id)
-        WHERE is_active = TRUE;
-      CREATE INDEX IF NOT EXISTS chat_conversations_user_updated_idx
-        ON chat_conversations(user_id, updated_at DESC);
-
-      CREATE TABLE IF NOT EXISTS chat_turns (
-        id TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
-        prompt TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL,
-        retry_of_turn_id TEXT NULL,
-        model_id TEXT NOT NULL,
-        logical_model TEXT NOT NULL,
-        deployment_id TEXT NOT NULL,
-        runtime_provider TEXT NOT NULL,
-        provider_model TEXT NOT NULL,
-        config_snapshot JSONB NOT NULL,
-        status TEXT NOT NULL,
-        error TEXT NULL,
-        warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
-        job_id TEXT NULL
-      );
-      CREATE INDEX IF NOT EXISTS chat_turns_conversation_created_idx
-        ON chat_turns(conversation_id, created_at DESC);
-
-      CREATE TABLE IF NOT EXISTS chat_jobs (
-        id TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
-        turn_id TEXT NOT NULL REFERENCES chat_turns(id) ON DELETE CASCADE,
-        model_id TEXT NOT NULL,
-        logical_model TEXT NOT NULL,
-        deployment_id TEXT NOT NULL,
-        runtime_provider TEXT NOT NULL,
-        provider_model TEXT NOT NULL,
-        compiled_prompt TEXT NOT NULL,
-        request_snapshot JSONB NOT NULL,
-        status TEXT NOT NULL,
-        error TEXT NULL,
-        created_at TIMESTAMPTZ NOT NULL,
-        completed_at TIMESTAMPTZ NULL,
-        updated_at TIMESTAMPTZ NOT NULL
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS chat_jobs_turn_id_idx
-        ON chat_jobs(turn_id);
-      CREATE INDEX IF NOT EXISTS chat_jobs_conversation_created_idx
-        ON chat_jobs(conversation_id, created_at DESC);
-
-      CREATE TABLE IF NOT EXISTS chat_attempts (
-        id TEXT PRIMARY KEY,
-        job_id TEXT NOT NULL REFERENCES chat_jobs(id) ON DELETE CASCADE,
-        attempt_no INTEGER NOT NULL,
-        status TEXT NOT NULL,
-        error TEXT NULL,
-        provider_request_id TEXT NULL,
-        provider_task_id TEXT NULL,
-        created_at TIMESTAMPTZ NOT NULL,
-        completed_at TIMESTAMPTZ NULL,
-        updated_at TIMESTAMPTZ NOT NULL
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS chat_attempts_job_attempt_no_idx
-        ON chat_attempts(job_id, attempt_no);
-
-      CREATE TABLE IF NOT EXISTS chat_results (
-        id TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
-        turn_id TEXT NOT NULL REFERENCES chat_turns(id) ON DELETE CASCADE,
-        job_id TEXT NOT NULL REFERENCES chat_jobs(id) ON DELETE CASCADE,
-        image_index INTEGER NOT NULL,
-        image_url TEXT NOT NULL,
-        image_id TEXT NULL,
-        runtime_provider TEXT NOT NULL,
-        provider_model TEXT NOT NULL,
-        mime_type TEXT NULL,
-        revised_prompt TEXT NULL,
-        created_at TIMESTAMPTZ NOT NULL
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS chat_results_turn_image_index_idx
-        ON chat_results(turn_id, image_index);
-    `,
-  },
-  {
-    name: "002_chat_turns_soft_hide",
-    sql: `
-      ALTER TABLE chat_turns
-      ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN NOT NULL DEFAULT FALSE;
-
-      CREATE INDEX IF NOT EXISTS chat_turns_conversation_visible_created_idx
-        ON chat_turns(conversation_id, created_at DESC)
-        WHERE is_hidden = FALSE;
-    `,
-  },
-  {
-    name: "003_chat_runs_assets",
-    sql: `
-      CREATE TABLE IF NOT EXISTS chat_runs (
-        id TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
-        turn_id TEXT NOT NULL REFERENCES chat_turns(id) ON DELETE CASCADE,
-        job_id TEXT NULL REFERENCES chat_jobs(id) ON DELETE SET NULL,
-        operation TEXT NOT NULL,
-        status TEXT NOT NULL,
-        requested_target JSONB NULL,
-        selected_target JSONB NULL,
-        executed_target JSONB NULL,
-        prompt_snapshot JSONB NULL,
-        error TEXT NULL,
-        warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
-        asset_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
-        referenced_asset_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
-        telemetry JSONB NOT NULL DEFAULT '{}'::jsonb,
-        created_at TIMESTAMPTZ NOT NULL,
-        completed_at TIMESTAMPTZ NULL,
-        updated_at TIMESTAMPTZ NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS chat_runs_conversation_created_idx
-        ON chat_runs(conversation_id, created_at DESC);
-      CREATE UNIQUE INDEX IF NOT EXISTS chat_runs_job_id_idx
-        ON chat_runs(job_id)
-        WHERE job_id IS NOT NULL;
-
-      CREATE TABLE IF NOT EXISTS chat_assets (
-        id TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
-        turn_id TEXT NULL REFERENCES chat_turns(id) ON DELETE SET NULL,
-        run_id TEXT NULL REFERENCES chat_runs(id) ON DELETE SET NULL,
-        asset_type TEXT NOT NULL,
-        label TEXT NULL,
-        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-        created_at TIMESTAMPTZ NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS chat_assets_conversation_created_idx
-        ON chat_assets(conversation_id, created_at DESC);
-      CREATE INDEX IF NOT EXISTS chat_assets_run_id_idx
-        ON chat_assets(run_id);
-
-      CREATE TABLE IF NOT EXISTS chat_asset_locators (
-        id TEXT PRIMARY KEY,
-        asset_id TEXT NOT NULL REFERENCES chat_assets(id) ON DELETE CASCADE,
-        locator_type TEXT NOT NULL,
-        locator_value TEXT NOT NULL,
-        mime_type TEXT NULL,
-        expires_at TIMESTAMPTZ NULL,
-        created_at TIMESTAMPTZ NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS chat_asset_locators_asset_idx
-        ON chat_asset_locators(asset_id, created_at ASC);
-
-      CREATE TABLE IF NOT EXISTS chat_asset_edges (
-        id TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
-        source_asset_id TEXT NOT NULL REFERENCES chat_assets(id) ON DELETE CASCADE,
-        target_asset_id TEXT NOT NULL REFERENCES chat_assets(id) ON DELETE CASCADE,
-        edge_type TEXT NOT NULL,
-        turn_id TEXT NULL REFERENCES chat_turns(id) ON DELETE SET NULL,
-        run_id TEXT NULL REFERENCES chat_runs(id) ON DELETE SET NULL,
-        created_at TIMESTAMPTZ NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS chat_asset_edges_conversation_idx
-        ON chat_asset_edges(conversation_id, created_at DESC);
-
-      ALTER TABLE chat_jobs
-      ADD COLUMN IF NOT EXISTS run_id TEXT NULL;
-
-      ALTER TABLE chat_attempts
-      ADD COLUMN IF NOT EXISTS run_id TEXT NULL;
-
-      ALTER TABLE chat_results
-      ADD COLUMN IF NOT EXISTS thread_asset_id TEXT NULL;
-    `,
-  },
-  {
-    name: "004_generated_images",
-    sql: `
-      CREATE TABLE IF NOT EXISTS generated_images (
-        id TEXT PRIMARY KEY,
-        owner_user_id TEXT NOT NULL,
-        conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
-        turn_id TEXT NOT NULL REFERENCES chat_turns(id) ON DELETE CASCADE,
-        mime_type TEXT NOT NULL,
-        size_bytes INTEGER NOT NULL,
-        blob_data BYTEA NOT NULL,
-        visibility TEXT NOT NULL,
-        private_token_hash TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL,
-        deleted_at TIMESTAMPTZ NULL
-      );
-      CREATE INDEX IF NOT EXISTS generated_images_turn_idx
-        ON generated_images(turn_id, created_at DESC);
-      CREATE INDEX IF NOT EXISTS generated_images_owner_idx
-        ON generated_images(owner_user_id, created_at DESC);
-      CREATE INDEX IF NOT EXISTS generated_images_active_lookup_idx
-        ON generated_images(id, private_token_hash)
-        WHERE deleted_at IS NULL;
-    `,
-  },
-  {
-    name: "005_prompt_compiler_state",
-    sql: `
-      ALTER TABLE chat_conversations
-      ADD COLUMN IF NOT EXISTS prompt_state JSONB NOT NULL DEFAULT '{
-        "committed": {
-          "prompt": null,
-          "preserve": [],
-          "avoid": [],
-          "styleDirectives": [],
-          "continuityTargets": [],
-          "editOps": [],
-          "referenceAssetIds": []
-        },
-        "candidate": null,
-        "baseAssetId": null,
-        "candidateTurnId": null,
-        "revision": 0
-      }'::jsonb;
-
-      CREATE TABLE IF NOT EXISTS chat_prompt_versions (
-        id TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
-        run_id TEXT NOT NULL REFERENCES chat_runs(id) ON DELETE CASCADE,
-        turn_id TEXT NOT NULL REFERENCES chat_turns(id) ON DELETE CASCADE,
-        version INTEGER NOT NULL,
-        stage TEXT NOT NULL,
-        target_key TEXT NULL,
-        attempt INTEGER NULL,
-        compiler_version TEXT NOT NULL,
-        capability_version TEXT NOT NULL,
-        original_prompt TEXT NOT NULL,
-        prompt_intent JSONB NULL,
-        turn_delta JSONB NULL,
-        committed_state_before JSONB NULL,
-        candidate_state_after JSONB NULL,
-        prompt_ir JSONB NULL,
-        compiled_prompt TEXT NULL,
-        dispatched_prompt TEXT NULL,
-        provider_effective_prompt TEXT NULL,
-        semantic_losses JSONB NOT NULL DEFAULT '[]'::jsonb,
-        warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
-        hashes JSONB NOT NULL DEFAULT '{}'::jsonb,
-        created_at TIMESTAMPTZ NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS chat_prompt_versions_run_idx
-        ON chat_prompt_versions(run_id, version ASC, created_at ASC);
-      CREATE INDEX IF NOT EXISTS chat_prompt_versions_conversation_idx
-        ON chat_prompt_versions(conversation_id, created_at DESC);
-    `,
-  },
-  {
-    name: "006_prompt_trace_id",
-    sql: `
-      ALTER TABLE chat_prompt_versions
-      ADD COLUMN IF NOT EXISTS trace_id TEXT NULL;
-    `,
-  },
-] as const;
-
 export class PostgresChatStateRepository implements ChatStateRepository {
-  private initPromise: Promise<void> | null = null;
 
   constructor(private readonly pool: Pool) {}
 
@@ -316,7 +42,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
   }
 
   async getConversationById(userId: string, conversationId: string) {
-    await this.ensureReady();
+
     const result = await this.pool.query<ChatConversationRow>(
       `
         SELECT id, user_id, prompt_state, created_at, updated_at
@@ -337,7 +63,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
   }
 
   private async getActiveConversation(userId: string) {
-    await this.ensureReady();
+
     const existing = await this.pool.query<ChatConversationRow>(
       `
         SELECT id, user_id, prompt_state, created_at, updated_at
@@ -391,7 +117,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
   }
 
   async getConversationSnapshot(userId: string, conversationId?: string) {
-    await this.ensureReady();
+
     return getConversationSnapshotQuery({
       pool: this.pool,
       userId,
@@ -406,7 +132,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
     userId: string,
     turnId: string
   ) {
-    await this.ensureReady();
+
     return getPromptArtifactsForTurnQuery({
       pool: this.pool,
       userId,
@@ -418,7 +144,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
     userId: string,
     conversationId?: string
   ) {
-    await this.ensureReady();
+
     return getPromptObservabilityForConversationQuery({
       pool: this.pool,
       userId,
@@ -430,7 +156,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
   }
 
   async clearActiveConversation(userId: string) {
-    await this.ensureReady();
+
     return clearActiveConversationQuery({
       userId,
       withTransaction: (callback) => this.withTransaction(callback),
@@ -438,7 +164,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
   }
 
   async deleteTurn(userId: string, turnId: string) {
-    await this.ensureReady();
+
     return deleteTurnQuery({
       userId,
       turnId,
@@ -451,7 +177,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
   }
 
   async createGeneration(input: CreateChatGenerationInput) {
-    await this.ensureReady();
+
     await this.withTransaction(async (client) => {
       await client.query(
         `
@@ -633,7 +359,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
   }
 
   async createTurn(input: CreateChatTurnInput) {
-    await this.ensureReady();
+
     await this.withTransaction(async (client) => {
       await client.query(
         `
@@ -685,7 +411,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
   }
 
   async createRun(input: CreateChatRunInput) {
-    await this.ensureReady();
+
     await this.withTransaction(async (client) => {
       await this.insertRun(client, input.conversationId, input.run);
 
@@ -715,7 +441,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
   }
 
   async createPromptVersions(input: CreatePromptVersionsInput) {
-    await this.ensureReady();
+
     await this.withTransaction(async (client) => {
       for (const version of input.versions) {
         await this.insertPromptVersion(client, input.conversationId, version);
@@ -724,7 +450,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
   }
 
   async updateConversationPromptState(input: UpdateConversationPromptStateInput) {
-    await this.ensureReady();
+
     const result = await this.pool.query(
       `
         UPDATE chat_conversations
@@ -762,7 +488,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
   }
 
   async acceptConversationTurn(input: AcceptConversationTurnInput) {
-    await this.ensureReady();
+
     return acceptConversationTurnMutation({
       params: input,
       withTransaction: (callback) => this.withTransaction(callback),
@@ -772,7 +498,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
   }
 
   async completeGenerationSuccess(input: CompleteChatGenerationSuccessInput) {
-    await this.ensureReady();
+
     await completeGenerationSuccessMutation({
       params: input,
       withTransaction: (callback) => this.withTransaction(callback),
@@ -782,7 +508,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
   }
 
   async completeGenerationFailure(input: CompleteChatGenerationFailureInput) {
-    await this.ensureReady();
+
     await completeGenerationFailureMutation({
       params: input,
       withTransaction: (callback) => this.withTransaction(callback),
@@ -792,7 +518,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
   }
 
   async turnExists(userId: string, conversationId: string, turnId: string) {
-    await this.ensureReady();
+
     const result = await this.pool.query(
       `
         SELECT 1
@@ -812,50 +538,13 @@ export class PostgresChatStateRepository implements ChatStateRepository {
     return (result.rowCount ?? 0) > 0;
   }
 
-  private async ensureReady() {
-    if (!this.initPromise) {
-      this.initPromise = this.runMigrations();
-    }
-    await this.initPromise;
-  }
-
-  private async runMigrations() {
-    for (const migration of MIGRATIONS) {
-      const existing = await this.pool.query<{ name: string }>(
-        `
-          SELECT name
-          FROM chat_schema_migrations
-          WHERE name = $1
-          LIMIT 1;
-        `,
-        [migration.name]
-      ).catch(() => ({ rows: [] as Array<{ name: string }> }));
-
-      if (existing.rows[0]) {
-        continue;
-      }
-
-      await this.withTransaction(async (client) => {
-        await client.query(migration.sql);
-        await client.query(
-          `
-            INSERT INTO chat_schema_migrations (name)
-            VALUES ($1)
-            ON CONFLICT (name) DO NOTHING;
-          `,
-          [migration.name]
-        );
-      });
-    }
-  }
-
   private async touchConversation(
     conversationId: string,
     updatedAt = new Date().toISOString(),
     client?: PoolClient
   ) {
     if (!client) {
-      await this.ensureReady();
+  
     }
     const queryable = client ?? this.pool;
     await queryable.query(
