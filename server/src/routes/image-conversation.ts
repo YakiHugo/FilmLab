@@ -6,7 +6,7 @@ export const imageConversationRoute: FastifyPluginAsync = async (app) => {
   const conversationService = new ImageLabConversationService(app.chatStateRepository);
 
   app.get("/api/image-conversation", async (request, reply) => {
-    const userId = request.userId;
+    const userId = request.userId!;
 
     const conversationId =
       typeof request.query === "object" &&
@@ -28,7 +28,7 @@ export const imageConversationRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/api/image-conversation/turns/:turnId/prompt-artifacts", async (request, reply) => {
-    const userId = request.userId;
+    const userId = request.userId!;
 
     const { turnId } = request.params as { turnId: string };
 
@@ -46,7 +46,7 @@ export const imageConversationRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/api/image-conversation/observability", async (request, reply) => {
-    const userId = request.userId;
+    const userId = request.userId!;
 
     const conversationId =
       typeof request.query === "object" &&
@@ -70,7 +70,7 @@ export const imageConversationRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.delete("/api/image-conversation", async (request, reply) => {
-    const userId = request.userId;
+    const userId = request.userId!;
 
     try {
       return reply.code(200).send(await conversationService.clearConversation(userId));
@@ -81,7 +81,7 @@ export const imageConversationRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.delete("/api/image-conversation/turns/:turnId", async (request, reply) => {
-    const userId = request.userId;
+    const userId = request.userId!;
 
     const { turnId } = request.params as { turnId: string };
 
@@ -99,7 +99,7 @@ export const imageConversationRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.post("/api/image-conversation/turns/:turnId/accept", async (request, reply) => {
-    const userId = request.userId;
+    const userId = request.userId!;
 
     const { turnId } = request.params as { turnId: string };
     const assetId =

@@ -6,18 +6,12 @@ import {
   type ImageModelFamilyId,
   type ImageProviderId,
   type ImageProviderRefId,
-  type ReferenceImageType,
 } from "./imageGeneration";
 
 export type ImageProviderCredentialSlotId = "ark" | "dashscope" | "kling";
 
-export interface ImageReferenceImageCapability {
-  enabled: boolean;
-  maxImages: number;
-  supportedTypes: ReferenceImageType[];
-  supportsWeight: boolean;
-  maxFileSizeBytes?: number;
-}
+import type { ImageReferenceImageConstraint } from "./imageModelCatalog";
+export type { ImageReferenceImageConstraint as ImageReferenceImageCapability } from "./imageModelCatalog";
 
 export interface ImageProviderFeatureSupport {
   negativePrompt: boolean;
@@ -26,7 +20,7 @@ export interface ImageProviderFeatureSupport {
   steps: boolean;
   styles: boolean;
   supportsUpscale?: boolean;
-  referenceImages: ImageReferenceImageCapability;
+  referenceImages: ImageReferenceImageConstraint;
 }
 
 export interface ImageModelConfig {
@@ -63,7 +57,7 @@ const COMMON_ASPECT_RATIOS: ImageAspectRatio[] = [
 const WIDESCREEN_ASPECT_RATIOS: ImageAspectRatio[] = [...COMMON_ASPECT_RATIOS, "21:9"];
 const CUSTOM_WIDESCREEN_ASPECT_RATIOS: ImageAspectRatio[] = [...WIDESCREEN_ASPECT_RATIOS, "custom"];
 
-const NO_REFERENCE_SUPPORT: ImageReferenceImageCapability = {
+const NO_REFERENCE_SUPPORT: ImageReferenceImageConstraint = {
   enabled: false,
   maxImages: 0,
   supportedTypes: [],
@@ -115,16 +109,6 @@ const KLING_FEATURES: ImageProviderFeatureSupport = {
 const LEGACY_PROVIDER_NAMES: Record<string, string> = {
   ark: "Ark",
   dashscope: "DashScope",
-  openai: "OpenAI",
-  stability: "Stability AI",
-  flux: "Flux",
-  ideogram: "Ideogram",
-};
-
-const LEGACY_MODEL_NAMES: Record<string, string> = {
-  "qwen-image-2512": "Qwen Image 2512",
-  "z-image-v1": "Z Image v1",
-  "doubao-kling-o1-250424": "Kling O1",
 };
 
 export const IMAGE_MODEL_FAMILIES: ImageModelFamilyConfig[] = [
@@ -306,5 +290,4 @@ export const getImageProviderName = (providerId: string) =>
 export const getImageModelName = (providerId: string, modelId: string) =>
   getImageModelConfig(providerId, modelId)?.name ??
   findModelFamilyByModelId(modelId)?.models.find((model) => model.id === modelId)?.name ??
-  LEGACY_MODEL_NAMES[modelId] ??
   modelId;

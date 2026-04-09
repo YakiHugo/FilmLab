@@ -55,7 +55,7 @@ export const createImageGenerateRoute = (config: AppConfig): FastifyPluginAsync 
     async (request, reply) => {
       const traceId = getRequestTraceId(request);
       attachTraceIdHeader(reply, traceId);
-      const userId = request.userId;
+      const userId = request.userId!;
 
       const requestController = new AbortController();
       const abortRequest = () => {
