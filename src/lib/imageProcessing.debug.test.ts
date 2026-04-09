@@ -1218,7 +1218,7 @@ describe("imageProcessing debug trace", () => {
       })
     );
     const roiClears = (output as unknown as MockCanvasElement).context2d.clearRect.mock.calls.filter(
-      ([x, y, width, height]: [number, number, number, number]) => x === 16 && y === 16 && width === 32 && height === 32
+      (args: unknown[]) => args[0] === 16 && args[1] === 16 && args[2] === 32 && args[3] === 32
     );
     expect(roiClears).toHaveLength(2);
   });
