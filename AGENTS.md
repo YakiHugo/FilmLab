@@ -52,6 +52,7 @@
 - Choose the minimum review surface that matches the change. Architecture, bug/regression, and performance reviews are conditional, not mandatory ceremony.
 - Default to a skeptical review posture: actively look for likely bugs, regressions, invalid assumptions, and missing validation before concluding "no issues found".
 - Review findings must be concrete. If no concrete issues are found, say "no issues found".
+- Classify each finding (real bug / defensive improvement / non-issue) and present the assessment before applying fixes. Do not mechanically apply all findings.
 - Before committing an independent step, resolve or explicitly accept findings from any review passes that were chosen for that step.
 
 ## Using GitHub
