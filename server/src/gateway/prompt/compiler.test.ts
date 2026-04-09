@@ -201,6 +201,8 @@ describe("prompt compiler", () => {
 
     expect(compiled.negativePrompt).toBe("muddy shadows, avoid lens flare, avoid watermark");
     expect(compiled.compiledPrompt).not.toContain("avoid lens flare");
+    expect(compiled.dispatchedPrompt).not.toContain("Avoid:");
+    expect(compiled.dispatchedPrompt).not.toContain("## Identity");
     expect(compiled.semanticLosses).toEqual([]);
   });
 
@@ -220,6 +222,8 @@ describe("prompt compiler", () => {
 
     expect(compiled.negativePrompt).toBeNull();
     expect(compiled.compiledPrompt).toContain("avoid lens flare");
+    expect(compiled.dispatchedPrompt).toContain("Avoid:");
+    expect(compiled.dispatchedPrompt).not.toContain("## Identity");
     expect(compiled.semanticLosses).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -262,6 +266,15 @@ describe("prompt compiler", () => {
     const second = compilePromptForTarget(request, promptIr, state, target, context);
 
     expect(first.compiledPrompt).toContain("Compiled Operation: image.generate");
+    expect(first.dispatchedPrompt).not.toContain("## Identity");
+    expect(first.dispatchedPrompt).not.toContain("## Compiler Context");
+    expect(first.dispatchedPrompt).not.toContain("## Output Contract");
+    expect(first.dispatchedPrompt).toContain("Refine the neon skyline");
+    expect(first.dispatchedPrompt).toContain("Preserve:");
+    expect(first.dispatchedPrompt).toContain("main character silhouette");
+    expect(first.dispatchedPrompt).toContain("cinematic");
+    expect(first.dispatchedPrompt).toContain("remove coffee cup");
+    expect(first.dispatchedPrompt).toContain("Avoid:");
     expect(first.semanticLosses).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: "OPERATION_DEGRADED_TO_IMAGE_GENERATE" }),
