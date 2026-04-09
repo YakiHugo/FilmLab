@@ -15,6 +15,7 @@
 
 - Split code when responsibilities or side-effect ownership are unclear;
 - if a hotspot keeps regressing, prefer a structural refactor over more local patches.
+- Do not split files for line count alone. Split when a typical modification task would require fewer Read/grep round-trips after the split — i.e., the extracted module can be understood and changed without reading back into the original file. If the extracted part still needs the caller's internals (large context interfaces, shared mutable state, implicit ordering), the split adds indirection without reducing the information an agent must load. Prefer extracting stateless pure functions (low indirection cost) over extracting stateful subsystems that need a host callback interface.
 - Keep shared helpers near their domain first; move them to `src/utils` only when they are stable, domain-neutral, and reused across boundaries.
 - do not add aliases over `string`, primitives, or existing unions unless they add a real invariant or boundary.
 - The project is not live yet; be aggressive about retiring historical-data compatibility instead of keeping dual paths by default.
