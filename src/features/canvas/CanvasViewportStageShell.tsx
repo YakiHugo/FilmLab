@@ -1,5 +1,5 @@
 import type Konva from "konva";
-import { memo, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { memo, useEffect, useMemo, useRef, type RefObject, useState } from "react";
 import { Layer, Rect, Stage, Transformer } from "react-konva";
 import type {
   CanvasRenderableElement,
@@ -34,6 +34,31 @@ interface CanvasSelectionOutlineRect {
   y: number;
 }
 
+let dotGridPatternImage: HTMLImageElement | null = null;
+
+function getDotGridPattern(): HTMLImageElement | null {
+  if (dotGridPatternImage) return dotGridPatternImage;
+  if (typeof document === "undefined") return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = GRID_SIZE;
+  canvas.height = GRID_SIZE;
+
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+
+  context.clearRect(0, 0, GRID_SIZE, GRID_SIZE);
+  context.fillStyle = WORKSPACE_DOT_FILL;
+  context.beginPath();
+  context.arc(0, 0, DOT_RADIUS, 0, Math.PI * 2, false);
+  context.fill();
+
+  const img = new Image();
+  img.src = canvas.toDataURL("image/png");
+  dotGridPatternImage = img;
+  return img;
+}
+
 function DotGrid({
   bounds,
 }: {
@@ -44,44 +69,9 @@ function DotGrid({
     height: number;
   };
 }) {
-  const [dotGridPattern, setDotGridPattern] = useState<HTMLImageElement | null>(null);
+  const pattern = getDotGridPattern();
 
-  useEffect(() => {
-    if (typeof document === "undefined") {
-      return;
-    }
-
-    const canvas = document.createElement("canvas");
-    canvas.width = GRID_SIZE;
-    canvas.height = GRID_SIZE;
-
-    const context = canvas.getContext("2d");
-    if (!context) {
-      return;
-    }
-
-    context.clearRect(0, 0, GRID_SIZE, GRID_SIZE);
-    context.fillStyle = WORKSPACE_DOT_FILL;
-    context.beginPath();
-    context.arc(0, 0, DOT_RADIUS, 0, Math.PI * 2, false);
-    context.fill();
-
-    const patternImage = new Image();
-    let isActive = true;
-    patternImage.onload = () => {
-      if (isActive) {
-        setDotGridPattern(patternImage);
-      }
-    };
-    patternImage.src = canvas.toDataURL("image/png");
-
-    return () => {
-      isActive = false;
-      patternImage.onload = null;
-    };
-  }, []);
-
-  if (!dotGridPattern || bounds.width <= 0 || bounds.height <= 0) {
+  if (!pattern || bounds.width <= 0 || bounds.height <= 0) {
     return null;
   }
 
@@ -94,7 +84,7 @@ function DotGrid({
       y={bounds.y}
       width={bounds.width}
       height={bounds.height}
-      fillPatternImage={dotGridPattern}
+      fillPatternImage={pattern}
       fillPatternRepeat="repeat"
       fillPatternX={0}
       fillPatternY={0}
