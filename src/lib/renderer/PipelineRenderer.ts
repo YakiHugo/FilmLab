@@ -309,6 +309,7 @@ export class PipelineRenderer {
   private readonly rendererLabel: "preview" | "export";
   private readonly maxTextureSizeValue: number;
   private readonly intermediateFormat: "RGBA8" | "RGBA16F";
+  private readonly supportsFloatReadback: boolean;
   private readonly detailKernelRadius: 1 | 2;
   private readonly sourceTextureCache = new Map<TexImageSource, SourceTextureRecord>();
   private sourceTextureLru: TexImageSource[] = [];
@@ -601,6 +602,7 @@ export class PipelineRenderer {
     const supportsFloatPipeline = supportsFloatRenderTarget && supportsFloatLinearFiltering;
     let curveLutUsesFloat = supportsHalfFloatLinearFiltering;
     this.intermediateFormat = supportsFloatPipeline ? "RGBA16F" : "RGBA8";
+    this.supportsFloatReadback = supportsFloatRenderTarget;
     this.texturePool = new TexturePool(
       gl,
       supportsFloatRenderTarget,
@@ -2580,6 +2582,33 @@ export class PipelineRenderer {
     }
     this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
     return readPixelsAsync(this.gl, this.canvasElement.width, this.canvasElement.height);
+  }
+
+  extractLinearPixelsFloat32(): Float32Array | null {
+    if (this.destroyed || this.contextLost || !this.supportsFloatReadback) {
+      return null;
+    }
+    const captured = this.capturedLinearResult;
+    if (!captured || captured.format !== "RGBA16F") {
+      return null;
+    }
+    const gl = this.gl;
+    const fbo = gl.createFramebuffer();
+    if (!fbo) {
+      return null;
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, captured.texture, 0);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.deleteFramebuffer(fbo);
+      return null;
+    }
+    const pixels = new Float32Array(captured.width * captured.height * 4);
+    gl.readPixels(0, 0, captured.width, captured.height, gl.RGBA, gl.FLOAT, pixels);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.deleteFramebuffer(fbo);
+    return pixels;
   }
 
   extractCanvas(): HTMLCanvasElement {
