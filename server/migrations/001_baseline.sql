@@ -228,3 +228,77 @@ CREATE INDEX IF NOT EXISTS chat_prompt_versions_run_idx
   ON chat_prompt_versions(run_id, version ASC, created_at ASC);
 CREATE INDEX IF NOT EXISTS chat_prompt_versions_conversation_idx
   ON chat_prompt_versions(conversation_id, created_at DESC);
+
+-- Asset domain
+
+CREATE TABLE IF NOT EXISTS asset_upload_sessions (
+  asset_id TEXT PRIMARY KEY,
+  owner_user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  size_bytes BIGINT NOT NULL,
+  source TEXT NOT NULL,
+  origin TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  original_path TEXT NOT NULL,
+  thumbnail_path TEXT NULL,
+  original_uploaded_at TIMESTAMPTZ NULL,
+  thumbnail_uploaded_at TIMESTAMPTZ NULL
+);
+
+CREATE TABLE IF NOT EXISTS assets (
+  id TEXT PRIMARY KEY,
+  owner_user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  size_bytes BIGINT NOT NULL,
+  source TEXT NOT NULL,
+  origin TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  deleted_at TIMESTAMPTZ NULL
+);
+CREATE INDEX IF NOT EXISTS assets_owner_hash_active_idx
+  ON assets(owner_user_id, content_hash)
+  WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS assets_owner_updated_active_idx
+  ON assets(owner_user_id, updated_at DESC)
+  WHERE deleted_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS asset_files (
+  id TEXT PRIMARY KEY,
+  asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  bucket TEXT NOT NULL,
+  storage_path TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  size_bytes BIGINT NOT NULL,
+  width INTEGER NULL,
+  height INTEGER NULL,
+  created_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  UNIQUE (asset_id, kind)
+);
+CREATE INDEX IF NOT EXISTS asset_files_asset_kind_idx
+  ON asset_files(asset_id, kind);
+
+CREATE TABLE IF NOT EXISTS asset_edges (
+  id TEXT PRIMARY KEY,
+  source_asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  target_asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  edge_type TEXT NOT NULL,
+  conversation_id TEXT NULL,
+  run_id TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS asset_edges_source_idx
+  ON asset_edges(source_asset_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS asset_edges_target_idx
+  ON asset_edges(target_asset_id, created_at DESC);
