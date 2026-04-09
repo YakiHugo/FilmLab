@@ -1,10 +1,12 @@
 import type { Pool, PoolClient } from "pg";
 import { createInitialConversationCreativeState } from "../../gateway/prompt/types";
+import type { PromptVersionRecord } from "../../gateway/prompt/types";
 import {
   ChatConversationNotFoundError,
   ChatPromptStateConflictError,
 } from "./types";
 import { createId } from "../../../../shared/createId";
+import type { PersistedRunRecord } from "./models";
 import type {
   AcceptConversationTurnInput,
   ChatConversationRecord,
@@ -620,6 +622,12 @@ export class PostgresChatStateRepository implements ChatStateRepository {
           input.attempt.updatedAt,
         ]
       );
+      for (const additionalRun of input.additionalRuns ?? []) {
+        await this.insertRun(client, input.conversationId, additionalRun);
+      }
+      for (const version of input.promptVersions ?? []) {
+        await this.insertPromptVersion(client, input.conversationId, version);
+      }
       await this.touchConversation(input.conversationId, input.turn.createdAt, client);
     });
   }
@@ -679,88 +687,25 @@ export class PostgresChatStateRepository implements ChatStateRepository {
   async createRun(input: CreateChatRunInput) {
     await this.ensureReady();
     await this.withTransaction(async (client) => {
-      await client.query(
-        `
-          INSERT INTO chat_runs (
-            id,
-            conversation_id,
-            turn_id,
-            job_id,
-            operation,
-            status,
-            requested_target,
-            selected_target,
-            executed_target,
-            prompt_snapshot,
-            error,
-            warnings,
-            asset_ids,
-            referenced_asset_ids,
-            telemetry,
-            created_at,
-            completed_at,
-            updated_at
-          )
-          VALUES (
-            $1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11,
-            $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb, $16::timestamptz,
-            $17::timestamptz, $18::timestamptz
-          );
-        `,
-        [
-          input.run.id,
-          input.conversationId,
-          input.run.turnId,
-          input.run.jobId,
-          input.run.operation,
-          input.run.status,
-          JSON.stringify(input.run.requestedTarget),
-          JSON.stringify(input.run.selectedTarget),
-          JSON.stringify(input.run.executedTarget),
-          JSON.stringify(input.run.prompt),
-          input.run.error,
-          JSON.stringify(input.run.warnings),
-          JSON.stringify(input.run.assetIds),
-          JSON.stringify(input.run.referencedAssetIds),
-          JSON.stringify(input.run.telemetry),
-          input.run.createdAt,
-          input.run.completedAt,
-          input.run.createdAt,
-        ]
-      );
+      await this.insertRun(client, input.conversationId, input.run);
 
       if (input.attempt) {
         await client.query(
           `
             INSERT INTO chat_attempts (
-              id,
-              job_id,
-              run_id,
-              attempt_no,
-              status,
-              error,
-              provider_request_id,
-              provider_task_id,
-              created_at,
-              completed_at,
-              updated_at
+              id, job_id, run_id, attempt_no, status, error,
+              provider_request_id, provider_task_id,
+              created_at, completed_at, updated_at
             )
             VALUES (
               $1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz, $11::timestamptz
             );
           `,
           [
-            input.attempt.id,
-            input.attempt.jobId,
-            input.attempt.runId,
-            input.attempt.attemptNo,
-            input.attempt.status,
-            input.attempt.error,
-            input.attempt.providerRequestId,
-            input.attempt.providerTaskId,
-            input.attempt.createdAt,
-            input.attempt.completedAt,
-            input.attempt.updatedAt,
+            input.attempt.id, input.attempt.jobId, input.attempt.runId,
+            input.attempt.attemptNo, input.attempt.status, input.attempt.error,
+            input.attempt.providerRequestId, input.attempt.providerTaskId,
+            input.attempt.createdAt, input.attempt.completedAt, input.attempt.updatedAt,
           ]
         );
       }
@@ -773,67 +718,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
     await this.ensureReady();
     await this.withTransaction(async (client) => {
       for (const version of input.versions) {
-        await client.query(
-          `
-            INSERT INTO chat_prompt_versions (
-              id,
-              conversation_id,
-              run_id,
-              turn_id,
-              version,
-              stage,
-              target_key,
-              attempt,
-              compiler_version,
-              capability_version,
-              original_prompt,
-              trace_id,
-              prompt_intent,
-              turn_delta,
-              committed_state_before,
-              candidate_state_after,
-              prompt_ir,
-              compiled_prompt,
-              dispatched_prompt,
-              provider_effective_prompt,
-              semantic_losses,
-              warnings,
-              hashes,
-              created_at
-            )
-            VALUES (
-              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb,
-              $15::jsonb, $16::jsonb, $17::jsonb, $18, $19, $20, $21::jsonb, $22::jsonb,
-              $23::jsonb, $24::timestamptz
-            );
-          `,
-          [
-            version.id,
-            input.conversationId,
-            version.runId,
-            version.turnId,
-            version.version,
-            version.stage,
-            version.targetKey,
-            version.attempt,
-            version.compilerVersion,
-            version.capabilityVersion,
-            version.originalPrompt,
-            version.traceId,
-            JSON.stringify(version.promptIntent),
-            JSON.stringify(version.turnDelta),
-            JSON.stringify(version.committedStateBefore),
-            JSON.stringify(version.candidateStateAfter),
-            JSON.stringify(version.promptIR),
-            version.compiledPrompt,
-            version.dispatchedPrompt,
-            version.providerEffectivePrompt,
-            JSON.stringify(version.semanticLosses),
-            JSON.stringify(version.warnings),
-            JSON.stringify(version.hashes),
-            version.createdAt,
-          ]
-        );
+        await this.insertPromptVersion(client, input.conversationId, version);
       }
     });
   }
@@ -980,6 +865,61 @@ export class PostgresChatStateRepository implements ChatStateRepository {
         WHERE id = $1;
       `,
       [conversationId, updatedAt]
+    );
+  }
+
+  private async insertRun(client: PoolClient, conversationId: string, run: PersistedRunRecord) {
+    await client.query(
+      `
+        INSERT INTO chat_runs (
+          id, conversation_id, turn_id, job_id, operation, status,
+          requested_target, selected_target, executed_target, prompt_snapshot,
+          error, warnings, asset_ids, referenced_asset_ids, telemetry,
+          created_at, completed_at, updated_at
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11,
+          $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb, $16::timestamptz,
+          $17::timestamptz, $18::timestamptz
+        );
+      `,
+      [
+        run.id, conversationId, run.turnId, run.jobId, run.operation, run.status,
+        JSON.stringify(run.requestedTarget), JSON.stringify(run.selectedTarget),
+        JSON.stringify(run.executedTarget), JSON.stringify(run.prompt),
+        run.error, JSON.stringify(run.warnings), JSON.stringify(run.assetIds),
+        JSON.stringify(run.referencedAssetIds), JSON.stringify(run.telemetry),
+        run.createdAt, run.completedAt, run.createdAt,
+      ]
+    );
+  }
+
+  private async insertPromptVersion(client: PoolClient, conversationId: string, version: PromptVersionRecord) {
+    await client.query(
+      `
+        INSERT INTO chat_prompt_versions (
+          id, conversation_id, run_id, turn_id, version, stage, target_key,
+          attempt, compiler_version, capability_version, original_prompt,
+          trace_id, prompt_intent, turn_delta, committed_state_before,
+          candidate_state_after, prompt_ir, compiled_prompt, dispatched_prompt,
+          provider_effective_prompt, semantic_losses, warnings, hashes, created_at
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb,
+          $15::jsonb, $16::jsonb, $17::jsonb, $18, $19, $20, $21::jsonb, $22::jsonb,
+          $23::jsonb, $24::timestamptz
+        );
+      `,
+      [
+        version.id, conversationId, version.runId, version.turnId, version.version,
+        version.stage, version.targetKey, version.attempt, version.compilerVersion,
+        version.capabilityVersion, version.originalPrompt, version.traceId,
+        JSON.stringify(version.promptIntent), JSON.stringify(version.turnDelta),
+        JSON.stringify(version.committedStateBefore), JSON.stringify(version.candidateStateAfter),
+        JSON.stringify(version.promptIR), version.compiledPrompt, version.dispatchedPrompt,
+        version.providerEffectivePrompt, JSON.stringify(version.semanticLosses),
+        JSON.stringify(version.warnings), JSON.stringify(version.hashes), version.createdAt,
+      ]
     );
   }
 
