@@ -892,7 +892,7 @@ export class PipelineRenderer {
           passthrough.release();
         }
       } catch (error) {
-        if (!this.contextLost) console.error(error);
+        if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }
         return false;
       }
     }
@@ -978,7 +978,7 @@ export class PipelineRenderer {
       }
       return true;
     } catch (error) {
-      if (!this.contextLost) console.error(error);
+      if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }
       return false;
     }
   }
@@ -1064,7 +1064,7 @@ export class PipelineRenderer {
       }
       return true;
     } catch (error) {
-      if (!this.contextLost) console.error(error);
+      if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }
       return false;
     } finally {
       this.gl.deleteTexture(maskTexture);
@@ -1165,7 +1165,7 @@ export class PipelineRenderer {
         });
         return true;
       } catch (error) {
-        if (!this.contextLost) console.error(error);
+        if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }
         return false;
       }
     }
@@ -1231,7 +1231,7 @@ export class PipelineRenderer {
       });
       return true;
     } catch (error) {
-      if (!this.contextLost) console.error(error);
+      if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }
       return false;
     }
   }
@@ -1896,7 +1896,7 @@ export class PipelineRenderer {
         composited.release();
       }
     } catch (error) {
-      if (!this.contextLost) console.error(error);
+      if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }
       return false;
     }
   }
@@ -1971,7 +1971,7 @@ export class PipelineRenderer {
         composited.release();
       }
     } catch (error) {
-      if (!this.contextLost) console.error(error);
+      if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }
       return false;
     }
   }
@@ -2100,7 +2100,7 @@ export class PipelineRenderer {
         composited.release();
       }
     } catch (error) {
-      if (!this.contextLost) console.error(error);
+      if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }
       return false;
     }
   }
