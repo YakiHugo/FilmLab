@@ -1813,12 +1813,12 @@ const renderTiledExportPath = async (
   }
 
   const releaseMutex = await acquireRenderMutex(mode, slotId);
-  let outputDirty = false;
+  let outputDirty: boolean;
   let pipelineStartAt = 0;
   let composeStartAt = 0;
   let stageStatus: RenderImageStageStatus;
   let pipelineRendered: boolean;
-  let usedCpuGeometry = false;
+  let usedCpuGeometry: boolean;
   let errorMessage: string | null = null;
   const tiledPipelineKey = [
     "tiled",
