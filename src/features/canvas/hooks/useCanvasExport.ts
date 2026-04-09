@@ -125,28 +125,38 @@ export function useCanvasExport() {
         ...(stage ? defaultExportOptions(stage) : defaultExportOptionsFromDocument(loadedWorkbench)),
         ...options,
       };
-      if (merged.format === "tiff" && loadedWorkbench) {
-        const exportCanvas = document.createElement("canvas");
+      if (merged.format === "tiff") {
+        let tiffCanvas: HTMLCanvasElement | null = null;
+        if (loadedWorkbench) {
+          tiffCanvas = document.createElement("canvas");
+          try {
+            await renderCanvasWorkbenchToCanvas({
+              assets,
+              canvas: tiffCanvas,
+              document: loadedWorkbench,
+              height: merged.height,
+              pixelRatio: merged.pixelRatio,
+              width: merged.width,
+              onProgress: merged.onProgress,
+            });
+          } catch {
+            tiffCanvas.width = 0;
+            tiffCanvas.height = 0;
+            return null;
+          }
+        } else if (stage) {
+          tiffCanvas = stage.toCanvas({ pixelRatio: merged.pixelRatio });
+        }
+        if (!tiffCanvas) {
+          return null;
+        }
         try {
-          await renderCanvasWorkbenchToCanvas({
-            assets,
-            canvas: exportCanvas,
-            document: loadedWorkbench,
-            height: merged.height,
-            pixelRatio: merged.pixelRatio,
-            width: merged.width,
-            onProgress: merged.onProgress,
-          });
-          const ctx = exportCanvas.getContext("2d", { willReadFrequently: true });
+          const ctx = tiffCanvas.getContext("2d", { willReadFrequently: true });
           if (!ctx) {
             return null;
           }
-          const imageData = ctx.getImageData(0, 0, exportCanvas.width, exportCanvas.height);
-          const blob = encodeRgbaToTiff(
-            imageData.data,
-            exportCanvas.width,
-            exportCanvas.height
-          );
+          const imageData = ctx.getImageData(0, 0, tiffCanvas.width, tiffCanvas.height);
+          const blob = encodeRgbaToTiff(imageData.data, tiffCanvas.width, tiffCanvas.height);
           const url = URL.createObjectURL(blob);
           const link = document.createElement("a");
           link.href = url;
@@ -155,8 +165,8 @@ export function useCanvasExport() {
           URL.revokeObjectURL(url);
           return null;
         } finally {
-          exportCanvas.width = 0;
-          exportCanvas.height = 0;
+          tiffCanvas.width = 0;
+          tiffCanvas.height = 0;
         }
       }
 
