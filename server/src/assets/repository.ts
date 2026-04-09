@@ -65,92 +65,10 @@ const aggregateAssets = (rows: Array<Record<string, unknown>>): AssetRecord[] =>
 };
 
 class PostgresAssetRepository implements AssetRepository {
-  private initPromise: Promise<void> | null = null;
-
   constructor(private readonly pool: Pool, private readonly bucket: string) {}
 
-  private async ensureReady() {
-    if (!this.initPromise) {
-      this.initPromise = this.pool.query(`
-        CREATE TABLE IF NOT EXISTS asset_upload_sessions (
-          asset_id TEXT PRIMARY KEY,
-          owner_user_id TEXT NOT NULL,
-          name TEXT NOT NULL,
-          mime_type TEXT NOT NULL,
-          size_bytes BIGINT NOT NULL,
-          source TEXT NOT NULL,
-          origin TEXT NOT NULL,
-          content_hash TEXT NOT NULL,
-          tags JSONB NOT NULL DEFAULT '[]'::jsonb,
-          metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-          created_at TIMESTAMPTZ NOT NULL,
-          updated_at TIMESTAMPTZ NOT NULL,
-          original_path TEXT NOT NULL,
-          thumbnail_path TEXT NULL,
-          original_uploaded_at TIMESTAMPTZ NULL,
-          thumbnail_uploaded_at TIMESTAMPTZ NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS assets (
-          id TEXT PRIMARY KEY,
-          owner_user_id TEXT NOT NULL,
-          name TEXT NOT NULL,
-          mime_type TEXT NOT NULL,
-          size_bytes BIGINT NOT NULL,
-          source TEXT NOT NULL,
-          origin TEXT NOT NULL,
-          content_hash TEXT NOT NULL,
-          tags JSONB NOT NULL DEFAULT '[]'::jsonb,
-          metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-          created_at TIMESTAMPTZ NOT NULL,
-          updated_at TIMESTAMPTZ NOT NULL,
-          deleted_at TIMESTAMPTZ NULL
-        );
-        DROP INDEX IF EXISTS assets_owner_hash_active_idx;
-        CREATE INDEX IF NOT EXISTS assets_owner_hash_active_idx
-          ON assets(owner_user_id, content_hash)
-          WHERE deleted_at IS NULL;
-        CREATE INDEX IF NOT EXISTS assets_owner_updated_active_idx
-          ON assets(owner_user_id, updated_at DESC)
-          WHERE deleted_at IS NULL;
-
-        CREATE TABLE IF NOT EXISTS asset_files (
-          id TEXT PRIMARY KEY,
-          asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
-          kind TEXT NOT NULL,
-          bucket TEXT NOT NULL,
-          storage_path TEXT NOT NULL,
-          mime_type TEXT NOT NULL,
-          size_bytes BIGINT NOT NULL,
-          width INTEGER NULL,
-          height INTEGER NULL,
-          created_at TIMESTAMPTZ NOT NULL,
-          updated_at TIMESTAMPTZ NOT NULL,
-          UNIQUE (asset_id, kind)
-        );
-        CREATE INDEX IF NOT EXISTS asset_files_asset_kind_idx
-          ON asset_files(asset_id, kind);
-
-        CREATE TABLE IF NOT EXISTS asset_edges (
-          id TEXT PRIMARY KEY,
-          source_asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
-          target_asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
-          edge_type TEXT NOT NULL,
-          conversation_id TEXT NULL,
-          run_id TEXT NULL,
-          created_at TIMESTAMPTZ NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS asset_edges_source_idx
-          ON asset_edges(source_asset_id, created_at DESC);
-        CREATE INDEX IF NOT EXISTS asset_edges_target_idx
-          ON asset_edges(target_asset_id, created_at DESC);
-      `).then(() => undefined);
-    }
-    await this.initPromise;
-  }
-
   private async loadAssets(whereSql: string, params: unknown[]) {
-    await this.ensureReady();
+
     const result = await this.pool.query(
       `
         SELECT
@@ -207,7 +125,7 @@ class PostgresAssetRepository implements AssetRepository {
   }
 
   async listAssetChanges(userId: string, since?: string) {
-    await this.ensureReady();
+
     const result = await this.pool.query(
       `
         SELECT id AS asset_id, content_hash, updated_at, deleted_at
@@ -229,7 +147,7 @@ class PostgresAssetRepository implements AssetRepository {
   }
 
   async createUploadSession(session: AssetUploadSession) {
-    await this.ensureReady();
+
     await this.pool.query(
       `
         INSERT INTO asset_upload_sessions (
@@ -291,7 +209,7 @@ class PostgresAssetRepository implements AssetRepository {
   }
 
   async getUploadSession(userId: string, assetId: string) {
-    await this.ensureReady();
+
     const result = await this.pool.query(
       "SELECT * FROM asset_upload_sessions WHERE owner_user_id = $1 AND asset_id = $2",
       [userId, assetId]
@@ -321,7 +239,7 @@ class PostgresAssetRepository implements AssetRepository {
   }
 
   async findUploadSessionByContentHash(userId: string, contentHash: string) {
-    await this.ensureReady();
+
     const result = await this.pool.query(
       `
         SELECT *
@@ -362,7 +280,7 @@ class PostgresAssetRepository implements AssetRepository {
     kind: AssetFileKind,
     uploadedAt: string
   ) {
-    await this.ensureReady();
+
     const column = kind === "thumbnail" ? "thumbnail_uploaded_at" : "original_uploaded_at";
     await this.pool.query(
       `
@@ -375,7 +293,7 @@ class PostgresAssetRepository implements AssetRepository {
   }
 
   async deleteUploadSession(userId: string, assetId: string) {
-    await this.ensureReady();
+
     await this.pool.query(
       "DELETE FROM asset_upload_sessions WHERE owner_user_id = $1 AND asset_id = $2",
       [userId, assetId]
@@ -387,7 +305,7 @@ class PostgresAssetRepository implements AssetRepository {
     contentHash: string,
     operation: () => Promise<T>
   ) {
-    await this.ensureReady();
+
     const client = await this.pool.connect();
     try {
       await client.query(
@@ -408,7 +326,7 @@ class PostgresAssetRepository implements AssetRepository {
   }
 
   async saveAsset(record: AssetRecord) {
-    await this.ensureReady();
+
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -509,7 +427,7 @@ class PostgresAssetRepository implements AssetRepository {
   }
 
   async createAssetEdges(edges: AssetEdgeInsert[]) {
-    await this.ensureReady();
+
     if (edges.length === 0) {
       return;
     }
@@ -551,7 +469,7 @@ class PostgresAssetRepository implements AssetRepository {
   }
 
   async deleteAssetEdges(edgeIds: string[]) {
-    await this.ensureReady();
+
     if (edgeIds.length === 0) {
       return;
     }
@@ -566,7 +484,7 @@ class PostgresAssetRepository implements AssetRepository {
   }
 
   async softDeleteAsset(userId: string, assetId: string, deletedAt: string) {
-    await this.ensureReady();
+
     await this.pool.query(
       `
         UPDATE assets
