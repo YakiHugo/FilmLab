@@ -280,7 +280,6 @@ describe("prompt compiler", () => {
         expect.objectContaining({ code: "OPERATION_DEGRADED_TO_IMAGE_GENERATE" }),
         expect.objectContaining({ code: "APPROXIMATED_AS_REGENERATION" }),
         expect.objectContaining({ code: "ASSET_ROLE_DEGRADED_TO_REFERENCE_GUIDANCE" }),
-        expect.objectContaining({ code: "STYLE_REFERENCE_ROLE_COLLAPSED" }),
         expect.objectContaining({ code: "EXACT_TEXT_CONTINUITY_AT_RISK" }),
         expect.objectContaining({ code: "NEGATIVE_PROMPT_DEGRADED_TO_TEXT" }),
       ])

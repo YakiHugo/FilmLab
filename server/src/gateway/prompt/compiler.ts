@@ -371,14 +371,11 @@ export const compilePromptForTarget = (
     );
   }
 
-  if (
-    hasSourceAssets &&
-    ir.sourceAssets.some(
-      () =>
-        promptCompiler.referenceRoleHandling[resolveSourceRole(ir.operation)] ===
-        "compiled_to_reference"
-    )
-  ) {
+  const sourceRoleHandling = hasSourceAssets
+    ? promptCompiler.referenceRoleHandling[resolveSourceRole(ir.operation)]
+    : "native";
+
+  if (sourceRoleHandling === "compiled_to_reference") {
     semanticLosses.push(
       createSemanticLoss({
         code: "ASSET_ROLE_DEGRADED_TO_REFERENCE_GUIDANCE",
@@ -389,14 +386,7 @@ export const compilePromptForTarget = (
           "Source asset roles were downgraded to generic reference guidance on the selected model.",
       })
     );
-  }
-
-  if (
-    hasSourceAssets &&
-    ir.sourceAssets.some(
-      () => promptCompiler.referenceRoleHandling[resolveSourceRole(ir.operation)] !== "native"
-    )
-  ) {
+  } else if (sourceRoleHandling === "compiled_to_text") {
     semanticLosses.push(
       createSemanticLoss({
         code: "STYLE_REFERENCE_ROLE_COLLAPSED",

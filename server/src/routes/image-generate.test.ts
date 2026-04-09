@@ -1306,7 +1306,6 @@ describe("imageGenerateRoute", () => {
           "OPERATION_DEGRADED_TO_IMAGE_GENERATE",
           "APPROXIMATED_AS_REGENERATION",
           "ASSET_ROLE_DEGRADED_TO_REFERENCE_GUIDANCE",
-          "STYLE_REFERENCE_ROLE_COLLAPSED",
         ]),
       },
       {

@@ -87,7 +87,7 @@ export interface ImageModelHealthSnapshot {
   state: "healthy" | "degraded" | "down" | "unknown";
   score: number;
   successRate: number;
-  latencyP95Ms: number;
+  averageLatencyMs: number;
   sampleSize: number;
   circuitOpen: boolean;
   lastErrorType: string | null;

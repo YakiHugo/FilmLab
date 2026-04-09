@@ -49,7 +49,7 @@ const createModelFixture = (
       state: "healthy",
       score: 1,
       successRate: 1,
-      latencyP95Ms: 100,
+      averageLatencyMs: 100,
       sampleSize: 1,
       circuitOpen: false,
       lastErrorType: null,
