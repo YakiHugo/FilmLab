@@ -1,3 +1,4 @@
+import type { AppConfig } from "../../config";
 import { ProviderError } from "../../providers/base/errors";
 import { getDeploymentsForLogicalModel, getRuntimeProviderById, getRuntimeProviderConfiguration, resolveRouteTarget } from "./registry";
 import { routerHealth } from "./health";
@@ -12,7 +13,7 @@ export const selectRouteTarget = (input: RouterSelectionInput): ResolvedRouteTar
   return target;
 };
 
-export const selectRouteTargets = (input: RouterSelectionInput) => {
+export const selectRouteTargets = (input: RouterSelectionInput, config?: AppConfig) => {
   const primaryTarget = selectRouteTarget(input);
   const deployments = getDeploymentsForLogicalModel(
     primaryTarget.frontendModel.logicalModel,
@@ -57,9 +58,9 @@ export const selectRouteTargets = (input: RouterSelectionInput) => {
       candidates.findIndex((entry) => entry.deployment.id === candidate.deployment.id) === index
   );
 
-  if (!requestedTarget) {
+  if (!requestedTarget && config) {
     const configuredCandidates = dedupedCandidates.filter(
-      (candidate) => getRuntimeProviderConfiguration(candidate.provider.id).configured
+      (candidate) => getRuntimeProviderConfiguration(candidate.provider.id, config).configured
     );
     if (configuredCandidates.length > 0) {
       dedupedCandidates.length = 0;

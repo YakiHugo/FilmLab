@@ -167,10 +167,10 @@ const createRouteTargetFixture = (input: {
 };
 
 vi.mock("../gateway/router/router", () => ({
-  imageRuntimeRouter: {
+  createImageRuntimeRouter: () => ({
     getRouteTargets: (...args: unknown[]) => getRouteTargetsMock(...args),
     generate: (...args: unknown[]) => generateMock(...args),
-  },
+  }),
 }));
 
 vi.mock("../shared/downloadGeneratedImage", () => ({
@@ -221,14 +221,28 @@ const createUnsignedDevBearerToken = (userId: string) => {
   return `Bearer ${header}.${payload}.dev`;
 };
 
-const createApp = async () => {
+const defaultTestConfig = {
+  authJwtSecret: "test-secret",
+  nodeEnv: "development",
+  allowUnsignedDevAuth: true,
+  devAuthAllowedUserIds: ["local-user"],
+  providerRequestTimeoutMs: 120_000,
+  generatedImageDownloadMaxBytes: 32 * 1024 * 1024,
+  imageGenerateRateLimitMax: 20,
+  imageGenerateRateLimitTimeWindowMs: 60_000,
+} as import("../config").AppConfig;
+
+const createApp = async (configOverrides?: Partial<import("../config").AppConfig>) => {
   const { default: Fastify } = await import("fastify");
-  const { imageGenerateRoute } = await import("./image-generate");
+  const { createAuthPlugin } = await import("../plugins/auth");
+  const { createImageGenerateRoute } = await import("./image-generate");
+  const testConfig = { ...defaultTestConfig, ...configOverrides } as import("../config").AppConfig;
 
   const app = Fastify();
   app.decorate("chatStateRepository", repositoryMock);
   app.decorate("assetService", assetServiceMock as unknown as AssetService);
-  await app.register(imageGenerateRoute);
+  await app.register(createAuthPlugin(testConfig));
+  await app.register(createImageGenerateRoute(testConfig));
   return app;
 };
 
@@ -1471,7 +1485,6 @@ describe("imageGenerateRoute", () => {
   });
 
   it("fails the generation when binary output exceeds the persistence limit", async () => {
-    vi.stubEnv("GENERATED_IMAGE_DOWNLOAD_MAX_MB", "1");
     generateMock.mockResolvedValue({
       modelId: "seedream-v5",
       logicalModel: "image.seedream.v5",
@@ -1486,7 +1499,9 @@ describe("imageGenerateRoute", () => {
       ],
     });
 
-    const app = await createApp();
+    const app = await createApp({
+      generatedImageDownloadMaxBytes: 1 * 1024 * 1024,
+    });
     const response = await app.inject({
       method: "POST",
       url: "/api/image-generate",

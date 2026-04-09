@@ -1,4 +1,3 @@
-import { getConfig } from "../config";
 import { ProviderError } from "../providers/base/errors";
 
 const isAbortError = (error: unknown) =>
@@ -31,7 +30,7 @@ export const fetchWithTimeout = async (
   input: RequestInfo | URL,
   init: RequestInit,
   timeoutMessage: string,
-  options?: { signal?: AbortSignal; timeoutMs?: number }
+  options: { signal?: AbortSignal; timeoutMs: number }
 ) => {
   const controller = new AbortController();
   let abortedByTimeout = false;
@@ -39,7 +38,7 @@ export const fetchWithTimeout = async (
   const timeoutId = setTimeout(() => {
     abortedByTimeout = true;
     controller.abort();
-  }, options?.timeoutMs ?? getConfig().providerRequestTimeoutMs);
+  }, options.timeoutMs);
   const cleanup = wireAbortSignal(options?.signal, () => {
     abortedByExternalSignal = true;
     controller.abort();

@@ -1,4 +1,3 @@
-import { getConfig } from "../config";
 import { ProviderError } from "../providers/base/errors";
 import { fetchWithTimeout } from "./fetchWithTimeout";
 import {
@@ -7,13 +6,19 @@ import {
 } from "./readResponseWithinLimit";
 import { assertSafeRemoteUrl } from "./safeRemoteUrl";
 
+export interface DownloadGeneratedImageConfig {
+  providerRequestTimeoutMs: number;
+  generatedImageDownloadMaxBytes: number;
+  nodeEnv: string;
+}
+
 const GENERATED_IMAGE_TIMEOUT_MESSAGE = "Downloading generated image timed out.";
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
 const MAX_REDIRECTS = 5;
 
-const toSafeGeneratedImageUrl = async (value: string) => {
+const toSafeGeneratedImageUrl = async (value: string, nodeEnv: string) => {
   try {
-    return await assertSafeRemoteUrl(value, "Generated image");
+    return await assertSafeRemoteUrl(value, "Generated image", nodeEnv);
   } catch (error) {
     if (error instanceof ProviderError) {
       throw new ProviderError(error.message, 502, error);
@@ -24,13 +29,14 @@ const toSafeGeneratedImageUrl = async (value: string) => {
 
 const fetchGeneratedImageResponse = async (
   imageUrl: string,
+  config: DownloadGeneratedImageConfig,
   options?: { signal?: AbortSignal }
 ) => {
-  const deadline = Date.now() + getConfig().providerRequestTimeoutMs;
+  const deadline = Date.now() + config.providerRequestTimeoutMs;
   let nextUrl = imageUrl;
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-    const safeUrl = await toSafeGeneratedImageUrl(nextUrl);
+    const safeUrl = await toSafeGeneratedImageUrl(nextUrl, config.nodeEnv);
     const remainingTimeoutMs = deadline - Date.now();
     if (remainingTimeoutMs <= 0) {
       throw new ProviderError(GENERATED_IMAGE_TIMEOUT_MESSAGE, 504);
@@ -70,9 +76,10 @@ const fetchGeneratedImageResponse = async (
 
 export const downloadGeneratedImage = async (
   imageUrl: string,
+  config: DownloadGeneratedImageConfig,
   options?: { signal?: AbortSignal }
 ) => {
-  const response = await fetchGeneratedImageResponse(imageUrl, options);
+  const response = await fetchGeneratedImageResponse(imageUrl, config, options);
 
   if (!response.ok) {
     throw new ProviderError("Generated image could not be downloaded.", response.status);
@@ -85,7 +92,7 @@ export const downloadGeneratedImage = async (
 
   const buffer = await readResponseBufferWithinLimit(
     response,
-    getConfig().generatedImageDownloadMaxBytes,
+    config.generatedImageDownloadMaxBytes,
     "Generated image is too large to cache."
   );
 

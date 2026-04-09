@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { imageSize } from "image-size";
 import { createId } from "../../../shared/createId";
 import { getUserIdFromAuthorizationHeader } from "../auth/user";
-import { getConfig } from "../config";
+import type { AppConfig } from "../config";
 import { createAssetCapabilityToken, verifyAssetCapabilityToken } from "./capability";
 import type {
   AssetApiRecord,
@@ -81,11 +81,10 @@ const isUniqueConstraintError = (error: unknown): error is { code: string } =>
   (error as { code?: unknown }).code === "23505";
 
 export class AssetService {
-  private readonly config = getConfig();
-
   constructor(
     private readonly repository: AssetRepository,
-    private readonly storage: AssetStorage
+    private readonly storage: AssetStorage,
+    private readonly config: AppConfig
   ) {}
 
   async close() {
@@ -478,7 +477,7 @@ export class AssetService {
             kind: input.kind,
           })
         : null;
-    const headerUserId = getUserIdFromAuthorizationHeader(input.authorization);
+    const headerUserId = await getUserIdFromAuthorizationHeader(input.authorization, this.config);
     const userId = tokenUserId ?? headerUserId;
     if (!userId) {
       return null;

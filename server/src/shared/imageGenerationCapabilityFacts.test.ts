@@ -1,15 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { getImageModelCatalog } from "../capabilities/registry";
+import type { AppConfig } from "../config";
+import { createImageModelCatalogRegistry } from "../capabilities/registry";
 import { getFrontendImageModelById } from "../models/frontendRegistry";
 import {
   imageGenerationRequestSchema,
   validateImageGenerationRequestAgainstModel,
 } from "./imageGenerationSchema";
 
+const testConfig = {
+  arkApiKey: "test-key",
+  arkApiBaseUrl: "https://ark.cn-beijing.volces.com",
+  dashscopeApiKey: "test-key",
+  dashscopeApiBaseUrl: "https://dashscope.aliyuncs.com",
+  klingAccessKey: "test-key",
+  klingSecretKey: "test-key",
+  klingApiBaseUrl: "https://api-beijing.klingai.com",
+} as AppConfig;
+
 describe("image generation capability facts", () => {
   it("stay aligned across frontend model registry, catalog, and server validation", () => {
     const frontendModel = getFrontendImageModelById("qwen-image-2-pro");
-    const catalogModel = getImageModelCatalog().models.find((model) => model.id === "qwen-image-2-pro");
+    const registry = createImageModelCatalogRegistry(testConfig);
+    const catalogModel = registry.getCatalog().models.find((model) => model.id === "qwen-image-2-pro");
 
     expect(frontendModel).not.toBeNull();
     expect(catalogModel).not.toBeUndefined();

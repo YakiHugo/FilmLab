@@ -7,12 +7,13 @@ import { AssetService } from "./assets/service";
 import { createAssetStorage } from "./assets/storage";
 import { createChatStateRepository } from "./chat/persistence/repository";
 import { assertStartupConfig, getConfig } from "./config";
-import { registerCors } from "./plugins/cors";
+import { createCorsPlugin } from "./plugins/cors";
 import { registerRateLimit } from "./plugins/rateLimit";
+import { createAuthPlugin } from "./plugins/auth";
 import { assetRoute } from "./routes/assets";
-import { modelCatalogRoute } from "./routes/model-catalog";
+import { createModelCatalogRoute } from "./routes/model-catalog";
 import { imageConversationRoute } from "./routes/image-conversation";
-import { imageGenerateRoute } from "./routes/image-generate";
+import { createImageGenerateRoute } from "./routes/image-generate";
 import { attachTraceIdHeader, createRequestTraceId } from "./shared/requestTrace";
 
 export const buildServer = async () => {
@@ -38,10 +39,24 @@ export const buildServer = async () => {
         connectionString: config.databaseUrl,
       })
     : null;
+
+  if (pool) {
+    const { runner } = await import("node-pg-migrate");
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    await runner({
+      databaseUrl: config.databaseUrl!,
+      dir: path.resolve(__dirname, "..", "migrations"),
+      migrationsTable: "pgmigrations",
+      direction: "up",
+      log: (msg: string) => app.log.info(msg),
+    });
+  }
+
   const repository = createChatStateRepository(pool ?? config.databaseUrl);
   const assetService = new AssetService(
     createAssetRepository(pool, config.supabaseStorageBucket ?? "assets"),
-    createAssetStorage(config)
+    createAssetStorage(config),
+    config
   );
   app.decorate("chatStateRepository", repository);
   app.decorate("assetService", assetService);
@@ -53,12 +68,14 @@ export const buildServer = async () => {
     attachTraceIdHeader(reply, request.id);
   });
 
-  await app.register(registerCors);
+  await app.register(createCorsPlugin(config));
   await app.register(registerRateLimit);
+  await app.register(createAuthPlugin(config));
+
   await app.register(assetRoute);
   await app.register(imageConversationRoute);
-  await app.register(imageGenerateRoute);
-  await app.register(modelCatalogRoute);
+  await app.register(createImageGenerateRoute(config));
+  await app.register(createModelCatalogRoute(config));
 
   app.get("/health", async () => ({
     status: "ok",

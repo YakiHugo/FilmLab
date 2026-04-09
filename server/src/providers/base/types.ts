@@ -42,6 +42,7 @@ export interface RuntimeProviderCredentials {
   apiKey?: string;
   accessKey?: string;
   secretKey?: string;
+  baseUrl: string;
 }
 
 export interface PlatformProviderGenerateInput {
@@ -50,7 +51,7 @@ export interface PlatformProviderGenerateInput {
     resolvedInputAssets?: ResolvedProviderInputAsset[];
   };
   credentials: RuntimeProviderCredentials;
-  options?: { signal?: AbortSignal; timeoutMs?: number; traceId?: string };
+  options: { signal?: AbortSignal; timeoutMs: number; traceId?: string };
 }
 
 export interface PlatformProviderUpscaleInput {

@@ -1,11 +1,10 @@
 import { Pool } from "pg";
-import { getConfig } from "../../config";
 import { MemoryChatStateRepository } from "./memory";
 import { PostgresChatStateRepository } from "./postgres";
 import type { ChatStateRepository } from "./types";
 
 export const createChatStateRepository = (
-  database: Pool | string | undefined = getConfig().databaseUrl
+  database: Pool | string | undefined
 ): ChatStateRepository => {
   if (database instanceof Pool) {
     return new PostgresChatStateRepository(database);

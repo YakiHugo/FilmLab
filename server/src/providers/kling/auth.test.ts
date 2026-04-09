@@ -27,12 +27,13 @@ describe("kling auth", () => {
       resolveKlingBearerToken({
         accessKey: "test-access-key",
         secretKey: "test-secret-key",
+        baseUrl: "https://api-beijing.klingai.com",
       }, 1_700_000_000_000)
     ).toBe(generateKlingAuthToken("test-access-key", "test-secret-key", 1_700_000_000_000));
   });
 
   it("rejects missing access key and secret key", () => {
-    expect(() => resolveKlingBearerToken({ accessKey: "only-access-key" })).toThrowError(
+    expect(() => resolveKlingBearerToken({ accessKey: "only-access-key", baseUrl: "https://api-beijing.klingai.com" })).toThrowError(
       new ProviderError("Kling access key and secret key are required.", 401)
     );
   });

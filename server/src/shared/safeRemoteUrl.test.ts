@@ -11,12 +11,10 @@ vi.mock("node:dns/promises", () => ({
 }));
 
 import { assertSafeRemoteUrl } from "./safeRemoteUrl";
-import { resetConfigForTests } from "../config";
 
 describe("assertSafeRemoteUrl", () => {
   beforeEach(() => {
     lookupMock.mockReset();
-    resetConfigForTests();
   });
 
   it("rejects hosts that resolve to private network addresses", async () => {
@@ -53,8 +51,6 @@ describe("assertSafeRemoteUrl", () => {
   });
 
   it("allows development fake-ip dns results for public hostnames", async () => {
-    vi.stubEnv("NODE_ENV", "development");
-    resetConfigForTests();
     lookupMock.mockResolvedValue([
       {
         address: "198.18.0.23",
@@ -64,7 +60,8 @@ describe("assertSafeRemoteUrl", () => {
 
     const result = await assertSafeRemoteUrl(
       "https://example.com/assets/image.png",
-      "Generated image"
+      "Generated image",
+      "development"
     );
 
     expect(result.hostname).toBe("example.com");

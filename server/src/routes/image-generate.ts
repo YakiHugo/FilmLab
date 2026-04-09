@@ -1,8 +1,7 @@
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { ZodError } from "zod";
-import { requireAuthenticatedUser } from "../auth/user";
 import { ImageGenerationCommandError, ImageGenerationService, type PersistedGenerationContext } from "../chat/application/imageGenerationService";
-import { getConfig } from "../config";
+import type { AppConfig } from "../config";
 import { attachTraceIdHeader, getRequestTraceId } from "../shared/requestTrace";
 import { imageGenerationRequestSchema } from "../shared/imageGenerationSchema";
 
@@ -36,8 +35,7 @@ const sendTraceableError = (
   });
 };
 
-export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
-  const config = getConfig();
+export const createImageGenerateRoute = (config: AppConfig): FastifyPluginAsync => async (app) => {
   const service = new ImageGenerationService({
     repository: app.chatStateRepository,
     assetService: app.assetService,
@@ -57,14 +55,7 @@ export const imageGenerateRoute: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const traceId = getRequestTraceId(request);
       attachTraceIdHeader(reply, traceId);
-      const userId = requireAuthenticatedUser(request);
-      if (!userId) {
-        return sendTraceableError(reply, {
-          statusCode: 401,
-          error: "Unauthorized.",
-          traceId,
-        });
-      }
+      const userId = request.userId;
 
       const requestController = new AbortController();
       const abortRequest = () => {

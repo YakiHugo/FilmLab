@@ -1,3 +1,4 @@
+import type { AppConfig } from "../../config";
 import type { ParsedImageGenerationRequest } from "../../shared/imageGenerationSchema";
 import type { ParsedImageUpscaleRequest } from "../../shared/imageUpscaleSchema";
 import { getPlatformModelAdapter } from "../../providers/base/registry";
@@ -60,11 +61,12 @@ const executeWithFallback = async <T>(
   throw lastError ?? new ProviderError(`${operation} failed.`);
 };
 
-export const imageRuntimeRouter = {
-  getProviderConfiguration: getRuntimeProviderConfiguration,
+export const createImageRuntimeRouter = (config: AppConfig) => ({
+  getProviderConfiguration: (providerId: Parameters<typeof getRuntimeProviderConfiguration>[0]) =>
+    getRuntimeProviderConfiguration(providerId, config),
   getHealthSnapshot: routerHealth.getSnapshot,
   getRouteTargets(request: ParsedImageGenerationRequest) {
-    return selectRouteTargets(toGenerateSelectionInput(request));
+    return selectRouteTargets(toGenerateSelectionInput(request), config);
   },
   async generate(
     request: ParsedImageGenerationRequest,
@@ -78,10 +80,10 @@ export const imageRuntimeRouter = {
       ) => ParsedImageGenerationRequest | Promise<ParsedImageGenerationRequest>;
     }
   ) {
-    const targets = options?.targets ?? selectRouteTargets(toGenerateSelectionInput(request));
+    const targets = options?.targets ?? selectRouteTargets(toGenerateSelectionInput(request), config);
 
     return executeWithFallback("image.generate", targets, async (target) => {
-      const configuredProvider = getRuntimeProviderConfiguration(target.provider.id);
+      const configuredProvider = getRuntimeProviderConfiguration(target.provider.id, config);
       if (!configuredProvider.configured) {
         const message =
           target.provider.id === "kling"
@@ -103,8 +105,8 @@ export const imageRuntimeRouter = {
       return adapter.generate({
         target,
         request: options?.resolveRequest ? await options.resolveRequest(target) : request,
-        credentials: getRuntimeProviderCredentials(target.provider.id),
-        options,
+        credentials: getRuntimeProviderCredentials(target.provider.id, config),
+        options: { timeoutMs: config.providerRequestTimeoutMs, ...options },
       });
     });
   },
@@ -115,4 +117,4 @@ export const imageRuntimeRouter = {
   ) {
     throw new ProviderError("Image upscale is not available in the model registry refactor.", 400);
   },
-};
+});

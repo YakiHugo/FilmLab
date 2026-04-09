@@ -218,6 +218,15 @@ export const getConfig = (): AppConfig => {
   return cachedConfig;
 };
 
+export interface AuthConfig {
+  authJwtSecret?: string;
+  authJwtIssuer?: string;
+  authJwtAudience?: string;
+  nodeEnv: string;
+  allowUnsignedDevAuth: boolean;
+  devAuthAllowedUserIds: string[];
+}
+
 export const assertStartupConfig = (config: AppConfig) => {
   const developmentLike = isDevelopmentLikeNodeEnv(config.nodeEnv);
 

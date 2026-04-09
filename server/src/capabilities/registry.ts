@@ -2,6 +2,7 @@ import type {
   FrontendImageModelCatalogEntry,
   ImageModelCatalogResponse,
 } from "../../../shared/imageModelCatalog";
+import type { AppConfig } from "../config";
 import { getFrontendImageModels } from "../models/frontendRegistry";
 import {
   getDefaultDeploymentForModel,
@@ -38,10 +39,10 @@ const toCatalogHealth = (health: ProviderHealthSnapshot): FrontendImageModelCata
   updatedAt: health.lastFailureAt ?? health.circuitOpenedAt,
 });
 
-export const createImageModelCatalogRegistry = (health = routerHealth) => ({
+export const createImageModelCatalogRegistry = (config: AppConfig, health = routerHealth) => ({
   getCatalog(now = Date.now()): ImageModelCatalogResponse {
     const providers = getRuntimeProviders().map((provider) => {
-      const configuration = getRuntimeProviderConfiguration(provider.id);
+      const configuration = getRuntimeProviderConfiguration(provider.id, config);
       return {
         id: provider.id,
         name: provider.name,
@@ -58,7 +59,7 @@ export const createImageModelCatalogRegistry = (health = routerHealth) => ({
           throw new Error(`Missing deployment for frontend model ${model.id}.`);
         }
 
-        const configuration = getRuntimeProviderConfiguration(deployment.provider);
+        const configuration = getRuntimeProviderConfiguration(deployment.provider, config);
         const modelHealth = health.getSnapshot(
           deployment.provider,
           deployment.providerModel,
@@ -98,7 +99,3 @@ export const createImageModelCatalogRegistry = (health = routerHealth) => ({
   },
 });
 
-const defaultRegistry = createImageModelCatalogRegistry();
-
-export const getImageModelCatalog = defaultRegistry.getCatalog;
-export const recordProviderCallResult = defaultRegistry.recordProviderCallResult;
