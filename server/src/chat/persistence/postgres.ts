@@ -544,7 +544,7 @@ export class PostgresChatStateRepository implements ChatStateRepository {
     client?: PoolClient
   ) {
     if (!client) {
-  
+      // Use pool directly when no explicit client is provided.
     }
     const queryable = client ?? this.pool;
     await queryable.query(
