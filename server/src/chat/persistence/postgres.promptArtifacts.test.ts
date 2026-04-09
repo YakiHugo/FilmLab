@@ -138,11 +138,6 @@ describe("PostgresChatStateRepository#getPromptArtifactsForTurn", () => {
     };
 
     const repository = new PostgresChatStateRepository(pool as never);
-    (
-      repository as unknown as {
-        ensureReady: ReturnType<typeof vi.fn>;
-      }
-    ).ensureReady = vi.fn().mockResolvedValue(undefined);
 
     const artifacts = await repository.getPromptArtifactsForTurn("user-1", "turn-1");
 
@@ -190,11 +185,6 @@ describe("PostgresChatStateRepository#getPromptArtifactsForTurn", () => {
     };
 
     const repository = new PostgresChatStateRepository(pool as never);
-    (
-      repository as unknown as {
-        ensureReady: ReturnType<typeof vi.fn>;
-      }
-    ).ensureReady = vi.fn().mockResolvedValue(undefined);
 
     const artifacts = await repository.getPromptArtifactsForTurn("user-1", "turn-hidden");
 
@@ -339,11 +329,6 @@ describe("PostgresChatStateRepository#getPromptObservabilityForConversation", ()
     };
 
     const repository = new PostgresChatStateRepository(pool as never);
-    (
-      repository as unknown as {
-        ensureReady: ReturnType<typeof vi.fn>;
-      }
-    ).ensureReady = vi.fn().mockResolvedValue(undefined);
 
     const summary = await repository.getPromptObservabilityForConversation(
       "user-1",
@@ -398,11 +383,6 @@ describe("PostgresChatStateRepository#getPromptObservabilityForConversation", ()
     };
 
     const repository = new PostgresChatStateRepository(pool as never);
-    (
-      repository as unknown as {
-        ensureReady: ReturnType<typeof vi.fn>;
-      }
-    ).ensureReady = vi.fn().mockResolvedValue(undefined);
 
     const summary = await repository.getPromptObservabilityForConversation(
       "user-1",
@@ -422,11 +402,6 @@ describe("PostgresChatStateRepository#getPromptObservabilityForConversation", ()
     };
 
     const repository = new PostgresChatStateRepository(pool as never);
-    (
-      repository as unknown as {
-        ensureReady: ReturnType<typeof vi.fn>;
-      }
-    ).ensureReady = vi.fn().mockResolvedValue(undefined);
 
     const summary = await repository.getPromptObservabilityForConversation("user-1");
 

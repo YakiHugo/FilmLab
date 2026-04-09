@@ -19,23 +19,22 @@ import type {
 } from "../../../../shared/imageGeneration";
 import type { PromptVersionRecord } from "../../gateway/prompt/types";
 import { ChatPromptStateConflictError } from "../persistence/types";
-import { getConfig } from "../../config";
+import type { AppConfig } from "../../config";
 import {
   applyTurnDelta,
   buildPromptIR,
   compilePromptForTarget,
-  type CompiledTargetPrompt,
   createPromptCompilationContext,
   createPromptHashes,
   toPromptSnapshot,
   withProviderEffectivePrompt,
 } from "../../gateway/prompt/compiler";
 import { rewriteTurn } from "../../gateway/prompt/rewrite";
-import { imageRuntimeRouter } from "../../gateway/router/router";
+import { createImageRuntimeRouter } from "../../gateway/router/router";
 import type { ResolvedRouteTarget } from "../../gateway/router/types";
 import { getFrontendImageModelById } from "../../models/frontendRegistry";
 import { ProviderError } from "../../providers/base/errors";
-import { downloadGeneratedImage } from "../../shared/downloadGeneratedImage";
+import { downloadGeneratedImage, type DownloadGeneratedImageConfig } from "../../shared/downloadGeneratedImage";
 import { getImageGenerationCapabilityWarnings } from "../../shared/imageGenerationCapabilityWarnings";
 import {
   imageGenerationRequestSchema,
@@ -47,6 +46,7 @@ import {
   resolveImagePromptCompilerOperation,
 } from "../../../../shared/imageGeneration";
 import { projectInputAssetsForModelExecution } from "../../shared/imageInputAssetExecution";
+import type { ResolvedProviderInputAsset } from "../../assets/types";
 
 const GENERATED_IMAGE_NORMALIZATION_CONCURRENCY = 2;
 
@@ -316,10 +316,449 @@ const buildPromptVersionRecord = (input: {
   createdAt: input.createdAt,
 });
 
+const normalizeGeneratedImage = async (
+  image: {
+    binaryData?: Buffer;
+    imageUrl?: string;
+    mimeType?: string;
+    revisedPrompt?: string | null;
+  },
+  index: number,
+  signal: AbortSignal,
+  maxBytes: number,
+  downloadConfig: DownloadGeneratedImageConfig
+) => {
+  let buffer: Buffer | null = null;
+  let mimeType: string | null = null;
+
+  if (image.imageUrl) {
+    const downloaded = await downloadGeneratedImage(image.imageUrl, downloadConfig, { signal });
+    buffer = downloaded.buffer;
+    mimeType = downloaded.mimeType;
+  } else if (image.binaryData && image.mimeType) {
+    buffer = image.binaryData;
+    mimeType = image.mimeType;
+  }
+
+  if (!buffer || !mimeType) {
+    return null;
+  }
+
+  assertGeneratedImageSize(buffer, maxBytes);
+
+  return {
+    buffer,
+    mimeType,
+    revisedPrompt: image.revisedPrompt ?? null,
+    index,
+  };
+};
+
+type PromptResolution = {
+  routeTargets: ResolvedRouteTarget[];
+  selectedTarget: ResolvedRouteTarget;
+  requestedTargetSnapshot: PersistedRunTargetSnapshot;
+  exactRetryPrompt: PersistedPromptSnapshot | null;
+  nextPromptState: PersistedConversationCreativeState | null;
+  promptIR: ReturnType<typeof buildPromptIR> | null;
+  rewriteWarning: string | null;
+  rewriteTarget: PersistedRunTargetSnapshot;
+  rewritePromptSnapshot: PersistedPromptSnapshot | null;
+  rewritePromptVersion: PromptVersionRecord | null;
+  compilePromptVersions: PromptVersionRecord[];
+  compiledTargetCache: Map<string, ReturnType<typeof compilePromptForTarget>>;
+  initialPromptSnapshot: PersistedPromptSnapshot;
+};
+
+const resolveExactRetryPrompts = (input: {
+  exactRetrySourceRun: PersistedRunRecord;
+  routeTargets: ResolvedRouteTarget[];
+  effectivePayload: ParsedImageGenerationRequest;
+  rewriteModel: string;
+}): PromptResolution => {
+  const { exactRetrySourceRun, routeTargets, effectivePayload } = input;
+  const retryRun = exactRetrySourceRun;
+  if (!retryRun.prompt) {
+    throw new ImageGenerationCommandError({
+      statusCode: 400,
+      message: "Exact retry is unavailable because no prior prompt snapshot was found.",
+    });
+  }
+
+  const exactTarget = findMatchingExactTarget(routeTargets, retryRun);
+  if (!exactTarget) {
+    throw new ImageGenerationCommandError({
+      statusCode: 400,
+      message: "Exact retry target is no longer available. Use recompile retry instead.",
+    });
+  }
+
+  const exactRetryPrompt: PersistedPromptSnapshot = {
+    ...retryRun.prompt,
+    providerEffectivePrompt: null,
+  };
+  const rewriteWarning = "Exact retry reused prior compiler artifacts.";
+
+  return {
+    routeTargets: [exactTarget],
+    selectedTarget: exactTarget,
+    requestedTargetSnapshot: createResolvedTargetSnapshot(exactTarget, true),
+    exactRetryPrompt,
+    nextPromptState: null,
+    promptIR: null,
+    rewriteWarning,
+    rewriteTarget: createRewriteTargetSnapshot("exact-retry", true),
+    rewritePromptSnapshot: toPromptSnapshot({
+      originalPrompt: effectivePayload.prompt,
+      compiledPrompt: exactRetryPrompt.compiledPrompt,
+      dispatchedPrompt: exactRetryPrompt.dispatchedPrompt,
+      semanticLosses: exactRetryPrompt.semanticLosses,
+      warnings: uniqueWarnings([rewriteWarning]),
+    }),
+    rewritePromptVersion: null,
+    compilePromptVersions: [],
+    compiledTargetCache: new Map(),
+    initialPromptSnapshot: exactRetryPrompt,
+  };
+};
+
+const resolveNewPrompts = async (input: {
+  effectivePayload: ParsedImageGenerationRequest;
+  conversation: { id: string; promptState: PersistedConversationCreativeState };
+  routeTargets: ResolvedRouteTarget[];
+  frontendModel: NonNullable<ReturnType<typeof getFrontendImageModelById>>;
+  rewriteModel: string;
+  promptContext: ReturnType<typeof createPromptCompilationContext>;
+  persistedRequestSnapshot: PersistedImageGenerationRequestSnapshot;
+  config: AppConfig;
+  signal: AbortSignal;
+  logger: FastifyBaseLogger;
+  ids: { rewriteRunId: string; imageRunId: string; turnId: string; traceId: string };
+  createdAt: string;
+}): Promise<PromptResolution> => {
+  const {
+    effectivePayload, conversation, routeTargets, frontendModel,
+    rewriteModel, promptContext, persistedRequestSnapshot,
+    config, signal, logger, ids, createdAt,
+  } = input;
+
+  const rewriteResult = await rewriteTurn(
+    effectivePayload,
+    conversation.promptState,
+    config,
+    { signal }
+  );
+  const rewriteWarning = rewriteResult.warning;
+  const rewriteTarget = createRewriteTargetSnapshot(rewriteModel, rewriteResult.degraded);
+  const nextPromptState = applyTurnDelta(conversation.promptState, rewriteResult.turnDelta, ids.turnId);
+  const promptIR = buildPromptIR(effectivePayload, nextPromptState);
+  const selectedTarget = routeTargets[0] as ResolvedRouteTarget;
+  const requestedTargetSnapshot = createRunTargetSnapshot({
+    modelId: effectivePayload.modelId,
+    logicalModel: frontendModel.logicalModel,
+    deploymentId: selectedTarget.deployment.id,
+    runtimeProvider:
+      effectivePayload.requestedTarget?.provider ?? selectedTarget.provider.id,
+    providerModel: selectedTarget.deployment.providerModel,
+    pinned: Boolean(
+      effectivePayload.requestedTarget?.deploymentId ||
+        effectivePayload.requestedTarget?.provider
+    ),
+  });
+  const rewritePromptSnapshot = toPromptSnapshot({
+    originalPrompt: effectivePayload.prompt,
+    compiledPrompt: rewriteResult.turnDelta.prompt,
+    dispatchedPrompt: null,
+    warnings: uniqueWarnings([rewriteWarning]),
+  });
+  const rewritePromptVersion = buildPromptVersionRecord({
+    runId: ids.rewriteRunId,
+    turnId: ids.turnId,
+    traceId: ids.traceId,
+    version: 1,
+    stage: "rewrite",
+    compilerVersion: promptContext.compilerVersion,
+    capabilityVersion: promptContext.capabilityVersion,
+    originalPrompt: effectivePayload.prompt,
+    promptIntent: persistedRequestSnapshot.promptIntent ?? null,
+    turnDelta: rewriteResult.turnDelta,
+    committedStateBefore: conversation.promptState.committed,
+    candidateStateAfter: nextPromptState.candidate,
+    compiledPrompt: rewriteResult.turnDelta.prompt,
+    warnings: uniqueWarnings([rewriteWarning]),
+    hashes: createPromptHashes({
+      committedStateBefore: conversation.promptState.committed,
+      candidateStateAfter: nextPromptState.candidate,
+      promptIR: null,
+      prefix: null,
+      payload: rewriteResult.turnDelta,
+    }),
+    createdAt,
+  });
+  const compiledTargetCache = new Map<string, ReturnType<typeof compilePromptForTarget>>();
+  const compilePromptVersions = routeTargets.map((target, index) => {
+    const compiled = compilePromptForTarget(
+      effectivePayload,
+      promptIR,
+      nextPromptState,
+      target,
+      promptContext
+    );
+    compiledTargetCache.set(compiled.targetKey, compiled);
+    return buildPromptVersionRecord({
+      runId: ids.imageRunId,
+      turnId: ids.turnId,
+      traceId: ids.traceId,
+      version: index + 1,
+      stage: "compile",
+      targetKey: compiled.targetKey,
+      compilerVersion: promptContext.compilerVersion,
+      capabilityVersion: promptContext.capabilityVersion,
+      originalPrompt: effectivePayload.prompt,
+      promptIntent: persistedRequestSnapshot.promptIntent ?? null,
+      committedStateBefore: conversation.promptState.committed,
+      candidateStateAfter: nextPromptState.candidate ?? null,
+      promptIR,
+      compiledPrompt: compiled.compiledPrompt,
+      dispatchedPrompt: compiled.dispatchedPrompt,
+      semanticLosses: compiled.semanticLosses,
+      warnings: compiled.warnings,
+      hashes: {
+        ...createPromptHashes({
+          committedStateBefore: conversation.promptState.committed,
+          candidateStateAfter: nextPromptState.candidate ?? null,
+          promptIR,
+          prefix: compiled.compiledPrompt,
+          payload: {
+            prompt: compiled.dispatchedPrompt,
+            negativePrompt: compiled.negativePrompt,
+            targetKey: compiled.targetKey,
+          },
+        }),
+        prefixHash: compiled.prefixHash,
+        payloadHash: compiled.payloadHash,
+      },
+      createdAt,
+    });
+  });
+  const selectedCompile = compilePromptVersions[0];
+  const initialPromptSnapshot = toPromptSnapshot({
+    originalPrompt: effectivePayload.prompt,
+    compiledPrompt: selectedCompile.compiledPrompt ?? effectivePayload.prompt,
+    dispatchedPrompt: selectedCompile.dispatchedPrompt,
+    semanticLosses: selectedCompile.semanticLosses,
+    warnings: uniqueWarnings([rewriteWarning, ...selectedCompile.warnings]),
+  });
+
+  return {
+    routeTargets,
+    selectedTarget,
+    requestedTargetSnapshot,
+    exactRetryPrompt: null,
+    nextPromptState,
+    promptIR,
+    rewriteWarning,
+    rewriteTarget,
+    rewritePromptSnapshot,
+    rewritePromptVersion,
+    compilePromptVersions,
+    compiledTargetCache,
+    initialPromptSnapshot,
+  };
+};
+
+type DispatchContext = {
+  effectiveRetryMode: "exact" | "recompile";
+  exactRetryPrompt: PersistedPromptSnapshot | null;
+  effectivePayload: ParsedImageGenerationRequest;
+  promptIR: ReturnType<typeof buildPromptIR> | null;
+  nextPromptState: PersistedConversationCreativeState | null;
+  promptContext: ReturnType<typeof createPromptCompilationContext>;
+  rewriteWarning: string | null;
+  persistedRequestSnapshot: PersistedImageGenerationRequestSnapshot;
+  compilePromptVersionCount: number;
+  compiledTargetCache: Map<string, ReturnType<typeof compilePromptForTarget>>;
+  conversationPromptState: PersistedConversationCreativeState;
+  ids: { imageRunId: string; turnId: string; traceId: string };
+  repository: ChatStateRepository;
+  assetService: AssetService;
+  userId: string;
+  conversationId: string;
+};
+
+type DispatchState = {
+  attempt: number;
+  finalPromptSnapshot: PersistedPromptSnapshot;
+  finalWarnings: string[];
+  finalNegativePrompt: string | undefined;
+};
+
+type DispatchedRequest = ParsedImageGenerationRequest & {
+  resolvedInputAssets?: ResolvedProviderInputAsset[];
+};
+
+const resolveDispatchRequest = async (
+  target: ResolvedRouteTarget,
+  ctx: DispatchContext,
+  state: DispatchState,
+  routingRequest: ParsedImageGenerationRequest
+): Promise<DispatchedRequest> => {
+  state.attempt += 1;
+  const { ids, promptContext, persistedRequestSnapshot, repository, assetService, userId } = ctx;
+
+  if (ctx.effectiveRetryMode === "exact" && ctx.exactRetryPrompt) {
+    const exactRetryNegativePrompt = resolveExactRetryNegativePrompt({
+      negativePrompt: ctx.effectivePayload.negativePrompt,
+      semanticLosses: ctx.exactRetryPrompt.semanticLosses,
+    });
+    const dispatchedPrompt =
+      ctx.exactRetryPrompt.dispatchedPrompt ?? ctx.exactRetryPrompt.compiledPrompt;
+    await repository.createPromptVersions({
+      conversationId: ctx.conversationId,
+      versions: [
+        buildPromptVersionRecord({
+          runId: ids.imageRunId,
+          turnId: ids.turnId,
+          traceId: ids.traceId,
+          version: ctx.compilePromptVersionCount + state.attempt,
+          stage: "dispatch",
+          targetKey: `${target.provider.id}:${target.deployment.providerModel}`,
+          attempt: state.attempt,
+          compilerVersion: promptContext.compilerVersion,
+          capabilityVersion: promptContext.capabilityVersion,
+          originalPrompt: ctx.effectivePayload.prompt,
+          promptIntent: persistedRequestSnapshot.promptIntent ?? null,
+          committedStateBefore: null,
+          candidateStateAfter: null,
+          compiledPrompt: ctx.exactRetryPrompt.compiledPrompt,
+          dispatchedPrompt,
+          semanticLosses: ctx.exactRetryPrompt.semanticLosses,
+          warnings: uniqueWarnings([
+            ctx.rewriteWarning,
+            ...ctx.exactRetryPrompt.warnings,
+          ]),
+          hashes: createPromptHashes({
+            committedStateBefore: null,
+            candidateStateAfter: null,
+            promptIR: null,
+            prefix: ctx.exactRetryPrompt.compiledPrompt,
+            payload: {
+              prompt: dispatchedPrompt,
+              negativePrompt: exactRetryNegativePrompt,
+              targetKey: `${target.provider.id}:${target.deployment.providerModel}`,
+            },
+          }),
+          createdAt: new Date().toISOString(),
+        }),
+      ],
+    });
+
+    state.finalPromptSnapshot = toPromptSnapshot({
+      originalPrompt: ctx.effectivePayload.prompt,
+      compiledPrompt: ctx.exactRetryPrompt.compiledPrompt,
+      dispatchedPrompt,
+      semanticLosses: ctx.exactRetryPrompt.semanticLosses,
+      warnings: uniqueWarnings([
+        ctx.rewriteWarning,
+        ...ctx.exactRetryPrompt.warnings,
+      ]),
+    });
+    state.finalWarnings = [...state.finalPromptSnapshot.warnings];
+    state.finalNegativePrompt = exactRetryNegativePrompt;
+    return {
+      ...routingRequest,
+      requestedTarget: {
+        deploymentId: target.deployment.id,
+        provider: target.provider.id,
+      },
+      resolvedInputAssets: await assetService.resolveProviderInputAssets(
+        userId,
+        resolveExactRetryInputAssets(ctx.effectivePayload)
+      ),
+      prompt: dispatchedPrompt,
+      negativePrompt: exactRetryNegativePrompt,
+    };
+  }
+
+  const targetKey = `${target.provider.id}:${target.deployment.providerModel}`;
+  const compiled = ctx.compiledTargetCache.get(targetKey) ?? compilePromptForTarget(
+    ctx.effectivePayload,
+    ctx.promptIR as NonNullable<typeof ctx.promptIR>,
+    ctx.nextPromptState as PersistedConversationCreativeState,
+    target,
+    promptContext
+  );
+  await repository.createPromptVersions({
+    conversationId: ctx.conversationId,
+    versions: [
+      buildPromptVersionRecord({
+        runId: ids.imageRunId,
+        turnId: ids.turnId,
+        traceId: ids.traceId,
+        version: ctx.compilePromptVersionCount + state.attempt,
+        stage: "dispatch",
+        targetKey: compiled.targetKey,
+        attempt: state.attempt,
+        compilerVersion: promptContext.compilerVersion,
+        capabilityVersion: promptContext.capabilityVersion,
+        originalPrompt: ctx.effectivePayload.prompt,
+        promptIntent: persistedRequestSnapshot.promptIntent ?? null,
+        committedStateBefore: ctx.conversationPromptState.committed,
+        candidateStateAfter: ctx.nextPromptState?.candidate ?? null,
+        promptIR: ctx.promptIR,
+        compiledPrompt: compiled.compiledPrompt,
+        dispatchedPrompt: compiled.dispatchedPrompt,
+        semanticLosses: compiled.semanticLosses,
+        warnings: uniqueWarnings([ctx.rewriteWarning, ...compiled.warnings]),
+        hashes: {
+          ...createPromptHashes({
+            committedStateBefore: ctx.conversationPromptState.committed,
+            candidateStateAfter: ctx.nextPromptState?.candidate ?? null,
+            promptIR: ctx.promptIR,
+            prefix: compiled.compiledPrompt,
+            payload: {
+              prompt: compiled.dispatchedPrompt,
+              negativePrompt: compiled.negativePrompt,
+              targetKey: compiled.targetKey,
+            },
+          }),
+          prefixHash: compiled.prefixHash,
+          payloadHash: compiled.payloadHash,
+        },
+        createdAt: new Date().toISOString(),
+      }),
+    ],
+  });
+
+  state.finalPromptSnapshot = toPromptSnapshot({
+    originalPrompt: ctx.effectivePayload.prompt,
+    compiledPrompt: compiled.compiledPrompt,
+    dispatchedPrompt: compiled.dispatchedPrompt,
+    semanticLosses: compiled.semanticLosses,
+    warnings: uniqueWarnings([ctx.rewriteWarning, ...compiled.warnings]),
+  });
+  state.finalWarnings = [...state.finalPromptSnapshot.warnings];
+  state.finalNegativePrompt = compiled.negativePrompt ?? undefined;
+
+  return {
+    ...routingRequest,
+    requestedTarget: {
+      deploymentId: target.deployment.id,
+      provider: target.provider.id,
+    },
+    resolvedInputAssets: await assetService.resolveProviderInputAssets(
+      userId,
+      resolveDispatchInputAssets(target, ctx.effectivePayload)
+    ),
+    prompt: compiled.dispatchedPrompt,
+    negativePrompt: compiled.negativePrompt ?? undefined,
+  };
+};
+
 export type ImageGenerationServiceDeps = {
   repository: ChatStateRepository;
   assetService: AssetService;
-  config: ReturnType<typeof getConfig>;
+  config: AppConfig;
 };
 
 export type ExecuteImageGenerationCommandInput = {
@@ -351,201 +790,10 @@ export class ImageGenerationCommandError extends Error {
 }
 
 export class ImageGenerationService {
-  constructor(private readonly deps: ImageGenerationServiceDeps) {}
+  private readonly runtimeRouter;
 
-  private async normalizeGeneratedImage(
-    image: {
-      binaryData?: Buffer;
-      imageUrl?: string;
-      mimeType?: string;
-      revisedPrompt?: string | null;
-    },
-    index: number,
-    signal: AbortSignal
-  ) {
-    let buffer: Buffer | null = null;
-    let mimeType: string | null = null;
-
-    if (image.imageUrl) {
-      const downloaded = await downloadGeneratedImage(image.imageUrl, { signal });
-      buffer = downloaded.buffer;
-      mimeType = downloaded.mimeType;
-    } else if (image.binaryData && image.mimeType) {
-      buffer = image.binaryData;
-      mimeType = image.mimeType;
-    }
-
-    if (!buffer || !mimeType) {
-      return null;
-    }
-
-    assertGeneratedImageSize(buffer, this.deps.config.generatedImageDownloadMaxBytes);
-
-    return {
-      buffer,
-      mimeType,
-      revisedPrompt: image.revisedPrompt ?? null,
-      index,
-    };
-  }
-
-  private collectNormalizedImages(
-    settledResults: PromiseSettledResult<Awaited<ReturnType<typeof this.normalizeGeneratedImage>>>[],
-    generated: { runtimeProvider: ImageProviderId; providerModel: string },
-    logger: FastifyBaseLogger,
-    context: PersistedGenerationContext | null
-  ) {
-    const images: Array<{
-      buffer: Buffer;
-      provider: ImageProviderId;
-      model: string;
-      mimeType?: string;
-      revisedPrompt: string | null;
-      index: number;
-    }> = [];
-    let failureCount = 0;
-    let firstError: unknown = null;
-
-    for (let i = 0; i < settledResults.length; i++) {
-      const result = settledResults[i]!;
-      if (result.status === "fulfilled") {
-        if (result.value) {
-          images.push({
-            buffer: result.value.buffer,
-            provider: generated.runtimeProvider,
-            model: generated.providerModel,
-            mimeType: result.value.mimeType,
-            revisedPrompt: result.value.revisedPrompt,
-            index: result.value.index,
-          });
-        }
-      } else {
-        failureCount += 1;
-        firstError ??= result.reason;
-        logger.warn(
-          {
-            err: result.reason,
-            imageIndex: i,
-            conversationId: context?.conversationId ?? null,
-            turnId: context?.turnId ?? null,
-            runId: context?.runId ?? null,
-          },
-          "Generated image result could not be normalized."
-        );
-      }
-    }
-
-    return { images, failureCount, firstError };
-  }
-
-  private async handleExecutionFailure(input: {
-    error: unknown;
-    signal: AbortSignal;
-    logger: FastifyBaseLogger;
-    persistedGeneration: PersistedGenerationContext | null;
-    createdGeneratedAssetIds: string[];
-    createdAssetEdgeIds: string[];
-    generationAssetsCommitted: boolean;
-    userId: string;
-  }) {
-    const {
-      error, signal, logger, persistedGeneration,
-      createdGeneratedAssetIds, createdAssetEdgeIds,
-      generationAssetsCommitted, userId,
-    } = input;
-    const { repository, assetService } = this.deps;
-
-    const failureMessage = signal.aborted
-      ? "Image generation was canceled."
-      : error instanceof Error
-        ? error.message
-        : "Image generation failed.";
-
-    if (persistedGeneration) {
-      try {
-        await repository.completeGenerationFailure({
-          conversationId: persistedGeneration.conversationId,
-          turnId: persistedGeneration.turnId,
-          jobId: persistedGeneration.jobId,
-          runId: persistedGeneration.runId,
-          attemptId: persistedGeneration.attemptId,
-          error: failureMessage,
-          completedAt: new Date().toISOString(),
-        });
-      } catch (persistenceError) {
-        logger.error(
-          {
-            err: persistenceError,
-            conversationId: persistedGeneration.conversationId,
-            turnId: persistedGeneration.turnId,
-            jobId: persistedGeneration.jobId,
-            runId: persistedGeneration.runId,
-          },
-          "Failed to persist image generation failure state."
-        );
-      }
-    }
-
-    if (!generationAssetsCommitted && createdAssetEdgeIds.length > 0) {
-      await assetService.deleteAssetEdges(createdAssetEdgeIds).catch(() => undefined);
-    }
-    if (!generationAssetsCommitted && createdGeneratedAssetIds.length > 0) {
-      await Promise.allSettled(
-        createdGeneratedAssetIds.map((assetId) => assetService.deleteAsset(userId, assetId))
-      );
-    }
-
-    if (error instanceof ImageGenerationCommandError) {
-      return error;
-    }
-    if (error instanceof ChatPromptStateConflictError) {
-      return new ImageGenerationCommandError({
-        statusCode: 409,
-        message: "Conversation state changed during prompt compilation. Please retry.",
-        persistedGeneration,
-        cause: error,
-      });
-    }
-    if (error instanceof ProviderError) {
-      if (!signal.aborted) {
-        logger.warn(
-          {
-            err: error,
-            conversationId: persistedGeneration?.conversationId ?? null,
-            turnId: persistedGeneration?.turnId ?? null,
-            jobId: persistedGeneration?.jobId ?? null,
-            runId: persistedGeneration?.runId ?? null,
-          },
-          "Image generation failed with a provider error."
-        );
-      }
-      return new ImageGenerationCommandError({
-        statusCode: error.statusCode,
-        message: error.message,
-        persistedGeneration,
-        cause: error,
-      });
-    }
-
-    if (!signal.aborted) {
-      logger.error(
-        {
-          err: error,
-          conversationId: persistedGeneration?.conversationId ?? null,
-          turnId: persistedGeneration?.turnId ?? null,
-          jobId: persistedGeneration?.jobId ?? null,
-          runId: persistedGeneration?.runId ?? null,
-        },
-        "Image generation failed."
-      );
-    }
-
-    return new ImageGenerationCommandError({
-      statusCode: 500,
-      message: "Image generation failed.",
-      persistedGeneration,
-      cause: error,
-    });
+  constructor(private readonly deps: ImageGenerationServiceDeps) {
+    this.runtimeRouter = createImageRuntimeRouter(deps.config);
   }
 
   async execute(input: ExecuteImageGenerationCommandInput): Promise<ImageGenerationResponse> {
@@ -558,6 +806,7 @@ export class ImageGenerationService {
     let generationAssetsCommitted = false;
 
     try {
+        // ── Phase 1: Resolve conversation ──
         if (
           payload.threadId &&
           payload.conversationId &&
@@ -661,181 +910,42 @@ export class ImageGenerationService {
           }
         }
 
+        // ── Phase 2: Prompt resolution ──
         const persistedRequestSnapshot = toPersistedRequestSnapshot(effectivePayload);
         const persistedConfigSnapshot = toPersistedConfigSnapshot(effectivePayload);
         const routingRequest = effectivePayload;
-        let routeTargets = imageRuntimeRouter.getRouteTargets(routingRequest);
-        let exactRetryPrompt: PersistedPromptSnapshot | null = null;
-        let nextPromptState: PersistedConversationCreativeState | null = null;
-        let promptIR: ReturnType<typeof buildPromptIR> | null = null;
-        let rewriteWarning: string | null = null;
-        let rewriteTarget = createRewriteTargetSnapshot(rewriteModel, false);
-        let rewritePromptSnapshot: PersistedPromptSnapshot | null = null;
-        let rewritePromptVersion: PromptVersionRecord | null = null;
-        let compilePromptVersions: PromptVersionRecord[] = [];
-        const compiledTargetCache = new Map<string, CompiledTargetPrompt>();
-        let initialPromptSnapshot: PersistedPromptSnapshot;
-        let selectedTarget: ResolvedRouteTarget;
-        let requestedTargetSnapshot: PersistedRunTargetSnapshot;
+        const routeTargets = this.runtimeRouter.getRouteTargets(routingRequest);
 
-        if (effectiveRetryMode === "exact" && payload.retryOfTurnId) {
-          const retryRun = exactRetrySourceRun;
-          if (!retryRun?.prompt) {
-            throw new ImageGenerationCommandError({
-              statusCode: 400,
-              message: "Exact retry is unavailable because no prior prompt snapshot was found.",
-            });
-          }
+        const prompts: PromptResolution =
+          effectiveRetryMode === "exact" && payload.retryOfTurnId && exactRetrySourceRun
+            ? resolveExactRetryPrompts({
+                exactRetrySourceRun,
+                routeTargets,
+                effectivePayload,
+                rewriteModel,
+              })
+            : await resolveNewPrompts({
+                effectivePayload,
+                conversation,
+                routeTargets,
+                frontendModel,
+                rewriteModel,
+                promptContext,
+                persistedRequestSnapshot,
+                config,
+                signal,
+                logger,
+                ids: { rewriteRunId, imageRunId, turnId, traceId },
+                createdAt,
+              });
 
-          const exactTarget = findMatchingExactTarget(routeTargets, retryRun);
-          if (!exactTarget) {
-            throw new ImageGenerationCommandError({
-              statusCode: 400,
-              message: "Exact retry target is no longer available. Use recompile retry instead.",
-            });
-          }
+        const {
+          selectedTarget, requestedTargetSnapshot, rewriteTarget,
+          rewritePromptSnapshot, rewritePromptVersion, compilePromptVersions,
+          initialPromptSnapshot, nextPromptState, rewriteWarning,
+        } = prompts;
 
-          routeTargets = [exactTarget];
-          selectedTarget = exactTarget;
-          requestedTargetSnapshot = createResolvedTargetSnapshot(exactTarget, true);
-          exactRetryPrompt = {
-            ...retryRun.prompt,
-            providerEffectivePrompt: null,
-          };
-          rewriteWarning = "Exact retry reused prior compiler artifacts.";
-          rewriteTarget = createRewriteTargetSnapshot("exact-retry", true);
-          rewritePromptSnapshot = toPromptSnapshot({
-            originalPrompt: effectivePayload.prompt,
-            compiledPrompt: exactRetryPrompt.compiledPrompt,
-            dispatchedPrompt: exactRetryPrompt.dispatchedPrompt,
-            semanticLosses: exactRetryPrompt.semanticLosses,
-            warnings: uniqueWarnings([rewriteWarning]),
-          });
-          rewritePromptVersion = null;
-          compilePromptVersions = [];
-          initialPromptSnapshot = exactRetryPrompt;
-        } else {
-          const rewriteResult = await rewriteTurn(
-            effectivePayload,
-            conversation.promptState,
-            config,
-            {
-            signal,
-            }
-          );
-          rewriteWarning = rewriteResult.warning;
-          rewriteTarget = createRewriteTargetSnapshot(rewriteModel, rewriteResult.degraded);
-          nextPromptState = applyTurnDelta(conversation.promptState, rewriteResult.turnDelta, turnId);
-          promptIR = buildPromptIR(effectivePayload, nextPromptState);
-          selectedTarget = routeTargets[0] as ResolvedRouteTarget;
-          requestedTargetSnapshot = createRunTargetSnapshot({
-            modelId: effectivePayload.modelId,
-            logicalModel: frontendModel.logicalModel,
-            deploymentId: selectedTarget.deployment.id,
-            runtimeProvider:
-              effectivePayload.requestedTarget?.provider ?? selectedTarget.provider.id,
-            providerModel: selectedTarget.deployment.providerModel,
-            pinned: Boolean(
-              effectivePayload.requestedTarget?.deploymentId ||
-                effectivePayload.requestedTarget?.provider
-            ),
-          });
-          rewritePromptSnapshot = toPromptSnapshot({
-            originalPrompt: effectivePayload.prompt,
-            compiledPrompt: rewriteResult.turnDelta.prompt,
-            dispatchedPrompt: null,
-            warnings: uniqueWarnings([rewriteWarning]),
-          });
-          rewritePromptVersion = buildPromptVersionRecord({
-            runId: rewriteRunId,
-            turnId,
-            traceId,
-            version: 1,
-            stage: "rewrite",
-            compilerVersion: promptContext.compilerVersion,
-            capabilityVersion: promptContext.capabilityVersion,
-            originalPrompt: effectivePayload.prompt,
-            promptIntent: persistedRequestSnapshot.promptIntent ?? null,
-            turnDelta: rewriteResult.turnDelta,
-            committedStateBefore: conversation.promptState.committed,
-            candidateStateAfter: nextPromptState.candidate,
-            compiledPrompt: rewriteResult.turnDelta.prompt,
-            warnings: uniqueWarnings([rewriteWarning]),
-            hashes: createPromptHashes({
-              committedStateBefore: conversation.promptState.committed,
-              candidateStateAfter: nextPromptState.candidate,
-              promptIR: null,
-              prefix: null,
-              payload: rewriteResult.turnDelta,
-            }),
-            createdAt,
-          });
-          compilePromptVersions = routeTargets.map((target, index) => {
-            const compiled = compilePromptForTarget(
-              effectivePayload,
-              promptIR as NonNullable<typeof promptIR>,
-              nextPromptState as PersistedConversationCreativeState,
-              target,
-              promptContext
-            );
-            compiledTargetCache.set(compiled.targetKey, compiled);
-            return buildPromptVersionRecord({
-              runId: imageRunId,
-              turnId,
-              traceId,
-              version: index + 1,
-              stage: "compile",
-              targetKey: compiled.targetKey,
-              compilerVersion: promptContext.compilerVersion,
-              capabilityVersion: promptContext.capabilityVersion,
-              originalPrompt: effectivePayload.prompt,
-              promptIntent: persistedRequestSnapshot.promptIntent ?? null,
-              committedStateBefore: conversation.promptState.committed,
-              candidateStateAfter: nextPromptState?.candidate ?? null,
-              promptIR,
-              compiledPrompt: compiled.compiledPrompt,
-              dispatchedPrompt: compiled.dispatchedPrompt,
-              semanticLosses: compiled.semanticLosses,
-              warnings: compiled.warnings,
-              hashes: {
-                ...createPromptHashes({
-                  committedStateBefore: conversation.promptState.committed,
-                  candidateStateAfter: nextPromptState?.candidate ?? null,
-                  promptIR,
-                  prefix: compiled.compiledPrompt,
-                  payload: {
-                    prompt: compiled.dispatchedPrompt,
-                    negativePrompt: compiled.negativePrompt,
-                    targetKey: compiled.targetKey,
-                  },
-                }),
-                prefixHash: compiled.prefixHash,
-                payloadHash: compiled.payloadHash,
-              },
-              createdAt,
-            });
-          });
-          const selectedCompile = compilePromptVersions[0];
-          initialPromptSnapshot = toPromptSnapshot({
-            originalPrompt: effectivePayload.prompt,
-            compiledPrompt: selectedCompile.compiledPrompt ?? effectivePayload.prompt,
-            dispatchedPrompt: selectedCompile.dispatchedPrompt,
-            semanticLosses: selectedCompile.semanticLosses,
-            warnings: uniqueWarnings([rewriteWarning, ...selectedCompile.warnings]),
-          });
-        }
-
-        selectedTarget = selectedTarget ?? (routeTargets[0] as ResolvedRouteTarget);
-        requestedTargetSnapshot =
-          requestedTargetSnapshot ??
-          createResolvedTargetSnapshot(
-            selectedTarget,
-            Boolean(
-              effectivePayload.requestedTarget?.deploymentId ||
-                effectivePayload.requestedTarget?.provider
-            )
-          );
-
+        // ── Phase 3: Persist pre-generation records ──
         const baseTurn = {
           id: turnId,
           prompt: effectivePayload.prompt,
@@ -960,175 +1070,87 @@ export class ImageGenerationService {
           ],
         });
 
+        // ── Phase 4: Provider dispatch ──
         const startedAt = Date.now();
-        let dispatchAttempt = 0;
-        let finalPromptSnapshot = initialPromptSnapshot;
-        let finalDispatchWarnings = [...initialPromptSnapshot.warnings];
-        let finalDispatchNegativePrompt: string | undefined;
-        const generated = await imageRuntimeRouter.generate(routingRequest, {
+        const dispatchState: DispatchState = {
+          attempt: 0,
+          finalPromptSnapshot: initialPromptSnapshot,
+          finalWarnings: [...initialPromptSnapshot.warnings],
+          finalNegativePrompt: undefined,
+        };
+        const dispatchCtx: DispatchContext = {
+          effectiveRetryMode,
+          exactRetryPrompt: prompts.exactRetryPrompt,
+          effectivePayload,
+          promptIR: prompts.promptIR,
+          nextPromptState,
+          promptContext,
+          rewriteWarning,
+          persistedRequestSnapshot,
+          compilePromptVersionCount: compilePromptVersions.length,
+          compiledTargetCache: prompts.compiledTargetCache,
+          conversationPromptState: conversation.promptState,
+          ids: { imageRunId, turnId, traceId },
+          repository,
+          assetService,
+          userId,
+          conversationId: conversation.id,
+        };
+        const generated = await this.runtimeRouter.generate(routingRequest, {
           signal,
           traceId,
-          targets: routeTargets,
-          resolveRequest: async (target) => {
-            dispatchAttempt += 1;
-
-            if (effectiveRetryMode === "exact" && exactRetryPrompt) {
-              const exactRetryNegativePrompt = resolveExactRetryNegativePrompt({
-                negativePrompt: effectivePayload.negativePrompt,
-                semanticLosses: exactRetryPrompt.semanticLosses,
-              });
-              const dispatchedPrompt =
-                exactRetryPrompt.dispatchedPrompt ?? exactRetryPrompt.compiledPrompt;
-              await repository.createPromptVersions({
-                conversationId: conversation.id,
-                versions: [
-                  buildPromptVersionRecord({
-                    runId: imageRunId,
-                    turnId,
-                    traceId,
-                    version: compilePromptVersions.length + dispatchAttempt,
-                    stage: "dispatch",
-                  targetKey: `${target.provider.id}:${target.deployment.providerModel}`,
-                  attempt: dispatchAttempt,
-                  compilerVersion: promptContext.compilerVersion,
-                  capabilityVersion: promptContext.capabilityVersion,
-                    originalPrompt: effectivePayload.prompt,
-                    promptIntent: persistedRequestSnapshot.promptIntent ?? null,
-                    committedStateBefore: null,
-                    candidateStateAfter: null,
-                    compiledPrompt: exactRetryPrompt.compiledPrompt,
-                    dispatchedPrompt,
-                    semanticLosses: exactRetryPrompt.semanticLosses,
-                    warnings: uniqueWarnings([
-                      rewriteWarning,
-                      ...exactRetryPrompt.warnings,
-                    ]),
-                    hashes: createPromptHashes({
-                      committedStateBefore: null,
-                      candidateStateAfter: null,
-                      promptIR: null,
-                      prefix: exactRetryPrompt.compiledPrompt,
-                      payload: {
-                        prompt: dispatchedPrompt,
-                        negativePrompt: exactRetryNegativePrompt,
-                        targetKey: `${target.provider.id}:${target.deployment.providerModel}`,
-                      },
-                    }),
-                    createdAt: new Date().toISOString(),
-                  }),
-                ],
-              });
-
-              finalPromptSnapshot = toPromptSnapshot({
-                originalPrompt: effectivePayload.prompt,
-                compiledPrompt: exactRetryPrompt.compiledPrompt,
-                dispatchedPrompt,
-                semanticLosses: exactRetryPrompt.semanticLosses,
-                warnings: uniqueWarnings([
-                  rewriteWarning,
-                  ...exactRetryPrompt.warnings,
-                ]),
-              });
-              finalDispatchWarnings = [...finalPromptSnapshot.warnings];
-              finalDispatchNegativePrompt = exactRetryNegativePrompt;
-              return {
-                ...routingRequest,
-                requestedTarget: {
-                  deploymentId: target.deployment.id,
-                  provider: target.provider.id,
-                },
-                resolvedInputAssets: await assetService.resolveProviderInputAssets(
-                  userId,
-                  resolveExactRetryInputAssets(effectivePayload)
-                ),
-                prompt: dispatchedPrompt,
-                negativePrompt: exactRetryNegativePrompt,
-              };
-            }
-
-            const targetKey = `${target.provider.id}:${target.deployment.providerModel}`;
-            const compiled = compiledTargetCache.get(targetKey) ?? compilePromptForTarget(
-              effectivePayload,
-              promptIR as NonNullable<typeof promptIR>,
-              nextPromptState as PersistedConversationCreativeState,
-              target,
-              promptContext
-            );
-            await repository.createPromptVersions({
-              conversationId: conversation.id,
-              versions: [
-                buildPromptVersionRecord({
-                  runId: imageRunId,
-                  turnId,
-                  traceId,
-                  version: compilePromptVersions.length + dispatchAttempt,
-                  stage: "dispatch",
-                  targetKey: compiled.targetKey,
-                  attempt: dispatchAttempt,
-                  compilerVersion: promptContext.compilerVersion,
-                  capabilityVersion: promptContext.capabilityVersion,
-                  originalPrompt: effectivePayload.prompt,
-                  promptIntent: persistedRequestSnapshot.promptIntent ?? null,
-                  committedStateBefore: conversation.promptState.committed,
-                  candidateStateAfter: nextPromptState?.candidate ?? null,
-                  promptIR,
-                  compiledPrompt: compiled.compiledPrompt,
-                  dispatchedPrompt: compiled.dispatchedPrompt,
-                  semanticLosses: compiled.semanticLosses,
-                  warnings: uniqueWarnings([rewriteWarning, ...compiled.warnings]),
-                  hashes: {
-                    ...createPromptHashes({
-                      committedStateBefore: conversation.promptState.committed,
-                      candidateStateAfter: nextPromptState?.candidate ?? null,
-                      promptIR,
-                      prefix: compiled.compiledPrompt,
-                      payload: {
-                        prompt: compiled.dispatchedPrompt,
-                        negativePrompt: compiled.negativePrompt,
-                        targetKey: compiled.targetKey,
-                      },
-                    }),
-                    prefixHash: compiled.prefixHash,
-                    payloadHash: compiled.payloadHash,
-                  },
-                  createdAt: new Date().toISOString(),
-                }),
-              ],
-            });
-
-            finalPromptSnapshot = toPromptSnapshot({
-              originalPrompt: effectivePayload.prompt,
-              compiledPrompt: compiled.compiledPrompt,
-              dispatchedPrompt: compiled.dispatchedPrompt,
-              semanticLosses: compiled.semanticLosses,
-              warnings: uniqueWarnings([rewriteWarning, ...compiled.warnings]),
-            });
-            finalDispatchWarnings = [...finalPromptSnapshot.warnings];
-            finalDispatchNegativePrompt = compiled.negativePrompt ?? undefined;
-
-            return {
-              ...routingRequest,
-              requestedTarget: {
-                deploymentId: target.deployment.id,
-                provider: target.provider.id,
-              },
-              resolvedInputAssets: await assetService.resolveProviderInputAssets(
-                userId,
-                resolveDispatchInputAssets(target, effectivePayload)
-              ),
-              prompt: compiled.dispatchedPrompt,
-              negativePrompt: compiled.negativePrompt ?? undefined,
-            };
-          },
+          targets: prompts.routeTargets,
+          resolveRequest: (target) =>
+            resolveDispatchRequest(target, dispatchCtx, dispatchState, routingRequest),
         });
 
+        // ── Phase 5: Image normalization ──
         const normalizedSettledResults = await settleWithConcurrency(
           generated.images,
           GENERATED_IMAGE_NORMALIZATION_CONCURRENCY,
-          async (image, index) => this.normalizeGeneratedImage(image, index, signal)
+          async (image, index) =>
+            normalizeGeneratedImage(image, index, signal, config.generatedImageDownloadMaxBytes, config)
         );
-        const { images: normalizedImages, failureCount: normalizationFailureCount, firstError: firstNormalizationError } =
-          this.collectNormalizedImages(normalizedSettledResults, generated, logger, persistedGeneration);
+
+        let normalizationFailureCount = 0;
+        let firstNormalizationError: unknown = null;
+        const normalizedImages: Array<{
+          buffer: Buffer;
+          provider: ImageProviderId;
+          model: string;
+          mimeType: string;
+          revisedPrompt: string | null;
+          index: number;
+        }> = [];
+
+        for (const [settledIndex, result] of normalizedSettledResults.entries()) {
+          if (result.status === "fulfilled") {
+            if (result.value) {
+              normalizedImages.push({
+                buffer: result.value.buffer,
+                provider: generated.runtimeProvider,
+                model: generated.providerModel,
+                mimeType: result.value.mimeType,
+                revisedPrompt: result.value.revisedPrompt,
+                index: result.value.index,
+              });
+            }
+            continue;
+          }
+
+          normalizationFailureCount += 1;
+          firstNormalizationError ??= result.reason;
+          logger.warn(
+            {
+              err: result.reason,
+              imageIndex: settledIndex,
+              conversationId: persistedGeneration?.conversationId ?? null,
+              turnId: persistedGeneration?.turnId ?? null,
+              runId: persistedGeneration?.runId ?? null,
+            },
+            "Generated image result could not be normalized."
+          );
+        }
 
         if (normalizedImages.length === 0) {
           if (firstNormalizationError) {
@@ -1137,6 +1159,7 @@ export class ImageGenerationService {
           throw new ProviderError("Provider did not return any image.");
         }
 
+        // ── Phase 6: Asset persistence & response ──
         const capabilityWarnings =
           effectiveRetryMode === "exact"
             ? []
@@ -1144,13 +1167,13 @@ export class ImageGenerationService {
         const mergedWarnings = uniqueWarnings([
           ...capabilityWarnings,
           ...(generated.warnings ?? []),
-          ...finalDispatchWarnings,
+          ...dispatchState.finalWarnings,
           normalizationFailureCount > 0 ? formatNormalizationWarning(normalizationFailureCount) : null,
         ]);
 
         const completedAt = new Date().toISOString();
         const completedPrompt = withProviderEffectivePrompt(
-          finalPromptSnapshot,
+          dispatchState.finalPromptSnapshot,
           normalizedImages[0]?.revisedPrompt ?? null
         );
         const assetizedImages: Array<{
@@ -1262,10 +1285,10 @@ export class ImageGenerationService {
               runId: imageRunId,
               turnId,
               traceId,
-              version: compilePromptVersions.length + dispatchAttempt + 1,
+              version: compilePromptVersions.length + dispatchState.attempt + 1,
               stage: "dispatch",
               targetKey: `${generated.runtimeProvider}:${generated.providerModel}`,
-              attempt: dispatchAttempt,
+              attempt: dispatchState.attempt,
               compilerVersion: promptContext.compilerVersion,
               capabilityVersion: promptContext.capabilityVersion,
               originalPrompt: effectivePayload.prompt,
@@ -1276,12 +1299,12 @@ export class ImageGenerationService {
                 effectiveRetryMode === "exact"
                   ? null
                   : nextPromptState?.candidate ?? conversation.promptState.candidate,
-              promptIR: effectiveRetryMode === "exact" ? null : promptIR,
+              promptIR: effectiveRetryMode === "exact" ? null : prompts.promptIR,
               compiledPrompt: completedPrompt.compiledPrompt,
               dispatchedPrompt: completedPrompt.dispatchedPrompt,
               providerEffectivePrompt: completedPrompt.providerEffectivePrompt,
               semanticLosses: completedPrompt.semanticLosses,
-              warnings: finalDispatchWarnings,
+              warnings: dispatchState.finalWarnings,
               hashes: createPromptHashes({
                 committedStateBefore:
                   effectiveRetryMode === "exact" ? null : conversation.promptState.committed,
@@ -1289,14 +1312,14 @@ export class ImageGenerationService {
                   effectiveRetryMode === "exact"
                     ? null
                     : nextPromptState?.candidate ?? conversation.promptState.candidate,
-                promptIR: effectiveRetryMode === "exact" ? null : promptIR,
+                promptIR: effectiveRetryMode === "exact" ? null : prompts.promptIR,
                 prefix: completedPrompt.compiledPrompt,
                 payload: {
                   prompt: completedPrompt.dispatchedPrompt,
-                  negativePrompt: finalDispatchNegativePrompt,
+                  negativePrompt: dispatchState.finalNegativePrompt,
                   providerEffectivePrompt: completedPrompt.providerEffectivePrompt,
                   targetKey: `${generated.runtimeProvider}:${generated.providerModel}`,
-                  attempt: dispatchAttempt,
+                  attempt: dispatchState.attempt,
                 },
               }),
               createdAt: completedAt,
@@ -1346,7 +1369,6 @@ export class ImageGenerationService {
           },
           completedAt,
         });
-
         generationAssetsCommitted = true;
 
         if (nextPromptState) {
@@ -1392,16 +1414,100 @@ export class ImageGenerationService {
           ...(mergedWarnings.length > 0 ? { warnings: mergedWarnings } : {}),
         };
     } catch (error) {
-        throw await this.handleExecutionFailure({
-          error,
-          signal,
-          logger,
-          persistedGeneration,
-          createdGeneratedAssetIds,
-          createdAssetEdgeIds,
-          generationAssetsCommitted,
-          userId,
-        });
+        const failureMessage = signal.aborted
+          ? "Image generation was canceled."
+          : error instanceof Error
+            ? error.message
+            : "Image generation failed.";
+
+        if (persistedGeneration) {
+          try {
+            await repository.completeGenerationFailure({
+              conversationId: persistedGeneration.conversationId,
+              turnId: persistedGeneration.turnId,
+              jobId: persistedGeneration.jobId,
+              runId: persistedGeneration.runId,
+              attemptId: persistedGeneration.attemptId,
+              error: failureMessage,
+              completedAt: new Date().toISOString(),
+            });
+          } catch (persistenceError) {
+            logger.error(
+              {
+                err: persistenceError,
+                conversationId: persistedGeneration.conversationId,
+                turnId: persistedGeneration.turnId,
+                jobId: persistedGeneration.jobId,
+                runId: persistedGeneration.runId,
+              },
+              "Failed to persist image generation failure state."
+            );
+          }
+        }
+
+        if (!generationAssetsCommitted && createdAssetEdgeIds.length > 0) {
+          await assetService.deleteAssetEdges(createdAssetEdgeIds).catch(() => undefined);
+        }
+        if (!generationAssetsCommitted && createdGeneratedAssetIds.length > 0) {
+          await Promise.allSettled(
+            createdGeneratedAssetIds.map((assetId) => assetService.deleteAsset(userId, assetId))
+          );
+        }
+
+        let commandError: ImageGenerationCommandError;
+
+        if (error instanceof ImageGenerationCommandError) {
+          commandError = error;
+        } else if (error instanceof ChatPromptStateConflictError) {
+          commandError = new ImageGenerationCommandError({
+            statusCode: 409,
+            message: "Conversation state changed during prompt compilation. Please retry.",
+            persistedGeneration,
+            cause: error,
+          });
+        } else if (error instanceof ProviderError) {
+          if (!signal.aborted) {
+            logger.warn(
+              {
+                err: error,
+                conversationId: persistedGeneration?.conversationId ?? null,
+                turnId: persistedGeneration?.turnId ?? null,
+                jobId: persistedGeneration?.jobId ?? null,
+                runId: persistedGeneration?.runId ?? null,
+              },
+              "Image generation failed with a provider error."
+            );
+          }
+
+          commandError = new ImageGenerationCommandError({
+            statusCode: error.statusCode,
+            message: error.message,
+            persistedGeneration,
+            cause: error,
+          });
+        } else {
+          if (!signal.aborted) {
+            logger.error(
+              {
+                err: error,
+                conversationId: persistedGeneration?.conversationId ?? null,
+                turnId: persistedGeneration?.turnId ?? null,
+                jobId: persistedGeneration?.jobId ?? null,
+                runId: persistedGeneration?.runId ?? null,
+              },
+              "Image generation failed."
+            );
+          }
+
+          commandError = new ImageGenerationCommandError({
+            statusCode: 500,
+            message: "Image generation failed.",
+            persistedGeneration,
+            cause: error,
+          });
+        }
+
+        throw commandError;
     }
   }
 }
