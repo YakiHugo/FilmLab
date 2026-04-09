@@ -10,7 +10,7 @@ const readRawBody = async (request: { raw: AsyncIterable<Buffer | string> }) => 
 
 export const assetRoute: FastifyPluginAsync = async (app) => {
   app.post("/api/assets/uploads/init", async (request, reply) => {
-    const userId = request.userId;
+    const userId = request.userId!;
 
     const body = request.body as Record<string, unknown>;
     const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -57,7 +57,7 @@ export const assetRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.put("/api/assets/upload/:assetId/:kind", async (request, reply) => {
-    const userId = request.userId;
+    const userId = request.userId!;
     const params = request.params as { assetId?: string; kind?: string };
     const assetId = params.assetId?.trim();
     const kind =
@@ -91,7 +91,7 @@ export const assetRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.post("/api/assets/uploads/:assetId/complete", async (request, reply) => {
-    const userId = request.userId;
+    const userId = request.userId!;
     const params = request.params as { assetId?: string };
     const assetId = params.assetId?.trim();
     if (!assetId) {
@@ -101,7 +101,7 @@ export const assetRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/api/assets/changes", async (request, reply) => {
-    const userId = request.userId;
+    const userId = request.userId!;
 
     const since =
       typeof request.query === "object" &&
@@ -116,7 +116,7 @@ export const assetRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/api/assets/:assetId", async (request, reply) => {
-    const userId = request.userId;
+    const userId = request.userId!;
     const params = request.params as { assetId?: string };
     const assetId = params.assetId?.trim();
     if (!assetId) {
@@ -167,7 +167,7 @@ export const assetRoute: FastifyPluginAsync = async (app) => {
   });
 
   app.delete("/api/assets/:assetId", async (request, reply) => {
-    const userId = request.userId;
+    const userId = request.userId!;
     const params = request.params as { assetId?: string };
     const assetId = params.assetId?.trim();
     if (!assetId) {

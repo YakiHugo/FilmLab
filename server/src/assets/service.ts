@@ -101,7 +101,7 @@ export class AssetService {
 
   private buildBrowserUrl(assetId: string, userId: string, kind: AssetFileKind) {
     const token = createAssetCapabilityToken({
-      secret: this.config.assetUrlSecret ?? "filmlab-dev-asset-url-secret",
+      secret: this.config.assetUrlSecret!,
       userId,
       assetId,
       kind,
@@ -489,7 +489,7 @@ export class AssetService {
     const tokenUserId =
       input.token && input.token.trim()
         ? verifyAssetCapabilityToken({
-            secret: this.config.assetUrlSecret ?? "filmlab-dev-asset-url-secret",
+            secret: this.config.assetUrlSecret!,
             token: input.token.trim(),
             assetId: input.assetId,
             kind: input.kind,
