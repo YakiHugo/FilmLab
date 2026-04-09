@@ -358,6 +358,17 @@ export class MemoryChatStateRepository implements ChatStateRepository {
       conversationId: input.conversationId,
     });
     this.resultsByTurnId.set(input.turn.id, [...input.turn.results]);
+    for (const additionalRun of input.additionalRuns ?? []) {
+      this.runs.set(additionalRun.id, {
+        ...additionalRun,
+        conversationId: input.conversationId,
+        updatedAt: additionalRun.createdAt,
+      });
+    }
+    for (const version of input.promptVersions ?? []) {
+      const existing = this.promptVersions.get(input.conversationId) ?? [];
+      this.promptVersions.set(input.conversationId, [...existing, version]);
+    }
     this.touchConversation(input.conversationId, input.turn.createdAt);
   }
 

@@ -58,6 +58,8 @@ export interface CreateChatGenerationInput {
   job: GenerationJobSnapshot;
   run: PersistedRunRecord;
   attempt: ChatAttemptRecord;
+  additionalRuns?: PersistedRunRecord[];
+  promptVersions?: PromptVersionRecord[];
 }
 
 export interface CreateChatTurnInput {
