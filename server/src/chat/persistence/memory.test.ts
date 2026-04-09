@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MemoryChatStateRepository } from "./memory";
+import type { CreateChatGenerationInput } from "./types";
 
 const createGenerationInput = (overrides?: {
   conversationId?: string;
@@ -8,7 +9,7 @@ const createGenerationInput = (overrides?: {
   runId?: string;
   attemptId?: string;
   retryOfTurnId?: string | null;
-}) => ({
+}): CreateChatGenerationInput => ({
   conversationId: overrides?.conversationId ?? "conversation-1",
   turn: {
     id: overrides?.turnId ?? "turn-1",
@@ -49,6 +50,7 @@ const createGenerationInput = (overrides?: {
     compiledPrompt: "Studio portrait",
     requestSnapshot: {
       prompt: "Studio portrait",
+      negativePrompt: undefined,
       modelId: "seedream-v5" as const,
       aspectRatio: "1:1" as const,
       style: "none" as const,

@@ -91,6 +91,17 @@ export class AssetService {
     await this.repository.close();
   }
 
+  async cleanupExpiredUploadSessions(maxAgeMs = 24 * 60 * 60 * 1000) {
+    const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+    const expired = await this.repository.deleteExpiredUploadSessions(cutoff);
+    if (expired.length > 0) {
+      await this.removeObjectsBestEffort(
+        expired.flatMap((s) => [s.originalPath, s.thumbnailPath])
+      );
+    }
+    return expired.length;
+  }
+
   private buildStoragePaths(userId: string, assetId: string, mimeType: string) {
     const extension = toFileExtension(mimeType);
     return {
