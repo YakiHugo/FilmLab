@@ -1,4 +1,5 @@
-import { Pool } from "pg";
+import { AsyncLocalStorage } from "node:async_hooks";
+import type { Pool, PoolClient } from "pg";
 import { createId } from "../../../shared/createId";
 import type {
   AssetChangeRecord,
@@ -65,11 +66,30 @@ const aggregateAssets = (rows: Array<Record<string, unknown>>): AssetRecord[] =>
 };
 
 class PostgresAssetRepository implements AssetRepository {
+  private readonly txClient = new AsyncLocalStorage<PoolClient>();
+
   constructor(private readonly pool: Pool, private readonly bucket: string) {}
+
+  private get db(): Pick<Pool, "query"> {
+    return this.txClient.getStore() ?? this.pool;
+  }
+
+  private async withClient<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
+    const existing = this.txClient.getStore();
+    if (existing) {
+      return fn(existing);
+    }
+    const client = await this.pool.connect();
+    try {
+      return await fn(client);
+    } finally {
+      client.release();
+    }
+  }
 
   private async loadAssets(whereSql: string, params: unknown[]) {
 
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         SELECT
           assets.id,
@@ -126,7 +146,7 @@ class PostgresAssetRepository implements AssetRepository {
 
   async listAssetChanges(userId: string, since?: string) {
 
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         SELECT id AS asset_id, content_hash, updated_at, deleted_at
         FROM assets
@@ -148,7 +168,7 @@ class PostgresAssetRepository implements AssetRepository {
 
   async createUploadSession(session: AssetUploadSession) {
 
-    await this.pool.query(
+    await this.db.query(
       `
         INSERT INTO asset_upload_sessions (
           asset_id,
@@ -210,7 +230,7 @@ class PostgresAssetRepository implements AssetRepository {
 
   async getUploadSession(userId: string, assetId: string) {
 
-    const result = await this.pool.query(
+    const result = await this.db.query(
       "SELECT * FROM asset_upload_sessions WHERE owner_user_id = $1 AND asset_id = $2",
       [userId, assetId]
     );
@@ -240,7 +260,7 @@ class PostgresAssetRepository implements AssetRepository {
 
   async findUploadSessionByContentHash(userId: string, contentHash: string) {
 
-    const result = await this.pool.query(
+    const result = await this.db.query(
       `
         SELECT *
         FROM asset_upload_sessions
@@ -282,7 +302,7 @@ class PostgresAssetRepository implements AssetRepository {
   ) {
 
     const column = kind === "thumbnail" ? "thumbnail_uploaded_at" : "original_uploaded_at";
-    await this.pool.query(
+    await this.db.query(
       `
         UPDATE asset_upload_sessions
         SET ${column} = $3, updated_at = $3
@@ -294,7 +314,7 @@ class PostgresAssetRepository implements AssetRepository {
 
   async deleteUploadSession(userId: string, assetId: string) {
 
-    await this.pool.query(
+    await this.db.query(
       "DELETE FROM asset_upload_sessions WHERE owner_user_id = $1 AND asset_id = $2",
       [userId, assetId]
     );
@@ -305,30 +325,26 @@ class PostgresAssetRepository implements AssetRepository {
     contentHash: string,
     operation: () => Promise<T>
   ) {
-
     const client = await this.pool.connect();
     try {
+      await client.query("BEGIN");
       await client.query(
-        "SELECT pg_advisory_lock(hashtext($1), hashtext($2))",
+        "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
         [userId, contentHash]
       );
-      return await operation();
+      const result = await this.txClient.run(client, operation);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
     } finally {
-      try {
-        await client.query(
-          "SELECT pg_advisory_unlock(hashtext($1), hashtext($2))",
-          [userId, contentHash]
-        );
-      } finally {
-        client.release();
-      }
+      client.release();
     }
   }
 
   async saveAsset(record: AssetRecord) {
-
-    const client = await this.pool.connect();
-    try {
+    return this.withClient(async (client) => {
       await client.query("BEGIN");
       await client.query(
         `
@@ -418,12 +434,7 @@ class PostgresAssetRepository implements AssetRepository {
 
       await client.query("COMMIT");
       return record;
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
+    });
   }
 
   async createAssetEdges(edges: AssetEdgeInsert[]) {
@@ -432,8 +443,7 @@ class PostgresAssetRepository implements AssetRepository {
       return;
     }
 
-    const client = await this.pool.connect();
-    try {
+    await this.withClient(async (client) => {
       await client.query("BEGIN");
       for (const edge of edges) {
         await client.query(
@@ -460,12 +470,7 @@ class PostgresAssetRepository implements AssetRepository {
         );
       }
       await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
+    });
   }
 
   async deleteAssetEdges(edgeIds: string[]) {
@@ -474,7 +479,7 @@ class PostgresAssetRepository implements AssetRepository {
       return;
     }
 
-    await this.pool.query(
+    await this.db.query(
       `
         DELETE FROM asset_edges
         WHERE id = ANY($1::text[])
@@ -485,7 +490,7 @@ class PostgresAssetRepository implements AssetRepository {
 
   async softDeleteAsset(userId: string, assetId: string, deletedAt: string) {
 
-    await this.pool.query(
+    await this.db.query(
       `
         UPDATE assets
         SET deleted_at = $3, updated_at = $3
