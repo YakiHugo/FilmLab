@@ -1217,7 +1217,7 @@ describe("imageProcessing debug trace", () => {
         slotId: "local-blend-roi-gpu-slot:local-compose:local-roi",
       })
     );
-    const roiClears = output.context2d.clearRect.mock.calls.filter(
+    const roiClears = (output as unknown as MockCanvasElement).context2d.clearRect.mock.calls.filter(
       ([x, y, width, height]: [number, number, number, number]) => x === 16 && y === 16 && width === 32 && height === 32
     );
     expect(roiClears).toHaveLength(2);
