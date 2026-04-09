@@ -127,7 +127,7 @@ describe("PipelineRenderer.renderAsciiTextmodeLayer", () => {
     expect(rendered).not.toBeNull();
     expect(getAsciiSurfaceTextureCacheRecord).toHaveBeenCalledTimes(1);
     expect(releaseAsciiSurfaceTextureCacheRecord).not.toHaveBeenCalled();
-    const call = runToTexture.mock.calls[0]?.[0] as unknown as {
+    const call = (runToTexture.mock.calls as unknown[][])[0]![0] as {
       passes: MockPass[];
       input: { texture: unknown };
     };
@@ -187,7 +187,7 @@ describe("PipelineRenderer.renderAsciiTextmodeLayer", () => {
 
     expect(rendered).not.toBeNull();
     expect(renderAsciiBackgroundSourceLayer).toHaveBeenCalledTimes(1);
-    const call = runToTexture.mock.calls[0]?.[0] as unknown as {
+    const call = (runToTexture.mock.calls as unknown[][])[0]![0] as {
       passes: MockPass[];
     };
     expect(call.passes[0]?.extraTextures).toMatchObject({

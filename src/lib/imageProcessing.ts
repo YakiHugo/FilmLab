@@ -2705,6 +2705,10 @@ const renderImageStageInternal = async (
 
           layerContext.clearRect(0, 0, resolvedOutputCanvas.width, resolvedOutputCanvas.height);
 
+          if (!loaded) {
+            throw new RenderError("Source image not loaded before tiled export.");
+          }
+
           for (let tileIndex = 0; tileIndex < exportTilePlan.length; tileIndex += 1) {
             const tile = exportTilePlan[tileIndex]!;
             throwIfAborted(signal);
