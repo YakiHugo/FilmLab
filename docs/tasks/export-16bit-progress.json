@@ -3,7 +3,8 @@
     { "id": "slice-1-tiff16-encoder", "name": "16-bit TIFF encoder", "status": "done" },
     { "id": "slice-2-float-readback", "name": "Float readback from GPU", "status": "done" },
     { "id": "slice-3-progress-callback", "name": "Export progress callback", "status": "done" },
-    { "id": "slice-4-ui-integration", "name": "Wire TIFF into export UI", "status": "done" }
+    { "id": "slice-4-tiff-ui", "name": "TIFF format in export UI (8-bit)", "status": "done" },
+    { "id": "slice-5-16bit-e2e", "name": "Wire 16-bit path end-to-end", "status": "pending" }
   ],
   "passes": "tsc --noEmit: pass"
 }
