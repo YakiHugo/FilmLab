@@ -27,7 +27,7 @@ class MockCanvasElement {
     addColorStop: vi.fn(),
   };
 
-  private readonly context2d = {
+  readonly context2d = {
     canvas: null as MockCanvasElement | null,
     clearRect: vi.fn(),
     drawImage: vi.fn(),
@@ -1218,7 +1218,7 @@ describe("imageProcessing debug trace", () => {
       })
     );
     const roiClears = output.context2d.clearRect.mock.calls.filter(
-      ([x, y, width, height]) => x === 16 && y === 16 && width === 32 && height === 32
+      ([x, y, width, height]: [number, number, number, number]) => x === 16 && y === 16 && width === 32 && height === 32
     );
     expect(roiClears).toHaveLength(2);
   });

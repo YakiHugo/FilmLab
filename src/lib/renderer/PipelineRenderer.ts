@@ -15,6 +15,7 @@ import {
   applyMasterPassUniforms,
 } from "./PassUniformUpdaters";
 import { FilterPipeline } from "./gpu/FilterPipeline";
+import type { PipelinePass } from "./gpu/PipelinePass";
 import {
   ensureSourceTextureRecord,
   pruneSourceTextureCache,
@@ -1110,7 +1111,7 @@ export class PipelineRenderer {
       const feather = clamp(mask.feather, 0, 1);
       const flow = clamp(mask.flow, 0.05, 1);
       const canvasSize = new Float32Array([safeTargetWidth, safeTargetHeight]);
-      const passes =
+      const passes: PipelinePass[] =
         mask.points.length > 0
           ? mask.points.map((point, index) => {
               const pressure = clamp(point.pressure ?? 1, 0.1, 1);
@@ -1140,7 +1141,7 @@ export class PipelineRenderer {
             ? "local-mask-shape-brush-invert"
             : "local-mask-shape-brush-empty",
           programInfo: mask.invert ? this.programs.maskInvert : this.programs.passthrough,
-          uniforms: {} as Record<string, unknown>,
+          uniforms: {},
           outputFormat: "RGBA8" as const,
           enabled: true,
         });
