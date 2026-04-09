@@ -2,10 +2,11 @@ import type Konva from "konva";
 import { useCallback } from "react";
 import type { CanvasSlice } from "@/types";
 import { useAssetStore } from "@/stores/assetStore";
+import { encodeRgbaToTiff } from "@/lib/export/tiff";
 import { cropRenderedCanvasSlice, renderCanvasWorkbenchToCanvas } from "../renderCanvasWorkbench";
 import { useCanvasLoadedWorkbenchState } from "./useCanvasLoadedWorkbenchState";
 
-export type CanvasExportFormat = "png" | "jpeg";
+export type CanvasExportFormat = "png" | "jpeg" | "tiff";
 
 export interface CanvasExportOptions {
   format: CanvasExportFormat;
@@ -13,6 +14,7 @@ export interface CanvasExportOptions {
   height: number;
   quality: number;
   pixelRatio: number;
+  onProgress?: (progress: number) => void;
 }
 
 export interface CanvasSliceExportResult {
@@ -123,6 +125,41 @@ export function useCanvasExport() {
         ...(stage ? defaultExportOptions(stage) : defaultExportOptionsFromDocument(loadedWorkbench)),
         ...options,
       };
+      if (merged.format === "tiff" && loadedWorkbench) {
+        const exportCanvas = document.createElement("canvas");
+        try {
+          await renderCanvasWorkbenchToCanvas({
+            assets,
+            canvas: exportCanvas,
+            document: loadedWorkbench,
+            height: merged.height,
+            pixelRatio: merged.pixelRatio,
+            width: merged.width,
+            onProgress: merged.onProgress,
+          });
+          const ctx = exportCanvas.getContext("2d", { willReadFrequently: true });
+          if (!ctx) {
+            return null;
+          }
+          const imageData = ctx.getImageData(0, 0, exportCanvas.width, exportCanvas.height);
+          const blob = encodeRgbaToTiff(
+            imageData.data,
+            exportCanvas.width,
+            exportCanvas.height
+          );
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = options?.fileName ?? "filmlab-canvas.tiff";
+          link.click();
+          URL.revokeObjectURL(url);
+          return null;
+        } finally {
+          exportCanvas.width = 0;
+          exportCanvas.height = 0;
+        }
+      }
+
       let dataUrl: string | null = null;
       if (loadedWorkbench) {
         const exportCanvas = document.createElement("canvas");
@@ -134,6 +171,7 @@ export function useCanvasExport() {
             height: merged.height,
             pixelRatio: merged.pixelRatio,
             width: merged.width,
+            onProgress: merged.onProgress,
           });
           dataUrl = exportCanvas.toDataURL(
             merged.format === "jpeg" ? "image/jpeg" : "image/png",
@@ -173,7 +211,7 @@ export function useCanvasExport() {
         ...(stage ? defaultExportOptions(stage) : defaultExportOptionsFromDocument(loadedWorkbench)),
         ...options,
       };
-      const extension = merged.format === "jpeg" ? "jpg" : "png";
+      const extension = merged.format === "jpeg" ? "jpg" : merged.format === "tiff" ? "tiff" : "png";
       const fullCanvas = document.createElement("canvas");
 
       try {
@@ -184,6 +222,7 @@ export function useCanvasExport() {
           height: loadedWorkbench.height,
           pixelRatio: merged.pixelRatio,
           width: loadedWorkbench.width,
+          onProgress: merged.onProgress,
         });
 
         return slices
@@ -197,10 +236,18 @@ export function useCanvasExport() {
               slice,
             });
             try {
-              const dataUrl = sliceCanvas.toDataURL(
-                merged.format === "jpeg" ? "image/jpeg" : "image/png",
-                merged.quality
-              );
+              let dataUrl: string;
+              if (merged.format === "tiff") {
+                const ctx = sliceCanvas.getContext("2d", { willReadFrequently: true });
+                const imageData = ctx!.getImageData(0, 0, sliceCanvas.width, sliceCanvas.height);
+                const blob = encodeRgbaToTiff(imageData.data, sliceCanvas.width, sliceCanvas.height);
+                dataUrl = URL.createObjectURL(blob);
+              } else {
+                dataUrl = sliceCanvas.toDataURL(
+                  merged.format === "jpeg" ? "image/jpeg" : "image/png",
+                  merged.quality
+                );
+              }
               return {
                 slice,
                 dataUrl,
