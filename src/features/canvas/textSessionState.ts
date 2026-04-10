@@ -21,11 +21,6 @@ const toCanvasEditableTextElement = (
   transform: {
     ...element.transform,
   },
-  x: element.transform.x,
-  y: element.transform.y,
-  width: element.transform.width,
-  height: element.transform.height,
-  rotation: element.transform.rotation,
   zIndex: element.zIndex,
   opacity: element.opacity,
   locked: element.locked,

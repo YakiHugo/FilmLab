@@ -9,9 +9,17 @@ import {
   normalizeCanvasTextElement,
 } from "./textStyle";
 
-const createTextElement = (
-  overrides: Partial<Parameters<typeof normalizeCanvasTextElement>[0]> = {}
-) => {
+type CreateTextElementOverrides = Partial<
+  Parameters<typeof normalizeCanvasTextElement>[0]
+> & {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  rotation?: number;
+};
+
+const createTextElement = (overrides: CreateTextElementOverrides = {}) => {
   const x = overrides.x ?? 0;
   const y = overrides.y ?? 0;
   const width = overrides.width ?? 240;
@@ -28,11 +36,6 @@ const createTextElement = (
     fontSizeTier: overrides.fontSizeTier,
     color: overrides.color ?? "#ffffff",
     textAlign: overrides.textAlign ?? "left",
-    x,
-    y,
-    width,
-    height,
-    rotation,
     transform: overrides.transform ?? {
       x,
       y,
@@ -106,8 +109,8 @@ describe("canvas text style helpers", () => {
       }
     );
 
-    expect(fitted.width).toBe(29);
-    expect(fitted.height).toBe(22);
+    expect(fitted.transform.width).toBe(29);
+    expect(fitted.transform.height).toBe(22);
   });
 
   it("keeps the editor wide enough to show the placeholder for empty text", () => {

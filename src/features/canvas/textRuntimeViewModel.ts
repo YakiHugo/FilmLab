@@ -56,9 +56,9 @@ const toCanvasTextOverlayModel = (
   fontFamily: element.fontFamily,
   fontSize: element.fontSize,
   id: element.id,
-  rotation: element.rotation,
-  x: element.x,
-  y: element.y,
+  rotation: element.transform.rotation,
+  x: element.transform.x,
+  y: element.transform.y,
 });
 
 const toCanvasTextEditorModel = (

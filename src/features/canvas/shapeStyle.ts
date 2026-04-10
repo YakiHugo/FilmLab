@@ -47,7 +47,10 @@ export const resolveCanvasShapeFillPaint = ({
   fillStyle,
   height,
   width,
-}: Pick<CanvasShapeElement, "fill" | "fillStyle" | "height" | "width">): CanvasShapeFillPaint => {
+}: Pick<CanvasShapeElement, "fill" | "fillStyle"> & {
+  height: number;
+  width: number;
+}): CanvasShapeFillPaint => {
   const effectiveFillStyle = resolveCanvasShapeEffectiveFillStyle({
     fill,
     fillStyle,

@@ -7,7 +7,7 @@ import {
   type ImageRenderDocument,
 } from "@/render/image";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
-import type { Asset, CanvasImageElement } from "@/types";
+import type { Asset, CanvasImageElement, CanvasNodeTransform } from "@/types";
 import { resolveCanvasImageRenderState } from "./imageRenderState";
 
 export type BoardPreviewPriority = "interactive" | "background";
@@ -57,7 +57,7 @@ const resolveBucketedPreviewDimension = (value: number, maxDimension: number) =>
 };
 
 export const resolveCanvasImagePreviewTargetSize = (
-  element: Pick<CanvasImageElement, "width" | "height">,
+  element: { transform: Pick<CanvasNodeTransform, "width" | "height"> },
   priority: BoardPreviewPriority,
   viewportScale = 1
 ): CanvasImageRenderTargetSize => {
@@ -66,8 +66,8 @@ export const resolveCanvasImagePreviewTargetSize = (
   const previewPixelRatio = Math.min(devicePixelRatio, PREVIEW_PIXEL_RATIO_CAP[priority]);
   const maxDimension = PREVIEW_TARGET_LIMITS[priority];
   const scaleMultiplier = PREVIEW_SCALE_MULTIPLIER[priority];
-  const displayedWidth = Math.max(1, element.width * Math.max(viewportScale, 0.2));
-  const displayedHeight = Math.max(1, element.height * Math.max(viewportScale, 0.2));
+  const displayedWidth = Math.max(1, element.transform.width * Math.max(viewportScale, 0.2));
+  const displayedHeight = Math.max(1, element.transform.height * Math.max(viewportScale, 0.2));
   const requestedWidth = clampPreviewDimension(displayedWidth * previewPixelRatio * scaleMultiplier);
   const requestedHeight = clampPreviewDimension(displayedHeight * previewPixelRatio * scaleMultiplier);
   const scale =
@@ -94,7 +94,7 @@ export const resolveCanvasImagePreviewTargetSize = (
 };
 
 export const resolveCanvasImagePreviewTargetSizeKey = (
-  element: Pick<CanvasImageElement, "width" | "height">,
+  element: { transform: Pick<CanvasNodeTransform, "width" | "height"> },
   priority: BoardPreviewPriority,
   viewportScale = 1
 ) => {

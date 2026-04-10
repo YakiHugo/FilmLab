@@ -230,8 +230,11 @@ export const fitCanvasTextElementToContent = <TElement extends CanvasTextElement
   const size = measureCanvasTextContentSize(element, options);
   return {
     ...element,
-    width: size.width,
-    height: size.height,
+    transform: {
+      ...element.transform,
+      width: size.width,
+      height: size.height,
+    },
   };
 };
 

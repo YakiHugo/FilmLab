@@ -9,15 +9,23 @@ export const CANVAS_SHAPE_BODY_NODE_NAME = "canvas-shape-body";
 export const flattenCanvasShapePoints = (points: CanvasShapePoint[]) =>
   points.flatMap((point) => [point.x, point.y]);
 
+type CanvasShapeStyleFields = Pick<
+  CanvasShapeElement,
+  "fill" | "fillStyle" | "stroke" | "strokeWidth" | "radius" | "points" | "arrowHead"
+>;
+
+type CanvasShapeDimensionFields = { width: number; height: number };
+
 export const resolveCanvasShapeKonvaFillAttrs = ({
   fill,
   fillStyle,
   fillPaintOffset,
   height,
   width,
-}: Pick<CanvasShapeElement, "fill" | "fillStyle" | "height" | "width"> & {
-  fillPaintOffset?: { x: number; y: number };
-}) => {
+}: Pick<CanvasShapeStyleFields, "fill" | "fillStyle"> &
+  CanvasShapeDimensionFields & {
+    fillPaintOffset?: { x: number; y: number };
+  }) => {
   const baseFillPaint = resolveCanvasShapeFillPaint({
     fill,
     fillStyle,
@@ -49,7 +57,7 @@ export const resolveCanvasShapeFlatPoints = ({
   height,
   points,
   width,
-}: Pick<CanvasShapeElement, "height" | "points" | "width">) =>
+}: CanvasShapeDimensionFields & Pick<CanvasShapeStyleFields, "points">) =>
   flattenCanvasShapePoints(
     points && points.length > 0
       ? points
@@ -67,10 +75,8 @@ export const resolveCanvasRectShapeAttrs = ({
   stroke,
   strokeWidth,
   width,
-}: Pick<
-  CanvasShapeElement,
-  "fill" | "fillStyle" | "height" | "radius" | "stroke" | "strokeWidth" | "width"
->) => ({
+}: CanvasShapeDimensionFields &
+  Pick<CanvasShapeStyleFields, "fill" | "fillStyle" | "radius" | "stroke" | "strokeWidth">) => ({
   width,
   height,
   ...resolveCanvasShapeKonvaFillAttrs({
@@ -91,10 +97,8 @@ export const resolveCanvasEllipseShapeAttrs = ({
   stroke,
   strokeWidth,
   width,
-}: Pick<
-  CanvasShapeElement,
-  "fill" | "fillStyle" | "height" | "stroke" | "strokeWidth" | "width"
->) => ({
+}: CanvasShapeDimensionFields &
+  Pick<CanvasShapeStyleFields, "fill" | "fillStyle" | "stroke" | "strokeWidth">) => ({
   x: width / 2,
   y: height / 2,
   radiusX: width / 2,
@@ -119,7 +123,8 @@ export const resolveCanvasLineShapeAttrs = ({
   stroke,
   strokeWidth,
   width,
-}: Pick<CanvasShapeElement, "height" | "points" | "stroke" | "strokeWidth" | "width">) => ({
+}: CanvasShapeDimensionFields &
+  Pick<CanvasShapeStyleFields, "points" | "stroke" | "strokeWidth">) => ({
   points: resolveCanvasShapeFlatPoints({ height, points, width }),
   stroke,
   strokeWidth,
@@ -134,10 +139,8 @@ export const resolveCanvasArrowShapeAttrs = ({
   stroke,
   strokeWidth,
   width,
-}: Pick<
-  CanvasShapeElement,
-  "arrowHead" | "height" | "points" | "stroke" | "strokeWidth" | "width"
->) => ({
+}: CanvasShapeDimensionFields &
+  Pick<CanvasShapeStyleFields, "arrowHead" | "points" | "stroke" | "strokeWidth">) => ({
   points: resolveCanvasShapeFlatPoints({ height, points, width }),
   stroke,
   fill: stroke,

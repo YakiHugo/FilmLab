@@ -34,6 +34,34 @@ interface CanvasSelectionOutlineRect {
   y: number;
 }
 
+const toRenderableTextElement = (
+  element: CanvasRenderableTextElement | CanvasTextElement
+): CanvasRenderableTextElement => {
+  if ("bounds" in element) {
+    return element as CanvasRenderableTextElement;
+  }
+  const { transform } = element;
+  return {
+    ...element,
+    depth: 0,
+    bounds: {
+      x: transform.x,
+      y: transform.y,
+      width: transform.width,
+      height: transform.height,
+    },
+    childIds: [],
+    worldOpacity: element.opacity,
+    effectiveLocked: element.locked,
+    effectiveVisible: element.visible,
+    x: transform.x,
+    y: transform.y,
+    width: transform.width,
+    height: transform.height,
+    rotation: transform.rotation,
+  };
+};
+
 let dotGridPatternImage: HTMLImageElement | null = null;
 let dotGridPatternPromise: Promise<HTMLImageElement | null> | null = null;
 
@@ -176,8 +204,9 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
           );
         }
 
-        const liveTextElement =
-          editingTextDraft?.id === element.id ? editingTextDraft : element;
+        const liveTextElement = toRenderableTextElement(
+          editingTextDraft?.id === element.id ? editingTextDraft : element
+        );
         return (
           <TextElement
             key={liveTextElement.id}
@@ -394,26 +423,40 @@ const CanvasSelectionOutlineLayer = memo(function CanvasSelectionOutlineLayer({
 
 const resolveBaseSelectionOutlineRect = (
   element: CanvasTextRuntimeSelectedElement
-): CanvasSelectionOutlineRect =>
-  element.type === "group"
-    ? {
-        id: element.id,
-        rotation: 0,
-        x: element.bounds.x,
-        y: element.bounds.y,
-        width: element.bounds.width,
-        height: element.bounds.height,
-      }
-    : element.type === "text"
-      ? fitCanvasTextElementToContent(element)
-      : {
-          id: element.id,
-          rotation: element.rotation,
-          x: element.x,
-          y: element.y,
-          width: element.width,
-          height: element.height,
-        };
+): CanvasSelectionOutlineRect => {
+  if (element.type === "group") {
+    return {
+      id: element.id,
+      rotation: 0,
+      x: element.bounds.x,
+      y: element.bounds.y,
+      width: element.bounds.width,
+      height: element.bounds.height,
+    };
+  }
+
+  if (element.type === "text") {
+    const fitted = fitCanvasTextElementToContent(element);
+    const useWorldCoords = "bounds" in element;
+    return {
+      id: element.id,
+      rotation: useWorldCoords ? element.rotation : fitted.transform.rotation,
+      x: useWorldCoords ? element.x : fitted.transform.x,
+      y: useWorldCoords ? element.y : fitted.transform.y,
+      width: fitted.transform.width,
+      height: fitted.transform.height,
+    };
+  }
+
+  return {
+    id: element.id,
+    rotation: element.rotation,
+    x: element.x,
+    y: element.y,
+    width: element.width,
+    height: element.height,
+  };
+};
 
 const resolveLiveSelectionOutlineRect = (
   baseOutlineRect: CanvasSelectionOutlineRect,

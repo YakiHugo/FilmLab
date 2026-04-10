@@ -36,12 +36,10 @@ const createAsset = (overrides: Partial<Asset> = {}): Asset => ({
 
 const createImageElement = (): CanvasImageElement => ({
   assetId: "asset-1",
-  height: 180,
   id: "image-1",
   locked: false,
   opacity: 1,
   parentId: null,
-  rotation: 0,
   transform: {
     height: 180,
     rotation: 0,
@@ -51,9 +49,6 @@ const createImageElement = (): CanvasImageElement => ({
   },
   type: "image",
   visible: true,
-  width: 320,
-  x: 24,
-  y: 32,
   renderState: createDefaultCanvasImageRenderState(),
 });
 

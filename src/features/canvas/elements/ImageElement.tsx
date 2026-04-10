@@ -1,7 +1,7 @@
 import type Konva from "konva";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Image as KonvaImage, Rect } from "react-konva";
-import type { CanvasImageElement, CanvasRenderableElement } from "@/types";
+import type { CanvasRenderableImageElement } from "@/types";
 import {
   useCanvasPreviewActions,
   useCanvasPreviewEntry,
@@ -11,10 +11,7 @@ import { useCanvasStore } from "@/stores/canvasStore";
 import { resolveCanvasImagePreviewTargetSizeKey } from "../boardImageRendering";
 import { areEqual } from "../document/shared";
 
-type CanvasImageRenderState = CanvasImageElement &
-  Partial<
-    Pick<Extract<CanvasRenderableElement, { type: "image" }>, "effectiveLocked" | "effectiveVisible" | "worldOpacity">
-  >;
+type CanvasImageRenderState = CanvasRenderableImageElement;
 
 interface ImageElementProps {
   canDrag: boolean;

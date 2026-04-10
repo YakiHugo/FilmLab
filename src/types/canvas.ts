@@ -120,11 +120,6 @@ export type CanvasPersistedNode = CanvasPersistedGroupNode | CanvasPersistedElem
 
 export interface CanvasNodeBase extends CanvasPersistedNodeBase {
   parentId: CanvasNodeId | null;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
 }
 
 export interface CanvasGroupNode extends CanvasNodeBase, Omit<CanvasPersistedGroupNode, keyof CanvasPersistedNodeBase> {

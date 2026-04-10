@@ -71,11 +71,6 @@ export const normalizeNode = (node: CanvasPersistedNode | CanvasNode): CanvasPer
       ...node,
       parentId: null,
       transform,
-      x: transform.x,
-      y: transform.y,
-      width: transform.width,
-      height: transform.height,
-      rotation: transform.rotation,
     });
     return {
       id: normalized.id,
@@ -209,11 +204,6 @@ export const createDefaultShapeNode = ({
     height,
     rotation: 0,
   }),
-  x,
-  y,
-  width,
-  height,
-  rotation: 0,
   opacity: 1,
   locked: false,
   visible: true,

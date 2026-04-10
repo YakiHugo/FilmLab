@@ -30,29 +30,19 @@ const toEditableNodeFromPersisted = (
     type: source.type,
     parentId,
     transform: clone(source.transform),
-    x: source.transform.x,
-    y: source.transform.y,
-    width: source.transform.width,
-    height: source.transform.height,
-    rotation: source.transform.rotation,
     zIndex: source.zIndex,
     opacity: source.opacity,
     locked: source.locked,
     visible: source.visible,
   } satisfies Pick<
     CanvasNode,
-    | "height"
     | "id"
     | "locked"
     | "opacity"
     | "parentId"
-    | "rotation"
     | "transform"
     | "type"
     | "visible"
-    | "width"
-    | "x"
-    | "y"
     | "zIndex"
   >;
 
@@ -187,11 +177,6 @@ export const cloneNodeTree = (
       x: source.transform.x + offset.x,
       y: source.transform.y + offset.y,
     },
-    x: source.transform.x + offset.x,
-    y: source.transform.y + offset.y,
-    width: source.transform.width,
-    height: source.transform.height,
-    rotation: source.transform.rotation,
   };
 
   if (cloneNode.type === "group") {
