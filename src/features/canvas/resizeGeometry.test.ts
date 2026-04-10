@@ -357,10 +357,10 @@ describe("resizeGeometry", () => {
     });
 
     expect(previewElement).toMatchObject({
-      x: 30,
-      y: 40,
-      width: 180,
-      height: 50,
+      worldX: 30,
+      worldY: 40,
+      worldWidth: 180,
+      worldHeight: 50,
       strokeWidth: 3,
       points: [
         { x: 0, y: 25 },

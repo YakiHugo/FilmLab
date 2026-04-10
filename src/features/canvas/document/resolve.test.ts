@@ -41,8 +41,8 @@ describe("document resolve", () => {
 
     const firstChild = document.elements.find((element) => element.id === "shape-1");
     expect(firstChild).toMatchObject({
-      x: 50,
-      y: 80,
+      worldX: 50,
+      worldY: 80,
       worldOpacity: 0.4,
       effectiveLocked: true,
       effectiveVisible: false,
