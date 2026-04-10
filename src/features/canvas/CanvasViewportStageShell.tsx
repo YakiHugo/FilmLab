@@ -35,17 +35,19 @@ interface CanvasSelectionOutlineRect {
 }
 
 let dotGridPatternImage: HTMLImageElement | null = null;
+let dotGridPatternPromise: Promise<HTMLImageElement | null> | null = null;
 
-function getDotGridPattern(): HTMLImageElement | null {
-  if (dotGridPatternImage) return dotGridPatternImage;
-  if (typeof document === "undefined") return null;
+function loadDotGridPattern(): Promise<HTMLImageElement | null> {
+  if (dotGridPatternImage) return Promise.resolve(dotGridPatternImage);
+  if (dotGridPatternPromise) return dotGridPatternPromise;
+  if (typeof document === "undefined") return Promise.resolve(null);
 
   const canvas = document.createElement("canvas");
   canvas.width = GRID_SIZE;
   canvas.height = GRID_SIZE;
 
   const context = canvas.getContext("2d");
-  if (!context) return null;
+  if (!context) return Promise.resolve(null);
 
   context.clearRect(0, 0, GRID_SIZE, GRID_SIZE);
   context.fillStyle = WORKSPACE_DOT_FILL;
@@ -53,10 +55,20 @@ function getDotGridPattern(): HTMLImageElement | null {
   context.arc(0, 0, DOT_RADIUS, 0, Math.PI * 2, false);
   context.fill();
 
-  const img = new Image();
-  img.src = canvas.toDataURL("image/png");
-  dotGridPatternImage = img;
-  return img;
+  dotGridPatternPromise = new Promise<HTMLImageElement | null>((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      dotGridPatternImage = img;
+      resolve(img);
+    };
+    img.onerror = () => {
+      dotGridPatternPromise = null;
+      resolve(null);
+    };
+    img.src = canvas.toDataURL("image/png");
+  });
+
+  return dotGridPatternPromise;
 }
 
 function DotGrid({
@@ -69,7 +81,18 @@ function DotGrid({
     height: number;
   };
 }) {
-  const pattern = getDotGridPattern();
+  const [pattern, setPattern] = useState<HTMLImageElement | null>(dotGridPatternImage);
+
+  useEffect(() => {
+    if (pattern) return;
+    let active = true;
+    void loadDotGridPattern().then((img) => {
+      if (active && img) setPattern(img);
+    });
+    return () => {
+      active = false;
+    };
+  }, [pattern]);
 
   if (!pattern || bounds.width <= 0 || bounds.height <= 0) {
     return null;
