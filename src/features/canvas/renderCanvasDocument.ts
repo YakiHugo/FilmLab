@@ -43,14 +43,14 @@ const withElementTransform = (
   context: CanvasRenderingContext2D,
   element: Pick<
     CanvasRenderableImageElement | CanvasRenderableTextElement | CanvasRenderableShapeElement,
-    "opacity" | "rotation" | "x" | "y" | "worldOpacity"
+    "opacity" | "worldOpacity" | "worldX" | "worldY" | "worldRotation"
   >,
   draw: () => void
 ) => {
   context.save();
   context.globalAlpha = element.worldOpacity ?? element.opacity;
-  context.translate(element.x, element.y);
-  context.rotate((element.rotation * Math.PI) / 180);
+  context.translate(element.worldX, element.worldY);
+  context.rotate((element.worldRotation * Math.PI) / 180);
   draw();
   context.restore();
 };
@@ -74,11 +74,12 @@ const drawTextElement = (
 
     const lines = splitCanvasTextLines(layoutElement.content);
     const lineHeight = layoutElement.fontSize * CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER;
+    const fittedWidth = layoutElement.transform.width;
     const anchorX =
       layoutElement.textAlign === "center"
-        ? layoutElement.width / 2
+        ? fittedWidth / 2
         : layoutElement.textAlign === "right"
-          ? layoutElement.width
+          ? fittedWidth
           : 0;
 
     lines.forEach((line, index) => {
@@ -91,8 +92,8 @@ const getShapePoints = (element: CanvasRenderableShapeElement) =>
   element.points && element.points.length > 0
     ? element.points
     : [
-        { x: 0, y: element.height / 2 },
-        { x: element.width, y: element.height / 2 },
+        { x: 0, y: element.worldHeight / 2 },
+        { x: element.worldWidth, y: element.worldHeight / 2 },
       ];
 
 const drawArrowHead = (
@@ -153,7 +154,12 @@ const drawShapeElement = (
   element: CanvasRenderableShapeElement
 ) => {
   const resolveShapeFill = () => {
-    const fillPaint = resolveCanvasShapeFillPaint(element);
+    const fillPaint = resolveCanvasShapeFillPaint({
+      fill: element.fill,
+      fillStyle: element.fillStyle,
+      width: element.worldWidth,
+      height: element.worldHeight,
+    });
     if (fillPaint.kind === "solid") {
       return fillPaint.color === "transparent" ? null : fillPaint.color;
     }
@@ -171,15 +177,17 @@ const drawShapeElement = (
 
   withElementTransform(context, element, () => {
     context.beginPath();
+    const width = element.worldWidth;
+    const height = element.worldHeight;
 
     if (element.shapeType === "rect") {
       const radius = Math.max(element.radius ?? 0, 0);
       const fill = resolveShapeFill();
       if (radius > 0) {
         traceRoundedRectPath(context, {
-          height: element.height,
+          height,
           radius,
-          width: element.width,
+          width,
         });
         if (fill) {
           context.fillStyle = fill;
@@ -193,12 +201,12 @@ const drawShapeElement = (
       } else {
         if (fill) {
           context.fillStyle = fill;
-          context.fillRect(0, 0, element.width, element.height);
+          context.fillRect(0, 0, width, height);
         }
         if (element.strokeWidth > 0) {
           context.lineWidth = element.strokeWidth;
           context.strokeStyle = element.stroke;
-          context.strokeRect(0, 0, element.width, element.height);
+          context.strokeRect(0, 0, width, height);
         }
       }
       return;
@@ -206,8 +214,8 @@ const drawShapeElement = (
 
     if (element.shapeType === "ellipse") {
       context.save();
-      context.translate(element.width / 2, element.height / 2);
-      context.scale(Math.max(element.width / 2, 1), Math.max(element.height / 2, 1));
+      context.translate(width / 2, height / 2);
+      context.scale(Math.max(width / 2, 1), Math.max(height / 2, 1));
       context.arc(0, 0, 1, 0, Math.PI * 2);
       context.restore();
       const fill = resolveShapeFill();
@@ -296,8 +304,8 @@ const drawImageElement = async ({
         intent: "export",
         quality: "full",
         targetSize: {
-          width: Math.max(1, Math.round(element.width * outputScale.x)),
-          height: Math.max(1, Math.round(element.height * outputScale.y)),
+          width: Math.max(1, Math.round(element.worldWidth * outputScale.x)),
+          height: Math.max(1, Math.round(element.worldHeight * outputScale.y)),
         },
         timestampText: renderContext.timestampText,
         renderSlotId: EXPORT_RENDER_SLOT_PREFIX,
@@ -305,7 +313,7 @@ const drawImageElement = async ({
     });
 
     withElementTransform(context, element, () => {
-      context.drawImage(imageCanvas, 0, 0, element.width, element.height);
+      context.drawImage(imageCanvas, 0, 0, element.worldWidth, element.worldHeight);
     });
   } finally {
     imageCanvas.width = 0;

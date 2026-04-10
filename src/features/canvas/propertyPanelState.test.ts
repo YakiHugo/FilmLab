@@ -83,7 +83,7 @@ describe("propertyPanelState", () => {
     });
     const expectedLocalPosition = worldPointToLocalPoint(workbench, "group-1", {
       x: 140,
-      y: node.y,
+      y: node.worldY,
     });
 
     expect(command).toEqual({

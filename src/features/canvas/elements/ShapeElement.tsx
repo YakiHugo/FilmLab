@@ -29,11 +29,11 @@ const areShapeElementsEqual = (
 ) =>
   left.id === right.id &&
   left.shapeType === right.shapeType &&
-  left.x === right.x &&
-  left.y === right.y &&
-  left.width === right.width &&
-  left.height === right.height &&
-  left.rotation === right.rotation &&
+  left.worldX === right.worldX &&
+  left.worldY === right.worldY &&
+  left.worldWidth === right.worldWidth &&
+  left.worldHeight === right.worldHeight &&
+  left.worldRotation === right.worldRotation &&
   left.opacity === right.opacity &&
   left.worldOpacity === right.worldOpacity &&
   left.visible === right.visible &&
@@ -73,12 +73,18 @@ export const ShapeElement = memo(function ShapeElement({
   const effectiveVisible = element.effectiveVisible ?? element.visible;
   const renderOpacity = element.worldOpacity ?? element.opacity;
 
+  const shapeAttrs = {
+    ...element,
+    width: element.worldWidth,
+    height: element.worldHeight,
+  };
+
   return (
     <Group
       id={element.id}
-      x={element.x}
-      y={element.y}
-      rotation={element.rotation}
+      x={element.worldX}
+      y={element.worldY}
+      rotation={element.worldRotation}
       opacity={renderOpacity}
       visible={effectiveVisible}
       draggable={canDrag && !effectiveLocked}
@@ -92,28 +98,28 @@ export const ShapeElement = memo(function ShapeElement({
       {element.shapeType === "rect" ? (
         <Rect
           name={CANVAS_SHAPE_BODY_NODE_NAME}
-          {...resolveCanvasRectShapeAttrs(element)}
+          {...resolveCanvasRectShapeAttrs(shapeAttrs)}
         />
       ) : null}
 
       {element.shapeType === "ellipse" ? (
         <Ellipse
           name={CANVAS_SHAPE_BODY_NODE_NAME}
-          {...resolveCanvasEllipseShapeAttrs(element)}
+          {...resolveCanvasEllipseShapeAttrs(shapeAttrs)}
         />
       ) : null}
 
       {element.shapeType === "line" ? (
         <Line
           name={CANVAS_SHAPE_BODY_NODE_NAME}
-          {...resolveCanvasLineShapeAttrs(element)}
+          {...resolveCanvasLineShapeAttrs(shapeAttrs)}
         />
       ) : null}
 
       {element.shapeType === "arrow" ? (
         <Arrow
           name={CANVAS_SHAPE_BODY_NODE_NAME}
-          {...resolveCanvasArrowShapeAttrs(element)}
+          {...resolveCanvasArrowShapeAttrs(shapeAttrs)}
         />
       ) : null}
     </Group>

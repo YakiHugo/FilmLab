@@ -12,8 +12,13 @@ import {
   resolveCanvasResizeAnchorStyle,
 } from "./useCanvasViewportResizeController";
 
+type RenderableImageOverrides = Partial<CanvasRenderableImageElement> & {
+  width?: number;
+  height?: number;
+};
+
 const createRenderableImage = (
-  overrides?: Partial<CanvasRenderableImageElement>
+  overrides?: RenderableImageOverrides
 ): CanvasRenderableImageElement => ({
   id: overrides?.id ?? "node-1",
   type: "image",
@@ -27,11 +32,11 @@ const createRenderableImage = (
   visible: overrides?.visible ?? true,
   effectiveLocked: overrides?.effectiveLocked ?? false,
   effectiveVisible: overrides?.effectiveVisible ?? true,
-  x: overrides?.x ?? 0,
-  y: overrides?.y ?? 0,
-  width: overrides?.width ?? 120,
-  height: overrides?.height ?? 80,
-  rotation: overrides?.rotation ?? 0,
+  worldX: overrides?.worldX ?? 0,
+  worldY: overrides?.worldY ?? 0,
+  worldWidth: overrides?.worldWidth ?? overrides?.width ?? 120,
+  worldHeight: overrides?.worldHeight ?? overrides?.height ?? 80,
+  worldRotation: overrides?.worldRotation ?? 0,
   zIndex: overrides?.zIndex,
   transform: overrides?.transform ?? {
     x: 0,
@@ -59,11 +64,11 @@ const createRenderableText = (
   visible: overrides?.visible ?? true,
   effectiveLocked: overrides?.effectiveLocked ?? false,
   effectiveVisible: overrides?.effectiveVisible ?? true,
-  x: overrides?.x ?? 0,
-  y: overrides?.y ?? 0,
-  width: overrides?.width ?? 120,
-  height: overrides?.height ?? 80,
-  rotation: overrides?.rotation ?? 0,
+  worldX: overrides?.worldX ?? 0,
+  worldY: overrides?.worldY ?? 0,
+  worldWidth: overrides?.worldWidth ?? 120,
+  worldHeight: overrides?.worldHeight ?? 80,
+  worldRotation: overrides?.worldRotation ?? 0,
   zIndex: overrides?.zIndex,
   transform: overrides?.transform ?? {
     x: 0,
@@ -95,11 +100,11 @@ const createRenderableGroup = (
   visible: overrides?.visible ?? true,
   effectiveLocked: overrides?.effectiveLocked ?? false,
   effectiveVisible: overrides?.effectiveVisible ?? true,
-  x: overrides?.x ?? 0,
-  y: overrides?.y ?? 0,
-  width: overrides?.width ?? 120,
-  height: overrides?.height ?? 80,
-  rotation: overrides?.rotation ?? 0,
+  worldX: overrides?.worldX ?? 0,
+  worldY: overrides?.worldY ?? 0,
+  worldWidth: overrides?.worldWidth ?? 120,
+  worldHeight: overrides?.worldHeight ?? 80,
+  worldRotation: overrides?.worldRotation ?? 0,
   zIndex: overrides?.zIndex,
   transform: overrides?.transform ?? {
     x: 0,

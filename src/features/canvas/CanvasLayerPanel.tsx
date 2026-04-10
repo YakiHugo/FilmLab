@@ -103,8 +103,8 @@ const LayerRow = memo(function LayerRow({
             </span>
           </div>
           <p className="mt-1 truncate text-xs text-[color:var(--canvas-edit-text-muted)]">
-            {Math.round(layer.width)} x {Math.round(layer.height)} at {Math.round(layer.x)},{" "}
-            {Math.round(layer.y)}
+            {Math.round(layer.worldWidth)} x {Math.round(layer.worldHeight)} at{" "}
+            {Math.round(layer.worldX)}, {Math.round(layer.worldY)}
           </p>
         </div>
       </button>

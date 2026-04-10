@@ -84,11 +84,11 @@ const areImageElementsEqual = (
   return (
     left.id === right.id &&
     left.assetId === right.assetId &&
-    left.x === right.x &&
-    left.y === right.y &&
-    left.width === right.width &&
-    left.height === right.height &&
-    left.rotation === right.rotation &&
+    left.worldX === right.worldX &&
+    left.worldY === right.worldY &&
+    left.worldWidth === right.worldWidth &&
+    left.worldHeight === right.worldHeight &&
+    left.worldRotation === right.worldRotation &&
     left.opacity === right.opacity &&
     left.worldOpacity === right.worldOpacity &&
     left.visible === right.visible &&
@@ -211,11 +211,11 @@ export const ImageElement = memo(function ImageElement({
     return (
       <Rect
         id={element.id}
-        x={element.x}
-        y={element.y}
-        width={element.width}
-        height={element.height}
-        rotation={element.rotation}
+        x={element.worldX}
+        y={element.worldY}
+        width={element.worldWidth}
+        height={element.worldHeight}
+        rotation={element.worldRotation}
         opacity={renderOpacity}
         visible={effectiveVisible}
         fill="#27272a"
@@ -236,11 +236,11 @@ export const ImageElement = memo(function ImageElement({
     <KonvaImage
       id={element.id}
       image={renderSource}
-      x={element.x}
-      y={element.y}
-      width={element.width}
-      height={element.height}
-      rotation={element.rotation}
+      x={element.worldX}
+      y={element.worldY}
+      width={element.worldWidth}
+      height={element.worldHeight}
+      rotation={element.worldRotation}
       opacity={renderOpacity}
       visible={effectiveVisible}
       draggable={canDrag && !effectiveLocked}

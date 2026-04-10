@@ -189,14 +189,14 @@ export const CanvasViewportOverlayHost = memo(function CanvasViewportOverlayHost
             activePreviewDimensions?.width ??
               (overlay.singleSelectedNonTextElement.type === "group"
                 ? overlay.singleSelectedNonTextElement.bounds.width
-                : overlay.singleSelectedNonTextElement.width)
+                : overlay.singleSelectedNonTextElement.worldWidth)
           )}{" "}
           x{" "}
           {Math.round(
             activePreviewDimensions?.height ??
               (overlay.singleSelectedNonTextElement.type === "group"
                 ? overlay.singleSelectedNonTextElement.bounds.height
-                : overlay.singleSelectedNonTextElement.height)
+                : overlay.singleSelectedNonTextElement.worldHeight)
           )}
         </div>
       ) : null}

@@ -54,11 +54,11 @@ const toRenderableTextElement = (
     worldOpacity: element.opacity,
     effectiveLocked: element.locked,
     effectiveVisible: element.visible,
-    x: transform.x,
-    y: transform.y,
-    width: transform.width,
-    height: transform.height,
-    rotation: transform.rotation,
+    worldX: transform.x,
+    worldY: transform.y,
+    worldWidth: transform.width,
+    worldHeight: transform.height,
+    worldRotation: transform.rotation,
   };
 };
 
@@ -438,11 +438,14 @@ const resolveBaseSelectionOutlineRect = (
   if (element.type === "text") {
     const fitted = fitCanvasTextElementToContent(element);
     const useWorldCoords = "bounds" in element;
+    const renderable = useWorldCoords
+      ? (element as CanvasRenderableTextElement)
+      : null;
     return {
       id: element.id,
-      rotation: useWorldCoords ? element.rotation : fitted.transform.rotation,
-      x: useWorldCoords ? element.x : fitted.transform.x,
-      y: useWorldCoords ? element.y : fitted.transform.y,
+      rotation: renderable ? renderable.worldRotation : fitted.transform.rotation,
+      x: renderable ? renderable.worldX : fitted.transform.x,
+      y: renderable ? renderable.worldY : fitted.transform.y,
       width: fitted.transform.width,
       height: fitted.transform.height,
     };
@@ -450,11 +453,11 @@ const resolveBaseSelectionOutlineRect = (
 
   return {
     id: element.id,
-    rotation: element.rotation,
-    x: element.x,
-    y: element.y,
-    width: element.width,
-    height: element.height,
+    rotation: element.worldRotation,
+    x: element.worldX,
+    y: element.worldY,
+    width: element.worldWidth,
+    height: element.worldHeight,
   };
 };
 

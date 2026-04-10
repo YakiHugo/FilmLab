@@ -238,8 +238,8 @@ describe("resizeGeometry", () => {
       y: 26,
       fontSize: 48,
       fontSizeTier: "large",
-      width: expectedFitted.width,
-      height: expectedFitted.height,
+      width: expectedFitted.transform.width,
+      height: expectedFitted.transform.height,
     });
   });
 

@@ -160,11 +160,11 @@ export const CanvasPropertiesPanel = memo(function CanvasPropertiesPanel({
           <div className={canvasDockSectionClassName}>
             <p className={canvasDockFieldLabelClassName}>Transform</p>
             <div className="mt-3 grid grid-cols-2 gap-3">
-              <NumberInput label="X" value={selected.x} onChange={setX} />
-              <NumberInput label="Y" value={selected.y} onChange={setY} />
-              <NumberInput label="Width" value={selected.width} min={1} onChange={setWidth} />
-              <NumberInput label="Height" value={selected.height} min={1} onChange={setHeight} />
-              <NumberInput label="Rotation" value={selected.rotation} step={0.5} onChange={setRotation} />
+              <NumberInput label="X" value={selected.worldX} onChange={setX} />
+              <NumberInput label="Y" value={selected.worldY} onChange={setY} />
+              <NumberInput label="Width" value={selected.worldWidth} min={1} onChange={setWidth} />
+              <NumberInput label="Height" value={selected.worldHeight} min={1} onChange={setHeight} />
+              <NumberInput label="Rotation" value={selected.worldRotation} step={0.5} onChange={setRotation} />
               <NumberInput
                 label="Opacity"
                 value={selected.opacity}

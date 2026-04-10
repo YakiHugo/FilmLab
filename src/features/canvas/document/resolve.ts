@@ -62,11 +62,11 @@ const resolveNodeRecursive = (
       visible: node.visible,
       effectiveLocked,
       effectiveVisible,
-      x: accumulated.x,
-      y: accumulated.y,
-      width: node.transform.width,
-      height: node.transform.height,
-      rotation: accumulated.rotation,
+      worldX: accumulated.x,
+      worldY: accumulated.y,
+      worldWidth: node.transform.width,
+      worldHeight: node.transform.height,
+      worldRotation: accumulated.rotation,
       transform: clone(node.transform),
     };
 
@@ -114,11 +114,11 @@ const resolveNodeRecursive = (
     visible: node.visible,
     effectiveLocked,
     effectiveVisible,
-    x: accumulated.x,
-    y: accumulated.y,
-    width: node.transform.width,
-    height: node.transform.height,
-    rotation: accumulated.rotation,
+    worldX: accumulated.x,
+    worldY: accumulated.y,
+    worldWidth: node.transform.width,
+    worldHeight: node.transform.height,
+    worldRotation: accumulated.rotation,
     transform: clone(node.transform),
   };
 

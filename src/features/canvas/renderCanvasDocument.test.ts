@@ -293,7 +293,8 @@ describe("renderCanvasWorkbench", () => {
     }
 
     textElement.content = "first line\nsecond";
-    textElement.width = 40;
+    textElement.transform.width = 40;
+    textElement.worldWidth = 40;
 
     await renderCanvasWorkbenchToCanvas({
       assets: [createAsset()],

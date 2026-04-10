@@ -32,9 +32,9 @@ export const getCanvasNodeWorldTransform = (
     return null;
   }
   return {
-    x: node.x,
-    y: node.y,
-    rotation: node.rotation,
+    x: node.worldX,
+    y: node.worldY,
+    rotation: node.worldRotation,
     opacity: node.worldOpacity,
   };
 };
