@@ -1,5 +1,5 @@
 import type Konva from "konva";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { Image as KonvaImage, Rect } from "react-konva";
 import type { CanvasRenderableImageElement } from "@/types";
 import {
@@ -31,50 +31,6 @@ const hashString = (value: string) => {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(16);
-};
-
-const useLoadedImage = (src?: string) => {
-  const [image, setImage] = useState<HTMLImageElement | null>(null);
-
-  useEffect(() => {
-    if (!src) {
-      setImage(null);
-      return;
-    }
-
-    let cancelled = false;
-    const nextImage = new window.Image();
-    nextImage.decoding = "async";
-    nextImage.src = src;
-
-    const handleLoad = () => {
-      if (!cancelled) {
-        setImage(nextImage);
-      }
-    };
-    const handleError = () => {
-      if (!cancelled) {
-        setImage(null);
-      }
-    };
-    nextImage.addEventListener("load", handleLoad);
-    nextImage.addEventListener("error", handleError);
-    void nextImage
-      .decode()
-      .then(handleLoad)
-      .catch(() => {
-        // Some browsers reject decode() for object URLs before `load`.
-      });
-
-    return () => {
-      cancelled = true;
-      nextImage.removeEventListener("load", handleLoad);
-      nextImage.removeEventListener("error", handleError);
-      nextImage.src = "";
-    };
-  }, [src]);
-
-  return image;
 };
 
 const areImageElementsEqual = (
@@ -126,8 +82,6 @@ export const ImageElement = memo(function ImageElement({
   const zoom = useCanvasStore((state) => state.zoom);
   const previewEntry = useCanvasPreviewEntry(element.id);
   const { releaseBoardPreview, requestBoardPreview } = useCanvasPreviewActions();
-  const fallbackSrc = asset?.thumbnailUrl || asset?.objectUrl;
-  const fallbackImage = useLoadedImage(fallbackSrc);
   const effectiveLocked = element.effectiveLocked ?? element.locked;
   const effectiveVisible = element.effectiveVisible ?? element.visible;
   const renderOpacity = element.worldOpacity ?? element.opacity;
@@ -205,7 +159,7 @@ export const ImageElement = memo(function ImageElement({
     requestBoardPreview,
   ]);
 
-  const renderSource = previewEntry?.previewSource ?? fallbackImage;
+  const renderSource = previewEntry?.previewSource ?? null;
 
   if (!renderSource) {
     return (
