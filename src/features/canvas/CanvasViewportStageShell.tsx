@@ -34,31 +34,33 @@ interface CanvasSelectionOutlineRect {
   y: number;
 }
 
-const toRenderableTextElement = (
-  element: CanvasRenderableTextElement | CanvasTextElement
+// Merge an in-flight editable text-session draft onto the element's current
+// renderable frame. The draft carries the user's live content/style/transform
+// edits, but has no parent-chain context (the text session strips it on
+// creation, see textSessionState.toCanvasEditableTextElement). So we take
+// world coordinates (worldX/Y/Rotation, bounds, depth, childIds, effective*)
+// from the original resolved element and overlay the draft's editable fields
+// on top. If `draft` is already a renderable (e.g. the nodeById fallback in
+// textRuntimeViewModel), we use it directly since it already has world context.
+const mergeTextDraftWithRenderable = (
+  draft: CanvasRenderableTextElement | CanvasTextElement,
+  original: CanvasRenderableTextElement
 ): CanvasRenderableTextElement => {
-  if ("bounds" in element) {
-    return element as CanvasRenderableTextElement;
+  if ("bounds" in draft) {
+    return draft;
   }
-  const { transform } = element;
   return {
-    ...element,
-    depth: 0,
-    bounds: {
-      x: transform.x,
-      y: transform.y,
-      width: transform.width,
-      height: transform.height,
-    },
-    childIds: [],
-    worldOpacity: element.opacity,
-    effectiveLocked: element.locked,
-    effectiveVisible: element.visible,
-    worldX: transform.x,
-    worldY: transform.y,
-    worldWidth: transform.width,
-    worldHeight: transform.height,
-    worldRotation: transform.rotation,
+    ...original,
+    transform: { ...draft.transform },
+    content: draft.content,
+    fontFamily: draft.fontFamily,
+    fontSize: draft.fontSize,
+    fontSizeTier: draft.fontSizeTier,
+    color: draft.color,
+    textAlign: draft.textAlign,
+    opacity: draft.opacity,
+    locked: draft.locked,
+    visible: draft.visible,
   };
 };
 
@@ -204,9 +206,10 @@ const CanvasElementsLayer = memo(function CanvasElementsLayer({
           );
         }
 
-        const liveTextElement = toRenderableTextElement(
-          editingTextDraft?.id === element.id ? editingTextDraft : element
-        );
+        const liveTextElement =
+          editingTextDraft?.id === element.id
+            ? mergeTextDraftWithRenderable(editingTextDraft, element)
+            : element;
         return (
           <TextElement
             key={liveTextElement.id}

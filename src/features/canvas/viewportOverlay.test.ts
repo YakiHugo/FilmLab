@@ -195,7 +195,7 @@ describe("viewport overlay helpers", () => {
       nodeRect: null,
     });
 
-    expect(layout.width).toBeGreaterThan(fitted.width);
-    expect(overlay?.rect.width).toBeGreaterThan(fitted.width * 1.5);
+    expect(layout.width).toBeGreaterThan(fitted.transform.width);
+    expect(overlay?.rect.width).toBeGreaterThan(fitted.transform.width * 1.5);
   });
 });
