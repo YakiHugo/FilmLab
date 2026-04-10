@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef } from "react";
+import { createCanvasImageElementFromAsset } from "@/features/canvas/imageNodeFactory";
 import { importAssetFiles } from "@/lib/assetImport";
 import { fetchRemoteAsset } from "@/lib/assetSyncApi";
 import { getCanvasResetEpoch, useCanvasStore } from "@/stores/canvasStore";
 import { useAssetStore } from "@/stores/assetStore";
-import type { CanvasImageElement } from "@/types";
-import { createId, resolveCanvasImageInsertionSize } from "@/utils";
+import { resolveCanvasImageInsertionSize } from "@/utils";
 import {
   bindGuideAssetToConfig,
   clearGuideAssetsFromConfig,
@@ -327,27 +327,13 @@ export function useImageLabAssetActions(input: {
       const x = 140 + insertionIndex * 24;
       const y = 120 + insertionIndex * 24;
 
-      const element: CanvasImageElement = {
-        id: createId("node-id"),
-        type: "image",
-        parentId: null,
-        assetId,
+      const element = createCanvasImageElementFromAsset({
+        asset,
         x,
         y,
         width,
         height,
-        rotation: 0,
-        transform: {
-          x,
-          y,
-          width,
-          height,
-          rotation: 0,
-        },
-        opacity: 1,
-        locked: false,
-        visible: true,
-      };
+      });
 
       await canvasStore.upsertElementInWorkbench(workbenchId, element);
       const latestCanvasStore = useCanvasStore.getState();

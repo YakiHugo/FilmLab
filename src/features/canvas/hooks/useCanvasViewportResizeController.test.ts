@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createNeutralCanvasImageRenderState } from "@/render/image";
 import type {
   Asset,
   CanvasRenderableGroupNode,
@@ -40,7 +41,7 @@ const createRenderableImage = (
     rotation: 0,
   },
   assetId: overrides?.assetId ?? "asset-1",
-  renderState: overrides?.renderState,
+  renderState: overrides?.renderState ?? createNeutralCanvasImageRenderState(),
 });
 
 const createRenderableText = (

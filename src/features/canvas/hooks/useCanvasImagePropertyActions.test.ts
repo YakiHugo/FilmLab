@@ -76,22 +76,4 @@ describe("useCanvasImagePropertyActions", () => {
 
     expect(executeCommand).not.toHaveBeenCalled();
   });
-
-  it("rejects film-profile updates for image selections missing renderState", async () => {
-    const executeCommand = vi.fn().mockResolvedValue(null);
-    const imageElement = {
-      id: "image-legacy",
-      type: "image" as const,
-      assetId: "asset-1",
-      renderState: undefined,
-    };
-
-    await commitCanvasImagePropertyIntent({
-      executeCommand,
-      imageElement,
-      intent: { type: "set-image-film-profile", value: "film-portrait-soft-v1" },
-    });
-
-    expect(executeCommand).not.toHaveBeenCalled();
-  });
 });

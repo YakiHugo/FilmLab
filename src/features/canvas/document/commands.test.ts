@@ -307,34 +307,6 @@ describe("document commands", () => {
     });
   });
 
-  it("preserves unresolved legacy image nodes instead of fabricating generic render state", () => {
-    const document = createCanvasTestDocument({
-      nodes: {},
-      rootIds: [],
-    });
-
-    const result = executeCanvasCommand(document, {
-      type: "INSERT_NODES",
-      nodes: [
-        {
-          ...createImageNode({
-            id: "image-1",
-            x: 40,
-            y: 60,
-          }),
-          renderState: undefined,
-        },
-      ],
-    });
-
-    expect(result.didChange).toBe(true);
-    expect(result.document.nodes["image-1"]).toMatchObject({
-      id: "image-1",
-      type: "image",
-      renderState: undefined,
-    });
-  });
-
   it("marks invalid commands as unchanged and emits no patch operations", () => {
     const document = createCanvasTestDocument({
       nodes: {

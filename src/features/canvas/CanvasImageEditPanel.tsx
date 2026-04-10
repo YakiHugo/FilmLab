@@ -517,7 +517,7 @@ export function CanvasImageEditPanel({
   const renderState = useMemo(
     () =>
       imageElement
-        ? resolveCanvasImageRenderState(imageElement, undefined, draftRenderState)
+        ? resolveCanvasImageRenderState(imageElement, draftRenderState)
         : null,
     [draftRenderState, imageElement]
   );

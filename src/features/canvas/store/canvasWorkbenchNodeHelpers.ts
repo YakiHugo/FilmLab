@@ -115,7 +115,7 @@ export const toEditableElementPropertyPatch = (node: CanvasEditableElement) => (
     : {}),
   ...(node.type === "image"
     ? {
-        renderState: node.renderState ? clone(node.renderState) : undefined,
+        renderState: clone(node.renderState),
       }
     : {}),
   ...(node.type === "shape"

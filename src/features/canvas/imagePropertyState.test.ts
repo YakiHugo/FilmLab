@@ -52,32 +52,6 @@ describe("imagePropertyState", () => {
     });
   });
 
-  it("rejects film-profile mutations for image nodes missing renderState", () => {
-    const command = planCanvasImagePropertyCommand({
-      intent: { type: "set-image-film-profile", value: "profile-1" },
-      node: {
-        id: "image-legacy",
-        type: "image",
-        renderState: undefined,
-      },
-    });
-
-    expect(command).toBeNull();
-  });
-
-  it("rejects lossy film-profile mutations for unresolved legacy image nodes", () => {
-    const command = planCanvasImagePropertyCommand({
-      intent: { type: "set-image-film-profile", value: "profile-1" },
-      node: {
-        id: "image-legacy",
-        type: "image",
-        renderState: undefined,
-      },
-    });
-
-    expect(command).toBeNull();
-  });
-
   it("rejects image-only intents for non-image nodes", () => {
     const workbench = createCanvasTestDocument({
       nodes: {
