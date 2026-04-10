@@ -243,7 +243,7 @@ describe("canvasStore", () => {
   it("persists image render-state updates even when geometry is unchanged", async () => {
     const workbench = installLoadedWorkbench();
     const imageElement = getImageElement(workbench);
-    const nextRenderState = imageElement.renderState ?? createDefaultCanvasImageRenderState();
+    const nextRenderState = imageElement.renderState;
     nextRenderState.develop.tone.exposure = 18;
     saveCanvasWorkbenchRecordMock.mockClear();
 
@@ -268,7 +268,7 @@ describe("canvasStore", () => {
 
     const updatedWorkbench = getLoadedWorkbench();
     const updatedImageElement = updatedWorkbench ? getImageElement(updatedWorkbench) : null;
-    expect(updatedImageElement?.renderState?.develop.tone.exposure).toBe(18);
+    expect(updatedImageElement?.renderState.develop.tone.exposure).toBe(18);
     expect(saveCanvasWorkbenchRecordMock).toHaveBeenCalledTimes(1);
   });
 
@@ -319,7 +319,10 @@ describe("canvasStore", () => {
       isLoading: false,
     });
 
-    const insertedElement: CanvasEditableImageElement = {
+    // Intentionally bypass the required-field type to exercise the
+    // runtime normalization path (e.g. inputs coming from deserialized
+    // data where renderState might still be absent).
+    const insertedElement = {
       id: "image-2",
       type: "image",
       assetId: "asset-2",
@@ -339,7 +342,7 @@ describe("canvasStore", () => {
       opacity: 1,
       locked: false,
       visible: true,
-    };
+    } as unknown as CanvasEditableImageElement;
 
     await useCanvasStore.getState().upsertElementInWorkbench(workbench.id, insertedElement);
 

@@ -111,10 +111,7 @@ export const createCanvasImageDocumentRenderContext = ({
   draftRenderState?: CanvasImageRenderStateV1;
   element: CanvasImageElement;
 }): CanvasImageDocumentRenderContext => {
-  const renderState = resolveCanvasImageRenderState(element, asset, draftRenderState);
-  if (!renderState) {
-    throw new Error(`Missing canonical render state for canvas image element ${element.id}.`);
-  }
+  const renderState = resolveCanvasImageRenderState(element, draftRenderState);
   const imageDocument = createImageRenderDocumentFromState({
     id: `board:${element.id}`,
     source: {

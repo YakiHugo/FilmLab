@@ -356,34 +356,6 @@ describe("renderCanvasWorkbench", () => {
     expect(mainContext.fillText).toHaveBeenCalledTimes(1);
   });
 
-  it("fails export for unresolved legacy image nodes instead of silently dropping them", async () => {
-    vi.stubGlobal("document", {
-      createElement: vi.fn(() => createCanvas()),
-    });
-
-    const mainContext = createContext();
-    const mainCanvas = createCanvas(mainContext);
-    const canvasDocument = createCanvasWorkbench();
-    const imageElement = canvasDocument.elements[0];
-    if (!imageElement || imageElement.type !== "image") {
-      throw new Error("Expected image element.");
-    }
-    delete imageElement.renderState;
-
-    await expect(
-      renderCanvasWorkbenchToCanvas({
-        assets: [createAsset()],
-        canvas: mainCanvas as unknown as HTMLCanvasElement,
-        document: canvasDocument,
-        height: 1600,
-        pixelRatio: 1,
-        width: 2000,
-      })
-    ).rejects.toThrow("Missing canonical render state for canvas image element image-1.");
-
-    expect(renderSingleImageToCanvas).not.toHaveBeenCalled();
-  });
-
   it("renders shape gradients through the export fill pipeline", async () => {
     const gradient = {
       addColorStop: vi.fn(),

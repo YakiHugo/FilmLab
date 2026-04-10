@@ -1,13 +1,10 @@
 import { getBuiltInFilmProfile } from "@/lib/film";
-import {
-  type CanvasImageRenderStateV1,
-} from "@/render/image";
+import type { CanvasImageRenderStateV1 } from "@/render/image";
 import type {
   CanvasCommand,
   CanvasPersistedImageElement,
   CanvasRenderableElement,
 } from "@/types";
-import { resolveCanvasImageRenderStateForMutation } from "./imageRenderState";
 
 export type CanvasImagePropertyIntent =
   | { type: "set-image-render-state"; value: CanvasImageRenderStateV1 }
@@ -47,9 +44,7 @@ export const planCanvasImagePropertyCommand = ({
 const resolveCanvasImagePropertyCommand = (
   intent: CanvasImagePropertyIntent,
   node: CanvasImagePropertyImageTarget
-): CanvasImagePropertyCommand | null => {
-  const baseRenderState = resolveCanvasImageRenderStateForMutation(node) ?? node.renderState ?? null;
-
+): CanvasImagePropertyCommand => {
   switch (intent.type) {
     case "set-image-render-state":
       return {
@@ -58,24 +53,17 @@ const resolveCanvasImagePropertyCommand = (
         id: node.id,
       };
     case "set-image-film-profile":
-      if (!baseRenderState) {
-        return null;
-      }
       return {
         type: "SET_IMAGE_RENDER_STATE",
         id: node.id,
         renderState: {
-          ...baseRenderState,
+          ...node.renderState,
           film: {
-            ...(baseRenderState.film ?? {
-              profile: undefined,
-              profileId: null,
-              profileOverrides: null,
-            }),
+            ...node.renderState.film,
             profileId: intent.value ?? null,
             profile: intent.value ? getBuiltInFilmProfile(intent.value) ?? undefined : undefined,
           },
-        } as CanvasImageRenderStateV1,
+        },
       };
   }
 };

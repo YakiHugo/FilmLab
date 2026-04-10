@@ -103,9 +103,7 @@ const applyNodePropertyPatch = (
 
   if (node.type === "image") {
     const nextRenderState =
-      hasPatchKey(patch, "renderState") && patch.renderState
-        ? clone(patch.renderState)
-        : node.renderState;
+      patch.renderState !== undefined ? clone(patch.renderState) : node.renderState;
     return {
       ...node,
       transform: toNodeTransform(nextTransform),

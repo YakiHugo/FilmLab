@@ -133,7 +133,7 @@ describe("boardImageRendering", () => {
     });
 
     expect(
-      resolveCanvasImageRenderState(element, asset, draftRenderState)?.develop.tone.exposure
+      resolveCanvasImageRenderState(element, draftRenderState).develop.tone.exposure
     ).toBe(24);
     expect(context.renderState.develop.tone.exposure).toBe(24);
     expect(context.filmProfile?.id).toBe("film-portrait-soft-v1");
@@ -148,7 +148,7 @@ describe("boardImageRendering", () => {
       }),
     };
 
-    expect(resolveCanvasImageRenderState(element, undefined, undefined)).toBe(renderState);
+    expect(resolveCanvasImageRenderState(element)).toBe(renderState);
   });
 
   it("invalidates preview cache keys when the source asset content changes", () => {

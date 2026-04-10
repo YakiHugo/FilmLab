@@ -61,7 +61,7 @@ export interface CanvasPersistedGroupNode extends CanvasPersistedNodeBase {
 export interface CanvasPersistedImageElement extends CanvasPersistedNodeBase {
   type: "image";
   assetId: string;
-  renderState?: CanvasImageRenderStateV1;
+  renderState: CanvasImageRenderStateV1;
 }
 
 export interface CanvasPersistedTextElement extends CanvasPersistedNodeBase {

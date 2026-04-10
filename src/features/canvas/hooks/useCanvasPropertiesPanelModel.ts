@@ -57,8 +57,8 @@ export function useCanvasPropertiesPanelModel() {
     if (!selected || selected.type !== "image") {
       return null;
     }
-    return resolveCanvasImageRenderState(selected, selectedAsset);
-  }, [selected, selectedAsset]);
+    return resolveCanvasImageRenderState(selected);
+  }, [selected]);
 
   return {
     activeWorkbench,
