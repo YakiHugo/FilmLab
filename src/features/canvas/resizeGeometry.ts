@@ -325,8 +325,8 @@ const resolveBaseShapePoints = (element: CanvasShapeElement) =>
   element.points && element.points.length > 0
     ? element.points
     : [
-        { x: 0, y: element.height / 2 },
-        { x: element.width, y: element.height / 2 },
+        { x: 0, y: element.transform.height / 2 },
+        { x: element.transform.width, y: element.transform.height / 2 },
       ];
 
 const resolveLocalPositionPatch = ({
@@ -371,8 +371,8 @@ const resolveTextResizePlan = ({
   const preview: CanvasResizePreview = {
     x: snapshot.x,
     y: snapshot.y,
-    width: clampDimension(fittedText.width),
-    height: clampDimension(fittedText.height),
+    width: clampDimension(fittedText.transform.width),
+    height: clampDimension(fittedText.transform.height),
     fontSize: nextFontSize,
     fontSizeTier: nextFontSizeTier,
   };

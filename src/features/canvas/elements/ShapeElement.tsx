@@ -1,7 +1,7 @@
 import type Konva from "konva";
 import { memo } from "react";
 import { Arrow, Ellipse, Group, Line, Rect } from "react-konva";
-import type { CanvasRenderableElement, CanvasShapeElement } from "@/types";
+import type { CanvasRenderableShapeElement } from "@/types";
 import { areEqual } from "../document/shared";
 import {
   CANVAS_SHAPE_BODY_NODE_NAME,
@@ -11,10 +11,7 @@ import {
   resolveCanvasRectShapeAttrs,
 } from "../shapeRenderState";
 
-type CanvasShapeRenderState = CanvasShapeElement &
-  Partial<
-    Pick<Extract<CanvasRenderableElement, { type: "shape" }>, "effectiveLocked" | "effectiveVisible" | "worldOpacity">
-  >;
+type CanvasShapeRenderState = CanvasRenderableShapeElement;
 
 interface ShapeElementProps {
   canDrag: boolean;

@@ -24,11 +24,6 @@ describe("canvasWorkbenchNodeHelpers", () => {
           parentId: null,
           assetId: "asset-1",
           renderState,
-          x: 40,
-          y: 60,
-          width: 320,
-          height: 240,
-          rotation: 0,
           transform: {
             x: 40,
             y: 60,

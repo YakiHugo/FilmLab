@@ -99,11 +99,6 @@ describe("propertyPanelState", () => {
           id: "text-1",
           type: "text",
           parentId: null,
-          x: 10,
-          y: 20,
-          width: 200,
-          height: 80,
-          rotation: 0,
           transform: {
             x: 10,
             y: 20,

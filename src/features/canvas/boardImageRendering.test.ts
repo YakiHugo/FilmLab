@@ -28,16 +28,19 @@ const createAsset = (overrides?: Partial<Asset>): Asset => ({
   ...overrides,
 });
 
-const createElement = (overrides?: Partial<CanvasImageElement>): CanvasImageElement => ({
+type CanvasImageElementOverrides = Partial<CanvasImageElement> & {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  rotation?: number;
+};
+
+const createElement = (overrides?: CanvasImageElementOverrides): CanvasImageElement => ({
   id: overrides?.id ?? "element-1",
   type: "image",
   parentId: overrides?.parentId ?? null,
   assetId: overrides?.assetId ?? "asset-1",
-  x: overrides?.x ?? 10,
-  y: overrides?.y ?? 20,
-  width: overrides?.width ?? 400,
-  height: overrides?.height ?? 300,
-  rotation: overrides?.rotation ?? 0,
   transform: overrides?.transform ?? {
     x: overrides?.x ?? 10,
     y: overrides?.y ?? 20,

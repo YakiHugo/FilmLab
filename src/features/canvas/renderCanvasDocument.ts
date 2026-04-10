@@ -3,11 +3,10 @@ import { renderSingleImageToCanvas } from "@/render/image";
 import type {
   Asset,
   CanvasWorkbench,
-  CanvasImageElement,
-  CanvasRenderableElement,
-  CanvasShapeElement,
+  CanvasRenderableImageElement,
+  CanvasRenderableShapeElement,
+  CanvasRenderableTextElement,
   CanvasSlice,
-  CanvasTextElement,
 } from "@/types";
 import { createCanvasImageDocumentRenderContext } from "./boardImageRendering";
 import { resolveCanvasShapeFillPaint } from "./shapeStyle";
@@ -42,8 +41,10 @@ const ensureCanvasSize = (canvas: HTMLCanvasElement, width: number, height: numb
 
 const withElementTransform = (
   context: CanvasRenderingContext2D,
-  element: Pick<CanvasImageElement | CanvasTextElement | CanvasShapeElement, "opacity" | "rotation" | "x" | "y"> &
-    Partial<Pick<CanvasRenderableElement, "worldOpacity">>,
+  element: Pick<
+    CanvasRenderableImageElement | CanvasRenderableTextElement | CanvasRenderableShapeElement,
+    "opacity" | "rotation" | "x" | "y" | "worldOpacity"
+  >,
   draw: () => void
 ) => {
   context.save();
@@ -54,7 +55,10 @@ const withElementTransform = (
   context.restore();
 };
 
-const drawTextElement = (context: CanvasRenderingContext2D, element: CanvasTextElement) => {
+const drawTextElement = (
+  context: CanvasRenderingContext2D,
+  element: CanvasRenderableTextElement
+) => {
   const layoutElement = fitCanvasTextElementToContent(element, {
     measureText: (line, font) => {
       context.font = `${font.fontSize}px ${font.fontFamily}`;
@@ -83,7 +87,7 @@ const drawTextElement = (context: CanvasRenderingContext2D, element: CanvasTextE
   });
 };
 
-const getShapePoints = (element: CanvasShapeElement) =>
+const getShapePoints = (element: CanvasRenderableShapeElement) =>
   element.points && element.points.length > 0
     ? element.points
     : [
@@ -144,7 +148,10 @@ const traceRoundedRectPath = (
   context.closePath();
 };
 
-const drawShapeElement = (context: CanvasRenderingContext2D, element: CanvasShapeElement) => {
+const drawShapeElement = (
+  context: CanvasRenderingContext2D,
+  element: CanvasRenderableShapeElement
+) => {
   const resolveShapeFill = () => {
     const fillPaint = resolveCanvasShapeFillPaint(element);
     if (fillPaint.kind === "solid") {
@@ -267,7 +274,7 @@ const drawImageElement = async ({
 }: {
   assetById: Map<string, Asset>;
   context: CanvasRenderingContext2D;
-  element: CanvasImageElement;
+  element: CanvasRenderableImageElement;
   outputScale: { x: number; y: number };
 }) => {
   const asset = assetById.get(element.assetId);

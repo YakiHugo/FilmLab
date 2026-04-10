@@ -21,11 +21,6 @@ export const createCanvasImageElementFromAsset = ({
   type: "image",
   parentId: null,
   assetId: asset.id,
-  x,
-  y,
-  width,
-  height,
-  rotation: 0,
   transform: {
     x,
     y,

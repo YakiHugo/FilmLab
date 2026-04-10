@@ -65,11 +65,6 @@ const createEditingTextDraft = (
   fontSizeTier: "medium",
   color: "#ffffff",
   textAlign: "left",
-  x: 40,
-  y: 60,
-  width: 120,
-  height: 48,
-  rotation: 0,
   transform: {
     x: 40,
     y: 60,

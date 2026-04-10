@@ -35,11 +35,6 @@ const createTextNode = ({
     id,
     type: "text",
     parentId: null,
-    x,
-    y,
-    width: 1,
-    height: 1,
-    rotation: 0,
     transform: {
       x,
       y,
@@ -58,15 +53,7 @@ const createTextNode = ({
     textAlign: "left",
   };
 
-  const fitted = fitCanvasTextElementToContent(baseNode);
-  return {
-    ...fitted,
-    transform: {
-      ...baseNode.transform,
-      width: fitted.width,
-      height: fitted.height,
-    },
-  };
+  return fitCanvasTextElementToContent(baseNode);
 };
 
 describe("resizeGeometry", () => {

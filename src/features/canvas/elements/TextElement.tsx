@@ -1,7 +1,7 @@
 import type Konva from "konva";
 import { memo, useMemo } from "react";
 import { Text } from "react-konva";
-import type { CanvasRenderableElement, CanvasTextElement } from "@/types";
+import type { CanvasRenderableTextElement } from "@/types";
 import { areEqual } from "../document/shared";
 import { isCanvasTextElementEditable } from "./textElementEditability";
 import {
@@ -9,13 +9,7 @@ import {
   fitCanvasTextElementToContent,
 } from "../textStyle";
 
-type CanvasTextRenderState = CanvasTextElement &
-  Partial<
-    Pick<
-      Extract<CanvasRenderableElement, { type: "text" }>,
-      "effectiveLocked" | "effectiveVisible" | "worldOpacity"
-    >
-  >;
+type CanvasTextRenderState = CanvasRenderableTextElement;
 
 interface TextElementProps {
   canDrag: boolean;
