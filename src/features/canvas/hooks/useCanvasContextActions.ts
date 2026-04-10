@@ -87,7 +87,12 @@ export function useCanvasContextActions({
   const { redo, undo } = useCanvasHistoryActions();
   const { deleteNodes, duplicateNodes, groupNodes, reorderElements, ungroupNode } =
     useCanvasLoadedWorkbenchStructure();
-  const { selectAll, selectElement, selectedElementIds } = useCanvasSelectionActions();
+  const {
+    selectAll,
+    selectElement,
+    selectedElementIds,
+    setSelectedElementIds,
+  } = useCanvasSelectionActions();
   const [clipboardIds, setClipboardIds] = useState<string[]>([]);
 
   const assetById = useMemo(() => new Map(assets.map((asset) => [asset.id, asset])), [assets]);
@@ -274,7 +279,10 @@ export function useCanvasContextActions({
           return;
         case "group-selection":
           if (selectedElementIds.length > 1) {
-            await groupNodes(selectedElementIds);
+            const groupId = await groupNodes(selectedElementIds);
+            if (groupId) {
+              setSelectedElementIds([groupId]);
+            }
           }
           return;
         case "ungroup-selection":
@@ -303,6 +311,7 @@ export function useCanvasContextActions({
       selectedElementIds,
       sendBackwardPlan,
       sendToBackPlan,
+      setSelectedElementIds,
       undo,
       ungroupNode,
     ]

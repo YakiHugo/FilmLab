@@ -51,15 +51,23 @@ interface ResolveCanvasTextRuntimeViewModelOptions {
 
 const toCanvasTextOverlayModel = (
   element: CanvasTextElement | CanvasRenderableTextElement
-): CanvasTextOverlayModel => ({
-  content: element.content,
-  fontFamily: element.fontFamily,
-  fontSize: element.fontSize,
-  id: element.id,
-  rotation: element.transform.rotation,
-  x: element.transform.x,
-  y: element.transform.y,
-});
+): CanvasTextOverlayModel => {
+  // Renderable path: use accumulated world coordinates from resolve.
+  // Editable path (text session draft before materialisation, or a raw
+  // editable input): draft has no parent context, fall back to its local
+  // transform. This is correct for top-level text; grouped editable drafts
+  // are a pre-existing limitation of the text-session lifecycle.
+  const isRenderable = "worldX" in element;
+  return {
+    content: element.content,
+    fontFamily: element.fontFamily,
+    fontSize: element.fontSize,
+    id: element.id,
+    rotation: isRenderable ? element.worldRotation : element.transform.rotation,
+    x: isRenderable ? element.worldX : element.transform.x,
+    y: isRenderable ? element.worldY : element.transform.y,
+  };
+};
 
 const toCanvasTextEditorModel = (
   element: CanvasTextElement | CanvasRenderableTextElement
