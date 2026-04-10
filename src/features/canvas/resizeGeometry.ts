@@ -403,8 +403,8 @@ const resolveImageResizePlan = ({
   workbench: CanvasWorkbench;
 }): CanvasResizePlan => {
   const scaledDimensions = resolveScaledDimensions({
-    width: element.width,
-    height: element.height,
+    width: element.worldWidth,
+    height: element.worldHeight,
     scaleX: snapshot.scaleX,
     scaleY: snapshot.scaleY,
   });
@@ -419,8 +419,8 @@ const resolveImageResizePlan = ({
     : null;
   const dimensions = safeAspectRatio
     ? resolveDominantResizeAxis({
-          oldHeight: element.height,
-          oldWidth: element.width,
+          oldHeight: element.worldHeight,
+          oldWidth: element.worldWidth,
           newHeight: scaledDimensions.height,
           newWidth: scaledDimensions.width,
         }) === "x"
@@ -526,8 +526,8 @@ const resolveShapeResizePlan = ({
 }): CanvasResizePlan => {
   const preview: CanvasResizePreview = {
     ...resolveScaledDimensions({
-      width: element.width,
-      height: element.height,
+      width: element.worldWidth,
+      height: element.worldHeight,
       scaleX: snapshot.scaleX,
       scaleY: snapshot.scaleY,
     }),
@@ -560,10 +560,10 @@ export const applyCanvasResizePreviewToElement = <TElement extends CanvasRendera
 ): TElement => {
   const baseElement = {
     ...element,
-    x: preview.x,
-    y: preview.y,
-    width: preview.width,
-    height: preview.height,
+    worldX: preview.x,
+    worldY: preview.y,
+    worldWidth: preview.width,
+    worldHeight: preview.height,
     transform: {
       ...element.transform,
       x: preview.x,
@@ -597,10 +597,10 @@ export const createCanvasResizePreviewFromElement = (
   element: CanvasRenderableElement
 ): CanvasResizePreview => {
   const basePreview: CanvasResizePreview = {
-    x: element.x,
-    y: element.y,
-    width: element.width,
-    height: element.height,
+    x: element.worldX,
+    y: element.worldY,
+    width: element.worldWidth,
+    height: element.worldHeight,
   };
 
   if (element.type === "text") {

@@ -86,7 +86,10 @@ export const resolveCanvasImageAspectRatio = ({
   element,
 }: {
   asset: Pick<Asset, "metadata"> | null | undefined;
-  element: Pick<Extract<CanvasRenderableElement, { type: "image" }>, "height" | "width">;
+  element: Pick<
+    Extract<CanvasRenderableElement, { type: "image" }>,
+    "worldWidth" | "worldHeight"
+  >;
 }) => {
   const metadataWidth = asset?.metadata?.width;
   const metadataHeight = asset?.metadata?.height;
@@ -102,8 +105,8 @@ export const resolveCanvasImageAspectRatio = ({
     return metadataWidth / metadataHeight;
   }
 
-  if (element.width > 0 && element.height > 0) {
-    return element.width / element.height;
+  if (element.worldWidth > 0 && element.worldHeight > 0) {
+    return element.worldWidth / element.worldHeight;
   }
 
   return null;
@@ -197,9 +200,8 @@ const resolveCanvasTextAspectRatio = (
   element: Extract<CanvasRenderableElement, { type: "text" }>
 ) => {
   const layoutElement = fitCanvasTextElementToContent(element);
-  return layoutElement.width > 0 && layoutElement.height > 0
-    ? layoutElement.width / layoutElement.height
-    : null;
+  const { width, height } = layoutElement.transform;
+  return width > 0 && height > 0 ? width / height : null;
 };
 
 const resolveMinimumTransformerDimensions = (element: CanvasRenderableElement) => {
@@ -223,8 +225,14 @@ const resolveMinimumTransformerDimensions = (element: CanvasRenderableElement) =
     Math.max(element.fontSize, MIN_TRANSFORM_TEXT_FONT_SIZE);
 
   return {
-    width: Math.max(MIN_TRANSFORM_BOX_DIMENSION, layoutElement.width * minimumScale),
-    height: Math.max(MIN_TRANSFORM_BOX_DIMENSION, layoutElement.height * minimumScale),
+    width: Math.max(
+      MIN_TRANSFORM_BOX_DIMENSION,
+      layoutElement.transform.width * minimumScale
+    ),
+    height: Math.max(
+      MIN_TRANSFORM_BOX_DIMENSION,
+      layoutElement.transform.height * minimumScale
+    ),
   };
 };
 
@@ -674,8 +682,8 @@ export function useCanvasViewportResizeController({
         node.scaleY(1);
         if (currentElement) {
           node.position({
-            x: currentElement.x,
-            y: currentElement.y,
+            x: currentElement.worldX,
+            y: currentElement.worldY,
           });
         }
         transformAnchorRef.current = null;

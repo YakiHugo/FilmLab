@@ -193,11 +193,11 @@ export interface CanvasRenderableNodeBase {
   visible: boolean;
   effectiveLocked: boolean;
   effectiveVisible: boolean;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
+  worldX: number;
+  worldY: number;
+  worldWidth: number;
+  worldHeight: number;
+  worldRotation: number;
   zIndex?: number;
   transform: CanvasNodeTransform;
 }

@@ -73,8 +73,8 @@ const resolveTransformPatch = ({
 
   if (hasPosition) {
     const localPosition = worldPointToLocalPoint(workbench, node.parentId ?? null, {
-      x: patch.x ?? node.x,
-      y: patch.y ?? node.y,
+      x: patch.x ?? node.worldX,
+      y: patch.y ?? node.worldY,
     });
     if (patch.x !== undefined) {
       nextPatch.x = localPosition.x;

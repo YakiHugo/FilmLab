@@ -33,11 +33,11 @@ const areTextElementsEqual = (
   left.fontSizeTier === right.fontSizeTier &&
   left.textAlign === right.textAlign &&
   left.color === right.color &&
-  left.x === right.x &&
-  left.y === right.y &&
-  left.width === right.width &&
-  left.height === right.height &&
-  left.rotation === right.rotation &&
+  left.worldX === right.worldX &&
+  left.worldY === right.worldY &&
+  left.worldWidth === right.worldWidth &&
+  left.worldHeight === right.worldHeight &&
+  left.worldRotation === right.worldRotation &&
   left.opacity === right.opacity &&
   left.worldOpacity === right.worldOpacity &&
   left.visible === right.visible &&
@@ -86,11 +86,11 @@ export const TextElement = memo(function TextElement({
     <Text
       id={layoutElement.id}
       text={layoutElement.content}
-      x={layoutElement.x}
-      y={layoutElement.y}
-      width={layoutElement.width}
-      height={layoutElement.height}
-      rotation={layoutElement.rotation}
+      x={layoutElement.worldX}
+      y={layoutElement.worldY}
+      width={layoutElement.transform.width}
+      height={layoutElement.transform.height}
+      rotation={layoutElement.worldRotation}
       opacity={isEditing ? 0 : renderOpacity}
       visible={effectiveVisible}
       fontFamily={layoutElement.fontFamily}

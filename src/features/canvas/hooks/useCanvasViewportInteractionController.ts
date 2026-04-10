@@ -363,8 +363,8 @@ export function useCanvasViewportInteractionController({
         );
       });
       const draggedPosition = {
-        x: element.x,
-        y: element.y,
+        x: element.worldX,
+        y: element.worldY,
       };
       const interaction = beginInteraction();
       if (!interaction) {
