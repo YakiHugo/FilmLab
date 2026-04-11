@@ -11,7 +11,12 @@
 
 const EDITABLE_TAG_NAMES = new Set(["input", "textarea", "select"]);
 
-const isEditableElement = (element: Element | null): boolean => {
+const isEditableHtmlElement = (element: unknown): boolean => {
+  // Avoid referencing `Element` directly because some test environments ship a
+  // partial DOM shim that defines HTMLElement without Element, and
+  // `null instanceof Element` would throw at resolve time. HTMLElement is the
+  // right check anyway — every editable surface we care about (input, textarea,
+  // select, contenteditable) is an HTMLElement.
   if (!(element instanceof HTMLElement)) {
     return false;
   }
@@ -22,13 +27,13 @@ const isEditableElement = (element: Element | null): boolean => {
 };
 
 export const isEditableEventTarget = (target: EventTarget | null): boolean =>
-  target instanceof Element && isEditableElement(target);
+  isEditableHtmlElement(target);
 
 export const isEditableActiveElement = (): boolean => {
   if (typeof document === "undefined") {
     return false;
   }
-  return isEditableElement(document.activeElement);
+  return isEditableHtmlElement(document.activeElement);
 };
 
 export const isCanvasTypingInProgress = (target: EventTarget | null): boolean =>
