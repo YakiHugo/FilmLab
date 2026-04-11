@@ -194,7 +194,8 @@ export type ImageAsciiColorMode = AsciiAdjustments["colorMode"] | "duotone";
 
 export interface ImageAsciiEffectParams {
   renderMode: ImageAsciiRenderMode;
-  preset: AsciiAdjustments["charsetPreset"] | "custom";
+  preset: AsciiAdjustments["charsetPreset"];
+  customCharset: string | null;
   cellSize: number;
   characterSpacing: number;
   density: number;

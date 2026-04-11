@@ -84,6 +84,7 @@ const createAsciiTransform = () => ({
   params: {
     renderMode: "glyph" as const,
     preset: "standard" as const,
+    customCharset: null,
     cellSize: 12,
     characterSpacing: 1,
     density: 1,
@@ -184,6 +185,7 @@ describe("asciiEffect", () => {
     const normalized = normalizeImageAsciiEffectParams({
       renderMode: "dot",
       preset: "custom",
+      customCharset: "XYZ.",
       cellSize: 2,
       characterSpacing: 3,
       density: -1,

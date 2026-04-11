@@ -5,6 +5,7 @@ import { asciiAdjustmentsEqual, buildAsciiOutputToken } from "./asciiAdjustments
 const neutral: AsciiAdjustments = {
   enabled: false,
   charsetPreset: "standard",
+  customCharset: "",
   invert: false,
   brightness: 0,
   contrast: 1,
@@ -43,6 +44,8 @@ describe("asciiAdjustments", () => {
       [
         "ascii:on",
         "blocks",
+        // charsetPreset !== "custom" → customCharset collapses to "-"
+        "-",
         "full-color",
         "glyph",
         "14",
@@ -69,6 +72,19 @@ describe("asciiAdjustments", () => {
     expect(buildAsciiOutputToken({ ...neutral, enabled: false })).toBe("ascii:off");
   });
 
+  it("includes the user charset only when the preset is custom", () => {
+    const token = buildAsciiOutputToken({
+      ...neutral,
+      enabled: true,
+      charsetPreset: "custom",
+      customCharset: "AB.",
+    });
+    // The charset slot is the second field after "ascii:on".
+    const parts = token.split(":");
+    expect(parts[1]).toBe("custom");
+    expect(parts[2]).toBe("AB.");
+  });
+
   it("treats matching settings as equal", () => {
     expect(asciiAdjustmentsEqual({ ...neutral }, { ...neutral })).toBe(true);
   });
@@ -82,6 +98,9 @@ describe("asciiAdjustments", () => {
     ).toBe(false);
     expect(
       asciiAdjustmentsEqual({ ...neutral }, { ...neutral, renderMode: "dot" })
+    ).toBe(false);
+    expect(
+      asciiAdjustmentsEqual({ ...neutral }, { ...neutral, customCharset: "@#." })
     ).toBe(false);
   });
 });
