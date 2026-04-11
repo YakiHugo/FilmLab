@@ -36,13 +36,14 @@ import {
 } from "./imageRenderStateEditing";
 import { useCanvasImagePropertyActions } from "./hooks/useCanvasImagePropertyActions";
 
-type AsciiSectionId = "presets";
+type AsciiSectionId = "presets" | "tone" | "character" | "background" | "color";
 
 const ASCII_CHARSET_OPTIONS: Array<{
   label: string;
   value: AsciiAdjustments["charsetPreset"];
 }> = [
   { label: "标准", value: "standard" },
+  { label: "简约", value: "minimal" },
   { label: "方块", value: "blocks" },
   { label: "细节", value: "detailed" },
 ];
@@ -53,6 +54,7 @@ const ASCII_COLOR_MODE_OPTIONS: Array<{
 }> = [
   { label: "灰度", value: "grayscale" },
   { label: "全彩", value: "full-color" },
+  { label: "双色", value: "duotone" },
 ];
 
 const ASCII_DITHER_OPTIONS: Array<{
@@ -62,6 +64,118 @@ const ASCII_DITHER_OPTIONS: Array<{
   { label: "无", value: "none" },
   { label: "Floyd-Steinberg", value: "floyd-steinberg" },
 ];
+
+const ASCII_RENDER_MODE_OPTIONS: Array<{
+  label: string;
+  value: AsciiAdjustments["renderMode"];
+}> = [
+  { label: "字符", value: "glyph" },
+  { label: "点阵", value: "dot" },
+];
+
+const ASCII_BACKGROUND_MODE_OPTIONS: Array<{
+  label: string;
+  value: AsciiAdjustments["backgroundMode"];
+}> = [
+  { label: "无", value: "none" },
+  { label: "纯色", value: "solid" },
+  { label: "单元填充", value: "cell-solid" },
+  { label: "模糊原图", value: "blurred-source" },
+];
+
+const ASCII_FOREGROUND_BLEND_OPTIONS: Array<{
+  label: string;
+  value: AsciiAdjustments["foregroundBlendMode"];
+}> = [
+  { label: "正常", value: "source-over" },
+  { label: "正片叠底", value: "multiply" },
+  { label: "滤色", value: "screen" },
+  { label: "叠加", value: "overlay" },
+  { label: "柔光", value: "soft-light" },
+];
+
+type AsciiNumericKey =
+  | "brightness"
+  | "contrast"
+  | "density"
+  | "coverage"
+  | "edgeEmphasis"
+  | "cellSize"
+  | "characterSpacing"
+  | "foregroundOpacity"
+  | "backgroundBlur"
+  | "backgroundOpacity";
+
+const formatSigned = (value: number) => (value > 0 ? `+${value}` : `${value}`);
+const formatRatio = (value: number) => value.toFixed(2);
+const formatPercent = (value: number) => `${Math.round(value * 100)}%`;
+
+interface AsciiSliderDef {
+  key: AsciiNumericKey;
+  label: string;
+  min: number;
+  max: number;
+  step?: number;
+  format?: (value: number) => string;
+}
+
+const TONE_SLIDERS: AsciiSliderDef[] = [
+  { key: "brightness", label: "亮度", min: -100, max: 100, step: 1, format: formatSigned },
+  { key: "contrast", label: "对比度", min: 0.5, max: 2.5, step: 0.05, format: formatRatio },
+  { key: "density", label: "密度", min: 0.1, max: 1, step: 0.01, format: formatRatio },
+  { key: "coverage", label: "覆盖率", min: 0.05, max: 1, step: 0.01, format: formatRatio },
+  { key: "edgeEmphasis", label: "边缘强度", min: 0, max: 1, step: 0.01, format: formatRatio },
+];
+
+const CHARACTER_SLIDERS: AsciiSliderDef[] = [
+  { key: "cellSize", label: "单元尺寸", min: 6, max: 48, step: 1 },
+  {
+    key: "characterSpacing",
+    label: "字符间距",
+    min: 0.7,
+    max: 1.6,
+    step: 0.05,
+    format: formatRatio,
+  },
+  {
+    key: "foregroundOpacity",
+    label: "前景不透明度",
+    min: 0,
+    max: 1,
+    step: 0.01,
+    format: formatPercent,
+  },
+];
+
+const sectionKeysHaveChanges = (
+  current: AsciiAdjustments,
+  defaults: AsciiAdjustments,
+  keys: Array<keyof AsciiAdjustments>
+) => keys.some((key) => current[key] !== defaults[key]);
+
+const PRESET_KEYS: Array<keyof AsciiAdjustments> = ["charsetPreset", "invert"];
+const TONE_KEYS: Array<keyof AsciiAdjustments> = [
+  "brightness",
+  "contrast",
+  "density",
+  "coverage",
+  "edgeEmphasis",
+];
+const CHARACTER_KEYS: Array<keyof AsciiAdjustments> = [
+  "renderMode",
+  "cellSize",
+  "characterSpacing",
+  "foregroundOpacity",
+  "foregroundBlendMode",
+  "gridOverlay",
+];
+const BACKGROUND_KEYS: Array<keyof AsciiAdjustments> = [
+  "backgroundMode",
+  "backgroundColor",
+  "backgroundBlur",
+  "backgroundOpacity",
+];
+const COLOR_KEYS: Array<keyof AsciiAdjustments> = ["colorMode", "dither"];
 
 function useCanvasEditImageTarget(): CanvasImageEditTarget | null {
   const primarySelectedElementId = useCanvasStore(
@@ -110,9 +224,13 @@ function CanvasAsciiEditPanelForImage({
     setElementDraftRenderState,
   } = useCanvasPreviewActions();
   const { setRenderState } = useCanvasImagePropertyActions(imageElement);
-  const [openSections, setOpenSections] = useState<Record<AsciiSectionId, boolean>>(
-    () => ({ presets: true })
-  );
+  const [openSections, setOpenSections] = useState<Record<AsciiSectionId, boolean>>(() => ({
+    presets: true,
+    tone: true,
+    character: true,
+    background: false,
+    color: false,
+  }));
 
   const committedImageElementId = imageElement.id;
   const committedImageElementIdRef = useRef<string | null>(committedImageElementId);
@@ -122,10 +240,7 @@ function CanvasAsciiEditPanelForImage({
     () => resolveCanvasImageRenderState(imageElement, draftRenderState),
     [draftRenderState, imageElement]
   );
-  const fieldValues = useMemo(
-    () => getCanvasImageEditValues(renderState),
-    [renderState]
-  );
+  const fieldValues = useMemo(() => getCanvasImageEditValues(renderState), [renderState]);
   const renderStateRef = useRef<CanvasImageRenderStateV1 | null>(renderState);
   renderStateRef.current = renderState;
 
@@ -177,11 +292,34 @@ function CanvasAsciiEditPanelForImage({
   }, []);
 
   const asciiAdjustments = fieldValues.ascii ?? DEFAULT_CANVAS_ASCII_ADJUSTMENTS;
+  const asciiEnabled = asciiAdjustments.enabled;
   const asciiHasChanges = !asciiAdjustmentsEqual(
     asciiAdjustments,
     DEFAULT_CANVAS_ASCII_ADJUSTMENTS
   );
-  const disabled = false;
+  const presetsHasChanges =
+    asciiEnabled !== DEFAULT_CANVAS_ASCII_ADJUSTMENTS.enabled ||
+    sectionKeysHaveChanges(asciiAdjustments, DEFAULT_CANVAS_ASCII_ADJUSTMENTS, PRESET_KEYS);
+  const toneHasChanges = sectionKeysHaveChanges(
+    asciiAdjustments,
+    DEFAULT_CANVAS_ASCII_ADJUSTMENTS,
+    TONE_KEYS
+  );
+  const characterHasChanges = sectionKeysHaveChanges(
+    asciiAdjustments,
+    DEFAULT_CANVAS_ASCII_ADJUSTMENTS,
+    CHARACTER_KEYS
+  );
+  const backgroundHasChanges = sectionKeysHaveChanges(
+    asciiAdjustments,
+    DEFAULT_CANVAS_ASCII_ADJUSTMENTS,
+    BACKGROUND_KEYS
+  );
+  const colorHasChanges = sectionKeysHaveChanges(
+    asciiAdjustments,
+    DEFAULT_CANVAS_ASCII_ADJUSTMENTS,
+    COLOR_KEYS
+  );
 
   const updateAsciiAdjustments = useCallback(
     (partial: Partial<AsciiAdjustments>, mode: "preview" | "commit" = "commit") => {
@@ -198,14 +336,54 @@ function CanvasAsciiEditPanelForImage({
     [commitAdjustments, previewRenderState]
   );
 
+  const resetSectionKeys = useCallback(
+    (keys: Array<keyof AsciiAdjustments>) => {
+      const partial: Partial<AsciiAdjustments> = {};
+      for (const key of keys) {
+        // The generic assignment is safe — we're picking from the defaults of
+        // the same type and writing back to a Partial of the same type.
+        (partial as Record<string, unknown>)[key] = DEFAULT_CANVAS_ASCII_ADJUSTMENTS[key];
+      }
+      updateAsciiAdjustments(partial);
+    },
+    [updateAsciiAdjustments]
+  );
+
+  const renderAsciiSlider = (slider: AsciiSliderDef) => {
+    const partialFor = (value: number): Partial<AsciiAdjustments> =>
+      ({ [slider.key]: value }) as Partial<AsciiAdjustments>;
+    return (
+      <SliderControl
+        key={slider.key}
+        variant="canvasDock"
+        label={slider.label}
+        value={asciiAdjustments[slider.key]}
+        defaultValue={DEFAULT_CANVAS_ASCII_ADJUSTMENTS[slider.key]}
+        min={slider.min}
+        max={slider.max}
+        step={slider.step}
+        format={slider.format}
+        disabled={!asciiEnabled}
+        onChange={(value) => updateAsciiAdjustments(partialFor(value), "preview")}
+        onCommit={(value) => updateAsciiAdjustments(partialFor(value))}
+      />
+    );
+  };
+
+  const showBackgroundColor =
+    asciiAdjustments.backgroundMode === "solid" ||
+    asciiAdjustments.backgroundMode === "cell-solid";
+  const showBackgroundBlur = asciiAdjustments.backgroundMode === "blurred-source";
+  const showBackgroundOpacity = asciiAdjustments.backgroundMode !== "none";
+
   return (
     <section className="flex min-h-0 flex-1 flex-col overflow-y-auto pr-1">
       <CanvasEditSection
         variant="canvasDock"
-        title="ASCII 光栅"
+        title="预设"
         isOpen={openSections.presets}
         onToggle={() => toggleSection("presets")}
-        hasChanges={asciiHasChanges}
+        hasChanges={presetsHasChanges}
         canResetChanges={asciiHasChanges}
         onResetChanges={() => updateAsciiAdjustments({ ...DEFAULT_CANVAS_ASCII_ADJUSTMENTS })}
       >
@@ -215,17 +393,17 @@ function CanvasAsciiEditPanelForImage({
               type="button"
               className={cn(
                 "h-10 rounded-[8px] border border-[color:var(--canvas-edit-border)] px-3 text-sm font-medium transition",
-                asciiAdjustments.enabled
+                asciiEnabled
                   ? "bg-[color:var(--canvas-edit-text)] text-black hover:bg-white"
                   : "bg-[color:var(--canvas-edit-surface)] text-[color:var(--canvas-edit-text-muted)] hover:text-[color:var(--canvas-edit-text)]"
               )}
-              onClick={() => updateAsciiAdjustments({ enabled: !asciiAdjustments.enabled })}
+              onClick={() => updateAsciiAdjustments({ enabled: !asciiEnabled })}
             >
-              {asciiAdjustments.enabled ? "ASCII 已开启" : "ASCII 已关闭"}
+              {asciiEnabled ? "ASCII 已开启" : "ASCII 已关闭"}
             </button>
             <button
               type="button"
-              disabled={!asciiAdjustments.enabled || disabled}
+              disabled={!asciiEnabled}
               className={cn(
                 "h-10 rounded-[8px] border border-[color:var(--canvas-edit-border)] px-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40",
                 asciiAdjustments.invert
@@ -238,63 +416,66 @@ function CanvasAsciiEditPanelForImage({
             </button>
           </div>
 
+          <Select
+            value={asciiAdjustments.charsetPreset}
+            onValueChange={(value) =>
+              updateAsciiAdjustments({
+                charsetPreset: value as AsciiAdjustments["charsetPreset"],
+              })
+            }
+            disabled={!asciiEnabled}
+          >
+            <SelectTrigger className={canvasDockSelectTriggerClassName}>
+              <SelectValue placeholder="字符集" />
+            </SelectTrigger>
+            <SelectContent className={canvasDockSelectContentClassName}>
+              {ASCII_CHARSET_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </CanvasEditSection>
+
+      <CanvasEditSection
+        variant="canvasDock"
+        title="色调"
+        isOpen={openSections.tone}
+        onToggle={() => toggleSection("tone")}
+        hasChanges={toneHasChanges}
+        canResetChanges={toneHasChanges}
+        onResetChanges={() => resetSectionKeys(TONE_KEYS)}
+      >
+        <div className="space-y-2">{TONE_SLIDERS.map(renderAsciiSlider)}</div>
+      </CanvasEditSection>
+
+      <CanvasEditSection
+        variant="canvasDock"
+        title="字符"
+        isOpen={openSections.character}
+        onToggle={() => toggleSection("character")}
+        hasChanges={characterHasChanges}
+        canResetChanges={characterHasChanges}
+        onResetChanges={() => resetSectionKeys(CHARACTER_KEYS)}
+      >
+        <div className="space-y-4">
           <div className="grid grid-cols-1 gap-2">
             <Select
-              value={asciiAdjustments.charsetPreset}
+              value={asciiAdjustments.renderMode}
               onValueChange={(value) =>
                 updateAsciiAdjustments({
-                  charsetPreset: value as AsciiAdjustments["charsetPreset"],
+                  renderMode: value as AsciiAdjustments["renderMode"],
                 })
               }
-              disabled={!asciiAdjustments.enabled || disabled}
+              disabled={!asciiEnabled}
             >
               <SelectTrigger className={canvasDockSelectTriggerClassName}>
-                <SelectValue placeholder="字符集" />
+                <SelectValue placeholder="渲染模式" />
               </SelectTrigger>
               <SelectContent className={canvasDockSelectContentClassName}>
-                {ASCII_CHARSET_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select
-              value={asciiAdjustments.colorMode}
-              onValueChange={(value) =>
-                updateAsciiAdjustments({
-                  colorMode: value as AsciiAdjustments["colorMode"],
-                })
-              }
-              disabled={!asciiAdjustments.enabled || disabled}
-            >
-              <SelectTrigger className={canvasDockSelectTriggerClassName}>
-                <SelectValue placeholder="颜色模式" />
-              </SelectTrigger>
-              <SelectContent className={canvasDockSelectContentClassName}>
-                {ASCII_COLOR_MODE_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select
-              value={asciiAdjustments.dither}
-              onValueChange={(value) =>
-                updateAsciiAdjustments({
-                  dither: value as AsciiAdjustments["dither"],
-                })
-              }
-              disabled={!asciiAdjustments.enabled || disabled}
-            >
-              <SelectTrigger className={canvasDockSelectTriggerClassName}>
-                <SelectValue placeholder="抖动" />
-              </SelectTrigger>
-              <SelectContent className={canvasDockSelectContentClassName}>
-                {ASCII_DITHER_OPTIONS.map((option) => (
+                {ASCII_RENDER_MODE_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -303,43 +484,182 @@ function CanvasAsciiEditPanelForImage({
             </Select>
           </div>
 
-          <SliderControl
-            variant="canvasDock"
-            label="单元尺寸"
-            value={asciiAdjustments.cellSize}
-            defaultValue={DEFAULT_CANVAS_ASCII_ADJUSTMENTS.cellSize}
-            min={6}
-            max={24}
-            disabled={!asciiAdjustments.enabled || disabled}
-            onChange={(value) => updateAsciiAdjustments({ cellSize: value }, "preview")}
-            onCommit={(value) => updateAsciiAdjustments({ cellSize: value })}
-          />
-          <SliderControl
-            variant="canvasDock"
-            label="字符间距"
-            value={asciiAdjustments.characterSpacing}
-            defaultValue={DEFAULT_CANVAS_ASCII_ADJUSTMENTS.characterSpacing}
-            min={0.7}
-            max={1.6}
-            step={0.05}
-            disabled={!asciiAdjustments.enabled || disabled}
-            format={(value) => value.toFixed(2)}
-            onChange={(value) => updateAsciiAdjustments({ characterSpacing: value }, "preview")}
-            onCommit={(value) => updateAsciiAdjustments({ characterSpacing: value })}
-          />
-          <SliderControl
-            variant="canvasDock"
-            label="ASCII 对比度"
-            value={asciiAdjustments.contrast}
-            defaultValue={DEFAULT_CANVAS_ASCII_ADJUSTMENTS.contrast}
-            min={0.5}
-            max={2.5}
-            step={0.05}
-            disabled={!asciiAdjustments.enabled || disabled}
-            format={(value) => value.toFixed(2)}
-            onChange={(value) => updateAsciiAdjustments({ contrast: value }, "preview")}
-            onCommit={(value) => updateAsciiAdjustments({ contrast: value })}
-          />
+          <div className="space-y-2">{CHARACTER_SLIDERS.map(renderAsciiSlider)}</div>
+
+          <Select
+            value={asciiAdjustments.foregroundBlendMode}
+            onValueChange={(value) =>
+              updateAsciiAdjustments({
+                foregroundBlendMode: value as AsciiAdjustments["foregroundBlendMode"],
+              })
+            }
+            disabled={!asciiEnabled}
+          >
+            <SelectTrigger className={canvasDockSelectTriggerClassName}>
+              <SelectValue placeholder="混合模式" />
+            </SelectTrigger>
+            <SelectContent className={canvasDockSelectContentClassName}>
+              {ASCII_FOREGROUND_BLEND_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <button
+            type="button"
+            disabled={!asciiEnabled}
+            className={cn(
+              "h-10 w-full rounded-[8px] border border-[color:var(--canvas-edit-border)] px-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40",
+              asciiAdjustments.gridOverlay
+                ? "bg-[color:var(--canvas-edit-text)] text-black hover:bg-white"
+                : "bg-[color:var(--canvas-edit-surface)] text-[color:var(--canvas-edit-text-muted)] hover:text-[color:var(--canvas-edit-text)]"
+            )}
+            onClick={() =>
+              updateAsciiAdjustments({ gridOverlay: !asciiAdjustments.gridOverlay })
+            }
+          >
+            {asciiAdjustments.gridOverlay ? "网格已开启" : "网格已关闭"}
+          </button>
+        </div>
+      </CanvasEditSection>
+
+      <CanvasEditSection
+        variant="canvasDock"
+        title="背景"
+        isOpen={openSections.background}
+        onToggle={() => toggleSection("background")}
+        hasChanges={backgroundHasChanges}
+        canResetChanges={backgroundHasChanges}
+        onResetChanges={() => resetSectionKeys(BACKGROUND_KEYS)}
+      >
+        <div className="space-y-4">
+          <Select
+            value={asciiAdjustments.backgroundMode}
+            onValueChange={(value) =>
+              updateAsciiAdjustments({
+                backgroundMode: value as AsciiAdjustments["backgroundMode"],
+              })
+            }
+            disabled={!asciiEnabled}
+          >
+            <SelectTrigger className={canvasDockSelectTriggerClassName}>
+              <SelectValue placeholder="背景模式" />
+            </SelectTrigger>
+            <SelectContent className={canvasDockSelectContentClassName}>
+              {ASCII_BACKGROUND_MODE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {showBackgroundColor ? (
+            <label className="flex items-center justify-between gap-3">
+              <span className="text-sm text-[color:var(--canvas-edit-text-muted)]">背景颜色</span>
+              <input
+                type="color"
+                value={asciiAdjustments.backgroundColor}
+                disabled={!asciiEnabled}
+                className="h-8 w-12 cursor-pointer rounded-[6px] border border-[color:var(--canvas-edit-border)] bg-transparent disabled:cursor-not-allowed disabled:opacity-40"
+                onChange={(event) =>
+                  updateAsciiAdjustments({ backgroundColor: event.target.value }, "preview")
+                }
+                onBlur={(event) =>
+                  updateAsciiAdjustments({ backgroundColor: event.target.value })
+                }
+              />
+            </label>
+          ) : null}
+
+          {showBackgroundBlur ? (
+            <SliderControl
+              variant="canvasDock"
+              label="背景模糊"
+              value={asciiAdjustments.backgroundBlur}
+              defaultValue={DEFAULT_CANVAS_ASCII_ADJUSTMENTS.backgroundBlur}
+              min={0}
+              max={100}
+              step={1}
+              disabled={!asciiEnabled}
+              onChange={(value) => updateAsciiAdjustments({ backgroundBlur: value }, "preview")}
+              onCommit={(value) => updateAsciiAdjustments({ backgroundBlur: value })}
+            />
+          ) : null}
+
+          {showBackgroundOpacity ? (
+            <SliderControl
+              variant="canvasDock"
+              label="背景不透明度"
+              value={asciiAdjustments.backgroundOpacity}
+              defaultValue={DEFAULT_CANVAS_ASCII_ADJUSTMENTS.backgroundOpacity}
+              min={0}
+              max={1}
+              step={0.01}
+              format={formatPercent}
+              disabled={!asciiEnabled}
+              onChange={(value) =>
+                updateAsciiAdjustments({ backgroundOpacity: value }, "preview")
+              }
+              onCommit={(value) => updateAsciiAdjustments({ backgroundOpacity: value })}
+            />
+          ) : null}
+        </div>
+      </CanvasEditSection>
+
+      <CanvasEditSection
+        variant="canvasDock"
+        title="色彩与抖动"
+        isOpen={openSections.color}
+        onToggle={() => toggleSection("color")}
+        hasChanges={colorHasChanges}
+        canResetChanges={colorHasChanges}
+        onResetChanges={() => resetSectionKeys(COLOR_KEYS)}
+      >
+        <div className="grid grid-cols-1 gap-2">
+          <Select
+            value={asciiAdjustments.colorMode}
+            onValueChange={(value) =>
+              updateAsciiAdjustments({
+                colorMode: value as AsciiAdjustments["colorMode"],
+              })
+            }
+            disabled={!asciiEnabled}
+          >
+            <SelectTrigger className={canvasDockSelectTriggerClassName}>
+              <SelectValue placeholder="颜色模式" />
+            </SelectTrigger>
+            <SelectContent className={canvasDockSelectContentClassName}>
+              {ASCII_COLOR_MODE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={asciiAdjustments.dither}
+            onValueChange={(value) =>
+              updateAsciiAdjustments({
+                dither: value as AsciiAdjustments["dither"],
+              })
+            }
+            disabled={!asciiEnabled}
+          >
+            <SelectTrigger className={canvasDockSelectTriggerClassName}>
+              <SelectValue placeholder="抖动" />
+            </SelectTrigger>
+            <SelectContent className={canvasDockSelectContentClassName}>
+              {ASCII_DITHER_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </CanvasEditSection>
     </section>

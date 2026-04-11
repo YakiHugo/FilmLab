@@ -20,12 +20,24 @@ export const asciiAdjustmentsEqual = (
   return (
     left.enabled === right.enabled &&
     left.charsetPreset === right.charsetPreset &&
-    left.colorMode === right.colorMode &&
+    left.invert === right.invert &&
+    left.brightness === right.brightness &&
+    left.contrast === right.contrast &&
+    left.density === right.density &&
+    left.coverage === right.coverage &&
+    left.edgeEmphasis === right.edgeEmphasis &&
+    left.renderMode === right.renderMode &&
     left.cellSize === right.cellSize &&
     left.characterSpacing === right.characterSpacing &&
-    left.contrast === right.contrast &&
-    left.dither === right.dither &&
-    left.invert === right.invert
+    left.foregroundOpacity === right.foregroundOpacity &&
+    left.foregroundBlendMode === right.foregroundBlendMode &&
+    left.gridOverlay === right.gridOverlay &&
+    left.backgroundMode === right.backgroundMode &&
+    left.backgroundColor === right.backgroundColor &&
+    left.backgroundBlur === right.backgroundBlur &&
+    left.backgroundOpacity === right.backgroundOpacity &&
+    left.colorMode === right.colorMode &&
+    left.dither === right.dither
   );
 };
 
@@ -37,9 +49,21 @@ export const buildAsciiOutputToken = (ascii: AsciiAdjustments | undefined) => {
     "ascii:on",
     ascii.charsetPreset,
     ascii.colorMode,
+    ascii.renderMode,
     formatNumberToken(ascii.cellSize, 0),
     formatNumberToken(ascii.characterSpacing),
     formatNumberToken(ascii.contrast),
+    formatNumberToken(ascii.brightness, 0),
+    formatNumberToken(ascii.density),
+    formatNumberToken(ascii.coverage),
+    formatNumberToken(ascii.edgeEmphasis),
+    formatNumberToken(ascii.foregroundOpacity),
+    ascii.foregroundBlendMode,
+    ascii.gridOverlay ? "1" : "0",
+    ascii.backgroundMode,
+    ascii.backgroundColor,
+    formatNumberToken(ascii.backgroundBlur, 0),
+    formatNumberToken(ascii.backgroundOpacity),
     ascii.dither,
     ascii.invert ? "1" : "0",
   ].join(":");

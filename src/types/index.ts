@@ -185,19 +185,48 @@ export interface CalibrationAdjustments {
   blueSaturation: number;
 }
 
-export type AsciiCharsetPreset = "standard" | "blocks" | "detailed";
-export type AsciiColorMode = "grayscale" | "full-color";
+export type AsciiCharsetPreset = "standard" | "minimal" | "blocks" | "detailed";
+export type AsciiColorMode = "grayscale" | "full-color" | "duotone";
 export type AsciiDitherMode = "none" | "floyd-steinberg";
+export type AsciiRenderMode = "glyph" | "dot";
+export type AsciiBackgroundMode = "none" | "solid" | "cell-solid" | "blurred-source";
+// Narrow subset of GlobalCompositeOperation that `resolveAsciiForegroundBlendMode`
+// in src/render/image/asciiEffect.ts actually maps to EditorLayerBlendMode. Any
+// other value would silently fail the carrier composite, so the adjustment layer
+// constrains the user surface to exactly these five.
+export type AsciiForegroundBlendMode =
+  | "source-over"
+  | "multiply"
+  | "screen"
+  | "overlay"
+  | "soft-light";
 
 export interface AsciiAdjustments {
   enabled: boolean;
+  // Presets
   charsetPreset: AsciiCharsetPreset;
-  colorMode: AsciiColorMode;
+  invert: boolean;
+  // Tone (all knobs that feed into ImageAsciiEffectParams tone math)
+  brightness: number;
+  contrast: number;
+  density: number;
+  coverage: number;
+  edgeEmphasis: number;
+  // Character rendering
+  renderMode: AsciiRenderMode;
   cellSize: number;
   characterSpacing: number;
-  contrast: number;
+  foregroundOpacity: number;
+  foregroundBlendMode: AsciiForegroundBlendMode;
+  gridOverlay: boolean;
+  // Background
+  backgroundMode: AsciiBackgroundMode;
+  backgroundColor: string;
+  backgroundBlur: number;
+  backgroundOpacity: number;
+  // Color & dither
+  colorMode: AsciiColorMode;
   dither: AsciiDitherMode;
-  invert: boolean;
 }
 
 export interface LocalAdjustmentDelta {

@@ -27,7 +27,10 @@ import { buildSourceRevisionKey } from "./types";
 
 const CHARSET_PRESETS: Record<NonNullable<ImageAsciiCarrierTransformNode["params"]["preset"]>, string[]> = {
   standard: "@%#*+=-:. ".split(""),
-  blocks: "鈻堚枔鈻掆枒 ".split(""),
+  // Unicode block-element ramp, densest → sparsest. A previous bad save mangled
+  // these into CJK bytes; keep literal to avoid re-corruption.
+  blocks: ["\u2588", "\u2593", "\u2592", "\u2591", " "],
+  minimal: "@#*+=-:. ".split(""),
   detailed:
     "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. ".split(""),
   custom: "@%#*+=-:. ".split(""),
@@ -41,7 +44,7 @@ const TEXTMODE_EMPTY_GLYPH_INDEX = 0xffff;
 
 interface NormalizedImageAsciiEffectParams {
   renderMode: "glyph" | "dot";
-  preset: "standard" | "blocks" | "detailed" | "custom";
+  preset: "standard" | "minimal" | "blocks" | "detailed" | "custom";
   cellSize: number;
   characterSpacing: number;
   density: number;
@@ -279,7 +282,10 @@ export const normalizeImageAsciiEffectParams = (
 ): NormalizedImageAsciiEffectParams => ({
   renderMode: params.renderMode === "dot" ? "dot" : "glyph",
   preset:
-    params.preset === "blocks" || params.preset === "detailed" || params.preset === "custom"
+    params.preset === "blocks" ||
+    params.preset === "detailed" ||
+    params.preset === "minimal" ||
+    params.preset === "custom"
       ? params.preset
       : "standard",
   cellSize: clamp(Math.round(params.cellSize), 4, 48),
