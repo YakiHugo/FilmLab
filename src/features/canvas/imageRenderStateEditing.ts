@@ -1,5 +1,13 @@
 import type { CanvasImageNumericFieldId } from "@/features/canvas/imageAdjustmentTypes";
-import type { AsciiAdjustments } from "@/types";
+import type {
+  AsciiAdjustments,
+  AsciiBackgroundMode,
+  AsciiCharsetPreset,
+  AsciiColorMode,
+  AsciiDitherMode,
+  AsciiForegroundBlendMode,
+  AsciiRenderMode,
+} from "@/types";
 import {
   createNeutralCanvasImageRenderState,
   type CanvasImageRenderStateV1,
@@ -8,15 +16,53 @@ import {
   type ImageFilter2dEffectNode,
 } from "@/render/image";
 
+const CHARSET_PRESET_VALUES = ["standard", "minimal", "blocks", "detailed"] as const;
+const COLOR_MODE_VALUES = ["grayscale", "full-color", "duotone"] as const;
+const DITHER_VALUES = ["none", "floyd-steinberg"] as const;
+const RENDER_MODE_VALUES = ["glyph", "dot"] as const;
+const BACKGROUND_MODE_VALUES = ["none", "solid", "cell-solid", "blurred-source"] as const;
+const FOREGROUND_BLEND_VALUES = [
+  "source-over",
+  "multiply",
+  "screen",
+  "overlay",
+  "soft-light",
+] as const;
+
+const isCharsetPreset = (value: unknown): value is AsciiCharsetPreset =>
+  typeof value === "string" && (CHARSET_PRESET_VALUES as readonly string[]).includes(value);
+const isColorMode = (value: unknown): value is AsciiColorMode =>
+  typeof value === "string" && (COLOR_MODE_VALUES as readonly string[]).includes(value);
+const isDitherMode = (value: unknown): value is AsciiDitherMode =>
+  typeof value === "string" && (DITHER_VALUES as readonly string[]).includes(value);
+const isRenderMode = (value: unknown): value is AsciiRenderMode =>
+  typeof value === "string" && (RENDER_MODE_VALUES as readonly string[]).includes(value);
+const isBackgroundMode = (value: unknown): value is AsciiBackgroundMode =>
+  typeof value === "string" && (BACKGROUND_MODE_VALUES as readonly string[]).includes(value);
+const isForegroundBlendMode = (value: unknown): value is AsciiForegroundBlendMode =>
+  typeof value === "string" && (FOREGROUND_BLEND_VALUES as readonly string[]).includes(value);
+
 const DEFAULT_ASCII_ADJUSTMENTS: AsciiAdjustments = {
   enabled: false,
   charsetPreset: "standard",
-  colorMode: "grayscale",
+  invert: false,
+  brightness: 0,
+  contrast: 1,
+  density: 1,
+  coverage: 1,
+  edgeEmphasis: 0,
+  renderMode: "glyph",
   cellSize: 12,
   characterSpacing: 1,
-  contrast: 1,
+  foregroundOpacity: 1,
+  foregroundBlendMode: "source-over",
+  gridOverlay: false,
+  backgroundMode: "cell-solid",
+  backgroundColor: "#000000",
+  backgroundBlur: 0,
+  backgroundOpacity: 1,
+  colorMode: "grayscale",
   dither: "none",
-  invert: false,
 };
 
 export type CanvasImageNumericFieldValues = Record<CanvasImageNumericFieldId, number>;
@@ -37,19 +83,42 @@ const resolveAsciiAdjustmentsFromState = (state: CanvasImageRenderStateV1): Asci
     (candidate): candidate is Extract<CarrierTransformNode, { type: "ascii" }> =>
       candidate.type === "ascii" && candidate.enabled
   );
+  if (!carrierTransform) {
+    return { ...DEFAULT_ASCII_ADJUSTMENTS };
+  }
+  const params = carrierTransform.params;
   return {
     ...DEFAULT_ASCII_ADJUSTMENTS,
-    enabled: Boolean(carrierTransform),
-    charsetPreset:
-      carrierTransform?.params.preset === "blocks" || carrierTransform?.params.preset === "detailed"
-        ? carrierTransform.params.preset
-        : "standard",
-    colorMode: carrierTransform?.params.colorMode === "full-color" ? "full-color" : "grayscale",
-    cellSize: carrierTransform?.params.cellSize ?? 12,
-    characterSpacing: carrierTransform?.params.characterSpacing ?? 1,
-    contrast: carrierTransform?.params.contrast ?? 1,
-    dither: carrierTransform?.params.dither ?? "none",
-    invert: Boolean(carrierTransform?.params.invert),
+    enabled: true,
+    charsetPreset: isCharsetPreset(params.preset) ? params.preset : "standard",
+    invert: Boolean(params.invert),
+    brightness: typeof params.brightness === "number" ? params.brightness : 0,
+    contrast: typeof params.contrast === "number" ? params.contrast : 1,
+    density: typeof params.density === "number" ? params.density : 1,
+    coverage: typeof params.coverage === "number" ? params.coverage : 1,
+    edgeEmphasis: typeof params.edgeEmphasis === "number" ? params.edgeEmphasis : 0,
+    renderMode: isRenderMode(params.renderMode) ? params.renderMode : "glyph",
+    cellSize: typeof params.cellSize === "number" ? params.cellSize : 12,
+    characterSpacing:
+      typeof params.characterSpacing === "number" ? params.characterSpacing : 1,
+    foregroundOpacity:
+      typeof params.foregroundOpacity === "number" ? params.foregroundOpacity : 1,
+    foregroundBlendMode: isForegroundBlendMode(params.foregroundBlendMode)
+      ? params.foregroundBlendMode
+      : "source-over",
+    gridOverlay: Boolean(params.gridOverlay),
+    backgroundMode: isBackgroundMode(params.backgroundMode)
+      ? params.backgroundMode
+      : "cell-solid",
+    backgroundColor:
+      typeof params.backgroundColor === "string" && params.backgroundColor
+        ? params.backgroundColor
+        : "#000000",
+    backgroundBlur: typeof params.backgroundBlur === "number" ? params.backgroundBlur : 0,
+    backgroundOpacity:
+      typeof params.backgroundOpacity === "number" ? params.backgroundOpacity : 1,
+    colorMode: isColorMode(params.colorMode) ? params.colorMode : "grayscale",
+    dither: isDitherMode(params.dither) ? params.dither : "none",
   };
 };
 
@@ -122,25 +191,25 @@ const createDefaultAsciiCarrierTransform = (): Extract<CarrierTransformNode, { t
   enabled: false,
   analysisSource: "style",
   params: {
-    renderMode: "glyph",
-    preset: "standard",
+    renderMode: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.renderMode,
+    preset: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.charsetPreset,
     cellSize: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.cellSize,
     characterSpacing: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.characterSpacing,
-    density: 1,
-    coverage: 1,
-    edgeEmphasis: 0,
-    brightness: 0,
+    density: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.density,
+    coverage: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.coverage,
+    edgeEmphasis: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.edgeEmphasis,
+    brightness: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.brightness,
     contrast: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.contrast,
     dither: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.dither,
     colorMode: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.colorMode,
-    foregroundOpacity: 1,
-    foregroundBlendMode: "source-over",
-    backgroundMode: "cell-solid",
-    backgroundBlur: 0,
-    backgroundOpacity: 1,
-    backgroundColor: "#000000",
-    invert: false,
-    gridOverlay: false,
+    foregroundOpacity: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.foregroundOpacity,
+    foregroundBlendMode: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.foregroundBlendMode,
+    backgroundMode: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.backgroundMode,
+    backgroundBlur: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.backgroundBlur,
+    backgroundOpacity: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.backgroundOpacity,
+    backgroundColor: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.backgroundColor,
+    invert: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.invert,
+    gridOverlay: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.gridOverlay,
   },
 });
 
@@ -308,12 +377,25 @@ export const applyAsciiAdjustmentsToRenderState = (
     params: {
       ...transform.params,
       preset: partial.charsetPreset ?? transform.params.preset,
-      colorMode: partial.colorMode ?? transform.params.colorMode,
+      invert: partial.invert ?? transform.params.invert,
+      brightness: partial.brightness ?? transform.params.brightness,
+      contrast: partial.contrast ?? transform.params.contrast,
+      density: partial.density ?? transform.params.density,
+      coverage: partial.coverage ?? transform.params.coverage,
+      edgeEmphasis: partial.edgeEmphasis ?? transform.params.edgeEmphasis,
+      renderMode: partial.renderMode ?? transform.params.renderMode,
       cellSize: partial.cellSize ?? transform.params.cellSize,
       characterSpacing: partial.characterSpacing ?? transform.params.characterSpacing,
-      contrast: partial.contrast ?? transform.params.contrast,
+      foregroundOpacity: partial.foregroundOpacity ?? transform.params.foregroundOpacity,
+      foregroundBlendMode:
+        partial.foregroundBlendMode ?? transform.params.foregroundBlendMode,
+      gridOverlay: partial.gridOverlay ?? transform.params.gridOverlay,
+      backgroundMode: partial.backgroundMode ?? transform.params.backgroundMode,
+      backgroundColor: partial.backgroundColor ?? transform.params.backgroundColor,
+      backgroundBlur: partial.backgroundBlur ?? transform.params.backgroundBlur,
+      backgroundOpacity: partial.backgroundOpacity ?? transform.params.backgroundOpacity,
+      colorMode: partial.colorMode ?? transform.params.colorMode,
       dither: partial.dither ?? transform.params.dither,
-      invert: partial.invert ?? transform.params.invert,
     },
   }));
 
