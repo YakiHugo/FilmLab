@@ -1,0 +1,11 @@
+{
+  "tasks": [
+    { "id": "compiled-vs-dispatched", "status": "done", "passes": ["tsc"] },
+    { "id": "defer-prompt-state", "status": "done", "passes": ["tsc"] },
+    { "id": "health-routing", "status": "done", "passes": ["tsc"] },
+    { "id": "compilation-cache", "status": "done", "passes": ["tsc"] },
+    { "id": "credential-filter", "status": "done", "passes": ["tsc"] },
+    { "id": "transactional-persistence", "status": "done", "passes": ["tsc"] },
+    { "id": "execute-decomposition", "status": "done", "passes": ["tsc"] }
+  ]
+}
