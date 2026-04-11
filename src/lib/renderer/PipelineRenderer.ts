@@ -608,7 +608,11 @@ export class PipelineRenderer {
       supportsFloatRenderTarget,
       supportsFloatLinearFiltering
     );
-    this.filterPipeline = new FilterPipeline(gl, this.texturePool);
+    this.filterPipeline = new FilterPipeline(
+      gl,
+      this.texturePool,
+      this.programs.passthrough
+    );
 
     this.canvasElement.width = Math.max(1, Math.round(width));
     this.canvasElement.height = Math.max(1, Math.round(height));
