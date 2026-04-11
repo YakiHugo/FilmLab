@@ -95,6 +95,19 @@ export class FilterPipeline {
     // which makes orientation depend on params like clarity/detail toggles.
     // Normalising to an even draw count per execute call keeps the output's Y
     // convention identical to the input's, so orientation is param-independent.
+    //
+    // Alternative (not taken): rewrite Fullscreen.vert to emit a Y-invariant
+    // vTextureCoord (`a_position.y * 0.5 + 0.5`) so each pass preserves Y by
+    // construction and this appended draw is unnecessary. That removes the
+    // extra draw cost but changes the shader convention: every shader that
+    // computes pixel positions from vTextureCoord.y (Geometry, AsciiCarrier,
+    // AsciiTextmode, TimestampOverlay, BrushMaskStamp, Overscan,
+    // FilmEffectsUber) would need its Y direction audited — Geometry.frag in
+    // particular because its rotate/flip/translate/perspective/lens math all
+    // assumes pixel.y=0 at the visual top. Deferred until an extra passthrough
+    // per odd-length call shows up as a measurable cost; until then, the local
+    // hack here is easier to reason about than a convention change that
+    // ripples across nine shaders.
     if (
       this.yParityPassthroughProgram &&
       activePasses.length % 2 === 1
