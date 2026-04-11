@@ -185,7 +185,7 @@ export interface CalibrationAdjustments {
   blueSaturation: number;
 }
 
-export type AsciiCharsetPreset = "standard" | "minimal" | "blocks" | "detailed";
+export type AsciiCharsetPreset = "standard" | "minimal" | "blocks" | "detailed" | "custom";
 export type AsciiColorMode = "grayscale" | "full-color" | "duotone";
 export type AsciiDitherMode = "none" | "floyd-steinberg";
 export type AsciiRenderMode = "glyph" | "dot";
@@ -205,6 +205,7 @@ export interface AsciiAdjustments {
   enabled: boolean;
   // Presets
   charsetPreset: AsciiCharsetPreset;
+  customCharset: string;
   invert: boolean;
   // Tone (all knobs that feed into ImageAsciiEffectParams tone math)
   brightness: number;

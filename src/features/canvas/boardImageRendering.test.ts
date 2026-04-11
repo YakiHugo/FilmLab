@@ -193,6 +193,7 @@ describe("boardImageRendering", () => {
       params: {
         renderMode: "glyph",
         preset: "blocks",
+        customCharset: null,
         cellSize: 12,
         characterSpacing: 1,
         density: 1,

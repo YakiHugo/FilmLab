@@ -20,6 +20,7 @@ export const asciiAdjustmentsEqual = (
   return (
     left.enabled === right.enabled &&
     left.charsetPreset === right.charsetPreset &&
+    left.customCharset === right.customCharset &&
     left.invert === right.invert &&
     left.brightness === right.brightness &&
     left.contrast === right.contrast &&
@@ -48,6 +49,11 @@ export const buildAsciiOutputToken = (ascii: AsciiAdjustments | undefined) => {
   return [
     "ascii:on",
     ascii.charsetPreset,
+    // Custom charset contributes only when the preset is "custom"; other
+    // presets use their own candidate set and the custom string is ignored,
+    // so excluding it from the token prevents spurious cache invalidation
+    // while the user types a string they're not yet applying.
+    ascii.charsetPreset === "custom" ? ascii.customCharset : "-",
     ascii.colorMode,
     ascii.renderMode,
     formatNumberToken(ascii.cellSize, 0),

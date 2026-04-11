@@ -43,6 +43,7 @@ const createDocumentInput = (): Omit<ImageRenderDocument, "revisionKey"> => ({
       params: {
         renderMode: "glyph",
         preset: "standard",
+        customCharset: null,
         cellSize: 12,
         characterSpacing: 1,
         density: 1,
@@ -158,6 +159,7 @@ describe("image render types", () => {
           params: {
             renderMode: "glyph",
             preset: "blocks",
+            customCharset: null,
             cellSize: 10,
             characterSpacing: 1,
             density: 1,

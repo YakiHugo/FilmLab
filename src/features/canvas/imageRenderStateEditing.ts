@@ -16,7 +16,7 @@ import {
   type ImageFilter2dEffectNode,
 } from "@/render/image";
 
-const CHARSET_PRESET_VALUES = ["standard", "minimal", "blocks", "detailed"] as const;
+const CHARSET_PRESET_VALUES = ["standard", "minimal", "blocks", "detailed", "custom"] as const;
 const COLOR_MODE_VALUES = ["grayscale", "full-color", "duotone"] as const;
 const DITHER_VALUES = ["none", "floyd-steinberg"] as const;
 const RENDER_MODE_VALUES = ["glyph", "dot"] as const;
@@ -45,6 +45,7 @@ const isForegroundBlendMode = (value: unknown): value is AsciiForegroundBlendMod
 const DEFAULT_ASCII_ADJUSTMENTS: AsciiAdjustments = {
   enabled: false,
   charsetPreset: "standard",
+  customCharset: "",
   invert: false,
   brightness: 0,
   contrast: 1,
@@ -91,6 +92,8 @@ const resolveAsciiAdjustmentsFromState = (state: CanvasImageRenderStateV1): Asci
     ...DEFAULT_ASCII_ADJUSTMENTS,
     enabled: true,
     charsetPreset: isCharsetPreset(params.preset) ? params.preset : "standard",
+    customCharset:
+      typeof params.customCharset === "string" ? params.customCharset : "",
     invert: Boolean(params.invert),
     brightness: typeof params.brightness === "number" ? params.brightness : 0,
     contrast: typeof params.contrast === "number" ? params.contrast : 1,
@@ -193,6 +196,7 @@ const createDefaultAsciiCarrierTransform = (): Extract<CarrierTransformNode, { t
   params: {
     renderMode: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.renderMode,
     preset: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.charsetPreset,
+    customCharset: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.customCharset || null,
     cellSize: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.cellSize,
     characterSpacing: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.characterSpacing,
     density: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.density,
@@ -377,6 +381,12 @@ export const applyAsciiAdjustmentsToRenderState = (
     params: {
       ...transform.params,
       preset: partial.charsetPreset ?? transform.params.preset,
+      customCharset:
+        partial.customCharset !== undefined
+          ? partial.customCharset.length > 0
+            ? partial.customCharset
+            : null
+          : transform.params.customCharset,
       invert: partial.invert ?? transform.params.invert,
       brightness: partial.brightness ?? transform.params.brightness,
       contrast: partial.contrast ?? transform.params.contrast,
