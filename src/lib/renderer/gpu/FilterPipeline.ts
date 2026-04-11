@@ -1,5 +1,5 @@
 import * as twgl from "twgl.js";
-import type { BufferInfo } from "twgl.js";
+import type { BufferInfo, ProgramInfo } from "twgl.js";
 import type { PipelinePass, PipelineOutputFormat } from "./PipelinePass";
 import type { PooledRenderTarget } from "./TexturePool";
 import { TexturePool } from "./TexturePool";
@@ -37,7 +37,12 @@ export class FilterPipeline {
 
   constructor(
     private readonly gl: WebGL2RenderingContext,
-    private readonly texturePool: TexturePool
+    private readonly texturePool: TexturePool,
+    // When set, execute() will append a passthrough draw to any odd-length pass
+    // chain so each call performs an even number of Fullscreen.vert invocations.
+    // This keeps output Y storage convention equal to input convention regardless
+    // of how many conditional passes participated in a given render.
+    private readonly yParityPassthroughProgram?: ProgramInfo | null
   ) {
     this.quadBufferInfo = twgl.createBufferInfoFromArrays(this.gl, {
       a_position: {
@@ -81,6 +86,30 @@ export class FilterPipeline {
       return {
         currentLease: null,
       };
+    }
+
+    // Fullscreen.vert emits vTextureCoord via `0.5 - a_position.y * 0.5`, which
+    // flips Y storage convention on every draw. When the chain length is odd,
+    // the caller's output would come back with inverted Y relative to its input,
+    // and whether that is visible depends on how many conditional passes ran —
+    // which makes orientation depend on params like clarity/detail toggles.
+    // Normalising to an even draw count per execute call keeps the output's Y
+    // convention identical to the input's, so orientation is param-independent.
+    if (
+      this.yParityPassthroughProgram &&
+      activePasses.length % 2 === 1
+    ) {
+      const lastPass = activePasses[activePasses.length - 1]!;
+      activePasses.push({
+        id: "y-parity-passthrough",
+        programInfo: this.yParityPassthroughProgram,
+        uniforms: {},
+        // Inherit the last pass's resolution so the output size is unchanged.
+        resolution: lastPass.resolution,
+        // outputFormat left undefined → execute() falls back to currentFormat
+        // (i.e. the format the original last pass produced).
+        enabled: true,
+      });
     }
 
     let currentTexture = options.input.texture;
