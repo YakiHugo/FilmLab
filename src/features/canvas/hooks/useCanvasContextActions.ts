@@ -18,6 +18,7 @@ import {
 } from "../canvasContextActions";
 import { resolveCanvasLayerOrderPlan } from "../canvasLayerOrderActions";
 import { isCanvasShortcutMatch } from "../canvasShortcuts";
+import { isCanvasTypingInProgress, isEditableEventTarget } from "../domEditableFocus";
 import { isSelectableSelectionTarget } from "../selectionGeometry";
 import { resolvePrimarySelectedElement, resolveSelectedRootElementIds } from "../selectionModel";
 import type { CanvasInteractionNotice } from "../viewportOverlay";
@@ -28,17 +29,6 @@ import { useCanvasLoadedWorkbenchStructure } from "./useCanvasLoadedWorkbenchStr
 import { useCanvasSelectionActions } from "./useCanvasSelectionActions";
 
 const WORKSPACE_GRID_NODE_ID = "canvas-workspace-grid";
-
-const isEditableTarget = (target: EventTarget | null) => {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-  const tagName = target.tagName.toLowerCase();
-  if (tagName === "input" || tagName === "textarea" || tagName === "select") {
-    return true;
-  }
-  return target.isContentEditable;
-};
 
 const resolveCanvasElementIdFromStageTarget = (stage: Konva.Stage, target: Konva.Node | null) => {
   let current: Konva.Node | null = target;
@@ -319,7 +309,11 @@ export function useCanvasContextActions({
 
   const handleShortcutKeyDown = useCallback(
     (event: KeyboardEvent | ReactKeyboardEvent<HTMLElement>) => {
-      if (isEditableTarget(event.target) || !loadedWorkbench) {
+      // Bail out when the user is typing: either event.target is editable
+      // (usually the case for locally-focused inputs) or document.activeElement
+      // is editable (catches the race where focus has shifted to a DOM overlay
+      // but the event was captured at window level with a stale target).
+      if (isCanvasTypingInProgress(event.target) || !loadedWorkbench) {
         return false;
       }
 
@@ -342,7 +336,7 @@ export function useCanvasContextActions({
 
   const handleContextMenuCapture = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
-      if (!loadedWorkbench || isEditableTarget(event.target)) {
+      if (!loadedWorkbench || isEditableEventTarget(event.target)) {
         return;
       }
 

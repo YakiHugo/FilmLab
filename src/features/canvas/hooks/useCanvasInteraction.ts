@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { isCanvasTypingInProgress } from "../domEditableFocus";
 import { resolveSelectableSelectionIds } from "../selectionGeometry";
 import { selectionIdsEqual } from "../selectionModel";
 import { useCanvasLoadedWorkbenchState } from "./useCanvasLoadedWorkbenchState";
@@ -9,17 +10,6 @@ import { useCanvasSelectionActions } from "./useCanvasSelectionActions";
 export interface UseCanvasInteractionOptions {
   onShortcutKeyDown: (event: KeyboardEvent) => boolean;
 }
-
-const isEditableTarget = (target: EventTarget | null) => {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-  const tagName = target.tagName.toLowerCase();
-  if (tagName === "input" || tagName === "textarea" || tagName === "select") {
-    return true;
-  }
-  return target.isContentEditable;
-};
 
 interface CanvasInteractionNudge {
   dx: number;
@@ -76,7 +66,7 @@ export function useCanvasInteraction({ onShortcutKeyDown }: UseCanvasInteraction
         return;
       }
 
-      if (onShortcutKeyDown(event) || isEditableTarget(event.target)) {
+      if (onShortcutKeyDown(event) || isCanvasTypingInProgress(event.target)) {
         return;
       }
 

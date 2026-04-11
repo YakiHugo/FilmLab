@@ -7,6 +7,7 @@ import type {
   CanvasWorkbench,
 } from "@/types";
 import { WORKSPACE_BACKGROUND_NODE_ID } from "../canvasViewportConstants";
+import { isEditableActiveElement } from "../domEditableFocus";
 import {
   resolveCanvasToolController,
   type CanvasToolActionPort,
@@ -159,6 +160,16 @@ export function useCanvasViewportToolOrchestrator({
     (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
       const stage = stageRef.current;
       if (!stage || !activeWorkbench) {
+        return;
+      }
+
+      // If the user is currently typing into a DOM editable (text-session
+      // editor, inline input in a floating panel, etc.), defer to that focus.
+      // A sibling capture-phase listener on document will commit/cancel the
+      // edit for us; Konva should not race it by starting a marquee or
+      // mutating selection here. The user can click again after the commit
+      // lands to pick the next action.
+      if (isEditableActiveElement()) {
         return;
       }
 
