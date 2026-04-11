@@ -2,6 +2,7 @@ import { X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, type CanvasFloatingPanel as PanelType } from "@/stores/canvasStore";
+import { CanvasAsciiEditPanel } from "./CanvasAsciiEditPanel";
 import { CanvasAssetPicker } from "./CanvasAssetPicker";
 import { CanvasEditPanel } from "./CanvasEditPanel";
 import { CanvasLayerPanel } from "./CanvasLayerPanel";
@@ -13,6 +14,7 @@ import {
 
 const PANEL_TITLES: Record<NonNullable<PanelType>, string> = {
   edit: "编辑",
+  ascii: "ASCII",
   layers: "Layers",
   library: "Library",
 };
@@ -20,7 +22,7 @@ const PANEL_TITLES: Record<NonNullable<PanelType>, string> = {
 export function CanvasFloatingPanel() {
   const activePanel = useCanvasStore((s) => s.activePanel);
   const setActivePanel = useCanvasStore((s) => s.setActivePanel);
-  const isEditDock = activePanel === "edit";
+  const isEditDock = activePanel === "edit" || activePanel === "ascii";
 
   return (
     <AnimatePresence mode="wait">
@@ -72,6 +74,8 @@ function PanelContent({
   switch (panel) {
     case "edit":
       return <CanvasEditPanel />;
+    case "ascii":
+      return <CanvasAsciiEditPanel />;
     case "layers":
       return <CanvasLayerPanel />;
     case "library":

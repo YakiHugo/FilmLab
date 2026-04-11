@@ -10,6 +10,7 @@ import type {
 export type CanvasTool = "select" | "text" | "hand" | "shape";
 export type CanvasFloatingPanel =
   | "edit"
+  | "ascii"
   | "layers"
   | "library"
   | null;
