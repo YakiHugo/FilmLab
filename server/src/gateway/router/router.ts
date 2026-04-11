@@ -89,7 +89,10 @@ export const createImageRuntimeRouter = (config: AppConfig) => ({
           target.provider.id === "kling"
             ? `${target.provider.name} access key and secret key are required.`
             : `${target.provider.name} API key is required.`;
-        throw new ProviderError(message, 401);
+        // 503 (not 401) so the fallback loop continues to the next target; selection
+        // already filters unconfigured providers, so hitting this is a defense-in-depth
+        // path (explicit targets override, or no provider configured at all).
+        throw new ProviderError(message, 503);
       }
 
       const adapter = getPlatformModelAdapter(
