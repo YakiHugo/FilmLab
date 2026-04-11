@@ -8,6 +8,7 @@ import type { RenderMode } from "@/lib/renderer/RenderManager";
 import { clamp } from "@/lib/math";
 import type { EditorLayerBlendMode } from "@/types";
 import { getOrCreateAsciiAnalysisEntry } from "./asciiAnalysis";
+import { resolveDensitySortedCharset } from "./asciiDensityMeasure";
 import {
   applyMaskedStageOperation,
   applyMaskedStageOperationToSurfaceIfSupported,
@@ -25,15 +26,45 @@ import type {
 } from "./types";
 import { buildSourceRevisionKey } from "./types";
 
-const CHARSET_PRESETS: Record<NonNullable<ImageAsciiCarrierTransformNode["params"]["preset"]>, string[]> = {
-  standard: "@%#*+=-:. ".split(""),
-  // Unicode block-element ramp, densest → sparsest. A previous bad save mangled
-  // these into CJK bytes; keep literal to avoid re-corruption.
-  blocks: ["\u2588", "\u2593", "\u2592", "\u2591", " "],
-  minimal: "@#*+=-:. ".split(""),
+// Candidate character sets per preset. These are UNORDERED with respect to
+// tone density — `resolveCharsetForPreset` runs them through the density
+// measurer (asciiDensityMeasure.ts) which re-orders them densest → sparsest
+// using the actual pixel coverage of each glyph under the monospace atlas
+// font. The old approach hard-coded an intuitive ramp (e.g. "@%#*+=-:. ")
+// which assumed a specific font; the measured order lines up with what pixels
+// the shader actually writes, so tone indices finally match perception.
+const CHARSET_PRESET_CANDIDATES: Record<
+  NonNullable<ImageAsciiCarrierTransformNode["params"]["preset"]>,
+  string
+> = {
+  standard: "@%#*+=-:. ",
+  // Unicode block-element ramp. A previous bad save mangled these into CJK
+  // bytes; keep as \u escapes to avoid re-corruption by editors.
+  blocks: "\u2588\u2593\u2592\u2591 ",
+  minimal: "@#*+=-:. ",
+  // Expanded from 71 → full printable ASCII plus a few block extras, because a
+  // larger palette gives smoother tone transitions once the chars are sorted
+  // by their measured density.
   detailed:
-    "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. ".split(""),
-  custom: "@%#*+=-:. ".split(""),
+    "\u2588\u2593\u2592\u2591$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. ",
+  // `custom` is a placeholder when the user has not entered a custom charset;
+  // resolveCharsetForPreset() swaps in the user string when supplied.
+  custom: "@%#*+=-:. ",
+};
+
+const resolveCharsetForPreset = (
+  preset: NonNullable<ImageAsciiCarrierTransformNode["params"]["preset"]>,
+  customCharset?: string | null
+): string[] => {
+  if (preset === "custom") {
+    const trimmed = typeof customCharset === "string" ? customCharset : "";
+    if (trimmed.length > 0) {
+      return resolveDensitySortedCharset(trimmed);
+    }
+    return resolveDensitySortedCharset(CHARSET_PRESET_CANDIDATES.standard);
+  }
+  const candidate = CHARSET_PRESET_CANDIDATES[preset] ?? CHARSET_PRESET_CANDIDATES.standard;
+  return resolveDensitySortedCharset(candidate);
 };
 
 const ALPHA_CUTOFF = 0.05;
@@ -45,6 +76,7 @@ const TEXTMODE_EMPTY_GLYPH_INDEX = 0xffff;
 interface NormalizedImageAsciiEffectParams {
   renderMode: "glyph" | "dot";
   preset: "standard" | "minimal" | "blocks" | "detailed" | "custom";
+  customCharset: string | null;
   cellSize: number;
   characterSpacing: number;
   density: number;
@@ -288,6 +320,10 @@ export const normalizeImageAsciiEffectParams = (
     params.preset === "custom"
       ? params.preset
       : "standard",
+  customCharset:
+    typeof params.customCharset === "string" && params.customCharset.length > 0
+      ? params.customCharset
+      : null,
   cellSize: clamp(Math.round(params.cellSize), 4, 48),
   characterSpacing: clamp(params.characterSpacing, 0.5, 2),
   density: clamp(params.density, 0.1, 1),
@@ -397,7 +433,10 @@ export const createAsciiFeatureGrid = async ({
 
   if (normalized.dither === "floyd-steinberg") {
     const dithered = Float32Array.from(toneByCell);
-    const glyphSteps = Math.max(1, (CHARSET_PRESETS[normalized.preset] ?? CHARSET_PRESETS.standard).length - 1);
+    const glyphSteps = Math.max(
+      1,
+      resolveCharsetForPreset(normalized.preset, normalized.customCharset).length - 1
+    );
     for (let row = 0; row < rows; row += 1) {
       for (let column = 0; column < columns; column += 1) {
         const index = row * columns + column;
@@ -454,7 +493,7 @@ export const createAsciiTextmodeSurface = ({
 }): AsciiTextmodeSurface => {
   const normalized = normalizeImageAsciiEffectParams(transform.params);
   const backgroundColor = parseHexColor(normalized.backgroundColor);
-  const charset = CHARSET_PRESETS[normalized.preset] ?? CHARSET_PRESETS.standard;
+  const charset = resolveCharsetForPreset(normalized.preset, normalized.customCharset);
   const glyphSteps = Math.max(1, charset.length - 1);
   const cellCount = featureGrid.columns * featureGrid.rows;
   const backgroundBlurPx =
@@ -606,7 +645,7 @@ export const createAsciiGpuCarrierInput = ({
     invert: normalized.invert,
     gridOverlay: normalized.gridOverlay,
     gridOverlayAlpha: 0.08 * normalized.foregroundOpacity,
-    charset: CHARSET_PRESETS[normalized.preset] ?? CHARSET_PRESETS.standard,
+    charset: resolveCharsetForPreset(normalized.preset, normalized.customCharset),
     sourceCanvas,
   };
 };

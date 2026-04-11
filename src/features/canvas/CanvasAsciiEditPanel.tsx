@@ -46,6 +46,7 @@ const ASCII_CHARSET_OPTIONS: Array<{
   { label: "简约", value: "minimal" },
   { label: "方块", value: "blocks" },
   { label: "细节", value: "detailed" },
+  { label: "自定义", value: "custom" },
 ];
 
 const ASCII_COLOR_MODE_OPTIONS: Array<{
@@ -436,6 +437,33 @@ function CanvasAsciiEditPanelForImage({
               ))}
             </SelectContent>
           </Select>
+
+          {asciiAdjustments.charsetPreset === "custom" ? (
+            <div className="space-y-1.5">
+              <label className="text-xs text-[color:var(--canvas-edit-text-muted)]">
+                自定义字符（按密度自动排序，从密到疏）
+              </label>
+              <textarea
+                rows={2}
+                spellCheck={false}
+                placeholder="例如：@#*+=-:. "
+                value={asciiAdjustments.customCharset}
+                disabled={!asciiEnabled}
+                className={cn(
+                  "w-full rounded-[8px] border border-[color:var(--canvas-edit-border)] bg-[color:var(--canvas-edit-surface)] px-3 py-2 font-mono text-sm leading-relaxed text-[color:var(--canvas-edit-text)] outline-none transition focus:border-[color:var(--canvas-edit-text)] disabled:cursor-not-allowed disabled:opacity-40"
+                )}
+                onChange={(event) =>
+                  updateAsciiAdjustments(
+                    { customCharset: event.target.value },
+                    "preview"
+                  )
+                }
+                onBlur={(event) =>
+                  updateAsciiAdjustments({ customCharset: event.target.value })
+                }
+              />
+            </div>
+          ) : null}
         </div>
       </CanvasEditSection>
 

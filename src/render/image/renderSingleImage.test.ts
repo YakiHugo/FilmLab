@@ -303,6 +303,7 @@ const createDocument = ({
           params: {
             renderMode: "glyph",
             preset: "blocks",
+            customCharset: null,
             cellSize: 10,
             characterSpacing: 1.25,
             density: 1,
