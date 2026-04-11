@@ -36,7 +36,7 @@ import {
 } from "./imageRenderStateEditing";
 import { useCanvasImagePropertyActions } from "./hooks/useCanvasImagePropertyActions";
 
-type AsciiSectionId = "presets" | "tone" | "character" | "background" | "color";
+type AsciiSectionId = "presets" | "character" | "background" | "color";
 
 const ASCII_CHARSET_OPTIONS: Array<{
   label: string;
@@ -96,8 +96,6 @@ const ASCII_FOREGROUND_BLEND_OPTIONS: Array<{
 ];
 
 type AsciiNumericKey =
-  | "brightness"
-  | "contrast"
   | "density"
   | "coverage"
   | "edgeEmphasis"
@@ -107,7 +105,6 @@ type AsciiNumericKey =
   | "backgroundBlur"
   | "backgroundOpacity";
 
-const formatSigned = (value: number) => (value > 0 ? `+${value}` : `${value}`);
 const formatRatio = (value: number) => value.toFixed(2);
 const formatPercent = (value: number) => `${Math.round(value * 100)}%`;
 
@@ -120,14 +117,11 @@ interface AsciiSliderDef {
   format?: (value: number) => string;
 }
 
-const TONE_SLIDERS: AsciiSliderDef[] = [
-  { key: "brightness", label: "亮度", min: -100, max: 100, step: 1, format: formatSigned },
-  { key: "contrast", label: "对比度", min: 0.5, max: 2.5, step: 0.05, format: formatRatio },
-  { key: "density", label: "密度", min: 0.1, max: 1, step: 0.01, format: formatRatio },
-  { key: "coverage", label: "覆盖率", min: 0.05, max: 1, step: 0.01, format: formatRatio },
-  { key: "edgeEmphasis", label: "边缘强度", min: 0, max: 1, step: 0.01, format: formatRatio },
-];
-
+// brightness / contrast are not surfaced here — they duplicate the image edit
+// panel's "光线与对比" section, which already operates on the source pixels
+// that feed into the ASCII sampler. density / coverage / edgeEmphasis are
+// retained because they modify the ASCII tone→glyph mapping itself, not the
+// underlying image tone, so there is no equivalent control elsewhere.
 const CHARACTER_SLIDERS: AsciiSliderDef[] = [
   { key: "cellSize", label: "单元尺寸", min: 6, max: 48, step: 1 },
   {
@@ -138,9 +132,12 @@ const CHARACTER_SLIDERS: AsciiSliderDef[] = [
     step: 0.05,
     format: formatRatio,
   },
+  { key: "density", label: "字符密度", min: 0.1, max: 1, step: 0.01, format: formatRatio },
+  { key: "coverage", label: "覆盖率", min: 0.05, max: 1, step: 0.01, format: formatRatio },
+  { key: "edgeEmphasis", label: "边缘强度", min: 0, max: 1, step: 0.01, format: formatRatio },
   {
     key: "foregroundOpacity",
-    label: "前景不透明度",
+    label: "字符不透明度",
     min: 0,
     max: 1,
     step: 0.01,
@@ -154,18 +151,18 @@ const sectionKeysHaveChanges = (
   keys: Array<keyof AsciiAdjustments>
 ) => keys.some((key) => current[key] !== defaults[key]);
 
-const PRESET_KEYS: Array<keyof AsciiAdjustments> = ["charsetPreset", "invert"];
-const TONE_KEYS: Array<keyof AsciiAdjustments> = [
-  "brightness",
-  "contrast",
-  "density",
-  "coverage",
-  "edgeEmphasis",
+const PRESET_KEYS: Array<keyof AsciiAdjustments> = [
+  "charsetPreset",
+  "customCharset",
+  "invert",
 ];
 const CHARACTER_KEYS: Array<keyof AsciiAdjustments> = [
   "renderMode",
   "cellSize",
   "characterSpacing",
+  "density",
+  "coverage",
+  "edgeEmphasis",
   "foregroundOpacity",
   "foregroundBlendMode",
   "gridOverlay",
@@ -227,9 +224,8 @@ function CanvasAsciiEditPanelForImage({
   const { setRenderState } = useCanvasImagePropertyActions(imageElement);
   const [openSections, setOpenSections] = useState<Record<AsciiSectionId, boolean>>(() => ({
     presets: true,
-    tone: true,
     character: true,
-    background: false,
+    background: true,
     color: false,
   }));
 
@@ -301,11 +297,6 @@ function CanvasAsciiEditPanelForImage({
   const presetsHasChanges =
     asciiEnabled !== DEFAULT_CANVAS_ASCII_ADJUSTMENTS.enabled ||
     sectionKeysHaveChanges(asciiAdjustments, DEFAULT_CANVAS_ASCII_ADJUSTMENTS, PRESET_KEYS);
-  const toneHasChanges = sectionKeysHaveChanges(
-    asciiAdjustments,
-    DEFAULT_CANVAS_ASCII_ADJUSTMENTS,
-    TONE_KEYS
-  );
   const characterHasChanges = sectionKeysHaveChanges(
     asciiAdjustments,
     DEFAULT_CANVAS_ASCII_ADJUSTMENTS,
@@ -379,6 +370,12 @@ function CanvasAsciiEditPanelForImage({
 
   return (
     <section className="flex min-h-0 flex-1 flex-col overflow-y-auto pr-1">
+      {/* Inner wrapper isolates the CanvasEditSections from the outer flex
+          column so each section can take its natural block height and the
+          outer overflow-y-auto can scroll when totals exceed the panel.
+          Without this, flex children fall back to min-height: auto and the
+          scroll container fails to activate. */}
+      <div>
       <CanvasEditSection
         variant="canvasDock"
         title="预设"
@@ -465,18 +462,6 @@ function CanvasAsciiEditPanelForImage({
             </div>
           ) : null}
         </div>
-      </CanvasEditSection>
-
-      <CanvasEditSection
-        variant="canvasDock"
-        title="色调"
-        isOpen={openSections.tone}
-        onToggle={() => toggleSection("tone")}
-        hasChanges={toneHasChanges}
-        canResetChanges={toneHasChanges}
-        onResetChanges={() => resetSectionKeys(TONE_KEYS)}
-      >
-        <div className="space-y-2">{TONE_SLIDERS.map(renderAsciiSlider)}</div>
       </CanvasEditSection>
 
       <CanvasEditSection
@@ -690,6 +675,7 @@ function CanvasAsciiEditPanelForImage({
           </Select>
         </div>
       </CanvasEditSection>
+      </div>
     </section>
   );
 }

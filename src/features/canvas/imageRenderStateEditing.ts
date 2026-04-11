@@ -44,21 +44,32 @@ const isForegroundBlendMode = (value: unknown): value is AsciiForegroundBlendMod
 
 const DEFAULT_ASCII_ADJUSTMENTS: AsciiAdjustments = {
   enabled: false,
-  charsetPreset: "standard",
+  // "detailed" has ~75 density-sorted chars after the Phase 3 measurer, which
+  // gives smoother tone gradients than "standard"'s 10 chars — closer to
+  // ascii-magic's out-of-the-box look.
+  charsetPreset: "detailed",
   customCharset: "",
   invert: false,
+  // brightness/contrast are kept at neutral and no longer surfaced in the
+  // ASCII panel — those duplicate the image edit panel's "光线与对比"
+  // section, which modifies the source pixels the ASCII sampler reads.
   brightness: 0,
   contrast: 1,
-  density: 1,
-  coverage: 1,
+  // density < 1 applies a gamma that pushes dark tones toward the dense end
+  // of the charset. coverage < 1 makes the darkest cells empty instead of
+  // filling every cell with a character, which is the "breathing room" that
+  // stops ASCII output from looking like a muddy wall of text.
+  density: 0.85,
+  coverage: 0.92,
   edgeEmphasis: 0,
   renderMode: "glyph",
-  cellSize: 12,
+  // Smaller default cell size → more glyphs per image → more perceived detail.
+  cellSize: 8,
   characterSpacing: 1,
   foregroundOpacity: 1,
   foregroundBlendMode: "source-over",
   gridOverlay: false,
-  backgroundMode: "cell-solid",
+  backgroundMode: "solid",
   backgroundColor: "#000000",
   backgroundBlur: 0,
   backgroundOpacity: 1,
