@@ -354,6 +354,182 @@ const normalizeGeneratedImage = async (
   };
 };
 
+type NormalizedGeneratedImageEntry = {
+  buffer: Buffer;
+  provider: ImageProviderId;
+  model: string;
+  mimeType: string;
+  revisedPrompt: string | null;
+  index: number;
+};
+
+const collectNormalizedImages = (
+  settledResults: Array<PromiseSettledResult<Awaited<ReturnType<typeof normalizeGeneratedImage>>>>,
+  meta: {
+    provider: ImageProviderId;
+    providerModel: string;
+    conversationId: string | null;
+    turnId: string | null;
+    runId: string | null;
+  },
+  logger: FastifyBaseLogger
+) => {
+  const normalizedImages: NormalizedGeneratedImageEntry[] = [];
+  let normalizationFailureCount = 0;
+  let firstNormalizationError: unknown = null;
+
+  for (const [settledIndex, result] of settledResults.entries()) {
+    if (result.status === "fulfilled") {
+      if (result.value) {
+        normalizedImages.push({
+          buffer: result.value.buffer,
+          provider: meta.provider,
+          model: meta.providerModel,
+          mimeType: result.value.mimeType,
+          revisedPrompt: result.value.revisedPrompt,
+          index: result.value.index,
+        });
+      }
+      continue;
+    }
+
+    normalizationFailureCount += 1;
+    firstNormalizationError ??= result.reason;
+    logger.warn(
+      {
+        err: result.reason,
+        imageIndex: settledIndex,
+        conversationId: meta.conversationId,
+        turnId: meta.turnId,
+        runId: meta.runId,
+      },
+      "Generated image result could not be normalized."
+    );
+  }
+
+  return { normalizedImages, normalizationFailureCount, firstNormalizationError };
+};
+
+const handleExecutionFailure = async (
+  error: unknown,
+  cleanup: {
+    signal: AbortSignal;
+    persistedGeneration: PersistedGenerationContext | null;
+    repository: ChatStateRepository;
+    assetService: AssetService;
+    userId: string;
+    generationAssetsCommitted: boolean;
+    createdAssetEdgeIds: string[];
+    createdGeneratedAssetIds: string[];
+    logger: FastifyBaseLogger;
+  }
+): Promise<ImageGenerationCommandError> => {
+  const {
+    signal,
+    persistedGeneration,
+    repository,
+    assetService,
+    userId,
+    generationAssetsCommitted,
+    createdAssetEdgeIds,
+    createdGeneratedAssetIds,
+    logger,
+  } = cleanup;
+
+  const failureMessage = signal.aborted
+    ? "Image generation was canceled."
+    : error instanceof Error
+      ? error.message
+      : "Image generation failed.";
+
+  if (persistedGeneration) {
+    try {
+      await repository.completeGenerationFailure({
+        conversationId: persistedGeneration.conversationId,
+        turnId: persistedGeneration.turnId,
+        jobId: persistedGeneration.jobId,
+        runId: persistedGeneration.runId,
+        attemptId: persistedGeneration.attemptId,
+        error: failureMessage,
+        completedAt: new Date().toISOString(),
+      });
+    } catch (persistenceError) {
+      logger.error(
+        {
+          err: persistenceError,
+          conversationId: persistedGeneration.conversationId,
+          turnId: persistedGeneration.turnId,
+          jobId: persistedGeneration.jobId,
+          runId: persistedGeneration.runId,
+        },
+        "Failed to persist image generation failure state."
+      );
+    }
+  }
+
+  if (!generationAssetsCommitted && createdAssetEdgeIds.length > 0) {
+    await assetService.deleteAssetEdges(createdAssetEdgeIds).catch(() => undefined);
+  }
+  if (!generationAssetsCommitted && createdGeneratedAssetIds.length > 0) {
+    await Promise.allSettled(
+      createdGeneratedAssetIds.map((assetId) => assetService.deleteAsset(userId, assetId))
+    );
+  }
+
+  if (error instanceof ImageGenerationCommandError) {
+    return error;
+  }
+  if (error instanceof ChatPromptStateConflictError) {
+    return new ImageGenerationCommandError({
+      statusCode: 409,
+      message: "Conversation state changed during prompt compilation. Please retry.",
+      persistedGeneration,
+      cause: error,
+    });
+  }
+  if (error instanceof ProviderError) {
+    if (!signal.aborted) {
+      logger.warn(
+        {
+          err: error,
+          conversationId: persistedGeneration?.conversationId ?? null,
+          turnId: persistedGeneration?.turnId ?? null,
+          jobId: persistedGeneration?.jobId ?? null,
+          runId: persistedGeneration?.runId ?? null,
+        },
+        "Image generation failed with a provider error."
+      );
+    }
+
+    return new ImageGenerationCommandError({
+      statusCode: error.statusCode,
+      message: error.message,
+      persistedGeneration,
+      cause: error,
+    });
+  }
+
+  if (!signal.aborted) {
+    logger.error(
+      {
+        err: error,
+        conversationId: persistedGeneration?.conversationId ?? null,
+        turnId: persistedGeneration?.turnId ?? null,
+        jobId: persistedGeneration?.jobId ?? null,
+        runId: persistedGeneration?.runId ?? null,
+      },
+      "Image generation failed."
+    );
+  }
+
+  return new ImageGenerationCommandError({
+    statusCode: 500,
+    message: "Image generation failed.",
+    persistedGeneration,
+    cause: error,
+  });
+};
+
 type PromptResolution = {
   routeTargets: ResolvedRouteTarget[];
   selectedTarget: ResolvedRouteTarget;
@@ -1112,45 +1288,18 @@ export class ImageGenerationService {
             normalizeGeneratedImage(image, index, signal, config.generatedImageDownloadMaxBytes, config)
         );
 
-        let normalizationFailureCount = 0;
-        let firstNormalizationError: unknown = null;
-        const normalizedImages: Array<{
-          buffer: Buffer;
-          provider: ImageProviderId;
-          model: string;
-          mimeType: string;
-          revisedPrompt: string | null;
-          index: number;
-        }> = [];
-
-        for (const [settledIndex, result] of normalizedSettledResults.entries()) {
-          if (result.status === "fulfilled") {
-            if (result.value) {
-              normalizedImages.push({
-                buffer: result.value.buffer,
-                provider: generated.runtimeProvider,
-                model: generated.providerModel,
-                mimeType: result.value.mimeType,
-                revisedPrompt: result.value.revisedPrompt,
-                index: result.value.index,
-              });
-            }
-            continue;
-          }
-
-          normalizationFailureCount += 1;
-          firstNormalizationError ??= result.reason;
-          logger.warn(
+        const { normalizedImages, normalizationFailureCount, firstNormalizationError } =
+          collectNormalizedImages(
+            normalizedSettledResults,
             {
-              err: result.reason,
-              imageIndex: settledIndex,
+              provider: generated.runtimeProvider,
+              providerModel: generated.providerModel,
               conversationId: persistedGeneration?.conversationId ?? null,
               turnId: persistedGeneration?.turnId ?? null,
               runId: persistedGeneration?.runId ?? null,
             },
-            "Generated image result could not be normalized."
+            logger
           );
-        }
 
         if (normalizedImages.length === 0) {
           if (firstNormalizationError) {
@@ -1414,100 +1563,17 @@ export class ImageGenerationService {
           ...(mergedWarnings.length > 0 ? { warnings: mergedWarnings } : {}),
         };
     } catch (error) {
-        const failureMessage = signal.aborted
-          ? "Image generation was canceled."
-          : error instanceof Error
-            ? error.message
-            : "Image generation failed.";
-
-        if (persistedGeneration) {
-          try {
-            await repository.completeGenerationFailure({
-              conversationId: persistedGeneration.conversationId,
-              turnId: persistedGeneration.turnId,
-              jobId: persistedGeneration.jobId,
-              runId: persistedGeneration.runId,
-              attemptId: persistedGeneration.attemptId,
-              error: failureMessage,
-              completedAt: new Date().toISOString(),
-            });
-          } catch (persistenceError) {
-            logger.error(
-              {
-                err: persistenceError,
-                conversationId: persistedGeneration.conversationId,
-                turnId: persistedGeneration.turnId,
-                jobId: persistedGeneration.jobId,
-                runId: persistedGeneration.runId,
-              },
-              "Failed to persist image generation failure state."
-            );
-          }
-        }
-
-        if (!generationAssetsCommitted && createdAssetEdgeIds.length > 0) {
-          await assetService.deleteAssetEdges(createdAssetEdgeIds).catch(() => undefined);
-        }
-        if (!generationAssetsCommitted && createdGeneratedAssetIds.length > 0) {
-          await Promise.allSettled(
-            createdGeneratedAssetIds.map((assetId) => assetService.deleteAsset(userId, assetId))
-          );
-        }
-
-        let commandError: ImageGenerationCommandError;
-
-        if (error instanceof ImageGenerationCommandError) {
-          commandError = error;
-        } else if (error instanceof ChatPromptStateConflictError) {
-          commandError = new ImageGenerationCommandError({
-            statusCode: 409,
-            message: "Conversation state changed during prompt compilation. Please retry.",
-            persistedGeneration,
-            cause: error,
-          });
-        } else if (error instanceof ProviderError) {
-          if (!signal.aborted) {
-            logger.warn(
-              {
-                err: error,
-                conversationId: persistedGeneration?.conversationId ?? null,
-                turnId: persistedGeneration?.turnId ?? null,
-                jobId: persistedGeneration?.jobId ?? null,
-                runId: persistedGeneration?.runId ?? null,
-              },
-              "Image generation failed with a provider error."
-            );
-          }
-
-          commandError = new ImageGenerationCommandError({
-            statusCode: error.statusCode,
-            message: error.message,
-            persistedGeneration,
-            cause: error,
-          });
-        } else {
-          if (!signal.aborted) {
-            logger.error(
-              {
-                err: error,
-                conversationId: persistedGeneration?.conversationId ?? null,
-                turnId: persistedGeneration?.turnId ?? null,
-                jobId: persistedGeneration?.jobId ?? null,
-                runId: persistedGeneration?.runId ?? null,
-              },
-              "Image generation failed."
-            );
-          }
-
-          commandError = new ImageGenerationCommandError({
-            statusCode: 500,
-            message: "Image generation failed.",
-            persistedGeneration,
-            cause: error,
-          });
-        }
-
-        throw commandError;
+      throw await handleExecutionFailure(error, {
+        signal,
+        persistedGeneration,
+        repository,
+        assetService,
+        userId,
+        generationAssetsCommitted,
+        createdAssetEdgeIds,
+        createdGeneratedAssetIds,
+        logger,
+      });
     }
   }
 }
