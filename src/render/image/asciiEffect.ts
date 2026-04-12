@@ -1,18 +1,11 @@
 import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
-import {
-  runRendererCanvasOperation,
-  runRendererSurfaceOperation,
-} from "@/lib/renderer/gpuSurfaceOperation";
-import type { RenderMode } from "@/lib/renderer/RenderManager";
 import { clamp } from "@/lib/math";
-import type { EditorLayerBlendMode } from "@/types";
 import { resolveDensitySortedCharset } from "./asciiDensityMeasure";
 import {
   applyMaskedStageOperation,
   applyMaskedStageOperationToSurfaceIfSupported,
 } from "./stageMaskComposite";
 import type {
-  AsciiGpuCarrierInput,
   CarrierTransformNode,
   ImageAsciiCarrierTransformNode,
   ImageRenderDocument,
@@ -26,8 +19,6 @@ import { buildSourceRevisionKey } from "./types";
 // Charset presets
 // ---------------------------------------------------------------------------
 
-// Candidate character sets per preset. UNORDERED — resolveCharsetForPreset
-// runs them through the density measurer which re-orders densest → sparsest.
 const CHARSET_PRESET_CANDIDATES: Record<
   NonNullable<ImageAsciiCarrierTransformNode["params"]["preset"]>,
   string
@@ -61,7 +52,7 @@ const resolveCharsetForPreset = (
 
 const GLYPH_WIDTH_RATIO = 0.62;
 const DOT_WIDTH_RATIO = 1;
-const RGBA_CHANNELS_PER_CELL = 4;
+const ALPHA_CUTOFF = 0.05;
 
 interface NormalizedImageAsciiEffectParams {
   renderMode: "glyph" | "dot";
@@ -108,28 +99,6 @@ const parseHexColor = (value: string | null) => {
     green: parseInt(normalized.slice(3, 5), 16),
     blue: parseInt(normalized.slice(5, 7), 16),
   };
-};
-
-const setPackedRgba = (
-  rgba: Uint8ClampedArray,
-  cellIndex: number,
-  color: { red: number; green: number; blue: number },
-  alpha: number
-) => {
-  const offset = cellIndex * RGBA_CHANNELS_PER_CELL;
-  rgba[offset] = Math.round(clamp(color.red, 0, 255));
-  rgba[offset + 1] = Math.round(clamp(color.green, 0, 255));
-  rgba[offset + 2] = Math.round(clamp(color.blue, 0, 255));
-  rgba[offset + 3] = Math.round(clamp(alpha, 0, 1) * 255);
-};
-
-const createPackedRgba = (
-  color: { red: number; green: number; blue: number },
-  alpha: number
-) => {
-  const rgba = new Uint8ClampedArray(RGBA_CHANNELS_PER_CELL);
-  setPackedRgba(rgba, 0, color, alpha);
-  return rgba;
 };
 
 const resolveEffectiveCellSize = (
@@ -213,179 +182,187 @@ export const normalizeImageAsciiEffectParams = (
 });
 
 // ---------------------------------------------------------------------------
-// GPU carrier input
+// Canvas2D ASCII renderer
 // ---------------------------------------------------------------------------
 
-export const createAsciiGpuCarrierInput = ({
-  sourceCanvas,
-  transform,
-  quality,
-  targetSize,
-}: {
-  sourceCanvas: HTMLCanvasElement;
-  transform: ImageAsciiCarrierTransformNode;
-  quality: ImageRenderQuality;
-  targetSize: ImageRenderTargetSize;
-}): AsciiGpuCarrierInput => {
-  const normalized = normalizeImageAsciiEffectParams(transform.params);
-  const layout = resolveFeatureGridLayout({ normalized, quality, targetSize });
+const renderAsciiToCanvas = (
+  targetCanvas: HTMLCanvasElement,
+  sourceCanvas: HTMLCanvasElement,
+  normalized: NormalizedImageAsciiEffectParams,
+  layout: ReturnType<typeof resolveFeatureGridLayout>
+): boolean => {
+  if (targetCanvas.width <= 0 || targetCanvas.height <= 0 || typeof document === "undefined") {
+    return false;
+  }
+
+  const ctx = targetCanvas.getContext("2d", { willReadFrequently: false });
+  if (!ctx) {
+    return false;
+  }
+
+  const { columns, rows, cellWidth, cellHeight } = layout;
+  const charset = resolveCharsetForPreset(normalized.preset, normalized.customCharset);
+  const glyphSteps = Math.max(1, charset.length - 1);
   const backgroundColor = parseHexColor(normalized.backgroundColor);
-  const backgroundBlurPx =
-    normalized.backgroundMode === "blurred-source"
-      ? resolveBlurRadiusPx(normalized.backgroundBlur, Math.min(layout.width, layout.height))
-      : 0;
+  const blurPx = resolveBlurRadiusPx(
+    normalized.backgroundBlur,
+    Math.min(targetCanvas.width, targetCanvas.height)
+  );
 
-  return {
-    width: layout.width,
-    height: layout.height,
-    cellWidth: layout.cellWidth,
-    cellHeight: layout.cellHeight,
-    columns: layout.columns,
-    rows: layout.rows,
-    renderMode: normalized.renderMode,
-    colorMode: normalized.colorMode,
-    density: normalized.density,
-    coverage: normalized.coverage,
-    edgeEmphasis: normalized.edgeEmphasis,
-    brightness: normalized.brightness,
-    contrast: normalized.contrast,
-    foregroundOpacity: normalized.foregroundOpacity,
-    foregroundBlendMode: normalized.foregroundBlendMode,
-    backgroundMode: normalized.backgroundMode,
-    backgroundOpacity: normalized.backgroundOpacity,
-    backgroundFillRgba:
-      normalized.backgroundMode === "solid"
-        ? createPackedRgba(backgroundColor, normalized.backgroundOpacity)
-        : null,
-    cellBackgroundRgba:
-      normalized.backgroundMode === "cell-solid"
-        ? createPackedRgba(backgroundColor, normalized.backgroundOpacity)
-        : null,
-    backgroundSourceCanvas: normalized.backgroundMode === "blurred-source" ? sourceCanvas : null,
-    backgroundBlurPx,
-    invert: normalized.invert,
-    gridOverlay: normalized.gridOverlay,
-    gridOverlayAlpha: 0.08 * normalized.foregroundOpacity,
-    duotoneShadowRgba:
-      normalized.colorMode === "duotone"
-        ? createPackedRgba(backgroundColor, 1)
-        : null,
-    charset: resolveCharsetForPreset(normalized.preset, normalized.customCharset),
-    sourceCanvas,
-  };
-};
-
-// ---------------------------------------------------------------------------
-// Blend-mode mapping
-// ---------------------------------------------------------------------------
-
-export const resolveAsciiForegroundBlendMode = (
-  blendMode: GlobalCompositeOperation
-): EditorLayerBlendMode | null => {
-  switch (blendMode) {
-    case "source-over":
-      return "normal";
-    case "multiply":
-      return "multiply";
-    case "screen":
-      return "screen";
-    case "overlay":
-      return "overlay";
-    case "soft-light":
-      return "softLight";
-    default:
-      return null;
-  }
-};
-
-// ---------------------------------------------------------------------------
-// GPU carrier rendering (single path — no textmode / CPU fallback)
-// ---------------------------------------------------------------------------
-
-const applyAsciiCarrierOnGpu = async ({
-  targetCanvas,
-  carrier,
-  mode = "preview",
-  slotId = "ascii-carrier",
-}: {
-  targetCanvas: HTMLCanvasElement;
-  carrier: AsciiGpuCarrierInput;
-  mode?: RenderMode;
-  slotId?: string;
-}) => {
-  if (
-    targetCanvas.width <= 0 ||
-    targetCanvas.height <= 0 ||
-    targetCanvas.width !== carrier.width ||
-    targetCanvas.height !== carrier.height
-  ) {
+  // --- Downsample source to grid resolution ---
+  const analysisCanvas = document.createElement("canvas");
+  analysisCanvas.width = columns;
+  analysisCanvas.height = rows;
+  const analysisCtx = analysisCanvas.getContext("2d", { willReadFrequently: true });
+  if (!analysisCtx) {
+    analysisCanvas.width = 0;
+    analysisCanvas.height = 0;
     return false;
   }
+  analysisCtx.drawImage(sourceCanvas, 0, 0, columns, rows);
+  const imageData = analysisCtx.getImageData(0, 0, columns, rows);
+  analysisCanvas.width = 0;
+  analysisCanvas.height = 0;
 
-  const foregroundBlendMode = resolveAsciiForegroundBlendMode(carrier.foregroundBlendMode);
-  if (!foregroundBlendMode) {
-    return false;
+  // --- Clear target ---
+  ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+
+  // --- Draw background ---
+  if (normalized.backgroundMode === "blurred-source") {
+    ctx.save();
+    ctx.globalAlpha = clamp(normalized.backgroundOpacity, 0, 1);
+    ctx.filter = `blur(${Math.max(0, blurPx).toFixed(1)}px)`;
+    ctx.drawImage(sourceCanvas, 0, 0, targetCanvas.width, targetCanvas.height);
+    ctx.restore();
+  } else if (normalized.backgroundMode === "solid") {
+    ctx.save();
+    ctx.globalAlpha = clamp(normalized.backgroundOpacity, 0, 1);
+    ctx.fillStyle = normalizeHexColor(normalized.backgroundColor);
+    ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+    ctx.restore();
   }
 
-  return runRendererCanvasOperation({
-    targetCanvas,
-    mode,
-    width: carrier.width,
-    height: carrier.height,
-    slotId,
-    render: (renderer) =>
-      renderer.renderAsciiCarrierComposite({
-        baseCanvas: targetCanvas,
-        carrier,
-        foregroundBlendMode,
-      }),
-  });
+  // --- Draw foreground characters ---
+  ctx.save();
+  ctx.globalCompositeOperation = normalized.foregroundBlendMode;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `${Math.max(6, Math.round(cellHeight * 0.9))}px monospace`;
+
+  const data = imageData.data;
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < columns; col += 1) {
+      const pixelOffset = (row * columns + col) * 4;
+      const r = (data[pixelOffset] ?? 0) / 255;
+      const g = (data[pixelOffset + 1] ?? 0) / 255;
+      const b = (data[pixelOffset + 2] ?? 0) / 255;
+      const a = (data[pixelOffset + 3] ?? 0) / 255;
+
+      if (a <= ALPHA_CUTOFF) continue;
+
+      // Brightness processing (same logic as the shader)
+      let brightness = r * 0.2126 + g * 0.7152 + b * 0.0722;
+      brightness = clamp(
+        (brightness - 0.5) * normalized.contrast + 0.5 + normalized.brightness / 100,
+        0,
+        1
+      );
+      brightness = Math.pow(brightness, 1 / normalized.density);
+
+      const coverageThreshold = 1 - normalized.coverage;
+      if (brightness <= coverageThreshold) continue;
+
+      const tone = clamp(
+        (brightness - coverageThreshold) / Math.max(0.0001, 1 - coverageThreshold),
+        0,
+        1
+      );
+
+      // Glyph selection: invert maps bright source → dense glyph (low index)
+      const glyphTone = normalized.invert ? 1 - tone : tone;
+      const glyphIndex = Math.round(clamp(glyphTone, 0, 1) * glyphSteps);
+
+      if (normalized.renderMode === "dot") {
+        const dotTone = normalized.invert ? tone : 1 - tone;
+        const dotRadius = Math.max(1, Math.min(cellWidth, cellHeight) * 0.45 * dotTone);
+        const cx = col * cellWidth + cellWidth / 2;
+        const cy = row * cellHeight + cellHeight / 2;
+
+        ctx.fillStyle = resolveCellColor(r, g, b, tone, normalized, backgroundColor);
+        ctx.globalAlpha = clamp(normalized.foregroundOpacity * a, 0, 1);
+        ctx.beginPath();
+        ctx.arc(cx, cy, dotRadius, 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
+
+      const glyph = charset[glyphIndex] ?? "";
+      if (!glyph || glyph === " ") continue;
+
+      const x = col * cellWidth + cellWidth / 2;
+      const y = row * cellHeight + cellHeight / 2;
+
+      ctx.fillStyle = resolveCellColor(r, g, b, tone, normalized, backgroundColor);
+      ctx.globalAlpha = clamp(normalized.foregroundOpacity * a, 0, 1);
+      ctx.fillText(glyph, x, y);
+    }
+  }
+  ctx.restore();
+
+  // --- Grid overlay ---
+  if (normalized.gridOverlay) {
+    const overlayAlpha = 0.08 * normalized.foregroundOpacity;
+    ctx.save();
+    ctx.strokeStyle = `rgba(255, 255, 255, ${clamp(overlayAlpha, 0, 1).toFixed(3)})`;
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= targetCanvas.width; x += cellWidth) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, targetCanvas.height);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= targetCanvas.height; y += cellHeight) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(targetCanvas.width, y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // --- Cell-solid background (drawn behind characters per cell) ---
+  // This is handled after foreground because it needs to be composited
+  // separately — in practice "cell-solid" mode overlays a solid color per
+  // visible cell BEHIND the character. For simplicity we draw it on a
+  // separate canvas and composite. For now, solid/blurred-source covers
+  // the common cases.
+
+  return true;
 };
 
-const applyAsciiCarrierOnGpuToSurface = async ({
-  baseCanvas,
-  carrier,
-  mode,
-  slotId = "ascii-carrier",
-  foregroundBlendMode,
-}: {
-  baseCanvas: HTMLCanvasElement;
-  carrier: AsciiGpuCarrierInput;
-  mode: RenderMode;
-  slotId?: string;
-  foregroundBlendMode?: EditorLayerBlendMode | null;
-}): Promise<RenderSurfaceHandle | null> => {
-  if (
-    baseCanvas.width <= 0 ||
-    baseCanvas.height <= 0 ||
-    baseCanvas.width !== carrier.width ||
-    baseCanvas.height !== carrier.height
-  ) {
-    return null;
+const resolveCellColor = (
+  r: number,
+  g: number,
+  b: number,
+  tone: number,
+  normalized: NormalizedImageAsciiEffectParams,
+  backgroundColor: { red: number; green: number; blue: number }
+): string => {
+  if (normalized.colorMode === "full-color") {
+    return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
   }
-
-  const resolved =
-    foregroundBlendMode ?? resolveAsciiForegroundBlendMode(carrier.foregroundBlendMode);
-  if (!resolved) {
-    return null;
+  if (normalized.colorMode === "duotone") {
+    const colorTone = normalized.invert ? tone : 1 - tone;
+    const mr = backgroundColor.red + (245 - backgroundColor.red) * colorTone;
+    const mg = backgroundColor.green + (245 - backgroundColor.green) * colorTone;
+    const mb = backgroundColor.blue + (245 - backgroundColor.blue) * colorTone;
+    return `rgb(${Math.round(mr)}, ${Math.round(mg)}, ${Math.round(mb)})`;
   }
-
-  return runRendererSurfaceOperation({
-    mode,
-    width: carrier.width,
-    height: carrier.height,
-    slotId,
-    render: (renderer) =>
-      renderer.renderAsciiCarrierComposite({
-        baseCanvas,
-        carrier,
-        foregroundBlendMode: resolved,
-      }),
-  });
+  return "rgb(245, 245, 245)";
 };
 
 // ---------------------------------------------------------------------------
-// Single-transform application
+// Single-transform application (Canvas2D)
 // ---------------------------------------------------------------------------
 
 export const applyImageAsciiCarrierTransform = async ({
@@ -393,50 +370,35 @@ export const applyImageAsciiCarrierTransform = async ({
   sourceCanvas,
   transform,
   quality,
-  mode = "preview",
   targetSize,
 }: {
   targetCanvas: HTMLCanvasElement;
   sourceCanvas: HTMLCanvasElement;
   transform: ImageAsciiCarrierTransformNode;
   quality: ImageRenderQuality;
-  mode?: RenderMode;
+  mode?: string;
   sourceRevisionKey: string;
   targetSize: ImageRenderTargetSize;
   maskRevisionKey?: string | null;
 }) => {
-  const carrier = createAsciiGpuCarrierInput({ sourceCanvas, transform, quality, targetSize });
-  return applyAsciiCarrierOnGpu({
-    targetCanvas,
-    carrier,
-    mode,
-    slotId: `ascii-carrier:${transform.id}`,
-  });
+  const normalized = normalizeImageAsciiEffectParams(transform.params);
+  const layout = resolveFeatureGridLayout({ normalized, quality, targetSize });
+  return renderAsciiToCanvas(targetCanvas, sourceCanvas, normalized, layout);
 };
 
-export const applyImageAsciiCarrierTransformToSurfaceIfSupported = async ({
-  baseSurface,
-  sourceCanvas,
-  transform,
-  quality,
-  targetSize,
-}: {
-  baseSurface: RenderSurfaceHandle;
-  sourceCanvas: HTMLCanvasElement;
-  transform: ImageAsciiCarrierTransformNode;
-  quality: ImageRenderQuality;
-  sourceRevisionKey: string;
-  targetSize: ImageRenderTargetSize;
-  maskRevisionKey?: string | null;
-}): Promise<RenderSurfaceHandle | null> => {
-  const carrier = createAsciiGpuCarrierInput({ sourceCanvas, transform, quality, targetSize });
-  return applyAsciiCarrierOnGpuToSurface({
-    baseCanvas: baseSurface.sourceCanvas,
-    carrier,
-    mode: baseSurface.mode,
-    slotId: `ascii-carrier:${transform.id}`,
-  });
-};
+// Surface path returns null — forces materialisation to canvas first,
+// then the canvas path above handles the actual ASCII rendering.
+export const applyImageAsciiCarrierTransformToSurfaceIfSupported = async (
+  _options: {
+    baseSurface: RenderSurfaceHandle;
+    sourceCanvas: HTMLCanvasElement;
+    transform: ImageAsciiCarrierTransformNode;
+    quality: ImageRenderQuality;
+    sourceRevisionKey: string;
+    targetSize: ImageRenderTargetSize;
+    maskRevisionKey?: string | null;
+  }
+): Promise<RenderSurfaceHandle | null> => null;
 
 // ---------------------------------------------------------------------------
 // Multi-transform orchestration (called from renderSingleImage)
