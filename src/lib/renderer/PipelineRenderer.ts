@@ -214,6 +214,24 @@ interface AsciiGlyphAtlasRecord {
   glyphCount: number;
 }
 
+// Dev-only: structure of the snapshot object exposed on
+// `window.__filmlabAsciiAtlas` so engineers can eyeball the raw atlas
+// rasterisation from DevTools. Shape is kept small so it can be printed.
+interface AsciiAtlasDebugSnapshot {
+  dataUrl: string;
+  charset: string;
+  atlasScale: number;
+  renderCellWidth: number;
+  renderCellHeight: number;
+  atlasCellWidth: number;
+  atlasCellHeight: number;
+  columns: number;
+  rows: number;
+  canvasWidth: number;
+  canvasHeight: number;
+  builtAt: number;
+}
+
 interface AsciiSurfaceTextureCacheRecord {
   columns: number;
   rows: number;
@@ -1570,6 +1588,44 @@ export class PipelineRenderer {
       wrapT: this.gl.CLAMP_TO_EDGE,
       auto: false,
     });
+    // DEV-only: keep a data-URL snapshot of every built atlas so the user can
+    // eyeball the raw rasterisation from DevTools. The canvas itself is zeroed
+    // immediately below to release the Canvas2D backing store, so a reference
+    // to the live element would be empty by the time anyone inspected it.
+    // In production the snapshot block is tree-shaken away by Vite's
+    // `import.meta.env.DEV` guard.
+    if (import.meta.env.DEV && typeof window !== "undefined") {
+      try {
+        const dataUrl = atlasCanvas.toDataURL("image/png");
+        const store = ((window as unknown as {
+          __filmlabAsciiAtlas?: Map<string, AsciiAtlasDebugSnapshot>;
+        }).__filmlabAsciiAtlas ??= new Map<string, AsciiAtlasDebugSnapshot>());
+        store.set(key, {
+          dataUrl,
+          charset: surface.charset.join(""),
+          atlasScale,
+          renderCellWidth,
+          renderCellHeight,
+          atlasCellWidth,
+          atlasCellHeight,
+          columns,
+          rows,
+          canvasWidth: atlasCanvas.width,
+          canvasHeight: atlasCanvas.height,
+          builtAt: Date.now(),
+        });
+        // One-shot console hint per key so we don't spam, but the user always
+        // has a pointer to the debug store.
+        console.info(
+          `[filmlab] glyph atlas built for %c${key}%c — inspect via window.__filmlabAsciiAtlas`,
+          "font-family: monospace",
+          ""
+        );
+      } catch {
+        // toDataURL can fail on tainted canvases (cross-origin fonts); the
+        // debug snapshot is a nice-to-have, so swallow and keep rendering.
+      }
+    }
     atlasCanvas.width = 0;
     atlasCanvas.height = 0;
 
