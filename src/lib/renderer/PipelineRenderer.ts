@@ -1912,6 +1912,14 @@ export class PipelineRenderer {
               u_useCellBackground: Boolean(carrier.cellBackgroundRgba),
               u_gridOverlay: carrier.gridOverlay,
               u_gridOverlayAlpha: carrier.gridOverlayAlpha,
+              u_duotoneShadow: carrier.duotoneShadowRgba
+                ? new Float32Array([
+                    (carrier.duotoneShadowRgba[0] ?? 0) / 255,
+                    (carrier.duotoneShadowRgba[1] ?? 0) / 255,
+                    (carrier.duotoneShadowRgba[2] ?? 0) / 255,
+                    1.0,
+                  ])
+                : new Float32Array([0, 0, 0, 0]),
             },
             extraTextures: {
               u_backgroundCanvas: backgroundSourceTexture,

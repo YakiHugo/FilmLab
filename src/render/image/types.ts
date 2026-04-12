@@ -257,6 +257,7 @@ export interface AsciiGpuCarrierInput {
   invert: boolean;
   gridOverlay: boolean;
   gridOverlayAlpha: number;
+  duotoneShadowRgba: Uint8ClampedArray | null;
   charset: readonly string[];
   sourceCanvas: HTMLCanvasElement;
 }
