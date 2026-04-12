@@ -241,10 +241,10 @@ const renderAsciiToCanvas = (
       ((data[off + 2] ?? 0) / 255) * 0.0722;
   }
 
-  // --- Clear target ---
-  ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-
-  // --- Draw background ---
+  // --- Draw background on top of the existing canvas content ---
+  // The canvas already holds the base image (from develop/film stage).
+  // ASCII background layers are composited over it so the original image
+  // peeks through where backgroundOpacity < 1.
   if (normalized.backgroundMode === "blurred-source") {
     ctx.save();
     ctx.globalAlpha = clamp(normalized.backgroundOpacity, 0, 1);
