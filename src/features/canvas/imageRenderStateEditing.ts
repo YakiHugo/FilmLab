@@ -44,37 +44,34 @@ const isForegroundBlendMode = (value: unknown): value is AsciiForegroundBlendMod
 
 const DEFAULT_ASCII_ADJUSTMENTS: AsciiAdjustments = {
   enabled: false,
-  // "standard" ships 10 visually-distinct chars (@%#*+=-:. ) rather than
-  // "detailed"'s 75. At any reasonable cell size the human visual system
-  // can actually tell them apart, which is what makes an output read as
-  // "ASCII art" instead of as a gradient texture.
+  // Defaults are tuned to match ascii-magic.com's out-of-the-box look, which
+  // treats ASCII as a "character texture overlay on blurred source" — not as
+  // large readable characters on a solid background. The visual feel comes
+  // from the source image showing through the blur, with tiny characters
+  // adding a screen/halftone-like pattern on top.
   charsetPreset: "standard",
   customCharset: "",
-  invert: false,
-  // brightness/contrast are kept at neutral and no longer surfaced in the
-  // ASCII panel — those duplicate the image edit panel's "光线与对比"
-  // section, which modifies the source pixels the ASCII sampler reads.
+  // Invert ON: dense chars represent bright source areas (ascii-magic default).
+  invert: true,
   brightness: 0,
   contrast: 1,
-  // density < 1 applies a gamma that pushes dark tones toward the dense end
-  // of the charset. coverage < 1 makes the darkest cells empty instead of
-  // filling every cell with a character, which is the "breathing room" that
-  // stops ASCII output from looking like a muddy wall of text.
   density: 1,
-  coverage: 0.95,
+  // Coverage < 1 leaves the darkest cells empty for breathing room.
+  coverage: 0.8,
   edgeEmphasis: 0,
   renderMode: "glyph",
-  // 14 px cells are legible on-screen and leave room for the glyph atlas
-  // upscaler (see PipelineRenderer.getGlyphAtlas) to produce crisp output.
-  cellSize: 14,
+  // Small cells: characters are texture elements, not readable text.
+  cellSize: 8,
   characterSpacing: 1,
   foregroundOpacity: 1,
   foregroundBlendMode: "source-over",
   gridOverlay: false,
-  backgroundMode: "solid",
+  // Blurred source image as background is THE key visual element. The image
+  // itself stays visible through the blur; characters overlay as texture.
+  backgroundMode: "blurred-source",
   backgroundColor: "#000000",
-  backgroundBlur: 0,
-  backgroundOpacity: 1,
+  backgroundBlur: 8,
+  backgroundOpacity: 0.7,
   colorMode: "grayscale",
   dither: "none",
 };
