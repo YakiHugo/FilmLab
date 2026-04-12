@@ -5,6 +5,7 @@ in vec2 vTextureCoord;
 out vec4 outColor;
 
 uniform sampler2D uSampler;
+uniform sampler2D u_analysisGrid;
 uniform sampler2D u_backgroundCanvas;
 uniform sampler2D u_glyphAtlas;
 uniform vec2 u_canvasSize;
@@ -39,7 +40,7 @@ ivec2 clampCellCoord(ivec2 cellCoord) {
 }
 
 vec4 sampleCell(ivec2 cellCoord) {
-  return texelFetch(uSampler, clampCellCoord(cellCoord), 0);
+  return texelFetch(u_analysisGrid, clampCellCoord(cellCoord), 0);
 }
 
 float resolveEdge(ivec2 cellCoord) {
