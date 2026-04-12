@@ -215,23 +215,6 @@ export interface ImageAsciiEffectParams {
   gridOverlay: boolean;
 }
 
-export interface FeatureGrid {
-  width: number;
-  height: number;
-  cellWidth: number;
-  cellHeight: number;
-  columns: number;
-  rows: number;
-  cellXByCell: Uint32Array;
-  cellYByCell: Uint32Array;
-  cellWidthByCell: Uint32Array;
-  cellHeightByCell: Uint32Array;
-  alphaByCell: Float32Array;
-  toneByCell: Float32Array;
-  edgeByCell: Float32Array;
-  sampleRgbaByCell: Uint8ClampedArray;
-}
-
 export interface AsciiGpuCarrierInput {
   width: number;
   height: number;
@@ -260,33 +243,6 @@ export interface AsciiGpuCarrierInput {
   duotoneShadowRgba: Uint8ClampedArray | null;
   charset: readonly string[];
   sourceCanvas: HTMLCanvasElement;
-}
-
-export interface AsciiTextmodeSurface {
-  cacheKey: string;
-  width: number;
-  height: number;
-  cellWidth: number;
-  cellHeight: number;
-  columns: number;
-  rows: number;
-  renderMode: ImageAsciiRenderMode;
-  backgroundFillRgba: Uint8ClampedArray | null;
-  backgroundSourceCanvas: HTMLCanvasElement | null;
-  backgroundBlurPx: number;
-  foregroundBlendMode: GlobalCompositeOperation;
-  gridOverlay: boolean;
-  gridOverlayAlpha: number;
-  charset: readonly string[];
-  emptyGlyphIndex: number;
-  cellXByCell: Uint32Array;
-  cellYByCell: Uint32Array;
-  cellWidthByCell: Uint32Array;
-  cellHeightByCell: Uint32Array;
-  glyphIndexByCell: Uint16Array;
-  foregroundRgbaByCell: Uint8ClampedArray;
-  backgroundRgbaByCell: Uint8ClampedArray;
-  dotRadiusByCell: Float32Array;
 }
 
 export interface ImageAsciiCarrierTransformNode {
