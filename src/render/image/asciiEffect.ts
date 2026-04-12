@@ -259,32 +259,26 @@ const renderAsciiToCanvas = (
     ctx.restore();
   }
 
-  // --- Draw foreground characters ---
-  ctx.save();
-  ctx.globalCompositeOperation = normalized.foregroundBlendMode;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.font = `${Math.max(6, Math.round(cellHeight * 0.9))}px monospace`;
+  // --- Pass 1: build tone grid ---
+  const cellCount = columns * rows;
+  const toneGrid = new Float32Array(cellCount);
+  const alphaGrid = new Float32Array(cellCount);
+  const coverageThreshold = 1 - normalized.coverage;
 
   for (let row = 0; row < rows; row += 1) {
     for (let col = 0; col < columns; col += 1) {
-      const cellIdx = row * columns + col;
-      const pixelOffset = cellIdx * 4;
-      const r = (data[pixelOffset] ?? 0) / 255;
-      const g = (data[pixelOffset + 1] ?? 0) / 255;
-      const b = (data[pixelOffset + 2] ?? 0) / 255;
-      const a = (data[pixelOffset + 3] ?? 0) / 255;
-
+      const idx = row * columns + col;
+      const a = (data[idx * 4 + 3] ?? 0) / 255;
+      alphaGrid[idx] = a;
       if (a <= ALPHA_CUTOFF) continue;
 
-      let brightness = luminance[cellIdx] ?? 0;
+      let brightness = luminance[idx] ?? 0;
       brightness = clamp(
         (brightness - 0.5) * normalized.contrast + 0.5 + normalized.brightness / 100,
         0,
         1
       );
 
-      // Edge emphasis: simple Sobel-like gradient magnitude
       if (normalized.edgeEmphasis > 0) {
         const left = luminance[row * columns + Math.max(0, col - 1)] ?? 0;
         const right = luminance[row * columns + Math.min(columns - 1, col + 1)] ?? 0;
@@ -295,27 +289,90 @@ const renderAsciiToCanvas = (
       }
 
       brightness = Math.pow(brightness, 1 / normalized.density);
-
-      const coverageThreshold = 1 - normalized.coverage;
       if (brightness <= coverageThreshold) continue;
 
-      const tone = clamp(
+      let tone = clamp(
         (brightness - coverageThreshold) / Math.max(0.0001, 1 - coverageThreshold),
         0,
         1
       );
+      if (normalized.invert) {
+        tone = 1 - tone;
+      }
+      toneGrid[idx] = Math.max(tone, 0.001);
+    }
+  }
 
-      // Glyph selection: invert maps bright source → dense glyph (low index)
-      const glyphTone = normalized.invert ? 1 - tone : tone;
-      const glyphIndex = Math.round(clamp(glyphTone, 0, 1) * glyphSteps);
+  // --- Pass 1b: Floyd-Steinberg dithering ---
+  if (normalized.dither === "floyd-steinberg" && glyphSteps > 1) {
+    const dithered = Float32Array.from(toneGrid);
+    for (let row = 0; row < rows; row += 1) {
+      for (let col = 0; col < columns; col += 1) {
+        const idx = row * columns + col;
+        if (alphaGrid[idx] <= ALPHA_CUTOFF || dithered[idx] <= 0) continue;
+        const current = dithered[idx];
+        const quantized = Math.round(current * glyphSteps) / glyphSteps;
+        dithered[idx] = quantized;
+        const error = current - quantized;
+        if (col + 1 < columns) dithered[idx + 1] = clamp(dithered[idx + 1] + error * (7 / 16), 0, 1);
+        if (row + 1 < rows) {
+          if (col > 0) dithered[(row + 1) * columns + col - 1] = clamp(dithered[(row + 1) * columns + col - 1] + error * (3 / 16), 0, 1);
+          dithered[(row + 1) * columns + col] = clamp(dithered[(row + 1) * columns + col] + error * (5 / 16), 0, 1);
+          if (col + 1 < columns) dithered[(row + 1) * columns + col + 1] = clamp(dithered[(row + 1) * columns + col + 1] + error * (1 / 16), 0, 1);
+        }
+      }
+    }
+    toneGrid.set(dithered);
+  }
 
+  // --- Cell-solid background (per visible cell) ---
+  if (normalized.backgroundMode === "cell-solid") {
+    ctx.save();
+    ctx.fillStyle = normalizeHexColor(normalized.backgroundColor);
+    for (let row = 0; row < rows; row += 1) {
+      for (let col = 0; col < columns; col += 1) {
+        const idx = row * columns + col;
+        if (toneGrid[idx] <= 0 || alphaGrid[idx] <= ALPHA_CUTOFF) continue;
+        ctx.globalAlpha = clamp(normalized.backgroundOpacity * alphaGrid[idx], 0, 1);
+        ctx.fillRect(col * cellWidth, row * cellHeight, cellWidth, cellHeight);
+      }
+    }
+    ctx.restore();
+  }
+
+  // --- Pass 2: draw foreground characters ---
+  ctx.save();
+  ctx.globalCompositeOperation = normalized.foregroundBlendMode;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `${Math.max(6, Math.round(cellHeight * 0.9))}px monospace`;
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < columns; col += 1) {
+      const idx = row * columns + col;
+      const tone = toneGrid[idx];
+      if (tone <= 0) continue;
+
+      const a = alphaGrid[idx];
+      const off = idx * 4;
+      const r = (data[off] ?? 0) / 255;
+      const g = (data[off + 1] ?? 0) / 255;
+      const b = (data[off + 2] ?? 0) / 255;
+
+      const glyphIndex = Math.round(clamp(tone, 0, 1) * glyphSteps);
       const cx = col * cellWidth;
       const cy = row * cellHeight;
 
+      // Color uses source-relative brightness for duotone.
+      // Recover source brightness from (possibly inverted) tone.
+      const colorTone = normalized.invert ? 1 - tone : tone;
+
       if (normalized.renderMode === "dot") {
-        const dotTone = normalized.invert ? tone : 1 - tone;
-        const dotRadius = Math.max(1, Math.min(cellWidth, cellHeight) * 0.45 * dotTone);
-        ctx.fillStyle = resolveCellColor(r, g, b, tone, normalized, backgroundColor);
+        const dotRadius = Math.max(
+          1,
+          Math.min(cellWidth, cellHeight) * 0.45 * (normalized.invert ? 1 - tone : tone)
+        );
+        ctx.fillStyle = resolveCellColor(r, g, b, colorTone, normalized, backgroundColor);
         ctx.globalAlpha = clamp(normalized.foregroundOpacity * a, 0, 1);
         ctx.beginPath();
         ctx.arc(cx + cellWidth / 2, cy + cellHeight / 2, dotRadius, 0, Math.PI * 2);
@@ -326,7 +383,7 @@ const renderAsciiToCanvas = (
       const glyph = charset[glyphIndex] ?? "";
       if (!glyph || glyph === " ") continue;
 
-      ctx.fillStyle = resolveCellColor(r, g, b, tone, normalized, backgroundColor);
+      ctx.fillStyle = resolveCellColor(r, g, b, colorTone, normalized, backgroundColor);
       ctx.globalAlpha = clamp(normalized.foregroundOpacity * a, 0, 1);
       ctx.fillText(glyph, cx + cellWidth / 2, cy + cellHeight / 2);
     }
@@ -354,13 +411,6 @@ const renderAsciiToCanvas = (
     ctx.restore();
   }
 
-  // --- Cell-solid background (drawn behind characters per cell) ---
-  // This is handled after foreground because it needs to be composited
-  // separately — in practice "cell-solid" mode overlays a solid color per
-  // visible cell BEHIND the character. For simplicity we draw it on a
-  // separate canvas and composite. For now, solid/blurred-source covers
-  // the common cases.
-
   return true;
 };
 
@@ -376,10 +426,10 @@ const resolveCellColor = (
     return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
   }
   if (normalized.colorMode === "duotone") {
-    const colorTone = normalized.invert ? tone : 1 - tone;
-    const mr = backgroundColor.red + (245 - backgroundColor.red) * colorTone;
-    const mg = backgroundColor.green + (245 - backgroundColor.green) * colorTone;
-    const mb = backgroundColor.blue + (245 - backgroundColor.blue) * colorTone;
+    // tone is already source-relative brightness (0 = dark, 1 = bright)
+    const mr = backgroundColor.red + (245 - backgroundColor.red) * tone;
+    const mg = backgroundColor.green + (245 - backgroundColor.green) * tone;
+    const mb = backgroundColor.blue + (245 - backgroundColor.blue) * tone;
     return `rgb(${Math.round(mr)}, ${Math.round(mg)}, ${Math.round(mb)})`;
   }
   return "rgb(245, 245, 245)";
