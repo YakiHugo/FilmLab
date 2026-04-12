@@ -3,26 +3,28 @@
     {
       "id": "dithering",
       "title": "Floyd-Steinberg dithering",
-      "status": "pending",
+      "status": "done",
       "passes": ["visual: smooth gradient without banding"]
     },
     {
       "id": "cell-solid-bg",
       "title": "Cell-solid background mode",
-      "status": "pending",
+      "status": "done",
       "passes": ["visual: per-cell colored background renders"]
     },
     {
       "id": "glyph-quality",
       "title": "Glyph rendering quality at small cell sizes",
-      "status": "pending",
-      "passes": ["visual: characters are legible at cellSize=8"]
+      "status": "done",
+      "passes": ["visual: characters are legible at cellSize=8"],
+      "notes": "Glyph atlas at 48px + per-cell stamp canvas with source-in tinting; threshold fontSize<14"
     },
     {
       "id": "blur-quality",
       "title": "Background blur consistency",
-      "status": "pending",
-      "passes": ["visual: blur matches across browsers"]
+      "status": "done",
+      "passes": ["visual: blur matches across browsers"],
+      "notes": "Oversized draw area (3× blur radius padding) eliminates dark-edge fringe from blur kernel sampling outside canvas bounds"
     }
   ]
 }

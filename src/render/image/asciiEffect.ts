@@ -188,6 +188,67 @@ export const normalizeImageAsciiEffectParams = (
 });
 
 // ---------------------------------------------------------------------------
+// Glyph atlas – pre-renders glyphs at high resolution for quality at small
+// cell sizes, then per-cell drawImage + source-in tinting replaces fillText.
+// ---------------------------------------------------------------------------
+
+const ATLAS_GLYPH_HEIGHT = 48;
+const GLYPH_ATLAS_FONT_THRESHOLD = 14;
+
+let _atlasCache: {
+  key: string;
+  canvas: HTMLCanvasElement;
+  offsets: Map<string, number>;
+  cellW: number;
+  cellH: number;
+} | null = null;
+
+const getOrCreateGlyphAtlas = (
+  charset: string[],
+  cellWidth: number,
+  cellHeight: number,
+): typeof _atlasCache => {
+  const atlasCellH = ATLAS_GLYPH_HEIGHT;
+  const atlasCellW = Math.max(4, Math.round(ATLAS_GLYPH_HEIGHT * (cellWidth / cellHeight)));
+  const key = `${charset.join("\x00")}:${atlasCellW}`;
+
+  if (_atlasCache?.key === key) return _atlasCache;
+
+  const glyphs = charset.filter((g) => g && g !== " ");
+  if (glyphs.length === 0) return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = atlasCellW * glyphs.length;
+  canvas.height = atlasCellH;
+  const actx = canvas.getContext("2d");
+  if (!actx) {
+    canvas.width = 0;
+    canvas.height = 0;
+    return null;
+  }
+
+  actx.textAlign = "center";
+  actx.textBaseline = "middle";
+  actx.font = `${Math.round(atlasCellH * 0.9)}px monospace`;
+  actx.fillStyle = "#fff";
+  for (let i = 0; i < glyphs.length; i += 1) {
+    actx.fillText(glyphs[i], i * atlasCellW + atlasCellW / 2, atlasCellH / 2);
+  }
+
+  const offsets = new Map<string, number>();
+  for (let i = 0; i < glyphs.length; i += 1) {
+    offsets.set(glyphs[i], i * atlasCellW);
+  }
+
+  if (_atlasCache) {
+    _atlasCache.canvas.width = 0;
+    _atlasCache.canvas.height = 0;
+  }
+  _atlasCache = { key, canvas, offsets, cellW: atlasCellW, cellH: atlasCellH };
+  return _atlasCache;
+};
+
+// ---------------------------------------------------------------------------
 // Canvas2D ASCII renderer
 // ---------------------------------------------------------------------------
 
@@ -225,6 +286,7 @@ const renderAsciiToCanvas = (
     analysisCanvas.height = 0;
     return false;
   }
+  analysisCtx.imageSmoothingQuality = "high";
   analysisCtx.drawImage(sourceCanvas, 0, 0, columns, rows);
   const imageData = analysisCtx.getImageData(0, 0, columns, rows);
   analysisCanvas.width = 0;
@@ -248,8 +310,11 @@ const renderAsciiToCanvas = (
   if (normalized.backgroundMode === "blurred-source") {
     ctx.save();
     ctx.globalAlpha = clamp(normalized.backgroundOpacity, 0, 1);
+    // Overshoot the draw area so the blur kernel samples real image pixels
+    // at canvas edges instead of transparent-black, eliminating dark fringe.
+    const pad = Math.ceil(blurPx * 3);
     ctx.filter = `blur(${Math.max(0, blurPx).toFixed(1)}px)`;
-    ctx.drawImage(sourceCanvas, 0, 0, targetCanvas.width, targetCanvas.height);
+    ctx.drawImage(sourceCanvas, -pad, -pad, targetCanvas.width + pad * 2, targetCanvas.height + pad * 2);
     ctx.restore();
   } else if (normalized.backgroundMode === "solid") {
     ctx.save();
@@ -341,11 +406,26 @@ const renderAsciiToCanvas = (
   }
 
   // --- Pass 2: draw foreground characters ---
+  const fontSize = Math.max(6, Math.round(cellHeight * 0.9));
+  const glyphAtlas =
+    normalized.renderMode === "glyph" && fontSize < GLYPH_ATLAS_FONT_THRESHOLD
+      ? getOrCreateGlyphAtlas(charset, cellWidth, cellHeight)
+      : null;
+
+  let glyphStamp: HTMLCanvasElement | null = null;
+  let stampCtx: CanvasRenderingContext2D | null = null;
+  if (glyphAtlas) {
+    glyphStamp = document.createElement("canvas");
+    glyphStamp.width = cellWidth;
+    glyphStamp.height = cellHeight;
+    stampCtx = glyphStamp.getContext("2d");
+  }
+
   ctx.save();
   ctx.globalCompositeOperation = normalized.foregroundBlendMode;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = `${Math.max(6, Math.round(cellHeight * 0.9))}px monospace`;
+  ctx.font = `${fontSize}px monospace`;
 
   for (let row = 0; row < rows; row += 1) {
     for (let col = 0; col < columns; col += 1) {
@@ -383,10 +463,38 @@ const renderAsciiToCanvas = (
       const glyph = charset[glyphIndex] ?? "";
       if (!glyph || glyph === " ") continue;
 
-      ctx.fillStyle = resolveCellColor(r, g, b, colorTone, normalized, backgroundColor);
-      ctx.globalAlpha = clamp(normalized.foregroundOpacity * a, 0, 1);
-      ctx.fillText(glyph, cx + cellWidth / 2, cy + cellHeight / 2);
+      const color = resolveCellColor(r, g, b, colorTone, normalized, backgroundColor);
+
+      if (glyphAtlas && stampCtx && glyphStamp) {
+        const atlasX = glyphAtlas.offsets.get(glyph);
+        if (atlasX === undefined) continue;
+
+        // Draw high-res glyph from atlas, downscaled to cell size for AA
+        stampCtx.globalCompositeOperation = "source-over";
+        stampCtx.clearRect(0, 0, cellWidth, cellHeight);
+        stampCtx.drawImage(
+          glyphAtlas.canvas,
+          atlasX, 0, glyphAtlas.cellW, glyphAtlas.cellH,
+          0, 0, cellWidth, cellHeight,
+        );
+        // Tint: replace white with cell color, preserving alpha shape
+        stampCtx.globalCompositeOperation = "source-in";
+        stampCtx.fillStyle = color;
+        stampCtx.fillRect(0, 0, cellWidth, cellHeight);
+
+        ctx.globalAlpha = clamp(normalized.foregroundOpacity * a, 0, 1);
+        ctx.drawImage(glyphStamp, cx, cy);
+      } else {
+        ctx.fillStyle = color;
+        ctx.globalAlpha = clamp(normalized.foregroundOpacity * a, 0, 1);
+        ctx.fillText(glyph, cx + cellWidth / 2, cy + cellHeight / 2);
+      }
     }
+  }
+
+  if (glyphStamp) {
+    glyphStamp.width = 0;
+    glyphStamp.height = 0;
   }
   ctx.restore();
 
