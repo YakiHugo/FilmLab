@@ -1607,6 +1607,7 @@ export class PipelineRenderer {
                 : new Float32Array([0, 0, 0, 0]),
             },
             extraTextures: {
+              u_analysisGrid: analysisGrid.texture,
               u_backgroundCanvas: backgroundSourceTexture,
               u_glyphAtlas: glyphAtlas.texture,
             },
@@ -1615,10 +1616,10 @@ export class PipelineRenderer {
           },
         ],
         input: {
-          texture: analysisGrid.texture,
-          width: analysisGrid.width,
-          height: analysisGrid.height,
-          format: analysisGrid.format,
+          texture: this.emptyMaskTexture,
+          width: 1,
+          height: 1,
+          format: "RGBA8",
         },
       });
 
@@ -1664,6 +1665,20 @@ export class PipelineRenderer {
           decodeSrgb: false,
         }
       );
+
+      // captureLinearSource above mutated canvasElement, viewport, and
+      // lastTargetWidth/Height to the analysis grid dimensions (e.g. 64×48).
+      // Restore to the full output resolution so blendLinearLayers and
+      // presentTextureResult produce correctly-sized results.
+      const outputWidth = options.baseCanvas.width;
+      const outputHeight = options.baseCanvas.height;
+      if (this.lastTargetWidth !== outputWidth || this.lastTargetHeight !== outputHeight) {
+        this.canvasElement.width = outputWidth;
+        this.canvasElement.height = outputHeight;
+        this.gl.viewport(0, 0, outputWidth, outputHeight);
+        this.lastTargetWidth = outputWidth;
+        this.lastTargetHeight = outputHeight;
+      }
 
       try {
         const backgroundLayer = this.renderAsciiCarrierLayer(options.carrier, "background", analysisGrid);
