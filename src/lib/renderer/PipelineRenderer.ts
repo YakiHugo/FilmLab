@@ -1559,6 +1559,14 @@ export class PipelineRenderer {
     }
 
     context.clearRect(0, 0, atlasCanvas.width, atlasCanvas.height);
+    // Debug aid: in DEV mode fill with a visible dark background so the
+    // data-URL snapshot (white glyphs on transparent) is not invisible
+    // against light page backgrounds. The production texture uses alpha-
+    // only so the fill is harmless — the shader reads `.a` for glyph shape.
+    if (import.meta.env.DEV) {
+      context.fillStyle = "#222222";
+      context.fillRect(0, 0, atlasCanvas.width, atlasCanvas.height);
+    }
     context.fillStyle = "#ffffff";
     context.textAlign = "center";
     context.textBaseline = "middle";
@@ -1579,15 +1587,24 @@ export class PipelineRenderer {
       context.fillText(glyph, x, y);
     }
 
+    // Use LINEAR_MIPMAP_LINEAR so the GPU can properly downsample when the
+    // atlas cell is much larger than the render cell (atlasScale > 1).
+    // Without mipmaps, LINEAR minification for a 7:1 downsample only
+    // looks at a 2×2 texel neighbourhood and ignores ~96% of the atlas
+    // data, which produces blurry noise instead of a recognisable glyph.
     const texture = twgl.createTexture(this.gl, {
       target: this.gl.TEXTURE_2D,
       src: atlasCanvas,
-      min: this.gl.LINEAR,
+      min: this.gl.LINEAR_MIPMAP_LINEAR,
       mag: this.gl.LINEAR,
       wrapS: this.gl.CLAMP_TO_EDGE,
       wrapT: this.gl.CLAMP_TO_EDGE,
       auto: false,
     });
+    // WebGL2 supports generateMipmap on NPOT textures.
+    this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+    this.gl.generateMipmap(this.gl.TEXTURE_2D);
+    this.gl.bindTexture(this.gl.TEXTURE_2D, null);
     // DEV-only: keep a data-URL snapshot of every built atlas so the user can
     // eyeball the raw rasterisation from DevTools. The canvas itself is zeroed
     // immediately below to release the Canvas2D backing store, so a reference
