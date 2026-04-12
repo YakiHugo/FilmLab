@@ -1502,12 +1502,37 @@ export class PipelineRenderer {
       return cached;
     }
 
+    // Render glyphs at an integer multiple of the output cell size, with a
+    // minimum atlas cell height so characters remain readable. Previously we
+    // rasterised glyphs at the exact render cell size — at cellSize=8 that
+    // meant drawing every glyph into a ~5×8 canvas region, which destroys
+    // legibility for any font since Canvas2D has no room to anti-alias the
+    // stroke shapes. ascii-magic / textmode.js sidestep this by keeping the
+    // atlas at a fixed higher resolution and letting the shader LINEAR
+    // downsample during the final composite. We do the same here: the
+    // shader's UV math is unchanged because it uses atlas grid coords, not
+    // atlas pixel sizes, so scaling the atlas transparently upgrades glyph
+    // quality at small cellSize values.
+    //
+    // Timestamp overlay (which passes fontSizePx explicitly) keeps
+    // atlasScale=1 so its glyphs continue to be rendered at exactly the
+    // requested size.
+    const ATLAS_MIN_CELL_HEIGHT_PX = 40;
+    const renderCellWidth = Math.max(1, Math.round(surface.cellWidth));
+    const renderCellHeight = Math.max(1, Math.round(surface.cellHeight));
+    const atlasScale =
+      surface.fontSizePx !== undefined
+        ? 1
+        : Math.max(1, Math.ceil(ATLAS_MIN_CELL_HEIGHT_PX / renderCellHeight));
+    const atlasCellWidth = renderCellWidth * atlasScale;
+    const atlasCellHeight = renderCellHeight * atlasScale;
+
     const glyphCount = Math.max(1, surface.charset.length);
     const columns = Math.max(1, Math.ceil(Math.sqrt(glyphCount)));
     const rows = Math.max(1, Math.ceil(glyphCount / columns));
     const atlasCanvas = document.createElement("canvas");
-    atlasCanvas.width = Math.max(1, columns * surface.cellWidth);
-    atlasCanvas.height = Math.max(1, rows * surface.cellHeight);
+    atlasCanvas.width = Math.max(1, columns * atlasCellWidth);
+    atlasCanvas.height = Math.max(1, rows * atlasCellHeight);
     const context = atlasCanvas.getContext("2d", { willReadFrequently: true });
     if (!context) {
       atlasCanvas.width = 0;
@@ -1521,7 +1546,7 @@ export class PipelineRenderer {
     context.textBaseline = "middle";
     context.font = `${Math.max(
       6,
-      Math.round(surface.fontSizePx ?? surface.cellHeight * (surface.fontSizeScale ?? 0.9))
+      Math.round(surface.fontSizePx ?? atlasCellHeight * (surface.fontSizeScale ?? 0.9))
     )}px ${surface.fontFamily}`;
 
     for (let glyphIndex = 0; glyphIndex < surface.charset.length; glyphIndex += 1) {
@@ -1531,8 +1556,8 @@ export class PipelineRenderer {
       }
       const column = glyphIndex % columns;
       const row = Math.floor(glyphIndex / columns);
-      const x = column * surface.cellWidth + surface.cellWidth / 2;
-      const y = row * surface.cellHeight + surface.cellHeight / 2;
+      const x = column * atlasCellWidth + atlasCellWidth / 2;
+      const y = row * atlasCellHeight + atlasCellHeight / 2;
       context.fillText(glyph, x, y);
     }
 
