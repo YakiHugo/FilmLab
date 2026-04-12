@@ -1,0 +1,28 @@
+{
+  "slices": [
+    {
+      "id": "dithering",
+      "title": "Floyd-Steinberg dithering",
+      "status": "pending",
+      "passes": ["visual: smooth gradient without banding"]
+    },
+    {
+      "id": "cell-solid-bg",
+      "title": "Cell-solid background mode",
+      "status": "pending",
+      "passes": ["visual: per-cell colored background renders"]
+    },
+    {
+      "id": "glyph-quality",
+      "title": "Glyph rendering quality at small cell sizes",
+      "status": "pending",
+      "passes": ["visual: characters are legible at cellSize=8"]
+    },
+    {
+      "id": "blur-quality",
+      "title": "Background blur consistency",
+      "status": "pending",
+      "passes": ["visual: blur matches across browsers"]
+    }
+  ]
+}
