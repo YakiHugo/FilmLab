@@ -29,6 +29,7 @@ uniform bool u_useBackgroundFill;
 uniform bool u_useCellBackground;
 uniform bool u_gridOverlay;
 uniform float u_gridOverlayAlpha;
+uniform vec4 u_duotoneShadow;
 
 // #ASCII_COMMON#
 
@@ -53,28 +54,38 @@ float resolveTone(ivec2 cellCoord, vec4 cellSample) {
     return 0.0;
   }
 
-  float tone = asciiResolveLuminance(cellSample.rgb);
-  if (u_invert) {
-    tone = 1.0 - tone;
-  }
-  tone = clamp((tone - 0.5) * u_contrast + 0.5 + u_brightness / 100.0, 0.0, 1.0);
-  tone = clamp(tone + resolveEdge(cellCoord) * u_edgeEmphasis, 0.0, 1.0);
-  tone = pow(tone, 1.0 / max(u_density, 0.0001));
+  // Process source brightness without inversion so coverage clips the
+  // dimmest source areas regardless of the invert setting.
+  float brightness = asciiResolveLuminance(cellSample.rgb);
+  brightness = clamp((brightness - 0.5) * u_contrast + 0.5 + u_brightness / 100.0, 0.0, 1.0);
+  brightness = clamp(brightness + resolveEdge(cellCoord) * u_edgeEmphasis, 0.0, 1.0);
+  brightness = pow(brightness, 1.0 / max(u_density, 0.0001));
 
   float coverageThreshold = 1.0 - u_coverage;
-  if (tone <= coverageThreshold) {
+  if (brightness <= coverageThreshold) {
     return 0.0;
   }
-  return clamp(
-    (tone - coverageThreshold) / max(0.0001, 1.0 - coverageThreshold),
+  float tone = clamp(
+    (brightness - coverageThreshold) / max(0.0001, 1.0 - coverageThreshold),
     0.0,
     1.0
   );
+
+  // Inversion flips the glyph mapping: bright source → low tone → dense
+  // glyph (index 0 = densest in the density-sorted charset).
+  if (u_invert) {
+    tone = 1.0 - tone;
+  }
+  return max(tone, 0.001);
 }
 
 vec3 resolveForegroundColor(vec4 cellSample, float tone) {
   if (u_colorMode > 1.5) {
-    return mix(u_cellBackgroundColor.rgb, ASCII_GRAYSCALE_HIGHLIGHT, clamp(tone, 0.0, 1.0));
+    // Duotone: map source brightness to shadow→highlight gradient.
+    // Tone may be inverted for glyph selection, so recover source-relative
+    // brightness for color mixing.
+    float colorTone = u_invert ? 1.0 - tone : tone;
+    return mix(u_duotoneShadow.rgb, ASCII_GRAYSCALE_HIGHLIGHT, clamp(colorTone, 0.0, 1.0));
   }
   if (u_colorMode > 0.5) {
     return clamp(cellSample.rgb, 0.0, 1.0);
@@ -103,14 +114,16 @@ vec4 resolveForegroundLayer(vec2 pixel, ivec2 cellCoord, vec2 localUv, vec4 cell
   vec4 color = vec4(0.0);
   if (tone > 0.001 && cellSample.a > ASCII_ALPHA_CUTOFF) {
     vec3 foregroundColor = resolveForegroundColor(cellSample, tone);
+    // Character density alone carries brightness — no tone-based alpha.
     float foregroundAlpha =
       clamp(u_foregroundOpacity, 0.0, 1.0) *
-      max(0.12, tone) *
       clamp(cellSample.a, 0.0, 1.0);
 
     if (u_renderMode > 0.5) {
+      // Dot radius tracks source brightness: bright source → large dot.
+      float dotTone = u_invert ? 1.0 - clamp(tone, 0.0, 1.0) : clamp(tone, 0.0, 1.0);
       float dotRadius =
-        max(1.0, min(u_cellSize.x, u_cellSize.y) * 0.45 * clamp(tone, 0.0, 1.0));
+        max(1.0, min(u_cellSize.x, u_cellSize.y) * 0.45 * dotTone);
       vec2 centered = localUv * u_cellSize - u_cellSize * 0.5;
       float distanceFromCenter = length(centered);
       float dotAlpha =

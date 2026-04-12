@@ -237,7 +237,10 @@ const getSampleColor = ({
       green: 245,
       blue: 245,
     };
-    return mixColor(shadow, highlight, tone);
+    // Tone may be inverted for glyph selection; recover source-relative
+    // brightness for color mixing so bright areas get highlight color.
+    const colorTone = normalized.invert ? 1 - tone : tone;
+    return mixColor(shadow, highlight, colorTone);
   }
 
   return {
@@ -414,19 +417,35 @@ export const createAsciiFeatureGrid = async ({
         continue;
       }
 
-      let tone = analysis.luminanceByCell[index] ?? 0;
-      if (normalized.invert) {
-        tone = 1 - tone;
-      }
-      tone = clamp((tone - 0.5) * normalized.contrast + 0.5 + normalized.brightness / 100, 0, 1);
-      tone = clamp(tone + (analysis.edgeByCell[index] ?? 0) * normalized.edgeEmphasis, 0, 1);
-      tone = Math.pow(tone, 1 / normalized.density);
+      // Process source brightness without inversion so coverage clips the
+      // dimmest source areas regardless of the invert setting.
+      let brightness = analysis.luminanceByCell[index] ?? 0;
+      brightness = clamp(
+        (brightness - 0.5) * normalized.contrast + 0.5 + normalized.brightness / 100,
+        0,
+        1
+      );
+      brightness = clamp(
+        brightness + (analysis.edgeByCell[index] ?? 0) * normalized.edgeEmphasis,
+        0,
+        1
+      );
+      brightness = Math.pow(brightness, 1 / normalized.density);
 
       const coverageThreshold = 1 - normalized.coverage;
-      toneByCell[index] =
-        tone <= coverageThreshold
-          ? 0
-          : clamp((tone - coverageThreshold) / Math.max(0.0001, 1 - coverageThreshold), 0, 1);
+      if (brightness <= coverageThreshold) {
+        toneByCell[index] = 0;
+      } else {
+        let tone = clamp(
+          (brightness - coverageThreshold) / Math.max(0.0001, 1 - coverageThreshold),
+          0,
+          1
+        );
+        if (normalized.invert) {
+          tone = 1 - tone;
+        }
+        toneByCell[index] = Math.max(tone, 0.001);
+      }
       edgeByCell[index] = analysis.edgeByCell[index] ?? 0;
     }
   }
@@ -522,8 +541,9 @@ export const createAsciiTextmodeSurface = ({
       continue;
     }
 
+    // Character density alone carries brightness — no tone-based alpha.
     const foregroundAlpha =
-      normalized.foregroundOpacity * Math.max(0.12, cellTone) * clamp(cellAlpha, 0, 1);
+      normalized.foregroundOpacity * clamp(cellAlpha, 0, 1);
     if (foregroundAlpha > 1e-4) {
       setPackedRgba(foregroundRgbaByCell, cellIndex, sampleColor, foregroundAlpha);
     }
@@ -536,9 +556,11 @@ export const createAsciiTextmodeSurface = ({
     }
 
     if (normalized.renderMode === "dot") {
+      // Dot radius tracks source brightness: bright source → large dot.
+      const dotTone = normalized.invert ? 1 - clamp(cellTone, 0, 1) : clamp(cellTone, 0, 1);
       dotRadiusByCell[cellIndex] = Math.max(
         1,
-        Math.min(cellWidthValue, cellHeightValue) * 0.45 * clamp(cellTone, 0, 1)
+        Math.min(cellWidthValue, cellHeightValue) * 0.45 * dotTone
       );
       continue;
     }
@@ -645,6 +667,10 @@ export const createAsciiGpuCarrierInput = ({
     invert: normalized.invert,
     gridOverlay: normalized.gridOverlay,
     gridOverlayAlpha: 0.08 * normalized.foregroundOpacity,
+    duotoneShadowRgba:
+      normalized.colorMode === "duotone"
+        ? createPackedRgba(backgroundColor, 1)
+        : null,
     charset: resolveCharsetForPreset(normalized.preset, normalized.customCharset),
     sourceCanvas,
   };
