@@ -72,7 +72,11 @@ const DEFAULT_ASCII_ADJUSTMENTS: AsciiAdjustments = {
   backgroundColor: "#000000",
   backgroundBlur: 8,
   backgroundOpacity: 0.7,
-  colorMode: "grayscale",
+  // Full-color: each character takes the source pixel's color, preserving the
+  // image's palette through the character texture. "grayscale" draws every char
+  // in the same white, which washes out the source and makes it look like a
+  // low-res pixelation instead of ASCII.
+  colorMode: "full-color",
   dither: "none",
 };
 
