@@ -13,6 +13,7 @@ uniform vec2 u_cellSize;
 uniform vec2 u_glyphAtlasGrid;
 uniform vec4 u_backgroundFill;
 uniform vec4 u_cellBackgroundColor;
+uniform vec4 u_duotoneShadow;
 uniform float u_glyphCount;
 uniform float u_layerMode;
 uniform float u_renderMode;
@@ -23,13 +24,13 @@ uniform float u_edgeEmphasis;
 uniform float u_brightness;
 uniform float u_contrast;
 uniform float u_foregroundOpacity;
+uniform float u_backgroundOpacity;
 uniform bool u_invert;
 uniform bool u_useBackgroundCanvas;
 uniform bool u_useBackgroundFill;
 uniform bool u_useCellBackground;
 uniform bool u_gridOverlay;
 uniform float u_gridOverlayAlpha;
-uniform vec4 u_duotoneShadow;
 
 // #ASCII_COMMON#
 
@@ -42,20 +43,22 @@ vec4 sampleCell(ivec2 cellCoord) {
 }
 
 float resolveEdge(ivec2 cellCoord) {
-  float left = asciiResolveLuminance(sampleCell(ivec2(cellCoord.x - 1, cellCoord.y)).rgb);
+  float left  = asciiResolveLuminance(sampleCell(ivec2(cellCoord.x - 1, cellCoord.y)).rgb);
   float right = asciiResolveLuminance(sampleCell(ivec2(cellCoord.x + 1, cellCoord.y)).rgb);
-  float up = asciiResolveLuminance(sampleCell(ivec2(cellCoord.x, cellCoord.y - 1)).rgb);
-  float down = asciiResolveLuminance(sampleCell(ivec2(cellCoord.x, cellCoord.y + 1)).rgb);
+  float up    = asciiResolveLuminance(sampleCell(ivec2(cellCoord.x, cellCoord.y - 1)).rgb);
+  float down  = asciiResolveLuminance(sampleCell(ivec2(cellCoord.x, cellCoord.y + 1)).rgb);
   return clamp(abs(right - left) + abs(down - up), 0.0, 1.0);
 }
 
+// Returns a tone value used for glyph selection:
+//   0.0        = cell not visible (clipped by coverage or transparent)
+//   [0.001, 1] = visible cell; maps linearly to glyph index
+// With invert ON (ascii-magic style): low tone = dense glyph = bright source.
 float resolveTone(ivec2 cellCoord, vec4 cellSample) {
   if (cellSample.a <= ASCII_ALPHA_CUTOFF) {
     return 0.0;
   }
 
-  // Process source brightness without inversion so coverage clips the
-  // dimmest source areas regardless of the invert setting.
   float brightness = asciiResolveLuminance(cellSample.rgb);
   brightness = clamp((brightness - 0.5) * u_contrast + 0.5 + u_brightness / 100.0, 0.0, 1.0);
   brightness = clamp(brightness + resolveEdge(cellCoord) * u_edgeEmphasis, 0.0, 1.0);
@@ -71,8 +74,6 @@ float resolveTone(ivec2 cellCoord, vec4 cellSample) {
     1.0
   );
 
-  // Inversion flips the glyph mapping: bright source → low tone → dense
-  // glyph (index 0 = densest in the density-sorted charset).
   if (u_invert) {
     tone = 1.0 - tone;
   }
@@ -80,64 +81,62 @@ float resolveTone(ivec2 cellCoord, vec4 cellSample) {
 }
 
 vec3 resolveForegroundColor(vec4 cellSample, float tone) {
+  // Duotone: shadow → highlight gradient based on source brightness.
   if (u_colorMode > 1.5) {
-    // Duotone: map source brightness to shadow→highlight gradient.
-    // Tone may be inverted for glyph selection, so recover source-relative
-    // brightness for color mixing.
     float colorTone = u_invert ? 1.0 - tone : tone;
     return mix(u_duotoneShadow.rgb, ASCII_GRAYSCALE_HIGHLIGHT, clamp(colorTone, 0.0, 1.0));
   }
+  // Full-color: use the cell's sampled source color.
   if (u_colorMode > 0.5) {
     return clamp(cellSample.rgb, 0.0, 1.0);
   }
+  // Grayscale.
   return ASCII_GRAYSCALE_HIGHLIGHT;
 }
 
+// Background layer: blurred/solid base dimmed by backgroundOpacity so that
+// foreground characters have contrast against it.
 vec4 resolveBackgroundLayer(ivec2 cellCoord, vec4 cellSample) {
   vec4 color = vec4(0.0);
   if (u_useBackgroundCanvas) {
-    color = texture(u_backgroundCanvas, vTextureCoord);
+    vec4 bg = texture(u_backgroundCanvas, vTextureCoord);
+    color = vec4(bg.rgb, bg.a * u_backgroundOpacity);
   } else if (u_useBackgroundFill) {
     color = u_backgroundFill;
   }
   if (u_useCellBackground && cellSample.a > ASCII_ALPHA_CUTOFF) {
-    vec4 cellBackground = vec4(
+    vec4 cellBg = vec4(
       u_cellBackgroundColor.rgb,
       clamp(u_cellBackgroundColor.a * cellSample.a, 0.0, 1.0)
     );
-    color = asciiSourceOver(color, cellBackground);
+    color = asciiSourceOver(color, cellBg);
   }
   return color;
 }
 
 vec4 resolveForegroundLayer(vec2 pixel, ivec2 cellCoord, vec2 localUv, vec4 cellSample, float tone) {
   vec4 color = vec4(0.0);
-  if (tone > 0.001 && cellSample.a > ASCII_ALPHA_CUTOFF) {
-    vec3 foregroundColor = resolveForegroundColor(cellSample, tone);
-    // Character density alone carries brightness — no tone-based alpha.
-    float foregroundAlpha =
-      clamp(u_foregroundOpacity, 0.0, 1.0) *
-      clamp(cellSample.a, 0.0, 1.0);
+  if (tone > 0.0 && cellSample.a > ASCII_ALPHA_CUTOFF) {
+    vec3 fg = resolveForegroundColor(cellSample, tone);
+    float fgAlpha = clamp(u_foregroundOpacity, 0.0, 1.0) * clamp(cellSample.a, 0.0, 1.0);
 
     if (u_renderMode > 0.5) {
-      // Dot radius tracks source brightness: bright source → large dot.
+      // Dot mode — radius tracks source brightness.
       float dotTone = u_invert ? 1.0 - clamp(tone, 0.0, 1.0) : clamp(tone, 0.0, 1.0);
-      float dotRadius =
-        max(1.0, min(u_cellSize.x, u_cellSize.y) * 0.45 * dotTone);
+      float dotRadius = max(1.0, min(u_cellSize.x, u_cellSize.y) * 0.45 * dotTone);
       vec2 centered = localUv * u_cellSize - u_cellSize * 0.5;
-      float distanceFromCenter = length(centered);
-      float dotAlpha =
-        1.0 - smoothstep(max(dotRadius - 1.0, 0.0), dotRadius, distanceFromCenter);
-      color = vec4(foregroundColor, foregroundAlpha * dotAlpha);
+      float dist = length(centered);
+      float dotAlpha = 1.0 - smoothstep(max(dotRadius - 1.0, 0.0), dotRadius, dist);
+      color = vec4(fg, fgAlpha * dotAlpha);
     } else {
+      // Glyph mode — tone maps linearly to atlas index.
       float glyphSteps = max(1.0, u_glyphCount - 1.0);
-      float glyphIndex = round(clamp(tone, 0.0, 1.0) * glyphSteps);
-      float atlasColumn = mod(glyphIndex, u_glyphAtlasGrid.x);
-      float atlasRow = floor(glyphIndex / max(u_glyphAtlasGrid.x, 1.0));
-      vec2 atlasUv =
-        (vec2(atlasColumn, atlasRow) + localUv) / max(u_glyphAtlasGrid, vec2(1.0));
+      float idx = round(clamp(tone, 0.0, 1.0) * glyphSteps);
+      float col = mod(idx, u_glyphAtlasGrid.x);
+      float row = floor(idx / max(u_glyphAtlasGrid.x, 1.0));
+      vec2 atlasUv = (vec2(col, row) + localUv) / max(u_glyphAtlasGrid, vec2(1.0));
       float glyphAlpha = texture(u_glyphAtlas, atlasUv).a;
-      color = vec4(foregroundColor, foregroundAlpha * glyphAlpha);
+      color = vec4(fg, fgAlpha * glyphAlpha);
     }
   }
 

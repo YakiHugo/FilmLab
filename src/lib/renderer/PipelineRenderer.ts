@@ -139,29 +139,6 @@ interface LayerBlendOptions {
   invertMask?: boolean;
 }
 
-interface AsciiTextmodeSurfaceInput {
-  cacheKey: string;
-  width: number;
-  height: number;
-  cellWidth: number;
-  cellHeight: number;
-  columns: number;
-  rows: number;
-  renderMode: "glyph" | "dot";
-  backgroundFillRgba: Uint8ClampedArray | null;
-  backgroundSourceCanvas: HTMLCanvasElement | null;
-  backgroundBlurPx: number;
-  foregroundBlendMode: GlobalCompositeOperation;
-  gridOverlay: boolean;
-  gridOverlayAlpha: number;
-  charset: readonly string[];
-  emptyGlyphIndex: number;
-  glyphIndexByCell: Uint16Array;
-  foregroundRgbaByCell: Uint8ClampedArray;
-  backgroundRgbaByCell: Uint8ClampedArray;
-  dotRadiusByCell: Float32Array;
-}
-
 interface AsciiGpuCarrierInput {
   width: number;
   height: number;
@@ -187,6 +164,7 @@ interface AsciiGpuCarrierInput {
   invert: boolean;
   gridOverlay: boolean;
   gridOverlayAlpha: number;
+  duotoneShadowRgba: Uint8ClampedArray | null;
   charset: readonly string[];
   sourceCanvas: HTMLCanvasElement;
 }
@@ -232,16 +210,7 @@ interface AsciiAtlasDebugSnapshot {
   builtAt: number;
 }
 
-interface AsciiSurfaceTextureCacheRecord {
-  columns: number;
-  rows: number;
-  foregroundTexture: WebGLTexture;
-  backgroundTexture: WebGLTexture;
-  glyphIndexTexture: WebGLTexture;
-  dotRadiusTexture: WebGLTexture;
-}
-
-type AsciiTextmodeLayerKind = "background" | "foreground";
+type AsciiLayerKind = "background" | "foreground";
 
 const LAYER_BLEND_MODE_MAP: Record<EditorLayerBlendMode, number> = {
   normal: 0,
@@ -251,7 +220,6 @@ const LAYER_BLEND_MODE_MAP: Record<EditorLayerBlendMode, number> = {
   softLight: 4,
 };
 
-const ASCII_GPU_EMPTY_GLYPH_INDEX = 255;
 
 const NO_OP_METRICS: PipelineRenderMetrics = {
   totalMs: 0,
@@ -320,10 +288,6 @@ export class PipelineRenderer {
   private readonly lutCache = new LUTCache(12);
   private readonly asciiGlyphAtlasCache = new Map<string, AsciiGlyphAtlasRecord>();
   private asciiGlyphAtlasLru: string[] = [];
-  private readonly asciiSurfaceTextureCache = new Map<string, AsciiSurfaceTextureCacheRecord>();
-  private asciiSurfaceTextureLru: string[] = [];
-  private asciiGlyphIndexStaging: Uint8Array | null = null;
-  private asciiDotRadiusStaging: Uint8Array | null = null;
   private readonly rendererLabel: "preview" | "export";
   private readonly maxTextureSizeValue: number;
   private readonly intermediateFormat: "RGBA8" | "RGBA16F";
@@ -1308,185 +1272,6 @@ export class PipelineRenderer {
     };
   }
 
-  private hasVisibleAsciiCellData(data: Uint8ClampedArray): boolean {
-    for (let index = 3; index < data.length; index += 4) {
-      if ((data[index] ?? 0) > 0) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private createAsciiRgbaTexture(
-    data: Uint8Array | Uint8ClampedArray,
-    width: number,
-    height: number
-  ): WebGLTexture {
-    return twgl.createTexture(this.gl, {
-      target: this.gl.TEXTURE_2D,
-      src: data,
-      width,
-      height,
-      internalFormat: this.gl.RGBA8,
-      format: this.gl.RGBA,
-      type: this.gl.UNSIGNED_BYTE,
-      min: this.gl.NEAREST,
-      mag: this.gl.NEAREST,
-      wrapS: this.gl.CLAMP_TO_EDGE,
-      wrapT: this.gl.CLAMP_TO_EDGE,
-      auto: false,
-    });
-  }
-
-  private releaseAsciiSurfaceTextureCacheRecord(record: AsciiSurfaceTextureCacheRecord): void {
-    this.gl.deleteTexture(record.foregroundTexture);
-    this.gl.deleteTexture(record.backgroundTexture);
-    this.gl.deleteTexture(record.glyphIndexTexture);
-    this.gl.deleteTexture(record.dotRadiusTexture);
-  }
-
-  private pruneAsciiSurfaceTextureCache(maxEntries = 4): void {
-    while (this.asciiSurfaceTextureLru.length > maxEntries) {
-      const oldestKey = this.asciiSurfaceTextureLru.shift();
-      if (!oldestKey) {
-        break;
-      }
-      const record = this.asciiSurfaceTextureCache.get(oldestKey);
-      if (!record) {
-        continue;
-      }
-      this.releaseAsciiSurfaceTextureCacheRecord(record);
-      this.asciiSurfaceTextureCache.delete(oldestKey);
-    }
-  }
-
-  private createAsciiSurfaceTextureCacheRecord(
-    surface: AsciiTextmodeSurfaceInput
-  ): AsciiSurfaceTextureCacheRecord {
-    return {
-      columns: surface.columns,
-      rows: surface.rows,
-      foregroundTexture: this.createAsciiRgbaTexture(
-        surface.foregroundRgbaByCell,
-        surface.columns,
-        surface.rows
-      ),
-      backgroundTexture: this.createAsciiRgbaTexture(
-        surface.backgroundRgbaByCell,
-        surface.columns,
-        surface.rows
-      ),
-      glyphIndexTexture: this.createAsciiRgbaTexture(
-        this.buildAsciiGlyphIndexTextureData(surface),
-        surface.columns,
-        surface.rows
-      ),
-      dotRadiusTexture: this.createAsciiRgbaTexture(
-        this.buildAsciiDotRadiusTextureData(surface),
-        surface.columns,
-        surface.rows
-      ),
-    };
-  }
-
-  private updateAsciiRgbaTexture(
-    texture: WebGLTexture,
-    data: Uint8Array | Uint8ClampedArray,
-    width: number,
-    height: number
-  ): void {
-    this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
-    this.gl.texSubImage2D(
-      this.gl.TEXTURE_2D,
-      0,
-      0,
-      0,
-      width,
-      height,
-      this.gl.RGBA,
-      this.gl.UNSIGNED_BYTE,
-      data
-    );
-    this.gl.bindTexture(this.gl.TEXTURE_2D, null);
-  }
-
-  private updateAsciiSurfaceTextureCacheRecord(
-    record: AsciiSurfaceTextureCacheRecord,
-    surface: AsciiTextmodeSurfaceInput
-  ): void {
-    this.updateAsciiRgbaTexture(record.foregroundTexture, surface.foregroundRgbaByCell, surface.columns, surface.rows);
-    this.updateAsciiRgbaTexture(record.backgroundTexture, surface.backgroundRgbaByCell, surface.columns, surface.rows);
-    this.updateAsciiRgbaTexture(record.glyphIndexTexture, this.buildAsciiGlyphIndexTextureData(surface), surface.columns, surface.rows);
-    this.updateAsciiRgbaTexture(record.dotRadiusTexture, this.buildAsciiDotRadiusTextureData(surface), surface.columns, surface.rows);
-  }
-
-  private getAsciiSurfaceTextureCacheRecord(
-    surface: AsciiTextmodeSurfaceInput
-  ): AsciiSurfaceTextureCacheRecord {
-    const cacheKey = surface.cacheKey.trim();
-    if (!cacheKey) {
-      return this.createAsciiSurfaceTextureCacheRecord(surface);
-    }
-
-    const cached = this.asciiSurfaceTextureCache.get(cacheKey);
-    if (cached) {
-      if (cached.columns === surface.columns && cached.rows === surface.rows) {
-        this.updateAsciiSurfaceTextureCacheRecord(cached, surface);
-      } else {
-        this.releaseAsciiSurfaceTextureCacheRecord(cached);
-        const recreated = this.createAsciiSurfaceTextureCacheRecord(surface);
-        this.asciiSurfaceTextureCache.set(cacheKey, recreated);
-      }
-      this.asciiSurfaceTextureLru = [
-        cacheKey,
-        ...this.asciiSurfaceTextureLru.filter((key) => key !== cacheKey),
-      ];
-      return this.asciiSurfaceTextureCache.get(cacheKey)!;
-    }
-
-    const created = this.createAsciiSurfaceTextureCacheRecord(surface);
-
-    this.asciiSurfaceTextureCache.set(cacheKey, created);
-    this.asciiSurfaceTextureLru = [
-      cacheKey,
-      ...this.asciiSurfaceTextureLru.filter((key) => key !== cacheKey),
-    ];
-    this.pruneAsciiSurfaceTextureCache();
-    return created;
-  }
-
-  private buildAsciiGlyphIndexTextureData(surface: AsciiTextmodeSurfaceInput): Uint8Array {
-    const cellCount = surface.columns * surface.rows;
-    const requiredSize = cellCount * 4;
-    if (!this.asciiGlyphIndexStaging || this.asciiGlyphIndexStaging.length < requiredSize) {
-      this.asciiGlyphIndexStaging = new Uint8Array(requiredSize);
-    }
-    const data = this.asciiGlyphIndexStaging;
-    data.fill(0, 0, requiredSize);
-    for (let cellIndex = 0; cellIndex < cellCount; cellIndex += 1) {
-      const glyphIndex = surface.glyphIndexByCell[cellIndex] ?? surface.emptyGlyphIndex;
-      data[cellIndex * 4] =
-        glyphIndex === surface.emptyGlyphIndex ? ASCII_GPU_EMPTY_GLYPH_INDEX : Math.min(254, glyphIndex);
-      data[cellIndex * 4 + 3] = 255;
-    }
-    return data.subarray(0, requiredSize);
-  }
-
-  private buildAsciiDotRadiusTextureData(surface: AsciiTextmodeSurfaceInput): Uint8Array {
-    const cellCount = surface.columns * surface.rows;
-    const requiredSize = cellCount * 4;
-    if (!this.asciiDotRadiusStaging || this.asciiDotRadiusStaging.length < requiredSize) {
-      this.asciiDotRadiusStaging = new Uint8Array(requiredSize);
-    }
-    const data = this.asciiDotRadiusStaging;
-    data.fill(0, 0, requiredSize);
-    for (let cellIndex = 0; cellIndex < cellCount; cellIndex += 1) {
-      data[cellIndex * 4] = Math.round(clamp(surface.dotRadiusByCell[cellIndex] ?? 0, 0, 255));
-      data[cellIndex * 4 + 3] = 255;
-    }
-    return data.subarray(0, requiredSize);
-  }
-
   private releaseAsciiGlyphAtlasRecord(record: AsciiGlyphAtlasRecord): void {
     this.gl.deleteTexture(record.texture);
   }
@@ -1728,110 +1513,9 @@ export class PipelineRenderer {
     }
   }
 
-  private renderAsciiTextmodeLayer(
-    surface: AsciiTextmodeSurfaceInput,
-    layerKind: AsciiTextmodeLayerKind
-  ): LinearRenderResult | null {
-    const hasBackground =
-      Boolean(surface.backgroundFillRgba) ||
-      Boolean(surface.backgroundSourceCanvas) ||
-      this.hasVisibleAsciiCellData(surface.backgroundRgbaByCell);
-    const hasForeground =
-      this.hasVisibleAsciiCellData(surface.foregroundRgbaByCell) || surface.gridOverlay;
-    if ((layerKind === "background" && !hasBackground) || (layerKind === "foreground" && !hasForeground)) {
-      return null;
-    }
-
-    const glyphAtlas =
-      layerKind === "foreground" && surface.renderMode === "glyph"
-        ? this.getGlyphAtlas({
-            cellWidth: surface.cellWidth,
-            cellHeight: surface.cellHeight,
-            charset: surface.charset,
-            fontFamily: "monospace",
-            fontSizeScale: 0.9,
-          })
-        : {
-            texture: this.emptyMaskTexture,
-            columns: 1,
-            rows: 1,
-            glyphCount: 0,
-          };
-    const cacheKey = surface.cacheKey.trim();
-    const usesCachedTextures = cacheKey.length > 0;
-    const textureRecord = this.getAsciiSurfaceTextureCacheRecord(surface);
-    const backgroundSourceLayer =
-      layerKind === "background" ? this.renderAsciiBackgroundSourceLayer(surface) : null;
-    const backgroundSourceTexture = backgroundSourceLayer?.texture ?? this.emptyMaskTexture;
-
-    try {
-      const rendered = this.filterPipeline.runToTexture({
-        baseWidth: surface.width,
-        baseHeight: surface.height,
-        passes: [
-          {
-            id: `ascii-textmode-${layerKind}`,
-            programInfo: this.programs.asciiTextmode,
-            uniforms: {
-              u_canvasSize: new Float32Array([surface.width, surface.height]),
-              u_gridSize: new Float32Array([surface.columns, surface.rows]),
-              u_cellSize: new Float32Array([surface.cellWidth, surface.cellHeight]),
-              u_glyphAtlasGrid: new Float32Array([glyphAtlas.columns, glyphAtlas.rows]),
-              u_backgroundFill: surface.backgroundFillRgba
-                ? new Float32Array([
-                    (surface.backgroundFillRgba[0] ?? 0) / 255,
-                    (surface.backgroundFillRgba[1] ?? 0) / 255,
-                    (surface.backgroundFillRgba[2] ?? 0) / 255,
-                    (surface.backgroundFillRgba[3] ?? 0) / 255,
-                  ])
-                : new Float32Array([0, 0, 0, 0]),
-              u_emptyGlyphIndex: ASCII_GPU_EMPTY_GLYPH_INDEX,
-              u_glyphCount: glyphAtlas.glyphCount,
-              u_layerMode: layerKind === "background" ? 0 : 1,
-              u_renderMode: surface.renderMode === "dot" ? 1 : 0,
-              u_useBackgroundCanvas: Boolean(backgroundSourceLayer),
-              u_useBackgroundFill: Boolean(surface.backgroundFillRgba),
-              u_gridOverlay: surface.gridOverlay,
-              u_gridOverlayAlpha: surface.gridOverlayAlpha,
-            },
-            extraTextures: {
-              u_backgroundCanvas: backgroundSourceTexture,
-              u_cellForeground: textureRecord.foregroundTexture,
-              u_cellBackground: textureRecord.backgroundTexture,
-              u_cellGlyphIndex: textureRecord.glyphIndexTexture,
-              u_cellDotRadius: textureRecord.dotRadiusTexture,
-              u_glyphAtlas: glyphAtlas.texture,
-            },
-            outputFormat: "RGBA8",
-            enabled: true,
-          },
-        ],
-        input: {
-          texture: this.emptyMaskTexture,
-          width: 1,
-          height: 1,
-          format: "RGBA8",
-        },
-      });
-
-      return {
-        texture: rendered.texture,
-        width: rendered.width,
-        height: rendered.height,
-        format: rendered.format,
-        release: rendered.release,
-      };
-    } finally {
-      backgroundSourceLayer?.release();
-      if (!usesCachedTextures) {
-        this.releaseAsciiSurfaceTextureCacheRecord(textureRecord);
-      }
-    }
-  }
-
   private renderAsciiCarrierLayer(
     carrier: AsciiGpuCarrierInput,
-    layerKind: AsciiTextmodeLayerKind,
+    layerKind: AsciiLayerKind,
     analysisGrid: LinearRenderResult
   ): LinearRenderResult | null {
     const hasBackground =
@@ -1906,6 +1590,7 @@ export class PipelineRenderer {
               u_brightness: carrier.brightness,
               u_contrast: carrier.contrast,
               u_foregroundOpacity: carrier.foregroundOpacity,
+              u_backgroundOpacity: carrier.backgroundOpacity,
               u_invert: carrier.invert,
               u_useBackgroundCanvas: Boolean(backgroundSourceLayer),
               u_useBackgroundFill: Boolean(carrier.backgroundFillRgba),
@@ -1946,70 +1631,6 @@ export class PipelineRenderer {
       };
     } finally {
       backgroundSourceLayer?.release();
-    }
-  }
-
-  renderAsciiTextmodeComposite(options: {
-    baseCanvas: HTMLCanvasElement;
-    surface: AsciiTextmodeSurfaceInput;
-    foregroundBlendMode: EditorLayerBlendMode;
-  }): boolean {
-    if (this.destroyed || this.contextLost) {
-      return false;
-    }
-
-    try {
-      let composited = this.captureLinearSource(
-        options.baseCanvas,
-        options.baseCanvas.width,
-        options.baseCanvas.height,
-        options.baseCanvas.width,
-        options.baseCanvas.height,
-        {
-          decodeSrgb: false,
-        }
-      );
-
-      try {
-        const backgroundLayer = this.renderAsciiTextmodeLayer(options.surface, "background");
-        if (backgroundLayer) {
-          try {
-            const blended = this.blendLinearLayers(composited, backgroundLayer, {
-              blendMode: "normal",
-              opacity: 1,
-            });
-            composited.release();
-            composited = blended;
-          } finally {
-            backgroundLayer.release();
-          }
-        }
-
-        const foregroundLayer = this.renderAsciiTextmodeLayer(options.surface, "foreground");
-        if (foregroundLayer) {
-          try {
-            const blended = this.blendLinearLayers(composited, foregroundLayer, {
-              blendMode: options.foregroundBlendMode,
-              opacity: 1,
-            });
-            composited.release();
-            composited = blended;
-          } finally {
-            foregroundLayer.release();
-          }
-        }
-
-        this.presentTextureResult(composited, {
-          inputLinear: false,
-          enableDither: false,
-        });
-        return true;
-      } finally {
-        composited.release();
-      }
-    } catch (error) {
-      if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }
-      return false;
     }
   }
 
@@ -2767,13 +2388,6 @@ export class PipelineRenderer {
     }
     this.asciiGlyphAtlasCache.clear();
     this.asciiGlyphAtlasLru = [];
-    for (const record of this.asciiSurfaceTextureCache.values()) {
-      this.releaseAsciiSurfaceTextureCacheRecord(record);
-    }
-    this.asciiSurfaceTextureCache.clear();
-    this.asciiSurfaceTextureLru = [];
-    this.asciiGlyphIndexStaging = null;
-    this.asciiDotRadiusStaging = null;
 
     this.gl.deleteTexture(this.curveLutTexture);
     this.gl.deleteTexture(this.blueNoiseTexture);
