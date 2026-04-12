@@ -44,10 +44,11 @@ const isForegroundBlendMode = (value: unknown): value is AsciiForegroundBlendMod
 
 const DEFAULT_ASCII_ADJUSTMENTS: AsciiAdjustments = {
   enabled: false,
-  // "detailed" has ~75 density-sorted chars after the Phase 3 measurer, which
-  // gives smoother tone gradients than "standard"'s 10 chars — closer to
-  // ascii-magic's out-of-the-box look.
-  charsetPreset: "detailed",
+  // "standard" ships 10 visually-distinct chars (@%#*+=-:. ) rather than
+  // "detailed"'s 75. At any reasonable cell size the human visual system
+  // can actually tell them apart, which is what makes an output read as
+  // "ASCII art" instead of as a gradient texture.
+  charsetPreset: "standard",
   customCharset: "",
   invert: false,
   // brightness/contrast are kept at neutral and no longer surfaced in the
@@ -59,12 +60,13 @@ const DEFAULT_ASCII_ADJUSTMENTS: AsciiAdjustments = {
   // of the charset. coverage < 1 makes the darkest cells empty instead of
   // filling every cell with a character, which is the "breathing room" that
   // stops ASCII output from looking like a muddy wall of text.
-  density: 0.85,
-  coverage: 0.92,
+  density: 1,
+  coverage: 0.95,
   edgeEmphasis: 0,
   renderMode: "glyph",
-  // Smaller default cell size → more glyphs per image → more perceived detail.
-  cellSize: 8,
+  // 14 px cells are legible on-screen and leave room for the glyph atlas
+  // upscaler (see PipelineRenderer.getGlyphAtlas) to produce crisp output.
+  cellSize: 14,
   characterSpacing: 1,
   foregroundOpacity: 1,
   foregroundBlendMode: "source-over",
