@@ -106,8 +106,14 @@ const resolveEffectiveCellSize = (
   quality: ImageRenderQuality
 ) => (quality === "interactive" ? clamp(Math.round(cellSize * 1.2), cellSize, 28) : cellSize);
 
-const resolveBlurRadiusPx = (backgroundBlur: number, shortEdge: number) =>
-  (clamp(backgroundBlur, 0, 100) / 100) * Math.max(1, Math.min(24, shortEdge * 0.035));
+const resolveBlurRadiusPx = (backgroundBlur: number, shortEdge: number) => {
+  // Scale blur relative to image size so the blurred source feels soft but
+  // recognisable.  Previous formula capped at 24 px which was barely visible
+  // at high resolutions.  backgroundBlur=8 (default) at 1080 p now gives
+  // ≈ 5 px — enough to smooth pixel detail without washing the image out.
+  const base = Math.max(1, shortEdge * 0.06);
+  return (clamp(backgroundBlur, 0, 100) / 100) * base;
+};
 
 const resolveFeatureGridLayout = ({
   normalized,
@@ -223,6 +229,17 @@ const renderAsciiToCanvas = (
   const imageData = analysisCtx.getImageData(0, 0, columns, rows);
   analysisCanvas.width = 0;
   analysisCanvas.height = 0;
+  const data = imageData.data;
+
+  // --- Build per-cell luminance grid (used for edge emphasis) ---
+  const luminance = new Float32Array(columns * rows);
+  for (let i = 0; i < luminance.length; i += 1) {
+    const off = i * 4;
+    luminance[i] =
+      ((data[off] ?? 0) / 255) * 0.2126 +
+      ((data[off + 1] ?? 0) / 255) * 0.7152 +
+      ((data[off + 2] ?? 0) / 255) * 0.0722;
+  }
 
   // --- Clear target ---
   ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
@@ -249,10 +266,10 @@ const renderAsciiToCanvas = (
   ctx.textBaseline = "middle";
   ctx.font = `${Math.max(6, Math.round(cellHeight * 0.9))}px monospace`;
 
-  const data = imageData.data;
   for (let row = 0; row < rows; row += 1) {
     for (let col = 0; col < columns; col += 1) {
-      const pixelOffset = (row * columns + col) * 4;
+      const cellIdx = row * columns + col;
+      const pixelOffset = cellIdx * 4;
       const r = (data[pixelOffset] ?? 0) / 255;
       const g = (data[pixelOffset + 1] ?? 0) / 255;
       const b = (data[pixelOffset + 2] ?? 0) / 255;
@@ -260,13 +277,23 @@ const renderAsciiToCanvas = (
 
       if (a <= ALPHA_CUTOFF) continue;
 
-      // Brightness processing (same logic as the shader)
-      let brightness = r * 0.2126 + g * 0.7152 + b * 0.0722;
+      let brightness = luminance[cellIdx] ?? 0;
       brightness = clamp(
         (brightness - 0.5) * normalized.contrast + 0.5 + normalized.brightness / 100,
         0,
         1
       );
+
+      // Edge emphasis: simple Sobel-like gradient magnitude
+      if (normalized.edgeEmphasis > 0) {
+        const left = luminance[row * columns + Math.max(0, col - 1)] ?? 0;
+        const right = luminance[row * columns + Math.min(columns - 1, col + 1)] ?? 0;
+        const up = luminance[Math.max(0, row - 1) * columns + col] ?? 0;
+        const down = luminance[Math.min(rows - 1, row + 1) * columns + col] ?? 0;
+        const edge = clamp(Math.abs(right - left) + Math.abs(down - up), 0, 1);
+        brightness = clamp(brightness + edge * normalized.edgeEmphasis, 0, 1);
+      }
+
       brightness = Math.pow(brightness, 1 / normalized.density);
 
       const coverageThreshold = 1 - normalized.coverage;
@@ -282,16 +309,16 @@ const renderAsciiToCanvas = (
       const glyphTone = normalized.invert ? 1 - tone : tone;
       const glyphIndex = Math.round(clamp(glyphTone, 0, 1) * glyphSteps);
 
+      const cx = col * cellWidth;
+      const cy = row * cellHeight;
+
       if (normalized.renderMode === "dot") {
         const dotTone = normalized.invert ? tone : 1 - tone;
         const dotRadius = Math.max(1, Math.min(cellWidth, cellHeight) * 0.45 * dotTone);
-        const cx = col * cellWidth + cellWidth / 2;
-        const cy = row * cellHeight + cellHeight / 2;
-
         ctx.fillStyle = resolveCellColor(r, g, b, tone, normalized, backgroundColor);
         ctx.globalAlpha = clamp(normalized.foregroundOpacity * a, 0, 1);
         ctx.beginPath();
-        ctx.arc(cx, cy, dotRadius, 0, Math.PI * 2);
+        ctx.arc(cx + cellWidth / 2, cy + cellHeight / 2, dotRadius, 0, Math.PI * 2);
         ctx.fill();
         continue;
       }
@@ -299,12 +326,9 @@ const renderAsciiToCanvas = (
       const glyph = charset[glyphIndex] ?? "";
       if (!glyph || glyph === " ") continue;
 
-      const x = col * cellWidth + cellWidth / 2;
-      const y = row * cellHeight + cellHeight / 2;
-
       ctx.fillStyle = resolveCellColor(r, g, b, tone, normalized, backgroundColor);
       ctx.globalAlpha = clamp(normalized.foregroundOpacity * a, 0, 1);
-      ctx.fillText(glyph, x, y);
+      ctx.fillText(glyph, cx + cellWidth / 2, cy + cellHeight / 2);
     }
   }
   ctx.restore();
