@@ -193,7 +193,10 @@ export const normalizeImageAsciiEffectParams = (
 // ---------------------------------------------------------------------------
 
 const ATLAS_GLYPH_HEIGHT = 48;
-const GLYPH_ATLAS_FONT_THRESHOLD = 14;
+// Use the atlas at all glyph sizes — rendering at ATLAS_GLYPH_HEIGHT then
+// downscaling gives consistently better anti-aliasing than raw fillText,
+// which varies across browsers and font sizes.
+const GLYPH_ATLAS_FONT_THRESHOLD = 64;
 
 let _atlasCache: {
   key: string;
@@ -344,15 +347,6 @@ const renderAsciiToCanvas = (
         1
       );
 
-      if (normalized.edgeEmphasis > 0) {
-        const left = luminance[row * columns + Math.max(0, col - 1)] ?? 0;
-        const right = luminance[row * columns + Math.min(columns - 1, col + 1)] ?? 0;
-        const up = luminance[Math.max(0, row - 1) * columns + col] ?? 0;
-        const down = luminance[Math.min(rows - 1, row + 1) * columns + col] ?? 0;
-        const edge = clamp(Math.abs(right - left) + Math.abs(down - up), 0, 1);
-        brightness = clamp(brightness + edge * normalized.edgeEmphasis, 0, 1);
-      }
-
       brightness = Math.pow(brightness, 1 / normalized.density);
       if (brightness <= coverageThreshold) continue;
 
@@ -364,6 +358,18 @@ const renderAsciiToCanvas = (
       if (normalized.invert) {
         tone = 1 - tone;
       }
+
+      // Edge emphasis is applied after inversion so that edges always produce
+      // denser (more visible) characters regardless of invert mode.
+      if (normalized.edgeEmphasis > 0) {
+        const left = luminance[row * columns + Math.max(0, col - 1)] ?? 0;
+        const right = luminance[row * columns + Math.min(columns - 1, col + 1)] ?? 0;
+        const up = luminance[Math.max(0, row - 1) * columns + col] ?? 0;
+        const down = luminance[Math.min(rows - 1, row + 1) * columns + col] ?? 0;
+        const edge = clamp(Math.abs(right - left) + Math.abs(down - up), 0, 1);
+        tone = clamp(tone + edge * normalized.edgeEmphasis, 0, 1);
+      }
+
       toneGrid[idx] = Math.max(tone, 0.001);
     }
   }
@@ -568,8 +574,10 @@ export const applyImageAsciiCarrierTransform = async ({
   return renderAsciiToCanvas(targetCanvas, sourceCanvas, normalized, layout);
 };
 
-// Surface path returns null — forces materialisation to canvas first,
-// then the canvas path above handles the actual ASCII rendering.
+// GPU surface path is disabled — returns null to force materialisation to
+// canvas, then the Canvas2D path above handles ASCII rendering.
+// The GPU carrier code in PipelineRenderer.ts + AsciiCarrier.frag is kept
+// for future revival. See PipelineRenderer.ts comment for context.
 export const applyImageAsciiCarrierTransformToSurfaceIfSupported = async (
   _options: {
     baseSurface: RenderSurfaceHandle;

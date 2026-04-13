@@ -1,3 +1,8 @@
+// NOT CURRENTLY REACHED — the GPU carrier path is disabled
+// (applyImageAsciiCarrierTransformToSurfaceIfSupported returns null).
+// Kept for future GPU carrier revival. See PipelineRenderer.ts comment
+// above renderAsciiBackgroundSourceLayer for context.
+
 #version 300 es
 precision highp float;
 
@@ -62,7 +67,6 @@ float resolveTone(ivec2 cellCoord, vec4 cellSample) {
 
   float brightness = asciiResolveLuminance(cellSample.rgb);
   brightness = clamp((brightness - 0.5) * u_contrast + 0.5 + u_brightness / 100.0, 0.0, 1.0);
-  brightness = clamp(brightness + resolveEdge(cellCoord) * u_edgeEmphasis, 0.0, 1.0);
   brightness = pow(brightness, 1.0 / max(u_density, 0.0001));
 
   float coverageThreshold = 1.0 - u_coverage;
@@ -78,6 +82,10 @@ float resolveTone(ivec2 cellCoord, vec4 cellSample) {
   if (u_invert) {
     tone = 1.0 - tone;
   }
+
+  // Edge emphasis applied after inversion so edges always produce denser
+  // (more visible) characters regardless of invert mode.
+  tone = clamp(tone + resolveEdge(cellCoord) * u_edgeEmphasis, 0.0, 1.0);
   return max(tone, 0.001);
 }
 
