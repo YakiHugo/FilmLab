@@ -227,7 +227,7 @@ function CanvasAsciiEditPanelForImage({
     presets: true,
     character: true,
     background: true,
-    color: false,
+    color: true,
   }));
 
   const committedImageElementId = imageElement.id;

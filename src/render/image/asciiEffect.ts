@@ -23,12 +23,15 @@ const CHARSET_PRESET_CANDIDATES: Record<
   NonNullable<ImageAsciiCarrierTransformNode["params"]["preset"]>,
   string
 > = {
-  standard: "@%#*+=-:. ",
+  // ~50 pure-ASCII chars — density sorting picks the right order per font.
+  // Covers the full tonal range from near-solid (@MW) to near-empty (.'` ).
+  standard:
+    "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. ",
   blocks: "\u2588\u2593\u2592\u2591 ",
   minimal: "@#*+=-:. ",
   detailed:
     "\u2588\u2593\u2592\u2591$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. ",
-  custom: "@%#*+=-:. ",
+  custom: "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. ",
 };
 
 const resolveCharsetForPreset = (
