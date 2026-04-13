@@ -96,6 +96,8 @@ const ASCII_FOREGROUND_BLEND_OPTIONS: Array<{
 ];
 
 type AsciiNumericKey =
+  | "brightness"
+  | "contrast"
   | "density"
   | "coverage"
   | "edgeEmphasis"
@@ -117,11 +119,6 @@ interface AsciiSliderDef {
   format?: (value: number) => string;
 }
 
-// brightness / contrast are not surfaced here — they duplicate the image edit
-// panel's "光线与对比" section, which already operates on the source pixels
-// that feed into the ASCII sampler. density / coverage / edgeEmphasis are
-// retained because they modify the ASCII tone→glyph mapping itself, not the
-// underlying image tone, so there is no equivalent control elsewhere.
 const CHARACTER_SLIDERS: AsciiSliderDef[] = [
   { key: "cellSize", label: "单元尺寸", min: 6, max: 48, step: 1 },
   {
@@ -132,6 +129,8 @@ const CHARACTER_SLIDERS: AsciiSliderDef[] = [
     step: 0.05,
     format: formatRatio,
   },
+  { key: "brightness", label: "亮度", min: -100, max: 100, step: 1 },
+  { key: "contrast", label: "对比度", min: 0.25, max: 3, step: 0.05, format: formatRatio },
   { key: "density", label: "字符密度", min: 0.1, max: 1, step: 0.01, format: formatRatio },
   { key: "coverage", label: "覆盖率", min: 0.05, max: 1, step: 0.01, format: formatRatio },
   { key: "edgeEmphasis", label: "边缘强度", min: 0, max: 1, step: 0.01, format: formatRatio },
@@ -160,6 +159,8 @@ const CHARACTER_KEYS: Array<keyof AsciiAdjustments> = [
   "renderMode",
   "cellSize",
   "characterSpacing",
+  "brightness",
+  "contrast",
   "density",
   "coverage",
   "edgeEmphasis",

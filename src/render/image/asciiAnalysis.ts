@@ -1,3 +1,15 @@
+// --------------------------------------------------------------------------
+// NOT CURRENTLY USED — kept for future GPU carrier revival.
+//
+// This module was part of the GPU-backed ASCII analysis pipeline (Slice 5 of
+// the textmode kernel task). The Canvas2D renderer in asciiEffect.ts now does
+// its own inline downsampling + getImageData, so nothing imports this module.
+//
+// When the GPU carrier path in PipelineRenderer.renderAsciiCarrierComposite
+// is revived, this module provides the cell-grid readback, LRU cache, and
+// luminance/edge feature extraction that the GPU shader consumes.
+// --------------------------------------------------------------------------
+
 import { runRendererPixelReadbackOperation } from "@/lib/renderer/gpuSurfaceOperation";
 import { clamp } from "@/lib/math";
 import type {
