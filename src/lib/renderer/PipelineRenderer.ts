@@ -46,6 +46,7 @@ import {
 } from "@/lib/localMaskShared";
 import type { EditorLayerBlendMode, EditorLayerMask } from "@/types";
 import type { LocalAdjustmentMask } from "@/types";
+import type { AsciiCarrierGpuInput } from "./gpuAsciiCarrier";
 import type {
   CurveUniforms,
   DetailUniforms,
@@ -139,36 +140,7 @@ interface LayerBlendOptions {
   invertMask?: boolean;
 }
 
-interface AsciiGpuCarrierInput {
-  width: number;
-  height: number;
-  cellWidth: number;
-  cellHeight: number;
-  columns: number;
-  rows: number;
-  renderMode: "glyph" | "dot";
-  colorMode: "grayscale" | "full-color" | "duotone";
-  foregroundOpacity: number;
-  backgroundMode: "none" | "solid" | "cell-solid" | "blurred-source";
-  backgroundOpacity: number;
-  backgroundFillRgba: Uint8ClampedArray | null;
-  cellBackgroundRgba: Uint8ClampedArray | null;
-  backgroundSourceCanvas: HTMLCanvasElement | null;
-  backgroundBlurPx: number;
-  invert: boolean;
-  gridOverlay: boolean;
-  gridOverlayAlpha: number;
-  duotoneShadowRgba: Uint8ClampedArray | null;
-  charset: readonly string[];
-  // Per-cell RGBA8, columns × rows (row-major, 4 bytes per cell).
-  // Holds the source color used for full-color/duotone color sampling and the
-  // alpha gate that drives cell-solid background + foreground visibility.
-  cellColorRgba: Uint8ClampedArray;
-  // Per-cell R8, columns × rows (row-major, 1 byte per cell).
-  // Final post-invert / post-edge / post-dither tone in [0, 255]. 0 means cell
-  // is invisible (outside coverage / below alpha cutoff).
-  cellToneR: Uint8ClampedArray;
-}
+type AsciiGpuCarrierInput = AsciiCarrierGpuInput;
 
 interface GlyphAtlasInput {
   cellWidth: number;

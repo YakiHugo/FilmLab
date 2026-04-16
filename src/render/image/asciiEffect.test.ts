@@ -17,6 +17,16 @@ vi.mock("./stageMaskComposite", () => ({
     Reflect.apply(applyMaskedStageOperationToSurfaceIfSupportedMock, undefined, args),
 }));
 
+const applyAsciiCarrierOnGpuMock = vi.fn();
+const applyAsciiCarrierOnGpuToSurfaceMock = vi.fn();
+
+vi.mock("@/lib/renderer/gpuAsciiCarrier", () => ({
+  applyAsciiCarrierOnGpu: (...args: unknown[]) =>
+    Reflect.apply(applyAsciiCarrierOnGpuMock, undefined, args),
+  applyAsciiCarrierOnGpuToSurface: (...args: unknown[]) =>
+    Reflect.apply(applyAsciiCarrierOnGpuToSurfaceMock, undefined, args),
+}));
+
 const createMockImageData = (width: number, height: number) => {
   const data = new Uint8ClampedArray(width * height * 4);
   for (let i = 0; i < data.length; i += 4) {
@@ -70,6 +80,18 @@ const createMockCanvas = ({
   getContext: vi.fn(() => context),
 }) as unknown as HTMLCanvasElement;
 
+const createMockSurface = (canvas: HTMLCanvasElement): RenderSurfaceHandle =>
+  ({
+    kind: "renderer-slot",
+    mode: "preview",
+    slotId: "preview-main",
+    width: canvas.width,
+    height: canvas.height,
+    sourceCanvas: canvas,
+    materializeToCanvas: vi.fn(() => canvas),
+    cloneToCanvas: vi.fn(() => canvas),
+  }) as unknown as RenderSurfaceHandle;
+
 const createAsciiTransform = () => ({
   id: "ascii-test",
   type: "ascii" as const,
@@ -113,6 +135,10 @@ describe("asciiEffect", () => {
         }
         return applyOperation({ surface, maskRevisionKey: `mask:${maskDefinition.id}` });
       }
+    );
+    applyAsciiCarrierOnGpuMock.mockResolvedValue(true);
+    applyAsciiCarrierOnGpuToSurfaceMock.mockImplementation(
+      async ({ surface }: { surface: RenderSurfaceHandle }) => surface
     );
     vi.stubGlobal("document", {
       createElement: vi.fn(() => createMockCanvas()),
@@ -168,9 +194,8 @@ describe("asciiEffect", () => {
     });
   });
 
-  it("renders ASCII effect onto target canvas via Canvas2D", async () => {
-    const targetContext = createMockContext();
-    const targetCanvas = createMockCanvas({ width: 48, height: 48, context: targetContext });
+  it("builds the GPU input and delegates to applyAsciiCarrierOnGpu for the canvas path", async () => {
+    const targetCanvas = createMockCanvas({ width: 48, height: 48 });
     const sourceCanvas = createMockCanvas({ width: 48, height: 48 });
 
     const didApply = await applyImageAsciiCarrierTransform({
@@ -183,9 +208,28 @@ describe("asciiEffect", () => {
     });
 
     expect(didApply).toBe(true);
+    expect(applyAsciiCarrierOnGpuMock).toHaveBeenCalledTimes(1);
+    const call = applyAsciiCarrierOnGpuMock.mock.calls[0]?.[0] as {
+      targetCanvas: HTMLCanvasElement;
+      input: {
+        columns: number;
+        rows: number;
+        cellColorRgba: Uint8ClampedArray;
+        cellToneR: Uint8ClampedArray;
+        foregroundBlendMode: string;
+        backgroundMode: string;
+      };
+      slotId: string;
+    };
+    expect(call.targetCanvas).toBe(targetCanvas);
+    expect(call.slotId).toBe("ascii-carrier:ascii-test");
+    expect(call.input.columns * call.input.rows * 4).toBe(call.input.cellColorRgba.length);
+    expect(call.input.columns * call.input.rows).toBe(call.input.cellToneR.length);
+    expect(call.input.foregroundBlendMode).toBe("normal");
+    expect(call.input.backgroundMode).toBe("cell-solid");
   });
 
-  it("passes export mode through the canvas carrier path", async () => {
+  it("routes the export carrier path through applyAsciiCarrierOnGpu", async () => {
     const targetSize = { width: 128, height: 72 };
     const canvas = createMockCanvas({ width: targetSize.width, height: targetSize.height });
 
@@ -202,16 +246,21 @@ describe("asciiEffect", () => {
       },
     });
 
-    // applyImageCarrierTransform was called (canvas2D path)
-    expect(canvas.getContext).toHaveBeenCalled();
+    expect(applyAsciiCarrierOnGpuMock).toHaveBeenCalledTimes(1);
+    expect(applyAsciiCarrierOnGpuMock.mock.calls[0]?.[0]).toMatchObject({
+      slotId: "ascii-carrier:ascii-export",
+    });
   });
 
-  it("returns null from the surface path since GPU ASCII is disabled", async () => {
+  it("delegates the surface path to applyAsciiCarrierOnGpuToSurface", async () => {
     const targetSize = { width: 128, height: 72 };
-    const initialSurface = {
-      sourceCanvas: createMockCanvas({ width: targetSize.width, height: targetSize.height }),
-      mode: "preview",
-    } as unknown as RenderSurfaceHandle;
+    const initialSurface = createMockSurface(
+      createMockCanvas({ width: targetSize.width, height: targetSize.height })
+    );
+    const nextSurface = createMockSurface(
+      createMockCanvas({ width: targetSize.width, height: targetSize.height })
+    );
+    applyAsciiCarrierOnGpuToSurfaceMock.mockResolvedValueOnce(nextSurface);
 
     const result = await applyImageCarrierTransformsToSurfaceIfSupported({
       surface: initialSurface,
@@ -226,8 +275,34 @@ describe("asciiEffect", () => {
       },
     });
 
-    // applyImageAsciiCarrierTransformToSurfaceIfSupported always returns null,
-    // so the orchestrator returns null to signal canvas fallback.
+    expect(result).toBe(nextSurface);
+    expect(applyAsciiCarrierOnGpuToSurfaceMock).toHaveBeenCalledTimes(1);
+    expect(applyAsciiCarrierOnGpuToSurfaceMock.mock.calls[0]?.[0]).toMatchObject({
+      surface: initialSurface,
+      slotId: "ascii-carrier:ascii-1",
+    });
+  });
+
+  it("propagates a null surface when the GPU helper declines the render", async () => {
+    const targetSize = { width: 128, height: 72 };
+    const initialSurface = createMockSurface(
+      createMockCanvas({ width: targetSize.width, height: targetSize.height })
+    );
+    applyAsciiCarrierOnGpuToSurfaceMock.mockResolvedValueOnce(null);
+
+    const result = await applyImageCarrierTransformsToSurfaceIfSupported({
+      surface: initialSurface,
+      carrierTransforms: [
+        { ...createAsciiTransform(), id: "ascii-null", analysisSource: "style" as const },
+      ],
+      document: { sourceRevisionKey: "rev-1", masks: { byId: {} } } as never,
+      request: { intent: "preview", quality: "interactive", targetSize } as never,
+      snapshots: {
+        develop: null,
+        style: createMockCanvas({ width: targetSize.width, height: targetSize.height }),
+      },
+    });
+
     expect(result).toBeNull();
   });
 

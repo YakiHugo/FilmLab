@@ -1,5 +1,11 @@
 import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
 import { clamp } from "@/lib/math";
+import {
+  applyAsciiCarrierOnGpu,
+  applyAsciiCarrierOnGpuToSurface,
+  type AsciiCarrierGpuInput,
+} from "@/lib/renderer/gpuAsciiCarrier";
+import type { EditorLayerBlendMode } from "@/types";
 import { resolveDensitySortedCharset } from "./asciiDensityMeasure";
 import {
   applyMaskedStageOperation,
@@ -191,98 +197,47 @@ export const normalizeImageAsciiEffectParams = (
 });
 
 // ---------------------------------------------------------------------------
-// Glyph atlas – pre-renders glyphs at high resolution for quality at small
-// cell sizes, then per-cell drawImage + source-in tinting replaces fillText.
+// Foreground blend-mode mapping
 // ---------------------------------------------------------------------------
 
-const ATLAS_GLYPH_HEIGHT = 48;
-// Use the atlas at all glyph sizes — rendering at ATLAS_GLYPH_HEIGHT then
-// downscaling gives consistently better anti-aliasing than raw fillText,
-// which varies across browsers and font sizes.
-const GLYPH_ATLAS_FONT_THRESHOLD = 64;
-
-let _atlasCache: {
-  key: string;
-  canvas: HTMLCanvasElement;
-  offsets: Map<string, number>;
-  cellW: number;
-  cellH: number;
-} | null = null;
-
-const getOrCreateGlyphAtlas = (
-  charset: string[],
-  cellWidth: number,
-  cellHeight: number,
-): typeof _atlasCache => {
-  const atlasCellH = ATLAS_GLYPH_HEIGHT;
-  const atlasCellW = Math.max(4, Math.round(ATLAS_GLYPH_HEIGHT * (cellWidth / cellHeight)));
-  const key = `${charset.join("\x00")}:${atlasCellW}`;
-
-  if (_atlasCache?.key === key) return _atlasCache;
-
-  const glyphs = charset.filter((g) => g && g !== " ");
-  if (glyphs.length === 0) return null;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = atlasCellW * glyphs.length;
-  canvas.height = atlasCellH;
-  const actx = canvas.getContext("2d");
-  if (!actx) {
-    canvas.width = 0;
-    canvas.height = 0;
-    return null;
-  }
-
-  actx.textAlign = "center";
-  actx.textBaseline = "middle";
-  actx.font = `${Math.round(atlasCellH * 0.9)}px monospace`;
-  actx.fillStyle = "#fff";
-  for (let i = 0; i < glyphs.length; i += 1) {
-    actx.fillText(glyphs[i], i * atlasCellW + atlasCellW / 2, atlasCellH / 2);
-  }
-
-  const offsets = new Map<string, number>();
-  for (let i = 0; i < glyphs.length; i += 1) {
-    offsets.set(glyphs[i], i * atlasCellW);
-  }
-
-  if (_atlasCache) {
-    _atlasCache.canvas.width = 0;
-    _atlasCache.canvas.height = 0;
-  }
-  _atlasCache = { key, canvas, offsets, cellW: atlasCellW, cellH: atlasCellH };
-  return _atlasCache;
+const ASCII_FOREGROUND_BLEND_MODE_MAP: Record<string, EditorLayerBlendMode> = {
+  "source-over": "normal",
+  multiply: "multiply",
+  screen: "screen",
+  overlay: "overlay",
+  "soft-light": "softLight",
 };
 
+const resolveAsciiForegroundBlendMode = (
+  mode: GlobalCompositeOperation
+): EditorLayerBlendMode => ASCII_FOREGROUND_BLEND_MODE_MAP[mode] ?? "normal";
+
 // ---------------------------------------------------------------------------
-// Canvas2D ASCII renderer
+// CPU cell-grid analysis — downsample the source canvas to columns × rows,
+// compute per-cell tone using the same brightness / contrast / density /
+// coverage / invert / edge / dither chain as the Canvas2D reference
+// implementation, and pack the result into two textures that the
+// AsciiCarrier shader consumes directly.
 // ---------------------------------------------------------------------------
 
-const renderAsciiToCanvas = (
-  targetCanvas: HTMLCanvasElement,
+interface AsciiCellGrids {
+  cellColorRgba: Uint8ClampedArray;
+  cellToneR: Uint8ClampedArray;
+}
+
+const buildAsciiCellGrids = (
   sourceCanvas: HTMLCanvasElement,
   normalized: NormalizedImageAsciiEffectParams,
   layout: ReturnType<typeof resolveFeatureGridLayout>
-): boolean => {
-  if (targetCanvas.width <= 0 || targetCanvas.height <= 0 || typeof document === "undefined") {
-    return false;
+): AsciiCellGrids | null => {
+  if (typeof document === "undefined") {
+    return null;
   }
 
-  const ctx = targetCanvas.getContext("2d", { willReadFrequently: false });
-  if (!ctx) {
-    return false;
-  }
-
-  const { columns, rows, cellWidth, cellHeight } = layout;
+  const { columns, rows } = layout;
   const charset = resolveCharsetForPreset(normalized.preset, normalized.customCharset);
   const glyphSteps = Math.max(1, charset.length - 1);
-  const backgroundColor = parseHexColor(normalized.backgroundColor);
-  const blurPx = resolveBlurRadiusPx(
-    normalized.backgroundBlur,
-    Math.min(targetCanvas.width, targetCanvas.height)
-  );
 
-  // --- Downsample source to grid resolution ---
   const analysisCanvas = document.createElement("canvas");
   analysisCanvas.width = columns;
   analysisCanvas.height = rows;
@@ -290,7 +245,7 @@ const renderAsciiToCanvas = (
   if (!analysisCtx) {
     analysisCanvas.width = 0;
     analysisCanvas.height = 0;
-    return false;
+    return null;
   }
   analysisCtx.imageSmoothingQuality = "high";
   analysisCtx.drawImage(sourceCanvas, 0, 0, columns, rows);
@@ -299,9 +254,9 @@ const renderAsciiToCanvas = (
   analysisCanvas.height = 0;
   const data = imageData.data;
 
-  // --- Build per-cell luminance grid (used for edge emphasis) ---
-  const luminance = new Float32Array(columns * rows);
-  for (let i = 0; i < luminance.length; i += 1) {
+  const cellCount = columns * rows;
+  const luminance = new Float32Array(cellCount);
+  for (let i = 0; i < cellCount; i += 1) {
     const off = i * 4;
     luminance[i] =
       ((data[off] ?? 0) / 255) * 0.2126 +
@@ -309,29 +264,6 @@ const renderAsciiToCanvas = (
       ((data[off + 2] ?? 0) / 255) * 0.0722;
   }
 
-  // --- Draw background on top of the existing canvas content ---
-  // The canvas already holds the base image (from develop/film stage).
-  // ASCII background layers are composited over it so the original image
-  // peeks through where backgroundOpacity < 1.
-  if (normalized.backgroundMode === "blurred-source") {
-    ctx.save();
-    ctx.globalAlpha = clamp(normalized.backgroundOpacity, 0, 1);
-    // Overshoot the draw area so the blur kernel samples real image pixels
-    // at canvas edges instead of transparent-black, eliminating dark fringe.
-    const pad = Math.ceil(blurPx * 3);
-    ctx.filter = `blur(${Math.max(0, blurPx).toFixed(1)}px)`;
-    ctx.drawImage(sourceCanvas, -pad, -pad, targetCanvas.width + pad * 2, targetCanvas.height + pad * 2);
-    ctx.restore();
-  } else if (normalized.backgroundMode === "solid") {
-    ctx.save();
-    ctx.globalAlpha = clamp(normalized.backgroundOpacity, 0, 1);
-    ctx.fillStyle = normalizeHexColor(normalized.backgroundColor);
-    ctx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
-    ctx.restore();
-  }
-
-  // --- Pass 1: build tone grid ---
-  const cellCount = columns * rows;
   const toneGrid = new Float32Array(cellCount);
   const alphaGrid = new Float32Array(cellCount);
   const coverageThreshold = 1 - normalized.coverage;
@@ -349,7 +281,6 @@ const renderAsciiToCanvas = (
         0,
         1
       );
-
       brightness = Math.pow(brightness, 1 / normalized.density);
       if (brightness <= coverageThreshold) continue;
 
@@ -362,8 +293,8 @@ const renderAsciiToCanvas = (
         tone = 1 - tone;
       }
 
-      // Edge emphasis is applied after inversion so that edges always produce
-      // denser (more visible) characters regardless of invert mode.
+      // Edge emphasis after invert — edges always produce denser cells
+      // regardless of invert mode, matching the Canvas2D reference pipeline.
       if (normalized.edgeEmphasis > 0) {
         const left = luminance[row * columns + Math.max(0, col - 1)] ?? 0;
         const right = luminance[row * columns + Math.min(columns - 1, col + 1)] ?? 0;
@@ -377,184 +308,150 @@ const renderAsciiToCanvas = (
     }
   }
 
-  // --- Pass 1b: Floyd-Steinberg dithering ---
   if (normalized.dither === "floyd-steinberg" && glyphSteps > 1) {
-    const dithered = Float32Array.from(toneGrid);
     for (let row = 0; row < rows; row += 1) {
       for (let col = 0; col < columns; col += 1) {
         const idx = row * columns + col;
-        if (alphaGrid[idx] <= ALPHA_CUTOFF || dithered[idx] <= 0) continue;
-        const current = dithered[idx];
+        if (alphaGrid[idx] <= ALPHA_CUTOFF || toneGrid[idx] <= 0) continue;
+        const current = toneGrid[idx];
         const quantized = Math.round(current * glyphSteps) / glyphSteps;
-        dithered[idx] = quantized;
+        toneGrid[idx] = quantized;
         const error = current - quantized;
-        if (col + 1 < columns) dithered[idx + 1] = clamp(dithered[idx + 1] + error * (7 / 16), 0, 1);
+        if (col + 1 < columns) {
+          toneGrid[idx + 1] = clamp(toneGrid[idx + 1] + error * (7 / 16), 0, 1);
+        }
         if (row + 1 < rows) {
-          if (col > 0) dithered[(row + 1) * columns + col - 1] = clamp(dithered[(row + 1) * columns + col - 1] + error * (3 / 16), 0, 1);
-          dithered[(row + 1) * columns + col] = clamp(dithered[(row + 1) * columns + col] + error * (5 / 16), 0, 1);
-          if (col + 1 < columns) dithered[(row + 1) * columns + col + 1] = clamp(dithered[(row + 1) * columns + col + 1] + error * (1 / 16), 0, 1);
+          if (col > 0) {
+            toneGrid[(row + 1) * columns + col - 1] = clamp(
+              toneGrid[(row + 1) * columns + col - 1] + error * (3 / 16),
+              0,
+              1
+            );
+          }
+          toneGrid[(row + 1) * columns + col] = clamp(
+            toneGrid[(row + 1) * columns + col] + error * (5 / 16),
+            0,
+            1
+          );
+          if (col + 1 < columns) {
+            toneGrid[(row + 1) * columns + col + 1] = clamp(
+              toneGrid[(row + 1) * columns + col + 1] + error * (1 / 16),
+              0,
+              1
+            );
+          }
         }
       }
     }
-    toneGrid.set(dithered);
   }
 
-  // --- Cell-solid background (per visible cell) ---
-  if (normalized.backgroundMode === "cell-solid") {
-    ctx.save();
-    ctx.fillStyle = normalizeHexColor(normalized.backgroundColor);
-    for (let row = 0; row < rows; row += 1) {
-      for (let col = 0; col < columns; col += 1) {
-        const idx = row * columns + col;
-        if (toneGrid[idx] <= 0 || alphaGrid[idx] <= ALPHA_CUTOFF) continue;
-        ctx.globalAlpha = clamp(normalized.backgroundOpacity * alphaGrid[idx], 0, 1);
-        ctx.fillRect(col * cellWidth, row * cellHeight, cellWidth, cellHeight);
-      }
-    }
-    ctx.restore();
+  const cellColorRgba = new Uint8ClampedArray(data.length);
+  cellColorRgba.set(data);
+  const cellToneR = new Uint8ClampedArray(cellCount);
+  for (let i = 0; i < cellCount; i += 1) {
+    cellToneR[i] = Math.round(clamp(toneGrid[i] ?? 0, 0, 1) * 255);
   }
 
-  // --- Pass 2: draw foreground characters ---
-  const fontSize = Math.max(6, Math.round(cellHeight * 0.9));
-  const glyphAtlas =
-    normalized.renderMode === "glyph" && fontSize < GLYPH_ATLAS_FONT_THRESHOLD
-      ? getOrCreateGlyphAtlas(charset, cellWidth, cellHeight)
-      : null;
-
-  let glyphStamp: HTMLCanvasElement | null = null;
-  let stampCtx: CanvasRenderingContext2D | null = null;
-  if (glyphAtlas) {
-    glyphStamp = document.createElement("canvas");
-    glyphStamp.width = cellWidth;
-    glyphStamp.height = cellHeight;
-    stampCtx = glyphStamp.getContext("2d");
-  }
-
-  ctx.save();
-  ctx.globalCompositeOperation = normalized.foregroundBlendMode;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.font = `${fontSize}px monospace`;
-
-  for (let row = 0; row < rows; row += 1) {
-    for (let col = 0; col < columns; col += 1) {
-      const idx = row * columns + col;
-      const tone = toneGrid[idx];
-      if (tone <= 0) continue;
-
-      const a = alphaGrid[idx];
-      const off = idx * 4;
-      const r = (data[off] ?? 0) / 255;
-      const g = (data[off + 1] ?? 0) / 255;
-      const b = (data[off + 2] ?? 0) / 255;
-
-      const glyphIndex = Math.round(clamp(tone, 0, 1) * glyphSteps);
-      const cx = col * cellWidth;
-      const cy = row * cellHeight;
-
-      // Color uses source-relative brightness for duotone.
-      // Recover source brightness from (possibly inverted) tone.
-      const colorTone = normalized.invert ? 1 - tone : tone;
-
-      if (normalized.renderMode === "dot") {
-        const dotRadius = Math.max(
-          1,
-          Math.min(cellWidth, cellHeight) * 0.45 * (normalized.invert ? 1 - tone : tone)
-        );
-        ctx.fillStyle = resolveCellColor(r, g, b, colorTone, normalized, backgroundColor);
-        ctx.globalAlpha = clamp(normalized.foregroundOpacity * a, 0, 1);
-        ctx.beginPath();
-        ctx.arc(cx + cellWidth / 2, cy + cellHeight / 2, dotRadius, 0, Math.PI * 2);
-        ctx.fill();
-        continue;
-      }
-
-      const glyph = charset[glyphIndex] ?? "";
-      if (!glyph || glyph === " ") continue;
-
-      const color = resolveCellColor(r, g, b, colorTone, normalized, backgroundColor);
-
-      if (glyphAtlas && stampCtx && glyphStamp) {
-        const atlasX = glyphAtlas.offsets.get(glyph);
-        if (atlasX === undefined) continue;
-
-        // Draw high-res glyph from atlas, downscaled to cell size for AA
-        stampCtx.globalCompositeOperation = "source-over";
-        stampCtx.clearRect(0, 0, cellWidth, cellHeight);
-        stampCtx.drawImage(
-          glyphAtlas.canvas,
-          atlasX, 0, glyphAtlas.cellW, glyphAtlas.cellH,
-          0, 0, cellWidth, cellHeight,
-        );
-        // Tint: replace white with cell color, preserving alpha shape
-        stampCtx.globalCompositeOperation = "source-in";
-        stampCtx.fillStyle = color;
-        stampCtx.fillRect(0, 0, cellWidth, cellHeight);
-
-        ctx.globalAlpha = clamp(normalized.foregroundOpacity * a, 0, 1);
-        ctx.drawImage(glyphStamp, cx, cy);
-      } else {
-        ctx.fillStyle = color;
-        ctx.globalAlpha = clamp(normalized.foregroundOpacity * a, 0, 1);
-        ctx.fillText(glyph, cx + cellWidth / 2, cy + cellHeight / 2);
-      }
-    }
-  }
-
-  if (glyphStamp) {
-    glyphStamp.width = 0;
-    glyphStamp.height = 0;
-  }
-  ctx.restore();
-
-  // --- Grid overlay ---
-  if (normalized.gridOverlay) {
-    const overlayAlpha = 0.08 * normalized.foregroundOpacity;
-    ctx.save();
-    ctx.strokeStyle = `rgba(255, 255, 255, ${clamp(overlayAlpha, 0, 1).toFixed(3)})`;
-    ctx.lineWidth = 1;
-    for (let x = 0; x <= targetCanvas.width; x += cellWidth) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, targetCanvas.height);
-      ctx.stroke();
-    }
-    for (let y = 0; y <= targetCanvas.height; y += cellHeight) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(targetCanvas.width, y);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  return true;
+  return { cellColorRgba, cellToneR };
 };
 
-const resolveCellColor = (
-  r: number,
-  g: number,
-  b: number,
-  tone: number,
+// ---------------------------------------------------------------------------
+// GPU carrier input packing — shared between the Surface and canvas paths.
+// ---------------------------------------------------------------------------
+
+const buildAsciiCarrierGpuInput = (
+  sourceCanvas: HTMLCanvasElement,
   normalized: NormalizedImageAsciiEffectParams,
-  backgroundColor: { red: number; green: number; blue: number }
-): string => {
-  if (normalized.colorMode === "full-color") {
-    return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
-  }
-  if (normalized.colorMode === "duotone") {
-    // tone is already source-relative brightness (0 = dark, 1 = bright)
-    const mr = backgroundColor.red + (245 - backgroundColor.red) * tone;
-    const mg = backgroundColor.green + (245 - backgroundColor.green) * tone;
-    const mb = backgroundColor.blue + (245 - backgroundColor.blue) * tone;
-    return `rgb(${Math.round(mr)}, ${Math.round(mg)}, ${Math.round(mb)})`;
-  }
-  return "rgb(245, 245, 245)";
+  layout: ReturnType<typeof resolveFeatureGridLayout>,
+  grids: AsciiCellGrids
+): AsciiCarrierGpuInput => {
+  const charset = resolveCharsetForPreset(normalized.preset, normalized.customCharset);
+  const backgroundColorParsed = parseHexColor(normalized.backgroundColor);
+  const backgroundBlurPx = resolveBlurRadiusPx(
+    normalized.backgroundBlur,
+    Math.min(layout.width, layout.height)
+  );
+  const backgroundOpacityU8 = Math.round(clamp(normalized.backgroundOpacity, 0, 1) * 255);
+
+  const solidFill = new Uint8ClampedArray([
+    backgroundColorParsed.red,
+    backgroundColorParsed.green,
+    backgroundColorParsed.blue,
+    backgroundOpacityU8,
+  ]);
+  const backgroundFillRgba =
+    normalized.backgroundMode === "solid" ? solidFill : null;
+  const cellBackgroundRgba =
+    normalized.backgroundMode === "cell-solid"
+      ? new Uint8ClampedArray([
+          backgroundColorParsed.red,
+          backgroundColorParsed.green,
+          backgroundColorParsed.blue,
+          backgroundOpacityU8,
+        ])
+      : null;
+  const duotoneShadowRgba =
+    normalized.colorMode === "duotone"
+      ? new Uint8ClampedArray([
+          backgroundColorParsed.red,
+          backgroundColorParsed.green,
+          backgroundColorParsed.blue,
+          255,
+        ])
+      : null;
+  const backgroundSourceCanvas =
+    normalized.backgroundMode === "blurred-source" ? sourceCanvas : null;
+
+  return {
+    width: layout.width,
+    height: layout.height,
+    cellWidth: layout.cellWidth,
+    cellHeight: layout.cellHeight,
+    columns: layout.columns,
+    rows: layout.rows,
+    renderMode: normalized.renderMode,
+    colorMode: normalized.colorMode,
+    foregroundOpacity: normalized.foregroundOpacity,
+    foregroundBlendMode: resolveAsciiForegroundBlendMode(normalized.foregroundBlendMode),
+    backgroundMode: normalized.backgroundMode,
+    backgroundOpacity: normalized.backgroundOpacity,
+    backgroundFillRgba,
+    cellBackgroundRgba,
+    backgroundSourceCanvas,
+    backgroundBlurPx,
+    invert: normalized.invert,
+    gridOverlay: normalized.gridOverlay,
+    // Matches Canvas2D overlayAlpha = 0.08 * foregroundOpacity.
+    gridOverlayAlpha: 0.08 * normalized.foregroundOpacity,
+    duotoneShadowRgba,
+    charset,
+    cellColorRgba: grids.cellColorRgba,
+    cellToneR: grids.cellToneR,
+  };
 };
 
+
 // ---------------------------------------------------------------------------
-// Single-transform application (Canvas2D)
+// Single-transform application
 // ---------------------------------------------------------------------------
+
+const prepareCarrierGpuInput = (
+  sourceCanvas: HTMLCanvasElement,
+  transform: ImageAsciiCarrierTransformNode,
+  quality: ImageRenderQuality,
+  targetSize: ImageRenderTargetSize
+): AsciiCarrierGpuInput | null => {
+  const normalized = normalizeImageAsciiEffectParams(transform.params);
+  const layout = resolveFeatureGridLayout({ normalized, quality, targetSize });
+  const grids = buildAsciiCellGrids(sourceCanvas, normalized, layout);
+  if (!grids) {
+    return null;
+  }
+  return buildAsciiCarrierGpuInput(sourceCanvas, normalized, layout, grids);
+};
+
+const resolveCarrierSlotId = (transform: ImageAsciiCarrierTransformNode) =>
+  `ascii-carrier:${transform.id}`;
 
 export const applyImageAsciiCarrierTransform = async ({
   targetCanvas,
@@ -571,27 +468,46 @@ export const applyImageAsciiCarrierTransform = async ({
   sourceRevisionKey: string;
   targetSize: ImageRenderTargetSize;
   maskRevisionKey?: string | null;
-}) => {
-  const normalized = normalizeImageAsciiEffectParams(transform.params);
-  const layout = resolveFeatureGridLayout({ normalized, quality, targetSize });
-  return renderAsciiToCanvas(targetCanvas, sourceCanvas, normalized, layout);
+}): Promise<boolean> => {
+  if (targetCanvas.width <= 0 || targetCanvas.height <= 0) {
+    return false;
+  }
+  const input = prepareCarrierGpuInput(sourceCanvas, transform, quality, targetSize);
+  if (!input) {
+    return false;
+  }
+  return applyAsciiCarrierOnGpu({
+    targetCanvas,
+    input,
+    slotId: resolveCarrierSlotId(transform),
+  });
 };
 
-// GPU surface path is disabled — returns null to force materialisation to
-// canvas, then the Canvas2D path above handles ASCII rendering.
-// The GPU carrier code in PipelineRenderer.ts + AsciiCarrier.frag is kept
-// for future revival. See PipelineRenderer.ts comment for context.
-export const applyImageAsciiCarrierTransformToSurfaceIfSupported = async (
-  _options: {
-    baseSurface: RenderSurfaceHandle;
-    sourceCanvas: HTMLCanvasElement;
-    transform: ImageAsciiCarrierTransformNode;
-    quality: ImageRenderQuality;
-    sourceRevisionKey: string;
-    targetSize: ImageRenderTargetSize;
-    maskRevisionKey?: string | null;
+export const applyImageAsciiCarrierTransformToSurfaceIfSupported = async ({
+  baseSurface,
+  sourceCanvas,
+  transform,
+  quality,
+  targetSize,
+}: {
+  baseSurface: RenderSurfaceHandle;
+  sourceCanvas: HTMLCanvasElement;
+  transform: ImageAsciiCarrierTransformNode;
+  quality: ImageRenderQuality;
+  sourceRevisionKey: string;
+  targetSize: ImageRenderTargetSize;
+  maskRevisionKey?: string | null;
+}): Promise<RenderSurfaceHandle | null> => {
+  const input = prepareCarrierGpuInput(sourceCanvas, transform, quality, targetSize);
+  if (!input) {
+    return null;
   }
-): Promise<RenderSurfaceHandle | null> => null;
+  return applyAsciiCarrierOnGpuToSurface({
+    surface: baseSurface,
+    input,
+    slotId: resolveCarrierSlotId(transform),
+  });
+};
 
 // ---------------------------------------------------------------------------
 // Multi-transform orchestration (called from renderSingleImage)
