@@ -222,7 +222,7 @@ describe("asciiEffect", () => {
       slotId: string;
     };
     expect(call.targetCanvas).toBe(targetCanvas);
-    expect(call.slotId).toBe("ascii-carrier:ascii-test");
+    expect(call.slotId).toBe("ascii-carrier");
     expect(call.input.columns * call.input.rows * 4).toBe(call.input.cellColorRgba.length);
     expect(call.input.columns * call.input.rows).toBe(call.input.cellToneR.length);
     expect(call.input.foregroundBlendMode).toBe("normal");
@@ -248,7 +248,7 @@ describe("asciiEffect", () => {
 
     expect(applyAsciiCarrierOnGpuMock).toHaveBeenCalledTimes(1);
     expect(applyAsciiCarrierOnGpuMock.mock.calls[0]?.[0]).toMatchObject({
-      slotId: "ascii-carrier:ascii-export",
+      slotId: "ascii-carrier",
     });
   });
 
@@ -279,7 +279,7 @@ describe("asciiEffect", () => {
     expect(applyAsciiCarrierOnGpuToSurfaceMock).toHaveBeenCalledTimes(1);
     expect(applyAsciiCarrierOnGpuToSurfaceMock.mock.calls[0]?.[0]).toMatchObject({
       surface: initialSurface,
-      slotId: "ascii-carrier:ascii-1",
+      slotId: "ascii-carrier",
     });
   });
 

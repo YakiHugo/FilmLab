@@ -168,3 +168,36 @@ Shipped in three atomic commits on `refactor/render-single-path`.
 - `applyImageCarrierTransforms` still exists as a non-surface twin of `applyImageCarrierTransformsToSurfaceIfSupported`; collapse is Slice 4.
 - `uSampler` injection in `FilterPipeline.execute` remains an implicit contract; structural fix (optional in `PipelinePass`) is not required by this task.
 - Other `renderAsciiCarrierComposite` / `renderAsciiBackgroundSourceLayer` methods in PipelineRenderer retain `captureLinearSource(baseCanvas, ...)` — one composite-boundary capture per render, at output size only. `canvasMaterializations` per render for ASCII = 1 (runRendererSurfaceOperation wraps `renderer.canvas`; `materializeToCanvas` is hit only at the final public boundary).
+
+### Slice 2 review outcomes (2026-04-16)
+
+Three parallel reviews (renderer correctness / Canvas2D → GPU parity / test coverage) were run against the Slice 2 commits. Findings broke into three buckets.
+
+#### Real bug found and fixed in this session
+
+- **Slot-id churn.** The initial Slice 2 code used `ascii-carrier:${transform.id}` as the `runRendererSurfaceOperation` slot id. `RenderManager.getRenderer` (`src/lib/renderer/RenderManager.ts:165-183`) allocates a fresh `PipelineRenderer` (WebGL2 context, shader link, texture pool) for every previously unseen `${mode}:${slotId}` and has no eviction path for successful renders. A document with N distinct ASCII carriers would permanently leak N renderers. Fixed by collapsing to a single constant `ASCII_CARRIER_SLOT_ID = "ascii-carrier"` in `src/render/image/asciiEffect.ts` (carriers are orchestrated sequentially, so mutex contention at a shared slot is never observed). Mirrors `gpuTimestampOverlay.ts` which also uses a single fixed slot.
+
+#### Divergences from the prior Canvas2D reference — intentionally not addressed
+
+The prior `renderAsciiToCanvas` implementation was itself never visually validated. It was introduced in `a3d7419` ("replace GPU carrier with Canvas2D ASCII renderer") as an emergency fallback after the GPU path was disabled, and was followed by ~8 fix commits (`edc823c` blur/edge, `50f18bf` base preservation, `e4f6bf5` dithering + cell-solid + duotone, `16af4d5` edge direction + atlas threshold, `36408a2` charset, `06f41ee` edge direction again, `5083820` atlas upscaling, `a8751e1` mipmaps). The archived session memory (`project_ascii_rewrite_log.md`, deleted in commit `d3ab590`) recorded that ASCII rendering remained visibly broken across the entire Canvas2D era. Treat the Canvas2D behaviour as one plausible implementation, not a canonical reference. The reviews flagged two axes where the new GPU path deliberately departs from Canvas2D; both are left as-is pending real visual validation:
+
+- **`cell-solid` background on tone-zero cells.** Old Canvas2D (`asciiEffect.ts@4945ed8^:409`) skipped the solid-colour square when `toneGrid[idx] <= 0`. New shader only gates on `cellSample.a > ASCII_ALPHA_CUTOFF`, so cells that survive the source alpha check but fail the coverage/density threshold still get the cell-solid fill. The new semantics are arguably cleaner (`cell-solid = solid backdrop per source-visible cell` independent of the coverage filter), but this is an intentional divergence. If visual validation prefers the old behaviour, the fix is a one-line tone-gate in `AsciiCarrier.frag`'s `resolveBackgroundLayer`.
+- **Grid overlay thickness / outer border.** Old Canvas2D used `ctx.stroke()` with `lineWidth = 1` centred on integer coordinates, which produces ~2 px anti-aliased lines and includes an explicit final stroke at `x = canvasWidth` / `y = canvasHeight`. New shader marks exactly one pixel on the left/top side of each cell (`asciiCommon.glsl:29-40`), giving a thinner hairline grid and no outer-edge stroke. `gridOverlay` is a developer aid; the new behaviour is a more honest 1-pixel grid. Only worth revisiting if users report the overlay is too faint.
+
+#### Coverage gaps deferred
+
+The two reviews surfaced:
+- `buildAsciiCellGrids` runs unverified in tests (invert / edge / dither / coverage / density-pow have no behavioural assertion).
+- GPU input nullability matrix across `backgroundMode × colorMode` is not tested.
+
+Deferred until the GPU output itself is visually validated — there is no point pinning specific CPU pre-pack values if the reference truth is still in question. Slice 3 should add these once a parity-of-intent baseline is set.
+
+#### Non-issues from reviews (recorded for completeness)
+
+- `captureLinearSource` state coverage — only three target-size fields are saved/restored; `updateSource` also mutates the source-texture LRU and `currentSourceTexture`, but no caller relies on pre-capture values of those. Working as intended.
+- Other `captureLinearSource` callers (`gpuCanvasLayerBlend`, `gpuMaskedCanvasBlend`, `applyFilter2dSource`, `renderTimestampOverlayComposite`, internal passthrough) all capture at the final output size, so the prior in-place mutation was already a no-op for them.
+- Cell-texture lifecycle in `renderAsciiCarrierComposite` — early-return path never allocates; `gl.deleteTexture(null)` is a spec-defined no-op; pooled-lease releases do not overlap cell-texture deletes.
+- Texture binding: `twgl.setUniforms` silently skips uniforms not active in the linked program, so `FilterPipeline`'s always-present `uSampler: currentTexture` injection is safe for generator passes like the rewritten AsciiCarrier.
+- `UNPACK_ALIGNMENT` reset to 4 after the R8 upload — 4 is the WebGL default used elsewhere.
+- `dimensionsMatch` guard in `applyAsciiCarrierOnGpuToSurface` — both sides use identical `Math.max(1, Math.round(...))` rounding, so surface and layout widths cannot drift.
+- Y-parity passthrough adds one extra draw per carrier layer — perf only, scoped to a later performance pass if it ever shows up as a hotspot.
