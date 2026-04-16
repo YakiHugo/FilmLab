@@ -77,7 +77,7 @@
 
 ## Validation
 
-- Pass: `pnpm vitest run src/render/image/renderSingleImage.test.ts src/render/image/effectExecution.test.ts src/render/image/asciiEffect.test.ts src/render/image/asciiAnalysis.test.ts src/render/image/carrierExecution.test.ts src/render/image/stageMaskComposite.test.ts src/render/image/effectMask.test.ts`
+- Pass: `pnpm vitest run src/render/image/renderSingleImage.test.ts src/render/image/effectExecution.test.ts src/render/image/asciiEffect.test.ts src/render/image/carrierExecution.test.ts src/render/image/stageMaskComposite.test.ts src/render/image/effectMask.test.ts`
 - Pass: `pnpm vitest run src/lib/imageProcessing.debug.test.ts src/lib/renderer/PipelineRenderer.localMaskShape.test.ts src/lib/renderer/PassBuilder.test.ts src/lib/renderer/RenderPostProcessing.test.ts`
 - Pass: `pnpm exec tsc --noEmit --pretty false`
 - Pass: `git diff --check`
@@ -90,4 +90,45 @@
 
 ## Handoff
 
-- (populated per slice on completion)
+### Slice 1 findings (2026-04-16)
+
+#### Bug 1 — canvas resize state mutation: **open** (workaround only)
+
+- Root cause unchanged since `a3d7419`: `PipelineRenderer.updateSource` (`PipelineRenderer.ts:2108-2114`) unconditionally writes `canvasElement.width/height` and `lastTargetWidth/Height` whenever the requested target size differs. Every `captureLinearSource` call inherits this side effect because it calls `updateSource` at line 1241.
+- ASCII caller mitigation: `renderAsciiCarrierComposite` re-asserts the output size at `PipelineRenderer.ts:1683-1695` after the analysis-grid capture. The patch is local; the footgun remains for any new `captureLinearSource` caller.
+- Other current call sites reviewed — no active bug today because each caller captures at the final output size: `gpuCanvasLayerBlend.ts:38,50`, `gpuMaskedCanvasBlend.ts:34,46`, `PipelineRenderer.ts:863` (internal passthrough).
+- Slice 2 fix direction: either split `updateSource` into upload-only + size-apply, or have `captureLinearSource` save/restore the three state fields itself so the GPU ASCII path can drop the 1683-1695 workaround.
+
+#### Bug 2 — analysis-grid vs output resolution mismatch: **open** (coupled to Bug 1)
+
+- Mechanism: ASCII needs two resolutions simultaneously (output canvas, analysis grid = columns × rows). The analysis-grid `captureLinearSource` at `PipelineRenderer.ts:1672` downsamples to `columns × rows`, which through Bug 1 also repurposes `canvasElement` + viewport + `lastTargetWidth/Height`. Without the 1683-1695 restoration block, `blendLinearLayers`/`presentTextureResult` would render at grid size instead of output size.
+- Shader side is correct: `AsciiCarrier.frag` takes `u_canvasSize`, `u_gridSize`, `u_cellSize` as explicit uniforms and `texelFetch(u_analysisGrid, clampCellCoord)` isolates grid sampling from framebuffer size.
+- Slice 2 fix direction: once Bug 1 is structurally resolved the mismatch disappears. In the interim, any additional intermediate `captureLinearSource` call inserted between the analysis capture and the composite would silently re-introduce the defect — no guard rail exists.
+
+#### Bug 3 — fragile cross-pass texture binding: **partial**
+
+- `AsciiCarrier.frag` declares 4 samplers: `uSampler`, `u_analysisGrid`, `u_backgroundCanvas`, `u_glyphAtlas`. `FilterPipeline.execute` (`FilterPipeline.ts:155-167`) merges `{uSampler, ...uniforms, ...extraTextures}` into one dict and hands it to `twgl.setUniforms` — texture-unit assignment is delegated to twgl by uniform name.
+- Safety today: unused samplers are bound to `emptyMaskTexture` (carrier input texture at `PipelineRenderer.ts:1633`; `u_backgroundCanvas` when no bg at `PipelineRenderer.ts:1561`) and sampled to zero, which is benign given the `u_useBackgroundCanvas` / `u_useCellBackground` flags short-circuit usage.
+- Residual fragility: relies on (a) twgl returning stable unit assignments across invocations, (b) every shader sampler being declared/sampled even when unused, (c) `uSampler` always meaning "prior pass output" even for the ASCII pass where it is meaningless. There is no `PipelinePass` contract for "this pass does not use uSampler".
+- Slice 2 fix direction: either drop the `uSampler` convention for generator-style passes by making it optional in `PipelinePass`, or change `AsciiCarrier.frag` to sample only one primary texture (collapse analysis + background into an RGBA pack once per frame) so texture-unit collisions are impossible.
+
+#### AsciiTextmode / AsciiTextmodeSurface removal status: **fully removed**
+
+- No `AsciiTextmode.frag` file, no `AsciiTextmodeSurface` type — only `AsciiCarrier` shader + `AsciiLayerKind` remain.
+- Residual references cleaned up in this commit:
+  - `src/lib/renderer/gpu/FilterPipeline.ts` — dropped `AsciiTextmode` from Y-parity comment list.
+  - `src/lib/renderer/shaders/templates/asciiCommon.glsl` — header trimmed to mention only `AsciiCarrier`.
+  - `src/lib/renderer/PipelineRenderer.ts` — pointer comment above `renderAsciiBackgroundSourceLayer` retargeted to `render-pipeline-single-path.md`.
+  - `src/render/image/asciiAnalysis.ts` + `asciiAnalysis.test.ts` — deleted. 321-line module had 0 runtime importers; its cell-grid readback/LRU/feature-extraction logic is not needed by the Slice 2 revival plan because `AsciiCarrier.frag` performs luminance/edge on GPU and `PipelineRenderer.captureLinearSource` already covers the cell-grid downsample.
+- Kept: `src/render/image/asciiDensityMeasure.ts` naming comment (acknowledges `textmode.js` library inspiration, not an internal residual).
+- Historical docs `docs/tasks/ascii-textmode-kernel.{md,json}` unchanged — task-log artifact, not a runtime dependency.
+
+#### Additional observations for Slice 2
+
+- Background doc line 10 claims `72722ab` "consolidated onto a single-pass `AsciiCarrier.frag`". **Not true of current code**: `AsciiCarrier.frag:160-172` still branches on `u_layerMode < 0.5`, and `renderAsciiCarrierLayer` (`PipelineRenderer.ts:1530`) is invoked twice per composite (background + foreground), blended via `blendLinearLayers`. Slice 2 should decide explicitly whether to collapse to a true single pass (removes one intermediate lease + one blend, simplifies uniform set) or carry the two-layer model forward — the latter is strictly more complex without buying parity benefits now that `foregroundBlendMode` is the only reason to want separate layers, and that can be handled post-composite.
+- GPU carrier call path is an unreferenced island: `renderAsciiCarrierComposite`, `renderAsciiCarrierLayer`, `renderAsciiBackgroundSourceLayer` have zero external callers (grep `renderAsciiCarrierComposite` returns only its own declaration; `applyImageAsciiCarrierTransformToSurfaceIfSupported` at `asciiEffect.ts:584-594` is hard-wired to `return null`). Slice 2 re-enables the entry point.
+- `asciiEffect.test.ts:229` currently asserts the Surface path returns null — will need to be rewritten in Slice 2, not merely deleted, so parity coverage is preserved.
+- Charset/density path is shared: `asciiDensityMeasure.ts` + `CHARSET_PRESET_CANDIDATES` in `asciiEffect.ts:28-35` are consumed by the Canvas2D renderer and will remain the source-of-truth charset for the GPU revival.
+- Glyph atlas will use `PipelineRenderer.getGlyphAtlas` (`PipelineRenderer.ts:1294`) which already renders at an upscaled integer multiple of cell size (`ATLAS_MIN_CELL_HEIGHT_PX = 40`) — matches the Canvas2D path's `ATLAS_GLYPH_HEIGHT = 48` intent, so small-cellSize parity is attainable without atlas restructuring.
+
+No code changes made in this slice.

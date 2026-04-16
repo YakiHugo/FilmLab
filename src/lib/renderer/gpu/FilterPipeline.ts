@@ -101,8 +101,8 @@ export class FilterPipeline {
     // construction and this appended draw is unnecessary. That removes the
     // extra draw cost but changes the shader convention: every shader that
     // computes pixel positions from vTextureCoord.y (Geometry, AsciiCarrier,
-    // AsciiTextmode, TimestampOverlay, BrushMaskStamp, Overscan,
-    // FilmEffectsUber) would need its Y direction audited — Geometry.frag in
+    // TimestampOverlay, BrushMaskStamp, Overscan, FilmEffectsUber) would need
+    // its Y direction audited — Geometry.frag in
     // particular because its rotate/flip/translate/perspective/lens math all
     // assumes pixel.y=0 at the visual top. Deferred until an extra passthrough
     // per odd-length call shows up as a measurable cost; until then, the local

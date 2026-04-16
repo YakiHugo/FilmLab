@@ -1,4 +1,4 @@
-// Shared ASCII cell-grid helpers used by both AsciiCarrier and AsciiTextmode shaders.
+// Shared ASCII cell-grid helpers for the AsciiCarrier shader.
 // Injected via ProgramRegistry at program creation time.
 
 const float ASCII_ALPHA_CUTOFF = 0.05;
