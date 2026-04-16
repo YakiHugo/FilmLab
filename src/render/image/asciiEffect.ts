@@ -450,8 +450,12 @@ const prepareCarrierGpuInput = (
   return buildAsciiCarrierGpuInput(sourceCanvas, normalized, layout, grids);
 };
 
-const resolveCarrierSlotId = (transform: ImageAsciiCarrierTransformNode) =>
-  `ascii-carrier:${transform.id}`;
+// Every ASCII carrier shares one renderer slot. Carriers on a single document
+// are applied sequentially in the orchestrator, so slot-level mutex never
+// blocks a second carrier. Per-transform slot ids would create a fresh
+// PipelineRenderer (new GL context, shader link, texture pool) per carrier via
+// RenderManager.getRenderer, which has no eviction path.
+const ASCII_CARRIER_SLOT_ID = "ascii-carrier";
 
 export const applyImageAsciiCarrierTransform = async ({
   targetCanvas,
@@ -479,7 +483,7 @@ export const applyImageAsciiCarrierTransform = async ({
   return applyAsciiCarrierOnGpu({
     targetCanvas,
     input,
-    slotId: resolveCarrierSlotId(transform),
+    slotId: ASCII_CARRIER_SLOT_ID,
   });
 };
 
@@ -505,7 +509,7 @@ export const applyImageAsciiCarrierTransformToSurfaceIfSupported = async ({
   return applyAsciiCarrierOnGpuToSurface({
     surface: baseSurface,
     input,
-    slotId: resolveCarrierSlotId(transform),
+    slotId: ASCII_CARRIER_SLOT_ID,
   });
 };
 
