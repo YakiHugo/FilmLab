@@ -1,18 +1,19 @@
-// NOT CURRENTLY REACHED — the GPU carrier path is disabled
-// (applyImageAsciiCarrierTransformToSurfaceIfSupported returns null).
-// Kept for future GPU carrier revival. See PipelineRenderer.ts comment
-// above renderAsciiBackgroundSourceLayer for context.
-
 #version 300 es
 precision highp float;
 
 in vec2 vTextureCoord;
 out vec4 outColor;
 
-uniform sampler2D uSampler;
-uniform sampler2D u_analysisGrid;
+// Per-cell source color + alpha (RGBA8, columns × rows).
+uniform sampler2D u_cellColor;
+// Per-cell pre-computed tone in [0, 1] (R8, columns × rows). CPU applies
+// brightness/contrast/density/coverage/invert/edge/dither before upload —
+// the shader just maps tone to glyph index or dot radius.
+uniform sampler2D u_cellTone;
+// Optional blurred/solid background layer matching canvas size.
 uniform sampler2D u_backgroundCanvas;
 uniform sampler2D u_glyphAtlas;
+
 uniform vec2 u_canvasSize;
 uniform vec2 u_gridSize;
 uniform vec2 u_cellSize;
@@ -21,14 +22,9 @@ uniform vec4 u_backgroundFill;
 uniform vec4 u_cellBackgroundColor;
 uniform vec4 u_duotoneShadow;
 uniform float u_glyphCount;
-uniform float u_layerMode;
-uniform float u_renderMode;
-uniform float u_colorMode;
-uniform float u_density;
-uniform float u_coverage;
-uniform float u_edgeEmphasis;
-uniform float u_brightness;
-uniform float u_contrast;
+uniform float u_layerMode;        // 0 = background pass, 1 = foreground pass
+uniform float u_renderMode;       // 0 = glyph, 1 = dot
+uniform float u_colorMode;        // 0 = grayscale, 1 = full-color, 2 = duotone
 uniform float u_foregroundOpacity;
 uniform float u_backgroundOpacity;
 uniform bool u_invert;
@@ -44,53 +40,16 @@ ivec2 clampCellCoord(ivec2 cellCoord) {
   return ivec2(clamp(vec2(cellCoord), vec2(0.0), max(u_gridSize - vec2(1.0), vec2(0.0))));
 }
 
-vec4 sampleCell(ivec2 cellCoord) {
-  return texelFetch(u_analysisGrid, clampCellCoord(cellCoord), 0);
+vec4 sampleCellColor(ivec2 cellCoord) {
+  return texelFetch(u_cellColor, clampCellCoord(cellCoord), 0);
 }
 
-float resolveEdge(ivec2 cellCoord) {
-  float left  = asciiResolveLuminance(sampleCell(ivec2(cellCoord.x - 1, cellCoord.y)).rgb);
-  float right = asciiResolveLuminance(sampleCell(ivec2(cellCoord.x + 1, cellCoord.y)).rgb);
-  float up    = asciiResolveLuminance(sampleCell(ivec2(cellCoord.x, cellCoord.y - 1)).rgb);
-  float down  = asciiResolveLuminance(sampleCell(ivec2(cellCoord.x, cellCoord.y + 1)).rgb);
-  return clamp(abs(right - left) + abs(down - up), 0.0, 1.0);
-}
-
-// Returns a tone value used for glyph selection:
-//   0.0        = cell not visible (clipped by coverage or transparent)
-//   [0.001, 1] = visible cell; maps linearly to glyph index
-// With invert ON (ascii-magic style): low tone = dense glyph = bright source.
-float resolveTone(ivec2 cellCoord, vec4 cellSample) {
-  if (cellSample.a <= ASCII_ALPHA_CUTOFF) {
-    return 0.0;
-  }
-
-  float brightness = asciiResolveLuminance(cellSample.rgb);
-  brightness = clamp((brightness - 0.5) * u_contrast + 0.5 + u_brightness / 100.0, 0.0, 1.0);
-  brightness = pow(brightness, 1.0 / max(u_density, 0.0001));
-
-  float coverageThreshold = 1.0 - u_coverage;
-  if (brightness <= coverageThreshold) {
-    return 0.0;
-  }
-  float tone = clamp(
-    (brightness - coverageThreshold) / max(0.0001, 1.0 - coverageThreshold),
-    0.0,
-    1.0
-  );
-
-  if (u_invert) {
-    tone = 1.0 - tone;
-  }
-
-  // Edge emphasis applied after inversion so edges always produce denser
-  // (more visible) characters regardless of invert mode.
-  tone = clamp(tone + resolveEdge(cellCoord) * u_edgeEmphasis, 0.0, 1.0);
-  return max(tone, 0.001);
+float sampleCellTone(ivec2 cellCoord) {
+  return texelFetch(u_cellTone, clampCellCoord(cellCoord), 0).r;
 }
 
 vec3 resolveForegroundColor(vec4 cellSample, float tone) {
-  // Duotone: shadow → highlight gradient based on source brightness.
+  // Duotone: shadow → highlight gradient based on pre-invert source brightness.
   if (u_colorMode > 1.5) {
     float colorTone = u_invert ? 1.0 - tone : tone;
     return mix(u_duotoneShadow.rgb, ASCII_GRAYSCALE_HIGHLIGHT, clamp(colorTone, 0.0, 1.0));
@@ -103,8 +62,6 @@ vec3 resolveForegroundColor(vec4 cellSample, float tone) {
   return ASCII_GRAYSCALE_HIGHLIGHT;
 }
 
-// Background layer: blurred/solid base dimmed by backgroundOpacity so that
-// foreground characters have contrast against it.
 vec4 resolveBackgroundLayer(ivec2 cellCoord, vec4 cellSample) {
   vec4 color = vec4(0.0);
   if (u_useBackgroundCanvas) {
@@ -123,14 +80,14 @@ vec4 resolveBackgroundLayer(ivec2 cellCoord, vec4 cellSample) {
   return color;
 }
 
-vec4 resolveForegroundLayer(vec2 pixel, ivec2 cellCoord, vec2 localUv, vec4 cellSample, float tone) {
+vec4 resolveForegroundLayer(vec2 pixel, vec2 localUv, vec4 cellSample, float tone) {
   vec4 color = vec4(0.0);
   if (tone > 0.0 && cellSample.a > ASCII_ALPHA_CUTOFF) {
     vec3 fg = resolveForegroundColor(cellSample, tone);
     float fgAlpha = clamp(u_foregroundOpacity, 0.0, 1.0) * clamp(cellSample.a, 0.0, 1.0);
 
     if (u_renderMode > 0.5) {
-      // Dot mode — radius tracks source brightness.
+      // Dot mode — radius tracks pre-invert source brightness.
       float dotTone = u_invert ? 1.0 - clamp(tone, 0.0, 1.0) : clamp(tone, 0.0, 1.0);
       float dotRadius = max(1.0, min(u_cellSize.x, u_cellSize.y) * 0.45 * dotTone);
       vec2 centered = localUv * u_cellSize - u_cellSize * 0.5;
@@ -161,13 +118,13 @@ void main() {
   vec2 pixel = vTextureCoord * u_canvasSize;
   ivec2 cellCoord = asciiResolveCellCoord(pixel, u_canvasSize, u_cellSize, u_gridSize);
   vec2 localUv = asciiResolveCellLocalUv(pixel, u_canvasSize, u_cellSize);
-  vec4 cellSample = sampleCell(cellCoord);
+  vec4 cellSample = sampleCellColor(cellCoord);
+  float tone = sampleCellTone(cellCoord);
 
   if (u_layerMode < 0.5) {
     outColor = resolveBackgroundLayer(cellCoord, cellSample);
     return;
   }
 
-  float tone = resolveTone(cellCoord, cellSample);
-  outColor = resolveForegroundLayer(pixel, cellCoord, localUv, cellSample, tone);
+  outColor = resolveForegroundLayer(pixel, localUv, cellSample, tone);
 }
