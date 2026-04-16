@@ -1,13 +1,13 @@
 {
   "status": "in_progress",
   "baseline": "2026-04-16",
-  "current": "slice1",
-  "nextTaskId": "slice1",
+  "current": "slice2",
+  "nextTaskId": "slice2",
   "slices": [
     {
       "id": "slice1",
       "title": "GPU ASCII path diagnostic",
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "slice2",
@@ -29,7 +29,6 @@
     "src/render/image/renderSingleImage.test.ts",
     "src/render/image/effectExecution.test.ts",
     "src/render/image/asciiEffect.test.ts",
-    "src/render/image/asciiAnalysis.test.ts",
     "src/render/image/carrierExecution.test.ts",
     "src/render/image/stageMaskComposite.test.ts",
     "src/render/image/effectMask.test.ts",
