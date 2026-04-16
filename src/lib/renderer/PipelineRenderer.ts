@@ -1441,13 +1441,6 @@ export class PipelineRenderer {
     return record;
   }
 
-  // -----------------------------------------------------------------------
-  // GPU ASCII carrier methods below are NOT CURRENTLY REACHED at runtime.
-  // asciiEffect.ts:applyImageAsciiCarrierTransformToSurfaceIfSupported
-  // returns null; Canvas2D path in asciiEffect.ts renders ASCII. Revival
-  // is tracked in docs/tasks/render-pipeline-single-path.md (Slice 2).
-  // -----------------------------------------------------------------------
-
   private renderAsciiBackgroundSourceLayer(
     surface: AsciiBackgroundSourceInput
   ): LinearRenderResult | null {
