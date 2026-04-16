@@ -19,7 +19,8 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\"",
     "test": "vitest --run",
     "test:watch": "vitest",
-    "verify:prompt": "vitest --run server/src/gateway/prompt server/src/gateway/router server/src/routes/image-generate server/src/chat/persistence/postgres.promptArtifacts.test.ts server/src/chat/persistence/memory.test.ts",
+    "verify:prompt": "vitest --run server/src/gateway/prompt server/src/gateway/router server/src/routes/image-generate server/src/chat/persistence/postgres.promptArtifacts.test.ts server/src/chat/persistence/__integration",
+    "verify:integration": "vitest --run server/src/chat/persistence/__integration",
     "verify": "pnpm run generate:shaders && pnpm lint && pnpm test && pnpm build"
   },
   "dependencies": {

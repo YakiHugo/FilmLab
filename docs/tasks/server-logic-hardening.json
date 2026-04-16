@@ -1,8 +1,12 @@
 {
   "baseline": "349c42f",
-  "current": "integration-harness",
+  "current": "break-gateway-persistence-cycle",
   "tasks": [
-    { "id": "integration-harness", "status": "pending", "passes": [] },
+    {
+      "id": "integration-harness",
+      "status": "done",
+      "passes": ["pnpm lint", "pnpm test", "pnpm run verify:integration", "pnpm run build:server"]
+    },
     { "id": "break-gateway-persistence-cycle", "status": "pending", "passes": [] },
     { "id": "dedup-persistence-domain", "status": "pending", "passes": [] },
     { "id": "decompose-image-generation-service", "status": "pending", "passes": [] },
