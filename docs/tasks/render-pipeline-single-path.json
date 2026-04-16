@@ -1,8 +1,8 @@
 {
   "status": "in_progress",
   "baseline": "2026-04-16",
-  "current": "slice2",
-  "nextTaskId": "slice2",
+  "current": "slice3",
+  "nextTaskId": "slice3",
   "slices": [
     {
       "id": "slice1",
@@ -12,7 +12,7 @@
     {
       "id": "slice2",
       "title": "GPU ASCII path reinstatement",
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "slice3",

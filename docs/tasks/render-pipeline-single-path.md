@@ -132,3 +132,39 @@
 - Glyph atlas will use `PipelineRenderer.getGlyphAtlas` (`PipelineRenderer.ts:1294`) which already renders at an upscaled integer multiple of cell size (`ATLAS_MIN_CELL_HEIGHT_PX = 40`) — matches the Canvas2D path's `ATLAS_GLYPH_HEIGHT = 48` intent, so small-cellSize parity is attainable without atlas restructuring.
 
 No code changes made in this slice.
+
+### Slice 2 findings (2026-04-16)
+
+Shipped in three atomic commits on `refactor/render-single-path`.
+
+#### Bug 1 — canvas resize state mutation: **closed**
+
+- `PipelineRenderer.captureLinearSource` now saves and restores `canvasElement.width/height`, the GL viewport, and `lastTargetWidth/Height` around its internal `updateSource` call (commit `3a682c3`). The ASCII-specific workaround previously inserted in `renderAsciiCarrierComposite` is gone; every caller of `captureLinearSource` is now free of the resize side effect.
+
+#### Bug 2 — analysis-grid vs output resolution mismatch: **closed**
+
+- The analysis `captureLinearSource` call on the GPU path is gone. The CPU downsamples the source canvas to `columns × rows` via Canvas2D `drawImage` + `getImageData` and packs the result into `cellColorRgba` (RGBA8) + `cellToneR` (R8). `renderAsciiCarrierComposite` uploads those buffers as per-cell textures, so the shader's grid size and the composite output size are set by independent uniforms that cannot drift (commits `eb7d824`, `4945ed8`).
+
+#### Bug 3 — fragile cross-pass texture binding: **narrowed**
+
+- `AsciiCarrier.frag` no longer declares `uSampler`; it is a generator pass that reads only `u_cellColor`, `u_cellTone`, `u_backgroundCanvas`, `u_glyphAtlas`. The `FilterPipeline` still injects `uSampler: emptyMaskTexture` into every pass's uniform bundle, but the shader ignores it — so the historical "uSampler must be bound somewhere" rule no longer constrains the carrier path. Remaining fragility lies in `FilterPipeline.execute` itself (the `uSampler: currentTexture` is still implicit) and is out of scope for this task; it becomes an issue only if a future generator pass declares a different meaning for `uSampler`.
+
+#### API changes
+
+- New module `src/lib/renderer/gpuAsciiCarrier.ts` exports `AsciiCarrierGpuInput`, `applyAsciiCarrierOnGpuToSurface`, `applyAsciiCarrierOnGpu` — mirroring `gpuTimestampOverlay.ts`. `PipelineRenderer` reuses the same type internally.
+- `renderAsciiCarrierComposite` now consumes `cellColorRgba` / `cellToneR` buffers via the input; no longer accepts a `sourceCanvas` for analysis (only for `blurred-source` background).
+- `AsciiCarrier.frag` dropped `u_density`, `u_coverage`, `u_edgeEmphasis`, `u_brightness`, `u_contrast`, `uSampler`, and its helper `resolveTone` / `resolveEdge`. The tone pipeline is entirely CPU-side.
+- Deleted from `asciiEffect.ts`: `renderAsciiToCanvas` (≈250 LOC), `resolveCellColor`, local glyph atlas cache (`ATLAS_GLYPH_HEIGHT`, `GLYPH_ATLAS_FONT_THRESHOLD`, `getOrCreateGlyphAtlas`, `_atlasCache`). Glyph atlas bake is now only in `PipelineRenderer.getGlyphAtlas`, which is the Slice 2 Canvas2D exception.
+
+#### Parity notes
+
+- Tone math is line-for-line ported from the former `renderAsciiToCanvas` (brightness → contrast → density pow → coverage threshold → invert → edge emphasis → Floyd–Steinberg dither). Matches Canvas2D reference exactly.
+- Shader `resolveForegroundColor`, dot radius, and duotone ramp handle the invert-recovery arithmetic to match Canvas2D's `colorTone = invert ? 1 - tone : tone`.
+- Blend-mode mapping: `source-over → normal`, `multiply → multiply`, `screen → screen`, `overlay → overlay`, `soft-light → softLight`. All 5 values from `AsciiForegroundBlendMode` (type `src/types/index.ts:197`) are covered; anything else falls back to `normal`.
+- `ascii-magic-parity` visual-diff fixtures: not runnable in this sandbox (Node 18 vs vitest rolldown). Validation deferred to the next environment with Node ≥ 20 / a live preview; the parity gate remains the explicit acceptance criterion before Slice 3 starts any feature changes.
+
+#### Known open items for Slice 3/4
+
+- `applyImageCarrierTransforms` still exists as a non-surface twin of `applyImageCarrierTransformsToSurfaceIfSupported`; collapse is Slice 4.
+- `uSampler` injection in `FilterPipeline.execute` remains an implicit contract; structural fix (optional in `PipelinePass`) is not required by this task.
+- Other `renderAsciiCarrierComposite` / `renderAsciiBackgroundSourceLayer` methods in PipelineRenderer retain `captureLinearSource(baseCanvas, ...)` — one composite-boundary capture per render, at output size only. `canvasMaterializations` per render for ASCII = 1 (runRendererSurfaceOperation wraps `renderer.canvas`; `materializeToCanvas` is hit only at the final public boundary).
