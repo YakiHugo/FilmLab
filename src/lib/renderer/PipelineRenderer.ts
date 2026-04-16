@@ -1224,6 +1224,13 @@ export class PipelineRenderer {
     }
   }
 
+  // captureLinearSource returns a texture sized to targetWidth × targetHeight.
+  // Callers expect subsequent operations (blendLinearLayers, presentTextureResult)
+  // to honor whatever output size was in effect before the capture — so the
+  // target-size state mutated by updateSource() is rolled back before returning.
+  // Without this, every caller that downsamples to an analysis grid has to
+  // re-assert the output size manually (see ASCII carrier history in
+  // docs/tasks/render-pipeline-single-path.md).
   captureLinearSource(
     source: TexImageSource,
     sourceWidth: number,
@@ -1238,38 +1245,56 @@ export class PipelineRenderer {
       throw new Error("PipelineRenderer is not available.");
     }
 
+    const savedLastTargetWidth = this.lastTargetWidth;
+    const savedLastTargetHeight = this.lastTargetHeight;
+    const savedCanvasWidth = this.canvasElement.width;
+    const savedCanvasHeight = this.canvasElement.height;
+
     this.updateSource(source, sourceWidth, sourceHeight, targetWidth, targetHeight);
     if (!this.currentSourceTexture) {
       throw new Error("Source texture is not initialized.");
     }
 
-    const captured = this.filterPipeline.runToTexture({
-      baseWidth: this.lastTargetWidth,
-      baseHeight: this.lastTargetHeight,
-      passes: [
-        {
-          id: "capture-linear-source",
-          programInfo: options?.decodeSrgb === false ? this.programs.passthrough : this.programs.inputDecode,
-          uniforms: {},
-          outputFormat: this.intermediateFormat,
-          enabled: true,
+    try {
+      const captured = this.filterPipeline.runToTexture({
+        baseWidth: this.lastTargetWidth,
+        baseHeight: this.lastTargetHeight,
+        passes: [
+          {
+            id: "capture-linear-source",
+            programInfo: options?.decodeSrgb === false ? this.programs.passthrough : this.programs.inputDecode,
+            uniforms: {},
+            outputFormat: this.intermediateFormat,
+            enabled: true,
+          },
+        ],
+        input: {
+          texture: this.currentSourceTexture,
+          width: this.lastTargetWidth,
+          height: this.lastTargetHeight,
+          format: "RGBA8",
         },
-      ],
-      input: {
-        texture: this.currentSourceTexture,
-        width: this.lastTargetWidth,
-        height: this.lastTargetHeight,
-        format: "RGBA8",
-      },
-    });
+      });
 
-    return {
-      texture: captured.texture,
-      width: captured.width,
-      height: captured.height,
-      format: captured.format,
-      release: captured.release,
-    };
+      return {
+        texture: captured.texture,
+        width: captured.width,
+        height: captured.height,
+        format: captured.format,
+        release: captured.release,
+      };
+    } finally {
+      if (
+        this.lastTargetWidth !== savedLastTargetWidth ||
+        this.lastTargetHeight !== savedLastTargetHeight
+      ) {
+        this.canvasElement.width = savedCanvasWidth;
+        this.canvasElement.height = savedCanvasHeight;
+        this.gl.viewport(0, 0, savedCanvasWidth, savedCanvasHeight);
+        this.lastTargetWidth = savedLastTargetWidth;
+        this.lastTargetHeight = savedLastTargetHeight;
+      }
+    }
   }
 
   private releaseAsciiGlyphAtlasRecord(record: AsciiGlyphAtlasRecord): void {
@@ -1672,20 +1697,6 @@ export class PipelineRenderer {
           decodeSrgb: false,
         }
       );
-
-      // captureLinearSource above mutated canvasElement, viewport, and
-      // lastTargetWidth/Height to the analysis grid dimensions (e.g. 64×48).
-      // Restore to the full output resolution so blendLinearLayers and
-      // presentTextureResult produce correctly-sized results.
-      const outputWidth = options.baseCanvas.width;
-      const outputHeight = options.baseCanvas.height;
-      if (this.lastTargetWidth !== outputWidth || this.lastTargetHeight !== outputHeight) {
-        this.canvasElement.width = outputWidth;
-        this.canvasElement.height = outputHeight;
-        this.gl.viewport(0, 0, outputWidth, outputHeight);
-        this.lastTargetWidth = outputWidth;
-        this.lastTargetHeight = outputHeight;
-      }
 
       try {
         const backgroundLayer = this.renderAsciiCarrierLayer(options.carrier, "background", analysisGrid);
