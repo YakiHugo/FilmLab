@@ -36,7 +36,7 @@ const createMockContext = () => ({
   fill: vi.fn(),
   fillRect: vi.fn(),
   fillText: vi.fn(),
-  getImageData: vi.fn((x: number, y: number, w: number, h: number) =>
+  getImageData: vi.fn((_x: number, _y: number, w: number, h: number) =>
     createMockImageData(w, h)
   ),
   lineTo: vi.fn(),
