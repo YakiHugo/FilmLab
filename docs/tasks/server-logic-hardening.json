@@ -1,0 +1,11 @@
+{
+  "baseline": "349c42f",
+  "current": "integration-harness",
+  "tasks": [
+    { "id": "integration-harness", "status": "pending", "passes": [] },
+    { "id": "break-gateway-persistence-cycle", "status": "pending", "passes": [] },
+    { "id": "dedup-persistence-domain", "status": "pending", "passes": [] },
+    { "id": "decompose-image-generation-service", "status": "pending", "passes": [] },
+    { "id": "boundary-hardening", "status": "pending", "passes": [] }
+  ]
+}
