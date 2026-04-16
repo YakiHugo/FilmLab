@@ -73,4 +73,33 @@
 
 ## Handoff
 
-- (to be filled per slice as it lands)
+### Slice 1 (done)
+
+- Harness backend: `pg-mem`. Migration (`migrations/001_baseline.sql`) applies cleanly. JSONB + `->>` + revision CAS, partial indexes, ON CONFLICT, BEGIN/COMMIT/ROLLBACK, and BYTEA all work. Boot is effectively instant (≈200 ms per fresh harness).
+- Files added:
+  - `server/src/chat/persistence/__integration/pgMemHarness.ts` — loads baseline migration into a pg-mem instance, exposes a real `pg.Pool` shim. Drops six partial indexes that trip a pg-mem query-planner bug (see note below).
+  - `server/src/chat/persistence/__integration/contractFixtures.ts` — `createGenerationInput` helper with deterministic turn/job/run/attempt id derivation.
+  - `server/src/chat/persistence/__integration/repositoryContract.ts` — `describeRepositoryContract` covering conversation lifecycle, turn+generation lifecycle (success, retry-failure, delete-during-flight), asset+edge persistence, prompt-version audit + observability aggregation, prompt-state CAS, and accept-turn state restore.
+  - `server/src/chat/persistence/__integration/memory.contract.test.ts` and `postgres.contract.test.ts` — run the same contract against `MemoryChatStateRepository` and `PostgresChatStateRepository` via pg-mem (26 tests total).
+- Files removed: `server/src/chat/persistence/memory.test.ts` — superseded by the shared contract.
+- Scripts added to root `package.json`: `verify:integration` (focused alias). The contract tests already run under `pnpm test` via the existing vitest include pattern, so `pnpm verify` exercises them automatically.
+- Runtime measured: `pnpm verify:integration` ≈ 3 s total; sits comfortably inside the 15 s budget for the combined `verify` gate.
+
+#### pg-mem partial-index caveat
+
+pg-mem v3.0.14 uses partial indexes for `WHERE col = $1` lookups without re-checking the index predicate, so rows outside the predicate disappear from results. The harness drops six partial indexes (`chat_conversations_active_user_idx`, `chat_turns_conversation_visible_created_idx`, `chat_runs_job_id_idx`, `generated_images_active_lookup_idx`, `assets_owner_hash_active_idx`, `assets_owner_updated_active_idx`) after migration. Production Postgres is unaffected.
+
+#### Memory fate decision
+
+Retire `MemoryChatStateRepository` in a follow-up slice, but not in this one. Rationale:
+
+- pg-mem satisfies "fast, in-process, zero external infra" that Memory existed to provide for tests.
+- Production/dev server startup still falls through `createChatStateRepository` to Memory when `DATABASE_URL` is absent. Retirement requires deciding the no-DB-URL behavior (fail fast vs. use pg-mem as dev-only fallback). That is a workflow decision with blast radius beyond this slice.
+- Logic-duplication cleanup (Slice 3) is the right place to either delete Memory or replace the factory's fallback.
+
+### Slice 1 validation state
+
+- Pass: `pnpm lint` (one pre-existing warning in `imageGenerationService.ts`, unrelated).
+- Pass: `pnpm test` (612/612).
+- Pass: `pnpm run verify:integration` (26/26, ≈3 s).
+- Pass: `pnpm run build:server`.
