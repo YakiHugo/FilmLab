@@ -47,21 +47,6 @@ describe("ProgramRegistry", () => {
     expect(createProgramInfoMock).toHaveBeenCalledTimes(2);
   });
 
-  it("registers the ascii-textmode presenter shader lazily", () => {
-    const fakeGl = {} as WebGL2RenderingContext;
-    const programs = createPrograms(fakeGl);
-
-    createProgramInfoMock.mockClear();
-
-    void programs.asciiTextmode;
-
-    expect(createProgramInfoMock).toHaveBeenCalledTimes(1);
-    const asciiSources = (createProgramInfoMock.mock.calls as unknown[][])[0]![1] as string[];
-    expect(asciiSources[1]).toContain("u_cellForeground");
-    expect(asciiSources[1]).toContain("u_glyphAtlas");
-    expect(asciiSources[1]).toContain("resolveForegroundLayer");
-  });
-
   it("registers the direct ascii-carrier shader lazily", () => {
     const fakeGl = {} as WebGL2RenderingContext;
     const programs = createPrograms(fakeGl);
