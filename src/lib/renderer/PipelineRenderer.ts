@@ -148,13 +148,7 @@ interface AsciiGpuCarrierInput {
   rows: number;
   renderMode: "glyph" | "dot";
   colorMode: "grayscale" | "full-color" | "duotone";
-  density: number;
-  coverage: number;
-  edgeEmphasis: number;
-  brightness: number;
-  contrast: number;
   foregroundOpacity: number;
-  foregroundBlendMode: GlobalCompositeOperation;
   backgroundMode: "none" | "solid" | "cell-solid" | "blurred-source";
   backgroundOpacity: number;
   backgroundFillRgba: Uint8ClampedArray | null;
@@ -166,7 +160,14 @@ interface AsciiGpuCarrierInput {
   gridOverlayAlpha: number;
   duotoneShadowRgba: Uint8ClampedArray | null;
   charset: readonly string[];
-  sourceCanvas: HTMLCanvasElement;
+  // Per-cell RGBA8, columns × rows (row-major, 4 bytes per cell).
+  // Holds the source color used for full-color/duotone color sampling and the
+  // alpha gate that drives cell-solid background + foreground visibility.
+  cellColorRgba: Uint8ClampedArray;
+  // Per-cell R8, columns × rows (row-major, 1 byte per cell).
+  // Final post-invert / post-edge / post-dither tone in [0, 255]. 0 means cell
+  // is invisible (outside coverage / below alpha cutoff).
+  cellToneR: Uint8ClampedArray;
 }
 
 interface GlyphAtlasInput {
@@ -1545,10 +1546,74 @@ export class PipelineRenderer {
     }
   }
 
+  private uploadCellRgbaTexture(
+    data: Uint8ClampedArray,
+    columns: number,
+    rows: number
+  ): WebGLTexture {
+    const gl = this.gl;
+    const texture = gl.createTexture();
+    if (!texture) {
+      throw new Error("Failed to allocate ASCII cell-color texture.");
+    }
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA8,
+      columns,
+      rows,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      data
+    );
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    return texture;
+  }
+
+  private uploadCellR8Texture(
+    data: Uint8ClampedArray,
+    columns: number,
+    rows: number
+  ): WebGLTexture {
+    const gl = this.gl;
+    const texture = gl.createTexture();
+    if (!texture) {
+      throw new Error("Failed to allocate ASCII cell-tone texture.");
+    }
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.R8,
+      columns,
+      rows,
+      0,
+      gl.RED,
+      gl.UNSIGNED_BYTE,
+      data
+    );
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    return texture;
+  }
+
   private renderAsciiCarrierLayer(
     carrier: AsciiGpuCarrierInput,
     layerKind: AsciiLayerKind,
-    analysisGrid: LinearRenderResult
+    cellColorTexture: WebGLTexture,
+    cellToneTexture: WebGLTexture
   ): LinearRenderResult | null {
     const hasBackground =
       Boolean(carrier.backgroundFillRgba) ||
@@ -1616,11 +1681,6 @@ export class PipelineRenderer {
               u_renderMode: carrier.renderMode === "dot" ? 1 : 0,
               u_colorMode:
                 carrier.colorMode === "duotone" ? 2 : carrier.colorMode === "full-color" ? 1 : 0,
-              u_density: carrier.density,
-              u_coverage: carrier.coverage,
-              u_edgeEmphasis: carrier.edgeEmphasis,
-              u_brightness: carrier.brightness,
-              u_contrast: carrier.contrast,
               u_foregroundOpacity: carrier.foregroundOpacity,
               u_backgroundOpacity: carrier.backgroundOpacity,
               u_invert: carrier.invert,
@@ -1639,7 +1699,8 @@ export class PipelineRenderer {
                 : new Float32Array([0, 0, 0, 0]),
             },
             extraTextures: {
-              u_analysisGrid: analysisGrid.texture,
+              u_cellColor: cellColorTexture,
+              u_cellTone: cellToneTexture,
               u_backgroundCanvas: backgroundSourceTexture,
               u_glyphAtlas: glyphAtlas.texture,
             },
@@ -1676,6 +1737,17 @@ export class PipelineRenderer {
       return false;
     }
 
+    const cellColorTexture = this.uploadCellRgbaTexture(
+      options.carrier.cellColorRgba,
+      options.carrier.columns,
+      options.carrier.rows
+    );
+    const cellToneTexture = this.uploadCellR8Texture(
+      options.carrier.cellToneR,
+      options.carrier.columns,
+      options.carrier.rows
+    );
+
     try {
       let composited = this.captureLinearSource(
         options.baseCanvas,
@@ -1687,19 +1759,14 @@ export class PipelineRenderer {
           decodeSrgb: false,
         }
       );
-      const analysisGrid = this.captureLinearSource(
-        options.carrier.sourceCanvas,
-        options.carrier.sourceCanvas.width,
-        options.carrier.sourceCanvas.height,
-        options.carrier.columns,
-        options.carrier.rows,
-        {
-          decodeSrgb: false,
-        }
-      );
 
       try {
-        const backgroundLayer = this.renderAsciiCarrierLayer(options.carrier, "background", analysisGrid);
+        const backgroundLayer = this.renderAsciiCarrierLayer(
+          options.carrier,
+          "background",
+          cellColorTexture,
+          cellToneTexture
+        );
         if (backgroundLayer) {
           try {
             const blended = this.blendLinearLayers(composited, backgroundLayer, {
@@ -1713,7 +1780,12 @@ export class PipelineRenderer {
           }
         }
 
-        const foregroundLayer = this.renderAsciiCarrierLayer(options.carrier, "foreground", analysisGrid);
+        const foregroundLayer = this.renderAsciiCarrierLayer(
+          options.carrier,
+          "foreground",
+          cellColorTexture,
+          cellToneTexture
+        );
         if (foregroundLayer) {
           try {
             const blended = this.blendLinearLayers(composited, foregroundLayer, {
@@ -1733,12 +1805,14 @@ export class PipelineRenderer {
         });
         return true;
       } finally {
-        analysisGrid.release();
         composited.release();
       }
     } catch (error) {
       if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }
       return false;
+    } finally {
+      this.gl.deleteTexture(cellColorTexture);
+      this.gl.deleteTexture(cellToneTexture);
     }
   }
 
