@@ -1,0 +1,43 @@
+{
+  "status": "in_progress",
+  "baseline": "2026-04-16",
+  "current": "slice1",
+  "nextTaskId": "slice1",
+  "slices": [
+    {
+      "id": "slice1",
+      "title": "GPU ASCII path diagnostic",
+      "status": "pending"
+    },
+    {
+      "id": "slice2",
+      "title": "GPU ASCII path reinstatement",
+      "status": "pending"
+    },
+    {
+      "id": "slice3",
+      "title": "Effect-type / carrier-type coverage audit",
+      "status": "pending"
+    },
+    {
+      "id": "slice4",
+      "title": "Dual-path orchestration collapse",
+      "status": "pending"
+    }
+  ],
+  "passes": [
+    "src/render/image/renderSingleImage.test.ts",
+    "src/render/image/effectExecution.test.ts",
+    "src/render/image/asciiEffect.test.ts",
+    "src/render/image/asciiAnalysis.test.ts",
+    "src/render/image/carrierExecution.test.ts",
+    "src/render/image/stageMaskComposite.test.ts",
+    "src/render/image/effectMask.test.ts",
+    "src/lib/imageProcessing.debug.test.ts",
+    "src/lib/renderer/PipelineRenderer.localMaskShape.test.ts",
+    "src/lib/renderer/PassBuilder.test.ts",
+    "src/lib/renderer/RenderPostProcessing.test.ts",
+    "pnpm exec tsc --noEmit --pretty false",
+    "git diff --check"
+  ]
+}
