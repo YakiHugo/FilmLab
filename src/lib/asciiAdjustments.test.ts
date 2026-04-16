@@ -79,10 +79,10 @@ describe("asciiAdjustments", () => {
       charsetPreset: "custom",
       customCharset: "AB.",
     });
-    // The charset slot is the second field after "ascii:on".
+    // Token starts with "ascii:on", so split(":") gives [ascii, on, custom, AB., ...].
     const parts = token.split(":");
-    expect(parts[1]).toBe("custom");
-    expect(parts[2]).toBe("AB.");
+    expect(parts[2]).toBe("custom");
+    expect(parts[3]).toBe("AB.");
   });
 
   it("treats matching settings as equal", () => {

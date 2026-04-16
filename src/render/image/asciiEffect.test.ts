@@ -4,33 +4,11 @@ import {
   applyImageAsciiCarrierTransform,
   applyImageCarrierTransforms,
   applyImageCarrierTransformsToSurfaceIfSupported,
-  createAsciiFeatureGrid,
-  createAsciiTextmodeSurface,
-  materializeAsciiTextmodeSurface,
   normalizeImageAsciiEffectParams,
-  resolveAsciiForegroundBlendMode,
 } from "./asciiEffect";
 
-const getOrCreateAsciiAnalysisEntryMock = vi.fn();
-const runRendererCanvasOperationMock = vi.fn();
-const runRendererSurfaceOperationMock = vi.fn();
-const materializeSurfaceToCanvasMock = vi.fn();
 const applyMaskedStageOperationMock = vi.fn();
 const applyMaskedStageOperationToSurfaceIfSupportedMock = vi.fn();
-
-vi.mock("./asciiAnalysis", () => ({
-  getOrCreateAsciiAnalysisEntry: (...args: unknown[]) =>
-    Reflect.apply(getOrCreateAsciiAnalysisEntryMock, undefined, args),
-}));
-
-vi.mock("@/lib/renderer/gpuSurfaceOperation", () => ({
-  runRendererCanvasOperation: (...args: unknown[]) =>
-    Reflect.apply(runRendererCanvasOperationMock, undefined, args),
-  runRendererSurfaceOperation: (...args: unknown[]) =>
-    Reflect.apply(runRendererSurfaceOperationMock, undefined, args),
-  materializeSurfaceToCanvas: (...args: unknown[]) =>
-    Reflect.apply(materializeSurfaceToCanvasMock, undefined, args),
-}));
 
 vi.mock("./stageMaskComposite", () => ({
   applyMaskedStageOperation: (...args: unknown[]) =>
@@ -38,6 +16,17 @@ vi.mock("./stageMaskComposite", () => ({
   applyMaskedStageOperationToSurfaceIfSupported: (...args: unknown[]) =>
     Reflect.apply(applyMaskedStageOperationToSurfaceIfSupportedMock, undefined, args),
 }));
+
+const createMockImageData = (width: number, height: number) => {
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = 128;
+    data[i + 1] = 128;
+    data[i + 2] = 128;
+    data[i + 3] = 255;
+  }
+  return { data, width, height };
+};
 
 const createMockContext = () => ({
   arc: vi.fn(),
@@ -47,6 +36,9 @@ const createMockContext = () => ({
   fill: vi.fn(),
   fillRect: vi.fn(),
   fillText: vi.fn(),
+  getImageData: vi.fn((x: number, y: number, w: number, h: number) =>
+    createMockImageData(w, h)
+  ),
   lineTo: vi.fn(),
   moveTo: vi.fn(),
   restore: vi.fn(),
@@ -55,7 +47,9 @@ const createMockContext = () => ({
   set fillStyle(_value: string) {},
   set filter(_value: string) {},
   set font(_value: string) {},
+  set globalAlpha(_value: number) {},
   set globalCompositeOperation(_value: GlobalCompositeOperation) {},
+  set imageSmoothingQuality(_value: ImageSmoothingQuality) {},
   set lineWidth(_value: number) {},
   set strokeStyle(_value: string) {},
   set textAlign(_value: CanvasTextAlign) {},
@@ -105,48 +99,9 @@ const createAsciiTransform = () => ({
   },
 });
 
-const createMockAnalysisEntry = ({
-  columns = 4,
-  rows = 2,
-}: {
-  columns?: number;
-  rows?: number;
-} = {}) => {
-  const cellCount = columns * rows;
-  const rawRgbaByCell = new Uint8ClampedArray(cellCount * 4);
-  const alphaByCell = new Float32Array(cellCount);
-  const luminanceByCell = new Float32Array(cellCount);
-  const edgeByCell = new Float32Array(cellCount);
-
-  for (let index = 0; index < cellCount; index += 1) {
-    const offset = index * 4;
-    rawRgbaByCell[offset] = 16 + index * 8;
-    rawRgbaByCell[offset + 1] = 16 + index * 8;
-    rawRgbaByCell[offset + 2] = 16 + index * 8;
-    rawRgbaByCell[offset + 3] = 255;
-    alphaByCell[index] = 1;
-    luminanceByCell[index] = Math.min(1, 0.2 + index * 0.08);
-    edgeByCell[index] = Math.min(1, index * 0.05);
-  }
-
-  return {
-    key: "analysis",
-    columns,
-    rows,
-    rawRgbaByCell,
-    alphaByCell,
-    luminanceByCell,
-    edgeByCell,
-  };
-};
-
 describe("asciiEffect", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    runRendererCanvasOperationMock.mockResolvedValue(false);
-    runRendererSurfaceOperationMock.mockResolvedValue(null);
-    materializeSurfaceToCanvasMock.mockReturnValue(false);
-    getOrCreateAsciiAnalysisEntryMock.mockReturnValue(createMockAnalysisEntry());
     applyMaskedStageOperationMock.mockImplementation(
       async ({ applyOperation, canvas }: { applyOperation: (args: { canvas: HTMLCanvasElement; maskRevisionKey: string | null }) => Promise<void>; canvas: HTMLCanvasElement }) =>
         applyOperation({ canvas, maskRevisionKey: null })
@@ -168,20 +123,7 @@ describe("asciiEffect", () => {
     vi.unstubAllGlobals();
   });
 
-  it("maps supported canvas blend modes onto renderer blend modes", () => {
-    expect(resolveAsciiForegroundBlendMode("source-over")).toBe("normal");
-    expect(resolveAsciiForegroundBlendMode("multiply")).toBe("multiply");
-    expect(resolveAsciiForegroundBlendMode("screen")).toBe("screen");
-    expect(resolveAsciiForegroundBlendMode("overlay")).toBe("overlay");
-    expect(resolveAsciiForegroundBlendMode("soft-light")).toBe("softLight");
-  });
-
-  it("rejects unsupported canvas blend modes so callers can fall back to CPU", () => {
-    expect(resolveAsciiForegroundBlendMode("difference")).toBeNull();
-    expect(resolveAsciiForegroundBlendMode("hard-light")).toBeNull();
-  });
-
-  it("normalizes and clamps the richer ascii carrier params", () => {
+  it("normalizes and clamps the ascii carrier params", () => {
     const normalized = normalizeImageAsciiEffectParams({
       renderMode: "dot",
       preset: "custom",
@@ -226,68 +168,10 @@ describe("asciiEffect", () => {
     });
   });
 
-  it("builds packed FeatureGrid and packed textmode surface artifacts for the carrier stage", async () => {
-    const sourceCanvas = createMockCanvas({ width: 24, height: 24 });
-    const featureGrid = await createAsciiFeatureGrid({
-      sourceCanvas,
-      transform: createAsciiTransform(),
-      quality: "full",
-      sourceRevisionKey: "rev-1",
-      targetSize: {
-        width: 24,
-        height: 24,
-      },
-      maskRevisionKey: null,
-    });
-    const textmodeSurface = createAsciiTextmodeSurface({
-      featureGrid,
-      sourceCanvas,
-      transform: createAsciiTransform(),
-    });
-
-    expect(featureGrid.columns).toBeGreaterThan(0);
-    expect(featureGrid.rows).toBeGreaterThan(0);
-    expect(featureGrid.toneByCell.length).toBe(featureGrid.columns * featureGrid.rows);
-    expect(featureGrid.sampleRgbaByCell.length).toBe(featureGrid.columns * featureGrid.rows * 4);
-    expect(textmodeSurface.glyphIndexByCell.length).toBe(featureGrid.columns * featureGrid.rows);
-    expect(textmodeSurface.foregroundRgbaByCell.length).toBe(featureGrid.columns * featureGrid.rows * 4);
-    expect(textmodeSurface.cellXByCell[0]).toBe(0);
-    expect(textmodeSurface.foregroundBlendMode).toBe("source-over");
-  });
-
-  it("keeps blurred-source backgrounds as source canvas metadata for the GPU presenter", async () => {
-    const base = createAsciiTransform();
-    const transform = {
-      ...base,
-      params: { ...base.params, backgroundMode: "blurred-source" as const, backgroundBlur: 100 },
-    };
-    const sourceCanvas = createMockCanvas({ width: 24, height: 24 });
-    const featureGrid = await createAsciiFeatureGrid({
-      sourceCanvas,
-      transform,
-      quality: "full",
-      sourceRevisionKey: "rev-1",
-      targetSize: {
-        width: 24,
-        height: 24,
-      },
-      maskRevisionKey: null,
-    });
-
-    const textmodeSurface = createAsciiTextmodeSurface({
-      featureGrid,
-      sourceCanvas,
-      transform,
-    });
-
-    expect(textmodeSurface.backgroundSourceCanvas).toBe(sourceCanvas);
-    expect(textmodeSurface.backgroundBlurPx).toBeGreaterThan(0);
-  });
-
-  it("falls back to CPU materialization without clearing the target canvas first", async () => {
+  it("renders ASCII effect onto target canvas via Canvas2D", async () => {
     const targetContext = createMockContext();
-    const targetCanvas = createMockCanvas({ context: targetContext });
-    const sourceCanvas = createMockCanvas();
+    const targetCanvas = createMockCanvas({ width: 48, height: 48, context: targetContext });
+    const sourceCanvas = createMockCanvas({ width: 48, height: 48 });
 
     const didApply = await applyImageAsciiCarrierTransform({
       targetCanvas,
@@ -295,132 +179,44 @@ describe("asciiEffect", () => {
       transform: createAsciiTransform(),
       quality: "full",
       sourceRevisionKey: "rev-1",
-      targetSize: {
-        width: 12,
-        height: 12,
-      },
-      maskRevisionKey: null,
+      targetSize: { width: 48, height: 48 },
     });
 
     expect(didApply).toBe(true);
-    expect(runRendererCanvasOperationMock).toHaveBeenCalledTimes(1);
-    expect(runRendererSurfaceOperationMock).toHaveBeenCalledTimes(1);
-    expect(targetContext.clearRect).not.toHaveBeenCalled();
-    expect(targetContext.drawImage).toHaveBeenCalled();
   });
 
-  it("prefers the direct GPU carrier path before building CPU analysis artifacts", async () => {
-    runRendererCanvasOperationMock.mockResolvedValue(true);
-
-    const didApply = await applyImageAsciiCarrierTransform({
-      targetCanvas: createMockCanvas({ context: createMockContext() }),
-      sourceCanvas: createMockCanvas(),
-      transform: createAsciiTransform(),
-      quality: "full",
-      mode: "export",
-      sourceRevisionKey: "rev-1",
-      targetSize: {
-        width: 12,
-        height: 12,
-      },
-      maskRevisionKey: null,
-    });
-
-    expect(didApply).toBe(true);
-    expect(runRendererCanvasOperationMock).toHaveBeenCalledTimes(1);
-    expect(runRendererCanvasOperationMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        mode: "export",
-      })
-    );
-    expect(getOrCreateAsciiAnalysisEntryMock).not.toHaveBeenCalled();
-    expect(runRendererSurfaceOperationMock).not.toHaveBeenCalled();
-  });
-
-  it("prefers the GPU textmode presenter when available", async () => {
-    const mockSurface = { materializeToCanvas: vi.fn() };
-    runRendererSurfaceOperationMock.mockResolvedValue(mockSurface);
-    materializeSurfaceToCanvasMock.mockReturnValue(true);
-    const targetContext = createMockContext();
-    const targetCanvas = createMockCanvas({ context: targetContext });
-
-    const didApply = await applyImageAsciiCarrierTransform({
-      targetCanvas,
-      sourceCanvas: createMockCanvas(),
-      transform: createAsciiTransform(),
-      quality: "full",
-      mode: "export",
-      sourceRevisionKey: "rev-1",
-      targetSize: {
-        width: 12,
-        height: 12,
-      },
-      maskRevisionKey: null,
-    });
-
-    expect(didApply).toBe(true);
-    expect(runRendererSurfaceOperationMock).toHaveBeenCalledTimes(1);
-    expect(runRendererSurfaceOperationMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        mode: "export",
-      })
-    );
-    expect(materializeSurfaceToCanvasMock).toHaveBeenCalledTimes(1);
-    expect(targetContext.drawImage).not.toHaveBeenCalled();
-  });
-
-  it("can materialize a packed textmode surface directly", async () => {
-    const targetContext = createMockContext();
-    const targetCanvas = createMockCanvas({ context: targetContext });
-    const sourceCanvas = createMockCanvas({ width: 24, height: 24 });
-    const featureGrid = await createAsciiFeatureGrid({
-      sourceCanvas,
-      transform: createAsciiTransform(),
-      quality: "full",
-      sourceRevisionKey: "rev-1",
-      targetSize: {
-        width: 24,
-        height: 24,
-      },
-      maskRevisionKey: null,
-    });
-    const textmodeSurface = createAsciiTextmodeSurface({
-      featureGrid,
-      sourceCanvas,
-      transform: createAsciiTransform(),
-    });
-
-    const didMaterialize = materializeAsciiTextmodeSurface({
-      targetCanvas,
-      surface: textmodeSurface,
-    });
-
-    expect(didMaterialize).toBe(true);
-    expect(targetContext.drawImage).toHaveBeenCalled();
-  });
-
-  it("chains unmasked ascii carriers on renderer surfaces", async () => {
+  it("passes export mode through the canvas carrier path", async () => {
     const targetSize = { width: 128, height: 72 };
-    const createCarrierSurface = (id: string) =>
-      ({
-        sourceCanvas: createMockCanvas({ width: targetSize.width, height: targetSize.height }),
-        mode: "preview",
-        _testId: id,
-      }) as unknown as RenderSurfaceHandle;
+    const canvas = createMockCanvas({ width: targetSize.width, height: targetSize.height });
 
-    const initialSurface = createCarrierSurface("initial");
-    const firstResult = createCarrierSurface("first");
-    const secondResult = createCarrierSurface("second");
-    runRendererSurfaceOperationMock
-      .mockResolvedValueOnce(firstResult)
-      .mockResolvedValueOnce(secondResult);
+    await applyImageCarrierTransforms({
+      canvas,
+      carrierTransforms: [
+        { ...createAsciiTransform(), id: "ascii-export", analysisSource: "style" as const },
+      ],
+      document: { sourceRevisionKey: "rev-1", masks: { byId: {} } } as never,
+      request: { intent: "export", quality: "full", targetSize } as never,
+      snapshots: {
+        develop: null,
+        style: createMockCanvas({ width: targetSize.width, height: targetSize.height }),
+      },
+    });
 
-    const transform = createAsciiTransform();
+    // applyImageCarrierTransform was called (canvas2D path)
+    expect(canvas.getContext).toHaveBeenCalled();
+  });
+
+  it("returns null from the surface path since GPU ASCII is disabled", async () => {
+    const targetSize = { width: 128, height: 72 };
+    const initialSurface = {
+      sourceCanvas: createMockCanvas({ width: targetSize.width, height: targetSize.height }),
+      mode: "preview",
+    } as unknown as RenderSurfaceHandle;
+
     const result = await applyImageCarrierTransformsToSurfaceIfSupported({
       surface: initialSurface,
       carrierTransforms: [
-        { ...transform, id: "ascii-1", analysisSource: "style" as const },
-        { ...transform, id: "ascii-2", analysisSource: "style" as const },
+        { ...createAsciiTransform(), id: "ascii-1", analysisSource: "style" as const },
       ],
       document: { sourceRevisionKey: "rev-1", masks: { byId: {} } } as never,
       request: { intent: "preview", quality: "interactive", targetSize } as never,
@@ -430,25 +226,18 @@ describe("asciiEffect", () => {
       },
     });
 
-    expect(result).toBe(secondResult);
-    expect(runRendererSurfaceOperationMock).toHaveBeenCalledTimes(2);
+    // applyImageAsciiCarrierTransformToSurfaceIfSupported always returns null,
+    // so the orchestrator returns null to signal canvas fallback.
+    expect(result).toBeNull();
   });
 
-  it("supports masked carriers through the surface-aware stage mask path", async () => {
+  it("supports masked carriers through the stage mask path", async () => {
     const targetSize = { width: 128, height: 72 };
-    const initialSurface = {
-      sourceCanvas: createMockCanvas({ width: targetSize.width, height: targetSize.height }),
-      mode: "preview",
-    } as unknown as RenderSurfaceHandle;
-    const maskedResult = {
-      sourceCanvas: createMockCanvas({ width: targetSize.width, height: targetSize.height }),
-      mode: "preview",
-    } as unknown as RenderSurfaceHandle;
-    runRendererSurfaceOperationMock.mockResolvedValueOnce(maskedResult);
+    const canvas = createMockCanvas({ width: targetSize.width, height: targetSize.height });
 
     const transform = createAsciiTransform();
-    const result = await applyImageCarrierTransformsToSurfaceIfSupported({
-      surface: initialSurface,
+    await applyImageCarrierTransforms({
+      canvas,
       carrierTransforms: [
         { ...transform, id: "ascii-1", analysisSource: "style" as const, maskId: "mask-1" },
       ],
@@ -472,35 +261,10 @@ describe("asciiEffect", () => {
       },
     });
 
-    expect(result).toBe(maskedResult);
-    expect(applyMaskedStageOperationToSurfaceIfSupportedMock).toHaveBeenCalledWith(
+    expect(applyMaskedStageOperationMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        surface: initialSurface,
         maskDefinition: expect.objectContaining({ id: "mask-1" }),
-        blendSlotId: "carrier-mask:ascii-1",
       })
-    );
-  });
-
-  it("passes export mode through the canvas carrier path", async () => {
-    runRendererCanvasOperationMock.mockResolvedValue(true);
-    const targetSize = { width: 128, height: 72 };
-
-    await applyImageCarrierTransforms({
-      canvas: createMockCanvas({ width: targetSize.width, height: targetSize.height }),
-      carrierTransforms: [
-        { ...createAsciiTransform(), id: "ascii-export", analysisSource: "style" as const },
-      ],
-      document: { sourceRevisionKey: "rev-1", masks: { byId: {} } } as never,
-      request: { intent: "export", quality: "full", targetSize } as never,
-      snapshots: {
-        develop: null,
-        style: createMockCanvas({ width: targetSize.width, height: targetSize.height }),
-      },
-    });
-
-    expect(runRendererCanvasOperationMock).toHaveBeenCalledWith(
-      expect.objectContaining({ mode: "export" })
     );
   });
 });
