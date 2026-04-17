@@ -138,25 +138,6 @@ export const runRendererPixelReadbackOperation = async ({
   }
 };
 
-export const runRendererCanvasOperation = async ({
-  targetCanvas,
-  ...options
-}: {
-  targetCanvas: HTMLCanvasElement;
-  mode?: RenderMode;
-  width: number;
-  height: number;
-  slotId?: string;
-  render: (renderer: PipelineRenderer) => boolean;
-  metrics?: RenderBoundaryMetrics;
-}) => {
-  const surface = await runRendererSurfaceOperation(options);
-  if (!surface) {
-    return false;
-  }
-  return materializeSurfaceToCanvas(surface, targetCanvas);
-};
-
 const disposeSurfaceOperationRenderManager = () => {
   _surfaceOperationRenderManager?.disposeAll();
   _surfaceOperationRenderManager = null;

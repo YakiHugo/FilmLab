@@ -1,6 +1,6 @@
 import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
 import type { EditorLayerBlendMode } from "@/types";
-import { runRendererCanvasOperation, runRendererSurfaceOperation } from "./gpuSurfaceOperation";
+import { runRendererSurfaceOperation } from "./gpuSurfaceOperation";
 
 export interface AsciiCarrierGpuInput {
   width: number;
@@ -61,28 +61,3 @@ export const applyAsciiCarrierOnGpuToSurface = async ({
   });
 };
 
-export const applyAsciiCarrierOnGpu = async ({
-  targetCanvas,
-  input,
-  slotId = "ascii-carrier",
-}: {
-  targetCanvas: HTMLCanvasElement;
-  input: AsciiCarrierGpuInput;
-  slotId?: string;
-}): Promise<boolean> => {
-  if (!dimensionsMatch(targetCanvas.width, targetCanvas.height, input)) {
-    return false;
-  }
-  return runRendererCanvasOperation({
-    targetCanvas,
-    width: targetCanvas.width,
-    height: targetCanvas.height,
-    slotId,
-    render: (renderer) =>
-      renderer.renderAsciiCarrierComposite({
-        baseCanvas: targetCanvas,
-        carrier: input,
-        foregroundBlendMode: input.foregroundBlendMode,
-      }),
-  });
-};

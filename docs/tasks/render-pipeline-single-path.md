@@ -309,6 +309,12 @@ Three parallel Explore reviews (orchestration correctness / Surface-only stage h
 
 #### Follow-ups carried forward (not in Slice 4 scope)
 
-- `applyTimestampOverlayOnGpu` / `applyFilter2dOnGpu` / `applyAsciiCarrierOnGpu` canvas-form exports at the GPU-primitive layer still exist but have no in-tree callers after this slice. A separate clean-up pass can retire them; they do not affect the orchestrator contract.
-- `FilterPipeline.execute` still injects `uSampler: currentTexture` for every pass (noted in Slice 2 findings). No change in Slice 4.
 - `canvas-preview-performance-followup` preview-executor split remains a separate task per the original non-goals list.
+
+#### Slice 4 follow-on cleanup (2026-04-17)
+
+Cleared after reviewing the outstanding debts flagged in the task summary.
+
+- **Canvas-form GPU primitives retired.** `applyFilter2dOnGpu`, `applyFilter2dOnGpuToCanvas`, `applyAsciiCarrierOnGpu`, `applyTimestampOverlayOnGpu`, `blendCanvasLayerOnGpu`, and the now-unused `runRendererCanvasOperation` in `gpuSurfaceOperation.ts` are deleted. After Slice 4 none had in-tree callers; leaving them exported invited drift. Surface-form helpers remain the only public entry points at the GPU primitive layer.
+- **`uSampler` implicit contract closed.** `PipelinePass` now exposes a `usesPriorTexture?: boolean` flag; `FilterPipeline.execute` only injects `uSampler: currentTexture` when it is truthy (default true preserves every processing pass). Generator passes — the AsciiCarrier pass registered in `PipelineRenderer.renderAsciiCarrierLayer` — set `usesPriorTexture: false` so the "no prior-pass dependency" contract is explicit in the call site instead of relying on twgl silently dropping unused uniforms. Slice 2 Bug 3 is now structurally closed rather than narrowed.
+- **CI + PR review fixes.** `ProgramRegistry.test.ts` updated to match the post-Slice-2 shader surface (`sampleCellTone` replaces the deleted `resolveTone` helper). `PipelineRenderer.getGlyphAtlas` drops the DEV-only opaque `#222222` fill that inverted the alpha mask used as glyph shape — the atlas canvas now stays transparent-only so the GPU-side `u_glyphAtlas.a` sample is the glyph silhouette in every mode. The data-URL debug snapshot is unaffected; DevTools renders it against its own background.
