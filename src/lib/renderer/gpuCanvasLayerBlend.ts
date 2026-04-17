@@ -1,9 +1,6 @@
 import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
 import type { EditorLayerBlendMode } from "@/types";
-import {
-  materializeSurfaceToCanvas,
-  runRendererSurfaceOperation,
-} from "./gpuSurfaceOperation";
+import { runRendererSurfaceOperation } from "./gpuSurfaceOperation";
 
 export const blendCanvasLayerOnGpuToSurface = async ({
   surface,
@@ -83,20 +80,3 @@ export const blendCanvasLayerOnGpuToSurface = async ({
   });
 };
 
-export const blendCanvasLayerOnGpu = async ({
-  targetCanvas,
-  ...options
-}: {
-  surface: RenderSurfaceHandle;
-  layerCanvas: HTMLCanvasElement;
-  targetCanvas: HTMLCanvasElement;
-  slotId?: string;
-  blendMode?: EditorLayerBlendMode;
-  opacity?: number;
-}) => {
-  const surface = await blendCanvasLayerOnGpuToSurface(options);
-  if (!surface) {
-    return false;
-  }
-  return materializeSurfaceToCanvas(surface, targetCanvas);
-};
