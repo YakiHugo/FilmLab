@@ -32,22 +32,23 @@ export type CommitGeneratedAssetsInput = {
   normalizedImages: NormalizedGeneratedImageEntry[];
   effectivePayload: ParsedImageGenerationRequest;
   completedPrompt: PersistedPromptSnapshot;
+  // Mutable accumulators so the caller can clean up partial state if this
+  // helper throws mid-loop (asset creation is not transactional).
+  createdGeneratedAssetIds: string[];
+  createdAssetEdgeIds: string[];
 };
 
 export type CommitGeneratedAssetsResult = {
   assetizedImages: AssetizedImage[];
   assets: PersistedAssetRecord[];
   assetEdges: PersistedAssetEdgeRecord[];
-  createdGeneratedAssetIds: string[];
-  createdAssetEdgeIds: string[];
 };
 
 export const commitGeneratedAssets = async (
   assetService: AssetService,
   input: CommitGeneratedAssetsInput
 ): Promise<CommitGeneratedAssetsResult> => {
-  const { userId, conversationId, turnId, runId, completedAt } = input;
-  const createdGeneratedAssetIds: string[] = [];
+  const { userId, conversationId, turnId, runId, completedAt, createdGeneratedAssetIds, createdAssetEdgeIds } = input;
   const assetizedImages: AssetizedImage[] = [];
 
   for (const [index, image] of input.normalizedImages.entries()) {
@@ -131,12 +132,15 @@ export const commitGeneratedAssets = async (
       conversationId,
     }))
   );
+  // createAssetEdges commits all rows in one transaction, so edge IDs only
+  // become rollback-candidates after the call returns successfully.
+  for (const edge of assetEdges) {
+    createdAssetEdgeIds.push(edge.id);
+  }
 
   return {
     assetizedImages,
     assets,
     assetEdges,
-    createdGeneratedAssetIds,
-    createdAssetEdgeIds: assetEdges.map((edge) => edge.id),
   };
 };
