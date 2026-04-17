@@ -86,6 +86,21 @@ export const buildServer = async () => {
     status: "ok",
   }));
 
+  app.get("/health/ready", async (_request, reply) => {
+    if (!pool) {
+      return { status: "ok" };
+    }
+
+    try {
+      await pool.query("SELECT 1");
+      return { status: "ok" };
+    } catch (error) {
+      app.log.error({ err: error }, "readiness probe failed");
+      reply.code(503);
+      return { status: "unavailable" };
+    }
+  });
+
   return app;
 };
 

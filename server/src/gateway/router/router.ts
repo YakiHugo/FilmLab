@@ -1,3 +1,4 @@
+import type { FastifyBaseLogger } from "fastify";
 import type { AppConfig } from "../../config";
 import type { ParsedImageGenerationRequest } from "../../shared/imageGenerationSchema";
 import type { ParsedImageUpscaleRequest } from "../../shared/imageUpscaleSchema";
@@ -22,10 +23,29 @@ const toGenerateSelectionInput = (request: ParsedImageGenerationRequest) => ({
   requestedTarget: request.requestedTarget,
 });
 
+const logProviderCall = (
+  logger: FastifyBaseLogger | undefined,
+  fields: {
+    provider: HealthRecordInput["provider"];
+    model: string;
+    operation: ImageOperation;
+    success: boolean;
+    latencyMs: number;
+    errorType?: string;
+  }
+) => {
+  if (!logger) {
+    return;
+  }
+  const level = fields.success ? "info" : "warn";
+  logger[level](fields, "provider call");
+};
+
 const executeWithFallback = async <T>(
   operation: ImageOperation,
   targets: ReturnType<typeof selectRouteTargets>,
-  handler: (target: (typeof targets)[number]) => Promise<T>
+  handler: (target: (typeof targets)[number]) => Promise<T>,
+  logger: FastifyBaseLogger | undefined
 ) => {
   let lastError: unknown = null;
 
@@ -33,23 +53,41 @@ const executeWithFallback = async <T>(
     const startedAt = Date.now();
     try {
       const result = await handler(target);
+      const latencyMs = Date.now() - startedAt;
       recordResult({
         provider: target.provider.id,
         model: target.deployment.providerModel,
         operation,
         success: true,
-        latencyMs: Date.now() - startedAt,
+        latencyMs,
+      });
+      logProviderCall(logger, {
+        provider: target.provider.id,
+        model: target.deployment.providerModel,
+        operation,
+        success: true,
+        latencyMs,
       });
       return result;
     } catch (error) {
       lastError = error;
+      const latencyMs = Date.now() - startedAt;
+      const errorType = toErrorType(error);
       recordResult({
         provider: target.provider.id,
         model: target.deployment.providerModel,
         operation,
         success: false,
-        latencyMs: Date.now() - startedAt,
-        errorType: toErrorType(error),
+        latencyMs,
+        errorType,
+      });
+      logProviderCall(logger, {
+        provider: target.provider.id,
+        model: target.deployment.providerModel,
+        operation,
+        success: false,
+        latencyMs,
+        errorType,
       });
 
       if (!isRetriableProviderError(error)) {
@@ -78,6 +116,7 @@ export const createImageRuntimeRouter = (config: AppConfig) => ({
       resolveRequest?: (
         target: ResolvedRouteTarget
       ) => ParsedImageGenerationRequest | Promise<ParsedImageGenerationRequest>;
+      logger?: FastifyBaseLogger;
     }
   ) {
     const targets = options?.targets ?? selectRouteTargets(toGenerateSelectionInput(request), config);
@@ -109,9 +148,13 @@ export const createImageRuntimeRouter = (config: AppConfig) => ({
         target,
         request: options?.resolveRequest ? await options.resolveRequest(target) : request,
         credentials: getRuntimeProviderCredentials(target.provider.id, config),
-        options: { timeoutMs: config.providerRequestTimeoutMs, ...options },
+        options: {
+          timeoutMs: options?.timeoutMs ?? config.providerRequestTimeoutMs,
+          signal: options?.signal,
+          traceId: options?.traceId,
+        },
       });
-    });
+    }, options?.logger);
   },
   async upscale(
     _request: ParsedImageUpscaleRequest,

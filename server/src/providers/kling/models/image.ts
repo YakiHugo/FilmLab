@@ -1,19 +1,16 @@
+import { z } from "zod";
 import { getStylePromptHint } from "../../../shared/imageStyleHints";
-import { createProviderRequestContext, fetchProviderResponse, toProviderRawResponse } from "../../base/client";
+import { createProviderRequestContext, fetchProviderResponse } from "../../base/client";
 import { ProviderError, readProviderError } from "../../base/errors";
 import type {
   PlatformProviderGenerateInput,
   ProviderGeneratedImage,
-  ProviderRawResponse,
   RuntimeGenerationResult,
 } from "../../base/types";
 import { resolveKlingBearerToken } from "../auth";
 
 const POLL_INTERVAL_MS = 2_500;
 const SUPPORTED_MODELS = new Set(["kling-v2-1", "kling-v3"]);
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
 
 const getKlingImageGenerationUrl = (baseUrl: string) =>
   new URL("/v1/images/generations", `${baseUrl}/`).toString();
@@ -32,82 +29,70 @@ const buildPrompt = (prompt: string, style: Parameters<typeof getStylePromptHint
 const resolveResolution = (value: unknown) => (value === "2k" ? "2k" : "1k");
 const resolveWatermark = (value: unknown) => (typeof value === "boolean" ? value : false);
 
-const readKlingErrorMessage = (payload: unknown, fallback: string) => {
-  if (!isRecord(payload)) {
-    return fallback;
-  }
+const klingImageItemSchema = z.object({
+  url: z.string().optional(),
+  watermark_url: z.string().optional(),
+});
 
-  if (typeof payload.message === "string" && payload.message.trim()) {
+const klingResponseSchema = z.object({
+  code: z.number().optional(),
+  message: z.string().optional(),
+  data: z
+    .object({
+      task_id: z.string().optional(),
+      task_status: z.string().optional(),
+      task_status_msg: z.string().optional(),
+      task_result: z
+        .object({
+          images: z.array(klingImageItemSchema).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+
+type KlingResponse = z.infer<typeof klingResponseSchema>;
+
+const parseKlingResponse = (payload: unknown): KlingResponse => {
+  const parsed = klingResponseSchema.safeParse(payload);
+  if (!parsed.success) {
+    throw new ProviderError("Kling provider returned an invalid response.", 502);
+  }
+  return parsed.data;
+};
+
+const readKlingErrorMessage = (payload: KlingResponse, fallback: string) => {
+  if (payload.message && payload.message.trim()) {
     return payload.message.trim();
   }
 
-  if (isRecord(payload.data) && typeof payload.data.task_status_msg === "string") {
-    const message = payload.data.task_status_msg.trim();
-    if (message) {
-      return message;
-    }
+  const taskStatusMsg = payload.data?.task_status_msg?.trim();
+  if (taskStatusMsg) {
+    return taskStatusMsg;
   }
 
   return fallback;
 };
 
-const extractKlingTaskId = (payload: unknown) => {
-  if (!isRecord(payload) || !isRecord(payload.data)) {
-    return null;
-  }
+const extractKlingImages = (payload: KlingResponse): ProviderGeneratedImage[] =>
+  (payload.data?.task_result?.images ?? []).reduce<ProviderGeneratedImage[]>(
+    (results, image) => {
+      const imageUrl =
+        image.url && image.url.trim()
+          ? image.url.trim()
+          : image.watermark_url && image.watermark_url.trim()
+            ? image.watermark_url.trim()
+            : null;
 
-  return typeof payload.data.task_id === "string" && payload.data.task_id.trim()
-    ? payload.data.task_id.trim()
-    : null;
-};
+      if (!imageUrl) {
+        return results;
+      }
 
-const readKlingCode = (payload: unknown) => {
-  if (!isRecord(payload)) {
-    return 0;
-  }
-
-  return typeof payload.code === "number" ? payload.code : 0;
-};
-
-const readKlingTaskStatus = (payload: unknown) => {
-  if (!isRecord(payload) || !isRecord(payload.data)) {
-    return null;
-  }
-
-  return typeof payload.data.task_status === "string" && payload.data.task_status.trim()
-    ? payload.data.task_status.trim()
-    : null;
-};
-
-const extractKlingImages = (payload: unknown): ProviderGeneratedImage[] => {
-  if (!isRecord(payload) || !isRecord(payload.data) || !isRecord(payload.data.task_result)) {
-    return [];
-  }
-
-  const images = Array.isArray(payload.data.task_result.images)
-    ? payload.data.task_result.images
-    : [];
-
-  return images.reduce<ProviderGeneratedImage[]>((results, image) => {
-    if (!isRecord(image)) {
+      results.push({ imageUrl });
       return results;
-    }
-
-    const imageUrl =
-      typeof image.url === "string" && image.url.trim()
-        ? image.url.trim()
-        : typeof image.watermark_url === "string" && image.watermark_url.trim()
-          ? image.watermark_url.trim()
-          : null;
-
-    if (!imageUrl) {
-      return results;
-    }
-
-    results.push({ imageUrl });
-    return results;
-  }, []);
-};
+    },
+    []
+  );
 
 const waitForPoll = (signal: AbortSignal | undefined, durationMs: number) =>
   new Promise<void>((resolve, reject) => {
@@ -129,7 +114,7 @@ const pollKlingTask = async (
   bearerToken: string,
   baseUrl: string,
   context: ReturnType<typeof createProviderRequestContext>
-): Promise<ProviderRawResponse> => {
+): Promise<KlingResponse> => {
   const deadline = Date.now() + context.timeoutMs;
 
   while (Date.now() <= deadline) {
@@ -160,17 +145,17 @@ const pollKlingTask = async (
       );
     }
 
-    const pollPayload = (await pollResponse.json()) as unknown;
-    if (readKlingCode(pollPayload) !== 0) {
+    const pollPayload = parseKlingResponse(await pollResponse.json());
+    if ((pollPayload.code ?? 0) !== 0) {
       throw new ProviderError(
         readKlingErrorMessage(pollPayload, "Kling image generation failed."),
         502
       );
     }
 
-    const status = readKlingTaskStatus(pollPayload);
+    const status = pollPayload.data?.task_status?.trim();
     if (status === "succeed") {
-      return toProviderRawResponse(pollResponse, pollPayload);
+      return pollPayload;
     }
 
     if (status === "failed") {
@@ -230,21 +215,21 @@ export const generateKlingImage = async (
     );
   }
 
-  const createPayload = (await createResponse.json()) as unknown;
-  if (readKlingCode(createPayload) !== 0) {
+  const createPayload = parseKlingResponse(await createResponse.json());
+  if ((createPayload.code ?? 0) !== 0) {
     throw new ProviderError(
       readKlingErrorMessage(createPayload, "Kling image generation failed."),
       502
     );
   }
 
-  const taskId = extractKlingTaskId(createPayload);
+  const taskId = createPayload.data?.task_id?.trim();
   if (!taskId) {
     throw new ProviderError("Kling provider did not return a task id.");
   }
 
-  const rawResponse = await pollKlingTask(taskId, bearerToken, baseUrl, context);
-  const images = extractKlingImages(rawResponse.payload);
+  const pollPayload = await pollKlingTask(taskId, bearerToken, baseUrl, context);
+  const images = extractKlingImages(pollPayload);
   if (images.length === 0) {
     throw new ProviderError("Kling provider returned no image URL.");
   }

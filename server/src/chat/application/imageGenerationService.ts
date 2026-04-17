@@ -323,6 +323,7 @@ export class ImageGenerationService {
       const generated = await this.providerExecutor.generate(routingRequest, {
         signal,
         traceId,
+        logger,
         targets: prompts.routeTargets,
         resolveRequest: async (target) => {
           dispatchState.attempt += 1;

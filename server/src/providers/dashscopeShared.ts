@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { getStylePromptHint } from "../shared/imageStyleHints";
 import type { ParsedImageGenerationRequest } from "../shared/imageGenerationSchema";
 import { ProviderError } from "./base/errors";
@@ -16,9 +17,6 @@ const DASHSCOPE_SIZE_BY_ASPECT_RATIO: Record<
   "2:3": { width: 1024, height: 1536 },
   "21:9": { width: 1680, height: 720 },
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
 
 const getDimensionPair = (request: ParsedImageGenerationRequest) => {
   if (request.width && request.height) {
@@ -63,33 +61,46 @@ export const toDashScopeSize = (request: ParsedImageGenerationRequest) => {
   return `${width}*${height}`;
 };
 
-const getChoiceMessage = (choice: unknown) => {
-  if (!isRecord(choice)) {
-    return null;
-  }
+const dashscopeChoiceContentItemSchema = z.object({
+  image: z.string().optional(),
+  text: z.string().optional(),
+});
 
-  return isRecord(choice.message) ? choice.message : null;
-};
+const dashscopeChoiceSchema = z.object({
+  message: z
+    .object({
+      content: z.array(dashscopeChoiceContentItemSchema).optional(),
+    })
+    .optional(),
+});
 
-const extractFromChoices = (payload: Record<string, unknown>): ProviderGeneratedImage[] => {
-  const output = isRecord(payload.output) ? payload.output : null;
-  const choices = Array.isArray(output?.choices) ? output.choices : [];
+const dashscopeResultSchema = z.object({
+  url: z.string().optional(),
+  actual_prompt: z.string().optional(),
+});
 
-  return choices.reduce<ProviderGeneratedImage[]>((images, choice) => {
-    const message = getChoiceMessage(choice);
-    const content = Array.isArray(message?.content) ? message.content : [];
+const dashscopeResponseSchema = z.object({
+  output: z
+    .object({
+      choices: z.array(dashscopeChoiceSchema).optional(),
+      results: z.array(dashscopeResultSchema).optional(),
+    })
+    .optional(),
+});
+
+const extractFromChoices = (
+  choices: z.infer<typeof dashscopeChoiceSchema>[]
+): ProviderGeneratedImage[] =>
+  choices.reduce<ProviderGeneratedImage[]>((images, choice) => {
+    const content = choice.message?.content ?? [];
     let imageUrl: string | null = null;
     let revisedPrompt: string | null = null;
 
     for (const item of content) {
-      if (!isRecord(item)) {
-        continue;
-      }
-
-      if (!imageUrl && typeof item.image === "string" && item.image.trim()) {
+      if (!imageUrl && item.image && item.image.trim()) {
         imageUrl = item.image.trim();
       }
-      if (!revisedPrompt && typeof item.text === "string" && item.text.trim()) {
+      if (!revisedPrompt && item.text && item.text.trim()) {
         revisedPrompt = item.text.trim();
       }
     }
@@ -98,43 +109,43 @@ const extractFromChoices = (payload: Record<string, unknown>): ProviderGenerated
       return images;
     }
 
-    images.push({
-      imageUrl,
-      revisedPrompt,
-    });
+    images.push({ imageUrl, revisedPrompt });
     return images;
   }, []);
-};
 
-const extractFromResults = (payload: Record<string, unknown>): ProviderGeneratedImage[] => {
-  const output = isRecord(payload.output) ? payload.output : null;
-  const results = Array.isArray(output?.results) ? output.results : [];
-
-  return results.reduce<ProviderGeneratedImage[]>((images, result) => {
-    if (!isRecord(result) || typeof result.url !== "string" || !result.url.trim()) {
+const extractFromResults = (
+  results: z.infer<typeof dashscopeResultSchema>[]
+): ProviderGeneratedImage[] =>
+  results.reduce<ProviderGeneratedImage[]>((images, result) => {
+    if (!result.url || !result.url.trim()) {
       return images;
     }
 
     images.push({
       imageUrl: result.url.trim(),
       revisedPrompt:
-        typeof result.actual_prompt === "string" && result.actual_prompt.trim()
+        result.actual_prompt && result.actual_prompt.trim()
           ? result.actual_prompt.trim()
           : null,
     });
     return images;
   }, []);
-};
 
 export const extractDashScopeImages = (payload: unknown): ProviderGeneratedImage[] => {
-  if (!isRecord(payload)) {
+  const parsed = dashscopeResponseSchema.safeParse(payload);
+  if (!parsed.success) {
     return [];
   }
 
-  const fromChoices = extractFromChoices(payload);
+  const output = parsed.data.output;
+  if (!output) {
+    return [];
+  }
+
+  const fromChoices = extractFromChoices(output.choices ?? []);
   if (fromChoices.length > 0) {
     return fromChoices;
   }
 
-  return extractFromResults(payload);
+  return extractFromResults(output.results ?? []);
 };
