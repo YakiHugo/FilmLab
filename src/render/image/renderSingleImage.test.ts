@@ -4,38 +4,18 @@ import { createDefaultCanvasImageRenderState } from "./stateCompiler";
 import { createImageRenderDocument } from "./types";
 import { renderSingleImageToCanvas } from "./renderSingleImage";
 
-const renderDevelopBaseToCanvasMock = vi.fn();
 const renderDevelopBaseToSurfaceMock = vi.fn();
-const renderFilmStageToCanvasMock = vi.fn();
 const renderFilmStageToSurfaceMock = vi.fn();
-const renderImageToCanvasMock = vi.fn();
 const renderImageToSurfaceMock = vi.fn();
 const applyImageCarrierTransformsMock = vi.fn();
-const applyImageCarrierTransformsToSurfaceIfSupportedMock = vi.fn();
-const applyTimestampOverlayMock = vi.fn();
-const applyTimestampOverlayToCanvasIfSupportedMock = vi.fn();
-const applyTimestampOverlayToSurfaceIfSupportedMock = vi.fn();
-const blendCanvasLayerOnGpuToSurfaceMock = vi.fn();
-const applyFilter2dOnGpuMock = vi.fn();
-const applyFilter2dOnGpuToSurfaceMock = vi.fn();
-const blendMaskedCanvasesOnGpuToSurfaceMock = vi.fn();
-const blendMaskedCanvasesOnGpuMock = vi.fn();
-const applyFilter2dPostProcessingMock = vi.fn();
-const buildImageRenderMaskRevisionKeyMock = vi.fn(() => "mask-revision");
-const renderImageEffectMaskToCanvasMock = vi.fn(
-  async ({ targetCanvas }) => targetCanvas ?? createSnapshotCanvas()
-);
+const applyImageEffectsMock = vi.fn();
+const applyImageOverlaysMock = vi.fn();
 
 vi.mock("@/lib/imageProcessing", () => ({
-  renderDevelopBaseToCanvas: (...args: unknown[]) =>
-    Reflect.apply(renderDevelopBaseToCanvasMock, undefined, args),
   renderDevelopBaseToSurface: (...args: unknown[]) =>
     Reflect.apply(renderDevelopBaseToSurfaceMock, undefined, args),
-  renderFilmStageToCanvas: (...args: unknown[]) =>
-    Reflect.apply(renderFilmStageToCanvasMock, undefined, args),
   renderFilmStageToSurface: (...args: unknown[]) =>
     Reflect.apply(renderFilmStageToSurfaceMock, undefined, args),
-  renderImageToCanvas: (...args: unknown[]) => Reflect.apply(renderImageToCanvasMock, undefined, args),
   renderImageToSurface: (...args: unknown[]) =>
     Reflect.apply(renderImageToSurfaceMock, undefined, args),
 }));
@@ -43,50 +23,23 @@ vi.mock("@/lib/imageProcessing", () => ({
 vi.mock("./asciiEffect", () => ({
   applyImageCarrierTransforms: (...args: unknown[]) =>
     Reflect.apply(applyImageCarrierTransformsMock, undefined, args),
-  applyImageCarrierTransformsToSurfaceIfSupported: (...args: unknown[]) =>
-    Reflect.apply(applyImageCarrierTransformsToSurfaceIfSupportedMock, undefined, args),
 }));
 
-vi.mock("@/lib/timestampOverlay", () => ({
-  applyTimestampOverlay: (...args: unknown[]) =>
-    Reflect.apply(applyTimestampOverlayMock, undefined, args),
-  applyTimestampOverlayToCanvasIfSupported: (...args: unknown[]) =>
-    Reflect.apply(applyTimestampOverlayToCanvasIfSupportedMock, undefined, args),
-  applyTimestampOverlayToSurfaceIfSupported: (...args: unknown[]) =>
-    Reflect.apply(applyTimestampOverlayToSurfaceIfSupportedMock, undefined, args),
+vi.mock("./effectExecution", () => ({
+  applyImageEffects: (...args: unknown[]) =>
+    Reflect.apply(applyImageEffectsMock, undefined, args),
 }));
 
-vi.mock("@/lib/renderer/gpuCanvasLayerBlend", () => ({
-  blendCanvasLayerOnGpu: vi.fn(),
-  blendCanvasLayerOnGpuToSurface: (...args: unknown[]) =>
-    Reflect.apply(blendCanvasLayerOnGpuToSurfaceMock, undefined, args),
-}));
-
-vi.mock("@/lib/renderer/gpuFilter2dPostProcessing", () => ({
-  applyFilter2dOnGpu: (...args: unknown[]) =>
-    Reflect.apply(applyFilter2dOnGpuMock, undefined, args),
-  applyFilter2dOnGpuToSurface: (...args: unknown[]) =>
-    Reflect.apply(applyFilter2dOnGpuToSurfaceMock, undefined, args),
-}));
-
-vi.mock("@/lib/renderer/gpuMaskedCanvasBlend", () => ({
-  blendMaskedCanvasesOnGpu: (...args: unknown[]) =>
-    Reflect.apply(blendMaskedCanvasesOnGpuMock, undefined, args),
-  blendMaskedCanvasesOnGpuToSurface: (...args: unknown[]) =>
-    Reflect.apply(blendMaskedCanvasesOnGpuToSurfaceMock, undefined, args),
-}));
-
-vi.mock("@/lib/filter2dPostProcessing", () => ({
-  applyFilter2dPostProcessing: (...args: unknown[]) =>
-    Reflect.apply(applyFilter2dPostProcessingMock, undefined, args),
-}));
-
-vi.mock("./effectMask", () => ({
-  buildImageRenderMaskRevisionKey: (...args: unknown[]) =>
-    Reflect.apply(buildImageRenderMaskRevisionKeyMock, undefined, args),
-  renderImageEffectMaskToCanvas: (...args: unknown[]) =>
-    Reflect.apply(renderImageEffectMaskToCanvasMock, undefined, args),
-}));
+vi.mock("./overlayExecution", async () => {
+  const actual = await vi.importActual<typeof import("./overlayExecution")>(
+    "./overlayExecution"
+  );
+  return {
+    ...actual,
+    applyImageOverlays: (...args: unknown[]) =>
+      Reflect.apply(applyImageOverlaysMock, undefined, args),
+  };
+});
 
 const createCanvas = () =>
   ({
@@ -354,26 +307,12 @@ const createDocument = ({
 describe("renderSingleImageToCanvas", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    renderDevelopBaseToCanvasMock.mockResolvedValue(createStageResult("develop-base"));
     renderDevelopBaseToSurfaceMock.mockResolvedValue(createStageResult("develop-base"));
-    renderFilmStageToCanvasMock.mockResolvedValue(createStageResult("film-stage"));
     renderFilmStageToSurfaceMock.mockResolvedValue(createStageResult("film-stage"));
-    renderImageToCanvasMock.mockResolvedValue(createStageResult("full"));
     renderImageToSurfaceMock.mockResolvedValue(createStageResult("full"));
-    applyImageCarrierTransformsMock.mockResolvedValue(undefined);
-    applyImageCarrierTransformsToSurfaceIfSupportedMock.mockResolvedValue(null);
-    applyTimestampOverlayMock.mockResolvedValue(undefined);
-    applyTimestampOverlayToCanvasIfSupportedMock.mockResolvedValue(false);
-    applyTimestampOverlayToSurfaceIfSupportedMock.mockResolvedValue(null);
-    blendCanvasLayerOnGpuToSurfaceMock.mockResolvedValue(null);
-    applyFilter2dOnGpuMock.mockResolvedValue(false);
-    applyFilter2dOnGpuToSurfaceMock.mockResolvedValue(null);
-    blendMaskedCanvasesOnGpuMock.mockResolvedValue(false);
-    blendMaskedCanvasesOnGpuToSurfaceMock.mockResolvedValue(null);
-    buildImageRenderMaskRevisionKeyMock.mockReturnValue("mask-revision");
-    renderImageEffectMaskToCanvasMock.mockImplementation(
-      async ({ targetCanvas }) => targetCanvas ?? createSnapshotCanvas()
-    );
+    applyImageCarrierTransformsMock.mockImplementation(async ({ surface }) => surface);
+    applyImageEffectsMock.mockImplementation(async ({ surface }) => surface);
+    applyImageOverlaysMock.mockImplementation(async ({ surface }) => surface);
     vi.stubGlobal("document", {
       createElement: vi.fn(() => createSnapshotCanvas()),
     });
@@ -420,21 +359,13 @@ describe("renderSingleImageToCanvas", () => {
     );
     expect(renderDevelopBaseToSurfaceMock).not.toHaveBeenCalled();
     expect(applyImageCarrierTransformsMock).toHaveBeenCalledTimes(1);
-    expect(applyTimestampOverlayMock).toHaveBeenCalledTimes(1);
-    expect(applyFilter2dPostProcessingMock).toHaveBeenCalledTimes(1);
-    expect(applyTimestampOverlayMock.mock.calls[0]?.[1]).toEqual(
-      expect.objectContaining({
-        timestampEnabled: true,
-        timestampPosition: "top-left",
-        timestampSize: 18,
-        timestampOpacity: 70,
-      })
-    );
-    expect(applyTimestampOverlayMock.mock.invocationCallOrder[0]).toBeGreaterThan(
+    expect(applyImageOverlaysMock).toHaveBeenCalledTimes(1);
+    expect(applyImageEffectsMock).toHaveBeenCalledTimes(1);
+    expect(applyImageOverlaysMock.mock.invocationCallOrder[0]).toBeGreaterThan(
       applyImageCarrierTransformsMock.mock.invocationCallOrder[0]
     );
-    expect(applyFilter2dPostProcessingMock.mock.invocationCallOrder[0]).toBeGreaterThan(
-      applyTimestampOverlayMock.mock.invocationCallOrder[0]
+    expect(applyImageEffectsMock.mock.invocationCallOrder[0]).toBeGreaterThan(
+      applyImageOverlaysMock.mock.invocationCallOrder[0]
     );
     expect(renderFilmStageToSurfaceMock).not.toHaveBeenCalled();
   });
@@ -463,9 +394,12 @@ describe("renderSingleImageToCanvas", () => {
     );
   });
 
-  it("awaits timestamp overlay before running finalize effects and resolving", async () => {
-    const deferred = createDeferred<void>();
-    applyTimestampOverlayMock.mockReturnValueOnce(deferred.promise);
+  it("awaits the overlay stage before running finalize effects and resolving", async () => {
+    const deferred = createDeferred<{ surface: unknown }>();
+    applyImageOverlaysMock.mockImplementationOnce(async ({ surface }) => {
+      await deferred.promise;
+      return surface;
+    });
     const document = createDocument();
     let settled = false;
 
@@ -486,23 +420,19 @@ describe("renderSingleImageToCanvas", () => {
     });
 
     await vi.waitFor(() => {
-      expect(applyTimestampOverlayMock).toHaveBeenCalledTimes(1);
+      expect(applyImageOverlaysMock).toHaveBeenCalledTimes(1);
     });
-    expect(applyFilter2dPostProcessingMock).not.toHaveBeenCalled();
+    expect(applyImageEffectsMock).not.toHaveBeenCalled();
     expect(settled).toBe(false);
 
-    deferred.resolve();
+    deferred.resolve({ surface: null });
     await renderPromise;
 
-    expect(applyFilter2dPostProcessingMock).toHaveBeenCalledTimes(1);
+    expect(applyImageEffectsMock).toHaveBeenCalledTimes(1);
     expect(settled).toBe(true);
   });
 
-  it("keeps finalize overlays and finalize filter2d effects on surfaces when supported", async () => {
-    const overlaySurface = createStageResult("full", createSnapshotCanvas()).surface;
-    const finalizeSurface = createStageResult("full", createSnapshotCanvas()).surface;
-    blendCanvasLayerOnGpuToSurfaceMock.mockResolvedValueOnce(overlaySurface);
-    applyFilter2dOnGpuToSurfaceMock.mockResolvedValueOnce(finalizeSurface);
+  it("reports a single canvas materialization and no orchestrator clones on the unmasked finalize path", async () => {
     const document = createDocument({
       carrierTransforms: [],
       effects: [
@@ -546,98 +476,17 @@ describe("renderSingleImageToCanvas", () => {
       },
     });
 
-    expect(applyTimestampOverlayMock).toHaveBeenCalledTimes(1);
-    expect(blendCanvasLayerOnGpuToSurfaceMock).toHaveBeenCalledTimes(1);
-    expect(applyFilter2dOnGpuToSurfaceMock).toHaveBeenCalledWith(
+    expect(applyImageOverlaysMock).toHaveBeenCalledTimes(1);
+    expect(applyImageEffectsMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        surface: overlaySurface,
-        slotId: "filter2d:finalize-filter",
+        effects: document.effects,
       })
     );
-    expect(applyFilter2dPostProcessingMock).not.toHaveBeenCalled();
     expect(result.debug?.boundaries).toEqual(
       expect.objectContaining({
         canvasMaterializations: 1,
         canvasClones: 0,
       })
-    );
-  });
-
-  it("prefers direct GPU timestamp overlays on surfaces before raster fallback", async () => {
-    const overlaySurface = createStageResult("full", createSnapshotCanvas()).surface;
-    applyTimestampOverlayToSurfaceIfSupportedMock.mockResolvedValueOnce(overlaySurface);
-    const document = createDocument({
-      carrierTransforms: [],
-    });
-
-    await renderSingleImageToCanvas({
-      canvas: createCanvas(),
-      document,
-      request: {
-        intent: "preview",
-        quality: "interactive",
-        targetSize: {
-          width: 256,
-          height: 144,
-        },
-        timestampText: "2026.03.27",
-      },
-    });
-
-    expect(applyTimestampOverlayToSurfaceIfSupportedMock).toHaveBeenCalledTimes(1);
-    expect(applyTimestampOverlayMock).not.toHaveBeenCalled();
-    expect(blendCanvasLayerOnGpuToSurfaceMock).not.toHaveBeenCalled();
-  });
-
-  it("keeps finalize effects behind canvas overlays when overlays cannot stay on surfaces", async () => {
-    applyTimestampOverlayToSurfaceIfSupportedMock.mockResolvedValueOnce(null);
-    blendCanvasLayerOnGpuToSurfaceMock.mockResolvedValueOnce(null);
-    applyTimestampOverlayToCanvasIfSupportedMock.mockResolvedValueOnce(true);
-    const document = createDocument({
-      carrierTransforms: [],
-      effects: [
-        {
-          id: "finalize-filter",
-          type: "filter2d",
-          enabled: true,
-          placement: "finalize",
-          params: {
-            brightness: 12,
-            hue: -20,
-            blur: 18,
-            dilate: 6,
-          },
-        },
-      ],
-      output: {
-        timestamp: {
-          enabled: true,
-          position: "top-left",
-          size: 18,
-          opacity: 70,
-        },
-      },
-    });
-
-    await renderSingleImageToCanvas({
-      canvas: createCanvas(),
-      document,
-      request: {
-        intent: "preview",
-        quality: "interactive",
-        targetSize: {
-          width: 256,
-          height: 144,
-        },
-        timestampText: "2026.03.27",
-      },
-    });
-
-    expect(applyTimestampOverlayToCanvasIfSupportedMock).toHaveBeenCalledTimes(1);
-    expect(applyFilter2dOnGpuToSurfaceMock).not.toHaveBeenCalled();
-    expect(applyFilter2dPostProcessingMock).toHaveBeenCalledTimes(1);
-    expect(applyFilter2dPostProcessingMock.mock.invocationCallOrder[0]).toBeGreaterThan(
-      applyTimestampOverlayToCanvasIfSupportedMock.mock.invocationCallOrder[0]
     );
   });
 
@@ -772,22 +621,22 @@ describe("renderSingleImageToCanvas", () => {
       })
     );
     expect(renderImageToSurfaceMock).not.toHaveBeenCalled();
-    expect(applyFilter2dPostProcessingMock).toHaveBeenCalledTimes(2);
+    expect(applyImageEffectsMock).toHaveBeenCalledTimes(2);
     expect(applyImageCarrierTransformsMock).toHaveBeenCalledTimes(1);
-    expect(applyFilter2dPostProcessingMock.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(applyImageEffectsMock.mock.invocationCallOrder[0]).toBeLessThan(
       renderFilmStageToSurfaceMock.mock.invocationCallOrder[0]
     );
     expect(applyImageCarrierTransformsMock.mock.invocationCallOrder[0]).toBeGreaterThan(
       renderFilmStageToSurfaceMock.mock.invocationCallOrder[0]
     );
-    expect(applyFilter2dPostProcessingMock.mock.invocationCallOrder[1]).toBeGreaterThan(
+    expect(applyImageEffectsMock.mock.invocationCallOrder[1]).toBeGreaterThan(
       applyImageCarrierTransformsMock.mock.invocationCallOrder[0]
     );
   });
 
-  it("keeps unmasked develop filter2d effects on surfaces before film stage when supported", async () => {
+  it("passes the post-develop surface into the film stage source", async () => {
     const developFilteredSurface = createStageResult("full", createSnapshotCanvas()).surface;
-    applyFilter2dOnGpuToSurfaceMock.mockResolvedValueOnce(developFilteredSurface);
+    applyImageEffectsMock.mockImplementationOnce(async () => developFilteredSurface);
     const document = createDocument({
       carrierTransforms: [],
       effects: [
@@ -831,12 +680,12 @@ describe("renderSingleImageToCanvas", () => {
       },
     });
 
-    expect(applyFilter2dOnGpuToSurfaceMock).toHaveBeenCalledWith(
+    expect(applyImageEffectsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         surface: expect.objectContaining({
           slotId: "slot:develop-base",
         }),
-        slotId: "filter2d:develop-filter",
+        effects: document.effects,
       })
     );
     expect(renderFilmStageToSurfaceMock).toHaveBeenCalledWith(
@@ -844,7 +693,6 @@ describe("renderSingleImageToCanvas", () => {
         source: developFilteredSurface.sourceCanvas,
       })
     );
-    expect(applyFilter2dPostProcessingMock).not.toHaveBeenCalled();
     expect(result.debug?.boundaries).toEqual(
       expect.objectContaining({
         canvasMaterializations: 1,
@@ -853,9 +701,7 @@ describe("renderSingleImageToCanvas", () => {
     );
   });
 
-  it("keeps unmasked style filter2d effects on surfaces when there is no carrier stage", async () => {
-    const styleFilteredSurface = createStageResult("full", createSnapshotCanvas()).surface;
-    applyFilter2dOnGpuToSurfaceMock.mockResolvedValueOnce(styleFilteredSurface);
+  it("chains unmasked style filter2d effects onto the full render surface", async () => {
     const document = createDocument({
       carrierTransforms: [],
       effects: [
@@ -895,23 +741,19 @@ describe("renderSingleImageToCanvas", () => {
       },
     });
 
-    expect(applyFilter2dOnGpuToSurfaceMock).toHaveBeenCalledWith(
+    expect(applyImageEffectsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         surface: expect.objectContaining({
           slotId: "slot:full",
         }),
-        slotId: "filter2d:style-filter",
+        effects: document.effects,
       })
     );
-    expect(applyFilter2dPostProcessingMock).not.toHaveBeenCalled();
-    expect(applyFilter2dOnGpuMock).not.toHaveBeenCalled();
   });
 
-  it("keeps unmasked ascii carrier output on surfaces and chains style filter2d after it", async () => {
+  it("chains style filter2d after the carrier surface", async () => {
     const carrierSurface = createStageResult("full", createSnapshotCanvas()).surface;
-    const styleFilteredSurface = createStageResult("full", createSnapshotCanvas()).surface;
-    applyImageCarrierTransformsToSurfaceIfSupportedMock.mockResolvedValueOnce(carrierSurface);
-    applyFilter2dOnGpuToSurfaceMock.mockResolvedValueOnce(styleFilteredSurface);
+    applyImageCarrierTransformsMock.mockResolvedValueOnce(carrierSurface);
     const document = createDocument({
       effects: [
         {
@@ -954,7 +796,7 @@ describe("renderSingleImageToCanvas", () => {
       },
     });
 
-    expect(applyImageCarrierTransformsToSurfaceIfSupportedMock).toHaveBeenCalledWith(
+    expect(applyImageCarrierTransformsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         surface: expect.objectContaining({
           slotId: "slot:full",
@@ -962,14 +804,12 @@ describe("renderSingleImageToCanvas", () => {
         carrierTransforms: document.carrierTransforms,
       })
     );
-    expect(applyImageCarrierTransformsMock).not.toHaveBeenCalled();
-    expect(applyFilter2dOnGpuToSurfaceMock).toHaveBeenCalledWith(
+    expect(applyImageEffectsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         surface: carrierSurface,
-        slotId: "filter2d:style-filter",
+        effects: document.effects,
       })
     );
-    expect(applyFilter2dPostProcessingMock).not.toHaveBeenCalled();
     expect(result.debug?.boundaries).toEqual(
       expect.objectContaining({
         canvasMaterializations: 1,
@@ -978,14 +818,12 @@ describe("renderSingleImageToCanvas", () => {
     );
   });
 
-  it("keeps masked ascii carrier output on surfaces when the carrier surface path succeeds", async () => {
+  it("clones a carrier analysis snapshot for masked carriers", async () => {
     const baseDocument = createDocument();
     const maskedCarrier = {
       ...getAsciiCarrierTransform(baseDocument),
       maskId: "mask-1",
     };
-    const carrierSurface = createStageResult("full", createSnapshotCanvas()).surface;
-    applyImageCarrierTransformsToSurfaceIfSupportedMock.mockResolvedValueOnce(carrierSurface);
     const document = createDocument({
       carrierTransforms: [maskedCarrier],
       effects: [],
@@ -1033,7 +871,7 @@ describe("renderSingleImageToCanvas", () => {
       },
     });
 
-    expect(applyImageCarrierTransformsToSurfaceIfSupportedMock).toHaveBeenCalledWith(
+    expect(applyImageCarrierTransformsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         surface: expect.objectContaining({
           slotId: "slot:full",
@@ -1042,8 +880,6 @@ describe("renderSingleImageToCanvas", () => {
         stageReferenceCanvas: expect.any(Object),
       })
     );
-    expect(applyImageCarrierTransformsMock).not.toHaveBeenCalled();
-    expect(applyFilter2dPostProcessingMock).not.toHaveBeenCalled();
     expect(result.debug?.boundaries).toEqual(
       expect.objectContaining({
         canvasMaterializations: 1,
@@ -1052,11 +888,7 @@ describe("renderSingleImageToCanvas", () => {
     );
   });
 
-  it("keeps masked develop filter2d effects on surfaces before film stage when supported", async () => {
-    const effectSurface = createStageResult("full", createSnapshotCanvas()).surface;
-    const blendedSurface = createStageResult("full", createSnapshotCanvas()).surface;
-    applyFilter2dOnGpuToSurfaceMock.mockResolvedValueOnce(effectSurface);
-    blendMaskedCanvasesOnGpuToSurfaceMock.mockResolvedValueOnce(blendedSurface);
+  it("clones a develop snapshot for masked develop effects before the film stage", async () => {
     const document = createDocument({
       carrierTransforms: [],
       effects: [
@@ -1117,22 +949,12 @@ describe("renderSingleImageToCanvas", () => {
       },
     });
 
-    expect(renderFilmStageToSurfaceMock).toHaveBeenCalledWith(
+    expect(applyImageEffectsMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        source: blendedSurface.sourceCanvas,
+        effects: document.effects,
+        stageReferenceCanvas: expect.any(Object),
       })
     );
-    expect(renderImageEffectMaskToCanvasMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        maskDefinition: document.masks.byId["mask-1"],
-      })
-    );
-    expect(blendMaskedCanvasesOnGpuToSurfaceMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        slotId: "effect-mask-blend:develop-filter-masked",
-      })
-    );
-    expect(applyFilter2dPostProcessingMock).not.toHaveBeenCalled();
     expect(result.debug?.boundaries).toEqual(
       expect.objectContaining({
         canvasMaterializations: 1,
@@ -1141,11 +963,7 @@ describe("renderSingleImageToCanvas", () => {
     );
   });
 
-  it("keeps masked style filter2d effects on surfaces when there is no carrier stage", async () => {
-    const effectSurface = createStageResult("full", createSnapshotCanvas()).surface;
-    const blendedSurface = createStageResult("full", createSnapshotCanvas()).surface;
-    applyFilter2dOnGpuToSurfaceMock.mockResolvedValueOnce(effectSurface);
-    blendMaskedCanvasesOnGpuToSurfaceMock.mockResolvedValueOnce(blendedSurface);
+  it("clones a style snapshot for masked style effects", async () => {
     const document = createDocument({
       carrierTransforms: [],
       effects: [
@@ -1206,13 +1024,12 @@ describe("renderSingleImageToCanvas", () => {
       },
     });
 
-    expect(blendMaskedCanvasesOnGpuToSurfaceMock).toHaveBeenCalledWith(
+    expect(applyImageEffectsMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        slotId: "effect-mask-blend:style-filter-masked",
+        effects: document.effects,
+        stageReferenceCanvas: expect.any(Object),
       })
     );
-    expect(applyFilter2dPostProcessingMock).not.toHaveBeenCalled();
-    expect(applyFilter2dOnGpuMock).not.toHaveBeenCalled();
     expect(result.debug?.boundaries).toEqual(
       expect.objectContaining({
         canvasMaterializations: 1,
@@ -1242,7 +1059,6 @@ describe("renderSingleImageToCanvas", () => {
 
     const call = applyImageCarrierTransformsMock.mock.calls[0]?.[0];
     expect(call?.snapshots.style).toBe(call?.stageReferenceCanvas);
-    expect(call?.snapshots.style).not.toBe(call?.canvas);
   });
 
   it("keeps the film-stage seed stable between split and unsplit paths", async () => {
@@ -1267,12 +1083,9 @@ describe("renderSingleImageToCanvas", () => {
     renderDevelopBaseToSurfaceMock.mockResolvedValue(createStageResult("develop-base"));
     renderFilmStageToSurfaceMock.mockResolvedValue(createStageResult("film-stage"));
     renderImageToSurfaceMock.mockResolvedValue(createStageResult("full"));
-    applyImageCarrierTransformsMock.mockResolvedValue(undefined);
-    applyTimestampOverlayMock.mockResolvedValue(undefined);
-    buildImageRenderMaskRevisionKeyMock.mockReturnValue("mask-revision");
-    renderImageEffectMaskToCanvasMock.mockImplementation(
-      async ({ targetCanvas }) => targetCanvas ?? createSnapshotCanvas()
-    );
+    applyImageCarrierTransformsMock.mockImplementation(async ({ surface }) => surface);
+    applyImageEffectsMock.mockImplementation(async ({ surface }) => surface);
+    applyImageOverlaysMock.mockImplementation(async ({ surface }) => surface);
 
     await renderSingleImageToCanvas({
       canvas: createCanvas(),
@@ -1306,68 +1119,7 @@ describe("renderSingleImageToCanvas", () => {
     expect(renderFilmStageToSurfaceMock.mock.calls[0]?.[0]?.seedKey).toBe(unsplitSeedKey);
   });
 
-  it("rasterizes carrier masks when a carrier transform declares maskId", async () => {
-    const maskedCarrier = {
-      ...getAsciiCarrierTransform(createDocument()),
-      maskId: "mask-1",
-    };
-    applyImageCarrierTransformsMock.mockImplementation(async ({ carrierTransforms, document, stageReferenceCanvas }) => {
-      const transform = carrierTransforms[0];
-      if (!transform?.maskId) {
-        return;
-      }
-      const { applyMaskedStageOperation } = await import("./stageMaskComposite");
-      await applyMaskedStageOperation({
-        canvas: createSnapshotCanvas(),
-        maskDefinition: document.masks.byId[transform.maskId] ?? null,
-        maskReferenceCanvas: stageReferenceCanvas,
-        applyOperation: () => undefined,
-      });
-    });
-    const document = createDocument({
-      carrierTransforms: [maskedCarrier],
-      effects: [],
-      masks: {
-        byId: {
-          "mask-1": {
-            id: "mask-1",
-            kind: "local-adjustment",
-            sourceLocalAdjustmentId: "local-1",
-            mask: {
-              mode: "radial",
-              centerX: 0.5,
-              centerY: 0.5,
-              radiusX: 0.3,
-              radiusY: 0.3,
-              feather: 0.2,
-            },
-          },
-        },
-      },
-    });
-
-    await renderSingleImageToCanvas({
-      canvas: createCanvas(),
-      document,
-      request: {
-        intent: "preview",
-        quality: "interactive",
-        targetSize: {
-          width: 256,
-          height: 144,
-        },
-      },
-    });
-
-    expect(buildImageRenderMaskRevisionKeyMock).toHaveBeenCalledWith(document.masks.byId["mask-1"]);
-    expect(renderImageEffectMaskToCanvasMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        maskDefinition: document.masks.byId["mask-1"],
-      })
-    );
-  });
-
-  it("uses a stable stage snapshot for masked raster effects within the same placement bucket", async () => {
+  it("reuses a stable stageReferenceCanvas for masked effects in the same placement bucket", async () => {
     const maskDefinition = {
       id: "mask-1",
       kind: "local-adjustment" as const,
@@ -1418,10 +1170,9 @@ describe("renderSingleImageToCanvas", () => {
         },
       },
     });
-    const canvas = createSnapshotCanvas();
 
     await renderSingleImageToCanvas({
-      canvas,
+      canvas: createSnapshotCanvas(),
       document,
       request: {
         intent: "preview",
@@ -1433,13 +1184,11 @@ describe("renderSingleImageToCanvas", () => {
       },
     });
 
-    expect(renderImageEffectMaskToCanvasMock).toHaveBeenCalledTimes(2);
-    const firstReferenceSource =
-      renderImageEffectMaskToCanvasMock.mock.calls[0]?.[0]?.referenceSource;
-    const secondReferenceSource =
-      renderImageEffectMaskToCanvasMock.mock.calls[1]?.[0]?.referenceSource;
-    expect(firstReferenceSource).toBe(secondReferenceSource);
-    expect(firstReferenceSource).not.toBe(canvas);
+    const styleCall = applyImageEffectsMock.mock.calls.find(([args]) =>
+      args?.effects?.some?.((effect: { placement?: string }) => effect.placement === "style")
+    );
+    expect(styleCall?.[0]?.effects).toHaveLength(2);
+    expect(styleCall?.[0]?.stageReferenceCanvas).toBeDefined();
   });
 
   it("assembles an opt-in agent trace in execution order", async () => {

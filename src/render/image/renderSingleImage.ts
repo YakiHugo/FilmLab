@@ -11,19 +11,9 @@ import type {
 import { sha256FromCanvas } from "@/lib/hash";
 import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
 import type { RenderIntent } from "@/lib/renderIntent";
-import {
-  applyImageCarrierTransforms,
-  applyImageCarrierTransformsToSurfaceIfSupported,
-} from "./asciiEffect";
-import {
-  applyImageEffects,
-  applyImageEffectsToSurfaceIfSupported,
-} from "./effectExecution";
-import {
-  applyImageOverlaysToCanvasIfSupported,
-  applyImageOverlaysToSurfaceIfSupported,
-  resolveImageOverlays,
-} from "./overlayExecution";
+import { applyImageCarrierTransforms } from "./asciiEffect";
+import { applyImageEffects } from "./effectExecution";
+import { applyImageOverlays, resolveImageOverlays } from "./overlayExecution";
 import {
   assertSupportedImageRenderSnapshotPlan,
   createImageRenderSnapshotPlan,
@@ -32,7 +22,6 @@ import type {
   ImageRenderDocument,
   ImageEffectPlacement,
   ImageRenderRequest,
-  ImageRenderTargetSize,
 } from "./types";
 import { extractImageProcessState } from "./types";
 
@@ -91,37 +80,16 @@ const resolveImageProcessingRenderIntent = (request: ImageRenderRequest): Render
   return request.quality === "interactive" ? "preview-interactive" : "preview-full";
 };
 
-const createSnapshotCanvas = (targetSize: ImageRenderTargetSize) => {
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(targetSize.width));
-  canvas.height = Math.max(1, Math.round(targetSize.height));
-  return canvas;
-};
-
-const cloneCanvasSnapshot = (sourceCanvas: HTMLCanvasElement) => {
-  const canvas = document.createElement("canvas");
-  canvas.width = sourceCanvas.width;
-  canvas.height = sourceCanvas.height;
-  const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (!context) {
-    canvas.width = 0;
-    canvas.height = 0;
-    throw new Error("Failed to acquire snapshot clone context.");
-  }
-  context.clearRect(0, 0, canvas.width, canvas.height);
-  context.drawImage(sourceCanvas, 0, 0);
-  return canvas;
-};
-
 const hasMaskedEffects = (effects: readonly ImageRenderDocument["effects"][number][]) =>
   effects.some((effect) => Boolean(effect.maskId));
 
-const cloneSurfaceSnapshot = (surface: RenderSurfaceHandle) => surface.cloneToCanvas();
-
-const materializeSurfaceToCanvas = (
-  surface: RenderSurfaceHandle,
-  targetCanvas?: HTMLCanvasElement | null
-) => surface.materializeToCanvas(targetCanvas);
+const releaseCanvas = (canvas: HTMLCanvasElement | null) => {
+  if (!canvas) {
+    return;
+  }
+  canvas.width = 0;
+  canvas.height = 0;
+};
 
 const resolveRuntimeSource = (document: ImageRenderDocument) => document.source.objectUrl;
 
@@ -181,40 +149,24 @@ export const renderSingleImageToCanvas = async ({
     canvasMaterializations: 0,
     canvasClones: 0,
   };
-  const trackCanvasClone = (sourceCanvas: HTMLCanvasElement) => {
-    debugBoundaries.canvasClones += 1;
-    return cloneCanvasSnapshot(sourceCanvas);
-  };
   const trackSurfaceClone = (surface: RenderSurfaceHandle) => {
     debugBoundaries.canvasClones += 1;
-    return cloneSurfaceSnapshot(surface);
+    return surface.cloneToCanvas();
   };
-  const trackSurfaceMaterialization = (
-    surface: RenderSurfaceHandle,
-    targetCanvas?: HTMLCanvasElement | null
-  ) => {
-    if (!targetCanvas || targetCanvas !== surface.sourceCanvas) {
-      debugBoundaries.canvasMaterializations += 1;
-    }
-    return materializeSurfaceToCanvas(surface, targetCanvas);
-  };
+
+  const hasDevelopEffects = snapshotPlan.developEffects.length > 0;
   const hasMaskedDevelopEffects = hasMaskedEffects(snapshotPlan.developEffects);
   const hasMaskedStyleEffects = hasMaskedEffects(snapshotPlan.styleEffects);
   const hasMaskedFinalizeEffects = hasMaskedEffects(snapshotPlan.finalizeEffects);
+  const requiresDevelopSnapshot =
+    hasMaskedDevelopEffects || snapshotPlan.requiresDevelopAnalysisSnapshot;
+  const requiresDevelopBase = hasDevelopEffects || snapshotPlan.requiresDevelopAnalysisSnapshot;
 
-  let carrierAnalysisSnapshotCanvas: HTMLCanvasElement | null = null;
-  let styleSnapshotCanvas: HTMLCanvasElement | null = null;
-  let developBaseCanvas: HTMLCanvasElement | null = null;
   let developSnapshotCanvas: HTMLCanvasElement | null = null;
-  let finalizeSnapshotCanvas: HTMLCanvasElement | null = null;
-  let baseSurface: RenderSurfaceHandle | null;
-  let styleEffectsAppliedOnSurface = false;
+  let carrierAnalysisSnapshotCanvas: HTMLCanvasElement | null = null;
 
   try {
-    const hasDevelopEffects = snapshotPlan.developEffects.length > 0;
-    const requiresDevelopBase =
-      hasDevelopEffects || snapshotPlan.requiresDevelopAnalysisSnapshot;
-    let developBaseSurface: RenderSurfaceHandle | null = null;
+    let surface: RenderSurfaceHandle;
 
     if (requiresDevelopBase) {
       const developBaseResult = await renderSnapshotToSurface({
@@ -228,66 +180,57 @@ export const renderSingleImageToCanvas = async ({
         internalStageId: developBaseResult.stageId,
         lowLevel: developBaseResult.debug,
       });
-      developBaseSurface = developBaseResult.surface;
-      if (hasDevelopEffects) {
-        developSnapshotCanvas =
-          hasMaskedDevelopEffects || snapshotPlan.requiresDevelopAnalysisSnapshot
-            ? trackSurfaceClone(developBaseResult.surface)
-            : null;
-      } else if (snapshotPlan.requiresDevelopAnalysisSnapshot) {
-        developSnapshotCanvas = trackSurfaceClone(developBaseResult.surface);
-      }
-    }
+      let developSurface = developBaseResult.surface;
 
-    if (hasDevelopEffects) {
-      let developSourceSurface: RenderSurfaceHandle | null = null;
-      if (!developBaseSurface) {
-        throw new Error("Expected develop base surface to be initialized.");
+      if (requiresDevelopSnapshot) {
+        developSnapshotCanvas = trackSurfaceClone(developSurface);
       }
-      developSourceSurface = await applyImageEffectsToSurfaceIfSupported({
-        surface: developBaseSurface,
-        document,
-        effects: snapshotPlan.developEffects,
-        stageReferenceCanvas: developSnapshotCanvas ?? undefined,
-      });
-      if (!developSourceSurface) {
-        developBaseCanvas = trackSurfaceMaterialization(
-          developBaseSurface,
-          createSnapshotCanvas(request.targetSize)
-        );
-        await applyImageEffects({
-          canvas: developBaseCanvas,
+
+      if (hasDevelopEffects) {
+        developSurface = await applyImageEffects({
+          surface: developSurface,
           document,
           effects: snapshotPlan.developEffects,
-          stageReferenceCanvas: hasMaskedDevelopEffects
-            ? developSnapshotCanvas ?? developBaseCanvas
-            : undefined,
+          stageReferenceCanvas: developSnapshotCanvas ?? undefined,
+        });
+        appendTraceOperation(debugStages, "develop", {
+          kind: "effects",
+          effectPlacement: "develop",
+          effectCount: snapshotPlan.developEffects.length,
+        });
+
+        const filmStageResult = await renderFilmStageToSurface({
+          source: developSurface.sourceCanvas,
+          state: extractImageProcessState(document),
+          targetSize: request.targetSize,
+          seedKey: resolveFilmSeedKey(document),
+          sourceCacheKey: `${document.revisionKey}:film-stage:${request.targetSize.width}x${request.targetSize.height}`,
+          strictErrors: request.strictErrors ?? request.intent === "export",
+          intent: resolveImageProcessingRenderIntent(request),
+          signal: request.signal,
+          debug: request.debug,
+          renderSlot: request.renderSlotId ? `${request.renderSlotId}:base-film-stage` : undefined,
+        });
+        surface = filmStageResult.surface;
+        appendTraceOperation(debugStages, "develop", {
+          kind: "low-level",
+          internalStageId: filmStageResult.stageId,
+          lowLevel: filmStageResult.debug,
+        });
+      } else {
+        const fullRenderResult = await renderSnapshotToSurface({
+          document,
+          request,
+          renderSlotSuffix: "base-film",
+          stage: "full",
+        });
+        surface = fullRenderResult.surface;
+        appendTraceOperation(debugStages, "develop", {
+          kind: "low-level",
+          internalStageId: fullRenderResult.stageId,
+          lowLevel: fullRenderResult.debug,
         });
       }
-      appendTraceOperation(debugStages, "develop", {
-        kind: "effects",
-        effectPlacement: "develop",
-        effectCount: snapshotPlan.developEffects.length,
-      });
-
-      const filmStageResult = await renderFilmStageToSurface({
-        source: developSourceSurface?.sourceCanvas ?? developBaseCanvas ?? document.source.objectUrl,
-        state: extractImageProcessState(document),
-        targetSize: request.targetSize,
-        seedKey: resolveFilmSeedKey(document),
-        sourceCacheKey: `${document.revisionKey}:film-stage:${request.targetSize.width}x${request.targetSize.height}`,
-        strictErrors: request.strictErrors ?? request.intent === "export",
-        intent: resolveImageProcessingRenderIntent(request),
-        signal: request.signal,
-        debug: request.debug,
-        renderSlot: request.renderSlotId ? `${request.renderSlotId}:base-film-stage` : undefined,
-      });
-      baseSurface = filmStageResult.surface;
-      appendTraceOperation(debugStages, "develop", {
-        kind: "low-level",
-        internalStageId: filmStageResult.stageId,
-        lowLevel: filmStageResult.debug,
-      });
     } else {
       const fullRenderResult = await renderSnapshotToSurface({
         document,
@@ -295,7 +238,7 @@ export const renderSingleImageToCanvas = async ({
         renderSlotSuffix: "base-film",
         stage: "full",
       });
-      baseSurface = fullRenderResult.surface;
+      surface = fullRenderResult.surface;
       appendTraceOperation(debugStages, "develop", {
         kind: "low-level",
         internalStageId: fullRenderResult.stageId,
@@ -303,14 +246,10 @@ export const renderSingleImageToCanvas = async ({
       });
     }
 
-    if (!baseSurface) {
-      throw new Error("Expected base surface to be initialized.");
-    }
-
     if (snapshotPlan.carrierTransforms.length > 0) {
-      carrierAnalysisSnapshotCanvas = trackSurfaceClone(baseSurface);
-      const carrierSurface = await applyImageCarrierTransformsToSurfaceIfSupported({
-        surface: baseSurface,
+      carrierAnalysisSnapshotCanvas = trackSurfaceClone(surface);
+      surface = await applyImageCarrierTransforms({
+        surface,
         carrierTransforms: snapshotPlan.carrierTransforms,
         document,
         request,
@@ -320,170 +259,72 @@ export const renderSingleImageToCanvas = async ({
         },
         stageReferenceCanvas: carrierAnalysisSnapshotCanvas,
       });
-      if (carrierSurface) {
-        baseSurface = carrierSurface;
-        appendTraceOperation(debugStages, "style", {
-          kind: "carrier",
-          carrierCount: snapshotPlan.carrierTransforms.length,
-        });
-      } else {
-        trackSurfaceMaterialization(baseSurface, canvas);
-        await applyImageCarrierTransforms({
-          canvas,
-          carrierTransforms: snapshotPlan.carrierTransforms,
-          document,
-          request,
-          snapshots: {
-            develop: developSnapshotCanvas,
-            style: carrierAnalysisSnapshotCanvas,
-          },
-          stageReferenceCanvas: carrierAnalysisSnapshotCanvas,
-        });
-        appendTraceOperation(debugStages, "style", {
-          kind: "carrier",
-          carrierCount: snapshotPlan.carrierTransforms.length,
-        });
-        baseSurface = null;
-      }
+      appendTraceOperation(debugStages, "style", {
+        kind: "carrier",
+        carrierCount: snapshotPlan.carrierTransforms.length,
+      });
     }
 
-    if (baseSurface && snapshotPlan.styleEffects.length > 0) {
-      if (hasMaskedStyleEffects && !styleSnapshotCanvas) {
-        styleSnapshotCanvas = trackSurfaceClone(baseSurface);
-      }
-      const styleSurface = await applyImageEffectsToSurfaceIfSupported({
-        surface: baseSurface,
-        document,
-        effects: snapshotPlan.styleEffects,
-        stageReferenceCanvas: styleSnapshotCanvas ?? undefined,
-      });
-      if (styleSurface) {
-        baseSurface = styleSurface;
-        styleEffectsAppliedOnSurface = true;
+    if (snapshotPlan.styleEffects.length > 0) {
+      const styleSnapshotCanvas = hasMaskedStyleEffects ? trackSurfaceClone(surface) : null;
+      try {
+        surface = await applyImageEffects({
+          surface,
+          document,
+          effects: snapshotPlan.styleEffects,
+          stageReferenceCanvas: styleSnapshotCanvas ?? undefined,
+        });
         appendTraceOperation(debugStages, "style", {
           kind: "effects",
           effectPlacement: "style",
           effectCount: snapshotPlan.styleEffects.length,
         });
+      } finally {
+        releaseCanvas(styleSnapshotCanvas);
       }
-    }
-
-    if (baseSurface && snapshotPlan.styleEffects.length > 0 && !styleEffectsAppliedOnSurface) {
-      trackSurfaceMaterialization(baseSurface, canvas);
-      baseSurface = null;
-    }
-
-    styleSnapshotCanvas =
-      hasMaskedStyleEffects && !styleEffectsAppliedOnSurface
-        ? styleSnapshotCanvas ?? trackCanvasClone(canvas)
-        : styleSnapshotCanvas;
-
-    if (!styleEffectsAppliedOnSurface) {
-      await applyImageEffects({
-        canvas,
-        document,
-        effects: snapshotPlan.styleEffects,
-        stageReferenceCanvas: styleSnapshotCanvas ?? undefined,
-      });
-    }
-    if (snapshotPlan.styleEffects.length > 0 && !styleEffectsAppliedOnSurface) {
-      appendTraceOperation(debugStages, "style", {
-        kind: "effects",
-        effectPlacement: "style",
-        effectCount: snapshotPlan.styleEffects.length,
-      });
     }
 
     const overlays = resolveImageOverlays({
       output: document.output,
       timestampText: request.timestampText,
     });
-    let overlaysAppliedOnSurface = false;
-    let finalizeEffectsAppliedOnSurface = false;
-    if (baseSurface && overlays.length > 0) {
-      const overlaidSurface = await applyImageOverlaysToSurfaceIfSupported({
-        surface: baseSurface,
-        overlays,
-      });
-      if (overlaidSurface) {
-        baseSurface = overlaidSurface;
-        overlaysAppliedOnSurface = true;
-      }
-    }
-
-    if (baseSurface && snapshotPlan.finalizeEffects.length > 0 && (overlays.length === 0 || overlaysAppliedOnSurface)) {
-      const surfaceFinalizeSnapshotCanvas = hasMaskedFinalizeEffects ? trackSurfaceClone(baseSurface) : null;
-      const finalizeSurface = await applyImageEffectsToSurfaceIfSupported({
-        surface: baseSurface,
-        document,
-        effects: snapshotPlan.finalizeEffects,
-        stageReferenceCanvas: surfaceFinalizeSnapshotCanvas ?? undefined,
-      });
-      if (finalizeSurface) {
-        baseSurface = finalizeSurface;
-        finalizeSnapshotCanvas = surfaceFinalizeSnapshotCanvas;
-        finalizeEffectsAppliedOnSurface = true;
-      } else if (surfaceFinalizeSnapshotCanvas) {
-        surfaceFinalizeSnapshotCanvas.width = 0;
-        surfaceFinalizeSnapshotCanvas.height = 0;
-      }
-    }
-
-    if (baseSurface) {
-      trackSurfaceMaterialization(baseSurface, canvas);
-    }
-
-    if (overlays.length > 0 && !overlaysAppliedOnSurface) {
-      await applyImageOverlaysToCanvasIfSupported({
-        canvas,
-        overlays,
-      });
-    }
     if (overlays.length > 0) {
+      surface = await applyImageOverlays({
+        surface,
+        overlays,
+      });
       appendTraceOperation(debugStages, "overlay", {
         kind: "overlay",
         overlayCount: overlays.length,
       });
     }
 
-    if (!finalizeEffectsAppliedOnSurface && snapshotPlan.finalizeEffects.length > 0) {
-      finalizeSnapshotCanvas =
-        hasMaskedFinalizeEffects ? finalizeSnapshotCanvas ?? trackCanvasClone(canvas) : finalizeSnapshotCanvas;
-      await applyImageEffects({
-        canvas,
-        document,
-        effects: snapshotPlan.finalizeEffects,
-        stageReferenceCanvas: finalizeSnapshotCanvas ?? undefined,
-      });
-    }
     if (snapshotPlan.finalizeEffects.length > 0) {
-      appendTraceOperation(debugStages, "finalize", {
-        kind: "effects",
-        effectPlacement: "finalize",
-        effectCount: snapshotPlan.finalizeEffects.length,
-      });
+      const finalizeSnapshotCanvas = hasMaskedFinalizeEffects ? trackSurfaceClone(surface) : null;
+      try {
+        surface = await applyImageEffects({
+          surface,
+          document,
+          effects: snapshotPlan.finalizeEffects,
+          stageReferenceCanvas: finalizeSnapshotCanvas ?? undefined,
+        });
+        appendTraceOperation(debugStages, "finalize", {
+          kind: "effects",
+          effectPlacement: "finalize",
+          effectCount: snapshotPlan.finalizeEffects.length,
+        });
+      } finally {
+        releaseCanvas(finalizeSnapshotCanvas);
+      }
     }
+
+    if (canvas !== surface.sourceCanvas) {
+      debugBoundaries.canvasMaterializations += 1;
+    }
+    surface.materializeToCanvas(canvas);
   } finally {
-    if (finalizeSnapshotCanvas) {
-      finalizeSnapshotCanvas.width = 0;
-      finalizeSnapshotCanvas.height = 0;
-    }
-    if (styleSnapshotCanvas) {
-      styleSnapshotCanvas.width = 0;
-      styleSnapshotCanvas.height = 0;
-    }
-    if (carrierAnalysisSnapshotCanvas) {
-      carrierAnalysisSnapshotCanvas.width = 0;
-      carrierAnalysisSnapshotCanvas.height = 0;
-    }
-    if (developBaseCanvas) {
-      developBaseCanvas.width = 0;
-      developBaseCanvas.height = 0;
-    }
-    if (developSnapshotCanvas) {
-      developSnapshotCanvas.width = 0;
-      developSnapshotCanvas.height = 0;
-    }
+    releaseCanvas(carrierAnalysisSnapshotCanvas);
+    releaseCanvas(developSnapshotCanvas);
   }
 
   let debugResult: ImageRenderDebugResult | undefined;

@@ -1,9 +1,6 @@
 import { clamp } from "@/lib/math";
 import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
-import {
-  applyTimestampOverlayOnGpu,
-  applyTimestampOverlayOnGpuToSurface,
-} from "@/lib/renderer/gpuTimestampOverlay";
+import { applyTimestampOverlayOnGpuToSurface } from "@/lib/renderer/gpuTimestampOverlay";
 
 export interface TimestampOverlayAdjustments {
   timestampEnabled: boolean;
@@ -387,38 +384,6 @@ export const applyTimestampOverlay = async (
   }
 
   context.drawImage(raster, 0, 0, canvas.width, canvas.height);
-};
-
-export const applyTimestampOverlayToCanvasIfSupported = async ({
-  canvas,
-  adjustments,
-  timestampText,
-  slotId,
-}: {
-  canvas: HTMLCanvasElement;
-  adjustments: TimestampOverlayAdjustments;
-  timestampText?: string | null;
-  slotId?: string;
-}) => {
-  if (canvas.width <= 0 || canvas.height <= 0) {
-    return true;
-  }
-
-  const overlay = createTimestampOverlayGpuInput({
-    width: canvas.width,
-    height: canvas.height,
-    adjustments,
-    timestampText,
-  });
-  if (!overlay) {
-    return true;
-  }
-
-  return applyTimestampOverlayOnGpu({
-    targetCanvas: canvas,
-    overlay,
-    slotId,
-  });
 };
 
 export const applyTimestampOverlayToSurfaceIfSupported = async ({

@@ -6,7 +6,6 @@ import { renderSingleImageToCanvas } from "./renderSingleImage";
 
 const renderImageToSurfaceMock = vi.fn();
 const blendCanvasLayerOnGpuToSurfaceMock = vi.fn();
-const applyTimestampOverlayOnGpuMock = vi.fn();
 const applyTimestampOverlayOnGpuToSurfaceMock = vi.fn();
 
 vi.mock("@/lib/imageProcessing", () => ({
@@ -18,23 +17,18 @@ vi.mock("@/lib/imageProcessing", () => ({
 
 vi.mock("./asciiEffect", () => ({
   applyImageCarrierTransforms: vi.fn(),
-  applyImageCarrierTransformsToSurfaceIfSupported: vi.fn(),
 }));
 
 vi.mock("./effectExecution", () => ({
   applyImageEffects: vi.fn(),
-  applyImageEffectsToSurfaceIfSupported: vi.fn(),
 }));
 
 vi.mock("@/lib/renderer/gpuCanvasLayerBlend", () => ({
-  blendCanvasLayerOnGpu: vi.fn(),
   blendCanvasLayerOnGpuToSurface: (...args: unknown[]) =>
     Reflect.apply(blendCanvasLayerOnGpuToSurfaceMock, undefined, args),
 }));
 
 vi.mock("@/lib/renderer/gpuTimestampOverlay", () => ({
-  applyTimestampOverlayOnGpu: (...args: unknown[]) =>
-    Reflect.apply(applyTimestampOverlayOnGpuMock, undefined, args),
   applyTimestampOverlayOnGpuToSurface: (...args: unknown[]) =>
     Reflect.apply(applyTimestampOverlayOnGpuToSurfaceMock, undefined, args),
 }));
@@ -133,9 +127,8 @@ describe("renderSingleImageToCanvas timestamp overlay integration", () => {
   beforeEach(() => {
     createdCanvases = [];
     vi.clearAllMocks();
-    applyTimestampOverlayOnGpuMock.mockResolvedValue(false);
     applyTimestampOverlayOnGpuToSurfaceMock.mockResolvedValue(null);
-    blendCanvasLayerOnGpuToSurfaceMock.mockResolvedValue(null);
+    blendCanvasLayerOnGpuToSurfaceMock.mockImplementation(async ({ surface }) => surface);
     renderImageToSurfaceMock.mockResolvedValue(createStageResult(createCanvas()));
     vi.stubGlobal("document", {
       fonts: {
@@ -153,7 +146,7 @@ describe("renderSingleImageToCanvas timestamp overlay integration", () => {
     vi.unstubAllGlobals();
   });
 
-  it("uses the same normalized timestamp text when renderSingleImage falls back to CPU overlays", async () => {
+  it("normalizes timestamp text when overlays fall back to Canvas2D rasterization + GPU blend", async () => {
     const longText =
       "2026.04.08 19:42:51 UTC+08 LONG TIMESTAMP TEXT SHOULD TRUNCATE THE SAME WAY ON BOTH PATHS";
     const normalized = normalizeTimestampOverlayText(longText);
@@ -173,7 +166,7 @@ describe("renderSingleImageToCanvas timestamp overlay integration", () => {
     });
 
     expect(applyTimestampOverlayOnGpuToSurfaceMock).toHaveBeenCalledTimes(1);
-    expect(applyTimestampOverlayOnGpuMock).toHaveBeenCalledTimes(1);
+    expect(blendCanvasLayerOnGpuToSurfaceMock).toHaveBeenCalledTimes(1);
     expect(
       createdCanvases.some((canvas) =>
         canvas.context2d.fillText.mock.calls.some(([text]) => text === normalized)

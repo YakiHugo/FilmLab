@@ -1,16 +1,12 @@
 import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
 import { clamp } from "@/lib/math";
 import {
-  applyAsciiCarrierOnGpu,
   applyAsciiCarrierOnGpuToSurface,
   type AsciiCarrierGpuInput,
 } from "@/lib/renderer/gpuAsciiCarrier";
 import type { EditorLayerBlendMode } from "@/types";
 import { resolveDensitySortedCharset } from "./asciiDensityMeasure";
-import {
-  applyMaskedStageOperation,
-  applyMaskedStageOperationToSurfaceIfSupported,
-} from "./stageMaskComposite";
+import { applyMaskedStageOperationToSurfaceIfSupported } from "./stageMaskComposite";
 import type {
   CarrierTransformNode,
   ImageAsciiCarrierTransformNode,
@@ -19,7 +15,6 @@ import type {
   ImageRenderRequest,
   ImageRenderTargetSize,
 } from "./types";
-import { buildSourceRevisionKey } from "./types";
 
 // ---------------------------------------------------------------------------
 // Charset presets
@@ -458,36 +453,6 @@ const prepareCarrierGpuInput = (
 const ASCII_CARRIER_SLOT_ID = "ascii-carrier";
 
 export const applyImageAsciiCarrierTransform = async ({
-  targetCanvas,
-  sourceCanvas,
-  transform,
-  quality,
-  targetSize,
-}: {
-  targetCanvas: HTMLCanvasElement;
-  sourceCanvas: HTMLCanvasElement;
-  transform: ImageAsciiCarrierTransformNode;
-  quality: ImageRenderQuality;
-  mode?: string;
-  sourceRevisionKey: string;
-  targetSize: ImageRenderTargetSize;
-  maskRevisionKey?: string | null;
-}): Promise<boolean> => {
-  if (targetCanvas.width <= 0 || targetCanvas.height <= 0) {
-    return false;
-  }
-  const input = prepareCarrierGpuInput(sourceCanvas, transform, quality, targetSize);
-  if (!input) {
-    return false;
-  }
-  return applyAsciiCarrierOnGpu({
-    targetCanvas,
-    input,
-    slotId: ASCII_CARRIER_SLOT_ID,
-  });
-};
-
-export const applyImageAsciiCarrierTransformToSurfaceIfSupported = async ({
   baseSurface,
   sourceCanvas,
   transform,
@@ -498,9 +463,7 @@ export const applyImageAsciiCarrierTransformToSurfaceIfSupported = async ({
   sourceCanvas: HTMLCanvasElement;
   transform: ImageAsciiCarrierTransformNode;
   quality: ImageRenderQuality;
-  sourceRevisionKey: string;
   targetSize: ImageRenderTargetSize;
-  maskRevisionKey?: string | null;
 }): Promise<RenderSurfaceHandle | null> => {
   const input = prepareCarrierGpuInput(sourceCanvas, transform, quality, targetSize);
   if (!input) {
@@ -523,60 +486,6 @@ interface CarrierSnapshots {
 }
 
 export const applyImageCarrierTransforms = async ({
-  canvas,
-  carrierTransforms,
-  document,
-  request,
-  snapshots,
-  stageReferenceCanvas,
-}: {
-  canvas: HTMLCanvasElement;
-  carrierTransforms: readonly CarrierTransformNode[];
-  document: ImageRenderDocument;
-  request: ImageRenderRequest;
-  snapshots: CarrierSnapshots;
-  stageReferenceCanvas?: HTMLCanvasElement;
-}) => {
-  const sourceRevisionKey = buildSourceRevisionKey(document);
-  for (const transform of carrierTransforms) {
-    const sourceCanvas =
-      transform.analysisSource === "develop" ? snapshots.develop ?? snapshots.style : snapshots.style;
-    const maskDefinition = transform.maskId ? document.masks.byId[transform.maskId] ?? null : null;
-    if (!maskDefinition) {
-      await applyImageAsciiCarrierTransform({
-        targetCanvas: canvas,
-        sourceCanvas,
-        transform,
-        quality: request.quality,
-        mode: request.intent === "export" ? "export" : "preview",
-        sourceRevisionKey,
-        targetSize: request.targetSize,
-        maskRevisionKey: null,
-      });
-      continue;
-    }
-
-    await applyMaskedStageOperation({
-      canvas,
-      maskDefinition,
-      maskReferenceCanvas: stageReferenceCanvas ?? canvas,
-      applyOperation: async ({ canvas: targetCanvas, maskRevisionKey }) => {
-        await applyImageAsciiCarrierTransform({
-          targetCanvas,
-          sourceCanvas,
-          transform,
-          quality: request.quality,
-          mode: request.intent === "export" ? "export" : "preview",
-          sourceRevisionKey,
-          targetSize: request.targetSize,
-          maskRevisionKey,
-        });
-      },
-    });
-  }
-};
-
-export const applyImageCarrierTransformsToSurfaceIfSupported = async ({
   surface,
   carrierTransforms,
   document,
@@ -590,32 +499,33 @@ export const applyImageCarrierTransformsToSurfaceIfSupported = async ({
   request: ImageRenderRequest;
   snapshots: CarrierSnapshots;
   stageReferenceCanvas?: HTMLCanvasElement;
-}): Promise<RenderSurfaceHandle | null> => {
-  const sourceRevisionKey = buildSourceRevisionKey(document);
+}): Promise<RenderSurfaceHandle> => {
   let currentSurface = surface;
 
   for (const transform of carrierTransforms) {
     const sourceCanvas =
-      transform.analysisSource === "develop" ? snapshots.develop ?? snapshots.style : snapshots.style;
-    const maskDefinition = transform.maskId ? document.masks.byId[transform.maskId] ?? null : null;
+      transform.analysisSource === "develop"
+        ? snapshots.develop ?? snapshots.style
+        : snapshots.style;
+    const maskDefinition = transform.maskId
+      ? document.masks.byId[transform.maskId] ?? null
+      : null;
     const nextSurface = await applyMaskedStageOperationToSurfaceIfSupported({
       surface: currentSurface,
       maskDefinition,
       maskReferenceCanvas: stageReferenceCanvas ?? snapshots.style,
       blendSlotId: transform.maskId ? `carrier-mask:${transform.id}` : undefined,
-      applyOperation: async ({ surface: targetSurface, maskRevisionKey }) =>
-        applyImageAsciiCarrierTransformToSurfaceIfSupported({
+      applyOperation: async ({ surface: targetSurface }) =>
+        applyImageAsciiCarrierTransform({
           baseSurface: targetSurface,
           sourceCanvas,
           transform,
           quality: request.quality,
-          sourceRevisionKey,
           targetSize: request.targetSize,
-          maskRevisionKey,
         }),
     });
     if (!nextSurface) {
-      return null;
+      throw new Error(`ASCII carrier GPU pass failed for transform ${transform.id}`);
     }
     currentSurface = nextSurface;
   }
