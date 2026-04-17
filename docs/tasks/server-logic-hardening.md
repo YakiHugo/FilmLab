@@ -124,3 +124,48 @@ Retire `MemoryChatStateRepository` in a follow-up slice, but not in this one. Ra
 - Pass: `pnpm test` (603/603).
 - Pass: `pnpm run verify:integration` (26/26, ≈2.3 s).
 - Pass: `pnpm run build:server`.
+
+### Slice 3 (done)
+
+Extracted duplicated persistence domain logic into stateless helpers under `server/src/chat/domain/`. Memory and postgres repositories now share the same accept-turn algorithm, prompt-version comparators, and snapshot visibility filters; each repo only carries IO + row mapping around those calls.
+
+- `server/src/chat/domain/acceptedState.ts` — new.
+  - `AcceptedStateTraversal`: strategy hooks (`findLatestCandidateStateForTurn`, `getRetryOfTurnId`) that each repo implements against its IO.
+  - `resolveAcceptedCreativeState(traversal, startingTurnId)`: walks the retry chain, returns the highest-priority `candidateStateAfter`. Algorithm preserved from the two prior copies (memory's private method + postgres' local helper).
+  - `applyAcceptedCreativeState({ current, turnId, assetId, acceptedState })`: pure reducer returning `{ nextPromptState, previousBaseAssetId }`. Clones state, clears candidate, bumps revision, sets baseAssetId. Both repos now share the transition.
+
+- `server/src/chat/domain/promptVersions.ts` — new.
+  - `PROMPT_STAGE_PRIORITY` (rewrite 0 / compile 1 / dispatch 2).
+  - `comparePromptVersionsByAcceptPriorityDesc`: stage desc → attempt desc → version desc → createdAt desc. Used by memory's accept traversal; postgres's SQL encodes the same ordering in the `ORDER BY` of the candidate-state query.
+  - `comparePromptVersionsByArtifactOrderAsc`: version asc → createdAt asc. Used by `getPromptArtifactsForTurn` and observability artifact listing in memory (postgres does it in SQL).
+
+- `server/src/chat/domain/snapshot.ts` — new.
+  - `buildCreativeBrief(turns, promptState)`: moved here; `postgres/rows.ts` now re-exports it for existing consumers; memory's private copy deleted.
+  - `filterAssetsByVisibleScope(assets, visibleTurnIds, visibleRunIds)`: shared asset visibility rule (asset.turnId ∈ visibleTurnIds OR asset.runId ∈ visibleRunIds).
+  - `filterAssetEdgesByVisibleAssets(edges, visibleAssetIds)`: both source and target must reference visible assets.
+
+- `server/src/chat/persistence/memory.ts`: deleted private `resolveAcceptedCreativeState`, `buildCreativeBrief`, and the local `PROMPT_STAGE_PRIORITY` table. `acceptConversationTurn` now builds an `AcceptedStateTraversal` and calls the shared helpers. `getConversationSnapshot` calls `filterAssetsByVisibleScope` / `filterAssetEdgesByVisibleAssets`. `getPromptArtifactsForTurn` and `getPromptObservabilityForConversation` use `comparePromptVersionsByArtifactOrderAsc`.
+
+- `server/src/chat/persistence/postgres/mutations.ts`: replaced local `resolveAcceptedCreativeState` helper with `buildAcceptedStateTraversal(client, conversationId)` delegating the algorithm to the domain function. The accept mutation body now uses `applyAcceptedCreativeState` instead of hand-mutating `nextPromptState` fields; the SQL ordering in `findLatestCandidateStateForTurn` still encodes the same priority as `comparePromptVersionsByAcceptPriorityDesc`. Behavior also switched the candidate-state clone from `parseCreativeState` to `cloneCreativeState` (matches memory) since `parsePromptState` already validated the value.
+
+- `server/src/chat/persistence/postgres/conversationQueries.ts`: `mapAssetRows` / `mapAssetEdgeRows` now delegate their visibility filters to the domain helpers after mapping rows to records. The mapping order changed (map then filter) but the filter rule is identical.
+
+- `server/src/chat/persistence/postgres/rows.ts`: deleted the local `buildCreativeBrief` body. `conversationQueries.ts` and `mutations.ts` now import the domain version directly from `../../domain/snapshot`. Only `clonePromptState` remains as a local alias over the domain helper.
+
+#### Known follow-ups (not this slice)
+
+- Postgres `acceptConversationTurn` traversal issues up to 2·N queries (candidate-state + retry lookup per hop) where N is retry-chain depth. Real chains are typically depth 1–3, so this is latency-nit not latency-bug, but collapsing it to one recursive CTE (or adding a bulk `findAcceptedCreativeStateForChain` method on `AcceptedStateTraversal`) would make it O(1). File as a perf task; do not widen this slice.
+
+#### What was deliberately left in place
+
+- `MemoryChatStateRepository` survives this slice, per the Slice 1 handoff (retirement is a workflow decision about the no-DATABASE_URL path, not a dedup).
+- `parseCreativeState` / `parsePromptState` stay in `postgres/rows.ts` — they operate on raw DB `unknown` payloads, so they belong next to the row definitions, not in domain.
+- `buildPromptObservabilitySummary` is already a domain-shaped helper (pure function over abstract inputs); it keeps its current location since both repos already call the same function.
+
+### Slice 3 validation state
+
+- Pass: `pnpm lint` (same single pre-existing warning as prior slices).
+- Pass: `pnpm test` (603/603).
+- Pass: `pnpm run verify:integration` (26/26, ≈2.2 s).
+- Pass: `pnpm run build:server`.
+- Pass: `git diff --check`.
