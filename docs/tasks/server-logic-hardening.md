@@ -1,6 +1,6 @@
 # Server Logic Hardening
 
-- Status: in_progress
+- Status: slice-4-done (Slice 5 boundary hardening pending)
 - Scope: harden the server-side AI gateway so an AI-only workflow has a real oracle (tests) and localized edit surfaces. Work is driven by the fact that the user codes exclusively through AI: tests must exercise production paths, parallel implementations drift silently, and large coupled modules cause edits to cross concerns.
 
 ## Goal
@@ -167,5 +167,47 @@ Extracted duplicated persistence domain logic into stateless helpers under `serv
 - Pass: `pnpm lint` (same single pre-existing warning as prior slices).
 - Pass: `pnpm test` (603/603).
 - Pass: `pnpm run verify:integration` (26/26, ≈2.2 s).
+- Pass: `pnpm run build:server`.
+- Pass: `git diff --check`.
+
+### Slice 4 (done)
+
+Decomposed the 1579-line `ImageGenerationService` into four coordinator classes plus an assetization helper, under a new `server/src/chat/application/imageGeneration/` subdirectory. Composition moved to `index.ts` via a Fastify decorator; the route now reads `app.imageGenerationService` instead of constructing inline.
+
+- `server/src/chat/application/imageGeneration/errors.ts` — `ImageGenerationCommandError` + `PersistedGenerationContext` (moved out so coordinators can throw/return them without circular imports).
+- `server/src/chat/application/imageGeneration/helpers.ts` — stateless utilities: `cloneSnapshot`, `uniqueWarnings`, `formatNormalizationWarning`, `settleWithConcurrency`, `resolveEdgeType`, target-snapshot builders, `toExactRetryPayload`, `findRetryRun`/`findRetryJob`/`findMatchingExactTarget`.
+- `server/src/chat/application/imageGeneration/buildPromptVersionRecord.ts` — the canonical `PromptVersionRecord` factory.
+- `server/src/chat/application/imageGeneration/imageNormalization.ts` — `normalizeGeneratedImage` + `collectNormalizedImages` (download + size-assert + settle-results aggregation).
+- `server/src/chat/application/imageGeneration/generatedAssets.ts` — `commitGeneratedAssets` helper that turns normalized images into persisted asset records + edges (calls `assetService.createGeneratedAsset` / `createAssetEdges`).
+- `server/src/chat/application/imageGeneration/promptCompileCoordinator.ts` — `PromptCompileCoordinator` with `createContext`, `resolveRequestedOperation`, `validateCompatibility`, `resolveInitialPrompts` (exact-retry and new-prompt paths), `compileForDispatchAttempt`, and `buildFinalDispatchPromptVersion`.
+- `server/src/chat/application/imageGeneration/inputAssetProjector.ts` — `InputAssetProjector.projectForDispatch` returning provider-resolved input assets for a target + retry mode.
+- `server/src/chat/application/imageGeneration/providerExecutor.ts` — `ProviderExecutor` wrapping `createImageRuntimeRouter` (exposes `getRouteTargets` + `generate`). Retry/fallback + health recording stay in `gateway/router/router.ts`; the class binds the router to `config` once and lets the orchestrator stay router-agnostic.
+- `server/src/chat/application/imageGeneration/generationPersister.ts` — `GenerationPersister` with `createInitial`, `persistDispatchPromptVersion`, `completeSuccess` (writes the final dispatch prompt version then calls `completeGenerationSuccess`), `updateDeferredPromptState` (CAS `updateConversationPromptState` with a warn-and-continue catch so a revision conflict after success still preserves the generation), and `handleFailure` (formerly `handleExecutionFailure`).
+
+- `server/src/chat/application/imageGenerationService.ts` shrank from 1579 → 541 lines. The class holds one instance per coordinator; `execute()` threads ids / timestamps / resolved prompts through them. It still assembles the flat `createInitial` input literal inline (turn, job, run, attempt, rewriteRun, promptVersions) and the response shape — these are data-object constructions that don't cleanly extract without synthetic parameter bags.
+
+- `server/src/index.ts` — decorates `app.imageGenerationService` with a single `ImageGenerationService({ repository, assetService, config })` instance.
+- `server/src/fastify.d.ts` — adds `imageGenerationService: ImageGenerationService` to the `FastifyInstance` augmentation.
+- `server/src/routes/image-generate.ts` — dropped the inline `new ImageGenerationService(...)`; calls `app.imageGenerationService.execute(...)`. `ImageGenerationCommandError` / `PersistedGenerationContext` still re-exported from `imageGenerationService.ts` so the route import stays unchanged.
+- `server/src/routes/image-generate.test.ts` and `image-generate.eval.test.ts` — `createApp` decorates `imageGenerationService` with a real `ImageGenerationService` bound to the mocked `repository` + `assetService`. No behavior change; route tests drive the real orchestration path through the mocks.
+
+#### Behavior preservation notes
+
+- Exact-retry path keeps the same state-clear-and-skip semantics (`committedStateBefore: null`, `candidateStateAfter: null`, `promptIR: null`, pinned target).
+- Per-attempt dispatch prompt version persistence sits right before the provider call inside `resolveRequest`, same as before.
+- Prompt-state CAS failure after a successful generation still logs and returns the success response (the `.catch` now lives on `GenerationPersister.updateDeferredPromptState`).
+- Normalization concurrency and per-attempt compile cache behavior are unchanged.
+
+#### What was deliberately left in place
+
+- The Phase 3 `createInitial` literal and the final response shape remain in `execute()`. Extracting them would require 15+ parameter bags; in-place they read as a sequential recipe. Orchestrator length (541 lines) is above the slice plan's 150–250 target for this reason.
+- `ProviderExecutor` is a thin wrapper around `createImageRuntimeRouter` — retry/fallback/health recording stay in `gateway/router/router.ts`. If provider orchestration grows a new concern (e.g., per-provider timing log from Slice 5), this is the natural place to add it.
+- Request-level validation (conversation lookup, retry-of-turn existence check, threadId/conversationId cross-check) stayed in `execute()` — it is request-dispatch level, not a compile or persist concern.
+
+### Slice 4 validation state
+
+- Pass: `pnpm lint` (no warnings; the pre-existing unused-`logger` warning in the old `imageGenerationService.ts` disappeared during the rewrite).
+- Pass: `pnpm test` (603/603).
+- Pass: `pnpm run verify:integration` (26/26, ≈2.5 s).
 - Pass: `pnpm run build:server`.
 - Pass: `git diff --check`.
