@@ -100,6 +100,27 @@ Retire `MemoryChatStateRepository` in a follow-up slice, but not in this one. Ra
 ### Slice 1 validation state
 
 - Pass: `pnpm lint` (one pre-existing warning in `imageGenerationService.ts`, unrelated).
-- Pass: `pnpm test` (612/612).
+- Pass: `pnpm test` (603/603; the 612 figure logged earlier was stale — baseline count is 603).
 - Pass: `pnpm run verify:integration` (26/26, ≈3 s).
+- Pass: `pnpm run build:server`.
+
+### Slice 2 (done)
+
+- New module: `server/src/domain/prompt.ts` now owns the shared prompt vocabulary — `CreativeState`, `ConversationCreativeState`, `TurnDelta`, `PromptIR`, `SemanticLoss`, `PromptVersionStage`, `PromptVersionRecord`, `PromptVersionHashes`, `PromptCompilationContext`, plus the state helpers (`createEmptyCreativeState`, `createInitialConversationCreativeState`, `cloneCreativeState`, `cloneConversationCreativeState`). `PersistedPromptSnapshot` moved here as `PromptSnapshot`; it is now a domain concept, not a persistence one.
+- `server/src/gateway/prompt/types.ts` deleted. All gateway-side consumers (`compiler.ts`, `compiler.test.ts`, `evals.test.ts`, `rewrite.ts`) import from `../../domain/prompt`.
+- `gateway/prompt/compiler.ts`: dropped the `import type { PersistedPromptSnapshot, PersistedSemanticLoss } from "../../chat/persistence/models"` edge — this was the upward half of the cycle. Renamed local references to `PromptSnapshot` / `SemanticLoss`.
+- `chat/persistence/models.ts`: imports from `domain/prompt` and keeps the `Persisted*` re-export aliases for now (added `PromptSnapshot as PersistedPromptSnapshot`; deleted the local `PersistedPromptSnapshot` interface). Full alias removal is Slice 3 scope, not this slice.
+- `chat/persistence/types.ts`, `persistence/memory.ts`, `persistence/postgres.ts`, `persistence/postgres/mutations.ts`, `persistence/postgres/rows.ts`, `chat/application/imageGenerationService.ts`: all switched their `gateway/prompt/types` imports to `domain/prompt`.
+
+#### Cycle verification
+
+- `grep -R "gateway/prompt/types" server/src` returns no hits.
+- `gateway/prompt/*` no longer imports anything from `chat/persistence/*`; `gateway/` ↔ `chat/persistence/` now share only through `domain/prompt`, which imports nothing from either side.
+- `assets/types.ts` still imports `PersistedAssetEdgeType` from `chat/persistence/models` — this is a downward dep (assets → persistence) and is not part of the prompt cycle.
+
+### Slice 2 validation state
+
+- Pass: `pnpm lint` (same single pre-existing warning as Slice 1).
+- Pass: `pnpm test` (603/603).
+- Pass: `pnpm run verify:integration` (26/26, ≈2.3 s).
 - Pass: `pnpm run build:server`.
