@@ -1,6 +1,6 @@
 {
   "baseline": "349c42f",
-  "current": "dedup-persistence-domain",
+  "current": "decompose-image-generation-service",
   "tasks": [
     {
       "id": "integration-harness",
@@ -12,7 +12,11 @@
       "status": "done",
       "passes": ["pnpm lint", "pnpm test", "pnpm run verify:integration", "pnpm run build:server"]
     },
-    { "id": "dedup-persistence-domain", "status": "pending", "passes": [] },
+    {
+      "id": "dedup-persistence-domain",
+      "status": "done",
+      "passes": ["pnpm lint", "pnpm test", "pnpm run verify:integration", "pnpm run build:server"]
+    },
     { "id": "decompose-image-generation-service", "status": "pending", "passes": [] },
     { "id": "boundary-hardening", "status": "pending", "passes": [] }
   ]
