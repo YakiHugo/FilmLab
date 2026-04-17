@@ -1,5 +1,6 @@
+import { z } from "zod";
 import { getStylePromptHint } from "../../../shared/imageStyleHints";
-import { createProviderRequestContext, fetchProviderResponse, toProviderRawResponse } from "../../base/client";
+import { createProviderRequestContext, fetchProviderResponse } from "../../base/client";
 import { ProviderError, readProviderError } from "../../base/errors";
 import type {
   PlatformProviderGenerateInput,
@@ -21,11 +22,31 @@ const SEEDREAM_SIZE_BY_ASPECT_RATIO = {
   "21:9": "2560x1080",
 } as const;
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
 const getArkImageGenerationUrl = (baseUrl: string) =>
   new URL("/api/v3/images/generations", `${baseUrl}/`).toString();
+
+const seedreamDataEntrySchema = z.object({
+  url: z.string().optional(),
+  b64_json: z.string().optional(),
+  revised_prompt: z.string().optional(),
+  error: z
+    .object({
+      message: z.string().optional(),
+    })
+    .optional(),
+});
+
+const seedreamResponseSchema = z.object({
+  message: z.string().optional(),
+  error: z
+    .object({
+      message: z.string().optional(),
+    })
+    .optional(),
+  data: z.array(seedreamDataEntrySchema).optional(),
+});
+
+type SeedreamResponse = z.infer<typeof seedreamResponseSchema>;
 
 const toArkSize = (aspectRatio: string) =>
   aspectRatio === "custom"
@@ -48,84 +69,55 @@ const resolveSequentialImageGeneration = (value: unknown) =>
   value === "enabled" ? "enabled" : "disabled";
 const resolveWatermark = (value: unknown) => (typeof value === "boolean" ? value : true);
 
-const readSeedreamErrorMessage = (payload: Record<string, unknown>) => {
-  if (typeof payload.message === "string" && payload.message.trim()) {
+const readSeedreamErrorMessage = (payload: SeedreamResponse) => {
+  if (payload.message && payload.message.trim()) {
     return payload.message.trim();
   }
-  if (isRecord(payload.error) && typeof payload.error.message === "string") {
-    const message = payload.error.message.trim();
-    if (message) {
-      return message;
-    }
+  if (payload.error?.message && payload.error.message.trim()) {
+    return payload.error.message.trim();
   }
 
-  const failedEntries = Array.isArray(payload.data)
-    ? payload.data.filter(
-        (entry): entry is Record<string, unknown> =>
-          isRecord(entry) && isRecord(entry.error) && typeof entry.error.message === "string"
-      )
-    : [];
-  const firstEntryError = failedEntries[0]?.error;
-  if (isRecord(firstEntryError) && typeof firstEntryError.message === "string") {
-    const message = firstEntryError.message.trim();
-    if (message) {
-      return message;
-    }
+  const firstEntryErrorMessage = (payload.data ?? [])
+    .map((entry) => entry.error?.message?.trim())
+    .find((message): message is string => Boolean(message));
+  if (firstEntryErrorMessage) {
+    return firstEntryErrorMessage;
   }
 
   return "Seedream image generation failed.";
 };
 
 const extractImages = (
-  payload: Record<string, unknown>
-): { images: ProviderGeneratedImage[]; warnings: string[] } => {
-  if (!Array.isArray(payload.data)) {
-    return {
-      images: [],
-      warnings: [],
-    };
-  }
-
-  return payload.data.reduce<{ images: ProviderGeneratedImage[]; warnings: string[] }>(
+  payload: SeedreamResponse
+): { images: ProviderGeneratedImage[]; warnings: string[] } =>
+  (payload.data ?? []).reduce<{ images: ProviderGeneratedImage[]; warnings: string[] }>(
     (accumulator, entry) => {
-      if (!isRecord(entry)) {
-        return accumulator;
-      }
-
-      if (typeof entry.url === "string" && entry.url.trim()) {
+      if (entry.url && entry.url.trim()) {
         accumulator.images.push({
           imageUrl: entry.url,
-          revisedPrompt:
-            typeof entry.revised_prompt === "string" ? entry.revised_prompt : null,
+          revisedPrompt: entry.revised_prompt ?? null,
         });
         return accumulator;
       }
 
-      if (typeof entry.b64_json === "string" && entry.b64_json.trim()) {
+      if (entry.b64_json && entry.b64_json.trim()) {
         accumulator.images.push({
           binaryData: Buffer.from(entry.b64_json, "base64"),
           mimeType: DEFAULT_MIME_TYPE,
-          revisedPrompt:
-            typeof entry.revised_prompt === "string" ? entry.revised_prompt : null,
+          revisedPrompt: entry.revised_prompt ?? null,
         });
         return accumulator;
       }
 
-      if (isRecord(entry.error) && typeof entry.error.message === "string") {
-        const message = entry.error.message.trim();
-        if (message) {
-          accumulator.warnings.push(message);
-        }
+      const errorMessage = entry.error?.message?.trim();
+      if (errorMessage) {
+        accumulator.warnings.push(errorMessage);
       }
 
       return accumulator;
     },
-    {
-      images: [],
-      warnings: [],
-    }
+    { images: [], warnings: [] }
   );
-};
 
 export const generateArkSeedream = async (
   input: PlatformProviderGenerateInput
@@ -172,14 +164,14 @@ export const generateArkSeedream = async (
     );
   }
 
-  const rawResponse = toProviderRawResponse(upstream, (await upstream.json()) as unknown);
-  if (!isRecord(rawResponse.payload)) {
+  const parsed = seedreamResponseSchema.safeParse(await upstream.json());
+  if (!parsed.success) {
     throw new ProviderError("Ark provider returned an invalid response.");
   }
 
-  const { images, warnings } = extractImages(rawResponse.payload);
+  const { images, warnings } = extractImages(parsed.data);
   if (images.length === 0) {
-    throw new ProviderError(readSeedreamErrorMessage(rawResponse.payload));
+    throw new ProviderError(readSeedreamErrorMessage(parsed.data));
   }
 
   return {

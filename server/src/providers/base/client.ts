@@ -1,7 +1,7 @@
 import { createId } from "../../../../shared/createId";
 import { REQUEST_ID_HEADER } from "../../shared/requestTrace";
 import { fetchWithTimeout } from "../../shared/fetchWithTimeout";
-import type { ProviderRawResponse, ProviderRequestContext } from "./types";
+import type { ProviderRequestContext } from "./types";
 
 export const createProviderRequestContext = (
   options: { signal?: AbortSignal; timeoutMs: number; traceId?: string }
@@ -33,12 +33,3 @@ export const fetchProviderResponse = (
       timeoutMs: context.timeoutMs,
     }
   );
-
-export const toProviderRawResponse = (
-  response: Response,
-  payload: unknown
-): ProviderRawResponse => ({
-  status: response.status,
-  payload,
-  headers: response.headers,
-});

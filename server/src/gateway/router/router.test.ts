@@ -213,6 +213,78 @@ describe("imageRuntimeRouter.generate", () => {
     });
   });
 
+  it("emits per-call timing logs for success and retriable failure", async () => {
+    const { createImageRuntimeRouter } = await import("./router");
+    const imageRuntimeRouter = createImageRuntimeRouter({} as import("../../config").AppConfig);
+    const { ProviderError } = await import("../../providers/base/errors");
+    const adapterGenerateMock = vi.fn();
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+      fatal: vi.fn(),
+      trace: vi.fn(),
+      child: vi.fn(),
+      level: "info",
+    };
+
+    getPlatformModelAdapterMock.mockImplementation((provider: string, providerModel: string) => ({
+      provider,
+      providerModel,
+      transport: "http",
+      generate: adapterGenerateMock,
+    }));
+    adapterGenerateMock.mockImplementationOnce(async () => {
+      throw new ProviderError("Retry later.", 503);
+    });
+    adapterGenerateMock.mockImplementationOnce(async (input: { target: ResolvedRouteTarget }) => ({
+      modelId: "qwen-image-2-pro",
+      logicalModel: "image.qwen.v2.pro",
+      deploymentId: input.target.deployment.id,
+      runtimeProvider: input.target.provider.id,
+      providerModel: input.target.deployment.providerModel,
+      warnings: [],
+      images: [{ binaryData: Buffer.from([1, 2, 3]), mimeType: "image/png" }],
+    }));
+
+    await imageRuntimeRouter.generate(createRequest(), {
+      logger: logger as never,
+      targets: [
+        createTarget({
+          deploymentId: "dashscope-qwen-image-2-pro-primary",
+          providerModel: "qwen-image-2.0-pro",
+        }),
+        createTarget({
+          deploymentId: "dashscope-qwen-image-2-pro-fallback",
+          providerModel: "qwen-image-2.0-pro-fallback",
+        }),
+      ],
+    });
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "dashscope",
+        model: "qwen-image-2.0-pro",
+        operation: "image.generate",
+        success: false,
+        latencyMs: expect.any(Number),
+        errorType: "provider_error",
+      }),
+      "provider call"
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "dashscope",
+        model: "qwen-image-2.0-pro-fallback",
+        operation: "image.generate",
+        success: true,
+        latencyMs: expect.any(Number),
+      }),
+      "provider call"
+    );
+  });
+
   it("stops immediately when the provider error is not retriable", async () => {
     const { createImageRuntimeRouter } = await import("./router");
     const imageRuntimeRouter = createImageRuntimeRouter({} as import("../../config").AppConfig);

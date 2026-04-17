@@ -4,19 +4,16 @@ import type { PlatformProviderGenerateInput } from "../../base/types";
 const {
   createProviderRequestContextMock,
   fetchProviderResponseMock,
-  toProviderRawResponseMock,
   resolveKlingBearerTokenMock,
 } = vi.hoisted(() => ({
   createProviderRequestContextMock: vi.fn(),
   fetchProviderResponseMock: vi.fn(),
-  toProviderRawResponseMock: vi.fn(),
   resolveKlingBearerTokenMock: vi.fn(),
 }));
 
 vi.mock("../../base/client", () => ({
   createProviderRequestContext: (...args: unknown[]) => createProviderRequestContextMock(...args),
   fetchProviderResponse: (...args: unknown[]) => fetchProviderResponseMock(...args),
-  toProviderRawResponse: (...args: unknown[]) => toProviderRawResponseMock(...args),
 }));
 
 vi.mock("../auth", () => ({
@@ -114,7 +111,6 @@ describe("generateKlingImage", () => {
     vi.resetModules();
     createProviderRequestContextMock.mockReset();
     fetchProviderResponseMock.mockReset();
-    toProviderRawResponseMock.mockReset();
     resolveKlingBearerTokenMock.mockReset();
     createProviderRequestContextMock.mockImplementation((options?: { timeoutMs?: number }) => ({
       signal: undefined,
@@ -122,11 +118,6 @@ describe("generateKlingImage", () => {
       traceId: "trace-1",
     }));
     resolveKlingBearerTokenMock.mockReturnValue("bearer-token");
-    toProviderRawResponseMock.mockImplementation((response: Response, payload: unknown) => ({
-      status: response.status,
-      payload,
-      headers: response.headers,
-    }));
   });
 
   afterEach(() => {

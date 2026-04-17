@@ -32,12 +32,6 @@ export interface ProviderRequestContext {
   traceId: string;
 }
 
-export interface ProviderRawResponse {
-  status: number;
-  payload: unknown;
-  headers?: Headers;
-}
-
 export interface RuntimeProviderCredentials {
   apiKey?: string;
   accessKey?: string;
