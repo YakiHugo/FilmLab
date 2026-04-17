@@ -1197,13 +1197,13 @@ export class PipelineRenderer {
     }
   }
 
-  // captureLinearSource returns a texture sized to targetWidth × targetHeight.
-  // Callers expect subsequent operations (blendLinearLayers, presentTextureResult)
-  // to honor whatever output size was in effect before the capture — so the
-  // target-size state mutated by updateSource() is rolled back before returning.
-  // Without this, every caller that downsamples to an analysis grid has to
-  // re-assert the output size manually (see ASCII carrier history in
-  // docs/tasks/render-pipeline-single-path.md).
+  // captureLinearSource uploads `source` and returns an intermediate texture at
+  // (targetWidth × targetHeight). updateSource() authoritatively sets the
+  // renderer's output size to match, so downstream draws in the same render
+  // callback (blendLinearLayers, presentTextureResult) see the correct
+  // `lastTarget*` without a separate resize call. Since renderer slots are
+  // reused across renders (the ASCII path shares one slot id), the caller
+  // must pass targetWidth/targetHeight equal to its intended output size.
   captureLinearSource(
     source: TexImageSource,
     sourceWidth: number,
@@ -1218,56 +1218,38 @@ export class PipelineRenderer {
       throw new Error("PipelineRenderer is not available.");
     }
 
-    const savedLastTargetWidth = this.lastTargetWidth;
-    const savedLastTargetHeight = this.lastTargetHeight;
-    const savedCanvasWidth = this.canvasElement.width;
-    const savedCanvasHeight = this.canvasElement.height;
-
     this.updateSource(source, sourceWidth, sourceHeight, targetWidth, targetHeight);
     if (!this.currentSourceTexture) {
       throw new Error("Source texture is not initialized.");
     }
 
-    try {
-      const captured = this.filterPipeline.runToTexture({
-        baseWidth: this.lastTargetWidth,
-        baseHeight: this.lastTargetHeight,
-        passes: [
-          {
-            id: "capture-linear-source",
-            programInfo: options?.decodeSrgb === false ? this.programs.passthrough : this.programs.inputDecode,
-            uniforms: {},
-            outputFormat: this.intermediateFormat,
-            enabled: true,
-          },
-        ],
-        input: {
-          texture: this.currentSourceTexture,
-          width: this.lastTargetWidth,
-          height: this.lastTargetHeight,
-          format: "RGBA8",
+    const captured = this.filterPipeline.runToTexture({
+      baseWidth: this.lastTargetWidth,
+      baseHeight: this.lastTargetHeight,
+      passes: [
+        {
+          id: "capture-linear-source",
+          programInfo: options?.decodeSrgb === false ? this.programs.passthrough : this.programs.inputDecode,
+          uniforms: {},
+          outputFormat: this.intermediateFormat,
+          enabled: true,
         },
-      });
+      ],
+      input: {
+        texture: this.currentSourceTexture,
+        width: this.lastTargetWidth,
+        height: this.lastTargetHeight,
+        format: "RGBA8",
+      },
+    });
 
-      return {
-        texture: captured.texture,
-        width: captured.width,
-        height: captured.height,
-        format: captured.format,
-        release: captured.release,
-      };
-    } finally {
-      if (
-        this.lastTargetWidth !== savedLastTargetWidth ||
-        this.lastTargetHeight !== savedLastTargetHeight
-      ) {
-        this.canvasElement.width = savedCanvasWidth;
-        this.canvasElement.height = savedCanvasHeight;
-        this.gl.viewport(0, 0, savedCanvasWidth, savedCanvasHeight);
-        this.lastTargetWidth = savedLastTargetWidth;
-        this.lastTargetHeight = savedLastTargetHeight;
-      }
-    }
+    return {
+      texture: captured.texture,
+      width: captured.width,
+      height: captured.height,
+      format: captured.format,
+      release: captured.release,
+    };
   }
 
   private releaseAsciiGlyphAtlasRecord(record: AsciiGlyphAtlasRecord): void {
