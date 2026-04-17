@@ -10,7 +10,6 @@ import type {
   PersistedResultItem,
 } from "../models";
 import {
-  buildCreativeBrief,
   type ChatAssetEdgeRow,
   type ChatAssetLocatorRow,
   type ChatAssetRow,
@@ -26,6 +25,11 @@ import {
   parseStringArray,
   parseTelemetry,
 } from "./rows";
+import {
+  buildCreativeBrief,
+  filterAssetEdgesByVisibleAssets,
+  filterAssetsByVisibleScope,
+} from "../../domain/snapshot";
 
 export const getConversationSnapshotQuery = async (input: {
   pool: Pool;
@@ -317,38 +321,33 @@ const mapAssetRows = (input: {
   locatorRowsByAssetId: Map<string, PersistedAssetLocatorRecord[]>;
   visibleTurnIds: Set<string>;
   visibleRunIds: Set<string>;
-}): PersistedAssetRecord[] =>
-  input.assetRows
-    .filter(
-      (row) =>
-        (row.turn_id ? input.visibleTurnIds.has(row.turn_id) : false) ||
-        (row.run_id ? input.visibleRunIds.has(row.run_id) : false)
-    )
-    .map((row) => ({
-      id: row.id,
-      turnId: row.turn_id,
-      runId: row.run_id,
-      assetType: row.asset_type,
-      label: row.label,
-      metadata: row.metadata,
-      locators: input.locatorRowsByAssetId.get(row.id) ?? [],
-      createdAt: new Date(row.created_at).toISOString(),
-    }));
+}): PersistedAssetRecord[] => {
+  const mapped = input.assetRows.map((row) => ({
+    id: row.id,
+    turnId: row.turn_id,
+    runId: row.run_id,
+    assetType: row.asset_type,
+    label: row.label,
+    metadata: row.metadata,
+    locators: input.locatorRowsByAssetId.get(row.id) ?? [],
+    createdAt: new Date(row.created_at).toISOString(),
+  }));
+  return filterAssetsByVisibleScope(mapped, input.visibleTurnIds, input.visibleRunIds);
+};
 
 const mapAssetEdgeRows = (
   rows: ChatAssetEdgeRow[],
   assets: PersistedAssetRecord[]
 ): PersistedAssetEdgeRecord[] => {
   const assetIds = new Set(assets.map((asset) => asset.id));
-  return rows
-    .filter((row) => assetIds.has(row.source_asset_id) && assetIds.has(row.target_asset_id))
-    .map((row) => ({
-      id: row.id,
-      sourceAssetId: row.source_asset_id,
-      targetAssetId: row.target_asset_id,
-      edgeType: row.edge_type,
-      turnId: row.turn_id,
-      runId: row.run_id,
-      createdAt: new Date(row.created_at).toISOString(),
-    }));
+  const mapped = rows.map((row) => ({
+    id: row.id,
+    sourceAssetId: row.source_asset_id,
+    targetAssetId: row.target_asset_id,
+    edgeType: row.edge_type,
+    turnId: row.turn_id,
+    runId: row.run_id,
+    createdAt: new Date(row.created_at).toISOString(),
+  }));
+  return filterAssetEdgesByVisibleAssets(mapped, assetIds);
 };

@@ -1,18 +1,26 @@
 import type { PoolClient } from "pg";
 import {
-  buildCreativeBrief,
   parseCreativeState,
   parsePromptState,
 } from "./rows";
-import { createInitialConversationCreativeState } from "../../../domain/prompt";
+import { buildCreativeBrief } from "../../domain/snapshot";
+import {
+  cloneCreativeState,
+  createInitialConversationCreativeState,
+} from "../../../domain/prompt";
 import { createId } from "../../../../../shared/createId";
-import type { PersistedConversationCreativeState, PersistedImageSession } from "../models";
+import type { PersistedImageSession } from "../models";
 import type {
   AcceptConversationTurnInput,
   CompleteChatGenerationFailureInput,
   CompleteChatGenerationSuccessInput,
 } from "../types";
 import { ChatConversationNotFoundError } from "../types";
+import {
+  applyAcceptedCreativeState,
+  resolveAcceptedCreativeState,
+  type AcceptedStateTraversal,
+} from "../../domain/acceptedState";
 
 type TransactionRunner = <T>(callback: (client: PoolClient) => Promise<T>) => Promise<T>;
 type TouchConversation = (
@@ -121,18 +129,12 @@ export const deleteTurnQuery = async (input: {
   return input.getConversationSnapshot(input.userId, row.conversation_id);
 };
 
-const resolveAcceptedCreativeState = async (input: {
-  client: PoolClient;
-  conversationId: string;
-  startingTurnId: string;
-}): Promise<PersistedConversationCreativeState["committed"] | null> => {
-  const visited = new Set<string>();
-  let semanticTurnId: string | null = input.startingTurnId;
-
-  while (semanticTurnId && !visited.has(semanticTurnId)) {
-    visited.add(semanticTurnId);
-
-    const versionResult = await input.client.query<{
+const buildAcceptedStateTraversal = (
+  client: PoolClient,
+  conversationId: string
+): AcceptedStateTraversal => ({
+  findLatestCandidateStateForTurn: async (turnId) => {
+    const versionResult = await client.query<{
       candidate_state_after: unknown;
     }>(
       `
@@ -152,30 +154,27 @@ const resolveAcceptedCreativeState = async (input: {
           created_at DESC
         LIMIT 1;
       `,
-      [input.conversationId, semanticTurnId]
+      [conversationId, turnId]
     );
     const versionRow = versionResult.rows[0];
-    if (versionRow?.candidate_state_after) {
-      return parseCreativeState(versionRow.candidate_state_after);
-    }
-
-    semanticTurnId =
-      (
-        await input.client.query<{ retry_of_turn_id: string | null }>(
-          `
-            SELECT retry_of_turn_id
-            FROM chat_turns
-            WHERE id = $1
-              AND conversation_id = $2
-            LIMIT 1;
-          `,
-          [semanticTurnId, input.conversationId]
-        )
-      ).rows[0]?.retry_of_turn_id ?? null;
-  }
-
-  return null;
-};
+    return versionRow?.candidate_state_after
+      ? parseCreativeState(versionRow.candidate_state_after)
+      : null;
+  },
+  getRetryOfTurnId: async (turnId) => {
+    const result = await client.query<{ retry_of_turn_id: string | null }>(
+      `
+        SELECT retry_of_turn_id
+        FROM chat_turns
+        WHERE id = $1
+          AND conversation_id = $2
+        LIMIT 1;
+      `,
+      [turnId, conversationId]
+    );
+    return result.rows[0]?.retry_of_turn_id ?? null;
+  },
+});
 
 export const acceptConversationTurnMutation = async (input: {
   params: AcceptConversationTurnInput;
@@ -224,26 +223,26 @@ export const acceptConversationTurnMutation = async (input: {
       );
     }
 
-    const nextPromptState = parsePromptState(turnRow.prompt_state);
-    const previousBaseAssetId = nextPromptState.baseAssetId;
+    const currentPromptState = parsePromptState(turnRow.prompt_state);
     const acceptedCreativeState =
-      nextPromptState.candidate && nextPromptState.candidateTurnId === input.params.turnId
-        ? parseCreativeState(nextPromptState.candidate)
-        : await resolveAcceptedCreativeState({
-            client,
-            conversationId: turnRow.conversation_id,
-            startingTurnId: turnRow.retry_of_turn_id ?? input.params.turnId,
-          });
+      currentPromptState.candidate &&
+      currentPromptState.candidateTurnId === input.params.turnId
+        ? cloneCreativeState(currentPromptState.candidate)
+        : await resolveAcceptedCreativeState(
+            buildAcceptedStateTraversal(client, turnRow.conversation_id),
+            turnRow.retry_of_turn_id ?? input.params.turnId
+          );
 
     if (!acceptedCreativeState) {
       throw new Error(`Turn ${input.params.turnId} is missing prompt compiler state.`);
     }
 
-    nextPromptState.committed = acceptedCreativeState;
-    nextPromptState.candidate = null;
-    nextPromptState.candidateTurnId = null;
-    nextPromptState.baseAssetId = input.params.assetId;
-    nextPromptState.revision += 1;
+    const { nextPromptState, previousBaseAssetId } = applyAcceptedCreativeState({
+      currentPromptState,
+      turnId: input.params.turnId,
+      assetId: input.params.assetId,
+      acceptedState: acceptedCreativeState,
+    });
 
     await client.query(
       `

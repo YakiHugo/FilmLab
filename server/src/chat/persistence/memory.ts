@@ -1,7 +1,6 @@
 import type {
   PersistedAssetEdgeRecord,
   PersistedAssetRecord,
-  PersistedConversationCreativeState,
   GenerationJobSnapshot,
   PersistedGenerationTurn,
   PersistedImageSession,
@@ -15,7 +14,7 @@ import {
   cloneCreativeState,
   createInitialConversationCreativeState,
 } from "../../domain/prompt";
-import type { PromptVersionRecord } from "../../domain/prompt";
+import type { CreativeState, PromptVersionRecord } from "../../domain/prompt";
 import { createId } from "../../../../shared/createId";
 import {
   ChatConversationNotFoundError,
@@ -34,6 +33,20 @@ import type {
   UpdateConversationPromptStateInput,
 } from "./types";
 import { buildPromptObservabilitySummary } from "./promptObservability";
+import {
+  applyAcceptedCreativeState,
+  resolveAcceptedCreativeState,
+  type AcceptedStateTraversal,
+} from "../domain/acceptedState";
+import {
+  comparePromptVersionsByAcceptPriorityDesc,
+  comparePromptVersionsByArtifactOrderAsc,
+} from "../domain/promptVersions";
+import {
+  buildCreativeBrief,
+  filterAssetEdgesByVisibleAssets,
+  filterAssetsByVisibleScope,
+} from "../domain/snapshot";
 
 interface MemoryTurnRecord extends PersistedGenerationTurn {
   conversationId: string;
@@ -65,12 +78,6 @@ interface MemoryConversationRecord extends ChatConversationRecord {
 
 const sortNewestFirst = <T extends { createdAt: string }>(items: T[]) =>
   [...items].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-
-const PROMPT_STAGE_PRIORITY = {
-  rewrite: 0,
-  compile: 1,
-  dispatch: 2,
-} as const;
 
 export class MemoryChatStateRepository implements ChatStateRepository {
   private readonly conversations = new Map<string, MemoryConversationRecord>();
@@ -159,36 +166,28 @@ export class MemoryChatStateRepository implements ChatStateRepository {
         .map((run) => ({ ...run }))
     );
     const visibleRunIds = new Set(runs.map((run) => run.id));
+    const conversationAssets = Array.from(this.assets.values())
+      .filter((asset) => asset.conversationId === conversation.id)
+      .map((asset) => ({
+        ...asset,
+        locators: asset.locators.map((locator) => ({ ...locator })),
+      }));
     const assets = sortNewestFirst(
-      Array.from(this.assets.values())
-        .filter(
-          (asset) =>
-            asset.conversationId === conversation.id &&
-            ((asset.turnId && visibleTurnIds.has(asset.turnId)) ||
-              (asset.runId && visibleRunIds.has(asset.runId)))
-        )
-        .map((asset) => ({
-          ...asset,
-          locators: asset.locators.map((locator) => ({ ...locator })),
-        }))
+      filterAssetsByVisibleScope(conversationAssets, visibleTurnIds, visibleRunIds)
     );
-    const assetIds = new Set(assets.map((asset) => asset.id));
+    const visibleAssetIds = new Set(assets.map((asset) => asset.id));
+    const conversationEdges = Array.from(this.assetEdges.values())
+      .filter((edge) => edge.conversationId === conversation.id)
+      .map((edge) => ({ ...edge }));
     const assetEdges = sortNewestFirst(
-      Array.from(this.assetEdges.values())
-        .filter(
-          (edge) =>
-            edge.conversationId === conversation.id &&
-            assetIds.has(edge.sourceAssetId) &&
-            assetIds.has(edge.targetAssetId)
-        )
-        .map((edge) => ({ ...edge }))
+      filterAssetEdgesByVisibleAssets(conversationEdges, visibleAssetIds)
     );
 
     return {
       id: conversation.id,
       thread: {
         id: conversation.id,
-        creativeBrief: this.buildCreativeBrief(turns, conversation.promptState),
+        creativeBrief: buildCreativeBrief(turns, conversation.promptState),
         promptState: cloneConversationCreativeState(conversation.promptState),
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,
@@ -219,13 +218,7 @@ export class MemoryChatStateRepository implements ChatStateRepository {
 
     const versions = [...(this.promptVersions.get(turn.conversationId) ?? [])]
       .filter((version) => version.turnId === turnId)
-      .sort((left, right) => {
-        const versionDelta = left.version - right.version;
-        if (versionDelta !== 0) {
-          return versionDelta;
-        }
-        return left.createdAt.localeCompare(right.createdAt);
-      })
+      .sort(comparePromptVersionsByArtifactOrderAsc)
       .map((version) => structuredClone(version));
 
     return {
@@ -262,13 +255,7 @@ export class MemoryChatStateRepository implements ChatStateRepository {
     );
     const artifacts = [...(this.promptVersions.get(conversation.id) ?? [])]
       .filter((version) => visibleTurnIds.has(version.turnId))
-      .sort((left, right) => {
-        const versionDelta = left.version - right.version;
-        if (versionDelta !== 0) {
-          return versionDelta;
-        }
-        return left.createdAt.localeCompare(right.createdAt);
-      })
+      .sort(comparePromptVersionsByArtifactOrderAsc)
       .map((version) => structuredClone(version));
 
     return buildPromptObservabilitySummary({
@@ -298,7 +285,7 @@ export class MemoryChatStateRepository implements ChatStateRepository {
       id: nextConversation.id,
       thread: {
         id: nextConversation.id,
-        creativeBrief: this.buildCreativeBrief([], nextConversation.promptState),
+        creativeBrief: buildCreativeBrief([], nextConversation.promptState),
         promptState: cloneConversationCreativeState(nextConversation.promptState),
         createdAt: nextConversation.createdAt,
         updatedAt: nextConversation.updatedAt,
@@ -426,51 +413,17 @@ export class MemoryChatStateRepository implements ChatStateRepository {
     });
   }
 
-  private resolveAcceptedCreativeState(
-    conversationId: string,
-    turnId: string
-  ): PersistedConversationCreativeState["committed"] | null {
-    const initialTurn = this.turns.get(turnId);
-    if (!initialTurn) {
-      return null;
-    }
-
-    const promptVersions = this.promptVersions.get(conversationId) ?? [];
-    const visited = new Set<string>();
-    let semanticTurnId: string | null = initialTurn.retryOfTurnId ?? turnId;
-
-    while (semanticTurnId && !visited.has(semanticTurnId)) {
-      visited.add(semanticTurnId);
-
-      const matchedVersion = [...promptVersions]
-        .filter(
-          (version) => version.turnId === semanticTurnId && version.candidateStateAfter !== null
-        )
-        .sort((left, right) => {
-          const stageDelta =
-            PROMPT_STAGE_PRIORITY[right.stage] - PROMPT_STAGE_PRIORITY[left.stage];
-          if (stageDelta !== 0) {
-            return stageDelta;
-          }
-          const attemptDelta = (right.attempt ?? 0) - (left.attempt ?? 0);
-          if (attemptDelta !== 0) {
-            return attemptDelta;
-          }
-          const versionDelta = right.version - left.version;
-          if (versionDelta !== 0) {
-            return versionDelta;
-          }
-          return right.createdAt.localeCompare(left.createdAt);
-        })[0];
-
-      if (matchedVersion?.candidateStateAfter) {
-        return cloneCreativeState(matchedVersion.candidateStateAfter);
-      }
-
-      semanticTurnId = this.turns.get(semanticTurnId)?.retryOfTurnId ?? null;
-    }
-
-    return null;
+  private buildAcceptedStateTraversal(conversationId: string): AcceptedStateTraversal {
+    return {
+      findLatestCandidateStateForTurn: async (turnId) => {
+        const versions = this.promptVersions.get(conversationId) ?? [];
+        const matched = versions
+          .filter((version) => version.turnId === turnId && version.candidateStateAfter !== null)
+          .sort(comparePromptVersionsByAcceptPriorityDesc)[0];
+        return matched?.candidateStateAfter ? cloneCreativeState(matched.candidateStateAfter) : null;
+      },
+      getRetryOfTurnId: async (turnId) => this.turns.get(turnId)?.retryOfTurnId ?? null,
+    };
   }
 
   async acceptConversationTurn(input: AcceptConversationTurnInput) {
@@ -489,22 +442,25 @@ export class MemoryChatStateRepository implements ChatStateRepository {
       throw new Error(`Asset ${input.assetId} was not found in conversation ${conversation.id}.`);
     }
 
-    const previousBaseAssetId = conversation.promptState.baseAssetId;
-    const nextPromptState = cloneConversationCreativeState(conversation.promptState);
-    const acceptedCreativeState =
-      nextPromptState.candidate && nextPromptState.candidateTurnId === input.turnId
-        ? cloneCreativeState(nextPromptState.candidate)
-        : this.resolveAcceptedCreativeState(conversation.id, input.turnId);
+    const acceptedCreativeState: CreativeState | null =
+      conversation.promptState.candidate &&
+      conversation.promptState.candidateTurnId === input.turnId
+        ? cloneCreativeState(conversation.promptState.candidate)
+        : await resolveAcceptedCreativeState(
+            this.buildAcceptedStateTraversal(conversation.id),
+            turn.retryOfTurnId ?? input.turnId
+          );
 
     if (!acceptedCreativeState) {
       throw new Error(`Turn ${input.turnId} is missing prompt compiler state.`);
     }
 
-    nextPromptState.committed = acceptedCreativeState;
-    nextPromptState.candidate = null;
-    nextPromptState.candidateTurnId = null;
-    nextPromptState.baseAssetId = input.assetId;
-    nextPromptState.revision += 1;
+    const { nextPromptState, previousBaseAssetId } = applyAcceptedCreativeState({
+      currentPromptState: conversation.promptState,
+      turnId: input.turnId,
+      assetId: input.assetId,
+      acceptedState: acceptedCreativeState,
+    });
 
     this.conversations.set(conversation.id, {
       ...conversation,
@@ -675,18 +631,4 @@ export class MemoryChatStateRepository implements ChatStateRepository {
     };
   }
 
-  private buildCreativeBrief(
-    turns: PersistedGenerationTurn[],
-    promptState: PersistedConversationCreativeState
-  ) {
-    const latestTurn = turns[0] ?? null;
-
-    return {
-      latestPrompt: latestTurn?.prompt ?? null,
-      latestModelId: latestTurn?.modelId ?? null,
-      acceptedAssetId: promptState.baseAssetId ?? null,
-      selectedAssetIds: latestTurn?.primaryAssetIds ?? [],
-      recentAssetRefIds: latestTurn?.referencedAssetIds ?? [],
-    };
-  }
 }

@@ -464,21 +464,6 @@ export const toConversationRecord = (row: ChatConversationRow): ChatConversation
   updatedAt: new Date(row.updated_at).toISOString(),
 });
 
-export const buildCreativeBrief = (
-  turns: PersistedGenerationTurn[],
-  promptState: PersistedConversationCreativeState
-) => {
-  const latestTurn = turns[0] ?? null;
-
-  return {
-    latestPrompt: latestTurn?.prompt ?? null,
-    latestModelId: latestTurn?.modelId ?? null,
-    acceptedAssetId: promptState.baseAssetId ?? null,
-    selectedAssetIds: latestTurn?.primaryAssetIds ?? [],
-    recentAssetRefIds: latestTurn?.referencedAssetIds ?? [],
-  };
-};
-
 export const clonePromptState = (promptState: PersistedConversationCreativeState) =>
   cloneConversationCreativeState(promptState);
 
