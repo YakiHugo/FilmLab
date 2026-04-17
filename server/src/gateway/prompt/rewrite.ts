@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ParsedImageGenerationRequest } from "../../shared/imageGenerationSchema";
 import type { AppConfig } from "../../config";
-import type { ConversationCreativeState, TurnDelta } from "./types";
+import type { ConversationCreativeState, TurnDelta } from "../../domain/prompt";
 
 const turnDeltaSchema = z.object({
   prompt: z.string().trim().min(1),

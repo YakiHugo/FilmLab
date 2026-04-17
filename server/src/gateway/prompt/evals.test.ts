@@ -10,7 +10,7 @@ import {
   createPromptCompilationContext,
 } from "./compiler";
 import { buildFallbackTurnDelta, rewriteTurn } from "./rewrite";
-import { createInitialConversationCreativeState } from "./types";
+import { createInitialConversationCreativeState } from "../../domain/prompt";
 import type { ResolvedRouteTarget } from "../router/types";
 
 const createConfig = (overrides: Partial<AppConfig> = {}): AppConfig => ({
