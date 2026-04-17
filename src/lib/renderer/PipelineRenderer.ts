@@ -1663,6 +1663,11 @@ export class PipelineRenderer {
             },
             outputFormat: "RGBA8",
             enabled: true,
+            // AsciiCarrier is a generator pass — it composites from per-cell
+            // tone/color textures and a glyph atlas, not from a prior frame.
+            // Opt out of the default uSampler injection so there is no silent
+            // dependency on FilterPipeline's input.texture.
+            usesPriorTexture: false,
           },
         ],
         input: {

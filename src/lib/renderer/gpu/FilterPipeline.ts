@@ -152,10 +152,10 @@ export class FilterPipeline {
       this.gl.useProgram(pass.programInfo.program);
       twgl.setBuffersAndAttributes(this.gl, pass.programInfo, this.quadBufferInfo);
 
-      const uniforms: Record<string, unknown> = {
-        uSampler: currentTexture,
-        ...pass.uniforms,
-      };
+      const uniforms: Record<string, unknown> = { ...pass.uniforms };
+      if (pass.usesPriorTexture !== false) {
+        uniforms.uSampler = currentTexture;
+      }
       if (pass.extraTextures) {
         for (const [uniformName, texture] of Object.entries(pass.extraTextures)) {
           if (texture) {
