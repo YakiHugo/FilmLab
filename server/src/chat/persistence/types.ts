@@ -10,7 +10,7 @@ import type {
   PersistedRunRecord,
   PersistedResultItem,
 } from "./models";
-import type { PromptVersionRecord } from "../../gateway/prompt/types";
+import type { PromptVersionRecord } from "../../domain/prompt";
 
 export interface ChatConversationRecord {
   id: string;

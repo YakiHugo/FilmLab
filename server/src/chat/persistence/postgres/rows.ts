@@ -1,7 +1,7 @@
 import {
   cloneConversationCreativeState,
   createInitialConversationCreativeState,
-} from "../../../gateway/prompt/types";
+} from "../../../domain/prompt";
 import type {
   GenerationJobSnapshot,
   PersistedAssetEdgeRecord,

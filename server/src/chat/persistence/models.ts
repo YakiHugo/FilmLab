@@ -6,10 +6,11 @@ import type {
   SemanticLoss,
   TurnDelta,
   PromptIR,
+  PromptSnapshot,
   PromptVersionStage,
   PromptVersionRecord,
   PromptVersionHashes,
-} from "../../gateway/prompt/types";
+} from "../../domain/prompt";
 
 export type {
   CreativeState as PersistedCreativeState,
@@ -17,6 +18,7 @@ export type {
   SemanticLoss as PersistedSemanticLoss,
   TurnDelta as PersistedPromptArtifactTurnDelta,
   PromptIR as PersistedPromptArtifactPromptIR,
+  PromptSnapshot as PersistedPromptSnapshot,
   PromptVersionStage as PersistedPromptArtifactStage,
   PromptVersionRecord as PersistedPromptArtifactRecord,
   PromptVersionHashes as PersistedPromptArtifactHashes,
@@ -131,15 +133,6 @@ export interface PersistedRunTargetSnapshot {
   pinned: boolean;
 }
 
-export interface PersistedPromptSnapshot {
-  originalPrompt: string;
-  compiledPrompt: string;
-  dispatchedPrompt: string | null;
-  providerEffectivePrompt: string | null;
-  semanticLosses: SemanticLoss[];
-  warnings: string[];
-}
-
 export interface PersistedRunTelemetry {
   traceId: string | null;
   providerRequestId: string | null;
@@ -156,7 +149,7 @@ export interface PersistedRunRecord {
   requestedTarget: PersistedRunTargetSnapshot | null;
   selectedTarget: PersistedRunTargetSnapshot | null;
   executedTarget: PersistedRunTargetSnapshot | null;
-  prompt: PersistedPromptSnapshot | null;
+  prompt: PromptSnapshot | null;
   error: string | null;
   warnings: string[];
   assetIds: string[];

@@ -1,6 +1,6 @@
 import type { Pool, PoolClient } from "pg";
-import { createInitialConversationCreativeState } from "../../gateway/prompt/types";
-import type { PromptVersionRecord } from "../../gateway/prompt/types";
+import { createInitialConversationCreativeState } from "../../domain/prompt";
+import type { PromptVersionRecord } from "../../domain/prompt";
 import {
   ChatConversationNotFoundError,
   ChatPromptStateConflictError,

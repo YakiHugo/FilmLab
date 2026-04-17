@@ -17,7 +17,7 @@ import type {
   ImagePromptCompilerOperationId,
   ImageProviderId,
 } from "../../../../shared/imageGeneration";
-import type { PromptVersionRecord } from "../../gateway/prompt/types";
+import type { PromptVersionRecord } from "../../domain/prompt";
 import { ChatPromptStateConflictError } from "../persistence/types";
 import type { AppConfig } from "../../config";
 import {
