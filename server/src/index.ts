@@ -5,6 +5,7 @@ import { Pool } from "pg";
 import { createAssetRepository } from "./assets/repository";
 import { AssetService } from "./assets/service";
 import { createAssetStorage } from "./assets/storage";
+import { ImageGenerationService } from "./chat/application/imageGenerationService";
 import { createChatStateRepository } from "./chat/persistence/repository";
 import { assertStartupConfig, getConfig } from "./config";
 import { createCorsPlugin } from "./plugins/cors";
@@ -60,6 +61,10 @@ export const buildServer = async () => {
   );
   app.decorate("chatStateRepository", repository);
   app.decorate("assetService", assetService);
+  app.decorate(
+    "imageGenerationService",
+    new ImageGenerationService({ repository, assetService, config })
+  );
   app.addHook("onClose", async () => {
     await repository.close();
     await assetService.close();

@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { ZodError } from "zod";
-import { ImageGenerationCommandError, ImageGenerationService, type PersistedGenerationContext } from "../chat/application/imageGenerationService";
+import { ImageGenerationCommandError, type PersistedGenerationContext } from "../chat/application/imageGenerationService";
 import type { AppConfig } from "../config";
 import { attachTraceIdHeader, getRequestTraceId } from "../shared/requestTrace";
 import { imageGenerationRequestSchema } from "../shared/imageGenerationSchema";
@@ -36,12 +36,6 @@ const sendTraceableError = (
 };
 
 export const createImageGenerateRoute = (config: AppConfig): FastifyPluginAsync => async (app) => {
-  const service = new ImageGenerationService({
-    repository: app.chatStateRepository,
-    assetService: app.assetService,
-    config,
-  });
-
   app.post(
     "/api/image-generate",
     {
@@ -85,7 +79,7 @@ export const createImageGenerateRoute = (config: AppConfig): FastifyPluginAsync 
       }
 
       try {
-        const response = await service.execute({
+        const response = await app.imageGenerationService.execute({
           userId,
           payload,
           traceId,
