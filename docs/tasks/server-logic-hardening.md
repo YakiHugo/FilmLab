@@ -1,6 +1,6 @@
 # Server Logic Hardening
 
-- Status: slice-4-done (Slice 5 boundary hardening pending)
+- Status: slice-5-done
 - Scope: harden the server-side AI gateway so an AI-only workflow has a real oracle (tests) and localized edit surfaces. Work is driven by the fact that the user codes exclusively through AI: tests must exercise production paths, parallel implementations drift silently, and large coupled modules cause edits to cross concerns.
 
 ## Goal
@@ -211,3 +211,41 @@ Decomposed the 1579-line `ImageGenerationService` into four coordinator classes 
 - Pass: `pnpm run verify:integration` (26/26, ≈2.5 s).
 - Pass: `pnpm run build:server`.
 - Pass: `git diff --check`.
+
+### Slice 5 (done)
+
+Three independent hardening items. All three share the same "fail faster at the boundary" principle but touch different boundaries (provider adapter I/O, deployment lifecycle, operator observability).
+
+- **Zod-parse provider responses.** Every provider adapter that previously narrowed `unknown` payloads via ad-hoc `isRecord` checks now parses the upstream body with a local zod schema that declares exactly the fields we consume. Unknown keys are stripped (zod's default); fields with wrong types fail parsing and propagate as a provider-level error. Behavior-preserving for well-formed responses.
+  - `server/src/providers/dashscopeShared.ts`: `dashscopeResponseSchema` covers `output.{choices[*].message.content[*].{image, text}, results[*].{url, actual_prompt}}`. `extractDashScopeImages` now reads the parsed result; the two-pass reducer (choices → fallback to results) stays the same.
+  - `server/src/providers/ark/models/seedream.ts`: `seedreamResponseSchema` covers `{message?, error.message?, data[*].{url?, b64_json?, revised_prompt?, error.message?}}`. `extractImages` and `readSeedreamErrorMessage` consume the parsed shape instead of duck-typing.
+  - `server/src/providers/kling/models/image.ts`: `klingResponseSchema` covers `{code?, message?, data.{task_id?, task_status?, task_status_msg?, task_result.images[*].{url?, watermark_url?}}}`. Create and poll responses both go through `parseKlingResponse`; invalid top-level shape now throws `ProviderError("Kling provider returned an invalid response.", 502)` instead of silently proceeding with nulls.
+  - `server/src/providers/base/client.ts` + `server/src/providers/base/types.ts`: deleted the now-unused `toProviderRawResponse` helper and `ProviderRawResponse` type. Kling's test shed its `toProviderRawResponseMock` setup.
+
+- **Database readiness probe.** `app.get("/health/ready", ...)` in `server/src/index.ts` runs `pool.query("SELECT 1")` when `DATABASE_URL` is configured and returns 503 on failure (with an error log). When no DB is configured, readiness reports `ok`. `/health` stays as the liveness check. Three new tests in `server/src/index.test.ts` cover the no-DB path, the success probe, and the 503-on-failure path. To test the DB path, the suite now mocks `pg.Pool` and `node-pg-migrate` (the runner was previously called unconditionally when `DATABASE_URL` was set).
+
+- **Per-provider call timing log.** `server/src/gateway/router/router.ts` accepts an optional `logger: FastifyBaseLogger` on `createImageRuntimeRouter(...).generate`. On every provider attempt (success or retriable failure), the router emits a log line via `logger.info`/`logger.warn` with `{ provider, model, operation, success, latencyMs, errorType? }` alongside the existing `routerHealth.record(...)` call. The logger is threaded from `ImageGenerationService.execute` → `ProviderExecutor.generate` → `router.generate`. The adapter options passed to `adapter.generate({...})` are now explicit (`signal`, `timeoutMs`, `traceId`) instead of a blind spread that was silently propagating router-only keys (including the new `logger`) into provider transports. One new test in `router.test.ts` asserts both the warn-on-retry and info-on-success log shapes.
+
+#### Behavior preservation notes
+
+- Adapter success-path behavior is unchanged for any payload that previously passed the `isRecord`-based checks. Strictness increase is limited to "wrong type on a consumed field" (e.g., `image` being a number instead of a string) which now fails parsing; the previous behavior silently skipped such items.
+- Kling's previous code returned success if the create response had `code !== 0` in a non-standard way; the new parser rejects non-number `code` values and the existing `(code ?? 0) !== 0` gate handles missing `code` the same as before.
+- `/health` response body is still `{ status: "ok" }`; `/health/ready` reports `{ status: "ok" | "unavailable" }`.
+
+### Slice 5 validation state
+
+- Pass: `pnpm lint` (no warnings).
+- Pass: `pnpm test` (607/607 — baseline 603 plus 4 new tests: 3 readiness probe cases, 1 router timing-log case).
+- Pass: `pnpm run verify:integration` (26/26, ≈2.2 s).
+- Pass: `pnpm run build:server`.
+- Pass: `git diff --check`.
+
+## Known follow-ups (deferred, not regressions)
+
+Three items were deliberately left out of Slices 1–5. Each is a trade-off called out during its slice, not a bug. Do not reopen unless the stated trigger fires.
+
+- **`ImageGenerationService.execute` is 541 lines** (Slice 4 target was 150–250). The Phase 3 `createInitial` literal and response-shape assembly stay in `execute()` because extracting them would need ~15 parameter bags and the in-place recipe reads sequentially. Trigger to revisit: a new generation modality (e.g., video, new provider family) lands in this path and forces a structural change anyway.
+
+- **`MemoryChatStateRepository` still exists** alongside `PostgresChatStateRepository`. Slice 1 decided retirement requires choosing the no-`DATABASE_URL` startup behavior (fail-fast vs. pg-mem as dev fallback). Slice 3's shared `chat/domain/*` helpers prevent the two implementations from diverging on core algorithms, so dual-path risk is bounded. Trigger to revisit: AI edits start confusing the two repos, or the startup fallback behavior becomes a real blocker.
+
+- **`Persisted*` re-export aliases** in `server/src/chat/persistence/models.ts` remain. Slice 2 deferred full removal to Slice 3; Slice 3 did not revisit. They are pure re-exports of the canonical types in `server/src/domain/prompt.ts`, so they add no runtime weight — only a naming-duplication papercut for readers. Trigger to revisit: bulk-rename of persistence types for another reason, or if a new agent mistakes `PersistedPromptSnapshot` for a distinct type from `PromptSnapshot`.
