@@ -79,8 +79,8 @@ export class ImageGenerationService {
     const { userId, payload, traceId, signal, logger } = input;
 
     let persistedGeneration: PersistedGenerationContext | null = null;
-    let createdGeneratedAssetIds: string[] = [];
-    let createdAssetEdgeIds: string[] = [];
+    const createdGeneratedAssetIds: string[] = [];
+    const createdAssetEdgeIds: string[] = [];
     let generationAssetsCommitted = false;
 
     try {
@@ -422,9 +422,9 @@ export class ImageGenerationService {
         normalizedImages,
         effectivePayload,
         completedPrompt,
+        createdGeneratedAssetIds,
+        createdAssetEdgeIds,
       });
-      createdGeneratedAssetIds = committed.createdGeneratedAssetIds;
-      createdAssetEdgeIds = committed.createdAssetEdgeIds;
 
       const executedTarget = createRunTargetSnapshot({
         modelId: generated.modelId,
