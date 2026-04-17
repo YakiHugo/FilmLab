@@ -1,6 +1,6 @@
 # Render Pipeline Single-Path Convergence
 
-- Status: in_progress
+- Status: done
 - Scope: complete the GPU-first migration for the per-image render pipeline by reinstating ASCII on GPU, auditing any remaining CPU escape hatches, and collapsing the dual `RenderSurfaceHandle` / `HTMLCanvasElement` orchestration in `renderSingleImage.ts` into a single Surface→Surface contract.
 
 ## Background
@@ -201,3 +201,114 @@ Deferred until the GPU output itself is visually validated — there is no point
 - `UNPACK_ALIGNMENT` reset to 4 after the R8 upload — 4 is the WebGL default used elsewhere.
 - `dimensionsMatch` guard in `applyAsciiCarrierOnGpuToSurface` — both sides use identical `Math.max(1, Math.round(...))` rounding, so surface and layout widths cannot drift.
 - Y-parity passthrough adds one extra draw per carrier layer — perf only, scoped to a later performance pass if it ever shows up as a hotspot.
+
+### Slice 3 findings (2026-04-16)
+
+Audit only; no code changes. Conclusion: every `ImageEffectNode["type"]` and `CarrierTransformNode["type"]` value has a GPU end-to-end path today. All residual CPU work is category (b) — internal islands bounded inside a stage whose outer contract is `RenderSurfaceHandle` in / `RenderSurfaceHandle` out (modulo the `*IfSupported` fallback envelope that Slice 4 will retire). No category (c) blockers; Slice 4 is unblocked.
+
+#### Effect / carrier type coverage
+
+Types enumerated at `src/render/image/types.ts:182-259`:
+- `ImageEffectNode` = `ImageFilter2dEffectNode` only (`type: "filter2d"`). State normalisation at `types.ts:327-328,361-362` filters all other effect shapes out before they reach the snapshot plan.
+- `CarrierTransformNode` = `ImageAsciiCarrierTransformNode` only (`type: "ascii"`). Same normalisation at `types.ts:330-331,357-359`.
+
+| Placement | Type | GPU surface entry | CPU fallback entry | Classification |
+|-----------|------|-------------------|---------------------|----------------|
+| develop / style / finalize effect | `filter2d` (unmasked) | `applyFilter2dOnGpuToSurface` (`gpuFilter2dPostProcessing.ts:32`) | `applyFilter2dPostProcessing` (`effectExecution.ts:29`) | (b) — GPU primary, CPU is runtime-degrade safety net only |
+| develop / style / finalize effect | `filter2d` (masked) | GPU effect → GPU mask shape → GPU mask range-gate → GPU masked blend (`effectExecution.ts:70-103`) | Canvas2D blend fallback inside `blendMaskedLayerIntoCanvasFallback` (`stageMaskComposite.ts:27-86`); mask shape falls back to `drawLocalMaskShape` (`effectMask.ts:36-123`); range-gate falls back to `applyLocalMaskLumaAndColorRange` (`effectMask.ts:125-169`) | (b) — each sub-step has a GPU-first primary with a per-step CPU degrade |
+| carrier | `ascii` (all modes) | `applyAsciiCarrierOnGpuToSurface` (`gpuAsciiCarrier.ts`) via `applyImageAsciiCarrierTransformToSurfaceIfSupported` (`asciiEffect.ts:490-514`) | CPU `applyImageAsciiCarrierTransform` (`asciiEffect.ts:460-488`) routes to the same GPU code path now; there is no separate Canvas2D ASCII renderer after Slice 2 | (b) — CPU does cell-grid pre-pack + glyph atlas bake; both are wrapped inside the ASCII module and hand GPU-ready textures out |
+| overlay | `timestamp` | `applyTimestampOverlayToSurfaceIfSupported` (`timestampOverlay.ts:424`) | `applyTimestampOverlayToCanvasIfSupported` (`timestampOverlay.ts:392`); ultimate Canvas2D via `applyTimestampOverlay` | (b) — GPU surface path exists; canvas helper is the legacy twin slated for collapse in Slice 4 |
+
+ASCII sub-matrix verified against `prepareCarrierGpuInput` (`asciiEffect.ts:438-451`) and `buildAsciiCarrierGpuInput` (`asciiEffect.ts:362-431`):
+- `backgroundMode ∈ {none, solid, cell-solid, blurred-source}` — all four branches pack either `backgroundFillRgba`, `cellBackgroundRgba`, or `backgroundSourceCanvas` and are consumed by `AsciiCarrier.frag` uniforms.
+- `colorMode ∈ {grayscale, full-color, duotone}` — duotone additionally populates `duotoneShadowRgba`; shader branches on `u_colorMode`.
+- `renderMode ∈ {glyph, dot}` — identical GPU path, differs only in `cellWidth` aspect (`asciiEffect.ts:138-145`) and shader glyph-vs-dot branch.
+- `foregroundBlendMode` — five `GlobalCompositeOperation` keys mapped at `asciiEffect.ts:203-213`; unmapped values fall back to `normal`, matching the Canvas2D-era semantics.
+
+#### CPU islands (category b) — bounded by stage surface contract
+
+1. `PipelineRenderer.getGlyphAtlas` (`PipelineRenderer.ts:1294`) — Canvas2D glyph atlas bake, one-shot per `(charset, cellSize, font)` tuple, output is a GPU texture. Planned exception per Decisions §17 of this task.
+2. `buildAsciiCellGrids` (`asciiEffect.ts:228-356`) — CPU downsample + tone/dither pipeline packed into `Uint8ClampedArray` tone/color buffers. Executes once per carrier; output is uploaded as GPU textures inside `renderAsciiCarrierComposite`. Closed as a Slice 2 decision; no further action.
+3. `drawLocalMaskShape` (`effectMask.ts:36-123`) — only reached when `renderLocalMaskShapeOnGpuToSurface` returns null. GPU path covers radial, linear, and brush masks up to `GPU_BRUSH_MASK_MAX_POINTS = 512` (`PipelineRenderer.ts:101,1065-1132`). The CPU rasterisation writes into the same output canvas that downstream GPU blend consumes, so the Surface-out contract of the mask stage is preserved regardless of which sub-path runs.
+4. `applyLocalMaskLumaAndColorRange` (`effectMask.ts:125-169`) — runs only if both `applyLocalMaskRangeOnGpuToSurface` and `applyLocalMaskRangeOnGpu` fail. Writes back into the same mask canvas; output shape unchanged.
+5. `applyFilter2dPostProcessing` (`effectExecution.ts:28-31`) — runtime-degrade only; `applyFilter2dOnGpu` returning false implies a destroyed / context-lost renderer.
+6. Canvas2D fallback inside `blendMaskedLayerIntoCanvasFallback` (`stageMaskComposite.ts:27-86`) — reached only if `blendMaskedCanvasesOnGpu` returns false; same degraded-context semantics.
+7. Orchestrator-level reference-snapshot clones — `trackSurfaceClone` / `cloneCanvasSnapshot` at `renderSingleImage.ts:101-114,188-191` materialise the current surface into a fresh Canvas2D canvas for four reference purposes: `developSnapshotCanvas` (`:235,238`, mask range-gate + carrier `analysisSource: "develop"`), `carrierAnalysisSnapshotCanvas` (`:311`, carrier `analysisSource: "style"` + cell-grid downsample input for `buildAsciiCellGrids`), `styleSnapshotCanvas` (`:352,378-379`, masked style-effect reference), `surfaceFinalizeSnapshotCanvas` (`:415`, masked finalize-effect reference). Each is a GPU→CPU readback at orchestrator scope, consumed by a GPU stage as a reference input and cleaned up in the final `finally`. Lifetime management moves in Slice 4 (plan line 67); allocation stays because both the mask range-gate and the ASCII cell-grid downsample require a CPU-readable source.
+
+All seven are either one-shot bake/pre-pack work (1,2), pure degraded-context fallbacks (3–6), or reference-only GPU→CPU readbacks (7). None widen a categorical gap; none return an `HTMLCanvasElement` across a stage boundary that is not immediately consumed by GPU blend, GPU stage input, or final materialisation.
+
+#### Brush mask point-count cap re-check
+
+`GPU_BRUSH_MASK_MAX_POINTS = 512` (`PipelineRenderer.ts:101`). Points beyond the cap cause `renderLocalMaskShape` to return false (`PipelineRenderer.ts:1066-1068`), which flows up to `renderLocalMaskShapeOnGpuToSurface` returning null, which in `effectMask.ts:210-226` triggers the Canvas2D `drawLocalMaskShape` fallback into the output mask canvas. The mask canvas is then consumed by `blendMaskedCanvasesOnGpuToSurface` — the Surface-in/Surface-out contract of the effect stage still holds because the CPU work stays inside the mask-stage box and its output is a GPU-consumed canvas, not a returned surface. Slice 4 does **not** require lifting the cap; it only requires that `applyImageEffectsToSurfaceIfSupported` / `applyImageCarrierTransformsToSurfaceIfSupported` remain able to produce a surface in the over-cap case, which they already do.
+
+No deeper invasions found in `gpu-brush-mask-rasterization` scope. The task claimed done covers the three call sites exercised by `renderSingleImage.ts` (develop-effect mask, style-effect mask, carrier mask, finalize-effect mask) because they all route through the same `renderImageEffectMaskToCanvas` (`effectMask.ts:187`) or `applyMaskedStageOperation*` helpers.
+
+#### Category (a) — feasible on GPU within this task
+
+None. Every typed effect/carrier already has a primary GPU path.
+
+#### Category (c) — genuinely permanent CPU
+
+None. Slice 4 is unblocked.
+
+#### Slice 4 prep notes (recorded here, not acted on)
+
+- `renderSingleImage.ts:15-26` imports six pairs of `apply*` / `apply*ToSurfaceIfSupported` helpers. The Slice 4 collapse target is to keep only the `*ToSurfaceIfSupported` variants, rename them `apply*` (mandatory, no null return on success), and delete the canvas-only twins. Remaining canvas-materialisation occurs once, at the public boundary immediately before `renderSingleImageToCanvas` returns.
+- `applyImageOverlaysToCanvasIfSupported` (`overlayExecution.ts:199`) currently owns the fallback canvas-draw path. After Slice 4 the overlay stage becomes Surface-only; the `drawImageOverlayCanvasesToCanvas` helper (`overlayExecution.ts:88-104`) can either be deleted or repurposed as the single final-materialisation site.
+- Tests mocking the old twins (`renderSingleImage.test.ts:44-47`, `renderSingleImage.test.ts:363-365,913,988` etc.) assume the `*IfSupported` variant returns null → canvas path engages. Slice 4 must rewrite those assertions, not merely delete them, to preserve the existing behaviour gate on masked vs unmasked / timestamp / finalise coverage.
+- `canvasMaterializations` debug counter at `renderSingleImage.ts:192-200` is currently > 1 per render whenever an `*IfSupported` returns null. After Slice 4 it must equal 1 on every render (per Validation Boundary line 75).
+
+No code changes made in this slice. Three parallel Explore reviews (type coverage / CPU-island classification / Slice 4 readiness) run against this audit — the only actionable finding was the omission of orchestrator-level reference-snapshot clones, now folded into CPU-island item 7 above. No other audit corrections.
+
+### Slice 4 findings (2026-04-17)
+
+Shipped on `refactor/render-single-path`. `renderSingleImage.ts` now holds one `RenderSurfaceHandle` from the develop/full base through carrier, style, overlay, and finalize — with a single final `materializeToCanvas(canvas)` before return. The `*IfSupported` null-return envelope is retired across the four per-image stage helpers.
+
+#### API collapse
+
+- `effectExecution.ts`: `applyImageEffectsToSurfaceIfSupported` renamed to `applyImageEffects` (Surface-in / Surface-out, mandatory). The Canvas-form `applyImageEffects` and its internal `applyFilter2dEffect` helper are deleted. On GPU-pass failure the helper throws instead of returning null.
+- `asciiEffect.ts`: `applyImageCarrierTransformsToSurfaceIfSupported` renamed to `applyImageCarrierTransforms` (Surface-in / Surface-out, mandatory). The Canvas-form multi-transform orchestrator and the canvas-only `applyImageAsciiCarrierTransform` / `applyImageAsciiCarrierTransformToSurfaceIfSupported` pair are collapsed into a single surface-only `applyImageAsciiCarrierTransform({ baseSurface, sourceCanvas, … })`. The stale `sourceRevisionKey` / `maskRevisionKey` / `mode` parameters that were threaded through the Canvas path are dropped — none of them reached the GPU input after Slice 2.
+- `overlayExecution.ts`: `applyImageOverlaysToSurfaceIfSupported` renamed to `applyImageOverlays`. Canvas-only helpers `applyImageOverlaysToCanvasIfSupported`, the old `applyImageOverlays` wrapper, `drawImageOverlayCanvasesToCanvas`, `blendImageOverlayCanvasesToSurfaceIfSupported`, and `renderImageOverlaysToCanvases` are deleted. The internal Canvas2D rasterization + GPU-blend-back path is inlined as a bounded CPU island inside the new helper — it runs only when `applyTimestampOverlayToSurfaceIfSupported` declines, and its output is still a `RenderSurfaceHandle`.
+- `stageMaskComposite.ts`: Canvas-form `applyMaskedStageOperation`, its private `createCanvasLayer` helper, and the Canvas2D `blendMaskedLayerIntoCanvasFallback` degrade path are deleted. Only `applyMaskedStageOperationToSurfaceIfSupported` remains; the masked-stage abstraction is now exclusively Surface→Surface.
+- `src/lib/timestampOverlay.ts`: dead `applyTimestampOverlayToCanvasIfSupported` export is removed (its only caller was the deleted canvas overlay helper).
+
+#### Orchestration shape
+
+`renderSingleImageToCanvas` went from ≈508 lines of dual-path bookkeeping to ≈330 lines of linear Surface chaining:
+
+- Single `let surface: RenderSurfaceHandle` variable threaded through `develop → (develop effects) → film → carrier → style → overlay → finalize`.
+- Removed flags: `styleEffectsAppliedOnSurface`, `overlaysAppliedOnSurface`, `finalizeEffectsAppliedOnSurface`, plus the `trackSurfaceMaterialization` wrapper.
+- Per-stage `canvas.width = 0` cleanup moved into a tiny `releaseCanvas` helper; only the cross-stage `developSnapshotCanvas` (needed by develop masks + carrier `analysisSource: "develop"`) and `carrierAnalysisSnapshotCanvas` (carrier `analysisSource: "style"` + mask reference) persist in the outer try/finally. Style and finalize snapshots are now allocated and released inside their own stage blocks.
+- `canvasMaterializations` in the debug trace is ≤ 1 per render (increments only when `canvas !== surface.sourceCanvas`). The final `surface.materializeToCanvas(canvas)` is the sole materialization boundary.
+- `applyImageOverlays` returns the overlaid surface so finalize effects chain onto the post-overlay surface — closing the old "finalize runs on canvas when overlays fell back" divergence from plan line 414–430.
+
+#### Validation
+
+- Pass: `pnpm exec tsc --noEmit --pretty false` (ran via local `node_modules/.bin/tsc`).
+- Pass: `git diff --check` (no whitespace errors).
+- Deferred: `pnpm vitest run …` targets — sandbox runs Node 18.19.1, vitest@4.1.0 + rolldown demands Node ≥ 20 (`SyntaxError: The requested module 'node:util' does not provide an export named 'styleText'`). Same blocker as Slice 2; the test files are updated to match the new contract and must be executed in a Node ≥ 20 environment before the branch is merged.
+- Deferred: `ascii-magic-parity` visual-diff fixtures — still require a live preview environment; no behavioural regression expected in Slice 4 since the ASCII path is untouched.
+
+#### Slice 4 review outcomes (2026-04-17)
+
+Three parallel Explore reviews (orchestration correctness / Surface-only stage helpers / test-coverage parity) ran against the Slice 4 edits. Findings broke into three buckets.
+
+##### Real issue found and fixed in this session
+
+- **Masked-bucket stage-reference reuse lost coverage.** The pre-Slice-4 test "uses a stable stage snapshot for masked raster effects within the same placement bucket" pinned the guarantee that two masked effects in one placement share a single `stageReferenceCanvas` for mask rasterisation. Slice 4 moved the guarantee inside `applyImageEffects` (see `effectExecution.ts:18-86` — one `stageReferenceCanvas` threaded through every masked iteration), and the rewritten `renderSingleImage.test.ts` no longer exercises it because the orchestrator now mocks `applyImageEffects` at the module boundary. Added a new test in `effectExecution.test.ts` ("shares a single stageReferenceCanvas across masked effects in the same call") that passes two masked effects in one call and asserts both `renderImageEffectMaskToCanvas` invocations receive the same `referenceSource`.
+
+##### Non-issues from the reviews (recorded for completeness)
+
+- **"Finalize runs unconditionally after overlays".** Flagged as a potential regression vs the baseline's surface-path gate `overlays.length === 0 || overlaysAppliedOnSurface`. Baseline behaviour was actually unconditional: the surface path ran finalize inside that gate, and the canvas path at `renderSingleImage.ts:449` ran finalize whenever `!finalizeEffectsAppliedOnSurface`. Net pre-/post-Slice-4 behaviour is identical — finalize effects always execute when they exist.
+- **`canvas !== surface.sourceCanvas` materialization gate.** Equivalent to the baseline's `targetCanvas !== surface.sourceCanvas` check inside `trackSurfaceMaterialization`. The public canvas never aliases a renderer slot's source canvas in practice, so the counter reliably reaches 1 per render; no hidden skip.
+- **ASCII carrier `sourceRevisionKey` / `maskRevisionKey` / `mode` params dropped.** Confirmed dead in the baseline surface path — those parameters threaded only through the Canvas twin and never reached the GPU shader input. Safe removal.
+- **`applyImageEffects` masked branch does not route through `applyMaskedStageOperationToSurfaceIfSupported`.** Intentional. The effect+mask+blend sequence is inlined (`effectExecution.ts:47-86`); the wrapper remains in use only for the carrier path where the operation is callback-shaped. Operationally equivalent.
+- **"CPU canvas fallback for overlays + finalize is no longer tested".** Retired by design; the canvas fallback is deleted, so the coverage is obsolete rather than lost.
+- **ASCII zero-dimension early return.** Handled inside `prepareCarrierGpuInput` returning `null` when `buildAsciiCellGrids` can't run; the pre-Slice-4 tests did not pin this edge case either.
+- **`createCanvasLayer` deletion.** Verified not referenced outside `stageMaskComposite.ts`; only a stale worktree mirror remains (ignored).
+
+#### Follow-ups carried forward (not in Slice 4 scope)
+
+- `applyTimestampOverlayOnGpu` / `applyFilter2dOnGpu` / `applyAsciiCarrierOnGpu` canvas-form exports at the GPU-primitive layer still exist but have no in-tree callers after this slice. A separate clean-up pass can retire them; they do not affect the orchestrator contract.
+- `FilterPipeline.execute` still injects `uSampler: currentTexture` for every pass (noted in Slice 2 findings). No change in Slice 4.
+- `canvas-preview-performance-followup` preview-executor split remains a separate task per the original non-goals list.

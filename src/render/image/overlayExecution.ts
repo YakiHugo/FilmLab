@@ -2,7 +2,6 @@ import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
 import { blendCanvasLayerOnGpuToSurface } from "@/lib/renderer/gpuCanvasLayerBlend";
 import {
   applyTimestampOverlay,
-  applyTimestampOverlayToCanvasIfSupported,
   applyTimestampOverlayToSurfaceIfSupported,
   type TimestampOverlayAdjustments,
 } from "@/lib/timestampOverlay";
@@ -15,11 +14,6 @@ interface TimestampImageOverlay {
 }
 
 export type ImageOverlayNode = TimestampImageOverlay;
-
-const resolveOverlaySlotPrefix = (fallback: string, slotIdPrefix?: string) => {
-  const normalized = slotIdPrefix?.trim();
-  return normalized && normalized.length > 0 ? normalized : fallback;
-};
 
 const ensureCanvasSize = (canvas: HTMLCanvasElement, width: number, height: number) => {
   const safeWidth = Math.max(1, Math.round(width));
@@ -58,208 +52,73 @@ export const resolveImageOverlays = ({
       ]
     : [];
 
-export const renderImageOverlaysToCanvases = async ({
-  width,
-  height,
-  overlays,
-}: {
-  width: number;
-  height: number;
-  overlays: readonly ImageOverlayNode[];
-}) => {
-  const renderedCanvases: HTMLCanvasElement[] = [];
-
-  for (const overlay of overlays) {
-    const overlayCanvas = document.createElement("canvas");
-    ensureCanvasSize(overlayCanvas, width, height);
-
-    switch (overlay.type) {
-      case "timestamp":
-        await applyTimestampOverlay(overlayCanvas, overlay.adjustments, overlay.text);
-        break;
-    }
-
-    renderedCanvases.push(overlayCanvas);
+const renderOverlayToCanvas = async (
+  overlay: ImageOverlayNode,
+  width: number,
+  height: number
+): Promise<HTMLCanvasElement> => {
+  const overlayCanvas = document.createElement("canvas");
+  ensureCanvasSize(overlayCanvas, width, height);
+  switch (overlay.type) {
+    case "timestamp":
+      await applyTimestampOverlay(overlayCanvas, overlay.adjustments, overlay.text);
+      break;
   }
-
-  return renderedCanvases;
-};
-
-export const drawImageOverlayCanvasesToCanvas = ({
-  canvas,
-  overlayCanvases,
-}: {
-  canvas: HTMLCanvasElement;
-  overlayCanvases: readonly HTMLCanvasElement[];
-}) => {
-  const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (!context || typeof context.drawImage !== "function") {
-    return false;
-  }
-
-  for (const overlayCanvas of overlayCanvases) {
-    context.drawImage(overlayCanvas, 0, 0, canvas.width, canvas.height);
-  }
-  return true;
-};
-
-export const blendImageOverlayCanvasesToSurfaceIfSupported = async ({
-  surface,
-  overlayCanvases,
-  slotIdPrefix,
-}: {
-  surface: RenderSurfaceHandle;
-  overlayCanvases: readonly HTMLCanvasElement[];
-  slotIdPrefix?: string;
-}) => {
-  let currentSurface = surface;
-  const resolvedSlotPrefix = resolveOverlaySlotPrefix(surface.slotId, slotIdPrefix);
-
-  for (let index = 0; index < overlayCanvases.length; index += 1) {
-    const overlayCanvas = overlayCanvases[index];
-    if (!overlayCanvas) {
-      continue;
-    }
-    const nextSurface = await blendCanvasLayerOnGpuToSurface({
-      surface: currentSurface,
-      layerCanvas: overlayCanvas,
-      slotId: `${resolvedSlotPrefix}:image-overlay:${index}`,
-    });
-    if (!nextSurface) {
-      return null;
-    }
-    currentSurface = nextSurface;
-  }
-
-  return currentSurface;
-};
-
-export const applyImageOverlaysToSurfaceIfSupported = async ({
-  surface,
-  overlays,
-  slotIdPrefix,
-}: {
-  surface: RenderSurfaceHandle;
-  overlays: readonly ImageOverlayNode[];
-  slotIdPrefix?: string;
-}) => {
-  let currentSurface = surface;
-  const resolvedSlotPrefix = resolveOverlaySlotPrefix(surface.slotId, slotIdPrefix);
-
-  for (let index = 0; index < overlays.length; index += 1) {
-    const overlay = overlays[index];
-    if (!overlay) {
-      continue;
-    }
-
-    switch (overlay.type) {
-      case "timestamp": {
-        const nextSurface = await applyTimestampOverlayToSurfaceIfSupported({
-          surface: currentSurface,
-          adjustments: overlay.adjustments,
-          timestampText: overlay.text,
-          slotId: `${resolvedSlotPrefix}:image-overlay:timestamp:${index}`,
-        });
-        if (nextSurface) {
-          currentSurface = nextSurface;
-          continue;
-        }
-        break;
-      }
-      default:
-        break;
-    }
-
-    const fallbackCanvases = await renderImageOverlaysToCanvases({
-      width: currentSurface.width,
-      height: currentSurface.height,
-      overlays: overlays.slice(index),
-    });
-    try {
-      return blendImageOverlayCanvasesToSurfaceIfSupported({
-        surface: currentSurface,
-        overlayCanvases: fallbackCanvases,
-        slotIdPrefix: resolvedSlotPrefix,
-      });
-    } finally {
-      cleanupImageOverlayCanvases(fallbackCanvases);
-    }
-  }
-
-  return currentSurface;
-};
-
-export const cleanupImageOverlayCanvases = (overlayCanvases: readonly HTMLCanvasElement[]) => {
-  for (const overlayCanvas of overlayCanvases) {
-    overlayCanvas.width = 0;
-    overlayCanvas.height = 0;
-  }
-};
-
-export const applyImageOverlaysToCanvasIfSupported = async ({
-  canvas,
-  overlays,
-  slotIdPrefix,
-}: {
-  canvas: HTMLCanvasElement;
-  overlays: readonly ImageOverlayNode[];
-  slotIdPrefix?: string;
-}) => {
-  const resolvedSlotPrefix = resolveOverlaySlotPrefix("image-overlay-canvas", slotIdPrefix);
-
-  for (let index = 0; index < overlays.length; index += 1) {
-    const overlay = overlays[index];
-    if (!overlay) {
-      continue;
-    }
-
-    switch (overlay.type) {
-      case "timestamp": {
-        const applied = await applyTimestampOverlayToCanvasIfSupported({
-          canvas,
-          adjustments: overlay.adjustments,
-          timestampText: overlay.text,
-          slotId: `${resolvedSlotPrefix}:image-overlay:timestamp:${index}`,
-        });
-        if (applied) {
-          continue;
-        }
-        break;
-      }
-      default:
-        break;
-    }
-
-    const fallbackCanvases = await renderImageOverlaysToCanvases({
-      width: canvas.width,
-      height: canvas.height,
-      overlays: overlays.slice(index),
-    });
-    try {
-      return drawImageOverlayCanvasesToCanvas({
-        canvas,
-        overlayCanvases: fallbackCanvases,
-      });
-    } finally {
-      cleanupImageOverlayCanvases(fallbackCanvases);
-    }
-  }
-
-  return true;
+  return overlayCanvas;
 };
 
 export const applyImageOverlays = async ({
-  canvas,
+  surface,
   overlays,
-  slotIdPrefix,
 }: {
-  canvas: HTMLCanvasElement;
+  surface: RenderSurfaceHandle;
   overlays: readonly ImageOverlayNode[];
-  slotIdPrefix?: string;
-}) => {
-  await applyImageOverlaysToCanvasIfSupported({
-    canvas,
-    overlays,
-    slotIdPrefix,
-  });
+}): Promise<RenderSurfaceHandle> => {
+  let currentSurface = surface;
+
+  for (let index = 0; index < overlays.length; index += 1) {
+    const overlay = overlays[index];
+    if (!overlay) {
+      continue;
+    }
+
+    if (overlay.type === "timestamp") {
+      const nextSurface = await applyTimestampOverlayToSurfaceIfSupported({
+        surface: currentSurface,
+        adjustments: overlay.adjustments,
+        timestampText: overlay.text,
+        slotId: `${currentSurface.slotId}:image-overlay:timestamp:${index}`,
+      });
+      if (nextSurface) {
+        currentSurface = nextSurface;
+        continue;
+      }
+    }
+
+    // GPU-direct rasterization unavailable — bake the overlay to a Canvas2D
+    // layer and composite it back onto the surface via a GPU blend. The CPU
+    // island stays bounded inside this stage: input is a Surface, output is a
+    // Surface.
+    const overlayCanvas = await renderOverlayToCanvas(
+      overlay,
+      currentSurface.width,
+      currentSurface.height
+    );
+    try {
+      const blendedSurface = await blendCanvasLayerOnGpuToSurface({
+        surface: currentSurface,
+        layerCanvas: overlayCanvas,
+        slotId: `${currentSurface.slotId}:image-overlay:${index}`,
+      });
+      if (!blendedSurface) {
+        throw new Error(`Overlay blend failed for overlay ${index}`);
+      }
+      currentSurface = blendedSurface;
+    } finally {
+      overlayCanvas.width = 0;
+      overlayCanvas.height = 0;
+    }
+  }
+
+  return currentSurface;
 };

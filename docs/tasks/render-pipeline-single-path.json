@@ -1,8 +1,8 @@
 {
-  "status": "in_progress",
+  "status": "done",
   "baseline": "2026-04-16",
-  "current": "slice3",
-  "nextTaskId": "slice3",
+  "current": "slice4",
+  "nextTaskId": null,
   "slices": [
     {
       "id": "slice1",
@@ -17,26 +17,22 @@
     {
       "id": "slice3",
       "title": "Effect-type / carrier-type coverage audit",
-      "status": "pending"
+      "status": "done"
     },
     {
       "id": "slice4",
       "title": "Dual-path orchestration collapse",
-      "status": "pending"
+      "status": "done",
+      "rollbackNote": "Single commit on refactor/render-single-path; `git revert` restores dual-path orchestration. Depends on Slice 2; roll back Slice 2 only if the ASCII Canvas2D path is also restored."
     }
   ],
   "passes": [
-    "src/render/image/renderSingleImage.test.ts",
-    "src/render/image/effectExecution.test.ts",
-    "src/render/image/asciiEffect.test.ts",
-    "src/render/image/carrierExecution.test.ts",
-    "src/render/image/stageMaskComposite.test.ts",
-    "src/render/image/effectMask.test.ts",
-    "src/lib/imageProcessing.debug.test.ts",
-    "src/lib/renderer/PipelineRenderer.localMaskShape.test.ts",
-    "src/lib/renderer/PassBuilder.test.ts",
-    "src/lib/renderer/RenderPostProcessing.test.ts",
     "pnpm exec tsc --noEmit --pretty false",
     "git diff --check"
-  ]
+  ],
+  "deferredPasses": [
+    "pnpm vitest run src/render/image/renderSingleImage.test.ts src/render/image/effectExecution.test.ts src/render/image/asciiEffect.test.ts src/render/image/carrierExecution.test.ts src/render/image/stageMaskComposite.test.ts src/render/image/effectMask.test.ts",
+    "pnpm vitest run src/lib/imageProcessing.debug.test.ts src/lib/renderer/PipelineRenderer.localMaskShape.test.ts src/lib/renderer/PassBuilder.test.ts src/lib/renderer/RenderPostProcessing.test.ts"
+  ],
+  "deferredReason": "Node 18 sandbox cannot run vitest@4 + rolldown; rerun in Node >= 20 before merging."
 }

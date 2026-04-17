@@ -1,36 +1,10 @@
-import { applyFilter2dPostProcessing } from "@/lib/filter2dPostProcessing";
 import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
-import {
-  applyFilter2dOnGpu,
-  applyFilter2dOnGpuToSurface,
-} from "@/lib/renderer/gpuFilter2dPostProcessing";
+import { applyFilter2dOnGpuToSurface } from "@/lib/renderer/gpuFilter2dPostProcessing";
 import { blendMaskedCanvasesOnGpuToSurface } from "@/lib/renderer/gpuMaskedCanvasBlend";
-import { applyMaskedStageOperation } from "./stageMaskComposite";
 import { renderImageEffectMaskToCanvas } from "./effectMask";
-import type {
-  ImageEffectNode,
-  ImageFilter2dEffectNode,
-  ImageRenderDocument,
-} from "./types";
+import type { ImageEffectNode, ImageRenderDocument } from "./types";
 
-const applyFilter2dEffect = async ({
-  canvas,
-  effect,
-}: {
-  canvas: HTMLCanvasElement;
-  effect: ImageFilter2dEffectNode;
-}) => {
-  const appliedOnGpu = await applyFilter2dOnGpu({
-    canvas,
-    params: effect.params,
-    slotId: `filter2d:${effect.id}`,
-  });
-  if (!appliedOnGpu) {
-    applyFilter2dPostProcessing(canvas, effect.params);
-  }
-};
-
-export const applyImageEffectsToSurfaceIfSupported = async ({
+export const applyImageEffects = async ({
   surface,
   document: renderDocument,
   effects,
@@ -40,12 +14,13 @@ export const applyImageEffectsToSurfaceIfSupported = async ({
   document?: ImageRenderDocument;
   effects: readonly ImageEffectNode[];
   stageReferenceCanvas?: HTMLCanvasElement;
-}) => {
+}): Promise<RenderSurfaceHandle> => {
   let currentSurface = surface;
   for (const effect of effects) {
     if (effect.type !== "filter2d") {
-      return null;
+      throw new Error(`Unsupported image effect type: ${(effect as { type: string }).type}`);
     }
+
     if (!effect.maskId) {
       const nextSurface = await applyFilter2dOnGpuToSurface({
         surface: currentSurface,
@@ -53,18 +28,20 @@ export const applyImageEffectsToSurfaceIfSupported = async ({
         slotId: `filter2d:${effect.id}`,
       });
       if (!nextSurface) {
-        return null;
+        throw new Error(`filter2d GPU pass failed for effect ${effect.id}`);
       }
       currentSurface = nextSurface;
       continue;
     }
 
     if (!renderDocument || !stageReferenceCanvas) {
-      return null;
+      throw new Error(
+        `Masked effect ${effect.id} requires document and stageReferenceCanvas.`
+      );
     }
     const maskDefinition = renderDocument.masks.byId[effect.maskId] ?? null;
     if (!maskDefinition) {
-      return null;
+      throw new Error(`Mask definition ${effect.maskId} missing for effect ${effect.id}`);
     }
 
     const effectSurface = await applyFilter2dOnGpuToSurface({
@@ -73,7 +50,7 @@ export const applyImageEffectsToSurfaceIfSupported = async ({
       slotId: `filter2d:${effect.id}`,
     });
     if (!effectSurface) {
-      return null;
+      throw new Error(`filter2d GPU pass failed for effect ${effect.id}`);
     }
 
     const maskCanvas = document.createElement("canvas");
@@ -88,7 +65,7 @@ export const applyImageEffectsToSurfaceIfSupported = async ({
         scratchCanvas,
       });
       if (!renderedMaskCanvas) {
-        return null;
+        throw new Error(`Mask rasterization failed for effect ${effect.id}`);
       }
 
       const blendedSurface = await blendMaskedCanvasesOnGpuToSurface({
@@ -98,7 +75,7 @@ export const applyImageEffectsToSurfaceIfSupported = async ({
         slotId: `effect-mask-blend:${effect.id}`,
       });
       if (!blendedSurface) {
-        return null;
+        throw new Error(`Masked effect blend failed for effect ${effect.id}`);
       }
       currentSurface = blendedSurface;
     } finally {
@@ -109,38 +86,4 @@ export const applyImageEffectsToSurfaceIfSupported = async ({
     }
   }
   return currentSurface;
-};
-
-export const applyImageEffects = async ({
-  canvas,
-  document,
-  effects,
-  stageReferenceCanvas,
-}: {
-  canvas: HTMLCanvasElement;
-  document: ImageRenderDocument;
-  effects: readonly ImageEffectNode[];
-  stageReferenceCanvas?: HTMLCanvasElement;
-}) => {
-  for (const effect of effects) {
-    const maskDefinition = effect.maskId ? document.masks.byId[effect.maskId] ?? null : null;
-    if (!maskDefinition) {
-      await applyFilter2dEffect({
-        canvas,
-        effect,
-      });
-      continue;
-    }
-    await applyMaskedStageOperation({
-      canvas,
-      maskDefinition,
-      maskReferenceCanvas: stageReferenceCanvas ?? canvas,
-      applyOperation: async ({ canvas: targetCanvas }) => {
-        await applyFilter2dEffect({
-          canvas: targetCanvas,
-          effect,
-        });
-      },
-    });
-  }
 };
