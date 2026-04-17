@@ -1,8 +1,4 @@
 import { createHash } from "node:crypto";
-import type {
-  PersistedPromptSnapshot,
-  PersistedSemanticLoss,
-} from "../../chat/persistence/models";
 import { PROMPT_COMPILER_CAPABILITY_VERSION } from "../../../../shared/imageModelCapabilityFacts";
 import {
   resolveImagePromptCompilerOperation,
@@ -16,13 +12,14 @@ import type {
   CreativeState,
   PromptCompilationContext,
   PromptIR,
+  PromptSnapshot,
   SemanticLoss,
   TurnDelta,
-} from "./types";
+} from "../../domain/prompt";
 import {
   cloneConversationCreativeState,
   cloneCreativeState,
-} from "./types";
+} from "../../domain/prompt";
 
 export const PROMPT_COMPILER_VERSION = "prompt-compiler.v1.2";
 
@@ -38,7 +35,7 @@ const hashValue = (value: unknown) =>
 const joinBulletList = (title: string, values: string[]) =>
   values.length === 0 ? null : `${title}\n${values.map((entry) => `- ${entry}`).join("\n")}`;
 
-const createSemanticLoss = (loss: PersistedSemanticLoss): SemanticLoss => ({
+const createSemanticLoss = (loss: SemanticLoss): SemanticLoss => ({
   ...loss,
 });
 
@@ -460,7 +457,7 @@ export const toPromptSnapshot = (input: {
   providerEffectivePrompt?: string | null;
   semanticLosses?: SemanticLoss[];
   warnings?: string[];
-}): PersistedPromptSnapshot => ({
+}): PromptSnapshot => ({
   originalPrompt: normalizeText(input.originalPrompt),
   compiledPrompt: input.compiledPrompt,
   dispatchedPrompt: input.dispatchedPrompt,
@@ -470,9 +467,9 @@ export const toPromptSnapshot = (input: {
 });
 
 export const withProviderEffectivePrompt = (
-  prompt: PersistedPromptSnapshot,
+  prompt: PromptSnapshot,
   providerEffectivePrompt: string | null
-): PersistedPromptSnapshot => ({
+): PromptSnapshot => ({
   ...prompt,
   providerEffectivePrompt:
     providerEffectivePrompt?.trim()

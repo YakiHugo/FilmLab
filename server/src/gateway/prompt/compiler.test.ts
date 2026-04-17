@@ -8,7 +8,7 @@ import {
   compilePromptForTarget,
   createPromptCompilationContext,
 } from "./compiler";
-import { createInitialConversationCreativeState } from "./types";
+import { createInitialConversationCreativeState } from "../../domain/prompt";
 import type { ResolvedRouteTarget } from "../router/types";
 
 const createRequest = (
