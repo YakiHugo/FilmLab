@@ -1342,14 +1342,6 @@ export class PipelineRenderer {
     }
 
     context.clearRect(0, 0, atlasCanvas.width, atlasCanvas.height);
-    // Debug aid: in DEV mode fill with a visible dark background so the
-    // data-URL snapshot (white glyphs on transparent) is not invisible
-    // against light page backgrounds. The production texture uses alpha-
-    // only so the fill is harmless — the shader reads `.a` for glyph shape.
-    if (import.meta.env.DEV) {
-      context.fillStyle = "#222222";
-      context.fillRect(0, 0, atlasCanvas.width, atlasCanvas.height);
-    }
     context.fillStyle = "#ffffff";
     context.textAlign = "center";
     context.textBaseline = "middle";
