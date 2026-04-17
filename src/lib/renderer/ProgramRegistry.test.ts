@@ -58,7 +58,7 @@ describe("ProgramRegistry", () => {
     expect(createProgramInfoMock).toHaveBeenCalledTimes(1);
     const asciiSources = (createProgramInfoMock.mock.calls as unknown[][])[0]![1] as string[];
     expect(asciiSources[1]).toContain("u_colorMode");
-    expect(asciiSources[1]).toContain("resolveTone");
+    expect(asciiSources[1]).toContain("sampleCellTone");
     expect(asciiSources[1]).toContain("u_cellBackgroundColor");
   });
 
