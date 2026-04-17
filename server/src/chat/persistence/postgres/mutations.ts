@@ -4,7 +4,7 @@ import {
   parseCreativeState,
   parsePromptState,
 } from "./rows";
-import { createInitialConversationCreativeState } from "../../../gateway/prompt/types";
+import { createInitialConversationCreativeState } from "../../../domain/prompt";
 import { createId } from "../../../../../shared/createId";
 import type { PersistedConversationCreativeState, PersistedImageSession } from "../models";
 import type {

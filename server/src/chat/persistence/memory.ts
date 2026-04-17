@@ -14,8 +14,8 @@ import {
   cloneConversationCreativeState,
   cloneCreativeState,
   createInitialConversationCreativeState,
-} from "../../gateway/prompt/types";
-import type { PromptVersionRecord } from "../../gateway/prompt/types";
+} from "../../domain/prompt";
+import type { PromptVersionRecord } from "../../domain/prompt";
 import { createId } from "../../../../shared/createId";
 import {
   ChatConversationNotFoundError,
