@@ -236,11 +236,20 @@ const createApp = async (configOverrides?: Partial<import("../config").AppConfig
   const { default: Fastify } = await import("fastify");
   const { createAuthPlugin } = await import("../plugins/auth");
   const { createImageGenerateRoute } = await import("./image-generate");
+  const { ImageGenerationService } = await import("../chat/application/imageGenerationService");
   const testConfig = { ...defaultTestConfig, ...configOverrides } as import("../config").AppConfig;
 
   const app = Fastify();
   app.decorate("chatStateRepository", repositoryMock);
   app.decorate("assetService", assetServiceMock as unknown as AssetService);
+  app.decorate(
+    "imageGenerationService",
+    new ImageGenerationService({
+      repository: app.chatStateRepository,
+      assetService: app.assetService,
+      config: testConfig,
+    })
+  );
   await app.register(createAuthPlugin(testConfig));
   await app.register(createImageGenerateRoute(testConfig));
   return app;
