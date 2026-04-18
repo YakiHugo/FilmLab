@@ -3,7 +3,7 @@
 ## General
 
 - Prefer the lightest process that preserves safety; do not turn optional tools or workflows into mandatory ceremony for low-risk changes.
-- Be direct and objective. Push back when a proposal would worsen the code.
+- Be direct and objective. Push back when a proposal would worsen the code — e.g., introduces unrequested abstraction or dependencies, violates a rule in this file, reduces testability, forces re-reading prior context (breaks stateless extraction), or stacks another local patch on a known hotspot.
 - Do not excessively use emojis.
 - Inspect the relevant code before proposing changes. Decide small local details yourself; escalate only irreversible, security, architecture, or public-API boundary changes.
 - When I ask for a change overview, explain the post-change overall architecture first. Cover every major affected file, its role in that architecture, and for any large, high-responsibility, or newly created component or module, include a concise description of its internal logic.
@@ -46,14 +46,26 @@
 - Only codify an `agent-browser` flow under `scripts/` and `package.json` when it is stable and expected to be rerun regularly; otherwise a one-off manual smoke pass is enough.
 - When replacing fragile logic, prefer behavior-preserving coverage or explicit validation notes before broad refactors.
 
-## Review And Subagents
+## Subagents
 
-- Use subagents for bounded exploration or review when they materially reduce risk; keep orchestration, implementation, integration, and test authoring in the main agent unless the work is already sliced cleanly.
-- Choose the minimum review surface that matches the change. Architecture, bug/regression, and performance reviews are conditional, not mandatory ceremony.
-- Default to a skeptical review posture: actively look for likely bugs, regressions, invalid assumptions, and missing validation before concluding "no issues found".
-- Review findings must be concrete. If no concrete issues are found, say "no issues found".
-- Classify each finding (real bug / defensive improvement / non-issue) and present the assessment before applying fixes. Do not mechanically apply all findings.
-- Before committing an independent step, resolve or explicitly accept findings from any review passes that were chosen for that step.
+- Use subagents for bounded exploration or parallel lookups when they materially reduce risk or context load; keep orchestration, implementation, integration, and test authoring in the main agent.
+- Do not delegate work that is not already sliced cleanly — slice first, delegate second.
+
+## Review
+
+- Root rule: you cannot review your own fresh implementation. Every review runs in a new session or a subagent; the implementer is never the reviewer.
+- Review is not required for typos, local renames, or comment-only edits. Everything else is reviewable.
+- Performance review is a specialized pass, not routine. Trigger only for hot paths, render/IO pipelines, batched loops, or a concrete regression signal.
+- Review scope is semantic/logical issues that require reasoning. Do not re-check anything `tsc`, linter, or the test suite already covers — those are verified by running them, not by review.
+- The review checks violations of rules in this file: unreachable recovery, unrequested abstraction, alias over primitive without new invariant, behavior-narrating comments, dual compat paths kept after a migration, function/file over ~500 lines, hotspot stacked with another local patch, ignoring in-flight `docs/tasks` notes.
+- It also checks: logic errors and broken invariants; wrong ordering or concurrency assumptions; boundary conditions (empty / extreme / re-entrant); regressions in adjacent behavior not covered by existing tests; missed reuse of existing helpers or domain modules; scope creep — the change doing more than asked; hidden shared mutable state that breaks stateless extraction.
+- A finding is concrete only when it has all three: (1) location (`file:line` or identifiable region), (2) the issue stated against a named rule or a specific failure mode, (3) a proposed fix or an explicit tradeoff. "Seems off", "could be better", "might break edge cases" are not findings.
+- If nothing concrete is found, say "no issues found". Do not pad.
+- Classify each finding and present the list before applying anything:
+  - real bug — will manifest as wrong behavior or a broken invariant. Default: fix.
+  - rule violation — breaks a rule in this file even if no bug manifests. Default: fix.
+  - nit — style preference, no bug, no rule violation. Default: do not fix unless asked or trivially cheap.
+- Before committing an independent step, every real-bug and rule-violation finding must be resolved or explicitly accepted with a one-line reason.
 
 ## Using GitHub
 
