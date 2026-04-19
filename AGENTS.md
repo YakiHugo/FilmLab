@@ -28,6 +28,14 @@
 - Keep the JSON terse: stable task statuses such as `pending`, `in_progress`, `blocked`, `done`, `rolled_back`; `passes` as the completion gate; baseline/current task; rollback notes only when not obvious.
 - The first session must at least slice the work and define validation boundaries; it may also complete the first slice if that slice is low-risk and fully validated.
 - If a slice fails validation and is not fixed immediately, mark it `blocked` or `rolled_back`, record the first actionable failure in the markdown note, and stop claiming progress.
+- When every slice reaches `done`, close the task: migrate load-bearing decisions and known follow-ups into `docs/decisions.md`, then delete the `docs/tasks/<topic>.{md,json}` pair. Slice-by-slice handoff is carried by git history, not by long-lived docs.
+
+## Documentation Hygiene
+
+- `docs/decisions.md` carries cross-task, long-lived decisions and deliberately-kept trade-offs with revisit triggers. `docs/tasks/*` holds only in-flight work.
+- Do not write state assertions that rot on every commit: no "file is N lines", no "`pnpm test` passes today", no "function is at `foo.ts:123`". Agents verify state by running commands or grepping code.
+- Reference code by stable anchor (`src/foo.ts::barFunction`, exported symbol name, module path) rather than by line number. If the anchor disappears, grep fails honestly.
+- Before writing a new doc, check whether the information is derivable from code or `git log`. If yes, skip the doc.
 
 ## Compact Instructions
 

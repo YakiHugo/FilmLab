@@ -1,8 +1,0 @@
-{
-  "tasks": [
-    { "id": "slice-1-keys", "name": "Extract cache key functions", "status": "done" },
-    { "id": "slice-2-source", "name": "Extract source loading", "status": "done" },
-    { "id": "slice-3-split-fn", "name": "Split renderImageStageInternal", "status": "done" }
-  ],
-  "passes": "tsc --noEmit: pass"
-}
