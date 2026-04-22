@@ -13,7 +13,7 @@
 
 ## Code Convention
 
-- Split a file or function only when the extracted piece can be understood and modified without reading back into the original; prefer stateless extractions. Keep functions under ~500 lines for AST-based retrieval.
+- Split a file or function only when the extracted piece can be understood and modified without reading back into the original; prefer stateless extractions.
 - If a hotspot keeps regressing, prefer a structural refactor over more local patches.
 - Keep shared helpers near their domain first; move them to `src/utils` only when they are stable, domain-neutral, and reused across boundaries.
 - do not add aliases over `string`, primitives, or existing unions unless they add a real invariant or boundary.
@@ -57,7 +57,7 @@
 - Review is not required for typos, local renames, or comment-only edits. Everything else is reviewable.
 - Performance review is a specialized pass, not routine. Trigger only for hot paths, render/IO pipelines, batched loops, or a concrete regression signal.
 - Review scope is semantic/logical issues that require reasoning. Do not re-check anything `tsc`, linter, or the test suite already covers — those are verified by running them, not by review.
-- The review checks violations of rules in this file: unreachable recovery, unrequested abstraction, alias over primitive without new invariant, behavior-narrating comments, dual compat paths kept after a migration, function/file over ~500 lines, hotspot stacked with another local patch, ignoring in-flight `docs/tasks` notes.
+- The review checks violations of rules in this file: unreachable recovery, unrequested abstraction, alias over primitive without new invariant, behavior-narrating comments, dual compat paths kept after a migration, hotspot stacked with another local patch, ignoring in-flight `docs/tasks` notes.
 - It also checks: logic errors and broken invariants; wrong ordering or concurrency assumptions; boundary conditions (empty / extreme / re-entrant); regressions in adjacent behavior not covered by existing tests; missed reuse of existing helpers or domain modules; scope creep — the change doing more than asked; hidden shared mutable state that breaks stateless extraction.
 - A finding is concrete only when it has all three: (1) location (`file:line` or identifiable region), (2) the issue stated against a named rule or a specific failure mode, (3) a proposed fix or an explicit tradeoff. "Seems off", "could be better", "might break edge cases" are not findings.
 - If nothing concrete is found, say "no issues found". Do not pad.
@@ -72,6 +72,7 @@
 - Never mention Claude Code in PR descriptions, PR comments, or issue comments.
 - Use the gh tool for GitHub-related operations.
 - When commits are requested, keep them atomic: commit each validated independent step rather than bundling unrelated changes.
+- When uncommitted work spans multiple validated slices, split one commit per slice; temporarily rewind shared task md/json to each slice's boundary state before staging, so every commit reflects the state at that slice's completion and nothing later.
 
 ## Commit & Pull Request Guidelines
 

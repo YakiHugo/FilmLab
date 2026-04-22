@@ -66,6 +66,15 @@
   - unused import probe 触发 `error` 退出码，全仓 `warn→error` 升级后现有代码零违反。
 - 未改 `.gitignore`：`.eslintcache` 走 `node_modules/.cache/`（已覆盖），`*.tsbuildinfo` 已在列表。
 
+### `retired-identifier-lint` — done (2026-04-22)
+
+- 改动：
+  - `AGENTS.md`: 删 500 行规则（Code Convention 首条与 Review checks 枚举里的 `function/file over ~500 lines`）。
+- 审计 `remoteAssetId` / `threadAssetId`：
+  - TS/JS 源树零匹配（`grep -n` 仅命中文档和本 task 的 md/json）。
+  - SQL 层残留 `thread_asset_id`：`server/migrations/001_baseline.sql:109` 定义列，`conversationQueries.ts:117` `SELECT thread_asset_id AS asset_id` 对外收口到 `assetId`，`mutations.ts:514` 用作 INSERT 列名。列名是 snake_case，与 TS 标识符命名空间天然隔离。
+  - 结论：不加 lint。`no-restricted-syntax` 只能约束 TS 标识符，而 TS 侧两个标识符已全量消失；agent 默认反射路径上全是 `assetId`（`assetSyncApi.ts`、`assets.ts`、查询 alias），没有反射触发点。四判据 (1) runtime 不可逆后果 与 (4) 不在反射路径 都不成立 → 归 cleanup task（未来若 DB 列迁移再处理）。
+
 ## Handoff
 
 下 session 读本 md + JSON，按 `nextTaskId` 进入。slice 完成后更新 JSON `status`，未过就记 first actionable failure 到本 md 的 Validation Log 段。

@@ -1,7 +1,7 @@
 {
   "baseline": "2026-04-22",
-  "current": "retired-identifier-lint",
-  "nextTaskId": "retired-identifier-lint",
+  "current": "dead-code-scan",
+  "nextTaskId": "dead-code-scan",
   "tasks": [
     {
       "id": "lint-typecheck-feedback",
@@ -14,7 +14,7 @@
     },
     {
       "id": "retired-identifier-lint",
-      "status": "pending",
+      "status": "done",
       "passes": [
         "AGENTS.md 500-line function rule removed",
         "audit whether remoteAssetId / threadAssetId still carry runtime-irreversible risk (wire or DB residue); if yes add no-restricted-syntax with redirect message; if no, record rationale in harness-improvements.md and close this slice without adding rules"
