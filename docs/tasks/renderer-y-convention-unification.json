@@ -1,0 +1,43 @@
+{
+  "topic": "renderer-y-convention-unification",
+  "slices": [
+    {
+      "id": "slice-1-y-invariant-vert-drop-parity",
+      "status": "committed",
+      "commit": "70f1648",
+      "summary": "Fullscreen.vert → a_position*0.5+0.5; FilterPipeline 去 parity hack；PipelineRenderer 构造参数收缩。保留 UNPACK_FLIP_Y=1 与 B 类 shader pixel 数学不动。",
+      "passes": ["tsc -b", "vitest full (601/601)"],
+      "files": [
+        "src/lib/renderer/shaders/Fullscreen.vert",
+        "src/lib/renderer/gpu/FilterPipeline.ts",
+        "src/lib/renderer/PipelineRenderer.ts"
+      ]
+    },
+    {
+      "id": "slice-2-b-class-pixel-y-alignment",
+      "status": "awaiting_user_validation",
+      "summary": "Geometry / AsciiCarrier / TimestampOverlay / BrushMaskStamp 的 pixel.y 翻到图像约定 (pixel = vec2(vTex.x, 1-vTex.y) * size)；Geometry enabled 分支采样 uSampler 时翻 v (sourceUv y-down → storage v=1-sourceUv.y) 以配合保留的 UNPACK_FLIP_Y=1。非源图 upload (blueNoise/damage/border/glyphAtlas/cellColor/cellTone) 全部无需改，各自方向已与 y-down 对齐。Overscan/FilmEffectsUber/FilmDamage 的 fract(vTex*k) tile 起点会翻转但视觉对称/随机，接受。",
+      "passes": ["tsc -b", "vitest full (601/601)"],
+      "pending_validation": "用户需浏览器目视验证：(a) Geometry rotate/translate/flip/perspective 方向回到 JS 语义；(b) ASCII cell 网格对齐图像顶；(c) Timestamp 位置对；(d) Brush mask 戳点位置对。",
+      "files": [
+        "src/lib/renderer/shaders/Geometry.frag",
+        "src/lib/renderer/shaders/AsciiCarrier.frag",
+        "src/lib/renderer/shaders/TimestampOverlay.frag",
+        "src/lib/renderer/shaders/BrushMaskStamp.frag"
+      ]
+    },
+    {
+      "id": "slice-3-cleanup-tests-decisions",
+      "status": "pending",
+      "summary": "单测里 parity 奇偶假设更新；docs/decisions.md 更新约定；Passthrough.frag 里的 parity 注释删除。",
+      "passes": [],
+      "files": [
+        "src/lib/renderer/gpu/*.test.ts",
+        "src/lib/renderer/PipelineRenderer.*.test.ts",
+        "docs/decisions.md"
+      ]
+    }
+  ],
+  "current_slice": "slice-2-b-class-pixel-y-alignment",
+  "rollback": "Slice 1 revert 三个文件即可；Slice 2/3 叠加后整体 revert 到 Slice 1 baseline。"
+}
