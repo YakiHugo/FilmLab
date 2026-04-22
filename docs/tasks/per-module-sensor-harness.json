@@ -3,17 +3,19 @@
   "slices": [
     {
       "id": "slice-1-imageprocessing-boundary-contract",
-      "status": "pending",
+      "status": "done",
       "summary": "把 RenderBoundaryMetrics 变成固定矩阵测试的 ceiling 合同；dev 下 boundaries 挂 globalThis.__filmlab_lastBoundaries。",
       "passes": [
         "pnpm lint",
         "pnpm typecheck",
-        "pnpm test (含新 imageProcessing.boundaries.test.ts)"
+        "pnpm test (608 passed, 含 imageProcessing.boundaries.test.ts 的 7 条用例)"
       ],
       "files": [
         "src/lib/imageProcessing.boundaries.test.ts",
-        "src/render/image/renderSingleImage.ts"
-      ]
+        "src/render/image/renderSingleImage.ts",
+        "src/render/image/renderSingleImage.test.ts"
+      ],
+      "notes": "ImageRenderDebugResult.boundaries 扩展为完整 RenderBoundaryMetrics（含 textureUploads / cpuPixelReads），orchestrator 通过 accumulateStageBoundaries 聚合 stage debug。renderSingleImage.test.ts 的 createStageDebug stub 补齐 outputKind/boundaries 以满足新契约。ceiling: default textureUploads≤1 / canvasClones=0; ascii textureUploads≤1 / canvasClones=1; film textureUploads≤2 / canvasClones=0。"
     },
     {
       "id": "slice-2-render-image-baseline",
@@ -101,6 +103,6 @@
       ]
     }
   ],
-  "current_slice": "slice-1-imageprocessing-boundary-contract",
-  "rollback": "每 slice 自含回滚范围；本任务无跨 slice 全局回滚需求。本会话只写文档无代码变动，回滚 = 删两份 docs/tasks/per-module-sensor-harness.{md,json}。"
+  "current_slice": "slice-2-render-image-baseline",
+  "rollback": "每 slice 自含回滚范围；本任务无跨 slice 全局回滚需求。Slice 1 回滚：删 src/lib/imageProcessing.boundaries.test.ts + revert renderSingleImage.ts 的 boundaries 扩展/globalThis 挂点 + revert renderSingleImage.test.ts 的 createStageDebug 补全。"
 }

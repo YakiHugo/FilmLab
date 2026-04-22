@@ -197,6 +197,13 @@ const createStageDebug = (stageId: "develop-base" | "film-stage" | "full", statu
   },
   activePasses: stageId === "develop-base" ? ["geometry", "master"] : ["film", "optics"],
   pipelineRendered: status === "rendered",
+  outputKind: "renderer-slot" as const,
+  boundaries: {
+    textureUploads: 0,
+    canvasMaterializations: 0,
+    canvasClones: 0,
+    cpuPixelReads: 0,
+  },
   usedCpuGeometry: stageId !== "film-stage",
   usedViewportRoi: false,
   usedTiledPipeline: false,

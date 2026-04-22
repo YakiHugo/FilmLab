@@ -9,7 +9,12 @@ import type {
   RenderImageStageSurfaceResult,
 } from "@/lib/imageProcessing";
 import { sha256FromCanvas } from "@/lib/hash";
-import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
+import {
+  cloneRenderBoundaryMetrics,
+  createEmptyRenderBoundaryMetrics,
+  type RenderBoundaryMetrics,
+  type RenderSurfaceHandle,
+} from "@/lib/renderSurfaceHandle";
 import type { RenderIntent } from "@/lib/renderIntent";
 import { applyImageCarrierTransforms } from "./asciiEffect";
 import { applyImageEffects } from "./effectExecution";
@@ -43,10 +48,7 @@ export interface ImageRenderTraceStage {
 export interface ImageRenderDebugResult {
   stages?: ImageRenderTraceStage[];
   outputHash?: string;
-  boundaries?: {
-    canvasMaterializations: number;
-    canvasClones: number;
-  };
+  boundaries?: RenderBoundaryMetrics;
 }
 
 export interface RenderSingleImageResult {
@@ -145,13 +147,17 @@ export const renderSingleImageToCanvas = async ({
   });
   assertSupportedImageRenderSnapshotPlan(snapshotPlan);
   const debugStages = request.debug?.trace ? ([] as ImageRenderTraceStage[]) : null;
-  const debugBoundaries = {
-    canvasMaterializations: 0,
-    canvasClones: 0,
-  };
+  const debugBoundaries = createEmptyRenderBoundaryMetrics();
   const trackSurfaceClone = (surface: RenderSurfaceHandle) => {
     debugBoundaries.canvasClones += 1;
     return surface.cloneToCanvas();
+  };
+  const accumulateStageBoundaries = (stageDebug?: RenderImageStageDebugInfo) => {
+    if (!stageDebug) {
+      return;
+    }
+    debugBoundaries.textureUploads += stageDebug.boundaries.textureUploads;
+    debugBoundaries.cpuPixelReads += stageDebug.boundaries.cpuPixelReads;
   };
 
   const hasDevelopEffects = snapshotPlan.developEffects.length > 0;
@@ -180,6 +186,7 @@ export const renderSingleImageToCanvas = async ({
         internalStageId: developBaseResult.stageId,
         lowLevel: developBaseResult.debug,
       });
+      accumulateStageBoundaries(developBaseResult.debug);
       let developSurface = developBaseResult.surface;
 
       if (requiresDevelopSnapshot) {
@@ -217,6 +224,7 @@ export const renderSingleImageToCanvas = async ({
           internalStageId: filmStageResult.stageId,
           lowLevel: filmStageResult.debug,
         });
+        accumulateStageBoundaries(filmStageResult.debug);
       } else {
         const fullRenderResult = await renderSnapshotToSurface({
           document,
@@ -230,6 +238,7 @@ export const renderSingleImageToCanvas = async ({
           internalStageId: fullRenderResult.stageId,
           lowLevel: fullRenderResult.debug,
         });
+        accumulateStageBoundaries(fullRenderResult.debug);
       }
     } else {
       const fullRenderResult = await renderSnapshotToSurface({
@@ -244,6 +253,7 @@ export const renderSingleImageToCanvas = async ({
         internalStageId: fullRenderResult.stageId,
         lowLevel: fullRenderResult.debug,
       });
+      accumulateStageBoundaries(fullRenderResult.debug);
     }
 
     if (snapshotPlan.carrierTransforms.length > 0) {
@@ -333,13 +343,16 @@ export const renderSingleImageToCanvas = async ({
     if (debugStages) {
       debugResult.stages = debugStages;
     }
-    debugResult.boundaries = {
-      canvasMaterializations: debugBoundaries.canvasMaterializations,
-      canvasClones: debugBoundaries.canvasClones,
-    };
+    debugResult.boundaries = cloneRenderBoundaryMetrics(debugBoundaries);
     if (request.debug.outputHash) {
       debugResult.outputHash = await sha256FromCanvas(canvas);
     }
+  }
+
+  if (import.meta.env.DEV) {
+    (
+      globalThis as { __filmlab_lastBoundaries?: RenderBoundaryMetrics }
+    ).__filmlab_lastBoundaries = cloneRenderBoundaryMetrics(debugBoundaries);
   }
 
   return {
