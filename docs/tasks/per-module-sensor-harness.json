@@ -1,0 +1,106 @@
+{
+  "topic": "per-module-sensor-harness",
+  "slices": [
+    {
+      "id": "slice-1-imageprocessing-boundary-contract",
+      "status": "pending",
+      "summary": "把 RenderBoundaryMetrics 变成固定矩阵测试的 ceiling 合同；dev 下 boundaries 挂 globalThis.__filmlab_lastBoundaries。",
+      "passes": [
+        "pnpm lint",
+        "pnpm typecheck",
+        "pnpm test (含新 imageProcessing.boundaries.test.ts)"
+      ],
+      "files": [
+        "src/lib/imageProcessing.boundaries.test.ts",
+        "src/render/image/renderSingleImage.ts"
+      ]
+    },
+    {
+      "id": "slice-2-render-image-baseline",
+      "status": "pending",
+      "summary": "test-assets/baselines/ 建立 stages+outputHash+boundaries baseline JSON；新增 renderSingleImage.baseline.test.ts diff 基线；ImageRenderTraceOperation 加 signature 扁平字段。",
+      "passes": [
+        "pnpm test",
+        "baseline JSON 在 PR 里 hash 变化显式可见"
+      ],
+      "files": [
+        "test-assets/baselines/**/*.json",
+        "src/render/image/renderSingleImage.baseline.test.ts",
+        "src/render/image/renderSingleImage.ts"
+      ]
+    },
+    {
+      "id": "slice-3-renderer-error-payload",
+      "status": "pending",
+      "summary": "新增 reportGlError 替换 PipelineRenderer 7 处 catch；ProgramRegistry 编译后做 uniform 对齐自检；dev ring buffer 挂 __filmlab_glErrors。",
+      "passes": [
+        "pnpm test (含新负向 shader 测试)",
+        "现有 PipelineRenderer.* / ProgramRegistry 单测不回归"
+      ],
+      "files": [
+        "src/lib/renderer/reportGlError.ts",
+        "src/lib/renderer/PipelineRenderer.ts",
+        "src/lib/renderer/ProgramRegistry.ts"
+      ]
+    },
+    {
+      "id": "slice-4-client-server-traceid",
+      "status": "pending",
+      "summary": "server 错误 body 统一 {traceId,stage,providerErrorCode?,causeSummary}；client 抽 x-request-id 与 stage 入 error state；image-lab toast 显 traceId。",
+      "passes": [
+        "pnpm test (含新错误 body schema 测试)",
+        "agent-browser 生成失败时 client traceId 与 server 日志 x-request-id 一致"
+      ],
+      "files": [
+        "server/src/routes/image-generate.ts",
+        "server/src/chat/application/imageGenerationService.ts",
+        "src/lib/api/*",
+        "src/features/image-lab/hooks/**"
+      ]
+    },
+    {
+      "id": "slice-5-db-structured-logger",
+      "status": "pending",
+      "summary": "新增 src/lib/db.logger.ts；替换 db.ts 27 处 console.*；ring buffer 挂 __filmlab_dbLog。",
+      "passes": [
+        "pnpm test (db.loadAssets.test.ts 等不回归)",
+        "db.ts 内 console.* 被完全替换"
+      ],
+      "files": [
+        "src/lib/db.logger.ts",
+        "src/lib/db.ts"
+      ]
+    },
+    {
+      "id": "slice-6-canvas-command-trace",
+      "status": "pending",
+      "summary": "dispatch 入口打 CanvasCommandEvent；state digest 走 src/lib/hash；dev ring buffer __filmlab_canvasTrace 限 200。",
+      "passes": [
+        "pnpm test (含新 3 条 dispatch 测试)",
+        "现有 canvasContextActions / canvasLayerOrderActions 单测不回归"
+      ],
+      "files": [
+        "src/features/canvas/canvasCommandTrace.ts",
+        "src/features/canvas/canvasContextActions.ts",
+        "src/features/canvas/canvasLayerOrderActions.ts"
+      ]
+    },
+    {
+      "id": "slice-7-server-per-stage-logger",
+      "status": "pending",
+      "summary": "gateway/routes/providers 每 stage request.log.child({stage})；provider error 带 providerId/modelId/responseStatus/responseBodyPreview。",
+      "passes": [
+        "pnpm test (含新 provider 错误 stage 断言)",
+        "现有 router / image-generate 测试不回归"
+      ],
+      "files": [
+        "server/src/gateway/prompt/*",
+        "server/src/gateway/router/*",
+        "server/src/routes/image-generate.ts",
+        "server/src/providers/base/client.ts"
+      ]
+    }
+  ],
+  "current_slice": "slice-1-imageprocessing-boundary-contract",
+  "rollback": "每 slice 自含回滚范围；本任务无跨 slice 全局回滚需求。本会话只写文档无代码变动，回滚 = 删两份 docs/tasks/per-module-sensor-harness.{md,json}。"
+}
