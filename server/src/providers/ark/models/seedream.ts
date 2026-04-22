@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getStylePromptHint } from "../../../shared/imageStyleHints";
 import { createProviderRequestContext, fetchProviderResponse } from "../../base/client";
-import { ProviderError, readProviderError } from "../../base/errors";
+import { ProviderError, createProviderResponseError } from "../../base/errors";
 import type {
   PlatformProviderGenerateInput,
   ProviderGeneratedImage,
@@ -158,10 +158,7 @@ export const generateArkSeedream = async (
   );
 
   if (!upstream.ok) {
-    throw new ProviderError(
-      await readProviderError(upstream, "Ark image generation failed."),
-      upstream.status
-    );
+    throw await createProviderResponseError(upstream, "Ark image generation failed.");
   }
 
   const parsed = seedreamResponseSchema.safeParse(await upstream.json());

@@ -78,6 +78,11 @@ export class ImageGenerationService {
     const { repository, assetService, config } = this.deps;
     const { userId, payload, traceId, signal, logger } = input;
 
+    const promptCompileLog = logger.child({ stage: "prompt-compile" });
+    const providerCallLog = logger.child({ stage: "provider-call" });
+    const normalizeLog = logger.child({ stage: "normalize" });
+    const persistLog = logger.child({ stage: "persist" });
+
     let persistedGeneration: PersistedGenerationContext | null = null;
     const createdGeneratedAssetIds: string[] = [];
     const createdAssetEdgeIds: string[] = [];
@@ -201,7 +206,7 @@ export class ImageGenerationService {
         promptContext,
         persistedRequestSnapshot,
         signal,
-        logger,
+        logger: promptCompileLog,
         ids: { rewriteRunId, imageRunId, turnId, traceId },
         createdAt,
       });
@@ -328,7 +333,7 @@ export class ImageGenerationService {
       const generated = await this.providerExecutor.generate(routingRequest, {
         signal,
         traceId,
-        logger,
+        logger: providerCallLog,
         targets: prompts.routeTargets,
         resolveRequest: async (target) => {
           dispatchState.attempt += 1;
@@ -391,7 +396,7 @@ export class ImageGenerationService {
             turnId: persistedGeneration?.turnId ?? null,
             runId: persistedGeneration?.runId ?? null,
           },
-          logger
+          normalizeLog
         );
 
       if (normalizedImages.length === 0) {
@@ -512,7 +517,7 @@ export class ImageGenerationService {
           expectedRevision: conversation.promptState.revision,
           completedAt,
           turnId,
-          logger,
+          logger: persistLog,
         });
       }
 

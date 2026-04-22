@@ -1,6 +1,6 @@
 import { buildDashScopePrompt, extractDashScopeImages, toDashScopeSize } from "../../dashscopeShared";
 import { createProviderRequestContext, fetchProviderResponse } from "../../base/client";
-import { ProviderError, readProviderError } from "../../base/errors";
+import { ProviderError, createProviderResponseError } from "../../base/errors";
 import type { PlatformProviderGenerateInput, RuntimeGenerationResult } from "../../base/types";
 
 const getDashScopeGenerationUrl = (baseUrl: string) =>
@@ -59,10 +59,7 @@ export const generateDashscopeZImage = async (
   );
 
   if (!upstream.ok) {
-    throw new ProviderError(
-      await readProviderError(upstream, "Z Image generation failed."),
-      upstream.status
-    );
+    throw await createProviderResponseError(upstream, "Z Image generation failed.");
   }
 
   const images = extractDashScopeImages((await upstream.json()) as unknown);

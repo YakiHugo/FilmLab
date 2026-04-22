@@ -117,20 +117,27 @@
     },
     {
       "id": "slice-7-server-per-stage-logger",
-      "status": "pending",
-      "summary": "gateway/routes/providers 每 stage request.log.child({stage})；provider error 带 providerId/modelId/responseStatus/responseBodyPreview。",
+      "status": "done",
+      "summary": "imageGenerationService 按 stage 创建 child logger 传入各协作者；ProviderError 扩展 providerId/modelId/responseStatus/responseBodyPreview；router catch 自动 stamp target 信息；provider HTTP 错误改用 createProviderResponseError 捕获 responseBody preview；generationPersister.handleFailure 日志携带全部 enrichment 字段。",
       "passes": [
-        "pnpm test (含新 provider 错误 stage 断言)",
-        "现有 router / image-generate 测试不回归"
+        "pnpm lint",
+        "pnpm typecheck",
+        "pnpm test (631 passed, 新增 image-generate.test.ts 1 条 enrichment 断言)"
       ],
       "files": [
-        "server/src/gateway/prompt/*",
-        "server/src/gateway/router/*",
-        "server/src/routes/image-generate.ts",
-        "server/src/providers/base/client.ts"
-      ]
+        "server/src/providers/base/errors.ts",
+        "server/src/providers/kling/models/image.ts",
+        "server/src/providers/dashscope/models/qwen.ts",
+        "server/src/providers/dashscope/models/zimage.ts",
+        "server/src/providers/ark/models/seedream.ts",
+        "server/src/gateway/router/router.ts",
+        "server/src/chat/application/imageGenerationService.ts",
+        "server/src/chat/application/imageGeneration/generationPersister.ts",
+        "server/src/routes/image-generate.test.ts"
+      ],
+      "notes": "ProviderError 新增 ProviderErrorOptions 类型，含 providerId/modelId/responseStatus/responseBodyPreview 四个可选字段。errors.ts 内部提取 extractErrorMessage 共享函数，readProviderError 与新增 createProviderResponseError 均复用。createProviderResponseError 返回 Promise<ProviderError>，自动填充 responseStatus 与 responseBodyPreview（截 200 字符）。5 处 HTTP 错误抛出（kling create+poll / dashscope qwen / dashscope zimage / ark seedream）改用 createProviderResponseError。router.ts executeWithFallback catch 块对 ProviderError 自动 stamp providerId ??= target.provider.id / modelId ??= target.deployment.providerModel。imageGenerationService.execute() 创建 4 个 child logger（prompt-compile / provider-call / normalize / persist），分别传给 promptCompileCoordinator.resolveInitialPrompts / providerExecutor.generate / collectNormalizedImages / generationPersister.updateDeferredPromptState。handleFailure 保持接收基础 logger（错误可能来自任意 stage），其 ProviderError 分支 warn 日志新增 providerId / modelId / responseStatus / responseBodyPreview 四字段。"
     }
   ],
-  "current_slice": "slice-7-server-per-stage-logger",
-  "rollback": "每 slice 自含回滚范围；本任务无跨 slice 全局回滚需求。Slice 1 回滚：删 src/lib/imageProcessing.boundaries.test.ts + revert renderSingleImage.ts 的 boundaries 扩展/globalThis 挂点 + revert renderSingleImage.test.ts 的 createStageDebug 补全。Slice 2 回滚：删 test-assets/baselines/*.json + 删 renderSingleImage.baseline.test.ts + revert renderSingleImage.ts 的 signature 字段与 computeTraceSignature / appendTraceOperation 签名变更。Slice 3 回滚：删 reportGlError.ts / reportGlError.test.ts + revert PipelineRenderer.ts 7 处 catch 至原 `if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }` 单行 + revert ProgramRegistry.ts 的 verifyUniformAlignment / collectDeclaredUniforms / stripGlslComments + revert ProgramRegistry.test.ts 与 PipelineRenderer.localMaskShape.test.ts 的新增用例。Slice 4 回滚：revert shared/imageGeneration.ts 的 ImageGenStage 新增 + revert ImageGenerationCommandError.stage 与 providerErrorCode/causeSummary 字段 + revert ProviderError 的 options 第 4 参数 + revert router.ts 两处 stage:'route' + revert imageGenerationService 的 normalize 包装 + revert generationPersister.handleFailure 分派 + revert image-generate.ts 的 sendTraceableError 扩展 + revert src/lib/ai/imageGeneration.ts 的 header fallback 与 __filmlab_lastImageGenError + revert useImageLabCommands notice 拼接 + 删 image-generate.test.ts 与 imageGeneration.test.ts 新增用例。Slice 5 回滚：删 src/lib/db.logger.ts / src/lib/db.logger.test.ts + revert db.ts 的 import 与 27 处 logDb/logDbError，改回原 console.warn('IndexedDB <caller> failed:', error) / 原 blocked/terminated/initDB 的 console.warn 字面串。Slice 6 回滚：删 src/features/canvas/canvasCommandTrace.ts / canvasCommandTrace.test.ts + revert canvasWorkbenchService.ts 的 traceCanvasCommand import 与 4 处 trace 调用（executeWorkbenchCommand / commitInteractionInWorkbench / undo / redo 各 1 处）+ revert hash.ts 的 fnv1aDigest 导出与 fallbackHash→fnv1a 重命名。"
+  "current_slice": null,
+  "rollback": "每 slice 自含回滚范围；本任务无跨 slice 全局回滚需求。Slice 1 回滚：删 src/lib/imageProcessing.boundaries.test.ts + revert renderSingleImage.ts 的 boundaries 扩展/globalThis 挂点 + revert renderSingleImage.test.ts 的 createStageDebug 补全。Slice 2 回滚：删 test-assets/baselines/*.json + 删 renderSingleImage.baseline.test.ts + revert renderSingleImage.ts 的 signature 字段与 computeTraceSignature / appendTraceOperation 签名变更。Slice 3 回滚：删 reportGlError.ts / reportGlError.test.ts + revert PipelineRenderer.ts 7 处 catch 至原 `if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }` 单行 + revert ProgramRegistry.ts 的 verifyUniformAlignment / collectDeclaredUniforms / stripGlslComments + revert ProgramRegistry.test.ts 与 PipelineRenderer.localMaskShape.test.ts 的新增用例。Slice 4 回滚：revert shared/imageGeneration.ts 的 ImageGenStage 新增 + revert ImageGenerationCommandError.stage 与 providerErrorCode/causeSummary 字段 + revert ProviderError 的 options 第 4 参数 + revert router.ts 两处 stage:'route' + revert imageGenerationService 的 normalize 包装 + revert generationPersister.handleFailure 分派 + revert image-generate.ts 的 sendTraceableError 扩展 + revert src/lib/ai/imageGeneration.ts 的 header fallback 与 __filmlab_lastImageGenError + revert useImageLabCommands notice 拼接 + 删 image-generate.test.ts 与 imageGeneration.test.ts 新增用例。Slice 5 回滚：删 src/lib/db.logger.ts / src/lib/db.logger.test.ts + revert db.ts 的 import 与 27 处 logDb/logDbError，改回原 console.warn('IndexedDB <caller> failed:', error) / 原 blocked/terminated/initDB 的 console.warn 字面串。Slice 6 回滚：删 src/features/canvas/canvasCommandTrace.ts / canvasCommandTrace.test.ts + revert canvasWorkbenchService.ts 的 traceCanvasCommand import 与 4 处 trace 调用（executeWorkbenchCommand / commitInteractionInWorkbench / undo / redo 各 1 处）+ revert hash.ts 的 fnv1aDigest 导出与 fallbackHash→fnv1a 重命名。Slice 7 回滚：revert errors.ts 的 ProviderErrorOptions 类型 + ProviderError 新增字段 + extractErrorMessage 重构 + createProviderResponseError 导出 + revert kling/image.ts、dashscope/qwen.ts、dashscope/zimage.ts、ark/seedream.ts 的 createProviderResponseError 改回 readProviderError + throw 模式 + revert router.ts executeWithFallback catch 块的 providerId/modelId stamp + revert imageGenerationService.ts 的 child logger 创建与 4 处 logger 替换（promptCompileLog/providerCallLog/normalizeLog/persistLog 改回 logger）+ revert generationPersister.ts handleFailure warn 日志的 4 个新增字段 + 删 image-generate.test.ts 的 enrichment 断言。"
 }
