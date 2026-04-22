@@ -1681,4 +1681,44 @@ describe("imageGenerateRoute", () => {
 
     await app.close();
   });
+
+  it("enriches provider errors with providerId, modelId, and response context", async () => {
+    const { ProviderError } = await import("../providers/base/errors");
+    generateMock.mockRejectedValue(
+      new ProviderError("Upstream rejected.", 502, undefined, {
+        providerId: "dashscope",
+        modelId: "qwen-image-2.0-pro",
+        responseStatus: 503,
+        responseBodyPreview: '{"error":"service unavailable"}',
+      })
+    );
+
+    const app = await createApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/image-generate",
+      headers: {
+        Authorization: createBearerToken("user-1"),
+      },
+      payload: {
+        prompt: "Studio portrait",
+        modelId: "qwen-image-2-pro",
+        aspectRatio: "1:1",
+        batchSize: 1,
+        style: "none",
+        modelParams: {},
+      },
+    });
+
+    expect(response.statusCode).toBe(502);
+    const body = response.json() as Record<string, unknown>;
+    expect(body).toMatchObject({
+      error: "Upstream rejected.",
+      stage: "provider-call",
+      causeSummary: expect.stringContaining("ProviderError"),
+    });
+    expect(body.traceId).toEqual(expect.any(String));
+
+    await app.close();
+  });
 });

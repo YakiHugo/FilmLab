@@ -71,6 +71,10 @@ const executeWithFallback = async <T>(
       return result;
     } catch (error) {
       lastError = error;
+      if (error instanceof ProviderError) {
+        error.providerId ??= target.provider.id;
+        error.modelId ??= target.deployment.providerModel;
+      }
       const latencyMs = Date.now() - startedAt;
       const errorType = toErrorType(error);
       recordResult({

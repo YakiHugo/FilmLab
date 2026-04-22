@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getStylePromptHint } from "../../../shared/imageStyleHints";
 import { createProviderRequestContext, fetchProviderResponse } from "../../base/client";
-import { ProviderError, readProviderError } from "../../base/errors";
+import { ProviderError, createProviderResponseError } from "../../base/errors";
 import type {
   PlatformProviderGenerateInput,
   ProviderGeneratedImage,
@@ -139,10 +139,7 @@ const pollKlingTask = async (
     );
 
     if (!pollResponse.ok) {
-      throw new ProviderError(
-        await readProviderError(pollResponse, "Kling image generation failed."),
-        pollResponse.status
-      );
+      throw await createProviderResponseError(pollResponse, "Kling image generation failed.");
     }
 
     const pollPayload = parseKlingResponse(await pollResponse.json());
@@ -209,10 +206,7 @@ export const generateKlingImage = async (
   );
 
   if (!createResponse.ok) {
-    throw new ProviderError(
-      await readProviderError(createResponse, "Kling image generation failed."),
-      createResponse.status
-    );
+    throw await createProviderResponseError(createResponse, "Kling image generation failed.");
   }
 
   const createPayload = parseKlingResponse(await createResponse.json());
