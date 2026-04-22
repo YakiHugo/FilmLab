@@ -32,6 +32,7 @@ import { extractImageProcessState } from "./types";
 
 export interface ImageRenderTraceOperation {
   kind: "low-level" | "effects" | "carrier" | "overlay";
+  signature: string;
   internalStageId?: RenderImageStageResult["stageId"];
   lowLevel?: RenderImageStageDebugInfo;
   effectPlacement?: ImageEffectPlacement;
@@ -39,6 +40,25 @@ export interface ImageRenderTraceOperation {
   carrierCount?: number;
   overlayCount?: number;
 }
+
+const computeTraceSignature = (
+  operation: Omit<ImageRenderTraceOperation, "signature">
+): string => {
+  switch (operation.kind) {
+    case "low-level": {
+      const stageId = operation.internalStageId ?? "unknown";
+      const status = operation.lowLevel?.status ?? "unknown";
+      const passes = operation.lowLevel?.activePasses.join("+") || "none";
+      return `low-level:${stageId}:${status}:${passes}`;
+    }
+    case "effects":
+      return `effects:${operation.effectPlacement ?? "unknown"}:${operation.effectCount ?? 0}`;
+    case "carrier":
+      return `carrier:${operation.carrierCount ?? 0}`;
+    case "overlay":
+      return `overlay:${operation.overlayCount ?? 0}`;
+  }
+};
 
 export interface ImageRenderTraceStage {
   id: "develop" | "style" | "overlay" | "finalize";
@@ -59,19 +79,23 @@ export interface RenderSingleImageResult {
 const appendTraceOperation = (
   stages: ImageRenderTraceStage[] | null,
   stageId: ImageRenderTraceStage["id"],
-  operation: ImageRenderTraceOperation | null
+  operation: Omit<ImageRenderTraceOperation, "signature"> | null
 ) => {
   if (!stages || !operation) {
     return;
   }
+  const withSignature: ImageRenderTraceOperation = {
+    ...operation,
+    signature: computeTraceSignature(operation),
+  };
   const existing = stages.find((stage) => stage.id === stageId);
   if (existing) {
-    existing.operations.push(operation);
+    existing.operations.push(withSignature);
     return;
   }
   stages.push({
     id: stageId,
-    operations: [operation],
+    operations: [withSignature],
   });
 };
 

@@ -19,17 +19,24 @@
     },
     {
       "id": "slice-2-render-image-baseline",
-      "status": "pending",
+      "status": "done",
       "summary": "test-assets/baselines/ 建立 stages+outputHash+boundaries baseline JSON；新增 renderSingleImage.baseline.test.ts diff 基线；ImageRenderTraceOperation 加 signature 扁平字段。",
       "passes": [
-        "pnpm test",
-        "baseline JSON 在 PR 里 hash 变化显式可见"
+        "pnpm lint",
+        "pnpm typecheck",
+        "pnpm test (614 passed, 含 renderSingleImage.baseline.test.ts 的 6 条用例)"
       ],
       "files": [
-        "test-assets/baselines/**/*.json",
+        "test-assets/baselines/small.default.json",
+        "test-assets/baselines/small.ascii.json",
+        "test-assets/baselines/small.film.json",
+        "test-assets/baselines/wide.default.json",
+        "test-assets/baselines/wide.ascii.json",
+        "test-assets/baselines/wide.film.json",
         "src/render/image/renderSingleImage.baseline.test.ts",
         "src/render/image/renderSingleImage.ts"
-      ]
+      ],
+      "notes": "ImageRenderTraceOperation 新增必填 signature: string（low-level:<stageId>:<status>:<passes> / effects:<placement>:<n> / carrier:<n> / overlay:<n>），由 appendTraceOperation 计算；lowLevel 保留嵌套。基线 diff test 走 6 条固定矩阵（2 asset × 3 preset），UPDATE_BASELINES=1 写回 JSON；stage mock 按 seedKey + stageId 派生确定性字节，保证每 (asset, preset) outputHash 唯一。"
     },
     {
       "id": "slice-3-renderer-error-payload",
@@ -103,6 +110,6 @@
       ]
     }
   ],
-  "current_slice": "slice-2-render-image-baseline",
-  "rollback": "每 slice 自含回滚范围；本任务无跨 slice 全局回滚需求。Slice 1 回滚：删 src/lib/imageProcessing.boundaries.test.ts + revert renderSingleImage.ts 的 boundaries 扩展/globalThis 挂点 + revert renderSingleImage.test.ts 的 createStageDebug 补全。"
+  "current_slice": "slice-3-renderer-error-payload",
+  "rollback": "每 slice 自含回滚范围；本任务无跨 slice 全局回滚需求。Slice 1 回滚：删 src/lib/imageProcessing.boundaries.test.ts + revert renderSingleImage.ts 的 boundaries 扩展/globalThis 挂点 + revert renderSingleImage.test.ts 的 createStageDebug 补全。Slice 2 回滚：删 test-assets/baselines/*.json + 删 renderSingleImage.baseline.test.ts + revert renderSingleImage.ts 的 signature 字段与 computeTraceSignature / appendTraceOperation 签名变更。"
 }

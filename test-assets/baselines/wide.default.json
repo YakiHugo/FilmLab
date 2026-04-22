@@ -1,0 +1,82 @@
+{
+  "stages": [
+    {
+      "id": "develop",
+      "operations": [
+        {
+          "kind": "low-level",
+          "internalStageId": "full",
+          "lowLevel": {
+            "stageId": "full",
+            "mode": "preview",
+            "slotId": "slot:full",
+            "status": "rendered",
+            "dirty": {
+              "sourceDirty": true,
+              "geometryDirty": true,
+              "masterDirty": true,
+              "hslDirty": false,
+              "curveDirty": false,
+              "detailDirty": false,
+              "filmDirty": true,
+              "opticsDirty": true,
+              "outputDirty": true
+            },
+            "timings": {
+              "decodeMs": 0,
+              "geometryMs": 0,
+              "pipelineMs": 0,
+              "composeMs": 0,
+              "totalMs": 0
+            },
+            "cache": {
+              "sourceKey": "source",
+              "geometryKey": "geometry",
+              "pipelineKey": "pipeline:full",
+              "outputKey": "output:full",
+              "tilePlanKey": null
+            },
+            "activePasses": [
+              "geometry",
+              "master",
+              "film",
+              "optics"
+            ],
+            "pipelineRendered": true,
+            "outputKind": "renderer-slot",
+            "boundaries": {
+              "textureUploads": 1,
+              "canvasMaterializations": 0,
+              "canvasClones": 0,
+              "cpuPixelReads": 0
+            },
+            "usedCpuGeometry": false,
+            "usedViewportRoi": false,
+            "usedTiledPipeline": false,
+            "tileCount": 0,
+            "error": null
+          },
+          "signature": "low-level:full:rendered:geometry+master+film+optics"
+        }
+      ]
+    },
+    {
+      "id": "finalize",
+      "operations": [
+        {
+          "kind": "effects",
+          "effectPlacement": "finalize",
+          "effectCount": 1,
+          "signature": "effects:finalize:1"
+        }
+      ]
+    }
+  ],
+  "outputHash": "7ceab879955d18221037682be9f0a51c394410d8a976959240bc3e706caf5e37",
+  "boundaries": {
+    "textureUploads": 1,
+    "canvasMaterializations": 1,
+    "canvasClones": 0,
+    "cpuPixelReads": 0
+  }
+}
