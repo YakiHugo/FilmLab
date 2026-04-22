@@ -40,17 +40,22 @@
     },
     {
       "id": "slice-3-renderer-error-payload",
-      "status": "pending",
+      "status": "done",
       "summary": "新增 reportGlError 替换 PipelineRenderer 7 处 catch；ProgramRegistry 编译后做 uniform 对齐自检；dev ring buffer 挂 __filmlab_glErrors。",
       "passes": [
-        "pnpm test (含新负向 shader 测试)",
-        "现有 PipelineRenderer.* / ProgramRegistry 单测不回归"
+        "pnpm lint",
+        "pnpm typecheck",
+        "pnpm test (620 passed, 含 reportGlError.test.ts 2 条 / PipelineRenderer.localMaskShape.test.ts 新增 2 条负向用例 / ProgramRegistry.test.ts 新增 2 条 uniform-binding 用例)"
       ],
       "files": [
         "src/lib/renderer/reportGlError.ts",
+        "src/lib/renderer/reportGlError.test.ts",
         "src/lib/renderer/PipelineRenderer.ts",
-        "src/lib/renderer/ProgramRegistry.ts"
-      ]
+        "src/lib/renderer/PipelineRenderer.localMaskShape.test.ts",
+        "src/lib/renderer/ProgramRegistry.ts",
+        "src/lib/renderer/ProgramRegistry.test.ts"
+      ],
+      "notes": "reportGlError 事件形状：{op: 'compileShader'|'linkProgram'|'fbo'|'drawArrays'|'texImage'|'uniform-binding', rendererLabel, shaderName?, passId?, glError?, compileLog?, declaredOrphans?, boundOrphans?, cause?}。Dev 写 globalThis.__filmlab_glErrors，上限 50，超限剪前缀；prod 不 noop，始终 console.error('[gl-error]', event) 保留非静默路径。PipelineRenderer 7 处 catch 全部改走 reportGlError，op 统一 'drawArrays'，passId 分别：filter2d-passthrough / filter2d-pipeline / local-mask-range-gate / local-mask-shape-brush / local-mask-shape-gradient / ascii-carrier-composite / timestamp-overlay-composite。ProgramRegistry.defineLazyProgram 在 import.meta.env.DEV 下对新编译的 ProgramInfo 跑 verifyUniformAlignment：正则剥注释后解析 uniform 声明集合，与 programInfo.uniformSetters 对齐（后者 key 去掉 [N] 后再比对），declared/bound 任一出现孤立即 reportGlError({op:'uniform-binding', shaderName, rendererLabel:'program-registry', declaredOrphans, boundOrphans}); programInfo 没有 uniformSetters 时（旧 test mock）直接跳过。"
     },
     {
       "id": "slice-4-client-server-traceid",
@@ -110,6 +115,6 @@
       ]
     }
   ],
-  "current_slice": "slice-3-renderer-error-payload",
-  "rollback": "每 slice 自含回滚范围；本任务无跨 slice 全局回滚需求。Slice 1 回滚：删 src/lib/imageProcessing.boundaries.test.ts + revert renderSingleImage.ts 的 boundaries 扩展/globalThis 挂点 + revert renderSingleImage.test.ts 的 createStageDebug 补全。Slice 2 回滚：删 test-assets/baselines/*.json + 删 renderSingleImage.baseline.test.ts + revert renderSingleImage.ts 的 signature 字段与 computeTraceSignature / appendTraceOperation 签名变更。"
+  "current_slice": "slice-4-client-server-traceid",
+  "rollback": "每 slice 自含回滚范围；本任务无跨 slice 全局回滚需求。Slice 1 回滚：删 src/lib/imageProcessing.boundaries.test.ts + revert renderSingleImage.ts 的 boundaries 扩展/globalThis 挂点 + revert renderSingleImage.test.ts 的 createStageDebug 补全。Slice 2 回滚：删 test-assets/baselines/*.json + 删 renderSingleImage.baseline.test.ts + revert renderSingleImage.ts 的 signature 字段与 computeTraceSignature / appendTraceOperation 签名变更。Slice 3 回滚：删 reportGlError.ts / reportGlError.test.ts + revert PipelineRenderer.ts 7 处 catch 至原 `if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }` 单行 + revert ProgramRegistry.ts 的 verifyUniformAlignment / collectDeclaredUniforms / stripGlslComments + revert ProgramRegistry.test.ts 与 PipelineRenderer.localMaskShape.test.ts 的新增用例。"
 }

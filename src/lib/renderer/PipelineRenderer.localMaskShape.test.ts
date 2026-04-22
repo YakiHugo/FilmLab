@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LocalAdjustmentMask } from "@/types";
 import { PipelineRenderer } from "./PipelineRenderer";
+import { clearGlErrorRing, readGlErrorRing } from "./reportGlError";
 
 type MockPass = {
   id: string;
@@ -34,6 +35,7 @@ const createRendererStub = () => {
     fullMaskTexture: { id: "full-mask" },
     lastTargetWidth: 0,
     lastTargetHeight: 0,
+    rendererLabel: "preview",
   } as unknown as PipelineRenderer;
 
   return {
@@ -112,6 +114,72 @@ describe("PipelineRenderer.renderLocalMaskShape", () => {
     const call = runToCanvas.mock.calls[0]?.[0] as { passes: MockPass[] };
     expect(call.passes).toHaveLength(1);
     expect(call.passes[0]?.programInfo).toBe(programs.maskInvert);
+  });
+
+  describe("with reportGlError instrumentation", () => {
+    beforeEach(() => {
+      clearGlErrorRing();
+      vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("pushes a structured drawArrays event when runToCanvas throws on a brush mask", () => {
+      const { renderer, runToCanvas } = createRendererStub();
+      const cause = new Error("boom: brush draw failed");
+      runToCanvas.mockImplementation(() => {
+        throw cause;
+      });
+      const mask: LocalAdjustmentMask = {
+        mode: "brush",
+        brushSize: 0.1,
+        feather: 0.2,
+        flow: 0.5,
+        points: [{ x: 0.5, y: 0.5, pressure: 1 }],
+      };
+
+      const rendered = renderLocalMaskShape.call(renderer, mask, 32, 32);
+      expect(rendered).toBe(false);
+
+      const ring = readGlErrorRing();
+      expect(ring).toHaveLength(1);
+      expect(ring[0]).toMatchObject({
+        op: "drawArrays",
+        passId: "local-mask-shape-brush",
+        rendererLabel: "preview",
+        cause,
+      });
+    });
+
+    it("pushes a structured drawArrays event when runToCanvas throws on a radial gradient", () => {
+      const { renderer, runToCanvas } = createRendererStub();
+      const cause = new Error("boom: gradient draw failed");
+      runToCanvas.mockImplementation(() => {
+        throw cause;
+      });
+      const mask: LocalAdjustmentMask = {
+        mode: "radial",
+        centerX: 0.5,
+        centerY: 0.5,
+        radiusX: 0.3,
+        radiusY: 0.3,
+        feather: 0.2,
+      };
+
+      const rendered = renderLocalMaskShape.call(renderer, mask, 32, 32);
+      expect(rendered).toBe(false);
+
+      const ring = readGlErrorRing();
+      expect(ring).toHaveLength(1);
+      expect(ring[0]).toMatchObject({
+        op: "drawArrays",
+        passId: "local-mask-shape-gradient",
+        rendererLabel: "preview",
+        cause,
+      });
+    });
   });
 
   it("fails safe for very large brush point sets so callers can fall back to CPU", () => {
