@@ -3,7 +3,7 @@ const toHex = (bytes: Uint8Array) =>
     .map((value) => value.toString(16).padStart(2, "0"))
     .join("");
 
-const fallbackHash = (bytes: Uint8Array) => {
+const fnv1a = (bytes: Uint8Array) => {
   let hash = 2166136261;
   for (const byte of bytes) {
     hash ^= byte;
@@ -11,6 +11,9 @@ const fallbackHash = (bytes: Uint8Array) => {
   }
   return `fnv1a-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 };
+
+export const fnv1aDigest = (input: string): string =>
+  fnv1a(new TextEncoder().encode(input));
 
 export const sha256FromBytes = async (bytes: Uint8Array): Promise<string> => {
   if (typeof crypto !== "undefined" && crypto.subtle) {
@@ -20,7 +23,7 @@ export const sha256FromBytes = async (bytes: Uint8Array): Promise<string> => {
   }
 
   // Only used in environments that do not expose WebCrypto.
-  return fallbackHash(bytes);
+  return fnv1a(bytes);
 };
 
 export const sha256FromBlob = async (blob: Blob): Promise<string> => {
