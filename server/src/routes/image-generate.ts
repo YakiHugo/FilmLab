@@ -1,9 +1,11 @@
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { ZodError } from "zod";
 import { ImageGenerationCommandError, type PersistedGenerationContext } from "../chat/application/imageGenerationService";
+import { summarizeCause } from "../chat/application/imageGeneration/errors";
 import type { AppConfig } from "../config";
 import { attachTraceIdHeader, getRequestTraceId } from "../shared/requestTrace";
 import { imageGenerationRequestSchema } from "../shared/imageGenerationSchema";
+import type { ImageGenStage } from "../../../shared/imageGeneration";
 
 const toPersistedGenerationResponse = (
   persistedGeneration: PersistedGenerationContext | null
@@ -24,6 +26,9 @@ const sendTraceableError = (
     statusCode: number;
     error: string;
     traceId: string;
+    stage: ImageGenStage;
+    providerErrorCode?: string;
+    causeSummary?: string;
     persistedGeneration?: PersistedGenerationContext | null;
   }
 ) => {
@@ -31,6 +36,9 @@ const sendTraceableError = (
   return reply.code(input.statusCode).send({
     error: input.error,
     traceId: input.traceId,
+    stage: input.stage,
+    ...(input.providerErrorCode ? { providerErrorCode: input.providerErrorCode } : {}),
+    ...(input.causeSummary ? { causeSummary: input.causeSummary } : {}),
     ...toPersistedGenerationResponse(input.persistedGeneration ?? null),
   });
 };
@@ -75,6 +83,8 @@ export const createImageGenerateRoute = (config: AppConfig): FastifyPluginAsync 
           statusCode: 400,
           error: message,
           traceId,
+          stage: "prompt-compile",
+          causeSummary: summarizeCause(error),
         });
       }
 
@@ -97,6 +107,9 @@ export const createImageGenerateRoute = (config: AppConfig): FastifyPluginAsync 
             statusCode: error.statusCode,
             error: error.message,
             traceId,
+            stage: error.stage,
+            providerErrorCode: error.providerErrorCode,
+            causeSummary: error.causeSummary,
             persistedGeneration: error.persistedGeneration,
           });
         }
@@ -106,6 +119,8 @@ export const createImageGenerateRoute = (config: AppConfig): FastifyPluginAsync 
           statusCode: 500,
           error: "Image generation failed.",
           traceId,
+          stage: "provider-call",
+          causeSummary: summarizeCause(error),
         });
       } finally {
         request.raw.removeListener("aborted", abortRequest);

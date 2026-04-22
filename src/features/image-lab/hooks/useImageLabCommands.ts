@@ -137,7 +137,20 @@ export function useImageLabCommands(input: {
         }
 
         if (!(error instanceof Error && error.name === "AbortError")) {
-          input.setNotice(error instanceof Error ? error.message : "Image generation failed.");
+          const baseMessage =
+            error instanceof Error ? error.message : "Image generation failed.";
+          const trailingParts: string[] = [];
+          if (requestError?.stage) {
+            trailingParts.push(requestError.stage);
+          }
+          if (requestError?.traceId) {
+            trailingParts.push(`trace ${requestError.traceId.slice(-8)}`);
+          }
+          const message =
+            trailingParts.length > 0
+              ? `${baseMessage} [${trailingParts.join(" · ")}]`
+              : baseMessage;
+          input.setNotice(message);
         }
         return null;
       } finally {

@@ -1,10 +1,21 @@
+import type { ImageGenStage } from "../../../../shared/imageGeneration";
+
 export class ProviderError extends Error {
   statusCode: number;
+  stage?: ImageGenStage;
+  providerErrorCode?: string;
 
-  constructor(message: string, statusCode = 502, cause?: unknown) {
+  constructor(
+    message: string,
+    statusCode = 502,
+    cause?: unknown,
+    options?: { stage?: ImageGenStage; providerErrorCode?: string }
+  ) {
     super(message, cause ? { cause } : undefined);
     this.name = "ProviderError";
     this.statusCode = statusCode;
+    this.stage = options?.stage;
+    this.providerErrorCode = options?.providerErrorCode;
   }
 }
 
