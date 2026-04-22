@@ -159,6 +159,7 @@ export class PromptCompileCoordinator {
       throw new ImageGenerationCommandError({
         statusCode: 400,
         message: firstIssue?.message ?? "Request is incompatible with selected model.",
+        stage: "prompt-compile",
       });
     }
   }
@@ -229,6 +230,7 @@ export class PromptCompileCoordinator {
       throw new ImageGenerationCommandError({
         statusCode: 400,
         message: "Exact retry is unavailable because no prior prompt snapshot was found.",
+        stage: "prompt-compile",
       });
     }
 
@@ -237,6 +239,7 @@ export class PromptCompileCoordinator {
       throw new ImageGenerationCommandError({
         statusCode: 400,
         message: "Exact retry target is no longer available. Use recompile retry instead.",
+        stage: "prompt-compile",
       });
     }
 

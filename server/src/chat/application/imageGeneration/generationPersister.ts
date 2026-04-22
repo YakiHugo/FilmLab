@@ -16,7 +16,11 @@ import type { ChatAttemptRecord, ChatStateRepository } from "../../persistence/t
 import { ChatPromptStateConflictError } from "../../persistence/types";
 import type { PromptVersionRecord } from "../../../domain/prompt";
 import type { ImageProviderId } from "../../../../../shared/imageGeneration";
-import { ImageGenerationCommandError, type PersistedGenerationContext } from "./errors";
+import {
+  ImageGenerationCommandError,
+  summarizeCause,
+  type PersistedGenerationContext,
+} from "./errors";
 
 export type CreateInitialGenerationInput = {
   conversationId: string;
@@ -209,7 +213,9 @@ export class GenerationPersister {
       return new ImageGenerationCommandError({
         statusCode: 409,
         message: "Conversation state changed during prompt compilation. Please retry.",
+        stage: "persist",
         persistedGeneration,
+        causeSummary: summarizeCause(error),
         cause: error,
       });
     }
@@ -218,6 +224,8 @@ export class GenerationPersister {
         logger.warn(
           {
             err: error,
+            stage: error.stage ?? "provider-call",
+            providerErrorCode: error.providerErrorCode,
             conversationId: persistedGeneration?.conversationId ?? null,
             turnId: persistedGeneration?.turnId ?? null,
             jobId: persistedGeneration?.jobId ?? null,
@@ -230,7 +238,10 @@ export class GenerationPersister {
       return new ImageGenerationCommandError({
         statusCode: error.statusCode,
         message: error.message,
+        stage: error.stage ?? "provider-call",
         persistedGeneration,
+        providerErrorCode: error.providerErrorCode,
+        causeSummary: summarizeCause(error),
         cause: error,
       });
     }
@@ -251,7 +262,9 @@ export class GenerationPersister {
     return new ImageGenerationCommandError({
       statusCode: 500,
       message: "Image generation failed.",
+      stage: "provider-call",
       persistedGeneration,
+      causeSummary: summarizeCause(error),
       cause: error,
     });
   }

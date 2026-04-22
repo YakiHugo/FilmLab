@@ -182,6 +182,9 @@ describe("generateImage", () => {
         JSON.stringify({
           error: "Provider rejected request.",
           traceId: "trace-error-1",
+          stage: "provider-call",
+          providerErrorCode: "rate_limited",
+          causeSummary: "ProviderError: Provider rejected request.",
           conversationId: "conversation-1",
           threadId: "conversation-1",
           turnId: "turn-3",
@@ -211,11 +214,50 @@ describe("generateImage", () => {
     ).rejects.toMatchObject({
       message: "Provider rejected request.",
       traceId: "trace-error-1",
+      stage: "provider-call",
+      providerErrorCode: "rate_limited",
+      causeSummary: "ProviderError: Provider rejected request.",
+      status: 429,
       conversationId: "conversation-1",
       threadId: "conversation-1",
       turnId: "turn-3",
       jobId: "job-3",
       runId: "run-3",
+    });
+  });
+
+  it("falls back to x-request-id header when body has no traceId", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: "Invalid request payload.", stage: "prompt-compile" }),
+        {
+          status: 400,
+          headers: {
+            "Content-Type": "application/json",
+            "x-request-id": "req-header-trace-1",
+          },
+        }
+      )
+    );
+
+    const { generateImage } = await import("./imageGeneration");
+
+    await expect(
+      generateImage({
+        prompt: "Rainy alley",
+        modelId: "qwen-image-2-pro",
+        aspectRatio: "1:1",
+        style: "none",
+        batchSize: 1,
+        modelParams: {},
+      })
+    ).rejects.toMatchObject({
+      message: "Invalid request payload.",
+      traceId: "req-header-trace-1",
+      stage: "prompt-compile",
+      status: 400,
     });
   });
 });

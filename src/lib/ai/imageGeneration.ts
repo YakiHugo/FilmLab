@@ -2,11 +2,14 @@ import { imageGenerationRequestSchema, type ImageGenerationRequest } from "./ima
 import { resolveApiUrl } from "@/lib/api/resolveApiUrl";
 import { getClientAuthToken } from "@/lib/authToken";
 import type { GeneratedImage, ImageGenerationResponse } from "@/types/imageGeneration";
+import type { ImageGenStage } from "../../../shared/imageGeneration";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
 const GENERATION_REQUEST_TIMEOUT_MS = 125_000;
+
+const REQUEST_ID_HEADER = "x-request-id";
 
 interface GenerateImageOptions {
   signal?: AbortSignal;
@@ -20,6 +23,9 @@ interface ImageGenerationResponseErrorPayload {
   jobId?: string;
   runId?: string;
   traceId?: string;
+  stage?: ImageGenStage;
+  providerErrorCode?: string;
+  causeSummary?: string;
 }
 
 export interface ImageGenerationRequestError extends Error {
@@ -29,6 +35,24 @@ export interface ImageGenerationRequestError extends Error {
   jobId?: string;
   runId?: string;
   traceId?: string;
+  stage?: ImageGenStage;
+  providerErrorCode?: string;
+  causeSummary?: string;
+  status?: number;
+}
+
+export interface ImageGenerationLastErrorSnapshot {
+  at: number;
+  status: number;
+  message: string;
+  traceId: string | undefined;
+  stage: ImageGenStage | undefined;
+  providerErrorCode: string | undefined;
+  causeSummary: string | undefined;
+  conversationId: string | undefined;
+  turnId: string | undefined;
+  jobId: string | undefined;
+  runId: string | undefined;
 }
 
 const createAbortError = () => {
@@ -187,7 +211,10 @@ export async function generateImage(
       // Keep fallback.
     }
 
+    const headerTraceId = response.headers.get(REQUEST_ID_HEADER)?.trim() || undefined;
+
     const error = new Error(message) as ImageGenerationRequestError;
+    error.status = response.status;
     if (typeof errorPayload?.conversationId === "string") {
       error.conversationId = errorPayload.conversationId;
     }
@@ -203,9 +230,42 @@ export async function generateImage(
     if (typeof errorPayload?.runId === "string") {
       error.runId = errorPayload.runId;
     }
-    if (typeof errorPayload?.traceId === "string") {
-      error.traceId = errorPayload.traceId;
+    const traceId =
+      typeof errorPayload?.traceId === "string" && errorPayload.traceId.trim()
+        ? errorPayload.traceId
+        : headerTraceId;
+    if (traceId) {
+      error.traceId = traceId;
     }
+    if (typeof errorPayload?.stage === "string") {
+      error.stage = errorPayload.stage;
+    }
+    if (typeof errorPayload?.providerErrorCode === "string") {
+      error.providerErrorCode = errorPayload.providerErrorCode;
+    }
+    if (typeof errorPayload?.causeSummary === "string") {
+      error.causeSummary = errorPayload.causeSummary;
+    }
+
+    if (import.meta.env.DEV) {
+      const snapshot: ImageGenerationLastErrorSnapshot = {
+        at: Date.now(),
+        status: response.status,
+        message,
+        traceId: error.traceId,
+        stage: error.stage,
+        providerErrorCode: error.providerErrorCode,
+        causeSummary: error.causeSummary,
+        conversationId: error.conversationId,
+        turnId: error.turnId,
+        jobId: error.jobId,
+        runId: error.runId,
+      };
+      (
+        globalThis as { __filmlab_lastImageGenError?: ImageGenerationLastErrorSnapshot }
+      ).__filmlab_lastImageGenError = snapshot;
+    }
+
     throw error;
   }
 

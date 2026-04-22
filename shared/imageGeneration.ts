@@ -7,6 +7,15 @@ import type {
 export const IMAGE_PROVIDER_IDS = ["ark", "dashscope", "kling"] as const;
 export type ImageProviderId = (typeof IMAGE_PROVIDER_IDS)[number];
 
+export const IMAGE_GEN_STAGES = [
+  "prompt-compile",
+  "route",
+  "provider-call",
+  "persist",
+  "normalize",
+] as const;
+export type ImageGenStage = (typeof IMAGE_GEN_STAGES)[number];
+
 export const IMAGE_MODEL_FAMILY_IDS = ["seedream", "qwen", "zimage", "kling"] as const;
 export type ImageModelFamilyId = (typeof IMAGE_MODEL_FAMILY_IDS)[number];
 

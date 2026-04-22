@@ -59,18 +59,28 @@
     },
     {
       "id": "slice-4-client-server-traceid",
-      "status": "pending",
-      "summary": "server 错误 body 统一 {traceId,stage,providerErrorCode?,causeSummary}；client 抽 x-request-id 与 stage 入 error state；image-lab toast 显 traceId。",
+      "status": "done",
+      "summary": "server 错误 body 统一 {traceId,stage,providerErrorCode?,causeSummary}；client 抽 x-request-id header 作为 traceId fallback，dev globalThis.__filmlab_lastImageGenError 留最近一次；image-lab notice 追加 stage · trace 后缀。",
       "passes": [
-        "pnpm test (含新错误 body schema 测试)",
-        "agent-browser 生成失败时 client traceId 与 server 日志 x-request-id 一致"
+        "pnpm lint",
+        "pnpm typecheck",
+        "pnpm test (623 passed, 新增 image-generate.test.ts 2 条 / imageGeneration.test.ts 1 条)"
       ],
       "files": [
-        "server/src/routes/image-generate.ts",
+        "shared/imageGeneration.ts",
+        "server/src/chat/application/imageGeneration/errors.ts",
+        "server/src/chat/application/imageGeneration/generationPersister.ts",
+        "server/src/chat/application/imageGeneration/promptCompileCoordinator.ts",
         "server/src/chat/application/imageGenerationService.ts",
-        "src/lib/api/*",
-        "src/features/image-lab/hooks/**"
-      ]
+        "server/src/gateway/router/router.ts",
+        "server/src/providers/base/errors.ts",
+        "server/src/routes/image-generate.ts",
+        "server/src/routes/image-generate.test.ts",
+        "src/lib/ai/imageGeneration.ts",
+        "src/lib/ai/imageGeneration.test.ts",
+        "src/features/image-lab/hooks/useImageLabCommands.ts"
+      ],
+      "notes": "ImageGenStage 5 条：prompt-compile / route / provider-call / persist / normalize，放 shared/imageGeneration.ts。ImageGenerationCommandError 加必填 stage + 可选 providerErrorCode / causeSummary（summarizeCause 取 name+message 截 200 字符）。ProviderError 第 4 参数 options={stage,providerErrorCode}；router.ts 两处 in-router 抛错标 stage:'route'。imageGenerationService L396 'Provider did not return any image' 与包装 firstNormalizationError 时标 stage:'normalize'。handleFailure 分派：ImageGenerationCommandError pass-through；ChatPromptStateConflictError→'persist'；ProviderError→error.stage??'provider-call' 并承接 providerErrorCode；unknown→'provider-call'。sendTraceableError 扩 {stage, providerErrorCode?, causeSummary?}；prod 500 fallback 也带 stage='provider-call'+causeSummary。client: ImageGenerationRequestError 加 stage/providerErrorCode/causeSummary/status；traceId body 未给时回退读 x-request-id header；DEV 下写 globalThis.__filmlab_lastImageGenError（ImageGenerationLastErrorSnapshot 类型 export）。image-lab notice 在 catch 里拼 '[stage · trace 后 8 位]'。未动 turn.error 持久化字段（仍为 string）——stage 目前只在 in-session notice 与 dev global 暴露；若需持久化需动 repository 模型，留待后续 slice。"
     },
     {
       "id": "slice-5-db-structured-logger",
@@ -115,6 +125,6 @@
       ]
     }
   ],
-  "current_slice": "slice-4-client-server-traceid",
-  "rollback": "每 slice 自含回滚范围；本任务无跨 slice 全局回滚需求。Slice 1 回滚：删 src/lib/imageProcessing.boundaries.test.ts + revert renderSingleImage.ts 的 boundaries 扩展/globalThis 挂点 + revert renderSingleImage.test.ts 的 createStageDebug 补全。Slice 2 回滚：删 test-assets/baselines/*.json + 删 renderSingleImage.baseline.test.ts + revert renderSingleImage.ts 的 signature 字段与 computeTraceSignature / appendTraceOperation 签名变更。Slice 3 回滚：删 reportGlError.ts / reportGlError.test.ts + revert PipelineRenderer.ts 7 处 catch 至原 `if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }` 单行 + revert ProgramRegistry.ts 的 verifyUniformAlignment / collectDeclaredUniforms / stripGlslComments + revert ProgramRegistry.test.ts 与 PipelineRenderer.localMaskShape.test.ts 的新增用例。"
+  "current_slice": "slice-5-db-structured-logger",
+  "rollback": "每 slice 自含回滚范围；本任务无跨 slice 全局回滚需求。Slice 1 回滚：删 src/lib/imageProcessing.boundaries.test.ts + revert renderSingleImage.ts 的 boundaries 扩展/globalThis 挂点 + revert renderSingleImage.test.ts 的 createStageDebug 补全。Slice 2 回滚：删 test-assets/baselines/*.json + 删 renderSingleImage.baseline.test.ts + revert renderSingleImage.ts 的 signature 字段与 computeTraceSignature / appendTraceOperation 签名变更。Slice 3 回滚：删 reportGlError.ts / reportGlError.test.ts + revert PipelineRenderer.ts 7 处 catch 至原 `if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }` 单行 + revert ProgramRegistry.ts 的 verifyUniformAlignment / collectDeclaredUniforms / stripGlslComments + revert ProgramRegistry.test.ts 与 PipelineRenderer.localMaskShape.test.ts 的新增用例。Slice 4 回滚：revert shared/imageGeneration.ts 的 ImageGenStage 新增 + revert ImageGenerationCommandError.stage 与 providerErrorCode/causeSummary 字段 + revert ProviderError 的 options 第 4 参数 + revert router.ts 两处 stage:'route' + revert imageGenerationService 的 normalize 包装 + revert generationPersister.handleFailure 分派 + revert image-generate.ts 的 sendTraceableError 扩展 + revert src/lib/ai/imageGeneration.ts 的 header fallback 与 __filmlab_lastImageGenError + revert useImageLabCommands notice 拼接 + 删 image-generate.test.ts 与 imageGeneration.test.ts 新增用例。"
 }

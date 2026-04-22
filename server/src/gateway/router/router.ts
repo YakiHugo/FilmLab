@@ -131,7 +131,7 @@ export const createImageRuntimeRouter = (config: AppConfig) => ({
         // 503 (not 401) so the fallback loop continues to the next target; selection
         // already filters unconfigured providers, so hitting this is a defense-in-depth
         // path (explicit targets override, or no provider configured at all).
-        throw new ProviderError(message, 503);
+        throw new ProviderError(message, 503, undefined, { stage: "route" });
       }
 
       const adapter = getPlatformModelAdapter(
@@ -141,7 +141,9 @@ export const createImageRuntimeRouter = (config: AppConfig) => ({
       if (!adapter) {
         throw new ProviderError(
           `No adapter is registered for ${target.provider.id}/${target.deployment.providerModel}.`,
-          500
+          500,
+          undefined,
+          { stage: "route" }
         );
       }
       return adapter.generate({

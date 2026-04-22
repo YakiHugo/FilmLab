@@ -92,6 +92,7 @@ export class ImageGenerationService {
         throw new ImageGenerationCommandError({
           statusCode: 400,
           message: "threadId and conversationId must match when both are provided.",
+          stage: "prompt-compile",
         });
       }
 
@@ -103,6 +104,7 @@ export class ImageGenerationService {
         throw new ImageGenerationCommandError({
           statusCode: 404,
           message: "Conversation not found.",
+          stage: "prompt-compile",
         });
       }
 
@@ -116,6 +118,7 @@ export class ImageGenerationService {
           throw new ImageGenerationCommandError({
             statusCode: 400,
             message: "retryOfTurnId does not belong to the selected conversation.",
+            stage: "prompt-compile",
           });
         }
       }
@@ -144,6 +147,7 @@ export class ImageGenerationService {
           throw new ImageGenerationCommandError({
             statusCode: 400,
             message: "Exact retry is unavailable because no prior execution snapshot was found.",
+            stage: "prompt-compile",
           });
         }
 
@@ -162,6 +166,7 @@ export class ImageGenerationService {
         throw new ImageGenerationCommandError({
           statusCode: 400,
           message: `Unsupported modelId: ${effectivePayload.modelId}.`,
+          stage: "prompt-compile",
         });
       }
 
@@ -391,9 +396,19 @@ export class ImageGenerationService {
 
       if (normalizedImages.length === 0) {
         if (firstNormalizationError) {
+          if (firstNormalizationError instanceof ProviderError) {
+            throw new ProviderError(
+              firstNormalizationError.message,
+              firstNormalizationError.statusCode,
+              firstNormalizationError,
+              { stage: "normalize" }
+            );
+          }
           throw firstNormalizationError;
         }
-        throw new ProviderError("Provider did not return any image.");
+        throw new ProviderError("Provider did not return any image.", 502, undefined, {
+          stage: "normalize",
+        });
       }
 
       const capabilityWarnings =
