@@ -1,6 +1,7 @@
 import * as twgl from "twgl.js";
 import type { ProgramInfo } from "twgl.js";
 
+import { reportGlError } from "./reportGlError";
 import fullscreenVertexSrc from "./shaders/Fullscreen.vert?raw";
 import passthroughFragSrc from "./shaders/Passthrough.frag?raw";
 import inputDecodeFragSrc from "./shaders/InputDecode.frag?raw";
@@ -135,6 +136,64 @@ export const DEFERRED_WARMUP_PROGRAMS: readonly ProgramName[] = [
   "timestampOverlay",
 ];
 
+const UNIFORM_DECLARATION_PATTERN =
+  /\buniform\s+(?:highp\s+|mediump\s+|lowp\s+)?\w+\s+(\w+)\s*(?:\[[^\]]*\])?\s*;/g;
+
+const stripGlslComments = (source: string): string =>
+  source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+
+const collectDeclaredUniforms = (sources: readonly string[]): Set<string> => {
+  const declared = new Set<string>();
+  for (const source of sources) {
+    const stripped = stripGlslComments(source);
+    for (const match of stripped.matchAll(UNIFORM_DECLARATION_PATTERN)) {
+      declared.add(match[1]!);
+    }
+  }
+  return declared;
+};
+
+const normalizeSetterKey = (key: string): string => key.replace(/\[\d+\]$/, "");
+
+const verifyUniformAlignment = (
+  name: ProgramName,
+  programInfo: ProgramInfo,
+  sources: readonly string[]
+): void => {
+  const setters = (programInfo as { uniformSetters?: Record<string, unknown> })
+    .uniformSetters;
+  if (!setters) {
+    return;
+  }
+  const declared = collectDeclaredUniforms(sources);
+  const bound = new Set<string>();
+  for (const key of Object.keys(setters)) {
+    bound.add(normalizeSetterKey(key));
+  }
+  const declaredOrphans: string[] = [];
+  for (const uniform of declared) {
+    if (!bound.has(uniform)) {
+      declaredOrphans.push(uniform);
+    }
+  }
+  const boundOrphans: string[] = [];
+  for (const uniform of bound) {
+    if (!declared.has(uniform)) {
+      boundOrphans.push(uniform);
+    }
+  }
+  if (declaredOrphans.length === 0 && boundOrphans.length === 0) {
+    return;
+  }
+  reportGlError({
+    op: "uniform-binding",
+    shaderName: name,
+    rendererLabel: "program-registry",
+    declaredOrphans,
+    boundOrphans,
+  });
+};
+
 const defineLazyProgram = (
   programs: RendererPrograms,
   gl: WebGL2RenderingContext,
@@ -148,6 +207,9 @@ const defineLazyProgram = (
     get() {
       if (!cached) {
         cached = twgl.createProgramInfo(gl, [fullscreenVertexSrc, fragmentSource]);
+        if (import.meta.env.DEV) {
+          verifyUniformAlignment(name, cached, [fullscreenVertexSrc, fragmentSource]);
+        }
       }
       return cached;
     },

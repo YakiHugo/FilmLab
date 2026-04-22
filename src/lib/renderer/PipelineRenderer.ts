@@ -29,6 +29,7 @@ import { readPixelsAsync } from "./gpu/TiledRenderer";
 import { CURVE_LUT_SIZE, buildCurveLutPixels, createIdentityCurvePixels } from "./gpu/CurveLut";
 import { encodeCurveLutToBytes, encodeCurveLutToHalfFloats } from "./CurveLutEncoding";
 import { runPostProcessing } from "./RenderPostProcessing";
+import { reportGlError } from "./reportGlError";
 import { generateMaskTexture as generateLayerMaskTexture } from "@/lib/layerMaskTexture";
 import { clamp } from "@/lib/math";
 import type { TimestampOverlayGpuInput } from "@/lib/timestampOverlay";
@@ -853,7 +854,14 @@ export class PipelineRenderer {
           passthrough.release();
         }
       } catch (error) {
-        if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }
+        if (!this.contextLost) {
+          reportGlError({
+            op: "drawArrays",
+            passId: "filter2d-passthrough",
+            rendererLabel: this.rendererLabel,
+            cause: error,
+          });
+        }
         return false;
       }
     }
@@ -939,7 +947,14 @@ export class PipelineRenderer {
       }
       return true;
     } catch (error) {
-      if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }
+      if (!this.contextLost) {
+        reportGlError({
+          op: "drawArrays",
+          passId: "filter2d-pipeline",
+          rendererLabel: this.rendererLabel,
+          cause: error,
+        });
+      }
       return false;
     }
   }
@@ -1025,7 +1040,14 @@ export class PipelineRenderer {
       }
       return true;
     } catch (error) {
-      if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }
+      if (!this.contextLost) {
+        reportGlError({
+          op: "drawArrays",
+          passId: "local-mask-range-gate",
+          rendererLabel: this.rendererLabel,
+          cause: error,
+        });
+      }
       return false;
     } finally {
       this.gl.deleteTexture(maskTexture);
@@ -1126,7 +1148,14 @@ export class PipelineRenderer {
         });
         return true;
       } catch (error) {
-        if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }
+        if (!this.contextLost) {
+          reportGlError({
+            op: "drawArrays",
+            passId: "local-mask-shape-brush",
+            rendererLabel: this.rendererLabel,
+            cause: error,
+          });
+        }
         return false;
       }
     }
@@ -1192,7 +1221,14 @@ export class PipelineRenderer {
       });
       return true;
     } catch (error) {
-      if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }
+      if (!this.contextLost) {
+        reportGlError({
+          op: "drawArrays",
+          passId: "local-mask-shape-gradient",
+          rendererLabel: this.rendererLabel,
+          cause: error,
+        });
+      }
       return false;
     }
   }
@@ -1752,7 +1788,14 @@ export class PipelineRenderer {
         composited.release();
       }
     } catch (error) {
-      if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }
+      if (!this.contextLost) {
+        reportGlError({
+          op: "drawArrays",
+          passId: "ascii-carrier-composite",
+          rendererLabel: this.rendererLabel,
+          cause: error,
+        });
+      }
       return false;
     } finally {
       this.gl.deleteTexture(cellColorTexture);
@@ -1884,7 +1927,14 @@ export class PipelineRenderer {
         composited.release();
       }
     } catch (error) {
-      if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }
+      if (!this.contextLost) {
+        reportGlError({
+          op: "drawArrays",
+          passId: "timestamp-overlay-composite",
+          rendererLabel: this.rendererLabel,
+          cause: error,
+        });
+      }
       return false;
     }
   }
