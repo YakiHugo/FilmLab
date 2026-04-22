@@ -1,0 +1,37 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "index.html",
+        "src/main.tsx",
+        "vite.config.ts",
+        "eslint.config.js",
+        "scripts/**/*.ts",
+        "api/**/*.ts",
+        "shared/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}",
+        "shared/**/*.ts",
+        "api/**/*.ts",
+        "scripts/**/*.ts"
+      ]
+    },
+    "server": {
+      "entry": [
+        "src/index.ts",
+        "src/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    }
+  },
+  "ignore": [
+    "src/lib/renderer/shaders/generated/**"
+  ],
+  "ignoreBinaries": [
+    "python"
+  ]
+}

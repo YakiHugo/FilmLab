@@ -1,7 +1,7 @@
 {
   "baseline": "2026-04-22",
-  "current": "dead-code-scan",
-  "nextTaskId": "dead-code-scan",
+  "current": "intent-convention-and-roundtrip",
+  "nextTaskId": "intent-convention-and-roundtrip",
   "tasks": [
     {
       "id": "lint-typecheck-feedback",
@@ -22,7 +22,7 @@
     },
     {
       "id": "dead-code-scan",
-      "status": "pending",
+      "status": "done",
       "passes": [
         "knip or ts-prune runnable via a single pnpm script",
         "output format documented as input for cleanup-sweep; not wired into CI"
