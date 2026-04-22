@@ -1,0 +1,128 @@
+{
+  "stages": [
+    {
+      "id": "develop",
+      "operations": [
+        {
+          "kind": "low-level",
+          "internalStageId": "develop-base",
+          "lowLevel": {
+            "stageId": "develop-base",
+            "mode": "preview",
+            "slotId": "slot:develop-base",
+            "status": "rendered",
+            "dirty": {
+              "sourceDirty": true,
+              "geometryDirty": true,
+              "masterDirty": true,
+              "hslDirty": false,
+              "curveDirty": false,
+              "detailDirty": false,
+              "filmDirty": true,
+              "opticsDirty": true,
+              "outputDirty": true
+            },
+            "timings": {
+              "decodeMs": 0,
+              "geometryMs": 0,
+              "pipelineMs": 0,
+              "composeMs": 0,
+              "totalMs": 0
+            },
+            "cache": {
+              "sourceKey": "source",
+              "geometryKey": "geometry",
+              "pipelineKey": "pipeline:develop-base",
+              "outputKey": "output:develop-base",
+              "tilePlanKey": null
+            },
+            "activePasses": [
+              "geometry",
+              "master"
+            ],
+            "pipelineRendered": true,
+            "outputKind": "renderer-slot",
+            "boundaries": {
+              "textureUploads": 1,
+              "canvasMaterializations": 0,
+              "canvasClones": 0,
+              "cpuPixelReads": 0
+            },
+            "usedCpuGeometry": false,
+            "usedViewportRoi": false,
+            "usedTiledPipeline": false,
+            "tileCount": 0,
+            "error": null
+          },
+          "signature": "low-level:develop-base:rendered:geometry+master"
+        },
+        {
+          "kind": "effects",
+          "effectPlacement": "develop",
+          "effectCount": 1,
+          "signature": "effects:develop:1"
+        },
+        {
+          "kind": "low-level",
+          "internalStageId": "film-stage",
+          "lowLevel": {
+            "stageId": "film-stage",
+            "mode": "preview",
+            "slotId": "slot:film-stage",
+            "status": "rendered",
+            "dirty": {
+              "sourceDirty": true,
+              "geometryDirty": true,
+              "masterDirty": true,
+              "hslDirty": false,
+              "curveDirty": false,
+              "detailDirty": false,
+              "filmDirty": true,
+              "opticsDirty": true,
+              "outputDirty": true
+            },
+            "timings": {
+              "decodeMs": 0,
+              "geometryMs": 0,
+              "pipelineMs": 0,
+              "composeMs": 0,
+              "totalMs": 0
+            },
+            "cache": {
+              "sourceKey": "source",
+              "geometryKey": "geometry",
+              "pipelineKey": "pipeline:film-stage",
+              "outputKey": "output:film-stage",
+              "tilePlanKey": null
+            },
+            "activePasses": [
+              "film",
+              "optics"
+            ],
+            "pipelineRendered": true,
+            "outputKind": "renderer-slot",
+            "boundaries": {
+              "textureUploads": 1,
+              "canvasMaterializations": 0,
+              "canvasClones": 0,
+              "cpuPixelReads": 0
+            },
+            "usedCpuGeometry": false,
+            "usedViewportRoi": false,
+            "usedTiledPipeline": false,
+            "tileCount": 0,
+            "error": null
+          },
+          "signature": "low-level:film-stage:rendered:film+optics"
+        }
+      ]
+    }
+  ],
+  "outputHash": "28dcf095c4ee66943c011ae72e847f0dd5257be2de452b83ddf9acb1cb3820ad",
+  "boundaries": {
+    "textureUploads": 2,
+    "canvasMaterializations": 1,
+    "canvasClones": 0,
+    "cpuPixelReads": 0
+  }
+}
