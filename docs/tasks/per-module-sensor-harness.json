@@ -84,16 +84,19 @@
     },
     {
       "id": "slice-5-db-structured-logger",
-      "status": "pending",
-      "summary": "新增 src/lib/db.logger.ts；替换 db.ts 27 处 console.*；ring buffer 挂 __filmlab_dbLog。",
+      "status": "done",
+      "summary": "新增 src/lib/db.logger.ts（logDb + logDbError + ring buffer __filmlab_dbLog 200 上限）；db.ts 27 处 console.* 全部替换为 logDb/logDbError；既有 db.loadAssets.test.ts 不回归。",
       "passes": [
-        "pnpm test (db.loadAssets.test.ts 等不回归)",
-        "db.ts 内 console.* 被完全替换"
+        "pnpm lint",
+        "pnpm typecheck",
+        "pnpm test (627 passed, 新增 db.logger.test.ts 4 条用例)"
       ],
       "files": [
         "src/lib/db.logger.ts",
+        "src/lib/db.logger.test.ts",
         "src/lib/db.ts"
-      ]
+      ],
+      "notes": "DbLogEvent shape: {tsMs, op:'get'|'put'|'delete'|'migrate'|'openDb', phase:'start'|'success'|'error', storeName?, key?:string|number, caller?, error?:{name?,message?}}。logDb 无条件 push ring buffer；DEV 下 console.log(JSON.stringify(evt)) 一行一条；prod 仅 error phase 走 console.warn（保留非静默信号）。logDbError 封装常用 error 分支，通过 summarizeError 把 Error 实例压成 {name,message}，非 Error cause 压成 {message:String(cause)}。db.ts 的 27 处映射：blocked()→migrate/error/caller=blocked；terminated()→openDb/error/caller=terminated；initDB 三次重试失败→openDb/error/caller=initDB；24 处 catch 按函数名打 caller，op 按 save/load/delete/clear 前缀映射 put/get/delete，storeName 取主 store，key 取 id 级参数（无则省略）。clearAssets / saveCanvasWorkbenchRecord / delete|clearCanvasWorkbench* 这几处跨 store 调用只记录主 store，依赖 caller 区分。"
     },
     {
       "id": "slice-6-canvas-command-trace",
@@ -125,6 +128,6 @@
       ]
     }
   ],
-  "current_slice": "slice-5-db-structured-logger",
-  "rollback": "每 slice 自含回滚范围；本任务无跨 slice 全局回滚需求。Slice 1 回滚：删 src/lib/imageProcessing.boundaries.test.ts + revert renderSingleImage.ts 的 boundaries 扩展/globalThis 挂点 + revert renderSingleImage.test.ts 的 createStageDebug 补全。Slice 2 回滚：删 test-assets/baselines/*.json + 删 renderSingleImage.baseline.test.ts + revert renderSingleImage.ts 的 signature 字段与 computeTraceSignature / appendTraceOperation 签名变更。Slice 3 回滚：删 reportGlError.ts / reportGlError.test.ts + revert PipelineRenderer.ts 7 处 catch 至原 `if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }` 单行 + revert ProgramRegistry.ts 的 verifyUniformAlignment / collectDeclaredUniforms / stripGlslComments + revert ProgramRegistry.test.ts 与 PipelineRenderer.localMaskShape.test.ts 的新增用例。Slice 4 回滚：revert shared/imageGeneration.ts 的 ImageGenStage 新增 + revert ImageGenerationCommandError.stage 与 providerErrorCode/causeSummary 字段 + revert ProviderError 的 options 第 4 参数 + revert router.ts 两处 stage:'route' + revert imageGenerationService 的 normalize 包装 + revert generationPersister.handleFailure 分派 + revert image-generate.ts 的 sendTraceableError 扩展 + revert src/lib/ai/imageGeneration.ts 的 header fallback 与 __filmlab_lastImageGenError + revert useImageLabCommands notice 拼接 + 删 image-generate.test.ts 与 imageGeneration.test.ts 新增用例。"
+  "current_slice": "slice-6-canvas-command-trace",
+  "rollback": "每 slice 自含回滚范围；本任务无跨 slice 全局回滚需求。Slice 1 回滚：删 src/lib/imageProcessing.boundaries.test.ts + revert renderSingleImage.ts 的 boundaries 扩展/globalThis 挂点 + revert renderSingleImage.test.ts 的 createStageDebug 补全。Slice 2 回滚：删 test-assets/baselines/*.json + 删 renderSingleImage.baseline.test.ts + revert renderSingleImage.ts 的 signature 字段与 computeTraceSignature / appendTraceOperation 签名变更。Slice 3 回滚：删 reportGlError.ts / reportGlError.test.ts + revert PipelineRenderer.ts 7 处 catch 至原 `if (!this.contextLost) { if (import.meta.env.DEV) throw error; console.error(error); }` 单行 + revert ProgramRegistry.ts 的 verifyUniformAlignment / collectDeclaredUniforms / stripGlslComments + revert ProgramRegistry.test.ts 与 PipelineRenderer.localMaskShape.test.ts 的新增用例。Slice 4 回滚：revert shared/imageGeneration.ts 的 ImageGenStage 新增 + revert ImageGenerationCommandError.stage 与 providerErrorCode/causeSummary 字段 + revert ProviderError 的 options 第 4 参数 + revert router.ts 两处 stage:'route' + revert imageGenerationService 的 normalize 包装 + revert generationPersister.handleFailure 分派 + revert image-generate.ts 的 sendTraceableError 扩展 + revert src/lib/ai/imageGeneration.ts 的 header fallback 与 __filmlab_lastImageGenError + revert useImageLabCommands notice 拼接 + 删 image-generate.test.ts 与 imageGeneration.test.ts 新增用例。Slice 5 回滚：删 src/lib/db.logger.ts / src/lib/db.logger.test.ts + revert db.ts 的 import 与 27 处 logDb/logDbError，改回原 console.warn('IndexedDB <caller> failed:', error) / 原 blocked/terminated/initDB 的 console.warn 字面串。"
 }

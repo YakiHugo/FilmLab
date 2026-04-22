@@ -1,5 +1,6 @@
 ﻿import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { getCurrentUserId } from "@/lib/authToken";
+import { logDb, logDbError } from "@/lib/db.logger";
 import type {
   AssetOrigin,
   AssetOwnerRef,
@@ -207,7 +208,12 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
           // No value migration is needed because IndexedDB values are schemaless.
         },
         blocked() {
-          console.warn("IndexedDB upgrade blocked because another tab still uses an older schema.");
+          logDb({
+            op: "migrate",
+            phase: "error",
+            caller: "blocked",
+            error: { message: "upgrade blocked by another tab with an older schema" },
+          });
         },
         blocking() {
           // Another tab is trying to upgrade; close our connection so it can proceed.
@@ -217,7 +223,12 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
         },
         terminated() {
           // Browser forcibly closed the connection (e.g. memory pressure, crash recovery).
-          console.warn("IndexedDB connection terminated by browser.");
+          logDb({
+            op: "openDb",
+            phase: "error",
+            caller: "terminated",
+            error: { message: "IndexedDB connection terminated by browser" },
+          });
           dbInstance = null;
           dbInitPromise = null;
         },
@@ -231,10 +242,7 @@ const initDB = async (): Promise<IDBPDatabase<FilmLabDB> | null> => {
         continue;
       }
       dbFailed = true;
-      console.warn(
-        "IndexedDB unavailable (private browsing or quota exceeded). Running in memory-only mode.",
-        error
-      );
+      logDbError({ op: "openDb", caller: "initDB" }, error);
       return null;
     }
   }
@@ -289,7 +297,10 @@ export async function saveCurrentUser(
     await db.put("currentUser", currentUser);
     return true;
   } catch (error) {
-    console.warn("IndexedDB saveCurrentUser failed:", error);
+    logDbError(
+      { op: "put", storeName: "currentUser", key: currentUser.id, caller: "saveCurrentUser" },
+      error
+    );
     return false;
   }
 }
@@ -300,7 +311,7 @@ export async function loadCurrentUser(id: string) {
   try {
     return (await db.get("currentUser", id)) ?? null;
   } catch (error) {
-    console.warn("IndexedDB loadCurrentUser failed:", error);
+    logDbError({ op: "get", storeName: "currentUser", key: id, caller: "loadCurrentUser" }, error);
     return null;
   }
 }
@@ -316,7 +327,7 @@ export async function saveAsset(asset: FilmLabDB["assets"]["value"]): Promise<bo
     });
     return true;
   } catch (error) {
-    console.warn("IndexedDB saveAsset failed:", error);
+    logDbError({ op: "put", storeName: "assets", key: asset.id, caller: "saveAsset" }, error);
     return false;
   }
 }
@@ -329,7 +340,7 @@ export async function loadAssets() {
   try {
     return await db.getAll("assets");
   } catch (error) {
-    console.warn("IndexedDB loadAssets failed:", error);
+    logDbError({ op: "get", storeName: "assets", caller: "loadAssets" }, error);
     return [];
   }
 }
@@ -340,7 +351,10 @@ export async function loadAssetsByUser(userId: string): Promise<StoredAsset[]> {
   try {
     return await db.getAllFromIndex("assets", "byOwnerUserId", userId);
   } catch (error) {
-    console.warn("IndexedDB loadAssetsByUser failed:", error);
+    logDbError(
+      { op: "get", storeName: "assets", key: userId, caller: "loadAssetsByUser" },
+      error
+    );
     return [];
   }
 }
@@ -357,7 +371,10 @@ export async function saveAssetSyncJob(job: StoredAssetSyncJob): Promise<boolean
     });
     return true;
   } catch (error) {
-    console.warn("IndexedDB saveAssetSyncJob failed:", error);
+    logDbError(
+      { op: "put", storeName: "assetSyncJobs", key: job.jobId, caller: "saveAssetSyncJob" },
+      error
+    );
     return false;
   }
 }
@@ -377,7 +394,7 @@ export async function saveAssetSyncJobs(jobs: StoredAssetSyncJob[]): Promise<boo
     await tx.done;
     return true;
   } catch (error) {
-    console.warn("IndexedDB saveAssetSyncJobs failed:", error);
+    logDbError({ op: "put", storeName: "assetSyncJobs", caller: "saveAssetSyncJobs" }, error);
     return false;
   }
 }
@@ -391,7 +408,7 @@ export async function loadAssetSyncJobs(limit = 128): Promise<StoredAssetSyncJob
       .sort((a, b) => a.nextRetryAt.localeCompare(b.nextRetryAt))
       .slice(0, Math.max(1, limit));
   } catch (error) {
-    console.warn("IndexedDB loadAssetSyncJobs failed:", error);
+    logDbError({ op: "get", storeName: "assetSyncJobs", caller: "loadAssetSyncJobs" }, error);
     return [];
   }
 }
@@ -408,7 +425,10 @@ export async function loadAssetSyncJobsByUser(
       .sort((a, b) => a.nextRetryAt.localeCompare(b.nextRetryAt))
       .slice(0, Math.max(1, limit));
   } catch (error) {
-    console.warn("IndexedDB loadAssetSyncJobsByUser failed:", error);
+    logDbError(
+      { op: "get", storeName: "assetSyncJobs", key: userId, caller: "loadAssetSyncJobsByUser" },
+      error
+    );
     return [];
   }
 }
@@ -419,7 +439,15 @@ export async function loadAssetSyncJobsByAssetId(assetId: string): Promise<Store
   try {
     return await db.getAllFromIndex("assetSyncJobs", "byLocalAssetId", assetId);
   } catch (error) {
-    console.warn("IndexedDB loadAssetSyncJobsByAssetId failed:", error);
+    logDbError(
+      {
+        op: "get",
+        storeName: "assetSyncJobs",
+        key: assetId,
+        caller: "loadAssetSyncJobsByAssetId",
+      },
+      error
+    );
     return [];
   }
 }
@@ -431,7 +459,10 @@ export async function deleteAssetSyncJob(jobId: string): Promise<boolean> {
     await db.delete("assetSyncJobs", jobId);
     return true;
   } catch (error) {
-    console.warn("IndexedDB deleteAssetSyncJob failed:", error);
+    logDbError(
+      { op: "delete", storeName: "assetSyncJobs", key: jobId, caller: "deleteAssetSyncJob" },
+      error
+    );
     return false;
   }
 }
@@ -443,7 +474,15 @@ export async function deleteAssetSyncJobsByAssetId(assetId: string): Promise<boo
     await deleteSyncJobsByAssetId(db, assetId);
     return true;
   } catch (error) {
-    console.warn("IndexedDB deleteAssetSyncJobsByAssetId failed:", error);
+    logDbError(
+      {
+        op: "delete",
+        storeName: "assetSyncJobs",
+        key: assetId,
+        caller: "deleteAssetSyncJobsByAssetId",
+      },
+      error
+    );
     return false;
   }
 }
@@ -456,7 +495,15 @@ export async function clearAssetSyncJobsByUser(userId: string): Promise<boolean>
     await Promise.all(jobs.map((job) => db.delete("assetSyncJobs", job.jobId)));
     return true;
   } catch (error) {
-    console.warn("IndexedDB clearAssetSyncJobsByUser failed:", error);
+    logDbError(
+      {
+        op: "delete",
+        storeName: "assetSyncJobs",
+        key: userId,
+        caller: "clearAssetSyncJobsByUser",
+      },
+      error
+    );
     return false;
   }
 }
@@ -474,7 +521,7 @@ export async function clearAssets(): Promise<boolean> {
     }
     return true;
   } catch (error) {
-    console.warn("IndexedDB clearAssets failed:", error);
+    logDbError({ op: "delete", storeName: "assets", caller: "clearAssets" }, error);
     return false;
   }
 }
@@ -495,7 +542,10 @@ export async function clearAssetsByUser(userId: string): Promise<boolean> {
     );
     return results.every(Boolean);
   } catch (error) {
-    console.warn("IndexedDB clearAssetsByUser failed:", error);
+    logDbError(
+      { op: "delete", storeName: "assets", key: userId, caller: "clearAssetsByUser" },
+      error
+    );
     return false;
   }
 }
@@ -508,7 +558,7 @@ export async function deleteAsset(id: string): Promise<boolean> {
     await db.delete("assets", id);
     return true;
   } catch (error) {
-    console.warn("IndexedDB deleteAsset failed:", error);
+    logDbError({ op: "delete", storeName: "assets", key: id, caller: "deleteAsset" }, error);
     return false;
   }
 }
@@ -560,7 +610,15 @@ export async function saveCanvasWorkbenchRecord(
     await tx.done;
     return true;
   } catch (error) {
-    console.warn("IndexedDB saveCanvasWorkbenchRecord failed:", error);
+    logDbError(
+      {
+        op: "put",
+        storeName: "canvasWorkbenches",
+        key: document.id,
+        caller: "saveCanvasWorkbenchRecord",
+      },
+      error
+    );
     return false;
   }
 }
@@ -571,7 +629,10 @@ export async function loadCanvasWorkbench(id: string): Promise<StoredCanvasWorkb
   try {
     return (await db.get("canvasWorkbenches", id)) ?? null;
   } catch (error) {
-    console.warn("IndexedDB loadCanvasWorkbench failed:", error);
+    logDbError(
+      { op: "get", storeName: "canvasWorkbenches", key: id, caller: "loadCanvasWorkbench" },
+      error
+    );
     return null;
   }
 }
@@ -585,7 +646,14 @@ export async function loadCanvasWorkbenchListEntries(): Promise<StoredCanvasWork
       .map(fromStoredCanvasWorkbenchListEntry)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   } catch (error) {
-    console.warn("IndexedDB loadCanvasWorkbenchListEntries failed:", error);
+    logDbError(
+      {
+        op: "get",
+        storeName: "canvasWorkbenchListEntries",
+        caller: "loadCanvasWorkbenchListEntries",
+      },
+      error
+    );
     return [];
   }
 }
@@ -607,7 +675,15 @@ export async function loadCanvasWorkbenchListEntriesByUser(
       .map(fromStoredCanvasWorkbenchListEntry)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   } catch (error) {
-    console.warn("IndexedDB loadCanvasWorkbenchListEntriesByUser failed:", error);
+    logDbError(
+      {
+        op: "get",
+        storeName: "canvasWorkbenchListEntries",
+        key: userId,
+        caller: "loadCanvasWorkbenchListEntriesByUser",
+      },
+      error
+    );
     return [];
   }
 }
@@ -623,7 +699,15 @@ export async function loadCanvasWorkbenchesByUser(userId: string): Promise<Store
         );
     return workbenches.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   } catch (error) {
-    console.warn("IndexedDB loadCanvasWorkbenchesByUser failed:", error);
+    logDbError(
+      {
+        op: "get",
+        storeName: "canvasWorkbenches",
+        key: userId,
+        caller: "loadCanvasWorkbenchesByUser",
+      },
+      error
+    );
     return [];
   }
 }
@@ -647,7 +731,15 @@ export async function deleteCanvasWorkbenchRecord(id: string): Promise<boolean> 
     await tx.done;
     return true;
   } catch (error) {
-    console.warn("IndexedDB deleteCanvasWorkbenchRecord failed:", error);
+    logDbError(
+      {
+        op: "delete",
+        storeName: "canvasWorkbenches",
+        key: id,
+        caller: "deleteCanvasWorkbenchRecord",
+      },
+      error
+    );
     return false;
   }
 }
@@ -671,7 +763,10 @@ export async function clearCanvasWorkbenches(): Promise<boolean> {
     await tx.done;
     return true;
   } catch (error) {
-    console.warn("IndexedDB clearCanvasWorkbenches failed:", error);
+    logDbError(
+      { op: "delete", storeName: "canvasWorkbenches", caller: "clearCanvasWorkbenches" },
+      error
+    );
     return false;
   }
 }
@@ -702,7 +797,15 @@ export async function clearCanvasWorkbenchesByUser(userId: string): Promise<bool
     await tx.done;
     return true;
   } catch (error) {
-    console.warn("IndexedDB clearCanvasWorkbenchesByUser failed:", error);
+    logDbError(
+      {
+        op: "delete",
+        storeName: "canvasWorkbenches",
+        key: userId,
+        caller: "clearCanvasWorkbenchesByUser",
+      },
+      error
+    );
     return false;
   }
 }
