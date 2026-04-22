@@ -75,6 +75,23 @@
   - SQL 层残留 `thread_asset_id`：`server/migrations/001_baseline.sql:109` 定义列，`conversationQueries.ts:117` `SELECT thread_asset_id AS asset_id` 对外收口到 `assetId`，`mutations.ts:514` 用作 INSERT 列名。列名是 snake_case，与 TS 标识符命名空间天然隔离。
   - 结论：不加 lint。`no-restricted-syntax` 只能约束 TS 标识符，而 TS 侧两个标识符已全量消失；agent 默认反射路径上全是 `assetId`（`assetSyncApi.ts`、`assets.ts`、查询 alias），没有反射触发点。四判据 (1) runtime 不可逆后果 与 (4) 不在反射路径 都不成立 → 归 cleanup task（未来若 DB 列迁移再处理）。
 
+### `dead-code-scan` — done (2026-04-22)
+
+- 改动：
+  - 加 dev dep `knip@^6.6.1`（唯一 scanner，未装 ts-prune；ts-prune 已归档）。
+  - 新建 `knip.json`：root + `server` 双 workspace；root 入口 `index.html` / `src/main.tsx` / `vite.config.ts` / `eslint.config.js` / `scripts/**/*.ts` / `api/**/*.ts` / `shared/**/*.test.ts`；server 入口 `src/index.ts` + `src/**/*.test.ts`。`ignore` 覆盖生成 shaders，`ignoreBinaries` 吃掉 `package.json` 里的 `python` 引用。
+  - `package.json`: 加 `dead-code` script（`knip --no-progress --no-exit-code --reporter compact`）。不接 CI。
+- 输出契约（feed cleanup-sweep 用）：
+  - 人类视角：`pnpm dead-code`（compact reporter），按段分组 `Unused files` / `Unused dependencies` / `Unused exports` / `Unlisted binaries`，每行 `path: symbol`。
+  - 机器视角：`pnpm dead-code --reporter json --no-exit-code` 覆写 reporter，顶层 `{ "issues": [{ file, files, exports, dependencies, devDependencies, unlisted, unresolved, duplicates, types, enumMembers, namespaceMembers, catalog, binaries, optionalPeerDependencies }] }`；cleanup-sweep 读这个形状即可映射到 stable anchor（`file` + 类别 + `name`）。
+- 验证：
+  - `node node_modules/knip/bin/knip.js --no-progress --no-exit-code --reporter compact` 成功产报告：19 unused files / 1 unused-deps 行（8 个包）/ 88 unused exports。
+  - JSON reporter 可解析，163 条 file-scoped issue 记录。
+  - 本 sandbox 的 `/bin/sh` 没有 `dirname`/`sed`/`uname`，`pnpm dead-code` 走 npm 的 shell shim 会崩在 coreutils 缺失——不是脚本缺陷，正常 dev 机不会触发。
+- 首跑 findings 仅作 cleanup-sweep 输入，未自动修；典型可疑条目留给 slice 5 分类：
+  - 8 个 runtime deps 仅在 `vite.config.ts` manualChunks 字符串里出现（`@ai-sdk/*`、`ai`、`@tanstack/react-query`、`react-markdown`、`remark-gfm`），真未被源码 import。
+  - `shared/` 跨 workspace 导出被部分标记为未用——server 侧有引用，需 cleanup-sweep 校验是否是 knip cross-workspace 追踪漏报。
+
 ## Handoff
 
 下 session 读本 md + JSON，按 `nextTaskId` 进入。slice 完成后更新 JSON `status`，未过就记 first actionable failure 到本 md 的 Validation Log 段。
