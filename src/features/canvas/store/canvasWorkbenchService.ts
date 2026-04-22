@@ -6,6 +6,7 @@ import { diffCanvasDocumentDelta } from "@/features/canvas/document/patches";
 import { normalizeCanvasWorkbenchWithCleanup } from "@/features/canvas/studioPresets";
 import { createNeutralCanvasImageRenderState } from "@/render/image";
 import { useAssetStore } from "@/stores/assetStore";
+import { traceCanvasCommand } from "@/features/canvas/canvasCommandTrace";
 import type {
   CanvasCommand,
   CanvasEditableElement,
@@ -234,11 +235,17 @@ export const createCanvasWorkbenchService = ({
             epoch,
             options
           );
-        return outcome.status === "committed" ||
-          outcome.status === "noop" ||
-          outcome.status === "epoch_invalidated_after_persist"
-          ? (outcome.value ?? null)
-          : null;
+        if (
+          outcome.status !== "committed" &&
+          outcome.status !== "noop" &&
+          outcome.status !== "epoch_invalidated_after_persist"
+        ) {
+          return null;
+        }
+        if (outcome.status === "committed") {
+          traceCanvasCommand(command.type, command, existing, outcome.value);
+        }
+        return outcome.value ?? null;
       },
       null
     );
@@ -835,6 +842,12 @@ export const createCanvasWorkbenchService = ({
           workbenchHistory: appendCanvasHistoryEntry(history, historyEntry),
         };
       });
+      traceCanvasCommand(
+        `commit-interaction:${interaction.commandType ?? "unknown"}`,
+        { interactionId },
+        interaction.baselineWorkbench,
+        activeWorkbench
+      );
 
       return enqueueCanvasMutationTask(async () => {
         if (pendingCommit.epoch !== getCanvasResetEpoch()) {
@@ -1085,10 +1098,13 @@ export const createCanvasWorkbenchService = ({
             history
           );
           const outcome = await mutationEngine.commitDescriptorToStore(descriptor, epoch, []);
-          return (
+          const didApply =
             outcome.status === "committed" ||
-            outcome.status === "epoch_invalidated_after_persist"
-          );
+            outcome.status === "epoch_invalidated_after_persist";
+          if (didApply) {
+            traceCanvasCommand("undo", { commandType: previous.commandType }, activeWorkbench, descriptor.nextWorkbench);
+          }
+          return didApply;
         },
         false
       );
@@ -1117,10 +1133,13 @@ export const createCanvasWorkbenchService = ({
             history
           );
           const outcome = await mutationEngine.commitDescriptorToStore(descriptor, epoch, []);
-          return (
+          const didApply =
             outcome.status === "committed" ||
-            outcome.status === "epoch_invalidated_after_persist"
-          );
+            outcome.status === "epoch_invalidated_after_persist";
+          if (didApply) {
+            traceCanvasCommand("redo", { commandType: nextEntry.commandType }, activeWorkbench, descriptor.nextWorkbench);
+          }
+          return didApply;
         },
         false
       );
