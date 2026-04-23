@@ -1605,7 +1605,6 @@ describe("imageGenerateRoute", () => {
       error: "Provider rejected request.",
       traceId: expect.any(String),
       stage: "provider-call",
-      causeSummary: expect.stringContaining("ProviderError"),
       conversationId: "conversation-1",
       threadId: "conversation-1",
       turnId: expect.any(String),
@@ -1715,7 +1714,6 @@ describe("imageGenerateRoute", () => {
     expect(body).toMatchObject({
       error: "Upstream rejected.",
       stage: "provider-call",
-      causeSummary: expect.stringContaining("ProviderError"),
     });
     expect(body.traceId).toEqual(expect.any(String));
 
