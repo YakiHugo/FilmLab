@@ -17,16 +17,18 @@ describe("reportGlError", () => {
     vi.restoreAllMocks();
   });
 
-  it("appends structured events to the dev ring buffer with required fields", () => {
+  it("appends structured events to the dev ring buffer and rethrows in DEV", () => {
     const cause = new Error("shader link failed");
 
-    reportGlError({
-      op: "linkProgram",
-      shaderName: "master",
-      rendererLabel: "preview",
-      compileLog: "ERROR: 0:5: cannot link",
-      cause,
-    });
+    expect(() =>
+      reportGlError({
+        op: "linkProgram",
+        shaderName: "master",
+        rendererLabel: "preview",
+        compileLog: "ERROR: 0:5: cannot link",
+        cause,
+      })
+    ).toThrow(cause);
 
     const ring = readGlErrorRing();
     expect(ring).toHaveLength(1);
@@ -43,14 +45,29 @@ describe("reportGlError", () => {
     }));
   });
 
+  it("rethrows a synthetic Error when cause is not an Error instance", () => {
+    expect(() =>
+      reportGlError({
+        op: "drawArrays",
+        passId: "pass-0",
+        rendererLabel: "preview",
+        cause: "string cause",
+      })
+    ).toThrow("[gl-error] drawArrays");
+  });
+
   it("caps the ring buffer at GL_ERROR_RING_LIMIT entries, dropping oldest first", () => {
     const overflow = GL_ERROR_RING_LIMIT + 5;
     for (let i = 0; i < overflow; i += 1) {
-      reportGlError({
-        op: "drawArrays",
-        passId: `pass-${i}`,
-        rendererLabel: "preview",
-      });
+      try {
+        reportGlError({
+          op: "drawArrays",
+          passId: `pass-${i}`,
+          rendererLabel: "preview",
+        });
+      } catch {
+        // DEV rethrow expected
+      }
     }
 
     const ring = readGlErrorRing();

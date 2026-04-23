@@ -120,7 +120,6 @@ export const createImageGenerateRoute = (config: AppConfig): FastifyPluginAsync 
           error: "Image generation failed.",
           traceId,
           stage: "provider-call",
-          causeSummary: summarizeCause(error),
         });
       } finally {
         request.raw.removeListener("aborted", abortRequest);

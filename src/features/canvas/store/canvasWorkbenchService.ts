@@ -242,8 +242,8 @@ export const createCanvasWorkbenchService = ({
         ) {
           return null;
         }
-        if (outcome.status === "committed") {
-          traceCanvasCommand(command.type, command, existing, outcome.value);
+        if (outcome.status === "committed" || outcome.status === "epoch_invalidated_after_persist") {
+          traceCanvasCommand(command.type, command, existing, outcome.value ?? null);
         }
         return outcome.value ?? null;
       },
