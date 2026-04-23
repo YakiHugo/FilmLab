@@ -41,6 +41,9 @@ export const reportGlError = (event: GlErrorEvent): void => {
     }
   }
   console.error("[gl-error]", event);
+  if (import.meta.env.DEV) {
+    throw event.cause instanceof Error ? event.cause : new Error(`[gl-error] ${event.op}`);
+  }
 };
 
 export const readGlErrorRing = (): readonly GlErrorEvent[] => {

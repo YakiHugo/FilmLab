@@ -176,6 +176,9 @@ export const renderSingleImageToCanvas = async ({
     debugBoundaries.canvasClones += 1;
     return surface.cloneToCanvas();
   };
+  // Only texture uploads and CPU pixel reads are accumulated from sub-stages;
+  // canvasMaterializations and canvasClones are tracked by the orchestrator directly
+  // via trackSurfaceClone and the materializeToCanvas call site above.
   const accumulateStageBoundaries = (stageDebug?: RenderImageStageDebugInfo) => {
     if (!stageDebug) {
       return;

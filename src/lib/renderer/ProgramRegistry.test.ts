@@ -105,7 +105,7 @@ describe("ProgramRegistry", () => {
         },
       }));
 
-      void programs.brushMaskStamp;
+      expect(() => void programs.brushMaskStamp).toThrow("[gl-error] uniform-binding");
 
       const ring = readGlErrorRing();
       expect(ring).toHaveLength(1);

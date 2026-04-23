@@ -126,7 +126,7 @@ describe("PipelineRenderer.renderLocalMaskShape", () => {
       vi.restoreAllMocks();
     });
 
-    it("pushes a structured drawArrays event when runToCanvas throws on a brush mask", () => {
+    it("pushes a structured drawArrays event and rethrows when runToCanvas throws on a brush mask", () => {
       const { renderer, runToCanvas } = createRendererStub();
       const cause = new Error("boom: brush draw failed");
       runToCanvas.mockImplementation(() => {
@@ -140,8 +140,7 @@ describe("PipelineRenderer.renderLocalMaskShape", () => {
         points: [{ x: 0.5, y: 0.5, pressure: 1 }],
       };
 
-      const rendered = renderLocalMaskShape.call(renderer, mask, 32, 32);
-      expect(rendered).toBe(false);
+      expect(() => renderLocalMaskShape.call(renderer, mask, 32, 32)).toThrow(cause);
 
       const ring = readGlErrorRing();
       expect(ring).toHaveLength(1);
@@ -153,7 +152,7 @@ describe("PipelineRenderer.renderLocalMaskShape", () => {
       });
     });
 
-    it("pushes a structured drawArrays event when runToCanvas throws on a radial gradient", () => {
+    it("pushes a structured drawArrays event and rethrows when runToCanvas throws on a radial gradient", () => {
       const { renderer, runToCanvas } = createRendererStub();
       const cause = new Error("boom: gradient draw failed");
       runToCanvas.mockImplementation(() => {
@@ -168,8 +167,7 @@ describe("PipelineRenderer.renderLocalMaskShape", () => {
         feather: 0.2,
       };
 
-      const rendered = renderLocalMaskShape.call(renderer, mask, 32, 32);
-      expect(rendered).toBe(false);
+      expect(() => renderLocalMaskShape.call(renderer, mask, 32, 32)).toThrow(cause);
 
       const ring = readGlErrorRing();
       expect(ring).toHaveLength(1);

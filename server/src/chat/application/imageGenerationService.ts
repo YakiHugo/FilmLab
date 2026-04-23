@@ -406,7 +406,14 @@ export class ImageGenerationService {
               firstNormalizationError.message,
               firstNormalizationError.statusCode,
               firstNormalizationError,
-              { stage: "normalize" }
+              {
+                stage: "normalize",
+                providerErrorCode: firstNormalizationError.providerErrorCode,
+                providerId: firstNormalizationError.providerId,
+                modelId: firstNormalizationError.modelId,
+                responseStatus: firstNormalizationError.responseStatus,
+                responseBodyPreview: firstNormalizationError.responseBodyPreview,
+              }
             );
           }
           throw firstNormalizationError;
