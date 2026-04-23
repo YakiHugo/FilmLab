@@ -25,7 +25,6 @@ interface ImageGenerationResponseErrorPayload {
   traceId?: string;
   stage?: ImageGenStage;
   providerErrorCode?: string;
-  causeSummary?: string;
 }
 
 export interface ImageGenerationRequestError extends Error {
@@ -37,7 +36,6 @@ export interface ImageGenerationRequestError extends Error {
   traceId?: string;
   stage?: ImageGenStage;
   providerErrorCode?: string;
-  causeSummary?: string;
   status?: number;
 }
 
@@ -48,7 +46,6 @@ export interface ImageGenerationLastErrorSnapshot {
   traceId: string | undefined;
   stage: ImageGenStage | undefined;
   providerErrorCode: string | undefined;
-  causeSummary: string | undefined;
   conversationId: string | undefined;
   turnId: string | undefined;
   jobId: string | undefined;
@@ -243,9 +240,6 @@ export async function generateImage(
     if (typeof errorPayload?.providerErrorCode === "string") {
       error.providerErrorCode = errorPayload.providerErrorCode;
     }
-    if (typeof errorPayload?.causeSummary === "string") {
-      error.causeSummary = errorPayload.causeSummary;
-    }
 
     if (import.meta.env.DEV) {
       const snapshot: ImageGenerationLastErrorSnapshot = {
@@ -255,7 +249,6 @@ export async function generateImage(
         traceId: error.traceId,
         stage: error.stage,
         providerErrorCode: error.providerErrorCode,
-        causeSummary: error.causeSummary,
         conversationId: error.conversationId,
         turnId: error.turnId,
         jobId: error.jobId,

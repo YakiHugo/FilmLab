@@ -1,7 +1,6 @@
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { ZodError } from "zod";
 import { ImageGenerationCommandError, type PersistedGenerationContext } from "../chat/application/imageGenerationService";
-import { summarizeCause } from "../chat/application/imageGeneration/errors";
 import type { AppConfig } from "../config";
 import { attachTraceIdHeader, getRequestTraceId } from "../shared/requestTrace";
 import { imageGenerationRequestSchema } from "../shared/imageGenerationSchema";
@@ -28,7 +27,6 @@ const sendTraceableError = (
     traceId: string;
     stage: ImageGenStage;
     providerErrorCode?: string;
-    causeSummary?: string;
     persistedGeneration?: PersistedGenerationContext | null;
   }
 ) => {
@@ -38,7 +36,6 @@ const sendTraceableError = (
     traceId: input.traceId,
     stage: input.stage,
     ...(input.providerErrorCode ? { providerErrorCode: input.providerErrorCode } : {}),
-    ...(input.causeSummary ? { causeSummary: input.causeSummary } : {}),
     ...toPersistedGenerationResponse(input.persistedGeneration ?? null),
   });
 };
@@ -84,7 +81,6 @@ export const createImageGenerateRoute = (config: AppConfig): FastifyPluginAsync 
           error: message,
           traceId,
           stage: "prompt-compile",
-          causeSummary: summarizeCause(error),
         });
       }
 
@@ -109,7 +105,6 @@ export const createImageGenerateRoute = (config: AppConfig): FastifyPluginAsync 
             traceId,
             stage: error.stage,
             providerErrorCode: error.providerErrorCode,
-            causeSummary: error.causeSummary,
             persistedGeneration: error.persistedGeneration,
           });
         }
