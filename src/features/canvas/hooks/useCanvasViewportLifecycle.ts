@@ -1,4 +1,3 @@
-import type Konva from "konva";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type {
   CanvasViewportInsets,
@@ -15,7 +14,6 @@ interface UseCanvasViewportLifecycleOptions {
   } | null;
   activeWorkbenchId: string | null;
   insets: CanvasViewportInsets;
-  stageRef: RefObject<Konva.Stage>;
   setViewport: (viewport: CanvasViewportTransform["viewport"]) => void;
   setZoom: (zoom: number) => void;
 }
@@ -50,7 +48,6 @@ export function useCanvasViewportLifecycle({
   activeWorkbench,
   activeWorkbenchId,
   insets,
-  stageRef,
   setViewport,
   setZoom,
 }: UseCanvasViewportLifecycleOptions): UseCanvasViewportLifecycleResult {
