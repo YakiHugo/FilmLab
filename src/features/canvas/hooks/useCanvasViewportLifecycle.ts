@@ -32,8 +32,6 @@ const createEmptyStageSize = (): CanvasViewportSize => ({
   height: 0,
 });
 
-let registeredCanvasStage: Konva.Stage | null = null;
-
 const isInputLikeElement = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -75,13 +73,6 @@ export function useCanvasViewportLifecycle({
         : null,
     [activeWorkbench, insets, stageSize]
   );
-
-  useEffect(() => {
-    registeredCanvasStage = stageRef.current;
-    return () => {
-      registeredCanvasStage = null;
-    };
-  }, [stageRef, activeWorkbenchId]);
 
   useEffect(() => {
     if (!activeWorkbenchId) {
