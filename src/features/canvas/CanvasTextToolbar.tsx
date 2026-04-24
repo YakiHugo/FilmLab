@@ -11,7 +11,7 @@ import {
 import { Check } from "lucide-react";
 import type { CanvasTextFontSizeTier } from "@/types";
 import { cn } from "@/lib/utils";
-import type { CanvasTextEditorModel } from "./textRuntimeViewModel";
+import type { CanvasTextEditorModel } from "./text/textRuntimeViewModel";
 import {
   CANVAS_TEXT_COLOR_OPTIONS,
   CANVAS_TEXT_FONT_OPTIONS,
@@ -22,8 +22,8 @@ import {
   getCanvasTextColorOption,
   getCanvasTextFontOption,
   getCanvasTextSizeTierOption,
-} from "./textStyle";
-import { resolveToolbarMenuPlacement } from "./overlayGeometry";
+} from "./text/textStyle";
+import { resolveToolbarMenuPlacement } from "./geometry/overlayGeometry";
 
 type ToolbarMenu = "color" | "font" | "size" | null;
 const TOOLBAR_MENU_GAP = 10;

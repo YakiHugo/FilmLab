@@ -69,6 +69,7 @@
 - 从 `activeWorkbench` 面门收口到 `loadedWorkbench` 状态、命令、结构、历史 seam。
 - Route-first workbench 激活 + 文本预提交 guard 是为了解决 workbench 切换时的文本会话竞争；不要拆。
 - History 是 `entries + cursor` delta 模型，不是 `past/future` 双栈。
+- Canvas 根目录按领域分子目录：`geometry/`（resize / selection / overlay 几何）、`image/`（渲染状态、board 预览、属性、工厂）、`text/`（会话、样式、运行时视图模型）。不设 barrel `index.ts`，消费者直接导入子目录下具体文件。
 
 ### Assets
 - `assetId` 是唯一规范资产标识。`remoteAssetId` / `threadAssetId` 的客户端主模型已退休。

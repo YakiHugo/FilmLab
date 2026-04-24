@@ -1,6 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { shallow } from "zustand/shallow";
+import { selectCanvasLoadedWorkbenchState } from "../store/canvasStoreSelectors";
 import { useCanvasWorkbenchTransitionGuard } from "../canvasWorkbenchTransitionGuardHooks";
 import type {
   CanvasWorkbenchEditablePatch,
@@ -12,12 +14,11 @@ import {
   resolveCanvasWorkbenchSequenceName,
 } from "../workbenchPanelState";
 import { useCanvasLoadedWorkbenchCommands } from "./useCanvasLoadedWorkbenchCommands";
-import { useCanvasLoadedWorkbenchState } from "./useCanvasLoadedWorkbenchState";
 
 export function useCanvasWorkbenchActions() {
   const navigate = useNavigate();
   const runBeforeWorkbenchTransition = useCanvasWorkbenchTransitionGuard();
-  const { loadedWorkbench, loadedWorkbenchId } = useCanvasLoadedWorkbenchState();
+  const { loadedWorkbench, loadedWorkbenchId } = useCanvasStore(selectCanvasLoadedWorkbenchState, shallow);
   const { patchWorkbench } = useCanvasLoadedWorkbenchCommands();
   const workbenches = useCanvasStore((state) => state.workbenchList);
   const createWorkbench = useCanvasStore((state) => state.createWorkbench);

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { shallow } from "zustand/shallow";
 import { useCanvasStore, type CanvasState } from "@/stores/canvasStore";
 import { bindCanvasLoadedWorkbenchCommands } from "../store/canvasLoadedWorkbenchPorts";
-import { useCanvasLoadedWorkbenchId } from "./useCanvasLoadedWorkbenchId";
+import { selectResolvedLoadedWorkbenchId } from "../store/canvasStoreSelectors";
 
 const selectCommandStoreApi = (state: CanvasState) => ({
   patchWorkbench: state.patchWorkbench,
@@ -16,7 +16,7 @@ const selectCommandStoreApi = (state: CanvasState) => ({
 });
 
 export function useCanvasLoadedWorkbenchCommands() {
-  const loadedWorkbenchId = useCanvasLoadedWorkbenchId();
+  const loadedWorkbenchId = useCanvasStore(selectResolvedLoadedWorkbenchId);
   const storeApi = useCanvasStore(selectCommandStoreApi, shallow);
 
   return useMemo(

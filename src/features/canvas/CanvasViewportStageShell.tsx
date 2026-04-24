@@ -17,8 +17,8 @@ import { ShapeElement } from "./elements/ShapeElement";
 import { TextElement } from "./elements/TextElement";
 import { GRID_SIZE } from "./grid";
 import type { CanvasResizeTransformerConfig } from "./hooks/useCanvasViewportResizeController";
-import { fitCanvasTextElementToContent } from "./textStyle";
-import type { CanvasTextRuntimeSelectedElement } from "./textRuntimeViewModel";
+import { fitCanvasTextElementToContent } from "./text/textStyle";
+import type { CanvasTextRuntimeSelectedElement } from "./text/textRuntimeViewModel";
 
 const WORKSPACE_DOT_GRID_NODE_ID = "canvas-workspace-grid";
 const DOT_RADIUS = 0.72;

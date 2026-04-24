@@ -1,4 +1,4 @@
-import { getCanvasDescendantIds } from "./documentGraph";
+import { getCanvasDescendantIds } from "./document";
 import type { CanvasRenderableNode, CanvasWorkbench } from "@/types";
 
 export type CanvasLayerDropPlan =

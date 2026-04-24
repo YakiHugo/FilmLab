@@ -8,13 +8,13 @@ import type {
   CanvasRenderableTextElement,
   CanvasSlice,
 } from "@/types";
-import { createCanvasImageDocumentRenderContext } from "./boardImageRendering";
+import { createCanvasImageDocumentRenderContext } from "./image/boardImageRendering";
 import { resolveCanvasShapeFillPaint } from "./shapeStyle";
 import {
   CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER,
   fitCanvasTextElementToContent,
   splitCanvasTextLines,
-} from "./textStyle";
+} from "./text/textStyle";
 
 interface RenderCanvasWorkbenchOptions {
   assets: Asset[];

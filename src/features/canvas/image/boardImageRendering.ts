@@ -7,8 +7,17 @@ import {
   type ImageRenderDocument,
 } from "@/render/image";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
-import type { Asset, CanvasImageElement, CanvasNodeTransform } from "@/types";
-import { resolveCanvasImageRenderState } from "./imageRenderState";
+import type { Asset, CanvasImageElement, CanvasNodeTransform, CanvasPersistedImageElement } from "@/types";
+
+type CanvasImageRenderStateSource = Pick<
+  CanvasImageElement | CanvasPersistedImageElement,
+  "renderState"
+>;
+
+export const resolveCanvasImageRenderState = (
+  element: CanvasImageRenderStateSource,
+  draftRenderState?: CanvasImageRenderStateV1
+): CanvasImageRenderStateV1 => draftRenderState ?? element.renderState;
 
 export type BoardPreviewPriority = "interactive" | "background";
 

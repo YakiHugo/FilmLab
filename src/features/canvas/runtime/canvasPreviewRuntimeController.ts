@@ -1,7 +1,7 @@
 import {
   renderCanvasImageElementToCanvas,
   type BoardPreviewPriority,
-} from "@/features/canvas/boardImageRendering";
+} from "@/features/canvas/image/boardImageRendering";
 import type { StoreApi } from "zustand/vanilla";
 import {
   BOARD_PREVIEW_PRIORITY_ORDER,

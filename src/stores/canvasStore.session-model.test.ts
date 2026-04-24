@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getCanvasWorkbenchSnapshot } from "@/features/canvas/documentGraph";
+import { getCanvasWorkbenchSnapshot } from "@/features/canvas/document";
 import { normalizeCanvasWorkbench } from "@/features/canvas/studioPresets";
 import { emit } from "@/lib/storeEvents";
 import type { CanvasWorkbench, CanvasWorkbenchListEntry, CurrentUser } from "@/types";

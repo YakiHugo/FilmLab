@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { selectionIdsEqual } from "../selectionModel";
-import type { BoardPreviewPriority } from "../boardImageRendering";
+import type { BoardPreviewPriority } from "../image/boardImageRendering";
 import { useCanvasRuntimeScope } from "./canvasRuntimeContext";
 import type { CanvasPreviewEntry } from "./canvasPreviewRuntimeState";
 

@@ -7,7 +7,7 @@ import {
   resolveCanvasEllipseShapeAttrs,
   resolveCanvasLineShapeAttrs,
   resolveCanvasRectShapeAttrs,
-} from "./shapeRenderState";
+} from "../shapeRenderState";
 
 export type CanvasResizeMutableNode = Konva.Node & {
   findOne?: <T extends Konva.Node>(selector: string) => T | null;

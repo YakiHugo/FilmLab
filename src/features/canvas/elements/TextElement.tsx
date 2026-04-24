@@ -7,7 +7,7 @@ import { isCanvasTextElementEditable } from "./textElementEditability";
 import {
   CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER,
   fitCanvasTextElementToContent,
-} from "../textStyle";
+} from "../text/textStyle";
 
 type CanvasTextRenderState = CanvasRenderableTextElement;
 

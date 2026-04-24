@@ -1,7 +1,7 @@
 import {
   createCanvasImageRenderContext,
   type BoardPreviewPriority,
-} from "@/features/canvas/boardImageRendering";
+} from "@/features/canvas/image/boardImageRendering";
 import { selectionIdsEqual } from "@/features/canvas/selectionModel";
 import type { CanvasImageRenderStateV1 } from "@/render/image";
 import type { Asset, CanvasImageElement, CanvasWorkbench } from "@/types";

@@ -6,8 +6,8 @@ import {
   canvasTextRuntimeSelectedElementsEqual,
   resolveCanvasTextRuntimeViewModel,
   type CanvasTextRuntimeViewModel,
-} from "../textRuntimeViewModel";
-import type { CanvasTextSessionSnapshot } from "../textSessionState";
+} from "../text/textRuntimeViewModel";
+import type { CanvasTextSessionSnapshot } from "../text/textSessionState";
 
 interface UseCanvasTextRuntimeViewModelOptions {
   activeWorkbenchId: string | null;

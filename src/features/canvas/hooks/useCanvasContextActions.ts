@@ -9,6 +9,9 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { useAssetStore } from "@/stores/assetStore";
+import { shallow } from "zustand/shallow";
+import { useCanvasStore } from "@/stores/canvasStore";
+import { selectCanvasLoadedWorkbenchState } from "../store/canvasStoreSelectors";
 import type { Asset } from "@/types";
 import { WORKSPACE_BACKGROUND_NODE_ID } from "../canvasViewportConstants";
 import {
@@ -19,12 +22,10 @@ import {
 import { resolveCanvasLayerOrderPlan } from "../canvasLayerOrderActions";
 import { isCanvasShortcutMatch } from "../canvasShortcuts";
 import { isCanvasTypingInProgress, isEditableEventTarget } from "../domEditableFocus";
-import { isSelectableSelectionTarget } from "../selectionGeometry";
+import { isSelectableSelectionTarget } from "../geometry/selectionGeometry";
 import { resolvePrimarySelectedElement, resolveSelectedRootElementIds } from "../selectionModel";
 import type { CanvasInteractionNotice } from "../viewportOverlay";
-import { useCanvasHistoryActions } from "./useCanvasHistoryActions";
-import { useCanvasHistoryState } from "./useCanvasHistoryState";
-import { useCanvasLoadedWorkbenchState } from "./useCanvasLoadedWorkbenchState";
+import { useCanvasHistoryActions, useCanvasHistoryState } from "./useCanvasHistory";
 import { useCanvasLoadedWorkbenchStructure } from "./useCanvasLoadedWorkbenchStructure";
 import { useCanvasSelectionActions } from "./useCanvasSelectionActions";
 
@@ -71,7 +72,7 @@ export function useCanvasContextActions({
   onOpenExport,
   stageRef,
 }: UseCanvasContextActionsOptions): CanvasContextActionsModel {
-  const { loadedWorkbench } = useCanvasLoadedWorkbenchState();
+  const { loadedWorkbench } = useCanvasStore(selectCanvasLoadedWorkbenchState, shallow);
   const assets = useAssetStore((state) => state.assets);
   const { canRedo, canUndo } = useCanvasHistoryState();
   const { redo, undo } = useCanvasHistoryActions();

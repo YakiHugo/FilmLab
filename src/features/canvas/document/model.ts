@@ -15,7 +15,7 @@ import type {
   CanvasWorkbench,
   CanvasWorkbenchSnapshot,
 } from "@/types";
-import { normalizeCanvasTextElement } from "../textStyle";
+import { normalizeCanvasTextElement } from "../text/textStyle";
 import { clone, toNodeTransform } from "./shared";
 
 export const isCanvasRenderableElement = (
