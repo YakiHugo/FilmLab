@@ -162,7 +162,6 @@ export function CanvasViewport({
     activeWorkbench: loadedWorkbench,
     activeWorkbenchId: loadedWorkbenchId,
     insets: VIEWPORT_INSETS,
-    stageRef,
     setViewport,
     setZoom,
   });
