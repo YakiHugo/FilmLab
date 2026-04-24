@@ -8,9 +8,9 @@ import {
   useState,
   type RefObject,
 } from "react";
-import type { CanvasOverlayRect } from "../overlayGeometry";
-import { resolveFloatingOverlayPosition } from "../overlayGeometry";
-import type { CanvasTextEditorModel, CanvasTextOverlayModel } from "../textRuntimeViewModel";
+import type { CanvasOverlayRect } from "../geometry/overlayGeometry";
+import { resolveFloatingOverlayPosition } from "../geometry/overlayGeometry";
+import type { CanvasTextEditorModel, CanvasTextOverlayModel } from "../text/textRuntimeViewModel";
 import {
   getTextEditorLayout,
   overlayPositionEqual,

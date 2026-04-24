@@ -7,18 +7,18 @@ import {
   type KeyboardEventHandler,
 } from "react";
 import type { CanvasRenderableTextElement, CanvasTextElement } from "@/types";
-import { fitCanvasTextElementToContent } from "../textStyle";
+import { fitCanvasTextElementToContent } from "../text/textStyle";
 import {
   runCanvasTextSessionEffects,
   type CanvasTextSessionPort,
-} from "../textSessionRunner";
+} from "../text/textSessionRunner";
 import {
   createCanvasTextSessionSnapshot,
   reduceCanvasTextSession,
   type CanvasTextSessionEvent,
   type CanvasTextSessionReducerOptions,
   type CanvasTextSessionSnapshot,
-} from "../textSessionState";
+} from "../text/textSessionState";
 
 interface UseCanvasTextSessionOptions {
   port: CanvasTextSessionPort;

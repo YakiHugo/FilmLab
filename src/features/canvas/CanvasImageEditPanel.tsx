@@ -1,12 +1,12 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CanvasEditSection } from "@/features/canvas/components/CanvasEditSection";
-import { SliderControl } from "@/features/canvas/components/controls/SliderControl";
-import type { CanvasImageNumericFieldId } from "@/features/canvas/imageAdjustmentTypes";
+import { CanvasSliderRow } from "@/features/canvas/components/CanvasSliderRow";
+import type { CanvasImageNumericFieldId } from "@/features/canvas/image/imageAdjustmentTypes";
 import {
   useCanvasElementDraftRenderState,
   useCanvasPreviewActions,
 } from "@/features/canvas/runtime/canvasRuntimeHooks";
-import { resolveCanvasImageRenderState } from "@/features/canvas/imageRenderState";
+import { resolveCanvasImageRenderState } from "@/features/canvas/image/boardImageRendering";
 import type { CanvasImageRenderStateV1 } from "@/render/image";
 import { canvasDockBodyTextClassName } from "./editDockTheme";
 import type { CanvasImageEditTarget } from "./editPanelSelection";
@@ -16,7 +16,7 @@ import {
   DEFAULT_CANVAS_IMAGE_EDIT_VALUES,
   getCanvasImageEditValues,
   resetRenderStateForNumericFields,
-} from "./imageRenderStateEditing";
+} from "./image/imageRenderStateEditing";
 import { useCanvasImagePropertyActions } from "./hooks/useCanvasImagePropertyActions";
 
 type CanvasEditSectionId = "light" | "color" | "tones" | "effects" | "detail";
@@ -153,7 +153,7 @@ const ProjectSliderRow = memo(function ProjectSliderRow({
   }, [defaultValue, fieldId, onCommitFieldValue]);
 
   return (
-    <SliderControl
+    <CanvasSliderRow
       variant="canvasDock"
       label={label}
       value={value}

@@ -2,9 +2,11 @@ import type Konva from "konva";
 import { useCallback } from "react";
 import type { CanvasSlice } from "@/types";
 import { useAssetStore } from "@/stores/assetStore";
+import { shallow } from "zustand/shallow";
+import { useCanvasStore } from "@/stores/canvasStore";
+import { selectCanvasLoadedWorkbenchState } from "../store/canvasStoreSelectors";
 import { encodeRgbaToTiff } from "@/lib/export/tiff";
-import { cropRenderedCanvasSlice, renderCanvasWorkbenchToCanvas } from "../renderCanvasWorkbench";
-import { useCanvasLoadedWorkbenchState } from "./useCanvasLoadedWorkbenchState";
+import { cropRenderedCanvasSlice, renderCanvasWorkbenchToCanvas } from "../renderCanvasDocument";
 
 export type CanvasExportFormat = "png" | "jpeg" | "tiff";
 
@@ -98,7 +100,7 @@ export const exportStageDataUrl = (
 
 export function useCanvasExport() {
   const assets = useAssetStore((state) => state.assets);
-  const { loadedWorkbench } = useCanvasLoadedWorkbenchState();
+  const { loadedWorkbench } = useCanvasStore(selectCanvasLoadedWorkbenchState, shallow);
 
   const exportDataUrl = useCallback(
     (

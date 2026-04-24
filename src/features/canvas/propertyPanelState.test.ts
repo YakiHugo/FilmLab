@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { worldPointToLocalPoint } from "./documentGraph";
+import { worldPointToLocalPoint } from "./document";
 import { createCanvasTestDocument, createGroupNode, createShapeNode } from "./document/testUtils";
 import { planCanvasNodePropertyCommand } from "./propertyPanelState";
 

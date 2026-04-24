@@ -4,6 +4,8 @@ import { useCallback, useMemo, type RefObject } from "react";
 import { cn } from "@/lib/utils";
 import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { shallow } from "zustand/shallow";
+import { selectCanvasLoadedWorkbenchState } from "./store/canvasStoreSelectors";
 import { CanvasViewportOverlayHost } from "./CanvasViewportOverlayHost";
 import { CanvasViewportContextMenu } from "./CanvasViewportContextMenu";
 import { CanvasViewportStageShell } from "./CanvasViewportStageShell";
@@ -11,7 +13,6 @@ import { runCanvasWorkbenchTransitionGuard } from "./canvasWorkbenchTransition";
 import { useRegisterCanvasWorkbenchTransitionGuard } from "./canvasWorkbenchTransitionGuardHooks";
 import { VIEWPORT_INSETS } from "./canvasViewportConstants";
 import { useCanvasLoadedWorkbenchCommands } from "./hooks/useCanvasLoadedWorkbenchCommands";
-import { useCanvasLoadedWorkbenchState } from "./hooks/useCanvasLoadedWorkbenchState";
 import { useCanvasDisplaySelectedElementIds } from "./hooks/useCanvasSelectionModel";
 import { useCanvasSelectionActions } from "./hooks/useCanvasSelectionActions";
 import { useCanvasTextSessionPort } from "./hooks/useCanvasTextSessionPort";
@@ -117,7 +118,7 @@ export function CanvasViewport({
   onNotice,
   stageRef,
 }: CanvasViewportProps) {
-  const { loadedWorkbench, loadedWorkbenchId } = useCanvasLoadedWorkbenchState();
+  const { loadedWorkbench, loadedWorkbenchId } = useCanvasStore(selectCanvasLoadedWorkbenchState, shallow);
   const {
     beginInteraction,
     commitInteraction,

@@ -8,7 +8,7 @@ import {
   useCanvasRuntimeAsset,
 } from "@/features/canvas/runtime/canvasRuntimeHooks";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { resolveCanvasImagePreviewTargetSizeKey } from "../boardImageRendering";
+import { resolveCanvasImagePreviewTargetSizeKey } from "../image/boardImageRendering";
 import { areEqual } from "../document/shared";
 
 type CanvasImageRenderState = CanvasRenderableImageElement;

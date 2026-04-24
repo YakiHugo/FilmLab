@@ -1,7 +1,7 @@
 import type { CanvasImageRenderStateV1 } from "@/render/image";
 import type { Asset } from "@/types";
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { BoardPreviewPriority } from "../boardImageRendering";
+import type { BoardPreviewPriority } from "../image/boardImageRendering";
 import {
   createCanvasPreviewRuntimeController,
   type CanvasPreviewRuntimeController,

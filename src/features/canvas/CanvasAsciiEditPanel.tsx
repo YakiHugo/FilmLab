@@ -7,14 +7,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CanvasEditSection } from "@/features/canvas/components/CanvasEditSection";
-import { SliderControl } from "@/features/canvas/components/controls/SliderControl";
+import { CanvasSliderRow } from "@/features/canvas/components/CanvasSliderRow";
 import { asciiAdjustmentsEqual } from "@/lib/asciiAdjustments";
 import { cn } from "@/lib/utils";
 import {
   useCanvasElementDraftRenderState,
   useCanvasPreviewActions,
 } from "@/features/canvas/runtime/canvasRuntimeHooks";
-import { resolveCanvasImageRenderState } from "@/features/canvas/imageRenderState";
+import { resolveCanvasImageRenderState } from "@/features/canvas/image/boardImageRendering";
 import type { CanvasImageRenderStateV1 } from "@/render/image";
 import type { AsciiAdjustments } from "@/types";
 import { useCanvasStore } from "@/stores/canvasStore";
@@ -33,7 +33,7 @@ import {
   applyAsciiAdjustmentsToRenderState,
   DEFAULT_CANVAS_ASCII_ADJUSTMENTS,
   getCanvasImageEditValues,
-} from "./imageRenderStateEditing";
+} from "./image/imageRenderStateEditing";
 import { useCanvasImagePropertyActions } from "./hooks/useCanvasImagePropertyActions";
 
 type AsciiSectionId = "presets" | "character" | "background" | "color";
@@ -346,7 +346,7 @@ function CanvasAsciiEditPanelForImage({
     const partialFor = (value: number): Partial<AsciiAdjustments> =>
       ({ [slider.key]: value }) as Partial<AsciiAdjustments>;
     return (
-      <SliderControl
+      <CanvasSliderRow
         key={slider.key}
         variant="canvasDock"
         label={slider.label}
@@ -589,7 +589,7 @@ function CanvasAsciiEditPanelForImage({
           ) : null}
 
           {showBackgroundBlur ? (
-            <SliderControl
+            <CanvasSliderRow
               variant="canvasDock"
               label="背景模糊"
               value={asciiAdjustments.backgroundBlur}
@@ -604,7 +604,7 @@ function CanvasAsciiEditPanelForImage({
           ) : null}
 
           {showBackgroundOpacity ? (
-            <SliderControl
+            <CanvasSliderRow
               variant="canvasDock"
               label="背景不透明度"
               value={asciiAdjustments.backgroundOpacity}

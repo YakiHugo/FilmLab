@@ -1,5 +1,5 @@
 import { getCurrentUserId } from "@/lib/authToken";
-import { getCanvasWorkbenchSnapshot } from "@/features/canvas/documentGraph";
+import { getCanvasWorkbenchSnapshot } from "@/features/canvas/document";
 import {
   deleteCanvasWorkbenchRecord,
   loadCanvasWorkbench,

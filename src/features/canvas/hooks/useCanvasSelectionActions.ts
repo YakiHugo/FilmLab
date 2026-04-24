@@ -3,7 +3,7 @@ import { useCanvasStore } from "@/stores/canvasStore";
 import {
   isSelectableSelectionTarget,
   resolveSelectableSelectionIds,
-} from "../selectionGeometry";
+} from "../geometry/selectionGeometry";
 import {
   resolveNextAdditiveSelectionIds,
   selectionIdsEqual,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { createCanvasImageElementFromAsset } from "@/features/canvas/imageNodeFactory";
+import { createCanvasImageElementFromAsset } from "@/features/canvas/image/imageNodeFactory";
 import { importAssetFiles } from "@/lib/assetImport";
 import { fetchRemoteAsset } from "@/lib/assetSyncApi";
 import { getCanvasResetEpoch, useCanvasStore } from "@/stores/canvasStore";

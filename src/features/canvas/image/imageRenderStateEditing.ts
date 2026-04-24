@@ -1,4 +1,4 @@
-import type { CanvasImageNumericFieldId } from "@/features/canvas/imageAdjustmentTypes";
+import type { CanvasImageNumericFieldId } from "./imageAdjustmentTypes";
 import type {
   AsciiAdjustments,
   AsciiBackgroundMode,

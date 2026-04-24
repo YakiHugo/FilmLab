@@ -1,6 +1,5 @@
 import type Konva from "konva";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { registerCanvasStage } from "./canvasStageRegistry";
 import type {
   CanvasViewportInsets,
   CanvasViewportSize,
@@ -32,6 +31,8 @@ const createEmptyStageSize = (): CanvasViewportSize => ({
   width: 0,
   height: 0,
 });
+
+let registeredCanvasStage: Konva.Stage | null = null;
 
 const isInputLikeElement = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
@@ -76,9 +77,9 @@ export function useCanvasViewportLifecycle({
   );
 
   useEffect(() => {
-    registerCanvasStage(stageRef.current);
+    registeredCanvasStage = stageRef.current;
     return () => {
-      registerCanvasStage(null);
+      registeredCanvasStage = null;
     };
   }, [stageRef, activeWorkbenchId]);
 

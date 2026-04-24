@@ -5,8 +5,10 @@ import {
   type CanvasNodePropertyIntent,
   type CanvasNodePropertyPlannerTarget,
 } from "../propertyPanelState";
+import { shallow } from "zustand/shallow";
+import { useCanvasStore } from "@/stores/canvasStore";
+import { selectCanvasLoadedWorkbenchState } from "../store/canvasStoreSelectors";
 import { useCanvasLoadedWorkbenchCommands } from "./useCanvasLoadedWorkbenchCommands";
-import { useCanvasLoadedWorkbenchState } from "./useCanvasLoadedWorkbenchState";
 
 interface CommitCanvasNodePropertyIntentOptions {
   executeCommand: (
@@ -41,7 +43,7 @@ export const commitCanvasNodePropertyIntent = async ({
 };
 
 export function useCanvasNodePropertyActions(selectedNode: CanvasRenderableNode | null) {
-  const { loadedWorkbench } = useCanvasLoadedWorkbenchState();
+  const { loadedWorkbench } = useCanvasStore(selectCanvasLoadedWorkbenchState, shallow);
   const { executeCommand } = useCanvasLoadedWorkbenchCommands();
 
   const commitIntent = useCallback(
