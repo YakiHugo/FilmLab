@@ -13,23 +13,23 @@ const createMockCanvas = () =>
   ({ width: 100, height: 100 }) as unknown as HTMLCanvasElement;
 
 const createAsciiTransform = (
-  overrides?: Partial<CarrierTransformNode>
+  overrides?: Partial<Extract<CarrierTransformNode, { type: "ascii" }>>
 ): CarrierTransformNode => ({
   id: "ascii-1",
-  type: "ascii",
+  type: "ascii" as const,
   enabled: true,
-  analysisSource: "style",
+  analysisSource: "style" as const,
   params: {} as never,
   ...overrides,
 });
 
 const createHalftoneTransform = (
-  overrides?: Partial<CarrierTransformNode>
+  overrides?: Partial<Extract<CarrierTransformNode, { type: "halftone" }>>
 ): CarrierTransformNode => ({
   id: "halftone-1",
-  type: "halftone",
+  type: "halftone" as const,
   enabled: true,
-  analysisSource: "style",
+  analysisSource: "style" as const,
   params: {} as never,
   ...overrides,
 });

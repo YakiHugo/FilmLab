@@ -173,6 +173,7 @@ export const createNeutralCanvasImageRenderState = (): CanvasImageRenderStateV1 
   signalDamage: [],
   semanticOverlays: [],
   effects: [],
+  motionPrograms: [],
   film: {
     profileId: null,
     profile: undefined,
