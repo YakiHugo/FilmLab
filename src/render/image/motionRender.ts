@@ -75,6 +75,7 @@ export const applyMotionProgramToDocument = (
   baseDocument: ImageRenderDocument,
   frame: MotionFrameContext
 ): ImageRenderDocument => {
+  if (!program.enabled) return baseDocument;
   switch (program.type) {
     case "signal-drift":
       return applySignalDriftToDocument(program, baseDocument, frame);

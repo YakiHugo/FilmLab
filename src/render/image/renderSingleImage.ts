@@ -317,13 +317,14 @@ export const renderSingleImageToCanvas = async ({
     }
 
     if (snapshotPlan.signalDamage.length > 0) {
-      const signalDamageReferenceCanvas = trackSurfaceClone(surface);
+      const hasMaskedSignalDamage = snapshotPlan.signalDamage.some((n) => Boolean(n.maskId));
+      const signalDamageReferenceCanvas = hasMaskedSignalDamage ? trackSurfaceClone(surface) : null;
       try {
         surface = await applyImageSignalDamage({
           surface,
           signalDamage: snapshotPlan.signalDamage,
           document,
-          stageReferenceCanvas: signalDamageReferenceCanvas,
+          stageReferenceCanvas: signalDamageReferenceCanvas ?? undefined,
         });
         appendTraceOperation(debugStages, "style", {
           kind: "carrier",
