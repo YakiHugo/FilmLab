@@ -230,6 +230,68 @@ export interface AsciiAdjustments {
   dither: AsciiDitherMode;
 }
 
+export type HalftoneShape = "circle" | "diamond" | "line" | "square";
+export type HalftoneColorMode = "mono" | "cmyk" | "rgb";
+
+export interface HalftoneAdjustments {
+  enabled: boolean;
+  frequency: number;
+  angle: number;
+  shape: HalftoneShape;
+  colorMode: HalftoneColorMode;
+  dotScale: number;
+  contrast: number;
+  invert: boolean;
+  backgroundColor: string;
+  backgroundOpacity: number;
+}
+
+export interface ChannelDriftAdjustments {
+  enabled: boolean;
+  redOffsetX: number;
+  redOffsetY: number;
+  greenOffsetX: number;
+  greenOffsetY: number;
+  blueOffsetX: number;
+  blueOffsetY: number;
+  intensity: number;
+}
+
+export type TimestampOverlayPosition = "bottom-right" | "bottom-left" | "top-right" | "top-left";
+
+export interface TimestampAdjustments {
+  enabled: boolean;
+  position: TimestampOverlayPosition;
+  size: number;
+  opacity: number;
+}
+
+export type CaptionOverlayPosition = "top" | "bottom" | "center";
+export type CaptionOverlayAlignment = "left" | "center" | "right";
+
+export interface CaptionAdjustments {
+  enabled: boolean;
+  text: string;
+  position: CaptionOverlayPosition;
+  alignment: CaptionOverlayAlignment;
+  fontSize: number;
+  color: string;
+  backgroundColor: string;
+  backgroundOpacity: number;
+  padding: number;
+  opacity: number;
+}
+
+export interface WatermarkAdjustments {
+  enabled: boolean;
+  text: string;
+  opacity: number;
+  fontSize: number;
+  angle: number;
+  density: number;
+  color: string;
+}
+
 export interface LocalAdjustmentDelta {
   exposure?: number;
   contrast?: number;

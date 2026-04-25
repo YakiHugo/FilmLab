@@ -240,8 +240,6 @@ export const createCanvasPreviewRuntimeController = ({
         canvas: renderCanvas,
         draftRenderState: task.draftRenderState,
         element: task.element,
-        intent:
-          task.priority === "interactive" ? "preview-interactive" : "preview-full",
         priority: task.priority,
         viewportScale: task.viewportScale,
         renderSlotPrefix: slotId,

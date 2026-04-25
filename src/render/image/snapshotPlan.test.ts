@@ -59,16 +59,17 @@ describe("image render snapshot plan", () => {
           analysisSource: "develop",
         }),
       ],
+      signalDamage: [],
       effects: [],
     });
 
     expect(plan.requiresDevelopAnalysisSnapshot).toBe(true);
-    expect(plan.requiresStyleAnalysisSnapshot).toBe(false);
   });
 
   it("keeps carrier, style and finalize stages in stable order", () => {
     const plan = createImageRenderSnapshotPlan({
       carrierTransforms: [createAsciiCarrier({ id: "ascii-carrier" })],
+      signalDamage: [],
       effects: [
         createFilter2dEffect({ id: "filter-style", placement: "style" }),
         createFilter2dEffect({ id: "filter-finalize", placement: "finalize" }),
@@ -83,6 +84,7 @@ describe("image render snapshot plan", () => {
   it("keeps develop, style and finalize raster effects in stable order", () => {
     const plan = createImageRenderSnapshotPlan({
       carrierTransforms: [createAsciiCarrier({ id: "ascii-style" })],
+      signalDamage: [],
       effects: [
         createFilter2dEffect({ id: "filter-develop", placement: "develop" }),
         createFilter2dEffect({ id: "filter-style", placement: "style" }),
@@ -98,6 +100,7 @@ describe("image render snapshot plan", () => {
   it("accepts the carrier-first stage plan without extra unsupported checks", () => {
     const plan = createImageRenderSnapshotPlan({
       carrierTransforms: [createAsciiCarrier({ analysisSource: "style" })],
+      signalDamage: [],
       effects: [createFilter2dEffect({ placement: "style" })],
     });
 

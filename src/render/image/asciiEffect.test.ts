@@ -204,7 +204,7 @@ describe("asciiEffect", () => {
       baseSurface,
       sourceCanvas,
       transform: createAsciiTransform(),
-      quality: "full",
+      quality: "quality",
       targetSize,
     });
 
@@ -242,10 +242,10 @@ describe("asciiEffect", () => {
         { ...createAsciiTransform(), id: "ascii-1", analysisSource: "style" as const },
       ],
       document: { sourceRevisionKey: "rev-1", masks: { byId: {} } } as never,
-      request: { intent: "preview", quality: "interactive", targetSize } as never,
-      snapshots: {
-        develop: null,
-        style: createMockCanvas(targetSize),
+      request: { qualityTier: "interactive", targetSize } as never,
+      analysisInputs: {
+        stageSnapshots: { develop: null, style: createMockCanvas(targetSize) },
+        edgeMap: null,
       },
     });
 
@@ -269,13 +269,13 @@ describe("asciiEffect", () => {
           { ...createAsciiTransform(), id: "ascii-null", analysisSource: "style" as const },
         ],
         document: { sourceRevisionKey: "rev-1", masks: { byId: {} } } as never,
-        request: { intent: "preview", quality: "interactive", targetSize } as never,
-        snapshots: {
-          develop: null,
-          style: createMockCanvas(targetSize),
+        request: { qualityTier: "interactive", targetSize } as never,
+        analysisInputs: {
+          stageSnapshots: { develop: null, style: createMockCanvas(targetSize) },
+          edgeMap: null,
         },
       })
-    ).rejects.toThrow(/ASCII carrier GPU pass failed/);
+    ).rejects.toThrow(/Carrier GPU pass failed/);
   });
 
   it("routes masked carriers through applyMaskedStageOperationToSurfaceIfSupported", async () => {
@@ -310,10 +310,10 @@ describe("asciiEffect", () => {
           },
         },
       } as never,
-      request: { intent: "preview", quality: "interactive", targetSize } as never,
-      snapshots: {
-        develop: null,
-        style: createMockCanvas(targetSize),
+      request: { qualityTier: "interactive", targetSize } as never,
+      analysisInputs: {
+        stageSnapshots: { develop: null, style: createMockCanvas(targetSize) },
+        edgeMap: null,
       },
     });
 

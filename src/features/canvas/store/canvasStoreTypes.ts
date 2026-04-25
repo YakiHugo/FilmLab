@@ -11,6 +11,10 @@ export type CanvasTool = "select" | "text" | "hand" | "shape";
 export type CanvasFloatingPanel =
   | "edit"
   | "ascii"
+  | "halftone"
+  | "signal-damage"
+  | "caption"
+  | "watermark"
   | "layers"
   | "library"
   | null;

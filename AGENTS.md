@@ -21,13 +21,21 @@
 - Use `try`/`catch` and similar control flow only for failures you expect and can handle; do not add unreachable recovery paths that hide bugs instead of failing fast during development.
 - Write a brief comment only when a future agent needs to know why the code is written this way and that reason cannot be inferred from the code; do not narrate behavior, translate code into natural language, or restate responsibilities.
 - When the project requires the use of newly added basic components, priority should be given to shadcn-related components.
+- `pnpm dead-code` (knip) catches unused files and exports that `tsc` and eslint miss. Run it before committing and verify your change does not introduce new unused exports. When a multi-slice task requires landing a type or function before its consumer exists, add a `/** @public — consumed by <slice or task id> */` JSDoc tag to suppress knip; remove the tag when the consumer lands.
+
 ## Long Tasks
 
 - Treat a task as long when it cannot be completed safely in one session without explicit slicing.
 - For long tasks, create paired `docs/tasks/<topic>.md` and `.json` files: markdown for scope, decisions, validation, and handoff; JSON for terse execution state only.
-- Keep the JSON terse: stable task statuses such as `pending`, `in_progress`, `blocked`, `done`, `rolled_back`; `passes` as the completion gate; baseline/current task; rollback notes only when not obvious.
-- The first session must at least slice the work and define validation boundaries; it may also complete the first slice if that slice is low-risk and fully validated.
+- JSON schema per task: `id`, `status`, `blockedBy`, `passes`. No derived fields (`nextTaskId`, `current` — compute from DAG).
+  - `status`: `pending` | `in_progress` | `blocked` | `done` | `rolled_back`.
+  - `blockedBy`: array of task ids that must be `done` before this task is eligible. Empty array = no dependency.
+  - `passes`: array of validation gates; all must hold before marking `done`.
+  - Eligible task: `status=pending` and every id in `blockedBy` has `status=done`.
+- Claiming a task: set `status` to `in_progress` and commit as the first action, before starting implementation. This ensures other agents see the claim.
+- The first session must at least slice the work, declare dependencies via `blockedBy`, and define validation boundaries; it may also complete the first slice if that slice is low-risk and fully validated.
 - If a slice fails validation and is not fixed immediately, mark it `blocked` or `rolled_back`, record the first actionable failure in the markdown note, and stop claiming progress.
+- MD carries scope, decisions, per-slice implementation notes, and handoff. Do not duplicate DAG, status, or passes — those live in JSON.
 - When every slice reaches `done`, close the task: migrate load-bearing decisions and known follow-ups into `docs/decisions.md`, then delete the `docs/tasks/<topic>.{md,json}` pair. Slice-by-slice handoff is carried by git history, not by long-lived docs.
 
 ## Documentation Hygiene
@@ -81,6 +89,7 @@
 - Use the gh tool for GitHub-related operations.
 - When commits are requested, keep them atomic: commit each validated independent step rather than bundling unrelated changes.
 - When uncommitted work spans multiple validated slices, split one commit per slice; temporarily rewind shared task md/json to each slice's boundary state before staging, so every commit reflects the state at that slice's completion and nothing later.
+- Before pushing a PR or after being asked to check a PR, read its review comments (`gh api repos/{owner}/{repo}/pulls/{n}/comments`). For each comment that identifies a real issue: fix it, reply with the fix commit hash and a one-line summary, then resolve the thread via GraphQL `resolveReviewThread`. Do not resolve threads that are open questions or that you have not addressed.
 
 ## Commit & Pull Request Guidelines
 

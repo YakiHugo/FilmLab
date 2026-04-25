@@ -155,8 +155,7 @@ describe("renderSingleImageToCanvas timestamp overlay integration", () => {
       canvas: createCanvas(),
       document: createDocument(),
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 400,
           height: 225,

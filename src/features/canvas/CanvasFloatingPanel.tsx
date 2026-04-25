@@ -3,6 +3,10 @@ import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, type CanvasFloatingPanel as PanelType } from "@/stores/canvasStore";
 import { CanvasAsciiEditPanel } from "./CanvasAsciiEditPanel";
+import { CanvasCaptionEditPanel } from "./CanvasCaptionEditPanel";
+import { CanvasHalftoneEditPanel } from "./CanvasHalftoneEditPanel";
+import { CanvasSignalDamageEditPanel } from "./CanvasSignalDamageEditPanel";
+import { CanvasWatermarkEditPanel } from "./CanvasWatermarkEditPanel";
 import { CanvasAssetPicker } from "./CanvasAssetPicker";
 import { CanvasEditPanel } from "./CanvasEditPanel";
 import { CanvasLayerPanel } from "./CanvasLayerPanel";
@@ -15,6 +19,10 @@ import {
 const PANEL_TITLES: Record<NonNullable<PanelType>, string> = {
   edit: "编辑",
   ascii: "ASCII",
+  halftone: "Halftone",
+  "signal-damage": "Signal Damage",
+  caption: "Caption",
+  watermark: "Watermark",
   layers: "Layers",
   library: "Library",
 };
@@ -22,7 +30,7 @@ const PANEL_TITLES: Record<NonNullable<PanelType>, string> = {
 export function CanvasFloatingPanel() {
   const activePanel = useCanvasStore((s) => s.activePanel);
   const setActivePanel = useCanvasStore((s) => s.setActivePanel);
-  const isEditDock = activePanel === "edit" || activePanel === "ascii";
+  const isEditDock = activePanel === "edit" || activePanel === "ascii" || activePanel === "halftone" || activePanel === "signal-damage" || activePanel === "caption" || activePanel === "watermark";
 
   return (
     <AnimatePresence mode="wait">
@@ -76,6 +84,14 @@ function PanelContent({
       return <CanvasEditPanel />;
     case "ascii":
       return <CanvasAsciiEditPanel />;
+    case "halftone":
+      return <CanvasHalftoneEditPanel />;
+    case "signal-damage":
+      return <CanvasSignalDamageEditPanel />;
+    case "caption":
+      return <CanvasCaptionEditPanel />;
+    case "watermark":
+      return <CanvasWatermarkEditPanel />;
     case "layers":
       return <CanvasLayerPanel />;
     case "library":

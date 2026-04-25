@@ -170,20 +170,16 @@ export const createNeutralCanvasImageRenderState = (): CanvasImageRenderStateV1 
     byId: {},
   },
   carrierTransforms: [],
+  signalDamage: [],
+  semanticOverlays: [],
   effects: [],
+  motionPrograms: [],
   film: {
     profileId: null,
     profile: undefined,
     profileOverrides: null,
   },
-  output: {
-    timestamp: {
-      enabled: false,
-      position: "bottom-right",
-      size: 22,
-      opacity: 72,
-    },
-  },
+  output: {},
 });
 
 export const createDefaultCanvasImageRenderState = (): CanvasImageRenderStateV1 =>

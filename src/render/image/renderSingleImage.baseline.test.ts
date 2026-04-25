@@ -291,8 +291,7 @@ const createDocument = (assetName: AssetName, presetName: PresetName): ImageRend
 };
 
 const request = (): ImageRenderRequest => ({
-  intent: "preview",
-  quality: "interactive",
+  qualityTier: "interactive",
   targetSize: { width: 400, height: 225 },
   debug: { trace: true, outputHash: true },
 });
