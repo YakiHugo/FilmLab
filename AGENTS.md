@@ -25,9 +25,15 @@
 
 - Treat a task as long when it cannot be completed safely in one session without explicit slicing.
 - For long tasks, create paired `docs/tasks/<topic>.md` and `.json` files: markdown for scope, decisions, validation, and handoff; JSON for terse execution state only.
-- Keep the JSON terse: stable task statuses such as `pending`, `in_progress`, `blocked`, `done`, `rolled_back`; `passes` as the completion gate; baseline/current task; rollback notes only when not obvious.
-- The first session must at least slice the work and define validation boundaries; it may also complete the first slice if that slice is low-risk and fully validated.
+- JSON schema per task: `id`, `status`, `blockedBy`, `passes`. No derived fields (`nextTaskId`, `current` — compute from DAG).
+  - `status`: `pending` | `in_progress` | `blocked` | `done` | `rolled_back`.
+  - `blockedBy`: array of task ids that must be `done` before this task is eligible. Empty array = no dependency.
+  - `passes`: array of validation gates; all must hold before marking `done`.
+  - Eligible task: `status=pending` and every id in `blockedBy` has `status=done`.
+- Claiming a task: set `status` to `in_progress` and commit as the first action, before starting implementation. This ensures other agents see the claim.
+- The first session must at least slice the work, declare dependencies via `blockedBy`, and define validation boundaries; it may also complete the first slice if that slice is low-risk and fully validated.
 - If a slice fails validation and is not fixed immediately, mark it `blocked` or `rolled_back`, record the first actionable failure in the markdown note, and stop claiming progress.
+- MD carries scope, decisions, per-slice implementation notes, and handoff. Do not duplicate DAG, status, or passes — those live in JSON.
 - When every slice reaches `done`, close the task: migrate load-bearing decisions and known follow-ups into `docs/decisions.md`, then delete the `docs/tasks/<topic>.{md,json}` pair. Slice-by-slice handoff is carried by git history, not by long-lived docs.
 
 ## Documentation Hygiene

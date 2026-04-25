@@ -1,18 +1,18 @@
 {
   "baseline": "2026-04-02",
-  "current": "in_progress",
-  "nextTaskId": "carrier-and-signal-families",
   "tasks": [
     {
       "id": "semantic-overlay-layer-system",
       "status": "pending",
+      "blockedBy": [],
       "passes": [
         "caption, HUD, browser-chrome, or similar overlays have an authored model with canvas preview/export parity"
       ]
     },
     {
       "id": "carrier-and-signal-families",
-      "status": "in_progress",
+      "status": "done",
+      "blockedBy": [],
       "passes": [
         "carrier transforms and signal damage are authored as first-class families instead of generic effect placement only"
       ]
@@ -20,22 +20,25 @@
     {
       "id": "analysis-layer-boundary",
       "status": "pending",
+      "blockedBy": [],
       "passes": [
         "analysis-driven overlays or effects consume explicit analysis inputs with bounded validation"
       ]
     },
     {
-      "id": "motion-live-render-contract",
+      "id": "preview-export-quality-split",
       "status": "pending",
+      "blockedBy": [],
       "passes": [
-        "a time-parameterized render contract exists for short-loop or live-style output and one preset is validated end-to-end"
+        "interactive preview, quality preview, and export are explicitly modeled without a second authored-state source of truth"
       ]
     },
     {
-      "id": "preview-export-quality-split",
+      "id": "motion-live-render-contract",
       "status": "pending",
+      "blockedBy": ["preview-export-quality-split"],
       "passes": [
-        "interactive preview, quality preview, and export are explicitly modeled without a second authored-state source of truth"
+        "a time-parameterized render contract exists for short-loop or live-style output and one preset is validated end-to-end"
       ]
     }
   ]

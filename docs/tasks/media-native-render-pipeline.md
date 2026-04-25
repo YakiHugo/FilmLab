@@ -33,7 +33,7 @@
 - Scene/global ownership must stay above image-node-local render state and is tracked separately in `docs/tasks/scene-global-render-follow-up.md`.
 - Keep preview/export differences at the scheduler or quality tier, not in a second authored-state source of truth.
 
-## Open Slices
+## Slices
 
 ### 1. Semantic Overlay Layer System
 
@@ -110,17 +110,25 @@
 
 ## Current Focus
 
-- `carrier-and-signal-families` remains the active slice.
-- ASCII already executes as a carrier transform.
-- The next implementation should add one more authored carrier or signal family without widening back into generic effect placement only.
+- `carrier-and-signal-families` slice is complete.
+- Next active slice: `semantic-overlay-layer-system` or `analysis-layer-boundary`.
 
 ## Files
 
 - `src/render/image/renderSingleImage.ts`
-- `src/render/image/carrierExecution.ts`
+- `src/render/image/asciiEffect.ts` (carrier orchestrator + ASCII impl)
+- `src/render/image/halftoneEffect.ts`
+- `src/render/image/signalDamageExecution.ts`
 - `src/render/image/effectExecution.ts`
 - `src/render/image/overlayExecution.ts`
 - `src/render/image/snapshotPlan.ts`
+- `src/render/image/types.ts`
+- `src/lib/renderer/gpuHalftoneCarrier.ts`
+- `src/lib/renderer/gpuSignalDamage.ts`
+- `src/lib/renderer/shaders/HalftoneCarrier.frag`
+- `src/lib/renderer/shaders/ChannelDrift.frag`
+- `src/features/canvas/CanvasHalftoneEditPanel.tsx`
+- `src/features/canvas/CanvasSignalDamageEditPanel.tsx`
 - `src/features/canvas/boardImageRendering.ts`
 - `src/features/canvas/renderCanvasDocument.ts`
   - no matches
@@ -133,15 +141,24 @@
 - Implemented in the first slice:
   - canonical stage naming is now `develop -> style -> overlay -> finalize`
   - timestamp handling now flows through a shared overlay runtime entry instead of direct per-call special casing
-- Implemented in the current ASCII-first carrier sub-slice:
+- Implemented in the ASCII-first carrier sub-slice:
   - `CanvasImageRenderStateV1` now carries `carrierTransforms`
   - ASCII authoring/editing moved out of `effects[]` and into `carrierTransforms`
   - preview/export revision identity now includes carrier transforms
   - legacy ASCII effect persistence is treated as read-only compatibility input, not a write-path schema
-- Still open after the first slice:
+- Implemented in the carrier-and-signal-families slice:
+  - `CarrierTransformNode` is now a union of `ascii | halftone`
+  - Halftone carrier: GPU shader with mono/CMYK/RGB color separation, circle/diamond/line/square dot shapes
+  - `CanvasImageRenderStateV1` now carries `signalDamage: SignalDamageNode[]` as a first-class authored family
+  - Channel drift signal damage: GPU shader with per-channel RGB offset
+  - Carrier orchestrator dispatches by transform type (no longer ASCII-only)
+  - Signal damage executes as a dedicated pipeline stage between carriers and style effects
+  - UI panels: `CanvasHalftoneEditPanel`, `CanvasSignalDamageEditPanel` with full preview/commit workflow
+  - Family classification: halftone and channel drift are both single-frame deterministic
+- Still open after the carrier-and-signal-families slice:
   - authored `semanticOverlays` model
   - board/global overlay ownership rules
   - non-timestamp overlay types
-  - signal-damage families
-  - carrier families beyond ASCII (`dither`, `halftone`, `palette`, `textmode`)
+  - additional carrier families (`dither`, `palette`, `textmode`)
+  - additional signal damage families (`line-displacement`, `row-shift`, `compression-artifacts`, `pixel-sort`)
   - motion/live render contract
