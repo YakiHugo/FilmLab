@@ -9,7 +9,7 @@ import {
   normalizeCanvasWorkbenchWithCleanup as normalizeCanvasWorkbenchWithCleanupRuntime,
   type NormalizableCanvasWorkbench,
   type NormalizedCanvasWorkbenchResult,
-} from "./documentGraph";
+} from "./document";
 
 export interface StudioCanvasPreset {
   id: CanvasPresetId;

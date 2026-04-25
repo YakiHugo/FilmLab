@@ -4,15 +4,14 @@ import { useAssetStore } from "@/stores/assetStore";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { resolveCanvasImageInsertionSize } from "@/utils";
 import { snapPoint } from "../grid";
-import { createCanvasImageElementFromAsset } from "../imageNodeFactory";
-import { useCanvasLoadedWorkbenchId } from "./useCanvasLoadedWorkbenchId";
+import { createCanvasImageElementFromAsset } from "../image/imageNodeFactory";
 import {
   selectResolvedLoadedWorkbenchId,
   selectWorkbenchById,
 } from "../store/canvasStoreSelectors";
 
 export function useCanvasEngine() {
-  const loadedWorkbenchId = useCanvasLoadedWorkbenchId();
+  const loadedWorkbenchId = useCanvasStore(selectResolvedLoadedWorkbenchId);
   const upsertElementInWorkbench = useCanvasStore((state) => state.upsertElementInWorkbench);
   const assets = useAssetStore((state) => state.assets);
 

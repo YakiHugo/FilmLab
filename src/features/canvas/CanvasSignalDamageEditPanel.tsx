@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { CanvasEditSection } from "@/features/canvas/components/CanvasEditSection";
-import { SliderControl } from "@/features/canvas/components/controls/SliderControl";
+import { CanvasSliderRow } from "@/features/canvas/components/CanvasSliderRow";
 import { cn } from "@/lib/utils";
 import {
   useCanvasElementDraftRenderState,
   useCanvasPreviewActions,
 } from "@/features/canvas/runtime/canvasRuntimeHooks";
-import { resolveCanvasImageRenderState } from "@/features/canvas/imageRenderState";
+import { resolveCanvasImageRenderState } from "@/features/canvas/image/boardImageRendering";
 import type { CanvasImageRenderStateV1 } from "@/render/image";
 import type { ChannelDriftAdjustments } from "@/types";
 import { useCanvasStore } from "@/stores/canvasStore";
@@ -21,7 +21,7 @@ import {
   applyChannelDriftAdjustmentsToRenderState,
   DEFAULT_CANVAS_CHANNEL_DRIFT_ADJUSTMENTS,
   getCanvasImageEditValues,
-} from "./imageRenderStateEditing";
+} from "./image/imageRenderStateEditing";
 import { useCanvasImagePropertyActions } from "./hooks/useCanvasImagePropertyActions";
 
 type ChannelDriftNumericKey =
@@ -173,7 +173,7 @@ function CanvasSignalDamageEditPanelForImage({
   );
 
   const renderSlider = (slider: ChannelDriftSliderDef) => (
-    <SliderControl
+    <CanvasSliderRow
       key={slider.key}
       variant="canvasDock"
       label={slider.label}

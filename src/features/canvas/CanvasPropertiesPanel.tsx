@@ -27,7 +27,7 @@ import {
 } from "./editDockTheme";
 import {
   CANVAS_TEXT_SIZE_TIER_OPTIONS,
-} from "./textStyle";
+} from "./text/textStyle";
 import { useCanvasPropertiesPanelModel } from "./hooks/useCanvasPropertiesPanelModel";
 
 interface CanvasPropertiesPanelProps {

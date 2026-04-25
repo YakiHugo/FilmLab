@@ -1,7 +1,7 @@
 import {
   applyCanvasDocumentDelta,
   executeCanvasCommand,
-} from "@/features/canvas/documentGraph";
+} from "@/features/canvas/document";
 import type {
   CanvasCommand,
   CanvasHistoryEntry,

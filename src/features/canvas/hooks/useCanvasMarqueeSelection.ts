@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { unstable_batchedUpdates } from "react-dom";
 import type { CanvasRenderableElement } from "@/types";
 import { useCanvasSelectionPreview } from "@/features/canvas/runtime/canvasRuntimeHooks";
-import type { CanvasOverlayRect } from "../overlayGeometry";
+import type { CanvasOverlayRect } from "../geometry/overlayGeometry";
 import {
   isSelectableSelectionTarget,
   normalizeSelectionRect,
@@ -13,7 +13,7 @@ import {
   selectionDistanceExceedsThreshold,
   type CanvasSelectionPoint,
   type CanvasSelectionTarget,
-} from "../selectionGeometry";
+} from "../geometry/selectionGeometry";
 import { selectionIdsEqual } from "../selectionModel";
 import type { CanvasToolName } from "../tools/toolControllers";
 

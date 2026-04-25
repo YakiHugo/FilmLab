@@ -1,6 +1,6 @@
 import type { CanvasShapeType, CanvasTextElement } from "@/types";
 import { createId } from "@/utils";
-import { createDefaultShapeNode } from "../documentGraph";
+import { createDefaultShapeNode } from "../document";
 import { snapPoint } from "../grid";
 import {
   DEFAULT_CANVAS_TEXT_COLOR,
@@ -8,7 +8,7 @@ import {
   DEFAULT_CANVAS_TEXT_FONT_SIZE,
   DEFAULT_CANVAS_TEXT_FONT_SIZE_TIER,
   fitCanvasTextElementToContent,
-} from "../textStyle";
+} from "../text/textStyle";
 
 export type CanvasToolName = "select" | "text" | "hand" | "shape";
 

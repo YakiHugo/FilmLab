@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fitCanvasTextElementToContent } from "./textStyle";
-import type { CanvasTextEditorModel, CanvasTextOverlayModel } from "./textRuntimeViewModel";
+import { fitCanvasTextElementToContent } from "./text/textStyle";
+import type { CanvasTextEditorModel, CanvasTextOverlayModel } from "./text/textRuntimeViewModel";
 import type { CanvasSelectionOverlayMetrics } from "./viewportOverlay";
 import {
   getTextEditorLayout,

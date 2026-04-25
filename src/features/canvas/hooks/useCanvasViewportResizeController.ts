@@ -14,9 +14,9 @@ import {
   resolveMinimumCanvasImageDimensions,
   type CanvasResizePlan,
   type CanvasResizeTransformBox,
-} from "../resizeGeometry";
-import type { CanvasResizeMutableNode } from "../resizeNodePreview";
-import { fitCanvasTextElementToContent } from "../textStyle";
+} from "../geometry/resizeGeometry";
+import type { CanvasResizeMutableNode } from "../geometry/resizeNodePreview";
+import { fitCanvasTextElementToContent } from "../text/textStyle";
 
 const TRANSFORMER_ENABLED_ANCHORS = [
   "top-left",

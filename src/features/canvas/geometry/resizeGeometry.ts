@@ -7,12 +7,12 @@ import type {
   CanvasTextFontSizeTier,
   CanvasWorkbench,
 } from "@/types";
-import { worldPointToLocalPoint } from "./documentGraph";
+import { worldPointToLocalPoint } from "../document";
 import {
   fitCanvasTextElementToContent,
   getClosestCanvasTextFontSizeTier,
   scaleCanvasTextFontSize,
-} from "./textStyle";
+} from "../text/textStyle";
 
 const MIN_CANVAS_RESIZE_DIMENSION = 1;
 const MIN_CANVAS_RESIZE_SCALE = 0.001;

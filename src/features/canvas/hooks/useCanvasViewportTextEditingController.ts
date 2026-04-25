@@ -7,8 +7,8 @@ import type {
   CanvasTextFontSizeTier,
 } from "@/types";
 import { planCanvasNodePropertyCommand } from "../propertyPanelState";
-import type { CanvasTextSessionPort } from "../textSessionRunner";
-import { applyCanvasTextFontSizeTier } from "../textStyle";
+import type { CanvasTextSessionPort } from "../text/textSessionRunner";
+import { applyCanvasTextFontSizeTier } from "../text/textStyle";
 import { useCanvasTextRuntimeViewModel } from "./useCanvasTextRuntimeViewModel";
 import {
   useCanvasTextSession,

@@ -1,7 +1,7 @@
 import {
   buildCanvasHierarchyIndex,
   getCanvasDescendantIds,
-} from "@/features/canvas/documentGraph";
+} from "@/features/canvas/document";
 import { diffCanvasDocumentDelta } from "@/features/canvas/document/patches";
 import { normalizeCanvasWorkbenchWithCleanup } from "@/features/canvas/studioPresets";
 import { createNeutralCanvasImageRenderState } from "@/render/image";

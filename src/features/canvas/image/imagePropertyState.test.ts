@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultCanvasImageRenderState } from "@/render/image";
-import { createCanvasTestDocument, createImageNode, createShapeNode } from "./document/testUtils";
+import { createCanvasTestDocument, createImageNode, createShapeNode } from "../document/testUtils";
 import { planCanvasImagePropertyCommand } from "./imagePropertyState";
 
 describe("imagePropertyState", () => {

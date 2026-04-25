@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { shallow } from "zustand/shallow";
 import { useCanvasStore, type CanvasState } from "@/stores/canvasStore";
 import { bindCanvasLoadedWorkbenchStructure } from "../store/canvasLoadedWorkbenchPorts";
-import { useCanvasLoadedWorkbenchId } from "./useCanvasLoadedWorkbenchId";
+import { selectResolvedLoadedWorkbenchId } from "../store/canvasStoreSelectors";
 
 const selectStructureStoreApi = (state: CanvasState) => ({
   deleteNodesInWorkbench: state.deleteNodesInWorkbench,
@@ -17,7 +17,7 @@ const selectStructureStoreApi = (state: CanvasState) => ({
 });
 
 export function useCanvasLoadedWorkbenchStructure() {
-  const loadedWorkbenchId = useCanvasLoadedWorkbenchId();
+  const loadedWorkbenchId = useCanvasStore(selectResolvedLoadedWorkbenchId);
   const storeApi = useCanvasStore(selectStructureStoreApi, shallow);
 
   return useMemo(

@@ -7,13 +7,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CanvasEditSection } from "@/features/canvas/components/CanvasEditSection";
-import { SliderControl } from "@/features/canvas/components/controls/SliderControl";
+import { CanvasSliderRow } from "@/features/canvas/components/CanvasSliderRow";
 import { cn } from "@/lib/utils";
 import {
   useCanvasElementDraftRenderState,
   useCanvasPreviewActions,
 } from "@/features/canvas/runtime/canvasRuntimeHooks";
-import { resolveCanvasImageRenderState } from "@/features/canvas/imageRenderState";
+import { resolveCanvasImageRenderState } from "@/features/canvas/image/boardImageRendering";
 import type { CanvasImageRenderStateV1 } from "@/render/image";
 import type { CaptionAdjustments } from "@/types";
 import { useCanvasStore } from "@/stores/canvasStore";
@@ -32,7 +32,7 @@ import {
   applyCaptionAdjustmentsToRenderState,
   DEFAULT_CANVAS_CAPTION_ADJUSTMENTS,
   getCanvasImageEditValues,
-} from "./imageRenderStateEditing";
+} from "./image/imageRenderStateEditing";
 import { useCanvasImagePropertyActions } from "./hooks/useCanvasImagePropertyActions";
 
 type CaptionSectionId = "text" | "layout" | "appearance";
@@ -206,7 +206,7 @@ function CanvasCaptionEditPanelForImage({
   );
 
   const renderSlider = (slider: CaptionSliderDef) => (
-    <SliderControl
+    <CanvasSliderRow
       key={slider.key}
       variant="canvasDock"
       label={slider.label}

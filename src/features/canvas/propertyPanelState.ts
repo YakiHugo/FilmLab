@@ -1,6 +1,6 @@
-import { getCanvasNodeWorldTransform, worldPointToLocalPoint } from "./documentGraph";
+import { getCanvasNodeWorldTransform, worldPointToLocalPoint } from "./document";
 import { resolveCanvasShapeEffectiveFillStyle } from "./shapeStyle";
-import { applyCanvasTextFontSizeTier } from "./textStyle";
+import { applyCanvasTextFontSizeTier } from "./text/textStyle";
 import type {
   CanvasCommand,
   CanvasNodePropertyPatch,

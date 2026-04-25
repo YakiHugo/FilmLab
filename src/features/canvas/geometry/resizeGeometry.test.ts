@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasTextElement } from "@/types";
-import { worldPointToLocalPoint } from "./documentGraph";
+import { worldPointToLocalPoint } from "../document";
 import {
   createCanvasTestDocument,
   createGroupNode,
   createImageNode,
   createShapeNode,
-} from "./document/testUtils";
+} from "../document/testUtils";
 import {
   applyCanvasResizePreviewToElement,
   constrainCanvasResizeBoxToAspectRatio,
@@ -14,7 +14,7 @@ import {
   resolveMinimumCanvasImageDimensions,
   planCanvasElementResize,
 } from "./resizeGeometry";
-import { fitCanvasTextElementToContent } from "./textStyle";
+import { fitCanvasTextElementToContent } from "../text/textStyle";
 
 const createTextNode = ({
   id,

@@ -11,9 +11,11 @@ import {
   useCanvasContextActions,
   type CanvasContextActionsModel,
 } from "@/features/canvas/hooks/useCanvasContextActions";
-import { useCanvasLoadedWorkbenchState } from "@/features/canvas/hooks/useCanvasLoadedWorkbenchState";
 import { useCanvasInteraction } from "@/features/canvas/hooks/useCanvasInteraction";
 import { useCanvasRouteWorkbenchSync } from "@/features/canvas/hooks/useCanvasRouteWorkbenchSync";
+import { shallow } from "zustand/shallow";
+import { useCanvasStore } from "@/stores/canvasStore";
+import { selectCanvasLoadedWorkbenchState } from "@/features/canvas/store/canvasStoreSelectors";
 import { CanvasRuntimeProvider } from "@/features/canvas/runtime/CanvasRuntimeProvider";
 
 function CanvasPageEffects({
@@ -40,7 +42,7 @@ function CanvasPreviewSurface({
   onNotice: (notice: CanvasInteractionNotice) => void;
   stageRef: RefObject<Konva.Stage>;
 }) {
-  const { loadedWorkbench, loadedWorkbenchId } = useCanvasLoadedWorkbenchState();
+  const { loadedWorkbench, loadedWorkbenchId } = useCanvasStore(selectCanvasLoadedWorkbenchState, shallow);
 
   return (
     <CanvasRuntimeProvider

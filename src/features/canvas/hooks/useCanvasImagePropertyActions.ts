@@ -5,7 +5,7 @@ import type { CanvasImageEditTarget } from "../editPanelSelection";
 import {
   planCanvasImagePropertyCommand,
   type CanvasImagePropertyIntent,
-} from "../imagePropertyState";
+} from "../image/imagePropertyState";
 import { useCanvasLoadedWorkbenchCommands } from "./useCanvasLoadedWorkbenchCommands";
 
 interface CommitCanvasImagePropertyIntentOptions {

@@ -11,7 +11,7 @@ import type {
   CanvasWorkbenchSnapshot,
 } from "@/types";
 import { createId } from "@/utils";
-import { normalizeCanvasTextElement } from "../textStyle";
+import { normalizeCanvasTextElement } from "../text/textStyle";
 import {
   collectWorldTransformById,
   getBoundsFromPoints,

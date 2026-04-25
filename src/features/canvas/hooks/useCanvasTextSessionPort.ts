@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { shallow } from "zustand/shallow";
 import { useCanvasStore, type CanvasState } from "@/stores/canvasStore";
-import type { CanvasTextSessionPort } from "../textSessionRunner";
-import { useCanvasLoadedWorkbenchId } from "./useCanvasLoadedWorkbenchId";
+import type { CanvasTextSessionPort } from "../text/textSessionRunner";
+import { selectResolvedLoadedWorkbenchId } from "../store/canvasStoreSelectors";
 
 const selectCanvasTextSessionStoreApi = (state: CanvasState) => ({
   executeCommandInWorkbench: state.executeCommandInWorkbench,
@@ -16,7 +16,7 @@ export function useCanvasTextSessionPort({
   clearSelection: () => void;
   selectElement: (elementId: string) => void;
 }): CanvasTextSessionPort {
-  const loadedWorkbenchId = useCanvasLoadedWorkbenchId();
+  const loadedWorkbenchId = useCanvasStore(selectResolvedLoadedWorkbenchId);
   const storeApi = useCanvasStore(selectCanvasTextSessionStoreApi, shallow);
 
   return useMemo(

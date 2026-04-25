@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CanvasEditSection } from "@/features/canvas/components/CanvasEditSection";
-import { SliderControl } from "@/features/canvas/components/controls/SliderControl";
+import { CanvasSliderRow } from "@/features/canvas/components/CanvasSliderRow";
 import { cn } from "@/lib/utils";
 import {
   useCanvasElementDraftRenderState,
   useCanvasPreviewActions,
 } from "@/features/canvas/runtime/canvasRuntimeHooks";
-import { resolveCanvasImageRenderState } from "@/features/canvas/imageRenderState";
+import { resolveCanvasImageRenderState } from "@/features/canvas/image/boardImageRendering";
 import type { CanvasImageRenderStateV1 } from "@/render/image";
 import type { WatermarkAdjustments } from "@/types";
 import { useCanvasStore } from "@/stores/canvasStore";
@@ -21,7 +21,7 @@ import {
   applyWatermarkAdjustmentsToRenderState,
   DEFAULT_CANVAS_WATERMARK_ADJUSTMENTS,
   getCanvasImageEditValues,
-} from "./imageRenderStateEditing";
+} from "./image/imageRenderStateEditing";
 import { useCanvasImagePropertyActions } from "./hooks/useCanvasImagePropertyActions";
 
 type WatermarkSectionId = "text" | "appearance";
@@ -176,7 +176,7 @@ function CanvasWatermarkEditPanelForImage({
   );
 
   const renderSlider = (slider: WatermarkSliderDef) => (
-    <SliderControl
+    <CanvasSliderRow
       key={slider.key}
       variant="canvasDock"
       label={slider.label}

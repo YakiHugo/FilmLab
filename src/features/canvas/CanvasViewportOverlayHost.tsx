@@ -16,8 +16,8 @@ import {
 } from "./canvasViewportConstants";
 import { CanvasTextToolbar } from "./CanvasTextToolbar";
 import { useCanvasViewportOverlay } from "./hooks/useCanvasViewportOverlay";
-import { CANVAS_TEXT_EDITOR_PLACEHOLDER, CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER } from "./textStyle";
-import type { CanvasTextRuntimeViewModel } from "./textRuntimeViewModel";
+import { CANVAS_TEXT_EDITOR_PLACEHOLDER, CANVAS_TEXT_LINE_HEIGHT_MULTIPLIER } from "./text/textStyle";
+import type { CanvasTextRuntimeViewModel } from "./text/textRuntimeViewModel";
 import type { CanvasInteractionNotice } from "./viewportOverlay";
 
 interface CanvasViewportOverlayHostProps {

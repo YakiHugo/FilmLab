@@ -1,13 +1,13 @@
 import { useMemo } from "react";
 import { useAssetStore } from "@/stores/assetStore";
 import type { CanvasTextFontSizeTier } from "@/types";
-import { resolveCanvasImageRenderState } from "../imageRenderState";
+import { resolveCanvasImageRenderState } from "../image/boardImageRendering";
 import {
   CANVAS_TEXT_COLOR_OPTIONS,
   CANVAS_TEXT_FONT_OPTIONS,
   getCanvasTextColorOption,
   getCanvasTextFontOption,
-} from "../textStyle";
+} from "../text/textStyle";
 import { useCanvasImagePropertyActions } from "./useCanvasImagePropertyActions";
 import { useCanvasNodePropertyActions } from "./useCanvasNodePropertyActions";
 import { useCanvasSelectionModel } from "./useCanvasSelectionModel";

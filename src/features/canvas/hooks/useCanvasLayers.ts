@@ -1,10 +1,15 @@
 import { useMemo } from "react";
+import { shallow } from "zustand/shallow";
+import { useCanvasStore } from "@/stores/canvasStore";
 import { useAssetStore } from "@/stores/assetStore";
-import { useCanvasCommittedLoadedWorkbenchState } from "./useCanvasCommittedLoadedWorkbenchState";
+import { selectCanvasCommittedLoadedWorkbenchState } from "../store/canvasStoreSelectors";
 import { useCanvasLoadedWorkbenchStructure } from "./useCanvasLoadedWorkbenchStructure";
 
 export function useCanvasLayers() {
-  const { loadedWorkbench, loadedWorkbenchId } = useCanvasCommittedLoadedWorkbenchState();
+  const { loadedWorkbench, loadedWorkbenchId } = useCanvasStore(
+    selectCanvasCommittedLoadedWorkbenchState,
+    shallow
+  );
   const {
     deleteNodes,
     groupNodes,

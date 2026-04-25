@@ -7,13 +7,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CanvasEditSection } from "@/features/canvas/components/CanvasEditSection";
-import { SliderControl } from "@/features/canvas/components/controls/SliderControl";
+import { CanvasSliderRow } from "@/features/canvas/components/CanvasSliderRow";
 import { cn } from "@/lib/utils";
 import {
   useCanvasElementDraftRenderState,
   useCanvasPreviewActions,
 } from "@/features/canvas/runtime/canvasRuntimeHooks";
-import { resolveCanvasImageRenderState } from "@/features/canvas/imageRenderState";
+import { resolveCanvasImageRenderState } from "@/features/canvas/image/boardImageRendering";
 import type { CanvasImageRenderStateV1 } from "@/render/image";
 import type { HalftoneAdjustments } from "@/types";
 import { useCanvasStore } from "@/stores/canvasStore";
@@ -32,7 +32,7 @@ import {
   applyHalftoneAdjustmentsToRenderState,
   DEFAULT_CANVAS_HALFTONE_ADJUSTMENTS,
   getCanvasImageEditValues,
-} from "./imageRenderStateEditing";
+} from "./image/imageRenderStateEditing";
 import { useCanvasImagePropertyActions } from "./hooks/useCanvasImagePropertyActions";
 
 type HalftoneSectionId = "screen" | "appearance";
@@ -214,7 +214,7 @@ function CanvasHalftoneEditPanelForImage({
   );
 
   const renderSlider = (slider: HalftoneSliderDef) => (
-    <SliderControl
+    <CanvasSliderRow
       key={slider.key}
       variant="canvasDock"
       label={slider.label}

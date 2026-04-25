@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { shallow } from "zustand/shallow";
+import { selectCanvasLoadedWorkbenchState } from "../store/canvasStoreSelectors";
 import { isCanvasTypingInProgress } from "../domEditableFocus";
-import { resolveSelectableSelectionIds } from "../selectionGeometry";
+import { resolveSelectableSelectionIds } from "../geometry/selectionGeometry";
 import { selectionIdsEqual } from "../selectionModel";
-import { useCanvasLoadedWorkbenchState } from "./useCanvasLoadedWorkbenchState";
 import { useCanvasLoadedWorkbenchStructure } from "./useCanvasLoadedWorkbenchStructure";
 import { useCanvasSelectionActions } from "./useCanvasSelectionActions";
 
@@ -37,7 +38,7 @@ export const resolveCanvasInteractionNudge = (
 
 export function useCanvasInteraction({ onShortcutKeyDown }: UseCanvasInteractionOptions) {
   const loadedWorkbenchId = useCanvasStore((state) => state.loadedWorkbenchId);
-  const { loadedWorkbench } = useCanvasLoadedWorkbenchState();
+  const { loadedWorkbench } = useCanvasStore(selectCanvasLoadedWorkbenchState, shallow);
   const { nudgeElements } = useCanvasLoadedWorkbenchStructure();
   const { selectedElementIds, setSelectedElementIds } = useCanvasSelectionActions();
   const selectedElementIdsRef = useRef(selectedElementIds);

@@ -4,8 +4,8 @@ import type { Asset, CanvasImageElement } from "@/types";
 import {
   createCanvasImageRenderContext,
   resolveCanvasImagePreviewTargetSize,
+  resolveCanvasImageRenderState,
 } from "./boardImageRendering";
-import { resolveCanvasImageRenderState } from "./imageRenderState";
 
 const createAsset = (overrides?: Partial<Asset>): Asset => ({
   id: overrides?.id ?? "asset-1",

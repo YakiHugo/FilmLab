@@ -1,6 +1,6 @@
-import type { CanvasOverlayRect } from "./overlayGeometry";
-import type { CanvasTextEditorModel, CanvasTextOverlayModel } from "./textRuntimeViewModel";
-import { measureCanvasTextEditorSize } from "./textStyle";
+import type { CanvasOverlayRect } from "./geometry/overlayGeometry";
+import type { CanvasTextEditorModel, CanvasTextOverlayModel } from "./text/textRuntimeViewModel";
+import { measureCanvasTextEditorSize } from "./text/textStyle";
 
 export interface CanvasSelectionOverlayMetrics {
   rect: CanvasOverlayRect;

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultCanvasImageRenderState, renderSingleImageToCanvas } from "@/render/image";
 import type { Asset, CanvasWorkbench } from "@/types";
 import { normalizeCanvasWorkbench } from "./studioPresets";
-import { cropRenderedCanvasSlice, renderCanvasWorkbenchToCanvas } from "./renderCanvasWorkbench";
+import { cropRenderedCanvasSlice, renderCanvasWorkbenchToCanvas } from "./renderCanvasDocument";
 
 const releaseRenderSlotsMock = vi.fn();
 vi.mock("@/render/image", async () => {
