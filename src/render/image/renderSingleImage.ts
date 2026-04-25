@@ -337,7 +337,7 @@ export const renderSingleImageToCanvas = async ({
     }
 
     const overlays = resolveImageOverlays({
-      output: document.output,
+      semanticOverlays: document.semanticOverlays,
       timestampText: request.timestampText,
     });
     if (overlays.length > 0) {

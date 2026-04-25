@@ -1,11 +1,24 @@
 import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
 import { blendCanvasLayerOnGpuToSurface } from "@/lib/renderer/gpuCanvasLayerBlend";
 import {
+  renderCaptionOverlayRaster,
+  type CaptionOverlayRenderParams,
+} from "@/lib/captionOverlay";
+import {
   applyTimestampOverlay,
   applyTimestampOverlayToSurfaceIfSupported,
   type TimestampOverlayAdjustments,
 } from "@/lib/timestampOverlay";
-import type { ImageRenderOutputState } from "./types";
+import {
+  renderWatermarkOverlayRaster,
+  type WatermarkOverlayRenderParams,
+} from "@/lib/watermarkOverlay";
+import type {
+  CaptionSemanticOverlayNode,
+  SemanticOverlayNode,
+  TimestampSemanticOverlayNode,
+  WatermarkSemanticOverlayNode,
+} from "./types";
 
 interface TimestampImageOverlay {
   type: "timestamp";
@@ -13,7 +26,17 @@ interface TimestampImageOverlay {
   text?: string | null;
 }
 
-export type ImageOverlayNode = TimestampImageOverlay;
+interface CaptionImageOverlay {
+  type: "caption";
+  params: CaptionOverlayRenderParams;
+}
+
+interface WatermarkImageOverlay {
+  type: "watermark";
+  params: WatermarkOverlayRenderParams;
+}
+
+export type ImageOverlayNode = TimestampImageOverlay | CaptionImageOverlay | WatermarkImageOverlay;
 
 const ensureCanvasSize = (canvas: HTMLCanvasElement, width: number, height: number) => {
   const safeWidth = Math.max(1, Math.round(width));
@@ -26,31 +49,70 @@ const ensureCanvasSize = (canvas: HTMLCanvasElement, width: number, height: numb
   }
 };
 
-const createTimestampAdjustmentsFromOutput = (
-  output: ImageRenderOutputState
+const createTimestampAdjustmentsFromOverlayNode = (
+  node: TimestampSemanticOverlayNode
 ): TimestampOverlayAdjustments => ({
-  timestampEnabled: output.timestamp.enabled,
-  timestampOpacity: output.timestamp.opacity,
-  timestampPosition: output.timestamp.position,
-  timestampSize: output.timestamp.size,
+  timestampEnabled: node.enabled,
+  timestampOpacity: node.params.opacity,
+  timestampPosition: node.params.position,
+  timestampSize: node.params.size,
 });
 
+const createCaptionRenderParams = (
+  node: CaptionSemanticOverlayNode
+): CaptionOverlayRenderParams => ({ ...node.params });
+
+const createWatermarkRenderParams = (
+  node: WatermarkSemanticOverlayNode
+): WatermarkOverlayRenderParams => ({ ...node.params });
+
 export const resolveImageOverlays = ({
-  output,
+  semanticOverlays,
   timestampText,
 }: {
-  output: ImageRenderOutputState;
+  semanticOverlays: readonly SemanticOverlayNode[];
   timestampText?: string | null;
-}): ImageOverlayNode[] =>
-  output.timestamp.enabled
-    ? [
-        {
+}): ImageOverlayNode[] => {
+  const overlays: ImageOverlayNode[] = [];
+  for (const node of semanticOverlays) {
+    if (!node.enabled) {
+      continue;
+    }
+    switch (node.type) {
+      case "timestamp":
+        overlays.push({
           type: "timestamp",
-          adjustments: createTimestampAdjustmentsFromOutput(output),
+          adjustments: createTimestampAdjustmentsFromOverlayNode(node),
           text: timestampText,
-        },
-      ]
-    : [];
+        });
+        break;
+      case "caption":
+        overlays.push({
+          type: "caption",
+          params: createCaptionRenderParams(node),
+        });
+        break;
+      case "watermark":
+        overlays.push({
+          type: "watermark",
+          params: createWatermarkRenderParams(node),
+        });
+        break;
+    }
+  }
+  return overlays;
+};
+
+const drawRasterToCanvas = (
+  target: HTMLCanvasElement,
+  raster: HTMLCanvasElement | null
+) => {
+  if (!raster) return;
+  const ctx = target.getContext("2d");
+  if (ctx) ctx.drawImage(raster, 0, 0);
+  raster.width = 0;
+  raster.height = 0;
+};
 
 const renderOverlayToCanvas = async (
   overlay: ImageOverlayNode,
@@ -62,6 +124,18 @@ const renderOverlayToCanvas = async (
   switch (overlay.type) {
     case "timestamp":
       await applyTimestampOverlay(overlayCanvas, overlay.adjustments, overlay.text);
+      break;
+    case "caption":
+      drawRasterToCanvas(
+        overlayCanvas,
+        await renderCaptionOverlayRaster({ width, height, params: overlay.params })
+      );
+      break;
+    case "watermark":
+      drawRasterToCanvas(
+        overlayCanvas,
+        await renderWatermarkOverlayRaster({ width, height, params: overlay.params })
+      );
       break;
   }
   return overlayCanvas;
@@ -95,10 +169,6 @@ export const applyImageOverlays = async ({
       }
     }
 
-    // GPU-direct rasterization unavailable — bake the overlay to a Canvas2D
-    // layer and composite it back onto the surface via a GPU blend. The CPU
-    // island stays bounded inside this stage: input is a Surface, output is a
-    // Surface.
     const overlayCanvas = await renderOverlayToCanvas(
       overlay,
       currentSurface.width,
