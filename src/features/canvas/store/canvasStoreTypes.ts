@@ -13,6 +13,8 @@ export type CanvasFloatingPanel =
   | "ascii"
   | "halftone"
   | "signal-damage"
+  | "caption"
+  | "watermark"
   | "layers"
   | "library"
   | null;

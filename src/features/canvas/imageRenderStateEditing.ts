@@ -7,10 +7,16 @@ import type {
   AsciiDitherMode,
   AsciiForegroundBlendMode,
   AsciiRenderMode,
+  CaptionAdjustments,
+  CaptionOverlayAlignment,
+  CaptionOverlayPosition,
   ChannelDriftAdjustments,
   HalftoneAdjustments,
   HalftoneColorMode,
   HalftoneShape,
+  TimestampAdjustments,
+  TimestampOverlayPosition,
+  WatermarkAdjustments,
 } from "@/types";
 import {
   createNeutralCanvasImageRenderState,
@@ -18,6 +24,7 @@ import {
   normalizeCanvasImageRenderState,
   type CarrierTransformNode,
   type ImageFilter2dEffectNode,
+  type SemanticOverlayNode,
   type SignalDamageNode,
 } from "@/render/image";
 
@@ -46,6 +53,18 @@ const isBackgroundMode = (value: unknown): value is AsciiBackgroundMode =>
   typeof value === "string" && (BACKGROUND_MODE_VALUES as readonly string[]).includes(value);
 const isForegroundBlendMode = (value: unknown): value is AsciiForegroundBlendMode =>
   typeof value === "string" && (FOREGROUND_BLEND_VALUES as readonly string[]).includes(value);
+
+const TIMESTAMP_POSITION_VALUES = ["bottom-right", "bottom-left", "top-right", "top-left"] as const;
+const isTimestampPosition = (value: unknown): value is TimestampOverlayPosition =>
+  typeof value === "string" && (TIMESTAMP_POSITION_VALUES as readonly string[]).includes(value);
+
+const CAPTION_POSITION_VALUES = ["top", "bottom", "center"] as const;
+const isCaptionPosition = (value: unknown): value is CaptionOverlayPosition =>
+  typeof value === "string" && (CAPTION_POSITION_VALUES as readonly string[]).includes(value);
+
+const CAPTION_ALIGNMENT_VALUES = ["left", "center", "right"] as const;
+const isCaptionAlignment = (value: unknown): value is CaptionOverlayAlignment =>
+  typeof value === "string" && (CAPTION_ALIGNMENT_VALUES as readonly string[]).includes(value);
 
 const HALFTONE_SHAPE_VALUES = ["circle", "diamond", "line", "square"] as const;
 const HALFTONE_COLOR_MODE_VALUES = ["mono", "cmyk", "rgb"] as const;
@@ -77,6 +96,36 @@ const DEFAULT_CHANNEL_DRIFT_ADJUSTMENTS: ChannelDriftAdjustments = {
   blueOffsetX: 0,
   blueOffsetY: -4,
   intensity: 0.5,
+};
+
+const DEFAULT_TIMESTAMP_ADJUSTMENTS: TimestampAdjustments = {
+  enabled: false,
+  position: "bottom-right",
+  size: 22,
+  opacity: 72,
+};
+
+const DEFAULT_CAPTION_ADJUSTMENTS: CaptionAdjustments = {
+  enabled: false,
+  text: "",
+  position: "bottom",
+  alignment: "center",
+  fontSize: 24,
+  color: "rgba(255, 250, 242, 0.95)",
+  backgroundColor: "#000000",
+  backgroundOpacity: 34,
+  padding: 16,
+  opacity: 100,
+};
+
+const DEFAULT_WATERMARK_ADJUSTMENTS: WatermarkAdjustments = {
+  enabled: false,
+  text: "",
+  opacity: 20,
+  fontSize: 36,
+  angle: -30,
+  density: 1,
+  color: "rgba(255, 255, 255, 0.8)",
 };
 
 const DEFAULT_ASCII_ADJUSTMENTS: AsciiAdjustments = {
@@ -123,6 +172,9 @@ export type CanvasImageEditValues = CanvasImageNumericFieldValues & {
   ascii: AsciiAdjustments;
   halftone: HalftoneAdjustments;
   channelDrift: ChannelDriftAdjustments;
+  timestamp: TimestampAdjustments;
+  caption: CaptionAdjustments;
+  watermark: WatermarkAdjustments;
 };
 
 const cloneState = (state: CanvasImageRenderStateV1): CanvasImageRenderStateV1 => {
@@ -231,6 +283,75 @@ const resolveChannelDriftAdjustmentsFromState = (
   };
 };
 
+const resolveTimestampAdjustmentsFromState = (
+  state: CanvasImageRenderStateV1
+): TimestampAdjustments => {
+  const node = normalizeCanvasImageRenderState(state).semanticOverlays.find(
+    (candidate): candidate is Extract<SemanticOverlayNode, { type: "timestamp" }> =>
+      candidate.type === "timestamp"
+  );
+  if (!node) {
+    return { ...DEFAULT_TIMESTAMP_ADJUSTMENTS };
+  }
+  const p = node.params;
+  return {
+    ...DEFAULT_TIMESTAMP_ADJUSTMENTS,
+    enabled: node.enabled,
+    position: isTimestampPosition(p.position) ? p.position : "bottom-right",
+    size: typeof p.size === "number" ? p.size : 22,
+    opacity: typeof p.opacity === "number" ? p.opacity : 72,
+  };
+};
+
+const resolveCaptionAdjustmentsFromState = (
+  state: CanvasImageRenderStateV1
+): CaptionAdjustments => {
+  const node = normalizeCanvasImageRenderState(state).semanticOverlays.find(
+    (candidate): candidate is Extract<SemanticOverlayNode, { type: "caption" }> =>
+      candidate.type === "caption"
+  );
+  if (!node) {
+    return { ...DEFAULT_CAPTION_ADJUSTMENTS };
+  }
+  const p = node.params;
+  return {
+    ...DEFAULT_CAPTION_ADJUSTMENTS,
+    enabled: node.enabled,
+    text: typeof p.text === "string" ? p.text : "",
+    position: isCaptionPosition(p.position) ? p.position : "bottom",
+    alignment: isCaptionAlignment(p.alignment) ? p.alignment : "center",
+    fontSize: typeof p.fontSize === "number" ? p.fontSize : 24,
+    color: typeof p.color === "string" ? p.color : DEFAULT_CAPTION_ADJUSTMENTS.color,
+    backgroundColor: typeof p.backgroundColor === "string" ? p.backgroundColor : "#000000",
+    backgroundOpacity: typeof p.backgroundOpacity === "number" ? p.backgroundOpacity : 34,
+    padding: typeof p.padding === "number" ? p.padding : 16,
+    opacity: typeof p.opacity === "number" ? p.opacity : 100,
+  };
+};
+
+const resolveWatermarkAdjustmentsFromState = (
+  state: CanvasImageRenderStateV1
+): WatermarkAdjustments => {
+  const node = normalizeCanvasImageRenderState(state).semanticOverlays.find(
+    (candidate): candidate is Extract<SemanticOverlayNode, { type: "watermark" }> =>
+      candidate.type === "watermark"
+  );
+  if (!node) {
+    return { ...DEFAULT_WATERMARK_ADJUSTMENTS };
+  }
+  const p = node.params;
+  return {
+    ...DEFAULT_WATERMARK_ADJUSTMENTS,
+    enabled: node.enabled,
+    text: typeof p.text === "string" ? p.text : "",
+    opacity: typeof p.opacity === "number" ? p.opacity : 20,
+    fontSize: typeof p.fontSize === "number" ? p.fontSize : 36,
+    angle: typeof p.angle === "number" ? p.angle : -30,
+    density: typeof p.density === "number" ? p.density : 1,
+    color: typeof p.color === "string" ? p.color : DEFAULT_WATERMARK_ADJUSTMENTS.color,
+  };
+};
+
 const resolveFilter2dPreviewValues = (state: CanvasImageRenderStateV1) => {
   const effect = state.effects.find(
     (candidate): candidate is ImageFilter2dEffectNode =>
@@ -284,6 +405,9 @@ const createCanvasImageEditValues = (
     ascii: resolveAsciiAdjustmentsFromState(normalizedState),
     halftone: resolveHalftoneAdjustmentsFromState(normalizedState),
     channelDrift: resolveChannelDriftAdjustmentsFromState(normalizedState),
+    timestamp: resolveTimestampAdjustmentsFromState(normalizedState),
+    caption: resolveCaptionAdjustmentsFromState(normalizedState),
+    watermark: resolveWatermarkAdjustmentsFromState(normalizedState),
   };
 };
 
@@ -302,6 +426,18 @@ export const DEFAULT_CANVAS_HALFTONE_ADJUSTMENTS: HalftoneAdjustments = {
 
 export const DEFAULT_CANVAS_CHANNEL_DRIFT_ADJUSTMENTS: ChannelDriftAdjustments = {
   ...DEFAULT_CANVAS_IMAGE_EDIT_VALUES.channelDrift,
+};
+
+export const DEFAULT_CANVAS_TIMESTAMP_ADJUSTMENTS: TimestampAdjustments = {
+  ...DEFAULT_CANVAS_IMAGE_EDIT_VALUES.timestamp,
+};
+
+export const DEFAULT_CANVAS_CAPTION_ADJUSTMENTS: CaptionAdjustments = {
+  ...DEFAULT_CANVAS_IMAGE_EDIT_VALUES.caption,
+};
+
+export const DEFAULT_CANVAS_WATERMARK_ADJUSTMENTS: WatermarkAdjustments = {
+  ...DEFAULT_CANVAS_IMAGE_EDIT_VALUES.watermark,
 };
 
 const createDefaultAsciiCarrierTransform = (): Extract<CarrierTransformNode, { type: "ascii" }> => ({
@@ -444,6 +580,120 @@ const upsertChannelDriftDamage = (
     next.signalDamage[index] = updated;
   } else {
     next.signalDamage.push(updated);
+  }
+  return next;
+};
+
+const createDefaultTimestampOverlay = (): Extract<
+  SemanticOverlayNode,
+  { type: "timestamp" }
+> => ({
+  id: "canvas-timestamp",
+  type: "timestamp",
+  enabled: false,
+  params: {
+    position: DEFAULT_CANVAS_TIMESTAMP_ADJUSTMENTS.position,
+    size: DEFAULT_CANVAS_TIMESTAMP_ADJUSTMENTS.size,
+    opacity: DEFAULT_CANVAS_TIMESTAMP_ADJUSTMENTS.opacity,
+  },
+});
+
+const upsertTimestampOverlay = (
+  state: CanvasImageRenderStateV1,
+  updater: (
+    node: Extract<SemanticOverlayNode, { type: "timestamp" }>
+  ) => Extract<SemanticOverlayNode, { type: "timestamp" }>
+) => {
+  const next = cloneState(state);
+  const index = next.semanticOverlays.findIndex((n) => n.type === "timestamp");
+  const current =
+    index >= 0
+      ? (next.semanticOverlays[index] as Extract<SemanticOverlayNode, { type: "timestamp" }>)
+      : createDefaultTimestampOverlay();
+  const updated = updater(current);
+  if (index >= 0) {
+    next.semanticOverlays[index] = updated;
+  } else {
+    next.semanticOverlays.push(updated);
+  }
+  return next;
+};
+
+const createDefaultCaptionOverlay = (): Extract<
+  SemanticOverlayNode,
+  { type: "caption" }
+> => ({
+  id: "canvas-caption",
+  type: "caption",
+  enabled: false,
+  params: {
+    text: DEFAULT_CANVAS_CAPTION_ADJUSTMENTS.text,
+    position: DEFAULT_CANVAS_CAPTION_ADJUSTMENTS.position,
+    alignment: DEFAULT_CANVAS_CAPTION_ADJUSTMENTS.alignment,
+    fontSize: DEFAULT_CANVAS_CAPTION_ADJUSTMENTS.fontSize,
+    color: DEFAULT_CANVAS_CAPTION_ADJUSTMENTS.color,
+    backgroundColor: DEFAULT_CANVAS_CAPTION_ADJUSTMENTS.backgroundColor,
+    backgroundOpacity: DEFAULT_CANVAS_CAPTION_ADJUSTMENTS.backgroundOpacity,
+    padding: DEFAULT_CANVAS_CAPTION_ADJUSTMENTS.padding,
+    opacity: DEFAULT_CANVAS_CAPTION_ADJUSTMENTS.opacity,
+  },
+});
+
+const upsertCaptionOverlay = (
+  state: CanvasImageRenderStateV1,
+  updater: (
+    node: Extract<SemanticOverlayNode, { type: "caption" }>
+  ) => Extract<SemanticOverlayNode, { type: "caption" }>
+) => {
+  const next = cloneState(state);
+  const index = next.semanticOverlays.findIndex((n) => n.type === "caption");
+  const current =
+    index >= 0
+      ? (next.semanticOverlays[index] as Extract<SemanticOverlayNode, { type: "caption" }>)
+      : createDefaultCaptionOverlay();
+  const updated = updater(current);
+  if (index >= 0) {
+    next.semanticOverlays[index] = updated;
+  } else {
+    next.semanticOverlays.push(updated);
+  }
+  return next;
+};
+
+const createDefaultWatermarkOverlay = (): Extract<
+  SemanticOverlayNode,
+  { type: "watermark" }
+> => ({
+  id: "canvas-watermark",
+  type: "watermark",
+  enabled: false,
+  params: {
+    text: DEFAULT_CANVAS_WATERMARK_ADJUSTMENTS.text,
+    opacity: DEFAULT_CANVAS_WATERMARK_ADJUSTMENTS.opacity,
+    fontSize: DEFAULT_CANVAS_WATERMARK_ADJUSTMENTS.fontSize,
+    angle: DEFAULT_CANVAS_WATERMARK_ADJUSTMENTS.angle,
+    density: DEFAULT_CANVAS_WATERMARK_ADJUSTMENTS.density,
+    color: DEFAULT_CANVAS_WATERMARK_ADJUSTMENTS.color,
+  },
+});
+
+const upsertWatermarkOverlay = (
+  state: CanvasImageRenderStateV1,
+  updater: (
+    node: Extract<SemanticOverlayNode, { type: "watermark" }>
+  ) => Extract<SemanticOverlayNode, { type: "watermark" }>
+) => {
+  const next = cloneState(state);
+  const index = next.semanticOverlays.findIndex((n) => n.type === "watermark");
+  const current =
+    index >= 0
+      ? (next.semanticOverlays[index] as Extract<SemanticOverlayNode, { type: "watermark" }>)
+      : createDefaultWatermarkOverlay();
+  const updated = updater(current);
+  if (index >= 0) {
+    next.semanticOverlays[index] = updated;
+  } else {
+    next.semanticOverlays.push(updated);
   }
   return next;
 };
@@ -643,6 +893,60 @@ export const applyChannelDriftAdjustmentsToRenderState = (
       blueOffsetX: partial.blueOffsetX ?? node.params.blueOffsetX,
       blueOffsetY: partial.blueOffsetY ?? node.params.blueOffsetY,
       intensity: partial.intensity ?? node.params.intensity,
+    },
+  }));
+
+export const applyTimestampAdjustmentsToRenderState = (
+  state: CanvasImageRenderStateV1,
+  partial: Partial<TimestampAdjustments>
+) =>
+  upsertTimestampOverlay(state, (node) => ({
+    ...node,
+    enabled: partial.enabled ?? node.enabled,
+    params: {
+      ...node.params,
+      position: partial.position ?? node.params.position,
+      size: partial.size ?? node.params.size,
+      opacity: partial.opacity ?? node.params.opacity,
+    },
+  }));
+
+export const applyCaptionAdjustmentsToRenderState = (
+  state: CanvasImageRenderStateV1,
+  partial: Partial<CaptionAdjustments>
+) =>
+  upsertCaptionOverlay(state, (node) => ({
+    ...node,
+    enabled: partial.enabled ?? node.enabled,
+    params: {
+      ...node.params,
+      text: partial.text ?? node.params.text,
+      position: partial.position ?? node.params.position,
+      alignment: partial.alignment ?? node.params.alignment,
+      fontSize: partial.fontSize ?? node.params.fontSize,
+      color: partial.color ?? node.params.color,
+      backgroundColor: partial.backgroundColor ?? node.params.backgroundColor,
+      backgroundOpacity: partial.backgroundOpacity ?? node.params.backgroundOpacity,
+      padding: partial.padding ?? node.params.padding,
+      opacity: partial.opacity ?? node.params.opacity,
+    },
+  }));
+
+export const applyWatermarkAdjustmentsToRenderState = (
+  state: CanvasImageRenderStateV1,
+  partial: Partial<WatermarkAdjustments>
+) =>
+  upsertWatermarkOverlay(state, (node) => ({
+    ...node,
+    enabled: partial.enabled ?? node.enabled,
+    params: {
+      ...node.params,
+      text: partial.text ?? node.params.text,
+      opacity: partial.opacity ?? node.params.opacity,
+      fontSize: partial.fontSize ?? node.params.fontSize,
+      angle: partial.angle ?? node.params.angle,
+      density: partial.density ?? node.params.density,
+      color: partial.color ?? node.params.color,
     },
   }));
 

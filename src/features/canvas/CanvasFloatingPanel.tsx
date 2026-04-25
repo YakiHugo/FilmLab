@@ -3,8 +3,10 @@ import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, type CanvasFloatingPanel as PanelType } from "@/stores/canvasStore";
 import { CanvasAsciiEditPanel } from "./CanvasAsciiEditPanel";
+import { CanvasCaptionEditPanel } from "./CanvasCaptionEditPanel";
 import { CanvasHalftoneEditPanel } from "./CanvasHalftoneEditPanel";
 import { CanvasSignalDamageEditPanel } from "./CanvasSignalDamageEditPanel";
+import { CanvasWatermarkEditPanel } from "./CanvasWatermarkEditPanel";
 import { CanvasAssetPicker } from "./CanvasAssetPicker";
 import { CanvasEditPanel } from "./CanvasEditPanel";
 import { CanvasLayerPanel } from "./CanvasLayerPanel";
@@ -19,6 +21,8 @@ const PANEL_TITLES: Record<NonNullable<PanelType>, string> = {
   ascii: "ASCII",
   halftone: "Halftone",
   "signal-damage": "Signal Damage",
+  caption: "Caption",
+  watermark: "Watermark",
   layers: "Layers",
   library: "Library",
 };
@@ -26,7 +30,7 @@ const PANEL_TITLES: Record<NonNullable<PanelType>, string> = {
 export function CanvasFloatingPanel() {
   const activePanel = useCanvasStore((s) => s.activePanel);
   const setActivePanel = useCanvasStore((s) => s.setActivePanel);
-  const isEditDock = activePanel === "edit" || activePanel === "ascii" || activePanel === "halftone" || activePanel === "signal-damage";
+  const isEditDock = activePanel === "edit" || activePanel === "ascii" || activePanel === "halftone" || activePanel === "signal-damage" || activePanel === "caption" || activePanel === "watermark";
 
   return (
     <AnimatePresence mode="wait">
@@ -84,6 +88,10 @@ function PanelContent({
       return <CanvasHalftoneEditPanel />;
     case "signal-damage":
       return <CanvasSignalDamageEditPanel />;
+    case "caption":
+      return <CanvasCaptionEditPanel />;
+    case "watermark":
+      return <CanvasWatermarkEditPanel />;
     case "layers":
       return <CanvasLayerPanel />;
     case "library":
