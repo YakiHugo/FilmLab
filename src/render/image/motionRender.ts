@@ -109,11 +109,16 @@ export const renderMotionSequence = async ({
     canvas.width = targetSize.width;
     canvas.height = targetSize.height;
 
-    await renderSingleImageToCanvas({
-      canvas,
-      document: frameDocument,
-      request: { qualityTier, targetSize, signal },
-    });
+    try {
+      await renderSingleImageToCanvas({
+        canvas,
+        document: frameDocument,
+        request: { qualityTier, targetSize, signal },
+      });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") break;
+      throw err;
+    }
 
     if (signal?.aborted) break;
 
