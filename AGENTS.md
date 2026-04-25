@@ -21,6 +21,8 @@
 - Use `try`/`catch` and similar control flow only for failures you expect and can handle; do not add unreachable recovery paths that hide bugs instead of failing fast during development.
 - Write a brief comment only when a future agent needs to know why the code is written this way and that reason cannot be inferred from the code; do not narrate behavior, translate code into natural language, or restate responsibilities.
 - When the project requires the use of newly added basic components, priority should be given to shadcn-related components.
+- `pnpm dead-code` (knip) catches unused files and exports that `tsc` and eslint miss. Do not ship exported code with zero consumers. When a multi-slice task requires landing a type or function before its consumer exists, add a `/** @public — consumed by <slice or task id> */` JSDoc tag to suppress knip; remove the tag when the consumer lands.
+
 ## Long Tasks
 
 - Treat a task as long when it cannot be completed safely in one session without explicit slicing.
