@@ -4,6 +4,8 @@ import type {
   AsciiAdjustments,
   BwMixAdjustments,
   CalibrationAdjustments,
+  CaptionOverlayAlignment,
+  CaptionOverlayPosition,
   ColorGradingAdjustments,
   FilmProfileOverrides,
   HalftoneColorMode,
@@ -12,6 +14,7 @@ import type {
   LocalAdjustmentDelta,
   LocalAdjustmentMask,
   PointCurveAdjustments,
+  TimestampOverlayPosition,
 } from "@/types";
 import type { FilmProfileAny } from "@/types/film";
 
@@ -166,9 +169,9 @@ export interface ImageRenderFilmState {
 }
 
 export interface ImageRenderOutputState {
-  timestamp: {
+  timestamp?: {
     enabled: boolean;
-    position: "bottom-right" | "bottom-left" | "top-right" | "top-left";
+    position: TimestampOverlayPosition;
     size: number;
     opacity: number;
   };
@@ -303,12 +306,66 @@ export interface ImageChannelDriftDamageNode {
 
 export type SignalDamageNode = ImageChannelDriftDamageNode;
 
+export interface TimestampOverlayParams {
+  position: TimestampOverlayPosition;
+  size: number;
+  opacity: number;
+}
+
+export interface TimestampSemanticOverlayNode {
+  id: string;
+  type: "timestamp";
+  enabled: boolean;
+  params: TimestampOverlayParams;
+}
+
+export interface CaptionOverlayParams {
+  text: string;
+  position: CaptionOverlayPosition;
+  alignment: CaptionOverlayAlignment;
+  fontSize: number;
+  color: string;
+  backgroundColor: string;
+  backgroundOpacity: number;
+  padding: number;
+  opacity: number;
+}
+
+export interface CaptionSemanticOverlayNode {
+  id: string;
+  type: "caption";
+  enabled: boolean;
+  params: CaptionOverlayParams;
+}
+
+export interface WatermarkOverlayParams {
+  text: string;
+  opacity: number;
+  fontSize: number;
+  angle: number;
+  density: number;
+  color: string;
+}
+
+export interface WatermarkSemanticOverlayNode {
+  id: string;
+  type: "watermark";
+  enabled: boolean;
+  params: WatermarkOverlayParams;
+}
+
+export type SemanticOverlayNode =
+  | TimestampSemanticOverlayNode
+  | CaptionSemanticOverlayNode
+  | WatermarkSemanticOverlayNode;
+
 export interface CanvasImageRenderStateV1 {
   geometry: ImageRenderGeometry;
   develop: ImageRenderDevelopState;
   masks: ImageRenderMaskState;
   carrierTransforms: CarrierTransformNode[];
   signalDamage: SignalDamageNode[];
+  semanticOverlays: SemanticOverlayNode[];
   effects: ImageEffectNode[];
   film: ImageRenderFilmState;
   output: ImageRenderOutputState;
@@ -381,6 +438,11 @@ const isCarrierTransformNode = (value: unknown): value is CarrierTransformNode =
 const isSignalDamageNode = (value: unknown): value is SignalDamageNode =>
   isRecord(value) && value.type === "channel-drift" && "params" in value;
 
+const SEMANTIC_OVERLAY_TYPES = new Set(["timestamp", "caption", "watermark"]);
+
+const isSemanticOverlayNode = (value: unknown): value is SemanticOverlayNode =>
+  isRecord(value) && typeof value.type === "string" && SEMANTIC_OVERLAY_TYPES.has(value.type) && "params" in value;
+
 const mapLegacyAsciiEffectToCarrierTransform = (
   effect: ImageAsciiCarrierTransformNode & { placement?: ImageEffectPlacement }
 ): CarrierTransformNode => ({
@@ -391,6 +453,25 @@ const mapLegacyAsciiEffectToCarrierTransform = (
   ...(effect.maskId ? { maskId: effect.maskId } : {}),
   params: cloneImageRenderValue(effect.params),
 });
+
+const migrateOutputTimestampToSemanticOverlay = (
+  output: ImageRenderOutputState
+): SemanticOverlayNode | null => {
+  const ts = output.timestamp;
+  if (!ts || !ts.enabled) {
+    return null;
+  }
+  return {
+    id: "canvas-timestamp",
+    type: "timestamp",
+    enabled: true,
+    params: {
+      position: ts.position,
+      size: ts.size,
+      opacity: ts.opacity,
+    },
+  };
+};
 
 export const normalizeCanvasImageRenderState = (
   state: CanvasImageRenderStateV1
@@ -409,6 +490,11 @@ export const normalizeCanvasImageRenderState = (
   )
     ? ((state as CanvasImageRenderStateV1 & { signalDamage?: unknown[] }).signalDamage ?? [])
     : [];
+  const rawSemanticOverlays = Array.isArray(
+    (state as CanvasImageRenderStateV1 & { semanticOverlays?: unknown[] }).semanticOverlays
+  )
+    ? ((state as CanvasImageRenderStateV1 & { semanticOverlays?: unknown[] }).semanticOverlays ?? [])
+    : [];
 
   const explicitCarrierTransforms = rawCarrierTransforms
     .filter(isCarrierTransformNode)
@@ -419,12 +505,23 @@ export const normalizeCanvasImageRenderState = (
   const signalDamageNodes = rawSignalDamage
     .filter(isSignalDamageNode)
     .map((node) => cloneImageRenderValue(node));
+  const semanticOverlayNodes = rawSemanticOverlays
+    .filter(isSemanticOverlayNode)
+    .map((node) => cloneImageRenderValue(node));
   const migratedCarrierTransforms =
     explicitCarrierTransforms.length > 0
       ? explicitCarrierTransforms
       : rawEffects.flatMap((effect) =>
           isLegacyAsciiEffectNode(effect) ? [mapLegacyAsciiEffectToCarrierTransform(effect)] : []
         );
+
+  const hasTimestampOverlay = semanticOverlayNodes.some((node) => node.type === "timestamp");
+  if (!hasTimestampOverlay) {
+    const legacyTimestamp = migrateOutputTimestampToSemanticOverlay(state.output);
+    if (legacyTimestamp) {
+      semanticOverlayNodes.push(legacyTimestamp);
+    }
+  }
 
   return {
     ...cloneImageRenderValue({
@@ -436,6 +533,7 @@ export const normalizeCanvasImageRenderState = (
     }),
     carrierTransforms: migratedCarrierTransforms,
     signalDamage: signalDamageNodes,
+    semanticOverlays: semanticOverlayNodes,
     effects: rasterEffects,
   };
 };
@@ -512,3 +610,7 @@ export const resolveImageCarrierTransforms = (
 export const resolveImageSignalDamage = (
   signalDamage: readonly SignalDamageNode[]
 ) => signalDamage.filter((node) => node.enabled);
+
+export const resolveImageSemanticOverlays = (
+  semanticOverlays: readonly SemanticOverlayNode[]
+) => semanticOverlays.filter((node) => node.enabled);
