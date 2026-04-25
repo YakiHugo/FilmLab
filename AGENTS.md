@@ -89,6 +89,7 @@
 - Use the gh tool for GitHub-related operations.
 - When commits are requested, keep them atomic: commit each validated independent step rather than bundling unrelated changes.
 - When uncommitted work spans multiple validated slices, split one commit per slice; temporarily rewind shared task md/json to each slice's boundary state before staging, so every commit reflects the state at that slice's completion and nothing later.
+- Before pushing a PR or after being asked to check a PR, read its review comments (`gh api repos/{owner}/{repo}/pulls/{n}/comments`). For each comment that identifies a real issue: fix it, reply with the fix commit hash and a one-line summary, then resolve the thread via GraphQL `resolveReviewThread`. Do not resolve threads that are open questions or that you have not addressed.
 
 ## Commit & Pull Request Guidelines
 
