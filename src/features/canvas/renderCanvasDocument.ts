@@ -301,8 +301,7 @@ const drawImageElement = async ({
       canvas: imageCanvas,
       document: renderContext.imageDocument,
       request: {
-        intent: "export",
-        quality: "full",
+        qualityTier: "export",
         targetSize: {
           width: Math.max(1, Math.round(element.worldWidth * outputScale.x)),
           height: Math.max(1, Math.round(element.worldHeight * outputScale.y)),

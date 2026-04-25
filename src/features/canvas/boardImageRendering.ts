@@ -1,10 +1,10 @@
-import type { RenderIntent } from "@/lib/renderIntent";
 import { resolveFilmProfile } from "@/lib/film/registry";
 import {
   createImageRenderDocumentFromState,
   renderSingleImageToCanvas,
   type CanvasImageRenderStateV1,
   type ImageRenderDocument,
+  type RenderQualityTier,
 } from "@/render/image";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
 import type { Asset, CanvasImageElement, CanvasNodeTransform } from "@/types";
@@ -172,12 +172,14 @@ export const createCanvasImageRenderContext = ({
   };
 };
 
+const resolvePreviewQualityTier = (priority: BoardPreviewPriority): RenderQualityTier =>
+  priority === "interactive" ? "interactive" : "quality";
+
 export const renderCanvasImageElementToCanvas = async ({
   asset,
   canvas,
   draftRenderState,
   element,
-  intent,
   priority,
   viewportScale = 1,
   renderSlotPrefix,
@@ -187,7 +189,6 @@ export const renderCanvasImageElementToCanvas = async ({
   canvas: HTMLCanvasElement;
   draftRenderState?: CanvasImageRenderStateV1;
   element: CanvasImageElement;
-  intent: RenderIntent;
   priority: BoardPreviewPriority;
   viewportScale?: number;
   renderSlotPrefix?: string;
@@ -205,8 +206,7 @@ export const renderCanvasImageElementToCanvas = async ({
     canvas,
     document: context.imageDocument,
     request: {
-      intent: intent === "export-full" ? "export" : "preview",
-      quality: priority === "interactive" ? "interactive" : "full",
+      qualityTier: resolvePreviewQualityTier(priority),
       targetSize: context.targetSize,
       timestampText: context.timestampText,
       signal,

@@ -337,8 +337,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas,
       document,
       request: {
-        intent: "export",
-        quality: "full",
+        qualityTier: "export",
         targetSize: {
           width: 400,
           height: 225,
@@ -385,8 +384,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: createCanvas(),
       document,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -414,8 +412,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: createCanvas(),
       document,
       request: {
-        intent: "export",
-        quality: "full",
+        qualityTier: "export",
         targetSize: {
           width: 400,
           height: 225,
@@ -470,8 +467,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: createCanvas(),
       document,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -504,8 +500,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: createSnapshotCanvas(),
       document,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -538,8 +533,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas,
       document,
       request: {
-        intent: "export",
-        quality: "full",
+        qualityTier: "export",
         targetSize: {
           width: 400,
           height: 225,
@@ -557,14 +551,16 @@ describe("renderSingleImageToCanvas", () => {
     expect(renderImageToSurfaceMock).toHaveBeenCalledTimes(1);
     expect(applyImageCarrierTransformsMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        snapshots: expect.objectContaining({
-          develop: expect.any(Object),
-          style: expect.any(Object),
+        analysisInputs: expect.objectContaining({
+          stageSnapshots: expect.objectContaining({
+            develop: expect.any(Object),
+            style: expect.any(Object),
+          }),
         }),
       })
     );
-    expect(applyImageCarrierTransformsMock.mock.calls[0]?.[0]?.snapshots.develop).not.toBeNull();
-    expect(applyImageCarrierTransformsMock.mock.calls[0]?.[0]?.snapshots.style).not.toBe(canvas);
+    expect(applyImageCarrierTransformsMock.mock.calls[0]?.[0]?.analysisInputs.stageSnapshots.develop).not.toBeNull();
+    expect(applyImageCarrierTransformsMock.mock.calls[0]?.[0]?.analysisInputs.stageSnapshots.style).not.toBe(canvas);
   });
 
   it("runs develop-stage raster effects before film-stage and carrier transforms before style effects", async () => {
@@ -605,8 +601,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas,
       document,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -674,8 +669,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: createCanvas(),
       document,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -739,8 +733,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: createCanvas(),
       document,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -790,8 +783,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: createCanvas(),
       document,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -865,8 +857,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: createCanvas(),
       document,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -944,8 +935,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: createCanvas(),
       document,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -1019,8 +1009,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: createCanvas(),
       document,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -1054,8 +1043,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: createCanvas(),
       document,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -1065,7 +1053,7 @@ describe("renderSingleImageToCanvas", () => {
     });
 
     const call = applyImageCarrierTransformsMock.mock.calls[0]?.[0];
-    expect(call?.snapshots.style).toBe(call?.stageReferenceCanvas);
+    expect(call?.analysisInputs.stageSnapshots.style).toBe(call?.stageReferenceCanvas);
   });
 
   it("keeps the film-stage seed stable between split and unsplit paths", async () => {
@@ -1075,8 +1063,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: createCanvas(),
       document: baseDocument,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -1113,8 +1100,7 @@ describe("renderSingleImageToCanvas", () => {
         ],
       }),
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -1182,8 +1168,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: createSnapshotCanvas(),
       document,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -1258,8 +1243,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: createSnapshotCanvas(),
       document,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -1348,8 +1332,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: firstCanvas,
       document: baseDocument,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -1363,8 +1346,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: secondCanvas,
       document: baseDocument,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -1378,8 +1360,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: changedCanvas,
       document: changedDocument,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -1414,8 +1395,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: squareCanvas,
       document,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,
@@ -1429,8 +1409,7 @@ describe("renderSingleImageToCanvas", () => {
       canvas: wideCanvas,
       document,
       request: {
-        intent: "preview",
-        quality: "interactive",
+        qualityTier: "interactive",
         targetSize: {
           width: 256,
           height: 144,

@@ -19,7 +19,7 @@
     },
     {
       "id": "analysis-layer-boundary",
-      "status": "pending",
+      "status": "done",
       "blockedBy": [],
       "passes": [
         "analysis-driven overlays or effects consume explicit analysis inputs with bounded validation"
@@ -27,7 +27,7 @@
     },
     {
       "id": "preview-export-quality-split",
-      "status": "pending",
+      "status": "done",
       "blockedBy": [],
       "passes": [
         "interactive preview, quality preview, and export are explicitly modeled without a second authored-state source of truth"
@@ -35,7 +35,7 @@
     },
     {
       "id": "motion-live-render-contract",
-      "status": "pending",
+      "status": "done",
       "blockedBy": ["preview-export-quality-split"],
       "passes": [
         "a time-parameterized render contract exists for short-loop or live-style output and one preset is validated end-to-end"

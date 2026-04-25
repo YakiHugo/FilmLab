@@ -15,10 +15,14 @@ import {
   type RenderBoundaryMetrics,
   type RenderSurfaceHandle,
 } from "@/lib/renderSurfaceHandle";
-import type { RenderIntent } from "@/lib/renderIntent";
+import {
+  createEmptyAnalysisLayerInputs,
+  validateAnalysisInputs,
+} from "./analysisLayer";
 import { applyImageCarrierTransforms } from "./asciiEffect";
 import { applyImageEffects } from "./effectExecution";
 import { applyImageOverlays, resolveImageOverlays } from "./overlayExecution";
+import { resolveRenderQualityTierConfig } from "./qualityTier";
 import { applyImageSignalDamage } from "./signalDamageExecution";
 import {
   assertSupportedImageRenderSnapshotPlan,
@@ -100,12 +104,8 @@ const appendTraceOperation = (
   });
 };
 
-const resolveImageProcessingRenderIntent = (request: ImageRenderRequest): RenderIntent => {
-  if (request.intent === "export") {
-    return "export-full";
-  }
-  return request.quality === "interactive" ? "preview-interactive" : "preview-full";
-};
+const resolveRequestTierConfig = (request: ImageRenderRequest) =>
+  resolveRenderQualityTierConfig(request.qualityTier);
 
 const hasMaskedEffects = (effects: readonly ImageRenderDocument["effects"][number][]) =>
   effects.some((effect) => Boolean(effect.maskId));
@@ -133,14 +133,15 @@ const renderSnapshotToSurface = async ({
   renderSlotSuffix?: string;
   stage: "full" | "develop-base";
 }): Promise<RenderImageStageSurfaceResult> => {
+  const tierConfig = resolveRequestTierConfig(request);
   const renderOptions = {
     source: resolveRuntimeSource(document),
     state: extractImageProcessState(document),
     targetSize: request.targetSize,
     seedKey: stage === "full" ? resolveFilmSeedKey(document) : `${document.id}:${stage}`,
     sourceCacheKey: `${document.revisionKey}:${stage}:${request.targetSize.width}x${request.targetSize.height}`,
-    strictErrors: request.strictErrors ?? request.intent === "export",
-    intent: resolveImageProcessingRenderIntent(request),
+    strictErrors: request.strictErrors ?? tierConfig.strictErrors,
+    intent: tierConfig.renderIntent,
     signal: request.signal,
     debug: request.debug,
     renderSlot: request.renderSlotId
@@ -197,8 +198,7 @@ export const renderSingleImageToCanvas = async ({
     hasMaskedDevelopEffects || snapshotPlan.requiresDevelopAnalysisSnapshot;
   const requiresDevelopBase = hasDevelopEffects || snapshotPlan.requiresDevelopAnalysisSnapshot;
 
-  let developSnapshotCanvas: HTMLCanvasElement | null = null;
-  let carrierAnalysisSnapshotCanvas: HTMLCanvasElement | null = null;
+  const analysisInputs = createEmptyAnalysisLayerInputs();
 
   try {
     let surface: RenderSurfaceHandle;
@@ -219,7 +219,7 @@ export const renderSingleImageToCanvas = async ({
       let developSurface = developBaseResult.surface;
 
       if (requiresDevelopSnapshot) {
-        developSnapshotCanvas = trackSurfaceClone(developSurface);
+        analysisInputs.stageSnapshots.develop = trackSurfaceClone(developSurface);
       }
 
       if (hasDevelopEffects) {
@@ -227,7 +227,7 @@ export const renderSingleImageToCanvas = async ({
           surface: developSurface,
           document,
           effects: snapshotPlan.developEffects,
-          stageReferenceCanvas: developSnapshotCanvas ?? undefined,
+          stageReferenceCanvas: analysisInputs.stageSnapshots.develop ?? undefined,
         });
         appendTraceOperation(debugStages, "develop", {
           kind: "effects",
@@ -235,14 +235,15 @@ export const renderSingleImageToCanvas = async ({
           effectCount: snapshotPlan.developEffects.length,
         });
 
+        const filmTierConfig = resolveRequestTierConfig(request);
         const filmStageResult = await renderFilmStageToSurface({
           source: developSurface.sourceCanvas,
           state: extractImageProcessState(document),
           targetSize: request.targetSize,
           seedKey: resolveFilmSeedKey(document),
           sourceCacheKey: `${document.revisionKey}:film-stage:${request.targetSize.width}x${request.targetSize.height}`,
-          strictErrors: request.strictErrors ?? request.intent === "export",
-          intent: resolveImageProcessingRenderIntent(request),
+          strictErrors: request.strictErrors ?? filmTierConfig.strictErrors,
+          intent: filmTierConfig.renderIntent,
           signal: request.signal,
           debug: request.debug,
           renderSlot: request.renderSlotId ? `${request.renderSlotId}:base-film-stage` : undefined,
@@ -286,17 +287,28 @@ export const renderSingleImageToCanvas = async ({
     }
 
     if (snapshotPlan.carrierTransforms.length > 0) {
-      carrierAnalysisSnapshotCanvas = trackSurfaceClone(surface);
+      analysisInputs.stageSnapshots.style = trackSurfaceClone(surface);
+
+      const analysisValidation = validateAnalysisInputs(
+        snapshotPlan.analysisRequirements,
+        analysisInputs
+      );
+      if (!analysisValidation.valid) {
+        const tierConfig = resolveRequestTierConfig(request);
+        if (tierConfig.strictErrors) {
+          throw new Error(
+            `Missing analysis inputs: ${analysisValidation.missing.join(", ")}`
+          );
+        }
+      }
+
       surface = await applyImageCarrierTransforms({
         surface,
         carrierTransforms: snapshotPlan.carrierTransforms,
         document,
         request,
-        snapshots: {
-          develop: developSnapshotCanvas,
-          style: carrierAnalysisSnapshotCanvas,
-        },
-        stageReferenceCanvas: carrierAnalysisSnapshotCanvas,
+        analysisInputs,
+        stageReferenceCanvas: analysisInputs.stageSnapshots.style!,
       });
       appendTraceOperation(debugStages, "style", {
         kind: "carrier",
@@ -309,7 +321,7 @@ export const renderSingleImageToCanvas = async ({
         surface,
         signalDamage: snapshotPlan.signalDamage,
         document,
-        stageReferenceCanvas: carrierAnalysisSnapshotCanvas ?? undefined,
+        stageReferenceCanvas: analysisInputs.stageSnapshots.style ?? undefined,
       });
       appendTraceOperation(debugStages, "style", {
         kind: "carrier",
@@ -375,8 +387,9 @@ export const renderSingleImageToCanvas = async ({
     }
     surface.materializeToCanvas(canvas);
   } finally {
-    releaseCanvas(carrierAnalysisSnapshotCanvas);
-    releaseCanvas(developSnapshotCanvas);
+    releaseCanvas(analysisInputs.stageSnapshots.style);
+    releaseCanvas(analysisInputs.stageSnapshots.develop);
+    releaseCanvas(analysisInputs.edgeMap);
   }
 
   let debugResult: ImageRenderDebugResult | undefined;

@@ -17,12 +17,7 @@ import type {
   TimestampOverlayPosition,
 } from "@/types";
 import type { FilmProfileAny } from "@/types/film";
-
-export const IMAGE_RENDER_INTENTS = ["preview", "export"] as const;
-export type ImageRenderIntent = (typeof IMAGE_RENDER_INTENTS)[number];
-
-export const IMAGE_RENDER_QUALITIES = ["interactive", "full"] as const;
-export type ImageRenderQuality = (typeof IMAGE_RENDER_QUALITIES)[number];
+import type { RenderQualityTier } from "./qualityTier";
 
 export const IMAGE_EFFECT_PLACEMENTS = ["develop", "style", "finalize"] as const;
 export type ImageEffectPlacement = (typeof IMAGE_EFFECT_PLACEMENTS)[number];
@@ -359,6 +354,23 @@ export type SemanticOverlayNode =
   | CaptionSemanticOverlayNode
   | WatermarkSemanticOverlayNode;
 
+export interface SignalDriftMotionParams {
+  driftAmplitude: number;
+  intensity: number;
+}
+
+export interface SignalDriftMotionProgram {
+  id: string;
+  type: "signal-drift";
+  enabled: boolean;
+  durationMs: number;
+  fps: number;
+  loop: boolean;
+  params: SignalDriftMotionParams;
+}
+
+export type MotionProgram = SignalDriftMotionProgram;
+
 export interface CanvasImageRenderStateV1 {
   geometry: ImageRenderGeometry;
   develop: ImageRenderDevelopState;
@@ -367,6 +379,7 @@ export interface CanvasImageRenderStateV1 {
   signalDamage: SignalDamageNode[];
   semanticOverlays: SemanticOverlayNode[];
   effects: ImageEffectNode[];
+  motionPrograms: MotionProgram[];
   film: ImageRenderFilmState;
   output: ImageRenderOutputState;
 }
@@ -385,8 +398,7 @@ export interface ImageRenderDocument extends CanvasImageRenderStateV1 {
 }
 
 export interface ImageRenderRequest {
-  intent: ImageRenderIntent;
-  quality: ImageRenderQuality;
+  qualityTier: RenderQualityTier;
   targetSize: ImageRenderTargetSize;
   timestampText?: string | null;
   strictErrors?: boolean;
@@ -443,6 +455,16 @@ const SEMANTIC_OVERLAY_TYPES = new Set(["timestamp", "caption", "watermark"]);
 const isSemanticOverlayNode = (value: unknown): value is SemanticOverlayNode =>
   isRecord(value) && typeof value.type === "string" && SEMANTIC_OVERLAY_TYPES.has(value.type) && "params" in value;
 
+const MOTION_PROGRAM_TYPES = new Set(["signal-drift"]);
+
+const isMotionProgram = (value: unknown): value is MotionProgram =>
+  isRecord(value) &&
+  typeof value.type === "string" &&
+  MOTION_PROGRAM_TYPES.has(value.type) &&
+  typeof value.durationMs === "number" &&
+  typeof value.fps === "number" &&
+  "params" in value;
+
 const mapLegacyAsciiEffectToCarrierTransform = (
   effect: ImageAsciiCarrierTransformNode & { placement?: ImageEffectPlacement }
 ): CarrierTransformNode => ({
@@ -495,6 +517,11 @@ export const normalizeCanvasImageRenderState = (
   )
     ? ((state as CanvasImageRenderStateV1 & { semanticOverlays?: unknown[] }).semanticOverlays ?? [])
     : [];
+  const rawMotionPrograms = Array.isArray(
+    (state as CanvasImageRenderStateV1 & { motionPrograms?: unknown[] }).motionPrograms
+  )
+    ? ((state as CanvasImageRenderStateV1 & { motionPrograms?: unknown[] }).motionPrograms ?? [])
+    : [];
 
   const explicitCarrierTransforms = rawCarrierTransforms
     .filter(isCarrierTransformNode)
@@ -507,6 +534,9 @@ export const normalizeCanvasImageRenderState = (
     .map((node) => cloneImageRenderValue(node));
   const semanticOverlayNodes = rawSemanticOverlays
     .filter(isSemanticOverlayNode)
+    .map((node) => cloneImageRenderValue(node));
+  const motionProgramNodes = rawMotionPrograms
+    .filter(isMotionProgram)
     .map((node) => cloneImageRenderValue(node));
   const migratedCarrierTransforms =
     explicitCarrierTransforms.length > 0
@@ -535,6 +565,7 @@ export const normalizeCanvasImageRenderState = (
     signalDamage: signalDamageNodes,
     semanticOverlays: semanticOverlayNodes,
     effects: rasterEffects,
+    motionPrograms: motionProgramNodes,
   };
 };
 

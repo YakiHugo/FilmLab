@@ -6,13 +6,14 @@ import {
 } from "@/lib/renderer/gpuAsciiCarrier";
 import type { EditorLayerBlendMode } from "@/types";
 import { resolveDensitySortedCharset } from "./asciiDensityMeasure";
+import { type AnalysisLayerInputs, resolveAnalysisSourceCanvas } from "./analysisLayer";
 import { applyMaskedStageOperationToSurfaceIfSupported } from "./stageMaskComposite";
 import { applyImageHalftoneCarrierTransform } from "./halftoneEffect";
+import type { RenderQualityTier } from "./qualityTier";
 import type {
   CarrierTransformNode,
   ImageAsciiCarrierTransformNode,
   ImageRenderDocument,
-  ImageRenderQuality,
   ImageRenderRequest,
   ImageRenderTargetSize,
 } from "./types";
@@ -108,7 +109,7 @@ const parseHexColor = (value: string | null) => {
 
 const resolveEffectiveCellSize = (
   cellSize: number,
-  quality: ImageRenderQuality
+  quality: RenderQualityTier
 ) => (quality === "interactive" ? clamp(Math.round(cellSize * 1.2), cellSize, 28) : cellSize);
 
 const resolveBlurRadiusPx = (backgroundBlur: number, shortEdge: number) => {
@@ -126,7 +127,7 @@ const resolveFeatureGridLayout = ({
   targetSize,
 }: {
   normalized: NormalizedImageAsciiEffectParams;
-  quality: ImageRenderQuality;
+  quality: RenderQualityTier;
   targetSize: ImageRenderTargetSize;
 }) => {
   const effectiveCellSize = resolveEffectiveCellSize(normalized.cellSize, quality);
@@ -434,7 +435,7 @@ const buildAsciiCarrierGpuInput = (
 const prepareCarrierGpuInput = (
   sourceCanvas: HTMLCanvasElement,
   transform: ImageAsciiCarrierTransformNode,
-  quality: ImageRenderQuality,
+  quality: RenderQualityTier,
   targetSize: ImageRenderTargetSize
 ): AsciiCarrierGpuInput | null => {
   const normalized = normalizeImageAsciiEffectParams(transform.params);
@@ -463,7 +464,7 @@ export const applyImageAsciiCarrierTransform = async ({
   baseSurface: RenderSurfaceHandle;
   sourceCanvas: HTMLCanvasElement;
   transform: ImageAsciiCarrierTransformNode;
-  quality: ImageRenderQuality;
+  quality: RenderQualityTier;
   targetSize: ImageRenderTargetSize;
 }): Promise<RenderSurfaceHandle | null> => {
   const input = prepareCarrierGpuInput(sourceCanvas, transform, quality, targetSize);
@@ -481,11 +482,6 @@ export const applyImageAsciiCarrierTransform = async ({
 // Multi-transform orchestration (called from renderSingleImage)
 // ---------------------------------------------------------------------------
 
-interface CarrierSnapshots {
-  develop: HTMLCanvasElement | null;
-  style: HTMLCanvasElement;
-}
-
 const applyCarrierTransform = async ({
   surface,
   transform,
@@ -496,7 +492,7 @@ const applyCarrierTransform = async ({
   surface: RenderSurfaceHandle;
   transform: CarrierTransformNode;
   sourceCanvas: HTMLCanvasElement;
-  quality: ImageRenderQuality;
+  quality: RenderQualityTier;
   targetSize: ImageRenderTargetSize;
 }): Promise<RenderSurfaceHandle | null> => {
   switch (transform.type) {
@@ -523,37 +519,38 @@ export const applyImageCarrierTransforms = async ({
   carrierTransforms,
   document,
   request,
-  snapshots,
+  analysisInputs,
   stageReferenceCanvas,
 }: {
   surface: RenderSurfaceHandle;
   carrierTransforms: readonly CarrierTransformNode[];
   document: ImageRenderDocument;
   request: ImageRenderRequest;
-  snapshots: CarrierSnapshots;
+  analysisInputs: AnalysisLayerInputs;
   stageReferenceCanvas?: HTMLCanvasElement;
 }): Promise<RenderSurfaceHandle> => {
   let currentSurface = surface;
 
   for (const transform of carrierTransforms) {
-    const sourceCanvas =
-      transform.analysisSource === "develop"
-        ? snapshots.develop ?? snapshots.style
-        : snapshots.style;
+    const sourceCanvas = resolveAnalysisSourceCanvas(
+      transform.analysisSource,
+      analysisInputs
+    );
     const maskDefinition = transform.maskId
       ? document.masks.byId[transform.maskId] ?? null
       : null;
+    const fallbackReferenceCanvas = analysisInputs.stageSnapshots.style;
     const nextSurface = await applyMaskedStageOperationToSurfaceIfSupported({
       surface: currentSurface,
       maskDefinition,
-      maskReferenceCanvas: stageReferenceCanvas ?? snapshots.style,
+      maskReferenceCanvas: stageReferenceCanvas ?? fallbackReferenceCanvas ?? undefined,
       blendSlotId: transform.maskId ? `carrier-mask:${transform.id}` : undefined,
       applyOperation: async ({ surface: targetSurface }) =>
         applyCarrierTransform({
           surface: targetSurface,
           transform,
           sourceCanvas,
-          quality: request.quality,
+          quality: request.qualityTier,
           targetSize: request.targetSize,
         }),
     });

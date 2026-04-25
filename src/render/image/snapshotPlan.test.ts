@@ -64,7 +64,6 @@ describe("image render snapshot plan", () => {
     });
 
     expect(plan.requiresDevelopAnalysisSnapshot).toBe(true);
-    expect(plan.requiresStyleAnalysisSnapshot).toBe(false);
   });
 
   it("keeps carrier, style and finalize stages in stable order", () => {

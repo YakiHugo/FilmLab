@@ -4,9 +4,9 @@ import {
   type HalftoneCarrierGpuInput,
 } from "@/lib/renderer/gpuHalftoneCarrier";
 import { clamp } from "@/lib/math";
+import type { RenderQualityTier } from "./qualityTier";
 import type {
   ImageHalftoneCarrierTransformNode,
-  ImageRenderQuality,
   ImageRenderTargetSize,
 } from "./types";
 
@@ -25,7 +25,7 @@ const parseHexColor = (value: string | null): { r: number; g: number; b: number 
 
 const prepareHalftoneGpuInput = (
   transform: ImageHalftoneCarrierTransformNode,
-  _quality: ImageRenderQuality,
+  _quality: RenderQualityTier,
   targetSize: ImageRenderTargetSize
 ): HalftoneCarrierGpuInput => {
   const params = transform.params;
@@ -53,7 +53,7 @@ export const applyImageHalftoneCarrierTransform = async ({
 }: {
   baseSurface: RenderSurfaceHandle;
   transform: ImageHalftoneCarrierTransformNode;
-  quality: ImageRenderQuality;
+  quality: RenderQualityTier;
   targetSize: ImageRenderTargetSize;
 }): Promise<RenderSurfaceHandle | null> => {
   const input = prepareHalftoneGpuInput(transform, quality, targetSize);

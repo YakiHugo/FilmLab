@@ -260,8 +260,7 @@ describe("renderCanvasWorkbench", () => {
     expect(renderSingleImageToCanvas).toHaveBeenCalledTimes(1);
     expect(vi.mocked(renderSingleImageToCanvas).mock.calls[0]?.[0]).toMatchObject({
       request: {
-        intent: "export",
-        quality: "full",
+        qualityTier: "export",
         renderSlotId: "board-export",
         targetSize: {
           width: 400,

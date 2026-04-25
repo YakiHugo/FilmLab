@@ -1,3 +1,8 @@
+import {
+  type AnalysisRequirement,
+  deriveAnalysisRequirements,
+  requiresDevelopSnapshot,
+} from "./analysisLayer";
 import type { CarrierTransformNode, ImageEffectNode, SignalDamageNode } from "./types";
 
 export interface ImageRenderSnapshotPlan {
@@ -6,8 +11,8 @@ export interface ImageRenderSnapshotPlan {
   developEffects: ImageEffectNode[];
   styleEffects: ImageEffectNode[];
   finalizeEffects: ImageEffectNode[];
+  analysisRequirements: AnalysisRequirement[];
   requiresDevelopAnalysisSnapshot: boolean;
-  requiresStyleAnalysisSnapshot: boolean;
 }
 
 export const createImageRenderSnapshotPlan = (
@@ -20,18 +25,15 @@ export const createImageRenderSnapshotPlan = (
   const enabledCarrierTransforms = options.carrierTransforms.filter((transform) => transform.enabled);
   const enabledSignalDamage = options.signalDamage.filter((node) => node.enabled);
   const enabledEffects = options.effects.filter((effect) => effect.enabled);
+  const analysisRequirements = deriveAnalysisRequirements(enabledCarrierTransforms);
   return {
     carrierTransforms: enabledCarrierTransforms,
     signalDamage: enabledSignalDamage,
     developEffects: enabledEffects.filter((effect) => effect.placement === "develop"),
     styleEffects: enabledEffects.filter((effect) => effect.placement === "style"),
     finalizeEffects: enabledEffects.filter((effect) => effect.placement === "finalize"),
-    requiresDevelopAnalysisSnapshot: enabledCarrierTransforms.some(
-      (transform) => transform.analysisSource === "develop"
-    ),
-    requiresStyleAnalysisSnapshot: enabledCarrierTransforms.some(
-      (transform) => transform.analysisSource === "style"
-    ),
+    analysisRequirements,
+    requiresDevelopAnalysisSnapshot: requiresDevelopSnapshot(analysisRequirements),
   };
 };
 

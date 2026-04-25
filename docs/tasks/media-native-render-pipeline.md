@@ -110,11 +110,13 @@
 
 ## Current Focus
 
-- `carrier-and-signal-families` slice is complete.
-- `semantic-overlay-layer-system` slice is complete — authored overlay model with timestamp, caption, and watermark types; concrete rendering and UI panels landed.
+All slices are complete. Task is ready for closure — migrate load-bearing decisions to `docs/decisions.md` and delete this pair.
 
 ## Files
 
+- `src/render/image/analysisLayer.ts` (analysis layer types, validation, edge map compute)
+- `src/render/image/motionRender.ts` (motion render contract, frame context, signal-drift preset)
+- `src/render/image/qualityTier.ts` (quality tier type and config resolver)
 - `src/render/image/renderSingleImage.ts`
 - `src/render/image/asciiEffect.ts` (carrier orchestrator + ASCII impl)
 - `src/render/image/halftoneEffect.ts`
@@ -178,9 +180,45 @@
   - UI panels: `CanvasCaptionEditPanel`, `CanvasWatermarkEditPanel` with preview/commit workflow matching halftone/signal-damage pattern
   - Normalization guard updated to recognize `caption` and `watermark` types
   - Preview/export parity preserved: same overlay execution path, same blend mechanism
-- Still open after the semantic-overlay-layer-system slice:
+- Implemented in the preview-export-quality-split slice:
+  - `RenderQualityTier` (`"interactive" | "quality" | "export"`) replaces the scattered `ImageRenderIntent` + `ImageRenderQuality` pair
+  - `ImageRenderRequest` now carries `qualityTier: RenderQualityTier` instead of `intent` + `quality`
+  - `resolveRenderQualityTierConfig(tier)` maps each tier to `RenderIntent` and `strictErrors`
+  - Pipeline (`renderSingleImage`) resolves intent and error behavior from tier config
+  - Carrier transforms (`asciiEffect`, `halftoneEffect`) accept `RenderQualityTier` for quality-dependent execution (e.g. cell size coarsening in interactive)
+  - `boardImageRendering.ts`: preview priority → quality tier mapping (`interactive` → `"interactive"`, `background` → `"quality"`)
+  - `renderCanvasDocument.ts`: export uses `qualityTier: "export"` directly
+  - `canvasPreviewRuntimeController.ts`: no longer passes `intent` to render call — tier derived from priority
+  - `CanvasImageRenderStateV1` unchanged — quality tiers affect execution, not authored state
+  - Old types removed: `ImageRenderIntent`, `ImageRenderQuality`, `IMAGE_RENDER_INTENTS`, `IMAGE_RENDER_QUALITIES`
+  - Preview/export parity preserved: same pipeline, different tier config
+- Implemented in the analysis-layer-boundary slice:
+  - `AnalysisLayerInputs` replaces the ad-hoc `CarrierSnapshots` bag — typed inputs with `stageSnapshots` and `edgeMap` fields
+  - `AnalysisRequirement` union (`stage-snapshot | edge-map`) derived from carrier transforms via `deriveAnalysisRequirements`
+  - `resolveAnalysisSourceCanvas` replaces inline snapshot lookup in carrier orchestrator
+  - `validateAnalysisInputs` checks requirements against available inputs; export tier throws on missing, preview degrades
+  - `computeEdgeMap` provides CPU Sobel edge detection as a concrete new analysis type
+  - `snapshotPlan` now carries `analysisRequirements[]` alongside derived `requiresDevelop/StyleAnalysisSnapshot` flags
+  - Carrier transforms (`applyImageCarrierTransforms`) accept `analysisInputs: AnalysisLayerInputs` instead of raw snapshots
+  - Pipeline builds `AnalysisLayerInputs` during execution, validates before carrier stage
+  - Authored state unchanged — analysis requirements are derived from transform declarations, not user-authored
+  - Preview/export parity preserved: same analysis resolution path, validation strictness varies by tier
+- Implemented in the motion-live-render-contract slice:
+  - `MotionProgram` authored type (union, currently `SignalDriftMotionProgram`) on `CanvasImageRenderStateV1.motionPrograms`
+  - `MotionFrameContext` defines time parameter per frame: `frameIndex`, `timeMs`, `normalizedTime`, `totalFrames`
+  - `applyMotionProgramToDocument` modifies the base render document per-frame (source frame ownership stays with base document)
+  - `renderMotionSequence` iterates frames, applies motion program, renders each via single-image kernel, supports abort and `onFrame` callback
+  - Signal-drift preset: sinusoidal RGB channel drift with configurable amplitude and intensity, producing a seamless loop
+  - Frame-to-frame state: signal-drift is purely time-derived (no accumulator); contract supports stateful presets via `MotionFrameContext`
+  - Export packaging: frame sequence collected as `MotionFrameResult[]` with per-frame canvas; caller handles encoding
+  - `normalizeCanvasImageRenderState` includes `motionPrograms` with type guard and clone
+  - Revision identity: each frame gets a unique revision key via `createImageRenderDocument`
+  - Single-image kernel unchanged — motion layer composes above it
+- Still open (follow-up work, not blocking this task):
   - board/global overlay ownership rules (per-image vs board-level, composition rules)
   - additional overlay types (HUD, browser chrome, sticker)
   - additional carrier families (`dither`, `palette`, `textmode`)
   - additional signal damage families (`line-displacement`, `row-shift`, `compression-artifacts`, `pixel-sort`)
-  - motion/live render contract
+  - additional motion presets (`grain-oscillate`, `exposure-breathe`)
+  - canvas preview controller integration for live motion playback
+  - additional analysis types (segmentation, face landmarks, OCR, object detection)
