@@ -21,17 +21,20 @@ export interface MotionFrameResult {
   canvas: HTMLCanvasElement;
 }
 
+const safeFps = (fps: number) => Math.max(1, fps);
+
 export const computeMotionFrameCount = (program: MotionProgram): number =>
-  Math.max(1, Math.ceil((program.durationMs / 1000) * program.fps));
+  Math.max(1, Math.ceil((program.durationMs / 1000) * safeFps(program.fps)));
 
 export const createMotionFrameContext = (
   program: MotionProgram,
   frameIndex: number
 ): MotionFrameContext => {
+  const fps = safeFps(program.fps);
   const totalFrames = computeMotionFrameCount(program);
   return {
     frameIndex,
-    timeMs: (frameIndex / program.fps) * 1000,
+    timeMs: (frameIndex / fps) * 1000,
     normalizedTime:
       totalFrames <= 1 ? 0 : frameIndex / (program.loop ? totalFrames : totalFrames - 1),
     totalFrames,
