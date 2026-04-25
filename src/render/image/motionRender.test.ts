@@ -180,7 +180,7 @@ describe("motionRender", () => {
       const result = applyMotionProgramToDocument(program, baseDoc, frame);
 
       const drift = result.signalDamage[0]!.params;
-      const maxDrift = program.params.driftAmplitude * program.params.intensity;
+      const maxDrift = program.params.driftAmplitude;
       expect(Math.abs(drift.redOffsetX)).toBeGreaterThan(maxDrift * 0.9);
     });
 

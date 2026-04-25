@@ -54,12 +54,12 @@ const applySignalDriftToDocument = (
     type: "channel-drift",
     enabled: true,
     params: {
-      redOffsetX: Math.sin(t) * driftAmplitude * intensity,
-      redOffsetY: Math.cos(t * 0.7) * driftAmplitude * intensity * 0.3,
+      redOffsetX: Math.sin(t) * driftAmplitude,
+      redOffsetY: Math.cos(t * 0.7) * driftAmplitude * 0.3,
       greenOffsetX: 0,
       greenOffsetY: 0,
-      blueOffsetX: Math.sin(t + Math.PI) * driftAmplitude * intensity,
-      blueOffsetY: Math.cos(t * 0.7 + Math.PI) * driftAmplitude * intensity * 0.3,
+      blueOffsetX: Math.sin(t + Math.PI) * driftAmplitude,
+      blueOffsetY: Math.cos(t * 0.7 + Math.PI) * driftAmplitude * 0.3,
       intensity,
     },
   };
