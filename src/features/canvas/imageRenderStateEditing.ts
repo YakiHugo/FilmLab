@@ -7,6 +7,10 @@ import type {
   AsciiDitherMode,
   AsciiForegroundBlendMode,
   AsciiRenderMode,
+  ChannelDriftAdjustments,
+  HalftoneAdjustments,
+  HalftoneColorMode,
+  HalftoneShape,
 } from "@/types";
 import {
   createNeutralCanvasImageRenderState,
@@ -14,6 +18,7 @@ import {
   normalizeCanvasImageRenderState,
   type CarrierTransformNode,
   type ImageFilter2dEffectNode,
+  type SignalDamageNode,
 } from "@/render/image";
 
 const CHARSET_PRESET_VALUES = ["standard", "minimal", "blocks", "detailed", "custom"] as const;
@@ -41,6 +46,38 @@ const isBackgroundMode = (value: unknown): value is AsciiBackgroundMode =>
   typeof value === "string" && (BACKGROUND_MODE_VALUES as readonly string[]).includes(value);
 const isForegroundBlendMode = (value: unknown): value is AsciiForegroundBlendMode =>
   typeof value === "string" && (FOREGROUND_BLEND_VALUES as readonly string[]).includes(value);
+
+const HALFTONE_SHAPE_VALUES = ["circle", "diamond", "line", "square"] as const;
+const HALFTONE_COLOR_MODE_VALUES = ["mono", "cmyk", "rgb"] as const;
+
+const isHalftoneShape = (value: unknown): value is HalftoneShape =>
+  typeof value === "string" && (HALFTONE_SHAPE_VALUES as readonly string[]).includes(value);
+const isHalftoneColorMode = (value: unknown): value is HalftoneColorMode =>
+  typeof value === "string" && (HALFTONE_COLOR_MODE_VALUES as readonly string[]).includes(value);
+
+const DEFAULT_HALFTONE_ADJUSTMENTS: HalftoneAdjustments = {
+  enabled: false,
+  frequency: 30,
+  angle: 45,
+  shape: "circle",
+  colorMode: "mono",
+  dotScale: 1,
+  contrast: 1,
+  invert: false,
+  backgroundColor: "#000000",
+  backgroundOpacity: 1,
+};
+
+const DEFAULT_CHANNEL_DRIFT_ADJUSTMENTS: ChannelDriftAdjustments = {
+  enabled: false,
+  redOffsetX: 5,
+  redOffsetY: 0,
+  greenOffsetX: -3,
+  greenOffsetY: 2,
+  blueOffsetX: 0,
+  blueOffsetY: -4,
+  intensity: 0.5,
+};
 
 const DEFAULT_ASCII_ADJUSTMENTS: AsciiAdjustments = {
   enabled: false,
@@ -84,6 +121,8 @@ export type CanvasImageNumericFieldValues = Record<CanvasImageNumericFieldId, nu
 
 export type CanvasImageEditValues = CanvasImageNumericFieldValues & {
   ascii: AsciiAdjustments;
+  halftone: HalftoneAdjustments;
+  channelDrift: ChannelDriftAdjustments;
 };
 
 const cloneState = (state: CanvasImageRenderStateV1): CanvasImageRenderStateV1 => {
@@ -139,6 +178,59 @@ const resolveAsciiAdjustmentsFromState = (state: CanvasImageRenderStateV1): Asci
   };
 };
 
+const resolveHalftoneAdjustmentsFromState = (
+  state: CanvasImageRenderStateV1
+): HalftoneAdjustments => {
+  const carrier = normalizeCanvasImageRenderState(state).carrierTransforms.find(
+    (candidate): candidate is Extract<CarrierTransformNode, { type: "halftone" }> =>
+      candidate.type === "halftone" && candidate.enabled
+  );
+  if (!carrier) {
+    return { ...DEFAULT_HALFTONE_ADJUSTMENTS };
+  }
+  const p = carrier.params;
+  return {
+    ...DEFAULT_HALFTONE_ADJUSTMENTS,
+    enabled: true,
+    frequency: typeof p.frequency === "number" ? p.frequency : 30,
+    angle: typeof p.angle === "number" ? p.angle : 45,
+    shape: isHalftoneShape(p.shape) ? p.shape : "circle",
+    colorMode: isHalftoneColorMode(p.colorMode) ? p.colorMode : "mono",
+    dotScale: typeof p.dotScale === "number" ? p.dotScale : 1,
+    contrast: typeof p.contrast === "number" ? p.contrast : 1,
+    invert: Boolean(p.invert),
+    backgroundColor:
+      typeof p.backgroundColor === "string" && p.backgroundColor
+        ? p.backgroundColor
+        : "#000000",
+    backgroundOpacity: typeof p.backgroundOpacity === "number" ? p.backgroundOpacity : 1,
+  };
+};
+
+const resolveChannelDriftAdjustmentsFromState = (
+  state: CanvasImageRenderStateV1
+): ChannelDriftAdjustments => {
+  const node = normalizeCanvasImageRenderState(state).signalDamage.find(
+    (candidate): candidate is Extract<SignalDamageNode, { type: "channel-drift" }> =>
+      candidate.type === "channel-drift" && candidate.enabled
+  );
+  if (!node) {
+    return { ...DEFAULT_CHANNEL_DRIFT_ADJUSTMENTS };
+  }
+  const p = node.params;
+  return {
+    ...DEFAULT_CHANNEL_DRIFT_ADJUSTMENTS,
+    enabled: true,
+    redOffsetX: typeof p.redOffsetX === "number" ? p.redOffsetX : 5,
+    redOffsetY: typeof p.redOffsetY === "number" ? p.redOffsetY : 0,
+    greenOffsetX: typeof p.greenOffsetX === "number" ? p.greenOffsetX : -3,
+    greenOffsetY: typeof p.greenOffsetY === "number" ? p.greenOffsetY : 2,
+    blueOffsetX: typeof p.blueOffsetX === "number" ? p.blueOffsetX : 0,
+    blueOffsetY: typeof p.blueOffsetY === "number" ? p.blueOffsetY : -4,
+    intensity: typeof p.intensity === "number" ? p.intensity : 0.5,
+  };
+};
+
 const resolveFilter2dPreviewValues = (state: CanvasImageRenderStateV1) => {
   const effect = state.effects.find(
     (candidate): candidate is ImageFilter2dEffectNode =>
@@ -190,6 +282,8 @@ const createCanvasImageEditValues = (
     blur: filter2d.blur,
     dilate: filter2d.dilate,
     ascii: resolveAsciiAdjustmentsFromState(normalizedState),
+    halftone: resolveHalftoneAdjustmentsFromState(normalizedState),
+    channelDrift: resolveChannelDriftAdjustmentsFromState(normalizedState),
   };
 };
 
@@ -200,6 +294,14 @@ export const DEFAULT_CANVAS_IMAGE_EDIT_VALUES: CanvasImageEditValues =
 
 export const DEFAULT_CANVAS_ASCII_ADJUSTMENTS: AsciiAdjustments = {
   ...DEFAULT_CANVAS_IMAGE_EDIT_VALUES.ascii,
+};
+
+export const DEFAULT_CANVAS_HALFTONE_ADJUSTMENTS: HalftoneAdjustments = {
+  ...DEFAULT_CANVAS_IMAGE_EDIT_VALUES.halftone,
+};
+
+export const DEFAULT_CANVAS_CHANNEL_DRIFT_ADJUSTMENTS: ChannelDriftAdjustments = {
+  ...DEFAULT_CANVAS_IMAGE_EDIT_VALUES.channelDrift,
 };
 
 const createDefaultAsciiCarrierTransform = (): Extract<CarrierTransformNode, { type: "ascii" }> => ({
@@ -228,6 +330,45 @@ const createDefaultAsciiCarrierTransform = (): Extract<CarrierTransformNode, { t
     backgroundColor: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.backgroundColor,
     invert: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.invert,
     gridOverlay: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.gridOverlay,
+  },
+});
+
+const createDefaultHalftoneCarrierTransform = (): Extract<
+  CarrierTransformNode,
+  { type: "halftone" }
+> => ({
+  id: "canvas-halftone",
+  type: "halftone",
+  enabled: false,
+  analysisSource: "style",
+  params: {
+    frequency: DEFAULT_CANVAS_HALFTONE_ADJUSTMENTS.frequency,
+    angle: DEFAULT_CANVAS_HALFTONE_ADJUSTMENTS.angle,
+    shape: DEFAULT_CANVAS_HALFTONE_ADJUSTMENTS.shape,
+    colorMode: DEFAULT_CANVAS_HALFTONE_ADJUSTMENTS.colorMode,
+    dotScale: DEFAULT_CANVAS_HALFTONE_ADJUSTMENTS.dotScale,
+    contrast: DEFAULT_CANVAS_HALFTONE_ADJUSTMENTS.contrast,
+    invert: DEFAULT_CANVAS_HALFTONE_ADJUSTMENTS.invert,
+    backgroundColor: DEFAULT_CANVAS_HALFTONE_ADJUSTMENTS.backgroundColor,
+    backgroundOpacity: DEFAULT_CANVAS_HALFTONE_ADJUSTMENTS.backgroundOpacity,
+  },
+});
+
+const createDefaultChannelDriftDamage = (): Extract<
+  SignalDamageNode,
+  { type: "channel-drift" }
+> => ({
+  id: "canvas-channel-drift",
+  type: "channel-drift",
+  enabled: false,
+  params: {
+    redOffsetX: DEFAULT_CANVAS_CHANNEL_DRIFT_ADJUSTMENTS.redOffsetX,
+    redOffsetY: DEFAULT_CANVAS_CHANNEL_DRIFT_ADJUSTMENTS.redOffsetY,
+    greenOffsetX: DEFAULT_CANVAS_CHANNEL_DRIFT_ADJUSTMENTS.greenOffsetX,
+    greenOffsetY: DEFAULT_CANVAS_CHANNEL_DRIFT_ADJUSTMENTS.greenOffsetY,
+    blueOffsetX: DEFAULT_CANVAS_CHANNEL_DRIFT_ADJUSTMENTS.blueOffsetX,
+    blueOffsetY: DEFAULT_CANVAS_CHANNEL_DRIFT_ADJUSTMENTS.blueOffsetY,
+    intensity: DEFAULT_CANVAS_CHANNEL_DRIFT_ADJUSTMENTS.intensity,
   },
 });
 
@@ -261,6 +402,48 @@ const upsertAsciiCarrierTransform = (
     next.carrierTransforms[index] = updated;
   } else {
     next.carrierTransforms.push(updated);
+  }
+  return next;
+};
+
+const upsertHalftoneCarrierTransform = (
+  state: CanvasImageRenderStateV1,
+  updater: (
+    transform: Extract<CarrierTransformNode, { type: "halftone" }>
+  ) => Extract<CarrierTransformNode, { type: "halftone" }>
+) => {
+  const next = cloneState(state);
+  const index = next.carrierTransforms.findIndex((t) => t.type === "halftone");
+  const current =
+    index >= 0
+      ? (next.carrierTransforms[index] as Extract<CarrierTransformNode, { type: "halftone" }>)
+      : createDefaultHalftoneCarrierTransform();
+  const updated = updater(current);
+  if (index >= 0) {
+    next.carrierTransforms[index] = updated;
+  } else {
+    next.carrierTransforms.push(updated);
+  }
+  return next;
+};
+
+const upsertChannelDriftDamage = (
+  state: CanvasImageRenderStateV1,
+  updater: (
+    node: Extract<SignalDamageNode, { type: "channel-drift" }>
+  ) => Extract<SignalDamageNode, { type: "channel-drift" }>
+) => {
+  const next = cloneState(state);
+  const index = next.signalDamage.findIndex((n) => n.type === "channel-drift");
+  const current =
+    index >= 0
+      ? (next.signalDamage[index] as Extract<SignalDamageNode, { type: "channel-drift" }>)
+      : createDefaultChannelDriftDamage();
+  const updated = updater(current);
+  if (index >= 0) {
+    next.signalDamage[index] = updated;
+  } else {
+    next.signalDamage.push(updated);
   }
   return next;
 };
@@ -420,6 +603,46 @@ export const applyAsciiAdjustmentsToRenderState = (
       backgroundOpacity: partial.backgroundOpacity ?? transform.params.backgroundOpacity,
       colorMode: partial.colorMode ?? transform.params.colorMode,
       dither: partial.dither ?? transform.params.dither,
+    },
+  }));
+
+export const applyHalftoneAdjustmentsToRenderState = (
+  state: CanvasImageRenderStateV1,
+  partial: Partial<HalftoneAdjustments>
+) =>
+  upsertHalftoneCarrierTransform(state, (transform) => ({
+    ...transform,
+    enabled: partial.enabled ?? transform.enabled,
+    params: {
+      ...transform.params,
+      frequency: partial.frequency ?? transform.params.frequency,
+      angle: partial.angle ?? transform.params.angle,
+      shape: partial.shape ?? transform.params.shape,
+      colorMode: partial.colorMode ?? transform.params.colorMode,
+      dotScale: partial.dotScale ?? transform.params.dotScale,
+      contrast: partial.contrast ?? transform.params.contrast,
+      invert: partial.invert ?? transform.params.invert,
+      backgroundColor: partial.backgroundColor ?? transform.params.backgroundColor,
+      backgroundOpacity: partial.backgroundOpacity ?? transform.params.backgroundOpacity,
+    },
+  }));
+
+export const applyChannelDriftAdjustmentsToRenderState = (
+  state: CanvasImageRenderStateV1,
+  partial: Partial<ChannelDriftAdjustments>
+) =>
+  upsertChannelDriftDamage(state, (node) => ({
+    ...node,
+    enabled: partial.enabled ?? node.enabled,
+    params: {
+      ...node.params,
+      redOffsetX: partial.redOffsetX ?? node.params.redOffsetX,
+      redOffsetY: partial.redOffsetY ?? node.params.redOffsetY,
+      greenOffsetX: partial.greenOffsetX ?? node.params.greenOffsetX,
+      greenOffsetY: partial.greenOffsetY ?? node.params.greenOffsetY,
+      blueOffsetX: partial.blueOffsetX ?? node.params.blueOffsetX,
+      blueOffsetY: partial.blueOffsetY ?? node.params.blueOffsetY,
+      intensity: partial.intensity ?? node.params.intensity,
     },
   }));
 

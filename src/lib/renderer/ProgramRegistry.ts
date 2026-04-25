@@ -35,6 +35,8 @@ import brushMaskStampFragSrc from "./shaders/BrushMaskStamp.frag?raw";
 import maskInvertFragSrc from "./shaders/MaskInvert.frag?raw";
 import asciiCarrierFragRaw from "./shaders/AsciiCarrier.frag?raw";
 import asciiCommonGlsl from "./shaders/templates/asciiCommon.glsl?raw";
+import halftoneCarrierFragSrc from "./shaders/HalftoneCarrier.frag?raw";
+import channelDriftFragSrc from "./shaders/ChannelDrift.frag?raw";
 import timestampOverlayFragSrc from "./shaders/TimestampOverlay.frag?raw";
 
 const ASCII_COMMON_MARKER = "// #ASCII_COMMON#";
@@ -73,6 +75,8 @@ export interface RendererPrograms {
   brushMaskStamp: ProgramInfo;
   maskInvert: ProgramInfo;
   asciiCarrier: ProgramInfo;
+  halftoneCarrier: ProgramInfo;
+  channelDrift: ProgramInfo;
   timestampOverlay: ProgramInfo;
 }
 
@@ -110,6 +114,8 @@ const PROGRAM_FRAGMENTS: Record<ProgramName, string> = {
   brushMaskStamp: brushMaskStampFragSrc,
   maskInvert: maskInvertFragSrc,
   asciiCarrier: asciiCarrierFragSrc,
+  halftoneCarrier: halftoneCarrierFragSrc,
+  channelDrift: channelDriftFragSrc,
   timestampOverlay: timestampOverlayFragSrc,
 };
 
@@ -133,6 +139,8 @@ export const DEFERRED_WARMUP_PROGRAMS: readonly ProgramName[] = [
   "filmPrintUber",
   "filmEffectsUber",
   "asciiCarrier",
+  "halftoneCarrier",
+  "channelDrift",
   "timestampOverlay",
 ];
 

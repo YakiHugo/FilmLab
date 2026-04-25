@@ -7,6 +7,7 @@ import {
 import type { EditorLayerBlendMode } from "@/types";
 import { resolveDensitySortedCharset } from "./asciiDensityMeasure";
 import { applyMaskedStageOperationToSurfaceIfSupported } from "./stageMaskComposite";
+import { applyImageHalftoneCarrierTransform } from "./halftoneEffect";
 import type {
   CarrierTransformNode,
   ImageAsciiCarrierTransformNode,
@@ -485,6 +486,38 @@ interface CarrierSnapshots {
   style: HTMLCanvasElement;
 }
 
+const applyCarrierTransform = async ({
+  surface,
+  transform,
+  sourceCanvas,
+  quality,
+  targetSize,
+}: {
+  surface: RenderSurfaceHandle;
+  transform: CarrierTransformNode;
+  sourceCanvas: HTMLCanvasElement;
+  quality: ImageRenderQuality;
+  targetSize: ImageRenderTargetSize;
+}): Promise<RenderSurfaceHandle | null> => {
+  switch (transform.type) {
+    case "ascii":
+      return applyImageAsciiCarrierTransform({
+        baseSurface: surface,
+        sourceCanvas,
+        transform,
+        quality,
+        targetSize,
+      });
+    case "halftone":
+      return applyImageHalftoneCarrierTransform({
+        baseSurface: surface,
+        transform,
+        quality,
+        targetSize,
+      });
+  }
+};
+
 export const applyImageCarrierTransforms = async ({
   surface,
   carrierTransforms,
@@ -516,16 +549,16 @@ export const applyImageCarrierTransforms = async ({
       maskReferenceCanvas: stageReferenceCanvas ?? snapshots.style,
       blendSlotId: transform.maskId ? `carrier-mask:${transform.id}` : undefined,
       applyOperation: async ({ surface: targetSurface }) =>
-        applyImageAsciiCarrierTransform({
-          baseSurface: targetSurface,
-          sourceCanvas,
+        applyCarrierTransform({
+          surface: targetSurface,
           transform,
+          sourceCanvas,
           quality: request.quality,
           targetSize: request.targetSize,
         }),
     });
     if (!nextSurface) {
-      throw new Error(`ASCII carrier GPU pass failed for transform ${transform.id}`);
+      throw new Error(`Carrier GPU pass failed for transform ${transform.id} (${transform.type})`);
     }
     currentSurface = nextSurface;
   }

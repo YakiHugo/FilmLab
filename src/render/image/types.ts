@@ -6,6 +6,8 @@ import type {
   CalibrationAdjustments,
   ColorGradingAdjustments,
   FilmProfileOverrides,
+  HalftoneColorMode,
+  HalftoneShape,
   HslAdjustments,
   LocalAdjustmentDelta,
   LocalAdjustmentMask,
@@ -254,15 +256,59 @@ export interface ImageAsciiCarrierTransformNode {
   params: ImageAsciiEffectParams;
 }
 
-export type CarrierTransformNode = ImageAsciiCarrierTransformNode;
+export interface ImageHalftoneEffectParams {
+  frequency: number;
+  angle: number;
+  shape: HalftoneShape;
+  colorMode: HalftoneColorMode;
+  dotScale: number;
+  contrast: number;
+  invert: boolean;
+  backgroundColor: string | null;
+  backgroundOpacity: number;
+}
+
+export interface ImageHalftoneCarrierTransformNode {
+  id: string;
+  type: "halftone";
+  enabled: boolean;
+  analysisSource: ImageAnalysisSource;
+  maskId?: string;
+  params: ImageHalftoneEffectParams;
+}
+
+export type CarrierTransformNode =
+  | ImageAsciiCarrierTransformNode
+  | ImageHalftoneCarrierTransformNode;
 
 export type ImageEffectNode = ImageFilter2dEffectNode;
+
+export interface ImageChannelDriftDamageParams {
+  redOffsetX: number;
+  redOffsetY: number;
+  greenOffsetX: number;
+  greenOffsetY: number;
+  blueOffsetX: number;
+  blueOffsetY: number;
+  intensity: number;
+}
+
+export interface ImageChannelDriftDamageNode {
+  id: string;
+  type: "channel-drift";
+  enabled: boolean;
+  maskId?: string;
+  params: ImageChannelDriftDamageParams;
+}
+
+export type SignalDamageNode = ImageChannelDriftDamageNode;
 
 export interface CanvasImageRenderStateV1 {
   geometry: ImageRenderGeometry;
   develop: ImageRenderDevelopState;
   masks: ImageRenderMaskState;
   carrierTransforms: CarrierTransformNode[];
+  signalDamage: SignalDamageNode[];
   effects: ImageEffectNode[];
   film: ImageRenderFilmState;
   output: ImageRenderOutputState;
@@ -328,7 +374,12 @@ const isFilter2dEffectNode = (value: unknown): value is ImageFilter2dEffectNode 
   isRecord(value) && value.type === "filter2d" && "params" in value;
 
 const isCarrierTransformNode = (value: unknown): value is CarrierTransformNode =>
-  isRecord(value) && value.type === "ascii" && isAsciiAnalysisSource(value.analysisSource);
+  isRecord(value) &&
+  (value.type === "ascii" || value.type === "halftone") &&
+  isAsciiAnalysisSource(value.analysisSource);
+
+const isSignalDamageNode = (value: unknown): value is SignalDamageNode =>
+  isRecord(value) && value.type === "channel-drift" && "params" in value;
 
 const mapLegacyAsciiEffectToCarrierTransform = (
   effect: ImageAsciiCarrierTransformNode & { placement?: ImageEffectPlacement }
@@ -353,6 +404,11 @@ export const normalizeCanvasImageRenderState = (
   const rawEffects = Array.isArray((state as CanvasImageRenderStateV1 & { effects?: unknown[] }).effects)
     ? ((state as CanvasImageRenderStateV1 & { effects?: unknown[] }).effects ?? [])
     : [];
+  const rawSignalDamage = Array.isArray(
+    (state as CanvasImageRenderStateV1 & { signalDamage?: unknown[] }).signalDamage
+  )
+    ? ((state as CanvasImageRenderStateV1 & { signalDamage?: unknown[] }).signalDamage ?? [])
+    : [];
 
   const explicitCarrierTransforms = rawCarrierTransforms
     .filter(isCarrierTransformNode)
@@ -360,6 +416,9 @@ export const normalizeCanvasImageRenderState = (
   const rasterEffects = rawEffects
     .filter(isFilter2dEffectNode)
     .map((effect) => cloneImageRenderValue(effect));
+  const signalDamageNodes = rawSignalDamage
+    .filter(isSignalDamageNode)
+    .map((node) => cloneImageRenderValue(node));
   const migratedCarrierTransforms =
     explicitCarrierTransforms.length > 0
       ? explicitCarrierTransforms
@@ -376,6 +435,7 @@ export const normalizeCanvasImageRenderState = (
       output: state.output,
     }),
     carrierTransforms: migratedCarrierTransforms,
+    signalDamage: signalDamageNodes,
     effects: rasterEffects,
   };
 };
@@ -448,3 +508,7 @@ export const resolveImageRenderEffectsForPlacement = (
 export const resolveImageCarrierTransforms = (
   carrierTransforms: readonly CarrierTransformNode[]
 ) => carrierTransforms.filter((transform) => transform.enabled);
+
+export const resolveImageSignalDamage = (
+  signalDamage: readonly SignalDamageNode[]
+) => signalDamage.filter((node) => node.enabled);

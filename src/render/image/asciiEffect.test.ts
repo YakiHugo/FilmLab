@@ -275,7 +275,7 @@ describe("asciiEffect", () => {
           style: createMockCanvas(targetSize),
         },
       })
-    ).rejects.toThrow(/ASCII carrier GPU pass failed/);
+    ).rejects.toThrow(/Carrier GPU pass failed/);
   });
 
   it("routes masked carriers through applyMaskedStageOperationToSurfaceIfSupported", async () => {

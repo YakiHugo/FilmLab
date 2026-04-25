@@ -19,6 +19,7 @@ import type { RenderIntent } from "@/lib/renderIntent";
 import { applyImageCarrierTransforms } from "./asciiEffect";
 import { applyImageEffects } from "./effectExecution";
 import { applyImageOverlays, resolveImageOverlays } from "./overlayExecution";
+import { applyImageSignalDamage } from "./signalDamageExecution";
 import {
   assertSupportedImageRenderSnapshotPlan,
   createImageRenderSnapshotPlan,
@@ -167,6 +168,7 @@ export const renderSingleImageToCanvas = async ({
 }): Promise<RenderSingleImageResult> => {
   const snapshotPlan = createImageRenderSnapshotPlan({
     carrierTransforms: document.carrierTransforms,
+    signalDamage: document.signalDamage,
     effects: document.effects,
   });
   assertSupportedImageRenderSnapshotPlan(snapshotPlan);
@@ -299,6 +301,19 @@ export const renderSingleImageToCanvas = async ({
       appendTraceOperation(debugStages, "style", {
         kind: "carrier",
         carrierCount: snapshotPlan.carrierTransforms.length,
+      });
+    }
+
+    if (snapshotPlan.signalDamage.length > 0) {
+      surface = await applyImageSignalDamage({
+        surface,
+        signalDamage: snapshotPlan.signalDamage,
+        document,
+        stageReferenceCanvas: carrierAnalysisSnapshotCanvas ?? undefined,
+      });
+      appendTraceOperation(debugStages, "style", {
+        kind: "carrier",
+        carrierCount: snapshotPlan.signalDamage.length,
       });
     }
 

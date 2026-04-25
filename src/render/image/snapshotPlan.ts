@@ -1,7 +1,8 @@
-import type { CarrierTransformNode, ImageEffectNode } from "./types";
+import type { CarrierTransformNode, ImageEffectNode, SignalDamageNode } from "./types";
 
 export interface ImageRenderSnapshotPlan {
   carrierTransforms: CarrierTransformNode[];
+  signalDamage: SignalDamageNode[];
   developEffects: ImageEffectNode[];
   styleEffects: ImageEffectNode[];
   finalizeEffects: ImageEffectNode[];
@@ -12,13 +13,16 @@ export interface ImageRenderSnapshotPlan {
 export const createImageRenderSnapshotPlan = (
   options: {
     carrierTransforms: readonly CarrierTransformNode[];
+    signalDamage: readonly SignalDamageNode[];
     effects: readonly ImageEffectNode[];
   }
 ): ImageRenderSnapshotPlan => {
   const enabledCarrierTransforms = options.carrierTransforms.filter((transform) => transform.enabled);
+  const enabledSignalDamage = options.signalDamage.filter((node) => node.enabled);
   const enabledEffects = options.effects.filter((effect) => effect.enabled);
   return {
     carrierTransforms: enabledCarrierTransforms,
+    signalDamage: enabledSignalDamage,
     developEffects: enabledEffects.filter((effect) => effect.placement === "develop"),
     styleEffects: enabledEffects.filter((effect) => effect.placement === "style"),
     finalizeEffects: enabledEffects.filter((effect) => effect.placement === "finalize"),

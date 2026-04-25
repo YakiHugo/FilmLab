@@ -230,6 +230,33 @@ export interface AsciiAdjustments {
   dither: AsciiDitherMode;
 }
 
+export type HalftoneShape = "circle" | "diamond" | "line" | "square";
+export type HalftoneColorMode = "mono" | "cmyk" | "rgb";
+
+export interface HalftoneAdjustments {
+  enabled: boolean;
+  frequency: number;
+  angle: number;
+  shape: HalftoneShape;
+  colorMode: HalftoneColorMode;
+  dotScale: number;
+  contrast: number;
+  invert: boolean;
+  backgroundColor: string;
+  backgroundOpacity: number;
+}
+
+export interface ChannelDriftAdjustments {
+  enabled: boolean;
+  redOffsetX: number;
+  redOffsetY: number;
+  greenOffsetX: number;
+  greenOffsetY: number;
+  blueOffsetX: number;
+  blueOffsetY: number;
+  intensity: number;
+}
+
 export interface LocalAdjustmentDelta {
   exposure?: number;
   contrast?: number;
