@@ -3,7 +3,7 @@
   "tasks": [
     {
       "id": "semantic-overlay-layer-system",
-      "status": "pending",
+      "status": "done",
       "blockedBy": [],
       "passes": [
         "caption, HUD, browser-chrome, or similar overlays have an authored model with canvas preview/export parity"

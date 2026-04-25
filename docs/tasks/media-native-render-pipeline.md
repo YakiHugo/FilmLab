@@ -111,7 +111,7 @@
 ## Current Focus
 
 - `carrier-and-signal-families` slice is complete.
-- Next active slice: `semantic-overlay-layer-system` or `analysis-layer-boundary`.
+- `semantic-overlay-layer-system` slice is complete — authored overlay model with timestamp, caption, and watermark types; concrete rendering and UI panels landed.
 
 ## Files
 
@@ -127,11 +127,15 @@
 - `src/lib/renderer/gpuSignalDamage.ts`
 - `src/lib/renderer/shaders/HalftoneCarrier.frag`
 - `src/lib/renderer/shaders/ChannelDrift.frag`
+- `src/lib/captionOverlay.ts`
+- `src/lib/watermarkOverlay.ts`
 - `src/features/canvas/CanvasHalftoneEditPanel.tsx`
 - `src/features/canvas/CanvasSignalDamageEditPanel.tsx`
+- `src/features/canvas/CanvasCaptionEditPanel.tsx`
+- `src/features/canvas/CanvasWatermarkEditPanel.tsx`
 - `src/features/canvas/boardImageRendering.ts`
+- `src/features/canvas/imageRenderStateEditing.ts`
 - `src/features/canvas/renderCanvasDocument.ts`
-  - no matches
 
 ## Handoff
 
@@ -155,10 +159,28 @@
   - Signal damage executes as a dedicated pipeline stage between carriers and style effects
   - UI panels: `CanvasHalftoneEditPanel`, `CanvasSignalDamageEditPanel` with full preview/commit workflow
   - Family classification: halftone and channel drift are both single-frame deterministic
-- Still open after the carrier-and-signal-families slice:
-  - authored `semanticOverlays` model
-  - board/global overlay ownership rules
-  - non-timestamp overlay types
+- Implemented in the semantic-overlay-layer-system slice (authored model):
+  - `CanvasImageRenderStateV1` now carries `semanticOverlays: SemanticOverlayNode[]` as a first-class authored family
+  - `SemanticOverlayNode` is a typed union (currently `TimestampSemanticOverlayNode`); extensible for caption, HUD, watermark, etc.
+  - `ImageRenderOutputState.timestamp` demoted to optional legacy field; normalization migrates it to a timestamp semantic overlay
+  - Overlay resolution (`resolveImageOverlays`) reads from `semanticOverlays` instead of `output.timestamp`
+  - UI adjustment type: `TimestampAdjustments` in `@/types`, with `upsertTimestampOverlay` / `applyTimestampAdjustmentsToRenderState` state editing helpers
+  - Preview/export parity preserved: same overlay execution path, same GPU/CPU fallback
+  - Revision identity automatically includes `semanticOverlays` via `normalizeCanvasImageRenderState`
+  - Ownership decision: overlays are per-image authored state; runtime content (e.g. timestamp text) stays on `ImageRenderRequest`
+- Implemented in the semantic-overlay-layer-system slice (concrete overlay types):
+  - `SemanticOverlayNode` union extended with `CaptionSemanticOverlayNode` and `WatermarkSemanticOverlayNode`
+  - Caption overlay: authored text with configurable position (top/center/bottom), alignment (left/center/right), font size, color, background, padding, opacity
+  - Watermark overlay: repeating tiled text pattern with configurable angle, density, font size, color, opacity
+  - CPU canvas renderers: `src/lib/captionOverlay.ts`, `src/lib/watermarkOverlay.ts`
+  - Overlay execution pipeline dispatches caption and watermark through the same GPU-blend path as timestamp
+  - State editing helpers: `applyCaptionAdjustmentsToRenderState`, `applyWatermarkAdjustmentsToRenderState` with full default/upsert workflow
+  - UI panels: `CanvasCaptionEditPanel`, `CanvasWatermarkEditPanel` with preview/commit workflow matching halftone/signal-damage pattern
+  - Normalization guard updated to recognize `caption` and `watermark` types
+  - Preview/export parity preserved: same overlay execution path, same blend mechanism
+- Still open after the semantic-overlay-layer-system slice:
+  - board/global overlay ownership rules (per-image vs board-level, composition rules)
+  - additional overlay types (HUD, browser chrome, sticker)
   - additional carrier families (`dither`, `palette`, `textmode`)
   - additional signal damage families (`line-displacement`, `row-shift`, `compression-artifacts`, `pixel-sort`)
   - motion/live render contract
