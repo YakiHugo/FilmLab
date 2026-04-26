@@ -8,10 +8,10 @@ const renderImageToSurfaceMock = vi.fn();
 const blendCanvasLayerOnGpuToSurfaceMock = vi.fn();
 const applyTimestampOverlayOnGpuToSurfaceMock = vi.fn();
 
-vi.mock("@/lib/imageProcessing", () => ({
-  renderDevelopBaseToSurface: vi.fn(),
-  renderFilmStageToSurface: vi.fn(),
-  renderImageToSurface: (...args: unknown[]) =>
+vi.mock("@/lib/gpu/orchestrator", () => ({
+  renderDevelopBase: vi.fn(),
+  renderFilmStage: vi.fn(),
+  renderFull: (...args: unknown[]) =>
     Reflect.apply(renderImageToSurfaceMock, undefined, args),
 }));
 

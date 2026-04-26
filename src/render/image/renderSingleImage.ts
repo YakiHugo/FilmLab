@@ -1,13 +1,9 @@
-import {
-  renderDevelopBaseToSurface,
-  renderFilmStageToSurface,
-  renderImageToSurface,
-} from "@/lib/imageProcessing";
 import type {
   RenderImageStageDebugInfo,
   RenderImageStageResult,
-  RenderImageStageSurfaceResult,
 } from "@/lib/imageProcessing";
+import type { BackendRenderResult } from "./renderBackend";
+import { WebGPURenderBackend } from "./webgpuRenderBackend";
 import { sha256FromCanvas } from "@/lib/hash";
 import {
   cloneRenderBoundaryMetrics,
@@ -34,6 +30,8 @@ import type {
   ImageRenderRequest,
 } from "./types";
 import { extractImageProcessState } from "./types";
+
+const _backend = new WebGPURenderBackend();
 
 export interface ImageRenderTraceOperation {
   kind: "low-level" | "effects" | "carrier" | "overlay";
@@ -132,7 +130,7 @@ const renderSnapshotToSurface = async ({
   request: ImageRenderRequest;
   renderSlotSuffix?: string;
   stage: "full" | "develop-base";
-}): Promise<RenderImageStageSurfaceResult> => {
+}): Promise<BackendRenderResult> => {
   const tierConfig = resolveRequestTierConfig(request);
   const renderOptions = {
     source: resolveRuntimeSource(document),
@@ -152,10 +150,10 @@ const renderSnapshotToSurface = async ({
   };
 
   if (stage === "develop-base") {
-    return renderDevelopBaseToSurface(renderOptions);
+    return _backend.renderDevelopBase(renderOptions);
   }
 
-  return renderImageToSurface(renderOptions);
+  return _backend.renderFull(renderOptions);
 };
 
 export const renderSingleImageToCanvas = async ({
@@ -179,9 +177,6 @@ export const renderSingleImageToCanvas = async ({
     debugBoundaries.canvasClones += 1;
     return surface.cloneToCanvas();
   };
-  // Only texture uploads and CPU pixel reads are accumulated from sub-stages;
-  // canvasMaterializations and canvasClones are tracked by the orchestrator directly
-  // via trackSurfaceClone and the materializeToCanvas call site above.
   const accumulateStageBoundaries = (stageDebug?: RenderImageStageDebugInfo) => {
     if (!stageDebug) {
       return;
@@ -236,7 +231,7 @@ export const renderSingleImageToCanvas = async ({
         });
 
         const filmTierConfig = resolveRequestTierConfig(request);
-        const filmStageResult = await renderFilmStageToSurface({
+        const filmStageResult = await _backend.renderFilmStage({
           source: developSurface.sourceCanvas,
           state: extractImageProcessState(document),
           targetSize: request.targetSize,

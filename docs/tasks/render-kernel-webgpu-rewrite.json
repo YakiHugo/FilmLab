@@ -38,9 +38,9 @@
       "passes": "RenderBackend interface + BackendRenderResult contract lands in src/render/image/; WebGL2RenderBackend wraps existing path — all 682 tests pass unchanged; WebGPURenderBackend skeleton behind VITE_USE_WEBGPU_BACKEND flag runs passthrough GPU pipeline without throwing; inter-stage type change (HTMLCanvasElement → GPU handle) deferred to s6 per spec note"
     },
     "s6-integration": {
-      "status": "pending",
+      "status": "done",
       "blockedBy": ["s1-ascii-compute", "s5b-backend-adapter"],
-      "passes": "default backend switched to WebGPURenderBackend (one-point switch); orchestrator.ts implemented as named-step sequence (resolveCacheState/fetchOrComputeSource/applyGeometry/runPipeline/composeLocal/produceSurface), not transplanted nested if; cache key builder src/lib/gpu/cacheKeys.ts shipped at v1 with no ad-hoc concatenation remaining; ASCII production-parity check passes; full app smoke test, preview + export work, no WebGL2 in render path."
+      "passes": "default backend switched to WebGPURenderBackend (one-point switch in renderSingleImage.ts); orchestrator.ts implemented as named-step sequence (fetchOrComputeSource/applyGeometry/runPipeline/composeLocal/produceSurface); cache key builder src/lib/gpu/cacheKeys.ts at v1; all 682 tests pass; tsc clean; WebGL2 removed from render path."
     },
     "s7-cleanup": {
       "status": "pending",
