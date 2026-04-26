@@ -15,6 +15,8 @@ import fullscreenWgsl from "../../wgsl/lib/fullscreen.wgsl?raw";
 import colorSpaceWgsl from "../../wgsl/lib/colorSpace.wgsl?raw";
 import colorLutWgsl from "../../wgsl/film/colorLut.wgsl?raw";
 
+export { createPlaceholderLut3D } from "./utils";
+
 const colorLutSource = `${fullscreenWgsl}\n${colorSpaceWgsl}\n${colorLutWgsl}`;
 
 // 5 vec4 = 80 bytes
@@ -76,26 +78,6 @@ export class ColorLutPipelineCache {
     this.byFormat.set(format, entry);
     return entry;
   }
-}
-
-/** 1×1×1 passthrough LUT used when a slot is disabled. */
-export function createPlaceholderLut3D(device: GPUDevice): GPUTexture {
-  const tex = device.createTexture({
-    label: "film.colorLut.placeholder3d",
-    size: { width: 1, height: 1, depthOrArrayLayers: 1 },
-    dimension: "3d",
-    format: "rgba8unorm",
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-  });
-  // Identity texel: (0, 0, 0) samples as (0, 0, 0, 255) — harmless for a
-  // disabled slot because the flag check prevents this texture from being used.
-  device.queue.writeTexture(
-    { texture: tex },
-    new Uint8Array([0, 0, 0, 255]),
-    { bytesPerRow: 4, rowsPerImage: 1 },
-    { width: 1, height: 1, depthOrArrayLayers: 1 },
-  );
-  return tex;
 }
 
 export interface ColorLutPassOptions {

@@ -52,9 +52,9 @@ fn resolve_print_stock(stock: f32) -> mat3x3<f32> {
     );
   }
   return mat3x3<f32>(
-    vec3<f32>( 1.01,  0.00, -0.01),
-    vec3<f32>(-0.01,  1.00,  0.01),
-    vec3<f32>( 0.00,  0.00,  1.00),
+    vec3<f32>( 1.01, -0.01,  0.00),
+    vec3<f32>( 0.00,  1.00,  0.00),
+    vec3<f32>(-0.01,  0.01,  1.00),
   );
 }
 
@@ -94,7 +94,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     let pivot    = 0.18;
     color = pivot * pow(max(color / pivot, vec3<f32>(0.0)), vec3<f32>(1.0 + contrast));
 
-    if (q.flags2.x != 0u) {
+    if (q.flags2.x != 0u && q.print_params.w > 2.5) {
       let base_linear = clamp(color, vec3<f32>(0.0), vec3<f32>(1.0));
       let hdr_offset  = max(color - vec3<f32>(1.0), vec3<f32>(0.0));
       let lut_size    = f32(textureDimensions(t_print_lut, 0u).x);

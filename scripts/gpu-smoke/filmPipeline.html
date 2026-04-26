@@ -199,6 +199,9 @@
       return d;
     }
 
+    const PLACEHOLDER_3D_DATA = new Uint8Array([0, 0, 0, 255]);
+    const PLACEHOLDER_3D = { data: PLACEHOLDER_3D_DATA, width: 1, height: 1, depth: 1, filter: "linear" };
+
     function uploadTex2D(device, data, w, h, label) {
       const tex = device.createTexture({
         label,
@@ -428,7 +431,11 @@
             u_customLutEnabled:   { kind: "1iBool", value: false },
             u_customLutIntensity: { kind: "1f",     value: 0 },
           },
-          gl3D: [],
+          gl3D: [
+            { unit: 1, uniformName: "u_lut",      ...PLACEHOLDER_3D },
+            { unit: 2, uniformName: "u_lutBlend",  ...PLACEHOLDER_3D },
+            { unit: 3, uniformName: "u_customLut", ...PLACEHOLDER_3D },
+          ],
         },
         {
           name: "colorMatrix identity (should be passthrough)",
@@ -448,7 +455,11 @@
             u_customLutEnabled:   { kind: "1iBool", value: false },
             u_customLutIntensity: { kind: "1f",     value: 0 },
           },
-          gl3D: [],
+          gl3D: [
+            { unit: 1, uniformName: "u_lut",      ...PLACEHOLDER_3D },
+            { unit: 2, uniformName: "u_lutBlend",  ...PLACEHOLDER_3D },
+            { unit: 3, uniformName: "u_customLut", ...PLACEHOLDER_3D },
+          ],
         },
         {
           name: "colorMatrix contrast boost",
@@ -469,7 +480,11 @@
             u_customLutEnabled:   { kind: "1iBool", value: false },
             u_customLutIntensity: { kind: "1f",     value: 0 },
           },
-          gl3D: [],
+          gl3D: [
+            { unit: 1, uniformName: "u_lut",      ...PLACEHOLDER_3D },
+            { unit: 2, uniformName: "u_lutBlend",  ...PLACEHOLDER_3D },
+            { unit: 3, uniformName: "u_customLut", ...PLACEHOLDER_3D },
+          ],
         },
         {
           name: "4×4×4 identity LUT intensity=1.0",
@@ -666,11 +681,14 @@
         },
       ];
 
+      const printLutPlaceholder3D = [{ unit: 1, uniformName: "u_printLut", ...PLACEHOLDER_3D }];
+
       for (const sc of printScenarios) {
         const glPixels = renderWithWebGL2Reference({
           source, width: W, height: H,
           vertexSrc: fullscreenVert, fragmentSrc: filmPrintFrag,
           uniforms: sc.glUniforms, label: `FilmPrint/${sc.name}`,
+          extraTextures3D: printLutPlaceholder3D,
         }).pixels;
         const gpuPixels = await renderWebGPU(ctx, executor, source, () =>
           createPrintPass(ctx.device, printCache, {

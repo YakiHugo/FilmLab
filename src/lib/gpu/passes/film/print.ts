@@ -15,6 +15,8 @@ import fullscreenWgsl from "../../wgsl/lib/fullscreen.wgsl?raw";
 import colorSpaceWgsl from "../../wgsl/lib/colorSpace.wgsl?raw";
 import printWgsl from "../../wgsl/film/print.wgsl?raw";
 
+export { createPlaceholderLut3D as createPlaceholderPrintLut3D } from "./utils";
+
 const printSource = `${fullscreenWgsl}\n${colorSpaceWgsl}\n${printWgsl}`;
 
 // 12 vec4 = 192 bytes
@@ -86,24 +88,6 @@ export class PrintPipelineCache {
     this.byFormat.set(format, entry);
     return entry;
   }
-}
-
-/** 1×1×1 placeholder for the print LUT slot when not in use. */
-export function createPlaceholderPrintLut3D(device: GPUDevice): GPUTexture {
-  const tex = device.createTexture({
-    label: "film.print.placeholderLut3d",
-    size: { width: 1, height: 1, depthOrArrayLayers: 1 },
-    dimension: "3d",
-    format: "rgba8unorm",
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-  });
-  device.queue.writeTexture(
-    { texture: tex },
-    new Uint8Array([0, 0, 0, 255]),
-    { bytesPerRow: 4, rowsPerImage: 1 },
-    { width: 1, height: 1, depthOrArrayLayers: 1 },
-  );
-  return tex;
 }
 
 export interface PrintPassOptions {
