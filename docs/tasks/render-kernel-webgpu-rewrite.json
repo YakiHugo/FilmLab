@@ -23,9 +23,9 @@
       "passes": "pixel comparison: hsl, curve, detail < 2/255 (validated maxDiff=0/255 on SwiftShader fallback; real-GPU run pending)"
     },
     "s4-film": {
-      "status": "pending",
+      "status": "done",
       "blockedBy": ["s3-photo-extended"],
-      "passes": "film profile rendering matches WebGL2"
+      "passes": "pixel comparison vs WebGL2: prep, colorLut, print, grain, effects < 2/255 (validated maxDiff=0/255 on SwiftShader fallback; real-GPU run pending)"
     },
     "s5-masking-post": {
       "status": "pending",

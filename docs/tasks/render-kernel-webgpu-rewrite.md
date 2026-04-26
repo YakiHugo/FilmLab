@@ -192,7 +192,7 @@ Validation: same pixel comparison methodology as Slice 2.
 - `scripts/gpu-smoke/webgl2Reference.ts` extended with `extraTextures?: ExtraTexture[]` to support multi-texture WebGL2 reference renders (used for Curve LUT). Extra textures are bound at units ≥1 and cleaned up with the rest.
 - Validation harness: `scripts/gpu-smoke/photoExtended.html` — 5 HSL scenarios (passthrough, sat boost, hue shift, B&W, calibration), 2 Curve scenarios (identity LUT, composite +30), 4 Detail scenarios (passthrough, texture+clarity, sharpening+masking, NR). All 11 scenarios hit `maxDiff=0/255` on SwiftShader fallback.
 
-### Slice 4 — Film Pipeline
+### Slice 4 — Film Pipeline (done)
 
 Port all film stages to WGSL: Prep (expand/compression/developer/tone), ColorLut (matrix/3DLUT), Print (CMY head/color cast/toning), Grain (film + procedural), Effects (vignette/breath/damage/gateWeave/overscan).
 
@@ -200,6 +200,16 @@ Port all film stages to WGSL: Prep (expand/compression/developer/tone), ColorLut
 - Film grain noise generation in WGSL
 
 Validation: film profile rendering matches WebGL2 output.
+
+**Slice 4 implementation notes (done):**
+- `src/lib/gpu/wgsl/film/{prep,colorLut,print,grain,effects}.wgsl` + `src/lib/gpu/passes/film/{prep,colorLut,print,grain,effects}.ts` landed.
+- FilmPrep is uniform-only (5 sub-effects controlled by `flags: vec4<u32>`). Struct: 6 × vec4 = 96 bytes.
+- FilmColorLut binds three `texture_3d<f32>` slots (lut, lutBlend, customLut) at bindings 2–4; `sample_3d_lut` helper takes texture parameter (WGSL spec allows opaque types as formal parameters). `createPlaceholderLut3D` provides 1×1×1 dummy textures for disabled slots. Struct: 5 × vec4 = 80 bytes. `textureDimensions(t, 0u).x` used to read LUT size at runtime.
+- FilmPrint binds one `texture_3d<f32>` for the print LUT slot; `createPlaceholderPrintLut3D` for disabled state. `resolve_print_stock` and `kelvin_to_rgb` ported from GLSL using WGSL `mat3x3<f32>` column constructors (same column-major semantics as GLSL). Struct: 12 × vec4 = 192 bytes.
+- FilmGrain consolidates `FilmGrain.frag` + `ProceduralGrain.frag` into one WGSL shader; model selector (0 = blue-noise, 1 = procedural) in uniform. `hash12` and `crystal_cell` ported from GLSL with `y++`/`x++` for loop increments (valid WGSL statement form). Struct: 6 × vec4 = 96 bytes.
+- FilmEffects binds damage and border 2D textures at bindings 1–2; `createPlaceholder2D` for disabled slots. `apply_gate_weave` returns `vec2<f32>` (no `out bool` — caller checks bounds explicitly). Struct: 7 × vec4 = 112 bytes.
+- `scripts/gpu-smoke/webgl2Reference.ts` extended with `ExtraTexture3D` interface and `gl.texImage3D` upload path for the colorLut test scenarios.
+- Validation harness: `scripts/gpu-smoke/filmPipeline.html` — 5 FilmPrep scenarios, 4 FilmColorLut scenarios (including 4×4×4 identity LUT identity check at intensity=1.0), 4 FilmPrint scenarios, 2 FilmGrain scenarios (blue-noise + procedural, using synthetic deterministic noise), 5 FilmEffects scenarios. Gate ≤ 2/255. Validated maxDiff=0/255 on SwiftShader fallback; real-GPU run pending.
 
 ### Slice 5 — Masking & Post-Processing
 

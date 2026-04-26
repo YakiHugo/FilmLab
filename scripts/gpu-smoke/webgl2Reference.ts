@@ -81,6 +81,19 @@ export interface ExtraTexture {
   filter: "linear" | "nearest";
 }
 
+export interface ExtraTexture3D {
+  /** GL texture unit index (1, 2, …). */
+  unit: number;
+  /** Uniform name (must be sampler3D in the fragment shader). */
+  uniformName: string;
+  /** RGBA8 data, length = width * height * depth * 4. */
+  data: Uint8Array | Uint8ClampedArray;
+  width: number;
+  height: number;
+  depth: number;
+  filter: "linear" | "nearest";
+}
+
 export interface ReferenceRenderInput {
   /** RGBA8 source pixel buffer, length = width*height*4. */
   source: Uint8ClampedArray;
@@ -93,8 +106,10 @@ export interface ReferenceRenderInput {
   /** Uniforms to set after binding the program; sampler `uSampler` is set automatically. */
   uniforms: UniformMap;
   label: string;
-  /** Additional textures bound at texture units ≥1. */
+  /** Additional 2D textures bound at texture units ≥1. */
   extraTextures?: ExtraTexture[];
+  /** Additional 3D textures bound at texture units ≥1. */
+  extraTextures3D?: ExtraTexture3D[];
 }
 
 export interface ReferenceRenderResult {
@@ -195,6 +210,29 @@ export function renderWithWebGL2Reference(input: ReferenceRenderInput): Referenc
     if (loc === null) throw new Error(`extraTexture uniform "${et.uniformName}" not found in shader`);
     gl.uniform1i(loc, et.unit);
   }
+
+  for (const et3 of input.extraTextures3D ?? []) {
+    gl.activeTexture(gl.TEXTURE0 + et3.unit);
+    const tex = gl.createTexture();
+    if (!tex) throw new Error(`createTexture3D for ${et3.uniformName} returned null`);
+    extraTexObjs.push(tex);
+    gl.bindTexture(gl.TEXTURE_3D, tex);
+    gl.texImage3D(
+      gl.TEXTURE_3D, 0, gl.RGBA, et3.width, et3.height, et3.depth, 0,
+      gl.RGBA, gl.UNSIGNED_BYTE,
+      new Uint8Array(et3.data.buffer, et3.data.byteOffset, et3.data.byteLength),
+    );
+    const filter3 = et3.filter === "linear" ? gl.LINEAR : gl.NEAREST;
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, filter3);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, filter3);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+    const loc3 = gl.getUniformLocation(program, et3.uniformName);
+    if (loc3 === null) throw new Error(`extraTexture3D uniform "${et3.uniformName}" not found in shader`);
+    gl.uniform1i(loc3, et3.unit);
+  }
+
   gl.activeTexture(gl.TEXTURE0);
 
   gl.viewport(0, 0, input.width, input.height);
