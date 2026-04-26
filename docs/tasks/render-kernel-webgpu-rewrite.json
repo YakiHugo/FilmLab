@@ -28,9 +28,9 @@
       "passes": "pixel comparison vs WebGL2: prep, colorLut, print, grain, effects < 2/255 (validated maxDiff=0/255 on SwiftShader fallback; real-GPU run pending)"
     },
     "s5-masking-post": {
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": ["s4-film"],
-      "passes": "gradient mask + brush mask + halation render correctly"
+      "passes": "pixel comparison vs WebGL2: all 29 scenarios across 15 pass types ≤ 2/255 (maxDiff=0/255, 0 differing px on SwiftShader fallback; real-GPU run pending)"
     },
     "s5b-backend-adapter": {
       "status": "pending",
