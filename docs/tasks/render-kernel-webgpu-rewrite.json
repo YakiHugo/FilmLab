@@ -1,6 +1,6 @@
 {
   "task": "render-kernel-webgpu-rewrite",
-  "status": "pending",
+  "status": "blocked",
   "slices": {
     "s0-foundation": {
       "status": "done",
