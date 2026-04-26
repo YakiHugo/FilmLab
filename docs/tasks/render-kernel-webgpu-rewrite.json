@@ -3,35 +3,48 @@
   "status": "pending",
   "slices": {
     "s0-foundation": {
-      "status": "pending",
+      "status": "in_progress",
+      "blockedBy": [],
       "passes": "upload source → passthrough → readback matches input"
     },
     "s1-ascii-compute": {
       "status": "pending",
-      "passes": "structureWeight=0 matches density output; structureWeight=1 selects correct directional glyphs; <16ms at 1080p cellSize=12"
+      "blockedBy": ["s0-foundation"],
+      "passes": "synthetic fixture validation (no develop chain dependency): structureWeight=0 reproduces density-based selection within ±1 atlas slot; structureWeight=1 selects correct directional glyphs on gradient fixtures; <16ms at 1080p cellSize=12. Production parity deferred to s6."
     },
     "s2-photo-core": {
       "status": "pending",
+      "blockedBy": ["s0-foundation"],
       "passes": "pixel comparison vs WebGL2: inputDecode, geometry, master, outputEncode < 2/255"
     },
     "s3-photo-extended": {
       "status": "pending",
+      "blockedBy": ["s2-photo-core"],
       "passes": "pixel comparison: hsl, curve, detail < 2/255"
     },
     "s4-film": {
       "status": "pending",
+      "blockedBy": ["s3-photo-extended"],
       "passes": "film profile rendering matches WebGL2"
     },
     "s5-masking-post": {
       "status": "pending",
+      "blockedBy": ["s4-film"],
       "passes": "gradient mask + brush mask + halation render correctly"
+    },
+    "s5b-backend-adapter": {
+      "status": "pending",
+      "blockedBy": ["s5-masking-post"],
+      "passes": "RenderBackend interface lands in src/render/image/; WebGL2RenderBackend wraps existing path with zero pixel/behavioral change (existing tests pass unchanged); WebGPURenderBackend skeleton runs behind feature flag for s0-s5 covered cases without throwing; render result contract { status, surface, fallbackReason? } reported end-to-end and KEEP_LAST_PREVIEW_FRAME_ON_ERROR removed; inter-stage handoff types changed from canvas to GPU texture handle."
     },
     "s6-integration": {
       "status": "pending",
-      "passes": "full app smoke test, preview + export work, no WebGL2 in render path"
+      "blockedBy": ["s1-ascii-compute", "s5b-backend-adapter"],
+      "passes": "default backend switched to WebGPURenderBackend (one-point switch); orchestrator.ts implemented as named-step sequence (resolveCacheState/fetchOrComputeSource/applyGeometry/runPipeline/composeLocal/produceSurface), not transplanted nested if; cache key builder src/lib/gpu/cacheKeys.ts shipped at v1 with no ad-hoc concatenation remaining; ASCII production-parity check passes; full app smoke test, preview + export work, no WebGL2 in render path."
     },
     "s7-cleanup": {
       "status": "pending",
+      "blockedBy": ["s6-integration"],
       "passes": "clean build, no WebGL/twgl/glsl refs in src/lib/gpu/, decisions.md updated"
     }
   }

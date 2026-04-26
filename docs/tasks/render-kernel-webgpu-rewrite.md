@@ -14,6 +14,9 @@
 - **ASCII structure matching.** Characters selected by structural similarity (sub-grid density + gradient direction + centroid), not just scalar density. `structureWeight` parameter (0–1) lets users dial from pure density (current behavior) to pure structure matching.
 - **twgl.js removed** after migration completes.
 - **RenderManager** adapted to manage `GPUDevice` + per-slot bind groups instead of per-slot `PipelineRenderer` instances.
+- **Render result contract.** Render entry points return `{ status: "rendered" | "partial-fallback" | "kept-stale", surface, fallbackReason? }`. Callsite decides UI behavior; non-`rendered` results emit to telemetry. No `console.warn`-only fallback paths. Replaces the implicit `KEEP_LAST_PREVIEW_FRAME_ON_ERROR` flag and the `geometry-fallback` status that currently masquerades as success.
+- **Cache key versioning.** All cache keys (source / pipeline / output / tile-plan) live in a single `src/lib/gpu/cacheKeys.ts` builder. Each layer carries a schema version prefix (`v1:source:...`); 64-bit hash; no ad-hoc string concatenation or per-module hash helpers. WebGPU switch starts at `v1`; legacy `v0` (WebGL2) keys invalidate naturally.
+- **Stage choreography boundary.** `src/lib/gpu/` is the per-frame pipeline executor; `src/render/image/` remains the stage choreographer (carrier / signal damage / overlay / finalize). Inter-stage handoff must use GPU texture handles, not `HTMLCanvasElement` snapshots — `AnalysisLayerInputs.stageSnapshots.{develop,style}` and the `stageReferenceCanvas` parameters across `effectExecution` / `signalDamageExecution` / `overlayExecution` change type from canvas to GPU texture handle. This decision invalidates parts of the `media-native-render-pipeline` snapshot contract; that task's analysis-layer slice is reopened in scope for re-typing under Slice 6.
 
 ## Target Architecture
 
@@ -125,10 +128,13 @@ Build the full ASCII path: descriptors → analysis → selection → compositio
 
 New user-facing parameter: `structureWeight: number` (0–1), added to `ImageAsciiEffectParams`.
 
-Validation:
-- `structureWeight=0` output visually matches current density-based output
-- `structureWeight=1` correctly selects `/` for diagonal edges, `|` for vertical, `_` for horizontal
-- Performance: 1920×1080 source, cellSize=12 renders in <16ms on mid-range GPU
+Validation (against synthetic fixtures only — no dependency on develop chain, which lands in Slice 2/3):
+- Fixture set: known gradient directions, density steps, and centroid offsets, fed directly to ASCII as raw source
+- `structureWeight=0`: per-cell selection reproduces density-based mapping within ±1 atlas slot on the density-step fixture
+- `structureWeight=1`: correctly selects `/` for diagonal edges, `|` for vertical, `_` for horizontal on the gradient fixture
+- Performance: 1920×1080 synthetic source, cellSize=12 renders in <16ms on mid-range GPU
+
+Visual parity vs. current production ASCII output (which consumes develop-stage surface, not raw source) is deferred to Slice 6 integration validation.
 
 ### Slice 2 — Photographic Core Passes
 
@@ -172,15 +178,29 @@ Port supporting passes:
 
 Validation: local adjustment with gradient mask renders correctly. Brush mask ≤512 points stays on GPU path.
 
+### Slice 5.5 — Backend Adapter
+
+Decouple `src/render/image/` from a specific GPU backend so Slice 6 becomes a one-point switch instead of distributed call-site replacement, and so WebGPU can be exercised end-to-end behind a flag before full cutover.
+
+- Define `RenderBackend` interface in `src/render/image/`: source upload, per-stage execution (develop / film / carrier / signal damage / overlay / post), GPU texture handle passing between stages (consistent with the Stage choreography boundary decision), final readback to canvas.
+- Wrap the current WebGL2 path (`PipelineRenderer` + `imageProcessing.ts`) as `WebGL2RenderBackend`. All `renderSingleImage.ts` callers and `boardImageRendering.ts` go through the interface, not direct backend calls.
+- Convert `renderSingleImage.ts` `cloneToCanvas` snapshot points to GPU texture handles produced by the adapter; this lands the type change required by the Stage choreography boundary decision.
+- Add `WebGPURenderBackend` skeleton behind a feature flag; passes through to `src/lib/gpu/` (Slices 0–5 output). Skeleton may be partial — flag-gated users see WebGPU integration smoke, default users stay on WebGL2.
+- Port new render result contract end-to-end: `WebGL2RenderBackend` now reports `{ status, surface, fallbackReason? }` instead of throw-or-warn; existing `KEEP_LAST_PREVIEW_FRAME_ON_ERROR` removed.
+
+Validation: zero pixel/behavioral change with `WebGL2RenderBackend` selected — existing renderSingleImage tests pass unchanged. Feature-flag toggle to `WebGPURenderBackend` runs without throwing on Slice 0–5 covered cases (passthrough, ASCII compute, develop-core).
+
 ### Slice 6 — Integration
 
-- Replace `PipelineRenderer` calls in `RenderManager` with new GPU orchestrator
-- Port `imageProcessing.ts` orchestration logic to `orchestrator.ts`
-- Connect `boardImageRendering.ts` to new pipeline
-- Port `TiledRenderer` for large-image export (WebGPU fence-based async readback)
+- Replace `WebGL2RenderBackend` as default with `WebGPURenderBackend` (one-point switch enabled by Slice 5.5 adapter)
+- Port `imageProcessing.ts` orchestration logic to `orchestrator.ts` as a sequence of named steps (`resolveCacheState → fetchOrComputeSource → applyGeometry → runPipeline → composeLocal → produceSurface`); do not transplant the existing 1000-line nested-`if` control flow as-is
+- Connect `boardImageRendering.ts` to new pipeline (already routed via adapter from Slice 5.5)
+- Port `TiledRenderer` for large-image export (WebGPU fence-based async readback, replacing 3ms-polling readback)
 - Preview/export slot management on shared `GPUDevice`
+- ASCII visual parity check vs. current production output (deferred from Slice 1, depends on develop chain landing in Slices 2/3)
+- Ship cache key builder (`src/lib/gpu/cacheKeys.ts`) at `v1`; remove ad-hoc per-module key concatenation and duplicated FNV helpers
 
-Validation: full app smoke test — preview renders, export produces valid output, no WebGL2 calls remain in render path.
+Validation: full app smoke test — preview renders, export produces valid output, no WebGL2 calls remain in render path. ASCII output matches pre-rewrite production within the agreed deviation bound.
 
 ### Slice 7 — Cleanup
 
@@ -197,7 +217,9 @@ Validation: clean build, `pnpm lint` passes, `pnpm test` passes, no `WebGL` / `t
 - WebGPU browser coverage: Chrome 113+, Edge 113+, Firefox behind flag, Safari 18.2+. Accepted — target audience has modern hardware.
 - WGSL precision differences vs. GLSL may cause subtle color shifts in film simulation. Mitigated by per-slice pixel comparison.
 - `PipelineRenderer` at 28k lines will be hard to port incrementally — the new tree is built from scratch, not refactored in place.
-- During migration (slices 0–5), the app runs on old WebGL2 backend. New code is testable in isolation but not wired into the app until Slice 6. Risk: integration issues discovered late.
+- Big-bang integration: during slices 0–5 the app runs on old WebGL2 backend; if Slice 6 is the first integration touchpoint, integration issues surface late. **Mitigated by Slice 5.5 backend adapter** — `WebGPURenderBackend` runs end-to-end behind a flag from Slice 5.5 onward, exposing integration issues during slices 0–5 instead of all at once at Slice 6.
+- ASCII (Slice 1) cannot validate visual parity against current production output without the develop chain (Slices 2/3). Mitigated by validating Slice 1 against synthetic fixtures only and deferring production parity to Slice 6.
+- Stage choreography boundary change re-types `AnalysisLayerInputs` and inter-stage `stageReferenceCanvas` parameters. This invalidates parts of the freshly-landed `media-native-render-pipeline` analysis-layer slice — that contract gets updated under Slice 5.5/6, not before.
 
 ## Relationship to Other Tasks
 
