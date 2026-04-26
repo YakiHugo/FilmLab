@@ -13,9 +13,9 @@
       "passes": "synthetic fixture validation (no develop chain dependency): structureWeight=0 reproduces density-based selection within ±1 atlas slot; structureWeight=1 self-rendered glyph fixtures are recovered by the matcher; <16ms at 1080p cellSize=12 on real GPU (fallback adapters informational only — pending real-GPU run). Production parity deferred to s6."
     },
     "s2-photo-core": {
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": ["s0-foundation"],
-      "passes": "pixel comparison vs WebGL2: inputDecode, geometry, master, outputEncode < 2/255"
+      "passes": "pixel comparison vs WebGL2: inputDecode, geometry, master, outputEncode < 2/255 (validated maxDiff=0/255 on SwiftShader fallback; real-GPU run pending)"
     },
     "s3-photo-extended": {
       "status": "pending",

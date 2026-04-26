@@ -165,6 +165,15 @@ Port InputDecode, Geometry, Master, OutputEncode to WGSL render passes.
 
 Validation: pixel comparison against WebGL2 output for a reference image+params set. Max deviation < 2/255 per channel.
 
+**Slice 2 implementation notes (done):**
+- `src/lib/gpu/wgsl/lib/{fullscreen,colorSpace}.wgsl` — shared Y-invariant vertex stage and color helpers (sRGB↔linear, LMS, OKLab, hsv-fast, luminance). Concatenated with each pass fragment in TS via `${fullscreen}\n${colorSpace}\n${pass}`; no `#include`/preprocessor introduced. `wgsl/passthrough.wgsl` was refactored to drop its embedded vertex stage and reuse the lib.
+- `src/lib/gpu/wgsl/develop/{inputDecode,outputEncode,geometry,master}.wgsl` + `src/lib/gpu/passes/develop/{inputDecode,outputEncode,geometry,master}.ts` ported from the corresponding `.frag` files. Stateless passes (`InputDecode`) return a `GPURenderPassDescriptor` directly; passes with parameters (`OutputEncode`, `Geometry`, `Master`) return a `*PassHandle = { descriptor, updateParams, destroy }` so the uniform `GPUBuffer` can be reused across frames once Slice 5.5 wires the orchestrator. Handle pattern is intentional — Slice 5.5 will replace per-frame allocations with persistent passes.
+- Uniform buffer encoding packs vec3-aligned fields into vec4 slots and bools into a single `vec4<u32>` flag word. Avoids the WGSL std140 vec3-padding pitfall and keeps the JS-side encode as a flat `Float32Array`/`Uint32Array` write. Geometry's `mat3` homography is uploaded as three vec4 columns and rebuilt as `mat3x3<f32>` in the shader for the same reason.
+- Geometry's per-pixel out-of-bounds early-return (`if (opticsUv.x < 0.0 …) return black`) makes downstream `textureSample` calls non-uniform control flow, which WGSL forbids. Switched all `textureSample` in `geometry.wgsl` to `textureSampleLevel(..., 0.0)` — same behavior on a single-mip source, sidesteps the uniformity rule. The other develop passes don't trigger this because their `textureSample` is always in uniform CF.
+- Validation harness: `scripts/gpu-smoke/photoCore.html` + `scripts/gpu-smoke/webgl2Reference.ts`. The reference helper compiles the existing `.frag` against `Fullscreen.vert` in a raw WebGL2 context, draws a fullscreen quad, and flips rows to match WebGPU's top-down readback. Diffs against `PipelineExecutor` output for InputDecode (1 scenario), OutputEncode (4), Geometry (4), Master (5). All 14 scenarios hit `maxDiff=0/255` against WebGL2 — gate `< 2/255` clears with margin.
+- Validated on SwiftShader fallback adapter (Chrome with `--enable-unsafe-webgpu --use-vulkan=swiftshader`); same procedure as Slice 1. Real-GPU validation pending on user hardware.
+- knip's `src/lib/gpu/**/*.ts` entry list (added in Slice 0) keeps the four new pass modules from being flagged until Slice 5.5 wires the orchestrator.
+
 ### Slice 3 — Photographic Extended
 
 Port HSL, Curve, Detail to WGSL.
