@@ -192,7 +192,8 @@ export function renderWithWebGL2Reference(input: ReferenceRenderInput): Referenc
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     const loc = gl.getUniformLocation(program, et.uniformName);
-    if (loc !== null) gl.uniform1i(loc, et.unit);
+    if (loc === null) throw new Error(`extraTexture uniform "${et.uniformName}" not found in shader`);
+    gl.uniform1i(loc, et.unit);
   }
   gl.activeTexture(gl.TEXTURE0);
 
