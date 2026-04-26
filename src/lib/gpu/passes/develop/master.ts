@@ -1,7 +1,6 @@
 /**
  * Master adjustment pass — exposure, LMS white balance, contrast, tonal range,
- * curves, OKLab HSL, 3-way color grading, dehaze. Mirrors
- * `shaders/MasterAdjustment.frag`.
+ * curves, OKLab HSL, 3-way color grading, dehaze.
  *
  * Uniform layout matches `wgsl/develop/master.wgsl::MasterParams`. Single
  * uniform buffer is created on construction; bind group rebuilds per execute.

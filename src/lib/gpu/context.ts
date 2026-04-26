@@ -28,7 +28,7 @@ export interface GPUContextFeatures {
   timestampQuery: boolean;
   /** Float-render fallback gate for HDR work. */
   rg11b10ufloatRenderable: boolean;
-  /** 16-bit float color attachments (matches WebGL2 RGBA16F path). */
+  /** 16-bit float color attachments. */
   float32Filterable: boolean;
 }
 

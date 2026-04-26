@@ -1,6 +1,6 @@
 /**
  * Film print pass — print stock, density/contrast, CMY color head,
- * color cast, and print toning. Mirrors `shaders/FilmPrintUber.frag`.
+ * color cast, and print toning.
  *
  * Uniform layout matches `wgsl/film/print.wgsl::PrintParams`.
  *

@@ -5,9 +5,7 @@
  * submission. Render passes ping-pong through `TexturePool` leases; compute
  * passes interleave without advancing the prior-input chain (their effect is
  * carried via storage resources bound through their own bind groups).
- *
- * The Y-parity hack from the WebGL2 `FilterPipeline` is gone: the WGSL
- * passthrough vertex shader emits Y-invariant UVs (see `wgsl/passthrough.wgsl`).
+
  */
 
 import type { TexturePool, PooledTexture } from "./resources";

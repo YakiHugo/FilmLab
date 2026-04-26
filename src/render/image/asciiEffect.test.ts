@@ -171,6 +171,7 @@ describe("asciiEffect", () => {
       backgroundColor: "#abc",
       invert: true,
       gridOverlay: true,
+      structureWeight: 0,
     });
 
     expect(normalized).toMatchObject({

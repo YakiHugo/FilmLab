@@ -2,7 +2,7 @@
  * InputDecode pass — clamps source to [0,1] and converts sRGB→linear.
  *
  * No tunable parameters; the bind group is identical to passthrough plus the
- * shared color-space helpers. Mirrors `shaders/InputDecode.frag`.
+ * shared color-space helpers.
  */
 
 import type { ShaderCache } from "../../shaders";

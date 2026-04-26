@@ -11,16 +11,22 @@
 ## 渲染管线
 
 ### Backend
-- WebGL2，不走 WebGPU。shader backend 抽象不是 prerequisite；WGSL 端口不在范围。
+- **WebGPU**，develop + film 内核全 WGSL。`src/lib/gpu/` 是 per-frame pipeline executor；`src/render/image/` 是 stage choreographer。入口：`WebGPURenderBackend`（`src/render/image/webgpuRenderBackend.ts`），由 `renderSingleImage.ts` 直接实例化。
 - 单 Surface 路径。每个 per-image stage consume + return `RenderSurfaceHandle`；`*IfSupported` 回退分支已全部退役。`canvasMaterializations` 每次 render = 1（最终 `materializeToCanvas` 是唯一边界）。
-- Canvas2D 只存活于 glyph atlas bake (`PipelineRenderer.getGlyphAtlas`，一次 per charset+font)，以及作为 runtime-degrade fallback；stage 之间不得传递 `HTMLCanvasElement`。
+- Canvas2D 只存活于 glyph atlas bake（一次 per charset+font）；stage 之间不得传递 `HTMLCanvasElement`。
+- Carrier / effects / overlay 层（`src/render/image/asciiEffect.ts`、`effectExecution.ts`、`overlayExecution.ts` 等）当前仍经由 `gpuSurfaceOperation.ts` → `PipelineRenderer`（WebGL2）执行。这条路径计划在 `media-native-render-pipeline` 任务中替换；在此之前 `src/lib/renderer/` 不得整体删除。
+
+### Y-axis convention
+- WebGPU 路径已原生 Y-invariant：WGSL vertex shader 输出 Y-invariant UV（`wgsl/lib/fullscreen.wgsl`），每一 pass 保持 top-down 方向。旧 WebGL2 的每偶数 pass Y-flip hack 已彻底消除。
+- `renderer-y-convention-unification` 任务已关闭：WebGPU 路径以 design 解决 Y convention；旧 WebGL2 carrier 路径随 `media-native-render-pipeline` 一起退役。
+
+### Cache keys
+- 所有 cache key（source / pipeline / output）统一由 `src/lib/gpu/cacheKeys.ts` 构建，携带 schema version 前缀（`v1:...`）；无 ad-hoc per-module hash helpers。
 
 ### ASCII
-- Canvas2D `renderAsciiToCanvas` 已退休（见 `asciiEffect.ts`）。它作为应急 fallback 从未被视觉验证，**不是视觉参考基线**。当前 GPU 路径与旧 Canvas2D 两处刻意 divergence：
-  - `cell-solid` 背景在 tone-zero cell 上仍填充（旧版跳过）
-  - 网格 overlay 是 1px hairline，无外边框（旧是 anti-aliased ~2px）
-- GPU 是主路径：CPU 做 cell-grid pre-pack (`buildAsciiCellGrids`) + glyph atlas bake，作为 stage 内部有界 CPU 岛，output 是 GPU texture。
-- ASCII carrier slot id 必须是常量 (`ASCII_CARRIER_SLOT_ID = "ascii-carrier"`)。之前用 `ascii-carrier:${transform.id}` 会让 `RenderManager` 为每个 carrier 分配独立 `PipelineRenderer` 且永不回收 → renderer 泄漏。镜像 `gpuTimestampOverlay` 的一致做法。
+- WebGPU ASCII 路径（`src/lib/gpu/passes/carrier/ascii/`）以 compute shader 做 per-cell feature extraction + structure-aware selection，支持 `structureWeight: 0–1`（0 = 纯 density，1 = 纯 structure matching）。
+- Canvas2D `renderAsciiToCanvas` 已退休。旧 Canvas2D fallback 从未视觉验证，**不是视觉参考基线**。
+- ASCII carrier slot id 必须是常量（`ASCII_CARRIER_SLOT_ID = "ascii-carrier"`）——每 carrier 分配独立 renderer 会导致泄漏。
 
 ### Brush mask
 - `GPU_BRUSH_MASK_MAX_POINTS = 512`。超过上限 GPU 路径返回 false，CPU `drawLocalMaskShape` 写入同一 mask canvas，后续 GPU blend 仍消费它——stage 的 Surface-in/Surface-out 契约不破。
@@ -29,9 +35,6 @@
 ### GPU-first / CPU-fallback 边界
 - GPU-first：masked stage blend、filter2d、local-mask range gating、local-adjustment output composition、linear/radial mask shapes。
 - CPU permanent：brush-mask 超上限 + renderer-unavailable（context lost / destroyed）。
-
-### `PipelinePass` 契约
-- `usesPriorTexture?: boolean`。默认 true（processing pass 消费前一级输出）；generator pass（AsciiCarrier 之类）必须显式置 `false`，`FilterPipeline.execute` 不再注入 `uSampler: currentTexture`——否则 "uSampler 总是前一 pass 输出" 的隐式约定会被静默违反。
 
 ## 服务端 AI 管线
 

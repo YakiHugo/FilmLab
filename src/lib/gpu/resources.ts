@@ -1,10 +1,8 @@
 /**
  * Texture pool, image upload, and readback for the WebGPU pipeline.
  *
- * Pool semantics mirror the WebGL2 `TexturePool`: keyed by width × height ×
- * format, LRU eviction by free-entry count and bytes. Releases must happen
- * AFTER `device.queue.submit` — encoded passes still hold the texture as an
- * attachment until the queue actually executes.
+ * Releases must happen AFTER `device.queue.submit` — encoded passes still
+ * hold the texture as an attachment until the queue actually executes.
  */
 
 // Lazy because `GPUTextureUsage` is a runtime browser global that does not

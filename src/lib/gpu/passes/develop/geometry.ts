@@ -1,7 +1,6 @@
 /**
  * Geometry pass — crop / translate / rotate / scale / flip / perspective /
  * lens distortion + chromatic aberration. Outputs linear sRGB. Mirrors
- * `shaders/Geometry.frag`.
  *
  * Uniform struct layout matches `wgsl/develop/geometry.wgsl::GeometryParams`.
  * Homography is uploaded as three vec4 columns (xyz used) so the JS-side
@@ -30,7 +29,7 @@ export interface GeometryPassParams {
   scale: number;
   flip: readonly [number, number];
   perspectiveEnabled: boolean;
-  /** 9 entries, row-major. Same layout as the WebGL2 mat3 uniform. */
+  /** 9 entries, row-major. */
   homography: readonly number[];
   lensEnabled: boolean;
   lensK1: number;
@@ -115,10 +114,7 @@ function writeUniforms(device: GPUDevice, buffer: GPUBuffer, p: GeometryPassPara
   u32[25] = p.perspectiveEnabled ? 1 : 0;
   u32[26] = p.lensEnabled ? 1 : 0;
   u32[27] = p.caEnabled ? 1 : 0;
-  // Homography columns. WebGL2 stored as row-major flat array of 9 (mat3 ctor
-  // in GLSL is column-major, but the JS uniformResolver lays them as columns;
-  // see PassUniformUpdaters.ts:213). We pass through the same column order:
-  // h[0..2] = col0, h[3..5] = col1, h[6..8] = col2.
+  // Homography: h[0..2] = col0, h[3..5] = col1, h[6..8] = col2.
   const h = p.homography;
   const safe = (i: number) => h[i] ?? (i % 4 === 0 ? 1 : 0);
   // homCol0 @112

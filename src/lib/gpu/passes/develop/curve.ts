@@ -1,7 +1,6 @@
 /**
  * Curve pass — two-stage point curve via a 256×1 RGBA8 LUT texture.
  * The caller owns and provides the LUT texture; this pass references it.
- * Mirrors `shaders/Curve.frag`.
  *
  * Uniform layout matches `wgsl/develop/curve.wgsl::CurveParams`.
  */

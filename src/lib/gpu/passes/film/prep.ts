@@ -1,6 +1,5 @@
 /**
  * Film prep pass — expand, highlight compression, developer, tone response.
- * Mirrors `shaders/FilmPrepUber.frag`.
  *
  * Uniform layout matches `wgsl/film/prep.wgsl::PrepParams`.
  */

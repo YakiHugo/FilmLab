@@ -1,6 +1,5 @@
 /**
  * Film grain pass — blue-noise and procedural crystal models.
- * Combines `shaders/FilmGrain.frag` + `shaders/ProceduralGrain.frag`.
  *
  * Uniform layout matches `wgsl/film/grain.wgsl::GrainParams`.
  *

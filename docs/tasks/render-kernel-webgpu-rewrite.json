@@ -43,9 +43,10 @@
       "passes": "default backend switched to WebGPURenderBackend (one-point switch in renderSingleImage.ts); orchestrator.ts implemented as named-step sequence (fetchOrComputeSource/applyGeometry/runPipeline/composeLocal/produceSurface); cache key builder src/lib/gpu/cacheKeys.ts at v1; all 682 tests pass; tsc clean; WebGL2 removed from render path."
     },
     "s7-cleanup": {
-      "status": "pending",
+      "status": "blocked",
       "blockedBy": ["s6-integration"],
-      "passes": "clean build, no WebGL/twgl/glsl refs in src/lib/gpu/, decisions.md updated"
+      "passes": "clean build, no WebGL/twgl/glsl refs in src/lib/gpu/, decisions.md updated",
+      "blockedReason": "Full src/lib/renderer/ deletion blocked: carrier/effects/overlay layers still route through PipelineRenderer (WebGL2) via gpuSurfaceOperation.ts. Deferred to media-native-render-pipeline. Partial work done: stale GLSL/WebGL2 comments removed from src/lib/gpu/, decisions.md updated, renderer-y-convention-unification task closed."
     }
   }
 }

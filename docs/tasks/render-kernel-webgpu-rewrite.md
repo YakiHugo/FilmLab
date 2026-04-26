@@ -249,11 +249,15 @@ Validation: full app smoke test — preview renders, export produces valid outpu
 
 ### Slice 7 — Cleanup
 
-- Delete `src/lib/renderer/` (PipelineRenderer, FilterPipeline, ProgramRegistry, TexturePool, TextureManager, UniformManager, PassBuilder, PassUniformUpdaters, all GLSL shaders)
-- Delete `src/render/image/asciiEffect.ts` CPU tone computation
-- Remove `twgl.js` dependency
-- Update `docs/decisions.md` — replace WebGL2 decision with WebGPU
-- Close `renderer-y-convention-unification` task (solved by design)
+**Done:**
+- Removed all stale GLSL / WebGL2 comment references from `src/lib/gpu/` (validation criterion met)
+- Updated `docs/decisions.md` — WebGL2 backend decision replaced with WebGPU; Y-convention note added
+- Closed `renderer-y-convention-unification` task (Y convention solved by design in WebGPU path)
+
+**Blocked — deferred to `media-native-render-pipeline`:**
+- Delete `src/lib/renderer/` core (PipelineRenderer, FilterPipeline, ProgramRegistry, TexturePool, TextureManager, UniformManager, PassBuilder, PassUniformUpdaters, GLSL shaders): blocked because carrier / effects / overlay layers (`asciiEffect.ts`, `effectExecution.ts`, `overlayExecution.ts`, `signalDamageExecution.ts`, etc.) still route through `gpuSurfaceOperation.ts` → `PipelineRenderer` (WebGL2). Deleting PipelineRenderer now breaks tsc.
+- Delete `src/render/image/asciiEffect.ts` CPU tone computation: blocked because `asciiEffect.ts` is still the live ASCII carrier orchestrator; the new WebGPU ASCII passes (s1) are not yet wired into the render path.
+- Remove `twgl.js`: blocked because PipelineRenderer still imports it.
 
 Validation: clean build, `pnpm lint` passes, `pnpm test` passes, no `WebGL` / `twgl` / `.frag` / `.vert` / `.glsl` references in `src/lib/gpu/`.
 
@@ -269,5 +273,5 @@ Validation: clean build, `pnpm lint` passes, `pnpm test` passes, no `WebGL` / `t
 ## Relationship to Other Tasks
 
 - `media-native-render-pipeline`: orthogonal — covers carrier families, signal damage, overlays, motion above the per-image kernel. This rewrite replaces the kernel underneath.
-- `renderer-y-convention-unification`: closed by this rewrite (Y convention fixed by design in Slice 2).
+- `renderer-y-convention-unification`: closed — Y convention fixed by design in WebGPU WGSL path (Slice 2).
 - `export-16bit-progress`: WebGPU natively supports `rgba16float`; 16-bit export continues to work.

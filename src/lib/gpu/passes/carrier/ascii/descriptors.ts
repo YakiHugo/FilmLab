@@ -12,7 +12,7 @@
  * The same convention is computed per cell in `analysis.wgsl` so distances
  * are unit-consistent.
  *
- * Atlas layout mirrors the existing WebGL2 path
+ * Atlas layout:
  * (`PipelineRenderer.getGlyphAtlas`): cols = ceil(sqrt(N)), rows =
  * ceil(N/cols), row-major glyph index. Cells are baked at a fixed reference
  * size — composition relies on linear (mip) sampling for downsampling, so

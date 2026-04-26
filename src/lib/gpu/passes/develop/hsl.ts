@@ -1,6 +1,6 @@
 /**
  * HSL adjustment pass — 8-channel hue/saturation/luminance in OKLab space,
- * 3-primary calibration, B&W mixer. Mirrors `shaders/HSL.frag`.
+ * 3-primary calibration, B&W mixer.
  *
  * Uniform layout matches `wgsl/develop/hsl.wgsl::HslParams`.
  */

@@ -1,6 +1,5 @@
 /**
  * Detail pass — texture, clarity, sharpening, in-pass noise reduction.
- * Mirrors `shaders/Detail.frag`.
  *
  * Uniform layout matches `wgsl/develop/detail.wgsl::DetailParams`.
  */

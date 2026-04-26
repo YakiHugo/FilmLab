@@ -1,6 +1,6 @@
 /**
  * Film color LUT pass — 3×3 color matrix, 3D LUT (+ optional blend LUT),
- * and a secondary custom 3D LUT. Mirrors `shaders/FilmColorLutUber.frag`.
+ * and a secondary custom 3D LUT.
  *
  * Uniform layout matches `wgsl/film/colorLut.wgsl::ColorLutParams`.
  *

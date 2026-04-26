@@ -1,6 +1,5 @@
 /**
  * Film effects pass — gate weave, film breath, damage, vignette, overscan.
- * Mirrors `shaders/FilmEffectsUber.frag`.
  *
  * Uniform layout matches `wgsl/film/effects.wgsl::EffectsParams`.
  *

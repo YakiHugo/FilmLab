@@ -1,6 +1,5 @@
 /**
  * OutputEncode pass — optional tonemap, linear→sRGB, optional ordered dither.
- * Mirrors `shaders/OutputEncode.frag`.
  *
  * Owns its uniform buffer (created on construction); call `updateParams` to
  * rewrite values between frames. Bind group is rebuilt per execute because

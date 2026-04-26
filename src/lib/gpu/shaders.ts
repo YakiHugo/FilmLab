@@ -4,8 +4,7 @@
  * Keyed by the full source string — `Map<string, ...>` already hashes
  * internally and compares by value, so distinct sources never collide and
  * we don't carry a custom FNV hash that would silently return the wrong
- * module on a (rare but real) 32-bit collision. Replaces the WebGL2
- * `ProgramRegistry`. Compilation is lazy (on first use) rather than eager;
+ * module on a (rare but real) 32-bit collision. Compilation is lazy (on first use) rather than eager;
  * later slices may add a warmup if cold-start latency matters.
  */
 
