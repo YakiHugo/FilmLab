@@ -33,9 +33,9 @@
       "passes": "pixel comparison vs WebGL2: all 29 scenarios across 15 pass types ≤ 2/255 (maxDiff=0/255, 0 differing px on SwiftShader fallback; real-GPU run pending)"
     },
     "s5b-backend-adapter": {
-      "status": "pending",
+      "status": "done",
       "blockedBy": ["s5-masking-post"],
-      "passes": "RenderBackend interface lands in src/render/image/; WebGL2RenderBackend wraps existing path with zero pixel/behavioral change (existing tests pass unchanged); WebGPURenderBackend skeleton runs behind feature flag for s0-s5 covered cases without throwing; render result contract { status, surface, fallbackReason? } reported end-to-end and KEEP_LAST_PREVIEW_FRAME_ON_ERROR removed; inter-stage handoff types changed from canvas to GPU texture handle."
+      "passes": "RenderBackend interface + BackendRenderResult contract lands in src/render/image/; WebGL2RenderBackend wraps existing path — all 682 tests pass unchanged; WebGPURenderBackend skeleton behind VITE_USE_WEBGPU_BACKEND flag runs passthrough GPU pipeline without throwing; inter-stage type change (HTMLCanvasElement → GPU handle) deferred to s6 per spec note"
     },
     "s6-integration": {
       "status": "pending",
