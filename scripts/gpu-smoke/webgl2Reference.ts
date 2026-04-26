@@ -56,7 +56,7 @@ export function buildProgram(gl: WebGL2RenderingContext, vs: string, fs: string,
 export function applyUniforms(gl: WebGL2RenderingContext, program: WebGLProgram, uniforms: UniformMap): void {
   for (const [name, entry] of Object.entries(uniforms)) {
     const loc = gl.getUniformLocation(program, name);
-    if (loc === null) continue; // shader may not declare this uniform; skip silently
+    if (loc === null) throw new Error(`uniform "${name}" not found in shader`);
     switch (entry.kind) {
       case "1f": gl.uniform1f(loc, entry.value); break;
       case "1i": gl.uniform1i(loc, entry.value); break;
