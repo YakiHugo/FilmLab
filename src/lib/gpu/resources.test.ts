@@ -115,21 +115,7 @@ describe("TexturePool", () => {
     expect(stats.freeBytes).toBe(32768);
   });
 
-  it("ignores release of an unknown handle", () => {
-    const { device } = makeFakeDevice();
-    const pool = new TexturePool(device);
-    const fakeHandle = {
-      texture: { destroy: vi.fn(), createView: vi.fn() } as unknown as GPUTexture,
-      view: {} as GPUTextureView,
-      width: 1,
-      height: 1,
-      format: "rgba8unorm" as GPUTextureFormat,
-      release: () => {},
-    };
-    expect(() => pool.release(fakeHandle)).not.toThrow();
-  });
-
-  it("treats double-release as a no-op", () => {
+  it("treats double-release of the same handle as a no-op", () => {
     const { device } = makeFakeDevice();
     const pool = new TexturePool(device);
     const handle = pool.acquire(32, 32, "rgba8unorm");
@@ -138,6 +124,21 @@ describe("TexturePool", () => {
     handle.release();
 
     expect(pool.stats()).toEqual({ total: 1, inUse: 0, free: 1, freeBytes: 32 * 32 * 4 });
+  });
+
+  it("does not let a stale handle invalidate a re-leased entry", () => {
+    const { device } = makeFakeDevice();
+    const pool = new TexturePool(device);
+    const first = pool.acquire(32, 32, "rgba8unorm");
+    first.release();
+    // Pool re-leases the same texture (matching size+format).
+    const second = pool.acquire(32, 32, "rgba8unorm");
+    expect(second.texture).toBe(first.texture);
+
+    // Calling .release() on the stale handle must not free the live entry.
+    first.release();
+
+    expect(pool.stats().inUse).toBe(1);
   });
 
   it("destroys all entries on dispose() and rejects further acquires", () => {

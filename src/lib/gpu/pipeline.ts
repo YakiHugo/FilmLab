@@ -13,7 +13,6 @@
 import type { TexturePool, PooledTexture } from "./resources";
 import type { GPUPass } from "./passes/types";
 
-/** @public — consumed by render-kernel-webgpu-rewrite slice 5.5 backend adapter */
 export interface PipelineInputSource {
   /** Color texture to feed into the first pass. */
   texture: GPUTexture;
@@ -29,7 +28,6 @@ export interface PipelineInputSource {
   lease?: PooledTexture | null;
 }
 
-/** @public — consumed by render-kernel-webgpu-rewrite slice 5.5 backend adapter */
 export interface PipelineCanvasOutput {
   context: GPUCanvasContext;
   width: number;
@@ -39,7 +37,6 @@ export interface PipelineCanvasOutput {
   clearValue?: GPUColor;
 }
 
-/** @public — consumed by render-kernel-webgpu-rewrite slice 5.5 backend adapter */
 export interface PipelineExecuteOptions {
   baseWidth: number;
   baseHeight: number;
@@ -52,7 +49,6 @@ export interface PipelineExecuteOptions {
   canvasOutput?: PipelineCanvasOutput;
 }
 
-/** @public — consumed by render-kernel-webgpu-rewrite slice 5.5 backend adapter */
 export interface PipelineExecuteResult {
   /**
    * Owned by the caller, who must call `release()` to return the texture to
@@ -62,7 +58,6 @@ export interface PipelineExecuteResult {
   output: PooledTexture | null;
 }
 
-/** @public — consumed by render-kernel-webgpu-rewrite slice 5.5 backend adapter */
 export interface PipelineExecutorOptions {
   device: GPUDevice;
   texturePool: TexturePool;
@@ -88,10 +83,16 @@ export class PipelineExecutor {
   execute(options: PipelineExecuteOptions): PipelineExecuteResult {
     const enabled = options.passes.filter((pass) => pass.enabled);
     if (enabled.length === 0) {
-      if (options.input.lease) {
-        this.pool.release(options.input.lease);
-      }
+      options.input.lease?.release();
       return { output: null };
+    }
+    if (options.canvasOutput && enabled[enabled.length - 1]!.kind !== "render") {
+      // A compute-last chain has no fragment write; the canvas would silently
+      // stay unmodified and the caller would get `output: null` thinking the
+      // canvas was presented. Fail fast — this is a misconfigured chain.
+      throw new Error(
+        "PipelineExecutor: canvasOutput requires the last enabled pass to be a render pass."
+      );
     }
 
     const encoder = this.device.createCommandEncoder({ label: "PipelineExecutor" });
@@ -175,7 +176,7 @@ export class PipelineExecutor {
 
     this.device.queue.submit([encoder.finish()]);
     for (const lease of releaseAfterSubmit) {
-      this.pool.release(lease);
+      lease.release();
     }
 
     return { output: priorLease };

@@ -29,14 +29,6 @@ export interface GPURenderPassDescriptor {
   /** Resolution scale relative to the executor's base size. Default 1. */
   resolution?: number;
   enabled: boolean;
-  /**
-   * False for generator passes (e.g. ASCII composition) that derive output
-   * from sources other than the prior pass texture. Generator passes still
-   * receive `priorInputView` in their bind context but they should ignore
-   * it; this flag exists so the executor can validate the contract during
-   * test/dev builds (Slice 1+).
-   */
-  consumesPrior: boolean;
   /** Vertex count for `draw()`. Defaults to 4 (fullscreen triangle strip). */
   vertexCount?: number;
 }

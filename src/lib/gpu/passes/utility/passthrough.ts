@@ -88,7 +88,6 @@ export function createPassthroughPass(
     ],
     outputFormat: options.outputFormat,
     enabled: options.enabled ?? true,
-    consumesPrior: true,
     resolution: options.resolution,
     vertexCount: 4,
   };

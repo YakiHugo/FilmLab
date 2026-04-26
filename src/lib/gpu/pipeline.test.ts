@@ -106,7 +106,6 @@ const fakeRenderPass = (
   ],
   outputFormat: "rgba8unorm",
   enabled: true,
-  consumesPrior: true,
   ...overrides,
 });
 
@@ -207,5 +206,95 @@ describe("PipelineExecutor", () => {
 
     expect(getCurrentTexture).toHaveBeenCalledTimes(1);
     expect(result.output).toBeNull();
+  });
+
+  it("throws when canvasOutput is set but the last enabled pass is compute", () => {
+    const mock = makeMockDevice();
+    const executor = makeExecutor(mock);
+    const compute: GPUComputePassDescriptor = {
+      kind: "compute",
+      id: "c-last",
+      pipeline: { __compute: true } as unknown as GPUComputePipeline,
+      bindGroup: { __computeBg: true } as unknown as GPUBindGroup,
+      workgroupCount: [1, 1, 1],
+      enabled: true,
+    };
+    const canvasContext = {
+      getCurrentTexture: vi.fn(),
+    } as unknown as GPUCanvasContext;
+
+    expect(() =>
+      executor.execute({
+        baseWidth: 64,
+        baseHeight: 64,
+        passes: [fakeRenderPass("r0"), compute] as readonly GPUPass[],
+        input: fakeInput(),
+        canvasOutput: { context: canvasContext, width: 64, height: 64, format: "rgba8unorm" },
+      })
+    ).toThrow(/last enabled pass to be a render pass/);
+    expect(mock.submit).not.toHaveBeenCalled();
+  });
+
+  it("feeds each render pass's output as the next pass's priorInputView", () => {
+    const mock = makeMockDevice();
+    const executor = makeExecutor(mock);
+    const seenPriorViews: GPUTextureView[] = [];
+    const recordingPass = (id: string) =>
+      fakeRenderPass(id, {
+        bindGroups: (ctx) => {
+          seenPriorViews.push(ctx.priorInputView);
+          return [
+            ctx.device.createBindGroup({
+              layout: {} as GPUBindGroupLayout,
+              entries: [{ binding: 0, resource: ctx.priorInputView }],
+            }),
+          ];
+        },
+      });
+
+    const input = fakeInput();
+    executor.execute({
+      baseWidth: 64,
+      baseHeight: 64,
+      passes: [recordingPass("p0"), recordingPass("p1"), recordingPass("p2")],
+      input,
+    });
+
+    expect(seenPriorViews).toHaveLength(3);
+    expect(seenPriorViews[0]).toBe(input.view);
+    // p1 sees p0's output, p2 sees p1's output — and they are distinct.
+    expect(seenPriorViews[1]).not.toBe(input.view);
+    expect(seenPriorViews[2]).not.toBe(seenPriorViews[1]);
+  });
+
+  it("never re-leases a pool texture acquired earlier in the same execute call", () => {
+    // The release-after-submit invariant: leases used as inputs in earlier
+    // passes must not be returned to the pool until queue.submit, otherwise
+    // the pool could hand the same texture back as the next pass's output
+    // (read+write feedback loop in a single submission).
+    const mock = makeMockDevice();
+    const pool = new TexturePool(mock.device);
+    const acquiredTextures: GPUTexture[] = [];
+    const realAcquire = pool.acquire.bind(pool);
+    pool.acquire = ((...args: Parameters<typeof realAcquire>) => {
+      const handle = realAcquire(...args);
+      acquiredTextures.push(handle.texture);
+      return handle;
+    }) as typeof pool.acquire;
+
+    const executor = new PipelineExecutor({
+      device: mock.device,
+      texturePool: pool,
+      defaultSampler: {} as GPUSampler,
+    });
+    executor.execute({
+      baseWidth: 64,
+      baseHeight: 64,
+      passes: [fakeRenderPass("p0"), fakeRenderPass("p1"), fakeRenderPass("p2")],
+      input: fakeInput(),
+    });
+
+    expect(acquiredTextures).toHaveLength(3);
+    expect(new Set(acquiredTextures).size).toBe(3);
   });
 });

@@ -88,7 +88,6 @@ interface PoolEntry {
   byteSize: number;
 }
 
-/** @public — consumed by render-kernel-webgpu-rewrite slice 5.5 backend adapter */
 export interface TexturePoolOptions {
   /** Soft cap on free entries before LRU eviction. */
   maxFreeEntries?: number;
@@ -160,16 +159,6 @@ export class TexturePool {
     return this.makeHandle(entry);
   }
 
-  release(handle: PooledTexture | null | undefined): void {
-    if (!handle) return;
-    const entry = this.textureToEntry.get(handle.texture);
-    if (!entry) return;
-    if (!entry.inUse) return;
-    entry.inUse = false;
-    entry.lastUsedAt = performance.now();
-    this.pruneFreeEntries();
-  }
-
   /** Diagnostic snapshot — number of in-use vs free entries. */
   stats(): { total: number; inUse: number; free: number; freeBytes: number } {
     let inUse = 0;
@@ -237,7 +226,6 @@ export class TexturePool {
   }
 }
 
-/** @public — consumed by render-kernel-webgpu-rewrite slice 5.5 backend adapter */
 export type ExternalImageSource =
   | ImageBitmap
   | HTMLCanvasElement
@@ -245,7 +233,6 @@ export type ExternalImageSource =
   | HTMLImageElement
   | HTMLVideoElement;
 
-/** @public — consumed by render-kernel-webgpu-rewrite slice 5.5 backend adapter */
 export interface UploadImageOptions {
   /** Defaults to `rgba8unorm`. */
   format?: GPUTextureFormat;

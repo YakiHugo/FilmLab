@@ -128,6 +128,12 @@ export async function requestGPUContext(
     lost,
     isLost: () => isLost,
     onLost: (handler) => {
+      // Late registration after loss must still receive the notification —
+      // dispatching via the resolved promise covers both timings.
+      if (isLost) {
+        void lost.then(handler);
+        return () => {};
+      }
       handlers.add(handler);
       return () => {
         handlers.delete(handler);
