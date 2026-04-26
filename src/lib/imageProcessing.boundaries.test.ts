@@ -189,6 +189,7 @@ const presets = {
           backgroundColor: "#000000",
           invert: false,
           gridOverlay: false,
+          structureWeight: 0,
         },
       },
     ],

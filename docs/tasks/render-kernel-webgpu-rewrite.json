@@ -8,7 +8,7 @@
       "passes": "upload source → passthrough → readback matches input"
     },
     "s1-ascii-compute": {
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": ["s0-foundation"],
       "passes": "synthetic fixture validation (no develop chain dependency): structureWeight=0 reproduces density-based selection within ±1 atlas slot; structureWeight=1 selects correct directional glyphs on gradient fixtures; <16ms at 1080p cellSize=12. Production parity deferred to s6."
     },

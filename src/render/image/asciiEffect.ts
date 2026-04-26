@@ -81,6 +81,7 @@ interface NormalizedImageAsciiEffectParams {
   backgroundColor: string | null;
   invert: boolean;
   gridOverlay: boolean;
+  structureWeight: number;
 }
 
 const normalizeHexColor = (value: string | null) => {
@@ -191,6 +192,11 @@ export const normalizeImageAsciiEffectParams = (
   backgroundColor: params.backgroundColor ? normalizeHexColor(params.backgroundColor) : null,
   invert: Boolean(params.invert),
   gridOverlay: Boolean(params.gridOverlay),
+  structureWeight: clamp(
+    typeof params.structureWeight === "number" ? params.structureWeight : 0,
+    0,
+    1
+  ),
 });
 
 // ---------------------------------------------------------------------------

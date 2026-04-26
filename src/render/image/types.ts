@@ -213,6 +213,12 @@ export interface ImageAsciiEffectParams {
   backgroundColor: string | null;
   invert: boolean;
   gridOverlay: boolean;
+  /**
+   * 0 = pure density-based glyph selection (matches the WebGL2 carrier).
+   * 1 = pure structure-based selection (sub-grid + gradient + centroid).
+   * Consumed by the WebGPU ASCII pipeline; ignored by the WebGL2 backend.
+   */
+  structureWeight: number;
 }
 
 export interface AsciiGpuCarrierInput {
@@ -243,6 +249,7 @@ export interface AsciiGpuCarrierInput {
   duotoneShadowRgba: Uint8ClampedArray | null;
   charset: readonly string[];
   sourceCanvas: HTMLCanvasElement;
+  structureWeight: number;
 }
 
 export interface ImageAsciiCarrierTransformNode {

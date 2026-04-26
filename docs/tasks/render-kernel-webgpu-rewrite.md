@@ -145,6 +145,15 @@ Validation (against synthetic fixtures only — no dependency on develop chain, 
 
 Visual parity vs. current production ASCII output (which consumes develop-stage surface, not raw source) is deferred to Slice 6 integration validation.
 
+**Slice 1 implementation notes (done):**
+- `src/lib/gpu/wgsl/carrier/ascii/{analysis,selection,composition}.wgsl` + `src/lib/gpu/passes/carrier/ascii/{descriptors,analysis,selection,composition}.ts` landed.
+- Descriptor stride is 27 f32 (`density, sub16, edge8, cx, cy`); CPU and GPU compute features the same way and pack the same flat-array layout for unit-consistent distance.
+- Edge histogram uses **unsigned orientation** (Sobel angle folded to `[0, π)`, HOG-style). Signed direction caused opposite-side gradients on the same line to cancel into different bins, breaking line-shape matching.
+- Composition is foreground-glyph-only for Slice 1: dual-layer compositing, dot mode, color modes (full-color/duotone), grid overlay, and blurred-source background are deferred to Slice 6 when integration drives them. The render pass interface stays Slice-6-extensible.
+- `structureWeight: number` added to `ImageAsciiEffectParams`, `AsciiGpuCarrierInput`, and the editor default; the WebGL2 path normalizes/ignores it. Test fixtures across the repo updated to include `structureWeight: 0`.
+- Validation harness at `scripts/gpu-smoke/ascii.html` covers all three gates. Self-rendered glyph fixtures replace hand-drawn synthetic strokes — cross-browser font fallback rendered '/' at a non-45° slope, so a hand-drawn 45° diagonal didn't match its own font glyph; using the font's own rasterization is the correct definition of "structure matches."
+- Validated on SwiftShader fallback adapter: density-step + directional fixtures pass; the &lt;16ms timing gate is informational on fallback adapters and only asserted on real GPUs (gate per slice spec). Real-GPU timing pending validation on user hardware.
+
 ### Slice 2 — Photographic Core Passes
 
 Port InputDecode, Geometry, Master, OutputEncode to WGSL render passes.

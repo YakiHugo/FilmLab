@@ -281,6 +281,7 @@ const createDocument = ({
             backgroundColor: "#000000",
             invert: true,
             gridOverlay: false,
+            structureWeight: 0,
           },
         },
       ],
