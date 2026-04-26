@@ -174,7 +174,7 @@ Validation: pixel comparison against WebGL2 output for a reference image+params 
 - Validated on SwiftShader fallback adapter (Chrome with `--enable-unsafe-webgpu --use-vulkan=swiftshader`); same procedure as Slice 1. Real-GPU validation pending on user hardware.
 - knip's `src/lib/gpu/**/*.ts` entry list (added in Slice 0) keeps the four new pass modules from being flagged until Slice 5.5 wires the orchestrator.
 
-### Slice 3 — Photographic Extended
+### Slice 3 — Photographic Extended (done)
 
 Port HSL, Curve, Detail to WGSL.
 
@@ -183,6 +183,14 @@ Port HSL, Curve, Detail to WGSL.
 - Detail: clarity, sharpening, dehaze, multiscale denoise (multi-pass downsample/reconstruct)
 
 Validation: same pixel comparison methodology as Slice 2.
+
+**Slice 3 implementation notes (done):**
+- `src/lib/gpu/wgsl/develop/{hsl,curve,detail}.wgsl` + `src/lib/gpu/passes/develop/{hsl,curve,detail}.ts` ported from corresponding `.frag` files.
+- HSL: 8-channel hue/saturation/luminance arrays packed as 4 vec4 pairs (hue0123/hue4567 etc.) in the uniform struct. Function-scope `var array<f32, 8>` used for dynamic indexing in the channel loop — WGSL vectors and struct fields require const-index access, but function-scope vars are dynamically indexable. `gamut_map_soft_clip` kept local to `hsl.wgsl` (only used there). `hue_center`/`calibration_center` implemented as `switch` expressions.
+- Curve: LUT texture (`256×1 rgba8unorm`) owned by the caller; pass references it via a mutable `let curveLutView` closure variable updated by `updateLut(newTex)`. The bind group factory, called lazily per frame, always reads the current view. Reuses `ctx.defaultSampler` (linear clamp) for the LUT, matching the WebGL2 path's `gl.LINEAR` filter. `textureSampleLevel` used for LUT lookups (explicit mip 0; also avoids uniformity-rule edge cases inside the enabled branch).
+- Detail: all `textureSample` calls are in uniform control flow — the `u_enabled`, `sharpen > 0.0`, and NR guards are all derived from uniform buffer values, so every invocation in a draw call takes the same path. `shortEdgePx = 0` fallback (derive from texelSize) uses `select()` to avoid a divergent branch.
+- `scripts/gpu-smoke/webgl2Reference.ts` extended with `extraTextures?: ExtraTexture[]` to support multi-texture WebGL2 reference renders (used for Curve LUT). Extra textures are bound at units ≥1 and cleaned up with the rest.
+- Validation harness: `scripts/gpu-smoke/photoExtended.html` — 5 HSL scenarios (passthrough, sat boost, hue shift, B&W, calibration), 2 Curve scenarios (identity LUT, composite +30), 4 Detail scenarios (passthrough, texture+clarity, sharpening+masking, NR). All 11 scenarios hit `maxDiff=0/255` on SwiftShader fallback.
 
 ### Slice 4 — Film Pipeline
 

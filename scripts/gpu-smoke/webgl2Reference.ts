@@ -70,6 +70,17 @@ export function applyUniforms(gl: WebGL2RenderingContext, program: WebGLProgram,
   }
 }
 
+export interface ExtraTexture {
+  /** GL texture unit index (1, 2, …). Unit 0 is reserved for uSampler. */
+  unit: number;
+  /** Uniform name to bind this texture to (e.g. "u_curveLut"). */
+  uniformName: string;
+  data: Uint8Array | Uint8ClampedArray;
+  width: number;
+  height: number;
+  filter: "linear" | "nearest";
+}
+
 export interface ReferenceRenderInput {
   /** RGBA8 source pixel buffer, length = width*height*4. */
   source: Uint8ClampedArray;
@@ -82,6 +93,8 @@ export interface ReferenceRenderInput {
   /** Uniforms to set after binding the program; sampler `uSampler` is set automatically. */
   uniforms: UniformMap;
   label: string;
+  /** Additional textures bound at texture units ≥1. */
+  extraTextures?: ExtraTexture[];
 }
 
 export interface ReferenceRenderResult {
@@ -164,6 +177,25 @@ export function renderWithWebGL2Reference(input: ReferenceRenderInput): Referenc
 
   applyUniforms(gl, program, input.uniforms);
 
+  const extraTexObjs: WebGLTexture[] = [];
+  for (const et of input.extraTextures ?? []) {
+    gl.activeTexture(gl.TEXTURE0 + et.unit);
+    const tex = gl.createTexture();
+    if (!tex) throw new Error(`createTexture for ${et.uniformName} returned null`);
+    extraTexObjs.push(tex);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, et.width, et.height, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+      new Uint8Array(et.data.buffer, et.data.byteOffset, et.data.byteLength));
+    const filter = et.filter === "linear" ? gl.LINEAR : gl.NEAREST;
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const loc = gl.getUniformLocation(program, et.uniformName);
+    if (loc !== null) gl.uniform1i(loc, et.unit);
+  }
+  gl.activeTexture(gl.TEXTURE0);
+
   gl.viewport(0, 0, input.width, input.height);
   gl.disable(gl.BLEND);
   gl.disable(gl.DEPTH_TEST);
@@ -192,6 +224,9 @@ export function renderWithWebGL2Reference(input: ReferenceRenderInput): Referenc
   gl.deleteFramebuffer(fbo);
   gl.deleteBuffer(vbo);
   gl.deleteVertexArray(vao);
+  for (const tex of extraTexObjs) {
+    gl.deleteTexture(tex);
+  }
 
   return { pixels: flipped };
 }

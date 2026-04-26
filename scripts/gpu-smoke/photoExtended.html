@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>WebGPU Photo Extended Parity (Slice 3)</title>
+  <style>
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1rem; max-width: 960px; }
+    pre { background: #f4f4f4; padding: 0.75rem; border-radius: 4px; white-space: pre-wrap; }
+    h2 { margin-top: 1.5rem; }
+    .pass { color: #0a8043; font-weight: 600; }
+    .fail { color: #c0392b; font-weight: 600; }
+    .info { color: #555; }
+  </style>
+</head>
+<body>
+  <h1>Slice 3 — Photo Extended Parity vs WebGL2</h1>
+  <p>
+    For each of <code>HSL</code>, <code>Curve</code>, <code>Detail</code>:
+    render the same source through the existing GLSL fragment via raw-WebGL2
+    and through the new WGSL pass via <code>PipelineExecutor</code>.
+    Diff per-channel; gate <strong>≤ 2/255</strong>.
+  </p>
+  <p class="info">
+    Run with <code>pnpm dev:client</code> then open
+    <code>http://localhost:5173/scripts/gpu-smoke/photoExtended.html</code>.
+  </p>
+  <pre id="log">starting...</pre>
+
+  <script type="module">
+    import { requestGPUContext } from "/src/lib/gpu/context.ts";
+    import {
+      TexturePool,
+      uploadExternalImageToTexture,
+      readbackTextureRGBA8,
+    } from "/src/lib/gpu/resources.ts";
+    import { ShaderCache } from "/src/lib/gpu/shaders.ts";
+    import { PipelineExecutor } from "/src/lib/gpu/pipeline.ts";
+    import {
+      InputDecodePipelineCache,
+      createInputDecodePass,
+    } from "/src/lib/gpu/passes/develop/inputDecode.ts";
+    import {
+      HslPipelineCache,
+      createHslPass,
+    } from "/src/lib/gpu/passes/develop/hsl.ts";
+    import {
+      CurvePipelineCache,
+      createCurvePass,
+    } from "/src/lib/gpu/passes/develop/curve.ts";
+    import {
+      DetailPipelineCache,
+      createDetailPass,
+    } from "/src/lib/gpu/passes/develop/detail.ts";
+
+    import {
+      renderWithWebGL2Reference,
+      diffRGBA,
+    } from "/scripts/gpu-smoke/webgl2Reference.ts";
+
+    import fullscreenVert from "/src/lib/renderer/shaders/Fullscreen.vert?raw";
+    import hslFrag from "/src/lib/renderer/shaders/HSL.frag?raw";
+    import curveFrag from "/src/lib/renderer/shaders/Curve.frag?raw";
+    import detailFrag from "/src/lib/renderer/shaders/Detail.frag?raw";
+
+    const TOLERANCE = 2;
+    const W = 64;
+    const H = 64;
+    const FORMAT = "rgba8unorm";
+    const logEl = document.getElementById("log");
+    logEl.textContent = "";
+
+    const log = (line, cls) => {
+      const span = document.createElement("span");
+      if (cls) span.className = cls;
+      span.textContent = line + "\n";
+      logEl.appendChild(span);
+    };
+
+    // Source: linear-space gradient — passes through InputDecode before reaching
+    // HSL/Curve/Detail in the real pipeline. We skip InputDecode here and feed
+    // sRGB bytes directly so both GL and GPU paths see the same linear values.
+    function makeGradientSource() {
+      const buf = new Uint8ClampedArray(W * H * 4);
+      for (let y = 0; y < H; y += 1) {
+        for (let x = 0; x < W; x += 1) {
+          const i = (y * W + x) * 4;
+          buf[i + 0] = Math.round(20 + (x / (W - 1)) * 215);
+          buf[i + 1] = Math.round(20 + (y / (H - 1)) * 215);
+          buf[i + 2] = Math.round(20 + ((x ^ y) / (W - 1)) * 215);
+          buf[i + 3] = 255;
+        }
+      }
+      return buf;
+    }
+
+    function computeDiff(label, glPixels, gpuPixels) {
+      const diff = diffRGBA(glPixels, gpuPixels);
+      const ok = diff.maxPerChannel <= TOLERANCE;
+      log(
+        `  ${ok ? "PASS" : "FAIL"} ${label}: maxDiff=${diff.maxPerChannel} differing=${diff.count255}/${glPixels.length} mean=${diff.meanDiff.toFixed(3)}`,
+        ok ? "pass" : "fail",
+      );
+      if (!ok) {
+        const positions = [{ x: 0, y: 0 }, { x: W >> 1, y: H >> 1 }, { x: W - 1, y: H - 1 }];
+        for (const { x, y } of positions) {
+          const o = (y * W + x) * 4;
+          log(
+            `    [${x},${y}] gl=(${glPixels[o]},${glPixels[o+1]},${glPixels[o+2]},${glPixels[o+3]}) gpu=(${gpuPixels[o]},${gpuPixels[o+1]},${gpuPixels[o+2]},${gpuPixels[o+3]})`,
+            "info",
+          );
+        }
+      }
+      return ok;
+    }
+
+    async function renderWebGPU(ctx, executor, sourcePixels, makePass) {
+      const imageData = new ImageData(new Uint8ClampedArray(sourcePixels), W, H);
+      const bitmap = await createImageBitmap(imageData, {
+        colorSpaceConversion: "none",
+        premultiplyAlpha: "none",
+      });
+      const upload = uploadExternalImageToTexture(ctx.device, bitmap, { label: "smoke.source" });
+      const pass = makePass();
+      const result = executor.execute({
+        baseWidth: W,
+        baseHeight: H,
+        passes: [pass],
+        input: {
+          texture: upload.texture,
+          view: upload.texture.createView({ label: "smoke.sourceView" }),
+          width: W,
+          height: H,
+          format: upload.format,
+        },
+      });
+      if (result.kind !== "texture") throw new Error(`PipelineExecutor returned kind=${result.kind}`);
+      const out = await readbackTextureRGBA8(ctx.device, result.output.texture, W, H);
+      result.output.release();
+      upload.texture.destroy();
+      return new Uint8ClampedArray(out.buffer, out.byteOffset, out.byteLength);
+    }
+
+    // --- Curve LUT helpers --------------------------------------------------
+
+    function buildIdentityLut() {
+      // 256×1 RGBA8: each channel maps i → i (identity).
+      const lut = new Uint8Array(256 * 4);
+      for (let i = 0; i < 256; i += 1) {
+        lut[i * 4 + 0] = i; // composite
+        lut[i * 4 + 1] = i; // red
+        lut[i * 4 + 2] = i; // green
+        lut[i * 4 + 3] = i; // blue
+      }
+      return lut;
+    }
+
+    function buildBrightenLut(offset) {
+      // Composite curve brightened by `offset` steps; per-channel identity.
+      const lut = new Uint8Array(256 * 4);
+      for (let i = 0; i < 256; i += 1) {
+        lut[i * 4 + 0] = Math.min(255, i + offset); // composite brightened
+        lut[i * 4 + 1] = i;                          // red identity
+        lut[i * 4 + 2] = i;                          // green identity
+        lut[i * 4 + 3] = i;                          // blue identity
+      }
+      return lut;
+    }
+
+    function uploadCurveLutToGPU(device, lutBytes) {
+      const tex = device.createTexture({
+        label: "smoke.curveLut",
+        size: { width: 256, height: 1 },
+        format: "rgba8unorm",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      });
+      device.queue.writeTexture(
+        { texture: tex },
+        lutBytes,
+        { offset: 0, bytesPerRow: 256 * 4 },
+        { width: 256, height: 1 },
+      );
+      return tex;
+    }
+
+    async function main() {
+      if (!("gpu" in navigator)) {
+        log("FAIL: navigator.gpu undefined; open in Chrome 113+ or Edge 113+.", "fail");
+        return;
+      }
+
+      log("requestGPUContext()...");
+      const ctx = await requestGPUContext({ label: "slice3-photoExtended-smoke" });
+      log(`features: ${[...ctx.device.features].join(", ") || "(none)"}`);
+
+      const pool = new TexturePool(ctx.device);
+      const shaders = new ShaderCache(ctx.device);
+      const sampler = ctx.device.createSampler({
+        label: "smoke.sampler",
+        magFilter: "linear",
+        minFilter: "linear",
+        addressModeU: "clamp-to-edge",
+        addressModeV: "clamp-to-edge",
+      });
+      const executor = new PipelineExecutor({
+        device: ctx.device,
+        texturePool: pool,
+        defaultSampler: sampler,
+      });
+
+      const inputCache = new InputDecodePipelineCache(ctx.device, shaders);
+      const hslCache = new HslPipelineCache(ctx.device, shaders);
+      const curveCache = new CurvePipelineCache(ctx.device, shaders);
+      const detailCache = new DetailPipelineCache(ctx.device, shaders);
+
+      const source = makeGradientSource();
+      let allPass = true;
+
+      // --- 1. HSL -----------------------------------------------------------
+      log("\nHSL (8-channel hue/sat/lum, calibration, B&W):");
+
+      const hslZero = [0, 0, 0, 0, 0, 0, 0, 0];
+      const hslDefaultParams = {
+        hue: hslZero,
+        saturation: hslZero,
+        luminance: hslZero,
+        bwEnabled: false,
+        bwMix: [1, 1, 1],
+        calibrationEnabled: false,
+        calibrationHue: [0, 0, 0],
+        calibrationSaturation: [0, 0, 0],
+      };
+
+      function hslUniforms(p) {
+        const u = {};
+        for (let i = 0; i < 8; i += 1) {
+          u[`u_hue[${i}]`]        = { kind: "1f", value: p.hue[i] };
+          u[`u_saturation[${i}]`] = { kind: "1f", value: p.saturation[i] };
+          u[`u_luminance[${i}]`]  = { kind: "1f", value: p.luminance[i] };
+        }
+        u["u_enabled"]              = { kind: "1iBool", value: true };
+        u["u_bwEnabled"]            = { kind: "1iBool", value: p.bwEnabled };
+        u["u_bwMix"]                = { kind: "3f",     value: p.bwMix };
+        u["u_calibrationEnabled"]   = { kind: "1iBool", value: p.calibrationEnabled };
+        for (let i = 0; i < 3; i += 1) {
+          u[`u_calibrationHue[${i}]`]        = { kind: "1f", value: p.calibrationHue[i] };
+          u[`u_calibrationSaturation[${i}]`] = { kind: "1f", value: p.calibrationSaturation[i] };
+        }
+        return u;
+      }
+
+      const hslScenarios = [
+        {
+          name: "passthrough (all zero)",
+          params: hslDefaultParams,
+        },
+        {
+          name: "saturation boost (+50 all channels)",
+          params: { ...hslDefaultParams, saturation: [50, 50, 50, 50, 50, 50, 50, 50] },
+        },
+        {
+          name: "hue shift (red -20, green +30)",
+          params: { ...hslDefaultParams, hue: [-20, 0, 0, 30, 0, 0, 0, 0] },
+        },
+        {
+          name: "B&W enabled",
+          params: { ...hslDefaultParams, bwEnabled: true, bwMix: [0.33, 0.34, 0.33] },
+        },
+        {
+          name: "calibration enabled",
+          params: {
+            ...hslDefaultParams,
+            calibrationEnabled: true,
+            calibrationHue: [5, -3, 0],
+            calibrationSaturation: [10, -5, 0],
+          },
+        },
+      ];
+
+      for (const sc of hslScenarios) {
+        const glPixels = renderWithWebGL2Reference({
+          source, width: W, height: H,
+          vertexSrc: fullscreenVert,
+          fragmentSrc: hslFrag,
+          uniforms: hslUniforms(sc.params),
+          label: `HSL/${sc.name}`,
+        }).pixels;
+
+        const gpuPixels = await renderWebGPU(ctx, executor, source, () =>
+          createHslPass(ctx.device, hslCache, { outputFormat: FORMAT, params: sc.params }).descriptor
+        );
+        if (!computeDiff(`HSL/${sc.name}`, glPixels, gpuPixels)) allPass = false;
+      }
+
+      // --- 2. Curve ---------------------------------------------------------
+      log("\nCurve (two-stage LUT in sRGB space):");
+
+      const curveScenarios = [
+        { name: "identity LUT", lutBytes: buildIdentityLut() },
+        { name: "composite +30 brighten", lutBytes: buildBrightenLut(30) },
+      ];
+
+      for (const sc of curveScenarios) {
+        const extraTextures = [{
+          unit: 1,
+          uniformName: "u_curveLut",
+          data: sc.lutBytes,
+          width: 256,
+          height: 1,
+          filter: "linear",
+        }];
+
+        const glPixels = renderWithWebGL2Reference({
+          source, width: W, height: H,
+          vertexSrc: fullscreenVert,
+          fragmentSrc: curveFrag,
+          uniforms: { u_enabled: { kind: "1iBool", value: true } },
+          label: `Curve/${sc.name}`,
+          extraTextures,
+        }).pixels;
+
+        const curveTex = uploadCurveLutToGPU(ctx.device, sc.lutBytes);
+        const gpuPixels = await renderWebGPU(ctx, executor, source, () =>
+          createCurvePass(ctx.device, curveCache, {
+            outputFormat: FORMAT,
+            curveLut: curveTex,
+          }).descriptor
+        );
+        curveTex.destroy();
+        if (!computeDiff(`Curve/${sc.name}`, glPixels, gpuPixels)) allPass = false;
+      }
+
+      // --- 3. Detail --------------------------------------------------------
+      log("\nDetail (texture, clarity, sharpening, NR):");
+
+      const texelSize = [1 / W, 1 / H];
+      const shortEdgePx = W;
+
+      const detailScenarios = [
+        {
+          name: "passthrough (all zero)",
+          params: {
+            texelSize, shortEdgePx,
+            texture: 0, clarity: 0, sharpening: 0, sharpenRadius: 50,
+            sharpenDetail: 50, masking: 0, noiseReduction: 0, colorNoiseReduction: 0,
+          },
+        },
+        {
+          name: "texture=50, clarity=40",
+          params: {
+            texelSize, shortEdgePx,
+            texture: 50, clarity: 40, sharpening: 0, sharpenRadius: 50,
+            sharpenDetail: 50, masking: 0, noiseReduction: 0, colorNoiseReduction: 0,
+          },
+        },
+        {
+          name: "sharpening=60, detail=60, masking=30",
+          params: {
+            texelSize, shortEdgePx,
+            texture: 0, clarity: 0, sharpening: 60, sharpenRadius: 50,
+            sharpenDetail: 60, masking: 30, noiseReduction: 0, colorNoiseReduction: 0,
+          },
+        },
+        {
+          name: "NR luma=50, chroma=40",
+          params: {
+            texelSize, shortEdgePx,
+            texture: 0, clarity: 0, sharpening: 0, sharpenRadius: 50,
+            sharpenDetail: 50, masking: 0, noiseReduction: 50, colorNoiseReduction: 40,
+          },
+        },
+      ];
+
+      for (const sc of detailScenarios) {
+        const p = sc.params;
+        const glPixels = renderWithWebGL2Reference({
+          source, width: W, height: H,
+          vertexSrc: fullscreenVert,
+          fragmentSrc: detailFrag,
+          uniforms: {
+            u_enabled:            { kind: "1iBool", value: true },
+            u_texelSize:          { kind: "2f",     value: p.texelSize },
+            u_shortEdgePx:        { kind: "1f",     value: p.shortEdgePx },
+            u_texture:            { kind: "1f",     value: p.texture },
+            u_clarity:            { kind: "1f",     value: p.clarity },
+            u_sharpening:         { kind: "1f",     value: p.sharpening },
+            u_sharpenRadius:      { kind: "1f",     value: p.sharpenRadius },
+            u_sharpenDetail:      { kind: "1f",     value: p.sharpenDetail },
+            u_masking:            { kind: "1f",     value: p.masking },
+            u_noiseReduction:     { kind: "1f",     value: p.noiseReduction },
+            u_colorNoiseReduction:{ kind: "1f",     value: p.colorNoiseReduction },
+          },
+          label: `Detail/${sc.name}`,
+        }).pixels;
+
+        const gpuPixels = await renderWebGPU(ctx, executor, source, () =>
+          createDetailPass(ctx.device, detailCache, { outputFormat: FORMAT, params: p }).descriptor
+        );
+        if (!computeDiff(`Detail/${sc.name}`, glPixels, gpuPixels)) allPass = false;
+      }
+
+      log(allPass ? "\n✓ All scenarios PASS" : "\n✗ One or more scenarios FAILED", allPass ? "pass" : "fail");
+    }
+
+    main().catch((e) => {
+      log(`FAIL: ${e?.stack ?? e}`, "fail");
+    });
+  </script>
+</body>
+</html>

@@ -18,9 +18,9 @@
       "passes": "pixel comparison vs WebGL2: inputDecode, geometry, master, outputEncode < 2/255 (validated maxDiff=0/255 on SwiftShader fallback; real-GPU run pending)"
     },
     "s3-photo-extended": {
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": ["s2-photo-core"],
-      "passes": "pixel comparison: hsl, curve, detail < 2/255"
+      "passes": "pixel comparison: hsl, curve, detail < 2/255 (validated maxDiff=0/255 on SwiftShader fallback; real-GPU run pending)"
     },
     "s4-film": {
       "status": "pending",
