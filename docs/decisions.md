@@ -14,7 +14,7 @@
 - **WebGPU**，develop + film 内核全 WGSL。`src/lib/gpu/` 是 per-frame pipeline executor；`src/render/image/` 是 stage choreographer。入口：`WebGPURenderBackend`（`src/render/image/webgpuRenderBackend.ts`），由 `renderSingleImage.ts` 直接实例化。
 - 单 Surface 路径。每个 per-image stage consume + return `RenderSurfaceHandle`；`*IfSupported` 回退分支已全部退役。`canvasMaterializations` 每次 render = 1（最终 `materializeToCanvas` 是唯一边界）。
 - Canvas2D 只存活于 glyph atlas bake（一次 per charset+font）；stage 之间不得传递 `HTMLCanvasElement`。
-- Carrier / effects / overlay 层（`src/render/image/asciiEffect.ts`、`effectExecution.ts`、`overlayExecution.ts` 等）当前仍经由 `gpuSurfaceOperation.ts` → `PipelineRenderer`（WebGL2）执行。这条路径计划在 `media-native-render-pipeline` 任务中替换；在此之前 `src/lib/renderer/` 不得整体删除。
+- Carrier / effects / overlay 层（`src/render/image/asciiEffect.ts`、`effectExecution.ts`、`overlayExecution.ts` 等）当前仍经由 `gpuSurfaceOperation.ts` → `PipelineRenderer`（WebGL2）执行；替换尚无对应任务，在此之前 `src/lib/renderer/` 不得整体删除。
 
 ### Y-axis convention
 - WebGPU 路径已原生 Y-invariant：WGSL vertex shader 输出 Y-invariant UV（`wgsl/lib/fullscreen.wgsl`），每一 pass 保持 top-down 方向。旧 WebGL2 的每偶数 pass Y-flip hack 已彻底消除。
@@ -31,6 +31,26 @@
 ### Brush mask
 - `GPU_BRUSH_MASK_MAX_POINTS = 512`。超过上限 GPU 路径返回 false，CPU `drawLocalMaskShape` 写入同一 mask canvas，后续 GPU blend 仍消费它——stage 的 Surface-in/Surface-out 契约不破。
 - 不要提升上限；若 brush GPU 是 measured hotspot，优化方向是减少 per-dab fullscreen pass 数，不是放宽 fallback 阈值。
+
+### Pipeline stages & authored families
+
+- Stage 顺序：`develop → style → overlay → finalize`。`style` 消费 develop surface，`overlay` 消费 style surface，`finalize` 输出到 canvas。
+- `CanvasImageRenderStateV1` 按 family 分桶：`carrierTransforms`（ASCII、halftone）、`signalDamage`（channel drift）、`semanticOverlays`（timestamp、caption、watermark）、`motionPrograms`（signal-drift）。不得将新 carrier / damage / overlay 推入 `effects[]`。
+- 已知后续扩展点（无任务，不阻塞当前代码）：board/global overlay 归属规则、dither/palette/textmode carrier 族、line-displacement/pixel-sort signal damage 族、grain-oscillate/exposure-breathe motion preset、analysis 层新类型（segmentation、face landmarks、OCR）。
+
+### Quality tier
+
+- `RenderQualityTier` (`"interactive" | "quality" | "export"`) 替换已退役的 `ImageRenderIntent + ImageRenderQuality`，通过 `resolveRenderQualityTierConfig(tier)` 映射执行行为；authored state 不随 tier 变化。
+
+### Analysis layer
+
+- `AnalysisLayerInputs`（`stageSnapshots` + `edgeMap`）替换 ad-hoc `CarrierSnapshots`；requirements 由 transform 声明推导（`deriveAnalysisRequirements`），不由 authored state 手写。
+- `validateAnalysisInputs`：export tier 缺失 throw，preview tier degrade。
+
+### Motion
+
+- `MotionProgram` authored type，`renderMotionSequence` 在 single-image kernel 之上组合 per-frame 渲染；single-image kernel 不感知 time/frame state。
+- 触发重访：需要 per-frame stateful accumulator 或 video codec 接入时。
 
 ### GPU-first / CPU-fallback 边界
 - GPU-first：masked stage blend、filter2d、local-mask range gating、local-adjustment output composition、linear/radial mask shapes。
