@@ -117,6 +117,15 @@ Build `context.ts`, `pipeline.ts`, `resources.ts`, `shaders.ts`, and passthrough
 
 Validation: upload a source image → passthrough → `readback` matches input pixels within 1/255.
 
+**Slice 0 implementation notes (done):**
+- `src/lib/gpu/{context,pipeline,resources,shaders}.ts` + `passes/{types.ts,utility/passthrough.ts}` + `wgsl/passthrough.wgsl` landed.
+- `GPUPass` is a discriminated union (`render` | `compute`); render passes carry a `bindGroups` factory rather than a precomputed bind group, because the executor ping-pongs textures and the input view changes per frame.
+- Pool releases happen AFTER `device.queue.submit` — encoded passes still reference attachments at encode time, so eager release would let the pool hand the same texture back as the next pass's output.
+- Y-invariant UV is proven by the smoke harness (`scripts/gpu-smoke/passthrough.html`): max per-channel diff = 0 on a 16×16 deterministic gradient.
+- Validation procedure: `pnpm dev:client`, then open `http://localhost:5173/scripts/gpu-smoke/passthrough.html`. Page logs PASS/FAIL inline.
+- `@webgpu/types` added as devDependency; ambient via `src/lib/gpu/webgpu.d.ts` (also declares `*.wgsl?raw`).
+- knip entry list expanded with `src/lib/gpu/**/*.ts` until Slice 5.5 wires consumers.
+
 ### Slice 1 — ASCII Compute Pipeline
 
 Build the full ASCII path: descriptors → analysis → selection → composition.

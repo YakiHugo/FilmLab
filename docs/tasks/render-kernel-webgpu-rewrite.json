@@ -3,7 +3,7 @@
   "status": "pending",
   "slices": {
     "s0-foundation": {
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": [],
       "passes": "upload source → passthrough → readback matches input"
     },
