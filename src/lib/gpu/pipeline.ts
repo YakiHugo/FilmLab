@@ -49,14 +49,17 @@ export interface PipelineExecuteOptions {
   canvasOutput?: PipelineCanvasOutput;
 }
 
-export interface PipelineExecuteResult {
-  /**
-   * Owned by the caller, who must call `release()` to return the texture to
-   * the pool. Null when the chain renders directly to a canvas, or when no
-   * passes were enabled.
-   */
-  output: PooledTexture | null;
-}
+/**
+ * Discriminated union forces callers to handle the three terminal states of
+ * a pipeline run, instead of collapsing them into `output: PooledTexture | null`
+ * where "no surface was produced" and "the canvas was written" both look like
+ * `null`. The Slice 5.5 backend adapter relies on this distinction to map to
+ * the higher-level `{ status, surface, fallbackReason? }` render contract.
+ */
+export type PipelineExecuteResult =
+  | { kind: "skipped" }
+  | { kind: "canvas" }
+  | { kind: "texture"; output: PooledTexture };
 
 export interface PipelineExecutorOptions {
   device: GPUDevice;
@@ -84,12 +87,11 @@ export class PipelineExecutor {
     const enabled = options.passes.filter((pass) => pass.enabled);
     if (enabled.length === 0) {
       options.input.lease?.release();
-      return { output: null };
+      return { kind: "skipped" };
     }
     if (options.canvasOutput && enabled[enabled.length - 1]!.kind !== "render") {
       // A compute-last chain has no fragment write; the canvas would silently
-      // stay unmodified and the caller would get `output: null` thinking the
-      // canvas was presented. Fail fast — this is a misconfigured chain.
+      // stay unmodified. Fail fast — this is a misconfigured chain.
       throw new Error(
         "PipelineExecutor: canvasOutput requires the last enabled pass to be a render pass."
       );
@@ -104,6 +106,7 @@ export class PipelineExecutor {
     let priorView: GPUTextureView = options.input.view;
     let priorLease: PooledTexture | null = options.input.lease ?? null;
     const releaseAfterSubmit: PooledTexture[] = [];
+    let canvasWritten = false;
 
     for (let i = 0; i < enabled.length; i += 1) {
       const pass = enabled[i]!;
@@ -131,6 +134,7 @@ export class PipelineExecutor {
         const canvasTexture = options.canvasOutput.context.getCurrentTexture();
         outputView = canvasTexture.createView({ label: `${pass.id}:canvasView` });
         clearValue = options.canvasOutput.clearValue ?? { r: 0, g: 0, b: 0, a: 0 };
+        canvasWritten = true;
       } else {
         acquiredLease = this.pool.acquire(passWidth, passHeight, pass.outputFormat);
         outputView = acquiredLease.view;
@@ -179,6 +183,13 @@ export class PipelineExecutor {
       lease.release();
     }
 
-    return { output: priorLease };
+    if (canvasWritten) {
+      return { kind: "canvas" };
+    }
+    if (priorLease) {
+      return { kind: "texture", output: priorLease };
+    }
+    // All-compute chain with no caller-provided input lease: no surface produced.
+    return { kind: "skipped" };
   }
 }

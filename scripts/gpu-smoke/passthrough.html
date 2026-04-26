@@ -106,8 +106,8 @@
         },
       });
 
-      if (!result.output) {
-        log("FAIL: executor returned no output texture", "fail");
+      if (result.kind !== "texture") {
+        log(`FAIL: expected kind:texture, got kind:${result.kind}`, "fail");
         return;
       }
 

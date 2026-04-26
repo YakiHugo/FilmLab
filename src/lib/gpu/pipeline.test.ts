@@ -127,7 +127,7 @@ const fakeInput = () => ({
 });
 
 describe("PipelineExecutor", () => {
-  it("returns null and skips submit when no passes are enabled", () => {
+  it("returns kind:skipped and does not submit when no passes are enabled", () => {
     const mock = makeMockDevice();
     const executor = makeExecutor(mock);
     const result = executor.execute({
@@ -137,7 +137,7 @@ describe("PipelineExecutor", () => {
       input: fakeInput(),
     });
 
-    expect(result.output).toBeNull();
+    expect(result.kind).toBe("skipped");
     expect(mock.beginRenderPass).not.toHaveBeenCalled();
     expect(mock.submit).not.toHaveBeenCalled();
   });
@@ -159,7 +159,10 @@ describe("PipelineExecutor", () => {
     expect(enc.draw).toHaveBeenCalledWith(4);
     expect(enc.end).toHaveBeenCalledTimes(1);
     expect(mock.submit).toHaveBeenCalledTimes(1);
-    expect(result.output).not.toBeNull();
+    expect(result.kind).toBe("texture");
+    if (result.kind === "texture") {
+      expect(result.output).toBeDefined();
+    }
   });
 
   it("interleaves compute and render passes in encoding order", () => {
@@ -205,7 +208,7 @@ describe("PipelineExecutor", () => {
     });
 
     expect(getCurrentTexture).toHaveBeenCalledTimes(1);
-    expect(result.output).toBeNull();
+    expect(result.kind).toBe("canvas");
   });
 
   it("throws when canvasOutput is set but the last enabled pass is compute", () => {
