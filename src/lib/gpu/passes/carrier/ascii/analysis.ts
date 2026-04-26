@@ -6,8 +6,8 @@
  * caller-supplied features buffer (layout matches `descriptors.ts`).
  *
  * The pipeline (shader + bindgroup layout) is cached per `ShaderCache`; the
- * bind group is rebuilt each call because the bindings (source view, buffers)
- * are caller-owned and may change between runs.
+ * bind group is built fresh each `createPass` call because the bindings
+ * (source view, buffers) are caller-owned and may change between runs.
  */
 
 import type { ShaderCache } from "../../../shaders";
@@ -20,8 +20,45 @@ interface CompiledPipeline {
   bindGroupLayout: GPUBindGroupLayout;
 }
 
+const WORKGROUP_DIM = 8;
+
+export const ANALYSIS_UNIFORMS_BYTE_SIZE = 32;
+
+/**
+ * Pack `AnalysisUniforms` (imageSize, gridSize, cellSize, _pad). Returns the
+ * underlying ArrayBuffer ready for `device.queue.writeBuffer`.
+ */
+export function packAnalysisUniforms(values: {
+  imageWidth: number;
+  imageHeight: number;
+  gridColumns: number;
+  gridRows: number;
+  cellWidth: number;
+  cellHeight: number;
+}): ArrayBuffer {
+  const buffer = new ArrayBuffer(ANALYSIS_UNIFORMS_BYTE_SIZE);
+  const u = new Uint32Array(buffer);
+  u[0] = values.imageWidth;
+  u[1] = values.imageHeight;
+  u[2] = values.gridColumns;
+  u[3] = values.gridRows;
+  u[4] = values.cellWidth;
+  u[5] = values.cellHeight;
+  return buffer;
+}
+
+export interface CreateAsciiAnalysisPassOptions {
+  sourceView: GPUTextureView;
+  uniformsBuffer: GPUBuffer;
+  featuresBuffer: GPUBuffer;
+  gridColumns: number;
+  gridRows: number;
+  id?: string;
+  enabled?: boolean;
+}
+
 export class AsciiAnalysisPipelineCache {
-  readonly device: GPUDevice;
+  private readonly device: GPUDevice;
   private readonly shaders: ShaderCache;
   private cached: CompiledPipeline | null = null;
 
@@ -30,7 +67,32 @@ export class AsciiAnalysisPipelineCache {
     this.shaders = shaders;
   }
 
-  pipeline(): CompiledPipeline {
+  createPass(options: CreateAsciiAnalysisPassOptions): GPUComputePassDescriptor {
+    const { pipeline, bindGroupLayout } = this.pipeline();
+    const bindGroup = this.device.createBindGroup({
+      label: "ascii.analysis.bindGroup",
+      layout: bindGroupLayout,
+      entries: [
+        { binding: 0, resource: options.sourceView },
+        { binding: 1, resource: { buffer: options.uniformsBuffer } },
+        { binding: 2, resource: { buffer: options.featuresBuffer } },
+      ],
+    });
+    return {
+      kind: "compute",
+      id: options.id ?? "ascii.analysis",
+      pipeline,
+      bindGroup,
+      workgroupCount: [
+        Math.max(1, Math.ceil(options.gridColumns / WORKGROUP_DIM)),
+        Math.max(1, Math.ceil(options.gridRows / WORKGROUP_DIM)),
+        1,
+      ],
+      enabled: options.enabled ?? true,
+    };
+  }
+
+  private pipeline(): CompiledPipeline {
     if (this.cached) return this.cached;
     const module = this.shaders.compile(analysisWgsl, "ascii/analysis.wgsl");
     const bindGroupLayout = this.device.createBindGroupLayout({
@@ -65,69 +127,4 @@ export class AsciiAnalysisPipelineCache {
     this.cached = { pipeline, bindGroupLayout };
     return this.cached;
   }
-}
-
-export const ANALYSIS_UNIFORMS_BYTE_SIZE = 32;
-
-/**
- * Pack `AnalysisUniforms` (imageSize, gridSize, cellSize, _pad). Returns the
- * underlying ArrayBuffer ready for `device.queue.writeBuffer`.
- */
-export function packAnalysisUniforms(values: {
-  imageWidth: number;
-  imageHeight: number;
-  gridColumns: number;
-  gridRows: number;
-  cellWidth: number;
-  cellHeight: number;
-}): ArrayBuffer {
-  const buffer = new ArrayBuffer(ANALYSIS_UNIFORMS_BYTE_SIZE);
-  const u = new Uint32Array(buffer);
-  u[0] = values.imageWidth;
-  u[1] = values.imageHeight;
-  u[2] = values.gridColumns;
-  u[3] = values.gridRows;
-  u[4] = values.cellWidth;
-  u[5] = values.cellHeight;
-  return buffer;
-}
-
-const WORKGROUP_DIM = 8;
-
-export interface CreateAsciiAnalysisPassOptions {
-  sourceView: GPUTextureView;
-  uniformsBuffer: GPUBuffer;
-  featuresBuffer: GPUBuffer;
-  gridColumns: number;
-  gridRows: number;
-  id?: string;
-  enabled?: boolean;
-}
-
-export function createAsciiAnalysisPass(
-  cache: AsciiAnalysisPipelineCache,
-  options: CreateAsciiAnalysisPassOptions
-): GPUComputePassDescriptor {
-  const { pipeline, bindGroupLayout } = cache.pipeline();
-  const bindGroup = cache.device.createBindGroup({
-    label: "ascii.analysis.bindGroup",
-    layout: bindGroupLayout,
-    entries: [
-      { binding: 0, resource: options.sourceView },
-      { binding: 1, resource: { buffer: options.uniformsBuffer } },
-      { binding: 2, resource: { buffer: options.featuresBuffer } },
-    ],
-  });
-  return {
-    kind: "compute",
-    id: options.id ?? "ascii.analysis",
-    pipeline,
-    bindGroup,
-    workgroupCount: [
-      Math.max(1, Math.ceil(options.gridColumns / WORKGROUP_DIM)),
-      Math.max(1, Math.ceil(options.gridRows / WORKGROUP_DIM)),
-      1,
-    ],
-    enabled: options.enabled ?? true,
-  };
 }

@@ -8,10 +8,7 @@
  */
 
 import type { ShaderCache } from "../../../shaders";
-import type {
-  GPURenderPassDescriptor,
-  GPURenderPassBindContext,
-} from "../../types";
+import type { GPURenderPassDescriptor } from "../../types";
 
 import compositionWgsl from "../../../wgsl/carrier/ascii/composition.wgsl?raw";
 
@@ -20,8 +17,48 @@ interface CompiledPipeline {
   bindGroupLayout: GPUBindGroupLayout;
 }
 
+// WGSL struct natural size: 4×vec2<f32> (32 B) + 2×f32 (8 B) = 40 B,
+// 8-byte aligned. The buffer-side allocation matches.
+export const COMPOSITION_UNIFORMS_BYTE_SIZE = 40;
+
+export function packCompositionUniforms(values: {
+  canvasWidth: number;
+  canvasHeight: number;
+  gridColumns: number;
+  gridRows: number;
+  cellWidth: number;
+  cellHeight: number;
+  atlasColumns: number;
+  atlasRows: number;
+  foregroundOpacity: number;
+}): ArrayBuffer {
+  const buffer = new ArrayBuffer(COMPOSITION_UNIFORMS_BYTE_SIZE);
+  const f = new Float32Array(buffer);
+  f[0] = values.canvasWidth;
+  f[1] = values.canvasHeight;
+  f[2] = values.gridColumns;
+  f[3] = values.gridRows;
+  f[4] = values.cellWidth;
+  f[5] = values.cellHeight;
+  f[6] = values.atlasColumns;
+  f[7] = values.atlasRows;
+  f[8] = Math.min(1, Math.max(0, values.foregroundOpacity));
+  return buffer;
+}
+
+export interface CreateAsciiCompositionPassOptions {
+  outputFormat: GPUTextureFormat;
+  atlasView: GPUTextureView;
+  atlasSampler: GPUSampler;
+  uniformsBuffer: GPUBuffer;
+  selectionBuffer: GPUBuffer;
+  id?: string;
+  enabled?: boolean;
+  resolution?: number;
+}
+
 export class AsciiCompositionPipelineCache {
-  readonly device: GPUDevice;
+  private readonly device: GPUDevice;
   private readonly shaders: ShaderCache;
   private readonly byFormat = new Map<GPUTextureFormat, CompiledPipeline>();
 
@@ -30,7 +67,35 @@ export class AsciiCompositionPipelineCache {
     this.shaders = shaders;
   }
 
-  pipelineFor(format: GPUTextureFormat): CompiledPipeline {
+  createPass(options: CreateAsciiCompositionPassOptions): GPURenderPassDescriptor {
+    const { pipeline, bindGroupLayout } = this.pipelineFor(options.outputFormat);
+    // Bake the bind group at factory time — none of the bound resources
+    // change per frame, so the executor's `bindGroups(ctx)` callback returns
+    // a constant array.
+    const bindGroup = this.device.createBindGroup({
+      label: "ascii.composition.bindGroup",
+      layout: bindGroupLayout,
+      entries: [
+        { binding: 0, resource: options.atlasView },
+        { binding: 1, resource: options.atlasSampler },
+        { binding: 2, resource: { buffer: options.uniformsBuffer } },
+        { binding: 3, resource: { buffer: options.selectionBuffer } },
+      ],
+    });
+    const groups = [bindGroup] as const;
+    return {
+      kind: "render",
+      id: options.id ?? "ascii.composition",
+      pipeline,
+      bindGroups: () => groups,
+      outputFormat: options.outputFormat,
+      enabled: options.enabled ?? true,
+      resolution: options.resolution,
+      vertexCount: 4,
+    };
+  }
+
+  private pipelineFor(format: GPUTextureFormat): CompiledPipeline {
     const cached = this.byFormat.get(format);
     if (cached) return cached;
     const module = this.shaders.compile(compositionWgsl, "ascii/composition.wgsl");
@@ -74,70 +139,4 @@ export class AsciiCompositionPipelineCache {
     this.byFormat.set(format, entry);
     return entry;
   }
-}
-
-export const COMPOSITION_UNIFORMS_BYTE_SIZE = 48;
-
-export function packCompositionUniforms(values: {
-  canvasWidth: number;
-  canvasHeight: number;
-  gridColumns: number;
-  gridRows: number;
-  cellWidth: number;
-  cellHeight: number;
-  atlasColumns: number;
-  atlasRows: number;
-  foregroundOpacity: number;
-}): ArrayBuffer {
-  const buffer = new ArrayBuffer(COMPOSITION_UNIFORMS_BYTE_SIZE);
-  const f = new Float32Array(buffer);
-  f[0] = values.canvasWidth;
-  f[1] = values.canvasHeight;
-  f[2] = values.gridColumns;
-  f[3] = values.gridRows;
-  f[4] = values.cellWidth;
-  f[5] = values.cellHeight;
-  f[6] = values.atlasColumns;
-  f[7] = values.atlasRows;
-  f[8] = Math.min(1, Math.max(0, values.foregroundOpacity));
-  return buffer;
-}
-
-export interface CreateAsciiCompositionPassOptions {
-  outputFormat: GPUTextureFormat;
-  atlasView: GPUTextureView;
-  atlasSampler: GPUSampler;
-  uniformsBuffer: GPUBuffer;
-  selectionBuffer: GPUBuffer;
-  id?: string;
-  enabled?: boolean;
-  resolution?: number;
-}
-
-export function createAsciiCompositionPass(
-  cache: AsciiCompositionPipelineCache,
-  options: CreateAsciiCompositionPassOptions
-): GPURenderPassDescriptor {
-  const { pipeline, bindGroupLayout } = cache.pipelineFor(options.outputFormat);
-  return {
-    kind: "render",
-    id: options.id ?? "ascii.composition",
-    pipeline,
-    bindGroups: (_ctx: GPURenderPassBindContext) => [
-      cache.device.createBindGroup({
-        label: "ascii.composition.bindGroup",
-        layout: bindGroupLayout,
-        entries: [
-          { binding: 0, resource: options.atlasView },
-          { binding: 1, resource: options.atlasSampler },
-          { binding: 2, resource: { buffer: options.uniformsBuffer } },
-          { binding: 3, resource: { buffer: options.selectionBuffer } },
-        ],
-      }),
-    ],
-    outputFormat: options.outputFormat,
-    enabled: options.enabled ?? true,
-    resolution: options.resolution,
-    vertexCount: 4,
-  };
 }

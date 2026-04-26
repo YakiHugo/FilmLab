@@ -40,19 +40,16 @@
       AsciiAnalysisPipelineCache,
       ANALYSIS_UNIFORMS_BYTE_SIZE,
       packAnalysisUniforms,
-      createAsciiAnalysisPass,
     } from "/src/lib/gpu/passes/carrier/ascii/analysis.ts";
     import {
       AsciiSelectionPipelineCache,
       SELECTION_UNIFORMS_BYTE_SIZE,
       packSelectionUniforms,
-      createAsciiSelectionPass,
     } from "/src/lib/gpu/passes/carrier/ascii/selection.ts";
     import {
       AsciiCompositionPipelineCache,
       COMPOSITION_UNIFORMS_BYTE_SIZE,
       packCompositionUniforms,
-      createAsciiCompositionPass,
     } from "/src/lib/gpu/passes/carrier/ascii/composition.ts";
 
     const logEl = document.getElementById("log");
@@ -215,14 +212,14 @@
       }));
 
       const srcView = srcTex.createView({ label: "ascii.srcView" });
-      const analysisPass = createAsciiAnalysisPass(analysisCache, {
+      const analysisPass = analysisCache.createPass({
         sourceView: srcView,
         uniformsBuffer: analysisU,
         featuresBuffer: featuresBuf,
         gridColumns: cols,
         gridRows: rows,
       });
-      const selectionPass = createAsciiSelectionPass(selectionCache, {
+      const selectionPass = selectionCache.createPass({
         featuresBuffer: featuresBuf,
         glyphsBuffer: glyphsBuf,
         selectionBuffer: selectionBuf,
@@ -442,21 +439,21 @@
       });
 
       const srcView = srcTex.createView({ label: "ascii.timingSrcView" });
-      const analysisPass = createAsciiAnalysisPass(analysisCache, {
+      const analysisPass = analysisCache.createPass({
         sourceView: srcView,
         uniformsBuffer: analysisU,
         featuresBuffer: featuresBuf,
         gridColumns: cols,
         gridRows: rows,
       });
-      const selectionPass = createAsciiSelectionPass(selectionCache, {
+      const selectionPass = selectionCache.createPass({
         featuresBuffer: featuresBuf,
         glyphsBuffer: glyphsBuf,
         selectionBuffer: selectionBuf,
         uniformsBuffer: selectionU,
         cellCount,
       });
-      const compositionPass = createAsciiCompositionPass(compositionCache, {
+      const compositionPass = compositionCache.createPass({
         outputFormat: "rgba8unorm",
         atlasView,
         atlasSampler,

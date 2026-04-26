@@ -221,37 +221,6 @@ export interface ImageAsciiEffectParams {
   structureWeight: number;
 }
 
-export interface AsciiGpuCarrierInput {
-  width: number;
-  height: number;
-  cellWidth: number;
-  cellHeight: number;
-  columns: number;
-  rows: number;
-  renderMode: ImageAsciiRenderMode;
-  colorMode: ImageAsciiColorMode;
-  density: number;
-  coverage: number;
-  edgeEmphasis: number;
-  brightness: number;
-  contrast: number;
-  foregroundOpacity: number;
-  foregroundBlendMode: GlobalCompositeOperation;
-  backgroundMode: ImageAsciiBackgroundMode;
-  backgroundOpacity: number;
-  backgroundFillRgba: Uint8ClampedArray | null;
-  cellBackgroundRgba: Uint8ClampedArray | null;
-  backgroundSourceCanvas: HTMLCanvasElement | null;
-  backgroundBlurPx: number;
-  invert: boolean;
-  gridOverlay: boolean;
-  gridOverlayAlpha: number;
-  duotoneShadowRgba: Uint8ClampedArray | null;
-  charset: readonly string[];
-  sourceCanvas: HTMLCanvasElement;
-  structureWeight: number;
-}
-
 export interface ImageAsciiCarrierTransformNode {
   id: string;
   type: "ascii";

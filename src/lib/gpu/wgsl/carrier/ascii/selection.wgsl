@@ -68,7 +68,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     let dCx = cellCx - glyphs[gBase + 25u];
     let dCy = cellCy - glyphs[gBase + 26u];
-    let centroidDist = dCx * dCx + dCy * dCy;
+    let centroidDist = (dCx * dCx + dCy * dCy) / 2.0;
 
     let dist = (1.0 - w) * densityDist + w * (subgridDist + edgeDist + centroidDist);
 
