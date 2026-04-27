@@ -5,8 +5,8 @@ import { normalizeTimestampOverlayText } from "@/lib/timestampOverlay";
 import { renderSingleImageToCanvas } from "./renderSingleImage";
 
 const renderImageToSurfaceMock = vi.fn();
-const blendCanvasLayerOnGpuToSurfaceMock = vi.fn();
-const applyTimestampOverlayOnGpuToSurfaceMock = vi.fn();
+const applyNormalLayerBlendOnSurfaceMock = vi.fn();
+const applyTimestampOverlayOnSurfaceMock = vi.fn();
 
 vi.mock("@/lib/gpu/orchestrator", () => ({
   renderDevelopBase: vi.fn(),
@@ -23,14 +23,14 @@ vi.mock("./effectExecution", () => ({
   applyImageEffects: vi.fn(),
 }));
 
-vi.mock("@/lib/renderer/gpuCanvasLayerBlend", () => ({
-  blendCanvasLayerOnGpuToSurface: (...args: unknown[]) =>
-    Reflect.apply(blendCanvasLayerOnGpuToSurfaceMock, undefined, args),
+vi.mock("@/lib/gpu/passes/overlay/normalLayerBlend", () => ({
+  applyNormalLayerBlendOnSurface: (...args: unknown[]) =>
+    Reflect.apply(applyNormalLayerBlendOnSurfaceMock, undefined, args),
 }));
 
-vi.mock("@/lib/renderer/gpuTimestampOverlay", () => ({
-  applyTimestampOverlayOnGpuToSurface: (...args: unknown[]) =>
-    Reflect.apply(applyTimestampOverlayOnGpuToSurfaceMock, undefined, args),
+vi.mock("@/lib/gpu/passes/overlay/timestamp", () => ({
+  applyTimestampOverlayOnSurface: (...args: unknown[]) =>
+    Reflect.apply(applyTimestampOverlayOnSurfaceMock, undefined, args),
 }));
 
 const createMockContext = () => ({
@@ -127,8 +127,8 @@ describe("renderSingleImageToCanvas timestamp overlay integration", () => {
   beforeEach(() => {
     createdCanvases = [];
     vi.clearAllMocks();
-    applyTimestampOverlayOnGpuToSurfaceMock.mockResolvedValue(null);
-    blendCanvasLayerOnGpuToSurfaceMock.mockImplementation(async ({ surface }) => surface);
+    applyTimestampOverlayOnSurfaceMock.mockResolvedValue(null);
+    applyNormalLayerBlendOnSurfaceMock.mockImplementation(async ({ surface }) => surface);
     renderImageToSurfaceMock.mockResolvedValue(createStageResult(createCanvas()));
     vi.stubGlobal("document", {
       fonts: {
@@ -164,8 +164,8 @@ describe("renderSingleImageToCanvas timestamp overlay integration", () => {
       },
     });
 
-    expect(applyTimestampOverlayOnGpuToSurfaceMock).toHaveBeenCalledTimes(1);
-    expect(blendCanvasLayerOnGpuToSurfaceMock).toHaveBeenCalledTimes(1);
+    expect(applyTimestampOverlayOnSurfaceMock).toHaveBeenCalledTimes(1);
+    expect(applyNormalLayerBlendOnSurfaceMock).toHaveBeenCalledTimes(1);
     expect(
       createdCanvases.some((canvas) =>
         canvas.context2d.fillText.mock.calls.some(([text]) => text === normalized)

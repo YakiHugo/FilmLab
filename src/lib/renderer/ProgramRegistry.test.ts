@@ -30,21 +30,6 @@ describe("ProgramRegistry", () => {
     expect(asciiSources[1]).toContain("u_cellBackgroundColor");
   });
 
-  it("registers the timestamp overlay shader lazily", () => {
-    const fakeGl = {} as WebGL2RenderingContext;
-    const programs = createPrograms(fakeGl);
-
-    createProgramInfoMock.mockClear();
-
-    void programs.timestampOverlay;
-
-    expect(createProgramInfoMock).toHaveBeenCalledTimes(1);
-    const overlaySources = (createProgramInfoMock.mock.calls as unknown[][])[0]![1] as string[];
-    expect(overlaySources[1]).toContain("u_glyphIndices");
-    expect(overlaySources[1]).toContain("resolveGlyphMask");
-    expect(overlaySources[1]).toContain("u_backgroundColor");
-  });
-
   describe("uniform alignment self-check", () => {
     beforeEach(() => {
       clearGlErrorRing();

@@ -29,7 +29,6 @@ import layerBlendFragSrc from "./shaders/LayerBlend.frag?raw";
 import asciiCarrierFragRaw from "./shaders/AsciiCarrier.frag?raw";
 import asciiCommonGlsl from "./shaders/templates/asciiCommon.glsl?raw";
 import halftoneCarrierFragSrc from "./shaders/HalftoneCarrier.frag?raw";
-import timestampOverlayFragSrc from "./shaders/TimestampOverlay.frag?raw";
 
 const ASCII_COMMON_MARKER = "// #ASCII_COMMON#";
 const injectAsciiCommon = (source: string) => source.replace(ASCII_COMMON_MARKER, asciiCommonGlsl);
@@ -61,7 +60,6 @@ export interface RendererPrograms {
   maskedBlend: ProgramInfo;
   asciiCarrier: ProgramInfo;
   halftoneCarrier: ProgramInfo;
-  timestampOverlay: ProgramInfo;
 }
 
 type ProgramName = keyof RendererPrograms;
@@ -92,7 +90,6 @@ const PROGRAM_FRAGMENTS: Record<ProgramName, string> = {
   maskedBlend: layerBlendFragSrc,
   asciiCarrier: asciiCarrierFragSrc,
   halftoneCarrier: halftoneCarrierFragSrc,
-  timestampOverlay: timestampOverlayFragSrc,
 };
 
 const CORE_PRECOMPILE_PROGRAMS: readonly ProgramName[] = [
@@ -116,7 +113,6 @@ export const DEFERRED_WARMUP_PROGRAMS: readonly ProgramName[] = [
   "filmEffectsUber",
   "asciiCarrier",
   "halftoneCarrier",
-  "timestampOverlay",
 ];
 
 const UNIFORM_DECLARATION_PATTERN =
