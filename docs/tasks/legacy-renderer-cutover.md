@@ -115,6 +115,16 @@
 - Delete `gpuAsciiCarrier.ts` and the CPU tone computation in `asciiEffect.ts` (`buildAsciiCellGrids` / tone-only selection) once the WGSL path is the sole authority.
 - Validation: visual parity vs current production ASCII output (the parity check deferred from `render-kernel-webgpu-rewrite` s1) — gate per-pixel ≤ 4/255 on a representative fixture set.
 
+**Slice 6 sub-decomposition (claimed in_progress 2026-04-27):**
+
+CPU `buildAsciiCellGrids` work moves into `analysis.wgsl`. Tone normalization (brightness/contrast/density/coverage/edge/invert) becomes uniforms read by analysis; `dither: "floyd-steinberg"` collapses to Bayer 8×8 ordered (FS is sequentially dependent — not GPU-friendly; the ≤ 4/255 gate tolerates the substitution and the project is pre-launch). selection.wgsl stays untouched: composition reads `features[base+0]` (now holding normalized tone instead of raw density), so `structureWeight=0` glyph picking maps cleanly to the legacy density-sorted index assumption. cell averaged RGBA goes into a NEW `cellColor` storage buffer written by analysis (one extra accumulator per cell, no extra source taps).
+
+- **s6a**: extend `analysis.wgsl` + `analysis.ts` — emit `cellColor: array<vec4<f32>>` and overwrite `features[base+0]` with normalized tone. Add tone uniforms (brightness, contrast, density, coverage, edgeEmphasis, invert, ditherMode). Keep glyph descriptor stride = 27 (`descriptors.ts` unchanged).
+- **s6b**: extend `composition.wgsl` + `composition.ts` — add layerMode (bg / fg), renderMode (glyph / dot), colorMode (gray / full / duotone), grid overlay, bg fill / cell-bg / blurred-source bindings. Bind cellColor + features + selection + atlas + bgSource.
+- **s6c**: new `applyAsciiCarrierOnSurface` adapter under `passes/carrier/ascii.ts` — chains analysis → selection → optional `utility/gaussianBlur` (h+v) for bg → composition (bg pass, layerMode=0) → composition (fg pass, layerMode=1) → `utility/layerBlend` (fg→base with EditorLayerBlendMode). Per-device cache via `createPerDeviceCache`.
+- **s6d**: switch `src/render/image/asciiEffect.ts` to `applyAsciiCarrierOnSurface`; delete `gpuAsciiCarrier.ts`, `shaders/AsciiCarrier.frag`, `templates/asciiCommon.glsl`, ProgramRegistry `asciiCarrier` entry, `PipelineRenderer.renderAsciiCarrierComposite` + `renderAsciiCarrierLayer` + `renderAsciiBackgroundSourceLayer` + `uploadCellRgbaTexture` + `uploadCellR8Texture` + `getGlyphAtlas` (now WGSL-only); drop `buildAsciiCellGrids` from `asciiEffect.ts`.
+- **s6e**: extend `scripts/gpu-smoke/ascii.html` (or new `asciiCarrier.html`) — fixtures across glyph/dot × gray/full/duotone × bg modes (none / solid / cell / blurred) × invert/grid. Inline `AsciiCarrier.frag` + `LayerBlend.frag` for the WebGL2 reference path. Gate ≤ 4/255.
+
 ### Slice 7 — Delete legacy renderer
 
 - Remove every remaining file under `src/lib/renderer/` (`PipelineRenderer`, `FilterPipeline`, `ProgramRegistry`, `TexturePool`, `TextureManager`, `UniformManager`, `PassBuilder`, `PassUniformUpdaters`, `RenderManager`, `RenderPostProcessing`, all `shaders/*.frag` + `*.vert`, `gpuSurfaceOperation.ts`).

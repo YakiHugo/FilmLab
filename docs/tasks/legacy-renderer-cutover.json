@@ -28,7 +28,7 @@
       "passes": "TimestampOverlay.frag → wgsl/overlay/timestamp.wgsl folds rect+glyph plus source-over composite into a single pass; new wgsl/overlay/normalLayerBlend.wgsl mirrors LayerBlend.frag with blendMode=normal/opacity=1/useMask=false (deviation from plan: mask/maskedBlend's mix semantics drift output alpha across an overlay chain). passes/overlay/{timestamp,normalLayerBlend}.ts adapters; timestampOverlay.ts and overlayExecution.ts switched. gpuTimestampOverlay.ts, gpuCanvasLayerBlend.ts, shaders/TimestampOverlay.frag deleted; PipelineRenderer.{renderTimestampOverlayLayer,renderTimestampOverlayComposite} + TimestampOverlayGpuInput import + ProgramRegistry.timestampOverlay entry pruned. LayerBlend.frag + programs.maskedBlend stay alive (still consumed by AsciiCarrier s6 + imageProcessing.ts::blendLinearWithMask). pnpm tsc --noEmit clean; pnpm vitest run 673/673 pass; pnpm lint only the pre-existing curve.ts error; pnpm dead-code baseline unchanged. scripts/gpu-smoke/overlay.html covers 3 timestamp + 3 normalLayerBlend scenarios with TimestampOverlay.frag inlined for the WebGL2 reference path; real-GPU run pending on user hardware"
     },
     "s6-ascii-wiring": {
-      "status": "pending",
+      "status": "in_progress",
       "blockedBy": [],
       "passes": "ASCII composition pass extended to cover dual-layer (bg blur), dot mode, full-color/duotone, grid overlay; asciiEffect.ts wired to passes/carrier/ascii/ pipeline (descriptors→analysis→selection→composition); gpuAsciiCarrier.ts deleted; CPU tone computation removed from asciiEffect.ts; visual parity vs current production ASCII ≤ 4/255 on representative fixtures"
     },
