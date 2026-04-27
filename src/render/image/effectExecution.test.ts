@@ -1,17 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const applyFilter2dOnGpuToSurfaceMock = vi.fn();
-const blendMaskedCanvasesOnGpuToSurfaceMock = vi.fn();
+const applyFilter2dOnSurfaceMock = vi.fn();
+const applyMaskedBlendOnSurfaceMock = vi.fn();
 const renderImageEffectMaskToCanvasMock = vi.fn();
 
-vi.mock("@/lib/renderer/gpuFilter2dPostProcessing", () => ({
-  applyFilter2dOnGpuToSurface: (...args: unknown[]) =>
-    Reflect.apply(applyFilter2dOnGpuToSurfaceMock, null, args),
+vi.mock("@/lib/gpu/passes/post/filter2dAdjust", () => ({
+  applyFilter2dOnSurface: (...args: unknown[]) =>
+    Reflect.apply(applyFilter2dOnSurfaceMock, null, args),
 }));
 
-vi.mock("@/lib/renderer/gpuMaskedCanvasBlend", () => ({
-  blendMaskedCanvasesOnGpuToSurface: (...args: unknown[]) =>
-    Reflect.apply(blendMaskedCanvasesOnGpuToSurfaceMock, null, args),
+vi.mock("@/lib/gpu/passes/mask/maskedBlend", () => ({
+  applyMaskedBlendOnSurface: (...args: unknown[]) =>
+    Reflect.apply(applyMaskedBlendOnSurfaceMock, null, args),
 }));
 
 vi.mock("./effectMask", () => ({
@@ -72,8 +72,8 @@ const createEffect = (overrides?: Partial<{
 
 describe("effectExecution", () => {
   beforeEach(() => {
-    applyFilter2dOnGpuToSurfaceMock.mockReset();
-    blendMaskedCanvasesOnGpuToSurfaceMock.mockReset();
+    applyFilter2dOnSurfaceMock.mockReset();
+    applyMaskedBlendOnSurfaceMock.mockReset();
     renderImageEffectMaskToCanvasMock.mockReset();
     vi.stubGlobal("document", {
       createElement: vi.fn(() => createCanvas()),
@@ -88,14 +88,14 @@ describe("effectExecution", () => {
     const { applyImageEffects } = await import("./effectExecution");
     const initialSurface = createSurface("slot:initial");
     const filteredSurface = createSurface("slot:filtered");
-    applyFilter2dOnGpuToSurfaceMock.mockResolvedValue(filteredSurface);
+    applyFilter2dOnSurfaceMock.mockResolvedValue(filteredSurface);
 
     const result = await applyImageEffects({
       surface: initialSurface,
       effects: [createEffect()],
     });
 
-    expect(applyFilter2dOnGpuToSurfaceMock).toHaveBeenCalledWith(
+    expect(applyFilter2dOnSurfaceMock).toHaveBeenCalledWith(
       expect.objectContaining({
         surface: initialSurface,
         slotId: "filter2d:effect-1",
@@ -114,7 +114,7 @@ describe("effectExecution", () => {
         effects: [createEffect({ maskId: "mask-1" })],
       })
     ).rejects.toThrow(/requires document/);
-    expect(applyFilter2dOnGpuToSurfaceMock).not.toHaveBeenCalled();
+    expect(applyFilter2dOnSurfaceMock).not.toHaveBeenCalled();
   });
 
   it("chains masked filter2d effects through the masked blend", async () => {
@@ -123,9 +123,9 @@ describe("effectExecution", () => {
     const effectSurface = createSurface("slot:effect");
     const blendedSurface = createSurface("slot:blended");
     const stageReferenceCanvas = createCanvas();
-    applyFilter2dOnGpuToSurfaceMock.mockResolvedValue(effectSurface);
+    applyFilter2dOnSurfaceMock.mockResolvedValue(effectSurface);
     renderImageEffectMaskToCanvasMock.mockResolvedValue(createCanvas());
-    blendMaskedCanvasesOnGpuToSurfaceMock.mockResolvedValue(blendedSurface);
+    applyMaskedBlendOnSurfaceMock.mockResolvedValue(blendedSurface);
 
     const result = await applyImageEffects({
       surface: initialSurface,
@@ -140,7 +140,7 @@ describe("effectExecution", () => {
         referenceSource: stageReferenceCanvas,
       })
     );
-    expect(blendMaskedCanvasesOnGpuToSurfaceMock).toHaveBeenCalledWith(
+    expect(applyMaskedBlendOnSurfaceMock).toHaveBeenCalledWith(
       expect.objectContaining({
         baseCanvas: initialSurface.sourceCanvas,
         layerCanvas: effectSurface.sourceCanvas,
@@ -153,7 +153,7 @@ describe("effectExecution", () => {
   it("throws when the GPU filter2d pass fails", async () => {
     const { applyImageEffects } = await import("./effectExecution");
     const initialSurface = createSurface("slot:initial");
-    applyFilter2dOnGpuToSurfaceMock.mockResolvedValue(null);
+    applyFilter2dOnSurfaceMock.mockResolvedValue(null);
 
     await expect(
       applyImageEffects({
@@ -171,11 +171,11 @@ describe("effectExecution", () => {
     const blendedSurfaceA = createSurface("slot:blended-a");
     const blendedSurfaceB = createSurface("slot:blended-b");
     const stageReferenceCanvas = createCanvas();
-    applyFilter2dOnGpuToSurfaceMock
+    applyFilter2dOnSurfaceMock
       .mockResolvedValueOnce(effectSurfaceA)
       .mockResolvedValueOnce(effectSurfaceB);
     renderImageEffectMaskToCanvasMock.mockResolvedValue(createCanvas());
-    blendMaskedCanvasesOnGpuToSurfaceMock
+    applyMaskedBlendOnSurfaceMock
       .mockResolvedValueOnce(blendedSurfaceA)
       .mockResolvedValueOnce(blendedSurfaceB);
 

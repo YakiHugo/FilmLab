@@ -8,7 +8,7 @@ import {
 const renderMock = vi.fn();
 const updateSourceMock = vi.fn();
 const disposeMock = vi.fn();
-const blendMaskedCanvasesOnGpuMock = vi.fn();
+const applyMaskedBlendOnGpuMock = vi.fn();
 const renderLocalMaskShapeOnGpuMock = vi.fn();
 const renderLocalMaskShapeOnGpuToSurfaceMock = vi.fn();
 const applyLocalMaskRangeOnGpuMock = vi.fn();
@@ -248,9 +248,9 @@ vi.mock("@/lib/renderer/RenderManager", () => {
   };
 });
 
-vi.mock("@/lib/renderer/gpuMaskedCanvasBlend", () => ({
-  blendMaskedCanvasesOnGpu: (...args: unknown[]) =>
-    Reflect.apply(blendMaskedCanvasesOnGpuMock, undefined, args),
+vi.mock("@/lib/gpu/passes/mask/maskedBlend", () => ({
+  applyMaskedBlendOnGpu: (...args: unknown[]) =>
+    Reflect.apply(applyMaskedBlendOnGpuMock, undefined, args),
 }));
 
 vi.mock("@/lib/renderer/gpuLocalMaskShape", () => ({
@@ -316,8 +316,8 @@ describe("imageProcessing debug trace", () => {
     renderMock.mockReset();
     updateSourceMock.mockReset();
     disposeMock.mockReset();
-    blendMaskedCanvasesOnGpuMock.mockReset();
-    blendMaskedCanvasesOnGpuMock.mockResolvedValue(false);
+    applyMaskedBlendOnGpuMock.mockReset();
+    applyMaskedBlendOnGpuMock.mockResolvedValue(false);
     renderLocalMaskShapeOnGpuMock.mockReset();
     renderLocalMaskShapeOnGpuMock.mockResolvedValue(false);
     renderLocalMaskShapeOnGpuToSurfaceMock.mockReset();
@@ -1129,7 +1129,7 @@ describe("imageProcessing debug trace", () => {
         feather: 0.2,
       },
     };
-    blendMaskedCanvasesOnGpuMock.mockResolvedValue(true);
+    applyMaskedBlendOnGpuMock.mockResolvedValue(true);
 
     await renderImageToCanvas({
       canvas: output,
@@ -1148,11 +1148,10 @@ describe("imageProcessing debug trace", () => {
       },
     });
 
-    expect(blendMaskedCanvasesOnGpuMock).toHaveBeenCalledWith(
+    expect(applyMaskedBlendOnGpuMock).toHaveBeenCalledWith(
       expect.objectContaining({
         baseCanvas: output,
         targetCanvas: output,
-        slotId: "local-blend-gpu-slot:local-compose:local-blend",
       })
     );
   });
@@ -1186,7 +1185,7 @@ describe("imageProcessing debug trace", () => {
         feather: 0.2,
       },
     };
-    blendMaskedCanvasesOnGpuMock.mockResolvedValue(true);
+    applyMaskedBlendOnGpuMock.mockResolvedValue(true);
 
     await renderImageToCanvas({
       canvas: output,
@@ -1211,10 +1210,9 @@ describe("imageProcessing debug trace", () => {
       },
     });
 
-    expect(blendMaskedCanvasesOnGpuMock).toHaveBeenCalledWith(
+    expect(applyMaskedBlendOnGpuMock).toHaveBeenCalledWith(
       expect.objectContaining({
         targetCanvas: expect.any(MockCanvasElement),
-        slotId: "local-blend-roi-gpu-slot:local-compose:local-roi",
       })
     );
     const roiClears = (output as unknown as MockCanvasElement).context2d.clearRect.mock.calls.filter(

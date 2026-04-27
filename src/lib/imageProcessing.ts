@@ -17,7 +17,7 @@ import {
   type RenderSurfaceKind,
 } from "@/lib/renderSurfaceHandle";
 import { resolveRenderIntent, type RenderIntent } from "@/lib/renderIntent";
-import { blendMaskedCanvasesOnGpu } from "@/lib/renderer/gpuMaskedCanvasBlend";
+import { applyMaskedBlendOnGpu } from "@/lib/gpu/passes/mask/maskedBlend";
 import { applyLocalMaskRangeOnGpu } from "@/lib/renderer/gpuLocalMaskRangeGate";
 import { applyLocalMaskRangeOnGpuToSurface } from "@/lib/renderer/gpuLocalMaskRangeGate";
 import { renderLocalMaskShapeOnGpuToSurface } from "@/lib/renderer/gpuLocalMaskShape";
@@ -1517,7 +1517,6 @@ const composeLocalLayer = async (params: {
   fullWidth?: number;
   fullHeight?: number;
   boundaryMetrics?: RenderBoundaryMetrics;
-  gpuBlendSlotId?: string;
 }) => {
   const blendCanvas = getLocalBlendCanvas(params.frameState);
   ensureCanvasSize(blendCanvas, params.width, params.height);
@@ -1547,12 +1546,11 @@ const composeLocalLayer = async (params: {
     params.width === outputCanvas.width &&
     params.height === outputCanvas.height;
   if (canBlendDirectlyOnGpu) {
-    const blendedOnGpu = await blendMaskedCanvasesOnGpu({
+    const blendedOnGpu = await applyMaskedBlendOnGpu({
       baseCanvas: outputCanvas,
       layerCanvas: params.layerCanvas,
       maskCanvas,
       targetCanvas: outputCanvas,
-      slotId: params.gpuBlendSlotId ?? `local-compose:${params.local.id || "anonymous"}`,
     });
     if (blendedOnGpu) {
       return;
@@ -1579,12 +1577,11 @@ const composeLocalLayer = async (params: {
       params.width,
       params.height
     );
-    const blendedOnGpu = await blendMaskedCanvasesOnGpu({
+    const blendedOnGpu = await applyMaskedBlendOnGpu({
       baseCanvas: blendCanvas,
       layerCanvas: params.layerCanvas,
       maskCanvas,
       targetCanvas: blendCanvas,
-      slotId: params.gpuBlendSlotId ?? `local-compose:${params.local.id || "anonymous"}`,
     });
     if (blendedOnGpu) {
       params.outputContext.clearRect(offsetX, offsetY, params.width, params.height);
@@ -2056,7 +2053,6 @@ const renderTiledExportPath = async (
             width: resolvedOutputCanvas.width,
             height: resolvedOutputCanvas.height,
             boundaryMetrics,
-            gpuBlendSlotId: `${slotId}:local-compose:${local.id || localIndex}`,
           });
         } finally {
           localCanvas.width = 0;
@@ -2803,7 +2799,6 @@ const renderImageStageInternal = async (
                 fullWidth: resolvedOutputCanvas.width,
                 fullHeight: resolvedOutputCanvas.height,
                 boundaryMetrics,
-                gpuBlendSlotId: `${slotId}:local-compose:${local.id || localIndex}`,
               });
             } catch (localRenderError) {
               if (strictErrors) {

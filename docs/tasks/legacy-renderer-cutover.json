@@ -13,9 +13,9 @@
       "passes": "ChannelDrift.frag → WGSL pass + applyChannelDriftOnSurface adapter; signalDamageExecution.ts switched; gpuSignalDamage.ts + shaders/ChannelDrift.frag deleted; channelDrift program entry pruned from ProgramRegistry + renderChannelDriftComposite removed from PipelineRenderer; pnpm tsc clean; pnpm vitest run 682/682; smoke harness scripts/gpu-smoke/channelDrift.html landed (6 scenarios across pos/neg/asymmetric/diagonal/zero-intensity/zero-offset); real-GPU run pending on user hardware"
     },
     "s3-effect-filter2d": {
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": [],
-      "passes": "Filter2dAdjust.frag → WGSL pass; effectExecution.ts and stageMaskComposite.ts switched (using mask/maskedBlend); gpuFilter2dPostProcessing.ts and gpuMaskedCanvasBlend.ts deleted; pixel parity ≤ 2/255"
+      "passes": "Filter2dAdjust.frag → WGSL pass + applyFilter2dOnSurface adapter (composes adjust → blur → dilate via existing utility passes); applyMaskedBlendOnSurface + applyMaskedBlendOnGpu adapters added to mask/maskedBlend.ts; effectExecution.ts, stageMaskComposite.ts, imageProcessing.ts switched; gpuFilter2dPostProcessing.ts, gpuMaskedCanvasBlend.ts, Filter2dAdjust.frag, Dilate.frag deleted; PipelineRenderer.applyFilter2dSource removed and ProgramRegistry.{filter2dAdjust,dilate} pruned; pnpm tsc --noEmit clean; pnpm vitest run 682/682; smoke harness scripts/gpu-smoke/filter2dAdjust.html landed (7 scenarios across identity/brightness±/hue±/combined); real-GPU run pending on user hardware"
     },
     "s4-effect-mask": {
       "status": "pending",

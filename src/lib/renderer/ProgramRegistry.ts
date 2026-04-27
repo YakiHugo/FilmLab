@@ -28,8 +28,6 @@ import outputEncodeFragSrc from "./shaders/OutputEncode.frag?raw";
 import layerBlendFragSrc from "./shaders/LayerBlend.frag?raw";
 import linearGradientMaskFragSrc from "./shaders/LinearGradientMask.frag?raw";
 import radialGradientMaskFragSrc from "./shaders/RadialGradientMask.frag?raw";
-import filter2dAdjustFragSrc from "./shaders/Filter2dAdjust.frag?raw";
-import dilateFragSrc from "./shaders/Dilate.frag?raw";
 import localMaskRangeGateFragSrc from "./shaders/LocalMaskRangeGate.frag?raw";
 import brushMaskStampFragSrc from "./shaders/BrushMaskStamp.frag?raw";
 import maskInvertFragSrc from "./shaders/MaskInvert.frag?raw";
@@ -68,8 +66,6 @@ export interface RendererPrograms {
   maskedBlend: ProgramInfo;
   linearGradientMask: ProgramInfo;
   radialGradientMask: ProgramInfo;
-  filter2dAdjust: ProgramInfo;
-  dilate: ProgramInfo;
   localMaskRangeGate: ProgramInfo;
   brushMaskStamp: ProgramInfo;
   maskInvert: ProgramInfo;
@@ -106,8 +102,6 @@ const PROGRAM_FRAGMENTS: Record<ProgramName, string> = {
   maskedBlend: layerBlendFragSrc,
   linearGradientMask: linearGradientMaskFragSrc,
   radialGradientMask: radialGradientMaskFragSrc,
-  filter2dAdjust: filter2dAdjustFragSrc,
-  dilate: dilateFragSrc,
   localMaskRangeGate: localMaskRangeGateFragSrc,
   brushMaskStamp: brushMaskStampFragSrc,
   maskInvert: maskInvertFragSrc,

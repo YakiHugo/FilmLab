@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>WebGPU Filter2D Adjust Parity (legacy-renderer-cutover s3)</title>
+  <style>
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1rem; max-width: 960px; }
+    pre  { background: #f4f4f4; padding: 0.75rem; border-radius: 4px; white-space: pre-wrap; }
+    h2   { margin-top: 1.5rem; }
+    .pass { color: #0a8043; font-weight: 600; }
+    .fail { color: #c0392b; font-weight: 600; }
+    .info { color: #555; }
+  </style>
+</head>
+<body>
+  <h1>Filter2D adjust (brightness + hue) — WebGPU vs WebGL2 parity</h1>
+  <p>
+    Validates the WGSL <code>post/filter2dAdjust</code> pass against the deleted
+    <code>Filter2dAdjust.frag</code> (inlined here for the WebGL2 reference path).
+    Covers brightness scale, hue rotation in YIQ, identity, and combined cases.
+    Gate ≤ 2/255 per channel.
+  </p>
+  <p class="info">
+    Run with <code>pnpm dev:client</code> then open
+    <code>http://localhost:5173/scripts/gpu-smoke/filter2dAdjust.html</code>.
+  </p>
+  <pre id="log">starting...</pre>
+
+  <script type="module">
+    import { requestGPUContext }                from "/src/lib/gpu/context.ts";
+    import { TexturePool, uploadExternalImageToTexture, readbackTextureRGBA8 }
+                                                from "/src/lib/gpu/resources.ts";
+    import { ShaderCache }                      from "/src/lib/gpu/shaders.ts";
+    import { PipelineExecutor }                 from "/src/lib/gpu/pipeline.ts";
+    import { renderWithWebGL2Reference, diffRGBA }
+                                                from "/scripts/gpu-smoke/webgl2Reference.ts";
+
+    import fullscreenVert from "/src/lib/renderer/shaders/Fullscreen.vert?raw";
+    import filter2dAdjustWgsl from "/src/lib/gpu/wgsl/post/filter2dAdjust.wgsl?raw";
+    import fullscreenWgsl     from "/src/lib/gpu/wgsl/lib/fullscreen.wgsl?raw";
+
+    // Inline copy of the deleted Filter2dAdjust.frag for the WebGL2 reference path.
+    const filter2dAdjustFragGlsl = `#version 300 es
+precision highp float;
+in vec2 vTextureCoord;
+out vec4 outColor;
+uniform sampler2D uSampler;
+uniform float u_brightness;
+uniform float u_hueRadians;
+const mat3 RGB_TO_YIQ = mat3(
+  0.299, 0.587, 0.114,
+  0.596, -0.275, -0.321,
+  0.212, -0.523, 0.311
+);
+const mat3 YIQ_TO_RGB = mat3(
+  1.0, 0.956, 0.621,
+  1.0, -0.272, -0.647,
+  1.0, -1.106, 1.703
+);
+void main() {
+  vec4 sampled = texture(uSampler, vTextureCoord);
+  vec3 color = max(sampled.rgb * u_brightness, vec3(0.0));
+  if (abs(u_hueRadians) > 0.0001) {
+    vec3 yiq = RGB_TO_YIQ * color;
+    float chroma = length(yiq.yz);
+    float angle = atan(yiq.z, yiq.y) + u_hueRadians;
+    yiq.y = chroma * cos(angle);
+    yiq.z = chroma * sin(angle);
+    color = YIQ_TO_RGB * yiq;
+  }
+  outColor = vec4(clamp(color, 0.0, 1.0), sampled.a);
+}`;
+
+    const TOLERANCE = 2;
+    const W = 96; const H = 96;
+    const FORMAT = "rgba8unorm";
+    const UNIFORM_BYTES = 16;
+    const logEl = document.getElementById("log");
+    logEl.textContent = "";
+
+    const log = (line, cls) => {
+      const span = document.createElement("span");
+      if (cls) span.className = cls;
+      span.textContent = line + "\n";
+      logEl.appendChild(span);
+    };
+
+    function makeGradient() {
+      const buf = new Uint8ClampedArray(W * H * 4);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const i = (y * W + x) * 4;
+        buf[i]   = Math.round(20 + (x / (W-1)) * 215);
+        buf[i+1] = Math.round(20 + (y / (H-1)) * 215);
+        buf[i+2] = Math.round(20 + ((x+y) / (W+H-2)) * 215);
+        buf[i+3] = 255;
+      }
+      return buf;
+    }
+
+    function buildGlUniforms(p) {
+      return {
+        u_brightness:  { kind:"1f", value:p.brightnessFactor },
+        u_hueRadians:  { kind:"1f", value:p.hueRadians },
+      };
+    }
+
+    function computeDiff(label, glPx, gpuPx, tol = TOLERANCE) {
+      const diff = diffRGBA(glPx, gpuPx);
+      const ok   = diff.maxPerChannel <= tol;
+      log(`  ${ok ? "PASS" : "FAIL"} ${label}: maxDiff=${diff.maxPerChannel} differing=${diff.count255}/${glPx.length/4}px mean=${diff.meanDiff.toFixed(3)}`,
+          ok ? "pass" : "fail");
+      if (!ok) {
+        for (const {x,y} of [{x:0,y:0},{x:W>>1,y:H>>1},{x:W-1,y:H-1}]) {
+          const o = (y*W+x)*4;
+          log(`    [${x},${y}] gl=(${glPx[o]},${glPx[o+1]},${glPx[o+2]},${glPx[o+3]}) gpu=(${gpuPx[o]},${gpuPx[o+1]},${gpuPx[o+2]},${gpuPx[o+3]})`, "info");
+        }
+      }
+      return ok;
+    }
+
+    async function renderWebGPU(ctx, executor, sourcePixels, params) {
+      const imageData = new ImageData(new Uint8ClampedArray(sourcePixels), W, H);
+      const bitmap = await createImageBitmap(imageData, { colorSpaceConversion: "none", premultiplyAlpha: "none" });
+
+      const upload = uploadExternalImageToTexture(ctx.device, bitmap, { format: FORMAT, label: "smoke.source" });
+
+      const wgslSource = `${fullscreenWgsl}\n${filter2dAdjustWgsl}`;
+      const shaders = new ShaderCache(ctx.device);
+      const module = shaders.compile(wgslSource, "post/filter2dAdjust.wgsl");
+      const bindGroupLayout = ctx.device.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
+          { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+          { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+        ],
+      });
+      const pipeline = ctx.device.createRenderPipeline({
+        layout: ctx.device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+        vertex: { module, entryPoint: "vs_main" },
+        fragment: { module, entryPoint: "fs_main", targets: [{ format: FORMAT }] },
+        primitive: { topology: "triangle-strip" },
+      });
+      const uniformBuffer = ctx.device.createBuffer({
+        size: UNIFORM_BYTES,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+      const u = new Float32Array(4);
+      u[0] = params.brightnessFactor;
+      u[1] = params.hueRadians;
+      ctx.device.queue.writeBuffer(uniformBuffer, 0, u);
+
+      const descriptor = {
+        kind: "render",
+        id: "post.filter2dAdjust",
+        pipeline,
+        bindGroups: (bindCtx) => [
+          ctx.device.createBindGroup({
+            layout: bindGroupLayout,
+            entries: [
+              { binding: 0, resource: bindCtx.priorInputView },
+              { binding: 1, resource: bindCtx.defaultSampler },
+              { binding: 2, resource: { buffer: uniformBuffer } },
+            ],
+          }),
+        ],
+        outputFormat: FORMAT,
+        enabled: true,
+        vertexCount: 4,
+      };
+
+      const result = executor.execute({
+        baseWidth: W, baseHeight: H, passes: [descriptor],
+        input: { texture: upload.texture, view: upload.texture.createView(), width: W, height: H, format: FORMAT },
+      });
+      if (result.kind !== "texture") throw new Error(`unexpected kind=${result.kind}`);
+      const out = await readbackTextureRGBA8(ctx.device, result.output.texture, W, H);
+      result.output.release();
+      upload.texture.destroy();
+      uniformBuffer.destroy();
+      return new Uint8ClampedArray(out.buffer, out.byteOffset, out.byteLength);
+    }
+
+    async function main() {
+      if (!("gpu" in navigator)) { log("FAIL: navigator.gpu undefined", "fail"); return; }
+      log("requestGPUContext()...");
+      const ctx     = await requestGPUContext({ label: "filter2dAdjust-smoke" });
+      const pool    = new TexturePool(ctx.device);
+      const sampler = ctx.device.createSampler({
+        magFilter:"linear", minFilter:"linear",
+        addressModeU:"clamp-to-edge", addressModeV:"clamp-to-edge",
+      });
+      const executor = new PipelineExecutor({ device: ctx.device, texturePool: pool, defaultSampler: sampler });
+
+      log("running scenarios...");
+      const source = makeGradient();
+
+      const scenarios = [
+        { name: "identity",            brightnessFactor: 1.0, hueRadians: 0.0 },
+        { name: "brightness +20%",     brightnessFactor: 1.2, hueRadians: 0.0 },
+        { name: "brightness -30%",     brightnessFactor: 0.7, hueRadians: 0.0 },
+        { name: "hue +π/4",            brightnessFactor: 1.0, hueRadians: Math.PI / 4 },
+        { name: "hue -π/2",            brightnessFactor: 1.0, hueRadians: -Math.PI / 2 },
+        { name: "combined +b +hue",    brightnessFactor: 1.15, hueRadians: Math.PI / 6 },
+        { name: "combined -b -hue",    brightnessFactor: 0.6,  hueRadians: -Math.PI / 3 },
+      ];
+
+      let allPass = true;
+      for (const sc of scenarios) {
+        const glPx = renderWithWebGL2Reference({
+          source, width:W, height:H,
+          vertexSrc:fullscreenVert, fragmentSrc:filter2dAdjustFragGlsl,
+          uniforms:buildGlUniforms(sc), label:`Filter2dAdjust/${sc.name}`,
+        }).pixels;
+
+        const gpuPx = await renderWebGPU(ctx, executor, source, sc);
+        if (!computeDiff(`Filter2dAdjust/${sc.name}`, glPx, gpuPx)) allPass = false;
+      }
+
+      log(allPass ? "\nALL PASS" : "\nSOME FAILED", allPass ? "pass" : "fail");
+    }
+
+    main().catch((e) => { log("threw: " + (e && e.stack || e), "fail"); });
+  </script>
+</body>
+</html>

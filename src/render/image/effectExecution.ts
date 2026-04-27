@@ -1,6 +1,6 @@
 import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
-import { applyFilter2dOnGpuToSurface } from "@/lib/renderer/gpuFilter2dPostProcessing";
-import { blendMaskedCanvasesOnGpuToSurface } from "@/lib/renderer/gpuMaskedCanvasBlend";
+import { applyFilter2dOnSurface } from "@/lib/gpu/passes/post/filter2dAdjust";
+import { applyMaskedBlendOnSurface } from "@/lib/gpu/passes/mask/maskedBlend";
 import { renderImageEffectMaskToCanvas } from "./effectMask";
 import type { ImageEffectNode, ImageRenderDocument } from "./types";
 
@@ -22,7 +22,7 @@ export const applyImageEffects = async ({
     }
 
     if (!effect.maskId) {
-      const nextSurface = await applyFilter2dOnGpuToSurface({
+      const nextSurface = await applyFilter2dOnSurface({
         surface: currentSurface,
         params: effect.params,
         slotId: `filter2d:${effect.id}`,
@@ -44,7 +44,7 @@ export const applyImageEffects = async ({
       throw new Error(`Mask definition ${effect.maskId} missing for effect ${effect.id}`);
     }
 
-    const effectSurface = await applyFilter2dOnGpuToSurface({
+    const effectSurface = await applyFilter2dOnSurface({
       surface: currentSurface,
       params: effect.params,
       slotId: `filter2d:${effect.id}`,
@@ -68,7 +68,7 @@ export const applyImageEffects = async ({
         throw new Error(`Mask rasterization failed for effect ${effect.id}`);
       }
 
-      const blendedSurface = await blendMaskedCanvasesOnGpuToSurface({
+      const blendedSurface = await applyMaskedBlendOnSurface({
         baseCanvas: currentSurface.sourceCanvas,
         layerCanvas: effectSurface.sourceCanvas,
         maskCanvas: renderedMaskCanvas,

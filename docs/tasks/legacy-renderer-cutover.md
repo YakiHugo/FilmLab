@@ -64,6 +64,15 @@
 - Switch `effectExecution.ts` and `stageMaskComposite.ts`. Delete `gpuFilter2dPostProcessing.ts`, `gpuMaskedCanvasBlend.ts`.
 - Validation: pixel parity for one effect-with-mask scenario, ≤ 2/255.
 
+**Slice 3 implementation notes (done):**
+- `src/lib/gpu/wgsl/post/filter2dAdjust.wgsl` (brightness + YIQ hue rotation) + `src/lib/gpu/passes/post/filter2dAdjust.ts` landed; `gpuFilter2dPostProcessing.ts` deleted. The WGSL pass is the brightness/hue port only; the `applyFilter2dOnSurface` adapter composes `filter2dAdjust → utility/gaussianBlur(h+v) → utility/dilate` with the same uniform derivation as the legacy `PipelineRenderer.applyFilter2dSource` (brightnessFactor, hueRadians, blurRadius via `resolveBlurRadiusPx`, dilateRadius via `resolveDilateRadiusPx`). Identity case (no enabled passes) does a direct `readbackTextureRGBA8` of the upload texture, mirroring the WebGL `captureLinearSource → present` round-trip.
+- WGSL `mat3x3<f32>` constructor is column-major (same as GLSL `mat3`); the YIQ ↔ RGB matrices in `filter2dAdjust.wgsl` are listed scalar-for-scalar identical to the GLSL constants.
+- `mask/maskedBlend.ts` now hosts the standalone `applyMaskedBlendOnSurface` and `applyMaskedBlendOnGpu` adapters (uploads base/layer/mask, executes one `MaskedBlend` pass, reads back). The on-Gpu (target-canvas) variant is consumed by `imageProcessing.ts`'s local-adjustment compose paths; the on-Surface variant is consumed by `effectExecution.ts` and `stageMaskComposite.ts`. The legacy `slotId` parameter on `applyMaskedBlendOnGpu` is dropped — it was a WebGL renderer-slot lifecycle hint with no equivalent on the WGSL side.
+- `composeLocalLayer` in `imageProcessing.ts` no longer takes/forwards `gpuBlendSlotId` (caller-side string was never observed inside the deleted callee). Two call-sites pruned to match.
+- `PipelineRenderer.applyFilter2dSource` removed; `ProgramRegistry` drops the `filter2dAdjust` and `dilate` program entries (single consumer was `applyFilter2dSource`); the `Filter2dAdjust.frag` and `Dilate.frag` GLSL files are deleted. `programs.blur` and `programs.maskedBlend` stay alive — the AsciiCarrier (s6) and overlay/local-blend (s5) paths still consume them.
+- `scripts/gpu-smoke/filter2dAdjust.html` covers 7 scenarios (identity, brightness ±, hue ±, combined ±). The deleted `Filter2dAdjust.frag` is inlined into the smoke for the WebGL2 reference; same inlining trick applied to `scripts/gpu-smoke/maskingPost.html` (it referenced `Dilate.frag`).
+- `pnpm tsc --noEmit` clean, `pnpm vitest run` 682/682 pass. `pnpm lint` and `pnpm dead-code` baselines unchanged from main (the lone lint error in `passes/develop/curve.ts` and the s1-leftover `gpuHalftoneCarrier` unresolved import predate this slice).
+
 ### Slice 4 — Effect mask shapes & range gate
 
 - Verify `mask/linearGradient`, `mask/radialGradient`, `mask/brushStamp`, `mask/rangeGate`, `mask/maskInvert` cover the WebGL2 helpers' behavior (especially `renderLocalMaskShapeOnGpuToSurface`'s shape dispatch and `applyLocalMaskRangeOnGpu` two-arg variant).
