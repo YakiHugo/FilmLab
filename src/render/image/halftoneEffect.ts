@@ -1,7 +1,7 @@
 import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
 import {
   applyHalftoneOnSurface,
-  type ApplyHalftoneOnSurfaceInput,
+  type HalftonePassParams,
 } from "@/lib/gpu/passes/carrier/halftone";
 import { clamp } from "@/lib/math";
 import type { RenderQualityTier } from "./qualityTier";
@@ -27,7 +27,7 @@ const prepareHalftoneGpuInput = (
   transform: ImageHalftoneCarrierTransformNode,
   _quality: RenderQualityTier,
   targetSize: ImageRenderTargetSize
-): ApplyHalftoneOnSurfaceInput => {
+): HalftonePassParams => {
   const params = transform.params;
   const bgColor = parseHexColor(params.backgroundColor);
   return {

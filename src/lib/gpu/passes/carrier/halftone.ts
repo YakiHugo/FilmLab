@@ -30,8 +30,8 @@ const halftoneSource = `${fullscreenWgsl}\n${halftoneWgsl}`;
 // 4 vec4 = 64 bytes.
 const UNIFORM_BYTES = 4 * 16;
 
-export type HalftoneShape = "circle" | "diamond" | "line" | "square";
-export type HalftoneColorMode = "mono" | "cmyk" | "rgb";
+type HalftoneShape = "circle" | "diamond" | "line" | "square";
+type HalftoneColorMode = "mono" | "cmyk" | "rgb";
 
 export interface HalftonePassParams {
   canvasWidth: number;
@@ -66,7 +66,7 @@ interface CompiledPipeline {
   bindGroupLayout: GPUBindGroupLayout;
 }
 
-export class HalftonePipelineCache {
+class HalftonePipelineCache {
   private readonly device: GPUDevice;
   private readonly shaders: ShaderCache;
   private readonly byFormat = new Map<GPUTextureFormat, CompiledPipeline>();
@@ -131,20 +131,20 @@ function writeUniforms(device: GPUDevice, buffer: GPUBuffer, p: HalftonePassPara
   device.queue.writeBuffer(buffer, 0, ab);
 }
 
-export interface HalftonePassOptions {
+interface HalftonePassOptions {
   outputFormat: GPUTextureFormat;
   params: HalftonePassParams;
   id?: string;
   enabled?: boolean;
 }
 
-export interface HalftonePassHandle {
+interface HalftonePassHandle {
   descriptor: GPURenderPassDescriptor;
   updateParams: (next: HalftonePassParams) => void;
   destroy: () => void;
 }
 
-export function createHalftonePass(
+function createHalftonePass(
   device: GPUDevice,
   cache: HalftonePipelineCache,
   options: HalftonePassOptions
@@ -201,11 +201,9 @@ const getCache = (device: GPUDevice) => {
 
 const OUTPUT_FORMAT: GPUTextureFormat = "rgba8unorm";
 
-export interface ApplyHalftoneOnSurfaceInput extends HalftonePassParams {}
-
 export interface ApplyHalftoneOnSurfaceOptions {
   surface: RenderSurfaceHandle;
-  input: ApplyHalftoneOnSurfaceInput;
+  input: HalftonePassParams;
   slotId?: string;
   mode?: RenderMode;
 }
@@ -222,12 +220,15 @@ export const applyHalftoneOnSurface = async ({
   const { device } = ctx;
   const { halftone } = getCache(device);
   const pool = new TexturePool(device);
+  let uploadTexture: GPUTexture | null = null;
+  let handle: HalftonePassHandle | null = null;
 
   try {
     const upload = uploadExternalImageToTexture(device, surface.sourceCanvas, {
       format: OUTPUT_FORMAT,
       label: "halftone:source",
     });
+    uploadTexture = upload.texture;
     const srcInput: PipelineInputSource = {
       texture: upload.texture,
       view: upload.texture.createView({ label: "halftone:srcView" }),
@@ -245,7 +246,7 @@ export const applyHalftoneOnSurface = async ({
     });
     const executor = new PipelineExecutor({ device, texturePool: pool, defaultSampler: sampler });
 
-    const handle = createHalftonePass(device, halftone, {
+    handle = createHalftonePass(device, halftone, {
       outputFormat: OUTPUT_FORMAT,
       params: input,
     });
@@ -257,16 +258,10 @@ export const applyHalftoneOnSurface = async ({
       baseHeight: upload.height,
     });
 
-    upload.texture.destroy();
-
-    if (result.kind !== "texture") {
-      handle.destroy();
-      return null;
-    }
+    if (result.kind !== "texture") return null;
 
     const pixels = await readbackTextureRGBA8(device, result.output.texture, upload.width, upload.height);
     result.output.release();
-    handle.destroy();
 
     const canvas = document.createElement("canvas");
     canvas.width = upload.width;
@@ -286,6 +281,8 @@ export const applyHalftoneOnSurface = async ({
       metrics,
     });
   } finally {
+    handle?.destroy();
+    uploadTexture?.destroy();
     pool.dispose();
   }
 };
