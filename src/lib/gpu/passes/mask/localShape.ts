@@ -21,6 +21,7 @@ import {
 } from "../../resources";
 import { ShaderCache } from "../../shaders";
 import { PipelineExecutor, type PipelineInputSource } from "../../pipeline";
+import { createPerDeviceCache } from "../../perDeviceCache";
 import {
   createRenderSurfaceHandle,
   createEmptyRenderBoundaryMetrics,
@@ -51,31 +52,16 @@ import {
 const GPU_BRUSH_MASK_MAX_POINTS = 512;
 const OUTPUT_FORMAT: GPUTextureFormat = "rgba8unorm";
 
-interface DeviceCache {
-  shaders: ShaderCache;
-  linearGradient: LinearGradientPipelineCache;
-  radialGradient: RadialGradientPipelineCache;
-  brushStamp: BrushStampPipelineCache;
-  maskInvert: MaskInvertPipelineCache;
-}
-
-const _cacheByDevice = new WeakMap<GPUDevice, DeviceCache>();
-
-const getCache = (device: GPUDevice): DeviceCache => {
-  let entry = _cacheByDevice.get(device);
-  if (!entry) {
-    const shaders = new ShaderCache(device);
-    entry = {
-      shaders,
-      linearGradient: new LinearGradientPipelineCache(device, shaders),
-      radialGradient: new RadialGradientPipelineCache(device, shaders),
-      brushStamp: new BrushStampPipelineCache(device, shaders),
-      maskInvert: new MaskInvertPipelineCache(device, shaders),
-    };
-    _cacheByDevice.set(device, entry);
-  }
-  return entry;
-};
+const getCache = createPerDeviceCache((device) => {
+  const shaders = new ShaderCache(device);
+  return {
+    shaders,
+    linearGradient: new LinearGradientPipelineCache(device, shaders),
+    radialGradient: new RadialGradientPipelineCache(device, shaders),
+    brushStamp: new BrushStampPipelineCache(device, shaders),
+    maskInvert: new MaskInvertPipelineCache(device, shaders),
+  };
+});
 
 const createTransparent1x1Texture = (device: GPUDevice): GPUTexture => {
   const texture = device.createTexture({
@@ -271,12 +257,6 @@ export const applyLocalMaskShapeOnSurface = async ({
           id: "local-mask-shape-invert",
         })
       );
-    }
-
-    if (passes.length === 0) {
-      // Degenerate fall-through (should be unreachable: brush+empty+!invert
-      // is short-circuited above).
-      return null;
     }
 
     const srcInput: PipelineInputSource = {

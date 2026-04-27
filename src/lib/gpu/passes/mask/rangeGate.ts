@@ -13,6 +13,7 @@ import {
   readbackTextureRGBA8,
 } from "../../resources";
 import { PipelineExecutor, type PipelineInputSource } from "../../pipeline";
+import { createPerDeviceCache } from "../../perDeviceCache";
 import {
   createRenderSurfaceHandle,
   createEmptyRenderBoundaryMetrics,
@@ -169,25 +170,13 @@ export function createRangeGatePass(
 
 // ─── standalone surface op ────────────────────────────────────────────────────
 
-interface DeviceCache {
-  shaders: ShaderCache;
-  rangeGate: RangeGatePipelineCache;
-}
-
-const _cacheByDevice = new WeakMap<GPUDevice, DeviceCache>();
-
-const getCache = (device: GPUDevice): DeviceCache => {
-  let entry = _cacheByDevice.get(device);
-  if (!entry) {
-    const shaders = new ShaderCache(device);
-    entry = {
-      shaders,
-      rangeGate: new RangeGatePipelineCache(device, shaders),
-    };
-    _cacheByDevice.set(device, entry);
-  }
-  return entry;
-};
+const getCache = createPerDeviceCache((device) => {
+  const shaders = new ShaderCache(device);
+  return {
+    shaders,
+    rangeGate: new RangeGatePipelineCache(device, shaders),
+  };
+});
 
 const OUTPUT_FORMAT: GPUTextureFormat = "rgba8unorm";
 

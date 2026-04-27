@@ -15,6 +15,7 @@ import {
 } from "../../resources";
 import { ShaderCache } from "../../shaders";
 import { PipelineExecutor, type PipelineInputSource } from "../../pipeline";
+import { createPerDeviceCache } from "../../perDeviceCache";
 import {
   createRenderSurfaceHandle,
   createEmptyRenderBoundaryMetrics,
@@ -186,18 +187,13 @@ function createHalftonePass(
 
 // ─── standalone surface op ────────────────────────────────────────────────────
 
-const _cacheByDevice = new WeakMap<GPUDevice, { shaders: ShaderCache; halftone: HalftonePipelineCache }>();
-
-const getCache = (device: GPUDevice) => {
-  let entry = _cacheByDevice.get(device);
-  if (!entry) {
-    const shaders = new ShaderCache(device);
-    const halftone = new HalftonePipelineCache(device, shaders);
-    entry = { shaders, halftone };
-    _cacheByDevice.set(device, entry);
-  }
-  return entry;
-};
+const getCache = createPerDeviceCache((device) => {
+  const shaders = new ShaderCache(device);
+  return {
+    shaders,
+    halftone: new HalftonePipelineCache(device, shaders),
+  };
+});
 
 const OUTPUT_FORMAT: GPUTextureFormat = "rgba8unorm";
 

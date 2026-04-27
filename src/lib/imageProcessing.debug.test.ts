@@ -193,10 +193,6 @@ vi.mock("@/lib/renderer/RenderManager", () => {
       return Reflect.apply(borrowCapturedLinearResultMock, this, []);
     }
 
-    applyLocalMaskRangeGateSource() {
-      return true;
-    }
-
     blendLinearWithMask(...args: unknown[]) {
       return Reflect.apply(blendLinearWithMaskMock, this, args);
     }

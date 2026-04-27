@@ -13,6 +13,7 @@ import {
 } from "../../resources";
 import { ShaderCache } from "../../shaders";
 import { PipelineExecutor, type PipelineInputSource } from "../../pipeline";
+import { createPerDeviceCache } from "../../perDeviceCache";
 import {
   createRenderSurfaceHandle,
   createEmptyRenderBoundaryMetrics,
@@ -160,29 +161,15 @@ function createFilter2dAdjustPass(
 
 // ─── standalone surface op ────────────────────────────────────────────────────
 
-interface DeviceCache {
-  shaders: ShaderCache;
-  filter2dAdjust: Filter2dAdjustPipelineCache;
-  gaussianBlur: GaussianBlurPipelineCache;
-  dilate: DilatePipelineCache;
-}
-
-const _cacheByDevice = new WeakMap<GPUDevice, DeviceCache>();
-
-const getCache = (device: GPUDevice): DeviceCache => {
-  let entry = _cacheByDevice.get(device);
-  if (!entry) {
-    const shaders = new ShaderCache(device);
-    entry = {
-      shaders,
-      filter2dAdjust: new Filter2dAdjustPipelineCache(device, shaders),
-      gaussianBlur: new GaussianBlurPipelineCache(device, shaders),
-      dilate: new DilatePipelineCache(device, shaders),
-    };
-    _cacheByDevice.set(device, entry);
-  }
-  return entry;
-};
+const getCache = createPerDeviceCache((device) => {
+  const shaders = new ShaderCache(device);
+  return {
+    shaders,
+    filter2dAdjust: new Filter2dAdjustPipelineCache(device, shaders),
+    gaussianBlur: new GaussianBlurPipelineCache(device, shaders),
+    dilate: new DilatePipelineCache(device, shaders),
+  };
+});
 
 const OUTPUT_FORMAT: GPUTextureFormat = "rgba8unorm";
 
