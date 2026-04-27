@@ -1,0 +1,41 @@
+{
+  "task": "legacy-renderer-cutover",
+  "status": "pending",
+  "slices": {
+    "s1-halftone-carrier": {
+      "status": "pending",
+      "blockedBy": [],
+      "passes": "HalftoneCarrier.frag → WGSL pass; halftoneEffect.ts switched; gpuHalftoneCarrier.ts deleted; pixel parity vs WebGL2 ≤ 2/255 on mono/CMYK/RGB × circle/diamond/line/square fixtures"
+    },
+    "s2-channel-drift": {
+      "status": "pending",
+      "blockedBy": [],
+      "passes": "ChannelDrift.frag → WGSL pass; signalDamageExecution.ts switched; gpuSignalDamage.ts deleted; pixel parity ≤ 2/255 on per-channel offset fixtures"
+    },
+    "s3-effect-filter2d": {
+      "status": "pending",
+      "blockedBy": [],
+      "passes": "Filter2dAdjust.frag → WGSL pass; effectExecution.ts and stageMaskComposite.ts switched (using mask/maskedBlend); gpuFilter2dPostProcessing.ts and gpuMaskedCanvasBlend.ts deleted; pixel parity ≤ 2/255"
+    },
+    "s4-effect-mask": {
+      "status": "pending",
+      "blockedBy": [],
+      "passes": "effectMask.ts switched to existing mask/{linearGradient,radialGradient,brushStamp,rangeGate,maskInvert} passes; gpuLocalMaskShape.ts and gpuLocalMaskRangeGate.ts deleted; pixel parity ≤ 2/255 on linear/radial/brush/range fixtures"
+    },
+    "s5-overlay": {
+      "status": "pending",
+      "blockedBy": [],
+      "passes": "TimestampOverlay.frag → WGSL pass; overlayExecution.ts switched (canvas blend via mask/maskedBlend); gpuTimestampOverlay.ts and gpuCanvasLayerBlend.ts deleted; pixel parity ≤ 2/255 on timestamp/caption/watermark"
+    },
+    "s6-ascii-wiring": {
+      "status": "pending",
+      "blockedBy": [],
+      "passes": "ASCII composition pass extended to cover dual-layer (bg blur), dot mode, full-color/duotone, grid overlay; asciiEffect.ts wired to passes/carrier/ascii/ pipeline (descriptors→analysis→selection→composition); gpuAsciiCarrier.ts deleted; CPU tone computation removed from asciiEffect.ts; visual parity vs current production ASCII ≤ 4/255 on representative fixtures"
+    },
+    "s7-delete-legacy": {
+      "status": "pending",
+      "blockedBy": ["s1-halftone-carrier", "s2-channel-drift", "s3-effect-filter2d", "s4-effect-mask", "s5-overlay", "s6-ascii-wiring"],
+      "passes": "src/lib/renderer/ removed; twgl.js removed from package.json + lockfile; docs/decisions.md Backend note cleared; render-kernel-webgpu-rewrite s7 marked done and that task pair deleted; tsc/lint/vitest/dead-code all clean; no WebGL/twgl/.frag/.vert/.glsl references in src/"
+    }
+  }
+}
