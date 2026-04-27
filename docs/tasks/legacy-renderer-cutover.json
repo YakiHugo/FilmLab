@@ -3,7 +3,7 @@
   "status": "pending",
   "slices": {
     "s1-halftone-carrier": {
-      "status": "pending",
+      "status": "in_progress",
       "blockedBy": [],
       "passes": "HalftoneCarrier.frag → WGSL pass; halftoneEffect.ts switched; gpuHalftoneCarrier.ts deleted; pixel parity vs WebGL2 ≤ 2/255 on mono/CMYK/RGB × circle/diamond/line/square fixtures"
     },
