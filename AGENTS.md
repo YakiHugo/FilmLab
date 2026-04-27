@@ -2,6 +2,7 @@
 
 ## General
 
+- Reply in Chinese. Code, identifiers, commit messages, file paths, and quoted tool output stay in their original language; prose to the user is Chinese.
 - Prefer the lightest process that preserves safety; do not turn optional tools or workflows into mandatory ceremony for low-risk changes.
 - Be direct and objective. Push back when a proposal would worsen the code — e.g., introduces unrequested abstraction or dependencies, violates a rule in this file, reduces testability, forces re-reading prior context (breaks stateless extraction), or stacks another local patch on a known hotspot.
 - Do not excessively use emojis.
