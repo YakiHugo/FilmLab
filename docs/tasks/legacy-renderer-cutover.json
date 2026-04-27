@@ -23,7 +23,7 @@
       "passes": "passes/mask/localShape.ts adapter composes existing linearGradient/radialGradient/brushStamp/maskInvert passes; passes/mask/rangeGate.ts gained applyLocalMaskRangeOnSurface + applyLocalMaskRangeOnCanvas adapters; effectMask.ts and imageProcessing.ts switched; gpuLocalMaskShape.ts, gpuLocalMaskRangeGate.ts, PipelineRenderer.{renderLocalMaskShape,applyLocalMaskRangeGateSource,GPU_BRUSH_MASK_MAX_POINTS,clamp/PipelinePass imports}, ProgramRegistry.{linearGradientMask,radialGradientMask,localMaskRangeGate,brushMaskStamp,maskInvert}, .frag shader files (5), and PipelineRenderer.localMaskShape.test.ts deleted; scripts/gpu-smoke/maskingPost.html inlines deleted GLSL for WebGL2 reference; pnpm tsc --noEmit clean; pnpm vitest run 674/674 pass; pnpm dead-code totals match baseline; real-GPU run pending on user hardware"
     },
     "s5-overlay": {
-      "status": "pending",
+      "status": "in_progress",
       "blockedBy": [],
       "passes": "TimestampOverlay.frag → WGSL pass; overlayExecution.ts switched (canvas blend via mask/maskedBlend); gpuTimestampOverlay.ts and gpuCanvasLayerBlend.ts deleted; pixel parity ≤ 2/255 on timestamp/caption/watermark"
     },
