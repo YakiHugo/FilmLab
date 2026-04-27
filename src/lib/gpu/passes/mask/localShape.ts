@@ -1,16 +1,3 @@
-/**
- * Local mask shape — composes existing mask passes (linearGradient,
- * radialGradient, brushStamp, maskInvert) into a single
- * `RenderSurfaceHandle`. This is the WGSL replacement for the legacy
- * WebGL `PipelineRenderer.renderLocalMaskShape`.
- *
- * The brush variant chains one stamp pass per dab; gradient variants run
- * a single pass. An optional `maskInvert` is appended when `mask.invert`
- * is set. The 512-point upper bound on brush masks is preserved — past
- * that, the adapter returns `null` so callers can fall back to CPU
- * drawing (effectMask.ts / imageProcessing.ts both rely on this).
- */
-
 import type { GPURenderPassDescriptor } from "../types";
 import type { LocalAdjustmentMask } from "@/types";
 import { clamp } from "@/lib/math";
@@ -127,11 +114,12 @@ export const applyLocalMaskShapeOnSurface = async ({
   const fullWidth = Math.max(1, Math.round(rawFullWidth ?? targetWidth));
   const fullHeight = Math.max(1, Math.round(rawFullHeight ?? targetHeight));
 
+  // Caller contract: `null` means "decline GPU path, fall back to CPU draw".
+  // effectMask.ts / imageProcessing.ts both rely on this for oversized brushes.
   if (mask.mode === "brush" && mask.points.length > GPU_BRUSH_MASK_MAX_POINTS) {
     return null;
   }
 
-  // Empty-brush + non-invert is a transparent canvas — no GPU work needed.
   if (
     mask.mode === "brush" &&
     mask.points.length === 0 &&
@@ -217,9 +205,7 @@ export const applyLocalMaskShapeOnSurface = async ({
               start: [startX, startY],
               end: [endX, endY],
               feather: clamp(mask.feather, 0, 1),
-              // Invert is folded into a trailing maskInvert pass below to
-              // mirror the legacy renderer's pass ordering (gradient → invert),
-              // so the gradient pass itself always emits the un-inverted mask.
+              // Invert is handled by the trailing maskInvert pass below.
               invert: false,
             },
             id: "local-mask-shape-linear",
