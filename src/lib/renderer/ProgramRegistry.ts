@@ -26,13 +26,7 @@ import bilateralScaleFragSrc from "./shaders/BilateralScale.frag?raw";
 import reconstructFragSrc from "./shaders/Reconstruct.frag?raw";
 import outputEncodeFragSrc from "./shaders/OutputEncode.frag?raw";
 import layerBlendFragSrc from "./shaders/LayerBlend.frag?raw";
-import asciiCarrierFragRaw from "./shaders/AsciiCarrier.frag?raw";
-import asciiCommonGlsl from "./shaders/templates/asciiCommon.glsl?raw";
 import halftoneCarrierFragSrc from "./shaders/HalftoneCarrier.frag?raw";
-
-const ASCII_COMMON_MARKER = "// #ASCII_COMMON#";
-const injectAsciiCommon = (source: string) => source.replace(ASCII_COMMON_MARKER, asciiCommonGlsl);
-const asciiCarrierFragSrc = injectAsciiCommon(asciiCarrierFragRaw);
 
 export interface RendererPrograms {
   passthrough: ProgramInfo;
@@ -58,7 +52,6 @@ export interface RendererPrograms {
   reconstruct: ProgramInfo;
   outputEncode: ProgramInfo;
   maskedBlend: ProgramInfo;
-  asciiCarrier: ProgramInfo;
   halftoneCarrier: ProgramInfo;
 }
 
@@ -88,7 +81,6 @@ const PROGRAM_FRAGMENTS: Record<ProgramName, string> = {
   reconstruct: reconstructFragSrc,
   outputEncode: outputEncodeFragSrc,
   maskedBlend: layerBlendFragSrc,
-  asciiCarrier: asciiCarrierFragSrc,
   halftoneCarrier: halftoneCarrierFragSrc,
 };
 
@@ -111,7 +103,6 @@ export const DEFERRED_WARMUP_PROGRAMS: readonly ProgramName[] = [
   "filmColorLutUber",
   "filmPrintUber",
   "filmEffectsUber",
-  "asciiCarrier",
   "halftoneCarrier",
 ];
 

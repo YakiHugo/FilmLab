@@ -15,21 +15,6 @@ describe("ProgramRegistry", () => {
     createProgramInfoMock.mockClear();
   });
 
-  it("registers the direct ascii-carrier shader lazily", () => {
-    const fakeGl = {} as WebGL2RenderingContext;
-    const programs = createPrograms(fakeGl);
-
-    createProgramInfoMock.mockClear();
-
-    void programs.asciiCarrier;
-
-    expect(createProgramInfoMock).toHaveBeenCalledTimes(1);
-    const asciiSources = (createProgramInfoMock.mock.calls as unknown[][])[0]![1] as string[];
-    expect(asciiSources[1]).toContain("u_colorMode");
-    expect(asciiSources[1]).toContain("sampleCellTone");
-    expect(asciiSources[1]).toContain("u_cellBackgroundColor");
-  });
-
   describe("uniform alignment self-check", () => {
     beforeEach(() => {
       clearGlErrorRing();
