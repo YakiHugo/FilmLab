@@ -18,7 +18,7 @@
       "passes": "Filter2dAdjust.frag → WGSL pass + applyFilter2dOnSurface adapter (composes adjust → blur → dilate via existing utility passes); applyMaskedBlendOnSurface + applyMaskedBlendOnGpu adapters added to mask/maskedBlend.ts; effectExecution.ts, stageMaskComposite.ts, imageProcessing.ts switched; gpuFilter2dPostProcessing.ts, gpuMaskedCanvasBlend.ts, Filter2dAdjust.frag, Dilate.frag deleted; PipelineRenderer.applyFilter2dSource removed and ProgramRegistry.{filter2dAdjust,dilate} pruned; pnpm tsc --noEmit clean; pnpm vitest run 682/682; smoke harness scripts/gpu-smoke/filter2dAdjust.html landed (7 scenarios across identity/brightness±/hue±/combined); real-GPU run pending on user hardware"
     },
     "s4-effect-mask": {
-      "status": "pending",
+      "status": "in_progress",
       "blockedBy": [],
       "passes": "effectMask.ts switched to existing mask/{linearGradient,radialGradient,brushStamp,rangeGate,maskInvert} passes; gpuLocalMaskShape.ts and gpuLocalMaskRangeGate.ts deleted; pixel parity ≤ 2/255 on linear/radial/brush/range fixtures"
     },
