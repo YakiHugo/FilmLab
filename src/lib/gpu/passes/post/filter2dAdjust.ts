@@ -1,8 +1,7 @@
 /**
- * Filter2D post-processing — port of `shaders/Filter2dAdjust.frag` (brightness +
- * hue rotation in YIQ). The `applyFilter2dOnSurface` adapter composes
- * adjust → blur(h) → blur(v) → dilate, mirroring the legacy WebGL pipeline.
- * Used directly by `effectExecution.ts`; not currently composed into the kernel.
+ * Filter2D post-processing — port of `shaders/Filter2dAdjust.frag`. The WGSL
+ * pass below is brightness + hue only; `applyFilter2dOnSurface` composes
+ * adjust → blur(h) → blur(v) → dilate via the existing utility passes.
  */
 
 import type { GPURenderPassBindContext, GPURenderPassDescriptor } from "../types";
@@ -285,8 +284,6 @@ export const applyFilter2dOnSurface = async ({
 
     let outputPixels: Uint8Array | null = null;
     if (passes.length === 0) {
-      // Identity passthrough — read back the upload directly, matching the
-      // WebGL captureLinearSource → present round-trip.
       outputPixels = await readbackTextureRGBA8(
         device,
         upload.texture,

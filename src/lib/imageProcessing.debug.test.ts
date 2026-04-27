@@ -1210,11 +1210,14 @@ describe("imageProcessing debug trace", () => {
       },
     });
 
-    expect(applyMaskedBlendOnGpuMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        targetCanvas: expect.any(MockCanvasElement),
-      })
-    );
+    expect(applyMaskedBlendOnGpuMock).toHaveBeenCalledTimes(1);
+    const blendArgs = applyMaskedBlendOnGpuMock.mock.calls[0]?.[0] as {
+      baseCanvas: HTMLCanvasElement;
+      targetCanvas: HTMLCanvasElement;
+    };
+    expect(blendArgs.targetCanvas).not.toBe(output);
+    expect(blendArgs.baseCanvas).not.toBe(output);
+    expect(blendArgs.targetCanvas).toBe(blendArgs.baseCanvas);
     const roiClears = (output as unknown as MockCanvasElement).context2d.clearRect.mock.calls.filter(
       (args: unknown[]) => args[0] === 16 && args[1] === 16 && args[2] === 32 && args[3] === 32
     );

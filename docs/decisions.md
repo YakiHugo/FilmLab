@@ -56,6 +56,12 @@
 - GPU-first：masked stage blend、filter2d、local-mask range gating、local-adjustment output composition、linear/radial mask shapes。
 - CPU permanent：brush-mask 超上限 + renderer-unavailable（context lost / destroyed）。
 
+### WGSL surface-adapter 中间格式
+- `applyFilter2dOnSurface`、`applyHalftoneOnSurface`、`applyChannelDriftOnSurface`、`applyMaskedBlendOnSurface` 全部用 `rgba8unorm` 作为 ping-pong 与 readback 格式。
+- 旧 `PipelineRenderer.applyFilter2dSource` 在 device 支持时用 `RGBA16F` intermediate；新链 `adjust → blur(h) → blur(v) → dilate` 在每次写入都量化到 8-bit。理论上极端组合（高 blur radius × `brightness >> 1`）下与旧 16F 路径偏差可达 ~3–4/255。
+- 当前 smoke harness 自身用 8-bit GLSL reference，所以 ≤ 2/255 gate 仍然成立；这是 vs WebGL2 production 的潜在 divergence，不是 vs validated baseline 的 regression。
+- Revisit：若 carrier / overlay 链未来出现可见 banding 或 export 端 16-bit pipeline 接入，再统一切到 `rgba16float`（需要 device feature gate）。
+
 ## 服务端 AI 管线
 
 ### 模块边界
