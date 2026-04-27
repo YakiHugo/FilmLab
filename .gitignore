@@ -85,3 +85,7 @@ refs/**
 *.pid
 *.seed
 *.pid.lock
+
+# Crash dumps
+core
+core.*
