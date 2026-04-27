@@ -1,10 +1,20 @@
 /**
- * ASCII composition render pass (Slice 1 — foreground glyph rendering only).
+ * ASCII composition render pass — full feature parity with the legacy
+ * AsciiCarrier.frag (background + foreground layers, glyph/dot modes,
+ * grayscale/full-color/duotone, grid overlay, alpha cutoff).
  *
- * Wraps `wgsl/carrier/ascii/composition.wgsl`. Reads the per-cell selection
- * buffer + glyph atlas texture and stamps each cell with its selected glyph.
- * Background layer / dot mode / color modes / grid overlay are deferred to
- * Slice 6 — see the WGSL header.
+ * Wraps `wgsl/carrier/ascii/composition.wgsl`. Bindings:
+ *   0 atlasTex          (foreground glyph atlas)
+ *   1 atlasSampler      (also used to sample bgSourceTex)
+ *   2 uniforms
+ *   3 selection         (per-cell glyph index from selection.wgsl)
+ *   4 cellColor         (per-cell averaged RGBA from analysis.wgsl)
+ *   5 cellTone          (per-cell normalized tone from toneNormalize.wgsl)
+ *   6 bgSourceTex       (blurred-source bg layer, or 1×1 placeholder)
+ *
+ * The orchestrator (asciiCarrier surface adapter) calls `createPass` twice
+ * per frame — once with `layerMode=0` and once with `layerMode=1` — feeding
+ * each output through `utility/layerBlend` to produce the final composite.
  */
 
 import type { ShaderCache } from "../../../shaders";
@@ -17,11 +27,28 @@ interface CompiledPipeline {
   bindGroupLayout: GPUBindGroupLayout;
 }
 
-// WGSL struct natural size: 4×vec2<f32> (32 B) + 2×f32 (8 B) = 40 B,
-// 8-byte aligned. The buffer-side allocation matches.
-export const COMPOSITION_UNIFORMS_BYTE_SIZE = 40;
+// 8 vec4 = 128 bytes.
+export const COMPOSITION_UNIFORMS_BYTE_SIZE = 128;
 
-export function packCompositionUniforms(values: {
+export type AsciiLayerMode = "background" | "foreground";
+export type AsciiRenderMode = "glyph" | "dot";
+export type AsciiColorMode = "grayscale" | "full-color" | "duotone";
+
+const LAYER_MODE_INDEX: Record<AsciiLayerMode, number> = {
+  background: 0,
+  foreground: 1,
+};
+const RENDER_MODE_INDEX: Record<AsciiRenderMode, number> = {
+  glyph: 0,
+  dot: 1,
+};
+const COLOR_MODE_INDEX: Record<AsciiColorMode, number> = {
+  grayscale: 0,
+  "full-color": 1,
+  duotone: 2,
+};
+
+export interface PackCompositionUniformsOptions {
   canvasWidth: number;
   canvasHeight: number;
   gridColumns: number;
@@ -30,19 +57,68 @@ export function packCompositionUniforms(values: {
   cellHeight: number;
   atlasColumns: number;
   atlasRows: number;
+  glyphCount: number;
+  layerMode: AsciiLayerMode;
+  renderMode: AsciiRenderMode;
+  colorMode: AsciiColorMode;
+  invert: boolean;
   foregroundOpacity: number;
-}): ArrayBuffer {
+  backgroundOpacity: number;
+  gridOverlayAlpha: number;
+  /** [r, g, b, a] in 0..1 — already includes the chosen background opacity. */
+  backgroundFill: readonly [number, number, number, number];
+  cellBackground: readonly [number, number, number, number];
+  duotoneShadow: readonly [number, number, number, number];
+  useBackgroundCanvas: boolean;
+  useBackgroundFill: boolean;
+  useCellBackground: boolean;
+  gridOverlay: boolean;
+}
+
+export function packCompositionUniforms(values: PackCompositionUniformsOptions): ArrayBuffer {
   const buffer = new ArrayBuffer(COMPOSITION_UNIFORMS_BYTE_SIZE);
   const f = new Float32Array(buffer);
+  const u = new Uint32Array(buffer);
+  // canvasGrid (vec4)
   f[0] = values.canvasWidth;
   f[1] = values.canvasHeight;
   f[2] = values.gridColumns;
   f[3] = values.gridRows;
+  // cellAtlas (vec4)
   f[4] = values.cellWidth;
   f[5] = values.cellHeight;
   f[6] = values.atlasColumns;
   f[7] = values.atlasRows;
-  f[8] = Math.min(1, Math.max(0, values.foregroundOpacity));
+  // backgroundFill (vec4)
+  f[8] = values.backgroundFill[0];
+  f[9] = values.backgroundFill[1];
+  f[10] = values.backgroundFill[2];
+  f[11] = values.backgroundFill[3];
+  // cellBackground (vec4)
+  f[12] = values.cellBackground[0];
+  f[13] = values.cellBackground[1];
+  f[14] = values.cellBackground[2];
+  f[15] = values.cellBackground[3];
+  // duotoneShadow (vec4)
+  f[16] = values.duotoneShadow[0];
+  f[17] = values.duotoneShadow[1];
+  f[18] = values.duotoneShadow[2];
+  f[19] = values.duotoneShadow[3];
+  // scalars (vec4): glyphCount, fgOpacity, bgOpacity, gridOverlayAlpha
+  f[20] = values.glyphCount;
+  f[21] = Math.min(1, Math.max(0, values.foregroundOpacity));
+  f[22] = Math.min(1, Math.max(0, values.backgroundOpacity));
+  f[23] = Math.min(1, Math.max(0, values.gridOverlayAlpha));
+  // modes (vec4<u32>): layerMode, renderMode, colorMode, invert
+  u[24] = LAYER_MODE_INDEX[values.layerMode];
+  u[25] = RENDER_MODE_INDEX[values.renderMode];
+  u[26] = COLOR_MODE_INDEX[values.colorMode];
+  u[27] = values.invert ? 1 : 0;
+  // bgFlags (vec4<u32>): useBackgroundCanvas, useBackgroundFill, useCellBackground, gridOverlay
+  u[28] = values.useBackgroundCanvas ? 1 : 0;
+  u[29] = values.useBackgroundFill ? 1 : 0;
+  u[30] = values.useCellBackground ? 1 : 0;
+  u[31] = values.gridOverlay ? 1 : 0;
   return buffer;
 }
 
@@ -52,6 +128,9 @@ export interface CreateAsciiCompositionPassOptions {
   atlasSampler: GPUSampler;
   uniformsBuffer: GPUBuffer;
   selectionBuffer: GPUBuffer;
+  cellColorBuffer: GPUBuffer;
+  cellToneBuffer: GPUBuffer;
+  bgSourceView: GPUTextureView;
   id?: string;
   enabled?: boolean;
   resolution?: number;
@@ -69,9 +148,9 @@ export class AsciiCompositionPipelineCache {
 
   createPass(options: CreateAsciiCompositionPassOptions): GPURenderPassDescriptor {
     const { pipeline, bindGroupLayout } = this.pipelineFor(options.outputFormat);
-    // Bake the bind group at factory time — none of the bound resources
-    // change per frame, so the executor's `bindGroups(ctx)` callback returns
-    // a constant array.
+    // Bake the bind group at factory time — bound resources do not change
+    // per frame for a given dispatch (background and foreground layers each
+    // get their own pass instance + uniform buffer).
     const bindGroup = this.device.createBindGroup({
       label: "ascii.composition.bindGroup",
       layout: bindGroupLayout,
@@ -80,6 +159,9 @@ export class AsciiCompositionPipelineCache {
         { binding: 1, resource: options.atlasSampler },
         { binding: 2, resource: { buffer: options.uniformsBuffer } },
         { binding: 3, resource: { buffer: options.selectionBuffer } },
+        { binding: 4, resource: { buffer: options.cellColorBuffer } },
+        { binding: 5, resource: { buffer: options.cellToneBuffer } },
+        { binding: 6, resource: options.bgSourceView },
       ],
     });
     const groups = [bindGroup] as const;
@@ -121,6 +203,21 @@ export class AsciiCompositionPipelineCache {
           binding: 3,
           visibility: GPUShaderStage.FRAGMENT,
           buffer: { type: "read-only-storage" },
+        },
+        {
+          binding: 4,
+          visibility: GPUShaderStage.FRAGMENT,
+          buffer: { type: "read-only-storage" },
+        },
+        {
+          binding: 5,
+          visibility: GPUShaderStage.FRAGMENT,
+          buffer: { type: "read-only-storage" },
+        },
+        {
+          binding: 6,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: "float", viewDimension: "2d" },
         },
       ],
     });
