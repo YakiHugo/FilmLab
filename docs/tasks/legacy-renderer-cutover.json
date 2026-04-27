@@ -8,9 +8,9 @@
       "passes": "HalftoneCarrier.frag → WGSL pass + applyHalftoneOnSurface adapter; halftoneEffect.ts switched; gpuHalftoneCarrier.ts deleted; pnpm tsc clean; pnpm vitest run 682/682; smoke harness scripts/gpu-smoke/halftone.html landed (9 scenarios across mono/cmyk/rgb × shape/invert/bg-opacity); real-GPU run pending on user hardware"
     },
     "s2-channel-drift": {
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": [],
-      "passes": "ChannelDrift.frag → WGSL pass; signalDamageExecution.ts switched; gpuSignalDamage.ts deleted; pixel parity ≤ 2/255 on per-channel offset fixtures"
+      "passes": "ChannelDrift.frag → WGSL pass + applyChannelDriftOnSurface adapter; signalDamageExecution.ts switched; gpuSignalDamage.ts + shaders/ChannelDrift.frag deleted; channelDrift program entry pruned from ProgramRegistry + renderChannelDriftComposite removed from PipelineRenderer; pnpm tsc clean; pnpm vitest run 682/682; smoke harness scripts/gpu-smoke/channelDrift.html landed (6 scenarios across pos/neg/asymmetric/diagonal/zero-intensity/zero-offset); real-GPU run pending on user hardware"
     },
     "s3-effect-filter2d": {
       "status": "pending",

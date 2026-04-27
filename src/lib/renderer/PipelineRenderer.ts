@@ -49,7 +49,6 @@ import type { EditorLayerBlendMode, EditorLayerMask } from "@/types";
 import type { LocalAdjustmentMask } from "@/types";
 import type { AsciiCarrierGpuInput } from "./gpuAsciiCarrier";
 import type { HalftoneCarrierGpuInput } from "./gpuHalftoneCarrier";
-import type { ChannelDriftGpuInput } from "./gpuSignalDamage";
 import type {
   CurveUniforms,
   DetailUniforms,
@@ -1877,73 +1876,6 @@ export class PipelineRenderer {
         reportGlError({
           op: "drawArrays",
           passId: "halftone-carrier-composite",
-          rendererLabel: this.rendererLabel,
-          cause: error,
-        });
-      }
-      return false;
-    }
-  }
-
-  renderChannelDriftComposite(options: {
-    baseCanvas: HTMLCanvasElement;
-    damage: ChannelDriftGpuInput;
-  }): boolean {
-    if (this.destroyed || this.contextLost) {
-      return false;
-    }
-
-    try {
-      const source = this.captureLinearSource(
-        options.baseCanvas,
-        options.baseCanvas.width,
-        options.baseCanvas.height,
-        options.baseCanvas.width,
-        options.baseCanvas.height,
-        { decodeSrgb: false }
-      );
-
-      try {
-        const result = this.filterPipeline.runToTexture({
-          baseWidth: options.damage.width,
-          baseHeight: options.damage.height,
-          passes: [
-            {
-              id: "channel-drift",
-              programInfo: this.programs.channelDrift,
-              uniforms: {
-                u_canvasSize: new Float32Array([options.damage.width, options.damage.height]),
-                u_redOffset: new Float32Array([options.damage.redOffsetX, options.damage.redOffsetY]),
-                u_greenOffset: new Float32Array([options.damage.greenOffsetX, options.damage.greenOffsetY]),
-                u_blueOffset: new Float32Array([options.damage.blueOffsetX, options.damage.blueOffsetY]),
-                u_intensity: options.damage.intensity,
-              },
-              outputFormat: "RGBA8",
-              enabled: true,
-            },
-          ],
-          input: {
-            texture: source.texture,
-            width: source.width,
-            height: source.height,
-            format: source.format,
-          },
-        });
-
-        this.presentTextureResult(result, {
-          inputLinear: false,
-          enableDither: false,
-        });
-        result.release();
-        return true;
-      } finally {
-        source.release();
-      }
-    } catch (error) {
-      if (!this.contextLost) {
-        reportGlError({
-          op: "drawArrays",
-          passId: "channel-drift-composite",
           rendererLabel: this.rendererLabel,
           cause: error,
         });

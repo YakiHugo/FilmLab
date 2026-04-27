@@ -49,6 +49,14 @@
 - Switch `signalDamageExecution.ts`. Delete `gpuSignalDamage.ts`.
 - Validation: pixel parity on per-channel offset fixtures, ≤ 2/255.
 
+**Slice 2 implementation notes (done):**
+- `src/lib/gpu/wgsl/signalDamage/channelDrift.wgsl` + `src/lib/gpu/passes/signalDamage/channelDrift.ts` landed; `gpuSignalDamage.ts` and `shaders/ChannelDrift.frag` deleted. The single-file shape mirrors slice 1's halftone: `ChannelDriftPipelineCache` + `createChannelDriftPass` for the orchestrator-shape composition path, plus the standalone surface op `applyChannelDriftOnSurface` for direct consumer use.
+- The legacy `ChannelDriftGpuInput.{width,height}` rename to `ChannelDriftPassParams.{canvasWidth,canvasHeight}` lines up with the existing halftone naming convention and is the only consumer-visible field rename in `signalDamageExecution.ts`.
+- Uniform layout: 3 vec4 = 48 bytes. Packs `(canvasW, canvasH, intensity, _) | (redX, redY, greenX, greenY) | (blueX, blueY, _, _)`.
+- ProgramRegistry pruning: `channelDrift` program entry removed (frag import + interface + `PROGRAM_FRAGMENTS` row + `DEFERRED_WARMUP_PROGRAMS` entry). PipelineRenderer drops `renderChannelDriftComposite` and the `ChannelDriftGpuInput` import.
+- Validation harness `scripts/gpu-smoke/channelDrift.html` covers 6 scenarios (positive symmetric, negative symmetric, asymmetric, diagonal, zero-intensity, zero-offsets). The original GLSL is inlined into the smoke harness for the WebGL2 reference path since the `.frag` file is gone.
+- `pnpm tsc --noEmit` clean, `pnpm vitest run` 682/682 pass. Pre-existing s1-leftover dangling import `import type { HalftoneCarrierGpuInput } from "./gpuHalftoneCarrier"` in `PipelineRenderer.ts:51` is unaffected by s2 — surfaced only under `pnpm tsc --build --force` and tracked under s1's review chain, not this slice.
+
 ### Slice 3 — Effect filter2d + masked composites
 
 - Port `Filter2dAdjust.frag` to `src/lib/gpu/wgsl/post/filter2dAdjust.wgsl`. New `passes/post/filter2dAdjust.ts`.

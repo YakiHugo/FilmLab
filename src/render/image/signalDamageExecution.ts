@@ -1,8 +1,8 @@
 import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
 import {
-  applyChannelDriftOnGpuToSurface,
-  type ChannelDriftGpuInput,
-} from "@/lib/renderer/gpuSignalDamage";
+  applyChannelDriftOnSurface,
+  type ChannelDriftPassParams,
+} from "@/lib/gpu/passes/signalDamage/channelDrift";
 import { clamp } from "@/lib/math";
 import { applyMaskedStageOperationToSurfaceIfSupported } from "./stageMaskComposite";
 import type {
@@ -17,11 +17,11 @@ const prepareChannelDriftGpuInput = (
   node: ImageChannelDriftDamageNode,
   width: number,
   height: number
-): ChannelDriftGpuInput => {
+): ChannelDriftPassParams => {
   const params = node.params;
   return {
-    width,
-    height,
+    canvasWidth: width,
+    canvasHeight: height,
     redOffsetX: clamp(params.redOffsetX, -100, 100),
     redOffsetY: clamp(params.redOffsetY, -100, 100),
     greenOffsetX: clamp(params.greenOffsetX, -100, 100),
@@ -44,7 +44,7 @@ const applyChannelDrift = async ({
     baseSurface.width,
     baseSurface.height
   );
-  return applyChannelDriftOnGpuToSurface({
+  return applyChannelDriftOnSurface({
     surface: baseSurface,
     input,
     slotId: CHANNEL_DRIFT_SLOT_ID,
