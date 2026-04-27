@@ -1,11 +1,14 @@
 /**
  * Per-cell glyph-selection compute pass.
  *
- * Wraps `wgsl/carrier/ascii/selection.wgsl`. Reads per-cell features and
- * glyph descriptors, writes one `u32` glyph index per cell.
+ * Wraps `wgsl/carrier/ascii/selection.wgsl`. Reads per-cell features +
+ * cellTone (post-normalization) and glyph descriptors, writes one `u32`
+ * glyph index per cell.
  *
  * `structureWeight` blends density-only (0) and structure-only (1) matching;
- * see the WGSL header for the distance formula.
+ * the density component compares `cellTone[i]` against `glyph.density` so a
+ * density-sorted charset reproduces the legacy `idx = round(tone * (n-1))`
+ * mapping.
  */
 
 import type { ShaderCache } from "../../../shaders";
@@ -42,6 +45,7 @@ export interface CreateAsciiSelectionPassOptions {
   glyphsBuffer: GPUBuffer;
   selectionBuffer: GPUBuffer;
   uniformsBuffer: GPUBuffer;
+  cellToneBuffer: GPUBuffer;
   cellCount: number;
   id?: string;
   enabled?: boolean;
@@ -67,6 +71,7 @@ export class AsciiSelectionPipelineCache {
         { binding: 1, resource: { buffer: options.glyphsBuffer } },
         { binding: 2, resource: { buffer: options.selectionBuffer } },
         { binding: 3, resource: { buffer: options.uniformsBuffer } },
+        { binding: 4, resource: { buffer: options.cellToneBuffer } },
       ],
     });
     return {
@@ -104,6 +109,11 @@ export class AsciiSelectionPipelineCache {
           binding: 3,
           visibility: GPUShaderStage.COMPUTE,
           buffer: { type: "uniform" },
+        },
+        {
+          binding: 4,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "read-only-storage" },
         },
       ],
     });

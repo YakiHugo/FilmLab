@@ -23,6 +23,7 @@ struct SelectionUniforms {
 @group(0) @binding(1) var<storage, read> glyphs: array<f32>;
 @group(0) @binding(2) var<storage, read_write> selection: array<u32>;
 @group(0) @binding(3) var<uniform> u: SelectionUniforms;
+@group(0) @binding(4) var<storage, read> cellTone: array<f32>;
 
 const STRIDE: u32 = 27u;
 const SUBGRID_SECTORS: u32 = 16u;
@@ -37,7 +38,12 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let cellBase = cellIdx * STRIDE;
   let w = clamp(u.structureWeight, 0.0, 1.0);
 
-  let cellDensity = features[cellBase + 0u];
+  // cellTone replaces the raw-luminance density slot — it is the
+  // post-normalization tone (brightness/contrast/density/coverage/invert/
+  // edge/dither). With density-sorted glyph descriptors, picking the glyph
+  // closest in density to `cellTone` is equivalent to the legacy
+  // `idx = round(tone * (n-1))` mapping.
+  let cellDensity = cellTone[cellIdx];
   let cellCx = features[cellBase + 25u];
   let cellCy = features[cellBase + 26u];
 

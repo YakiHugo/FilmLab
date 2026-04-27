@@ -2,12 +2,14 @@
  * Per-cell feature-extraction compute pass.
  *
  * Wraps `wgsl/carrier/ascii/analysis.wgsl`. Each invocation analyzes one
- * cell's pixel region in the source texture and writes 27 floats to the
- * caller-supplied features buffer (layout matches `descriptors.ts`).
+ * cell's pixel region in the source texture and writes:
+ *   - 27 floats to the features buffer (layout matches `descriptors.ts`).
+ *   - One vec4 of averaged RGBA into the cellColor buffer (consumed by the
+ *     composition pass for full-color/cell-bg/alpha-cutoff handling).
  *
- * The pipeline (shader + bindgroup layout) is cached per `ShaderCache`; the
- * bind group is built fresh each `createPass` call because the bindings
- * (source view, buffers) are caller-owned and may change between runs.
+ * Slot 0 of the features buffer holds raw cell luminance; toneNormalize
+ * reads it (plus neighbours) and writes the post-normalization tone into a
+ * separate `cellTone` buffer that selection/composition consume.
  */
 
 import type { ShaderCache } from "../../../shaders";
@@ -51,6 +53,7 @@ export interface CreateAsciiAnalysisPassOptions {
   sourceView: GPUTextureView;
   uniformsBuffer: GPUBuffer;
   featuresBuffer: GPUBuffer;
+  cellColorBuffer: GPUBuffer;
   gridColumns: number;
   gridRows: number;
   id?: string;
@@ -76,6 +79,7 @@ export class AsciiAnalysisPipelineCache {
         { binding: 0, resource: options.sourceView },
         { binding: 1, resource: { buffer: options.uniformsBuffer } },
         { binding: 2, resource: { buffer: options.featuresBuffer } },
+        { binding: 3, resource: { buffer: options.cellColorBuffer } },
       ],
     });
     return {
@@ -110,6 +114,11 @@ export class AsciiAnalysisPipelineCache {
         },
         {
           binding: 2,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "storage" },
+        },
+        {
+          binding: 3,
           visibility: GPUShaderStage.COMPUTE,
           buffer: { type: "storage" },
         },

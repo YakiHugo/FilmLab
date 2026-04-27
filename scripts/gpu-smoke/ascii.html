@@ -42,6 +42,11 @@
       packAnalysisUniforms,
     } from "/src/lib/gpu/passes/carrier/ascii/analysis.ts";
     import {
+      AsciiToneNormalizePipelineCache,
+      TONE_NORMALIZE_UNIFORMS_BYTE_SIZE,
+      packToneNormalizeUniforms,
+    } from "/src/lib/gpu/passes/carrier/ascii/toneNormalize.ts";
+    import {
       AsciiSelectionPipelineCache,
       SELECTION_UNIFORMS_BYTE_SIZE,
       packSelectionUniforms,
@@ -182,18 +187,21 @@
       return bestIdx;
     }
 
-    /** Build a compute-only [analysis, selection] chain and run it.
+    /** Build a compute-only [analysis, toneNormalize, selection] chain and run it.
      *  When opts.returnFeatures is true, also reads back the cell features. */
     async function runAnalyzeAndSelect(deps, srcTex, srcWidth, srcHeight, glyphSet, opts) {
-      const { device, executor, analysisCache, selectionCache } = deps;
+      const { device, executor, analysisCache, toneCache, selectionCache } = deps;
       const { cellWidth, cellHeight, structureWeight } = opts;
       const cols = Math.max(1, Math.ceil(srcWidth / cellWidth));
       const rows = Math.max(1, Math.ceil(srcHeight / cellHeight));
       const cellCount = cols * rows;
 
       const featuresBuf = createStorageBuffer(device, "ascii.features", cellCount * ASCII_DESCRIPTOR_STRIDE * 4);
+      const cellColorBuf = createStorageBuffer(device, "ascii.cellColor", cellCount * 16);
+      const cellToneBuf = createStorageBuffer(device, "ascii.cellTone", cellCount * 4);
       const selectionBuf = createStorageBuffer(device, "ascii.selection", cellCount * 4);
       const analysisU = createUniformBuffer(device, "ascii.analysisU", ANALYSIS_UNIFORMS_BYTE_SIZE);
+      const toneU = createUniformBuffer(device, "ascii.toneU", TONE_NORMALIZE_UNIFORMS_BYTE_SIZE);
       const selectionU = createUniformBuffer(device, "ascii.selectionU", SELECTION_UNIFORMS_BYTE_SIZE);
       const glyphsBuf = uploadGlyphsBuffer(device, glyphSet.descriptors);
 
@@ -204,6 +212,18 @@
         gridRows: rows,
         cellWidth,
         cellHeight,
+      }));
+      device.queue.writeBuffer(toneU, 0, packToneNormalizeUniforms({
+        gridColumns: cols,
+        gridRows: rows,
+        glyphSteps: Math.max(1, glyphSet.glyphCount - 1),
+        ditherMode: opts.ditherMode ?? "none",
+        brightness: opts.brightness ?? 0,
+        contrast: opts.contrast ?? 1,
+        density: opts.density ?? 1,
+        coverage: opts.coverage ?? 1,
+        edgeEmphasis: opts.edgeEmphasis ?? 0,
+        invert: opts.invert ?? false,
       }));
       device.queue.writeBuffer(selectionU, 0, packSelectionUniforms({
         cellCount,
@@ -216,6 +236,15 @@
         sourceView: srcView,
         uniformsBuffer: analysisU,
         featuresBuffer: featuresBuf,
+        cellColorBuffer: cellColorBuf,
+        gridColumns: cols,
+        gridRows: rows,
+      });
+      const tonePass = toneCache.createPass({
+        featuresBuffer: featuresBuf,
+        cellColorBuffer: cellColorBuf,
+        cellToneBuffer: cellToneBuf,
+        uniformsBuffer: toneU,
         gridColumns: cols,
         gridRows: rows,
       });
@@ -224,13 +253,14 @@
         glyphsBuffer: glyphsBuf,
         selectionBuffer: selectionBuf,
         uniformsBuffer: selectionU,
+        cellToneBuffer: cellToneBuf,
         cellCount,
       });
 
       executor.execute({
         baseWidth: srcWidth,
         baseHeight: srcHeight,
-        passes: [analysisPass, selectionPass],
+        passes: [analysisPass, tonePass, selectionPass],
         input: {
           texture: srcTex,
           view: srcView,
@@ -248,8 +278,11 @@
 
       // Cleanup buffers (atlas/glyphs caller-owned).
       featuresBuf.destroy();
+      cellColorBuf.destroy();
+      cellToneBuf.destroy();
       selectionBuf.destroy();
       analysisU.destroy();
+      toneU.destroy();
       selectionU.destroy();
       glyphsBuf.destroy();
 
@@ -400,11 +433,14 @@
         label: "ascii.timingSrc",
       });
 
-      const { device, executor, analysisCache, selectionCache, compositionCache } = deps;
+      const { device, executor, analysisCache, toneCache, selectionCache, compositionCache } = deps;
 
       const featuresBuf = createStorageBuffer(device, "ascii.features", cellCount * ASCII_DESCRIPTOR_STRIDE * 4);
+      const cellColorBuf = createStorageBuffer(device, "ascii.cellColor", cellCount * 16);
+      const cellToneBuf = createStorageBuffer(device, "ascii.cellTone", cellCount * 4);
       const selectionBuf = createStorageBuffer(device, "ascii.selection", cellCount * 4);
       const analysisU = createUniformBuffer(device, "ascii.analysisU", ANALYSIS_UNIFORMS_BYTE_SIZE);
+      const toneU = createUniformBuffer(device, "ascii.toneU", TONE_NORMALIZE_UNIFORMS_BYTE_SIZE);
       const selectionU = createUniformBuffer(device, "ascii.selectionU", SELECTION_UNIFORMS_BYTE_SIZE);
       const compositionU = createUniformBuffer(device, "ascii.compositionU", COMPOSITION_UNIFORMS_BYTE_SIZE);
       const glyphsBuf = uploadGlyphsBuffer(device, glyphSet.descriptors);
@@ -413,6 +449,12 @@
         imageWidth: W, imageHeight: H,
         gridColumns: cols, gridRows: rows,
         cellWidth: cellSize, cellHeight: cellSize,
+      }));
+      device.queue.writeBuffer(toneU, 0, packToneNormalizeUniforms({
+        gridColumns: cols, gridRows: rows,
+        glyphSteps: Math.max(1, glyphSet.glyphCount - 1),
+        ditherMode: "none", brightness: 0, contrast: 1, density: 1, coverage: 1,
+        edgeEmphasis: 0, invert: false,
       }));
       device.queue.writeBuffer(selectionU, 0, packSelectionUniforms({
         cellCount, glyphCount: glyphSet.glyphCount, structureWeight: 0.5,
@@ -443,6 +485,15 @@
         sourceView: srcView,
         uniformsBuffer: analysisU,
         featuresBuffer: featuresBuf,
+        cellColorBuffer: cellColorBuf,
+        gridColumns: cols,
+        gridRows: rows,
+      });
+      const tonePass = toneCache.createPass({
+        featuresBuffer: featuresBuf,
+        cellColorBuffer: cellColorBuf,
+        cellToneBuffer: cellToneBuf,
+        uniformsBuffer: toneU,
         gridColumns: cols,
         gridRows: rows,
       });
@@ -451,6 +502,7 @@
         glyphsBuffer: glyphsBuf,
         selectionBuffer: selectionBuf,
         uniformsBuffer: selectionU,
+        cellToneBuffer: cellToneBuf,
         cellCount,
       });
       const compositionPass = compositionCache.createPass({
@@ -464,7 +516,7 @@
       // Warmup run (pipeline compile + first dispatch is slow).
       executor.execute({
         baseWidth: W, baseHeight: H,
-        passes: [analysisPass, selectionPass, compositionPass],
+        passes: [analysisPass, tonePass, selectionPass, compositionPass],
         input: { texture: srcTex, view: srcView, width: W, height: H, format: "rgba8unorm", lease: null },
       })?.output?.release?.();
       await device.queue.onSubmittedWorkDone();
@@ -473,7 +525,7 @@
       const t0 = performance.now();
       const result = executor.execute({
         baseWidth: W, baseHeight: H,
-        passes: [analysisPass, selectionPass, compositionPass],
+        passes: [analysisPass, tonePass, selectionPass, compositionPass],
         input: { texture: srcTex, view: srcView, width: W, height: H, format: "rgba8unorm", lease: null },
       });
       await device.queue.onSubmittedWorkDone();
@@ -489,8 +541,11 @@
       }
 
       featuresBuf.destroy();
+      cellColorBuf.destroy();
+      cellToneBuf.destroy();
       selectionBuf.destroy();
       analysisU.destroy();
+      toneU.destroy();
       selectionU.destroy();
       compositionU.destroy();
       glyphsBuf.destroy();
@@ -531,9 +586,10 @@
       const sampler = device.createSampler({ label: "smoke.defaultSampler", magFilter: "linear", minFilter: "linear" });
       const executor = new PipelineExecutor({ device, texturePool: pool, defaultSampler: sampler });
       const analysisCache = new AsciiAnalysisPipelineCache(device, shaders);
+      const toneCache = new AsciiToneNormalizePipelineCache(device, shaders);
       const selectionCache = new AsciiSelectionPipelineCache(device, shaders);
       const compositionCache = new AsciiCompositionPipelineCache(device, shaders);
-      const deps = { device, executor, analysisCache, selectionCache, compositionCache, isFallbackAdapter };
+      const deps = { device, executor, analysisCache, toneCache, selectionCache, compositionCache, isFallbackAdapter };
 
       // Density-sorted charset for fixture A. Manually density-sorted (densest
       // → sparsest) so test assertions are stable regardless of font-metrics
