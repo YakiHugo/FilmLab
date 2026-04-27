@@ -8,7 +8,7 @@
       "passes": "HalftoneCarrier.frag → WGSL pass + applyHalftoneOnSurface adapter; halftoneEffect.ts switched; gpuHalftoneCarrier.ts deleted; pnpm tsc clean; pnpm vitest run 682/682; smoke harness scripts/gpu-smoke/halftone.html landed (9 scenarios across mono/cmyk/rgb × shape/invert/bg-opacity); real-GPU run pending on user hardware"
     },
     "s2-channel-drift": {
-      "status": "pending",
+      "status": "in_progress",
       "blockedBy": [],
       "passes": "ChannelDrift.frag → WGSL pass; signalDamageExecution.ts switched; gpuSignalDamage.ts deleted; pixel parity ≤ 2/255 on per-channel offset fixtures"
     },
