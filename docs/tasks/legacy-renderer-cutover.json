@@ -13,7 +13,7 @@
       "passes": "ChannelDrift.frag → WGSL pass + applyChannelDriftOnSurface adapter; signalDamageExecution.ts switched; gpuSignalDamage.ts + shaders/ChannelDrift.frag deleted; channelDrift program entry pruned from ProgramRegistry + renderChannelDriftComposite removed from PipelineRenderer; pnpm tsc clean; pnpm vitest run 682/682; smoke harness scripts/gpu-smoke/channelDrift.html landed (6 scenarios across pos/neg/asymmetric/diagonal/zero-intensity/zero-offset); real-GPU run pending on user hardware"
     },
     "s3-effect-filter2d": {
-      "status": "pending",
+      "status": "in_progress",
       "blockedBy": [],
       "passes": "Filter2dAdjust.frag → WGSL pass; effectExecution.ts and stageMaskComposite.ts switched (using mask/maskedBlend); gpuFilter2dPostProcessing.ts and gpuMaskedCanvasBlend.ts deleted; pixel parity ≤ 2/255"
     },
