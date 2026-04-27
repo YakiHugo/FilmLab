@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>WebGPU Halftone Carrier Parity (legacy-renderer-cutover s1)</title>
+  <style>
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1rem; max-width: 960px; }
+    pre  { background: #f4f4f4; padding: 0.75rem; border-radius: 4px; white-space: pre-wrap; }
+    h2   { margin-top: 1.5rem; }
+    .pass { color: #0a8043; font-weight: 600; }
+    .fail { color: #c0392b; font-weight: 600; }
+    .info { color: #555; }
+  </style>
+</head>
+<body>
+  <h1>Halftone carrier — WebGPU vs WebGL2 parity</h1>
+  <p>
+    Validates: HalftoneCarrier (mono / cmyk / rgb × circle / diamond / line / square,
+    plus invert and background-opacity variants). Gate ≤ 2/255 per channel.
+  </p>
+  <p class="info">
+    Run with <code>pnpm dev:client</code> then open
+    <code>http://localhost:5173/scripts/gpu-smoke/halftone.html</code>.
+  </p>
+  <pre id="log">starting...</pre>
+
+  <script type="module">
+    import { HalftonePipelineCache, createHalftonePass }
+      from "/src/lib/gpu/passes/carrier/halftone.ts";
+    import { requestGPUContext }                from "/src/lib/gpu/context.ts";
+    import { TexturePool, uploadExternalImageToTexture, readbackTextureRGBA8 }
+                                                from "/src/lib/gpu/resources.ts";
+    import { ShaderCache }                      from "/src/lib/gpu/shaders.ts";
+    import { PipelineExecutor }                 from "/src/lib/gpu/pipeline.ts";
+    import { renderWithWebGL2Reference, diffRGBA }
+                                                from "/scripts/gpu-smoke/webgl2Reference.ts";
+
+    import fullscreenVert       from "/src/lib/renderer/shaders/Fullscreen.vert?raw";
+    import halftoneFrag         from "/src/lib/renderer/shaders/HalftoneCarrier.frag?raw";
+
+    const TOLERANCE = 2;
+    const W = 96; const H = 96;
+    const FORMAT = "rgba8unorm";
+    const logEl = document.getElementById("log");
+    logEl.textContent = "";
+
+    const log = (line, cls) => {
+      const span = document.createElement("span");
+      if (cls) span.className = cls;
+      span.textContent = line + "\n";
+      logEl.appendChild(span);
+    };
+
+    function makeGradient() {
+      const buf = new Uint8ClampedArray(W * H * 4);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const i = (y * W + x) * 4;
+        buf[i]   = Math.round(20 + (x / (W-1)) * 215);
+        buf[i+1] = Math.round(20 + (y / (H-1)) * 215);
+        buf[i+2] = Math.round(20 + ((x+y) / (W+H-2)) * 215);
+        buf[i+3] = 255;
+      }
+      return buf;
+    }
+
+    function computeDiff(label, glPx, gpuPx, tol = TOLERANCE) {
+      const diff = diffRGBA(glPx, gpuPx);
+      const ok   = diff.maxPerChannel <= tol;
+      log(`  ${ok ? "PASS" : "FAIL"} ${label}: maxDiff=${diff.maxPerChannel} differing=${diff.count255}/${glPx.length/4}px mean=${diff.meanDiff.toFixed(3)}`,
+          ok ? "pass" : "fail");
+      if (!ok) {
+        for (const {x,y} of [{x:0,y:0},{x:W>>1,y:H>>1},{x:W-1,y:H-1}]) {
+          const o = (y*W+x)*4;
+          log(`    [${x},${y}] gl=(${glPx[o]},${glPx[o+1]},${glPx[o+2]},${glPx[o+3]}) gpu=(${gpuPx[o]},${gpuPx[o+1]},${gpuPx[o+2]},${gpuPx[o+3]})`, "info");
+        }
+      }
+      return ok;
+    }
+
+    async function renderWebGPU(ctx, executor, sourcePixels, makePass) {
+      const imageData = new ImageData(new Uint8ClampedArray(sourcePixels), W, H);
+      const bitmap  = await createImageBitmap(imageData, { colorSpaceConversion: "none", premultiplyAlpha: "none" });
+      const upload  = uploadExternalImageToTexture(ctx.device, bitmap, { label: "smoke.source" });
+      const pass    = makePass();
+      const result  = executor.execute({
+        baseWidth: W, baseHeight: H, passes: [pass],
+        input: { texture: upload.texture, view: upload.texture.createView(), width: W, height: H, format: upload.format },
+      });
+      if (result.kind !== "texture") throw new Error(`unexpected kind=${result.kind}`);
+      const out = await readbackTextureRGBA8(ctx.device, result.output.texture, W, H);
+      result.output.release();
+      upload.texture.destroy();
+      return new Uint8ClampedArray(out.buffer, out.byteOffset, out.byteLength);
+    }
+
+    const SHAPE_TO_INDEX = { circle: 0, diamond: 1, line: 2, square: 3 };
+    const COLOR_TO_INDEX = { mono: 0, cmyk: 1, rgb: 2 };
+
+    function buildGlUniforms(p) {
+      return {
+        u_canvasSize:         { kind:"2f", value:[W, H] },
+        u_frequency:          { kind:"1f", value:p.frequency },
+        u_angle:              { kind:"1f", value:p.angle },
+        u_shape:              { kind:"1f", value:SHAPE_TO_INDEX[p.shape] },
+        u_colorMode:          { kind:"1f", value:COLOR_TO_INDEX[p.colorMode] },
+        u_dotScale:           { kind:"1f", value:p.dotScale },
+        u_contrast:           { kind:"1f", value:p.contrast },
+        u_invert:             { kind:"1iBool", value:p.invert },
+        u_backgroundColor:    { kind:"4f", value:[p.backgroundColor[0], p.backgroundColor[1], p.backgroundColor[2], 1] },
+        u_backgroundOpacity:  { kind:"1f", value:p.backgroundOpacity },
+      };
+    }
+
+    function buildGpuParams(p) {
+      return {
+        canvasWidth: W, canvasHeight: H,
+        frequency: p.frequency, angle: p.angle,
+        shape: p.shape, colorMode: p.colorMode,
+        dotScale: p.dotScale, contrast: p.contrast,
+        invert: p.invert,
+        backgroundColor: p.backgroundColor,
+        backgroundOpacity: p.backgroundOpacity,
+      };
+    }
+
+    async function main() {
+      if (!("gpu" in navigator)) { log("FAIL: navigator.gpu undefined", "fail"); return; }
+      log("requestGPUContext()...");
+      const ctx     = await requestGPUContext({ label: "halftone-smoke" });
+      const pool    = new TexturePool(ctx.device);
+      const shaders = new ShaderCache(ctx.device);
+      const sampler = ctx.device.createSampler({
+        magFilter:"linear", minFilter:"linear",
+        addressModeU:"clamp-to-edge", addressModeV:"clamp-to-edge",
+      });
+      const executor = new PipelineExecutor({ device: ctx.device, texturePool: pool, defaultSampler: sampler });
+      const cache = new HalftonePipelineCache(ctx.device, shaders);
+      const source = makeGradient();
+
+      const baseDefaults = {
+        frequency: 30, angle: 15,
+        dotScale: 1.0, contrast: 1.2, invert: false,
+        backgroundColor: [0, 0, 0],
+        backgroundOpacity: 1,
+      };
+
+      const scenarios = [
+        { name: "mono / circle",   ...baseDefaults, shape:"circle",  colorMode:"mono" },
+        { name: "mono / diamond",  ...baseDefaults, shape:"diamond", colorMode:"mono" },
+        { name: "mono / line",     ...baseDefaults, shape:"line",    colorMode:"mono" },
+        { name: "mono / square",   ...baseDefaults, shape:"square",  colorMode:"mono" },
+        { name: "cmyk / circle",   ...baseDefaults, shape:"circle",  colorMode:"cmyk" },
+        { name: "rgb / circle",    ...baseDefaults, shape:"circle",  colorMode:"rgb"  },
+        { name: "mono inverted",   ...baseDefaults, shape:"circle",  colorMode:"mono", invert:true },
+        { name: "bg opacity 0.5",  ...baseDefaults, shape:"circle",  colorMode:"mono", backgroundColor:[0.7,0.2,0.1], backgroundOpacity:0.5 },
+        { name: "high freq 60deg", ...baseDefaults, shape:"circle",  colorMode:"mono", frequency:60, angle:60 },
+      ];
+
+      let allPass = true;
+      for (const sc of scenarios) {
+        const glPx = renderWithWebGL2Reference({
+          source, width:W, height:H,
+          vertexSrc:fullscreenVert, fragmentSrc:halftoneFrag,
+          uniforms:buildGlUniforms(sc), label:`Halftone/${sc.name}`,
+        }).pixels;
+        const gpuPx = await renderWebGPU(ctx, executor, source, () =>
+          createHalftonePass(ctx.device, cache, { outputFormat:FORMAT, params:buildGpuParams(sc) }).descriptor
+        );
+        if (!computeDiff(`Halftone/${sc.name}`, glPx, gpuPx)) allPass = false;
+      }
+
+      log(allPass ? "\nALL PASS" : "\nSOME FAILED", allPass ? "pass" : "fail");
+    }
+
+    main().catch((e) => { log("threw: " + (e && e.stack || e), "fail"); });
+  </script>
+</body>
+</html>

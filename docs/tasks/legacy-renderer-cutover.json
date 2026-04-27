@@ -3,9 +3,9 @@
   "status": "pending",
   "slices": {
     "s1-halftone-carrier": {
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": [],
-      "passes": "HalftoneCarrier.frag → WGSL pass; halftoneEffect.ts switched; gpuHalftoneCarrier.ts deleted; pixel parity vs WebGL2 ≤ 2/255 on mono/CMYK/RGB × circle/diamond/line/square fixtures"
+      "passes": "HalftoneCarrier.frag → WGSL pass + applyHalftoneOnSurface adapter; halftoneEffect.ts switched; gpuHalftoneCarrier.ts deleted; pnpm tsc clean; pnpm vitest run 682/682; smoke harness scripts/gpu-smoke/halftone.html landed (9 scenarios across mono/cmyk/rgb × shape/invert/bg-opacity); real-GPU run pending on user hardware"
     },
     "s2-channel-drift": {
       "status": "pending",

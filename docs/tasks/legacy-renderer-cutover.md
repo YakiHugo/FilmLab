@@ -28,10 +28,19 @@
 
 ### Slice 1 — Halftone carrier WGSL
 
-- Port `HalftoneCarrier.frag` to `src/lib/gpu/wgsl/carrier/halftone/halftone.wgsl` (mono / CMYK / RGB color modes, circle / diamond / line / square dot shapes).
-- New `src/lib/gpu/passes/carrier/halftone/{pass.ts,index.ts}` exposing a `RenderSurfaceHandle → RenderSurfaceHandle` adapter.
+- Port `HalftoneCarrier.frag` to `src/lib/gpu/wgsl/carrier/halftone.wgsl` (mono / CMYK / RGB color modes, circle / diamond / line / square dot shapes).
+- New `src/lib/gpu/passes/carrier/halftone.ts` exposing both the orchestrator-style pass (`HalftonePipelineCache` + `createHalftonePass`) and the `RenderSurfaceHandle → RenderSurfaceHandle` standalone adapter `applyHalftoneOnSurface`.
 - Switch `src/render/image/halftoneEffect.ts` import. Delete `src/lib/renderer/gpuHalftoneCarrier.ts`.
 - Validation: pixel parity vs WebGL2 on a fixture image with each mode/shape combo. Smoke harness under `scripts/gpu-smoke/halftone.html`. Gate ≤ 2/255.
+
+**Slice 1 implementation notes (done):**
+- `src/lib/gpu/wgsl/carrier/halftone.wgsl` + `src/lib/gpu/passes/carrier/halftone.ts` landed; `gpuHalftoneCarrier.ts` deleted.
+- Single file holds the orchestrator-shape pass (`HalftonePipelineCache` / `createHalftonePass`) plus the standalone surface op `applyHalftoneOnSurface`. The surface op caches `ShaderCache` + `HalftonePipelineCache` per device on a module-scope `WeakMap<GPUDevice, …>`, mirroring orchestrator's per-device cache pattern; halftone is not currently composed into the kernel, so it owns its tiny `TexturePool` + `PipelineExecutor` lifecycle per call.
+- WGSL rotation matrix uses `mat2x2<f32>(vec2(c, -s), vec2(s, c))` to match GLSL's column-major `mat2(c, -s, s, c)` exactly. Both produce `[ c s ; -s c ]`; `mat * pixel` then yields `(c·x + s·y, -s·x + c·y)` on both sides.
+- Uniform layout: 4 vec4 = 64 bytes. Packs `(canvasW, canvasH, freq, angle) | (shape, colorMode, dotScale, contrast) | (bgR, bgG, bgB, bgOpacity) | (invert: u32, _, _, _)`. Background opacity moves into the bg vec4 .a slot (the GLSL took it as a separate scalar).
+- `halftoneEffect.ts` switched to `applyHalftoneOnSurface`; the input shape changed from `backgroundColorRgba: Float32Array(4)` to `backgroundColor: [r, g, b]` (opacity is its own field). The legacy `HalftoneCarrierGpuInput` type is removed with `gpuHalftoneCarrier.ts`.
+- Validation harness `scripts/gpu-smoke/halftone.html` covers 9 scenarios (mono × {circle, diamond, line, square}, cmyk/circle, rgb/circle, mono inverted, mono with bg-opacity 0.5, mono at 60Hz/60deg). Real-adapter run pending on user hardware (this branch was developed without a working SwiftShader/native WebGPU loop on the cloud machine).
+- `pnpm tsc --noEmit` clean, `pnpm vitest run` 682/682 pass with the consumer rewired through the new pass.
 
 ### Slice 2 — Channel drift signal damage
 
