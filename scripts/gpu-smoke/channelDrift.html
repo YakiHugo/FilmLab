@@ -25,21 +25,16 @@
   <pre id="log">starting...</pre>
 
   <script type="module">
-    import { ChannelDriftPipelineCache, createChannelDriftPass }
+    import { applyChannelDriftOnSurface }
       from "/src/lib/gpu/passes/signalDamage/channelDrift.ts";
-    import { requestGPUContext }                from "/src/lib/gpu/context.ts";
-    import { TexturePool, uploadExternalImageToTexture, readbackTextureRGBA8 }
-                                                from "/src/lib/gpu/resources.ts";
-    import { ShaderCache }                      from "/src/lib/gpu/shaders.ts";
-    import { PipelineExecutor }                 from "/src/lib/gpu/pipeline.ts";
+    import { createRenderSurfaceHandle, createEmptyRenderBoundaryMetrics }
+      from "/src/lib/renderSurfaceHandle.ts";
     import { renderWithWebGL2Reference, diffRGBA }
-                                                from "/scripts/gpu-smoke/webgl2Reference.ts";
+      from "/scripts/gpu-smoke/webgl2Reference.ts";
 
-    import fullscreenVert       from "/src/lib/renderer/shaders/Fullscreen.vert?raw";
-    import channelDriftFrag     from "/src/lib/gpu/wgsl/signalDamage/channelDrift.wgsl?raw";
+    import fullscreenVert from "/src/lib/renderer/shaders/Fullscreen.vert?raw";
 
-    // The WGSL source is the source of truth post-cutover; for the WebGL2 reference,
-    // we recreate the original GLSL inline (the GLSL file was deleted with this slice).
+    // Inline copy of the deleted ChannelDrift.frag for the WebGL2 reference path.
     const channelDriftFragGlsl = `#version 300 es
 precision highp float;
 in vec2 vTextureCoord;
@@ -64,7 +59,6 @@ void main() {
 
     const TOLERANCE = 2;
     const W = 96; const H = 96;
-    const FORMAT = "rgba8unorm";
     const logEl = document.getElementById("log");
     logEl.textContent = "";
 
@@ -87,6 +81,49 @@ void main() {
       return buf;
     }
 
+    function pixelsToCanvas(pixels) {
+      const canvas = document.createElement("canvas");
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext("2d");
+      ctx.putImageData(new ImageData(new Uint8ClampedArray(pixels), W, H), 0, 0);
+      return canvas;
+    }
+
+    function canvasToPixels(canvas) {
+      const ctx = canvas.getContext("2d");
+      return new Uint8ClampedArray(ctx.getImageData(0, 0, W, H).data);
+    }
+
+    function buildSurface(sourcePixels) {
+      return createRenderSurfaceHandle({
+        kind: "owned-canvas",
+        mode: "preview",
+        slotId: "smoke.channel-drift.input",
+        sourceCanvas: pixelsToCanvas(sourcePixels),
+        metrics: createEmptyRenderBoundaryMetrics(),
+      });
+    }
+
+    function buildGlUniforms(p) {
+      return {
+        u_canvasSize: { kind:"2f", value:[W, H] },
+        u_redOffset:  { kind:"2f", value:[p.redOffsetX, p.redOffsetY] },
+        u_greenOffset:{ kind:"2f", value:[p.greenOffsetX, p.greenOffsetY] },
+        u_blueOffset: { kind:"2f", value:[p.blueOffsetX, p.blueOffsetY] },
+        u_intensity:  { kind:"1f", value:p.intensity },
+      };
+    }
+
+    function buildPassParams(p) {
+      return {
+        canvasWidth: W, canvasHeight: H,
+        redOffsetX: p.redOffsetX, redOffsetY: p.redOffsetY,
+        greenOffsetX: p.greenOffsetX, greenOffsetY: p.greenOffsetY,
+        blueOffsetX: p.blueOffsetX, blueOffsetY: p.blueOffsetY,
+        intensity: p.intensity,
+      };
+    }
+
     function computeDiff(label, glPx, gpuPx, tol = TOLERANCE) {
       const diff = diffRGBA(glPx, gpuPx);
       const ok   = diff.maxPerChannel <= tol;
@@ -101,54 +138,9 @@ void main() {
       return ok;
     }
 
-    async function renderWebGPU(ctx, executor, sourcePixels, makePass) {
-      const imageData = new ImageData(new Uint8ClampedArray(sourcePixels), W, H);
-      const bitmap  = await createImageBitmap(imageData, { colorSpaceConversion: "none", premultiplyAlpha: "none" });
-      const upload  = uploadExternalImageToTexture(ctx.device, bitmap, { label: "smoke.source" });
-      const pass    = makePass();
-      const result  = executor.execute({
-        baseWidth: W, baseHeight: H, passes: [pass],
-        input: { texture: upload.texture, view: upload.texture.createView(), width: W, height: H, format: upload.format },
-      });
-      if (result.kind !== "texture") throw new Error(`unexpected kind=${result.kind}`);
-      const out = await readbackTextureRGBA8(ctx.device, result.output.texture, W, H);
-      result.output.release();
-      upload.texture.destroy();
-      return new Uint8ClampedArray(out.buffer, out.byteOffset, out.byteLength);
-    }
-
-    function buildGlUniforms(p) {
-      return {
-        u_canvasSize: { kind:"2f", value:[W, H] },
-        u_redOffset:  { kind:"2f", value:[p.redOffsetX, p.redOffsetY] },
-        u_greenOffset:{ kind:"2f", value:[p.greenOffsetX, p.greenOffsetY] },
-        u_blueOffset: { kind:"2f", value:[p.blueOffsetX, p.blueOffsetY] },
-        u_intensity:  { kind:"1f", value:p.intensity },
-      };
-    }
-
-    function buildGpuParams(p) {
-      return {
-        canvasWidth: W, canvasHeight: H,
-        redOffsetX: p.redOffsetX, redOffsetY: p.redOffsetY,
-        greenOffsetX: p.greenOffsetX, greenOffsetY: p.greenOffsetY,
-        blueOffsetX: p.blueOffsetX, blueOffsetY: p.blueOffsetY,
-        intensity: p.intensity,
-      };
-    }
-
     async function main() {
       if (!("gpu" in navigator)) { log("FAIL: navigator.gpu undefined", "fail"); return; }
-      log("requestGPUContext()...");
-      const ctx     = await requestGPUContext({ label: "channel-drift-smoke" });
-      const pool    = new TexturePool(ctx.device);
-      const shaders = new ShaderCache(ctx.device);
-      const sampler = ctx.device.createSampler({
-        magFilter:"linear", minFilter:"linear",
-        addressModeU:"clamp-to-edge", addressModeV:"clamp-to-edge",
-      });
-      const executor = new PipelineExecutor({ device: ctx.device, texturePool: pool, defaultSampler: sampler });
-      const cache = new ChannelDriftPipelineCache(ctx.device, shaders);
+      log("running scenarios...");
       const source = makeGradient();
 
       const scenarios = [
@@ -167,9 +159,16 @@ void main() {
           vertexSrc:fullscreenVert, fragmentSrc:channelDriftFragGlsl,
           uniforms:buildGlUniforms(sc), label:`ChannelDrift/${sc.name}`,
         }).pixels;
-        const gpuPx = await renderWebGPU(ctx, executor, source, () =>
-          createChannelDriftPass(ctx.device, cache, { outputFormat:FORMAT, params:buildGpuParams(sc) }).descriptor
-        );
+
+        const inSurface = buildSurface(source);
+        const outSurface = await applyChannelDriftOnSurface({
+          surface: inSurface,
+          input: buildPassParams(sc),
+          slotId: `smoke.channel-drift/${sc.name}`,
+        });
+        if (!outSurface) { log(`  FAIL ${sc.name}: surface returned null`, "fail"); allPass = false; continue; }
+        const gpuPx = canvasToPixels(outSurface.sourceCanvas);
+
         if (!computeDiff(`ChannelDrift/${sc.name}`, glPx, gpuPx)) allPass = false;
       }
 

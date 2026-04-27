@@ -47,7 +47,7 @@ interface CompiledPipeline {
   bindGroupLayout: GPUBindGroupLayout;
 }
 
-export class ChannelDriftPipelineCache {
+class ChannelDriftPipelineCache {
   private readonly device: GPUDevice;
   private readonly shaders: ShaderCache;
   private readonly byFormat = new Map<GPUTextureFormat, CompiledPipeline>();
@@ -126,7 +126,7 @@ interface ChannelDriftPassHandle {
   destroy: () => void;
 }
 
-export function createChannelDriftPass(
+function createChannelDriftPass(
   device: GPUDevice,
   cache: ChannelDriftPipelineCache,
   options: ChannelDriftPassOptions
