@@ -15,39 +15,6 @@ describe("ProgramRegistry", () => {
     createProgramInfoMock.mockClear();
   });
 
-  it("registers brush-mask programs with the expected shader fragments", () => {
-    const fakeGl = {} as WebGL2RenderingContext;
-    const programs = createPrograms(fakeGl);
-
-    createProgramInfoMock.mockClear();
-
-    void programs.brushMaskStamp;
-    void programs.maskInvert;
-
-    expect(createProgramInfoMock).toHaveBeenCalledTimes(2);
-    const brushSources = (createProgramInfoMock.mock.calls as unknown[][])[0]![1] as string[];
-    const invertSources = (createProgramInfoMock.mock.calls as unknown[][])[1]![1] as string[];
-
-    expect(brushSources[1]).toContain("u_centerPx");
-    expect(brushSources[1]).toContain("u_innerRadiusPx");
-    expect(brushSources[1]).toContain("previousAlpha");
-    expect(invertSources[1]).toContain("1.0 - texture(uSampler");
-  });
-
-  it("keeps brush-mask programs lazily cached after first access", () => {
-    const fakeGl = {} as WebGL2RenderingContext;
-    const programs = createPrograms(fakeGl);
-
-    createProgramInfoMock.mockClear();
-
-    void programs.brushMaskStamp;
-    void programs.brushMaskStamp;
-    void programs.maskInvert;
-    void programs.maskInvert;
-
-    expect(createProgramInfoMock).toHaveBeenCalledTimes(2);
-  });
-
   it("registers the direct ascii-carrier shader lazily", () => {
     const fakeGl = {} as WebGL2RenderingContext;
     const programs = createPrograms(fakeGl);
@@ -99,48 +66,18 @@ describe("ProgramRegistry", () => {
         program: {},
         uniformSetters: {
           uSampler: () => {},
-          u_centerPx: () => {},
-          u_radiusPx: () => {},
-          u_innerRadiusPx: () => {},
         },
       }));
 
-      expect(() => void programs.brushMaskStamp).toThrow("[gl-error] uniform-binding");
+      expect(() => void programs.hsl).toThrow("[gl-error] uniform-binding");
 
       const ring = readGlErrorRing();
       expect(ring).toHaveLength(1);
       const event = ring[0]!;
       expect(event.op).toBe("uniform-binding");
-      expect(event.shaderName).toBe("brushMaskStamp");
+      expect(event.shaderName).toBe("hsl");
       expect(event.rendererLabel).toBe("program-registry");
-      expect(event.declaredOrphans ?? []).toEqual(
-        expect.arrayContaining(["u_canvasSize", "u_flow"])
-      );
-      expect(event.boundOrphans ?? []).toEqual([]);
-    });
-
-    it("stays silent when declared and bound uniforms align", () => {
-      const fakeGl = {} as WebGL2RenderingContext;
-      const programs = createPrograms(fakeGl);
-
-      createProgramInfoMock.mockClear();
-      clearGlErrorRing();
-
-      createProgramInfoMock.mockImplementationOnce(() => ({
-        program: {},
-        uniformSetters: {
-          uSampler: () => {},
-          u_canvasSize: () => {},
-          u_centerPx: () => {},
-          u_radiusPx: () => {},
-          u_innerRadiusPx: () => {},
-          u_flow: () => {},
-        },
-      }));
-
-      void programs.brushMaskStamp;
-
-      expect(readGlErrorRing()).toHaveLength(0);
+      expect((event.declaredOrphans ?? []).length).toBeGreaterThan(0);
     });
   });
 });

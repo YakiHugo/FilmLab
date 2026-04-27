@@ -7,9 +7,11 @@ import {
   resolveLocalMaskLumaRange,
   resolveLocalMaskLumaWeight,
 } from "@/lib/localMaskShared";
-import { applyLocalMaskRangeOnGpu } from "@/lib/renderer/gpuLocalMaskRangeGate";
-import { applyLocalMaskRangeOnGpuToSurface } from "@/lib/renderer/gpuLocalMaskRangeGate";
-import { renderLocalMaskShapeOnGpuToSurface } from "@/lib/renderer/gpuLocalMaskShape";
+import {
+  applyLocalMaskRangeOnCanvas,
+  applyLocalMaskRangeOnSurface,
+} from "@/lib/gpu/passes/mask/rangeGate";
+import { applyLocalMaskShapeOnSurface } from "@/lib/gpu/passes/mask/localShape";
 import type { LocalAdjustmentMask } from "@/types";
 import type { ImageRenderMaskDefinition } from "./types";
 
@@ -207,7 +209,7 @@ export const renderImageEffectMaskToCanvas = async ({
   }
   outputContext.clearRect(0, 0, width, height);
 
-  let maskSurface = await renderLocalMaskShapeOnGpuToSurface({
+  let maskSurface = await applyLocalMaskShapeOnSurface({
     width,
     height,
     mask: maskDefinition.mask,
@@ -228,7 +230,7 @@ export const renderImageEffectMaskToCanvas = async ({
   let needsCpuRangeFallback = false;
   if (referenceSource && hasLocalMaskRangeConstraints(maskDefinition.mask)) {
     if (maskSurface) {
-      const gatedSurface = await applyLocalMaskRangeOnGpuToSurface({
+      const gatedSurface = await applyLocalMaskRangeOnSurface({
         referenceSource,
         maskSource: maskSurface.sourceCanvas,
         width,
@@ -242,13 +244,12 @@ export const renderImageEffectMaskToCanvas = async ({
         needsCpuRangeFallback = true;
       }
     } else {
-      const appliedOnGpu = await applyLocalMaskRangeOnGpu({
+      const appliedOnCanvas = await applyLocalMaskRangeOnCanvas({
         maskCanvas: output,
         referenceSource,
         mask: maskDefinition.mask,
-        slotId: `effect-mask:${maskDefinition.id}`,
       });
-      if (appliedOnGpu) {
+      if (appliedOnCanvas) {
         return output;
       }
       needsCpuRangeFallback = true;

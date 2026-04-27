@@ -9,10 +9,9 @@ const renderMock = vi.fn();
 const updateSourceMock = vi.fn();
 const disposeMock = vi.fn();
 const applyMaskedBlendOnGpuMock = vi.fn();
-const renderLocalMaskShapeOnGpuMock = vi.fn();
-const renderLocalMaskShapeOnGpuToSurfaceMock = vi.fn();
-const applyLocalMaskRangeOnGpuMock = vi.fn();
-const applyLocalMaskRangeOnGpuToSurfaceMock = vi.fn();
+const applyLocalMaskShapeOnSurfaceMock = vi.fn();
+const applyLocalMaskRangeOnCanvasMock = vi.fn();
+const applyLocalMaskRangeOnSurfaceMock = vi.fn();
 const consumeCapturedLinearResultMock = vi.fn();
 const borrowCapturedLinearResultMock = vi.fn();
 const blendLinearWithMaskMock = vi.fn();
@@ -253,18 +252,16 @@ vi.mock("@/lib/gpu/passes/mask/maskedBlend", () => ({
     Reflect.apply(applyMaskedBlendOnGpuMock, undefined, args),
 }));
 
-vi.mock("@/lib/renderer/gpuLocalMaskShape", () => ({
-  renderLocalMaskShapeOnGpu: (...args: unknown[]) =>
-    Reflect.apply(renderLocalMaskShapeOnGpuMock, undefined, args),
-  renderLocalMaskShapeOnGpuToSurface: (...args: unknown[]) =>
-    Reflect.apply(renderLocalMaskShapeOnGpuToSurfaceMock, undefined, args),
+vi.mock("@/lib/gpu/passes/mask/localShape", () => ({
+  applyLocalMaskShapeOnSurface: (...args: unknown[]) =>
+    Reflect.apply(applyLocalMaskShapeOnSurfaceMock, undefined, args),
 }));
 
-vi.mock("@/lib/renderer/gpuLocalMaskRangeGate", () => ({
-  applyLocalMaskRangeOnGpu: (...args: unknown[]) =>
-    Reflect.apply(applyLocalMaskRangeOnGpuMock, undefined, args),
-  applyLocalMaskRangeOnGpuToSurface: (...args: unknown[]) =>
-    Reflect.apply(applyLocalMaskRangeOnGpuToSurfaceMock, undefined, args),
+vi.mock("@/lib/gpu/passes/mask/rangeGate", () => ({
+  applyLocalMaskRangeOnCanvas: (...args: unknown[]) =>
+    Reflect.apply(applyLocalMaskRangeOnCanvasMock, undefined, args),
+  applyLocalMaskRangeOnSurface: (...args: unknown[]) =>
+    Reflect.apply(applyLocalMaskRangeOnSurfaceMock, undefined, args),
 }));
 
 const createState = () =>
@@ -318,14 +315,12 @@ describe("imageProcessing debug trace", () => {
     disposeMock.mockReset();
     applyMaskedBlendOnGpuMock.mockReset();
     applyMaskedBlendOnGpuMock.mockResolvedValue(false);
-    renderLocalMaskShapeOnGpuMock.mockReset();
-    renderLocalMaskShapeOnGpuMock.mockResolvedValue(false);
-    renderLocalMaskShapeOnGpuToSurfaceMock.mockReset();
-    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(null);
-    applyLocalMaskRangeOnGpuMock.mockReset();
-    applyLocalMaskRangeOnGpuMock.mockResolvedValue(true);
-    applyLocalMaskRangeOnGpuToSurfaceMock.mockReset();
-    applyLocalMaskRangeOnGpuToSurfaceMock.mockImplementation(async ({ maskSource }: { maskSource: HTMLCanvasElement }) =>
+    applyLocalMaskShapeOnSurfaceMock.mockReset();
+    applyLocalMaskShapeOnSurfaceMock.mockResolvedValue(null);
+    applyLocalMaskRangeOnCanvasMock.mockReset();
+    applyLocalMaskRangeOnCanvasMock.mockResolvedValue(true);
+    applyLocalMaskRangeOnSurfaceMock.mockReset();
+    applyLocalMaskRangeOnSurfaceMock.mockImplementation(async ({ maskSource }: { maskSource: HTMLCanvasElement }) =>
       createSurface(maskSource)
     );
     consumeCapturedLinearResultMock.mockReset();
@@ -903,8 +898,8 @@ describe("imageProcessing debug trace", () => {
         lumaMax: 0.8,
       },
     };
-    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(shapeSurface);
-    applyLocalMaskRangeOnGpuToSurfaceMock.mockResolvedValue(null);
+    applyLocalMaskShapeOnSurfaceMock.mockResolvedValue(shapeSurface);
+    applyLocalMaskRangeOnSurfaceMock.mockResolvedValue(null);
 
     const result = await renderImageToCanvas({
       canvas: output,
@@ -924,8 +919,8 @@ describe("imageProcessing debug trace", () => {
     });
 
     expect(shapeSurface.materializeToCanvas).toHaveBeenCalled();
-    expect(applyLocalMaskRangeOnGpuToSurfaceMock).toHaveBeenCalled();
-    expect(applyLocalMaskRangeOnGpuMock).not.toHaveBeenCalled();
+    expect(applyLocalMaskRangeOnSurfaceMock).toHaveBeenCalled();
+    expect(applyLocalMaskRangeOnCanvasMock).not.toHaveBeenCalled();
     expect(result.debug?.boundaries).toEqual(
       expect.objectContaining({
         cpuPixelReads: 1,
@@ -962,7 +957,7 @@ describe("imageProcessing debug trace", () => {
         feather: 0.2,
       },
     };
-    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(createSurface(createCanvas(64, 64)));
+    applyLocalMaskShapeOnSurfaceMock.mockResolvedValue(createSurface(createCanvas(64, 64)));
 
     await renderImageToCanvas({
       canvas: output,
@@ -981,7 +976,7 @@ describe("imageProcessing debug trace", () => {
       },
     });
 
-    expect(renderLocalMaskShapeOnGpuToSurfaceMock).toHaveBeenCalledWith(
+    expect(applyLocalMaskShapeOnSurfaceMock).toHaveBeenCalledWith(
       expect.objectContaining({
         width: 64,
         height: 64,
@@ -992,7 +987,7 @@ describe("imageProcessing debug trace", () => {
       })
     );
 
-    renderLocalMaskShapeOnGpuToSurfaceMock.mockClear();
+    applyLocalMaskShapeOnSurfaceMock.mockClear();
     state.masks.byId["mask-shape"] = {
       id: "mask-shape",
       kind: "local-adjustment",
@@ -1026,7 +1021,7 @@ describe("imageProcessing debug trace", () => {
       },
     });
 
-    expect(renderLocalMaskShapeOnGpuToSurfaceMock).toHaveBeenCalledWith(
+    expect(applyLocalMaskShapeOnSurfaceMock).toHaveBeenCalledWith(
       expect.objectContaining({
         width: 64,
         height: 64,
@@ -1070,7 +1065,7 @@ describe("imageProcessing debug trace", () => {
         })),
       },
     };
-    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(null);
+    applyLocalMaskShapeOnSurfaceMock.mockResolvedValue(null);
 
     await renderImageToCanvas({
       canvas: output,
@@ -1089,7 +1084,7 @@ describe("imageProcessing debug trace", () => {
       },
     });
 
-    expect(renderLocalMaskShapeOnGpuToSurfaceMock).toHaveBeenCalledWith(
+    expect(applyLocalMaskShapeOnSurfaceMock).toHaveBeenCalledWith(
       expect.objectContaining({
         slotId: "local-mask-shape:local-brush-fallback",
         mask: expect.objectContaining({

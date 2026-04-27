@@ -18,9 +18,11 @@ import {
 } from "@/lib/renderSurfaceHandle";
 import { resolveRenderIntent, type RenderIntent } from "@/lib/renderIntent";
 import { applyMaskedBlendOnGpu } from "@/lib/gpu/passes/mask/maskedBlend";
-import { applyLocalMaskRangeOnGpu } from "@/lib/renderer/gpuLocalMaskRangeGate";
-import { applyLocalMaskRangeOnGpuToSurface } from "@/lib/renderer/gpuLocalMaskRangeGate";
-import { renderLocalMaskShapeOnGpuToSurface } from "@/lib/renderer/gpuLocalMaskShape";
+import {
+  applyLocalMaskRangeOnCanvas,
+  applyLocalMaskRangeOnSurface,
+} from "@/lib/gpu/passes/mask/rangeGate";
+import { applyLocalMaskShapeOnSurface } from "@/lib/gpu/passes/mask/localShape";
 import { createTilePlan, type TileRect } from "@/lib/renderer/gpu/TiledRenderer";
 import { resolveViewportRenderRegion, type ViewportRoi } from "@/lib/renderer/viewportRegion";
 import {
@@ -1430,7 +1432,7 @@ const buildLocalMask = async (
     return maskCanvas;
   }
 
-  let maskSurface = await renderLocalMaskShapeOnGpuToSurface({
+  let maskSurface = await applyLocalMaskShapeOnSurface({
     width,
     height,
     mask: local.mask,
@@ -1456,7 +1458,7 @@ const buildLocalMask = async (
   let needsCpuRangeFallback = false;
   if (referenceContext && hasLocalMaskRangeConstraints(local.mask)) {
     if (maskSurface) {
-      const gatedSurface = await applyLocalMaskRangeOnGpuToSurface({
+      const gatedSurface = await applyLocalMaskRangeOnSurface({
         referenceSource: referenceContext.canvas,
         maskSource: maskSurface.sourceCanvas,
         width,
@@ -1470,13 +1472,12 @@ const buildLocalMask = async (
         needsCpuRangeFallback = true;
       }
     } else {
-      const appliedOnGpu = await applyLocalMaskRangeOnGpu({
+      const appliedOnCanvas = await applyLocalMaskRangeOnCanvas({
         maskCanvas,
         referenceSource: referenceContext.canvas,
         mask: local.mask,
-        slotId: `local-mask:${local.id || "anonymous"}`,
       });
-      if (!appliedOnGpu) {
+      if (!appliedOnCanvas) {
         needsCpuRangeFallback = true;
       }
     }

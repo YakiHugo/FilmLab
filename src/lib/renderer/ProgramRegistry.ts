@@ -26,11 +26,6 @@ import bilateralScaleFragSrc from "./shaders/BilateralScale.frag?raw";
 import reconstructFragSrc from "./shaders/Reconstruct.frag?raw";
 import outputEncodeFragSrc from "./shaders/OutputEncode.frag?raw";
 import layerBlendFragSrc from "./shaders/LayerBlend.frag?raw";
-import linearGradientMaskFragSrc from "./shaders/LinearGradientMask.frag?raw";
-import radialGradientMaskFragSrc from "./shaders/RadialGradientMask.frag?raw";
-import localMaskRangeGateFragSrc from "./shaders/LocalMaskRangeGate.frag?raw";
-import brushMaskStampFragSrc from "./shaders/BrushMaskStamp.frag?raw";
-import maskInvertFragSrc from "./shaders/MaskInvert.frag?raw";
 import asciiCarrierFragRaw from "./shaders/AsciiCarrier.frag?raw";
 import asciiCommonGlsl from "./shaders/templates/asciiCommon.glsl?raw";
 import halftoneCarrierFragSrc from "./shaders/HalftoneCarrier.frag?raw";
@@ -64,11 +59,6 @@ export interface RendererPrograms {
   reconstruct: ProgramInfo;
   outputEncode: ProgramInfo;
   maskedBlend: ProgramInfo;
-  linearGradientMask: ProgramInfo;
-  radialGradientMask: ProgramInfo;
-  localMaskRangeGate: ProgramInfo;
-  brushMaskStamp: ProgramInfo;
-  maskInvert: ProgramInfo;
   asciiCarrier: ProgramInfo;
   halftoneCarrier: ProgramInfo;
   timestampOverlay: ProgramInfo;
@@ -100,11 +90,6 @@ const PROGRAM_FRAGMENTS: Record<ProgramName, string> = {
   reconstruct: reconstructFragSrc,
   outputEncode: outputEncodeFragSrc,
   maskedBlend: layerBlendFragSrc,
-  linearGradientMask: linearGradientMaskFragSrc,
-  radialGradientMask: radialGradientMaskFragSrc,
-  localMaskRangeGate: localMaskRangeGateFragSrc,
-  brushMaskStamp: brushMaskStampFragSrc,
-  maskInvert: maskInvertFragSrc,
   asciiCarrier: asciiCarrierFragSrc,
   halftoneCarrier: halftoneCarrierFragSrc,
   timestampOverlay: timestampOverlayFragSrc,
