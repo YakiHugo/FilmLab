@@ -4,6 +4,13 @@
  * This is the entry point of the per-frame WebGPU pipeline (`src/lib/gpu/`).
  * Stage choreography (`src/render/image/`) sits on top of this module via the
  * backend adapter introduced in Slice 5.5.
+ *
+ * `requestGPUContext` returns a process-wide singleton. WebGPU device creation
+ * is expensive (10–100ms) and surface adapters built on `createPerDeviceCache`
+ * only amortize their pipeline + shader caches when the device is stable
+ * across calls; per-call device construction would also leak the prior device
+ * each frame. The singleton is rebuilt on `device.lost` (intentional dispose
+ * or accidental loss).
  */
 
 export type GPUContextErrorCode =
@@ -45,7 +52,8 @@ export interface GPUContext {
   onLost: (handler: (info: GPUDeviceLostInfo) => void) => () => void;
   /**
    * Tear the context down. Idempotent. Triggers `device.lost`, which fans out
-   * to subscribers registered via `onLost`.
+   * to subscribers registered via `onLost`. The next `requestGPUContext` call
+   * rebuilds.
    */
   dispose: () => void;
 }
@@ -69,9 +77,11 @@ const detectFeatures = (device: GPUDevice): GPUContextFeatures => ({
   float32Filterable: device.features.has("float32-filterable"),
 });
 
-export async function requestGPUContext(
-  options: RequestGPUContextOptions = {}
-): Promise<GPUContext> {
+let _cachedContext: Promise<GPUContext> | null = null;
+
+const buildContext = async (
+  options: RequestGPUContextOptions
+): Promise<GPUContext> => {
   if (typeof navigator === "undefined" || !navigator.gpu) {
     throw new GPUContextError(
       "no-navigator-gpu",
@@ -114,6 +124,12 @@ export async function requestGPUContext(
 
   const lost = device.lost.then((info) => {
     isLost = true;
+    if (_cachedContext) {
+      // Resolve the next requestGPUContext call against a fresh device.
+      void _cachedContext.then((ctx) => {
+        if (ctx.isLost()) _cachedContext = null;
+      });
+    }
     for (const handler of handlers) {
       handler(info);
     }
@@ -145,4 +161,28 @@ export async function requestGPUContext(
       device.destroy();
     },
   };
+};
+
+export async function requestGPUContext(
+  options: RequestGPUContextOptions = {}
+): Promise<GPUContext> {
+  if (_cachedContext) {
+    try {
+      const ctx = await _cachedContext;
+      if (!ctx.isLost()) {
+        return ctx;
+      }
+    } catch {
+      // Previous request failed; fall through and try again.
+    }
+    _cachedContext = null;
+  }
+  const pending = buildContext(options);
+  _cachedContext = pending;
+  pending.catch(() => {
+    if (_cachedContext === pending) {
+      _cachedContext = null;
+    }
+  });
+  return pending;
 }

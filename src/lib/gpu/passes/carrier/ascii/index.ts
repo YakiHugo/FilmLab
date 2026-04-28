@@ -413,7 +413,10 @@ export const applyAsciiCarrierOnSurface = async ({
       baseHeight: params.height,
     });
 
-    // 7. Optional blurred-source bg pass.
+    // 7. Optional blurred-source bg pass. When backgroundMode is blurred-source
+    //    but blur radius rounds to zero, sample the source view directly —
+    //    a transparent placeholder would erase the background instead of the
+    //    intended "no-blur source" behaviour.
     let bgSourceLease: PooledTexture | null = null;
     let bgSourceView: GPUTextureView;
     if (params.backgroundMode === "blurred-source" && params.backgroundBlurPx > 0.001) {
@@ -438,9 +441,12 @@ export const applyAsciiCarrierOnSurface = async ({
       if (blurResult.kind !== "texture") return null;
       bgSourceLease = blurResult.output;
       bgSourceView = blurResult.output.view;
+    } else if (params.backgroundMode === "blurred-source") {
+      // Zero-blur passthrough: composition samples the original source.
+      bgSourceView = srcView;
     } else {
       // 1×1 transparent placeholder — composition only samples it when
-      // `useBackgroundCanvas` is true.
+      // `useBackgroundCanvas` is true (i.e. blurred-source mode).
       const placeholder = device.createTexture({
         label: "ascii.bgPlaceholder",
         size: { width: 1, height: 1 },
