@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveAspectRatio, resolveOrientedAspectRatio } from "./imageProcessing";
+import { resolveAspectRatio, resolveOrientedAspectRatio } from "./imageProcessingKeys";
 
 describe("resolveAspectRatio", () => {
   it("uses custom ratio for free mode", () => {

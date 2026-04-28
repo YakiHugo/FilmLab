@@ -4,7 +4,6 @@ import type { Asset, CanvasWorkbench } from "@/types";
 import { normalizeCanvasWorkbench } from "./studioPresets";
 import { cropRenderedCanvasSlice, renderCanvasWorkbenchToCanvas } from "./renderCanvasDocument";
 
-const releaseRenderSlotsMock = vi.fn();
 vi.mock("@/render/image", async () => {
   const actual = await vi.importActual<typeof import("@/render/image")>("@/render/image");
   return {
@@ -12,10 +11,6 @@ vi.mock("@/render/image", async () => {
     renderSingleImageToCanvas: vi.fn(),
   };
 });
-
-vi.mock("@/lib/imageProcessing", () => ({
-  releaseRenderSlots: (...args: unknown[]) => releaseRenderSlotsMock(...args),
-}));
 
 const createAsset = (): Asset => ({
   id: "asset-1",
@@ -231,7 +226,6 @@ describe("renderCanvasWorkbench", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(renderSingleImageToCanvas).mockResolvedValue({ revisionKey: "revision-1" });
-    releaseRenderSlotsMock.mockResolvedValue(undefined);
   });
 
   it("renders image and text elements without including editor-only overlays", async () => {
@@ -271,7 +265,6 @@ describe("renderCanvasWorkbench", () => {
     expect(mainContext.drawImage).toHaveBeenCalled();
     expect(mainContext.fillText).toHaveBeenCalledWith("工作台 export", 0, 0);
     expect(mainContext.fillRect).toHaveBeenCalledWith(0, 0, 1000, 800);
-    expect(releaseRenderSlotsMock).toHaveBeenCalledWith("export", "board-export");
     createdCanvases.forEach((canvas) => {
       expect(canvas.width).toBe(0);
       expect(canvas.height).toBe(0);

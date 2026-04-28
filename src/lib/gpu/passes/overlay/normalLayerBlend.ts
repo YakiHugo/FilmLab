@@ -13,7 +13,7 @@ import {
   createEmptyRenderBoundaryMetrics,
   type RenderSurfaceHandle,
 } from "@/lib/renderSurfaceHandle";
-import type { RenderMode } from "@/lib/renderer/RenderManager";
+import type { RenderMode } from "@/lib/renderMode";
 
 import fullscreenWgsl from "../../wgsl/lib/fullscreen.wgsl?raw";
 import normalLayerBlendWgsl from "../../wgsl/overlay/normalLayerBlend.wgsl?raw";

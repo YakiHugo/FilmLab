@@ -1,4 +1,4 @@
-import type { RenderMode } from "@/lib/renderer/RenderManager";
+import type { RenderMode } from "@/lib/renderMode";
 import type { RenderQualityProfile } from "@/lib/imageProcessing";
 
 export type RenderIntent =

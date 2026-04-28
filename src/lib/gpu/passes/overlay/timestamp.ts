@@ -16,7 +16,7 @@ import {
   createEmptyRenderBoundaryMetrics,
   type RenderSurfaceHandle,
 } from "@/lib/renderSurfaceHandle";
-import type { RenderMode } from "@/lib/renderer/RenderManager";
+import type { RenderMode } from "@/lib/renderMode";
 import type { TimestampOverlayGpuInput } from "@/lib/timestampOverlay";
 import { TIMESTAMP_GPU_MAX_CHARS } from "@/lib/timestampOverlay";
 

@@ -1,8 +1,8 @@
 import type {
+  BackendRenderResult,
   RenderImageStageDebugInfo,
   RenderImageStageResult,
-} from "@/lib/imageProcessing";
-import type { BackendRenderResult } from "./renderBackend";
+} from "./renderBackend";
 import { WebGPURenderBackend } from "./webgpuRenderBackend";
 import { sha256FromCanvas } from "@/lib/hash";
 import {

@@ -29,7 +29,7 @@ import {
   createEmptyRenderBoundaryMetrics,
   type RenderSurfaceHandle,
 } from "@/lib/renderSurfaceHandle";
-import type { RenderMode } from "@/lib/renderer/RenderManager";
+import type { RenderMode } from "@/lib/renderMode";
 import type { EditorLayerBlendMode } from "@/types";
 
 import {

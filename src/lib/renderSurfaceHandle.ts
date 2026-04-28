@@ -1,4 +1,4 @@
-import type { RenderMode } from "@/lib/renderer/RenderManager";
+import type { RenderMode } from "@/lib/renderMode";
 
 export interface RenderBoundaryMetrics {
   textureUploads: number;
