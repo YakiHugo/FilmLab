@@ -938,8 +938,10 @@ async function produceSurface(
   outputH: number,
   options: BackendRenderOptions,
 ): Promise<BackendRenderResult> {
+  throwIfAborted(options.signal);
   const pixels = await readbackTextureRGBA8(device, outputTex.texture, outputW, outputH);
   outputTex.release();
+  throwIfAborted(options.signal);
 
   const canvas = document.createElement("canvas");
   canvas.width = outputW;
@@ -961,6 +963,12 @@ async function produceSurface(
 
   return { stageId: "full", surface, backendStatus: "rendered" };
 }
+
+const throwIfAborted = (signal: AbortSignal | undefined): void => {
+  if (signal?.aborted) {
+    throw new DOMException("Aborted", "AbortError");
+  }
+};
 
 // ─── public render functions ──────────────────────────────────────────────────
 
@@ -987,6 +995,7 @@ export async function renderDevelopBase(options: BackendRenderOptions): Promise<
     srcTex = upload.texture;
     const srcW = upload.width;
     const srcH = upload.height;
+    throwIfAborted(options.signal);
 
     // applyGeometry
     const { outputW, outputH, geoUniforms } = resolveDimensions(srcW, srcH, options.targetSize, options.state.geometry);
@@ -1010,6 +1019,7 @@ export async function renderDevelopBase(options: BackendRenderOptions): Promise<
     devBuild.destroy();
 
     if (devResult.kind !== "texture") throw new Error("Develop pipeline produced no output");
+    throwIfAborted(options.signal);
     let baseTex = devResult.output;
 
     // composeLocal — srcInput must remain valid until all local adjustments are done
@@ -1060,6 +1070,7 @@ export async function renderFilmStage(options: BackendRenderOptions): Promise<Ba
     srcTex = upload.texture;
     const outputW = upload.width;
     const outputH = upload.height;
+    throwIfAborted(options.signal);
 
     const srcInput: PipelineInputSource = {
       texture: srcTex,
@@ -1084,6 +1095,7 @@ export async function renderFilmStage(options: BackendRenderOptions): Promise<Ba
     try {
       const filmResult = executor.execute({ passes: filmBuild.passesWithDecode, input: srcInput, baseWidth: outputW, baseHeight: outputH });
       if (filmResult.kind !== "texture") throw new Error("Film pipeline produced no output");
+      throwIfAborted(options.signal);
 
       // halation / bloom / glow
       const postTex = runHalationBloomGlow(filmResult.output, device, executor, caches, halBloomU, outputW, outputH);
@@ -1130,6 +1142,7 @@ export async function renderFull(options: BackendRenderOptions): Promise<Backend
     srcTex = upload.texture;
     const srcW = upload.width;
     const srcH = upload.height;
+    throwIfAborted(options.signal);
 
     // applyGeometry
     const { outputW, outputH, geoUniforms } = resolveDimensions(srcW, srcH, options.targetSize, options.state.geometry);
@@ -1153,6 +1166,7 @@ export async function renderFull(options: BackendRenderOptions): Promise<Backend
     devBuild.destroy();
 
     if (devResult.kind !== "texture") throw new Error("Develop pipeline produced no output");
+    throwIfAborted(options.signal);
     let developTex = devResult.output;
 
     // composeLocal
@@ -1175,6 +1189,7 @@ export async function renderFull(options: BackendRenderOptions): Promise<Backend
       });
 
       if (filmResult.kind !== "texture") throw new Error("Film pipeline produced no output");
+      throwIfAborted(options.signal);
 
       // halation / bloom / glow
       const postTex = runHalationBloomGlow(filmResult.output, device, executor, caches, halBloomU, outputW, outputH);
