@@ -36,7 +36,7 @@ export interface AsciiGlyphSet {
   readonly charset: readonly string[];
   readonly glyphCount: number;
   /** Float32Array of length `glyphCount * ASCII_DESCRIPTOR_STRIDE`. */
-  readonly descriptors: Float32Array;
+  readonly descriptors: Float32Array<ArrayBuffer>;
   readonly atlas: AsciiGlyphAtlas;
 }
 

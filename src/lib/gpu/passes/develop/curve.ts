@@ -17,11 +17,6 @@ const curveSource = `${fullscreenWgsl}\n${colorSpaceWgsl}\n${curveWgsl}`;
 // 1 vec4 = 16 bytes.
 const UNIFORM_BYTES = 16;
 
-export interface CurvePassParams {
-  // No float params — the curve is fully encoded in the LUT texture.
-  // Present for parity with other pass handles.
-}
-
 interface CompiledPipeline {
   pipeline: GPURenderPipeline;
   bindGroupLayout: GPUBindGroupLayout;

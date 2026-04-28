@@ -11,6 +11,7 @@ import {
   TexturePool,
   uploadExternalImageToTexture,
   readbackTextureRGBA8,
+  type ExternalImageSource,
 } from "../../resources";
 import { PipelineExecutor, type PipelineInputSource } from "../../pipeline";
 import { createPerDeviceCache } from "../../perDeviceCache";
@@ -187,8 +188,8 @@ const gateSourcesToPixels = async ({
   height,
   mask,
 }: {
-  referenceSource: CanvasImageSource;
-  maskSource: CanvasImageSource;
+  referenceSource: ExternalImageSource;
+  maskSource: ExternalImageSource;
   width: number;
   height: number;
   mask: LocalAdjustmentMask;
@@ -301,8 +302,8 @@ const writePixelsToCanvas = (
 };
 
 export interface ApplyLocalMaskRangeOnSurfaceOptions {
-  referenceSource: CanvasImageSource;
-  maskSource: CanvasImageSource;
+  referenceSource: ExternalImageSource;
+  maskSource: ExternalImageSource;
   width: number;
   height: number;
   mask: LocalAdjustmentMask;
@@ -348,7 +349,7 @@ export const applyLocalMaskRangeOnSurface = async ({
 export interface ApplyLocalMaskRangeOnCanvasOptions {
   /** In-place target. Both the upload source and the writeback destination. */
   maskCanvas: HTMLCanvasElement;
-  referenceSource: CanvasImageSource;
+  referenceSource: ExternalImageSource;
   mask: LocalAdjustmentMask;
 }
 

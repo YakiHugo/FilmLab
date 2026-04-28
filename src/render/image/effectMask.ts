@@ -12,6 +12,7 @@ import {
   applyLocalMaskRangeOnSurface,
 } from "@/lib/gpu/passes/mask/rangeGate";
 import { applyLocalMaskShapeOnSurface } from "@/lib/gpu/passes/mask/localShape";
+import type { ExternalImageSource } from "@/lib/gpu/resources";
 import type { LocalAdjustmentMask } from "@/types";
 import type { ImageRenderMaskDefinition } from "./types";
 
@@ -197,7 +198,7 @@ export const renderImageEffectMaskToCanvas = async ({
   width: number;
   height: number;
   maskDefinition: ImageRenderMaskDefinition;
-  referenceSource?: CanvasImageSource;
+  referenceSource?: ExternalImageSource;
   targetCanvas?: HTMLCanvasElement;
   scratchCanvas?: HTMLCanvasElement;
 }) => {

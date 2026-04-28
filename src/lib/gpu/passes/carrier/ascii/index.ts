@@ -500,7 +500,7 @@ export const applyAsciiCarrierOnSurface = async ({
     ownedTextures.push(placeholderMask);
 
     let composited: PipelineInputSource = baseInput;
-    let compositedLease: PooledTexture | null = null;
+    let compositedLease = null as PooledTexture | null;
     const consumeAndReplace = (next: PooledTexture): void => {
       compositedLease?.release();
       compositedLease = next;
@@ -670,15 +670,15 @@ export const applyAsciiCarrierOnSurface = async ({
     if (!compositedLease) {
       return surface;
     }
+    const finalLease = compositedLease;
+    compositedLease = null;
 
     const pixels = await readbackTextureRGBA8(
       device,
-      compositedLease.texture,
+      finalLease.texture,
       params.width,
       params.height,
     );
-    const finalLease = compositedLease;
-    compositedLease = null;
     finalLease.release();
 
     const canvas = document.createElement("canvas");

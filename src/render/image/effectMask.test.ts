@@ -17,6 +17,7 @@ vi.mock("@/lib/gpu/passes/mask/localShape", () => ({
 }));
 
 import { buildImageRenderMaskRevisionKey, renderImageEffectMaskToCanvas } from "./effectMask";
+import type { ExternalImageSource } from "@/lib/gpu/resources";
 
 class MockGradient {
   addColorStop = vi.fn();
@@ -147,7 +148,7 @@ describe("effectMask", () => {
   it("prefers GPU range gating before falling back to CPU pixel reads", async () => {
     const targetCanvas = createCanvas(32, 32);
     const scratchCanvas = createCanvas(32, 32);
-    const referenceSource = createCanvas(32, 32) as unknown as CanvasImageSource;
+    const referenceSource = createCanvas(32, 32) as unknown as ExternalImageSource;
     const shapeSurface = createSurface(createCanvas(32, 32));
     const gatedSurface = createSurface(createCanvas(32, 32));
     applyLocalMaskShapeOnSurfaceMock.mockResolvedValue(shapeSurface);
@@ -209,7 +210,7 @@ describe("effectMask", () => {
     applyLocalMaskRangeOnCanvasMock.mockResolvedValue(false);
     const targetCanvas = createCanvas(32, 32);
     const scratchCanvas = createCanvas(32, 32);
-    const referenceSource = createCanvas(32, 32) as unknown as CanvasImageSource;
+    const referenceSource = createCanvas(32, 32) as unknown as ExternalImageSource;
 
     const output = await renderImageEffectMaskToCanvas({
       width: 32,
@@ -246,7 +247,7 @@ describe("effectMask", () => {
   it("continues with CPU range gating when GPU shape succeeds but GPU range gating fails", async () => {
     const targetCanvas = createCanvas(32, 32);
     const scratchCanvas = createCanvas(32, 32);
-    const referenceSource = createCanvas(32, 32) as unknown as CanvasImageSource;
+    const referenceSource = createCanvas(32, 32) as unknown as ExternalImageSource;
     const shapeSurface = createSurface(createCanvas(32, 32));
     applyLocalMaskShapeOnSurfaceMock.mockResolvedValue(shapeSurface);
     applyLocalMaskRangeOnSurfaceMock.mockResolvedValue(null);
