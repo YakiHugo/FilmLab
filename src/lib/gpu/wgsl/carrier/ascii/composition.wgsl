@@ -45,26 +45,6 @@ struct CompositionUniforms {
 const ASCII_ALPHA_CUTOFF: f32 = 0.05;
 const ASCII_GRAYSCALE_HIGHLIGHT: vec3<f32> = vec3<f32>(245.0 / 255.0);
 
-struct VSOut {
-  @builtin(position) position: vec4<f32>,
-  @location(0) uv: vec2<f32>,
-};
-
-@vertex
-fn vs_main(@builtin(vertex_index) idx: u32) -> VSOut {
-  var positions = array<vec2<f32>, 4>(
-    vec2<f32>(-1.0, -1.0),
-    vec2<f32>( 1.0, -1.0),
-    vec2<f32>(-1.0,  1.0),
-    vec2<f32>( 1.0,  1.0),
-  );
-  let p = positions[idx];
-  var out: VSOut;
-  out.position = vec4<f32>(p, 0.0, 1.0);
-  out.uv = vec2<f32>(p.x * 0.5 + 0.5, (1.0 - p.y) * 0.5);
-  return out;
-}
-
 fn ascii_source_over(base: vec4<f32>, layer: vec4<f32>) -> vec4<f32> {
   let outAlpha = layer.a + base.a * (1.0 - layer.a);
   if (outAlpha <= 1.0e-5) {

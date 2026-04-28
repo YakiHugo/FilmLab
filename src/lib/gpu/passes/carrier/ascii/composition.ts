@@ -20,7 +20,10 @@
 import type { ShaderCache } from "../../../shaders";
 import type { GPURenderPassDescriptor } from "../../types";
 
+import fullscreenWgsl from "../../../wgsl/lib/fullscreen.wgsl?raw";
 import compositionWgsl from "../../../wgsl/carrier/ascii/composition.wgsl?raw";
+
+const compositionSource = `${fullscreenWgsl}\n${compositionWgsl}`;
 
 interface CompiledPipeline {
   pipeline: GPURenderPipeline;
@@ -180,7 +183,7 @@ export class AsciiCompositionPipelineCache {
   private pipelineFor(format: GPUTextureFormat): CompiledPipeline {
     const cached = this.byFormat.get(format);
     if (cached) return cached;
-    const module = this.shaders.compile(compositionWgsl, "ascii/composition.wgsl");
+    const module = this.shaders.compile(compositionSource, "ascii/composition.wgsl");
     const bindGroupLayout = this.device.createBindGroupLayout({
       label: "ascii.composition.bindGroupLayout",
       entries: [
