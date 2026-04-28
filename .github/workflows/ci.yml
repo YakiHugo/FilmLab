@@ -35,7 +35,6 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run generate:shaders
       - run: pnpm test
 
   typecheck:
@@ -51,7 +50,6 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run generate:shaders
       - run: pnpm typecheck
 
   build:
