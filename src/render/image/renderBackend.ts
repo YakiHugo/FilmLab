@@ -13,8 +13,12 @@ import type {
 
 export type RenderImageStageId = "full" | "develop-base" | "film-stage";
 
+export type BackendRenderStatus = "rendered" | "partial-fallback" | "kept-stale";
+
 export interface RenderImageStageDebugInfo {
   stageId: RenderImageStageId;
+  status: BackendRenderStatus;
+  activePasses: string[];
   boundaries: RenderBoundaryMetrics;
 }
 
@@ -41,8 +45,6 @@ export interface RenderImageOptions {
   renderSlot?: string;
   debug?: ImageRenderDebugOptions;
 }
-
-export type BackendRenderStatus = "rendered" | "partial-fallback" | "kept-stale";
 
 export interface BackendRenderResult extends RenderImageStageSurfaceResult {
   backendStatus: BackendRenderStatus;

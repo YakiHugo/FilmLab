@@ -1,8 +1,9 @@
 # GPU smoke harnesses
 
-Browser-only smoke validators for the WebGPU rewrite (`src/lib/gpu/`). Not
-codified into `package.json` — these are one-off manual checks tied to the
-Slice validation gates in `docs/tasks/render-kernel-webgpu-rewrite.md`.
+Browser-only smoke validators for `src/lib/gpu/`. Not codified into
+`package.json` — these are one-off manual checks. Per-slice harnesses with
+WebGL2 reference paths were retired with the WebGL2 backend (no baseline to
+diff against); only the two below remain.
 
 To run:
 
