@@ -14,7 +14,7 @@ import {
 import { ShaderCache } from "@/lib/gpu/shaders";
 import { PipelineExecutor, type PipelineInputSource } from "@/lib/gpu/pipeline";
 import { loadImageSource } from "@/lib/imageSourceLoader";
-import type { RenderImageSource } from "@/lib/imageSourceLoader";
+import type { LoadedImageSource, RenderImageSource } from "@/lib/imageSourceLoader";
 import {
   createGeometryUniforms,
   createPassthroughGeometryUniforms,
@@ -968,15 +968,25 @@ export async function renderDevelopBase(options: BackendRenderOptions): Promise<
   const gpuCtx = await requestGPUContext();
   const { device } = gpuCtx;
   const pool = new TexturePool(device);
+  let loaded: LoadedImageSource | null = null;
+  let srcTex: GPUTexture | null = null;
 
   try {
-    // fetchOrComputeSource
-    const loaded = await loadImageSource(options.source as RenderImageSource, { signal: options.signal });
-    const { texture: srcTex, width: srcW, height: srcH } = uploadExternalImageToTexture(
+    // fetchOrComputeSource — feed sourceCacheKey through so blob sources hit
+    // the bitmap LRU; preview drag re-renders avoid re-decoding the image.
+    loaded = await loadImageSource(options.source as RenderImageSource, {
+      signal: options.signal,
+      cacheKey: options.sourceCacheKey,
+      useCache: Boolean(options.sourceCacheKey),
+    });
+    const upload = uploadExternalImageToTexture(
       device,
       loaded.source as ExternalImageSource,
       { label: "orchestrator.develop:source" },
     );
+    srcTex = upload.texture;
+    const srcW = upload.width;
+    const srcH = upload.height;
 
     // applyGeometry
     const { outputW, outputH, geoUniforms } = resolveDimensions(srcW, srcH, options.targetSize, options.state.geometry);
@@ -1004,8 +1014,6 @@ export async function renderDevelopBase(options: BackendRenderOptions): Promise<
 
     // composeLocal — srcInput must remain valid until all local adjustments are done
     baseTex = await composeLocalAdjustments(device, executor, caches, srcInput, baseTex, options.state, outputW, outputH);
-    srcTex.destroy();
-    loaded.cleanup?.();
 
     // produceSurface — encode to rgba8unorm
     const encodeHandle = createOutputEncodePass(device, caches.outputEncode, {
@@ -1023,8 +1031,10 @@ export async function renderDevelopBase(options: BackendRenderOptions): Promise<
 
     return await produceSurface(device, encodeResult.output, outputW, outputH, options);
   } finally {
+    srcTex?.destroy();
+    loaded?.cleanup?.();
     pool.dispose();
-    gpuCtx.dispose();
+    // gpuCtx is the process-wide singleton; do not dispose per call.
   }
 }
 
@@ -1032,15 +1042,24 @@ export async function renderFilmStage(options: BackendRenderOptions): Promise<Ba
   const gpuCtx = await requestGPUContext();
   const { device } = gpuCtx;
   const pool = new TexturePool(device);
+  let loaded: LoadedImageSource | null = null;
+  let srcTex: GPUTexture | null = null;
 
   try {
     // fetchOrComputeSource (source is already a develop-stage canvas)
-    const loaded = await loadImageSource(options.source as RenderImageSource, { signal: options.signal });
-    const { texture: srcTex, width: outputW, height: outputH } = uploadExternalImageToTexture(
+    loaded = await loadImageSource(options.source as RenderImageSource, {
+      signal: options.signal,
+      cacheKey: options.sourceCacheKey,
+      useCache: Boolean(options.sourceCacheKey),
+    });
+    const upload = uploadExternalImageToTexture(
       device,
       loaded.source as ExternalImageSource,
       { label: "orchestrator.film:source" },
     );
+    srcTex = upload.texture;
+    const outputW = upload.width;
+    const outputH = upload.height;
 
     const srcInput: PipelineInputSource = {
       texture: srcTex,
@@ -1064,14 +1083,7 @@ export async function renderFilmStage(options: BackendRenderOptions): Promise<Ba
     const filmBuild = await buildFilmPasses(device, caches, options.state, grainSeed, outputW, outputH, staticTextures);
     try {
       const filmResult = executor.execute({ passes: filmBuild.passesWithDecode, input: srcInput, baseWidth: outputW, baseHeight: outputH });
-
-      if (filmResult.kind !== "texture") {
-        srcTex.destroy();
-        loaded.cleanup?.();
-        throw new Error("Film pipeline produced no output");
-      }
-      srcTex.destroy();
-      loaded.cleanup?.();
+      if (filmResult.kind !== "texture") throw new Error("Film pipeline produced no output");
 
       // halation / bloom / glow
       const postTex = runHalationBloomGlow(filmResult.output, device, executor, caches, halBloomU, outputW, outputH);
@@ -1090,8 +1102,9 @@ export async function renderFilmStage(options: BackendRenderOptions): Promise<Ba
       filmBuild.destroy();
     }
   } finally {
+    srcTex?.destroy();
+    loaded?.cleanup?.();
     pool.dispose();
-    gpuCtx.dispose();
   }
 }
 
@@ -1099,15 +1112,24 @@ export async function renderFull(options: BackendRenderOptions): Promise<Backend
   const gpuCtx = await requestGPUContext();
   const { device } = gpuCtx;
   const pool = new TexturePool(device);
+  let loaded: LoadedImageSource | null = null;
+  let srcTex: GPUTexture | null = null;
 
   try {
     // fetchOrComputeSource
-    const loaded = await loadImageSource(options.source as RenderImageSource, { signal: options.signal });
-    const { texture: srcTex, width: srcW, height: srcH } = uploadExternalImageToTexture(
+    loaded = await loadImageSource(options.source as RenderImageSource, {
+      signal: options.signal,
+      cacheKey: options.sourceCacheKey,
+      useCache: Boolean(options.sourceCacheKey),
+    });
+    const upload = uploadExternalImageToTexture(
       device,
       loaded.source as ExternalImageSource,
       { label: "orchestrator.full:source" },
     );
+    srcTex = upload.texture;
+    const srcW = upload.width;
+    const srcH = upload.height;
 
     // applyGeometry
     const { outputW, outputH, geoUniforms } = resolveDimensions(srcW, srcH, options.targetSize, options.state.geometry);
@@ -1135,9 +1157,6 @@ export async function renderFull(options: BackendRenderOptions): Promise<Backend
 
     // composeLocal
     developTex = await composeLocalAdjustments(device, executor, caches, srcInput, developTex, options.state, outputW, outputH);
-
-    srcTex.destroy();
-    loaded.cleanup?.();
 
     // runPipeline — film (no inputDecode since source is already linear rgba16float)
     const grainSeed = parseInt(fnv1a32(options.seedKey ?? `${Date.now()}`), 16);
@@ -1174,7 +1193,8 @@ export async function renderFull(options: BackendRenderOptions): Promise<Backend
       filmBuild.destroy();
     }
   } finally {
+    srcTex?.destroy();
+    loaded?.cleanup?.();
     pool.dispose();
-    gpuCtx.dispose();
   }
 }
