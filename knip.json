@@ -29,9 +29,6 @@
       ]
     }
   },
-  "ignore": [
-    "src/lib/renderer/shaders/generated/**"
-  ],
   "ignoreBinaries": [
     "python"
   ]

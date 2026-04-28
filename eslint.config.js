@@ -10,7 +10,6 @@ export default tseslint.config(
       "dist",
       "server/dist",
       "node_modules",
-      "src/lib/renderer/shaders/generated",
     ],
   },
   js.configs.recommended,
