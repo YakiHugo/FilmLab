@@ -9,7 +9,8 @@
         "eslint.config.js",
         "scripts/**/*.ts",
         "api/**/*.ts",
-        "shared/**/*.test.ts"
+        "shared/**/*.test.ts",
+        "src/lib/gpu/**/*.ts"
       ],
       "project": [
         "src/**/*.{ts,tsx}",
@@ -28,9 +29,6 @@
       ]
     }
   },
-  "ignore": [
-    "src/lib/renderer/shaders/generated/**"
-  ],
   "ignoreBinaries": [
     "python"
   ]

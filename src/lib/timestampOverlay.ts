@@ -1,6 +1,6 @@
 import { clamp } from "@/lib/math";
 import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
-import { applyTimestampOverlayOnGpuToSurface } from "@/lib/renderer/gpuTimestampOverlay";
+import { applyTimestampOverlayOnSurface } from "@/lib/gpu/passes/overlay/timestamp";
 
 export interface TimestampOverlayAdjustments {
   timestampEnabled: boolean;
@@ -407,7 +407,7 @@ export const applyTimestampOverlayToSurfaceIfSupported = async ({
     return surface;
   }
 
-  return applyTimestampOverlayOnGpuToSurface({
+  return applyTimestampOverlayOnSurface({
     surface,
     overlay,
     slotId,

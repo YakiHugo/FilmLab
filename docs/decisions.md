@@ -11,27 +11,55 @@
 ## 渲染管线
 
 ### Backend
-- WebGL2，不走 WebGPU。shader backend 抽象不是 prerequisite；WGSL 端口不在范围。
+- **WebGPU**，develop + film + carrier + effect + overlay + signal-damage 全链 WGSL。`src/lib/gpu/` 是 per-frame pipeline executor；`src/render/image/` 是 stage choreographer。入口：`WebGPURenderBackend`（`src/render/image/webgpuRenderBackend.ts`），由 `renderSingleImage.ts` 直接实例化。
 - 单 Surface 路径。每个 per-image stage consume + return `RenderSurfaceHandle`；`*IfSupported` 回退分支已全部退役。`canvasMaterializations` 每次 render = 1（最终 `materializeToCanvas` 是唯一边界）。
-- Canvas2D 只存活于 glyph atlas bake (`PipelineRenderer.getGlyphAtlas`，一次 per charset+font)，以及作为 runtime-degrade fallback；stage 之间不得传递 `HTMLCanvasElement`。
+- Canvas2D 只存活于 glyph atlas bake（一次 per charset+font）；stage 之间不得传递 `HTMLCanvasElement`。
+- WebGL2 路径已彻底移除：`src/lib/renderer/`、`twgl.js`、所有 `.frag/.vert/.glsl` source、`src/lib/imageProcessing.ts` 的 `renderWithPipeline / RenderManager` 链路全部删除。每个 surface adapter 自己缓存 `ShaderCache + PipelineCache + TexturePool` per device（见 `src/lib/gpu/perDeviceCache.ts`），无全局 renderer 实例。
+
+### Y-axis convention
+- WebGPU 路径已原生 Y-invariant：WGSL vertex shader 输出 Y-invariant UV（`wgsl/lib/fullscreen.wgsl`），每一 pass 保持 top-down 方向。旧 WebGL2 的每偶数 pass Y-flip hack 已彻底消除。
+- `renderer-y-convention-unification` 任务已关闭：WebGPU 路径以 design 解决 Y convention；旧 WebGL2 carrier 路径随 `media-native-render-pipeline` 一起退役。
+
+### Cache keys
+- 所有 cache key（source / pipeline / output）统一由 `src/lib/gpu/cacheKeys.ts` 构建，携带 schema version 前缀（`v1:...`）；无 ad-hoc per-module hash helpers。
 
 ### ASCII
-- Canvas2D `renderAsciiToCanvas` 已退休（见 `asciiEffect.ts`）。它作为应急 fallback 从未被视觉验证，**不是视觉参考基线**。当前 GPU 路径与旧 Canvas2D 两处刻意 divergence：
-  - `cell-solid` 背景在 tone-zero cell 上仍填充（旧版跳过）
-  - 网格 overlay 是 1px hairline，无外边框（旧是 anti-aliased ~2px）
-- GPU 是主路径：CPU 做 cell-grid pre-pack (`buildAsciiCellGrids`) + glyph atlas bake，作为 stage 内部有界 CPU 岛，output 是 GPU texture。
-- ASCII carrier slot id 必须是常量 (`ASCII_CARRIER_SLOT_ID = "ascii-carrier"`)。之前用 `ascii-carrier:${transform.id}` 会让 `RenderManager` 为每个 carrier 分配独立 `PipelineRenderer` 且永不回收 → renderer 泄漏。镜像 `gpuTimestampOverlay` 的一致做法。
+- WebGPU ASCII 路径（`src/lib/gpu/passes/carrier/ascii/`）以 compute shader 做 per-cell feature extraction + structure-aware selection，支持 `structureWeight: 0–1`（0 = 纯 density，1 = 纯 structure matching）。
+- 两阶段 compute chain：`analysis.wgsl` 累积 27-float 特征向量 + per-cell averaged RGBA → `toneNormalize.wgsl` 应用 brightness/contrast/density/coverage/invert/edgeEmphasis 后写 `cellTone` → `selection.wgsl` 用 `cellTone` 做 density-distance 匹配。Floyd-Steinberg dither 已被 Bayer 8×8 ordered 替换（FS 是顺序依赖，不适合 compute；≤ 4/255 gate 容忍替换；项目 pre-launch 不 dual-path）。
+- 旧 Canvas2D `renderAsciiToCanvas` 已退休，**不是视觉参考基线**。
 
 ### Brush mask
-- `GPU_BRUSH_MASK_MAX_POINTS = 512`。超过上限 GPU 路径返回 false，CPU `drawLocalMaskShape` 写入同一 mask canvas，后续 GPU blend 仍消费它——stage 的 Surface-in/Surface-out 契约不破。
+- 上限 512 points。超过上限 `applyLocalMaskShapeOnSurface` 返回 `null`，调用方 fallback 到 CPU `drawLocalMaskShape` 写入同一 mask canvas，后续 GPU blend 仍消费它——stage 的 Surface-in/Surface-out 契约不破。
 - 不要提升上限；若 brush GPU 是 measured hotspot，优化方向是减少 per-dab fullscreen pass 数，不是放宽 fallback 阈值。
+
+### Pipeline stages & authored families
+
+- Stage 顺序：`develop → style → overlay → finalize`。`style` 消费 develop surface，`overlay` 消费 style surface，`finalize` 输出到 canvas。
+- `CanvasImageRenderStateV1` 按 family 分桶：`carrierTransforms`（ASCII、halftone）、`signalDamage`（channel drift）、`semanticOverlays`（timestamp、caption、watermark）、`motionPrograms`（signal-drift）。不得将新 carrier / damage / overlay 推入 `effects[]`。
+- 已知后续扩展点（无任务，不阻塞当前代码）：board/global overlay 归属规则、dither/palette/textmode carrier 族、line-displacement/pixel-sort signal damage 族、grain-oscillate/exposure-breathe motion preset、analysis 层新类型（segmentation、face landmarks、OCR）。
+
+### Quality tier
+
+- `RenderQualityTier` (`"interactive" | "quality" | "export"`) 替换已退役的 `ImageRenderIntent + ImageRenderQuality`，通过 `resolveRenderQualityTierConfig(tier)` 映射执行行为；authored state 不随 tier 变化。
+
+### Analysis layer
+
+- `AnalysisLayerInputs`（`stageSnapshots` + `edgeMap`）替换 ad-hoc `CarrierSnapshots`；requirements 由 transform 声明推导（`deriveAnalysisRequirements`），不由 authored state 手写。
+- `validateAnalysisInputs`：export tier 缺失 throw，preview tier degrade。
+
+### Motion
+
+- `MotionProgram` authored type，`renderMotionSequence` 在 single-image kernel 之上组合 per-frame 渲染；single-image kernel 不感知 time/frame state。
+- 触发重访：需要 per-frame stateful accumulator 或 video codec 接入时。
 
 ### GPU-first / CPU-fallback 边界
 - GPU-first：masked stage blend、filter2d、local-mask range gating、local-adjustment output composition、linear/radial mask shapes。
 - CPU permanent：brush-mask 超上限 + renderer-unavailable（context lost / destroyed）。
 
-### `PipelinePass` 契约
-- `usesPriorTexture?: boolean`。默认 true（processing pass 消费前一级输出）；generator pass（AsciiCarrier 之类）必须显式置 `false`，`FilterPipeline.execute` 不再注入 `uSampler: currentTexture`——否则 "uSampler 总是前一 pass 输出" 的隐式约定会被静默违反。
+### WGSL surface-adapter 中间格式
+- 所有 surface adapter（`applyFilter2dOnSurface`、`applyHalftoneOnSurface`、`applyChannelDriftOnSurface`、`applyMaskedBlendOnSurface`、`applyLocalMaskShapeOnSurface`、`applyLocalMaskRangeOnSurface`、`applyTimestampOverlayOnSurface`、`applyNormalLayerBlendOnSurface`、`applyAsciiCarrierOnSurface`）用 `rgba8unorm` 作为 ping-pong 与 readback 格式。
+- 旧 WebGL2 `PipelineRenderer.applyFilter2dSource` 在 device 支持时用 `RGBA16F` intermediate；现在 `adjust → blur(h) → blur(v) → dilate` 链每次写入量化到 8-bit。理论上极端组合（高 blur radius × `brightness >> 1`）下偏差可达 ~3–4/255 vs 旧 16F 路径——但旧路径已删除，没有 baseline。
+- Revisit：若 carrier / overlay 链未来出现可见 banding 或 export 端 16-bit pipeline 接入，再统一切到 `rgba16float`（需要 device feature gate）。
 
 ## 服务端 AI 管线
 

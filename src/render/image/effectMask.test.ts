@@ -1,25 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const applyLocalMaskRangeOnGpuMock = vi.fn();
-const applyLocalMaskRangeOnGpuToSurfaceMock = vi.fn();
-const renderLocalMaskShapeOnGpuMock = vi.fn();
-const renderLocalMaskShapeOnGpuToSurfaceMock = vi.fn();
+const applyLocalMaskRangeOnCanvasMock = vi.fn();
+const applyLocalMaskRangeOnSurfaceMock = vi.fn();
+const applyLocalMaskShapeOnSurfaceMock = vi.fn();
 
-vi.mock("@/lib/renderer/gpuLocalMaskRangeGate", () => ({
-  applyLocalMaskRangeOnGpu: (...args: unknown[]) =>
-    Reflect.apply(applyLocalMaskRangeOnGpuMock, undefined, args),
-  applyLocalMaskRangeOnGpuToSurface: (...args: unknown[]) =>
-    Reflect.apply(applyLocalMaskRangeOnGpuToSurfaceMock, undefined, args),
+vi.mock("@/lib/gpu/passes/mask/rangeGate", () => ({
+  applyLocalMaskRangeOnCanvas: (...args: unknown[]) =>
+    Reflect.apply(applyLocalMaskRangeOnCanvasMock, undefined, args),
+  applyLocalMaskRangeOnSurface: (...args: unknown[]) =>
+    Reflect.apply(applyLocalMaskRangeOnSurfaceMock, undefined, args),
 }));
 
-vi.mock("@/lib/renderer/gpuLocalMaskShape", () => ({
-  renderLocalMaskShapeOnGpu: (...args: unknown[]) =>
-    Reflect.apply(renderLocalMaskShapeOnGpuMock, undefined, args),
-  renderLocalMaskShapeOnGpuToSurface: (...args: unknown[]) =>
-    Reflect.apply(renderLocalMaskShapeOnGpuToSurfaceMock, undefined, args),
+vi.mock("@/lib/gpu/passes/mask/localShape", () => ({
+  applyLocalMaskShapeOnSurface: (...args: unknown[]) =>
+    Reflect.apply(applyLocalMaskShapeOnSurfaceMock, undefined, args),
 }));
 
 import { buildImageRenderMaskRevisionKey, renderImageEffectMaskToCanvas } from "./effectMask";
+import type { ExternalImageSource } from "@/lib/gpu/resources";
 
 class MockGradient {
   addColorStop = vi.fn();
@@ -81,13 +79,11 @@ const createSurface = (sourceCanvas: MockCanvasElement) => ({
 
 describe("effectMask", () => {
   beforeEach(() => {
-    applyLocalMaskRangeOnGpuMock.mockReset();
-    applyLocalMaskRangeOnGpuToSurfaceMock.mockReset();
-    renderLocalMaskShapeOnGpuMock.mockReset();
-    renderLocalMaskShapeOnGpuToSurfaceMock.mockReset();
-    renderLocalMaskShapeOnGpuMock.mockResolvedValue(false);
-    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(null);
-    applyLocalMaskRangeOnGpuToSurfaceMock.mockResolvedValue(null);
+    applyLocalMaskRangeOnCanvasMock.mockReset();
+    applyLocalMaskRangeOnSurfaceMock.mockReset();
+    applyLocalMaskShapeOnSurfaceMock.mockReset();
+    applyLocalMaskShapeOnSurfaceMock.mockResolvedValue(null);
+    applyLocalMaskRangeOnSurfaceMock.mockResolvedValue(null);
     vi.stubGlobal("HTMLCanvasElement", MockCanvasElement);
     vi.stubGlobal("document", {
       createElement: vi.fn(() => new MockCanvasElement()),
@@ -152,11 +148,11 @@ describe("effectMask", () => {
   it("prefers GPU range gating before falling back to CPU pixel reads", async () => {
     const targetCanvas = createCanvas(32, 32);
     const scratchCanvas = createCanvas(32, 32);
-    const referenceSource = createCanvas(32, 32) as unknown as CanvasImageSource;
+    const referenceSource = createCanvas(32, 32) as unknown as ExternalImageSource;
     const shapeSurface = createSurface(createCanvas(32, 32));
     const gatedSurface = createSurface(createCanvas(32, 32));
-    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(shapeSurface);
-    applyLocalMaskRangeOnGpuToSurfaceMock.mockResolvedValue(gatedSurface);
+    applyLocalMaskShapeOnSurfaceMock.mockResolvedValue(shapeSurface);
+    applyLocalMaskRangeOnSurfaceMock.mockResolvedValue(gatedSurface);
 
     const output = await renderImageEffectMaskToCanvas({
       width: 32,
@@ -185,7 +181,7 @@ describe("effectMask", () => {
     });
 
     expect(output).toBe(targetCanvas);
-    expect(applyLocalMaskRangeOnGpuToSurfaceMock).toHaveBeenCalledWith(
+    expect(applyLocalMaskRangeOnSurfaceMock).toHaveBeenCalledWith(
       expect.objectContaining({
         maskSource: shapeSurface.sourceCanvas,
         width: 32,
@@ -194,7 +190,7 @@ describe("effectMask", () => {
         slotId: "effect-mask:mask-gpu",
       })
     );
-    expect(renderLocalMaskShapeOnGpuToSurfaceMock).toHaveBeenCalledWith(
+    expect(applyLocalMaskShapeOnSurfaceMock).toHaveBeenCalledWith(
       expect.objectContaining({
         width: 32,
         height: 32,
@@ -204,18 +200,17 @@ describe("effectMask", () => {
     expect(gatedSurface.materializeToCanvas).toHaveBeenCalledWith(
       targetCanvas as unknown as HTMLCanvasElement
     );
-    expect(applyLocalMaskRangeOnGpuMock).not.toHaveBeenCalled();
-    expect(renderLocalMaskShapeOnGpuMock).not.toHaveBeenCalled();
+    expect(applyLocalMaskRangeOnCanvasMock).not.toHaveBeenCalled();
     expect(targetCanvas.context2d.getImageData).not.toHaveBeenCalled();
     expect(scratchCanvas.context2d.drawImage).not.toHaveBeenCalled();
   });
 
   it("falls back to CPU range gating when the GPU helper is unavailable", async () => {
-    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(null);
-    applyLocalMaskRangeOnGpuMock.mockResolvedValue(false);
+    applyLocalMaskShapeOnSurfaceMock.mockResolvedValue(null);
+    applyLocalMaskRangeOnCanvasMock.mockResolvedValue(false);
     const targetCanvas = createCanvas(32, 32);
     const scratchCanvas = createCanvas(32, 32);
-    const referenceSource = createCanvas(32, 32) as unknown as CanvasImageSource;
+    const referenceSource = createCanvas(32, 32) as unknown as ExternalImageSource;
 
     const output = await renderImageEffectMaskToCanvas({
       width: 32,
@@ -252,10 +247,10 @@ describe("effectMask", () => {
   it("continues with CPU range gating when GPU shape succeeds but GPU range gating fails", async () => {
     const targetCanvas = createCanvas(32, 32);
     const scratchCanvas = createCanvas(32, 32);
-    const referenceSource = createCanvas(32, 32) as unknown as CanvasImageSource;
+    const referenceSource = createCanvas(32, 32) as unknown as ExternalImageSource;
     const shapeSurface = createSurface(createCanvas(32, 32));
-    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(shapeSurface);
-    applyLocalMaskRangeOnGpuToSurfaceMock.mockResolvedValue(null);
+    applyLocalMaskShapeOnSurfaceMock.mockResolvedValue(shapeSurface);
+    applyLocalMaskRangeOnSurfaceMock.mockResolvedValue(null);
 
     const output = await renderImageEffectMaskToCanvas({
       width: 32,
@@ -284,8 +279,8 @@ describe("effectMask", () => {
     expect(shapeSurface.materializeToCanvas).toHaveBeenCalledWith(
       targetCanvas as unknown as HTMLCanvasElement
     );
-    expect(applyLocalMaskRangeOnGpuToSurfaceMock).toHaveBeenCalled();
-    expect(applyLocalMaskRangeOnGpuMock).not.toHaveBeenCalled();
+    expect(applyLocalMaskRangeOnSurfaceMock).toHaveBeenCalled();
+    expect(applyLocalMaskRangeOnCanvasMock).not.toHaveBeenCalled();
     expect(scratchCanvas.context2d.drawImage).toHaveBeenCalledWith(referenceSource, 0, 0, 32, 32);
     expect(targetCanvas.context2d.getImageData).toHaveBeenCalled();
     expect(targetCanvas.context2d.putImageData).toHaveBeenCalled();
@@ -294,7 +289,7 @@ describe("effectMask", () => {
   it("prefers GPU shape generation for radial and linear masks", async () => {
     const radialCanvas = createCanvas(32, 32);
     const linearCanvas = createCanvas(32, 32);
-    renderLocalMaskShapeOnGpuToSurfaceMock
+    applyLocalMaskShapeOnSurfaceMock
       .mockResolvedValueOnce(createSurface(createCanvas(32, 32)))
       .mockResolvedValueOnce(createSurface(createCanvas(32, 32)));
 
@@ -336,14 +331,14 @@ describe("effectMask", () => {
       targetCanvas: linearCanvas as unknown as HTMLCanvasElement,
     });
 
-    expect(renderLocalMaskShapeOnGpuToSurfaceMock).toHaveBeenCalledWith(
+    expect(applyLocalMaskShapeOnSurfaceMock).toHaveBeenCalledWith(
       expect.objectContaining({
         width: 32,
         height: 32,
         slotId: "effect-mask-shape:mask-shape",
       })
     );
-    expect(renderLocalMaskShapeOnGpuToSurfaceMock).toHaveBeenCalledWith(
+    expect(applyLocalMaskShapeOnSurfaceMock).toHaveBeenCalledWith(
       expect.objectContaining({
         width: 32,
         height: 32,
@@ -357,7 +352,7 @@ describe("effectMask", () => {
   it("prefers GPU shape generation for brush masks before CPU painting", async () => {
     const brushCanvas = createCanvas(48, 48);
     const brushSurface = createSurface(createCanvas(48, 48));
-    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(brushSurface);
+    applyLocalMaskShapeOnSurfaceMock.mockResolvedValue(brushSurface);
 
     const output = await renderImageEffectMaskToCanvas({
       width: 48,
@@ -381,7 +376,7 @@ describe("effectMask", () => {
     });
 
     expect(output).toBe(brushCanvas);
-    expect(renderLocalMaskShapeOnGpuToSurfaceMock).toHaveBeenCalledWith(
+    expect(applyLocalMaskShapeOnSurfaceMock).toHaveBeenCalledWith(
       expect.objectContaining({
         width: 48,
         height: 48,
@@ -399,7 +394,7 @@ describe("effectMask", () => {
 
   it("falls back to CPU brush painting when the GPU shape helper declines a large point set", async () => {
     const brushCanvas = createCanvas(48, 48);
-    renderLocalMaskShapeOnGpuToSurfaceMock.mockResolvedValue(null);
+    applyLocalMaskShapeOnSurfaceMock.mockResolvedValue(null);
 
     const output = await renderImageEffectMaskToCanvas({
       width: 48,
@@ -424,7 +419,7 @@ describe("effectMask", () => {
     });
 
     expect(output).toBe(brushCanvas);
-    expect(renderLocalMaskShapeOnGpuToSurfaceMock).toHaveBeenCalledWith(
+    expect(applyLocalMaskShapeOnSurfaceMock).toHaveBeenCalledWith(
       expect.objectContaining({
         slotId: "effect-mask-shape:mask-shape-brush-fallback",
       })

@@ -3,7 +3,7 @@ import { applyMaskedStageOperationToSurfaceIfSupported } from "./stageMaskCompos
 
 const buildImageRenderMaskRevisionKeyMock = vi.fn(() => "mask-revision");
 const renderImageEffectMaskToCanvasMock = vi.fn();
-const blendMaskedCanvasesOnGpuToSurfaceMock = vi.fn();
+const applyMaskedBlendOnSurfaceMock = vi.fn();
 
 vi.mock("./effectMask", () => ({
   buildImageRenderMaskRevisionKey: (...args: unknown[]) =>
@@ -12,10 +12,10 @@ vi.mock("./effectMask", () => ({
     Reflect.apply(renderImageEffectMaskToCanvasMock, undefined, args),
 }));
 
-vi.mock("@/lib/renderer/gpuMaskedCanvasBlend", () => ({
-  blendMaskedCanvasesOnGpu: vi.fn(),
-  blendMaskedCanvasesOnGpuToSurface: (...args: unknown[]) =>
-    Reflect.apply(blendMaskedCanvasesOnGpuToSurfaceMock, undefined, args),
+vi.mock("@/lib/gpu/passes/mask/maskedBlend", () => ({
+  applyMaskedBlendOnGpu: vi.fn(),
+  applyMaskedBlendOnSurface: (...args: unknown[]) =>
+    Reflect.apply(applyMaskedBlendOnSurfaceMock, undefined, args),
 }));
 
 const createCanvas = () =>
@@ -71,14 +71,14 @@ describe("stageMaskComposite.applyMaskedStageOperationToSurfaceIfSupported", () 
       maskRevisionKey: null,
     });
     expect(renderImageEffectMaskToCanvasMock).not.toHaveBeenCalled();
-    expect(blendMaskedCanvasesOnGpuToSurfaceMock).not.toHaveBeenCalled();
+    expect(applyMaskedBlendOnSurfaceMock).not.toHaveBeenCalled();
   });
 
   it("renders the mask canvas and blends masked surface output on GPU", async () => {
     const baseSurface = createSurface("slot:base");
     const effectSurface = createSurface("slot:effect");
     const blendedSurface = createSurface("slot:blended");
-    blendMaskedCanvasesOnGpuToSurfaceMock.mockResolvedValueOnce(blendedSurface);
+    applyMaskedBlendOnSurfaceMock.mockResolvedValueOnce(blendedSurface);
     const applyOperation = vi.fn(async () => effectSurface);
     const maskDefinition = {
       id: "mask-1",
@@ -117,7 +117,7 @@ describe("stageMaskComposite.applyMaskedStageOperationToSurfaceIfSupported", () 
         referenceSource: referenceCanvas,
       })
     );
-    expect(blendMaskedCanvasesOnGpuToSurfaceMock).toHaveBeenCalledWith({
+    expect(applyMaskedBlendOnSurfaceMock).toHaveBeenCalledWith({
       baseCanvas: baseSurface.sourceCanvas,
       layerCanvas: effectSurface.sourceCanvas,
       maskCanvas: expect.any(Object),

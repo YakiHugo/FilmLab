@@ -1,5 +1,5 @@
-import type { RenderMode } from "@/lib/renderer/RenderManager";
-import type { RenderQualityProfile } from "@/lib/imageProcessing";
+import type { RenderMode } from "@/lib/renderMode";
+import type { RenderQualityProfile } from "@/lib/imageProcessingKeys";
 
 export type RenderIntent =
   | "preview-interactive"

@@ -42,9 +42,6 @@ build
 .next
 out
 
-# Generated shaders (build output)
-src/lib/renderer/shaders/generated/
-
 # AI and IDE specific
 .trae
 .cursor
@@ -85,3 +82,7 @@ refs/**
 *.pid
 *.seed
 *.pid.lock
+
+# Crash dumps
+core
+core.*

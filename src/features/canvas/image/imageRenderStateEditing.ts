@@ -466,6 +466,7 @@ const createDefaultAsciiCarrierTransform = (): Extract<CarrierTransformNode, { t
     backgroundColor: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.backgroundColor,
     invert: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.invert,
     gridOverlay: DEFAULT_CANVAS_ASCII_ADJUSTMENTS.gridOverlay,
+    structureWeight: 0,
   },
 });
 

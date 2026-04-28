@@ -1,5 +1,5 @@
 import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
-import { blendCanvasLayerOnGpuToSurface } from "@/lib/renderer/gpuCanvasLayerBlend";
+import { applyNormalLayerBlendOnSurface } from "@/lib/gpu/passes/overlay/normalLayerBlend";
 import {
   renderCaptionOverlayRaster,
   type CaptionOverlayRenderParams,
@@ -175,7 +175,7 @@ export const applyImageOverlays = async ({
       currentSurface.height
     );
     try {
-      const blendedSurface = await blendCanvasLayerOnGpuToSurface({
+      const blendedSurface = await applyNormalLayerBlendOnSurface({
         surface: currentSurface,
         layerCanvas: overlayCanvas,
         slotId: `${currentSurface.slotId}:image-overlay:${index}`,

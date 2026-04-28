@@ -2,6 +2,7 @@
 
 ## General
 
+- Reply in Chinese. Code, identifiers, commit messages, file paths, and quoted tool output stay in their original language; prose to the user is Chinese.
 - Prefer the lightest process that preserves safety; do not turn optional tools or workflows into mandatory ceremony for low-risk changes.
 - Be direct and objective. Push back when a proposal would worsen the code — e.g., introduces unrequested abstraction or dependencies, violates a rule in this file, reduces testability, forces re-reading prior context (breaks stateless extraction), or stacks another local patch on a known hotspot.
 - Do not excessively use emojis.
@@ -19,7 +20,7 @@
 - do not add aliases over `string`, primitives, or existing unions unless they add a real invariant or boundary.
 - The project is not live yet; be aggressive about retiring historical-data compatibility instead of keeping dual paths by default.
 - Use `try`/`catch` and similar control flow only for failures you expect and can handle; do not add unreachable recovery paths that hide bugs instead of failing fast during development.
-- Write a brief comment only when a future agent needs to know why the code is written this way and that reason cannot be inferred from the code; do not narrate behavior, translate code into natural language, or restate responsibilities.
+- Default is no comment. A comment is justified only when omitting it would mislead a future agent — typically a non-obvious *why*: a hidden constraint, an invariant, a workaround for a specific bug, or a counter-intuitive choice. If the reason is "this code does X", delete the comment; the code already says that. Never write top-of-file or top-of-function blurbs that recap what the symbols below do, never restate responsibilities, never paraphrase identifiers in prose. When in doubt, omit.
 - When the project requires the use of newly added basic components, priority should be given to shadcn-related components.
 - `pnpm dead-code` (knip) catches unused files and exports that `tsc` and eslint miss. Run it before committing and verify your change does not introduce new unused exports. When a multi-slice task requires landing a type or function before its consumer exists, add a `/** @public — consumed by <slice or task id> */` JSDoc tag to suppress knip; remove the tag when the consumer lands.
 

@@ -1,4 +1,6 @@
 export * from "./analysisLayer";
+export type { BackendRenderResult, BackendRenderStatus, BackendRenderOptions, RenderBackend } from "./renderBackend";
+export { WebGPURenderBackend } from "./webgpuRenderBackend";
 export * from "./motionRender";
 export * from "./qualityTier";
 export * from "./types";

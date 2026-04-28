@@ -211,6 +211,7 @@ describe("boardImageRendering", () => {
         backgroundColor: null,
         invert: false,
         gridOverlay: false,
+        structureWeight: 0,
       },
     });
 

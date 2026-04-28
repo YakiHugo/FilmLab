@@ -18,12 +18,12 @@ const applyImageCarrierTransformsMock = vi.fn();
 const applyImageEffectsMock = vi.fn();
 const applyImageOverlaysMock = vi.fn();
 
-vi.mock("@/lib/imageProcessing", () => ({
-  renderDevelopBaseToSurface: (...args: unknown[]) =>
+vi.mock("@/lib/gpu/orchestrator", () => ({
+  renderDevelopBase: (...args: unknown[]) =>
     Reflect.apply(renderDevelopBaseToSurfaceMock, undefined, args),
-  renderFilmStageToSurface: (...args: unknown[]) =>
+  renderFilmStage: (...args: unknown[]) =>
     Reflect.apply(renderFilmStageToSurfaceMock, undefined, args),
-  renderImageToSurface: (...args: unknown[]) =>
+  renderFull: (...args: unknown[]) =>
     Reflect.apply(renderImageToSurfaceMock, undefined, args),
 }));
 
@@ -238,6 +238,7 @@ const presets = {
           backgroundColor: "#000000",
           invert: false,
           gridOverlay: false,
+          structureWeight: 0,
         },
       },
     ],

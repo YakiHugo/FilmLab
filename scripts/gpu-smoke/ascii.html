@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>WebGPU ASCII Compute Smoke (Slice 1)</title>
+  <style>
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1rem; max-width: 960px; }
+    pre { background: #f4f4f4; padding: 0.75rem; border-radius: 4px; white-space: pre-wrap; }
+    .pass { color: #0a8043; font-weight: 600; }
+    .fail { color: #c0392b; font-weight: 600; }
+    h2 { margin-top: 1.5rem; border-top: 1px solid #ddd; padding-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Slice 1 — ASCII Compute Pipeline</h1>
+  <p>
+    Three synthetic fixtures fed directly into <code>analysis.wgsl</code> /
+    <code>selection.wgsl</code> (no develop-chain dependency):
+  </p>
+  <ol>
+    <li><strong>Density steps</strong> — <code>structureWeight=0</code> selects glyph closest to band density (within ±1 slot).</li>
+    <li><strong>Directional fixtures</strong> — <code>structureWeight=1</code> picks the matching directional glyph (<code>|</code>, <code>_</code>, <code>/</code>).</li>
+    <li><strong>1080p timing</strong> — full chain at 1920×1080 with cellSize=12 in &lt;16 ms.</li>
+  </ol>
+  <p>
+    Run with <code>pnpm dev:client</code>, then open
+    <code>http://localhost:5173/scripts/gpu-smoke/ascii.html</code>.
+  </p>
+  <pre id="log">starting...</pre>
+  <script type="module">
+    import { requestGPUContext } from "/src/lib/gpu/context.ts";
+    import { ShaderCache } from "/src/lib/gpu/shaders.ts";
+    import { TexturePool, uploadExternalImageToTexture } from "/src/lib/gpu/resources.ts";
+    import { PipelineExecutor } from "/src/lib/gpu/pipeline.ts";
+    import {
+      prepareAsciiGlyphSet,
+      ASCII_DESCRIPTOR_STRIDE,
+    } from "/src/lib/gpu/passes/carrier/ascii/descriptors.ts";
+    import {
+      AsciiAnalysisPipelineCache,
+      ANALYSIS_UNIFORMS_BYTE_SIZE,
+      packAnalysisUniforms,
+    } from "/src/lib/gpu/passes/carrier/ascii/analysis.ts";
+    import {
+      AsciiToneNormalizePipelineCache,
+      TONE_NORMALIZE_UNIFORMS_BYTE_SIZE,
+      packToneNormalizeUniforms,
+    } from "/src/lib/gpu/passes/carrier/ascii/toneNormalize.ts";
+    import {
+      AsciiSelectionPipelineCache,
+      SELECTION_UNIFORMS_BYTE_SIZE,
+      packSelectionUniforms,
+    } from "/src/lib/gpu/passes/carrier/ascii/selection.ts";
+    import {
+      AsciiCompositionPipelineCache,
+      COMPOSITION_UNIFORMS_BYTE_SIZE,
+      packCompositionUniforms,
+    } from "/src/lib/gpu/passes/carrier/ascii/composition.ts";
+
+    const logEl = document.getElementById("log");
+    logEl.textContent = "";
+    const log = (line, cls) => {
+      const span = document.createElement("span");
+      if (cls) span.className = cls;
+      span.textContent = line + "\n";
+      logEl.appendChild(span);
+    };
+    let failures = 0;
+    const expect = (cond, message) => {
+      if (cond) {
+        log("  ✓ " + message, "pass");
+      } else {
+        failures += 1;
+        log("  ✗ " + message, "fail");
+      }
+    };
+
+    function makeCanvas(width, height) {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      return canvas;
+    }
+
+    /** Storage buffer with COPY_SRC for readback + COPY_DST for initial zeroing. */
+    function createStorageBuffer(device, label, byteSize) {
+      return device.createBuffer({
+        label,
+        size: Math.max(16, byteSize),
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      });
+    }
+
+    function createUniformBuffer(device, label, byteSize) {
+      return device.createBuffer({
+        label,
+        size: Math.max(16, byteSize),
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+    }
+
+    /** Upload glyph descriptors to a read-only-storage buffer. */
+    function uploadGlyphsBuffer(device, descriptors) {
+      const buf = device.createBuffer({
+        label: "ascii.glyphs",
+        size: descriptors.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      device.queue.writeBuffer(buf, 0, descriptors);
+      return buf;
+    }
+
+    /** Read back a u32 storage buffer's first `count` elements. */
+    async function readbackU32(device, src, count) {
+      const byteLen = count * 4;
+      const dst = device.createBuffer({
+        label: "ascii.readbackU32",
+        size: byteLen,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      });
+      const enc = device.createCommandEncoder({ label: "ascii.readbackU32" });
+      enc.copyBufferToBuffer(src, 0, dst, 0, byteLen);
+      device.queue.submit([enc.finish()]);
+      await dst.mapAsync(GPUMapMode.READ);
+      const out = new Uint32Array(dst.getMappedRange()).slice();
+      dst.unmap();
+      dst.destroy();
+      return out;
+    }
+
+    async function readbackF32(device, src, count) {
+      const byteLen = count * 4;
+      const dst = device.createBuffer({
+        label: "ascii.readbackF32",
+        size: byteLen,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      });
+      const enc = device.createCommandEncoder({ label: "ascii.readbackF32" });
+      enc.copyBufferToBuffer(src, 0, dst, 0, byteLen);
+      device.queue.submit([enc.finish()]);
+      await dst.mapAsync(GPUMapMode.READ);
+      const out = new Float32Array(dst.getMappedRange()).slice();
+      dst.unmap();
+      dst.destroy();
+      return out;
+    }
+
+    function fmtDescriptor(label, vec) {
+      const density = vec[0].toFixed(3);
+      const subgrid = Array.from(vec.slice(1, 17), (v) => v.toFixed(2)).join(",");
+      const edge = Array.from(vec.slice(17, 25), (v) => v.toFixed(2)).join(",");
+      const centroid = `(${vec[25].toFixed(3)},${vec[26].toFixed(3)})`;
+      return `${label}: dens=${density} sub=[${subgrid}] edge=[${edge}] centroid=${centroid}`;
+    }
+
+    function structureDist(cellVec, glyphVec) {
+      let sub = 0;
+      for (let i = 0; i < 16; i += 1) {
+        const d = cellVec[1 + i] - glyphVec[1 + i];
+        sub += d * d;
+      }
+      sub /= 16;
+      let edge = 0;
+      for (let i = 0; i < 8; i += 1) {
+        const d = cellVec[17 + i] - glyphVec[17 + i];
+        edge += d * d;
+      }
+      edge /= 8;
+      const cx = cellVec[25] - glyphVec[25];
+      const cy = cellVec[26] - glyphVec[26];
+      const cen = cx * cx + cy * cy;
+      return { sub, edge, cen, total: sub + edge + cen };
+    }
+
+    /** Compute the closest-density glyph index for a target density. */
+    function closestDensityIndex(descriptors, glyphCount, targetDensity) {
+      let bestIdx = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < glyphCount; i += 1) {
+        const d = descriptors[i * ASCII_DESCRIPTOR_STRIDE];
+        const diff = Math.abs(d - targetDensity);
+        if (diff < bestDist) {
+          bestDist = diff;
+          bestIdx = i;
+        }
+      }
+      return bestIdx;
+    }
+
+    /** Build a compute-only [analysis, toneNormalize, selection] chain and run it.
+     *  When opts.returnFeatures is true, also reads back the cell features. */
+    async function runAnalyzeAndSelect(deps, srcTex, srcWidth, srcHeight, glyphSet, opts) {
+      const { device, executor, analysisCache, toneCache, selectionCache } = deps;
+      const { cellWidth, cellHeight, structureWeight } = opts;
+      const cols = Math.max(1, Math.ceil(srcWidth / cellWidth));
+      const rows = Math.max(1, Math.ceil(srcHeight / cellHeight));
+      const cellCount = cols * rows;
+
+      const featuresBuf = createStorageBuffer(device, "ascii.features", cellCount * ASCII_DESCRIPTOR_STRIDE * 4);
+      const cellColorBuf = createStorageBuffer(device, "ascii.cellColor", cellCount * 16);
+      const cellToneBuf = createStorageBuffer(device, "ascii.cellTone", cellCount * 4);
+      const selectionBuf = createStorageBuffer(device, "ascii.selection", cellCount * 4);
+      const analysisU = createUniformBuffer(device, "ascii.analysisU", ANALYSIS_UNIFORMS_BYTE_SIZE);
+      const toneU = createUniformBuffer(device, "ascii.toneU", TONE_NORMALIZE_UNIFORMS_BYTE_SIZE);
+      const selectionU = createUniformBuffer(device, "ascii.selectionU", SELECTION_UNIFORMS_BYTE_SIZE);
+      const glyphsBuf = uploadGlyphsBuffer(device, glyphSet.descriptors);
+
+      device.queue.writeBuffer(analysisU, 0, packAnalysisUniforms({
+        imageWidth: srcWidth,
+        imageHeight: srcHeight,
+        gridColumns: cols,
+        gridRows: rows,
+        cellWidth,
+        cellHeight,
+      }));
+      device.queue.writeBuffer(toneU, 0, packToneNormalizeUniforms({
+        gridColumns: cols,
+        gridRows: rows,
+        glyphSteps: Math.max(1, glyphSet.glyphCount - 1),
+        ditherMode: opts.ditherMode ?? "none",
+        brightness: opts.brightness ?? 0,
+        contrast: opts.contrast ?? 1,
+        density: opts.density ?? 1,
+        coverage: opts.coverage ?? 1,
+        edgeEmphasis: opts.edgeEmphasis ?? 0,
+        invert: opts.invert ?? false,
+      }));
+      device.queue.writeBuffer(selectionU, 0, packSelectionUniforms({
+        cellCount,
+        glyphCount: glyphSet.glyphCount,
+        structureWeight,
+      }));
+
+      const srcView = srcTex.createView({ label: "ascii.srcView" });
+      const analysisPass = analysisCache.createPass({
+        sourceView: srcView,
+        uniformsBuffer: analysisU,
+        featuresBuffer: featuresBuf,
+        cellColorBuffer: cellColorBuf,
+        gridColumns: cols,
+        gridRows: rows,
+      });
+      const tonePass = toneCache.createPass({
+        featuresBuffer: featuresBuf,
+        cellColorBuffer: cellColorBuf,
+        cellToneBuffer: cellToneBuf,
+        uniformsBuffer: toneU,
+        gridColumns: cols,
+        gridRows: rows,
+      });
+      const selectionPass = selectionCache.createPass({
+        featuresBuffer: featuresBuf,
+        glyphsBuffer: glyphsBuf,
+        selectionBuffer: selectionBuf,
+        uniformsBuffer: selectionU,
+        cellToneBuffer: cellToneBuf,
+        cellCount,
+      });
+
+      executor.execute({
+        baseWidth: srcWidth,
+        baseHeight: srcHeight,
+        passes: [analysisPass, tonePass, selectionPass],
+        input: {
+          texture: srcTex,
+          view: srcView,
+          width: srcWidth,
+          height: srcHeight,
+          format: "rgba8unorm",
+          lease: null,
+        },
+      });
+
+      const selection = await readbackU32(device, selectionBuf, cellCount);
+      const features = opts.returnFeatures
+        ? await readbackF32(device, featuresBuf, cellCount * ASCII_DESCRIPTOR_STRIDE)
+        : null;
+
+      // Cleanup buffers (atlas/glyphs caller-owned).
+      featuresBuf.destroy();
+      cellColorBuf.destroy();
+      cellToneBuf.destroy();
+      selectionBuf.destroy();
+      analysisU.destroy();
+      toneU.destroy();
+      selectionU.destroy();
+      glyphsBuf.destroy();
+
+      return { cols, rows, selection, features };
+    }
+
+    /** Fixture A: 8 horizontal density bands. */
+    async function fixtureDensitySteps(deps, glyphSet) {
+      log("\nFixture A — density steps (structureWeight=0)");
+      const bands = 8;
+      const cellSize = 16;
+      const cellsPerBandRow = 4;
+      const W = cellSize * cellsPerBandRow;
+      const H = cellSize * bands;
+      const canvas = makeCanvas(W, H);
+      const ctx = canvas.getContext("2d");
+      for (let b = 0; b < bands; b += 1) {
+        const lumi = Math.round((b / (bands - 1)) * 255);
+        ctx.fillStyle = `rgb(${lumi},${lumi},${lumi})`;
+        ctx.fillRect(0, b * cellSize, W, cellSize);
+      }
+      const bitmap = await createImageBitmap(canvas);
+      const { texture: srcTex } = uploadExternalImageToTexture(deps.device, bitmap, {
+        label: "ascii.srcDensity",
+      });
+
+      const { cols, selection } = await runAnalyzeAndSelect(
+        deps, srcTex, W, H, glyphSet,
+        { cellWidth: cellSize, cellHeight: cellSize, structureWeight: 0 }
+      );
+
+      let allWithinTolerance = true;
+      let allConsistentWithinRow = true;
+      for (let b = 0; b < bands; b += 1) {
+        const targetDensity = b / (bands - 1);
+        const expectedIdx = closestDensityIndex(glyphSet.descriptors, glyphSet.glyphCount, targetDensity);
+        let firstIdx = -1;
+        for (let c = 0; c < cellsPerBandRow; c += 1) {
+          const idx = selection[b * cols + c];
+          if (firstIdx < 0) firstIdx = idx;
+          if (idx !== firstIdx) allConsistentWithinRow = false;
+          const slotDelta = Math.abs(idx - expectedIdx);
+          if (slotDelta > 1) {
+            allWithinTolerance = false;
+            log(`    band ${b} cell ${c}: got ${idx} (${glyphSet.charset[idx]}), expected ${expectedIdx} (${glyphSet.charset[expectedIdx]}), Δ=${slotDelta}`);
+          }
+        }
+      }
+      expect(allConsistentWithinRow, "all cells in the same band select the same glyph");
+      expect(allWithinTolerance, "every band selects within ±1 atlas slot of closest-density glyph");
+      srcTex.destroy();
+    }
+
+    /** Fixture B: render each expected glyph as its own fixture.
+     *
+     *  Hand-drawn synthetic strokes diverge from font-rendered glyphs
+     *  (different stroke width, slope, placement, baseline offset), and the
+     *  divergence dominates structure distance — so a hand-drawn diagonal
+     *  doesn't necessarily match the font's rendering of '/'. Using the
+     *  font's own rasterization on a black background as the fixture sidesteps
+     *  font-portability and proves the algorithm recognizes a glyph as itself,
+     *  which is the strict definition of "structure matches".
+     */
+    async function fixtureDirections(deps, glyphSet) {
+      log("\nFixture B — directional fixtures (structureWeight=1)");
+      const cellSize = glyphSet.atlas.cellSizePx;
+      const indexOf = (ch) => glyphSet.charset.indexOf(ch);
+      const drawGlyph = (ctx, glyph) => {
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, cellSize, cellSize);
+        ctx.fillStyle = "#fff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = `${Math.round(cellSize * 0.9)}px monospace`;
+        ctx.fillText(glyph, cellSize / 2, cellSize / 2);
+      };
+      const cases = [
+        { expectedGlyph: "|", name: "vertical line → |" },
+        { expectedGlyph: "_", name: "horizontal line → _" },
+        { expectedGlyph: "/", name: "diagonal up-right → /" },
+      ].map((c) => ({
+        ...c,
+        draw: (ctx) => drawGlyph(ctx, c.expectedGlyph),
+      }));
+
+      for (const c of cases) {
+        const expectedIdx = indexOf(c.expectedGlyph);
+        if (expectedIdx < 0) {
+          log(`  skip — '${c.expectedGlyph}' not in charset`);
+          failures += 1;
+          continue;
+        }
+        const canvas = makeCanvas(cellSize, cellSize);
+        c.draw(canvas.getContext("2d"));
+        const bitmap = await createImageBitmap(canvas);
+        const { texture: srcTex } = uploadExternalImageToTexture(deps.device, bitmap, {
+          label: `ascii.dir.${c.name}`,
+        });
+        const { selection, features } = await runAnalyzeAndSelect(
+          deps, srcTex, cellSize, cellSize, glyphSet,
+          { cellWidth: cellSize, cellHeight: cellSize, structureWeight: 1, returnFeatures: true }
+        );
+        const got = selection[0];
+        const ok = got === expectedIdx;
+        expect(
+          ok,
+          `${c.name}: got '${glyphSet.charset[got] ?? "?"}' (idx ${got}), expected '${c.expectedGlyph}' (idx ${expectedIdx})`
+        );
+        if (!ok) {
+          // Diagnostic: show why the wrong glyph won.
+          const cellVec = features.subarray(0, ASCII_DESCRIPTOR_STRIDE);
+          log("    " + fmtDescriptor("cell", cellVec));
+          for (const idx of [got, expectedIdx]) {
+            const gVec = glyphSet.descriptors.subarray(
+              idx * ASCII_DESCRIPTOR_STRIDE,
+              (idx + 1) * ASCII_DESCRIPTOR_STRIDE
+            );
+            const d = structureDist(cellVec, gVec);
+            log(`    ${fmtDescriptor(`glyph[${idx}]='${glyphSet.charset[idx]}'`, gVec)}`);
+            log(`      dist sub=${d.sub.toFixed(4)} edge=${d.edge.toFixed(4)} cen=${d.cen.toFixed(4)} total=${d.total.toFixed(4)}`);
+          }
+        }
+        srcTex.destroy();
+      }
+    }
+
+    /** Fixture C: 1080p timing including composition to a canvas. */
+    async function fixtureTiming(deps, glyphSet) {
+      log("\nFixture C — 1080p timing (cellSize=12, full chain)");
+      const W = 1920;
+      const H = 1080;
+      const cellSize = 12;
+      const cols = Math.ceil(W / cellSize);
+      const rows = Math.ceil(H / cellSize);
+      const cellCount = cols * rows;
+
+      // Random gradient noise — exercises features without being all-zero.
+      const canvas = makeCanvas(W, H);
+      const ctx = canvas.getContext("2d");
+      const grd = ctx.createLinearGradient(0, 0, W, H);
+      grd.addColorStop(0, "#000");
+      grd.addColorStop(0.5, "#888");
+      grd.addColorStop(1, "#fff");
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, W, H);
+      const bitmap = await createImageBitmap(canvas);
+      const { texture: srcTex } = uploadExternalImageToTexture(deps.device, bitmap, {
+        label: "ascii.timingSrc",
+      });
+
+      const { device, executor, analysisCache, toneCache, selectionCache, compositionCache } = deps;
+
+      const featuresBuf = createStorageBuffer(device, "ascii.features", cellCount * ASCII_DESCRIPTOR_STRIDE * 4);
+      const cellColorBuf = createStorageBuffer(device, "ascii.cellColor", cellCount * 16);
+      const cellToneBuf = createStorageBuffer(device, "ascii.cellTone", cellCount * 4);
+      const selectionBuf = createStorageBuffer(device, "ascii.selection", cellCount * 4);
+      const analysisU = createUniformBuffer(device, "ascii.analysisU", ANALYSIS_UNIFORMS_BYTE_SIZE);
+      const toneU = createUniformBuffer(device, "ascii.toneU", TONE_NORMALIZE_UNIFORMS_BYTE_SIZE);
+      const selectionU = createUniformBuffer(device, "ascii.selectionU", SELECTION_UNIFORMS_BYTE_SIZE);
+      const compositionU = createUniformBuffer(device, "ascii.compositionU", COMPOSITION_UNIFORMS_BYTE_SIZE);
+      const glyphsBuf = uploadGlyphsBuffer(device, glyphSet.descriptors);
+
+      device.queue.writeBuffer(analysisU, 0, packAnalysisUniforms({
+        imageWidth: W, imageHeight: H,
+        gridColumns: cols, gridRows: rows,
+        cellWidth: cellSize, cellHeight: cellSize,
+      }));
+      device.queue.writeBuffer(toneU, 0, packToneNormalizeUniforms({
+        gridColumns: cols, gridRows: rows,
+        glyphSteps: Math.max(1, glyphSet.glyphCount - 1),
+        ditherMode: "none", brightness: 0, contrast: 1, density: 1, coverage: 1,
+        edgeEmphasis: 0, invert: false,
+      }));
+      device.queue.writeBuffer(selectionU, 0, packSelectionUniforms({
+        cellCount, glyphCount: glyphSet.glyphCount, structureWeight: 0.5,
+      }));
+      device.queue.writeBuffer(compositionU, 0, packCompositionUniforms({
+        canvasWidth: W, canvasHeight: H,
+        gridColumns: cols, gridRows: rows,
+        cellWidth: cellSize, cellHeight: cellSize,
+        atlasColumns: glyphSet.atlas.columns,
+        atlasRows: glyphSet.atlas.rows,
+        glyphCount: glyphSet.glyphCount,
+        layerMode: "foreground",
+        renderMode: "glyph",
+        colorMode: "grayscale",
+        invert: false,
+        foregroundOpacity: 1,
+        backgroundOpacity: 1,
+        gridOverlayAlpha: 0,
+        backgroundFill: [0, 0, 0, 0],
+        cellBackground: [0, 0, 0, 0],
+        duotoneShadow: [0, 0, 0, 0],
+        useBackgroundCanvas: false,
+        useBackgroundFill: false,
+        useCellBackground: false,
+        gridOverlay: false,
+      }));
+
+      // Atlas texture upload.
+      const atlasBitmap = await createImageBitmap(glyphSet.atlas.canvas);
+      const { texture: atlasTex } = uploadExternalImageToTexture(device, atlasBitmap, {
+        label: "ascii.atlas",
+      });
+      const atlasView = atlasTex.createView({ label: "ascii.atlasView" });
+      const atlasSampler = device.createSampler({
+        label: "ascii.atlasSampler",
+        magFilter: "linear",
+        minFilter: "linear",
+      });
+
+      // 1×1 placeholder bg-source texture (composition only samples it when
+      // useBackgroundCanvas is true; this fixture uses none-mode bg).
+      const bgPlaceholderTex = device.createTexture({
+        label: "ascii.bgPlaceholder",
+        size: { width: 1, height: 1 },
+        format: "rgba8unorm",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+      });
+      device.queue.writeTexture(
+        { texture: bgPlaceholderTex },
+        new Uint8Array([0, 0, 0, 0]),
+        { bytesPerRow: 4 },
+        { width: 1, height: 1 },
+      );
+      const bgPlaceholderView = bgPlaceholderTex.createView({ label: "ascii.bgPlaceholderView" });
+
+      const srcView = srcTex.createView({ label: "ascii.timingSrcView" });
+      const analysisPass = analysisCache.createPass({
+        sourceView: srcView,
+        uniformsBuffer: analysisU,
+        featuresBuffer: featuresBuf,
+        cellColorBuffer: cellColorBuf,
+        gridColumns: cols,
+        gridRows: rows,
+      });
+      const tonePass = toneCache.createPass({
+        featuresBuffer: featuresBuf,
+        cellColorBuffer: cellColorBuf,
+        cellToneBuffer: cellToneBuf,
+        uniformsBuffer: toneU,
+        gridColumns: cols,
+        gridRows: rows,
+      });
+      const selectionPass = selectionCache.createPass({
+        featuresBuffer: featuresBuf,
+        glyphsBuffer: glyphsBuf,
+        selectionBuffer: selectionBuf,
+        uniformsBuffer: selectionU,
+        cellToneBuffer: cellToneBuf,
+        cellCount,
+      });
+      const compositionPass = compositionCache.createPass({
+        outputFormat: "rgba8unorm",
+        atlasView,
+        atlasSampler,
+        uniformsBuffer: compositionU,
+        selectionBuffer: selectionBuf,
+        cellColorBuffer: cellColorBuf,
+        cellToneBuffer: cellToneBuf,
+        bgSourceView: bgPlaceholderView,
+      });
+
+      // Warmup run (pipeline compile + first dispatch is slow).
+      executor.execute({
+        baseWidth: W, baseHeight: H,
+        passes: [analysisPass, tonePass, selectionPass, compositionPass],
+        input: { texture: srcTex, view: srcView, width: W, height: H, format: "rgba8unorm", lease: null },
+      })?.output?.release?.();
+      await device.queue.onSubmittedWorkDone();
+
+      // Timed run.
+      const t0 = performance.now();
+      const result = executor.execute({
+        baseWidth: W, baseHeight: H,
+        passes: [analysisPass, tonePass, selectionPass, compositionPass],
+        input: { texture: srcTex, view: srcView, width: W, height: H, format: "rgba8unorm", lease: null },
+      });
+      await device.queue.onSubmittedWorkDone();
+      const elapsed = performance.now() - t0;
+      if (result.kind === "texture") result.output.release();
+
+      log(`  cellCount=${cellCount}, glyphCount=${glyphSet.glyphCount}`);
+      log(`  end-to-end submit→done: ${elapsed.toFixed(2)} ms`);
+      if (deps.isFallbackAdapter) {
+        log(`  (fallback adapter detected — timing gate is informational only)`);
+      } else {
+        expect(elapsed < 16, "render completes in <16ms");
+      }
+
+      featuresBuf.destroy();
+      cellColorBuf.destroy();
+      cellToneBuf.destroy();
+      selectionBuf.destroy();
+      analysisU.destroy();
+      toneU.destroy();
+      selectionU.destroy();
+      compositionU.destroy();
+      glyphsBuf.destroy();
+      srcTex.destroy();
+      atlasTex.destroy();
+      bgPlaceholderTex.destroy();
+    }
+
+    async function main() {
+      if (!("gpu" in navigator)) {
+        log("FAIL: navigator.gpu is undefined — open in Chrome 113+ / Edge 113+ / Safari 18.2+.", "fail");
+        return;
+      }
+      log("requestGPUContext()...");
+      const ctx = await requestGPUContext({ label: "slice1-ascii-smoke" });
+
+      // adapter.info is the standard accessor in current WebGPU; older Chromium
+      // exposed only the deprecated requestAdapterInfo() async method.
+      const rawInfo = ctx.adapter.info ?? (await ctx.adapter.requestAdapterInfo?.() ?? {});
+      const adapterInfo = {
+        vendor: rawInfo.vendor ?? "",
+        architecture: rawInfo.architecture ?? "",
+        description: rawInfo.description ?? "",
+        device: rawInfo.device ?? "",
+      };
+      const haystack = [adapterInfo.vendor, adapterInfo.architecture, adapterInfo.description, adapterInfo.device]
+        .join(" ").toLowerCase();
+      const isFallbackAdapter =
+        ctx.adapter.isFallbackAdapter === true ||
+        haystack.includes("swiftshader") ||
+        haystack.includes("llvmpipe") ||
+        haystack.includes("software") ||
+        haystack.includes("microsoft basic render");
+      log(`adapter: vendor='${adapterInfo.vendor}' arch='${adapterInfo.architecture}' desc='${adapterInfo.description}' device='${adapterInfo.device}'${isFallbackAdapter ? " [fallback]" : ""}`);
+
+      const device = ctx.device;
+      const pool = new TexturePool(device);
+      const shaders = new ShaderCache(device);
+      const sampler = device.createSampler({ label: "smoke.defaultSampler", magFilter: "linear", minFilter: "linear" });
+      const executor = new PipelineExecutor({ device, texturePool: pool, defaultSampler: sampler });
+      const analysisCache = new AsciiAnalysisPipelineCache(device, shaders);
+      const toneCache = new AsciiToneNormalizePipelineCache(device, shaders);
+      const selectionCache = new AsciiSelectionPipelineCache(device, shaders);
+      const compositionCache = new AsciiCompositionPipelineCache(device, shaders);
+      const deps = { device, executor, analysisCache, toneCache, selectionCache, compositionCache, isFallbackAdapter };
+
+      // Density-sorted charset for fixture A. Manually density-sorted (densest
+      // → sparsest) so test assertions are stable regardless of font-metrics
+      // jitter.
+      log("preparing density-sorted charset for fixture A...");
+      const densityCharset = ["@", "#", "*", "+", ":", ".", " "];
+      const densityGlyphSet = prepareAsciiGlyphSet(densityCharset, { fontFamily: "monospace" });
+
+      // Directional charset for fixture B. Includes ' ' to give the matcher a
+      // background option for low-density fixtures.
+      log("preparing directional charset for fixture B...");
+      const directionCharset = ["|", "_", "/", "\\", "-", " "];
+      const directionGlyphSet = prepareAsciiGlyphSet(directionCharset, { fontFamily: "monospace" });
+
+      try {
+        await fixtureDensitySteps(deps, densityGlyphSet);
+        await fixtureDirections(deps, directionGlyphSet);
+        await fixtureTiming(deps, densityGlyphSet);
+      } catch (err) {
+        failures += 1;
+        log("ERROR: " + (err && err.stack ? err.stack : String(err)), "fail");
+      }
+
+      log("\n" + (failures === 0
+        ? "PASS — all fixtures green."
+        : `FAIL — ${failures} assertion(s) failed.`),
+        failures === 0 ? "pass" : "fail");
+
+      pool.dispose();
+      ctx.dispose();
+    }
+
+    main().catch((err) => log("ERROR: " + (err && err.stack ? err.stack : String(err)), "fail"));
+  </script>
+</body>
+</html>

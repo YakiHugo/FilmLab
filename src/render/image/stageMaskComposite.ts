@@ -3,7 +3,7 @@ import {
   buildImageRenderMaskRevisionKey,
   renderImageEffectMaskToCanvas,
 } from "./effectMask";
-import { blendMaskedCanvasesOnGpuToSurface } from "@/lib/renderer/gpuMaskedCanvasBlend";
+import { applyMaskedBlendOnSurface } from "@/lib/gpu/passes/mask/maskedBlend";
 import type { ImageRenderMaskDefinition } from "./types";
 
 export const applyMaskedStageOperationToSurfaceIfSupported = async ({
@@ -53,7 +53,7 @@ export const applyMaskedStageOperationToSurfaceIfSupported = async ({
       return null;
     }
 
-    return blendMaskedCanvasesOnGpuToSurface({
+    return applyMaskedBlendOnSurface({
       baseCanvas: surface.sourceCanvas,
       layerCanvas: effectSurface.sourceCanvas,
       maskCanvas: renderedMaskCanvas,

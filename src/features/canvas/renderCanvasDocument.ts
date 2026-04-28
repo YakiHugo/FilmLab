@@ -1,4 +1,3 @@
-import { releaseRenderSlots } from "@/lib/imageProcessing";
 import { renderSingleImageToCanvas } from "@/render/image";
 import type {
   Asset,
@@ -369,7 +368,6 @@ export const renderCanvasWorkbenchToCanvas = async ({
     }
   } finally {
     context.restore();
-    await releaseRenderSlots("export", EXPORT_RENDER_SLOT_PREFIX);
   }
 };
 

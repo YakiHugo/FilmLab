@@ -1,8 +1,8 @@
 import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
 import {
-  applyHalftoneCarrierOnGpuToSurface,
-  type HalftoneCarrierGpuInput,
-} from "@/lib/renderer/gpuHalftoneCarrier";
+  applyHalftoneOnSurface,
+  type HalftonePassParams,
+} from "@/lib/gpu/passes/carrier/halftone";
 import { clamp } from "@/lib/math";
 import type { RenderQualityTier } from "./qualityTier";
 import type {
@@ -27,12 +27,12 @@ const prepareHalftoneGpuInput = (
   transform: ImageHalftoneCarrierTransformNode,
   _quality: RenderQualityTier,
   targetSize: ImageRenderTargetSize
-): HalftoneCarrierGpuInput => {
+): HalftonePassParams => {
   const params = transform.params;
   const bgColor = parseHexColor(params.backgroundColor);
   return {
-    width: Math.max(1, Math.round(targetSize.width)),
-    height: Math.max(1, Math.round(targetSize.height)),
+    canvasWidth: Math.max(1, Math.round(targetSize.width)),
+    canvasHeight: Math.max(1, Math.round(targetSize.height)),
     frequency: clamp(params.frequency, 4, 80),
     angle: params.angle % 360,
     shape: params.shape,
@@ -40,7 +40,7 @@ const prepareHalftoneGpuInput = (
     dotScale: clamp(params.dotScale, 0.5, 2),
     contrast: clamp(params.contrast, 0.5, 3),
     invert: params.invert,
-    backgroundColorRgba: new Float32Array([bgColor.r, bgColor.g, bgColor.b, 1]),
+    backgroundColor: [bgColor.r, bgColor.g, bgColor.b],
     backgroundOpacity: clamp(params.backgroundOpacity, 0, 1),
   };
 };
@@ -57,7 +57,7 @@ export const applyImageHalftoneCarrierTransform = async ({
   targetSize: ImageRenderTargetSize;
 }): Promise<RenderSurfaceHandle | null> => {
   const input = prepareHalftoneGpuInput(transform, quality, targetSize);
-  return applyHalftoneCarrierOnGpuToSurface({
+  return applyHalftoneOnSurface({
     surface: baseSurface,
     input,
     slotId: HALFTONE_CARRIER_SLOT_ID,

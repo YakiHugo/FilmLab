@@ -30,6 +30,7 @@ const createAsciiCarrier = (
     backgroundColor: null,
     invert: false,
     gridOverlay: false,
+    structureWeight: 0,
   },
   ...overrides,
 });
