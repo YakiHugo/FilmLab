@@ -35,6 +35,7 @@ import type { EditorLayerBlendMode } from "@/types";
 import {
   ASCII_DESCRIPTOR_STRIDE,
   prepareAsciiGlyphSet,
+  type AsciiGlyphSet,
 } from "./descriptors";
 import {
   AsciiAnalysisPipelineCache,
@@ -106,6 +107,8 @@ export interface AsciiCarrierSurfaceParams {
   coverage: number;
   edgeEmphasis: number;
   ditherMode: AsciiDitherMode;
+  /** 0 = density-only matching, 1 = structure-only (sub-grid + edge histogram + centroid). */
+  structureWeight: number;
 }
 
 const BLEND_MODE_INDEX: Record<EditorLayerBlendMode, number> = {
@@ -116,7 +119,30 @@ const BLEND_MODE_INDEX: Record<EditorLayerBlendMode, number> = {
   softLight: 4,
 };
 
-const getCache = createPerDeviceCache((device) => {
+interface CachedGlyphSet {
+  glyphSet: AsciiGlyphSet;
+  atlasTexture: GPUTexture;
+  atlasView: GPUTextureView;
+  glyphsBuffer: GPUBuffer;
+}
+
+interface AsciiDeviceCache {
+  shaders: ShaderCache;
+  analysis: AsciiAnalysisPipelineCache;
+  toneNormalize: AsciiToneNormalizePipelineCache;
+  selection: AsciiSelectionPipelineCache;
+  composition: AsciiCompositionPipelineCache;
+  blur: GaussianBlurPipelineCache;
+  layerBlend: LayerBlendPipelineCache;
+  // Atlas + descriptor uploads cached per (fontFamily, charset). Built once
+  // per unique key and reused for the device's lifetime — matches the legacy
+  // PipelineRenderer.getGlyphAtlas cache. Without this, every render rasterises
+  // ~70 glyphs into a Canvas2D, recomputes 27-float HOG descriptors, and
+  // re-uploads the atlas texture.
+  glyphSets: Map<string, CachedGlyphSet>;
+}
+
+const getCache = createPerDeviceCache<AsciiDeviceCache>((device) => {
   const shaders = new ShaderCache(device);
   return {
     shaders,
@@ -126,8 +152,40 @@ const getCache = createPerDeviceCache((device) => {
     composition: new AsciiCompositionPipelineCache(device, shaders),
     blur: new GaussianBlurPipelineCache(device, shaders),
     layerBlend: new LayerBlendPipelineCache(device, shaders),
+    glyphSets: new Map(),
   };
 });
+
+function acquireGlyphSet(
+  cache: AsciiDeviceCache,
+  device: GPUDevice,
+  fontFamily: string,
+  charset: readonly string[],
+): CachedGlyphSet {
+  const key = `${fontFamily}|${charset.join("")}`;
+  const cached = cache.glyphSets.get(key);
+  if (cached) return cached;
+  const glyphSet = prepareAsciiGlyphSet(charset, { fontFamily });
+  const atlasUpload = uploadExternalImageToTexture(device, glyphSet.atlas.canvas, {
+    format: OUTPUT_FORMAT,
+    label: `ascii.atlas:${key}`,
+  });
+  const atlasView = atlasUpload.texture.createView({ label: `ascii.atlasView:${key}` });
+  const glyphsBuffer = device.createBuffer({
+    label: `ascii.glyphs:${key}`,
+    size: glyphSet.descriptors.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+  device.queue.writeBuffer(glyphsBuffer, 0, glyphSet.descriptors);
+  const entry: CachedGlyphSet = {
+    glyphSet,
+    atlasTexture: atlasUpload.texture,
+    atlasView,
+    glyphsBuffer,
+  };
+  cache.glyphSets.set(key, entry);
+  return entry;
+}
 
 interface CompositionShared {
   selectionBuf: GPUBuffer;
@@ -188,17 +246,15 @@ export const applyAsciiCarrierOnSurface = async ({
   const ownedBuffers: GPUBuffer[] = [];
 
   try {
-    // 1. Glyph atlas (fontSizePx defaults to cellHeight * 0.9 — matches the
-    //    legacy PipelineRenderer.getGlyphAtlas baseline).
-    const glyphSet = prepareAsciiGlyphSet(params.charset, {
-      fontFamily: params.fontFamily ?? "monospace",
-    });
-    const atlasUpload = uploadExternalImageToTexture(device, glyphSet.atlas.canvas, {
-      format: OUTPUT_FORMAT,
-      label: "ascii.atlas",
-    });
-    ownedTextures.push(atlasUpload.texture);
-    const atlasView = atlasUpload.texture.createView({ label: "ascii.atlasView" });
+    // 1. Glyph atlas + descriptors — cached per (fontFamily, charset) for the
+    //    device lifetime (matches legacy PipelineRenderer.getGlyphAtlas cache).
+    const cachedGlyphs = acquireGlyphSet(
+      cache,
+      device,
+      params.fontFamily ?? "monospace",
+      params.charset,
+    );
+    const { glyphSet, atlasView, glyphsBuffer: glyphsBuf } = cachedGlyphs;
 
     // 2. Source uploads. Base = surface (composited target). Source =
     //    analysis input (might be the same canvas).
@@ -243,13 +299,6 @@ export const applyAsciiCarrierOnSurface = async ({
       usage: GPUBufferUsage.STORAGE,
     });
     ownedBuffers.push(selectionBuf);
-    const glyphsBuf = device.createBuffer({
-      label: "ascii.glyphs",
-      size: glyphSet.descriptors.byteLength,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    ownedBuffers.push(glyphsBuf);
-    device.queue.writeBuffer(glyphsBuf, 0, glyphSet.descriptors);
 
     // 4. Uniform buffers.
     const analysisU = device.createBuffer({
@@ -308,7 +357,7 @@ export const applyAsciiCarrierOnSurface = async ({
       packSelectionUniforms({
         cellCount,
         glyphCount: glyphSet.glyphCount,
-        structureWeight: 0,
+        structureWeight: params.structureWeight,
       }),
     );
 
@@ -613,10 +662,13 @@ export const applyAsciiCarrierOnSurface = async ({
       consumeAndReplace(fgBlended.output);
     }
 
-    // 11. Readback. If neither bg nor fg ran, the original `surface` already
-    //    holds the answer — return null so the caller falls through.
+    // 11. Readback. If neither bg nor fg ran (e.g. backgroundMode=none with
+    //    foregroundOpacity=0 and no grid overlay), nothing has been composited
+    //    — return the input surface unchanged. `null` is reserved for actual
+    //    GPU failures (the legacy renderAsciiCarrierComposite presented base
+    //    here too; the lone caller throws on null).
     if (!compositedLease) {
-      return null;
+      return surface;
     }
 
     const pixels = await readbackTextureRGBA8(

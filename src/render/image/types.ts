@@ -214,9 +214,8 @@ export interface ImageAsciiEffectParams {
   invert: boolean;
   gridOverlay: boolean;
   /**
-   * 0 = pure density-based glyph selection (matches the WebGL2 carrier).
-   * 1 = pure structure-based selection (sub-grid + gradient + centroid).
-   * Consumed by the WebGPU ASCII pipeline; ignored by the WebGL2 backend.
+   * 0 = pure density-based glyph selection.
+   * 1 = pure structure-based (sub-grid + gradient histogram + centroid).
    */
   structureWeight: number;
 }

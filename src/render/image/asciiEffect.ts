@@ -257,6 +257,7 @@ const buildAsciiSurfaceParams = (
     coverage: normalized.coverage,
     edgeEmphasis: normalized.edgeEmphasis,
     ditherMode: normalized.dither === "floyd-steinberg" ? "bayer" : "none",
+    structureWeight: normalized.structureWeight,
   };
 };
 
