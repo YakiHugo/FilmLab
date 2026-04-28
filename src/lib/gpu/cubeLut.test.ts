@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCubeLUT } from "./CubeLUTParser";
+import { parseCubeLUT } from "./cubeLut";
 
 describe("parseCubeLUT", () => {
   it("parses a minimal 2x2x2 cube LUT", () => {

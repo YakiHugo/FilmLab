@@ -10,7 +10,7 @@
  * Callers must NOT destroy the returned textures — they are owned by the cache.
  */
 
-import { parseCubeLUT } from "@/lib/renderer/CubeLUTParser";
+import { parseCubeLUT } from "@/lib/gpu/cubeLut";
 
 const _deviceLutCache = new WeakMap<GPUDevice, Map<string, Promise<GPUTexture>>>();
 

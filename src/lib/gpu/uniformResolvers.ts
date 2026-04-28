@@ -12,7 +12,7 @@ import type {
   DetailUniforms,
   FilmUniforms,
   HalationBloomUniforms,
-} from "./types";
+} from "./uniformTypes";
 
 const IDENTITY_3X3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 const VEC3_ZERO: [number, number, number] = [0, 0, 0];

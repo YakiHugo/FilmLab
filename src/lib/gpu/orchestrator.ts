@@ -28,9 +28,8 @@ import {
   resolveDetailUniformsFromState,
   resolveFilmUniformsV3,
   resolveHalationBloomUniformsV3,
-} from "@/lib/renderer/uniformResolvers";
-import { buildCurveLutPixels } from "@/lib/renderer/gpu/CurveLut";
-import { encodeCurveLutToHalfFloats } from "@/lib/renderer/CurveLutEncoding";
+} from "@/lib/gpu/uniformResolvers";
+import { buildCurveLutPixels, encodeCurveLutToHalfFloats } from "@/lib/gpu/curveLut";
 import { resolveRenderProfileFromState } from "@/lib/film";
 import { loadLut3DTexture, load2DTexture } from "@/lib/gpu/lutLoader";
 import { fnv1a32 } from "@/lib/gpu/cacheKeys";

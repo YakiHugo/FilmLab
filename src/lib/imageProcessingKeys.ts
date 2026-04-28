@@ -6,7 +6,7 @@ import type {
   ImageRenderToneState,
 } from "@/render/image/types";
 import type { ResolvedRenderProfile } from "@/types/film";
-import type { GeometryUniforms } from "@/lib/renderer/types";
+import type { GeometryUniforms } from "@/lib/gpu/uniformTypes";
 
 export type RenderQualityProfile = "interactive" | "full";
 
