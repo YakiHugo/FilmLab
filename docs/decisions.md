@@ -11,10 +11,10 @@
 ## 渲染管线
 
 ### Backend
-- **WebGPU**，develop + film 内核全 WGSL。`src/lib/gpu/` 是 per-frame pipeline executor；`src/render/image/` 是 stage choreographer。入口：`WebGPURenderBackend`（`src/render/image/webgpuRenderBackend.ts`），由 `renderSingleImage.ts` 直接实例化。
+- **WebGPU**，develop + film + carrier + effect + overlay + signal-damage 全链 WGSL。`src/lib/gpu/` 是 per-frame pipeline executor；`src/render/image/` 是 stage choreographer。入口：`WebGPURenderBackend`（`src/render/image/webgpuRenderBackend.ts`），由 `renderSingleImage.ts` 直接实例化。
 - 单 Surface 路径。每个 per-image stage consume + return `RenderSurfaceHandle`；`*IfSupported` 回退分支已全部退役。`canvasMaterializations` 每次 render = 1（最终 `materializeToCanvas` 是唯一边界）。
 - Canvas2D 只存活于 glyph atlas bake（一次 per charset+font）；stage 之间不得传递 `HTMLCanvasElement`。
-- Carrier / effects / overlay 层（`src/render/image/asciiEffect.ts`、`effectExecution.ts`、`overlayExecution.ts` 等）当前仍经由 `gpuSurfaceOperation.ts` → `PipelineRenderer`（WebGL2）执行；替换尚无对应任务，在此之前 `src/lib/renderer/` 不得整体删除。
+- WebGL2 路径已彻底移除：`src/lib/renderer/`、`twgl.js`、所有 `.frag/.vert/.glsl` source、`src/lib/imageProcessing.ts` 的 `renderWithPipeline / RenderManager` 链路全部删除。每个 surface adapter 自己缓存 `ShaderCache + PipelineCache + TexturePool` per device（见 `src/lib/gpu/perDeviceCache.ts`），无全局 renderer 实例。
 
 ### Y-axis convention
 - WebGPU 路径已原生 Y-invariant：WGSL vertex shader 输出 Y-invariant UV（`wgsl/lib/fullscreen.wgsl`），每一 pass 保持 top-down 方向。旧 WebGL2 的每偶数 pass Y-flip hack 已彻底消除。
@@ -25,11 +25,11 @@
 
 ### ASCII
 - WebGPU ASCII 路径（`src/lib/gpu/passes/carrier/ascii/`）以 compute shader 做 per-cell feature extraction + structure-aware selection，支持 `structureWeight: 0–1`（0 = 纯 density，1 = 纯 structure matching）。
-- Canvas2D `renderAsciiToCanvas` 已退休。旧 Canvas2D fallback 从未视觉验证，**不是视觉参考基线**。
-- ASCII carrier slot id 必须是常量（`ASCII_CARRIER_SLOT_ID = "ascii-carrier"`）——每 carrier 分配独立 renderer 会导致泄漏。
+- 两阶段 compute chain：`analysis.wgsl` 累积 27-float 特征向量 + per-cell averaged RGBA → `toneNormalize.wgsl` 应用 brightness/contrast/density/coverage/invert/edgeEmphasis 后写 `cellTone` → `selection.wgsl` 用 `cellTone` 做 density-distance 匹配。Floyd-Steinberg dither 已被 Bayer 8×8 ordered 替换（FS 是顺序依赖，不适合 compute；≤ 4/255 gate 容忍替换；项目 pre-launch 不 dual-path）。
+- 旧 Canvas2D `renderAsciiToCanvas` 已退休，**不是视觉参考基线**。
 
 ### Brush mask
-- `GPU_BRUSH_MASK_MAX_POINTS = 512`。超过上限 GPU 路径返回 false，CPU `drawLocalMaskShape` 写入同一 mask canvas，后续 GPU blend 仍消费它——stage 的 Surface-in/Surface-out 契约不破。
+- 上限 512 points。超过上限 `applyLocalMaskShapeOnSurface` 返回 `null`，调用方 fallback 到 CPU `drawLocalMaskShape` 写入同一 mask canvas，后续 GPU blend 仍消费它——stage 的 Surface-in/Surface-out 契约不破。
 - 不要提升上限；若 brush GPU 是 measured hotspot，优化方向是减少 per-dab fullscreen pass 数，不是放宽 fallback 阈值。
 
 ### Pipeline stages & authored families
@@ -57,9 +57,8 @@
 - CPU permanent：brush-mask 超上限 + renderer-unavailable（context lost / destroyed）。
 
 ### WGSL surface-adapter 中间格式
-- `applyFilter2dOnSurface`、`applyHalftoneOnSurface`、`applyChannelDriftOnSurface`、`applyMaskedBlendOnSurface` 全部用 `rgba8unorm` 作为 ping-pong 与 readback 格式。
-- 旧 `PipelineRenderer.applyFilter2dSource` 在 device 支持时用 `RGBA16F` intermediate；新链 `adjust → blur(h) → blur(v) → dilate` 在每次写入都量化到 8-bit。理论上极端组合（高 blur radius × `brightness >> 1`）下与旧 16F 路径偏差可达 ~3–4/255。
-- 当前 smoke harness 自身用 8-bit GLSL reference，所以 ≤ 2/255 gate 仍然成立；这是 vs WebGL2 production 的潜在 divergence，不是 vs validated baseline 的 regression。
+- 所有 surface adapter（`applyFilter2dOnSurface`、`applyHalftoneOnSurface`、`applyChannelDriftOnSurface`、`applyMaskedBlendOnSurface`、`applyLocalMaskShapeOnSurface`、`applyLocalMaskRangeOnSurface`、`applyTimestampOverlayOnSurface`、`applyNormalLayerBlendOnSurface`、`applyAsciiCarrierOnSurface`）用 `rgba8unorm` 作为 ping-pong 与 readback 格式。
+- 旧 WebGL2 `PipelineRenderer.applyFilter2dSource` 在 device 支持时用 `RGBA16F` intermediate；现在 `adjust → blur(h) → blur(v) → dilate` 链每次写入量化到 8-bit。理论上极端组合（高 blur radius × `brightness >> 1`）下偏差可达 ~3–4/255 vs 旧 16F 路径——但旧路径已删除，没有 baseline。
 - Revisit：若 carrier / overlay 链未来出现可见 banding 或 export 端 16-bit pipeline 接入，再统一切到 `rgba16float`（需要 device feature gate）。
 
 ## 服务端 AI 管线
