@@ -13,7 +13,7 @@
     },
     {
       "id": "image-first-entry",
-      "status": "pending",
+      "status": "in_progress",
       "blockedBy": ["foundation-reliability"],
       "passes": [
         "the primary entry offers upload, paste, library, and AI generation without presenting a blank canvas first",
