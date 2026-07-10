@@ -94,9 +94,6 @@ export const selectCanvasCommittedLoadedWorkbenchState = (
   };
 };
 
-export const selectLoadedWorkbenchName = (state: CanvasWorkbenchSelectorState) =>
-  selectLoadedWorkbench(state)?.name ?? "Untitled Workbench";
-
 export const selectLoadedWorkbenchSlices = (state: CanvasWorkbenchSelectorState) =>
   selectCanvasLoadedWorkbenchState(state).slices;
 

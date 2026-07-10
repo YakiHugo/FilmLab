@@ -11,6 +11,8 @@
     --panel-bg: rgba(8, 8, 9, 0.42);
     --panel-border: rgba(255, 255, 255, 0.08);
     --accent: #f59e0b;
+    --compute-acid: #d9ff43;
+    --compute-signal: #ff6b35;
   }
 
   body {
@@ -59,6 +61,27 @@
   .content-auto {
     content-visibility: auto;
     contain-intrinsic-size: 340px 240px;
+  }
+
+  .compute-grid {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  .compute-scanlines::after {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    content: "";
+    background: repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 3px,
+      rgba(217, 255, 67, 0.025) 4px
+    );
+    mix-blend-mode: screen;
   }
 }
 

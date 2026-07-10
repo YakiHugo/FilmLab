@@ -42,6 +42,16 @@ Completed 2026-07-10.
 
 Replace the blank-canvas first impression with a focused start surface. Reuse the existing asset import and workbench command paths so every input creates canonical persisted state. Clipboard input is handled as an image import, not a new asset type.
 
+Completed 2026-07-10.
+
+- `src/pages/studio.tsx` is now the computational entry surface: local drop/file input, global image paste, recent-library selection, and AI/library routes are visible before any canvas is created. Desktop and 390 px layouts have explicit loading, empty, busy, and failure states.
+- `src/features/studio/createImageWorkbench.ts` is the single entry command. It resolves the image before persistence, creates the canonical 4:5 workbench, covers and centers the image, records the cover asset, selects the node, and compensates by deleting an incomplete workbench if insertion fails.
+- `src/router.tsx`, `src/components/RoutePending.tsx`, and `src/components/layout/Header.tsx` remove the eager Canvas dependency from the shell and lazy-load Studio, Library, AI, and Canvas routes. The production entry chunk fell from about 1.08 MB to 146 KB minified; the Studio route is about 13 KB.
+- `src/stores/currentUser/constants.ts` and `importPipeline.ts` now normalize supported extension-only files to a real MIME type before Blob creation, upload init, and Asset persistence. The V1 input contract is JPEG, PNG, WebP, and AVIF; TIFF import was removed because the browser render chain cannot decode it.
+- `public/textures/damage/default.png` and `public/textures/borders/default.png` were losslessly re-encoded. Their invalid prior encoding caused every WebGPU preview to fail during static texture loading and left only a gray placeholder.
+- Browser evidence: two distinct local uploads, a recent-library asset, a synthetic clipboard image, and a file with an empty MIME plus valid `.png` extension all created persisted workbenches with visible images; reload restored the workbench; no page errors were present; the entry remained usable at 390×844.
+- Validation: `pnpm verify` passed (127 files, 645 tests, client and server builds); `pnpm dead-code` matched the main baseline with no new unused files or exports; formatting, focused ESLint, typecheck, and `git diff --check` passed. Independent review findings covering input-format truthfulness, incomplete-workbench cleanup, and shared picker drift were resolved; final result: no issues found.
+
 ### Computational Style Lab
 
 Present authored style directions as outcome cards with compact controls. Directions are presets over canonical render families, not new renderer branches. The selected image remains the target; multi-selection and scene-global styling are deferred.
