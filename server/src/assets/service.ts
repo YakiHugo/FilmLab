@@ -20,10 +20,21 @@ import type {
 
 const DEFAULT_SIGNED_READ_TTL_SECONDS = 15 * 60;
 
+type AssetUploadSessionFailure =
+  | "kind_not_enabled"
+  | "mime_type_mismatch"
+  | "original_not_uploaded"
+  | "session_not_found";
+
+export class AssetUploadSessionError extends Error {
+  constructor(readonly failure: AssetUploadSessionFailure) {
+    super(failure);
+    this.name = "AssetUploadSessionError";
+  }
+}
+
 const normalizeMetadata = (value: Record<string, unknown> | undefined) =>
-  Object.fromEntries(
-    Object.entries(value ?? {}).filter(([, entry]) => entry !== undefined)
-  );
+  Object.fromEntries(Object.entries(value ?? {}).filter(([, entry]) => entry !== undefined));
 
 const toFileExtension = (mimeType: string) => {
   if (mimeType.includes("png")) return "png";
@@ -54,7 +65,7 @@ const resolveDetectedMimeType = (mimeType: string, detectedType?: string) => {
     return mimeType;
   }
 
-  return detectedType ? IMAGE_TYPE_TO_MIME[detectedType] ?? mimeType : mimeType;
+  return detectedType ? (IMAGE_TYPE_TO_MIME[detectedType] ?? mimeType) : mimeType;
 };
 
 const measureStoredImageObject = (object: AssetStorageObject) => {
@@ -95,9 +106,7 @@ export class AssetService {
     const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
     const expired = await this.repository.deleteExpiredUploadSessions(cutoff);
     if (expired.length > 0) {
-      await this.removeObjectsBestEffort(
-        expired.flatMap((s) => [s.originalPath, s.thumbnailPath])
-      );
+      await this.removeObjectsBestEffort(expired.flatMap((s) => [s.originalPath, s.thumbnailPath]));
     }
     return expired.length;
   }
@@ -131,8 +140,7 @@ export class AssetService {
       origin: record.origin,
       contentHash: record.contentHash,
       tags: [...record.tags],
-      metadata:
-        Object.keys(record.metadata).length > 0 ? { ...record.metadata } : undefined,
+      metadata: Object.keys(record.metadata).length > 0 ? { ...record.metadata } : undefined,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
       objectUrl: this.buildBrowserUrl(record.id, record.ownerUserId, "original"),
@@ -202,58 +210,54 @@ export class AssetService {
         };
       }
       if (!existingById) {
-        return this.repository.withContentHashLock(
-          input.userId,
-          input.contentHash,
-          async () => {
-            const existingByHash = await this.repository.findAssetByContentHash(
-              input.userId,
-              input.contentHash
-            );
-            if (existingByHash) {
-              return {
-                existing: true as const,
-                assetId: existingByHash.id,
-                asset: this.toApiRecord(existingByHash),
-              };
-            }
-
-            const existingSession = await this.repository.findUploadSessionByContentHash(
-              input.userId,
-              input.contentHash
-            );
-            if (existingSession) {
-              return this.buildPreparedUpload(
-                existingSession.assetId,
-                Boolean(existingSession.thumbnailPath)
-              );
-            }
-
-            const assetId = requestedAssetId;
-            const paths = this.buildStoragePaths(input.userId, assetId, input.mimeType);
-            const now = new Date().toISOString();
-            const session: AssetUploadSession = {
-              assetId,
-              ownerUserId: input.userId,
-              name: input.name,
-              mimeType: input.mimeType,
-              sizeBytes: input.sizeBytes,
-              source: input.source,
-              origin: input.origin,
-              contentHash: input.contentHash,
-              tags: [...input.tags],
-              metadata: normalizeMetadata(input.metadata),
-              createdAt: input.createdAt,
-              updatedAt: now,
-              originalPath: paths.originalPath,
-              thumbnailPath: input.includeThumbnail ? paths.thumbnailPath : null,
-              originalUploadedAt: null,
-              thumbnailUploadedAt: null,
+        return this.repository.withContentHashLock(input.userId, input.contentHash, async () => {
+          const existingByHash = await this.repository.findAssetByContentHash(
+            input.userId,
+            input.contentHash
+          );
+          if (existingByHash) {
+            return {
+              existing: true as const,
+              assetId: existingByHash.id,
+              asset: this.toApiRecord(existingByHash),
             };
-            await this.repository.createUploadSession(session);
-            return this.buildPreparedUpload(assetId, input.includeThumbnail ?? false);
           }
-        );
+
+          const existingSession = await this.repository.findUploadSessionByContentHash(
+            input.userId,
+            input.contentHash
+          );
+          if (existingSession) {
+            return this.buildPreparedUpload(
+              existingSession.assetId,
+              Boolean(existingSession.thumbnailPath)
+            );
+          }
+
+          const assetId = requestedAssetId;
+          const paths = this.buildStoragePaths(input.userId, assetId, input.mimeType);
+          const now = new Date().toISOString();
+          const session: AssetUploadSession = {
+            assetId,
+            ownerUserId: input.userId,
+            name: input.name,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            source: input.source,
+            origin: input.origin,
+            contentHash: input.contentHash,
+            tags: [...input.tags],
+            metadata: normalizeMetadata(input.metadata),
+            createdAt: input.createdAt,
+            updatedAt: now,
+            originalPath: paths.originalPath,
+            thumbnailPath: input.includeThumbnail ? paths.thumbnailPath : null,
+            originalUploadedAt: null,
+            thumbnailUploadedAt: null,
+          };
+          await this.repository.createUploadSession(session);
+          return this.buildPreparedUpload(assetId, input.includeThumbnail ?? false);
+        });
       }
     }
 
@@ -346,7 +350,9 @@ export class AssetService {
       };
       await this.repository.createUploadSession(session);
       await this.removeObjectsBestEffort([
-        previousSession?.originalPath !== session.originalPath ? previousSession?.originalPath : null,
+        previousSession?.originalPath !== session.originalPath
+          ? previousSession?.originalPath
+          : null,
         previousSession?.thumbnailPath !== session.thumbnailPath
           ? previousSession?.thumbnailPath
           : null,
@@ -365,14 +371,14 @@ export class AssetService {
   }) {
     const session = await this.repository.getUploadSession(input.userId, input.assetId);
     if (!session) {
-      throw new Error("Upload session not found.");
+      throw new AssetUploadSessionError("session_not_found");
     }
     const path = input.kind === "thumbnail" ? session.thumbnailPath : session.originalPath;
     if (!path) {
-      throw new Error("Upload kind is not enabled for this session.");
+      throw new AssetUploadSessionError("kind_not_enabled");
     }
     if (input.kind === "original" && input.mimeType !== session.mimeType) {
-      throw new Error("Original upload MIME type does not match the upload session.");
+      throw new AssetUploadSessionError("mime_type_mismatch");
     }
 
     await this.storage.putObject({
@@ -391,10 +397,10 @@ export class AssetService {
   async completeUpload(userId: string, assetId: string) {
     const session = await this.repository.getUploadSession(userId, assetId);
     if (!session) {
-      throw new Error("Upload session not found.");
+      throw new AssetUploadSessionError("session_not_found");
     }
     if (!session.originalUploadedAt) {
-      throw new Error("Original image has not been uploaded.");
+      throw new AssetUploadSessionError("original_not_uploaded");
     }
 
     const existingAsset = await this.repository.findAssetById(userId, assetId);
@@ -471,12 +477,11 @@ export class AssetService {
       const saved = await this.repository.saveAsset(record);
       await this.repository.deleteUploadSession(userId, assetId);
       await this.removeObjectsBestEffort(
-        (existingAsset?.files ?? [])
-          .map((file) =>
-            saved.files.some((nextFile) => nextFile.kind === file.kind && nextFile.path === file.path)
-              ? null
-              : file.path
-          )
+        (existingAsset?.files ?? []).map((file) =>
+          saved.files.some((nextFile) => nextFile.kind === file.kind && nextFile.path === file.path)
+            ? null
+            : file.path
+        )
       );
       return this.toApiRecord(saved);
     });

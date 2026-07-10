@@ -29,6 +29,15 @@ Video timelines, general-purpose layout tooling, additional providers, 16-bit ex
 
 Re-establish a trustworthy mainline before product work. Fix the image-lab conversation lifecycle, binary asset upload parsing, current build gates, and route loading boundaries. Add behavior-level coverage only for the real failures being removed.
 
+Completed 2026-07-10.
+
+- `src/features/image-lab/hooks/useImageLabConversation.ts` now owns request cancellation and versioning so StrictMode performs one initial load and stale refreshes cannot replace an accepted or cleared conversation.
+- `server/src/routes/assets.ts` and `server/src/assets/service.ts` now accept scoped binary image bodies, normalize MIME types at both request boundaries, and map expected session failures to stable 404/409/415 responses.
+- The new hook and route integration tests protect the observed lifecycle, authenticated prepare/upload/complete/readback flow, MIME parameters, client failures, and configured body limit.
+- Browser evidence: `/assist` made exactly one conversation request and remained idle; a real library image completed both original and thumbnail upload and appeared in the asset list.
+- Validation: `pnpm verify` passed (127 files, 644 tests, client and server builds); `pnpm dead-code` matched the main baseline with no new unused files or exports; focused ESLint, Prettier, and `git diff --check` passed.
+- Independent review found four lifecycle and upload-boundary issues. All were resolved; the final MIME normalization case was reproduced through the real route and added to the readback test.
+
 ### Image-First Entry
 
 Replace the blank-canvas first impression with a focused start surface. Reuse the existing asset import and workbench command paths so every input creates canonical persisted state. Clipboard input is handled as an image import, not a new asset type.
