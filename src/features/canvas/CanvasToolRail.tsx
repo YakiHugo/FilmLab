@@ -1,11 +1,11 @@
 import {
   ArrowRight,
-  CaseSensitive,
   Circle,
   Images,
   Layers3,
   Slash,
   SlidersHorizontal,
+  Sparkles,
   Square,
   Type,
 } from "lucide-react";
@@ -33,7 +33,7 @@ const panelButtons = [
   { panel: "library" as const, icon: Images, label: "Library" },
   { panel: "layers" as const, icon: Layers3, label: "Layers" },
   { panel: "edit" as const, icon: SlidersHorizontal, label: "编辑" },
-  { panel: "ascii" as const, icon: CaseSensitive, label: "ASCII" },
+  { panel: "styles" as const, icon: Sparkles, label: "Style Lab" },
 ] as const;
 
 export function CanvasToolRail() {
@@ -110,12 +110,7 @@ export function CanvasToolRail() {
           </div>
         ) : null}
 
-        <div
-          className={cn(
-            "mx-2 h-px w-6",
-            "my-2 bg-[color:var(--canvas-edit-divider)]"
-          )}
-        />
+        <div className={cn("mx-2 h-px w-6", "my-2 bg-[color:var(--canvas-edit-divider)]")} />
 
         {panelButtons.map((btn) => {
           const Icon = btn.icon;

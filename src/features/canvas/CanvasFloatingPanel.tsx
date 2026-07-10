@@ -6,6 +6,7 @@ import { CanvasAsciiEditPanel } from "./CanvasAsciiEditPanel";
 import { CanvasCaptionEditPanel } from "./CanvasCaptionEditPanel";
 import { CanvasHalftoneEditPanel } from "./CanvasHalftoneEditPanel";
 import { CanvasSignalDamageEditPanel } from "./CanvasSignalDamageEditPanel";
+import { CanvasStyleLabPanel } from "./CanvasStyleLabPanel";
 import { CanvasWatermarkEditPanel } from "./CanvasWatermarkEditPanel";
 import { CanvasAssetPicker } from "./CanvasAssetPicker";
 import { CanvasEditPanel } from "./CanvasEditPanel";
@@ -18,6 +19,7 @@ import {
 
 const PANEL_TITLES: Record<NonNullable<PanelType>, string> = {
   edit: "编辑",
+  styles: "Style Lab",
   ascii: "ASCII",
   halftone: "Halftone",
   "signal-damage": "Signal Damage",
@@ -30,7 +32,14 @@ const PANEL_TITLES: Record<NonNullable<PanelType>, string> = {
 export function CanvasFloatingPanel() {
   const activePanel = useCanvasStore((s) => s.activePanel);
   const setActivePanel = useCanvasStore((s) => s.setActivePanel);
-  const isEditDock = activePanel === "edit" || activePanel === "ascii" || activePanel === "halftone" || activePanel === "signal-damage" || activePanel === "caption" || activePanel === "watermark";
+  const isEditDock =
+    activePanel === "edit" ||
+    activePanel === "styles" ||
+    activePanel === "ascii" ||
+    activePanel === "halftone" ||
+    activePanel === "signal-damage" ||
+    activePanel === "caption" ||
+    activePanel === "watermark";
 
   return (
     <AnimatePresence mode="wait">
@@ -74,14 +83,12 @@ export function CanvasFloatingPanel() {
   );
 }
 
-function PanelContent({
-  panel,
-}: {
-  panel: NonNullable<PanelType>;
-}) {
+function PanelContent({ panel }: { panel: NonNullable<PanelType> }) {
   switch (panel) {
     case "edit":
       return <CanvasEditPanel />;
+    case "styles":
+      return <CanvasStyleLabPanel />;
     case "ascii":
       return <CanvasAsciiEditPanel />;
     case "halftone":

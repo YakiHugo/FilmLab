@@ -71,7 +71,7 @@ export const createImageWorkbench = async (asset: Asset) => {
   }
 
   useCanvasStore.getState().setSelectedElementIds([imageNode.id]);
-  useCanvasStore.getState().setActivePanel("ascii");
+  useCanvasStore.getState().setActivePanel("styles");
 
   return {
     workbenchId: workbench.id,
