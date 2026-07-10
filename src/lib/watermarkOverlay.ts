@@ -10,6 +10,7 @@ export interface WatermarkOverlayRenderParams {
 }
 
 const WATERMARK_FONTS = '"Space Grotesk", "Work Sans", sans-serif';
+const MAX_RENDER_LAYOUT_PX = 8192;
 
 const ensureCanvasSize = (canvas: HTMLCanvasElement, width: number, height: number) => {
   const safeWidth = Math.max(1, Math.round(width));
@@ -46,7 +47,7 @@ export const renderWatermarkOverlayRaster = async ({
     return null;
   }
 
-  const fontSize = clamp(params.fontSize, 12, 120);
+  const fontSize = clamp(params.fontSize, 1, MAX_RENDER_LAYOUT_PX);
   const angleRad = (params.angle * Math.PI) / 180;
   const density = clamp(params.density, 0.5, 5);
 

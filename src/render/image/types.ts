@@ -375,6 +375,7 @@ export interface ImageRenderDocument extends CanvasImageRenderStateV1 {
 export interface ImageRenderRequest {
   qualityTier: RenderQualityTier;
   targetSize: ImageRenderTargetSize;
+  overlayReferenceSize?: ImageRenderTargetSize;
   timestampText?: string | null;
   strictErrors?: boolean;
   signal?: AbortSignal;
@@ -428,7 +429,10 @@ const isSignalDamageNode = (value: unknown): value is SignalDamageNode =>
 const SEMANTIC_OVERLAY_TYPES = new Set(["timestamp", "caption", "watermark"]);
 
 const isSemanticOverlayNode = (value: unknown): value is SemanticOverlayNode =>
-  isRecord(value) && typeof value.type === "string" && SEMANTIC_OVERLAY_TYPES.has(value.type) && "params" in value;
+  isRecord(value) &&
+  typeof value.type === "string" &&
+  SEMANTIC_OVERLAY_TYPES.has(value.type) &&
+  "params" in value;
 
 const MOTION_PROGRAM_TYPES = new Set(["signal-drift"]);
 
@@ -477,9 +481,11 @@ export const normalizeCanvasImageRenderState = (
     (state as CanvasImageRenderStateV1 & { carrierTransforms?: unknown[] }).carrierTransforms
   )
     ? ((state as CanvasImageRenderStateV1 & { carrierTransforms?: unknown[] }).carrierTransforms ??
-        [])
+      [])
     : [];
-  const rawEffects = Array.isArray((state as CanvasImageRenderStateV1 & { effects?: unknown[] }).effects)
+  const rawEffects = Array.isArray(
+    (state as CanvasImageRenderStateV1 & { effects?: unknown[] }).effects
+  )
     ? ((state as CanvasImageRenderStateV1 & { effects?: unknown[] }).effects ?? [])
     : [];
   const rawSignalDamage = Array.isArray(
@@ -490,7 +496,8 @@ export const normalizeCanvasImageRenderState = (
   const rawSemanticOverlays = Array.isArray(
     (state as CanvasImageRenderStateV1 & { semanticOverlays?: unknown[] }).semanticOverlays
   )
-    ? ((state as CanvasImageRenderStateV1 & { semanticOverlays?: unknown[] }).semanticOverlays ?? [])
+    ? ((state as CanvasImageRenderStateV1 & { semanticOverlays?: unknown[] }).semanticOverlays ??
+      [])
     : [];
   const rawMotionPrograms = Array.isArray(
     (state as CanvasImageRenderStateV1 & { motionPrograms?: unknown[] }).motionPrograms
@@ -609,14 +616,11 @@ export const resolveImageRenderEffectsForPlacement = (
   placement: ImageEffectPlacement
 ) => effects.filter((effect) => effect.enabled && effect.placement === placement);
 
-export const resolveImageCarrierTransforms = (
-  carrierTransforms: readonly CarrierTransformNode[]
-) => carrierTransforms.filter((transform) => transform.enabled);
+export const resolveImageCarrierTransforms = (carrierTransforms: readonly CarrierTransformNode[]) =>
+  carrierTransforms.filter((transform) => transform.enabled);
 
-export const resolveImageSignalDamage = (
-  signalDamage: readonly SignalDamageNode[]
-) => signalDamage.filter((node) => node.enabled);
+export const resolveImageSignalDamage = (signalDamage: readonly SignalDamageNode[]) =>
+  signalDamage.filter((node) => node.enabled);
 
-export const resolveImageSemanticOverlays = (
-  semanticOverlays: readonly SemanticOverlayNode[]
-) => semanticOverlays.filter((node) => node.enabled);
+export const resolveImageSemanticOverlays = (semanticOverlays: readonly SemanticOverlayNode[]) =>
+  semanticOverlays.filter((node) => node.enabled);

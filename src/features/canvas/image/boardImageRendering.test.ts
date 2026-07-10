@@ -3,7 +3,9 @@ import { createDefaultCanvasImageRenderState } from "@/render/image";
 import type { Asset, CanvasImageElement } from "@/types";
 import {
   createCanvasImageRenderContext,
+  resolveCanvasImageOverlayReferenceSizeKey,
   resolveCanvasImagePreviewTargetSize,
+  resolveCanvasImagePreviewTargetSizeKey,
   resolveCanvasImageRenderState,
 } from "./boardImageRendering";
 
@@ -117,6 +119,18 @@ describe("boardImageRendering", () => {
     expect(targetSize.width / targetSize.height).toBeCloseTo(401 / 267, 2);
   });
 
+  it("changes the overlay reference key for same-bucket image resizes", () => {
+    const first = createElement({ width: 400, height: 267 });
+    const second = createElement({ width: 404, height: 270 });
+
+    expect(resolveCanvasImagePreviewTargetSizeKey(first, "background", 1)).toBe(
+      resolveCanvasImagePreviewTargetSizeKey(second, "background", 1)
+    );
+    expect(resolveCanvasImageOverlayReferenceSizeKey(first)).not.toBe(
+      resolveCanvasImageOverlayReferenceSizeKey(second)
+    );
+  });
+
   it("folds draft render state and per-element film profiles into the render context", () => {
     const asset = createAsset();
     const elementRenderState = createDefaultCanvasImageRenderState();
@@ -135,9 +149,7 @@ describe("boardImageRendering", () => {
       priority: "interactive",
     });
 
-    expect(
-      resolveCanvasImageRenderState(element, draftRenderState).develop.tone.exposure
-    ).toBe(24);
+    expect(resolveCanvasImageRenderState(element, draftRenderState).develop.tone.exposure).toBe(24);
     expect(context.renderState.develop.tone.exposure).toBe(24);
     expect(context.filmProfile?.id).toBe("film-portrait-soft-v1");
   });

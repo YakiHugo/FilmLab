@@ -31,6 +31,7 @@ export interface TimestampOverlayGpuInput {
 
 export const TIMESTAMP_FONTS = '"Space Grotesk", "Work Sans", sans-serif';
 export const TIMESTAMP_GPU_MAX_CHARS = 64;
+const MAX_RENDER_LAYOUT_PX = 8192;
 const TIMESTAMP_OVERLAY_RASTER_CACHE_MAX_ENTRIES = 12;
 const timestampOverlayRasterCache = new Map<
   string,
@@ -62,6 +63,75 @@ void ensureFontLoaded();
 export const normalizeTimestampOverlayText = (timestampText?: string | null) =>
   (timestampText?.trim() ?? "").slice(0, TIMESTAMP_GPU_MAX_CHARS);
 
+interface TimestampOverlayLayout {
+  cellHeight: number;
+  cellWidth: number;
+  fontSize: number;
+  rectHeight: number;
+  rectLeft: number;
+  rectTop: number;
+  rectWidth: number;
+  text: string;
+  textStartX: number;
+  textStartY: number;
+}
+
+export const createTimestampOverlayLayout = ({
+  width,
+  height,
+  adjustments,
+  timestampText,
+}: {
+  width: number;
+  height: number;
+  adjustments: TimestampOverlayAdjustments;
+  timestampText?: string | null;
+}): TimestampOverlayLayout | null => {
+  if (!adjustments.timestampEnabled) {
+    return null;
+  }
+
+  const text = normalizeTimestampOverlayText(timestampText);
+  if (!text) {
+    return null;
+  }
+
+  const safeWidth = Math.max(1, Math.round(width));
+  const safeHeight = Math.max(1, Math.round(height));
+  const fontSize = clamp(adjustments.timestampSize, 1, MAX_RENDER_LAYOUT_PX);
+  const margin = Math.max(1, Math.round(Math.min(safeWidth, safeHeight) * 0.04));
+  const cellWidth = Math.max(1, Math.round(fontSize * 0.62));
+  const cellHeight = Math.max(1, Math.round(fontSize * 1.1));
+  const bgPaddingX = fontSize * 0.5;
+  const bgPaddingY = fontSize * 0.35;
+  const textWidth = text.length * cellWidth;
+  const rectWidth = Math.min(safeWidth, textWidth + bgPaddingX * 2);
+  const rectHeight = Math.min(safeHeight, cellHeight + bgPaddingY * 2);
+  const rectLeft =
+    adjustments.timestampPosition === "bottom-right" ||
+    adjustments.timestampPosition === "top-right"
+      ? clamp(safeWidth - margin - rectWidth, 0, Math.max(0, safeWidth - rectWidth))
+      : clamp(margin, 0, Math.max(0, safeWidth - rectWidth));
+  const rectTop =
+    adjustments.timestampPosition === "bottom-left" ||
+    adjustments.timestampPosition === "bottom-right"
+      ? clamp(safeHeight - margin - rectHeight, 0, Math.max(0, safeHeight - rectHeight))
+      : clamp(margin, 0, Math.max(0, safeHeight - rectHeight));
+
+  return {
+    cellHeight,
+    cellWidth,
+    fontSize,
+    rectHeight,
+    rectLeft,
+    rectTop,
+    rectWidth,
+    text,
+    textStartX: rectLeft + bgPaddingX,
+    textStartY: rectTop + bgPaddingY,
+  };
+};
+
 export const createTimestampOverlayGpuInput = ({
   width,
   height,
@@ -77,11 +147,6 @@ export const createTimestampOverlayGpuInput = ({
     return null;
   }
 
-  const text = normalizeTimestampOverlayText(timestampText);
-  if (!text) {
-    return null;
-  }
-
   const alpha = clamp(adjustments.timestampOpacity / 100, 0, 1);
   if (alpha <= 0.001) {
     return null;
@@ -89,47 +154,37 @@ export const createTimestampOverlayGpuInput = ({
 
   const safeWidth = Math.max(1, Math.round(width));
   const safeHeight = Math.max(1, Math.round(height));
-  const fontSize = clamp(adjustments.timestampSize, 12, 48);
-  const margin = Math.max(12, Math.round(Math.min(safeWidth, safeHeight) * 0.04));
-  const cellWidth = Math.max(6, Math.round(fontSize * 0.62));
-  const cellHeight = Math.max(fontSize, Math.round(fontSize * 1.1));
-  const bgPaddingX = fontSize * 0.5;
-  const bgPaddingY = fontSize * 0.35;
-  const textWidth = text.length * cellWidth;
-  const rectWidth = textWidth + bgPaddingX * 2;
-  const rectHeight = cellHeight + bgPaddingY * 2;
-  const rectLeft =
-    adjustments.timestampPosition === "bottom-right" || adjustments.timestampPosition === "top-right"
-      ? clamp(safeWidth - margin - rectWidth, 0, Math.max(0, safeWidth - rectWidth))
-      : clamp(margin, 0, Math.max(0, safeWidth - rectWidth));
-  const rectTop =
-    adjustments.timestampPosition === "bottom-left" || adjustments.timestampPosition === "bottom-right"
-      ? clamp(safeHeight - margin - rectHeight, 0, Math.max(0, safeHeight - rectHeight))
-      : clamp(margin, 0, Math.max(0, safeHeight - rectHeight));
-  const textStartX = rectLeft + bgPaddingX;
-  const textStartY = rectTop + bgPaddingY;
-  const charset = Array.from(new Set(text.split("")));
+  const layout = createTimestampOverlayLayout({
+    width: safeWidth,
+    height: safeHeight,
+    adjustments,
+    timestampText,
+  });
+  if (!layout) {
+    return null;
+  }
+  const charset = Array.from(new Set(layout.text.split("")));
   const glyphIndexByChar = new Map(charset.map((glyph, index) => [glyph, index]));
   const glyphIndices = new Float32Array(TIMESTAMP_GPU_MAX_CHARS);
   glyphIndices.fill(-1);
-  for (let index = 0; index < text.length; index += 1) {
-    glyphIndices[index] = glyphIndexByChar.get(text[index] ?? "") ?? -1;
+  for (let index = 0; index < layout.text.length; index += 1) {
+    glyphIndices[index] = glyphIndexByChar.get(layout.text[index] ?? "") ?? -1;
   }
 
   return {
     width: safeWidth,
     height: safeHeight,
     fontFamily: TIMESTAMP_FONTS,
-    fontSizePx: fontSize,
-    rectLeft,
-    rectTop,
-    rectWidth,
-    rectHeight,
-    textStartX,
-    textStartY,
-    cellWidth,
-    cellHeight,
-    charCount: text.length,
+    fontSizePx: layout.fontSize,
+    rectLeft: layout.rectLeft,
+    rectTop: layout.rectTop,
+    rectWidth: layout.rectWidth,
+    rectHeight: layout.rectHeight,
+    textStartX: layout.textStartX,
+    textStartY: layout.textStartY,
+    cellWidth: layout.cellWidth,
+    cellHeight: layout.cellHeight,
+    charCount: layout.text.length,
     glyphIndices,
     charset,
     backgroundColorRgba: new Uint8ClampedArray([0, 0, 0, Math.round(alpha * 0.34 * 255)]),
@@ -152,11 +207,6 @@ const buildTimestampOverlayRasterCacheKey = ({
     return null;
   }
 
-  const text = normalizeTimestampOverlayText(timestampText);
-  if (!text) {
-    return null;
-  }
-
   const alpha = clamp(adjustments.timestampOpacity / 100, 0, 1);
   if (alpha <= 0.001) {
     return null;
@@ -164,15 +214,23 @@ const buildTimestampOverlayRasterCacheKey = ({
 
   const safeWidth = Math.max(1, Math.round(width));
   const safeHeight = Math.max(1, Math.round(height));
-  const fontSize = clamp(adjustments.timestampSize, 12, 48);
+  const layout = createTimestampOverlayLayout({
+    width: safeWidth,
+    height: safeHeight,
+    adjustments,
+    timestampText,
+  });
+  if (!layout) {
+    return null;
+  }
 
   return [
     "timestamp-overlay",
     `${safeWidth}x${safeHeight}`,
     adjustments.timestampPosition,
-    fontSize,
+    layout.fontSize,
     alpha.toFixed(4),
-    text,
+    layout.text,
   ].join(":");
 };
 
@@ -219,11 +277,6 @@ const renderTimestampOverlayRaster = async ({
 
   const safeWidth = Math.max(1, Math.round(width));
   const safeHeight = Math.max(1, Math.round(height));
-  const text = normalizeTimestampOverlayText(timestampText);
-  if (!adjustments.timestampEnabled || !text) {
-    return null;
-  }
-
   const alpha = clamp(adjustments.timestampOpacity / 100, 0, 1);
   if (alpha <= 0.001) {
     return null;
@@ -240,69 +293,32 @@ const renderTimestampOverlayRaster = async ({
 
   await ensureFontLoaded();
 
-  const fontSize = clamp(adjustments.timestampSize, 12, 48);
-  const margin = Math.max(12, Math.round(Math.min(canvas.width, canvas.height) * 0.04));
+  const layout = createTimestampOverlayLayout({
+    width: canvas.width,
+    height: canvas.height,
+    adjustments,
+    timestampText,
+  });
+  if (!layout) {
+    releaseTimestampOverlayRaster(canvas);
+    return null;
+  }
 
   context.save();
   context.globalAlpha = alpha;
-  context.font = `${Math.round(fontSize)}px ${TIMESTAMP_FONTS}`;
-  context.textBaseline = "bottom";
-  context.textAlign = "left";
-  const textMetrics = context.measureText(text);
-  const textWidth = textMetrics.width;
-  const textHeight = Math.max(fontSize, fontSize * 1.1);
-
-  let x = margin;
-  let y = canvas.height - margin;
-  switch (adjustments.timestampPosition) {
-    case "bottom-left":
-      x = margin;
-      y = canvas.height - margin;
-      context.textAlign = "left";
-      context.textBaseline = "bottom";
-      break;
-    case "bottom-right":
-      x = canvas.width - margin;
-      y = canvas.height - margin;
-      context.textAlign = "right";
-      context.textBaseline = "bottom";
-      break;
-    case "top-left":
-      x = margin;
-      y = margin;
-      context.textAlign = "left";
-      context.textBaseline = "top";
-      break;
-    case "top-right":
-      x = canvas.width - margin;
-      y = margin;
-      context.textAlign = "right";
-      context.textBaseline = "top";
-      break;
-    default:
-      break;
-  }
-
-  const bgPaddingX = fontSize * 0.5;
-  const bgPaddingY = fontSize * 0.35;
-  const rectWidth = textWidth + bgPaddingX * 2;
-  const rectHeight = textHeight + bgPaddingY * 2;
-
-  let rectLeft = x - bgPaddingX;
-  if (context.textAlign === "right") {
-    rectLeft = x - rectWidth + bgPaddingX;
-  }
-  let rectTop = y - rectHeight + bgPaddingY;
-  if (context.textBaseline === "top") {
-    rectTop = y - bgPaddingY;
-  }
-  rectLeft = clamp(rectLeft, 0, Math.max(0, canvas.width - rectWidth));
-  rectTop = clamp(rectTop, 0, Math.max(0, canvas.height - rectHeight));
-
+  context.font = `${Math.round(layout.fontSize)}px ${TIMESTAMP_FONTS}`;
+  context.textBaseline = "middle";
+  context.textAlign = "center";
   context.fillStyle = "rgba(0, 0, 0, 0.34)";
-  context.fillRect(rectLeft, rectTop, rectWidth, rectHeight);
+  context.fillRect(layout.rectLeft, layout.rectTop, layout.rectWidth, layout.rectHeight);
   context.fillStyle = "rgba(255, 250, 242, 0.95)";
-  context.fillText(text, x, y);
+  Array.from(layout.text).forEach((glyph, index) => {
+    context.fillText(
+      glyph,
+      layout.textStartX + index * layout.cellWidth + layout.cellWidth / 2,
+      layout.textStartY + layout.cellHeight / 2
+    );
+  });
   context.restore();
   return canvas;
 };

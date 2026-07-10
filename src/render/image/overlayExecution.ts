@@ -1,9 +1,7 @@
 import type { RenderSurfaceHandle } from "@/lib/renderSurfaceHandle";
+import { clamp } from "@/lib/math";
 import { applyNormalLayerBlendOnSurface } from "@/lib/gpu/passes/overlay/normalLayerBlend";
-import {
-  renderCaptionOverlayRaster,
-  type CaptionOverlayRenderParams,
-} from "@/lib/captionOverlay";
+import { renderCaptionOverlayRaster, type CaptionOverlayRenderParams } from "@/lib/captionOverlay";
 import {
   applyTimestampOverlay,
   applyTimestampOverlayToSurfaceIfSupported,
@@ -50,29 +48,67 @@ const ensureCanvasSize = (canvas: HTMLCanvasElement, width: number, height: numb
 };
 
 const createTimestampAdjustmentsFromOverlayNode = (
-  node: TimestampSemanticOverlayNode
+  node: TimestampSemanticOverlayNode,
+  layoutScale: number
 ): TimestampOverlayAdjustments => ({
   timestampEnabled: node.enabled,
   timestampOpacity: node.params.opacity,
   timestampPosition: node.params.position,
-  timestampSize: node.params.size,
+  timestampSize: clamp(node.params.size, 12, 48) * layoutScale,
 });
 
 const createCaptionRenderParams = (
-  node: CaptionSemanticOverlayNode
-): CaptionOverlayRenderParams => ({ ...node.params });
+  node: CaptionSemanticOverlayNode,
+  layoutScale: number
+): CaptionOverlayRenderParams => ({
+  ...node.params,
+  fontSize: clamp(node.params.fontSize, 12, 72) * layoutScale,
+  padding: clamp(node.params.padding, 0, 100) * layoutScale,
+});
 
 const createWatermarkRenderParams = (
-  node: WatermarkSemanticOverlayNode
-): WatermarkOverlayRenderParams => ({ ...node.params });
+  node: WatermarkSemanticOverlayNode,
+  layoutScale: number
+): WatermarkOverlayRenderParams => ({
+  ...node.params,
+  fontSize: clamp(node.params.fontSize, 12, 120) * layoutScale,
+});
+
+export const resolveImageOverlayLayoutScale = ({
+  height,
+  referenceHeight,
+  referenceWidth,
+  width,
+}: {
+  height: number;
+  referenceHeight?: number;
+  referenceWidth?: number;
+  width: number;
+}) => {
+  if (
+    !Number.isFinite(referenceWidth) ||
+    !Number.isFinite(referenceHeight) ||
+    !referenceWidth ||
+    !referenceHeight
+  ) {
+    return 1;
+  }
+  return Math.max(
+    0.01,
+    Math.min(width / Math.max(1, referenceWidth), height / Math.max(1, referenceHeight))
+  );
+};
 
 export const resolveImageOverlays = ({
   semanticOverlays,
+  layoutScale = 1,
   timestampText,
 }: {
   semanticOverlays: readonly SemanticOverlayNode[];
+  layoutScale?: number;
   timestampText?: string | null;
 }): ImageOverlayNode[] => {
+  const safeLayoutScale = Number.isFinite(layoutScale) ? clamp(layoutScale, 0.01, 64) : 1;
   const overlays: ImageOverlayNode[] = [];
   for (const node of semanticOverlays) {
     if (!node.enabled) {
@@ -82,20 +118,20 @@ export const resolveImageOverlays = ({
       case "timestamp":
         overlays.push({
           type: "timestamp",
-          adjustments: createTimestampAdjustmentsFromOverlayNode(node),
+          adjustments: createTimestampAdjustmentsFromOverlayNode(node, safeLayoutScale),
           text: timestampText,
         });
         break;
       case "caption":
         overlays.push({
           type: "caption",
-          params: createCaptionRenderParams(node),
+          params: createCaptionRenderParams(node, safeLayoutScale),
         });
         break;
       case "watermark":
         overlays.push({
           type: "watermark",
-          params: createWatermarkRenderParams(node),
+          params: createWatermarkRenderParams(node, safeLayoutScale),
         });
         break;
     }
@@ -103,10 +139,7 @@ export const resolveImageOverlays = ({
   return overlays;
 };
 
-const drawRasterToCanvas = (
-  target: HTMLCanvasElement,
-  raster: HTMLCanvasElement | null
-) => {
+const drawRasterToCanvas = (target: HTMLCanvasElement, raster: HTMLCanvasElement | null) => {
   if (!raster) return;
   const ctx = target.getContext("2d");
   if (ctx) ctx.drawImage(raster, 0, 0);

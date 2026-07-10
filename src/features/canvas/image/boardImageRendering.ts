@@ -7,7 +7,12 @@ import {
   type RenderQualityTier,
 } from "@/render/image";
 import { resolveAssetTimestampText } from "@/lib/timestamp";
-import type { Asset, CanvasImageElement, CanvasNodeTransform, CanvasPersistedImageElement } from "@/types";
+import type {
+  Asset,
+  CanvasImageElement,
+  CanvasNodeTransform,
+  CanvasPersistedImageElement,
+} from "@/types";
 
 type CanvasImageRenderStateSource = Pick<
   CanvasImageElement | CanvasPersistedImageElement,
@@ -26,10 +31,17 @@ export interface CanvasImageRenderTargetSize {
   height: number;
 }
 
+type CanvasImageOverlayReferenceSource = {
+  transform: Pick<CanvasNodeTransform, "width" | "height">;
+  worldHeight?: number;
+  worldWidth?: number;
+};
+
 export interface CanvasImageRenderContext {
   cacheKey: string;
   filmProfile: ImageRenderDocument["film"]["profile"] | undefined;
   imageDocument: ImageRenderDocument;
+  overlayReferenceSize: CanvasImageRenderTargetSize;
   renderVariant: BoardPreviewPriority;
   renderState: CanvasImageRenderStateV1;
   targetSize: CanvasImageRenderTargetSize;
@@ -54,7 +66,9 @@ const PREVIEW_SCALE_MULTIPLIER: Record<BoardPreviewPriority, number> = {
   interactive: 0.9,
   background: 1,
 };
-const PREVIEW_TARGET_BUCKETS = [256, 384, 512, 640, 768, 896, 1024, 1280, 1536, 1792, 2048, 2560, 3072] as const;
+const PREVIEW_TARGET_BUCKETS = [
+  256, 384, 512, 640, 768, 896, 1024, 1280, 1536, 1792, 2048, 2560, 3072,
+] as const;
 
 const clampPreviewDimension = (value: number) => Math.max(128, Math.round(value));
 const clampAspectPreservingDimension = (value: number) => Math.max(1, Math.round(value));
@@ -77,8 +91,12 @@ export const resolveCanvasImagePreviewTargetSize = (
   const scaleMultiplier = PREVIEW_SCALE_MULTIPLIER[priority];
   const displayedWidth = Math.max(1, element.transform.width * Math.max(viewportScale, 0.2));
   const displayedHeight = Math.max(1, element.transform.height * Math.max(viewportScale, 0.2));
-  const requestedWidth = clampPreviewDimension(displayedWidth * previewPixelRatio * scaleMultiplier);
-  const requestedHeight = clampPreviewDimension(displayedHeight * previewPixelRatio * scaleMultiplier);
+  const requestedWidth = clampPreviewDimension(
+    displayedWidth * previewPixelRatio * scaleMultiplier
+  );
+  const requestedHeight = clampPreviewDimension(
+    displayedHeight * previewPixelRatio * scaleMultiplier
+  );
   const scale =
     Math.max(requestedWidth, requestedHeight) > maxDimension
       ? maxDimension / Math.max(requestedWidth, requestedHeight)
@@ -109,6 +127,20 @@ export const resolveCanvasImagePreviewTargetSizeKey = (
 ) => {
   const targetSize = resolveCanvasImagePreviewTargetSize(element, priority, viewportScale);
   return `${targetSize.width}x${targetSize.height}`;
+};
+
+const resolveCanvasImageOverlayReferenceSize = (
+  element: CanvasImageOverlayReferenceSource
+): CanvasImageRenderTargetSize => ({
+  width: Math.max(1, element.worldWidth ?? element.transform.width),
+  height: Math.max(1, element.worldHeight ?? element.transform.height),
+});
+
+export const resolveCanvasImageOverlayReferenceSizeKey = (
+  element: CanvasImageOverlayReferenceSource
+) => {
+  const referenceSize = resolveCanvasImageOverlayReferenceSize(element);
+  return `${referenceSize.width}x${referenceSize.height}`;
 };
 
 export const createCanvasImageDocumentRenderContext = ({
@@ -167,15 +199,18 @@ export const createCanvasImageRenderContext = ({
     element,
   });
   const targetSize = resolveCanvasImagePreviewTargetSize(element, priority, viewportScale);
+  const overlayReferenceSize = resolveCanvasImageOverlayReferenceSize(element);
   const cacheKey = [
     `variant:${priority}`,
     documentContext.imageDocument.revisionKey,
     `${targetSize.width}x${targetSize.height}`,
+    `overlay-ref:${overlayReferenceSize.width}x${overlayReferenceSize.height}`,
   ].join("|");
 
   return {
     ...documentContext,
     cacheKey,
+    overlayReferenceSize,
     renderVariant: priority,
     targetSize,
   };
@@ -217,6 +252,7 @@ export const renderCanvasImageElementToCanvas = async ({
     request: {
       qualityTier: resolvePreviewQualityTier(priority),
       targetSize: context.targetSize,
+      overlayReferenceSize: context.overlayReferenceSize,
       timestampText: context.timestampText,
       signal,
       renderSlotId: renderSlotPrefix,

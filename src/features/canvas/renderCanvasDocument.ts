@@ -301,6 +301,10 @@ const drawImageElement = async ({
       document: renderContext.imageDocument,
       request: {
         qualityTier: "export",
+        overlayReferenceSize: {
+          width: Math.max(1, element.worldWidth),
+          height: Math.max(1, element.worldHeight),
+        },
         targetSize: {
           width: Math.max(1, Math.round(element.worldWidth * outputScale.x)),
           height: Math.max(1, Math.round(element.worldHeight * outputScale.y)),

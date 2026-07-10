@@ -11,24 +11,21 @@ import {
   type RenderBoundaryMetrics,
   type RenderSurfaceHandle,
 } from "@/lib/renderSurfaceHandle";
-import {
-  createEmptyAnalysisLayerInputs,
-  validateAnalysisInputs,
-} from "./analysisLayer";
+import { createEmptyAnalysisLayerInputs, validateAnalysisInputs } from "./analysisLayer";
 import { applyImageCarrierTransforms } from "./asciiEffect";
 import { applyImageEffects } from "./effectExecution";
-import { applyImageOverlays, resolveImageOverlays } from "./overlayExecution";
+import {
+  applyImageOverlays,
+  resolveImageOverlayLayoutScale,
+  resolveImageOverlays,
+} from "./overlayExecution";
 import { resolveRenderQualityTierConfig } from "./qualityTier";
 import { applyImageSignalDamage } from "./signalDamageExecution";
 import {
   assertSupportedImageRenderSnapshotPlan,
   createImageRenderSnapshotPlan,
 } from "./snapshotPlan";
-import type {
-  ImageRenderDocument,
-  ImageEffectPlacement,
-  ImageRenderRequest,
-} from "./types";
+import type { ImageRenderDocument, ImageEffectPlacement, ImageRenderRequest } from "./types";
 import { extractImageProcessState } from "./types";
 
 const _backend = new WebGPURenderBackend();
@@ -44,9 +41,7 @@ export interface ImageRenderTraceOperation {
   overlayCount?: number;
 }
 
-const computeTraceSignature = (
-  operation: Omit<ImageRenderTraceOperation, "signature">
-): string => {
+const computeTraceSignature = (operation: Omit<ImageRenderTraceOperation, "signature">): string => {
   switch (operation.kind) {
     case "low-level": {
       const stageId = operation.internalStageId ?? "unknown";
@@ -291,9 +286,7 @@ export const renderSingleImageToCanvas = async ({
       if (!analysisValidation.valid) {
         const tierConfig = resolveRequestTierConfig(request);
         if (tierConfig.strictErrors) {
-          throw new Error(
-            `Missing analysis inputs: ${analysisValidation.missing.join(", ")}`
-          );
+          throw new Error(`Missing analysis inputs: ${analysisValidation.missing.join(", ")}`);
         }
       }
 
@@ -351,6 +344,12 @@ export const renderSingleImageToCanvas = async ({
 
     const overlays = resolveImageOverlays({
       semanticOverlays: document.semanticOverlays,
+      layoutScale: resolveImageOverlayLayoutScale({
+        width: surface.width,
+        height: surface.height,
+        referenceWidth: request.overlayReferenceSize?.width,
+        referenceHeight: request.overlayReferenceSize?.height,
+      }),
       timestampText: request.timestampText,
     });
     if (overlays.length > 0) {
@@ -406,9 +405,8 @@ export const renderSingleImageToCanvas = async ({
   }
 
   if (import.meta.env.DEV) {
-    (
-      globalThis as { __filmlab_lastBoundaries?: RenderBoundaryMetrics }
-    ).__filmlab_lastBoundaries = cloneRenderBoundaryMetrics(debugBoundaries);
+    (globalThis as { __filmlab_lastBoundaries?: RenderBoundaryMetrics }).__filmlab_lastBoundaries =
+      cloneRenderBoundaryMetrics(debugBoundaries);
   }
 
   return {

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyTimestampOverlay,
+  createTimestampOverlayLayout,
   createTimestampOverlayGpuInput,
   clearTimestampOverlayRasterCache,
   getOrCreateTimestampOverlayRaster,
@@ -92,7 +93,7 @@ describe("timestampOverlay", () => {
 
     expect(first).toBe(second);
     expect(createdRasterCanvases).toHaveLength(1);
-    expect(createdRasterCanvases[0]?.context2d.fillText).toHaveBeenCalledTimes(1);
+    expect(createdRasterCanvases[0]?.context2d.fillText).toHaveBeenCalledTimes(10);
   });
 
   it("draws cached timestamp rasters onto each target canvas without rerasterizing text", async () => {
@@ -104,7 +105,7 @@ describe("timestampOverlay", () => {
     await applyTimestampOverlay(secondTarget, adjustments, "2026.04.08");
 
     expect(createdRasterCanvases).toHaveLength(1);
-    expect(createdRasterCanvases[0]?.context2d.fillText).toHaveBeenCalledTimes(1);
+    expect(createdRasterCanvases[0]?.context2d.fillText).toHaveBeenCalledTimes(10);
     expect(firstTarget.context2d.drawImage).toHaveBeenCalledTimes(1);
     expect(secondTarget.context2d.drawImage).toHaveBeenCalledTimes(1);
   });
@@ -181,10 +182,65 @@ describe("timestampOverlay", () => {
 
     expect(normalized).toHaveLength(64);
     expect(overlay?.charCount).toBe(64);
-    expect(createdRasterCanvases[0]?.context2d.fillText).toHaveBeenCalledWith(
-      normalized,
-      expect.any(Number),
-      expect.any(Number)
-    );
+    expect(
+      createdRasterCanvases[0]?.context2d.fillText.mock.calls.map(([glyph]) => glyph).join("")
+    ).toBe(normalized);
   });
+
+  it.each(["top-left", "top-right", "bottom-left", "bottom-right"] as const)(
+    "shares %s geometry between GPU and Canvas2D paths",
+    async (position) => {
+      const adjustments = {
+        ...createAdjustments(),
+        timestampPosition: position,
+        timestampSize: 96,
+      };
+      const timestampText = "2026.07.11";
+      const layout = createTimestampOverlayLayout({
+        width: 640,
+        height: 360,
+        adjustments,
+        timestampText,
+      });
+      const overlay = createTimestampOverlayGpuInput({
+        width: 640,
+        height: 360,
+        adjustments,
+        timestampText,
+      });
+
+      await getOrCreateTimestampOverlayRaster({
+        width: 640,
+        height: 360,
+        adjustments,
+        timestampText,
+      });
+
+      expect(layout).not.toBeNull();
+      expect(overlay).toMatchObject({
+        fontSizePx: 96,
+        rectLeft: layout?.rectLeft,
+        rectTop: layout?.rectTop,
+        rectWidth: layout?.rectWidth,
+        rectHeight: layout?.rectHeight,
+        textStartX: layout?.textStartX,
+        textStartY: layout?.textStartY,
+        cellWidth: layout?.cellWidth,
+        cellHeight: layout?.cellHeight,
+      });
+      const rasterContext = createdRasterCanvases.at(-1)?.context2d;
+      expect(rasterContext?.fillRect).toHaveBeenCalledWith(
+        layout?.rectLeft,
+        layout?.rectTop,
+        layout?.rectWidth,
+        layout?.rectHeight
+      );
+      expect(rasterContext?.fillText).toHaveBeenNthCalledWith(
+        1,
+        timestampText[0],
+        layout!.textStartX + layout!.cellWidth / 2,
+        layout!.textStartY + layout!.cellHeight / 2
+      );
+    }
+  );
 });

@@ -255,6 +255,10 @@ describe("renderCanvasWorkbench", () => {
     expect(vi.mocked(renderSingleImageToCanvas).mock.calls[0]?.[0]).toMatchObject({
       request: {
         qualityTier: "export",
+        overlayReferenceSize: {
+          width: 200,
+          height: 100,
+        },
         renderSlotId: "board-export",
         targetSize: {
           width: 400,

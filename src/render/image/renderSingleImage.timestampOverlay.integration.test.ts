@@ -11,8 +11,7 @@ const applyTimestampOverlayOnSurfaceMock = vi.fn();
 vi.mock("@/lib/gpu/orchestrator", () => ({
   renderDevelopBase: vi.fn(),
   renderFilmStage: vi.fn(),
-  renderFull: (...args: unknown[]) =>
-    Reflect.apply(renderImageToSurfaceMock, undefined, args),
+  renderFull: (...args: unknown[]) => Reflect.apply(renderImageToSurfaceMock, undefined, args),
 }));
 
 vi.mock("./asciiEffect", () => ({
@@ -87,8 +86,12 @@ const createStageResult = (sourceCanvas: HTMLCanvasElement) => ({
     width: sourceCanvas.width,
     height: sourceCanvas.height,
     sourceCanvas,
-    materializeToCanvas: vi.fn((targetCanvas?: HTMLCanvasElement | null) => targetCanvas ?? createCanvas()),
-    cloneToCanvas: vi.fn((targetCanvas?: HTMLCanvasElement | null) => targetCanvas ?? createCanvas()),
+    materializeToCanvas: vi.fn(
+      (targetCanvas?: HTMLCanvasElement | null) => targetCanvas ?? createCanvas()
+    ),
+    cloneToCanvas: vi.fn(
+      (targetCanvas?: HTMLCanvasElement | null) => targetCanvas ?? createCanvas()
+    ),
   },
 });
 
@@ -167,8 +170,9 @@ describe("renderSingleImageToCanvas timestamp overlay integration", () => {
     expect(applyTimestampOverlayOnSurfaceMock).toHaveBeenCalledTimes(1);
     expect(applyNormalLayerBlendOnSurfaceMock).toHaveBeenCalledTimes(1);
     expect(
-      createdCanvases.some((canvas) =>
-        canvas.context2d.fillText.mock.calls.some(([text]) => text === normalized)
+      createdCanvases.some(
+        (canvas) =>
+          canvas.context2d.fillText.mock.calls.map(([glyph]) => glyph).join("") === normalized
       )
     ).toBe(true);
   });
