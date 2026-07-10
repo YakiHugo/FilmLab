@@ -23,7 +23,7 @@
     },
     {
       "id": "computational-style-lab",
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": ["image-first-entry"],
       "passes": [
         "the active image exposes four to six visibly distinct computational style directions based on the canonical render families",
@@ -33,7 +33,7 @@
     },
     {
       "id": "social-composition-output",
-      "status": "pending",
+      "status": "in_progress",
       "blockedBy": ["computational-style-lab"],
       "passes": [
         "caption, timestamp, and watermark overlays are reachable and agree between preview and export",

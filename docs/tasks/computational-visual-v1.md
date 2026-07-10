@@ -56,6 +56,15 @@ Completed 2026-07-10.
 
 Present authored style directions as outcome cards with compact controls. Directions are presets over canonical render families, not new renderer branches. The selected image remains the target; multi-selection and scene-global styling are deferred.
 
+Completed 2026-07-11.
+
+- `src/features/canvas/CanvasStyleLabPanel.tsx` publishes five outcome-led directions—Mono Terminal, Color Glyph, Print Screen, Signal Loss, and Data Mosaic—with one shared strength control, Bypass, and direct access to the existing ASCII, Halftone, and Signal panels.
+- `src/features/canvas/styles/computationalStylePresets.ts` translates those directions into the canonical image `renderState`. Switching disables the previous computational carrier while preserving geometry, develop state, and semantic overlays; no parallel style document was added.
+- `src/lib/gpu/passes/carrier/ascii/toneNormalize.ts` now allocates the WGSL uniform buffer at its required 64-byte boundary. The prior 48-byte binding invalidated the complete analysis/tone/selection command buffer and left ASCII foregrounds empty.
+- `src/features/canvas/runtime/CanvasRuntimeProvider.tsx` reconciles assets that hydrate between render and effect subscription, closing the reload race that left persisted workbenches with a gray image placeholder.
+- Browser evidence: a real landscape image produced five visibly distinct outputs; strength changed from 64% to 100% with a corresponding visual change; Bypass restored the source; a clean dev-server restart and browser reload restored Data Mosaic at 100%; the focused ASCII, Halftone, and Signal controls were reachable from Style Lab.
+- Validation: `pnpm verify` passed (130 files, 653 tests, client and server builds); `pnpm dead-code` reported no new unused files or exports; focused formatting, ESLint, typecheck, and `git diff --check` passed. Independent review found one resolved-null persistence-error path, which was fixed and re-reviewed; final result: no issues found.
+
 ### Social Composition And Output
 
 Expose semantic overlays and output framing as the finishing step. Ratio changes update the canonical workbench dimensions and existing elements through explicit commands. Export continues through the current canvas document renderer.
