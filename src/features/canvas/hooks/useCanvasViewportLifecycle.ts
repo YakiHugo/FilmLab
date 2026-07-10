@@ -54,7 +54,7 @@ export function useCanvasViewportLifecycle({
   const viewportContainerRef = useRef<HTMLDivElement>(null);
   const [stageSize, setStageSize] = useState(createEmptyStageSize);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
-  const initializedWorkbenchIdsRef = useRef<Set<string>>(new Set());
+  const initializedSceneKeyRef = useRef<string | null>(null);
 
   const fitView = useMemo(
     () =>
@@ -121,11 +121,12 @@ export function useCanvasViewportLifecycle({
       return;
     }
 
-    if (initializedWorkbenchIdsRef.current.has(activeWorkbench.id)) {
+    const sceneKey = `${activeWorkbench.id}:${activeWorkbench.width}x${activeWorkbench.height}`;
+    if (initializedSceneKeyRef.current === sceneKey) {
       return;
     }
 
-    initializedWorkbenchIdsRef.current.add(activeWorkbench.id);
+    initializedSceneKeyRef.current = sceneKey;
     setZoom(fitView.zoom);
     setViewport(fitView.viewport);
   }, [activeWorkbench, fitView, setViewport, setZoom]);

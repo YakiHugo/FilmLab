@@ -1,4 +1,5 @@
 export const WORKSPACE_BACKGROUND_NODE_ID = "canvas-workspace-background";
+export const DOCUMENT_BACKGROUND_NODE_ID = "canvas-document-background";
 
 export const VIEWPORT_INSETS = {
   top: 88,

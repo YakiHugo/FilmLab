@@ -1,15 +1,16 @@
 import type {
-  CanvasWorkbench,
   CanvasGuideSettings,
   CanvasPresetId,
   CanvasSafeArea,
+  CanvasWorkbench,
+  CanvasWorkbenchSnapshot,
 } from "@/types";
 import {
   normalizeCanvasWorkbench as normalizeCanvasWorkbenchRuntime,
   normalizeCanvasWorkbenchWithCleanup as normalizeCanvasWorkbenchWithCleanupRuntime,
   type NormalizableCanvasWorkbench,
   type NormalizedCanvasWorkbenchResult,
-} from "./document";
+} from "./document/migration";
 
 export interface StudioCanvasPreset {
   id: CanvasPresetId;
@@ -73,6 +74,28 @@ const presetMap = new Map(STUDIO_CANVAS_PRESETS.map((preset) => [preset.id, pres
 export const getStudioCanvasPreset = (presetId: CanvasPresetId | undefined | null) =>
   (presetId ? presetMap.get(presetId) : undefined) ??
   STUDIO_CANVAS_PRESETS.find((preset) => preset.id === "social-portrait")!;
+
+export type CanvasOutputFormatBlockReason = "grouped-cover" | "sliced-workbench";
+
+export const getCanvasOutputFormatBlockReason = (
+  document: Pick<CanvasWorkbenchSnapshot, "nodes" | "preferredCoverAssetId" | "rootIds" | "slices">
+): CanvasOutputFormatBlockReason | null => {
+  if (document.slices.length > 0) {
+    return "sliced-workbench";
+  }
+
+  if (!document.preferredCoverAssetId) {
+    return null;
+  }
+
+  const matchingImageIds = Object.values(document.nodes)
+    .filter((node) => node.type === "image" && node.assetId === document.preferredCoverAssetId)
+    .map((node) => node.id);
+  return matchingImageIds.length > 0 &&
+    matchingImageIds.every((nodeId) => !document.rootIds.includes(nodeId))
+    ? "grouped-cover"
+    : null;
+};
 
 export const createDefaultCanvasWorkbenchFields = () => {
   const preset = getStudioCanvasPreset("social-portrait");
