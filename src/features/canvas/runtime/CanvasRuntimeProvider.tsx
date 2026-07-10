@@ -8,6 +8,7 @@ import type { CanvasWorkbench } from "@/types";
 import {
   createCanvasRuntimeAssetSnapshotById,
   createCanvasRuntimeScopeInput,
+  resolveCanvasRuntimeAssetChangeSet,
   resolveCanvasRuntimeAssetRenderFingerprint,
   type CanvasRuntimeAssetChangeSet,
 } from "./canvasPreviewRuntimeState";
@@ -46,87 +47,89 @@ export function CanvasRuntimeProvider({
     });
   }, [scope, workbench, workbenchId]);
 
-  useEffect(
-    () => {
-      const effectLifetime = effectLifetimeRef.current + 1;
-      effectLifetimeRef.current = effectLifetime;
-      const unsubscribeAssetChanges = on("assets:changed", (changedAssets) => {
-        const previousAssetSnapshotById = lastAssetSnapshotByIdRef.current;
-        const assetChangeSet: CanvasRuntimeAssetChangeSet = {
-          changedAssetIds: new Set<string>(),
-          nextAssetById: new Map(),
-          nextAssetRenderFingerprintById: new Map(),
-          nextAssetSnapshotById: previousAssetSnapshotById,
-          renderChangedAssetIds: new Set<string>(),
-        };
-
-        for (const [assetId, asset] of changedAssets.entries()) {
-          const previousAssetSnapshot = previousAssetSnapshotById.get(assetId);
-          if (!asset) {
-            previousAssetSnapshotById.delete(assetId);
-            assetChangeSet.changedAssetIds.add(assetId);
-            assetChangeSet.renderChangedAssetIds.add(assetId);
-            continue;
-          }
-
-          if (previousAssetSnapshot?.asset === asset) {
-            continue;
-          }
-
-          const nextRenderFingerprint = resolveCanvasRuntimeAssetRenderFingerprint(asset);
-          previousAssetSnapshotById.set(assetId, {
-            asset,
-            renderFingerprint: nextRenderFingerprint,
-          });
-          assetChangeSet.changedAssetIds.add(assetId);
-          assetChangeSet.nextAssetById.set(assetId, asset);
-          assetChangeSet.nextAssetRenderFingerprintById.set(
-            assetId,
-            nextRenderFingerprint
-          );
-          if (previousAssetSnapshot?.renderFingerprint !== nextRenderFingerprint) {
-            assetChangeSet.renderChangedAssetIds.add(assetId);
-          }
-        }
-
-        if (assetChangeSet.changedAssetIds.size === 0) {
-          return;
-        }
-        scope.syncRuntimeAssets(assetChangeSet);
-        scope.refreshPreviewsForChangedAssets(assetChangeSet.renderChangedAssetIds);
-      });
-      const unsubscribeCanvasStore = useCanvasStore.subscribe((state) => {
-        const currentInput = scope.getInput();
-        if (currentInput.viewportScale === state.zoom) {
-          return;
-        }
-        scope.updateInput({
-          ...currentInput,
-          viewportScale: state.zoom,
-        });
-      });
-      const unsubscribeReset = on("currentUser:reset", () => {
-        scope.reset();
-      });
-
-      return () => {
-        unsubscribeReset();
-        unsubscribeCanvasStore();
-        unsubscribeAssetChanges();
-        queueMicrotask(() => {
-          if (effectLifetimeRef.current !== effectLifetime) {
-            return;
-          }
-          scope.dispose();
-        });
+  useEffect(() => {
+    const effectLifetime = effectLifetimeRef.current + 1;
+    effectLifetimeRef.current = effectLifetime;
+    const unsubscribeAssetChanges = on("assets:changed", (changedAssets) => {
+      const previousAssetSnapshotById = lastAssetSnapshotByIdRef.current;
+      const assetChangeSet: CanvasRuntimeAssetChangeSet = {
+        changedAssetIds: new Set<string>(),
+        nextAssetById: new Map(),
+        nextAssetRenderFingerprintById: new Map(),
+        nextAssetSnapshotById: previousAssetSnapshotById,
+        renderChangedAssetIds: new Set<string>(),
       };
-    },
-    [scope]
-  );
 
-  return (
-    <CanvasRuntimeContext.Provider value={scope}>
-      {children}
-    </CanvasRuntimeContext.Provider>
-  );
+      for (const [assetId, asset] of changedAssets.entries()) {
+        const previousAssetSnapshot = previousAssetSnapshotById.get(assetId);
+        if (!asset) {
+          previousAssetSnapshotById.delete(assetId);
+          assetChangeSet.changedAssetIds.add(assetId);
+          assetChangeSet.renderChangedAssetIds.add(assetId);
+          continue;
+        }
+
+        if (previousAssetSnapshot?.asset === asset) {
+          continue;
+        }
+
+        const nextRenderFingerprint = resolveCanvasRuntimeAssetRenderFingerprint(asset);
+        previousAssetSnapshotById.set(assetId, {
+          asset,
+          renderFingerprint: nextRenderFingerprint,
+        });
+        assetChangeSet.changedAssetIds.add(assetId);
+        assetChangeSet.nextAssetById.set(assetId, asset);
+        assetChangeSet.nextAssetRenderFingerprintById.set(assetId, nextRenderFingerprint);
+        if (previousAssetSnapshot?.renderFingerprint !== nextRenderFingerprint) {
+          assetChangeSet.renderChangedAssetIds.add(assetId);
+        }
+      }
+
+      if (assetChangeSet.changedAssetIds.size === 0) {
+        return;
+      }
+      scope.syncRuntimeAssets(assetChangeSet);
+      scope.refreshPreviewsForChangedAssets(assetChangeSet.renderChangedAssetIds);
+    });
+
+    // Asset hydration can finish after this provider renders but before its
+    // event subscription is installed. Reconcile once after subscribing so
+    // that refreshes restore image previews instead of retaining an empty map.
+    const hydratedAssetChangeSet = resolveCanvasRuntimeAssetChangeSet(
+      lastAssetSnapshotByIdRef.current,
+      useAssetStore.getState().assets
+    );
+    lastAssetSnapshotByIdRef.current = hydratedAssetChangeSet.nextAssetSnapshotById;
+    scope.syncRuntimeAssets(hydratedAssetChangeSet);
+    scope.refreshPreviewsForChangedAssets(hydratedAssetChangeSet.renderChangedAssetIds);
+
+    const unsubscribeCanvasStore = useCanvasStore.subscribe((state) => {
+      const currentInput = scope.getInput();
+      if (currentInput.viewportScale === state.zoom) {
+        return;
+      }
+      scope.updateInput({
+        ...currentInput,
+        viewportScale: state.zoom,
+      });
+    });
+    const unsubscribeReset = on("currentUser:reset", () => {
+      scope.reset();
+    });
+
+    return () => {
+      unsubscribeReset();
+      unsubscribeCanvasStore();
+      unsubscribeAssetChanges();
+      queueMicrotask(() => {
+        if (effectLifetimeRef.current !== effectLifetime) {
+          return;
+        }
+        scope.dispose();
+      });
+    };
+  }, [scope]);
+
+  return <CanvasRuntimeContext.Provider value={scope}>{children}</CanvasRuntimeContext.Provider>;
 }
