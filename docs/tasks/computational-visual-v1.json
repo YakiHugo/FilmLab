@@ -23,7 +23,7 @@
     },
     {
       "id": "computational-style-lab",
-      "status": "pending",
+      "status": "in_progress",
       "blockedBy": ["image-first-entry"],
       "passes": [
         "the active image exposes four to six visibly distinct computational style directions based on the canonical render families",
