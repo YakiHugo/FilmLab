@@ -75,7 +75,47 @@ export const getStudioCanvasPreset = (presetId: CanvasPresetId | undefined | nul
   (presetId ? presetMap.get(presetId) : undefined) ??
   STUDIO_CANVAS_PRESETS.find((preset) => preset.id === "social-portrait")!;
 
-export type CanvasOutputFormatBlockReason = "grouped-cover" | "sliced-workbench";
+type CanvasOutputFormatBlockReason = "grouped-cover" | "sliced-workbench";
+
+export const resolveCanvasOutputImageId = (
+  document: Pick<CanvasWorkbenchSnapshot, "nodes" | "preferredCoverAssetId" | "rootIds">
+) => {
+  const preferredAssetId = document.preferredCoverAssetId;
+  if (preferredAssetId) {
+    const preferredImageId = document.rootIds.find((nodeId) => {
+      const node = document.nodes[nodeId];
+      return node?.type === "image" && node.assetId === preferredAssetId;
+    });
+    if (preferredImageId) {
+      return preferredImageId;
+    }
+  }
+
+  return document.rootIds.find((nodeId) => document.nodes[nodeId]?.type === "image") ?? null;
+};
+
+export const resolveCanvasSemanticOverlayImageId = (
+  document: Pick<CanvasWorkbenchSnapshot, "nodes" | "preferredCoverAssetId" | "rootIds">
+) => {
+  const preferredAssetId = document.preferredCoverAssetId;
+  if (preferredAssetId) {
+    const rootPreferredImageId = document.rootIds.find((nodeId) => {
+      const node = document.nodes[nodeId];
+      return node?.type === "image" && node.assetId === preferredAssetId;
+    });
+    if (rootPreferredImageId) {
+      return rootPreferredImageId;
+    }
+    const nestedPreferredImage = Object.values(document.nodes).find(
+      (node) => node.type === "image" && node.assetId === preferredAssetId
+    );
+    if (nestedPreferredImage) {
+      return nestedPreferredImage.id;
+    }
+  }
+
+  return resolveCanvasOutputImageId(document);
+};
 
 export const getCanvasOutputFormatBlockReason = (
   document: Pick<CanvasWorkbenchSnapshot, "nodes" | "preferredCoverAssetId" | "rootIds" | "slices">

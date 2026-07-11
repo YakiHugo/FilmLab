@@ -11,7 +11,11 @@ import type {
   CanvasWorkbenchSnapshot,
 } from "@/types";
 import { createId } from "@/utils";
-import { getCanvasOutputFormatBlockReason, getStudioCanvasPreset } from "../studioPresets";
+import {
+  getCanvasOutputFormatBlockReason,
+  getStudioCanvasPreset,
+  resolveCanvasOutputImageId,
+} from "../studioPresets";
 import { normalizeCanvasTextElement } from "../text/textStyle";
 import {
   collectWorldTransformById,
@@ -307,21 +311,6 @@ const OUTPUT_ASPECT_RATIO_BY_PRESET = {
   "social-story": "9:16",
 } as const;
 
-const findPrimaryOutputImageId = (snapshot: CanvasWorkbenchSnapshot) => {
-  const preferredAssetId = snapshot.preferredCoverAssetId;
-  if (preferredAssetId) {
-    const preferredImageId = snapshot.rootIds.find((nodeId) => {
-      const node = snapshot.nodes[nodeId];
-      return node?.type === "image" && node.assetId === preferredAssetId;
-    });
-    if (preferredImageId) {
-      return preferredImageId;
-    }
-  }
-
-  return snapshot.rootIds.find((nodeId) => snapshot.nodes[nodeId]?.type === "image") ?? null;
-};
-
 const applyOutputFormat = (
   snapshot: CanvasWorkbenchSnapshot,
   recorder: MutationRecorder,
@@ -334,7 +323,7 @@ const applyOutputFormat = (
   const preset = getStudioCanvasPreset(presetId);
   const previousWidth = snapshot.width;
   const previousHeight = snapshot.height;
-  const primaryImageId = findPrimaryOutputImageId(snapshot);
+  const primaryImageId = resolveCanvasOutputImageId(snapshot);
 
   applyDocumentMetaPatch(snapshot, recorder, {
     presetId,

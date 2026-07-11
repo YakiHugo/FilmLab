@@ -29,13 +29,18 @@ export const EMPTY_LOADED_CANVAS_WORKBENCH_STATE: CanvasLoadedWorkbenchReadModel
   slices: EMPTY_CANVAS_SLICES,
 };
 
-const hasHistoryEntries = (
-  history: CanvasHistoryState | null | undefined,
-  key: "undo" | "redo"
+const hasHistoryEntries = (history: CanvasHistoryState | null | undefined, key: "undo" | "redo") =>
+  Boolean(
+    history && (key === "undo" ? history.cursor > 0 : history.cursor < history.entries.length)
+  );
+
+export const selectIsCanvasWorkbenchMutationPending = (
+  state: Pick<CanvasStoreDataState, "workbenchInteraction">
 ) =>
   Boolean(
-    history &&
-      (key === "undo" ? history.cursor > 0 : history.cursor < history.entries.length)
+    state.workbenchInteraction?.active ||
+    (state.workbenchInteraction?.pendingCommits ?? 0) > 0 ||
+    (state.workbenchInteraction?.queuedMutations ?? 0) > 0
   );
 
 export const selectWorkbenchById = (
@@ -43,21 +48,19 @@ export const selectWorkbenchById = (
   workbenchId: string | null | undefined
 ) =>
   workbenchId && state.loadedWorkbenchId === workbenchId
-    ? state.workbenchDraft ?? state.workbench ?? null
+    ? (state.workbenchDraft ?? state.workbench ?? null)
     : null;
 
 export const selectCommittedWorkbenchById = (
   state: CanvasCommittedWorkbenchSelectorState,
   workbenchId: string | null | undefined
-) =>
-  workbenchId && state.loadedWorkbenchId === workbenchId ? state.workbench ?? null : null;
+) => (workbenchId && state.loadedWorkbenchId === workbenchId ? (state.workbench ?? null) : null);
 
 export const selectLoadedWorkbench = (state: CanvasWorkbenchSelectorState) =>
   selectWorkbenchById(state, state.loadedWorkbenchId);
 
-export const selectCommittedLoadedWorkbench = (
-  state: CanvasCommittedWorkbenchSelectorState
-) => selectCommittedWorkbenchById(state, state.loadedWorkbenchId);
+export const selectCommittedLoadedWorkbench = (state: CanvasCommittedWorkbenchSelectorState) =>
+  selectCommittedWorkbenchById(state, state.loadedWorkbenchId);
 
 export const selectResolvedLoadedWorkbenchId = (state: CanvasWorkbenchSelectorState) =>
   selectLoadedWorkbench(state)?.id ?? null;
@@ -107,12 +110,12 @@ export const selectCanUndoInWorkbench = (
   >,
   workbenchId: string | null | undefined
 ) =>
-    workbenchId === state.loadedWorkbenchId
-      ? !state.workbenchInteraction?.active &&
-        (state.workbenchInteraction?.pendingCommits ?? 0) === 0 &&
-        (state.workbenchInteraction?.queuedMutations ?? 0) === 0 &&
-        hasHistoryEntries(state.workbenchHistory, "undo")
-      : false;
+  workbenchId === state.loadedWorkbenchId
+    ? !state.workbenchInteraction?.active &&
+      (state.workbenchInteraction?.pendingCommits ?? 0) === 0 &&
+      (state.workbenchInteraction?.queuedMutations ?? 0) === 0 &&
+      hasHistoryEntries(state.workbenchHistory, "undo")
+    : false;
 
 export const selectCanRedoInWorkbench = (
   state: Pick<
@@ -121,12 +124,12 @@ export const selectCanRedoInWorkbench = (
   >,
   workbenchId: string | null | undefined
 ) =>
-    workbenchId === state.loadedWorkbenchId
-      ? !state.workbenchInteraction?.active &&
-        (state.workbenchInteraction?.pendingCommits ?? 0) === 0 &&
-        (state.workbenchInteraction?.queuedMutations ?? 0) === 0 &&
-        hasHistoryEntries(state.workbenchHistory, "redo")
-      : false;
+  workbenchId === state.loadedWorkbenchId
+    ? !state.workbenchInteraction?.active &&
+      (state.workbenchInteraction?.pendingCommits ?? 0) === 0 &&
+      (state.workbenchInteraction?.queuedMutations ?? 0) === 0 &&
+      hasHistoryEntries(state.workbenchHistory, "redo")
+    : false;
 
 export const selectCanUndoOnLoadedWorkbench = (state: CanvasHistorySelectorState) =>
   selectCommittedLoadedWorkbench(state)

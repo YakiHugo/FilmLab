@@ -5,8 +5,10 @@ import { useCanvasStore, type CanvasFloatingPanel as PanelType } from "@/stores/
 import { CanvasAsciiEditPanel } from "./CanvasAsciiEditPanel";
 import { CanvasCaptionEditPanel } from "./CanvasCaptionEditPanel";
 import { CanvasHalftoneEditPanel } from "./CanvasHalftoneEditPanel";
+import { CanvasOutputPanel } from "./CanvasOutputPanel";
 import { CanvasSignalDamageEditPanel } from "./CanvasSignalDamageEditPanel";
 import { CanvasStyleLabPanel } from "./CanvasStyleLabPanel";
+import { CanvasTimestampEditPanel } from "./CanvasTimestampEditPanel";
 import { CanvasWatermarkEditPanel } from "./CanvasWatermarkEditPanel";
 import { CanvasAssetPicker } from "./CanvasAssetPicker";
 import { CanvasEditPanel } from "./CanvasEditPanel";
@@ -23,13 +25,15 @@ const PANEL_TITLES: Record<NonNullable<PanelType>, string> = {
   ascii: "ASCII",
   halftone: "Halftone",
   "signal-damage": "Signal Damage",
+  output: "Output",
   caption: "Caption",
+  timestamp: "Timestamp",
   watermark: "Watermark",
   layers: "Layers",
   library: "Library",
 };
 
-export function CanvasFloatingPanel() {
+export function CanvasFloatingPanel({ onExport }: { onExport: () => void }) {
   const activePanel = useCanvasStore((s) => s.activePanel);
   const setActivePanel = useCanvasStore((s) => s.setActivePanel);
   const isEditDock =
@@ -38,7 +42,9 @@ export function CanvasFloatingPanel() {
     activePanel === "ascii" ||
     activePanel === "halftone" ||
     activePanel === "signal-damage" ||
+    activePanel === "output" ||
     activePanel === "caption" ||
+    activePanel === "timestamp" ||
     activePanel === "watermark";
 
   return (
@@ -75,7 +81,7 @@ export function CanvasFloatingPanel() {
               isEditDock ? "px-6 pt-1" : "px-6 pt-5"
             )}
           >
-            <PanelContent panel={activePanel} />
+            <PanelContent panel={activePanel} onExport={onExport} />
           </div>
         </motion.div>
       ) : null}
@@ -83,7 +89,13 @@ export function CanvasFloatingPanel() {
   );
 }
 
-function PanelContent({ panel }: { panel: NonNullable<PanelType> }) {
+function PanelContent({
+  panel,
+  onExport,
+}: {
+  panel: NonNullable<PanelType>;
+  onExport: () => void;
+}) {
   switch (panel) {
     case "edit":
       return <CanvasEditPanel />;
@@ -95,8 +107,12 @@ function PanelContent({ panel }: { panel: NonNullable<PanelType> }) {
       return <CanvasHalftoneEditPanel />;
     case "signal-damage":
       return <CanvasSignalDamageEditPanel />;
+    case "output":
+      return <CanvasOutputPanel onExport={onExport} />;
     case "caption":
       return <CanvasCaptionEditPanel />;
+    case "timestamp":
+      return <CanvasTimestampEditPanel />;
     case "watermark":
       return <CanvasWatermarkEditPanel />;
     case "layers":

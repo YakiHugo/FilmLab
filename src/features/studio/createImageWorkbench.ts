@@ -53,7 +53,14 @@ export const createImageWorkbench = async (asset: Asset) => {
   });
 
   try {
-    await canvasStore.upsertElementInWorkbench(workbench.id, imageNode);
+    const inserted = await canvasStore.executeCommandInWorkbench(
+      workbench.id,
+      { type: "INSERT_NODES", nodes: [imageNode] },
+      { trackHistory: false }
+    );
+    if (!inserted?.nodes[imageNode.id]) {
+      throw new Error("图片未能写入作品，请重试。");
+    }
     const committed = await canvasStore.patchWorkbench(
       workbench.id,
       { preferredCoverAssetId: asset.id },
@@ -61,6 +68,14 @@ export const createImageWorkbench = async (asset: Asset) => {
     );
     if (!committed?.nodes[imageNode.id]) {
       throw new Error("图片未能写入作品，请重试。");
+    }
+    const framed = await canvasStore.executeCommandInWorkbench(
+      workbench.id,
+      { type: "APPLY_OUTPUT_FORMAT", presetId: "social-portrait" },
+      { trackHistory: false }
+    );
+    if (!framed?.nodes[imageNode.id]) {
+      throw new Error("图片未能适配输出画幅，请重试。");
     }
   } catch (cause) {
     const removed = await useCanvasStore.getState().deleteWorkbench(workbench.id);

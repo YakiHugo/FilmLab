@@ -1,6 +1,7 @@
 import { CirclePlus, Download, Redo2, Undo2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { selectIsCanvasWorkbenchMutationPending } from "./store/canvasStoreSelectors";
 import { useCanvasHistory } from "./hooks/useCanvasHistory";
 import { useCanvasWorkbenchActions } from "./hooks/useCanvasWorkbenchActions";
 
@@ -9,9 +10,14 @@ interface CanvasAppBarProps {
 }
 
 export function CanvasAppBar({ onExport }: CanvasAppBarProps) {
-  const { loadedWorkbenchId, loadedWorkbenchMeta, createWorkbenchAndNavigate, renameLoadedWorkbench } =
-    useCanvasWorkbenchActions();
+  const {
+    loadedWorkbenchId,
+    loadedWorkbenchMeta,
+    createWorkbenchAndNavigate,
+    renameLoadedWorkbench,
+  } = useCanvasWorkbenchActions();
   const zoom = useCanvasStore((state) => state.zoom);
+  const isMutationPending = useCanvasStore(selectIsCanvasWorkbenchMutationPending);
   const { canUndo, canRedo, undo, redo } = useCanvasHistory();
 
   return (
@@ -67,7 +73,8 @@ export function CanvasAppBar({ onExport }: CanvasAppBarProps) {
         <button
           type="button"
           onClick={onExport}
-          className="flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs text-zinc-300 transition hover:bg-white/10 hover:text-zinc-100"
+          disabled={isMutationPending}
+          className="flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs text-zinc-300 transition hover:bg-white/10 hover:text-zinc-100 disabled:cursor-wait disabled:opacity-40 disabled:hover:bg-white/[0.06]"
         >
           <Download className="h-3.5 w-3.5" />
           {`\u5bfc\u51fa`}
