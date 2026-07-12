@@ -312,6 +312,7 @@ export const renderSingleImageToCanvas = async ({
           surface,
           signalDamage: snapshotPlan.signalDamage,
           document,
+          compositionReferenceSize: request.compositionReferenceSize,
           stageReferenceCanvas: signalDamageReferenceCanvas ?? undefined,
         });
         appendTraceOperation(debugStages, "style", {
@@ -347,8 +348,8 @@ export const renderSingleImageToCanvas = async ({
       layoutScale: resolveImageOverlayLayoutScale({
         width: surface.width,
         height: surface.height,
-        referenceWidth: request.overlayReferenceSize?.width,
-        referenceHeight: request.overlayReferenceSize?.height,
+        referenceWidth: request.compositionReferenceSize?.width,
+        referenceHeight: request.compositionReferenceSize?.height,
       }),
       timestampText: request.timestampText,
     });

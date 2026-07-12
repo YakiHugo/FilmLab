@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultCanvasImageRenderState, renderSingleImageToCanvas } from "@/render/image";
 import type { Asset, CanvasWorkbench } from "@/types";
 import { normalizeCanvasWorkbench } from "./studioPresets";
-import { cropRenderedCanvasSlice, renderCanvasWorkbenchToCanvas } from "./renderCanvasDocument";
+import { renderCanvasWorkbenchToCanvas } from "./renderCanvasDocument";
 
 vi.mock("@/render/image", async () => {
   const actual = await vi.importActual<typeof import("@/render/image")>("@/render/image");
@@ -255,7 +255,7 @@ describe("renderCanvasWorkbench", () => {
     expect(vi.mocked(renderSingleImageToCanvas).mock.calls[0]?.[0]).toMatchObject({
       request: {
         qualityTier: "export",
-        overlayReferenceSize: {
+        compositionReferenceSize: {
           width: 200,
           height: 100,
         },
@@ -273,6 +273,23 @@ describe("renderCanvasWorkbench", () => {
       expect(canvas.width).toBe(0);
       expect(canvas.height).toBe(0);
     });
+  });
+
+  it("fails instead of silently exporting a visible image without its asset", async () => {
+    vi.stubGlobal("document", {
+      createElement: vi.fn(() => createCanvas()),
+    });
+
+    await expect(
+      renderCanvasWorkbenchToCanvas({
+        assets: [],
+        canvas: createCanvas() as unknown as HTMLCanvasElement,
+        document: createCanvasWorkbench(),
+        height: 800,
+        pixelRatio: 1,
+        width: 1000,
+      })
+    ).rejects.toThrow("Canvas export is missing image asset asset-1.");
   });
 
   it("renders explicit text line breaks without width-based wrapping", async () => {
@@ -404,44 +421,6 @@ describe("renderCanvasWorkbench", () => {
     expect(gradient.addColorStop).toHaveBeenNthCalledWith(1, 0, "#ff0066");
     expect(gradient.addColorStop).toHaveBeenNthCalledWith(2, 1, "#1e90ff");
     expect(mainContext.fillRect).toHaveBeenCalledWith(0, 0, 240, 160);
-  });
-
-  it("crops rendered slice regions using the 工作台 export scale", () => {
-    const sliceContext = createContext();
-    const sliceCanvas = createCanvas(sliceContext);
-    vi.stubGlobal("document", {
-      createElement: vi.fn(() => sliceCanvas),
-    });
-
-    const boardCanvas = createCanvas();
-    boardCanvas.width = 1000;
-    boardCanvas.height = 800;
-
-    const result = cropRenderedCanvasSlice({
-      canvas: boardCanvas as unknown as HTMLCanvasElement,
-      document: createCanvasWorkbench(),
-      pixelRatio: 2,
-      slice: {
-        x: 50,
-        y: 40,
-        width: 100,
-        height: 80,
-      },
-    });
-
-    expect(result.width).toBe(200);
-    expect(result.height).toBe(160);
-    expect(sliceContext.drawImage).toHaveBeenCalledWith(
-      boardCanvas,
-      50,
-      40,
-      100,
-      80,
-      0,
-      0,
-      200,
-      160
-    );
   });
 
   it("keeps line and arrow export styling aligned with the stage renderer", async () => {

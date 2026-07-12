@@ -9,6 +9,7 @@ import { resolveDensitySortedCharset } from "./asciiDensityMeasure";
 import { type AnalysisLayerInputs, resolveAnalysisSourceCanvas } from "./analysisLayer";
 import { applyMaskedStageOperationToSurfaceIfSupported } from "./stageMaskComposite";
 import { applyImageHalftoneCarrierTransform } from "./halftoneEffect";
+import { resolveImageCompositionScale } from "./compositionSpace";
 import type { RenderQualityTier } from "./qualityTier";
 import type {
   CarrierTransformNode,
@@ -28,8 +29,7 @@ const CHARSET_PRESET_CANDIDATES: Record<
 > = {
   // ~50 pure-ASCII chars — density sorting picks the right order per font.
   // Covers the full tonal range from near-solid (@MW) to near-empty (.'` ).
-  standard:
-    "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. ",
+  standard: "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. ",
   blocks: "\u2588\u2593\u2592\u2591 ",
   minimal: "@#*+=-:. ",
   detailed:
@@ -98,9 +98,7 @@ const normalizeHexColor = (value: string | null) => {
   return "#000000";
 };
 
-const parseHexColorToUnit = (
-  value: string | null
-): readonly [number, number, number] => {
+const parseHexColorToUnit = (value: string | null): readonly [number, number, number] => {
   const normalized = normalizeHexColor(value);
   return [
     parseInt(normalized.slice(1, 3), 16) / 255,
@@ -109,10 +107,8 @@ const parseHexColorToUnit = (
   ];
 };
 
-const resolveEffectiveCellSize = (
-  cellSize: number,
-  quality: RenderQualityTier
-) => (quality === "interactive" ? clamp(Math.round(cellSize * 1.2), cellSize, 28) : cellSize);
+const resolveEffectiveCellSize = (cellSize: number, quality: RenderQualityTier) =>
+  quality === "interactive" ? clamp(Math.round(cellSize * 1.2), cellSize, 28) : cellSize;
 
 const resolveBlurRadiusPx = (backgroundBlur: number, shortEdge: number) => {
   // backgroundBlur=8 (default) at 1080p → ≈5 px — soft but recognisable.
@@ -121,29 +117,45 @@ const resolveBlurRadiusPx = (backgroundBlur: number, shortEdge: number) => {
 };
 
 const resolveFeatureGridLayout = ({
+  compositionReferenceSize,
   normalized,
   quality,
   targetSize,
 }: {
+  compositionReferenceSize?: ImageRenderTargetSize;
   normalized: NormalizedImageAsciiEffectParams;
   quality: RenderQualityTier;
   targetSize: ImageRenderTargetSize;
 }) => {
   const effectiveCellSize = resolveEffectiveCellSize(normalized.cellSize, quality);
-  const cellHeight = Math.max(6, Math.round(effectiveCellSize));
-  const cellWidth = Math.max(
+  const referenceCellHeight = Math.max(6, Math.round(effectiveCellSize));
+  const referenceCellWidth = Math.max(
     4,
     Math.round(
-      cellHeight *
+      referenceCellHeight *
         (normalized.renderMode === "dot" ? DOT_WIDTH_RATIO : GLYPH_WIDTH_RATIO) *
         normalized.characterSpacing
     )
   );
   const width = Math.max(1, Math.round(targetSize.width));
   const height = Math.max(1, Math.round(targetSize.height));
-  const columns = Math.max(1, Math.ceil(width / cellWidth));
-  const rows = Math.max(1, Math.ceil(height / cellHeight));
-  return { width, height, cellWidth, cellHeight, columns, rows };
+  const referenceWidth = Math.max(1, compositionReferenceSize?.width ?? width);
+  const referenceHeight = Math.max(1, compositionReferenceSize?.height ?? height);
+  const columns = Math.max(1, Math.ceil(referenceWidth / referenceCellWidth));
+  const rows = Math.max(1, Math.ceil(referenceHeight / referenceCellHeight));
+  const scale = resolveImageCompositionScale({
+    referenceSize: compositionReferenceSize,
+    targetSize,
+  });
+  return {
+    width,
+    height,
+    cellWidth: width / columns,
+    cellHeight: height / rows,
+    columns,
+    rows,
+    gridOverlayWidth: scale.uniform,
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -209,9 +221,8 @@ const ASCII_FOREGROUND_BLEND_MODE_MAP: Record<string, EditorLayerBlendMode> = {
   "soft-light": "softLight",
 };
 
-const resolveAsciiForegroundBlendMode = (
-  mode: GlobalCompositeOperation
-): EditorLayerBlendMode => ASCII_FOREGROUND_BLEND_MODE_MAP[mode] ?? "normal";
+const resolveAsciiForegroundBlendMode = (mode: GlobalCompositeOperation): EditorLayerBlendMode =>
+  ASCII_FOREGROUND_BLEND_MODE_MAP[mode] ?? "normal";
 
 // ---------------------------------------------------------------------------
 // GPU adapter input packing
@@ -249,6 +260,7 @@ const buildAsciiSurfaceParams = (
     backgroundColor: backgroundRgb,
     duotoneShadow: backgroundRgb,
     gridOverlay: normalized.gridOverlay,
+    gridOverlayWidth: layout.gridOverlayWidth,
     // Matches Canvas2D overlayAlpha = 0.08 * foregroundOpacity.
     gridOverlayAlpha: 0.08 * normalized.foregroundOpacity,
     brightness: normalized.brightness,
@@ -267,19 +279,26 @@ const buildAsciiSurfaceParams = (
 
 export const applyImageAsciiCarrierTransform = async ({
   baseSurface,
+  compositionReferenceSize,
   sourceCanvas,
   transform,
   quality,
   targetSize,
 }: {
   baseSurface: RenderSurfaceHandle;
+  compositionReferenceSize?: ImageRenderTargetSize;
   sourceCanvas: HTMLCanvasElement;
   transform: ImageAsciiCarrierTransformNode;
   quality: RenderQualityTier;
   targetSize: ImageRenderTargetSize;
 }): Promise<RenderSurfaceHandle | null> => {
   const normalized = normalizeImageAsciiEffectParams(transform.params);
-  const layout = resolveFeatureGridLayout({ normalized, quality, targetSize });
+  const layout = resolveFeatureGridLayout({
+    compositionReferenceSize,
+    normalized,
+    quality,
+    targetSize,
+  });
   const params = buildAsciiSurfaceParams(sourceCanvas, normalized, layout);
   return applyAsciiCarrierOnSurface({ surface: baseSurface, params });
 };
@@ -290,12 +309,14 @@ export const applyImageAsciiCarrierTransform = async ({
 
 const applyCarrierTransform = async ({
   surface,
+  compositionReferenceSize,
   transform,
   sourceCanvas,
   quality,
   targetSize,
 }: {
   surface: RenderSurfaceHandle;
+  compositionReferenceSize?: ImageRenderTargetSize;
   transform: CarrierTransformNode;
   sourceCanvas: HTMLCanvasElement;
   quality: RenderQualityTier;
@@ -305,6 +326,7 @@ const applyCarrierTransform = async ({
     case "ascii":
       return applyImageAsciiCarrierTransform({
         baseSurface: surface,
+        compositionReferenceSize,
         sourceCanvas,
         transform,
         quality,
@@ -338,12 +360,9 @@ export const applyImageCarrierTransforms = async ({
   let currentSurface = surface;
 
   for (const transform of carrierTransforms) {
-    const sourceCanvas = resolveAnalysisSourceCanvas(
-      transform.analysisSource,
-      analysisInputs
-    );
+    const sourceCanvas = resolveAnalysisSourceCanvas(transform.analysisSource, analysisInputs);
     const maskDefinition = transform.maskId
-      ? document.masks.byId[transform.maskId] ?? null
+      ? (document.masks.byId[transform.maskId] ?? null)
       : null;
     const fallbackReferenceCanvas = analysisInputs.stageSnapshots.style;
     const nextSurface = await applyMaskedStageOperationToSurfaceIfSupported({
@@ -358,6 +377,7 @@ export const applyImageCarrierTransforms = async ({
           sourceCanvas,
           quality: request.qualityTier,
           targetSize: request.targetSize,
+          compositionReferenceSize: request.compositionReferenceSize,
         }),
     });
     if (!nextSurface) {

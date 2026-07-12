@@ -115,11 +115,7 @@ export function CanvasPage() {
         />
         <CanvasAppBar onExport={handleOpenExport} />
         <CanvasToolRail />
-        <CanvasExportDialog
-          open={exportOpen}
-          onOpenChange={setExportOpen}
-          stage={stageRef.current}
-        />
+        <CanvasExportDialog open={exportOpen} onOpenChange={setExportOpen} />
       </div>
     </CanvasWorkbenchTransitionGuardProvider>
   );

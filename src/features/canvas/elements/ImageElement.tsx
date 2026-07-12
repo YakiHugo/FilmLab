@@ -9,7 +9,7 @@ import {
 } from "@/features/canvas/runtime/canvasRuntimeHooks";
 import { useCanvasStore } from "@/stores/canvasStore";
 import {
-  resolveCanvasImageOverlayReferenceSizeKey,
+  resolveCanvasImageCompositionReferenceSizeKey,
   resolveCanvasImagePreviewTargetSizeKey,
 } from "../image/boardImageRendering";
 import { areEqual } from "../document/shared";
@@ -92,7 +92,7 @@ export const ImageElement = memo(function ImageElement({
         element.assetId,
         assetRenderFingerprint ?? "missing",
         resolveCanvasImagePreviewTargetSizeKey(element, previewPriority, zoom),
-        `overlay-ref:${resolveCanvasImageOverlayReferenceSizeKey(element)}`,
+        `composition-ref:${resolveCanvasImageCompositionReferenceSizeKey(element)}`,
         elementRenderFingerprint,
         Number(zoom.toFixed(3)).toString(),
       ].join("|"),

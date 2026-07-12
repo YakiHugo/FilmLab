@@ -27,7 +27,7 @@ const WORKGROUP_DIM = 8;
 export const ANALYSIS_UNIFORMS_BYTE_SIZE = 32;
 
 /**
- * Pack `AnalysisUniforms` (imageSize, gridSize, cellSize, _pad). Returns the
+ * Pack `AnalysisUniforms` (imageSize, gridSize, padding). Returns the
  * underlying ArrayBuffer ready for `device.queue.writeBuffer`.
  */
 export function packAnalysisUniforms(values: {
@@ -35,8 +35,6 @@ export function packAnalysisUniforms(values: {
   imageHeight: number;
   gridColumns: number;
   gridRows: number;
-  cellWidth: number;
-  cellHeight: number;
 }): ArrayBuffer {
   const buffer = new ArrayBuffer(ANALYSIS_UNIFORMS_BYTE_SIZE);
   const u = new Uint32Array(buffer);
@@ -44,8 +42,6 @@ export function packAnalysisUniforms(values: {
   u[1] = values.imageHeight;
   u[2] = values.gridColumns;
   u[3] = values.gridRows;
-  u[4] = values.cellWidth;
-  u[5] = values.cellHeight;
   return buffer;
 }
 

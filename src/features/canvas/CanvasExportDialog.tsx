@@ -1,5 +1,5 @@
-import type Konva from "konva";
-import { useEffect, useState } from "react";
+import { Check, Download, FileImage, LoaderCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -8,175 +8,270 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { useCanvasExport, type CanvasExportFormat } from "./hooks/useCanvasExport";
+import { useCanvasExport, type CanvasArtifactFormat } from "./hooks/useCanvasExport";
+import { selectLoadedWorkbench } from "./store/canvasStoreSelectors";
 
 interface CanvasExportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  stage: Konva.Stage | null;
 }
 
-export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDialogProps) {
-  const [format, setFormat] = useState<CanvasExportFormat>("png");
-  const [width, setWidth] = useState(1080);
-  const [height, setHeight] = useState(1350);
+const FORMAT_OPTIONS: Array<{
+  description: string;
+  label: string;
+  value: CanvasArtifactFormat;
+}> = [
+  { value: "png", label: "PNG", description: "Lossless / sharp type" },
+  { value: "jpeg", label: "JPEG", description: "Compact / share ready" },
+];
+
+const SCALE_OPTIONS = [1, 2] as const;
+
+export function CanvasExportDialog({ open, onOpenChange }: CanvasExportDialogProps) {
+  const workbench = useCanvasStore(selectLoadedWorkbench);
+  const { downloadArtifact, renderArtifactPreview } = useCanvasExport();
+  const [format, setFormat] = useState<CanvasArtifactFormat>("png");
   const [quality, setQuality] = useState(0.92);
-  const [pixelRatio, setPixelRatio] = useState(2);
-  const [mode, setMode] = useState<"whole" | "slices">("whole");
+  const [pixelRatio, setPixelRatio] = useState<1 | 2>(1);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState(0);
-  const activeWorkbenchId = useCanvasStore((state) => state.loadedWorkbenchId);
-  const activeWorkbenchSlices = useCanvasStore((state) => {
-    const activeWorkbench = state.workbenchDraft ?? state.workbench;
-    return activeWorkbench?.slices ?? [];
-  });
-  const { download, downloadSlices, exportDataUrl } = useCanvasExport();
+  const previewRequestRef = useRef(0);
 
   useEffect(() => {
-    if (!open || !stage) {
+    if (!open) {
       return;
     }
-    setWidth(Math.round(stage.width()));
-    setHeight(Math.round(stage.height()));
-  }, [open, stage]);
+    setDownloadError(null);
+    setProgress(0);
+  }, [open]);
 
   useEffect(() => {
-    if (activeWorkbenchSlices.length === 0) {
-      setMode("whole");
+    if (!open || !workbench) {
+      setPreviewUrl(null);
+      setPreviewLoading(false);
+      setPreviewError(workbench ? null : "没有可预览的作品。");
+      return;
     }
-  }, [activeWorkbenchSlices.length]);
 
-  const previewUrl =
-    open && mode === "whole"
-      ? exportDataUrl(stage, {
-          format,
-          width,
-          height,
-          quality,
-          pixelRatio,
+    const requestId = ++previewRequestRef.current;
+    let cancelled = false;
+    setPreviewLoading(true);
+    setPreviewError(null);
+
+    const timeoutId = window.setTimeout(() => {
+      void renderArtifactPreview({ format, quality })
+        .then((result) => {
+          if (!cancelled && previewRequestRef.current === requestId) {
+            setPreviewUrl(result.dataUrl);
+          }
         })
-      : null;
+        .catch((cause) => {
+          if (!cancelled && previewRequestRef.current === requestId) {
+            setPreviewUrl(null);
+            setPreviewError(cause instanceof Error ? cause.message : "导出预览生成失败，请重试。");
+          }
+        })
+        .finally(() => {
+          if (!cancelled && previewRequestRef.current === requestId) {
+            setPreviewLoading(false);
+          }
+        });
+    }, 120);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [format, open, quality, renderArtifactPreview, workbench]);
+
+  const outputWidth = (workbench?.width ?? 0) * pixelRatio;
+  const outputHeight = (workbench?.height ?? 0) * pixelRatio;
+  const error = downloadError ?? previewError;
+
+  const handleDownload = async () => {
+    if (!workbench || exporting) {
+      return;
+    }
+    setExporting(true);
+    setDownloadError(null);
+    setProgress(0);
+    try {
+      await downloadArtifact({
+        fileName: workbench.name,
+        format,
+        pixelRatio,
+        quality,
+        onProgress: setProgress,
+      });
+      onOpenChange(false);
+    } catch (cause) {
+      setDownloadError(cause instanceof Error ? cause.message : "作品导出失败，请重试。");
+    } finally {
+      setExporting(false);
+      setProgress(0);
+    }
+  };
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="max-w-lg">
-        <AlertDialogTitle>{`\u5bfc\u51fa\u5de5\u4f5c\u53f0`}</AlertDialogTitle>
-        <AlertDialogDescription>
-          {`\u5148\u786e\u8ba4\u683c\u5f0f\u3001\u5c3a\u5bf8\u548c\u8d28\u91cf\uff0c\u518d\u5bfc\u51fa\u5f53\u524d\u5de5\u4f5c\u53f0\u6216\u5b83\u7684\u5207\u7247\u5e8f\u5217\u3002`}
-        </AlertDialogDescription>
-
-        <div className="mt-4 space-y-3">
-          <div className="grid grid-cols-2 gap-2">
-            <Select value={mode} onValueChange={(value) => setMode(value as "whole" | "slices")}>
-              <SelectTrigger>
-                <SelectValue placeholder={"\u5bfc\u51fa\u6a21\u5f0f"} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="whole">{`\u6574\u4e2a\u5de5\u4f5c\u53f0`}</SelectItem>
-                <SelectItem value="slices" disabled={activeWorkbenchSlices.length === 0}>
-                  {`\u5207\u7247\u5e8f\u5217`} ({activeWorkbenchSlices.length})
-                </SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select value={format} onValueChange={(value) => setFormat(value as CanvasExportFormat)}>
-              <SelectTrigger>
-                <SelectValue placeholder={"\u683c\u5f0f"} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="png">PNG</SelectItem>
-                <SelectItem value="jpeg">JPEG</SelectItem>
-                <SelectItem value="tiff">TIFF</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select value={String(pixelRatio)} onValueChange={(value) => setPixelRatio(Number(value))}>
-              <SelectTrigger>
-                <SelectValue placeholder={"\u50cf\u7d20\u500d\u7387"} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1">1x</SelectItem>
-                <SelectItem value="2">2x</SelectItem>
-                <SelectItem value="3">3x</SelectItem>
-              </SelectContent>
-            </Select>
+    <AlertDialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!exporting) {
+          onOpenChange(nextOpen);
+        }
+      }}
+    >
+      <AlertDialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto border-white/10 bg-[#0b0b0c] text-zinc-100">
+        <div className="flex items-start justify-between gap-6">
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-lime-300/70">
+              Final artifact / canonical render
+            </p>
+            <AlertDialogTitle className="mt-2 text-2xl tracking-[-0.03em]">
+              Render artifact
+            </AlertDialogTitle>
+            <AlertDialogDescription className="mt-2 max-w-lg text-sm leading-6 text-zinc-400">
+              预览与下载使用同一条作品渲染链。1x / 2x 只改变像素密度，不改变裁切和叠层构图。
+            </AlertDialogDescription>
           </div>
-
-          {mode === "whole" ? (
-            <div className="grid grid-cols-2 gap-2">
-              <Input
-                type="number"
-                min={64}
-                value={width}
-                onChange={(event) => setWidth(Math.max(64, Number(event.target.value) || 64))}
-                placeholder={"\u5bbd\u5ea6"}
-              />
-              <Input
-                type="number"
-                min={64}
-                value={height}
-                onChange={(event) => setHeight(Math.max(64, Number(event.target.value) || 64))}
-                placeholder={"\u9ad8\u5ea6"}
-              />
-            </div>
-          ) : (
-            <div className="rounded-lg border border-white/10 bg-black/35 px-3 py-3 text-sm text-slate-300">
-              {activeWorkbenchSlices.length ? (
-                <div className="space-y-2">
-                  <p>{`\u5c06\u6309\u987a\u5e8f\u5bfc\u51fa`} {activeWorkbenchSlices.length} {`\u4e2a\u5207\u7247\u3002`}</p>
-                  <div className="max-h-[120px] space-y-1 overflow-y-auto text-xs text-slate-400">
-                    {activeWorkbenchSlices
-                      .slice()
-                      .sort((left, right) => left.order - right.order)
-                      .map((slice) => (
-                        <p key={slice.id}>
-                          {String(slice.order).padStart(2, "0")} {slice.name} ({slice.width} x{" "}
-                          {slice.height})
-                        </p>
-                      ))}
-                  </div>
-                </div>
-              ) : (
-                <p>{`\u5148\u5728\u5de5\u4f5c\u53f0\u91cc\u521b\u5efa\u5207\u7247\uff0c\u518d\u4f7f\u7528\u5e8f\u5217\u5bfc\u51fa\u3002`}</p>
-              )}
-            </div>
-          )}
-
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-xs text-slate-400">
-              <span>{`\u8d28\u91cf`}</span>
-              <span>{Math.round(quality * 100)}%</span>
-            </div>
-            <Slider
-              min={0.4}
-              max={1}
-              step={0.01}
-              value={[quality]}
-              onValueChange={(value) => setQuality(value[0] ?? 0.92)}
-              disabled={format === "png" || format === "tiff"}
-            />
+          <div className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-right font-mono">
+            <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">Frame</p>
+            <p className="mt-1 text-xs text-zinc-200">
+              {workbench?.width ?? 0} × {workbench?.height ?? 0}
+            </p>
           </div>
+        </div>
 
-          {mode === "whole" && previewUrl ? (
-            <div className="overflow-hidden rounded-lg border border-white/10 bg-black/35">
+        <div className="mt-5 grid gap-5 md:grid-cols-[minmax(0,1.25fr)_minmax(220px,0.75fr)]">
+          <div className="relative flex min-h-[280px] items-center justify-center overflow-hidden rounded-[10px] border border-white/10 bg-[#070708] p-4">
+            <div className="pointer-events-none absolute inset-0 opacity-35 [background-image:linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] [background-size:18px_18px]" />
+            {previewUrl ? (
               <img
                 src={previewUrl}
-                alt={"\u5de5\u4f5c\u53f0\u5bfc\u51fa\u9884\u89c8"}
-                className="max-h-[220px] w-full object-contain"
+                alt="Canonical artifact preview"
+                className={cn(
+                  "relative max-h-[420px] max-w-full object-contain shadow-[0_24px_60px_rgba(0,0,0,0.55)] transition-opacity",
+                  previewLoading && "opacity-35"
+                )}
+              />
+            ) : (
+              <div className="relative flex flex-col items-center gap-3 text-zinc-600">
+                <FileImage className="h-8 w-8" />
+                <span className="font-mono text-[10px] uppercase tracking-[0.16em]">
+                  Preview unavailable
+                </span>
+              </div>
+            )}
+            {previewLoading ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                <LoaderCircle className="h-6 w-6 animate-spin text-lime-200" />
+              </div>
+            ) : null}
+          </div>
+
+          <div className="space-y-5">
+            <div>
+              <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                Format
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {FORMAT_OPTIONS.map((option) => {
+                  const active = format === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      disabled={exporting}
+                      onClick={() => setFormat(option.value)}
+                      className={cn(
+                        "relative rounded-[8px] border px-3 py-3 text-left transition disabled:cursor-wait disabled:opacity-50",
+                        active
+                          ? "border-lime-300/45 bg-lime-300/[0.08]"
+                          : "border-white/10 bg-white/[0.035] hover:border-white/20"
+                      )}
+                    >
+                      <span className="font-mono text-xs text-zinc-100">{option.label}</span>
+                      <span className="mt-1 block text-[10px] leading-4 text-zinc-500">
+                        {option.description}
+                      </span>
+                      {active ? (
+                        <Check className="absolute right-2 top-2 h-3.5 w-3.5 text-lime-300" />
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                Pixel density
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {SCALE_OPTIONS.map((scale) => (
+                  <button
+                    key={scale}
+                    type="button"
+                    disabled={exporting}
+                    onClick={() => setPixelRatio(scale)}
+                    className={cn(
+                      "rounded-[8px] border px-3 py-2.5 font-mono text-xs transition disabled:cursor-wait disabled:opacity-50",
+                      pixelRatio === scale
+                        ? "border-lime-300/45 bg-lime-300/[0.08] text-lime-100"
+                        : "border-white/10 bg-white/[0.035] text-zinc-400 hover:border-white/20"
+                    )}
+                  >
+                    {scale}x
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 font-mono text-[10px] text-zinc-500">
+                {outputWidth} × {outputHeight} PX
+              </p>
+            </div>
+
+            <div className={cn("space-y-2", format === "png" && "opacity-40")}>
+              <div className="flex items-center justify-between text-xs text-zinc-400">
+                <span>JPEG quality</span>
+                <span className="font-mono">{Math.round(quality * 100)}%</span>
+              </div>
+              <Slider
+                min={0.6}
+                max={1}
+                step={0.01}
+                value={[quality]}
+                onValueChange={(value) => setQuality(value[0] ?? 0.92)}
+                disabled={format === "png" || exporting}
               />
             </div>
-          ) : null}
+          </div>
         </div>
+
+        {error ? (
+          <div
+            role="alert"
+            className="mt-4 rounded-[8px] border border-red-400/20 bg-red-400/[0.07] px-3 py-2.5 text-xs leading-5 text-red-200"
+          >
+            {error}
+          </div>
+        ) : null}
 
         {exporting ? (
           <div className="mt-4">
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+            <div className="mb-2 flex justify-between font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+              <span>Rendering</span>
+              <span>{Math.round(progress * 100)}%</span>
+            </div>
+            <div className="h-1 overflow-hidden rounded-full bg-white/10">
               <div
-                className="h-full rounded-full bg-white/60 transition-[width] duration-150"
+                className="h-full bg-lime-300 transition-[width] duration-150"
                 style={{ width: `${Math.round(progress * 100)}%` }}
               />
             </div>
@@ -184,49 +279,23 @@ export function CanvasExportDialog({ open, onOpenChange, stage }: CanvasExportDi
         ) : null}
 
         <div className="mt-5 flex justify-end gap-3">
-          <AlertDialogCancel disabled={exporting}>{`\u53d6\u6d88`}</AlertDialogCancel>
-          <Button
+          <AlertDialogCancel
             disabled={exporting}
-            onClick={() => {
-              const canvasState = useCanvasStore.getState();
-              const currentWorkbench =
-                canvasState.loadedWorkbenchId === activeWorkbenchId
-                  ? canvasState.workbenchDraft ?? canvasState.workbench
-                  : null;
-
-              setExporting(true);
-              setProgress(0);
-
-              const finish = () => {
-                setExporting(false);
-                setProgress(0);
-                onOpenChange(false);
-              };
-
-              if (mode === "slices") {
-                void downloadSlices(stage, currentWorkbench?.slices ?? [], {
-                  format,
-                  quality,
-                  pixelRatio,
-                  filePrefix: currentWorkbench?.name ?? "filmlab-workbench",
-                  onProgress: setProgress,
-                }).finally(finish);
-                return;
-              }
-
-              const extension = format === "jpeg" ? "jpg" : format === "tiff" ? "tiff" : "png";
-              void download(stage, {
-                format,
-                width,
-                height,
-                quality,
-                pixelRatio,
-                onProgress: setProgress,
-                fileName: `${currentWorkbench?.name ?? "filmlab-workbench"}.${extension}`,
-              }).finally(finish);
-            }}
+            className="border-white/10 bg-transparent text-zinc-300 hover:bg-white/[0.06] hover:text-white"
           >
-            {exporting ? `\u5bfc\u51fa\u4e2d\u2026` : `\u4e0b\u8f7d`}
+            取消
+          </AlertDialogCancel>
+          <Button
+            disabled={exporting || previewLoading || Boolean(previewError) || !workbench}
+            onClick={() => void handleDownload()}
+            className="min-w-[150px] bg-lime-300 font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-[#0a0c07] hover:bg-lime-200 disabled:cursor-wait"
+          >
+            {exporting ? (
+              <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 h-4 w-4" />
+            )}
+            {exporting ? "Rendering" : `Download ${format.toUpperCase()}`}
           </Button>
         </div>
       </AlertDialogContent>

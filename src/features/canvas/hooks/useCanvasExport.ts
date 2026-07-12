@@ -1,321 +1,259 @@
-import type Konva from "konva";
-import { useCallback } from "react";
-import type { CanvasSlice } from "@/types";
+import { useCallback, useEffect, useRef } from "react";
+import type { Asset, CanvasWorkbench } from "@/types";
 import { useAssetStore } from "@/stores/assetStore";
-import { shallow } from "zustand/shallow";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { selectCanvasLoadedWorkbenchState } from "../store/canvasStoreSelectors";
-import { encodeRgbaToTiff } from "@/lib/export/tiff";
-import { cropRenderedCanvasSlice, renderCanvasWorkbenchToCanvas } from "../renderCanvasDocument";
+import { selectLoadedWorkbench } from "../store/canvasStoreSelectors";
+import { renderCanvasWorkbenchToCanvas } from "../renderCanvasDocument";
 
-export type CanvasExportFormat = "png" | "jpeg" | "tiff";
+export type CanvasArtifactFormat = "png" | "jpeg";
 
-export interface CanvasExportOptions {
-  format: CanvasExportFormat;
-  width: number;
+interface CanvasArtifactRenderOptions {
+  assets: Asset[];
+  format: CanvasArtifactFormat;
   height: number;
+  pixelRatio: 1 | 2;
   quality: number;
-  pixelRatio: number;
+  width: number;
+  workbench: CanvasWorkbench;
   onProgress?: (progress: number) => void;
 }
 
-export interface CanvasSliceExportResult {
-  slice: CanvasSlice;
+interface CanvasArtifactRenderResult {
   dataUrl: string;
-  fileName: string;
+  pixelHeight: number;
+  pixelWidth: number;
 }
 
-const EDITOR_GRID_FILL = "rgba(255,255,255,0.18)";
-const WORKSPACE_BACKGROUND_NODE_ID = "canvas-workspace-background";
-const WORKSPACE_GRID_NODE_ID = "canvas-workspace-grid";
+interface CanvasArtifactPreviewCacheEntry {
+  activeConsumers: number;
+  assets: Asset[];
+  promise: Promise<HTMLCanvasElement>;
+  releaseRequested: boolean;
+  released: boolean;
+  workbench: CanvasWorkbench;
+}
 
-const defaultExportOptions = (stage: Konva.Stage): CanvasExportOptions => ({
-  format: "png",
-  width: stage.width(),
-  height: stage.height(),
-  quality: 0.92,
-  pixelRatio: 2,
-});
-
-const hideEditorOverlayNodes = (stage: Konva.Stage) => {
-  const hiddenNodes: Konva.Node[] = [];
-  const candidates = [...stage.find("Rect"), ...stage.find("Shape")];
-  const seenNodes = new Set<Konva.Node>();
-
-  for (const node of candidates) {
-    if (seenNodes.has(node)) {
-      continue;
-    }
-    seenNodes.add(node);
-
-    const nodeId = node.id();
-    const hasPatternFill = Boolean(node.getAttr("fillPatternImage"));
-    const hasEditorGridFill = node.getAttr("fill") === EDITOR_GRID_FILL;
-    const isWorkspaceOverlayNode =
-      nodeId === WORKSPACE_BACKGROUND_NODE_ID || nodeId === WORKSPACE_GRID_NODE_ID;
-    if (!isWorkspaceOverlayNode && nodeId) {
-      continue;
-    }
-
-    if (!isWorkspaceOverlayNode && !hasPatternFill && !hasEditorGridFill) {
-      continue;
-    }
-
-    if (!node.visible()) {
-      continue;
-    }
-
-    node.visible(false);
-    hiddenNodes.push(node);
+const assertCanvasArtifactAssetsAvailable = (assets: Asset[], workbench: CanvasWorkbench) => {
+  const assetIds = new Set(assets.map((asset) => asset.id));
+  const missingImage = workbench.elements.find(
+    (element) =>
+      element.type === "image" && element.effectiveVisible && !assetIds.has(element.assetId)
+  );
+  if (missingImage?.type === "image") {
+    throw new Error(`缺少图片素材 ${missingImage.assetId}，请重新导入后再导出。`);
   }
-
-  return hiddenNodes;
 };
 
-export const exportStageDataUrl = (
-  stage: Konva.Stage,
-  options: Partial<CanvasExportOptions> & {
-    crop?: Pick<CanvasSlice, "x" | "y" | "width" | "height">;
-  }
-) => {
-  const mimeType = options.format === "jpeg" ? "image/jpeg" : "image/png";
-  const hiddenNodes = hideEditorOverlayNodes(stage);
+const releaseCanvas = (canvas: HTMLCanvasElement) => {
+  canvas.width = 0;
+  canvas.height = 0;
+};
 
-  try {
-    return stage.toDataURL({
-      mimeType,
-      quality: options.quality,
-      x: options.crop?.x,
-      y: options.crop?.y,
-      width: options.width,
-      height: options.height,
-      pixelRatio: options.pixelRatio,
-    });
-  } finally {
-    for (const node of hiddenNodes) {
-      node.visible(true);
-    }
+const requestPreviewCacheRelease = (entry: CanvasArtifactPreviewCacheEntry) => {
+  entry.releaseRequested = true;
+  if (entry.activeConsumers > 0 || entry.released) {
+    return;
   }
+  entry.released = true;
+  void entry.promise.then(releaseCanvas, () => undefined);
+};
+
+const renderCanvasArtifactCanvas = async ({
+  assets,
+  height,
+  pixelRatio,
+  width,
+  workbench,
+  onProgress,
+}: Omit<CanvasArtifactRenderOptions, "format" | "quality">) => {
+  assertCanvasArtifactAssetsAvailable(assets, workbench);
+  const canvas = document.createElement("canvas");
+  try {
+    await renderCanvasWorkbenchToCanvas({
+      assets,
+      canvas,
+      document: workbench,
+      height,
+      pixelRatio,
+      width,
+      onProgress,
+    });
+    return canvas;
+  } catch (cause) {
+    releaseCanvas(canvas);
+    throw cause;
+  }
+};
+
+const encodeCanvasArtifact = (
+  canvas: HTMLCanvasElement,
+  format: CanvasArtifactFormat,
+  quality: number
+): CanvasArtifactRenderResult => ({
+  dataUrl: canvas.toDataURL(format === "jpeg" ? "image/jpeg" : "image/png", quality),
+  pixelHeight: canvas.height,
+  pixelWidth: canvas.width,
+});
+
+export const renderCanvasArtifactDataUrl = async ({
+  assets,
+  format,
+  height,
+  pixelRatio,
+  quality,
+  width,
+  workbench,
+  onProgress,
+}: CanvasArtifactRenderOptions): Promise<CanvasArtifactRenderResult> => {
+  const canvas = await renderCanvasArtifactCanvas({
+    assets,
+    height,
+    pixelRatio,
+    width,
+    workbench,
+    onProgress,
+  });
+  try {
+    const result = encodeCanvasArtifact(canvas, format, quality);
+    onProgress?.(1);
+    return result;
+  } finally {
+    releaseCanvas(canvas);
+  }
+};
+
+const normalizeArtifactFileName = (name: string) =>
+  name
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80) || "filmlab-artifact";
+
+const triggerDataUrlDownload = (dataUrl: string, fileName: string) => {
+  const link = document.createElement("a");
+  link.href = dataUrl;
+  link.download = fileName;
+  link.click();
 };
 
 export function useCanvasExport() {
   const assets = useAssetStore((state) => state.assets);
-  const { loadedWorkbench } = useCanvasStore(selectCanvasLoadedWorkbenchState, shallow);
+  const loadedWorkbench = useCanvasStore(selectLoadedWorkbench);
+  const previewCacheRef = useRef<CanvasArtifactPreviewCacheEntry | null>(null);
+  const previewRenderTailRef = useRef<Promise<void>>(Promise.resolve());
 
-  const exportDataUrl = useCallback(
-    (
-      stage: Konva.Stage | null,
-      options?: Partial<CanvasExportOptions> & {
-        crop?: Pick<CanvasSlice, "x" | "y" | "width" | "height">;
+  useEffect(
+    () => () => {
+      const cached = previewCacheRef.current;
+      previewCacheRef.current = null;
+      if (cached) {
+        requestPreviewCacheRelease(cached);
       }
-    ) => {
-      if (!stage) {
-        return null;
-      }
-      const merged = { ...defaultExportOptions(stage), ...options };
-      return exportStageDataUrl(stage, merged);
     },
     []
   );
 
-  const download = useCallback(
-    async (
-      stage: Konva.Stage | null,
-      options?: Partial<CanvasExportOptions> & { fileName?: string }
-    ) => {
-      const merged = {
-        ...(stage ? defaultExportOptions(stage) : defaultExportOptionsFromDocument(loadedWorkbench)),
-        ...options,
-      };
-      if (merged.format === "tiff") {
-        let tiffCanvas: HTMLCanvasElement | null = null;
-        if (loadedWorkbench) {
-          tiffCanvas = document.createElement("canvas");
-          try {
-            await renderCanvasWorkbenchToCanvas({
-              assets,
-              canvas: tiffCanvas,
-              document: loadedWorkbench,
-              height: merged.height,
-              pixelRatio: merged.pixelRatio,
-              width: merged.width,
-              onProgress: merged.onProgress,
-            });
-          } catch {
-            tiffCanvas.width = 0;
-            tiffCanvas.height = 0;
-            return null;
-          }
-        } else if (stage) {
-          tiffCanvas = stage.toCanvas({ pixelRatio: merged.pixelRatio });
-        }
-        if (!tiffCanvas) {
-          return null;
-        }
-        try {
-          const ctx = tiffCanvas.getContext("2d", { willReadFrequently: true });
-          if (!ctx) {
-            return null;
-          }
-          const imageData = ctx.getImageData(0, 0, tiffCanvas.width, tiffCanvas.height);
-          const blob = encodeRgbaToTiff(imageData.data, tiffCanvas.width, tiffCanvas.height);
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement("a");
-          link.href = url;
-          link.download = options?.fileName ?? "filmlab-canvas.tiff";
-          link.click();
-          URL.revokeObjectURL(url);
-          return null;
-        } finally {
-          tiffCanvas.width = 0;
-          tiffCanvas.height = 0;
-        }
-      }
+  const acquireArtifactPreviewCache = useCallback(() => {
+    if (!loadedWorkbench) {
+      throw new Error("没有可导出的作品。");
+    }
 
-      let dataUrl: string | null = null;
-      if (loadedWorkbench) {
-        const exportCanvas = document.createElement("canvas");
-        try {
-          await renderCanvasWorkbenchToCanvas({
-            assets,
-            canvas: exportCanvas,
-            document: loadedWorkbench,
-            height: merged.height,
-            pixelRatio: merged.pixelRatio,
-            width: merged.width,
-            onProgress: merged.onProgress,
-          });
-          dataUrl = exportCanvas.toDataURL(
-            merged.format === "jpeg" ? "image/jpeg" : "image/png",
-            merged.quality
-          );
-        } finally {
-          exportCanvas.width = 0;
-          exportCanvas.height = 0;
+    const cached = previewCacheRef.current;
+    if (cached?.assets === assets && cached.workbench === loadedWorkbench) {
+      return cached;
+    }
+
+    const promise = previewRenderTailRef.current
+      .catch(() => undefined)
+      .then(() =>
+        renderCanvasArtifactCanvas({
+          assets,
+          height: loadedWorkbench.height,
+          pixelRatio: 1,
+          width: loadedWorkbench.width,
+          workbench: loadedWorkbench,
+        })
+      );
+    previewRenderTailRef.current = promise.then(
+      () => undefined,
+      () => undefined
+    );
+
+    const nextCache: CanvasArtifactPreviewCacheEntry = {
+      activeConsumers: 0,
+      assets,
+      promise,
+      releaseRequested: false,
+      released: false,
+      workbench: loadedWorkbench,
+    };
+    previewCacheRef.current = nextCache;
+    if (cached) {
+      requestPreviewCacheRelease(cached);
+    }
+    void promise.catch(() => {
+      if (previewCacheRef.current === nextCache) {
+        previewCacheRef.current = null;
+      }
+      requestPreviewCacheRelease(nextCache);
+    });
+    return nextCache;
+  }, [assets, loadedWorkbench]);
+
+  const renderArtifactPreview = useCallback(
+    async ({ format, quality }: { format: CanvasArtifactFormat; quality: number }) => {
+      const cache = acquireArtifactPreviewCache();
+      cache.activeConsumers += 1;
+      try {
+        const canvas = await cache.promise;
+        return encodeCanvasArtifact(canvas, format, quality);
+      } finally {
+        cache.activeConsumers -= 1;
+        if (cache.releaseRequested) {
+          requestPreviewCacheRelease(cache);
         }
-      } else if (stage) {
-        dataUrl = exportDataUrl(stage, merged);
       }
-      if (!dataUrl) {
-        return null;
-      }
-      const extension = merged.format === "jpeg" ? "jpg" : "png";
-      const link = document.createElement("a");
-      link.href = dataUrl;
-      link.download = options?.fileName ?? `filmlab-canvas.${extension}`;
-      link.click();
-      return dataUrl;
     },
-    [assets, exportDataUrl, loadedWorkbench]
+    [acquireArtifactPreviewCache]
   );
 
-  const exportSlices = useCallback(
-    async (
-      stage: Konva.Stage | null,
-      slices: CanvasSlice[],
-      options?: Partial<CanvasExportOptions> & { filePrefix?: string }
-    ): Promise<CanvasSliceExportResult[]> => {
-      if (slices.length === 0 || !loadedWorkbench) {
-        return [];
+  const downloadArtifact = useCallback(
+    async ({
+      fileName,
+      format,
+      onProgress,
+      pixelRatio,
+      quality,
+    }: {
+      fileName?: string;
+      format: CanvasArtifactFormat;
+      onProgress?: (progress: number) => void;
+      pixelRatio: 1 | 2;
+      quality: number;
+    }) => {
+      if (!loadedWorkbench) {
+        throw new Error("没有可导出的作品。");
       }
-
-      const merged = {
-        ...(stage ? defaultExportOptions(stage) : defaultExportOptionsFromDocument(loadedWorkbench)),
-        ...options,
-      };
-      const extension = merged.format === "jpeg" ? "jpg" : merged.format === "tiff" ? "tiff" : "png";
-      const fullCanvas = document.createElement("canvas");
-
-      try {
-        await renderCanvasWorkbenchToCanvas({
-          assets,
-          canvas: fullCanvas,
-          document: loadedWorkbench,
-          height: loadedWorkbench.height,
-          pixelRatio: merged.pixelRatio,
-          width: loadedWorkbench.width,
-          onProgress: merged.onProgress,
-        });
-
-        return slices
-          .slice()
-          .sort((left, right) => left.order - right.order)
-          .map((slice) => {
-            const sliceCanvas = cropRenderedCanvasSlice({
-              canvas: fullCanvas,
-              document: loadedWorkbench,
-              pixelRatio: merged.pixelRatio,
-              slice,
-            });
-            try {
-              let dataUrl: string;
-              if (merged.format === "tiff") {
-                const ctx = sliceCanvas.getContext("2d", { willReadFrequently: true });
-                const imageData = ctx!.getImageData(0, 0, sliceCanvas.width, sliceCanvas.height);
-                const blob = encodeRgbaToTiff(imageData.data, sliceCanvas.width, sliceCanvas.height);
-                dataUrl = URL.createObjectURL(blob);
-              } else {
-                dataUrl = sliceCanvas.toDataURL(
-                  merged.format === "jpeg" ? "image/jpeg" : "image/png",
-                  merged.quality
-                );
-              }
-              return {
-                slice,
-                dataUrl,
-                fileName: `${options?.filePrefix ?? "filmlab-story"}-${String(slice.order).padStart(2, "0")}-${slice.name
-                  .toLowerCase()
-                  .replace(/[^a-z0-9]+/g, "-")
-                  .replace(/^-+|-+$/g, "") || "slice"}.${extension}`,
-              };
-            } finally {
-              sliceCanvas.width = 0;
-              sliceCanvas.height = 0;
-            }
-          });
-      } finally {
-        fullCanvas.width = 0;
-        fullCanvas.height = 0;
-      }
+      const result = await renderCanvasArtifactDataUrl({
+        assets,
+        format,
+        height: loadedWorkbench.height,
+        pixelRatio,
+        quality,
+        width: loadedWorkbench.width,
+        workbench: loadedWorkbench,
+        onProgress,
+      });
+      const extension = format === "jpeg" ? "jpg" : "png";
+      const baseName = normalizeArtifactFileName(fileName ?? loadedWorkbench.name);
+      triggerDataUrlDownload(result.dataUrl, `${baseName}.${extension}`);
+      return result;
     },
     [assets, loadedWorkbench]
   );
 
-  const downloadSlices = useCallback(
-    async (
-      stage: Konva.Stage | null,
-      slices: CanvasSlice[],
-      options?: Partial<CanvasExportOptions> & { filePrefix?: string }
-    ) => {
-      const results = await exportSlices(stage, slices, options);
-      results.forEach((result) => {
-        const link = document.createElement("a");
-        link.href = result.dataUrl;
-        link.download = result.fileName;
-        link.click();
-      });
-      return results;
-    },
-    [exportSlices]
-  );
-
   return {
-    exportDataUrl,
-    download,
-    exportSlices,
-    downloadSlices,
+    downloadArtifact,
+    renderArtifactPreview,
   };
 }
-
-const defaultExportOptionsFromDocument = (
-  activeWorkbench: {
-    height: number;
-    width: number;
-  } | null
-): CanvasExportOptions => ({
-  format: "png",
-  width: activeWorkbench?.width ?? 1080,
-  height: activeWorkbench?.height ?? 1080,
-  quality: 0.92,
-  pixelRatio: 2,
-});

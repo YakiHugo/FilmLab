@@ -3,7 +3,7 @@ import { createDefaultCanvasImageRenderState } from "@/render/image";
 import type { Asset, CanvasImageElement } from "@/types";
 import {
   createCanvasImageRenderContext,
-  resolveCanvasImageOverlayReferenceSizeKey,
+  resolveCanvasImageCompositionReferenceSizeKey,
   resolveCanvasImagePreviewTargetSize,
   resolveCanvasImagePreviewTargetSizeKey,
   resolveCanvasImageRenderState,
@@ -119,15 +119,15 @@ describe("boardImageRendering", () => {
     expect(targetSize.width / targetSize.height).toBeCloseTo(401 / 267, 2);
   });
 
-  it("changes the overlay reference key for same-bucket image resizes", () => {
+  it("changes the composition reference key for same-bucket image resizes", () => {
     const first = createElement({ width: 400, height: 267 });
     const second = createElement({ width: 404, height: 270 });
 
     expect(resolveCanvasImagePreviewTargetSizeKey(first, "background", 1)).toBe(
       resolveCanvasImagePreviewTargetSizeKey(second, "background", 1)
     );
-    expect(resolveCanvasImageOverlayReferenceSizeKey(first)).not.toBe(
-      resolveCanvasImageOverlayReferenceSizeKey(second)
+    expect(resolveCanvasImageCompositionReferenceSizeKey(first)).not.toBe(
+      resolveCanvasImageCompositionReferenceSizeKey(second)
     );
   });
 

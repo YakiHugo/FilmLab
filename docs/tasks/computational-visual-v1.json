@@ -33,7 +33,7 @@
     },
     {
       "id": "social-composition-output",
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": ["computational-style-lab"],
       "passes": [
         "caption, timestamp, and watermark overlays are reachable and agree between preview and export",

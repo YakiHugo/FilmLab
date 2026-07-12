@@ -69,6 +69,15 @@ Completed 2026-07-11.
 
 Expose semantic overlays and output framing as the finishing step. Ratio changes update the canonical workbench dimensions and existing elements through explicit commands. Export continues through the current canvas document renderer.
 
+Completed 2026-07-12.
+
+- `CanvasOutputPanel` makes 1:1, 4:5, and 9:16 framing, Caption, Timestamp, Watermark, and the artifact action one explicit finishing step. `APPLY_OUTPUT_FORMAT` changes the frame and preferred cover image as one persisted, undoable command; grouped covers and sliced workbenches fail as strict no-ops instead of partially mutating.
+- `CanvasCaptionEditPanel`, `CanvasTimestampEditPanel`, and `CanvasWatermarkEditPanel` write semantic overlays to the selected preferred image. Preview and export use the same reference-space layout, so font size, padding, opacity, and position do not drift with render density.
+- `CanvasExportDialog` and `useCanvasExport` now expose one canonical PNG/JPEG path at 1x or 2x. The dialog preview and download both use `renderCanvasWorkbenchToCanvas`; format and JPEG-quality changes re-encode one leased preview canvas instead of launching concurrent GPU renders. Missing visible assets fail visibly, and the dialog remains open on failure.
+- `compositionReferenceSize` establishes the authored image coordinate system for board preview and export. ASCII analysis/composition use one exact integer-cell partition, grid lines use pixel-footprint coverage, and channel drift maps X/Y offsets into physical output pixels. Halftone frequency remains resolution-relative. The retired Konva-stage, slice-series, and TIFF UI paths were removed; the long-term 16-bit boundary is recorded in `docs/decisions.md`.
+- Browser evidence from clean sessions: local upload opened an initialized 1080×1350 workbench with no initial undo; all three ratios produced clipped, edge-to-edge frames; Data Mosaic plus Caption and Timestamp survived reload; PNG and JPEG downloads completed at 1080×1350 and 2160×2700. Downsampled 2x comparison measured SSIM 0.959 for PNG and 0.944 for JPEG, with matching grid topology, RGB offset, crop, and overlay placement. A separate Watermark pass matched the main preview and canonical PNG, then restored its enabled state, text, angle, density, size, and opacity after reload.
+- Validation: `pnpm verify` passed (133 files, 672 tests, client and server builds); `pnpm dead-code` reported the existing baseline with no new unused files or exports; focused typecheck, ESLint, formatting, `git diff --check`, fresh-browser WebGPU compilation, reload recovery, artifact metadata inspection, and three independent review passes succeeded. Real artifact review found and closed the density bug that mocked tests had missed; final result: no issues found.
+
 ### Product Validation
 
 Validate the complete flow with a clean browser profile and fixed assets. Automated checks prove contracts; screenshots, exported files, network behavior, reload recovery, and human visual comparison prove the product result.

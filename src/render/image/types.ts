@@ -375,7 +375,7 @@ export interface ImageRenderDocument extends CanvasImageRenderStateV1 {
 export interface ImageRenderRequest {
   qualityTier: RenderQualityTier;
   targetSize: ImageRenderTargetSize;
-  overlayReferenceSize?: ImageRenderTargetSize;
+  compositionReferenceSize?: ImageRenderTargetSize;
   timestampText?: string | null;
   strictErrors?: boolean;
   signal?: AbortSignal;

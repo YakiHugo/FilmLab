@@ -31,7 +31,7 @@ export interface CanvasImageRenderTargetSize {
   height: number;
 }
 
-type CanvasImageOverlayReferenceSource = {
+type CanvasImageCompositionReferenceSource = {
   transform: Pick<CanvasNodeTransform, "width" | "height">;
   worldHeight?: number;
   worldWidth?: number;
@@ -39,9 +39,9 @@ type CanvasImageOverlayReferenceSource = {
 
 export interface CanvasImageRenderContext {
   cacheKey: string;
+  compositionReferenceSize: CanvasImageRenderTargetSize;
   filmProfile: ImageRenderDocument["film"]["profile"] | undefined;
   imageDocument: ImageRenderDocument;
-  overlayReferenceSize: CanvasImageRenderTargetSize;
   renderVariant: BoardPreviewPriority;
   renderState: CanvasImageRenderStateV1;
   targetSize: CanvasImageRenderTargetSize;
@@ -129,17 +129,17 @@ export const resolveCanvasImagePreviewTargetSizeKey = (
   return `${targetSize.width}x${targetSize.height}`;
 };
 
-const resolveCanvasImageOverlayReferenceSize = (
-  element: CanvasImageOverlayReferenceSource
+const resolveCanvasImageCompositionReferenceSize = (
+  element: CanvasImageCompositionReferenceSource
 ): CanvasImageRenderTargetSize => ({
   width: Math.max(1, element.worldWidth ?? element.transform.width),
   height: Math.max(1, element.worldHeight ?? element.transform.height),
 });
 
-export const resolveCanvasImageOverlayReferenceSizeKey = (
-  element: CanvasImageOverlayReferenceSource
+export const resolveCanvasImageCompositionReferenceSizeKey = (
+  element: CanvasImageCompositionReferenceSource
 ) => {
-  const referenceSize = resolveCanvasImageOverlayReferenceSize(element);
+  const referenceSize = resolveCanvasImageCompositionReferenceSize(element);
   return `${referenceSize.width}x${referenceSize.height}`;
 };
 
@@ -199,18 +199,18 @@ export const createCanvasImageRenderContext = ({
     element,
   });
   const targetSize = resolveCanvasImagePreviewTargetSize(element, priority, viewportScale);
-  const overlayReferenceSize = resolveCanvasImageOverlayReferenceSize(element);
+  const compositionReferenceSize = resolveCanvasImageCompositionReferenceSize(element);
   const cacheKey = [
     `variant:${priority}`,
     documentContext.imageDocument.revisionKey,
     `${targetSize.width}x${targetSize.height}`,
-    `overlay-ref:${overlayReferenceSize.width}x${overlayReferenceSize.height}`,
+    `composition-ref:${compositionReferenceSize.width}x${compositionReferenceSize.height}`,
   ].join("|");
 
   return {
     ...documentContext,
     cacheKey,
-    overlayReferenceSize,
+    compositionReferenceSize,
     renderVariant: priority,
     targetSize,
   };
@@ -252,7 +252,7 @@ export const renderCanvasImageElementToCanvas = async ({
     request: {
       qualityTier: resolvePreviewQualityTier(priority),
       targetSize: context.targetSize,
-      overlayReferenceSize: context.overlayReferenceSize,
+      compositionReferenceSize: context.compositionReferenceSize,
       timestampText: context.timestampText,
       signal,
       renderSlotId: renderSlotPrefix,

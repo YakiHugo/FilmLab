@@ -39,9 +39,7 @@ const createMockContext = () => ({
   fill: vi.fn(),
   fillRect: vi.fn(),
   fillText: vi.fn(),
-  getImageData: vi.fn((_x: number, _y: number, w: number, h: number) =>
-    createMockImageData(w, h)
-  ),
+  getImageData: vi.fn((_x: number, _y: number, w: number, h: number) => createMockImageData(w, h)),
   lineTo: vi.fn(),
   moveTo: vi.fn(),
   restore: vi.fn(),
@@ -67,11 +65,12 @@ const createMockCanvas = ({
   width?: number;
   height?: number;
   context?: ReturnType<typeof createMockContext>;
-} = {}) => ({
-  width,
-  height,
-  getContext: vi.fn(() => context),
-}) as unknown as HTMLCanvasElement;
+} = {}) =>
+  ({
+    width,
+    height,
+    getContext: vi.fn(() => context),
+  }) as unknown as HTMLCanvasElement;
 
 const createMockSurface = (canvas: HTMLCanvasElement): RenderSurfaceHandle =>
   ({
@@ -234,6 +233,36 @@ describe("asciiEffect", () => {
     expect(call.params.foregroundBlendMode).toBe("normal");
     expect(call.params.backgroundMode).toBe("cell-solid");
     expect(call.params.ditherMode).toBe("none");
+  });
+
+  it("keeps the authored grid topology while physical density changes", async () => {
+    const referenceSize = { width: 1080, height: 1350 };
+    const transform = {
+      ...createAsciiTransform(),
+      params: { ...createAsciiTransform().params, gridOverlay: true },
+    };
+
+    for (const targetSize of [referenceSize, { width: 2160, height: 2700 }]) {
+      const surface = createMockSurface(createMockCanvas(targetSize));
+      applyAsciiCarrierOnSurfaceMock.mockResolvedValueOnce(surface);
+      await applyImageAsciiCarrierTransform({
+        baseSurface: surface,
+        compositionReferenceSize: referenceSize,
+        sourceCanvas: createMockCanvas(targetSize),
+        transform,
+        quality: "export",
+        targetSize,
+      });
+    }
+
+    const oneX = applyAsciiCarrierOnSurfaceMock.mock.calls[0]?.[0].params;
+    const twoX = applyAsciiCarrierOnSurfaceMock.mock.calls[1]?.[0].params;
+    expect(twoX.columns).toBe(oneX.columns);
+    expect(twoX.rows).toBe(oneX.rows);
+    expect(twoX.cellWidth).toBeCloseTo(oneX.cellWidth * 2);
+    expect(twoX.cellHeight).toBeCloseTo(oneX.cellHeight * 2);
+    expect(oneX.gridOverlayWidth).toBe(1);
+    expect(twoX.gridOverlayWidth).toBe(2);
   });
 
   it("propagates the surface result from applyImageCarrierTransforms", async () => {
