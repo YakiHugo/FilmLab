@@ -112,6 +112,20 @@
 - History 是 `entries + cursor` delta 模型，不是 `past/future` 双栈。
 - Canvas 根目录按领域分子目录：`geometry/`（resize / selection / overlay 几何）、`image/`（渲染状态、board 预览、属性、工厂）、`text/`（会话、样式、运行时视图模型）。不设 barrel `index.ts`，消费者直接导入子目录下具体文件。
 
+### Computational Visual V1 boundary
+
+- 产品主路径固定为 `image input → computational style → semantic overlay → social ratio → still artifact → reload`。Canvas 是持久化作品文档与 compositor，不再以空白画布作为产品入口。
+- Style Lab 的 Mono Terminal、Color Glyph、Print Screen、Signal Loss、Data Mosaic 是 canonical `CanvasImageRenderStateV1` 的 outcome preset，不拥有第二套 authored state。新增方向应优先组合既有 carrier / signal-damage / overlay family；只有现有 family 无法表达时才扩展 renderer。
+- V1 只承诺静态单图、1:1 / 4:5 / 9:16、PNG/JPEG 1x/2x。多图通用排版、视频、TIFF/16-bit 和跨设备 workbench 同步不是隐藏能力；出现明确产品需求时另开边界，不在 V1 控件上恢复旧路径。
+- Caption / Watermark 已启用但文字为空，或文字叠层有效透明度接近零时，renderer 将其视为 no-op。启用状态可以先于文本提交持久化，不能让合法的中间状态破坏整张作品预览或导出。
+- AI 生成只是可选 input channel；本地上传、粘贴和素材库主路径不得依赖 provider credential。
+
+### Browser / server persistence boundary
+
+- Workbench 与本地素材副本由浏览器 IndexedDB 持有；V1 不承诺跨设备项目恢复。需要跨设备项目时，先设计 server-side workbench ownership / conflict model，不能把 asset sync 当作 workbench sync。
+- 生产素材持久化必须同时使用 Postgres repository 与 Supabase Storage。只配置数据库仍会让二进制落入进程内存；memory repository/storage 仅是 development fallback。
+- V1 无登录 UI；生产宿主必须签发带稳定 `sub` 的 HS256 JWT，并在客户端注入 `filmlab_auth_token`。服务端 secret 不得进入浏览器；需要内建登录或第三方身份协议时重访这条 host-integration 边界。
+
 ### Artifact export
 
 - V1 导出的唯一 authority 是 `renderCanvasWorkbenchToCanvas`，产品只发布 PNG/JPEG 1x/2x；预览与下载共用 canvas document renderer。
