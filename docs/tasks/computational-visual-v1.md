@@ -82,6 +82,38 @@ Completed 2026-07-12.
 
 Validate the complete flow with a clean browser profile and fixed assets. Automated checks prove contracts; screenshots, exported files, network behavior, reload recovery, and human visual comparison prove the product result.
 
+Completed 2026-07-12.
+
+- `README.md` now describes only the reachable still-image V1, its browser/Fastify/storage boundaries, local WebGPU requirements, the host-provided JWT boundary, and the exact Postgres + Supabase configuration needed for server assets to survive a restart. `server/.env.example` exposes those production variables instead of implying that the development memory fallback is durable.
+- `src/render/image/overlayExecution.ts` treats enabled text overlays with blank content or effectively zero opacity as render no-ops. A clean end-to-end run exposed the prior failure: reloading while Caption text was still an uncommitted input draft restored an enabled empty Caption, which created a context-free overlay canvas and failed `copyExternalImageToTexture`. The fixed 9:16 Print Screen reproduction restored visibly and opened a valid canonical export preview; the focused regression case now covers the resolver boundary.
+- Fixed-asset review used visible root-page upload controls and isolated browser profiles. A public-domain, face-on portrait closed the initial person-only coverage gap; every required asset was then inspected under every published direction. All 15 combinations were non-empty, edge-to-edge, visibly distinct, and retained a readable subject or face. Real reload restored Data Mosaic and its 67% strength for all three required assets. Browser errors were empty; console output contained only development-tool and existing Zustand deprecation warnings.
+
+#### Fixed-asset visual matrix
+
+| Asset boundary | Mono Terminal | Color Glyph | Print Screen | Signal Loss | Data Mosaic | Reload |
+| --- | --- | --- | --- | --- | --- | --- |
+| Visible-face portrait — `Portrait_of_a_woman_by_Rudolf_Dührkoop.jpg` | PASS | PASS | PASS | PASS | PASS | PASS |
+| Landscape — `unsplash_6z0Viul75Tg.jpg` | PASS | PASS | PASS | PASS | PASS | PASS |
+| High-detail / high-contrast — `R.jpeg` | PASS | PASS | PASS | PASS | PASS | PASS |
+
+Portrait source: `https://commons.wikimedia.org/wiki/File:Portrait_of_a_woman_by_Rudolf_D%C3%BChrkoop.jpg` (public domain). Evidence is recorded at `/tmp/filmlab-qa-face-{mono,color,print,signal,mosaic}.png` and `/tmp/filmlab-qa-{landscape,detail}-{mono,color,print,signal,mosaic}.png`; reload evidence uses the corresponding `-reload` or `-reload-active` suffix. The earlier `unsplash_uoHwIZx_HLo.jpg` person-subject pass remains supplemental rather than standing in for face coverage.
+
+#### Release checklist
+
+| Boundary | Result | Recorded evidence |
+| --- | --- | --- |
+| Input | PASS | Clean profiles entered through `/`, uploaded fixed local files with the visible picker, and landed in initialized 1080 × 1350 workbenches; the earlier 390 × 844 entry pass remained usable. |
+| Style | PASS | Five published directions passed human review across visible-face portrait, landscape, and high-detail assets; Style Lab activation and strength restored after reload. |
+| Overlay | PASS | Caption, Timestamp, and Watermark matched preview/export in the output slice. Blank/zero-opacity text overlays now render as no-ops; the former empty-Caption artifact failure is reproduced at `/tmp/filmlab-qa-release-export-error.png` and the fixed state at `/tmp/filmlab-qa-empty-caption-{reload,export}-fixed.png`. |
+| Ratio | PASS | 1:1, 4:5, and 9:16 produced edge-to-edge frames. The final clean flow used 1:1; the empty-Caption regression used 9:16. |
+| Restore | PASS | All three fixed-asset profiles restored their last style. `/tmp/filmlab-qa-e2e-reload.png` additionally restored Signal Loss, 1:1, and the committed Caption together. |
+| Export | PASS | A clean input-to-export flow produced `/tmp/filmlab-qa-e2e-downloads/R - COMPUTE.png`, inspected as a 1080 × 1080 PNG with the expected Signal Loss image and Caption. The output slice separately inspected PNG/JPEG at 1x/2x. |
+| Production truth | PASS | README distinguishes browser-local workbenches from server assets, records the host-provided JWT requirement, and states that both Postgres metadata and Supabase binary storage are required for durable production assets. |
+
+- Final clean-flow screenshots: `/tmp/filmlab-qa-e2e-ready.png`, `/tmp/filmlab-qa-e2e-export-dialog.png`, and `/tmp/filmlab-qa-e2e-reload.png`.
+- First actionable failure: enabled empty Caption broke both preview and export after reload. It was traced to the semantic-overlay execution boundary, fixed there, and rerun through the exact browser flow before this checklist was marked complete.
+- Validation: full lint, test, client/server build, dead-code baseline, fixed-asset browser QA, real artifact inspection, and final independent review passed; final review result: no issues found.
+
 ## Validation Boundary
 
 - Unit tests cover pure preset/state transforms only.

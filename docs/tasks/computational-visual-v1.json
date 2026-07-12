@@ -44,7 +44,7 @@
     },
     {
       "id": "product-validation",
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": ["social-composition-output"],
       "passes": [
         "a first-time browser flow completes input to export without relying on undocumented routes or hidden controls",
