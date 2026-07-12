@@ -74,6 +74,28 @@ describe("image overlay execution", () => {
     expect(resolveImageOverlayLayoutScale({ width: 800, height: 600 })).toBe(1);
   });
 
+  it("treats enabled overlays without visible content as no-ops", () => {
+    const nonRenderingOverlays: SemanticOverlayNode[] = semanticOverlays.map(
+      (overlay) => {
+        switch (overlay.type) {
+          case "timestamp":
+            return { ...overlay, params: { ...overlay.params, opacity: 0 } };
+          case "caption":
+            return { ...overlay, params: { ...overlay.params, text: "   " } };
+          case "watermark":
+            return { ...overlay, params: { ...overlay.params, opacity: 0 } };
+        }
+      }
+    );
+
+    expect(
+      resolveImageOverlays({
+        semanticOverlays: nonRenderingOverlays,
+        timestampText: "2026.07.12",
+      })
+    ).toEqual([]);
+  });
+
   it("scales authored maximums beyond editor ranges and below preview minimums", () => {
     const maximums: SemanticOverlayNode[] = semanticOverlays.map((overlay) => {
       if (overlay.type === "timestamp") {

@@ -115,25 +115,37 @@ export const resolveImageOverlays = ({
       continue;
     }
     switch (node.type) {
-      case "timestamp":
+      case "timestamp": {
+        if (node.params.opacity <= 0.1) {
+          break;
+        }
         overlays.push({
           type: "timestamp",
           adjustments: createTimestampAdjustmentsFromOverlayNode(node, safeLayoutScale),
           text: timestampText,
         });
         break;
-      case "caption":
+      }
+      case "caption": {
+        if (!node.params.text.trim() || node.params.opacity <= 0.1) {
+          break;
+        }
         overlays.push({
           type: "caption",
           params: createCaptionRenderParams(node, safeLayoutScale),
         });
         break;
-      case "watermark":
+      }
+      case "watermark": {
+        if (!node.params.text.trim() || node.params.opacity <= 0.1) {
+          break;
+        }
         overlays.push({
           type: "watermark",
           params: createWatermarkRenderParams(node, safeLayoutScale),
         });
         break;
+      }
     }
   }
   return overlays;
