@@ -1,6 +1,6 @@
 import type Konva from "konva";
 import { memo, useEffect, useMemo, useRef, type RefObject, useState } from "react";
-import { Layer, Rect, Stage, Transformer } from "react-konva";
+import { Group, Layer, Rect, Stage, Transformer } from "react-konva";
 import type {
   CanvasRenderableElement,
   CanvasRenderableTextElement,
@@ -10,6 +10,7 @@ import type {
 import {
   CANVAS_SELECTION_ACCENT,
   CANVAS_SELECTION_ACCENT_FILL,
+  DOCUMENT_BACKGROUND_NODE_ID,
   WORKSPACE_BACKGROUND_NODE_ID,
 } from "./canvasViewportConstants";
 import { ImageElement } from "./elements/ImageElement";
@@ -441,9 +442,7 @@ const resolveBaseSelectionOutlineRect = (
   if (element.type === "text") {
     const fitted = fitCanvasTextElementToContent(element);
     const useWorldCoords = "bounds" in element;
-    const renderable = useWorldCoords
-      ? (element as CanvasRenderableTextElement)
-      : null;
+    const renderable = useWorldCoords ? (element as CanvasRenderableTextElement) : null;
     return {
       id: element.id,
       rotation: renderable ? renderable.worldRotation : fitted.transform.rotation,
@@ -553,11 +552,7 @@ const CanvasSelectionTransformerLayer = memo(function CanvasSelectionTransformer
     return null;
   }
 
-  const {
-    anchorStyleFunc,
-    boundBoxFunc,
-    ...transformerProps
-  } = transformer;
+  const { anchorStyleFunc, boundBoxFunc, ...transformerProps } = transformer;
 
   return (
     <Transformer
@@ -606,12 +601,8 @@ interface CanvasViewportStageShellProps {
     handleElementTransformStart: (elementId: string, event: Konva.KonvaEventObject<Event>) => void;
     handleStageWheel: (event: Konva.KonvaEventObject<WheelEvent>) => void;
     handleWorkspacePointerDown: (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
-    handleWorkspacePointerMove: (
-      event?: Konva.KonvaEventObject<MouseEvent | TouchEvent>
-    ) => void;
-    handleWorkspacePointerUp: (
-      event?: Konva.KonvaEventObject<MouseEvent | TouchEvent>
-    ) => void;
+    handleWorkspacePointerMove: (event?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
+    handleWorkspacePointerUp: (event?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
     isMarqueeDragging: boolean;
     marqueeRect: { x: number; y: number; width: number; height: number } | null;
     stageRef: RefObject<Konva.Stage>;
@@ -694,18 +685,35 @@ export const CanvasViewportStageShell = memo(function CanvasViewportStageShell({
         </Layer>
 
         <Layer>
-          <CanvasElementsLayer
-            activeEditingTextId={textEditing.activeEditingTextId}
-            canManipulateElements={interaction.canManipulateElements}
-            dragBoundFunc={interaction.dragBoundFunc}
-            editingTextDraft={textEditing.editingTextDraft}
-            elements={scene.activeWorkbench.elements}
-            interactivePreviewElementId={scene.interactivePreviewElementId}
-            onElementDragMove={interaction.handleElementDragMove}
-            onElementDragStart={interaction.handleElementDragStart}
-            onElementDragEnd={interaction.handleElementDragEnd}
-            onElementSelect={interaction.handleElementSelect}
+          <Rect
+            id={DOCUMENT_BACKGROUND_NODE_ID}
+            listening={false}
+            x={0}
+            y={0}
+            width={scene.activeWorkbench.width}
+            height={scene.activeWorkbench.height}
+            fill={scene.activeWorkbench.backgroundColor}
+            perfectDrawEnabled={false}
           />
+          <Group
+            clipX={0}
+            clipY={0}
+            clipWidth={scene.activeWorkbench.width}
+            clipHeight={scene.activeWorkbench.height}
+          >
+            <CanvasElementsLayer
+              activeEditingTextId={textEditing.activeEditingTextId}
+              canManipulateElements={interaction.canManipulateElements}
+              dragBoundFunc={interaction.dragBoundFunc}
+              editingTextDraft={textEditing.editingTextDraft}
+              elements={scene.activeWorkbench.elements}
+              interactivePreviewElementId={scene.interactivePreviewElementId}
+              onElementDragMove={interaction.handleElementDragMove}
+              onElementDragStart={interaction.handleElementDragStart}
+              onElementDragEnd={interaction.handleElementDragEnd}
+              onElementSelect={interaction.handleElementSelect}
+            />
+          </Group>
         </Layer>
 
         <Layer listening={false}>

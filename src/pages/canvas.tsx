@@ -15,7 +15,10 @@ import { useCanvasInteraction } from "@/features/canvas/hooks/useCanvasInteracti
 import { useCanvasRouteWorkbenchSync } from "@/features/canvas/hooks/useCanvasRouteWorkbenchSync";
 import { shallow } from "zustand/shallow";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { selectCanvasLoadedWorkbenchState } from "@/features/canvas/store/canvasStoreSelectors";
+import {
+  selectCanvasLoadedWorkbenchState,
+  selectIsCanvasWorkbenchMutationPending,
+} from "@/features/canvas/store/canvasStoreSelectors";
 import { CanvasRuntimeProvider } from "@/features/canvas/runtime/CanvasRuntimeProvider";
 
 function CanvasPageEffects({
@@ -35,14 +38,19 @@ function CanvasPreviewSurface({
   contextActions,
   interactionNotice,
   onNotice,
+  onExport,
   stageRef,
 }: {
   contextActions: CanvasContextActionsModel;
   interactionNotice: CanvasInteractionNotice | null;
   onNotice: (notice: CanvasInteractionNotice) => void;
+  onExport: () => void;
   stageRef: RefObject<Konva.Stage>;
 }) {
-  const { loadedWorkbench, loadedWorkbenchId } = useCanvasStore(selectCanvasLoadedWorkbenchState, shallow);
+  const { loadedWorkbench, loadedWorkbenchId } = useCanvasStore(
+    selectCanvasLoadedWorkbenchState,
+    shallow
+  );
 
   return (
     <CanvasRuntimeProvider
@@ -56,7 +64,7 @@ function CanvasPreviewSurface({
         onNotice={onNotice}
         stageRef={stageRef}
       />
-      <CanvasFloatingPanel />
+      <CanvasFloatingPanel onExport={onExport} />
     </CanvasRuntimeProvider>
   );
 }
@@ -69,6 +77,9 @@ export function CanvasPage() {
     setInteractionNotice(notice);
   }, []);
   const handleOpenExport = useCallback(() => {
+    if (selectIsCanvasWorkbenchMutationPending(useCanvasStore.getState())) {
+      return;
+    }
     setExportOpen(true);
   }, []);
   const contextActions = useCanvasContextActions({
@@ -99,15 +110,12 @@ export function CanvasPage() {
           contextActions={contextActions}
           interactionNotice={interactionNotice}
           onNotice={handleNotice}
+          onExport={handleOpenExport}
           stageRef={stageRef}
         />
         <CanvasAppBar onExport={handleOpenExport} />
         <CanvasToolRail />
-        <CanvasExportDialog
-          open={exportOpen}
-          onOpenChange={setExportOpen}
-          stage={stageRef.current}
-        />
+        <CanvasExportDialog open={exportOpen} onOpenChange={setExportOpen} />
       </div>
     </CanvasWorkbenchTransitionGuardProvider>
   );

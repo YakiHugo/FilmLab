@@ -3,11 +3,7 @@
 
 import type { GPURenderPassBindContext, GPURenderPassDescriptor } from "../types";
 import { requestGPUContext } from "../../context";
-import {
-  TexturePool,
-  uploadExternalImageToTexture,
-  readbackTextureRGBA8,
-} from "../../resources";
+import { TexturePool, uploadExternalImageToTexture, readbackTextureRGBA8 } from "../../resources";
 import { ShaderCache } from "../../shaders";
 import { PipelineExecutor, type PipelineInputSource } from "../../pipeline";
 import { createPerDeviceCache } from "../../perDeviceCache";
@@ -51,8 +47,16 @@ class TimestampPipelineCache {
     const bindGroupLayout = this.device.createBindGroupLayout({
       label: "overlay.timestamp.bindGroupLayout",
       entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "2d" } },
+        {
+          binding: 0,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: "float", viewDimension: "2d" },
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: "float", viewDimension: "2d" },
+        },
         { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
         { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
       ],
@@ -119,7 +123,7 @@ const buildTimestampGlyphAtlas = ({
   c2d.fillStyle = "#ffffff";
   c2d.textAlign = "center";
   c2d.textBaseline = "middle";
-  c2d.font = `${Math.max(6, Math.round(fontSizePx))}px ${fontFamily}`;
+  c2d.font = `${Math.max(1, Math.round(fontSizePx))}px ${fontFamily}`;
 
   for (let i = 0; i < charset.length; i += 1) {
     const glyph = charset[i] ?? "";

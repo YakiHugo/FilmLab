@@ -1,79 +1,73 @@
 # FilmLab
 
-> 一个面向社媒分享图的轻量图片创作工具  
-> 用更少的操作，做出更有风格、更适合发布的图
+FilmLab 是一个 image-first 的计算视觉工作台：输入一张图片，选择一套明确的视觉语言，完成社媒构图并导出可直接发布的静态作品。
 
----
+## V1 可达结果
 
-## 它是什么
+完整主路径是：
 
-FilmLab 不是传统修图软件，也不是单纯的滤镜 App。
+`图片输入 -> 计算风格 -> 语义叠层 -> 输出比例 -> PNG/JPEG -> 重载恢复`
 
-它更像一个围绕“发图”这件事设计的轻创作工作台：
+- 输入：本地上传、拖放、粘贴图片、最近素材；AI 生成是可选输入源。
+- 风格：Mono Terminal、Color Glyph、Print Screen、Signal Loss、Data Mosaic 五个方向；强度与 ASCII、Halftone、Signal 细调均从 Style Lab 可达。
+- 表达：Caption、Timestamp、Watermark 三类语义叠层。
+- 构图：1:1、4:5、9:16，切换后仍使用同一份可撤销画布文档。
+- 输出：PNG 或 JPEG，1x 或 2x；质量预览和下载共用同一条作品渲染链。
+- 恢复：同一浏览器重载后恢复素材、画布、风格、叠层与输出比例。
 
-- 快速处理图片
-- 快速套用鲜明风格
-- 快速完成单图或组图排版
-- 直接产出适合社交媒体发布的内容
+V1 只发布静态单图主路径。视频时间线、通用排版工具、多图拼贴、TIFF/16-bit 输出和完整专业调色台不属于当前产品承诺。
 
-重点不是把编辑能力堆满，而是把最常用、最容易形成表达的能力放在前面。
+## 运行边界
 
----
+| 层 | 职责 | 持久化边界 |
+| --- | --- | --- |
+| React / Canvas / WebGPU | 输入、作品文档、实时预览、风格与导出 | IndexedDB 保存当前浏览器的素材副本和 workbench |
+| Fastify API | 认证、素材同步、可选 AI 生成 | 无持久配置时仅使用进程内存 |
+| Postgres + Supabase Storage | 素材元数据、上传会话、原图和缩略图 | 生产环境必须同时配置，才能跨服务重启保留服务器素材 |
 
-## 我们关心什么
+Workbench 文档在 V1 仍是浏览器本地状态，不承诺跨设备项目同步。AI 凭据缺失不会阻塞本地图片创作。
 
-- 先出结果，再谈参数
-- 先服务发布场景，再补编辑能力
-- 风格要足够明显，操作要足够简单
-- 单张图要能发，组图也要能表达内容
+## 本地运行
 
----
+要求 Node.js 20.19+（20.x）、22.13+（22.x）或 24+，pnpm 9，以及支持 WebGPU 的 Chromium 系浏览器。
 
-## 当前核心能力
+```bash
+pnpm install --frozen-lockfile
+cp server/.env.example server/.env.local
+pnpm dev
+```
 
-FilmLab 现在围绕社媒分享图创作，重点支持这些能力：
+打开 `http://localhost:5173`。开发配置允许 `local-user` 无签名认证；浏览器 IndexedDB 会保留本地素材和 workbench。未配置 Postgres/Supabase 时，Fastify 的远端素材仓库只适合本地开发，服务重启后不会保留其中的数据。
 
-### 轻量图片处理
+## 生产持久化
 
-- 基础裁切、缩放、旋转
-- 必要的亮度、对比、色彩调整
-- 面向结果的轻量编辑，而不是复杂工作流
+生产环境至少需要以下服务端配置：
 
-### 低门槛胶片滤镜
+```dotenv
+NODE_ENV=production
+CORS_ORIGIN=https://your-client.example
+DATABASE_URL=postgresql://...
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_STORAGE_BUCKET=assets
+AUTH_JWT_SECRET=...
+ASSET_URL_SECRET=...
+ALLOW_UNSIGNED_DEV_AUTH=false
+```
 
-- 不要求理解专业胶片流程
-- 直接得到明显、稳定、可用的胶片氛围
-- 适合快速套用到分享图和组图场景
+在 Supabase 中预先创建私有 `assets` bucket；service role key 只能留在 Fastify 服务端。服务启动时会自动执行 `server/migrations` 中的 Postgres 迁移。生产部署还需要将静态客户端的 `/api` 同源代理到 Fastify，并把 `CORS_ORIGIN` 设置为实际客户端域名。
 
-### 风格化效果
+V1 没有内置登录页。生产宿主的认证服务必须签发带稳定 `sub` 用户 ID 的 HS256 JWT，并在加载 FilmLab 前写入浏览器 `localStorage` 的 `filmlab_auth_token`；签名使用服务端 `AUTH_JWT_SECRET`，不能把该 secret 暴露给客户端。若设置了 `AUTH_JWT_ISSUER` 或 `AUTH_JWT_AUDIENCE`，签发内容也必须匹配。
 
-- ASCII 效果
-- 像素效果
-- 宝丽来效果
-- 其他适合社媒表达的图像风格化处理
+如果省略 `DATABASE_URL`，生产服务会拒绝启动；如果省略 Supabase 配置，二进制素材会退回进程内存，即使数据库存在也不能在服务重启后恢复原图。
 
-### 画布组图分享
+AI 输入按需配置 `ARK_API_KEY`、`DASHSCOPE_API_KEY` 或 Kling 凭据；这些变量不是本地图片主路径的前置条件。
 
-- 在一个画布里组织多张图片
-- 做拼贴、排版、组合表达
-- 输出适合社交媒体发布的分享图
+## 验证
 
----
+```bash
+pnpm verify
+pnpm dead-code
+```
 
-## 它不想成为什么
-
-- 复杂的专业后期软件
-- 只有预设的滤镜 App
-- 只适合单张修图的图片工具
-
-FilmLab 更接近下面这个定义：
-
-**一个围绕“社媒图片表达”构建的轻创作工作台。**
-
-它可以处理图片，但重点不是“修图”。  
-它可以提供风格，但重点不是“调参”。  
-它可以做组图，但重点不是“排版工具本身”。  
-
-重点始终是同一件事：
-
-**帮助创作者更快做出有风格、有趣、适合分享的视觉内容。**
+自动检查只是回归证据。发布前仍需用固定的人像、风景和高细节素材逐一检查五种风格，并实际检查重载状态与导出文件。

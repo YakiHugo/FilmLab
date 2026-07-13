@@ -54,20 +54,26 @@ fn ascii_source_over(base: vec4<f32>, layer: vec4<f32>) -> vec4<f32> {
   return vec4<f32>(clamp(outRgb, vec3<f32>(0.0), vec3<f32>(1.0)), clamp(outAlpha, 0.0, 1.0));
 }
 
-fn grid_overlay_mask(pixel: vec2<f32>, cellSize: vec2<f32>, gridOverlay: u32) -> f32 {
+fn line_coverage(distance: f32, width: f32) -> f32 {
+  return clamp(width * 0.5 + 0.5 - distance, 0.0, 1.0);
+}
+
+fn grid_overlay_mask(localPixel: vec2<f32>, cellSize: vec2<f32>, gridOverlay: u32, lineWidth: f32) -> f32 {
   if (gridOverlay == 0u) {
     return 0.0;
   }
   let safeCell = max(cellSize, vec2<f32>(1.0));
-  let local = vec2<f32>(
-    pixel.x - floor(pixel.x / safeCell.x) * safeCell.x,
-    pixel.y - floor(pixel.y / safeCell.y) * safeCell.y,
-  );
-  let distX = min(local.x, safeCell.x - local.x);
-  let distY = min(local.y, safeCell.y - local.y);
-  let vertical   = 1.0 - step(1.0, distX);
-  let horizontal = 1.0 - step(1.0, distY);
+  let distX = min(localPixel.x, safeCell.x - localPixel.x);
+  let distY = min(localPixel.y, safeCell.y - localPixel.y);
+  let vertical = line_coverage(distX, max(0.0, lineWidth));
+  let horizontal = line_coverage(distY, max(0.0, lineWidth));
   return max(vertical, horizontal);
+}
+
+fn resolve_cell_index(pixel: u32, imageSize: u32, gridSize: u32) -> u32 {
+  let safeImageSize = max(imageSize, 1u);
+  let safeGridSize = max(gridSize, 1u);
+  return min(safeGridSize - 1u, (((pixel + 1u) * safeGridSize) - 1u) / safeImageSize);
 }
 
 fn resolve_foreground_color(cellSample: vec4<f32>, tone: f32) -> vec3<f32> {
@@ -105,13 +111,14 @@ fn resolve_background_layer(cellSample: vec4<f32>, uv: vec2<f32>) -> vec4<f32> {
 }
 
 fn resolve_foreground_layer(
-  pixel: vec2<f32>,
+  localPixel: vec2<f32>,
   localUv: vec2<f32>,
+  cellSize: vec2<f32>,
   cellSample: vec4<f32>,
   tone: f32,
   cellIdx: u32,
 ) -> vec4<f32> {
-  let cellSize = max(u.cellAtlas.xy, vec2<f32>(1.0));
+  let safeCellSize = max(cellSize, vec2<f32>(1.0));
   let atlasGrid = max(u.cellAtlas.zw, vec2<f32>(1.0));
   var color = vec4<f32>(0.0);
 
@@ -123,8 +130,8 @@ fn resolve_foreground_layer(
       // Dot mode — radius tracks pre-invert tone (un-invert if invert=true).
       var dotTone = clamp(tone, 0.0, 1.0);
       if (u.modes.w != 0u) { dotTone = 1.0 - dotTone; }
-      let dotRadius = max(1.0, min(cellSize.x, cellSize.y) * 0.45 * dotTone);
-      let centered = localUv * cellSize - cellSize * 0.5;
+      let dotRadius = max(1.0, min(safeCellSize.x, safeCellSize.y) * 0.45 * dotTone);
+      let centered = localUv * safeCellSize - safeCellSize * 0.5;
       let dist = length(centered);
       let dotAlpha = 1.0 - smoothstep(max(dotRadius - 1.0, 0.0), dotRadius, dist);
       color = vec4<f32>(fgRgb, fgAlpha * dotAlpha);
@@ -139,7 +146,12 @@ fn resolve_foreground_layer(
     }
   }
 
-  let overlayMask = grid_overlay_mask(pixel, cellSize, u.bgFlags.w);
+  let overlayMask = grid_overlay_mask(
+    localPixel,
+    safeCellSize,
+    u.bgFlags.w,
+    u.duotoneShadow.a,
+  );
   if (overlayMask > 0.0) {
     let overlay = vec4<f32>(1.0, 1.0, 1.0, clamp(u.scalars.w, 0.0, 1.0) * overlayMask);
     color = ascii_source_over(color, overlay);
@@ -151,17 +163,22 @@ fn resolve_foreground_layer(
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let canvasSize = max(u.canvasGrid.xy, vec2<f32>(1.0));
   let gridSize = max(u.canvasGrid.zw, vec2<f32>(1.0));
-  let cellSize = max(u.cellAtlas.xy, vec2<f32>(1.0));
+  let canvasSizeU = max(vec2<u32>(canvasSize), vec2<u32>(1u));
+  let gridSizeU = max(vec2<u32>(gridSize), vec2<u32>(1u));
 
   let pixel = in.uv * canvasSize;
   let safePixel = clamp(pixel, vec2<f32>(0.0), canvasSize - vec2<f32>(0.0001));
-  let cellCol = clamp(floor(safePixel.x / cellSize.x), 0.0, gridSize.x - 1.0);
-  let cellRow = clamp(floor(safePixel.y / cellSize.y), 0.0, gridSize.y - 1.0);
-  let cellIdx = u32(cellRow) * u32(gridSize.x) + u32(cellCol);
-  let localUv = vec2<f32>(
-    safePixel.x / cellSize.x - floor(safePixel.x / cellSize.x),
-    safePixel.y / cellSize.y - floor(safePixel.y / cellSize.y),
+  let pixelCoord = min(vec2<u32>(safePixel), canvasSizeU - vec2<u32>(1u));
+  let cellCoord = vec2<u32>(
+    resolve_cell_index(pixelCoord.x, canvasSizeU.x, gridSizeU.x),
+    resolve_cell_index(pixelCoord.y, canvasSizeU.y, gridSizeU.y),
   );
+  let cellStart = (cellCoord * canvasSizeU) / gridSizeU;
+  let cellEnd = ((cellCoord + vec2<u32>(1u)) * canvasSizeU) / gridSizeU;
+  let cellSize = max(vec2<f32>(cellEnd - cellStart), vec2<f32>(1.0));
+  let localPixel = safePixel - vec2<f32>(cellStart);
+  let localUv = clamp(localPixel / cellSize, vec2<f32>(0.0), vec2<f32>(0.9999));
+  let cellIdx = cellCoord.y * gridSizeU.x + cellCoord.x;
 
   let cellSample = cellColor[cellIdx];
   let tone = cellTone[cellIdx];
@@ -169,5 +186,5 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   if (u.modes.x == 0u) {
     return resolve_background_layer(cellSample, in.uv);
   }
-  return resolve_foreground_layer(pixel, localUv, cellSample, tone, cellIdx);
+  return resolve_foreground_layer(localPixel, localUv, cellSize, cellSample, tone, cellIdx);
 }

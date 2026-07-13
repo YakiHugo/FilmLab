@@ -1,56 +1,25 @@
-import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { CirclePlus, Film, Sparkles } from "lucide-react";
+import { Link, useLocation } from "@tanstack/react-router";
+import { Film, Sparkles } from "lucide-react";
 import { useMemo } from "react";
-import { Button } from "@/components/ui/button";
-import { useOptionalCanvasWorkbenchTransitionGuard } from "@/features/canvas/canvasWorkbenchTransitionGuardHooks";
 import { cn } from "@/lib/utils";
-import { useCanvasStore } from "@/stores/canvasStore";
-import { selectLoadedWorkbenchName } from "@/features/canvas/store/canvasStoreSelectors";
 
 const NAV_ITEMS = [
   { label: "\u5de5\u4f5c\u53f0", to: "/" as const, matches: ["/", "/canvas"] },
   { label: "\u7d20\u6750\u5e93", to: "/library" as const, matches: ["/library"] },
 ];
 
-const controlClass =
-  "h-7 rounded-sm border border-white/10 bg-black/45 text-zinc-200 hover:border-white/20 hover:bg-white/[0.08] focus-visible:border-yellow-500/60 focus-visible:ring-0";
-
 function ContextActions() {
-  const navigate = useNavigate();
   const pathname = useLocation({ select: (state) => state.pathname });
-  const activeWorkbenchName = useCanvasStore(selectLoadedWorkbenchName);
-  const runBeforeWorkbenchTransition = useOptionalCanvasWorkbenchTransitionGuard();
 
-  if (pathname === "/" || pathname.startsWith("/canvas")) {
+  if (pathname === "/") {
     return (
-      <div className="flex items-center gap-2">
-        <span className="max-w-[220px] truncate rounded-sm border border-white/10 bg-black/40 px-2.5 py-1 text-xs text-zinc-300">
-          {activeWorkbenchName}
-        </span>
-        <Button
-          size="sm"
-          variant="secondary"
-          className={controlClass}
-          onClick={() => {
-            void (async () => {
-              await runBeforeWorkbenchTransition();
-              const created = await useCanvasStore.getState().createWorkbench(undefined, {
-                openAfterCreate: false,
-              });
-              if (!created) {
-                return;
-              }
-              await navigate({
-                to: "/canvas/$workbenchId",
-                params: { workbenchId: created.id },
-              });
-            })();
-          }}
-        >
-          <CirclePlus className="h-3.5 w-3.5" />
-          {`\u65b0\u5efa\u5de5\u4f5c\u53f0`}
-        </Button>
-      </div>
+      <Link
+        to="/assist"
+        className="inline-flex items-center gap-1.5 border border-[#d9ff43]/35 bg-[#d9ff43]/[0.06] px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-[#d9ff43] transition hover:bg-[#d9ff43]/[0.12]"
+      >
+        <Sparkles className="h-3.5 w-3.5" />
+        AI 输入
+      </Link>
     );
   }
 
@@ -65,15 +34,7 @@ function ContextActions() {
     );
   }
 
-  return (
-    <Link
-      to="/assist"
-      className="inline-flex items-center gap-1 rounded-sm border border-white/10 bg-black/35 px-2.5 py-1 text-xs text-zinc-300 transition hover:bg-white/10"
-    >
-      <Sparkles className="h-3.5 w-3.5" />
-      AI Assist
-    </Link>
-  );
+  return null;
 }
 
 export function Header() {
@@ -103,7 +64,7 @@ export function Header() {
             <Film className="h-3.5 w-3.5" />
           </Link>
           <p className="truncate text-xs font-semibold tracking-wide text-zinc-200">
-            FilmLab Canvas
+            FilmLab / Compute
           </p>
         </div>
 
@@ -115,8 +76,8 @@ export function Header() {
                 key={item.label}
                 to={item.to}
                 className={cn(
-                  "rounded-sm border border-transparent px-2.5 py-1 text-xs font-medium text-zinc-300 transition focus-visible:border-yellow-500/60 focus-visible:ring-0",
-                  isActive && "border-yellow-500/60 bg-yellow-500/10 text-zinc-100",
+                  "rounded-sm border border-transparent px-2.5 py-1 text-xs font-medium text-zinc-300 transition focus-visible:border-[#d9ff43]/60 focus-visible:ring-0",
+                  isActive && "border-[#d9ff43]/60 bg-[#d9ff43]/10 text-zinc-100",
                   !isActive && "hover:bg-white/10"
                 )}
               >

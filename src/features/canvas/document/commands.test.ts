@@ -4,7 +4,12 @@ import { getCanvasNodeWorldTransform, worldPointToLocalPoint } from "./geometry"
 import { getCanvasWorkbenchSnapshot } from "./model";
 import { executeCanvasCommand } from "./commands";
 import { applyCanvasDocumentDelta } from "./patches";
-import { createCanvasTestDocument, createGroupNode, createImageNode, createShapeNode } from "./testUtils";
+import {
+  createCanvasTestDocument,
+  createGroupNode,
+  createImageNode,
+  createShapeNode,
+} from "./testUtils";
 
 describe("document commands", () => {
   it("groups same-parent siblings in sibling order and preserves world transforms", () => {
@@ -87,7 +92,9 @@ describe("document commands", () => {
     });
 
     expect(result.didChange).toBe(false);
-    expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
+    expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(
+      getCanvasWorkbenchSnapshot(document)
+    );
     expect(result.delta.operations).toEqual([]);
   });
 
@@ -234,7 +241,9 @@ describe("document commands", () => {
     });
 
     expect(result.didChange).toBe(false);
-    expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
+    expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(
+      getCanvasWorkbenchSnapshot(document)
+    );
     expect(result.delta.operations).toEqual([]);
   });
 
@@ -256,7 +265,9 @@ describe("document commands", () => {
     });
 
     expect(result.didChange).toBe(false);
-    expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
+    expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(
+      getCanvasWorkbenchSnapshot(document)
+    );
     expect(result.delta.operations).toEqual([]);
   });
 
@@ -326,7 +337,9 @@ describe("document commands", () => {
     });
 
     expect(result.didChange).toBe(false);
-    expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
+    expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(
+      getCanvasWorkbenchSnapshot(document)
+    );
     expect(result.delta.operations).toEqual([]);
   });
 
@@ -347,7 +360,9 @@ describe("document commands", () => {
     });
 
     expect(result.didChange).toBe(false);
-    expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(getCanvasWorkbenchSnapshot(document));
+    expect(getCanvasWorkbenchSnapshot(result.document)).toEqual(
+      getCanvasWorkbenchSnapshot(document)
+    );
     expect(result.delta.operations).toEqual([]);
   });
 
@@ -369,6 +384,139 @@ describe("document commands", () => {
         name: document.name,
         width: document.width,
       },
+    });
+
+    expect(result.didChange).toBe(false);
+    expect(result.document).toBe(document);
+    expect(result.delta.operations).toEqual([]);
+  });
+
+  it("applies an output format as one reversible document-and-composition change", () => {
+    const initial = createCanvasTestDocument({
+      nodes: {
+        "image-cover": createImageNode({
+          id: "image-cover",
+          assetId: "asset-cover",
+          x: -100,
+          y: 0,
+          width: 1400,
+          height: 900,
+          rotation: 8,
+        }),
+        "shape-label": createShapeNode({
+          id: "shape-label",
+          x: 900,
+          y: 700,
+          width: 120,
+          height: 80,
+        }),
+      },
+      rootIds: ["image-cover", "shape-label"],
+    });
+    const document = {
+      ...initial,
+      preferredCoverAssetId: "asset-cover",
+    };
+
+    const result = executeCanvasCommand(document, {
+      type: "APPLY_OUTPUT_FORMAT",
+      presetId: "social-story",
+    });
+
+    expect(result.didChange).toBe(true);
+    expect(result.document).toMatchObject({
+      presetId: "social-story",
+      width: 1080,
+      height: 1920,
+    });
+    expect(result.document.nodes["image-cover"]).toMatchObject({
+      transform: {
+        x: 0,
+        y: 0,
+        width: 1080,
+        height: 1920,
+        rotation: 0,
+      },
+      renderState: {
+        geometry: {
+          aspectRatio: "9:16",
+        },
+      },
+    });
+    expect(result.document.nodes["shape-label"]?.transform).toMatchObject({
+      x: 804,
+      width: 120,
+      height: 80,
+    });
+    expect(result.document.nodes["shape-label"]?.transform.y).toBeCloseTo(1538.67, 2);
+    expect(
+      result.delta.operations.filter((operation) => operation.type === "patchDocumentMeta")
+    ).toHaveLength(2);
+    expect(
+      result.delta.operations.filter((operation) => operation.type === "setNode")
+    ).toHaveLength(2);
+
+    const redone = applyCanvasDocumentDelta(document, result.delta, "redo");
+    const undone = applyCanvasDocumentDelta(result.document, result.delta, "undo");
+    expect(getCanvasWorkbenchSnapshot(redone)).toEqual(getCanvasWorkbenchSnapshot(result.document));
+    expect(getCanvasWorkbenchSnapshot(undone)).toEqual(getCanvasWorkbenchSnapshot(document));
+  });
+
+  it("does not apply single-frame output formats to sliced workbenches", () => {
+    const document = {
+      ...createCanvasTestDocument({
+        nodes: {},
+        rootIds: [],
+      }),
+      slices: [{ id: "slice-1", name: "Frame 1", x: 0, y: 0, width: 1200, height: 900, order: 1 }],
+    };
+
+    const result = executeCanvasCommand(document, {
+      type: "APPLY_OUTPUT_FORMAT",
+      presetId: "social-square",
+    });
+
+    expect(result.didChange).toBe(false);
+    expect(result.document).toBe(document);
+  });
+
+  it("rejects output format changes when the preferred cover is grouped", () => {
+    const initial = createCanvasTestDocument({
+      nodes: {
+        "cover-group": createGroupNode({
+          id: "cover-group",
+          childIds: ["image-cover", "shape-label"],
+          x: 0,
+          y: 0,
+          width: 1200,
+          height: 900,
+        }),
+        "image-cover": createImageNode({
+          id: "image-cover",
+          assetId: "asset-cover",
+          parentId: "cover-group",
+          x: 0,
+          y: 0,
+          width: 1200,
+          height: 900,
+        }),
+        "shape-label": createShapeNode({
+          id: "shape-label",
+          parentId: "cover-group",
+          x: 900,
+          y: 700,
+        }),
+      },
+      rootIds: ["cover-group"],
+    });
+    const document = {
+      ...initial,
+      preferredCoverAssetId: "asset-cover",
+    };
+
+    const result = executeCanvasCommand(document, {
+      type: "APPLY_OUTPUT_FORMAT",
+      presetId: "social-story",
     });
 
     expect(result.didChange).toBe(false);

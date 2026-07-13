@@ -8,6 +8,7 @@ import {
   selectCanRedoInWorkbench,
   selectCanUndoOnLoadedWorkbench,
   selectCanUndoInWorkbench,
+  selectIsCanvasWorkbenchMutationPending,
   selectResolvedLoadedWorkbenchId,
 } from "./canvasStoreSelectors";
 
@@ -137,6 +138,25 @@ describe("canvasStoreSelectors", () => {
 
     expect(selectCanUndoInWorkbench(state, "workbench-1")).toBe(false);
     expect(selectCanRedoInWorkbench(state, "workbench-1")).toBe(false);
+  });
+
+  it("reports active interactions, pending commits, and queued mutations as export blockers", () => {
+    const state = createState();
+    expect(selectIsCanvasWorkbenchMutationPending(state)).toBe(false);
+
+    state.workbenchInteraction = {
+      active: true,
+      pendingCommits: 0,
+      queuedMutations: 0,
+    };
+    expect(selectIsCanvasWorkbenchMutationPending(state)).toBe(true);
+
+    state.workbenchInteraction = {
+      active: false,
+      pendingCommits: 0,
+      queuedMutations: 1,
+    };
+    expect(selectIsCanvasWorkbenchMutationPending(state)).toBe(true);
   });
 
   it("treats missing loaded workbench ids as unavailable history", () => {

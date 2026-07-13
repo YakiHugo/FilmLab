@@ -114,6 +114,24 @@ describe("project import pipeline", () => {
     expect(progress[progress.length - 1]).toEqual({ current: 3, total: 3 });
   });
 
+  it("normalizes a missing MIME type from a supported file extension", async () => {
+    const imported: Asset[] = [];
+
+    const result = await runImportPipeline({
+      files: [createFile("fallback.PNG", "")],
+      existingAssets: [],
+      onAssetImported: (asset) => {
+        imported.push(asset);
+      },
+    });
+
+    expect(result.added).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(prepareAssetUpload).toHaveBeenCalledWith(expect.objectContaining({ type: "image/png" }));
+    expect(imported[0]?.type).toBe("image/png");
+    expect(imported[0]?.blob?.type).toBe("image/png");
+  });
+
   it("supports custom import metadata for ai/url flow", async () => {
     const imported: Asset[] = [];
 
@@ -139,4 +157,3 @@ describe("project import pipeline", () => {
     expect(imported[0]?.contentHash).toBeTruthy();
   });
 });
-

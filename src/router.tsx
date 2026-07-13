@@ -1,9 +1,16 @@
-import { createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
+import {
+  createRootRoute,
+  createRoute,
+  createRouter,
+  lazyRouteComponent,
+} from "@tanstack/react-router";
 import App from "@/App";
-import { CanvasPage } from "@/pages/canvas";
-import { ImageLabPage } from "@/pages/image-lab";
-import { LibraryPage } from "@/pages/library";
-import { StudioPage } from "@/pages/studio";
+import { RoutePending } from "@/components/RoutePending";
+
+const StudioPage = lazyRouteComponent(() => import("@/pages/studio"), "StudioPage");
+const LibraryPage = lazyRouteComponent(() => import("@/pages/library"), "LibraryPage");
+const ImageLabPage = lazyRouteComponent(() => import("@/pages/image-lab"), "ImageLabPage");
+const CanvasPage = lazyRouteComponent(() => import("@/pages/canvas"), "CanvasPage");
 
 const rootRoute = createRootRoute({
   component: App,
@@ -47,7 +54,10 @@ const routeTree = rootRoute.addChildren([
   canvasDocumentRoute,
 ]);
 
-export const router = createRouter({ routeTree });
+export const router = createRouter({
+  routeTree,
+  defaultPendingComponent: RoutePending,
+});
 
 declare module "@tanstack/react-router" {
   interface Register {

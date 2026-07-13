@@ -14,6 +14,7 @@ export interface CaptionOverlayRenderParams {
 }
 
 const CAPTION_FONTS = '"Space Grotesk", "Work Sans", sans-serif';
+const MAX_RENDER_LAYOUT_PX = 8192;
 
 const ensureCanvasSize = (canvas: HTMLCanvasElement, width: number, height: number) => {
   const safeWidth = Math.max(1, Math.round(width));
@@ -50,9 +51,9 @@ export const renderCaptionOverlayRaster = async ({
     return null;
   }
 
-  const fontSize = clamp(params.fontSize, 12, 72);
-  const padding = clamp(params.padding, 0, 100);
-  const margin = Math.max(12, Math.round(Math.min(safeWidth, safeHeight) * 0.04));
+  const fontSize = clamp(params.fontSize, 1, MAX_RENDER_LAYOUT_PX);
+  const padding = clamp(params.padding, 0, MAX_RENDER_LAYOUT_PX);
+  const margin = Math.max(1, Math.round(Math.min(safeWidth, safeHeight) * 0.04));
 
   ctx.save();
   ctx.globalAlpha = alpha;

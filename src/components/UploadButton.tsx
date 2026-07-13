@@ -53,7 +53,7 @@ export function UploadButton({
         type="file"
         multiple
         disabled={isDisabled}
-        accept=".jpg,.jpeg,.png,.webp,.tif,.tiff,.avif,image/jpeg,image/png,image/webp,image/tiff,image/avif"
+        accept=".jpg,.jpeg,.png,.webp,.avif,image/jpeg,image/png,image/webp,image/avif"
         className="hidden"
         onChange={(event) => {
           if (event.target.files && event.target.files.length > 0) {

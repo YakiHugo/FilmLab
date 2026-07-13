@@ -6,21 +6,26 @@ export const DEFAULT_IMPORT_CONCURRENCY = 4;
 export const MIN_IMPORT_CONCURRENCY = 2;
 export const MAX_IMPORT_CONCURRENCY = 6;
 
-const SUPPORTED_IMPORT_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/tiff",
-  "image/avif",
-]);
-const SUPPORTED_IMPORT_EXTENSIONS = /\.(jpe?g|png|webp|tiff?|avif)$/i;
+const SUPPORTED_IMPORT_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/avif"]);
+const SUPPORTED_IMPORT_EXTENSION_TYPES = [
+  { extension: /\.jpe?g$/i, mimeType: "image/jpeg" },
+  { extension: /\.png$/i, mimeType: "image/png" },
+  { extension: /\.webp$/i, mimeType: "image/webp" },
+  { extension: /\.avif$/i, mimeType: "image/avif" },
+] as const;
 
-export const isSupportedImportFile = (file: File) => {
-  if (SUPPORTED_IMPORT_TYPES.has(file.type)) {
-    return true;
+export const resolveSupportedImportMimeType = (file: Pick<File, "name" | "type">) => {
+  const declaredType = file.type.trim().toLowerCase();
+  if (SUPPORTED_IMPORT_TYPES.has(declaredType)) {
+    return declaredType;
   }
-  return SUPPORTED_IMPORT_EXTENSIONS.test(file.name);
+  return (
+    SUPPORTED_IMPORT_EXTENSION_TYPES.find(({ extension }) => extension.test(file.name))?.mimeType ??
+    null
+  );
 };
+
+export const isSupportedImportFile = (file: File) => resolveSupportedImportMimeType(file) !== null;
 
 export const resolveImportConcurrency = () => {
   const hardware =

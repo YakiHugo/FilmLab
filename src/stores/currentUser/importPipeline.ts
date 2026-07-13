@@ -10,6 +10,7 @@ import {
   MAX_IMPORT_BATCH_SIZE,
   MAX_IMPORT_FILE_SIZE,
   isSupportedImportFile,
+  resolveSupportedImportMimeType,
   resolveImportConcurrency,
 } from "./constants";
 import { toLocalDayKey } from "./grouping";
@@ -146,13 +147,17 @@ export const runImportPipeline = async ({
         let thumbnailUrl: string | undefined;
 
         try {
-          const fileBlob = file.slice(0, file.size, file.type);
+          const mimeType = resolveSupportedImportMimeType(file);
+          if (!mimeType) {
+            throw new Error("Unsupported image type");
+          }
+          const fileBlob = file.slice(0, file.size, mimeType);
           const contentHash = await sha256FromBlob(fileBlob);
           const { metadata, thumbnailBlob } = await prepareAssetPayload(fileBlob);
           const prepared = await prepareAssetUpload({
             assetId: createAssetId(),
             name: file.name,
-            type: file.type,
+            type: mimeType,
             size: file.size,
             createdAt: timestamp,
             source,
@@ -170,7 +175,7 @@ export const runImportPipeline = async ({
           const asset: Asset = {
             id,
             name: file.name,
-            type: file.type,
+            type: mimeType,
             size: file.size,
             createdAt: timestamp,
             objectUrl,
@@ -231,4 +236,3 @@ export const runImportPipeline = async ({
     skipped,
   };
 };
-

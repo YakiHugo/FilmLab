@@ -10,13 +10,23 @@ export function useImageLabConversation() {
   const requestAbortRef = useRef<AbortController | null>(null);
   const requestVersionRef = useRef(0);
 
-  const applyConversation = useCallback((nextConversation: ImageLabConversationView) => {
+  const commitConversation = useCallback((nextConversation: ImageLabConversationView) => {
     conversationIdRef.current = nextConversation.conversationId;
     setConversation(nextConversation);
     setConversationError(null);
     setIsLoadingConversation(false);
     return nextConversation;
   }, []);
+
+  const applyConversation = useCallback(
+    (nextConversation: ImageLabConversationView) => {
+      requestVersionRef.current += 1;
+      requestAbortRef.current?.abort();
+      requestAbortRef.current = null;
+      return commitConversation(nextConversation);
+    },
+    [commitConversation]
+  );
 
   const refreshConversation = useCallback(
     async (conversationId?: string) => {
@@ -25,7 +35,7 @@ export function useImageLabConversation() {
       requestAbortRef.current?.abort();
       const controller = new AbortController();
       requestAbortRef.current = controller;
-      setIsLoadingConversation((previous) => previous || !conversation);
+      setIsLoadingConversation((previous) => previous || conversationIdRef.current === null);
       setConversationError(null);
 
       try {
@@ -36,7 +46,7 @@ export function useImageLabConversation() {
         if (controller.signal.aborted || requestVersionRef.current !== requestVersion) {
           return null;
         }
-        return applyConversation(nextConversation);
+        return commitConversation(nextConversation);
       } catch (error) {
         if (controller.signal.aborted) {
           return null;
@@ -53,12 +63,19 @@ export function useImageLabConversation() {
         }
       }
     },
-    [applyConversation, conversation]
+    [commitConversation]
   );
 
   useEffect(() => {
-    void refreshConversation().catch(() => undefined);
+    let disposed = false;
+    queueMicrotask(() => {
+      if (!disposed) {
+        void refreshConversation().catch(() => undefined);
+      }
+    });
+
     return () => {
+      disposed = true;
       requestAbortRef.current?.abort();
       requestAbortRef.current = null;
     };

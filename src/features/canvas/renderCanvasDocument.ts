@@ -5,7 +5,6 @@ import type {
   CanvasRenderableImageElement,
   CanvasRenderableShapeElement,
   CanvasRenderableTextElement,
-  CanvasSlice,
 } from "@/types";
 import { createCanvasImageDocumentRenderContext } from "./image/boardImageRendering";
 import { resolveCanvasShapeFillPaint } from "./shapeStyle";
@@ -286,7 +285,7 @@ const drawImageElement = async ({
 }) => {
   const asset = assetById.get(element.assetId);
   if (!asset) {
-    return;
+    throw new Error(`Canvas export is missing image asset ${element.assetId}.`);
   }
 
   const imageCanvas = document.createElement("canvas");
@@ -301,6 +300,10 @@ const drawImageElement = async ({
       document: renderContext.imageDocument,
       request: {
         qualityTier: "export",
+        compositionReferenceSize: {
+          width: Math.max(1, element.worldWidth),
+          height: Math.max(1, element.worldHeight),
+        },
         targetSize: {
           width: Math.max(1, Math.round(element.worldWidth * outputScale.x)),
           height: Math.max(1, Math.round(element.worldHeight * outputScale.y)),
@@ -369,39 +372,4 @@ export const renderCanvasWorkbenchToCanvas = async ({
   } finally {
     context.restore();
   }
-};
-
-export const cropRenderedCanvasSlice = ({
-  canvas,
-  document: canvasDocument,
-  pixelRatio,
-  slice,
-}: {
-  canvas: HTMLCanvasElement;
-  document: CanvasWorkbench;
-  pixelRatio: number;
-  slice: Pick<CanvasSlice, "height" | "width" | "x" | "y">;
-}) => {
-  const sliceCanvas = document.createElement("canvas");
-  sliceCanvas.width = Math.max(1, Math.round(slice.width * pixelRatio));
-  sliceCanvas.height = Math.max(1, Math.round(slice.height * pixelRatio));
-  const context = sliceCanvas.getContext("2d", { willReadFrequently: true });
-  if (!context) {
-    throw new Error("Failed to acquire slice export context.");
-  }
-
-  const scaleX = canvas.width / Math.max(1, canvasDocument.width);
-  const scaleY = canvas.height / Math.max(1, canvasDocument.height);
-  context.drawImage(
-    canvas,
-    slice.x * scaleX,
-    slice.y * scaleY,
-    slice.width * scaleX,
-    slice.height * scaleY,
-    0,
-    0,
-    sliceCanvas.width,
-    sliceCanvas.height
-  );
-  return sliceCanvas;
 };

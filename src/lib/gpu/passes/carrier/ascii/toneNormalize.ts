@@ -24,9 +24,9 @@ interface CompiledPipeline {
 
 const WORKGROUP_DIM = 8;
 
-// 3 vec4 = 48 bytes (gridSize.xy + glyphSteps + ditherMode | brightness +
-// contrast + densityPow + coverage | edgeEmphasis + invert + 2×pad).
-export const TONE_NORMALIZE_UNIFORMS_BYTE_SIZE = 48;
+// The WGSL struct ends at byte 52 and its uniform binding is padded to a
+// 16-byte boundary. A 48-byte buffer invalidates the entire compute chain.
+export const TONE_NORMALIZE_UNIFORMS_BYTE_SIZE = 64;
 
 export type AsciiDitherMode = "none" | "bayer";
 

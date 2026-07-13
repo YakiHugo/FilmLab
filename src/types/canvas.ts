@@ -9,6 +9,10 @@ export type CanvasPresetId =
   | "social-story"
   | "social-landscape"
   | "custom";
+export type CanvasOutputPresetId = Extract<
+  CanvasPresetId,
+  "social-square" | "social-portrait" | "social-story"
+>;
 export type CanvasTextFontSizeTier = "small" | "medium" | "large" | "xl";
 export type CanvasShapeType = "rect" | "ellipse" | "line" | "arrow";
 
@@ -96,9 +100,7 @@ export interface CanvasShapeLinearGradientFillStyle {
   to: string;
 }
 
-export type CanvasShapeFillStyle =
-  | CanvasShapeSolidFillStyle
-  | CanvasShapeLinearGradientFillStyle;
+export type CanvasShapeFillStyle = CanvasShapeSolidFillStyle | CanvasShapeLinearGradientFillStyle;
 
 export interface CanvasPersistedShapeElement extends CanvasPersistedNodeBase {
   type: "shape";
@@ -122,26 +124,24 @@ export interface CanvasNodeBase extends CanvasPersistedNodeBase {
   parentId: CanvasNodeId | null;
 }
 
-export interface CanvasGroupNode extends CanvasNodeBase, Omit<CanvasPersistedGroupNode, keyof CanvasPersistedNodeBase> {
+export interface CanvasGroupNode
+  extends CanvasNodeBase, Omit<CanvasPersistedGroupNode, keyof CanvasPersistedNodeBase> {
   type: "group";
   childIds?: CanvasNodeId[];
 }
 
 export interface CanvasImageElement
-  extends CanvasNodeBase,
-    Omit<CanvasPersistedImageElement, keyof CanvasPersistedNodeBase> {
+  extends CanvasNodeBase, Omit<CanvasPersistedImageElement, keyof CanvasPersistedNodeBase> {
   type: "image";
 }
 
 export interface CanvasTextElement
-  extends CanvasNodeBase,
-    Omit<CanvasPersistedTextElement, keyof CanvasPersistedNodeBase> {
+  extends CanvasNodeBase, Omit<CanvasPersistedTextElement, keyof CanvasPersistedNodeBase> {
   type: "text";
 }
 
 export interface CanvasShapeElement
-  extends CanvasNodeBase,
-    Omit<CanvasPersistedShapeElement, keyof CanvasPersistedNodeBase> {
+  extends CanvasNodeBase, Omit<CanvasPersistedShapeElement, keyof CanvasPersistedNodeBase> {
   type: "shape";
 }
 
@@ -203,27 +203,25 @@ export interface CanvasRenderableNodeBase {
 }
 
 export interface CanvasRenderableGroupNode
-  extends CanvasRenderableNodeBase,
+  extends
+    CanvasRenderableNodeBase,
     Omit<CanvasGroupNode, "childIds" | keyof CanvasRenderableNodeBase> {
   type: "group";
   childIds: CanvasNodeId[];
 }
 
 export interface CanvasRenderableImageElement
-  extends CanvasRenderableNodeBase,
-    Omit<CanvasImageElement, keyof CanvasRenderableNodeBase> {
+  extends CanvasRenderableNodeBase, Omit<CanvasImageElement, keyof CanvasRenderableNodeBase> {
   type: "image";
 }
 
 export interface CanvasRenderableTextElement
-  extends CanvasRenderableNodeBase,
-    Omit<CanvasTextElement, keyof CanvasRenderableNodeBase> {
+  extends CanvasRenderableNodeBase, Omit<CanvasTextElement, keyof CanvasRenderableNodeBase> {
   type: "text";
 }
 
 export interface CanvasRenderableShapeElement
-  extends CanvasRenderableNodeBase,
-    Omit<CanvasShapeElement, keyof CanvasRenderableNodeBase> {
+  extends CanvasRenderableNodeBase, Omit<CanvasShapeElement, keyof CanvasRenderableNodeBase> {
   type: "shape";
 }
 
@@ -367,6 +365,10 @@ export type CanvasCommand =
           | "width"
         >
       >;
+    }
+  | {
+      type: "APPLY_OUTPUT_FORMAT";
+      presetId: CanvasOutputPresetId;
     }
   | {
       type: "INSERT_NODES";

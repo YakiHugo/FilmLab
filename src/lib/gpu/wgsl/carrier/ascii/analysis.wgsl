@@ -22,8 +22,7 @@
 struct AnalysisUniforms {
   imageSize: vec2<u32>,
   gridSize: vec2<u32>,
-  cellSize: vec2<u32>,
-  _pad: vec2<u32>,
+  _pad: vec4<u32>,
 }
 
 @group(0) @binding(0) var srcTex: texture_2d<f32>;
@@ -54,10 +53,12 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let cellIdx = cellY * u.gridSize.x + cellX;
   let baseOffset = cellIdx * STRIDE;
 
-  let cw = u.cellSize.x;
-  let ch = u.cellSize.y;
-  let pxStartX = cellX * cw;
-  let pxStartY = cellY * ch;
+  let pxStartX = (cellX * u.imageSize.x) / u.gridSize.x;
+  let pxStartY = (cellY * u.imageSize.y) / u.gridSize.y;
+  let pxEndX = ((cellX + 1u) * u.imageSize.x) / u.gridSize.x;
+  let pxEndY = ((cellY + 1u) * u.imageSize.y) / u.gridSize.y;
+  let cw = max(1u, pxEndX - pxStartX);
+  let ch = max(1u, pxEndY - pxStartY);
 
   var sectorSums: array<f32, 16>;
   var sectorCounts: array<f32, 16>;

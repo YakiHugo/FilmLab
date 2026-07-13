@@ -32,11 +32,7 @@ import {
 import type { RenderMode } from "@/lib/renderMode";
 import type { EditorLayerBlendMode } from "@/types";
 
-import {
-  ASCII_DESCRIPTOR_STRIDE,
-  prepareAsciiGlyphSet,
-  type AsciiGlyphSet,
-} from "./descriptors";
+import { ASCII_DESCRIPTOR_STRIDE, prepareAsciiGlyphSet, type AsciiGlyphSet } from "./descriptors";
 import {
   AsciiAnalysisPipelineCache,
   ANALYSIS_UNIFORMS_BYTE_SIZE,
@@ -60,10 +56,7 @@ import {
   type AsciiColorMode,
   type AsciiRenderMode,
 } from "./composition";
-import {
-  GaussianBlurPipelineCache,
-  createGaussianBlurPass,
-} from "../../utility/gaussianBlur";
+import { GaussianBlurPipelineCache, createGaussianBlurPass } from "../../utility/gaussianBlur";
 import {
   LayerBlendPipelineCache,
   createLayerBlendPass,
@@ -100,6 +93,7 @@ export interface AsciiCarrierSurfaceParams {
   // Grid overlay.
   gridOverlay: boolean;
   gridOverlayAlpha: number;
+  gridOverlayWidth: number;
   // Tone normalization (replaces CPU `buildAsciiCellGrids`).
   brightness: number;
   contrast: number;
@@ -160,7 +154,7 @@ function acquireGlyphSet(
   cache: AsciiDeviceCache,
   device: GPUDevice,
   fontFamily: string,
-  charset: readonly string[],
+  charset: readonly string[]
 ): CachedGlyphSet {
   const key = `${fontFamily}|${charset.join("")}`;
   const cached = cache.glyphSets.get(key);
@@ -200,7 +194,7 @@ function buildCompositionPass(
   cache: ReturnType<typeof getCache>["composition"],
   shared: CompositionShared,
   uniformsBuffer: GPUBuffer,
-  layerId: string,
+  layerId: string
 ): GPURenderPassDescriptor {
   return cache.createPass({
     outputFormat: OUTPUT_FORMAT,
@@ -252,7 +246,7 @@ export const applyAsciiCarrierOnSurface = async ({
       cache,
       device,
       params.fontFamily ?? "monospace",
-      params.charset,
+      params.charset
     );
     const { glyphSet, atlasView, glyphsBuffer: glyphsBuf } = cachedGlyphs;
 
@@ -315,9 +309,7 @@ export const applyAsciiCarrierOnSurface = async ({
         imageHeight: params.height,
         gridColumns: params.columns,
         gridRows: params.rows,
-        cellWidth: params.cellWidth,
-        cellHeight: params.cellHeight,
-      }),
+      })
     );
 
     const toneU = device.createBuffer({
@@ -340,7 +332,7 @@ export const applyAsciiCarrierOnSurface = async ({
         coverage: params.coverage,
         edgeEmphasis: params.edgeEmphasis,
         invert: params.invert,
-      }),
+      })
     );
 
     const selectionU = device.createBuffer({
@@ -358,7 +350,7 @@ export const applyAsciiCarrierOnSurface = async ({
         cellCount,
         glyphCount: glyphSet.glyphCount,
         structureWeight: params.structureWeight,
-      }),
+      })
     );
 
     // 5. Sampler + executor.
@@ -458,7 +450,7 @@ export const applyAsciiCarrierOnSurface = async ({
         { texture: placeholder },
         new Uint8Array([0, 0, 0, 0]),
         { bytesPerRow: 4 },
-        { width: 1, height: 1 },
+        { width: 1, height: 1 }
       );
       bgSourceView = placeholder.createView({ label: "ascii.bgPlaceholderView" });
     }
@@ -472,10 +464,20 @@ export const applyAsciiCarrierOnSurface = async ({
     const hasForeground = params.foregroundOpacity > 0.001 || params.gridOverlay;
 
     const bgFillRgba: [number, number, number, number] = useBackgroundFill
-      ? [params.backgroundColor[0], params.backgroundColor[1], params.backgroundColor[2], params.backgroundOpacity]
+      ? [
+          params.backgroundColor[0],
+          params.backgroundColor[1],
+          params.backgroundColor[2],
+          params.backgroundOpacity,
+        ]
       : [0, 0, 0, 0];
     const cellBgRgba: [number, number, number, number] = useCellBackground
-      ? [params.backgroundColor[0], params.backgroundColor[1], params.backgroundColor[2], params.backgroundOpacity]
+      ? [
+          params.backgroundColor[0],
+          params.backgroundColor[1],
+          params.backgroundColor[2],
+          params.backgroundOpacity,
+        ]
       : [0, 0, 0, 0];
     const duotoneRgba: [number, number, number, number] = [
       params.duotoneShadow[0],
@@ -550,18 +552,18 @@ export const applyAsciiCarrierOnSurface = async ({
           gridOverlayAlpha: params.gridOverlayAlpha,
           backgroundFill: bgFillRgba,
           cellBackground: cellBgRgba,
-          duotoneShadow: duotoneRgba,
+          duotoneShadow: [duotoneRgba[0], duotoneRgba[1], duotoneRgba[2], params.gridOverlayWidth],
           useBackgroundCanvas,
           useBackgroundFill,
           useCellBackground,
           gridOverlay: false,
-        }),
+        })
       );
       const bgPass = buildCompositionPass(
         cache.composition,
         compositionShared,
         bgUniformBuf,
-        "ascii.composition.bg",
+        "ascii.composition.bg"
       );
       const bgResult = executor.execute({
         passes: [bgPass],
@@ -575,7 +577,12 @@ export const applyAsciiCarrierOnSurface = async ({
       // Blend bg over current composited (= base).
       const bgBlendPass = createLayerBlendPass(device, cache.layerBlend, {
         outputFormat: OUTPUT_FORMAT,
-        params: { blendMode: BLEND_MODE_INDEX.normal, useMask: false, invertMask: false, opacity: 1 },
+        params: {
+          blendMode: BLEND_MODE_INDEX.normal,
+          useMask: false,
+          invertMask: false,
+          opacity: 1,
+        },
         layerTexture: bgLease.texture,
         maskTexture: placeholderMask,
         id: "ascii.layerBlend.bg",
@@ -622,18 +629,18 @@ export const applyAsciiCarrierOnSurface = async ({
           gridOverlayAlpha: params.gridOverlayAlpha,
           backgroundFill: bgFillRgba,
           cellBackground: cellBgRgba,
-          duotoneShadow: duotoneRgba,
+          duotoneShadow: [duotoneRgba[0], duotoneRgba[1], duotoneRgba[2], params.gridOverlayWidth],
           useBackgroundCanvas: false,
           useBackgroundFill: false,
           useCellBackground: false,
           gridOverlay: params.gridOverlay,
-        }),
+        })
       );
       const fgPass = buildCompositionPass(
         cache.composition,
         compositionShared,
         fgUniformBuf,
-        "ascii.composition.fg",
+        "ascii.composition.fg"
       );
       const fgResult = executor.execute({
         passes: [fgPass],
@@ -683,7 +690,7 @@ export const applyAsciiCarrierOnSurface = async ({
       device,
       finalLease.texture,
       params.width,
-      params.height,
+      params.height
     );
     finalLease.release();
 
@@ -695,7 +702,7 @@ export const applyAsciiCarrierOnSurface = async ({
     c2d.putImageData(
       new ImageData(new Uint8ClampedArray(pixels), params.width, params.height),
       0,
-      0,
+      0
     );
 
     bgSourceLease?.release();

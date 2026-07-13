@@ -1,16 +1,18 @@
 import {
   ArrowRight,
-  CaseSensitive,
   Circle,
   Images,
   Layers3,
+  ScanLine,
   Slash,
   SlidersHorizontal,
+  Sparkles,
   Square,
   Type,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { selectIsCanvasWorkbenchMutationPending } from "./store/canvasStoreSelectors";
 import {
   canvasEditDockBoundsClassName,
   canvasEditDockRailLeftClassName,
@@ -33,7 +35,8 @@ const panelButtons = [
   { panel: "library" as const, icon: Images, label: "Library" },
   { panel: "layers" as const, icon: Layers3, label: "Layers" },
   { panel: "edit" as const, icon: SlidersHorizontal, label: "编辑" },
-  { panel: "ascii" as const, icon: CaseSensitive, label: "ASCII" },
+  { panel: "styles" as const, icon: Sparkles, label: "Style Lab" },
+  { panel: "output" as const, icon: ScanLine, label: "Output" },
 ] as const;
 
 export function CanvasToolRail() {
@@ -43,13 +46,15 @@ export function CanvasToolRail() {
   const setActiveShapeType = useCanvasStore((s) => s.setActiveShapeType);
   const activePanel = useCanvasStore((s) => s.activePanel);
   const togglePanel = useCanvasStore((s) => s.togglePanel);
+  const isMutationPending = useCanvasStore(selectIsCanvasWorkbenchMutationPending);
 
   const buttonClassName = (active: boolean) =>
     cn(
       "flex h-10 w-10 items-center justify-center rounded-[10px] transition",
       active
         ? "bg-[color:var(--canvas-edit-surface)] text-[color:var(--canvas-edit-text)]"
-        : "text-[color:var(--canvas-edit-text-muted)] hover:bg-[color:var(--canvas-edit-surface)] hover:text-[color:var(--canvas-edit-text)]"
+        : "text-[color:var(--canvas-edit-text-muted)] hover:bg-[color:var(--canvas-edit-surface)] hover:text-[color:var(--canvas-edit-text)]",
+      "disabled:cursor-wait disabled:opacity-35 disabled:hover:bg-transparent"
     );
 
   return (
@@ -70,7 +75,12 @@ export function CanvasToolRail() {
             <div key={btn.tool} className="relative">
               <button
                 type="button"
-                onClick={() => setTool(btn.tool)}
+                disabled={isMutationPending}
+                onClick={() => {
+                  if (!isMutationPending) {
+                    setTool(btn.tool);
+                  }
+                }}
                 className={buttonClassName(active)}
                 aria-label={btn.label}
                 title={btn.label}
@@ -90,7 +100,11 @@ export function CanvasToolRail() {
                 <button
                   key={btn.shapeType}
                   type="button"
+                  disabled={isMutationPending}
                   onClick={() => {
+                    if (isMutationPending) {
+                      return;
+                    }
                     setActiveShapeType(btn.shapeType);
                     setTool("shape");
                   }}
@@ -98,7 +112,8 @@ export function CanvasToolRail() {
                     "flex h-9 w-9 items-center justify-center rounded-[10px] transition",
                     active
                       ? "bg-[color:var(--canvas-edit-surface)] text-[color:var(--canvas-edit-text)]"
-                      : "text-[color:var(--canvas-edit-text-soft)] hover:bg-[color:var(--canvas-edit-surface)] hover:text-[color:var(--canvas-edit-text)]"
+                      : "text-[color:var(--canvas-edit-text-soft)] hover:bg-[color:var(--canvas-edit-surface)] hover:text-[color:var(--canvas-edit-text)]",
+                    "disabled:cursor-wait disabled:opacity-35 disabled:hover:bg-transparent"
                   )}
                   aria-label={btn.label}
                   title={btn.label}
@@ -110,12 +125,7 @@ export function CanvasToolRail() {
           </div>
         ) : null}
 
-        <div
-          className={cn(
-            "mx-2 h-px w-6",
-            "my-2 bg-[color:var(--canvas-edit-divider)]"
-          )}
-        />
+        <div className={cn("mx-2 h-px w-6", "my-2 bg-[color:var(--canvas-edit-divider)]")} />
 
         {panelButtons.map((btn) => {
           const Icon = btn.icon;
@@ -124,7 +134,12 @@ export function CanvasToolRail() {
             <button
               key={btn.panel}
               type="button"
-              onClick={() => togglePanel(btn.panel)}
+              disabled={isMutationPending}
+              onClick={() => {
+                if (!isMutationPending) {
+                  togglePanel(btn.panel);
+                }
+              }}
               className={buttonClassName(active)}
               aria-label={btn.label}
               title={btn.label}

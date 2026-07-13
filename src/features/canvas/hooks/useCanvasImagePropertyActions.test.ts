@@ -5,7 +5,6 @@ import { commitCanvasImagePropertyIntent } from "./useCanvasImagePropertyActions
 
 describe("useCanvasImagePropertyActions", () => {
   it("commits image render state through SET_IMAGE_RENDER_STATE", async () => {
-    const executeCommand = vi.fn().mockResolvedValue(null);
     const workbench = createCanvasTestDocument({
       nodes: {
         "image-1": createImageNode({ id: "image-1", x: 32, y: 48 }),
@@ -16,11 +15,12 @@ describe("useCanvasImagePropertyActions", () => {
     if (!imageElement || imageElement.type !== "image") {
       throw new Error("Expected image element.");
     }
+    const executeCommand = vi.fn().mockResolvedValue(workbench);
 
     const renderState = createDefaultCanvasImageRenderState();
     renderState.develop.tone.exposure = 18;
 
-    await commitCanvasImagePropertyIntent({
+    const result = await commitCanvasImagePropertyIntent({
       executeCommand,
       imageElement,
       intent: { type: "set-image-render-state", value: renderState },
@@ -31,6 +31,32 @@ describe("useCanvasImagePropertyActions", () => {
       renderState,
       id: "image-1",
     });
+    expect(result).toBe(workbench);
+  });
+
+  it("propagates a resolved null command result", async () => {
+    const workbench = createCanvasTestDocument({
+      nodes: {
+        "image-1": createImageNode({ id: "image-1", x: 32, y: 48 }),
+      },
+      rootIds: ["image-1"],
+    });
+    const imageElement = workbench.elements.find((entry) => entry.id === "image-1");
+    if (!imageElement || imageElement.type !== "image") {
+      throw new Error("Expected image element.");
+    }
+    const executeCommand = vi.fn().mockResolvedValue(null);
+
+    const result = await commitCanvasImagePropertyIntent({
+      executeCommand,
+      imageElement,
+      intent: {
+        type: "set-image-render-state",
+        value: createDefaultCanvasImageRenderState(),
+      },
+    });
+
+    expect(result).toBeNull();
   });
 
   it("commits film profile changes through SET_IMAGE_RENDER_STATE", async () => {

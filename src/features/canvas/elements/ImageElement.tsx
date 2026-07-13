@@ -8,7 +8,10 @@ import {
   useCanvasRuntimeAsset,
 } from "@/features/canvas/runtime/canvasRuntimeHooks";
 import { useCanvasStore } from "@/stores/canvasStore";
-import { resolveCanvasImagePreviewTargetSizeKey } from "../image/boardImageRendering";
+import {
+  resolveCanvasImageCompositionReferenceSizeKey,
+  resolveCanvasImagePreviewTargetSizeKey,
+} from "../image/boardImageRendering";
 import { areEqual } from "../document/shared";
 
 type CanvasImageRenderState = CanvasRenderableImageElement;
@@ -33,10 +36,7 @@ const hashString = (value: string) => {
   return (hash >>> 0).toString(16);
 };
 
-const areImageElementsEqual = (
-  left: CanvasImageRenderState,
-  right: CanvasImageRenderState
-) => {
+const areImageElementsEqual = (left: CanvasImageRenderState, right: CanvasImageRenderState) => {
   return (
     left.id === right.id &&
     left.assetId === right.assetId &&
@@ -55,10 +55,7 @@ const areImageElementsEqual = (
   );
 };
 
-const areImageElementPropsEqual = (
-  previous: ImageElementProps,
-  next: ImageElementProps
-) =>
+const areImageElementPropsEqual = (previous: ImageElementProps, next: ImageElementProps) =>
   previous.canDrag === next.canDrag &&
   previous.previewPriority === next.previewPriority &&
   previous.dragBoundFunc === next.dragBoundFunc &&
@@ -95,16 +92,11 @@ export const ImageElement = memo(function ImageElement({
         element.assetId,
         assetRenderFingerprint ?? "missing",
         resolveCanvasImagePreviewTargetSizeKey(element, previewPriority, zoom),
+        `composition-ref:${resolveCanvasImageCompositionReferenceSizeKey(element)}`,
         elementRenderFingerprint,
         Number(zoom.toFixed(3)).toString(),
       ].join("|"),
-    [
-      assetRenderFingerprint,
-      elementRenderFingerprint,
-      element,
-      previewPriority,
-      zoom,
-    ]
+    [assetRenderFingerprint, elementRenderFingerprint, element, previewPriority, zoom]
   );
   const hasRenderableAsset = asset !== null;
 
@@ -140,12 +132,7 @@ export const ImageElement = memo(function ImageElement({
     const hasPreviewEntry = previewEntry !== undefined;
     hadPreviewEntryRef.current = hasPreviewEntry;
 
-    if (
-      !hadPreviewEntry ||
-      hasPreviewEntry ||
-      !hasRenderableAsset ||
-      !effectiveVisible
-    ) {
+    if (!hadPreviewEntry || hasPreviewEntry || !hasRenderableAsset || !effectiveVisible) {
       return;
     }
 

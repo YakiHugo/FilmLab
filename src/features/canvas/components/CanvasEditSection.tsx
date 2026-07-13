@@ -44,12 +44,12 @@ export const CanvasEditSection = memo(function CanvasEditSection({
   const isCanvasDock = variant === "canvasDock";
   const visibilityButtonTitle = changesVisible
     ? isCanvasDock
-      ? "闅愯棌鏀瑰姩"
+      ? "隐藏改动"
       : "Hide changes"
     : isCanvasDock
-      ? "鏄剧ず鏀瑰姩"
+      ? "显示改动"
       : "Show changes";
-  const resetButtonTitle = isCanvasDock ? "閲嶇疆褰撳墠鍒嗙粍" : "Reset section";
+  const resetButtonTitle = isCanvasDock ? "重置当前分组" : "Reset section";
 
   return (
     <div
@@ -63,12 +63,7 @@ export const CanvasEditSection = memo(function CanvasEditSection({
             )
       )}
     >
-      <div
-        className={cn(
-          "flex w-full items-center gap-3",
-          isCanvasDock ? "py-6" : "px-3 py-2.5"
-        )}
-      >
+      <div className={cn("flex w-full items-center gap-3", isCanvasDock ? "py-6" : "px-3 py-2.5")}>
         <button
           type="button"
           className={cn(
@@ -80,7 +75,11 @@ export const CanvasEditSection = memo(function CanvasEditSection({
           aria-controls={contentId}
         >
           {icon ? (
-            <span className={isCanvasDock ? "text-[color:var(--canvas-edit-text-soft)]" : "text-slate-400"}>
+            <span
+              className={
+                isCanvasDock ? "text-[color:var(--canvas-edit-text-soft)]" : "text-slate-400"
+              }
+            >
               {icon}
             </span>
           ) : null}
