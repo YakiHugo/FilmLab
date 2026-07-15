@@ -32,7 +32,7 @@
     },
     {
       "id": "validation-review",
-      "status": "pending",
+      "status": "in_progress",
       "blockedBy": ["project-continuity", "release-surface-hygiene", "task-ledger-reconciliation"],
       "passes": [
         "targeted tests plus pnpm verify and pnpm dead-code complete without a new actionable failure",
