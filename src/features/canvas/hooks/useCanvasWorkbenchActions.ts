@@ -18,7 +18,10 @@ import { useCanvasLoadedWorkbenchCommands } from "./useCanvasLoadedWorkbenchComm
 export function useCanvasWorkbenchActions() {
   const navigate = useNavigate();
   const runBeforeWorkbenchTransition = useCanvasWorkbenchTransitionGuard();
-  const { loadedWorkbench, loadedWorkbenchId } = useCanvasStore(selectCanvasLoadedWorkbenchState, shallow);
+  const { loadedWorkbench, loadedWorkbenchId } = useCanvasStore(
+    selectCanvasLoadedWorkbenchState,
+    shallow
+  );
   const { patchWorkbench } = useCanvasLoadedWorkbenchCommands();
   const workbenches = useCanvasStore((state) => state.workbenchList);
   const createWorkbench = useCanvasStore((state) => state.createWorkbench);
@@ -62,6 +65,17 @@ export function useCanvasWorkbenchActions() {
     [patchLoadedWorkbench]
   );
 
+  const startNewCreation = useCallback(async () => {
+    if (!(await awaitWorkbenchTransitionGuard())) {
+      return false;
+    }
+
+    await navigate({
+      to: "/",
+    });
+    return true;
+  }, [awaitWorkbenchTransitionGuard, navigate]);
+
   const createWorkbenchAndNavigate = useCallback(
     async (name?: string, options?: CreateWorkbenchOptions) => {
       if (!(await awaitWorkbenchTransitionGuard())) {
@@ -86,7 +100,8 @@ export function useCanvasWorkbenchActions() {
   );
 
   const createSequentialWorkbench = useCallback(
-    async () => createWorkbenchAndNavigate(resolveCanvasWorkbenchSequenceName(workbenches.length + 1)),
+    async () =>
+      createWorkbenchAndNavigate(resolveCanvasWorkbenchSequenceName(workbenches.length + 1)),
     [createWorkbenchAndNavigate, workbenches.length]
   );
 
@@ -128,6 +143,7 @@ export function useCanvasWorkbenchActions() {
     patchLoadedWorkbench,
     renameLoadedWorkbench,
     selectWorkbench,
+    startNewCreation,
     workbenches,
   };
 }

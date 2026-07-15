@@ -2,7 +2,7 @@
   "tasks": [
     {
       "id": "project-continuity",
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": [],
       "passes": [
         "the Studio entry shows recent persisted workbenches and opens the selected workbench through its canonical canvas route",

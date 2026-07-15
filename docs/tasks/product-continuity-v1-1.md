@@ -27,6 +27,13 @@ This task adds local project continuity only. It does not add cross-device workb
 - `CanvasWorkbenchPanel` is unreachable and reported by `pnpm dead-code`; its English sequence-oriented copy belongs to the retired general-canvas direction.
 - `index.html` still identifies the product as an AI film-retouching coach and uses the Vite starter favicon.
 
+### Project continuity
+
+- Studio now derives recent-project cards from the existing workbench list and optional asset covers. Cards keep working when the source asset is still loading, missing, or fails to render.
+- Existing projects open by canonical route. Canvas keeps the current runtime mounted behind an opaque route-loading state until the requested document becomes authoritative, preventing an old project from flashing or accepting input during a switch.
+- New creation returns through the workbench transition guard to Studio. Route synchronization explicitly stops once navigation leaves `/canvas`, avoiding a race that previously restored the old document, and an unavailable deep link is excluded from fallback selection.
+- Focused unit tests, TypeScript, and lint passed. Browser validation resumed persisted projects, returned to Studio without increasing the workbench count, and forced a delayed A/B switch that exposed only the loading state followed by the requested project.
+
 ## Validation Boundary
 
 - Unit or component coverage protects any new pure project-card state derivation.

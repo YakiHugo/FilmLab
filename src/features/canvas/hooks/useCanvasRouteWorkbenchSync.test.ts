@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveCanvasRouteWorkbenchId } from "./useCanvasRouteWorkbenchSync";
+import { isCanvasRoutePath, resolveCanvasRouteWorkbenchId } from "./useCanvasRouteWorkbenchSync";
 
 describe("resolveCanvasRouteWorkbenchId", () => {
   it("returns null for non-canvas paths and the canvas root", () => {
@@ -15,5 +15,12 @@ describe("resolveCanvasRouteWorkbenchId", () => {
 
   it("rejects nested canvas paths that are not a direct workbench route", () => {
     expect(resolveCanvasRouteWorkbenchId("/canvas/workbench-1/extra")).toBeNull();
+  });
+
+  it("distinguishes canvas routes from locations being left", () => {
+    expect(isCanvasRoutePath("/canvas")).toBe(true);
+    expect(isCanvasRoutePath("/canvas/workbench-1")).toBe(true);
+    expect(isCanvasRoutePath("/")).toBe(false);
+    expect(isCanvasRoutePath("/canvas-lab")).toBe(false);
   });
 });

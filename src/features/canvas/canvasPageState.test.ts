@@ -26,12 +26,33 @@ describe("canvasPageState", () => {
     });
   });
 
-  it("creates a new workbench when none exist", () => {
+  it("returns to the image-first Studio when no workbench exists", () => {
     expect(
       resolveCanvasPageRecoveryPlan({
         activeWorkbenchId: null,
         workbenchIds: [],
       })
-    ).toEqual({ type: "create-and-navigate" });
+    ).toEqual({ type: "return-to-studio" });
+  });
+
+  it("excludes a workbench whose document could not be opened", () => {
+    expect(
+      resolveCanvasPageRecoveryPlan({
+        activeWorkbenchId: "workbench-1",
+        unavailableWorkbenchId: "workbench-1",
+        workbenchIds: ["workbench-1", "workbench-2"],
+      })
+    ).toEqual({
+      type: "navigate-to-fallback",
+      workbenchId: "workbench-2",
+    });
+
+    expect(
+      resolveCanvasPageRecoveryPlan({
+        activeWorkbenchId: "workbench-1",
+        unavailableWorkbenchId: "workbench-1",
+        workbenchIds: ["workbench-1"],
+      })
+    ).toEqual({ type: "return-to-studio" });
   });
 });

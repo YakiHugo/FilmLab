@@ -21,6 +21,9 @@ export const resolveCanvasRouteWorkbenchId = (pathname: string): string | null =
   return decodeURIComponent(encodedWorkbenchId);
 };
 
+export const isCanvasRoutePath = (pathname: string) =>
+  pathname === "/canvas" || pathname.startsWith("/canvas/");
+
 export function useCanvasRouteWorkbenchSync() {
   const navigate = useNavigate();
   const pathname = useLocation({
@@ -37,7 +40,6 @@ export function useCanvasRouteWorkbenchSync() {
     shallow
   );
   const init = useCanvasStore((state) => state.init);
-  const createWorkbench = useCanvasStore((state) => state.createWorkbench);
   const openWorkbench = useCanvasStore((state) => state.openWorkbench);
   const runBeforeWorkbenchTransition = useCanvasWorkbenchTransitionGuard();
   const loadedWorkbenchInteractionKey = `${loadedWorkbenchInteraction?.active ? 1 : 0}:${
@@ -72,20 +74,19 @@ export function useCanvasRouteWorkbenchSync() {
       return getCurrentWorkbenchIds();
     };
 
-    const createAndNavigate = async () => {
+    const returnToStudio = async () => {
       if (!(await awaitWorkbenchTransitionGuard()) || isStale()) {
         return;
       }
 
-      const created = await createWorkbench(undefined, { openAfterCreate: false });
-      if (!created || isStale()) {
-        return;
-      }
-
-      await navigateToWorkbench(created.id);
+      await navigate({ to: "/" });
     };
 
     void (async () => {
+      if (!isCanvasRoutePath(pathname)) {
+        return;
+      }
+
       if (routeWorkbenchId) {
         if (routeWorkbenchId === loadedWorkbenchId) {
           void init();
@@ -113,16 +114,15 @@ export function useCanvasRouteWorkbenchSync() {
 
         const recoveryPlan = resolveCanvasPageRecoveryPlan({
           activeWorkbenchId: useCanvasStore.getState().loadedWorkbenchId,
+          unavailableWorkbenchId: routeWorkbenchId,
           workbenchIds: latestWorkbenchIds,
         });
         if (recoveryPlan.type === "navigate-to-fallback") {
-          if (recoveryPlan.workbenchId !== routeWorkbenchId) {
-            await navigateToWorkbench(recoveryPlan.workbenchId);
-          }
+          await navigateToWorkbench(recoveryPlan.workbenchId);
           return;
         }
 
-        await createAndNavigate();
+        await returnToStudio();
         return;
       }
 
@@ -154,14 +154,13 @@ export function useCanvasRouteWorkbenchSync() {
         return;
       }
 
-      await createAndNavigate();
+      await returnToStudio();
     })();
 
     return () => {
       disposed = true;
     };
   }, [
-    createWorkbench,
     init,
     loadedWorkbenchInteractionKey,
     loadedWorkbenchId,

@@ -1,27 +1,31 @@
 export type CanvasPageRecoveryPlan =
   | { type: "navigate-to-fallback"; workbenchId: string }
-  | { type: "create-and-navigate" };
+  | { type: "return-to-studio" };
 
 interface ResolveCanvasPageRecoveryPlanOptions {
   activeWorkbenchId: string | null;
+  unavailableWorkbenchId?: string | null;
   workbenchIds: string[];
 }
 
-const hasWorkbench = (workbenchIds: string[], workbenchId: string | null | undefined) =>
-  Boolean(workbenchId && workbenchIds.includes(workbenchId));
-
 export const resolveCanvasPageRecoveryPlan = ({
   activeWorkbenchId,
+  unavailableWorkbenchId,
   workbenchIds,
-}: ResolveCanvasPageRecoveryPlanOptions): CanvasPageRecoveryPlan =>
-  hasWorkbench(workbenchIds, activeWorkbenchId)
+}: ResolveCanvasPageRecoveryPlanOptions): CanvasPageRecoveryPlan => {
+  const availableWorkbenchIds = workbenchIds.filter(
+    (workbenchId) => workbenchId !== unavailableWorkbenchId
+  );
+
+  return activeWorkbenchId && availableWorkbenchIds.includes(activeWorkbenchId)
     ? {
         type: "navigate-to-fallback",
-        workbenchId: activeWorkbenchId!,
+        workbenchId: activeWorkbenchId,
       }
-    : workbenchIds[0]
+    : availableWorkbenchIds[0]
       ? {
           type: "navigate-to-fallback",
-          workbenchId: workbenchIds[0],
+          workbenchId: availableWorkbenchIds[0],
         }
-      : { type: "create-and-navigate" };
+      : { type: "return-to-studio" };
+};
