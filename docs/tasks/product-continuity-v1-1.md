@@ -34,6 +34,12 @@ This task adds local project continuity only. It does not add cross-device workb
 - New creation returns through the workbench transition guard to Studio. Route synchronization explicitly stops once navigation leaves `/canvas`, avoiding a race that previously restored the old document, and an unavailable deep link is excluded from fallback selection.
 - Focused unit tests, TypeScript, and lint passed. Browser validation resumed persisted projects, returned to Studio without increasing the workbench count, and forced a delayed A/B switch that exposed only the loading state followed by the requested project.
 
+### Release surface hygiene
+
+- The document title and favicon now identify FilmLab Visual Compute rather than the retired AI film-coach prototype.
+- Removed the unreachable workbench panel and only the new/switch/delete/sequence branches that existed to support it. Shared document patching remains because the separate story-panel model still consumes it.
+- Focused tests, TypeScript, lint, and formatting passed. Browser inspection confirmed the new title, icon path, and recent-project surface. `pnpm dead-code` reduced the known unused-file baseline from 15 to 14 without adding a finding.
+
 ## Validation Boundary
 
 - Unit or component coverage protects any new pure project-card state derivation.

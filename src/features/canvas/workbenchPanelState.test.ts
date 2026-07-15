@@ -1,13 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resolveCanvasWorkbenchName, resolveCanvasWorkbenchSequenceName, resolveSelectedCanvasSliceId } from "./workbenchPanelState";
+import { resolveCanvasWorkbenchName, resolveSelectedCanvasSliceId } from "./workbenchPanelState";
 
 describe("workbenchPanelState", () => {
   it("falls back to the default workbench name when the input is blank", () => {
     expect(resolveCanvasWorkbenchName("   ")).toBe("Untitled Workbench");
-  });
-
-  it("formats sequence names with a stable two-digit suffix", () => {
-    expect(resolveCanvasWorkbenchSequenceName(3)).toBe("Workbench 03");
   });
 
   it("keeps the selected slice id when it is still valid", () => {

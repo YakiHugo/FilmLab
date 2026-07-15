@@ -10,7 +10,7 @@ interface CanvasAppBarProps {
 }
 
 export function CanvasAppBar({ onExport }: CanvasAppBarProps) {
-  const { loadedWorkbenchId, loadedWorkbenchMeta, renameLoadedWorkbench, startNewCreation } =
+  const { loadedWorkbenchId, loadedWorkbenchName, renameLoadedWorkbench, startNewCreation } =
     useCanvasWorkbenchActions();
   const zoom = useCanvasStore((state) => state.zoom);
   const isMutationPending = useCanvasStore(selectIsCanvasWorkbenchMutationPending);
@@ -21,7 +21,7 @@ export function CanvasAppBar({ onExport }: CanvasAppBarProps) {
       <div className="flex items-center gap-3">
         {loadedWorkbenchId ? (
           <Input
-            value={loadedWorkbenchMeta.name}
+            value={loadedWorkbenchName}
             onChange={(event) => {
               void renameLoadedWorkbench(event.target.value);
             }}

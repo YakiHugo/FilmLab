@@ -12,7 +12,7 @@
     },
     {
       "id": "release-surface-hygiene",
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": ["project-continuity"],
       "passes": [
         "browser title and favicon describe FilmLab Visual Compute instead of the retired AI film-coach positioning",

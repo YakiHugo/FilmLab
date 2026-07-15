@@ -1,7 +1,6 @@
 import type { CanvasSlice, CanvasWorkbench } from "@/types";
-import type { CanvasWorkbenchEditablePatch } from "./store/canvasStoreTypes";
 
-export const DEFAULT_CANVAS_WORKBENCH_NAME = "Untitled Workbench";
+const DEFAULT_CANVAS_WORKBENCH_NAME = "Untitled Workbench";
 
 export const resolveCanvasWorkbenchName = (
   value: string | null | undefined,
@@ -10,9 +9,6 @@ export const resolveCanvasWorkbenchName = (
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : fallback;
 };
-
-export const resolveCanvasWorkbenchSequenceName = (index: number) =>
-  `Workbench ${String(Math.max(1, Math.round(index))).padStart(2, "0")}`;
 
 export const resolveOrderedCanvasSlices = (
   workbench: Pick<CanvasWorkbench, "slices"> | null | undefined
@@ -35,28 +31,3 @@ export const resolveSelectedCanvasSliceId = ({
 
   return orderedSlices[0]?.id ?? null;
 };
-
-export const createCanvasWorkbenchEditablePatch = (
-  workbench: Pick<
-    CanvasWorkbench,
-    | "backgroundColor"
-    | "guides"
-    | "height"
-    | "name"
-    | "presetId"
-    | "safeArea"
-    | "slices"
-    | "thumbnailBlob"
-    | "width"
-  >
-): CanvasWorkbenchEditablePatch => ({
-  backgroundColor: workbench.backgroundColor,
-  guides: { ...workbench.guides },
-  height: workbench.height,
-  name: workbench.name,
-  presetId: workbench.presetId,
-  safeArea: { ...workbench.safeArea },
-  slices: workbench.slices.map((slice) => ({ ...slice })),
-  thumbnailBlob: workbench.thumbnailBlob,
-  width: workbench.width,
-});
