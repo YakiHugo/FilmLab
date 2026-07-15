@@ -40,6 +40,12 @@ This task adds local project continuity only. It does not add cross-device workb
 - Removed the unreachable workbench panel and only the new/switch/delete/sequence branches that existed to support it. Shared document patching remains because the separate story-panel model still consumes it.
 - Focused tests, TypeScript, lint, and formatting passed. Browser inspection confirmed the new title, icon path, and recent-project surface. `pnpm dead-code` reduced the known unused-file baseline from 15 to 14 without adding a finding.
 
+### Task ledger reconciliation
+
+- Migrated the completed sensor harness into long-lived diagnostic, trace, baseline-review, and persisted-error decisions, then removed its finished task pair.
+- Retired the generic Canvas preview and scene/global planning buckets. Preview keeps a single document authority and reopens only on reachable large scenes or measured missed frames; scene/global work reopens only from a concrete whole-scene use case with explicit ownership and parity boundaries.
+- `docs/tasks` now contains only this active task pair.
+
 ## Validation Boundary
 
 - Unit or component coverage protects any new pure project-card state derivation.

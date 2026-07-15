@@ -22,7 +22,7 @@
     },
     {
       "id": "task-ledger-reconciliation",
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": ["release-surface-hygiene"],
       "passes": [
         "completed sensor work is migrated into long-lived decisions and its task pair is removed",
