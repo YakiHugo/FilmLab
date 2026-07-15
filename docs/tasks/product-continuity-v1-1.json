@@ -1,0 +1,44 @@
+{
+  "tasks": [
+    {
+      "id": "project-continuity",
+      "status": "in_progress",
+      "blockedBy": [],
+      "passes": [
+        "the Studio entry shows recent persisted workbenches and opens the selected workbench through its canonical canvas route",
+        "project cards remain useful when the cover asset is missing and do not block the existing upload, paste, library, or AI input paths",
+        "the Canvas new-creation action returns to the image-first Studio entry without creating an empty workbench"
+      ]
+    },
+    {
+      "id": "release-surface-hygiene",
+      "status": "pending",
+      "blockedBy": ["project-continuity"],
+      "passes": [
+        "browser title and favicon describe FilmLab Visual Compute instead of the retired AI film-coach positioning",
+        "the unreachable legacy workbench panel and its unused workbench-management branches are removed",
+        "pnpm dead-code reports no newly introduced unused files or exports"
+      ]
+    },
+    {
+      "id": "task-ledger-reconciliation",
+      "status": "pending",
+      "blockedBy": ["release-surface-hygiene"],
+      "passes": [
+        "completed sensor work is migrated into long-lived decisions and its task pair is removed",
+        "unmeasured canvas-preview and scene-global proposals are retired with explicit revisit triggers instead of remaining as stale in-flight work",
+        "docs/tasks contains only the active product-continuity task pair"
+      ]
+    },
+    {
+      "id": "validation-review",
+      "status": "pending",
+      "blockedBy": ["project-continuity", "release-surface-hygiene", "task-ledger-reconciliation"],
+      "passes": [
+        "targeted tests plus pnpm verify and pnpm dead-code complete without a new actionable failure",
+        "a clean browser flow resumes an existing workbench and starts a new image-first creation without producing a blank workbench",
+        "an independent reviewer reports no unresolved real bugs or rule violations"
+      ]
+    }
+  ]
+}
