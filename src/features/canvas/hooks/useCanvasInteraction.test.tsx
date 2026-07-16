@@ -160,8 +160,14 @@ function installLoadedWorkbench(workbench: CanvasWorkbench, selectedElementIds: 
   return { nudgeElementsInWorkbench };
 }
 
-function Harness({ onShortcutKeyDown }: { onShortcutKeyDown: (event: KeyboardEvent) => boolean }) {
-  useCanvasInteraction({ onShortcutKeyDown });
+function Harness({
+  enabled,
+  onShortcutKeyDown,
+}: {
+  enabled?: boolean;
+  onShortcutKeyDown: (event: KeyboardEvent) => boolean;
+}) {
+  useCanvasInteraction({ enabled, onShortcutKeyDown });
   return null;
 }
 
@@ -288,6 +294,27 @@ describe("useCanvasInteraction", () => {
       });
     });
 
+    expect(nudgeElementsInWorkbench).not.toHaveBeenCalled();
+
+    await act(async () => {
+      renderer?.unmount();
+    });
+  });
+
+  it("does not register canvas shortcuts while route loading blocks interaction", async () => {
+    const selectedNode = createRenderableShapeNode();
+    const workbench = createWorkbench(selectedNode);
+    const { nudgeElementsInWorkbench } = installLoadedWorkbench(workbench, [selectedNode.id]);
+    const onShortcutKeyDown = vi.fn().mockReturnValue(false);
+    let renderer: ReactTestRenderer | null = null;
+
+    await act(async () => {
+      renderer = create(<Harness enabled={false} onShortcutKeyDown={onShortcutKeyDown} />);
+    });
+
+    dispatchKeyDown({ key: "ArrowRight", shiftKey: false });
+
+    expect(onShortcutKeyDown).not.toHaveBeenCalled();
     expect(nudgeElementsInWorkbench).not.toHaveBeenCalled();
 
     await act(async () => {

@@ -30,7 +30,8 @@ export function useCanvasRouteWorkbenchSync() {
     select: (state) => state.pathname,
   });
   const routeWorkbenchId = resolveCanvasRouteWorkbenchId(pathname);
-  const recoveryTokenRef = useRef(0);
+  const activeRecoveryRef = useRef<{ pathname: string } | null>(null);
+  const mountedRef = useRef(true);
   const loadedWorkbenchId = useCanvasStore((state) => state.loadedWorkbenchId);
   const loadedWorkbenchInteraction = useCanvasStore((state) =>
     state.loadedWorkbenchId === loadedWorkbenchId ? state.workbenchInteraction : null
@@ -56,11 +57,22 @@ export function useCanvasRouteWorkbenchSync() {
   }, [runBeforeWorkbenchTransition]);
 
   useEffect(() => {
-    let disposed = false;
-    const recoveryToken = recoveryTokenRef.current + 1;
-    recoveryTokenRef.current = recoveryToken;
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      activeRecoveryRef.current = null;
+    };
+  }, []);
 
-    const isStale = () => disposed || recoveryTokenRef.current !== recoveryToken;
+  useEffect(() => {
+    if (activeRecoveryRef.current?.pathname === pathname) {
+      return;
+    }
+
+    const recoveryAttempt = { pathname };
+    activeRecoveryRef.current = recoveryAttempt;
+
+    const isStale = () => !mountedRef.current || activeRecoveryRef.current !== recoveryAttempt;
 
     const navigateToWorkbench = async (workbenchId: string) => {
       await navigate({
@@ -155,11 +167,11 @@ export function useCanvasRouteWorkbenchSync() {
       }
 
       await returnToStudio();
-    })();
-
-    return () => {
-      disposed = true;
-    };
+    })().finally(() => {
+      if (activeRecoveryRef.current === recoveryAttempt) {
+        activeRecoveryRef.current = null;
+      }
+    });
   }, [
     init,
     loadedWorkbenchInteractionKey,

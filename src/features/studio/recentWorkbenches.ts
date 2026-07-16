@@ -7,7 +7,7 @@ const timestampOrZero = (value: string) => {
 
 export const resolveRecentWorkbenchCards = ({
   assets,
-  limit = 4,
+  limit,
   workbenches,
 }: {
   assets: Asset[];
@@ -16,16 +16,20 @@ export const resolveRecentWorkbenchCards = ({
 }) => {
   const assetById = new Map(assets.map((asset) => [asset.id, asset]));
 
-  return workbenches
+  const orderedWorkbenches = workbenches
     .slice()
     .sort(
       (left, right) =>
         timestampOrZero(right.updatedAt) - timestampOrZero(left.updatedAt) ||
         right.id.localeCompare(left.id)
-    )
-    .slice(0, Math.max(0, limit))
-    .map((workbench) => ({
-      workbench,
-      coverAsset: workbench.coverAssetId ? (assetById.get(workbench.coverAssetId) ?? null) : null,
-    }));
+    );
+  const visibleWorkbenches =
+    typeof limit === "number"
+      ? orderedWorkbenches.slice(0, Math.max(0, limit))
+      : orderedWorkbenches;
+
+  return visibleWorkbenches.map((workbench) => ({
+    workbench,
+    coverAsset: workbench.coverAssetId ? (assetById.get(workbench.coverAssetId) ?? null) : null,
+  }));
 };

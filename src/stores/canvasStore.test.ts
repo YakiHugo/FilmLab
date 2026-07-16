@@ -551,6 +551,21 @@ describe("canvasStore", () => {
     );
   });
 
+  it("reports initialization failure without replacing the known workbench list", async () => {
+    const workbench = createWorkbench("known-doc", "Known workbench");
+    const knownEntry = materializeCanvasWorkbenchListEntry(workbench);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    loadCanvasWorkbenchListEntriesByUserMock.mockRejectedValueOnce(new Error("IndexedDB failed"));
+    useCanvasStore.setState({ workbenchList: [knownEntry] });
+
+    const initialized = await useCanvasStore.getState().init();
+
+    expect(initialized).toBe(false);
+    expect(useCanvasStore.getState().isLoading).toBe(false);
+    expect(useCanvasStore.getState().workbenchList).toEqual([knownEntry]);
+    warning.mockRestore();
+  });
+
   it("undo and redo clear selection and move the single-session history", async () => {
     const workbench = installLoadedWorkbench();
     const originalName = workbench.name;

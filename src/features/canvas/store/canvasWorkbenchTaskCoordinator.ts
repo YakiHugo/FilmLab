@@ -1,5 +1,5 @@
 let canvasResetEpoch = 0;
-let canvasInitPromise: Promise<void> | null = null;
+let canvasInitPromise: Promise<boolean> | null = null;
 let mutationQueueTail: Promise<void> = Promise.resolve();
 let canvasMutationVersion = 0;
 
@@ -15,7 +15,7 @@ export const getCanvasInitPromise = () => canvasInitPromise;
 
 export const getCanvasMutationVersion = () => canvasMutationVersion;
 
-export const setCanvasInitPromise = (promise: Promise<void> | null) => {
+export const setCanvasInitPromise = (promise: Promise<boolean> | null) => {
   canvasInitPromise = promise;
 };
 

@@ -188,6 +188,7 @@ function RecentAssetCard({
 export function StudioPage() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const workbenchLoadRequestRef = useRef(0);
   const assets = useAssetStore((state) => state.assets);
   const isLoading = useAssetStore((state) => state.isLoading);
   const workbenches = useCanvasStore((state) => state.workbenchList);
@@ -195,7 +196,10 @@ export function StudioPage() {
   const initWorkbenches = useCanvasStore((state) => state.init);
   const [isDragging, setIsDragging] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
-  const [hasLoadedWorkbenches, setHasLoadedWorkbenches] = useState(false);
+  const [showAllWorkbenches, setShowAllWorkbenches] = useState(false);
+  const [workbenchLoadStatus, setWorkbenchLoadStatus] = useState<"loading" | "ready" | "error">(
+    "loading"
+  );
   const [status, setStatus] = useState("等待图像输入");
   const [error, setError] = useState<string | null>(null);
 
@@ -211,18 +215,27 @@ export function StudioPage() {
     () => resolveRecentWorkbenchCards({ assets, workbenches }),
     [assets, workbenches]
   );
+  const visibleWorkbenchCards = showAllWorkbenches
+    ? recentWorkbenchCards
+    : recentWorkbenchCards.slice(0, 4);
+  const workbenchLoadPending = workbenchLoadStatus === "loading" || isLoadingWorkbenches;
+
+  const loadWorkbenches = useCallback(async () => {
+    const requestId = workbenchLoadRequestRef.current + 1;
+    workbenchLoadRequestRef.current = requestId;
+    setWorkbenchLoadStatus("loading");
+    const initialized = await initWorkbenches();
+    if (workbenchLoadRequestRef.current === requestId) {
+      setWorkbenchLoadStatus(initialized ? "ready" : "error");
+    }
+  }, [initWorkbenches]);
 
   useEffect(() => {
-    let active = true;
-    void initWorkbenches().finally(() => {
-      if (active) {
-        setHasLoadedWorkbenches(true);
-      }
-    });
+    void loadWorkbenches();
     return () => {
-      active = false;
+      workbenchLoadRequestRef.current += 1;
     };
-  }, [initWorkbenches]);
+  }, [loadWorkbenches]);
 
   const openWorkbench = useCallback(
     async (workbenchId: string) => {
@@ -492,8 +505,29 @@ export function StudioPage() {
           </span>
         </div>
 
-        <div aria-busy={!hasLoadedWorkbenches || isLoadingWorkbenches}>
-          {!hasLoadedWorkbenches || isLoadingWorkbenches ? (
+        <div aria-busy={workbenchLoadPending}>
+          {workbenchLoadStatus === "error" ? (
+            <div
+              className="mt-6 flex min-h-24 flex-col justify-between gap-4 border border-[#ff6b35]/45 bg-[#ff6b35]/[0.05] px-5 py-4 sm:flex-row sm:items-center"
+              role="alert"
+            >
+              <div>
+                <p className="text-sm font-semibold text-[#ff9671]">无法读取保存的作品</p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  现有数据没有被清空，请重试本地存储读取。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadWorkbenches()}
+                className="h-9 shrink-0 border border-[#ff6b35]/45 px-4 font-mono text-[10px] uppercase tracking-[0.16em] text-[#ff9671] transition hover:bg-[#ff6b35]/10"
+              >
+                retry workbench load
+              </button>
+            </div>
+          ) : null}
+
+          {workbenchLoadPending && recentWorkbenchCards.length === 0 ? (
             <>
               <span className="sr-only" role="status">
                 正在加载最近作品
@@ -505,19 +539,34 @@ export function StudioPage() {
               </div>
             </>
           ) : recentWorkbenchCards.length > 0 ? (
-            <div className="grid gap-5 py-6 lg:grid-cols-2">
-              {recentWorkbenchCards.map(({ coverAsset, workbench }) => (
-                <RecentWorkbenchCard
-                  key={`${workbench.id}:${coverAsset?.id ?? workbench.coverAssetId ?? "none"}`}
-                  coverAsset={coverAsset}
-                  coverResolutionPending={isLoading}
-                  disabled={isStarting}
-                  onSelect={(workbenchId) => void openWorkbench(workbenchId)}
-                  workbench={workbench}
-                />
-              ))}
-            </div>
-          ) : (
+            <>
+              <div className="grid gap-5 py-6 lg:grid-cols-2">
+                {visibleWorkbenchCards.map(({ coverAsset, workbench }) => (
+                  <RecentWorkbenchCard
+                    key={`${workbench.id}:${coverAsset?.id ?? workbench.coverAssetId ?? "none"}`}
+                    coverAsset={coverAsset}
+                    coverResolutionPending={isLoading}
+                    disabled={isStarting}
+                    onSelect={(workbenchId) => void openWorkbench(workbenchId)}
+                    workbench={workbench}
+                  />
+                ))}
+              </div>
+              {recentWorkbenchCards.length > 4 ? (
+                <div className="flex justify-center border-t border-white/10 pt-5">
+                  <button
+                    type="button"
+                    onClick={() => setShowAllWorkbenches((visible) => !visible)}
+                    className="border border-white/15 px-5 py-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-400 transition hover:border-[#d9ff43]/50 hover:text-[#d9ff43]"
+                  >
+                    {showAllWorkbenches
+                      ? "收起到最近 4 个作品"
+                      : `查看全部 ${recentWorkbenchCards.length} 个作品`}
+                  </button>
+                </div>
+              ) : null}
+            </>
+          ) : workbenchLoadStatus === "error" ? null : (
             <button
               type="button"
               disabled={isStarting}

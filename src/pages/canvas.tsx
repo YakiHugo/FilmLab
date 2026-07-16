@@ -1,5 +1,12 @@
 import type Konva from "konva";
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type HTMLAttributes,
+  type RefObject,
+} from "react";
 import { useLocation } from "@tanstack/react-router";
 import { CanvasAppBar } from "@/features/canvas/CanvasAppBar";
 import { CanvasExportDialog } from "@/features/canvas/CanvasExportDialog";
@@ -26,12 +33,15 @@ import {
 import { CanvasRuntimeProvider } from "@/features/canvas/runtime/CanvasRuntimeProvider";
 
 function CanvasPageEffects({
+  interactionEnabled,
   onShortcutKeyDown,
 }: {
+  interactionEnabled: boolean;
   onShortcutKeyDown: (event: KeyboardEvent) => boolean;
 }) {
   useCanvasRouteWorkbenchSync();
   useCanvasInteraction({
+    enabled: interactionEnabled,
     onShortcutKeyDown,
   });
 
@@ -40,12 +50,14 @@ function CanvasPageEffects({
 
 function CanvasPreviewSurface({
   contextActions,
+  interactionEnabled,
   interactionNotice,
   onNotice,
   onExport,
   stageRef,
 }: {
   contextActions: CanvasContextActionsModel;
+  interactionEnabled: boolean;
   interactionNotice: CanvasInteractionNotice | null;
   onNotice: (notice: CanvasInteractionNotice) => void;
   onExport: () => void;
@@ -64,6 +76,7 @@ function CanvasPreviewSurface({
     >
       <CanvasViewport
         contextActions={contextActions}
+        interactionEnabled={interactionEnabled}
         interactionNotice={interactionNotice}
         onNotice={onNotice}
         stageRef={stageRef}
@@ -96,6 +109,9 @@ export function CanvasPage() {
   const routeWorkbenchId = resolveCanvasRouteWorkbenchId(pathname);
   const loadedWorkbenchId = useCanvasStore((state) => state.loadedWorkbenchId);
   const isRouteWorkbenchReady = routeWorkbenchId !== null && routeWorkbenchId === loadedWorkbenchId;
+  const routePendingAccessibilityProps = isRouteWorkbenchReady
+    ? {}
+    : ({ inert: "" } as unknown as HTMLAttributes<HTMLDivElement>);
   const stageRef = useRef<Konva.Stage>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [interactionNotice, setInteractionNotice] = useState<CanvasInteractionNotice | null>(null);
@@ -131,14 +147,24 @@ export function CanvasPage() {
   return (
     <CanvasWorkbenchTransitionGuardProvider>
       <div className="absolute inset-0 overflow-hidden">
-        <CanvasPageEffects onShortcutKeyDown={contextActions.handleShortcutKeyDown} />
-        <CanvasPreviewSurface
-          contextActions={contextActions}
-          interactionNotice={interactionNotice}
-          onNotice={handleNotice}
-          onExport={handleOpenExport}
-          stageRef={stageRef}
+        <CanvasPageEffects
+          interactionEnabled={isRouteWorkbenchReady}
+          onShortcutKeyDown={contextActions.handleShortcutKeyDown}
         />
+        <div
+          {...routePendingAccessibilityProps}
+          className="absolute inset-0"
+          aria-hidden={!isRouteWorkbenchReady}
+        >
+          <CanvasPreviewSurface
+            contextActions={contextActions}
+            interactionEnabled={isRouteWorkbenchReady}
+            interactionNotice={interactionNotice}
+            onNotice={handleNotice}
+            onExport={handleOpenExport}
+            stageRef={stageRef}
+          />
+        </div>
         {isRouteWorkbenchReady ? (
           <>
             <CanvasAppBar onExport={handleOpenExport} />

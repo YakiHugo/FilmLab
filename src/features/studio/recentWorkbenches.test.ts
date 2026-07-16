@@ -65,4 +65,25 @@ describe("resolveRecentWorkbenchCards", () => {
       coverAsset: null,
     });
   });
+
+  it("keeps every persisted workbench reachable when no display limit is requested", () => {
+    const cards = resolveRecentWorkbenchCards({
+      assets: [],
+      workbenches: Array.from({ length: 6 }, (_, index) =>
+        createWorkbench(
+          `workbench-${index + 1}`,
+          `2026-07-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`
+        )
+      ),
+    });
+
+    expect(cards.map(({ workbench }) => workbench.id)).toEqual([
+      "workbench-6",
+      "workbench-5",
+      "workbench-4",
+      "workbench-3",
+      "workbench-2",
+      "workbench-1",
+    ]);
+  });
 });

@@ -77,7 +77,7 @@ interface PendingInteractionCommit {
 }
 
 export interface CanvasWorkbenchService {
-  init: () => Promise<void>;
+  init: () => Promise<boolean>;
   openWorkbench: (workbenchId: string) => Promise<CanvasWorkbench | null>;
   closeWorkbench: () => void;
   createWorkbench: (name?: string, options?: CreateWorkbenchOptions) => Promise<CanvasWorkbench | null>;
@@ -545,7 +545,7 @@ export const createCanvasWorkbenchService = ({
           while (epoch === getCanvasResetEpoch()) {
             await waitForCanvasMutationQueueIdle();
             if (epoch !== getCanvasResetEpoch()) {
-              return;
+              return false;
             }
 
             const mutationVersion = getCanvasMutationVersion();
@@ -555,12 +555,12 @@ export const createCanvasWorkbenchService = ({
               getResetEpoch: getCanvasResetEpoch,
             });
             if (epoch !== getCanvasResetEpoch()) {
-              return;
+              return false;
             }
 
             const workbenchList = await loadCanvasWorkbenchListForCurrentUser();
             if (epoch !== getCanvasResetEpoch()) {
-              return;
+              return false;
             }
 
             if (mutationVersion !== getCanvasMutationVersion()) {
@@ -576,13 +576,15 @@ export const createCanvasWorkbenchService = ({
                     isLoading: false,
                   }
             );
-            return;
+            return true;
           }
+          return false;
         } catch (error) {
           if (epoch === getCanvasResetEpoch()) {
             setState({ isLoading: false });
           }
           console.warn("Canvas store initialization failed.", error);
+          return false;
         }
       })().finally(() => {
         setCanvasInitPromise(null);

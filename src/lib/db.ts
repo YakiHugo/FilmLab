@@ -662,8 +662,13 @@ export async function loadCanvasWorkbenchListEntriesByUser(
   userId: string
 ): Promise<StoredCanvasWorkbenchListEntry[]> {
   const db = await getDB();
-  if (!db || !db.objectStoreNames.contains("canvasWorkbenchListEntries")) return [];
+  if (!db) {
+    throw new Error("Canvas workbench database is unavailable.");
+  }
   try {
+    if (!db.objectStoreNames.contains("canvasWorkbenchListEntries")) {
+      throw new Error("Canvas workbench list store is unavailable.");
+    }
     const entries = db
       .transaction("canvasWorkbenchListEntries")
       .store.indexNames.contains("byOwnerUserId")
@@ -684,7 +689,7 @@ export async function loadCanvasWorkbenchListEntriesByUser(
       },
       error
     );
-    return [];
+    throw error;
   }
 }
 

@@ -46,6 +46,13 @@ This task adds local project continuity only. It does not add cross-device workb
 - Retired the generic Canvas preview and scene/global planning buckets. Preview keeps a single document authority and reopens only on reachable large scenes or measured missed frames; scene/global work reopens only from a concrete whole-scene use case with explicit ownership and parity boundaries.
 - `docs/tasks` now contains only this active task pair.
 
+### Validation and independent review
+
+- The first independent semantic review found four real bugs: same-route recovery could be invalidated by its own mutation queue, the pending Canvas still accepted hidden input, IndexedDB read failure looked like a valid empty state, and only four persisted workbenches were reachable. Each finding was fixed with focused regression coverage.
+- A follow-up review found one remaining global-input path in the text overlay. Route readiness now disables the overlay, text toolbar, viewport keyboard lifecycle, and document-level text-session listeners while preserving the transition guard. The final independent review returned `Approve` with no unresolved real bugs or rule violations.
+- Browser validation reopened the fifth persisted workbench, recovered an unavailable deep link to the current valid workbench, and returned through “new work” without changing the persisted workbench count. The Studio surface exposed all five workbenches through its explicit expansion control.
+- `pnpm verify` passed across lint, the complete test suite, and client/server builds. `pnpm dead-code` remained at the improved task baseline of 14 unused files and 84 unused exports, with no new finding from this slice.
+
 ## Validation Boundary
 
 - Unit or component coverage protects any new pure project-card state derivation.
