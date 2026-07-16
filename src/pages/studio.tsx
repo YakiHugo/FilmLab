@@ -6,15 +6,18 @@ import {
   FolderOpen,
   ImagePlus,
   LoaderCircle,
+  PanelsTopLeft,
   Sparkles,
   Upload,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { resolveRecentWorkbenchCards } from "@/features/studio/recentWorkbenches";
 import { importAssetFiles } from "@/lib/assetImport";
 import { cn } from "@/lib/utils";
 import { useAssetStore } from "@/stores/assetStore";
+import { useCanvasStore } from "@/stores/canvasStore";
 import { isSupportedImportFile } from "@/stores/currentUser/constants";
-import type { Asset } from "@/types";
+import type { Asset, CanvasWorkbenchListEntry } from "@/types";
 
 const SIGNAL_FIELD = [
   "010011  ASCIIGRID  110010",
@@ -33,6 +36,118 @@ const formatAssetMeta = (asset: Asset) => {
   }
   return `${Math.max(1, Math.round(asset.size / 1024))} KB`;
 };
+
+const formatWorkbenchUpdatedAt = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "最近更新";
+  }
+
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+};
+
+function RecentWorkbenchCard({
+  coverAsset,
+  coverResolutionPending,
+  disabled,
+  onSelect,
+  workbench,
+}: {
+  coverAsset: Asset | null;
+  coverResolutionPending: boolean;
+  disabled: boolean;
+  onSelect: (workbenchId: string) => void;
+  workbench: CanvasWorkbenchListEntry;
+}) {
+  const [coverFailed, setCoverFailed] = useState(false);
+  const showCover = Boolean(coverAsset && !coverFailed);
+  const pendingCoverAsset = Boolean(
+    workbench.coverAssetId && !coverAsset && coverResolutionPending
+  );
+  const missingCoverAsset = Boolean(workbench.coverAssetId && !showCover && !pendingCoverAsset);
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onSelect(workbench.id)}
+      className="group grid min-h-52 min-w-0 overflow-hidden border border-white/12 bg-[#0d100d] text-left transition hover:border-[#d9ff43]/55 hover:bg-[#10140f] disabled:cursor-wait disabled:opacity-50 sm:grid-cols-[minmax(0,1.35fr)_minmax(150px,0.65fr)]"
+      aria-label={`继续编辑 ${workbench.name}`}
+    >
+      <div className="compute-scanlines relative min-h-40 overflow-hidden bg-[#080a08]">
+        {showCover && coverAsset ? (
+          <img
+            src={coverAsset.thumbnailUrl || coverAsset.objectUrl}
+            alt=""
+            className="h-full w-full object-contain saturate-[0.72] transition duration-500 group-hover:scale-[1.025] group-hover:saturate-100"
+            loading="lazy"
+            onError={() => setCoverFailed(true)}
+          />
+        ) : (
+          <div className="absolute inset-0 flex flex-col justify-between p-5 font-mono uppercase">
+            <div
+              className={cn(
+                "flex items-center justify-between text-[9px] tracking-[0.2em]",
+                missingCoverAsset ? "text-[#ff6b35]" : "text-zinc-600"
+              )}
+            >
+              <span>
+                {pendingCoverAsset
+                  ? "Source asset loading"
+                  : missingCoverAsset
+                    ? "Source asset unavailable"
+                    : "No cover signal"}
+              </span>
+              <span>{workbench.id.slice(-6).toUpperCase()}</span>
+            </div>
+            <div>
+              <p className="text-4xl font-semibold tracking-[-0.08em] text-zinc-800">{`{ }`}</p>
+              <p className="mt-3 text-[9px] tracking-[0.22em] text-[#d9ff43]">
+                document_state / ready
+              </p>
+            </div>
+          </div>
+        )}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/10" />
+        {showCover ? (
+          <span className="absolute left-3 top-3 bg-black/60 px-2 py-1 font-mono text-[8px] uppercase tracking-[0.16em] text-zinc-400">
+            source / cover
+          </span>
+        ) : null}
+        <div className="absolute inset-x-3 bottom-3 flex items-center justify-between gap-3 font-mono text-[9px] uppercase tracking-[0.16em]">
+          <span className="text-[#d9ff43]">resume_work</span>
+          <span className="border border-white/15 bg-black/55 px-2 py-1 text-zinc-300">
+            {workbench.width} × {workbench.height}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex min-w-0 flex-col justify-between gap-7 border-t border-white/10 p-5 sm:border-l sm:border-t-0">
+        <div>
+          <div className="flex items-center justify-between gap-3 font-mono text-[9px] uppercase tracking-[0.18em] text-zinc-600">
+            <span>Workbench</span>
+            <PanelsTopLeft className="h-4 w-4 text-zinc-500 transition group-hover:text-[#d9ff43]" />
+          </div>
+          <p className="mt-4 line-clamp-2 text-lg font-semibold leading-tight tracking-tight text-zinc-100">
+            {workbench.name}
+          </p>
+        </div>
+
+        <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-zinc-600">
+          <p>{formatWorkbenchUpdatedAt(workbench.updatedAt)}</p>
+          <p className="mt-2 text-zinc-400">
+            {workbench.elementCount} layer{workbench.elementCount === 1 ? "" : "s"} / continue ↗
+          </p>
+        </div>
+      </div>
+    </button>
+  );
+}
 
 function RecentAssetCard({
   asset,
@@ -73,10 +188,18 @@ function RecentAssetCard({
 export function StudioPage() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const workbenchLoadRequestRef = useRef(0);
   const assets = useAssetStore((state) => state.assets);
   const isLoading = useAssetStore((state) => state.isLoading);
+  const workbenches = useCanvasStore((state) => state.workbenchList);
+  const isLoadingWorkbenches = useCanvasStore((state) => state.isLoading);
+  const initWorkbenches = useCanvasStore((state) => state.init);
   const [isDragging, setIsDragging] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+  const [showAllWorkbenches, setShowAllWorkbenches] = useState(false);
+  const [workbenchLoadStatus, setWorkbenchLoadStatus] = useState<"loading" | "ready" | "error">(
+    "loading"
+  );
   const [status, setStatus] = useState("等待图像输入");
   const [error, setError] = useState<string | null>(null);
 
@@ -87,6 +210,55 @@ export function StudioPage() {
         .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
         .slice(0, 4),
     [assets]
+  );
+  const recentWorkbenchCards = useMemo(
+    () => resolveRecentWorkbenchCards({ assets, workbenches }),
+    [assets, workbenches]
+  );
+  const visibleWorkbenchCards = showAllWorkbenches
+    ? recentWorkbenchCards
+    : recentWorkbenchCards.slice(0, 4);
+  const workbenchLoadPending = workbenchLoadStatus === "loading" || isLoadingWorkbenches;
+
+  const loadWorkbenches = useCallback(async () => {
+    const requestId = workbenchLoadRequestRef.current + 1;
+    workbenchLoadRequestRef.current = requestId;
+    setWorkbenchLoadStatus("loading");
+    const initialized = await initWorkbenches();
+    if (workbenchLoadRequestRef.current === requestId) {
+      setWorkbenchLoadStatus(initialized ? "ready" : "error");
+    }
+  }, [initWorkbenches]);
+
+  useEffect(() => {
+    void loadWorkbenches();
+    return () => {
+      workbenchLoadRequestRef.current += 1;
+    };
+  }, [loadWorkbenches]);
+
+  const openWorkbench = useCallback(
+    async (workbenchId: string) => {
+      if (isStarting) {
+        return;
+      }
+
+      setIsStarting(true);
+      setError(null);
+      setStatus("正在恢复作品状态");
+      try {
+        await navigate({
+          to: "/canvas/$workbenchId",
+          params: { workbenchId },
+        });
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "无法打开作品，请重试。");
+        setStatus("作品恢复失败");
+      } finally {
+        setIsStarting(false);
+      }
+    },
+    [isStarting, navigate]
   );
 
   const openAsset = useCallback(
@@ -321,10 +493,101 @@ export function StudioPage() {
         <div className="flex flex-col justify-between gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-end">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#ff6b35]">
-              Input channel 02
+              Workbench channel 02
             </p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-100">
-              从最近素材继续
+              继续最近作品
+            </h2>
+            <p className="mt-2 text-sm text-zinc-500">恢复画布、风格、语义叠层与输出设置。</p>
+          </div>
+          <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-700">
+            local document state / indexeddb
+          </span>
+        </div>
+
+        <div aria-busy={workbenchLoadPending}>
+          {workbenchLoadStatus === "error" ? (
+            <div
+              className="mt-6 flex min-h-24 flex-col justify-between gap-4 border border-[#ff6b35]/45 bg-[#ff6b35]/[0.05] px-5 py-4 sm:flex-row sm:items-center"
+              role="alert"
+            >
+              <div>
+                <p className="text-sm font-semibold text-[#ff9671]">无法读取保存的作品</p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  现有数据没有被清空，请重试本地存储读取。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadWorkbenches()}
+                className="h-9 shrink-0 border border-[#ff6b35]/45 px-4 font-mono text-[10px] uppercase tracking-[0.16em] text-[#ff9671] transition hover:bg-[#ff6b35]/10"
+              >
+                retry workbench load
+              </button>
+            </div>
+          ) : null}
+
+          {workbenchLoadPending && recentWorkbenchCards.length === 0 ? (
+            <>
+              <span className="sr-only" role="status">
+                正在加载最近作品
+              </span>
+              <div className="grid gap-5 py-6 lg:grid-cols-2">
+                {Array.from({ length: 2 }, (_, index) => (
+                  <div key={index} className="min-h-52 animate-pulse bg-white/[0.04]" />
+                ))}
+              </div>
+            </>
+          ) : recentWorkbenchCards.length > 0 ? (
+            <>
+              <div className="grid gap-5 py-6 lg:grid-cols-2">
+                {visibleWorkbenchCards.map(({ coverAsset, workbench }) => (
+                  <RecentWorkbenchCard
+                    key={`${workbench.id}:${coverAsset?.id ?? workbench.coverAssetId ?? "none"}`}
+                    coverAsset={coverAsset}
+                    coverResolutionPending={isLoading}
+                    disabled={isStarting}
+                    onSelect={(workbenchId) => void openWorkbench(workbenchId)}
+                    workbench={workbench}
+                  />
+                ))}
+              </div>
+              {recentWorkbenchCards.length > 4 ? (
+                <div className="flex justify-center border-t border-white/10 pt-5">
+                  <button
+                    type="button"
+                    onClick={() => setShowAllWorkbenches((visible) => !visible)}
+                    className="border border-white/15 px-5 py-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-400 transition hover:border-[#d9ff43]/50 hover:text-[#d9ff43]"
+                  >
+                    {showAllWorkbenches
+                      ? "收起到最近 4 个作品"
+                      : `查看全部 ${recentWorkbenchCards.length} 个作品`}
+                  </button>
+                </div>
+              ) : null}
+            </>
+          ) : workbenchLoadStatus === "error" ? null : (
+            <button
+              type="button"
+              disabled={isStarting}
+              onClick={() => fileInputRef.current?.click()}
+              className="my-6 flex min-h-28 w-full items-center justify-between gap-5 border border-dashed border-white/12 bg-white/[0.012] px-5 text-left text-sm text-zinc-600 transition hover:border-[#d9ff43]/45 hover:text-zinc-300 disabled:cursor-wait disabled:opacity-50 sm:px-7"
+            >
+              <span>还没有保存的作品。导入一张图片开始创作。</span>
+              <span className="hidden font-mono text-[9px] uppercase tracking-[0.18em] text-[#d9ff43] sm:block">
+                import first image ↗
+              </span>
+            </button>
+          )}
+        </div>
+
+        <div className="mt-10 flex flex-col justify-between gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-end">
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-[#ff6b35]">
+              Input channel 03
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-100">
+              用最近素材新建
             </h2>
           </div>
           <Link
@@ -372,7 +635,7 @@ export function StudioPage() {
               <FolderOpen className="h-6 w-6 text-[#d9ff43]" />
               <div>
                 <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-600">
-                  Channel 03 / Library
+                  Channel 04 / Library
                 </p>
                 <p className="mt-1 text-lg font-semibold text-zinc-200">浏览与整理全部素材</p>
               </div>
@@ -387,7 +650,7 @@ export function StudioPage() {
               <Sparkles className="h-6 w-6 text-[#ff6b35]" />
               <div>
                 <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-600">
-                  Channel 04 / AI
+                  Channel 05 / AI
                 </p>
                 <p className="mt-1 text-lg font-semibold text-zinc-200">用提示词生成新的输入</p>
               </div>
@@ -398,7 +661,7 @@ export function StudioPage() {
 
         <div className="mt-7 flex flex-col gap-2 font-mono text-[9px] uppercase tracking-[0.16em] text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
           <span>{status}</span>
-          <span>input → style → overlay → ratio → export</span>
+          <span>resume / input → style → overlay → ratio → export</span>
         </div>
       </section>
     </div>

@@ -9,6 +9,7 @@ import { useCanvasLoadedWorkbenchStructure } from "./useCanvasLoadedWorkbenchStr
 import { useCanvasSelectionActions } from "./useCanvasSelectionActions";
 
 export interface UseCanvasInteractionOptions {
+  enabled?: boolean;
   onShortcutKeyDown: (event: KeyboardEvent) => boolean;
 }
 
@@ -36,7 +37,10 @@ export const resolveCanvasInteractionNudge = (
   }
 };
 
-export function useCanvasInteraction({ onShortcutKeyDown }: UseCanvasInteractionOptions) {
+export function useCanvasInteraction({
+  enabled = true,
+  onShortcutKeyDown,
+}: UseCanvasInteractionOptions) {
   const loadedWorkbenchId = useCanvasStore((state) => state.loadedWorkbenchId);
   const { loadedWorkbench } = useCanvasStore(selectCanvasLoadedWorkbenchState, shallow);
   const { nudgeElements } = useCanvasLoadedWorkbenchStructure();
@@ -62,6 +66,10 @@ export function useCanvasInteraction({ onShortcutKeyDown }: UseCanvasInteraction
   }, [loadedWorkbench, selectedElementIds, setSelectedElementIds]);
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!loadedWorkbenchId) {
         return;
@@ -84,5 +92,5 @@ export function useCanvasInteraction({ onShortcutKeyDown }: UseCanvasInteraction
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [loadedWorkbenchId, nudgeElements, onShortcutKeyDown]);
+  }, [enabled, loadedWorkbenchId, nudgeElements, onShortcutKeyDown]);
 }

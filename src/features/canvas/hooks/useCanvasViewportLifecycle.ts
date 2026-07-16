@@ -13,6 +13,7 @@ interface UseCanvasViewportLifecycleOptions {
     width: number;
   } | null;
   activeWorkbenchId: string | null;
+  enabled: boolean;
   insets: CanvasViewportInsets;
   setViewport: (viewport: CanvasViewportTransform["viewport"]) => void;
   setZoom: (zoom: number) => void;
@@ -47,6 +48,7 @@ const isInputLikeElement = (target: EventTarget | null) => {
 export function useCanvasViewportLifecycle({
   activeWorkbench,
   activeWorkbenchId,
+  enabled,
   insets,
   setViewport,
   setZoom,
@@ -132,6 +134,11 @@ export function useCanvasViewportLifecycle({
   }, [activeWorkbench, fitView, setViewport, setZoom]);
 
   useEffect(() => {
+    if (!enabled) {
+      setIsSpacePressed(false);
+      return;
+    }
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.code === "Space" && !isInputLikeElement(event.target)) {
         event.preventDefault();
@@ -152,7 +159,7 @@ export function useCanvasViewportLifecycle({
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, []);
+  }, [enabled]);
 
   return {
     fitView,

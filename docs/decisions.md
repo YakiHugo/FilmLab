@@ -68,6 +68,14 @@
 - 旧 WebGL2 `PipelineRenderer.applyFilter2dSource` 在 device 支持时用 `RGBA16F` intermediate；现在 `adjust → blur(h) → blur(v) → dilate` 链每次写入量化到 8-bit。理论上极端组合（高 blur radius × `brightness >> 1`）下偏差可达 ~3–4/255 vs 旧 16F 路径——但旧路径已删除，没有 baseline。
 - Revisit：若 carrier / overlay 链未来出现可见 banding 或 export 端 16-bit pipeline 接入，再统一切到 `rgba16float`（需要 device feature gate）。
 
+## 诊断与回归观测
+
+- Sensor shape 跟随领域失败形状；DB、render、Canvas command 与 provider 保持各自 payload 和 `globalThis.__filmlab_*` 出口，不引入统一 logger 抽象。
+- `RenderBoundaryMetrics` ceiling 与 trace / output-hash baseline 是需显式审查的回归合同。只有预期的管线或视觉变化才能更新 baseline，不能自动接受漂移。
+- `x-request-id` 是 client、server 与 provider 间唯一共享的关联键。服务端默认生成权威值；仅在 trusted-proxy 模式且格式合法时接受入站值，并把同一值写回响应与下游调用。
+- Provider `responseBodyPreview` 只保证截断，不保证脱敏；不得把它视为可安全记录 secrets 的边界。
+- `turn.error` 保持字符串。若 stage、trace 或 provider diagnosis 需要跨 reload 与支持流程存活，应显式扩展 repository 和 conversation view 模型，不增加仅在 UI 存活的兼容分支。
+
 ## 服务端 AI 管线
 
 ### 模块边界
@@ -108,8 +116,11 @@
 ### Canvas
 
 - 从 `activeWorkbench` 面门收口到 `loadedWorkbench` 状态、命令、结构、历史 seam。
-- Route-first workbench 激活 + 文本预提交 guard 是为了解决 workbench 切换时的文本会话竞争；不要拆。
+- Route-first workbench 激活 + 文本预提交 guard 是为了解决 workbench 切换时的文本会话竞争；不要拆。同一路径的恢复尝试不能被自身 mutation queue 状态失效，route/store 不一致期间必须保留 guard、隐藏并 `inert` 旧 surface，同时停用快捷键、overlay、toolbar 与 document/window 全局输入。
+- Studio 的本地项目入口直接消费 `CanvasWorkbenchListEntry`，再按 `coverAssetId` 可选关联素材封面；素材缺失或读取中不能阻塞项目恢复。所有持久化项目必须可达，默认只折叠展示最近四项。若未来需要所见即所得封面，在 workbench 保存边界持久化缩略图，不在 Studio 批量渲染完整文档。
+- Workbench 列表初始化必须区分读取失败与合法空库：失败保留已知列表并提供重试，不能把持久层异常吞成 `[]`。Canvas 的“新作品”回到 image-first Studio，选择输入前不得创建空 workbench。
 - History 是 `entries + cursor` delta 模型，不是 `past/future` 双栈。
+- Preview runtime 不得成为第二份持久化 document 或 Konva authority；最终提交保持一次手势、一次历史、一次持久化。当前全场景 preview 路径只在可达流程出现大场景或交互 trace 证明 missed frames 时重开优化。
 - Canvas 根目录按领域分子目录：`geometry/`（resize / selection / overlay 几何）、`image/`（渲染状态、board 预览、属性、工厂）、`text/`（会话、样式、运行时视图模型）。不设 barrel `index.ts`，消费者直接导入子目录下具体文件。
 
 ### Computational Visual V1 boundary
@@ -147,4 +158,4 @@
 
 - 没有 `src/features/editor/*`——那棵树退休了。
 - `src/render/image/*` 是单图内核；画布级预览/导出组合在 `src/features/canvas/*`。
-- Scene/global render 被故意拆成后续任务（见 `docs/tasks/scene-global-render-follow-up.md`）。
+- Scene/global render 没有通用待办桶。只在出现具体 whole-scene 用例时重开，并先定义 authored state 归属、stage 顺序、preview/export 一致性与有界回归方案；单图内核仍是 per-image execution primitive。

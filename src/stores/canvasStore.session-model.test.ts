@@ -95,9 +95,10 @@ describe("canvasStore session model", () => {
   it("init only loads the workbench list and leaves detail unloaded", async () => {
     loadCanvasWorkbenchListEntriesByUserMock.mockResolvedValue([createListEntry()]);
 
-    await useCanvasStore.getState().init();
+    const initialized = await useCanvasStore.getState().init();
 
     const state = useCanvasStore.getState();
+    expect(initialized).toBe(true);
     expect(loadCanvasWorkbenchListEntriesByUserMock).toHaveBeenCalledTimes(1);
     expect(loadCanvasWorkbenchMock).not.toHaveBeenCalled();
     expect(state.workbenchList).toEqual([createListEntry()]);

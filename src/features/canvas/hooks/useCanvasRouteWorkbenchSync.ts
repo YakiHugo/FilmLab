@@ -21,13 +21,17 @@ export const resolveCanvasRouteWorkbenchId = (pathname: string): string | null =
   return decodeURIComponent(encodedWorkbenchId);
 };
 
+export const isCanvasRoutePath = (pathname: string) =>
+  pathname === "/canvas" || pathname.startsWith("/canvas/");
+
 export function useCanvasRouteWorkbenchSync() {
   const navigate = useNavigate();
   const pathname = useLocation({
     select: (state) => state.pathname,
   });
   const routeWorkbenchId = resolveCanvasRouteWorkbenchId(pathname);
-  const recoveryTokenRef = useRef(0);
+  const activeRecoveryRef = useRef<{ pathname: string } | null>(null);
+  const mountedRef = useRef(true);
   const loadedWorkbenchId = useCanvasStore((state) => state.loadedWorkbenchId);
   const loadedWorkbenchInteraction = useCanvasStore((state) =>
     state.loadedWorkbenchId === loadedWorkbenchId ? state.workbenchInteraction : null
@@ -37,7 +41,6 @@ export function useCanvasRouteWorkbenchSync() {
     shallow
   );
   const init = useCanvasStore((state) => state.init);
-  const createWorkbench = useCanvasStore((state) => state.createWorkbench);
   const openWorkbench = useCanvasStore((state) => state.openWorkbench);
   const runBeforeWorkbenchTransition = useCanvasWorkbenchTransitionGuard();
   const loadedWorkbenchInteractionKey = `${loadedWorkbenchInteraction?.active ? 1 : 0}:${
@@ -54,11 +57,22 @@ export function useCanvasRouteWorkbenchSync() {
   }, [runBeforeWorkbenchTransition]);
 
   useEffect(() => {
-    let disposed = false;
-    const recoveryToken = recoveryTokenRef.current + 1;
-    recoveryTokenRef.current = recoveryToken;
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      activeRecoveryRef.current = null;
+    };
+  }, []);
 
-    const isStale = () => disposed || recoveryTokenRef.current !== recoveryToken;
+  useEffect(() => {
+    if (activeRecoveryRef.current?.pathname === pathname) {
+      return;
+    }
+
+    const recoveryAttempt = { pathname };
+    activeRecoveryRef.current = recoveryAttempt;
+
+    const isStale = () => !mountedRef.current || activeRecoveryRef.current !== recoveryAttempt;
 
     const navigateToWorkbench = async (workbenchId: string) => {
       await navigate({
@@ -72,20 +86,19 @@ export function useCanvasRouteWorkbenchSync() {
       return getCurrentWorkbenchIds();
     };
 
-    const createAndNavigate = async () => {
+    const returnToStudio = async () => {
       if (!(await awaitWorkbenchTransitionGuard()) || isStale()) {
         return;
       }
 
-      const created = await createWorkbench(undefined, { openAfterCreate: false });
-      if (!created || isStale()) {
-        return;
-      }
-
-      await navigateToWorkbench(created.id);
+      await navigate({ to: "/" });
     };
 
     void (async () => {
+      if (!isCanvasRoutePath(pathname)) {
+        return;
+      }
+
       if (routeWorkbenchId) {
         if (routeWorkbenchId === loadedWorkbenchId) {
           void init();
@@ -113,16 +126,15 @@ export function useCanvasRouteWorkbenchSync() {
 
         const recoveryPlan = resolveCanvasPageRecoveryPlan({
           activeWorkbenchId: useCanvasStore.getState().loadedWorkbenchId,
+          unavailableWorkbenchId: routeWorkbenchId,
           workbenchIds: latestWorkbenchIds,
         });
         if (recoveryPlan.type === "navigate-to-fallback") {
-          if (recoveryPlan.workbenchId !== routeWorkbenchId) {
-            await navigateToWorkbench(recoveryPlan.workbenchId);
-          }
+          await navigateToWorkbench(recoveryPlan.workbenchId);
           return;
         }
 
-        await createAndNavigate();
+        await returnToStudio();
         return;
       }
 
@@ -154,14 +166,13 @@ export function useCanvasRouteWorkbenchSync() {
         return;
       }
 
-      await createAndNavigate();
-    })();
-
-    return () => {
-      disposed = true;
-    };
+      await returnToStudio();
+    })().finally(() => {
+      if (activeRecoveryRef.current === recoveryAttempt) {
+        activeRecoveryRef.current = null;
+      }
+    });
   }, [
-    createWorkbench,
     init,
     loadedWorkbenchInteractionKey,
     loadedWorkbenchId,

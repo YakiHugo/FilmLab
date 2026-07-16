@@ -30,6 +30,7 @@ import type { CanvasContextActionsModel } from "./hooks/useCanvasContextActions"
 
 interface CanvasViewportProps {
   contextActions: CanvasContextActionsModel;
+  interactionEnabled: boolean;
   interactionNotice: CanvasInteractionNotice | null;
   onNotice: (notice: CanvasInteractionNotice) => void;
   stageRef: RefObject<Konva.Stage>;
@@ -114,6 +115,7 @@ function CanvasViewportControls({
 
 export function CanvasViewport({
   contextActions,
+  interactionEnabled,
   interactionNotice,
   onNotice,
   stageRef,
@@ -161,6 +163,7 @@ export function CanvasViewport({
   const { fitView, isSpacePressed, stageSize, viewportContainerRef } = useCanvasViewportLifecycle({
     activeWorkbench: loadedWorkbench,
     activeWorkbenchId: loadedWorkbenchId,
+    enabled: interactionEnabled,
     insets: VIEWPORT_INSETS,
     setViewport,
     setZoom,
@@ -375,7 +378,11 @@ export function CanvasViewport({
         />
       </CanvasViewportContextMenu>
 
-      <CanvasViewportOverlayHost overlay={overlay} textEditing={textEditing} />
+      <CanvasViewportOverlayHost
+        enabled={interactionEnabled}
+        overlay={overlay}
+        textEditing={textEditing}
+      />
 
       <CanvasViewportControls
         adjustZoom={interactionState.controls.adjustZoom}

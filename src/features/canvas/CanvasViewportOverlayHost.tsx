@@ -21,6 +21,7 @@ import type { CanvasTextRuntimeViewModel } from "./text/textRuntimeViewModel";
 import type { CanvasInteractionNotice } from "./viewportOverlay";
 
 interface CanvasViewportOverlayHostProps {
+  enabled: boolean;
   overlay: {
     activeWorkbenchUpdatedAt?: string;
     suspendDocumentOverlaySync?: boolean;
@@ -63,6 +64,7 @@ interface CanvasViewportOverlayHostProps {
 }
 
 export const CanvasViewportOverlayHost = memo(function CanvasViewportOverlayHost({
+  enabled,
   overlay,
   textEditing,
 }: CanvasViewportOverlayHostProps) {
@@ -104,7 +106,7 @@ export const CanvasViewportOverlayHost = memo(function CanvasViewportOverlayHost
   const handleCommitTextEdit = textEditing.onCommitTextEdit;
 
   useEffect(() => {
-    if (!editingTextId) {
+    if (!enabled || !editingTextId) {
       return;
     }
 
@@ -118,10 +120,10 @@ export const CanvasViewportOverlayHost = memo(function CanvasViewportOverlayHost
     return () => {
       window.removeEventListener("keydown", handleWindowKeyDown);
     };
-  }, [editingTextId, handleCancelTextEdit]);
+  }, [editingTextId, enabled, handleCancelTextEdit]);
 
   useEffect(() => {
-    if (!editingTextId) {
+    if (!enabled || !editingTextId) {
       return;
     }
 
@@ -142,7 +144,11 @@ export const CanvasViewportOverlayHost = memo(function CanvasViewportOverlayHost
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown, true);
     };
-  }, [editingTextId, handleCommitTextEdit]);
+  }, [editingTextId, enabled, handleCommitTextEdit]);
+
+  if (!enabled) {
+    return null;
+  }
 
   const showDimensionsBadge = Boolean(
     selectionOverlay && overlay.singleSelectedNonTextElement && overlay.selectedElementCount === 1

@@ -31,7 +31,7 @@ export type { CanvasFloatingPanel, CanvasTool } from "@/features/canvas/store/ca
 export { getCanvasResetEpoch } from "@/features/canvas/store/canvasWorkbenchService";
 
 export interface CanvasState extends CanvasStoreDataState {
-  init: () => Promise<void>;
+  init: () => Promise<boolean>;
   openWorkbench: (workbenchId: string) => Promise<CanvasWorkbench | null>;
   closeWorkbench: () => void;
   createWorkbench: (name?: string, options?: CreateWorkbenchOptions) => Promise<CanvasWorkbench | null>;
