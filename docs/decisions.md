@@ -116,7 +116,9 @@
 ### Canvas
 
 - 从 `activeWorkbench` 面门收口到 `loadedWorkbench` 状态、命令、结构、历史 seam。
-- Route-first workbench 激活 + 文本预提交 guard 是为了解决 workbench 切换时的文本会话竞争；不要拆。
+- Route-first workbench 激活 + 文本预提交 guard 是为了解决 workbench 切换时的文本会话竞争；不要拆。同一路径的恢复尝试不能被自身 mutation queue 状态失效，route/store 不一致期间必须保留 guard、隐藏并 `inert` 旧 surface，同时停用快捷键、overlay、toolbar 与 document/window 全局输入。
+- Studio 的本地项目入口直接消费 `CanvasWorkbenchListEntry`，再按 `coverAssetId` 可选关联素材封面；素材缺失或读取中不能阻塞项目恢复。所有持久化项目必须可达，默认只折叠展示最近四项。若未来需要所见即所得封面，在 workbench 保存边界持久化缩略图，不在 Studio 批量渲染完整文档。
+- Workbench 列表初始化必须区分读取失败与合法空库：失败保留已知列表并提供重试，不能把持久层异常吞成 `[]`。Canvas 的“新作品”回到 image-first Studio，选择输入前不得创建空 workbench。
 - History 是 `entries + cursor` delta 模型，不是 `past/future` 双栈。
 - Preview runtime 不得成为第二份持久化 document 或 Konva authority；最终提交保持一次手势、一次历史、一次持久化。当前全场景 preview 路径只在可达流程出现大场景或交互 trace 证明 missed frames 时重开优化。
 - Canvas 根目录按领域分子目录：`geometry/`（resize / selection / overlay 几何）、`image/`（渲染状态、board 预览、属性、工厂）、`text/`（会话、样式、运行时视图模型）。不设 barrel `index.ts`，消费者直接导入子目录下具体文件。
