@@ -14,12 +14,19 @@
     },
     {
       "id": "decode-double-srgb-fix",
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": ["render-chain-golden-tests"],
       "passes": [
-        "the midtone probe passes: a 0.5 gray card rendered through the default chain lands within the sRGB round-trip tolerance band",
-        "all five style presets are re-tuned against the corrected baseline across the manual 11-image checklist and the retune is recorded",
+        "the midtone probe passes: a 0.5 gray card rendered through the default chain lands within the corrected-baseline tolerance band",
         "existing gpu unit tests stay green"
+      ]
+    },
+    {
+      "id": "style-preset-retune",
+      "status": "pending",
+      "blockedBy": ["decode-double-srgb-fix"],
+      "passes": [
+        "all five style presets are reviewed against the corrected baseline across the manual 11-image checklist and any parameter changes are recorded"
       ]
     },
     {
