@@ -17,3 +17,4 @@ Fix the systemic reason the 2026-07 review found real bugs only in verification 
 
 - 2026-07-17: task pair created from the review plan. `test-authoring-rules` claimed.
 - 2026-07-17: `test-authoring-rules` done. Four rules added to AGENTS.md Testing (separation, passes lock, adversarial test, mock discipline); Subagents rule updated to allow delegating behavior/adversarial tests to a non-implementer subagent. No code touched; nothing to run.
+- 2026-07-17: `render-chain-golden-tests` claimed.
