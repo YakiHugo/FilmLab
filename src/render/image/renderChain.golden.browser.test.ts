@@ -238,12 +238,12 @@ describe("render chain golden coverage", () => {
     }
   });
 
-  // Reproduction test for the double sRGB decode in the develop chain
-  // (inputDecode decodes, then geometry.wgsl decodes again). A neutral 0.5
-  // gray card must round-trip through the identity chain near 128; the double
-  // decode drags it to ~56-66. Marked expected-to-fail until
-  // decode-double-srgb-fix lands; then remove `.fails`.
-  it.fails("midtone probe: neutral 0.5 gray survives the default chain", async (ctx) => {
+  // Guards the double sRGB decode regression: inputDecode already decodes to
+  // linear, and geometry.wgsl used to decode a second time, dragging the
+  // midtone down before the film-tone stage. Correct behavior: a neutral 0.5
+  // gray card lands near 153 after the (intentional, non-identity) neutral
+  // film tone; the double decode dragged it to ~56-66 instead.
+  it("midtone probe: neutral 0.5 gray survives the default chain", async (ctx) => {
     requireWebGPU(ctx);
     const size = 64;
     const { bitmap, objectUrl } = await makeGrayCard(size, 128);
@@ -261,8 +261,8 @@ describe("render chain golden coverage", () => {
         count += 3;
       }
       const mean = sum / count;
-      expect(mean).toBeGreaterThanOrEqual(120);
-      expect(mean).toBeLessThanOrEqual(135);
+      expect(mean).toBeGreaterThanOrEqual(145);
+      expect(mean).toBeLessThanOrEqual(162);
     } finally {
       URL.revokeObjectURL(objectUrl);
       bitmap.close();

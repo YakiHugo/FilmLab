@@ -1,5 +1,7 @@
 // Geometry pass: crop, translate, rotate, scale, flip, perspective homography,
 // lens K1/K2 + chromatic aberration + lens vignette boost. Output is linear.
+// Input is always the linear output of the inputDecode pass — never srgb-decode
+// here again (that double decode was the 2026-07 whole-image darkening bug).
 // Mirrors `shaders/Geometry.frag`. Concatenated with fullscreen + color space
 // libs by `passes/develop/geometry.ts`.
 //
@@ -56,7 +58,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let enabled = params.flags.x != 0u;
   if (!enabled) {
     let passthrough = textureSampleLevel(src, smp, in.uv, 0.0);
-    return vec4<f32>(srgb_to_linear(clamp(passthrough.rgb, vec3<f32>(0.0), vec3<f32>(1.0))), passthrough.a);
+    return vec4<f32>(clamp(passthrough.rgb, vec3<f32>(0.0), vec3<f32>(1.0)), passthrough.a);
   }
 
   let outSize = max(params.sourceSize_outputSize.zw, vec2<f32>(1.0));
@@ -146,5 +148,5 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     sampled = vec4<f32>(sampled.rgb * lift, sampled.a);
   }
 
-  return vec4<f32>(srgb_to_linear(clamp(sampled.rgb, vec3<f32>(0.0), vec3<f32>(1.0))), sampled.a);
+  return vec4<f32>(clamp(sampled.rgb, vec3<f32>(0.0), vec3<f32>(1.0)), sampled.a);
 }
