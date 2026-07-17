@@ -58,9 +58,9 @@ export function CanvasOutputPanel({ onExport }: CanvasOutputPanelProps) {
   const blockReason = workbench ? getCanvasOutputFormatBlockReason(workbench) : null;
   const blockMessage =
     blockReason === "grouped-cover"
-      ? "The cover image is grouped. Ungroup it before switching the output format."
+      ? "封面图已编组。先取消编组，再切换输出画幅。"
       : blockReason === "sliced-workbench"
-        ? "Legacy sliced workbenches cannot switch to a single-frame format directly."
+        ? "旧切片工作台不能直接切换单帧画幅。"
         : null;
 
   const overlayEnabled = {
