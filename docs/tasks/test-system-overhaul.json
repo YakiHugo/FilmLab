@@ -2,7 +2,7 @@
   "tasks": [
     {
       "id": "test-authoring-rules",
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": [],
       "passes": [
         "AGENTS.md states the test/implementer separation rule, the passes-lock rule, the adversarial-test rule, and the mock-discipline rule",
