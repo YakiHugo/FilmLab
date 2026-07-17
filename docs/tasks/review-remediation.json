@@ -39,7 +39,7 @@
     },
     {
       "id": "render-performance-lifecycle",
-      "status": "pending",
+      "status": "in_progress",
       "blockedBy": ["render-chain-golden-tests"],
       "passes": [
         "a 10-second slider drag on a 4K image performs no per-frame full-size texture reallocation and the preview terminal path avoids the final full-size readback",
