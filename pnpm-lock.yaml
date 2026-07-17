@@ -112,8 +112,8 @@ importers:
         specifier: ^18.3.0
         version: 18.3.7(@types/react@18.3.27)
       '@types/react-test-renderer':
-        specifier: ^19.1.0
-        version: 19.1.0
+        specifier: ^18.3.1
+        version: 18.3.1
       '@vitejs/plugin-react':
         specifier: ^6.0.1
         version: 6.0.1(vite@8.0.0(@types/node@25.0.10)(esbuild@0.27.3)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.8.3))
@@ -1654,8 +1654,8 @@ packages:
     peerDependencies:
       '@types/react': '*'
 
-  '@types/react-test-renderer@19.1.0':
-    resolution: {integrity: sha512-XD0WZrHqjNrxA/MaR9O22w/RNidWR9YZmBdRGI7wcnWGrv/3dA8wKCJ8m63Sn+tLJhcjmuhOi629N66W6kgWzQ==}
+  '@types/react-test-renderer@18.3.1':
+    resolution: {integrity: sha512-vAhnk0tG2eGa37lkU9+s5SoroCsRI08xnsWFiAXOuPH2jqzMbcXvKExXViPi1P5fIklDeCvXqyrdmipFaSkZrA==}
 
   '@types/react@18.3.27':
     resolution: {integrity: sha512-cisd7gxkzjBKU2GgdYrTdtQx1SORymWyaAFhaxQPK9bYO9ot3Y5OikQRvY0VYQtvwjeQnizCINJAenh/V7MK2w==}
@@ -4963,7 +4963,7 @@ snapshots:
     dependencies:
       '@types/react': 18.3.27
 
-  '@types/react-test-renderer@19.1.0':
+  '@types/react-test-renderer@18.3.1':
     dependencies:
       '@types/react': 18.3.27
 

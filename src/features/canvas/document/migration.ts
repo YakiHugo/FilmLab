@@ -25,7 +25,6 @@ export type NormalizableCanvasWorkbench = Partial<
 
 export interface NormalizedCanvasWorkbenchResult {
   document: CanvasWorkbench;
-  removedLegacyShapeIds: string[];
 }
 
 const CURRENT_CANVAS_WORKBENCH_VERSION = 5;
@@ -103,7 +102,6 @@ const normalizeCanvasWorkbenchInternal = (
 
   return {
     document: resolveCanvasWorkbench(snapshot),
-    removedLegacyShapeIds: [],
   };
 };
 

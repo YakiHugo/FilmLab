@@ -8,14 +8,11 @@
         "vite.config.ts",
         "eslint.config.js",
         "scripts/**/*.ts",
-        "api/**/*.ts",
-        "shared/**/*.test.ts",
-        "src/lib/gpu/**/*.ts"
+        "shared/**/*.test.ts"
       ],
       "project": [
         "src/**/*.{ts,tsx}",
         "shared/**/*.ts",
-        "api/**/*.ts",
         "scripts/**/*.ts"
       ]
     },

@@ -69,10 +69,8 @@ import { LinearGradientPipelineCache, createLinearGradientPass } from "@/lib/gpu
 import { RadialGradientPipelineCache, createRadialGradientPass } from "@/lib/gpu/passes/mask/radialGradient";
 import { BrushStampPipelineCache, createBrushStampPass } from "@/lib/gpu/passes/mask/brushStamp";
 import { RangeGatePipelineCache, createRangeGatePass } from "@/lib/gpu/passes/mask/rangeGate";
-import { MaskInvertPipelineCache } from "@/lib/gpu/passes/mask/maskInvert";
 // --- utility ---
 import { LayerBlendPipelineCache, createLayerBlendPass, createPlaceholderWhiteMask } from "@/lib/gpu/passes/utility/layerBlend";
-import { PassthroughPipelineCache } from "@/lib/gpu/passes/utility/passthrough";
 import type { GPURenderPassDescriptor } from "@/lib/gpu/passes/types";
 
 // ─── constants ───────────────────────────────────────────────────────────────
@@ -107,9 +105,7 @@ interface DeviceCaches {
   radialGradient: RadialGradientPipelineCache;
   brushStamp: BrushStampPipelineCache;
   rangeGate: RangeGatePipelineCache;
-  maskInvert: MaskInvertPipelineCache;
   layerBlend: LayerBlendPipelineCache;
-  passthrough: PassthroughPipelineCache;
   placeholder2D: GPUTexture;
   placeholder3D: GPUTexture;
   placeholderWhiteMask: GPUTexture;
@@ -144,9 +140,7 @@ function getOrCreateCaches(device: GPUDevice): DeviceCaches {
     radialGradient: new RadialGradientPipelineCache(device, shaders),
     brushStamp: new BrushStampPipelineCache(device, shaders),
     rangeGate: new RangeGatePipelineCache(device, shaders),
-    maskInvert: new MaskInvertPipelineCache(device, shaders),
     layerBlend: new LayerBlendPipelineCache(device, shaders),
-    passthrough: new PassthroughPipelineCache(device, shaders),
     placeholder2D: createPlaceholder2D(device, "orchestrator.placeholder2D"),
     placeholder3D: createPlaceholderLut3D(device),
     placeholderWhiteMask: createPlaceholderWhiteMask(device),

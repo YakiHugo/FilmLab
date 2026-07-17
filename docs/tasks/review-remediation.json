@@ -2,7 +2,7 @@
   "tasks": [
     {
       "id": "dead-code-and-hygiene",
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": [],
       "passes": [
         "pnpm verify passes",
@@ -85,6 +85,15 @@
         "numeric field reads normalize once per read and writes normalize once per write in imageRenderStateEditing",
         "new mutation entries cannot bypass the interaction block because the check lives in the shared enqueue path",
         "pnpm verify and pnpm dead-code pass"
+      ]
+    },
+    {
+      "id": "knip-backlog-cleanup",
+      "status": "pending",
+      "blockedBy": ["dead-code-and-hygiene"],
+      "passes": [
+        "every pnpm dead-code entry outside the recorded keep list (shadcn spare components under src/components/ui) is removed or recorded with a keep rationale in the task note",
+        "unused dependency reports are triaged: genuinely unused packages are removed from package.json, monorepo misattributions are recorded with evidence"
       ]
     }
   ]
