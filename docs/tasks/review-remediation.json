@@ -31,7 +31,7 @@
     },
     {
       "id": "local-adjustment-geometry-fix",
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": ["decode-double-srgb-fix"],
       "passes": [
         "a cropped, rotated, and flipped image with a brush-region adjustment renders the adjustment aligned with its mask in the golden suite"

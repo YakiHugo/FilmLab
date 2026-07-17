@@ -855,6 +855,7 @@ async function composeLocalAdjustments(
   state: ImageProcessState,
   outputW: number,
   outputH: number,
+  geoUniforms: ReturnType<typeof createGeometryUniforms>,
 ): Promise<PooledTexture> {
   const regions = state.develop.regions.filter((r) => r.enabled && r.amount > 0);
   if (regions.length === 0) return baseTex;
@@ -866,9 +867,10 @@ async function composeLocalAdjustments(
     const maskTex = buildMask(device, executor, caches, region, state, currentTex, outputW, outputH);
     if (!maskTex) continue;
 
-    // Run develop with delta-applied state
+    // Run develop with delta-applied state, with the same geometry as the base
+    // chain so the local result lands in the same cropped/rotated output space.
     const deltaState = applyDevelopDelta(state, region.adjustments);
-    const localBuild = buildDevelopPasses(device, caches, deltaState, outputW, outputH, INTERNAL_FORMAT, false);
+    const localBuild = buildDevelopPasses(device, caches, deltaState, outputW, outputH, INTERNAL_FORMAT, false, geoUniforms);
     const localResult = executor.execute({
       passes: localBuild.passes,
       input: srcInput,
@@ -1017,7 +1019,7 @@ export async function renderDevelopBase(options: BackendRenderOptions): Promise<
     let baseTex = devResult.output;
 
     // composeLocal — srcInput must remain valid until all local adjustments are done
-    baseTex = await composeLocalAdjustments(device, executor, caches, srcInput, baseTex, options.state, outputW, outputH);
+    baseTex = await composeLocalAdjustments(device, executor, caches, srcInput, baseTex, options.state, outputW, outputH, geoUniforms);
 
     // produceSurface — encode to rgba8unorm
     const encodeHandle = createOutputEncodePass(device, caches.outputEncode, {
@@ -1164,7 +1166,7 @@ export async function renderFull(options: BackendRenderOptions): Promise<Backend
     let developTex = devResult.output;
 
     // composeLocal
-    developTex = await composeLocalAdjustments(device, executor, caches, srcInput, developTex, options.state, outputW, outputH);
+    developTex = await composeLocalAdjustments(device, executor, caches, srcInput, developTex, options.state, outputW, outputH, geoUniforms);
 
     // runPipeline — film (no inputDecode since source is already linear rgba16float)
     const grainSeed = parseInt(fnv1a32(options.seedKey ?? `${Date.now()}`), 16);
