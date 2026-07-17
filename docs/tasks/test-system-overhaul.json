@@ -29,7 +29,7 @@
     },
     {
       "id": "render-chain-golden-tests",
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": [],
       "passes": [
         "a browser golden suite renders the full renderFull chain without mocking the orchestrator and compares pixels against checked-in goldens",

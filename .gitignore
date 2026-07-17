@@ -35,6 +35,7 @@ lerna-debug.log*
 coverage
 *.lcov
 .nyc_output
+__screenshots__/
 
 # Build outputs
 build
@@ -83,3 +84,4 @@ test-assets/.env
 # Crash dumps
 core
 core.*
+.vitest-attachments/
