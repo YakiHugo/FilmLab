@@ -14,7 +14,7 @@
     },
     {
       "id": "decode-double-srgb-fix",
-      "status": "pending",
+      "status": "in_progress",
       "blockedBy": ["render-chain-golden-tests"],
       "passes": [
         "the midtone probe passes: a 0.5 gray card rendered through the default chain lands within the sRGB round-trip tolerance band",
