@@ -36,7 +36,7 @@ import {
   createMaskInvertPass,
 } from "./maskInvert";
 
-const GPU_BRUSH_MASK_MAX_POINTS = 512;
+export const GPU_BRUSH_MASK_MAX_POINTS = 512;
 const OUTPUT_FORMAT: GPUTextureFormat = "rgba8unorm";
 
 const getCache = createPerDeviceCache((device) => {

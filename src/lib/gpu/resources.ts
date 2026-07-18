@@ -268,10 +268,36 @@ export function uploadExternalImageToTexture(
   source: ExternalImageSource,
   options: UploadImageOptions = {}
 ): { texture: GPUTexture; width: number; height: number; format: GPUTextureFormat } {
-  const width = sourceWidth(source);
-  const height = sourceHeight(source);
+  let width = sourceWidth(source);
+  let height = sourceHeight(source);
   if (width <= 0 || height <= 0) {
     throw new Error(`uploadExternalImageToTexture: invalid source size ${width}x${height}.`);
+  }
+  let uploadSource = source;
+  const maxDimension = device.limits.maxTextureDimension2D;
+  if (width > maxDimension || height > maxDimension) {
+    // Sources beyond the hardware limit would fail texture creation with a
+    // validation error; downscale once on the CPU instead. Callers only see
+    // the returned (downscaled) dimensions, so downstream geometry stays
+    // correct without per-call-site handling.
+    const scale = maxDimension / Math.max(width, height);
+    const targetWidth = Math.max(1, Math.floor(width * scale));
+    const targetHeight = Math.max(1, Math.floor(height * scale));
+    const canvas = new OffscreenCanvas(targetWidth, targetHeight);
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("uploadExternalImageToTexture: 2d context unavailable for downscale.");
+    }
+    if (source instanceof ImageData) {
+      const staging = new OffscreenCanvas(source.width, source.height);
+      staging.getContext("2d")?.putImageData(source, 0, 0);
+      context.drawImage(staging, 0, 0, targetWidth, targetHeight);
+    } else {
+      context.drawImage(source, 0, 0, targetWidth, targetHeight);
+    }
+    uploadSource = canvas;
+    width = targetWidth;
+    height = targetHeight;
   }
   const format = options.format ?? "rgba8unorm";
   const usage =
@@ -287,7 +313,7 @@ export function uploadExternalImageToTexture(
     usage,
   });
   device.queue.copyExternalImageToTexture(
-    { source, flipY: options.flipY ?? false },
+    { source: uploadSource, flipY: options.flipY ?? false },
     { texture, premultipliedAlpha: options.premultipliedAlpha ?? false },
     { width, height }
   );

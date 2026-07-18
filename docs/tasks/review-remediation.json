@@ -39,12 +39,22 @@
     },
     {
       "id": "render-performance-lifecycle",
-      "status": "in_progress",
+      "status": "done",
       "blockedBy": ["render-chain-golden-tests"],
+      "passes": [
+        "textures exceeding maxTextureDimension2D are downsampled instead of failing, and a missing LUT degrades to a placeholder instead of failing the render",
+        "brush masks above the shared point ceiling are skipped instead of degenerating into per-point fullscreen passes",
+        "golden comparisons do not regress"
+      ]
+    },
+    {
+      "id": "render-performance-pooling",
+      "status": "pending",
+      "blockedBy": ["render-performance-lifecycle"],
       "passes": [
         "a 10-second slider drag on a 4K image performs no per-frame full-size texture reallocation and the preview terminal path avoids the final full-size readback",
         "golden comparisons do not regress",
-        "textures exceeding maxTextureDimension2D are downsampled instead of failing, and a missing LUT degrades to a placeholder instead of failing the render"
+        "texture leases cannot leak across a failed render now that the pool outlives individual renders"
       ]
     },
     {

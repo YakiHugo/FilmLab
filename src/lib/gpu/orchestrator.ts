@@ -68,6 +68,7 @@ import { GaussianBlurPipelineCache, createGaussianBlurPass } from "@/lib/gpu/pas
 import { LinearGradientPipelineCache, createLinearGradientPass } from "@/lib/gpu/passes/mask/linearGradient";
 import { RadialGradientPipelineCache, createRadialGradientPass } from "@/lib/gpu/passes/mask/radialGradient";
 import { BrushStampPipelineCache, createBrushStampPass } from "@/lib/gpu/passes/mask/brushStamp";
+import { GPU_BRUSH_MASK_MAX_POINTS } from "@/lib/gpu/passes/mask/localShape";
 import { RangeGatePipelineCache, createRangeGatePass } from "@/lib/gpu/passes/mask/rangeGate";
 // --- utility ---
 import { LayerBlendPipelineCache, createLayerBlendPass, createPlaceholderWhiteMask } from "@/lib/gpu/passes/utility/layerBlend";
@@ -409,20 +410,33 @@ async function buildFilmPasses(
   });
   const filmU = resolveFilmUniformsV3(resolvedProfile.v3, { grainSeed });
 
+  // A missing LUT disables that LUT slot instead of rejecting the render.
+  // Do NOT fall back to caches.placeholder3D with the slot left enabled: the
+  // placeholder is a black texel for disabled slots, so sampling it with
+  // intensity 1 outputs a black frame. lutLoader evicts failed cache entries,
+  // so the next render retries.
+  const withLutFallback = (loader: Promise<GPUTexture>, label: string) =>
+    loader
+      .then((texture) => ({ texture, failed: false }))
+      .catch((cause: unknown) => {
+        console.warn(`LUT load failed; disabling LUT slot: ${label}`, cause);
+        return { texture: caches.placeholder3D, failed: true };
+      });
+
   // Load LUT textures (cached by device)
   const [lut, lutBlend, customLut, printLut] = await Promise.all([
     resolvedProfile.lut
-      ? loadLut3DTexture(device, resolvedProfile.lut.path, resolvedProfile.lut.size)
-      : Promise.resolve(caches.placeholder3D),
+      ? withLutFallback(loadLut3DTexture(device, resolvedProfile.lut.path, resolvedProfile.lut.size), resolvedProfile.lut.path)
+      : Promise.resolve({ texture: caches.placeholder3D, failed: false }),
     resolvedProfile.lutBlend
-      ? loadLut3DTexture(device, resolvedProfile.lutBlend.path, resolvedProfile.lutBlend.size)
-      : Promise.resolve(caches.placeholder3D),
+      ? withLutFallback(loadLut3DTexture(device, resolvedProfile.lutBlend.path, resolvedProfile.lutBlend.size), resolvedProfile.lutBlend.path)
+      : Promise.resolve({ texture: caches.placeholder3D, failed: false }),
     resolvedProfile.customLut
-      ? loadLut3DTexture(device, resolvedProfile.customLut.path, resolvedProfile.customLut.size)
-      : Promise.resolve(caches.placeholder3D),
+      ? withLutFallback(loadLut3DTexture(device, resolvedProfile.customLut.path, resolvedProfile.customLut.size), resolvedProfile.customLut.path)
+      : Promise.resolve({ texture: caches.placeholder3D, failed: false }),
     resolvedProfile.printLut
-      ? loadLut3DTexture(device, resolvedProfile.printLut.path)
-      : Promise.resolve(caches.placeholder3D),
+      ? withLutFallback(loadLut3DTexture(device, resolvedProfile.printLut.path), resolvedProfile.printLut.path)
+      : Promise.resolve({ texture: caches.placeholder3D, failed: false }),
   ]);
 
   const inputDecode = createInputDecodePass(caches.inputDecode, { outputFormat: INTERNAL_FORMAT });
@@ -453,16 +467,16 @@ async function buildFilmPasses(
     params: {
       colorMatrixEnabled: filmU.u_colorMatrixEnabled,
       colorMatrix: filmU.u_colorMatrix,
-      lutEnabled: filmU.u_lutEnabled,
+      lutEnabled: filmU.u_lutEnabled && !lut.failed,
       lutIntensity: filmU.u_lutIntensity,
-      lutMixEnabled: filmU.u_lutMixEnabled,
+      lutMixEnabled: filmU.u_lutMixEnabled && !lutBlend.failed,
       lutMixFactor: filmU.u_lutMixFactor,
-      customLutEnabled: filmU.u_customLutEnabled,
+      customLutEnabled: filmU.u_customLutEnabled && !customLut.failed,
       customLutIntensity: filmU.u_customLutIntensity,
     },
-    lut,
-    lutBlend,
-    customLut,
+    lut: lut.texture,
+    lutBlend: lutBlend.texture,
+    customLut: customLut.texture,
   });
 
   const printHandle = createPrintPass(device, caches.print, {
@@ -473,7 +487,7 @@ async function buildFilmPasses(
       printContrast: filmU.u_printContrast,
       printWarmth: filmU.u_printWarmth,
       printStock: filmU.u_printStock,
-      printLutEnabled: filmU.u_printLutEnabled,
+      printLutEnabled: filmU.u_printLutEnabled && !printLut.failed,
       printLutIntensity: filmU.u_printLutIntensity,
       printTargetWhiteKelvin: filmU.u_printTargetWhiteKelvin,
       cmyEnabled: filmU.u_cmyColorHeadEnabled,
@@ -490,7 +504,7 @@ async function buildFilmPasses(
       toningHighlights: filmU.u_toningHighlights as [number, number, number],
       toningStrength: filmU.u_toningStrength,
     },
-    printLut,
+    printLut: printLut.texture,
   });
 
   const grainHandle = createGrainPass(device, caches.grain, {
@@ -775,6 +789,10 @@ function buildMask(
     maskPasses = [handle.descriptor];
     destroyFns.push(() => handle.destroy());
   } else if (mask.mode === "brush") {
+    // Same ceiling as localShape.ts: above it the per-point stamp passes
+    // degenerate into hundreds of full-screen draws; the region is skipped
+    // rather than re-shaped by silent truncation.
+    if (mask.points.length > GPU_BRUSH_MASK_MAX_POINTS) return null;
     const radiusPx = mask.brushSize * Math.min(outputW, outputH) * 0.5;
     const innerRadiusPx = radiusPx * Math.max(0, 1 - mask.feather);
     for (const pt of mask.points) {
