@@ -59,7 +59,7 @@
 - Finish implementation before adding tests unless a characterization test is needed to lock existing behavior before a risky refactor.
 - Choose the narrowest test level that matches the behavior: unit tests for pure functions, integration or route/component tests for side-effectful behavior, and smoke/E2E checks for user flows.
 - Do not add or expand tests that mainly mirror implementation details instead of protecting behavior.
-- Behavior tests for the render chain (`src/lib/gpu`, `src/render`), server persistence (`server/src`), and the canvas document layer (`src/features/canvas/document`, `src/features/canvas/store`) are authored by a non-implementer agent working from the behavior spec in the task note — never by the implementer reading its own code.
+- Behavior tests for the render chain (`src/lib/gpu`, `src/render`), server persistence (`server/src/chat`, `server/src/assets`), and the canvas document layer (`src/features/canvas/document`, `src/features/canvas/store`) are authored by a non-implementer agent working from the behavior spec in the task note — never by the implementer reading its own code.
 - Task JSON `passes` are written by the task creator and frozen for the implementer; changing one requires a rationale recorded in the task md and is a review focus.
 - For key fixes (render chain, persistence, workbench data), the reviewer adds at least one failing-scenario test the implementer missed; a key fix without an adversarial case is not review-complete.
 - Mock only at system boundaries (network, device, clock). A test that mocks the core of the system under test does not count as coverage for it.

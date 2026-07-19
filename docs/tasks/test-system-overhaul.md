@@ -2,7 +2,7 @@
 
 ## Scope
 
-Fix the systemic reason the 2026-07 review found real bugs only in verification blind spots: tests are written by the same agent that writes the implementation, and test quality has no objective measure. Five slices live in the sibling JSON: `test-authoring-rules`, `mutation-testing-core`, `property-based-core-invariants`, `render-chain-golden-tests`, `persistence-contract-hardening`.
+Fix the systemic reason the 2026-07 review found real bugs only in verification blind spots: tests are written by the same agent that writes the implementation, and test quality has no objective measure. Slices live in the sibling JSON.
 
 `review-remediation` slices reference task ids from this file in their `blockedBy`; the DAG is global across both task files.
 
