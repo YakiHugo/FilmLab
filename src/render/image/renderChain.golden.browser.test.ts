@@ -149,6 +149,7 @@ const expectGoldenMatch = async (goldenName: string, canvas: HTMLCanvasElement) 
   if (result.generated) {
     throw new Error(`golden ${goldenName} was missing and has been generated; re-run to compare`);
   }
+  expect(result.maxDelta).toBeLessThanOrEqual(16);
   expect(result.outlierRatio).toBeLessThanOrEqual(GOLDEN_MAX_OUTLIER_RATIO);
 };
 
@@ -178,6 +179,12 @@ const makeGrayCard = async (size: number, value: number) => {
 };
 
 describe("render chain golden coverage", () => {
+  // The whole suite silently skips without an adapter, so pin availability
+  // itself: a missing adapter on CI must fail the job, not turn it green.
+  it("webgpu adapter is available", () => {
+    expect(webgpuAvailable).toBe(true);
+  });
+
   it("default chain matches golden for a portrait photo", async (ctx) => {
     requireWebGPU(ctx);
     const { bitmap, objectUrl } = await loadImageFromTestAssets(

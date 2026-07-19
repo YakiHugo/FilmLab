@@ -29,7 +29,11 @@ export default mergeConfig(
           extends: true,
           test: {
             name: "browser",
-            include: ["src/**/*.browser.{test,spec}.{ts,tsx}"],
+            include: [
+              "src/**/*.browser.{test,spec}.{ts,tsx}",
+              "server/src/**/*.browser.{test,spec}.{ts,tsx}",
+              "shared/**/*.browser.{test,spec}.{ts,tsx}",
+            ],
             browser: {
               enabled: true,
               provider: playwright({

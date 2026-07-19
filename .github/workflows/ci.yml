@@ -52,6 +52,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps --only-shell chromium
       - run: pnpm test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-screenshots
+          path: "**/__screenshots__/"
+          retention-days: 7
 
   typecheck:
     runs-on: ubuntu-latest
