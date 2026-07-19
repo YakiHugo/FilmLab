@@ -1,8 +1,7 @@
 /**
  * InputDecode pass — clamps source to [0,1] and converts sRGB→linear.
  *
- * No tunable parameters; the bind group is identical to passthrough plus the
- * shared color-space helpers.
+ * No tunable parameters; binds the source texture plus the shared sampler.
  */
 
 import type { ShaderCache } from "../../shaders";

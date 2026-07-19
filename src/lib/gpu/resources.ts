@@ -288,13 +288,7 @@ export function uploadExternalImageToTexture(
     if (!context) {
       throw new Error("uploadExternalImageToTexture: 2d context unavailable for downscale.");
     }
-    if (source instanceof ImageData) {
-      const staging = new OffscreenCanvas(source.width, source.height);
-      staging.getContext("2d")?.putImageData(source, 0, 0);
-      context.drawImage(staging, 0, 0, targetWidth, targetHeight);
-    } else {
-      context.drawImage(source, 0, 0, targetWidth, targetHeight);
-    }
+    context.drawImage(source, 0, 0, targetWidth, targetHeight);
     uploadSource = canvas;
     width = targetWidth;
     height = targetHeight;
