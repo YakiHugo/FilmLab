@@ -12,7 +12,7 @@ struct CurveParams {
 
 @group(0) @binding(0) var src: texture_2d<f32>;
 @group(0) @binding(1) var smp: sampler;
-// 256x1 RGBA8 LUT; R=composite, G=red, B=green, A=blue channel curves.
+// 256x1 RGBA16F LUT; R=composite, G=red, B=green, A=blue channel curves.
 @group(0) @binding(2) var curveLut: texture_2d<f32>;
 @group(0) @binding(3) var<uniform> params: CurveParams;
 

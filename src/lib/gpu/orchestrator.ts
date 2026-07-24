@@ -68,11 +68,10 @@ import { GaussianBlurPipelineCache, createGaussianBlurPass } from "@/lib/gpu/pas
 import { LinearGradientPipelineCache, createLinearGradientPass } from "@/lib/gpu/passes/mask/linearGradient";
 import { RadialGradientPipelineCache, createRadialGradientPass } from "@/lib/gpu/passes/mask/radialGradient";
 import { BrushStampPipelineCache, createBrushStampPass } from "@/lib/gpu/passes/mask/brushStamp";
+import { GPU_BRUSH_MASK_MAX_POINTS } from "@/lib/gpu/passes/mask/localShape";
 import { RangeGatePipelineCache, createRangeGatePass } from "@/lib/gpu/passes/mask/rangeGate";
-import { MaskInvertPipelineCache } from "@/lib/gpu/passes/mask/maskInvert";
 // --- utility ---
 import { LayerBlendPipelineCache, createLayerBlendPass, createPlaceholderWhiteMask } from "@/lib/gpu/passes/utility/layerBlend";
-import { PassthroughPipelineCache } from "@/lib/gpu/passes/utility/passthrough";
 import type { GPURenderPassDescriptor } from "@/lib/gpu/passes/types";
 
 // ─── constants ───────────────────────────────────────────────────────────────
@@ -107,9 +106,7 @@ interface DeviceCaches {
   radialGradient: RadialGradientPipelineCache;
   brushStamp: BrushStampPipelineCache;
   rangeGate: RangeGatePipelineCache;
-  maskInvert: MaskInvertPipelineCache;
   layerBlend: LayerBlendPipelineCache;
-  passthrough: PassthroughPipelineCache;
   placeholder2D: GPUTexture;
   placeholder3D: GPUTexture;
   placeholderWhiteMask: GPUTexture;
@@ -144,9 +141,7 @@ function getOrCreateCaches(device: GPUDevice): DeviceCaches {
     radialGradient: new RadialGradientPipelineCache(device, shaders),
     brushStamp: new BrushStampPipelineCache(device, shaders),
     rangeGate: new RangeGatePipelineCache(device, shaders),
-    maskInvert: new MaskInvertPipelineCache(device, shaders),
     layerBlend: new LayerBlendPipelineCache(device, shaders),
-    passthrough: new PassthroughPipelineCache(device, shaders),
     placeholder2D: createPlaceholder2D(device, "orchestrator.placeholder2D"),
     placeholder3D: createPlaceholderLut3D(device),
     placeholderWhiteMask: createPlaceholderWhiteMask(device),
@@ -415,20 +410,33 @@ async function buildFilmPasses(
   });
   const filmU = resolveFilmUniformsV3(resolvedProfile.v3, { grainSeed });
 
+  // A missing LUT disables that LUT slot instead of rejecting the render.
+  // Do NOT fall back to caches.placeholder3D with the slot left enabled: the
+  // placeholder is a black texel for disabled slots, so sampling it with
+  // intensity 1 outputs a black frame. lutLoader evicts failed cache entries,
+  // so the next render retries.
+  const withLutFallback = (loader: Promise<GPUTexture>, label: string) =>
+    loader
+      .then((texture) => ({ texture, failed: false }))
+      .catch((cause: unknown) => {
+        console.warn(`LUT load failed; disabling LUT slot: ${label}`, cause);
+        return { texture: caches.placeholder3D, failed: true };
+      });
+
   // Load LUT textures (cached by device)
   const [lut, lutBlend, customLut, printLut] = await Promise.all([
     resolvedProfile.lut
-      ? loadLut3DTexture(device, resolvedProfile.lut.path, resolvedProfile.lut.size)
-      : Promise.resolve(caches.placeholder3D),
+      ? withLutFallback(loadLut3DTexture(device, resolvedProfile.lut.path, resolvedProfile.lut.size), resolvedProfile.lut.path)
+      : Promise.resolve({ texture: caches.placeholder3D, failed: false }),
     resolvedProfile.lutBlend
-      ? loadLut3DTexture(device, resolvedProfile.lutBlend.path, resolvedProfile.lutBlend.size)
-      : Promise.resolve(caches.placeholder3D),
+      ? withLutFallback(loadLut3DTexture(device, resolvedProfile.lutBlend.path, resolvedProfile.lutBlend.size), resolvedProfile.lutBlend.path)
+      : Promise.resolve({ texture: caches.placeholder3D, failed: false }),
     resolvedProfile.customLut
-      ? loadLut3DTexture(device, resolvedProfile.customLut.path, resolvedProfile.customLut.size)
-      : Promise.resolve(caches.placeholder3D),
+      ? withLutFallback(loadLut3DTexture(device, resolvedProfile.customLut.path, resolvedProfile.customLut.size), resolvedProfile.customLut.path)
+      : Promise.resolve({ texture: caches.placeholder3D, failed: false }),
     resolvedProfile.printLut
-      ? loadLut3DTexture(device, resolvedProfile.printLut.path)
-      : Promise.resolve(caches.placeholder3D),
+      ? withLutFallback(loadLut3DTexture(device, resolvedProfile.printLut.path), resolvedProfile.printLut.path)
+      : Promise.resolve({ texture: caches.placeholder3D, failed: false }),
   ]);
 
   const inputDecode = createInputDecodePass(caches.inputDecode, { outputFormat: INTERNAL_FORMAT });
@@ -459,16 +467,16 @@ async function buildFilmPasses(
     params: {
       colorMatrixEnabled: filmU.u_colorMatrixEnabled,
       colorMatrix: filmU.u_colorMatrix,
-      lutEnabled: filmU.u_lutEnabled,
+      lutEnabled: filmU.u_lutEnabled && !lut.failed,
       lutIntensity: filmU.u_lutIntensity,
-      lutMixEnabled: filmU.u_lutMixEnabled,
+      lutMixEnabled: filmU.u_lutMixEnabled && !lutBlend.failed,
       lutMixFactor: filmU.u_lutMixFactor,
-      customLutEnabled: filmU.u_customLutEnabled,
+      customLutEnabled: filmU.u_customLutEnabled && !customLut.failed,
       customLutIntensity: filmU.u_customLutIntensity,
     },
-    lut,
-    lutBlend,
-    customLut,
+    lut: lut.texture,
+    lutBlend: lutBlend.texture,
+    customLut: customLut.texture,
   });
 
   const printHandle = createPrintPass(device, caches.print, {
@@ -479,7 +487,7 @@ async function buildFilmPasses(
       printContrast: filmU.u_printContrast,
       printWarmth: filmU.u_printWarmth,
       printStock: filmU.u_printStock,
-      printLutEnabled: filmU.u_printLutEnabled,
+      printLutEnabled: filmU.u_printLutEnabled && !printLut.failed,
       printLutIntensity: filmU.u_printLutIntensity,
       printTargetWhiteKelvin: filmU.u_printTargetWhiteKelvin,
       cmyEnabled: filmU.u_cmyColorHeadEnabled,
@@ -496,7 +504,7 @@ async function buildFilmPasses(
       toningHighlights: filmU.u_toningHighlights as [number, number, number],
       toningStrength: filmU.u_toningStrength,
     },
-    printLut,
+    printLut: printLut.texture,
   });
 
   const grainHandle = createGrainPass(device, caches.grain, {
@@ -781,6 +789,10 @@ function buildMask(
     maskPasses = [handle.descriptor];
     destroyFns.push(() => handle.destroy());
   } else if (mask.mode === "brush") {
+    // Same ceiling as localShape.ts: above it the per-point stamp passes
+    // degenerate into hundreds of full-screen draws; the region is skipped
+    // rather than re-shaped by silent truncation.
+    if (mask.points.length > GPU_BRUSH_MASK_MAX_POINTS) return null;
     const radiusPx = mask.brushSize * Math.min(outputW, outputH) * 0.5;
     const innerRadiusPx = radiusPx * Math.max(0, 1 - mask.feather);
     for (const pt of mask.points) {
@@ -861,6 +873,7 @@ async function composeLocalAdjustments(
   state: ImageProcessState,
   outputW: number,
   outputH: number,
+  geoUniforms: ReturnType<typeof createGeometryUniforms>,
 ): Promise<PooledTexture> {
   const regions = state.develop.regions.filter((r) => r.enabled && r.amount > 0);
   if (regions.length === 0) return baseTex;
@@ -872,9 +885,10 @@ async function composeLocalAdjustments(
     const maskTex = buildMask(device, executor, caches, region, state, currentTex, outputW, outputH);
     if (!maskTex) continue;
 
-    // Run develop with delta-applied state
+    // Run develop with delta-applied state, with the same geometry as the base
+    // chain so the local result lands in the same cropped/rotated output space.
     const deltaState = applyDevelopDelta(state, region.adjustments);
-    const localBuild = buildDevelopPasses(device, caches, deltaState, outputW, outputH, INTERNAL_FORMAT, false);
+    const localBuild = buildDevelopPasses(device, caches, deltaState, outputW, outputH, INTERNAL_FORMAT, false, geoUniforms);
     const localResult = executor.execute({
       passes: localBuild.passes,
       input: srcInput,
@@ -1023,7 +1037,7 @@ export async function renderDevelopBase(options: BackendRenderOptions): Promise<
     let baseTex = devResult.output;
 
     // composeLocal — srcInput must remain valid until all local adjustments are done
-    baseTex = await composeLocalAdjustments(device, executor, caches, srcInput, baseTex, options.state, outputW, outputH);
+    baseTex = await composeLocalAdjustments(device, executor, caches, srcInput, baseTex, options.state, outputW, outputH, geoUniforms);
 
     // produceSurface — encode to rgba8unorm
     const encodeHandle = createOutputEncodePass(device, caches.outputEncode, {
@@ -1170,7 +1184,7 @@ export async function renderFull(options: BackendRenderOptions): Promise<Backend
     let developTex = devResult.output;
 
     // composeLocal
-    developTex = await composeLocalAdjustments(device, executor, caches, srcInput, developTex, options.state, outputW, outputH);
+    developTex = await composeLocalAdjustments(device, executor, caches, srcInput, developTex, options.state, outputW, outputH, geoUniforms);
 
     // runPipeline — film (no inputDecode since source is already linear rgba16float)
     const grainSeed = parseInt(fnv1a32(options.seedKey ?? `${Date.now()}`), 16);

@@ -63,7 +63,7 @@ export const STUDIO_CANVAS_PRESETS: StudioCanvasPreset[] = [
     id: "social-landscape",
     label: "Landscape 16:9",
     shortLabel: "16:9",
-    description: "Wide-format recaps, headers, and editorial 工作台.",
+    description: "Wide-format recaps, headers, and editorial layouts.",
     width: 1600,
     height: 900,
   },

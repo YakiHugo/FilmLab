@@ -4,7 +4,6 @@ import type {
   CanvasHistoryState,
   CanvasStoreDataState,
   CreateWorkbenchOptions,
-  ExecuteCommandOptions,
 } from "./canvasStoreTypes";
 
 export type CanvasHistoryTransitionMode = "undo" | "redo";
@@ -203,10 +202,6 @@ export const commitDeletedWorkbenchToState = (
     workbenchInteraction: deletingLoadedWorkbench ? null : state.workbenchInteraction,
   };
 };
-
-export const resolvePatchWorkbenchTrackHistory = (
-  options?: ExecuteCommandOptions
-) => options?.trackHistory === true;
 
 export const commitPreviewCommandResultToState = (
   state: CanvasStoreDataState,

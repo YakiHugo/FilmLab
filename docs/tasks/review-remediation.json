@@ -1,0 +1,117 @@
+{
+  "tasks": [
+    {
+      "id": "dead-code-and-hygiene",
+      "status": "done",
+      "blockedBy": [],
+      "passes": [
+        "pnpm verify passes",
+        "pnpm dead-code reports no new unused files or exports, and the api/ plus broad src/lib/gpu entry exemptions are removed from knip.json",
+        "grep finds no import references to the deleted api/ directory",
+        "assetStore.ts has uniform LF line endings after a single mechanical change with no logic edits",
+        "@types/react-test-renderer major version matches react-test-renderer 18"
+      ]
+    },
+    {
+      "id": "decode-double-srgb-fix",
+      "status": "done",
+      "blockedBy": ["render-chain-golden-tests"],
+      "passes": [
+        "the midtone probe passes: a 0.5 gray card rendered through the default chain lands within the corrected-baseline tolerance band",
+        "existing gpu unit tests stay green"
+      ]
+    },
+    {
+      "id": "style-preset-retune",
+      "status": "pending",
+      "blockedBy": ["decode-double-srgb-fix"],
+      "passes": [
+        "all five style presets are reviewed against the corrected baseline across the manual 11-image checklist and any parameter changes are recorded"
+      ]
+    },
+    {
+      "id": "local-adjustment-geometry-fix",
+      "status": "done",
+      "blockedBy": ["decode-double-srgb-fix"],
+      "passes": [
+        "a cropped, rotated, and flipped image with a brush-region adjustment renders the adjustment aligned with its mask in the golden suite"
+      ]
+    },
+    {
+      "id": "render-performance-lifecycle",
+      "status": "done",
+      "blockedBy": ["render-chain-golden-tests"],
+      "passes": [
+        "textures exceeding maxTextureDimension2D are downsampled instead of failing, and a missing LUT degrades to a placeholder instead of failing the render",
+        "brush masks above the shared point ceiling are skipped instead of degenerating into per-point fullscreen passes",
+        "golden comparisons do not regress"
+      ]
+    },
+    {
+      "id": "render-performance-pooling",
+      "status": "pending",
+      "blockedBy": ["render-performance-lifecycle"],
+      "passes": [
+        "a 10-second slider drag on a 4K image performs no per-frame full-size texture reallocation and the preview terminal path avoids the final full-size readback",
+        "golden comparisons do not regress",
+        "texture leases cannot leak across a failed render now that the pool outlives individual renders"
+      ]
+    },
+    {
+      "id": "persistence-correctness",
+      "status": "pending",
+      "blockedBy": ["persistence-contract-hardening"],
+      "passes": [
+        "the three persistence-contract-hardening reproduction cases pass",
+        "memory and postgres implementations agree on idempotent replay semantics"
+      ]
+    },
+    {
+      "id": "signed-url-snapshot-fix",
+      "status": "pending",
+      "blockedBy": [],
+      "passes": [
+        "chat result snapshots store asset references instead of signed URLs",
+        "a conversation whose generation asset references predate the capability-token TTL still renders its images after reload in an integration test with a short TTL"
+      ]
+    },
+    {
+      "id": "workbench-data-correctness",
+      "status": "pending",
+      "blockedBy": ["test-authoring-rules"],
+      "passes": [
+        "an independently authored adversarial test shows a workbench deleted before a failed-persistence compensation stays deleted after user reset and re-init",
+        "an independently authored adversarial test shows cancelling a drag preview leaves the workbench list entry unchanged",
+        "importing multiple assets produces a single undo step and a single history entry"
+      ]
+    },
+    {
+      "id": "upscale-removal",
+      "status": "pending",
+      "blockedBy": [],
+      "passes": [
+        "pnpm verify and pnpm dead-code pass with no upscale code, schema, route stub, config knob, or UI branch remaining"
+      ]
+    },
+    {
+      "id": "hotspot-refactors",
+      "status": "pending",
+      "blockedBy": ["test-authoring-rules"],
+      "passes": [
+        "characterization tests written by a non-implementer agent pass before and after each refactor",
+        "numeric field reads normalize once per read and writes normalize once per write in imageRenderStateEditing",
+        "new mutation entries cannot bypass the interaction block because the check lives in the shared enqueue path",
+        "pnpm verify and pnpm dead-code pass"
+      ]
+    },
+    {
+      "id": "knip-backlog-cleanup",
+      "status": "pending",
+      "blockedBy": ["dead-code-and-hygiene"],
+      "passes": [
+        "every pnpm dead-code entry outside the recorded keep list (shadcn spare components under src/components/ui) is removed or recorded with a keep rationale in the task note",
+        "unused dependency reports are triaged: genuinely unused packages are removed from package.json, monorepo misattributions are recorded with evidence"
+      ]
+    }
+  ]
+}

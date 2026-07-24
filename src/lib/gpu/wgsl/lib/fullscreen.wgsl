@@ -2,7 +2,7 @@
 // fragment shader before compilation; struct + entry point land at module
 // scope so any fragment can reference `VSOut` and bind to `vs_main`.
 //
-// UV convention matches `passes/utility/passthrough.ts`:
+// UV convention for all fullscreen passes:
 //   uv.x = position.x * 0.5 + 0.5
 //   uv.y = (1.0 - position.y) * 0.5
 // Composing N fullscreen passes is identity in storage — no even-pass parity

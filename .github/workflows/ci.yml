@@ -37,6 +37,28 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
 
+  browser-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps --only-shell chromium
+      - run: pnpm test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-screenshots
+          path: "**/__screenshots__/"
+          retention-days: 7
+
   typecheck:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -53,7 +75,7 @@ jobs:
       - run: pnpm typecheck
 
   build:
-    needs: [lint, test, typecheck]
+    needs: [lint, test, typecheck, browser-test]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

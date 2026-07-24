@@ -35,6 +35,7 @@ lerna-debug.log*
 coverage
 *.lcov
 .nyc_output
+__screenshots__/
 
 # Build outputs
 build
@@ -75,9 +76,6 @@ vite.config.d.ts
 # test-assets/images/
 test-assets/.env
 
-# Local references
-refs/**
-
 # Misc
 *.pid
 *.seed
@@ -86,3 +84,4 @@ refs/**
 # Crash dumps
 core
 core.*
+.vitest-attachments/

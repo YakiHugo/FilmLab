@@ -1,0 +1,51 @@
+{
+  "tasks": [
+    {
+      "id": "test-authoring-rules",
+      "status": "done",
+      "blockedBy": [],
+      "passes": [
+        "AGENTS.md states the test/implementer separation rule, the passes-lock rule, the adversarial-test rule, and the mock-discipline rule",
+        "an independent reader can determine from the rule text which modules require independently authored behavior tests"
+      ]
+    },
+    {
+      "id": "mutation-testing-core",
+      "status": "pending",
+      "blockedBy": ["test-authoring-rules"],
+      "passes": [
+        "pnpm test:mutants completes against the canvas document layer, canvas geometry, shared schemas, and gpu uniform resolvers, and reports a mutation score",
+        "every surviving mutant in scope is either killed by a new test or recorded with a rationale in the task note"
+      ]
+    },
+    {
+      "id": "property-based-core-invariants",
+      "status": "pending",
+      "blockedBy": [],
+      "passes": [
+        "property suites for undo/redo round-trip, patch reversibility, normalize idempotence, and resize-geometry invariants pass under pnpm test",
+        "each property test names the invariant it protects"
+      ]
+    },
+    {
+      "id": "render-chain-golden-tests",
+      "status": "done",
+      "blockedBy": [],
+      "passes": [
+        "a browser golden suite renders the full renderFull chain without mocking the orchestrator and compares pixels against checked-in goldens",
+        "a midtone-luminance probe records the current double-decode output and is marked as the reproduction test for the decode fix",
+        "CI runs the browser suite on ubuntu with SwiftShader"
+      ]
+    },
+    {
+      "id": "persistence-contract-hardening",
+      "status": "pending",
+      "blockedBy": [],
+      "passes": [
+        "contract cases for concurrent active-conversation creation, idempotent createGeneration replay, and accept-edge preservation fail before the persistence fix and pass after it",
+        "an assets repository contract suite runs against both memory and pg-mem implementations",
+        "the pg-mem harness enforces the single-active-conversation invariant"
+      ]
+    }
+  ]
+}
